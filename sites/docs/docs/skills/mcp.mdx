@@ -72,20 +72,21 @@ The run engine returns results and opens no gates; the skill asks any question a
 
 | Tool | What it does |
 | --- | --- |
-| `mr_reply_thread` | Reply to an existing MR discussion thread; returns the reply's note id and the thread's resolved state (GitLab only). |
-| `mr_comment_inline` | Post a new positioned inline comment on an MR diff line (GitLab only). |
-| `mr_comment` | Post a new top-level note: resolvable by default, or a plain note with `resolvable: false` (GitLab only). |
-| `mr_resolve_thread` | Resolve a discussion thread, or reopen it with `resolved: false` (GitLab only). |
-| `mr_approve` | Approve an MR, or withdraw the approval with `approved: false` (GitLab only). |
-| `mr_ready` | Mark a draft MR ready, or back to draft with `ready: false` (GitLab only). |
-| `mr_retry` | Retry one CI job or a whole pipeline (GitLab only). |
-| `mr_rebase` | Request a server-side rebase of the MR's source branch. With `wait: true` it polls the MR until the rebase lands, fails or the wait runs out, and says which (GitLab only). |
-| `mr_create` | Create an MR from a pushed branch, as a draft by default, with optional `labels` and `squash`. With `ifExists: "return"` it returns the branch's open MR instead of creating a second one (GitLab only). |
-| `mr_update` | Edit an open MR's `title`, `description`, `addLabels`, `removeLabels` or `squash`; at least one (GitLab only). |
-| `mr_upload` | Upload one local image or video, or up to 20 in order, to the project and get back the markdown that embeds each (GitLab only). |
-| `respond_post_execute` | Carry out a review response in one call: push the fixes when a fix was picked, post the replies and resolve the threads, exactly as the recorded decisions say. A reply already on the MR is not posted twice (GitLab only). |
+| `mr_reply_thread` | Reply to an existing MR discussion thread; returns the reply's note id and the thread's resolved state. |
+| `mr_comment_inline` | Post a new positioned inline comment on an MR diff line. If the call times out, the comment may still have landed, so read the thread before posting again. |
+| `mr_comment` | Post a new top-level note: resolvable by default, or a plain note with `resolvable: false`. |
+| `mr_review_submit` | Post one whole review: inline comments, replies and resolves, and a summary. `outcome` is `comment`, `approve` or `request_changes`, which never approves. With `expectedHeadSha`, a head that has moved posts nothing and answers `published: false` with reason `head-moved`. |
+| `mr_resolve_thread` | Resolve a discussion thread, or reopen it with `resolved: false`. |
+| `mr_approve` | Approve an MR, or withdraw the approval with `approved: false`. |
+| `mr_ready` | Mark a draft MR ready, or back to draft with `ready: false`. |
+| `mr_retry` | Retry one CI job or a whole pipeline. |
+| `mr_rebase` | Request a server-side rebase of the MR's source branch. With `wait: true` it polls the MR until the rebase lands, fails or the wait runs out, and says which. |
+| `mr_create` | Create an MR from a pushed branch, as a draft by default, with optional `labels` and `squash`. With `ifExists: "return"` it returns the branch's open MR instead of creating a second one. |
+| `mr_update` | Edit an open MR's `title`, `description`, `addLabels`, `removeLabels` or `squash`; at least one. |
+| `mr_upload` | Upload one local image or video, or up to 20 in order, to the project and get back the markdown that embeds each. GitLab only: on GitHub it refuses and names `evidence_attach`. |
+| `respond_post_execute` | Carry out a review response in one call: push the fixes when a fix was picked, post the replies and resolve the threads, exactly as the recorded decisions say. A reply already on the MR is not posted twice. On GitHub it holds a fix push when the PR's branch lives in another repository, and holds a reply or resolve GitHub cannot thread (a PR conversation comment or a review summary), with the reason. |
 | `mr_merge` | Merge an MR or PR now, optionally squashing and deleting the source branch, or enable auto-merge with `whenPipelineSucceeds: true` (GitLab); on a GitHub repo with a merge queue it queues the PR, and `wait: true` holds until it lands or is dropped. Reports what it observed after the request. |
-| `mr_map` | List a repo's open MRs, read live from GitLab, joined to the local worktrees holding their branches (GitLab only). |
+| `mr_map` | List a repo's open MRs, read live from the forge, joined to the local worktrees holding their branches. On GitHub each row's `ref` is `#<iid>`. |
 
 `mr_merge` goes through the forge like a merge from its web page: GitLab still enforces the project's approval and pipeline rules, and on GitHub a repo with a merge queue lands the PR through it. The skill that calls it holds its own ship gate, which is where you say go.
 
@@ -93,21 +94,21 @@ The run engine returns results and opens no gates; the skill asks any question a
 
 | Tool | What it does |
 | --- | --- |
-| `mr_view` | One MR by iid, read from GitLab: any author, opened, merged or closed (GitLab only). |
-| `mr_list` | A summary of each matching MR of a project, read from GitLab, filtered by author, source branch, target branch, state or text search; at most `limit` rows, with `truncated` when there were more (GitLab only). |
-| `mr_for_branch` | The open MR, or null, for each named source branch, by any author (GitLab only). |
-| `mr_threads` | The MR's discussion threads, fetched from GitLab on every call (GitLab only). |
-| `mr_pipeline` | The MR's head pipeline, and with `jobId` that job's detail (GitLab only). |
-| `pipeline_jobs` | The jobs of one pipeline and its same-project child pipelines, the latest run of each, with the bridges to downstream pipelines (GitLab only). |
-| `mr_posted_since` | Whether you (or a named account) already posted on the MR since a time, by thread or by item. It reads the threads once and posts nothing (GitLab only). |
-| `mr_resolve_branch` | An MR's branch and the registered worktrees already on it, for a checkout. It provisions nothing (GitLab only). |
-| `mr_job_trace` | Part of one CI job's trace: the tail, the head, a line range, or lines matching text; ANSI escapes stripped, capped at 64 KiB (GitLab only). |
-| `pipeline_list` | Pipelines for a branch, a commit or an MR, newest first; works with no MR (GitLab only). |
-| `project_labels` | The project's labels, optionally searched by name (GitLab only). |
-| `gitlab_get` | One read-only GET against GitLab's REST API for a fact no other tool returns. It refuses paths that return credentials, and query keys that carry credentials and impersonation. It caps the body at 256 KiB, does not follow redirects, and redacts token values (GitLab only). |
+| `mr_view` | One MR by iid, read from the forge: any author, opened, merged or closed. |
+| `mr_list` | A summary of each matching MR of a project, read from the forge, filtered by author, source branch, target branch, state or text search; at most `limit` rows, with `truncated` when there were more. |
+| `mr_for_branch` | The open MR, or null, for each named source branch, by any author. |
+| `mr_threads` | The MR's discussion threads, fetched from the forge on every call. |
+| `mr_pipeline` | The MR's head pipeline, and with `jobId` that job's detail. |
+| `pipeline_jobs` | The jobs of one pipeline and its same-project child pipelines, the latest run of each, with the bridges to downstream pipelines. On GitHub it lists the PR head's checks and no bridges. |
+| `mr_posted_since` | Whether you (or a named account) already posted on the MR since a time, by thread or by item. It reads the threads once and posts nothing. |
+| `mr_resolve_branch` | An MR's branch and the registered worktrees already on it, for a checkout. It provisions nothing. |
+| `mr_job_trace` | Part of one CI job's trace: the tail, the head, a line range, or lines matching text; ANSI escapes stripped, capped at 64 KiB. On GitHub only GitHub Actions jobs have a trace. |
+| `pipeline_list` | Pipelines for a branch, a commit or an MR, newest first; works with no MR. |
+| `project_labels` | The project's labels, optionally searched by name. |
+| `gitlab_get` | One read-only GET against the repo's forge REST API (GitLab or GitHub) for a fact no other tool returns. It refuses paths that return credentials, and query keys that carry credentials and impersonation. It caps the body at 256 KiB, does not follow redirects, and redacts token values. |
 | `branch_stack` | Whether a tree's branch is in a tracked stack, and its parent. Takes `tree`, a registered checkout or worktree or a directory inside one; reads no forge. |
 
-`pipeline_list`, `project_labels` and `gitlab_get` name their target with `repoName`, like the `mr_*` tools. Every MR and pipeline read here asks GitLab on each call and none uses the daemon's open-MR cache, so an agent can read any MR its token can see. `mr_map` reads its MRs live too, and takes only each MR's CI status from the daemon's synced MR list. A refusal comes back as GitLab's own status and text. `mr_list` with `targetBranch` also returns `full`, true when nothing was cut, so an empty full list proves the branch has no open MRs targeting it.
+`pipeline_list`, `project_labels` and `gitlab_get` name their target with `repoName`, like the `mr_*` tools. Every MR and pipeline read here asks the forge on each call and none uses the daemon's open-MR cache, so an agent can read any MR its token can see. `mr_map` reads its MRs live too, and takes only each MR's CI status from the daemon's synced MR list. A refusal comes back as the forge's own status and text. `mr_list` with `targetBranch` also returns `full`, true when nothing was cut, so an empty full list proves the branch has no open MRs targeting it.
 
 Every `mr_*` tool names its target with `repoName`. That value is the repo's serialized identity such as `remote:gitlab.com%2Fexample%2Fapp`, an absolute path to a checkout or worktree, or a repo label that matches exactly one registered repo. The tools that act on one MR also take `mrUrl` (the MR's URL; its project must be registered with rt, and the URL supplies the iid). A URL is matched to a registered repo by identity first, then by the registered checkouts' origin remotes. That way, a repo pinned to another identity through `rt.repoIdentityOverrides` still resolves. A URL matching two checkouts is refused as ambiguous. Given both, they must agree. `mr_map` still accepts `repo` as an older name for `repoName`.
 
@@ -124,6 +125,8 @@ It reads only png, jpg, jpeg, gif, webp, mp4, mov or webm files up to 50 MB whos
 ```bash
 rt settings set rt.mcp.uploadRoots '["/Users/you/Screenshots"]' --scope machine
 ```
+
+rt warns when an entry is `/`, your home folder or a folder above it, since that lets the tool send any file under it.
 
 `mr_upload` also takes a pipeline run's `runId`. With it, the tool refuses a file that the run's evidence record does not list as an annotated image or a waived capture, and the refusal names the file. A file under a run's evidence folder is checked against that run's record even without `runId`. It also refuses:
 
@@ -165,8 +168,8 @@ What they refuse:
 
 | Tool | What it does |
 | --- | --- |
-| `ci_watch` | Watch the MR's pipeline for the pushed commit until it settles or the wait runs out, and return the state, the failed jobs with a trace tail, and the watch budget. With `attend: true` it holds this session's CI lease across calls and keeps the budget window per MR (GitLab only). |
-| `ci_triage` | Sort a pipeline's failed jobs into real, infrastructure or unclear by their logs, and mark each blocking job as yours or inherited from the target branch. It reports; retrying is the caller's call (GitLab only). |
+| `ci_watch` | Watch the MR's pipeline for the pushed commit until it settles or the wait runs out, and return the state, the failed jobs with a trace tail, and the watch budget. With `attend: true` it holds this session's CI lease across calls and keeps the budget window per MR. |
+| `ci_triage` | Sort a pipeline's failed jobs into real, infrastructure or unclear by their logs, and mark each blocking job as yours or inherited from the target branch. It reports; retrying is the caller's call. |
 | `ci_lease_claim` | Claim the MR's CI attendant lease for this session, so only one session attends an MR's CI at a time. |
 | `ci_lease_heartbeat` | Refresh this session's lease between watches. |
 | `ci_lease_release` | Release this session's lease. |
@@ -312,7 +315,7 @@ A few things skills still run in a shell, on purpose:
 - **Long waits.** `rt gate wait <id>` and `rt events wait` block past any tool timeout, so skills run them as background Bash or under `Monitor`. Install's allow list covers them with the prefix rules `Bash(rt gate *)` and `Bash(rt events wait *)`.
 - **Commits and staging.** `git commit`, `git add`, and `git rebase --continue` after a resolved conflict run in Bash; in auto mode the classifier approves routine commits.
 - **Project tooling.** A repo's own checks and scripts, and a pack's scripts.
-- **GitHub.** Every `mr_*` tool is GitLab only; GitHub flows run `gh` in Bash.
+- **GitHub.** Every `mr_*` tool works on a GitHub PR except `mr_upload`, which is GitLab only and names `evidence_attach` instead. A GitHub flow no tool covers runs `gh` in Bash.
 - **Pane control.** `rt pane send`, `rt pane spawn`, `rt pane focus`, `rt pane accounts` and `rt pane directories` (only `pane list` and `pane peek` run through `rt_verb`).
 - **Chat after `/clear`.** As above, `rt chat sign-in` and the other chat verbs in Bash.
 
