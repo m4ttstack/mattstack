@@ -784,3 +784,22 @@ test('bulk merge names merged, queued and unanswered rows apart', async () => {
   expect(summary).not.toContain("couldn't");
   expect(events.filter(e => /^release/.test(e)).sort()).toEqual(['release 8']);
 });
+
+test('bulk merge keeps the merged list apart from the queued one', async () => {
+  const { deps, events } = fakeDeps(p =>
+    p.iid === 8
+      ? reply(200, { mergeQueued: { position: 1, state: 'QUEUED' } })
+      : reply(200)
+  );
+  await runMany(merge, [7, 9, 8].map(ghMr), deps);
+  expect(events).toContain(
+    'toast merge accepted on #7, #9; #8 joined the merge queue'
+  );
+});
+
+test('a merge answered 504 with no reason releases the hold and keeps its wording', async () => {
+  const { deps, events } = fakeDeps(() => reply(504));
+  await runOne(merge, mr(7), deps);
+  expect(events).toContain("fail couldn't merge !7 (504)");
+  expect(events.filter(e => /^release/.test(e))).toEqual(['release 7']);
+});

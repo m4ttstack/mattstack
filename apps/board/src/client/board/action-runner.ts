@@ -114,8 +114,10 @@ const on = (done: Done[]) => iids(done.map(d => d.mr));
 const isUnanswered = (r: ActionResult | undefined): boolean =>
   r?.status === 504 && !!r.body?.reason;
 
-const unanswered = (mr: BoardMR, r: ActionResult) =>
-  `no answer for ${mrRef(mr)}; ${r.body?.reason}`;
+const noAnswer = (list: string, r: ActionResult) =>
+  `no answer for ${list}; ${r.body?.reason}`;
+
+const unanswered = (mr: BoardMR, r: ActionResult) => noAnswer(mrRef(mr), r);
 
 const queuedWord = (mr: BoardMR, r: ActionResult) => {
   const position = r.body?.mergeQueued?.position;
@@ -183,7 +185,7 @@ async function post(
   const merge = req.kind === 'mr' && req.action === 'merge';
   if (merge) deps.merging.start(url);
   const result = await deps.post(spec.path, spec.payload(mr, url));
-  if (merge && (result.ok ? !!result.body?.mergeQueued : result.status !== 504))
+  if (merge && (result.ok ? !!result.body?.mergeQueued : !isUnanswered(result)))
     deps.merging.fail(url);
   return result;
 }
@@ -213,7 +215,7 @@ function postSpec(req: PostRequest, people: People): PostSpec {
             ...(queued.length
               ? [`${iids(queued.map(d => d.mr))} joined the merge queue`]
               : []),
-          ].join(', ');
+          ].join('; ');
         },
         manyFail: list => `couldn't ${w.manyVerb} ${list}`,
       };
@@ -455,19 +457,18 @@ export async function runMany(
   );
   const done: Done[] = [];
   const failed: Array<{ mr: BoardMR; result: ActionResult | undefined }> = [];
-  const silent: Done[] = [];
+  const unansweredRows: Done[] = [];
   targets.forEach((mr, i) => {
     const result = results[i];
     if (result?.ok) done.push({ mr, result });
-    else if (result && isUnanswered(result)) silent.push({ mr, result });
+    else if (result && isUnanswered(result))
+      unansweredRows.push({ mr, result });
     else failed.push({ mr, result });
   });
   const parts: string[] = [];
   if (done.length) parts.push(plan.manyDone(done));
-  if (silent.length)
-    parts.push(
-      `no answer for ${on(silent)}; ${silent[0]?.result.body?.reason}`
-    );
+  if (unansweredRows[0])
+    parts.push(noAnswer(on(unansweredRows), unansweredRows[0].result));
   if (failed.length) {
     const only = failed.length === 1 ? failed[0]?.result : undefined;
     parts.push(
