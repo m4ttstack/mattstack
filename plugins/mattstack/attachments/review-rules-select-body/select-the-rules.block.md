@@ -15,7 +15,8 @@ empty and resolves to neither shape is a failure (When the selector fails).
 `selector: none`, or a selector that failed (When the selector fails). With
 no selection, no later rule step runs and no verdict file is saved.
 
-**The empty selection** is a selection whose `rules` list is empty. It
+**The empty selection** is a selection whose `rules` list is empty and
+whose `alsoInScope` list is empty or absent. It
 sends no rule text and no verdict request, skips the check and the repair,
 adds no findings, and saves `{"verdicts": []}` as the verdict file.
 

@@ -23,7 +23,8 @@ line in the draft's Assessment reasoning, `Unanswered rules:` followed by
 the id of each unanswered rule and then the leftover problems, quoted; when
 a report json is written, the same line goes into its `notes`. A rule is
 unanswered when the set has no verdict for it or a leftover problem names
-it. A leftover problem that names no rule (a missing or unparseable block,
-an exit status) leaves every selected rule without a validated verdict
-unanswered, in practice all of them. An unanswered rule is never turned
+it; only a rule in `rules` can be unanswered. A leftover problem that names
+no rule (a missing or unparseable block, an exit status) leaves every
+selected rule without a validated verdict unanswered, in practice all of
+them. An unanswered rule is never turned
 into a finding, whatever its verdict.
