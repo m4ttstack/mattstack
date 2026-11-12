@@ -206,7 +206,7 @@ export interface TriageRunDeps {
   listRuns?(): Promise<RunSummary[] | null>;
   ring?(session: string, text: string): Promise<boolean>;
   probe?: SessionProbe;
-  /** boardRepoSlug(gitlabHost, projectPathFromWebUrl(mrUrl)). */
+  /** boardRepoSlug(forgeHost, projectPathFromWebUrl(mrUrl)). */
   repoSlugForMr?(mrUrl: string): string;
 }
 

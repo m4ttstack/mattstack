@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import type { BoardMR } from '../../data.ts';
+import { forgeWord } from '../../mr-ref.ts';
 import { isOwnMr } from '../../view.ts';
 import type { ActionResult } from '../api.ts';
 import type { BoardMRWithReview, RowMenuState } from '../types.ts';
@@ -47,6 +48,7 @@ function RowMenu({
       y={menu.y}
       subject={mrRef(mrx)}
       entries={actions}
+      forge={forgeWord(mrx)}
       onClose={onClose}
       onRun={async (key, opts) => {
         const action = actions.find(a => a.key === key);

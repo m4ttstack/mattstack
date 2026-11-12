@@ -8,7 +8,9 @@ const CODE_CHANGES = { id: 'code-changes' };
 
 describe('gateNotifyCopy', () => {
   test('a review gate says the review is ready to pick from', () => {
-    expect(gateNotifyCopy('review-post', 812, [{ id: 'findings-1' }])).toEqual({
+    expect(
+      gateNotifyCopy('review-post', '!812', [{ id: 'findings-1' }])
+    ).toEqual({
       headline: 'Your review of !812 is ready',
       summary: 'Pick what to post',
     });
@@ -16,7 +18,7 @@ describe('gateNotifyCopy', () => {
 
   test('a respond planning gate counts the threads waiting, not code-changes', () => {
     expect(
-      gateNotifyCopy('respond-plan', 774, [
+      gateNotifyCopy('respond-plan', '!774', [
         thread(1),
         thread(2),
         thread(3),
@@ -30,19 +32,19 @@ describe('gateNotifyCopy', () => {
 
   test('one thread reads singular', () => {
     expect(
-      gateNotifyCopy('respond-plan', 739, [thread(1), CODE_CHANGES]).summary
+      gateNotifyCopy('respond-plan', '!739', [thread(1), CODE_CHANGES]).summary
     ).toBe('1 review thread waiting on your call');
   });
 
   test('a respond posting gate says the replies are drafted', () => {
-    expect(gateNotifyCopy('respond-post', 774, [thread(1)])).toEqual({
+    expect(gateNotifyCopy('respond-post', '!774', [thread(1)])).toEqual({
       headline: 'Replies on !774 are drafted',
       summary: 'Check them before they post',
     });
   });
 
   test('any other kind asks for a decision', () => {
-    expect(gateNotifyCopy('doctor-escalation', 702, [{ id: 'q' }])).toEqual({
+    expect(gateNotifyCopy('doctor-escalation', '!702', [{ id: 'q' }])).toEqual({
       headline: '!702 needs your call',
       summary: 'Waiting on your decision',
     });
@@ -50,7 +52,7 @@ describe('gateNotifyCopy', () => {
 
   test('a review escalation asks for a decision, not a pick of what to post', () => {
     expect(
-      gateNotifyCopy('review-escalation', 751, [{ id: 'action' }])
+      gateNotifyCopy('review-escalation', '!751', [{ id: 'action' }])
     ).toEqual({
       headline: '!751 needs your call',
       summary: 'Waiting on your decision',
@@ -59,11 +61,20 @@ describe('gateNotifyCopy', () => {
 
   test('a respond escalation asks for a decision', () => {
     expect(
-      gateNotifyCopy('respond-escalation', 713, [{ id: 'action' }])
+      gateNotifyCopy('respond-escalation', '!713', [{ id: 'action' }])
     ).toEqual({
       headline: '!713 needs your call',
       summary: 'Waiting on your decision',
     });
+  });
+
+  test('a GitHub row names its PR #N', () => {
+    expect(
+      gateNotifyCopy('review-post', '#4103', [{ id: 'findings-1' }]).headline
+    ).toBe('Your review of #4103 is ready');
+    expect(gateNotifyCopy('respond-plan', '#4103', [thread(1)]).headline).toBe(
+      'Replies on #4103 need you'
+    );
   });
 
   test('no copy carries a file path or a question label', () => {
@@ -71,7 +82,7 @@ describe('gateNotifyCopy', () => {
       { id: 'thread-1', label: 'apps/web/src/hooks/useFlagClient.tsx:56' },
     ];
     for (const kind of GATE_KINDS) {
-      const { headline, summary } = gateNotifyCopy(kind, 1, questions);
+      const { headline, summary } = gateNotifyCopy(kind, '!1', questions);
       expect(`${headline} ${summary}`).not.toContain('useFlagClient');
     }
   });

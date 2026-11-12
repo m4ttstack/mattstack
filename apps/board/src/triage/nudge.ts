@@ -1,3 +1,4 @@
+import { mrRef } from '../mr-ref.ts';
 import type {
   AskKind,
   NudgeOutcomePayload,
@@ -336,7 +337,7 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       });
       const why = plainReason(decision.reason, deps.cfg);
       await deps.notify(
-        `${ASK_COPY[kind].noun} request skipped on !${nudge.iid}`,
+        `${ASK_COPY[kind].noun} request skipped on ${mrRef({ iid: nudge.iid, webUrl: nudge.mrUrl })}`,
         `${nudge.from} asked; ${lowerFirst(why)}`,
         nudge.mrUrl
       );
@@ -425,7 +426,7 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       attempt: m.attemptsToday,
     });
     await deps.notify(
-      `${ASK_COPY[kind].started} on !${nudge.iid}`,
+      `${ASK_COPY[kind].started} on ${mrRef({ iid: nudge.iid, webUrl: nudge.mrUrl })}`,
       `${nudge.from} ${ASK_COPY[kind].asked}`,
       nudge.mrUrl
     );

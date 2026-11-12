@@ -7,7 +7,7 @@ import { AskGlyph } from '../ask-glyph.tsx';
 import { ago } from '../format.ts';
 import { AgentGlyph } from '../icons.tsx';
 import { MemberInvadr } from '../MemberInvadr.tsx';
-import { MrLinks } from '../MrLinks.tsx';
+import { MrLinks, mrRef } from '../MrLinks.tsx';
 import { usePeople } from '../people.ts';
 import { askedPhrase, confirmLine, verbLabel, verbLane } from './ask-copy.ts';
 import { AskDeclineForm } from './AskDeclineForm.tsx';
@@ -27,7 +27,7 @@ export function AskConfirm({
     <div className="tui-ask-confirm" data-ask-id={ask.id} role="status">
       <AskGlyph name="circle-check" size={14} />
       <span className="tui-ask-confirm-text">
-        {confirmLine(ask.kind, ask.iid)}
+        {confirmLine(ask.kind, { iid: ask.iid, webUrl: ask.mrUrl })}
       </span>
       <button
         type="button"
@@ -64,6 +64,7 @@ export function AskCard({
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const first = usePeople().short(ask.from);
+  const ref = mrRef({ iid: ask.iid, webUrl: ask.mrUrl });
   const run = async (kind: 'accept' | 'decline', act: () => Promise<void>) => {
     setBusy(kind);
     setError(null);
@@ -80,14 +81,13 @@ export function AskCard({
     <article
       className={flash ? 'tui-ask-card tui-ask-flash' : 'tui-ask-card'}
       data-ask-id={ask.id}
-      aria-label={`${first} ${askedPhrase(ask.kind)} on !${ask.iid}`}
+      aria-label={`${first} ${askedPhrase(ask.kind)} on ${ref}`}
     >
       <div className="tui-ask-who">
         <MemberInvadr id={ask.from} className="tui-ask-avatar" />
         <span className="tui-ask-name">{first}</span>
         <span className="tui-ask-phrase">
-          {askedPhrase(ask.kind)} ·{' '}
-          <span className="tui-ask-iid">!{ask.iid}</span>
+          {askedPhrase(ask.kind)} · <span className="tui-ask-iid">{ref}</span>
         </span>
         <span className="tui-ask-age">
           {ago(new Date(ask.receivedAt).toISOString(), now)}

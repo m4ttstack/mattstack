@@ -4,6 +4,7 @@ import {
   listRuns,
   type RunSummary,
 } from '@mattstack/rt-client';
+import type { BoardConfig } from './config.ts';
 import { projectPathFromWebUrl, type BoardMR } from './data.ts';
 import { boardRepoSlug } from './manifest-bindings.ts';
 import { BOARD_RING_LABEL, type SessionProbe } from './run-owner.ts';
@@ -20,7 +21,9 @@ export interface OwnerIo {
 
 /** Run lookups, rings and probes over the rt daemon, as triage and the
     board server both use them. */
-export function daemonOwnerIo(gitlabHost: string): OwnerIo {
+export function daemonOwnerIo(
+  config: Pick<BoardConfig, 'forge' | 'projects'>
+): OwnerIo {
   return {
     listRuns: async () => {
       try {
@@ -42,7 +45,10 @@ export function daemonOwnerIo(gitlabHost: string): OwnerIo {
       };
     },
     repoSlugForMr: mrUrl =>
-      boardRepoSlug(gitlabHost, projectPathFromWebUrl(mrUrl, gitlabHost) ?? ''),
+      boardRepoSlug(
+        config.forge.host,
+        projectPathFromWebUrl(mrUrl, config) ?? ''
+      ),
   };
 }
 

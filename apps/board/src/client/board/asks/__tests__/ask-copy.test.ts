@@ -69,9 +69,21 @@ describe('ask copy', () => {
     });
   });
   test('the brief confirm line', () => {
-    expect(confirmLine('review', 1388)).toBe('Your agent is reviewing !1388');
-    expect(confirmLine('respond', 1366)).toBe(
+    const gl = (iid: number) => ({
+      iid,
+      webUrl: `https://gitlab.example.com/acme/webapp/-/merge_requests/${iid}`,
+    });
+    expect(confirmLine('review', gl(1388))).toBe(
+      'Your agent is reviewing !1388'
+    );
+    expect(confirmLine('respond', gl(1366))).toBe(
       'Your agent is responding on !1366'
     );
+    expect(
+      confirmLine('review', {
+        iid: 4103,
+        webUrl: 'https://github.com/acme/webapp/pull/4103',
+      })
+    ).toBe('Your agent is reviewing #4103');
   });
 });

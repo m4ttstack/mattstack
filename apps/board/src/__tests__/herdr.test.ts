@@ -397,7 +397,7 @@ describe('launchReview / launchRespond / launchDoctor (rt agent)', () => {
   // SERIALIZED rt identity ("remote:<encoded host/path>"), never a bare
   // GitLab project path -- `rt agent list --repo <identity>` filters on the
   // exact serialized string, so a bare path silently never matches. The
-  // resolution itself (repoIdentityField + gitlabHost fallback) lives at the
+  // resolution itself (repoIdentityField + forge host fallback) lives at the
   // launch call sites (server.ts, bin/triage.ts), not here -- this pins that
   // whatever identity a caller resolves survives launchReview/Respond/Doctor
   // and startAgentPane unmangled, so a future refactor can't silently swap

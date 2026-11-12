@@ -182,6 +182,20 @@ describe('ask notification', () => {
       message: '!1366\nYour agent waits for your go ahead.',
     });
   });
+
+  test('an ask on a GitHub PR names it #<n>', () => {
+    expect(
+      askNotice(
+        {
+          kind: 'review',
+          iid: 4103,
+          title: 'pin the forge',
+          mrUrl: 'https://github.com/acme/webapp/pull/4103',
+        },
+        'Rae Marlow'
+      ).message
+    ).toBe('#4103 pin the forge\nYour agent waits for your go ahead.');
+  });
 });
 
 test('announcementNotice ends with the sender', () => {

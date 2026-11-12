@@ -302,6 +302,35 @@ test('suppressed candidates sit behind +N more, which opens them with their deta
   expect(lines[1]?.textContent).toBe('watching CI…');
 });
 
+test('the +N more list on a GitHub row names the PR #<n>', async () => {
+  const gh = {
+    ...MR,
+    webUrl: 'https://github.com/acme/webapp/pull/1418',
+    provider: 'github',
+  } as unknown as BoardMRWithReview;
+  await React.act(async () => {
+    root.render(
+      <StatusLine
+        mr={gh}
+        status={{
+          line: { tone: 'warn', word: 'post which findings?', verbs: [] },
+          more: [{ tone: 'work', word: 'watching CI…', verbs: [] }],
+          bar: 'warn',
+        }}
+        ctx={ctx()}
+      />
+    );
+  });
+  const more = container.querySelector<HTMLButtonElement>('.tui-status-more')!;
+  await React.act(async () => more.click());
+  expect(
+    document.querySelector('[aria-label="other statuses for #1418"]')
+  ).not.toBeNull();
+  expect(
+    document.querySelector('[aria-label="other statuses for !1418"]')
+  ).toBeNull();
+});
+
 test('a long detail renders its first clause and keeps the whole message as the tooltip', async () => {
   const full =
     'rebased acme-2214 onto origin/main (pat); resolved Overview.test.tsx conflict (kept both sides)';

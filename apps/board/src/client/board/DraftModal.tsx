@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { Modal } from '@mattstack/tui-kit';
+import { mrRef, onGitHub } from '../../mr-ref.ts';
 import type { BoardMRWithReview, DraftInfo } from '../types.ts';
 import { cleanTitle } from './format.ts';
 
@@ -51,10 +52,10 @@ function DraftModal({
     <Modal
       title={
         <>
-          ❯ held: {draft.kind} · !{mr.iid}
+          ❯ held: {draft.kind} · {mrRef(mr)}
         </>
       }
-      ariaLabel={`held draft for !${mr.iid}`}
+      ariaLabel={`held draft for ${mrRef(mr)}`}
       onClose={onClose}
       className="tui-draft-modal"
     >
@@ -93,7 +94,7 @@ function DraftModal({
               >
                 {busy === 'dismiss' ? 'dismissing…' : 'dismiss'}
               </button>
-              {canPost ? (
+              {onGitHub(mr) ? null : canPost ? (
                 <button
                   className="tui-draft-act tui-draft-act-post"
                   disabled={busy !== null}

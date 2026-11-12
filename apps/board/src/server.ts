@@ -78,11 +78,14 @@ import {
   codeownerSlackOn,
   daemonRepoField,
   displayName,
+  FORGE_NOT_YET,
+  gitlabOnly,
   loadAgentSettings,
   loadConfig,
   loadGitLabToken,
   loadSlackToken,
   loadSwitchboardAdminToken,
+  noRepoIdentity,
   parseConfig,
   readSwitchboardToken,
   repoIdentityField,
@@ -252,6 +255,7 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
+import { mrRef, onGitHub } from './mr-ref.ts';
 import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
   acceptAsk,
@@ -587,10 +591,14 @@ if (!FIXTURE_DIR && !writer) {
 const isTokenFailure = (v: string | null): boolean => v === null;
 
 // Optional: display-name lookups only. The board's data plane is rt.
-const getGitlabToken = memoizeAsync<string | null>(
+const memoGitlabToken = memoizeAsync<string | null>(
   () => (FIXTURE_DIR ? Promise.resolve(null) : loadGitLabToken()),
   isTokenFailure
 );
+// Checked per call, outside the memo: the team's forge can change under a
+// running board.
+const getGitlabToken = (): Promise<string | null> =>
+  config.forge.kind === 'github' ? Promise.resolve(null) : memoGitlabToken();
 // Optional: enables the Slack review-thread menu actions when a token is set.
 const getSlackToken = memoizeAsync<string | null>(
   () => (FIXTURE_DIR ? Promise.resolve(null) : loadSlackToken()),
@@ -619,7 +627,7 @@ let gitlabProvider: GitLabProvider | undefined;
 async function gitlab(): Promise<GitLabProvider> {
   const token = await getGitlabToken();
   if (!token) throw new Error('gitlab token not configured');
-  gitlabProvider ??= new GitLabProvider(config.gitlabHost, token);
+  gitlabProvider ??= new GitLabProvider(gitlabOnly(config), token);
   return gitlabProvider;
 }
 
@@ -634,7 +642,7 @@ const runMrs = new RunMrResolver({
   onChange: () => sseNudge(),
 });
 
-const ownerIo = () => daemonOwnerIo(config.gitlabHost);
+const ownerIo = () => daemonOwnerIo(config);
 const runOwners = createRunOwnerRefresher({
   listRuns: () => ownerIo().listRuns(),
   probe: session => ownerIo().probe(session),
@@ -904,9 +912,7 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
-      errors.push(
-        `${projectPath}: could not derive its rt repo identity from board.gitlabHost`
-      );
+      errors.push(noRepoIdentity(config, projectPath));
       continue;
     }
     const res = await readProjectMRs(repoId, force ? 0 : undefined, {}, demand);
@@ -930,7 +936,7 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
   if (errors.length) throw new Error(errors.join(' · '));
   return {
     prs: [...byId.values()],
-    ...aggregateSyncScope(reads),
+    ...aggregateSyncScope(reads, config.forge.kind),
     tags,
     windows,
   };
@@ -957,9 +963,7 @@ function doctorTabs(
   webUrl: string | null | undefined,
   memo: Map<string, string[]>
 ): string[] {
-  const project = webUrl
-    ? projectPathFromWebUrl(webUrl, config.gitlabHost)
-    : null;
+  const project = webUrl ? projectPathFromWebUrl(webUrl, config) : null;
   if (!project) return [];
   let tabs = memo.get(project);
   if (!tabs) {
@@ -1314,14 +1318,15 @@ async function readOwnerRules(
   | { ok: false; status: number; message: string }
 > {
   const projectPath = mr.webUrl
-    ? projectPathFromWebUrl(mr.webUrl, config.gitlabHost)
+    ? projectPathFromWebUrl(mr.webUrl, config)
     : null;
+  if (config.forge.kind === 'github') return { ok: true, rules: [] };
   const repoName = projectPath ? daemonRepoField(config, projectPath) : null;
   if (!repoName) {
     return {
       ok: false,
       status: 400,
-      message: `${projectPath ?? mr.webUrl}: could not derive its rt repo identity from board.gitlabHost`,
+      message: noRepoIdentity(config, `${projectPath ?? mr.webUrl}`),
     };
   }
   const res = await rtCommand<ForgeGetData>(
@@ -1390,7 +1395,7 @@ async function ownersPostPlan(
   | Response
 > {
   const projectPath = mr.webUrl
-    ? projectPathFromWebUrl(mr.webUrl, config.gitlabHost)
+    ? projectPathFromWebUrl(mr.webUrl, config)
     : null;
   if (!projectPath || !codeownerSlackOn(config, projectPath)) {
     return new Response('code owner posts are not turned on for this repo', {
@@ -1466,7 +1471,7 @@ async function teamThread(
 
 type ReviewRequestResult =
   | { kind: 'linked'; permalink?: string }
-  | { kind: 'already'; iids: number[] }
+  | { kind: 'already'; refs: string[] }
   | { kind: 'posted'; posted: number; permalink?: string }
   | { kind: 'failed'; step: 'resolve' | 'post'; error: string };
 
@@ -1485,7 +1490,7 @@ async function postReviewRequest(
   const toResolve = picked.filter(
     m => existingRefs.get(m.webUrl!)?.status !== 'found'
   );
-  const freshlyFound: Array<{ iid: number; permalink?: string }> = [];
+  const freshlyFound: Array<{ mr: BoardMR; permalink?: string }> = [];
   try {
     for (const m of toResolve) {
       const ref = await resolveSlackRef(
@@ -1495,7 +1500,7 @@ async function postReviewRequest(
         m.iid
       );
       if (ref.status === 'found')
-        freshlyFound.push({ iid: m.iid, permalink: ref.permalink });
+        freshlyFound.push({ mr: m, permalink: ref.permalink });
     }
   } catch (err) {
     return {
@@ -1504,14 +1509,13 @@ async function postReviewRequest(
       error: err instanceof Error ? err.message : String(err),
     };
   }
-  const alreadyIids = [
-    ...picked
-      .filter(m => existingRefs.get(m.webUrl!)?.status === 'found')
-      .map(m => m.iid),
-    ...freshlyFound.map(f => f.iid),
+  const already = [
+    ...picked.filter(m => existingRefs.get(m.webUrl!)?.status === 'found'),
+    ...freshlyFound.map(f => f.mr),
   ];
-  if (alreadyIids.length) {
-    if (picked.length > 1) return { kind: 'already', iids: alreadyIids };
+  if (already.length) {
+    if (picked.length > 1)
+      return { kind: 'already', refs: already.map(m => mrRef(m)) };
     return {
       kind: 'linked',
       permalink:
@@ -1895,9 +1899,7 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
-      errors.push(
-        `${projectPath}: could not derive its rt repo identity from board.gitlabHost`
-      );
+      errors.push(noRepoIdentity(config, projectPath));
       continue;
     }
     const res = await readProjectMRs(repoId, 20_000);
@@ -2255,10 +2257,7 @@ const httpServer = Bun.serve({
           return mr ? { iid: mr.iid, webUrl: mrUrl } : null;
         },
         repoFor: mr => {
-          const projectPath = projectPathFromWebUrl(
-            mr.webUrl,
-            config.gitlabHost
-          );
+          const projectPath = projectPathFromWebUrl(mr.webUrl, config);
           return projectPath ? daemonRepoField(config, projectPath) : null;
         },
         readDiff: payload =>
@@ -2773,8 +2772,8 @@ const httpServer = Bun.serve({
         const existing = readReviewStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
           mr.rtRepo,
-          config.gitlabHost,
-          projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost) ?? '',
+          config.forge.host,
+          projectPathFromWebUrl(parsed.mrUrl, config) ?? '',
           parsed.mrUrl
         );
         if (reReview) {
@@ -2983,8 +2982,8 @@ const httpServer = Bun.serve({
         const existing = readRespondStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
           mr.rtRepo,
-          config.gitlabHost,
-          projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost) ?? '',
+          config.forge.host,
+          projectPathFromWebUrl(parsed.mrUrl, config) ?? '',
           parsed.mrUrl
         );
         if (resume) {
@@ -3182,8 +3181,8 @@ const httpServer = Bun.serve({
         const existing = readDoctorStates().get(parsed.mrUrl);
         const repo = resolveLaunchRepo(
           mr.rtRepo,
-          config.gitlabHost,
-          projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost) ?? '',
+          config.forge.host,
+          projectPathFromWebUrl(parsed.mrUrl, config) ?? '',
           parsed.mrUrl
         );
         {
@@ -3291,9 +3290,12 @@ const httpServer = Bun.serve({
         // network round-trip and the lock must never sit open for that long.
         const identityRead = readMemory();
         const identityBefore = identityRead.identity;
-        const identity = await resolveDispatchIdentity(identityRead, async () =>
-          (await gitlab()).validateToken()
-        );
+        const identity =
+          config.forge.kind === 'github'
+            ? null
+            : await resolveDispatchIdentity(identityRead, async () =>
+                (await gitlab()).validateToken()
+              );
         // Only touch state/auto-dispatch.json when the identity actually
         // refreshed (a cache hit leaves identityRead.identity's reference
         // unchanged). bin/triage.ts serializes every access to this file
@@ -3499,18 +3501,21 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
+        if (config.forge.kind === 'github')
+          return new Response(FORGE_NOT_YET, { status: 400 });
         if (!gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === mrUrl);
         if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
         try {
           const projectId = parseRepoId(mr.repositoryId);
-          const mutator = new NoteMutator(config.gitlabHost, gitlabToken);
+          const mutator = new NoteMutator(gitlabOnly(config), gitlabToken);
           const note = await mutator.createNote(projectId, mr.iid, draft.body);
           writeDraft(mrUrl, kind, {
             status: 'posted',
@@ -3542,6 +3547,8 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
+        if (config.forge.kind === 'github')
+          return new Response(FORGE_NOT_YET, { status: 400 });
         if (!gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         let body: unknown;
@@ -3562,6 +3569,7 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -3575,7 +3583,7 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
-        const path = projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost);
+        const path = projectPathFromWebUrl(parsed.mrUrl, config);
         if (!path)
           return new Response(
             `could not derive a project path from "${parsed.mrUrl}"`,
@@ -3851,6 +3859,8 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
+        if (config.forge.kind === 'github')
+          return new Response(FORGE_NOT_YET, { status: 400 });
         if (!gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         let body: unknown;
@@ -3870,6 +3880,7 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -3878,7 +3889,7 @@ const httpServer = Bun.serve({
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
-        const path = projectPathFromWebUrl(parsed.mrUrl, config.gitlabHost);
+        const path = projectPathFromWebUrl(parsed.mrUrl, config);
         if (!path)
           return new Response(
             `could not derive a project path from "${parsed.mrUrl}"`,
@@ -4965,10 +4976,9 @@ const httpServer = Bun.serve({
               permalink: result.permalink,
             });
           case 'already':
-            return new Response(
-              `already in slack: ${result.iids.map(i => `!${i}`).join(', ')}`,
-              { status: 409 }
-            );
+            return new Response(`already in slack: ${result.refs.join(', ')}`, {
+              status: 409,
+            });
           case 'failed':
             return new Response(
               `slack ${result.step} failed: ${result.error}`,
@@ -5565,7 +5575,12 @@ async function handleAgentSignal(
   // Best-effort, like every other side effect here: the triage latch pass
   // reconciles anything a down or throwing board misses, so a failure must
   // never fail the agent's status write.
-  if (signal.kind === 'review' && signal.status === 'done' && gitlabToken) {
+  if (
+    config.forge.kind === 'gitlab' &&
+    signal.kind === 'review' &&
+    signal.status === 'done' &&
+    gitlabToken
+  ) {
     try {
       // Arming honours board.reReview; landing and spending never do, since
       // a latch left running or armed on a team that switched re-review off
@@ -5611,7 +5626,7 @@ async function handleAgentSignal(
               fetchNewDiscussionCount(
                 () =>
                   new MRDetailFetcher(
-                    config.gitlabHost,
+                    gitlabOnly(config),
                     gitlabToken
                   ).fetchDetail(projectId, mr.iid),
                 self,
@@ -5620,10 +5635,9 @@ async function handleAgentSignal(
             self,
             approvedBy: mr.reviews.approvedBy.map(r => r.username),
             detail,
-            gateway: latchGateway(config.gitlabHost, gitlabToken),
+            gateway: latchGateway(gitlabOnly(config), gitlabToken),
             projectId,
-            projectPath:
-              projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
+            projectPath: projectPathFromWebUrl(signal.mrUrl, config) ?? '',
             mrUrl: signal.mrUrl,
             iid: mr.iid,
           });
@@ -5666,10 +5680,10 @@ async function handleAgentSignal(
           pending,
           async id => {
             await latchGateway(
-              config.gitlabHost,
+              gitlabOnly(config),
               gitlabToken
             ).resolveDiscussion(
-              projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
+              projectPathFromWebUrl(signal.mrUrl, config) ?? '',
               signal.iid,
               id
             );

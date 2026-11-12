@@ -7,7 +7,7 @@
 // project-mrs grant on the mapped repos, GitLab token available (legacy path).
 import { GitLabProvider, type PullRequest } from '@mattstack/glance';
 import { readProjectMRs } from '@mattstack/rt-client';
-import { loadConfig, loadGitLabToken } from '../src/config.ts';
+import { gitlabOnly, loadConfig, loadGitLabToken } from '../src/config.ts';
 import { buildBoard, type BoardMR } from '../src/data.ts';
 
 const config = loadConfig();
@@ -17,7 +17,7 @@ if (!token) {
   process.exit(2);
 }
 let legacyOps = 0;
-const provider = new GitLabProvider(config.gitlabHost, token, {
+const provider = new GitLabProvider(gitlabOnly(config), token, {
   onRequest: () => {
     legacyOps++;
   },
