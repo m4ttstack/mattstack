@@ -507,10 +507,15 @@ describe("the read refusals only a racing writer can reach", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  function faked(over: Partial<GuardFs>): { fs: GuardFs; closed: number[] } {
+  function faked(over: Partial<GuardFs>): { fs: GuardFs; closed: number[]; opened: number[] } {
     const closed: number[] = [];
+    const opened: number[] = [];
     const fs: GuardFs = {
-      openSync: realFs.openSync,
+      openSync: ((p: string, flags: number) => {
+        const fd = realFs.openSync(p, flags);
+        opened.push(fd);
+        return fd;
+      }) as GuardFs["openSync"],
       fstatSync: realFs.fstatSync,
       readSync: realFs.readSync,
       closeSync: (fd) => {
@@ -519,7 +524,7 @@ describe("the read refusals only a racing writer can reach", () => {
       },
       ...over,
     };
-    return { fs, closed };
+    return { fs, closed, opened };
   }
 
   function png(name = "shot.png"): string {
@@ -531,46 +536,58 @@ describe("the read refusals only a racing writer can reach", () => {
   const identity = "file changed identity between check and read";
 
   test("an fstat that reports another inode refuses and still closes the descriptor", () => {
-    const { fs, closed } = faked({
+    const { fs, closed, opened } = faked({
       fstatSync: ((fd: number) => {
         const st = realFs.fstatSync(fd);
         return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { ino: st.ino + 1 });
       }) as GuardFs["fstatSync"],
     });
     expect(checkUploadPath(png(), [root], { fs })).toEqual({ ok: false, error: identity });
-    expect(closed.length).toBe(1);
+    expect(opened.length).toBe(1);
+    expect(closed).toEqual(opened);
   });
 
   test("an open that lands on a different file of the same size refuses the same way", () => {
     const other = join(root, "other.png");
     writeFileSync(other, PNG);
-    const { fs, closed } = faked({ openSync: ((_p: string, flags: number) => realFs.openSync(other, flags)) as GuardFs["openSync"] });
+    const opened: number[] = [];
+    const { fs, closed } = faked({
+      openSync: ((_p: string, flags: number) => {
+        const fd = realFs.openSync(other, flags);
+        opened.push(fd);
+        return fd;
+      }) as GuardFs["openSync"],
+    });
     expect(checkUploadPath(png(), [root], { fs })).toEqual({ ok: false, error: identity });
-    expect(closed.length).toBe(1);
+    expect(opened.length).toBe(1);
+    expect(closed).toEqual(opened);
   });
 
   test("a read that returns nothing refuses as short", () => {
-    const { fs, closed } = faked({ readSync: (() => 0) as unknown as GuardFs["readSync"] });
+    const { fs, closed, opened } = faked({ readSync: (() => 0) as unknown as GuardFs["readSync"] });
     expect(checkUploadPath(png(), [root], { fs })).toEqual({ ok: false, error: "file read short of its reported size" });
-    expect(closed.length).toBe(1);
+    expect(opened.length).toBe(1);
+    expect(closed).toEqual(opened);
   });
 
   test("a probe read that returns a byte refuses as grown", () => {
-    const { fs, closed } = faked({
+    const { fs, closed, opened } = faked({
       readSync: ((fd: number, buf: Buffer, off: number, len: number, pos: number) => (len === 1 && pos === PNG.length ? 1 : realFs.readSync(fd, buf, off, len, pos))) as GuardFs["readSync"],
     });
     expect(checkUploadPath(png(), [root], { fs })).toEqual({ ok: false, error: "file grew during read" });
-    expect(closed.length).toBe(1);
+    expect(opened.length).toBe(1);
+    expect(closed).toEqual(opened);
   });
 
   test("checkTextPath refuses a grown file the same way", () => {
     const p = join(root, "t.md");
     writeFileSync(p, "# hi\n");
     const size = 5;
-    const { fs, closed } = faked({
+    const { fs, closed, opened } = faked({
       readSync: ((fd: number, buf: Buffer, off: number, len: number, pos: number) => (len === 1 && pos === size ? 1 : realFs.readSync(fd, buf, off, len, pos))) as GuardFs["readSync"],
     });
     expect(checkTextPath(p, [root], { fs })).toEqual({ ok: false, error: "file grew during read" });
-    expect(closed.length).toBe(1);
+    expect(opened.length).toBe(1);
+    expect(closed).toEqual(opened);
   });
 });

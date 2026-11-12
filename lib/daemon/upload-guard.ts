@@ -20,7 +20,7 @@
  * allowed root, which can defeat the byte check by other means too.
  */
 import * as realFs from "fs";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Stats } from "fs";
+import { constants, lstatSync, readdirSync, realpathSync, statSync, type Stats } from "fs";
 import { homedir } from "os";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "path";
 import { evidenceDir } from "../rt-paths.ts";
