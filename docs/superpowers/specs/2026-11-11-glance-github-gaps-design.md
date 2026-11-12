@@ -218,8 +218,8 @@ and a visible rebase button.
 ```graphql
 repository(owner, name) {
   viewerDefaultMergeMethod mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed
-  pullRequest(number) { id headRefOid isMergeQueueEnabled isInMergeQueue
-    mergeQueueEntry { position state } }
+  pullRequest(number) { id headRefOid headRefName headRepository { nameWithOwner }
+    isMergeQueueEnabled isInMergeQueue mergeQueueEntry { position state } }
 }
 ```
 
@@ -344,9 +344,11 @@ call, so it cannot partially fail and is unchanged.
 **4d. Merge read-back and branch removal.** After the merge write lands,
 `mergePullRequest` reads the PR back; whether or not that succeeds, it then
 removes the source branch when asked. The branch and its repository come from
-the read-back's `sourceBranch` and `sourceProjectPath` when the read-back
-succeeded (saving today's extra REST read), else from one REST read of the PR
-(`head.ref`, `head.repo.full_name`), as now. If the read-back failed it
+the merge context read taken before the write (`headRefName`,
+`headRepository`), so today's extra REST read of the PR is gone and the
+branch is always known, even when GitHub is degraded and the read-back fails
+(a plan-review change; the context read was already being made). A null
+`headRepository` (a deleted fork) reports why and sends no DELETE. If the read-back failed it
 throws `MergeReadBackFailedError` (exported; extends `ReadBackFailedError`,
 `writeApplied: true`, or false in the already-queued case of section 3, so the flag is a constructor argument) carrying `sourceBranchNotDeleted?: string` with the
 result's meaning, and `queued?: MergeQueueEntry` on the queue path. So a

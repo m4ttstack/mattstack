@@ -19,7 +19,7 @@
 - No em or en dashes anywhere written. Comments state only a constraint the code cannot show.
 - Before every commit touching `packages/glance`, from `packages/glance`: `bun test`, `bun run check-types`, `bun run check:node`, `bun run build`, `bun run check-types:live`; then `bun run purity` from the worktree root. For `packages/glance-react`: `bun run test`, `bun run lint`, `bun run check-types`.
 - One commit per task, staging named files only (never `git add -A` or `.`). End every commit message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Tests stub transport the existing way: `(provider as any).octokit = { request, graphql }` (see `tests/gh-automerge.test.ts`), or replace `globalThis.fetch` when the real Octokit client must run (see `tests/gh-merge.test.ts`). Timer delays are captured by replacing `globalThis.setTimeout` (see `tests/actioncable-runtime.test.ts:94`).
+- Tests stub transport the existing way: `(provider as any).octokit = { request, graphql }` (see `tests/gh-automerge.test.ts`), or replace `globalThis.fetch` when the real Octokit client must run (see `tests/gh-merge.test.ts`). Timer delays are captured by replacing `globalThis.setTimeout` with one that records `ms` and never runs the callback (see `tests/actioncable-runtime.test.ts:94`), then disposing after the capture. Such a test must stub `(provider as any).octokit = { request, graphql }` directly: the real Octokit client's throttling plugin schedules every request through `setTimeout`, so with the recorder installed a real-client fill never runs and the test hangs. Tests that need the real client use `useInstantTimers()` from `tests/helpers/gh-fill-fixture.ts` instead and assert no delays.
 - When a change moves an existing test's request sequence (for example merge now reads GraphQL first), update that test's stub; never weaken an assertion about behaviour that did not change.
 - A capability or support change updates `tests/live/expectations.ts` in the same task, so `tests/live-expectations.test.ts` stays green.
 
@@ -29,7 +29,7 @@
 2. A repository whose `viewerDefaultMergeMethod` comes back null must still merge with an allowed method (Task 6).
 3. A streamed `restRequest` on a 204 or 304 must resolve with a null body, not crash (Task 11).
 4. A create whose follow-up step fails and whose read-back also fails must still throw `PartialCreateError` with the PR number and `pullRequest: null` (Task 10).
-5. Removing the branch of a merged fork PR whose fork was deleted must report why in `sourceBranchNotDeleted` and send no DELETE (Task 7).
+5. Removing the branch of a merged fork PR whose fork was deleted must report why in `sourceBranchNotDeleted` and send no DELETE, also when the read-back fails (Task 7).
 
 ---
 
@@ -72,8 +72,8 @@
 - Produces: `GitHubProvider.watchMR(projectPath, mrIid, currentUserNumericId, onUpdate, options?): () => void`, poll-only, default interval `60_000`.
 
 - [ ] **Step 1: Write the failing tests.** In `tests/gh-watch-mr.test.ts`:
-  - `watchMR does not throw and delivers the PR from one GraphQL fill per poll` (fill stub from `tests/helpers/gh-fill-fixture.ts`; one `graphql` call before the first update, and the rules REST read only when cold, as `tests/gh-fill-cost.test.ts:97` counts).
-  - `default interval is 60s` (captured delay within `[54_000, 66_000]`) and `pollIntervalMs overrides it` (`5_000` gives `[4_500, 5_500]`).
+  - `watchMR does not throw and delivers the PR from one GraphQL fill per poll` (fill stub from `tests/helpers/gh-fill-fixture.ts` with `useInstantTimers()`; one `graphql` call before the first update, and the rules REST read only when cold, as `tests/gh-fill-cost.test.ts:97` counts).
+  - `default interval is 60s` (captured delay within `[54_000, 66_000]`) and `pollIntervalMs overrides it` (`5_000` gives `[4_500, 5_500]`); these two stub `octokit` directly and use the recording `setTimeout` (Global Constraints).
   - `a fill warning reports reconnecting with its message`: fill rejects; status `reconnecting`, `lastError` is a `ReadBackFailedError` with `writeApplied: false`, `operation: 'watchMR'`.
   - `a contexts warning still delivers the PR` (second checks page fails; PR delivered with pipeline status `pending`).
   - `createDashboard({ mrIid }) on GitHub delivers connection polling`.
@@ -82,7 +82,7 @@
   - `group dashboard without subscribePullRequestEvents reports polling`.
   - `branch dashboard with subscribePullRequestEvents still reports connected` (GitLab-shaped fake; pins the ruling).
 - [ ] **Step 2: Run** both files. Expected: FAIL (`watchMR` throws; dashboards report `connected`).
-- [ ] **Step 3: Implement.** `watchMR` runs `createRealtimeWatcher` with no `subscribe`; fetch is `fetchSingleMR(projectPath, mrIid, currentUserNumericId, onWarning)`, throwing `new ReadBackFailedError(warning.message, { operation: 'watchMR', projectPath, iid: mrIid, writeApplied: false })` only for a `source: 'fill'` warning. Options: `pollIntervalMs ?? 60_000`, `onStatusChange`, `logger ?? this.log`, `logContext ?? \`watchMR:${projectPath}!${mrIid}\``. In `MRDashboard.ts`, both dashboards omit `subscribe` when `provider.subscribePullRequestEvents` is absent and keep today's code otherwise.
+- [ ] **Step 3: Implement.** `watchMR` runs `createRealtimeWatcher` with no `subscribe`; fetch is `fetchSingleMR(projectPath, mrIid, currentUserNumericId, onWarning)`, throwing `new ReadBackFailedError(warning.message, { operation: 'watchMR', projectPath, iid: mrIid, writeApplied: false })` only for a `source: 'fill'` warning. Capture the warning in the callback and throw after `fetchSingleMR` returns: a throw inside `onWarning` is swallowed by the provider's `warn()` (`GitHubProvider.ts:3519-3528`). Options: `pollIntervalMs ?? 60_000`, `onStatusChange`, `logger ?? this.log`, `logContext ?? \`watchMR:${projectPath}!${mrIid}\``. In `MRDashboard.ts`, both dashboards omit `subscribe` when `provider.subscribePullRequestEvents` is absent and keep today's code otherwise.
 - [ ] **Step 4: Run** the two files and `tests/live-expectations.test.ts`. Expected: PASS.
 - [ ] **Step 5: Run the gates and commit** `glance: GitHub watchMR polls every 60s; GitHub dashboards report polling`.
 
@@ -99,7 +99,7 @@
 
 - [ ] **Step 1: Write the failing tests:** `polling is hidden by default like connected` (renders nothing); `polling renders its label with showWhenConnected` (label present, no spinner, no pulse).
 - [ ] **Step 2: Run** `bun run test` in `packages/glance-react`. Expected: FAIL (type error or missing config).
-- [ ] **Step 3: Implement.** Add `'polling'` to `ConnectionState` and `STATUS_CONFIG` (`color: 'neutral'`, `variant: 'subtle'`, `dot: true`); hide it by default exactly like `connected`. Label: 2 to 6 words per the rt:ui-copy skill (load it), for example "Polling for updates". Add the state to the story's "all states" render.
+- [ ] **Step 3: Implement.** Add `'polling'` to `ConnectionState` and `STATUS_CONFIG` (`color: 'neutral'`, `variant: 'subtle'`, `dot: true`), and give its dot a colour class beside the existing ones at `ConnectionStatusBadge.tsx:95-99` (a neutral token such as `bg-muted-foreground`; confirm it exists in the kit's tokens); hide it by default exactly like `connected`. Label: 2 to 6 words per the rt:ui-copy skill (load it), for example "Polling for updates". Add the state to the story's "all states" render.
 - [ ] **Step 4: Run** `bun run test`, `bun run lint`, `bun run check-types` in `packages/glance-react`. Expected: PASS.
 - [ ] **Step 5: Render check.** Start Storybook (`bun storybook` in `packages/glance-react`, port 6006; stop it by PID afterwards), open the ConnectionStatusBadge story through Fast Browser (the `fast-browser:browser-driver` agent on `haiku`/`medium`), screenshot light and dark, and say plainly what looks wrong. Save the screenshots under `.superpowers/` for the report.
 - [ ] **Step 6: Commit** `glance-react: ConnectionStatusBadge shows the polling state`.
@@ -127,6 +127,7 @@
 - Modify: `packages/glance/src/GitHubProvider.ts:691` (`canRebase: true`), `:2061-2072` (`rebasePullRequest`)
 - Modify: `packages/glance/src/GitProvider.ts:540-546` (doc), `tests/live/expectations.ts:74-78` (GitHub `rebasePullRequest`: `{ support: 'supported', capability: 'canRebase' }`), `tests/live/conformance.ts` comments at `runUnsupportedConformance` and `runGitLabMutationConformance` that say GitHub cannot rebase
 - Create: `packages/glance/tests/gh-rebase.test.ts`
+- Modify (behaviour changes, update the assertion): `tests/smoke.test.ts:185` (`canRebase` is now true); `tests/live-expectations.test.ts:97-99` (it asserts GitHub's `rebasePullRequest` is `unsupported`; after this task and Task 2 GitHub has no `unsupported` entry, so assert the tables differ on `fetchMergeRequestIndex`, GitHub `absent`, instead)
 
 **Interfaces:**
 - Produces: `rebasePullRequest(projectPath, mrIid): Promise<void>`: one GraphQL read `repository(owner, name) { pullRequest(number) { id headRefOid } }`, then `updatePullRequestBranch(input: { pullRequestId, expectedHeadOid, updateMethod: REBASE }) { pullRequest { headRefOid } }`, both through `graphqlOrThrow` with op `'rebasePullRequest'`.
@@ -143,12 +144,13 @@
 - Create: `packages/glance/src/githubMerge.ts`
 - Modify: `packages/glance/src/GitHubProvider.ts:1768-1798` (`mergePullRequest` direct path), `:2119-2143` (`setAutoMerge`); `packages/glance/src/GitProvider.ts:548-556` (`setAutoMerge` doc: GitHub picks an allowed method)
 - Create: `packages/glance/tests/gh-merge-method.test.ts`
-- Modify: `packages/glance/tests/gh-merge.test.ts`, `tests/gh-automerge.test.ts` (stubs now serve the context read)
+- Modify: `packages/glance/src/types.ts:565-570` (`MergeMethod` doc) and `:596-605` (`MergePullRequestInput` doc): on GitHub an omitted method is now the repository's default, not "merge"; `:651-652` (`canEnqueue` doc: also gates merge's queue routing)
+- Modify (stub updates only; each must serve the merge context read before what it already serves, behaviour unchanged): `tests/gh-merge.test.ts`, `tests/gh-automerge.test.ts`, `tests/gh-enqueue.test.ts:23-33` (merge read-back case), `tests/gh-fill-provider.test.ts:485` (serve the context, then 502 for the fill) and `:905-1000` (`landedMerge`'s `stubForge` must answer the context query), and the `check:node` smoke `tests/node-smoke.mjs:200-229` (both setAutoMerge checks answer every query with the mutation payload and one reads `mutations[0].id`; answer the context query first and assert on the mutation call)
 
 **Interfaces:**
 - Produces in `githubMerge.ts`:
-  - `export interface GitHubMergeContext { nodeId: string; headSha: string; defaultMethod: MergeMethod | null; allowed: Record<MergeMethod, boolean>; queueEnabled: boolean; inQueue: boolean; queueEntry: MergeQueueEntry | null }`
-  - `export const MERGE_CONTEXT_QUERY: string` selecting `viewerDefaultMergeMethod mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed pullRequest(number: $number) { id headRefOid isMergeQueueEnabled isInMergeQueue mergeQueueEntry { position state } }`
+  - `export interface GitHubMergeContext { nodeId: string; headSha: string; headBranch: string; headRepo: string | null; defaultMethod: MergeMethod | null; allowed: Record<MergeMethod, boolean>; queueEnabled: boolean; inQueue: boolean; queueEntry: MergeQueueEntry | null }`
+  - `export const MERGE_CONTEXT_QUERY: string` selecting `viewerDefaultMergeMethod mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed pullRequest(number: $number) { id headRefOid headRefName headRepository { nameWithOwner } isMergeQueueEnabled isInMergeQueue mergeQueueEntry { position state } }`
   - `export function pickMergeMethod(op: string, projectPath: string, ctx: Pick<GitHubMergeContext, 'defaultMethod' | 'allowed'>, input?: Pick<MergePullRequestInput, 'mergeMethod' | 'squash'>): MergeMethod`
 - Produces on `GitHubProvider`: `private mergeContext(op: string, projectPath: string, mrIid: number): Promise<GitHubMergeContext>` (one `graphqlOrThrow`; null pull request throws `${op} failed: GitHub returned no pull request for ${projectPath}!${mrIid}`).
 
@@ -177,20 +179,21 @@
 - Modify: `packages/glance/src/errors.ts`, `packages/glance/src/index.ts:132-140` (export)
 - Modify: `packages/glance/src/GitHubProvider.ts:1794-1849` (`mergePullRequest` tail, `removeMergedSourceBranch`), `:970-996` (`fetchSingleMRAfterMutation` verb union gains `'Queued'` for Task 8)
 - Create: `packages/glance/tests/gh-merge-readback.test.ts`
+- Modify: `tests/gh-merge.test.ts` (its `stubGitHub` must serve the context's `headRefName` and `headRepository` for every delete and fork case); `tests/gh-fill-provider.test.ts:930-975` (behaviour change: the REST head-repo read is gone, so its rate-limited and forbidden head-read cases are deleted, and its unknown-head-repo case becomes `headRepository: null` in the context)
 
 **Interfaces:**
-- Consumes: Task 4's `sourceProjectPath`; Task 6's merge path.
+- Consumes: Task 6's merge path and `GitHubMergeContext.headBranch`/`headRepo`.
 - Produces: `export class MergeReadBackFailedError extends ReadBackFailedError { readonly sourceBranchNotDeleted?: string; readonly queued?: MergeQueueEntry; constructor(message: string, details: { operation: string; projectPath: string; iid: number; writeApplied: boolean; cause?: unknown; sourceBranchNotDeleted?: string; queued?: MergeQueueEntry }) }`, `name = 'MergeReadBackFailedError'`. `writeApplied` is a constructor argument (false in Task 8's already-queued case).
-- Produces: `private removeMergedSourceBranch(projectPath: string, mrIid: number, known: { branch: string; repo: string | null } | null): Promise<string | null>`; `known` null means read the PR over REST for `head.ref` and `head.repo.full_name`, as today.
+- Produces: `private removeMergedSourceBranch(branch: string, headRepo: string | null): Promise<string | null>`, fed from the merge context (spec section 4d as amended): no REST read of the PR; a null `headRepo` resolves the "head repository is unknown" reason without a DELETE.
 
 - [ ] **Step 1: Write the failing tests:**
-  - `read-back fails, delete succeeds`: throws `MergeReadBackFailedError` (also `instanceof ReadBackFailedError`), `writeApplied: true`, `sourceBranchNotDeleted` undefined; a REST `GET /repos/o/r/pulls/7` then `DELETE` against the head repo it names.
+  - `read-back fails, delete succeeds`: throws `MergeReadBackFailedError` (also `instanceof ReadBackFailedError`), `writeApplied: true`, `sourceBranchNotDeleted` undefined; the DELETE targets the context's `headRepository` and `headRefName`; no REST `GET /pulls/7`.
   - `read-back fails, delete refused`: `sourceBranchNotDeleted` starts `The source branch "feat" was not deleted:`.
-  - `read-back succeeds`: no REST `GET /pulls/7`; the DELETE targets `pr.sourceProjectPath`; a merge with branch removal makes 4 requests (context, PUT, fill, DELETE).
-  - `a deleted fork reports why and sends no DELETE` (`sourceProjectPath: null`; message names the unknown head repository; Review Focus 5).
+  - `read-back succeeds`: a merge with branch removal makes 4 requests (context, PUT, fill, DELETE) and no REST `GET /pulls/7`; a fork PR's DELETE targets the fork.
+  - `a deleted fork reports why and sends no DELETE`, with the read-back succeeding and with it failing (`headRepository: null`; message names the unknown head repository; Review Focus 5).
   - `without shouldRemoveSourceBranch a failed read-back still throws MergeReadBackFailedError with no branch field`.
 - [ ] **Step 2: Run** the new file. Expected: FAIL.
-- [ ] **Step 3: Implement** the class (exported from `index.ts`) and the reordered tail: read back in a try; remove the branch when asked, from `known` when the read-back succeeded; then return the result or throw `MergeReadBackFailedError` carrying the original message and cause.
+- [ ] **Step 3: Implement** the class (exported from `index.ts`) and the reordered tail: read back in a try; remove the branch when asked, from the merge context; then return the result or throw `MergeReadBackFailedError` carrying the original message and cause.
 - [ ] **Step 4: Run** it plus `tests/gh-merge.test.ts`. Expected: PASS.
 - [ ] **Step 5: Run the gates and commit** `glance: a landed GitHub merge always reports whether its branch was deleted`.
 
@@ -278,7 +281,7 @@
   - `a JSON body still parses` (`await res.json()` equals the served object).
   - `a 404 still resolves with ok false and a readable body`.
   - `a 204 and a 304 resolve with a null body` (Review Focus 3).
-  - `other api() callers keep parsed bodies` (an existing internal caller such as `fetchJobTrace` still returns its text).
+  - `other api() callers keep parsed bodies`: `discussionRepo` (`GitHubProvider.ts:1131`, reached through `fetchMRDiscussions`) still reads its repository.
 - [ ] **Step 2: Run** the new file. Expected: FAIL (pull count equals 64).
 - [ ] **Step 3: Implement** as in Interfaces.
 - [ ] **Step 4: Run** it plus `tests/gh-transport.test.ts` and `tests/gh-forge-reads.test.ts`. Expected: PASS.
@@ -298,13 +301,13 @@
 
 - [ ] **Step 1: Write the cases** (spec section 7), each through `check` with the method name it proves, cleaning up branches and PRs in `finally`:
   - `watchMR`: `pollIntervalMs: 5_000`; `pollUntil` the first update (30s cap); status `polling`; dispose.
-  - `rebasePullRequest`: branch off the default branch, open a PR, advance the base, rebase, `pollUntil` the PR head's parent is the new base head.
+  - `rebasePullRequest`: on two throwaway branches as the GitLab cycle does (`conformance.ts:1966-1972`): a target off the default branch and a one-commit source off the target; open the PR against the target, advance the target, rebase, `pollUntil` the PR head's parent is the target's new head. Never push to the default branch.
   - `mergePullRequest` default method: no method passed; the merge commit's shape matches `viewerDefaultMergeMethod` (squash: one parent and the PR's commits squashed; merge: two parents).
   - squash-only: read the fixture's merge settings; if already squash-only, restore them and record that a killed run left them; set squash-only (`PATCH /repos/{o}/{r}` through `restRequest`), merge with no method and arm auto-merge with no method, restore in `finally`; a 403 or 404 on the PATCH records a skip with the reason.
   - `fetchPullRequestByBranch` / `sourceProjectPath`: a same-repo PR reports the fixture's `owner/repo`.
   - `createPullRequest`: reviewer `glance-no-such-user-<runPrefix>` throws `PartialCreateError` whose `iid` is an open PR; close it.
   - `restRequest`: `GET /repos/{o}/{r}/commits?per_page=100` read through a 4 KiB cap and cancelled; the read stops at the cap.
-  - queue: with `GLANCE_HARNESS_GITHUB_QUEUE_REPO=owner/repo` set, a PR there merged with no input resolves with `queued`; unset, record a skip for `mergePullRequest` "queue path not run: GLANCE_HARNESS_GITHUB_QUEUE_REPO is unset".
+  - queue (an environment variable rather than the spec's credentials-template entry, deliberately: it matches the existing `GLANCE_HARNESS_GITHUB_APPROVER` and sandbox variables and keeps the credentials file unchanged): with `GLANCE_HARNESS_GITHUB_QUEUE_REPO=owner/repo` set, a PR there merged with no input resolves with `queued`; unset, record a skip for `mergePullRequest` "queue path not run: GLANCE_HARNESS_GITHUB_QUEUE_REPO is unset".
 - [ ] **Step 2: Run** `bun run check-types:live` and `bun test tests/live-expectations.test.ts tests/live-report.test.ts` from `packages/glance`. Expected: PASS. Do not run the live suite.
 - [ ] **Step 3: Run the gates and commit** `glance: live conformance cases for watchMR, rebase, merge method, queue and honest reads`.
 
