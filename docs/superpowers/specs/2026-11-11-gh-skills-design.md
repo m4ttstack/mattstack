@@ -192,7 +192,7 @@ Approach 1, with the four calls below made through the shepherd
 - Change resolution: `change_forge` goes; a GitHub change joins
   `mr_ref_in_hand`, so with no PR URL in hand `mr_for_branch` finds it,
   as on GitLab (`resolve-change.block.md` loses "On GitHub it is the PR's
-  URL").
+  URL"). A hit records `mr` as the PR's `webUrl`, never the bare number.
 - `snapshot-records`, `run`, `what-the-graph-cannot-show`, `red-flags`:
   drop `gh` wording.
 
