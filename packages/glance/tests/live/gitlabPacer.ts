@@ -53,6 +53,15 @@ function signalOf(input: string | URL | Request, init?: RequestInit): AbortSigna
   return init?.signal ?? (input instanceof Request ? input.signal : undefined);
 }
 
+/** Settles when `signal` aborts; never, without one. */
+function abortedBy(signal: AbortSignal | undefined): Promise<'aborted'> {
+  return new Promise((resolve) => {
+    if (!signal) return;
+    if (signal.aborted) resolve('aborted');
+    else signal.addEventListener('abort', () => resolve('aborted'), { once: true });
+  });
+}
+
 function urlOf(input: string | URL | Request): URL | null {
   try {
     return new URL(input instanceof Request ? input.url : String(input));
@@ -87,7 +96,9 @@ export class GitLabPacer {
     const paced = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       if (urlOf(input)?.host === this.host) {
         const signal = signalOf(input, init);
-        if (!(await this.take(this.identity(tokenOf(input, init)), signal))) {
+        const aborted = abortedBy(signal);
+        const granted = await Promise.race([this.take(this.identity(tokenOf(input, init)), signal, aborted), aborted]);
+        if (granted !== true) {
           throw signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError');
         }
       }
@@ -118,7 +129,7 @@ export class GitLabPacer {
   }
 
   /** Resolves false when `signal` aborted before the slot came up: that request is never sent, so it takes none. */
-  private take(id: Identity, signal: AbortSignal | undefined): Promise<boolean> {
+  private take(id: Identity, signal: AbortSignal | undefined, aborted: Promise<'aborted'>): Promise<boolean> {
     const spacingMs = WINDOW_MS / this.perMinute;
     const turn = id.queue.then(async () => {
       for (;;) {
@@ -138,9 +149,11 @@ export class GitLabPacer {
           return true;
         }
         if (waitMs >= LOG_WAIT_MS) this.log(`  [gitlab pacer] ${id.label} waiting ${seconds(waitMs)}`);
-        await this.sleep(waitMs);
-        id.waitedMs += waitMs;
-        this.waitedMs += waitMs;
+        const before = this.now();
+        const woke = await Promise.race([this.sleep(waitMs).then(() => 'slept' as const), aborted]);
+        const waited = woke === 'slept' ? waitMs : this.now() - before;
+        id.waitedMs += waited;
+        this.waitedMs += waited;
       }
     });
     id.queue = turn.then(

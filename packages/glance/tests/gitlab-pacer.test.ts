@@ -15,7 +15,9 @@ function harness(perMinute = 80) {
   const pacer = new GitLabPacer({
     perMinute,
     now: () => now,
+    // Yields to the event loop first, as a real timer does, so a granted request reaches fetch before the clock moves.
     sleep: async (ms) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
       waits.push(ms);
       now += ms;
     },
@@ -97,6 +99,35 @@ describe('GitLabPacer', () => {
     expect(h.sent).toHaveLength(1);
     expect(h.pacer.summary()).toContain('1 GitLab request');
     expect(h.lines.at(-1)).toBe('  [gitlab pacer] identity 1: a request was cancelled while it waited; it took no slot');
+  });
+
+  test('a request cancelled during its wait rejects at once and takes no slot', async () => {
+    let now = 1_000_000;
+    const lines: string[] = [];
+    const sent: number[] = [];
+    let sleeping = (): void => {};
+    const pacer = new GitLabPacer({
+      perMinute: 2,
+      now: () => now,
+      sleep: () =>
+        new Promise<void>(() => {
+          sleeping();
+        }),
+      log: (line) => lines.push(line),
+    });
+    const paced = pacer.wrap((async () => {
+      sent.push(now);
+      return new Response('{}');
+    }) as unknown as typeof fetch);
+    await paced('https://gitlab.com/api/v4/user', asOwner);
+    const caller = new AbortController();
+    const asleep = new Promise<void>((resolve) => (sleeping = resolve));
+    const queued = paced('https://gitlab.com/api/v4/user', { ...asOwner, signal: caller.signal });
+    await asleep;
+    caller.abort();
+    await expect(queued).rejects.toMatchObject({ name: 'AbortError' });
+    expect(sent).toHaveLength(1);
+    expect(pacer.summary()).toContain('1 GitLab request');
   });
 
   test('the summary names the total wait per identity and never the token', async () => {
