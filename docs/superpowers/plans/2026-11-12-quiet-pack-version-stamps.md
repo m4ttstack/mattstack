@@ -73,7 +73,7 @@
   - the anatomy sources at `2715-2780`, with `ROOT_VERSION_RE` at `2675` accepting a missing version
 - Modify `apps/console/src/server/waiting.ts:87-100` (`compiledOutputs` adds `pack/compiled.lock.json`), `apps/console/src/app/wiring/parseSeam.ts` (accept a seam without `version=`)
 - Regenerate: `apps/board/skills` (`bun run skills:expand:board`)
-- Test (new cases): `lib/skills/__tests__/drift.test.ts`, `lib/skills/__tests__/placeholders.test.ts`, `lib/skills/__tests__/anatomy.test.ts`, `commands/__tests__/skills-compile-output.test.ts`, `commands/__tests__/skills-check-strict.test.ts`, `apps/console/src/server/waiting.test.ts`
+- Test (new cases): `lib/skills/__tests__/drift.test.ts`, `lib/skills/__tests__/placeholders.test.ts`, `lib/skills/__tests__/anatomy.test.ts`, `commands/__tests__/skills-compile-output.test.ts`, `commands/__tests__/skills-check-strict.test.ts`, `apps/console/src/server/waiting.test.ts`, `apps/console/src/app/wiring/parseSeam.test.ts` (a four-token seam parses)
 - Test (update their `version=` and `compiled:` assertions): `lib/skills/blocks/__tests__/render.test.ts`, `lib/skills/__tests__/compile.test.ts`, `lib/skills/__tests__/compile-blocks.test.ts`, `lib/skills/__tests__/team-params.test.ts`, `lib/skills/__tests__/expand.test.ts`, `lib/skills/__tests__/field-contract.test.ts`, `lib/skills/__tests__/__snapshots__/compile-native.e2e.test.ts.snap`, `commands/__tests__/skills.test.ts`, `commands/__tests__/skills-writing-style.test.ts`, `commands/__tests__/fixtures/skills-blocks-json/mini.txt`
 
 **Interfaces:**
@@ -90,7 +90,7 @@
   - `drift.test.ts`, `"partExtents reads seams with and without version"`: an old seam with `version=0.4.11` and a new one without give `version` `"0.4.11"` and `null`, with the same `start`/`end` as today.
   - `drift.test.ts`, `"maskProvenance makes an old and a new seam compare equal"`.
   - `anatomy.test.ts`, `"builtVersion falls back to the lock"`: `builtVersionOf(null, "acme", {acme: "0.4.12"})` is `"0.4.12"`, and `builtVersionOf("0.4.11", "acme", {acme: "0.4.12"})` is `"0.4.11"`.
-  - `skills-compile-output.test.ts`, `"a version-only bump changes only plugin.json and the lock"`: compile an `acme` fixture in a temp git repo, commit, bump `plugin.json`, recompile; `git status --porcelain` lists exactly `.claude-plugin/plugin.json` and `pack/compiled.lock.json`.
+  - `skills-compile-output.test.ts`, `"a version-only bump changes only plugin.json and the lock"`: compile an `acme` fixture with no `@keys` and no pipeline (Tasks 4 and 5 remove the other two stamps; Task 5 repeats this test with both) in a temp git repo, commit, bump `plugin.json`, recompile; `git status --porcelain` lists exactly `.claude-plugin/plugin.json` and `pack/compiled.lock.json`.
   - `skills-compile-output.test.ts`, `"a --verb compile leaves other targets' lock entries alone"`.
   - `skills-check-strict.test.ts`, `"check never reads the lock"`: hand-edit the lock; check exits 0 with no stale file and no compile error. Sync's compile always rewrites the lock, so check has nothing to report.
   - `waiting.test.ts`, `"a lock-only commit counts as a compile"`.
@@ -118,7 +118,7 @@
   - `"a base copy's compiled.json carries no version"`.
   - `"originFor reads baseVersion from the lock"`.
   - `"originFor still reads an old copy's own version"`.
-  - `"an org base bump changes only the lock"`: compile, bump the base `plugin.json`, recompile; only `pack/compiled.lock.json` changes in the team pack.
+  - `"an org base bump changes only the lock"`: with the same keyless, pipeline-free fixture as Task 2, compile, bump the base `plugin.json`, recompile; only `pack/compiled.lock.json` changes in the team pack.
   - `"a --verb compile keeps the base version"`: after a `--verb` compile that emits no base copy, `bases` and the console's `baseVersion` are unchanged.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement.**
@@ -177,7 +177,7 @@ Pointers here are `@keys`. Resolve them once per run: if you already hold a `ski
 - Create: `lib/runs/installed-provenance.ts`
 - Modify: `lib/skills/placeholders.ts:338-353` (`runStartFlags` emits no `--mattstack-sha`, `--mattstack-dirty` or `--pack-sha`), `commands/skills.ts:698` (drop the `computePackSha` call and the `mattstackSha`/`mattstackDirty` context fields that fed it)
 - Modify: `lib/mcp/run-tools.ts` `prepareStart` (append `--skill-dir <skillDir>` beside `--pack-dirs`), `commands/runs-write.ts` and `lib/runs/start.ts` (accept `--skill-dir`, and call `installedProvenance` when `packProvenance` finds no git checkout)
-- Modify: `apps/console/src/server/effectiveInputs.ts` (`parsePackCommits` keeps version tokens; `PackVersionRow` gains `recordedVersion: string | null`, with `recordedSha: null` for one), `apps/console/src/app/runs/EffectiveInputs.tsx` (a version row shows the version, with no drift and no count)
+- Modify: `apps/console/src/server/effectiveInputs.ts` (`parsePackCommits` keeps version tokens; `PackVersionRow` gains `recordedVersion: string | null`, with `recordedSha: null` for one), `apps/console/src/app/runs/EffectiveInputs.tsx` (a version row shows the version, with no drift and no count), `apps/console/src/server/fixtures/design/runsFixture.ts` (a run whose `pack_commits` carries a version token)
 - Test: `lib/runs/__tests__/installed-provenance.test.ts`, `lib/runs/__tests__/write.test.ts`, `lib/skills/__tests__/placeholders.test.ts`, `apps/console/src/server/effectiveInputs.test.ts`, `apps/console/src/server/stageDoc.test.ts`, `e2e/tests/runs.test.ts` (update its baked-flag expectations)
 
 **Interfaces:**
@@ -202,10 +202,11 @@ Pointers here are `@keys`. Resolve them once per run: if you already hold a `ski
   - `write.test.ts`, `"old baked flags still record provenance"`: the existing case passes unchanged.
   - `effectiveInputs.test.ts`, `"a version token shows a version row"`: `acme=0.4.11` gives `{ pack: "acme", recordedSha: null, recordedVersion: "0.4.11", drifted: null }`.
   - `stageDoc.test.ts`, `"a sync-commit sha finds the stage doc"`.
+  - `skills-compile-output.test.ts`, `"a version-only bump changes only plugin.json and the lock, with keys and a pipeline"`: the Task 2 test, on a fixture with `@keys` and a pipeline, committing between compiles so the org HEAD moves. This is the end-to-end proof of the first Goal.
 - [ ] **Step 2: Run them.** Expected: FAIL on the new cases.
 - [ ] **Step 3: Implement `installedProvenance` and `realOrgCloneFor`, then wire `--skill-dir` through `prepareStart` and `start.ts`.**
 - [ ] **Step 4: Implement the console's version row.**
-- [ ] **Step 5: Run the Step 1 files, `bun run test:e2e -- e2e/tests/runs.test.ts` and `bun run console:test`.** Expected: PASS.
+- [ ] **Step 5: Run the Step 1 files, `bun test --preload ./e2e/setup.ts --timeout 60000 e2e/tests/runs.test.ts` and `bun run console:test`.** Expected: PASS.
 - [ ] **Step 6: Render the run detail's effective inputs** on the `runs` design fixture, with a run carrying a version token, in light and dark (see Global Constraints).
 - [ ] **Step 7: Commit** `runs: work out pack provenance at run start`.
 
@@ -244,7 +245,7 @@ Pointers here are `@keys`. Resolve them once per run: if you already hold a `ski
   - `export function maskStamps(path: string, text: string): string`. It applies `maskProvenance`, also masks the `--mattstack-dirty` value, and masks unit-id versions (`<plugin>@<v>:` → `<plugin>@*:`), the `id`/`covers` versions and a base copy's `version` in `compiled.json`, the `version` in `plugin.json` and `minEngine` in `requires.json`. `pack/compiled.lock.json` masks to a constant.
   - `export function isVersionOnly(changes: { path: string; before: string | null; after: string | null }[]): boolean`. It is true only when `changes` is non-empty and every file is present on both sides with equal masked text.
   - The `--json` envelope (frozen): `{ "versionOnly": string[] }`, the input shas that are version-only.
-  - The cache: `~/.mattstack/rt/cache/history-classify/<repo key>.json`, holding `{ rule: number; shas: Record<string, boolean> }`. A file with a different `rule` is ignored and rewritten.
+  - The cache: `~/.mattstack/rt/cache/history-classify/<repo identity>.json`, where the repo identity is the org clone's serialized identity from rt-client (`docs/repo-identity.md`), never a derived name, holding `{ rule: number; shas: Record<string, boolean> }`. A file with a different `rule` is ignored and rewritten.
 
 - [ ] **Step 1: Write the failing tests** (in a temp git repo, with commits built in the old stamp shapes: versioned ids, `version=` seams and baked flags):
   - `"a sync commit that only moved versions is version-only"`

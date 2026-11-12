@@ -153,8 +153,9 @@ clone), run start records `<pack>=<version>`. The console's stage-doc
 panel already parses a version token; its drift row drops one today, so
 it gains a version-only row.
 
-`pack_commits` keeps its `name=value,...` shape, so the console's drift
-row and stage-doc panel read it unchanged. The stage-doc panel now shows
+`pack_commits` keeps its `name=value,...` shape, so the stage-doc panel
+reads it unchanged and the drift row needs only the version-only row
+above. The stage-doc panel now shows
 the text the run actually used.
 
 The old flags stay accepted by `rt run start`, `rt runs run-start` and
@@ -264,8 +265,7 @@ pack that inlines it, because that is a content change.
 
 ## Left to the builder
 
-- The lock's exact file name and key order, and whether `check` reports
-  a stale lock under its own cause.
+- The lock's exact key order.
 - How run start finds the bump commit (walking `plugin.json` history on
   the data branch, the way `committedSinceBump` walks it, is the obvious
   start).
