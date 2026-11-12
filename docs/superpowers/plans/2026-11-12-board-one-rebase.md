@@ -15,7 +15,7 @@
 - No clock ends the forge wait: it ends on the forge's answer or a cancel. Step 2 keeps `LOCAL_SYNC_TIMEOUT_MS` and rt sync's ceiling unchanged.
 - Step 1 is chosen by capability (`canRebase`), never by forge name.
 - The board reads and writes GitHub only through the daemon (`rtCommand`), never its own provider.
-- GitLab calls go through #1103's single GitLab accessor (name it as #1103 lands it).
+- GitLab calls go through the server's `gitlab()` accessor (`apps/board/src/server.ts:627`).
 - One `LOCAL_SYNCS` lock per MR covers the whole chain.
 - Live forge runs: Matt approves each, `m4ttheweric/glance-conformance` only, never PR #177, never read/copy/stage the harness credentials file, tell justin (`rt chat dm justin.xjdp`) before running.
 - UI copy follows `rt:ui-copy`; no `·` separators; tokens per `docs/apps/ui-authoring.md`.
@@ -82,7 +82,7 @@ Not code. Decides whether GitHub needs a wait at all.
     pollMs?: number;                             // default 5_000 (rt's REBASE_POLL_MS)
   }
   export function forgeRebase(deps: ForgeRebaseDeps): Promise<ForgeRebaseResult>;
-  export function gitlabRebaseDeps(...): Omit<ForgeRebaseDeps,'signal'|'sleep'>;  // via #1103's GitLab accessor, fetchSingleMR
+  export function gitlabRebaseDeps(...): Omit<ForgeRebaseDeps,'signal'|'sleep'>;  // takes the server's `gitlab()` provider (`apps/board/src/server.ts:627`, `Promise<GitLabProvider>`; refuses with 'gitlab token not configured' when there is no token), the `projectPathFromWebUrl(mr.webUrl, config)` path (`data.ts:109`) and the iid; `read` = `provider.fetchSingleMR(path, iid, null)`, `rebase` = `provider.rebasePullRequest(path, iid)`
   export function githubRebaseDeps(repoName: string, iid: number, command = rtCommand): Omit<ForgeRebaseDeps,'signal'|'sleep'>; // mr:action rebase, mr:get refresh:true
   ```
 
@@ -157,7 +157,7 @@ Not code. Decides whether GitHub needs a wait at all.
 ### Task 4: Server wiring
 
 **Files:**
-- Modify: `apps/board/src/server.ts` (`/doctor` `mode: 'rebase'` branch; new `POST /rebase/cancel`; #1103's GitHub refusal)
+- Modify: `apps/board/src/server.ts` (`/doctor` `mode: 'rebase'` branch; new `POST /rebase/cancel`; the `onGitHub(mr)` refusal at `/mr/action`, `server.ts:3511`: `if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 })`, plus the team-level `config.forge.kind === 'github'` refusal at `server.ts:3862`; `/doctor` has neither today)
 - Modify: `apps/board/src/doctor-state.ts` (`parseDoctorRequestBody` unchanged)
 - Test: `apps/board/src/__tests__/server-rebase-chain.test.ts` (use the `board-server.ts` harness the other `server-*.test.ts` files use)
 
@@ -174,7 +174,7 @@ Not code. Decides whether GitHub needs a wait at all.
   - `a GitHub forge rebase re-reads the PR`: fake daemon records `mr:get` with `refresh:true` after `mr:action rebase`, and the cache is invalidated.
   - `server start fails an orphaned forge-rebasing row`: seed state `forge-rebasing`, boot → `sync-stopped`.
 - [ ] **Step 2:** `bun test src/__tests__/server-rebase-chain.test.ts`: FAIL.
-- [ ] **Step 3: Implement.** Move the "no doctor skill" 409 below the chain: only the `paused` end with `doctor:true` continues into today's `launchDoctor` path. Pick deps by the row's forge (#1103's forge value): GitHub → `githubRebaseDeps(repo, iid)`; GitLab → `gitlabRebaseDeps(...)`. `skipForge = !!mr.blockers?.hasConflicts`. After `forge-done` call `cache.invalidate()`. Hold the `AbortController` in `REBASE_ABORTS` inside the existing `LOCAL_SYNCS` try/finally.
+- [ ] **Step 3: Implement.** Move the "no doctor skill" 409 below the chain: only the `paused` end with `doctor:true` continues into today's `launchDoctor` path. Pick deps by the row's forge (`onGitHub(mr)` from `apps/board/src/mr-ref.ts:12`: true when `mr.provider === 'github'`, else when `mr.webUrl` contains `github.com`; `forgeWord(mr)` gives `'github'|'gitlab'`): GitHub → `githubRebaseDeps(repo, iid)`; GitLab → `gitlabRebaseDeps(...)`. `skipForge = !!mr.blockers?.hasConflicts`. After `forge-done` call `cache.invalidate()`. Hold the `AbortController` in `REBASE_ABORTS` inside the existing `LOCAL_SYNCS` try/finally.
 - [ ] **Step 4:** Tests PASS, plus `bun test src/__tests__/server-doctor-ring.test.ts src/__tests__/server-own-mr.test.ts`.
 - [ ] **Step 5:** Commit `board: /doctor rebase mode runs the forge-first chain`.
 
@@ -214,7 +214,7 @@ Not code. Decides whether GitHub needs a wait at all.
 - [ ] **Step 1: Write failing tests:**
   - `own behind MR shows one rebase item`: `behindTarget: 3` → exactly one item with key `rebase` and label `rebase`; no `rebase-local`, no forge-section `rebase`.
   - `shows for conflicts, the GitLab button, and needs-rebase readiness`: each of `blockers.hasConflicts`, `rebaseButton.visible`, `readiness.reasons: ['behind']` alone shows it.
-  - `shows on a GitHub row`: (un-hides #1103's hidden rebase).
+  - `shows on a GitHub row`: (un-hides the rebase `row-actions.ts` hides on GitHub rows: `const github = onGitHub(mrx)` at line 614 gates the whole GitLab-actions block, `if (env.local && own && !github)` at line 615, which holds the forge `rebase` item at line 639).
   - `shows on a tab with no doctor skill`: `doctorSkillTabs: ['other']` still shows it.
   - `blocked while running`: doctor status `forge-rebasing` or `syncing` → blocked `rebasing`.
   - `hidden on an up-to-date MR and on others' MRs`.
