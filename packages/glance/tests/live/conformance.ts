@@ -1386,17 +1386,22 @@ async function awaitRead(
       return accept(found) ? { hit: found } : null;
     });
     return hit;
-  } catch {
-    const last = await read().catch(() => null);
-    const seen = last
-      ? JSON.stringify({
-          thread: last.discussion.id,
-          body: last.note.body,
-          resolved: last.discussion.resolved,
-          position: last.note.position
-        })
-      : 'no such note';
-    throw new Error(`${label}; the last re-read saw ${seen}`);
+  } catch (pollErr) {
+    let seen: string;
+    try {
+      const last = await read();
+      seen = last
+        ? JSON.stringify({
+            thread: last.discussion.id,
+            body: last.note.body,
+            resolved: last.discussion.resolved,
+            position: last.note.position
+          })
+        : 'no such note';
+    } catch (readErr) {
+      seen = `nothing, the re-read failed too: ${readErr instanceof Error ? readErr.message : String(readErr)}`;
+    }
+    throw new Error(`${pollErr instanceof Error ? pollErr.message : String(pollErr)}; the last re-read saw ${seen}`);
   }
 }
 
@@ -1422,7 +1427,11 @@ async function runCommentWriteConformance(
   const stamp = Date.now().toString(36);
   const generalThreads = provider.capabilities.canReplyToGeneralComments;
   let repoIdRead: Promise<string> | undefined;
-  const repoId = () => (repoIdRead ??= scopedRepoId(fixture));
+  const repoId = () =>
+    (repoIdRead ??= scopedRepoId(fixture).catch((err: unknown) => {
+      repoIdRead = undefined;
+      throw err;
+    }));
   const noteNow = async (noteId: number) => findNote(fixture, await repoId(), iid, noteId);
 
   let general: NoteWriteResult | null = null;
@@ -1698,6 +1707,11 @@ async function runCommentWriteConformance(
       h => h !== null
     );
     assert(summaryHit !== null, 'the review summary did not read back');
+    const readsAsReview = /^gh-review-\d+$/.test(summaryHit.discussion.id);
+    assert(
+      (out.reviewId !== null) === readsAsReview,
+      `the summary reads back in thread "${summaryHit.discussion.id}" but reviewId is ${out.reviewId}`
+    );
     if (out.reviewId !== null) {
       assert(
         summaryHit.discussion.id === `gh-review-${out.reviewId}` && summaryHit.note.id === out.reviewId,
