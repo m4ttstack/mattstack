@@ -1,4 +1,8 @@
-import { activeTeamRoster, getSetting } from '@mattstack/rt-client';
+import {
+  activeTeamRoster,
+  getSetting,
+  mayOfferGitLabTokenToHost,
+} from '@mattstack/rt-client';
 import type { RangePreset } from '../../shared/types.js';
 
 /** Politeness cap on concurrent GitLab requests; a code constant since the fold. */
@@ -36,8 +40,10 @@ export interface BoxscoreSettings {
   ignoredMrs: string[];
   botPatterns: string[];
   defaultRange: RangePreset;
-  /** "" = GitLab unconfigured. */
+  /** The only host the GitLab token goes to; "" = no host the person may send it to. */
   baseUrl: string;
+  /** The team-declared host, shown in the setup hint and never fetched with the token. "" = none declared. */
+  declaredHost: string;
   /** Raw `boxscore.roles`; resolveViewer validates it. */
   roles: unknown;
 }
@@ -89,10 +95,24 @@ interface Integrations {
   forge?: { host?: string };
 }
 
-function baseUrlFrom(host: string | undefined): string {
-  if (!host) return '';
-  const url = /^https?:\/\//.test(host) ? host : `https://${host}`;
-  return url.replace(/\/+$/, '');
+const BARE_HOST = /^[a-z0-9.-]+(:\d+)?$/i;
+
+function hostOf(value: string | undefined): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .toLowerCase();
+}
+
+/** The confirmed host when it may take a GitLab token, else a declared gitlab.com; never any other declared host. */
+function trustedGitLabHost(declared: string, confirmed: unknown): string {
+  if (typeof confirmed === 'string' && BARE_HOST.test(confirmed)) {
+    const host = confirmed.toLowerCase();
+    if (mayOfferGitLabTokenToHost(host, confirmed)) return host;
+  }
+  return mayOfferGitLabTokenToHost(declared, null) ? declared : '';
 }
 
 /** Every read resolves the stores fresh; nothing here caches across calls (spec 5.3). */
@@ -101,6 +121,9 @@ export function readSettings(): BoxscoreSettings {
   const hiddenMembers = read<string[]>('boxscore.hiddenMembers') ?? [];
   const hidden = new Set(hiddenMembers);
   const integrations = read<Integrations>('mattstack.integrations') ?? {};
+  const declaredHost = hostOf(integrations.forge?.host);
+  const confirmed = read<{ forgeHost?: unknown }>('rt.integrations')?.forgeHost;
+  const trusted = trustedGitLabHost(declaredHost, confirmed);
   return {
     projects: read<string[]>('boxscore.projects') ?? [],
     roster,
@@ -115,7 +138,8 @@ export function readSettings(): BoxscoreSettings {
     ignoredMrs: read<string[]>('boxscore.ignoredMrs') ?? [],
     botPatterns: read<string[]>('boxscore.botPatterns') ?? [],
     defaultRange: read<RangePreset>('boxscore.defaultRange') ?? '30d',
-    baseUrl: baseUrlFrom(integrations.forge?.host),
+    baseUrl: trusted ? `https://${trusted}` : '',
+    declaredHost,
     roles: read<unknown>('boxscore.roles') ?? {},
   };
 }

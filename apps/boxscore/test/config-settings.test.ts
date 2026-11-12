@@ -32,6 +32,7 @@ describe('readSettings', () => {
         'mattstack.integrations': {
           forge: { host: 'gitlab.example', provider: 'gitlab' },
         },
+        'rt.integrations': { forgeHost: 'gitlab.example' },
       },
       [
         { username: 'ada', name: 'Ada L' },
@@ -86,11 +87,11 @@ describe('readSettings', () => {
     expect(s.baseUrl).toBe('');
   });
 
-  it('keeps an already-URL forge host as-is and clips a trailing slash', () => {
+  it('reads a declared gitlab.com written as a URL with a trailing slash', () => {
     store({
-      'mattstack.integrations': { forge: { host: 'https://gl.example/' } },
+      'mattstack.integrations': { forge: { host: 'https://gitlab.com/' } },
     });
-    expect(readSettings().baseUrl).toBe('https://gl.example');
+    expect(readSettings().baseUrl).toBe('https://gitlab.com');
   });
 
   it('reads fresh on every call (no module cache)', () => {
@@ -128,5 +129,52 @@ describe('readSettings', () => {
     expect(readSettings().roles).toEqual({ ada: 'team' });
     store({});
     expect(readSettings().roles).toEqual({});
+  });
+});
+
+describe('readSettings: which GitLab host gets the token', () => {
+  const declared = (host: string) => ({
+    'mattstack.integrations': { forge: { host, provider: 'gitlab' } },
+  });
+
+  it('leaves GitLab unconfigured when only the team declares a host', () => {
+    store(declared('gitlab.team.example'));
+    const s = readSettings();
+    expect(s.baseUrl).toBe('');
+    expect(s.declaredHost).toBe('gitlab.team.example');
+  });
+
+  it('uses the host the person confirmed', () => {
+    store({
+      ...declared('gitlab.corp.example'),
+      'rt.integrations': { forgeHost: 'gitlab.corp.example' },
+    });
+    expect(readSettings().baseUrl).toBe('https://gitlab.corp.example');
+  });
+
+  it('uses the confirmed host, never a different team-declared one', () => {
+    store({
+      ...declared('gitlab.team.example'),
+      'rt.integrations': { forgeHost: 'gitlab.corp.example' },
+    });
+    expect(readSettings().baseUrl).toBe('https://gitlab.corp.example');
+  });
+
+  it('trusts a declared gitlab.com with no confirmed host', () => {
+    store(declared('gitlab.com'));
+    expect(readSettings().baseUrl).toBe('https://gitlab.com');
+  });
+
+  it('never treats a confirmed github.com as a GitLab host', () => {
+    store({
+      ...declared('gitlab.team.example'),
+      'rt.integrations': { forgeHost: 'github.com' },
+    });
+    expect(readSettings().baseUrl).toBe('');
+  });
+
+  it('ignores a confirmed host that is not a bare hostname', () => {
+    store({ 'rt.integrations': { forgeHost: 'https://gitlab.corp.example/x' } });
+    expect(readSettings().baseUrl).toBe('');
   });
 });

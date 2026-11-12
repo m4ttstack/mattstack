@@ -39,6 +39,7 @@ const SETTINGS: BoxscoreSettings = {
   botPatterns: [],
   defaultRange: '30d',
   baseUrl: ENV.baseUrl,
+  declaredHost: 'gl.example',
   roles: {},
 };
 
