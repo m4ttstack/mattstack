@@ -85,6 +85,7 @@ import {
   loadGitLabToken,
   loadSlackToken,
   loadSwitchboardAdminToken,
+  noRepoIdentity,
   parseConfig,
   readSwitchboardToken,
   repoIdentityField,
@@ -911,9 +912,7 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
-      errors.push(
-        `${projectPath}: could not derive its rt repo identity from the team's forge host`
-      );
+      errors.push(noRepoIdentity(config, projectPath));
       continue;
     }
     const res = await readProjectMRs(repoId, force ? 0 : undefined, {}, demand);
@@ -1327,7 +1326,7 @@ async function readOwnerRules(
     return {
       ok: false,
       status: 400,
-      message: `${projectPath ?? mr.webUrl}: could not derive its rt repo identity from the team's forge host`,
+      message: noRepoIdentity(config, `${projectPath ?? mr.webUrl}`),
     };
   }
   const res = await rtCommand<ForgeGetData>(
@@ -1900,9 +1899,7 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
-      errors.push(
-        `${projectPath}: could not derive its rt repo identity from the team's forge host`
-      );
+      errors.push(noRepoIdentity(config, projectPath));
       continue;
     }
     const res = await readProjectMRs(repoId, 20_000);

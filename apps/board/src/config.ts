@@ -198,6 +198,19 @@ export function gitlabOnly(config: Pick<BoardConfig, 'forge'>): string {
   return config.forge.host;
 }
 
+/** Why a project path got no rt repo identity, naming the setting the
+    forge came from. */
+export function noRepoIdentity(
+  config: Pick<BoardConfig, 'forge'>,
+  subject: string
+): string {
+  const source =
+    config.forge.kind === 'gitlab'
+      ? 'board.gitlabHost'
+      : "the team's forge host in mattstack.integrations";
+  return `${subject}: could not derive its rt repo identity from ${source}`;
+}
+
 export interface BoardConfig {
   /** board.gitlabHost when set, else the team's GitHub forge from mattstack.integrations. */
   forge: BoardForge;

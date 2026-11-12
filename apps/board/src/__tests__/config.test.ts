@@ -4,6 +4,7 @@ import { switchboardUrl } from '@mattstack/rt-client';
 import {
   boardSetting,
   daemonRepoField,
+  noRepoIdentity,
   parseConfig,
   repoIdentityField,
   resetBoardSettingWarnings,
@@ -442,5 +443,29 @@ describe('boardSetting', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('noRepoIdentity', () => {
+  test('a GitLab board names board.gitlabHost, as it always has', () => {
+    expect(
+      noRepoIdentity(
+        { forge: { kind: 'gitlab', host: 'https://gitlab.com' } },
+        'org/repo'
+      )
+    ).toBe(
+      'org/repo: could not derive its rt repo identity from board.gitlabHost'
+    );
+  });
+
+  test("a GitHub board names the team's forge host in mattstack.integrations", () => {
+    expect(
+      noRepoIdentity(
+        { forge: { kind: 'github', host: 'github.test' } },
+        'org/repo'
+      )
+    ).toBe(
+      "org/repo: could not derive its rt repo identity from the team's forge host in mattstack.integrations"
+    );
   });
 });
