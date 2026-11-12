@@ -58,6 +58,7 @@ export interface ThreadContext {
   forge?: "gitlab" | "github";
   provider: ThreadProvider;
   projectPath: string;
+  projectId?: number | null;
 }
 
 /**
@@ -135,6 +136,11 @@ export async function fetchMrDiffs(
 function mrWebUrl(ctx: ThreadContext, iid: number): string {
   const base = `${ctx.provider.baseURL}/${ctx.projectPath}`;
   return ctx.forge === "github" ? `${base}/pull/${iid}` : `${base}/-/merge_requests/${iid}`;
+}
+
+/** GitLab answers a non-GET on a moved project's old path with 404, so its writes go by numeric id. */
+function writeRef(ctx: ThreadContext): string {
+  return ctx.forge !== "github" && ctx.projectId != null ? String(ctx.projectId) : ctx.projectPath;
 }
 
 const GITHUB_THREAD_KINDS: Array<[prefix: string, kind: NonNullable<NoteRef["kind"]>]> = [
@@ -316,7 +322,7 @@ export function createDiscussionHandlers(
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        const created = await repoCtx.provider.replyToDiscussion(repoCtx.projectPath, iid, discussionId, body);
+        const created = await repoCtx.provider.replyToDiscussion(writeRef(repoCtx), iid, discussionId, body);
         // A refresh failure must never turn a landed reply into ok:false: the
         // caller would retry and post it twice.
         const refreshed = await refreshFn(repoName, iid).catch((err) => {
@@ -406,7 +412,7 @@ export function createDiscussionHandlers(
         if (position.oldPath !== undefined) commentAnchor.oldPath = position.oldPath;
         if (!github && position.oldLine !== undefined) commentAnchor.oldLine = position.oldLine;
 
-        const postOnce = () => repoCtx.provider.createInlineComment(repoCtx.projectPath, iid, body, commentAnchor);
+        const postOnce = () => repoCtx.provider.createInlineComment(writeRef(repoCtx), iid, body, commentAnchor);
 
         // Awaited (not fire-and-forget): a caller reading discussions right
         // after this resolves must see its own just-posted comment. A refresh
@@ -435,7 +441,7 @@ export function createDiscussionHandlers(
         // position). It must be deleted before the retry: leaving it would
         // strand a duplicate, unpositioned copy of the comment on the MR.
         try {
-          await repoCtx.provider.deleteComment(repoCtx.projectPath, iid, { id: first.noteId });
+          await repoCtx.provider.deleteComment(writeRef(repoCtx), iid, { id: first.noteId });
         } catch (err) {
           return { ok: false, error: `could not delete stray note ${first.noteId}: ${String(err)}` };
         }
@@ -457,7 +463,7 @@ export function createDiscussionHandlers(
         }
 
         try {
-          await repoCtx.provider.deleteComment(repoCtx.projectPath, iid, { id: second.noteId });
+          await repoCtx.provider.deleteComment(writeRef(repoCtx), iid, { id: second.noteId });
         } catch (err) {
           return { ok: false, error: `could not delete stray note ${second.noteId}: ${String(err)}` };
         }
@@ -492,15 +498,17 @@ export function createDiscussionHandlers(
       const repoPath = ctx.repoIndex()[repoName];
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
-        const created = await repoCtx.provider.createComment(repoCtx.projectPath, iid, body, { resolvable: p.resolvable !== false });
+        const created = await repoCtx.provider.createComment(writeRef(repoCtx), iid, body, { resolvable: p.resolvable !== false });
 
         // A refresh failure must never turn a landed note into ok:false: the
         // caller would retry and post it twice.
         await refreshFn(repoName, iid).catch((err) =>
           log.warn({ err, repoName, iid }, "mr:comment: post-comment discussions refresh failed"));
 
-        const { noteId, discussionId, resolvable, url } = created;
-        return { ok: true, data: { noteId, discussionId, resolvable, url, mrUrl: mrWebUrl(repoCtx, iid) } };
+        const { noteId, discussionId, resolvable } = created;
+        const mrUrl = mrWebUrl(repoCtx, iid);
+        const url = repoCtx.forge === "github" ? created.url : `${mrUrl}#note_${noteId}`;
+        return { ok: true, data: { noteId, discussionId, resolvable, url, mrUrl } };
       } catch (err) {
         if (err instanceof EmptyDiscussionError) {
           return { ok: false, error: `GitLab created discussion ${err.discussionId} with no notes` };
@@ -539,7 +547,7 @@ export function createDiscussionHandlers(
           const kind = githubNoteKind(cached?.discussions ?? [], noteId);
           if (kind) note.kind = kind;
         }
-        await repoCtx.provider.updateComment(repoCtx.projectPath, iid, note, body);
+        await repoCtx.provider.updateComment(writeRef(repoCtx), iid, note, body);
 
         await refreshFn(repoName, iid).catch((err) =>
           log.warn({ err, repoName, iid }, "mr:note-update: post-edit discussions refresh failed"));
@@ -591,7 +599,7 @@ export function createDiscussionHandlers(
 
         const github = repoCtx.forge === "github";
         const comments: ReviewComment[] = github ? parsed.input.comments.map(githubReviewComment) : input.comments;
-        const outcome = await repoCtx.provider.submitReview(repoCtx.projectPath, iid, { ...input, comments });
+        const outcome = await repoCtx.provider.submitReview(writeRef(repoCtx), iid, { ...input, comments });
         if (!outcome.published) return { ok: true, data: { ...outcome, mrUrl } };
         const { reviewId, reviewerState: reviewState, ...published } = outcome;
 
@@ -616,10 +624,10 @@ export function createDiscussionHandlers(
             }
           }
         }
-        const { provider, projectPath } = repoCtx;
+        const { provider } = repoCtx;
         const readStates = async () => {
           if (!provider.fetchReviewerStates) throw new Error("the GitLab provider cannot read reviewer states");
-          return provider.fetchReviewerStates(projectPath, iid);
+          return provider.fetchReviewerStates(writeRef(repoCtx), iid);
         };
         const states = await readStates().catch((err) => {
           log.warn({ err, repoName, iid }, "mr:review-submit: reviewer state read failed");

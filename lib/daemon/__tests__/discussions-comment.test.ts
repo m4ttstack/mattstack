@@ -14,9 +14,11 @@ import { fakeStore } from "./fake-cache-store.ts";
 const fakeCtx = { repoIndex: () => ({}), cache: fakeStore({}) };
 const IDENTITY = "remote:gitlab.com%2Fg%2Fsub%2Frepo-tools";
 const MR_URL = "https://gitlab.example.com/g/sub/repo-tools/-/merge_requests/7";
+const PROJECT_ID = 42;
 
+/** glance builds a GitLab note url from its first argument, here the numeric id. */
 function written(noteId: number, discussionId: string | null, resolvable: boolean): NoteWriteResult {
-  return { noteId, discussionId, resolvable, url: `${MR_URL}#note_${noteId}` };
+  return { noteId, discussionId, resolvable, url: `https://gitlab.example.com/${PROJECT_ID}/-/merge_requests/7#note_${noteId}` };
 }
 
 function makeSeams(provider: Partial<ThreadProvider>, refresh?: DiscussionHandlerSeams["refresh"]): DiscussionHandlerSeams {
@@ -25,6 +27,7 @@ function makeSeams(provider: Partial<ThreadProvider>, refresh?: DiscussionHandle
     repoContext: async () => ({
       provider: { baseURL: "https://gitlab.example.com", createComment: unexpected, replyToDiscussion: unexpected, ...provider } as ThreadProvider,
       projectPath: "g/sub/repo-tools",
+      projectId: PROJECT_ID,
     }),
     refresh: refresh ?? (async () => undefined),
   };
@@ -51,7 +54,7 @@ describe("mr:comment", () => {
       createComment: async (...a) => { args = a; return written(101, "d1", true); },
     }));
     const res = await h["mr:comment"]({ repoName: IDENTITY, iid: 7, body: "summary" });
-    expect(args).toEqual(["g/sub/repo-tools", 7, "summary", { resolvable: true }]);
+    expect(args).toEqual(["42", 7, "summary", { resolvable: true }]);
     expect(res).toEqual({
       ok: true,
       data: { noteId: 101, discussionId: "d1", resolvable: true, url: `${MR_URL}#note_101`, mrUrl: MR_URL },
@@ -64,7 +67,7 @@ describe("mr:comment", () => {
       createComment: async (...a) => { args = a; return written(202, null, false); },
     }));
     const res = await h["mr:comment"]({ repoName: IDENTITY, iid: 7, body: "summary", resolvable: false });
-    expect(args).toEqual(["g/sub/repo-tools", 7, "summary", { resolvable: false }]);
+    expect(args).toEqual(["42", 7, "summary", { resolvable: false }]);
     expect(res).toEqual({
       ok: true,
       data: { noteId: 202, discussionId: null, resolvable: false, url: `${MR_URL}#note_202`, mrUrl: MR_URL },
@@ -132,6 +135,25 @@ describe("mr:comment", () => {
   });
 });
 
+describe("discussions:resolve on GitLab", () => {
+  test("resolves and reopens by the project path, not the numeric id", async () => {
+    const calls: unknown[][] = [];
+    const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(
+      {
+        resolveDiscussion: async (...a) => { calls.push(["resolve", ...a]); },
+        unresolveDiscussion: async (...a) => { calls.push(["unresolve", ...a]); },
+      },
+      async () => ({ discussions: [], fetchedAt: 1 }),
+    ));
+    await h["discussions:resolve"]({ repoName: IDENTITY, iid: 7, discussionId: "d1" });
+    await h["discussions:resolve"]({ repoName: IDENTITY, iid: 7, discussionId: "d1", resolved: false });
+    expect(calls).toEqual([
+      ["resolve", "g/sub/repo-tools", 7, "d1"],
+      ["unresolve", "g/sub/repo-tools", 7, "d1"],
+    ]);
+  });
+});
+
 describe("discussions:reply", () => {
   const origHome = process.env.HOME;
   let home: string;
@@ -155,7 +177,7 @@ describe("discussions:reply", () => {
       async () => ({ discussions: list, fetchedAt: 5 }),
     ));
     const res = await h["discussions:reply"]({ repoName: IDENTITY, iid: 7, discussionId: "d1", body: "reply" });
-    expect(args).toEqual(["g/sub/repo-tools", 7, "d1", "reply"]);
+    expect(args).toEqual(["42", 7, "d1", "reply"]);
     expect(res).toEqual({ ok: true, data: { discussions: list, fetchedAt: 5, noteId: 301 } });
   });
 

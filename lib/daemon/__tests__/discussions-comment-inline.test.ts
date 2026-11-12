@@ -16,6 +16,7 @@ const fakeCtx = { repoIndex: () => ({}), cache: fakeStore({}) };
 
 const IDENTITY = "remote:gitlab.com%2Fg%2Frepo-tools";
 const PROJECT = "g/repo-tools";
+const PROJECT_ID = 42;
 
 /** A `null` noteType is GitLab's silent degrade to a general note. */
 function inlineResult(discussionId: string, noteId: number, noteType: string | null): InlineCommentResult {
@@ -23,7 +24,7 @@ function inlineResult(discussionId: string, noteId: number, noteType: string | n
     noteId,
     discussionId,
     resolvable: true,
-    url: `https://gitlab.example.com/${PROJECT}/-/merge_requests/7#note_${noteId}`,
+    url: `https://gitlab.example.com/${PROJECT_ID}/-/merge_requests/7#note_${noteId}`,
     anchored: noteType === "DiffNote",
     noteType,
   };
@@ -53,6 +54,7 @@ function makeSeams(
     repoContext: async () => ({
       provider: { baseURL: "https://gitlab.example.com", ...provider } as ThreadProvider,
       projectPath: PROJECT,
+      projectId: PROJECT_ID,
     }),
     refresh: refresh ?? (async () => undefined),
   };
@@ -89,7 +91,7 @@ describe("mr:comment-inline", () => {
     const res = await h["mr:comment-inline"]!(basePayload());
 
     expect(res).toEqual({ ok: true, data: { discussionId: "d1", noteId: 101, verified: true } });
-    expect(calls).toEqual([[PROJECT, 7, "nice catch", { path: "src/foo.ts", line: 42 }]]);
+    expect(calls).toEqual([["42", 7, "nice catch", { path: "src/foo.ts", line: 42 }]]);
   });
 
   test("degrade then clean on retry deletes the first note and succeeds on the second", async () => {
@@ -108,7 +110,7 @@ describe("mr:comment-inline", () => {
     const res = await h["mr:comment-inline"]!(basePayload());
 
     expect(res).toEqual({ ok: true, data: { discussionId: "d2", noteId: 102, verified: true } });
-    expect(deleted).toEqual([[PROJECT, 7, { id: 101 }]]);
+    expect(deleted).toEqual([["42", 7, { id: 101 }]]);
     expect(createCalls).toBe(2);
   });
 

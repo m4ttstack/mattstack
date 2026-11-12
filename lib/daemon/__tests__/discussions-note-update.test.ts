@@ -21,6 +21,7 @@ function makeSeams(provider: Partial<ThreadProvider>, refresh?: DiscussionHandle
     repoContext: async () => ({
       provider: { baseURL: "https://gitlab.example.com", createComment: unexpected, updateComment: unexpected, ...provider } as ThreadProvider,
       projectPath: "g/sub/repo-tools",
+      projectId: 42,
     }),
     refresh: refresh ?? (async () => undefined),
     readCached: () => { cacheReads++; return undefined; },
@@ -51,7 +52,7 @@ describe("mr:note-update", () => {
       async (repoName, iid) => { refreshed.push([repoName, iid]); },
     ));
     const res = await h["mr:note-update"]({ repoName: IDENTITY, iid: 7, noteId: 55, body: "edited" });
-    expect(args).toEqual(["g/sub/repo-tools", 7, { id: 55 }, "edited"]);
+    expect(args).toEqual(["42", 7, { id: 55 }, "edited"]);
     expect(refreshed).toEqual([[IDENTITY, 7]]);
     expect(res).toEqual({ ok: true, data: { noteId: 55 } });
     expect(cacheReads).toBe(0);

@@ -63,7 +63,7 @@ function stubProvider(
 function seams(stub: Stub, over: Partial<DiscussionHandlerSeams> = {}, forge?: ThreadContext["forge"]): DiscussionHandlerSeams {
   const projectPath = forge === "github" ? "o/r" : "g/sub/repo-tools";
   return {
-    repoContext: async () => ({ ...(forge ? { forge } : {}), provider: stub.provider, projectPath }),
+    repoContext: async () => ({ ...(forge ? { forge } : {}), provider: stub.provider, projectPath, projectId: forge === "github" ? null : 42 }),
     selfUsername: () => "pat",
     diffs: async () => ({ diffs: [{ newPath: "a.ts", oldPath: "a.ts", diff: DIFF }], truncated: false }),
     warn: () => {},
@@ -91,11 +91,11 @@ describe("mr:review-submit", () => {
     });
     expect(res.ok && "reviewId" in res.data).toBe(false);
     expect(stub.calls).toEqual([
-      ["submitReview", "g/sub/repo-tools", 7, {
+      ["submitReview", "42", 7, {
         outcome: "approve", summary: "sum", replies: [],
         comments: [{ body: "c", path: "a.ts", line: 2, oldPath: "a.ts" }],
       }],
-      ["fetchReviewerStates", "g/sub/repo-tools", 7],
+      ["fetchReviewerStates", "42", 7],
     ]);
   });
 
