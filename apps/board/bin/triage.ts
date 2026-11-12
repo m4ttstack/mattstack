@@ -234,8 +234,7 @@ try {
       mrUrl: m.webUrl!,
       iid: m.iid,
       projectId: parseRepoId(m.repositoryId),
-      projectPath:
-        projectPathFromWebUrl(m.webUrl!, boardConfig) ?? '',
+      projectPath: projectPathFromWebUrl(m.webUrl!, boardConfig) ?? '',
       // Encoded, not the bare rtRepos value: readDetail below passes this
       // straight to readDiscussions, which is daemon-identity-keyed.
       rtRepo: repoIdentityField(m.rtRepo) ?? '',

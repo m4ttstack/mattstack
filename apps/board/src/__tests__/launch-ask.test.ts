@@ -32,8 +32,8 @@ describe('makeRepoForMrUrl on GitHub', () => {
     rtRepos: {},
   } as unknown as BoardConfig;
   test('derives the identity from the configured spelling', () => {
-    expect(
-      makeRepoForMrUrl(gh)('https://github.com/Acme/Widgets/pull/7')
-    ).toBe('remote:github.com%2Facme%2Fwidgets');
+    expect(makeRepoForMrUrl(gh)('https://github.com/Acme/Widgets/pull/7')).toBe(
+      'remote:github.com%2Facme%2Fwidgets'
+    );
   });
 });

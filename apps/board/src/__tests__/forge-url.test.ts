@@ -52,7 +52,8 @@ describe('projectPathFromWebUrl on a forge', () => {
     ).toBeNull();
     expect(
       projectPathFromWebUrl('https://github.com/acme/widgets/issues/7', GH)
-    ).toBeNull();  });
+    ).toBeNull();
+  });
   test('a URL that only shares a prefix with the GitHub host returns null', () => {
     expect(
       projectPathFromWebUrl('https://github.comacme/widgets/pull/7', GH)

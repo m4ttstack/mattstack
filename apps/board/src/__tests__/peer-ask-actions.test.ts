@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
+import { FORGE_NOT_YET } from '../config.ts';
 import {
   acceptAsk,
   declineAsk,
@@ -17,7 +18,6 @@ import {
   writeNudge,
   type NudgeState,
 } from '../peer/nudges.ts';
-import { FORGE_NOT_YET } from '../config.ts';
 import type { ReviewState } from '../review-state.ts';
 import { openStateDb } from '../state/db.ts';
 import { parseTriageBlock } from '../triage/config.ts';
