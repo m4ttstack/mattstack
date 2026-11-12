@@ -30,12 +30,14 @@
  */
 
 import type { PullRequest, ApprovalRuleLite, MRApprovalRules, GitLabProvider } from "@mattstack/glance";
-import { getGitLabContext, getSelfUsername, isGitHubRepo, resolveSelfUsername } from "./freshness.ts";
+import * as freshness from "./freshness.ts";
 import { getProjectMRs, freshnessOf, type ProjectMRs, type ProjectMRStore } from "./project-mrs-store.ts";
 import { loadRepoTracking, grants } from "../repo-tracking.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
 import { recordSyncFailure, recordSyncSuccess } from "./project-sync-health.ts";
 import { createExcludedTargetsCache, gitlabBranchSearch, readIgnoredMrs } from "./ignored-mrs.ts";
+import { githubFetchDelta, githubFetchOpen, githubFetchSingle, type GitHubSyncContext } from "./project-sync-github.ts";
+import { authorListed } from "./scope-authors.ts";
 
 const log = lazyChildLogger("project-sync");
 
@@ -119,9 +121,15 @@ export interface ProjectSyncDeps {
   broadcast(type: string, data: unknown): void;
 }
 
+export type SyncForge = "gitlab" | "github";
+
 export interface ProjectSyncOverrides {
   /** Forces a mode instead of resolving it from the existing record's freshness. */
   mode?: "auto" | "deep";
+  /** The repo's forge; production reads it from the repo's origin remote. */
+  forge?: SyncForge;
+  /** The GitHub reads' provider and project path; production resolves them via getRepoContext. */
+  githubContext?: (repoName: string) => Promise<GitHubSyncContext>;
   fetchProject?: (repoName: string) => Promise<{ projectPath: string; prs: PullRequest[] }>;
   fetchDelta?: (repoName: string, updatedAfter: string) => Promise<{ projectPath: string; prs: PullRequest[] }>;
   /** The default reads' provider and project path; production resolves them via getGitLabContext. */
@@ -131,9 +139,9 @@ export interface ProjectSyncOverrides {
   fetchSingle?: (repoName: string, projectPath: string, iid: number) => Promise<PullRequest | null>;
   /** Scoped deep's fetch: every open MR by any of these authors. */
   fetchAuthors?: (repoName: string, authors: string[]) => Promise<{ projectPath: string; prs: PullRequest[] }>;
-  /** Codeowner section sweep's fetch, shared by the deep sweep and backfillSections. */
+  /** Codeowner section sweep's fetch, shared by the deep sweep and backfillSections. Never used on GitHub. */
   fetchRules?: (repoName: string, opts: { updatedAfter?: string; iids?: number[] }) => Promise<{ projectPath: string; rules: MRApprovalRules[] }>;
-  /** Default-branch CODEOWNERS section headers; null when the project has none. Deep and backfillSections only. */
+  /** Default-branch CODEOWNERS section headers; null when the project has none. Deep and backfillSections only, never on GitHub. */
   fetchKnownSections?: (repoName: string) => Promise<string[] | null>;
   /** Overrides the grants-resolved window (test seam); production always resolves it from repo-tracking. */
   windowDays?: number;
@@ -145,7 +153,7 @@ export interface ProjectSyncOverrides {
    */
   selfUsername?: string | null;
   store?: ProjectMRs;
-  /** The GitHub skip notice's sink (test seam); production logs it at info. */
+  /** The GitHub sections notice's sink (test seam); production logs it at info. */
   info?: (obj: object, msg: string) => void;
 }
 
@@ -224,9 +232,52 @@ export async function fetchDeltaFrom(
   return [...opened.filter((pr) => !terminalIids.has(pr.iid)), ...terminal];
 }
 
+async function resolveForge(deps: ProjectSyncDeps, repoName: string, forge: SyncForge | undefined): Promise<SyncForge> {
+  if (forge) return forge;
+  const repoPath = deps.repoIndex()[repoName];
+  return repoPath && (await freshness.isGitHubRepo(repoPath)) ? "github" : "gitlab";
+}
+
+interface SyncReads {
+  fetchProject: (repoName: string) => Promise<{ projectPath: string; prs: PullRequest[] }>;
+  fetchAuthors: (repoName: string, authors: string[]) => Promise<{ projectPath: string; prs: PullRequest[] }>;
+  fetchSingle: (repoName: string, projectPath: string, iid: number) => Promise<PullRequest | null>;
+  fetchDeltaFor: (record: ProjectMRStore | undefined) => (repoName: string, updatedAfter: string) => Promise<{ projectPath: string; prs: PullRequest[] }>;
+  /** Absent on GitHub, which has no codeowner sections yet. */
+  fetchRules?: NonNullable<ProjectSyncOverrides["fetchRules"]>;
+  fetchKnownSections?: NonNullable<ProjectSyncOverrides["fetchKnownSections"]>;
+}
+
+function githubReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides): SyncReads {
+  const context = overrides.githubContext ?? (async (repo: string): Promise<GitHubSyncContext> => {
+    const ctx = await freshness.getRepoContext(repo, deps.repoIndex()[repo]);
+    if (ctx.forge !== "github") throw new Error(`project sync: ${repo} is not a GitHub repo`);
+    return { provider: ctx.provider, projectPath: ctx.projectPath };
+  });
+  return {
+    fetchProject: overrides.fetchProject ?? (async (repo: string) => {
+      const ctx = await context(repo);
+      return { projectPath: ctx.projectPath, prs: await githubFetchOpen(ctx, null) };
+    }),
+    fetchAuthors: overrides.fetchAuthors ?? (async (repo: string, authors: string[]) => {
+      const ctx = await context(repo);
+      return { projectPath: ctx.projectPath, prs: await githubFetchOpen(ctx, authors) };
+    }),
+    fetchSingle: overrides.fetchSingle ?? (async (repo: string, pp: string, iid: number) => {
+      const { provider } = await context(repo);
+      return githubFetchSingle({ provider, projectPath: pp }, iid);
+    }),
+    fetchDeltaFor: (record: ProjectMRStore | undefined) => overrides.fetchDelta ?? (async (repo: string, ua: string) => {
+      const ctx = await context(repo);
+      return { projectPath: ctx.projectPath, prs: await githubFetchDelta(ctx, ua, record) };
+    }),
+  };
+}
+
 /** The default reads syncImpl and the backfills share, each carrying the repo's excluded target branches. */
-function defaultReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides) {
-  const context = overrides.repoContext ?? ((repo: string) => getGitLabContext("project sync", repo, deps.repoIndex()[repo]));
+function defaultReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides, forge: SyncForge = "gitlab"): SyncReads {
+  if (forge === "github") return githubReads(deps, overrides);
+  const context = overrides.repoContext ?? ((repo: string) => freshness.getGitLabContext("project sync", repo, deps.repoIndex()[repo]));
   const excluded = overrides.excludedTargets ?? (async (repo: string) => {
     const globs = readIgnoredMrs(repo).targetBranches;
     if (globs.length === 0) return [];
@@ -265,18 +316,8 @@ function defaultReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides) {
 }
 
 const syncInFlight = new Map<string, Promise<void>>();
-const githubSkipLogged = new Set<string>();
-
-/** True for a GitHub repo, which project sync does not cover yet; the first skip per repo per daemon start logs at info. */
-async function skipsGitHub(deps: ProjectSyncDeps, repoName: string, overrides: ProjectSyncOverrides): Promise<boolean> {
-  const repoPath = deps.repoIndex()[repoName];
-  if (!repoPath || !(await isGitHubRepo(repoPath))) return false;
-  if (!githubSkipLogged.has(repoName)) {
-    githubSkipLogged.add(repoName);
-    (overrides.info ?? ((obj, msg) => log.info(obj, msg)))({ repo: repoName }, "project sync skips GitHub repos for now");
-  }
-  return true;
-}
+/** Repos whose GitHub sections notice already logged this daemon start. */
+const githubSectionsLogged = new Set<string>();
 
 export function syncProjectMRs(
   deps: ProjectSyncDeps,
@@ -285,8 +326,7 @@ export function syncProjectMRs(
 ): Promise<void> {
   const existing = syncInFlight.get(repoName);
   if (existing) return existing;
-  const run = skipsGitHub(deps, repoName, overrides)
-    .then((skip) => (skip ? undefined : syncImpl(deps, repoName, overrides)))
+  const run = syncImpl(deps, repoName, overrides)
     .then(
       () => { recordSyncSuccess(repoName); },
       (err: unknown) => {
@@ -317,7 +357,9 @@ async function syncImpl(
   const deepBackingOff = Date.now() - (deepFailedAt.get(repoName) ?? 0) < DEEP_RETRY_BACKOFF_MS;
   const isDeep = explicitDeep || (deepDue && (!record || !deepBackingOff));
 
-  const { fetchSingle, fetchRules, fetchKnownSections, fetchProject, fetchAuthors, fetchDeltaFor } = defaultReads(deps, overrides);
+  const repoPath = deps.repoIndex()[repoName];
+  const forge = await resolveForge(deps, repoName, overrides.forge);
+  const { fetchSingle, fetchRules, fetchKnownSections, fetchProject, fetchAuthors, fetchDeltaFor } = defaultReads(deps, overrides, forge);
 
   if (isDeep) {
     const windowDays = overrides.windowDays ?? grants(loadRepoTracking(), repoName).projectMrsWindowDays;
@@ -334,7 +376,7 @@ async function syncImpl(
     if (hasDemands || overrides.selfUsername !== undefined) {
       const selfUsername = overrides.selfUsername !== undefined
         ? overrides.selfUsername
-        : await resolveSelfUsername(repoName, deps.repoIndex()[repoName] ?? "");
+        : await freshness.resolveSelfUsername(repoName, repoPath ?? "");
       scopeAuthors = effectiveAuthors(record, selfUsername);
     }
 
@@ -346,7 +388,7 @@ async function syncImpl(
         // now covers both out-of-scope authors and out-of-window MRs...a
         // failed author fetch rejects the whole deep (below) rather than
         // landing here as "this author has no MRs".
-        const sections = effectiveSections(record);
+        const sections = fetchRules ? effectiveSections(record) : [];
         // Captured BEFORE fullSync runs: fullSync's reconcile overwrites
         // every surviving entry with a fresh { pr, fetchedAt } object, which
         // would erase this same signal if read afterward -- a demand that
@@ -362,11 +404,11 @@ async function syncImpl(
         // Containment: with no demand ever declaring a section, `sections`
         // is [] and this whole block is skipped -- no rules fetch, no tag
         // write, byIid stays exactly `kept`. Bit-identical to pre-sections behavior.
-        if (sections.length > 0) {
+        if (sections.length > 0 && fetchRules) {
           const sweepStartedAt = Date.now();
           const updatedAfter = new Date(syncStartedAt - windowDays * 86_400_000).toISOString();
           const { rules } = await fetchRules(repoName, { updatedAfter });
-          knownSections = await readKnownSections(fetchKnownSections, repoName, knownSections);
+          if (fetchKnownSections) knownSections = await readKnownSections(fetchKnownSections, repoName, knownSections);
           sweep.candidates = rules.length;
           const matched = rules
             .map((r) => ({ iid: r.iid, sections: sectionsMatching(r.rules, sections) }))
@@ -466,7 +508,7 @@ async function syncImpl(
   // this, clients keep stale tab membership until an unrelated pr change or
   // the next deep.
   const tagChangedIids: number[] = [];
-  if (record?.scope?.sections?.length) {
+  if (fetchRules && record?.scope?.sections?.length) {
     const sweepStartedAt = Date.now();
     try {
       const { rules } = await fetchRules(repoName, { updatedAfter });
@@ -500,7 +542,7 @@ async function syncImpl(
     // the events-mapping upsertProject filter) -- there is no way to tell
     // which side of the scope it belongs on. A tagged stranger is kept too:
     // codeowner-relevant, even though no demand named this author.
-    prs = prs.filter((pr) => !pr.author?.username || authors.includes(pr.author.username) || taggedNow(pr.iid));
+    prs = prs.filter((pr) => !pr.author?.username || authorListed(authors, pr) || taggedNow(pr.iid));
   }
   const changed = store.applyDelta(repoName, projectPath, prs, deltaStartedAt);
 
@@ -608,6 +650,8 @@ function pickRemeasure(record: ProjectMRStore, measuredAt: Map<number, number>, 
 
 export interface RemeasureOverrides {
   store?: ProjectMRs;
+  /** The repo's forge; production reads it from the repo's origin remote. */
+  forge?: SyncForge;
   fetchDiverged?: (repoName: string, projectPath: string, iid: number) => Promise<number | null>;
 }
 
@@ -627,6 +671,7 @@ export async function remeasureDivergedCounts(
     const store = overrides.store ?? getProjectMRs();
     const record = store.read(repoName);
     if (!record?.projectPath) return [];
+    if ((await resolveForge(deps, repoName, overrides.forge)) === "github") return [];
     const measured = divergedMeasuredAt.get(repoName) ?? new Map<number, number>();
     divergedMeasuredAt.set(repoName, measured);
     for (const iid of measured.keys()) if (!record.mrs[iid]) measured.delete(iid);
@@ -634,7 +679,7 @@ export async function remeasureDivergedCounts(
     const picks = pickRemeasure(record, measured, DIVERGED_REMEASURE_CAP);
     if (picks.length === 0) return [];
     const fetchDiverged = overrides.fetchDiverged ?? (async (repo: string, projectPath: string, iid: number) => {
-      const { provider } = await getGitLabContext("project sync", repo, deps.repoIndex()[repo]);
+      const { provider } = await freshness.getGitLabContext("project sync", repo, deps.repoIndex()[repo]);
       return provider.fetchDivergedCount(projectPath, iid);
     });
 
@@ -684,7 +729,9 @@ export async function backfillAuthors(
   const windowDays = record?.scope?.windowDays
     ?? overrides.windowDays
     ?? grants(loadRepoTracking(), repoName).projectMrsWindowDays;
-  const { fetchAuthors } = defaultReads(deps, overrides);
+  const repoPath = deps.repoIndex()[repoName];
+  const forge = await resolveForge(deps, repoName, overrides.forge);
+  const { fetchAuthors } = defaultReads(deps, overrides, forge);
 
   const { projectPath, prs } = await fetchAuthors(repoName, authors);
   const kept = withinWindow(prs, windowDays, Date.now());
@@ -700,7 +747,9 @@ export async function backfillAuthors(
   // the network resolution syncImpl does -- backfill runs on-demand from a
   // read handler and must stay cheap. undefined (production) reads the
   // cached value; null (test seam) means "resolved to no self".
-  const selfUsername = overrides.selfUsername !== undefined ? overrides.selfUsername : getSelfUsername();
+  const selfUsername = overrides.selfUsername !== undefined
+    ? overrides.selfUsername
+    : forge === "github" ? await freshness.cachedSelfUsername(repoName, repoPath ?? "") : freshness.getSelfUsername();
   const union = new Set([...(record?.scope?.authors ?? []), ...authors]);
   if (selfUsername) union.add(selfUsername);
   // setScope is a full replace -- an existing scope's sections and
@@ -733,12 +782,20 @@ export async function backfillSections(
 ): Promise<void> {
   if (sections.length === 0) return;
 
+  const { fetchRules, fetchSingle, fetchKnownSections } = defaultReads(deps, overrides, await resolveForge(deps, repoName, overrides.forge));
+  if (!fetchRules || !fetchKnownSections) {
+    if (!githubSectionsLogged.has(repoName)) {
+      githubSectionsLogged.add(repoName);
+      (overrides.info ?? ((obj, msg) => log.info(obj, msg)))({ repo: repoName }, "codeowner sections are not available on GitHub yet");
+    }
+    return;
+  }
+
   const store = overrides.store ?? getProjectMRs();
   const record = store.read(repoName);
   const windowDays = record?.scope?.windowDays
     ?? overrides.windowDays
     ?? grants(loadRepoTracking(), repoName).projectMrsWindowDays;
-  const { fetchRules, fetchSingle, fetchKnownSections } = defaultReads(deps, overrides);
 
   const updatedAfter = new Date(Date.now() - windowDays * 86_400_000).toISOString();
   const { projectPath, rules } = await fetchRules(repoName, { updatedAfter });
