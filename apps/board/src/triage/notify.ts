@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 import type { AnnouncementPayload } from '@mattstack/rt-client';
+import { mrRef } from '../mr-ref.ts';
 import type { AskKind } from '../peer/envelope.ts';
 
 /** rt-tray's notify socket; contract matches repo-tools commands/settings.ts
@@ -27,10 +28,11 @@ const ASKED: Record<AskKind, string> = {
 };
 
 export function askNotice(
-  n: { kind?: AskKind; iid: number; title?: string },
+  n: { kind?: AskKind; iid: number; title?: string; mrUrl?: string },
   fromName: string
 ): { title: string; message: string } {
-  const mr = n.title ? `!${n.iid} ${n.title}` : `!${n.iid}`;
+  const ref = mrRef({ iid: n.iid, webUrl: n.mrUrl });
+  const mr = n.title ? `${ref} ${n.title}` : ref;
   return {
     title: `${fromName} ${ASKED[n.kind ?? 're-review']}`,
     message: `${mr}\nYour agent waits for your go ahead.`,

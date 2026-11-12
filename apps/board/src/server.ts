@@ -254,7 +254,7 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
-import { onGitHub } from './mr-ref.ts';
+import { mrRef, onGitHub } from './mr-ref.ts';
 import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
   acceptAsk,
@@ -1472,7 +1472,7 @@ async function teamThread(
 
 type ReviewRequestResult =
   | { kind: 'linked'; permalink?: string }
-  | { kind: 'already'; iids: number[] }
+  | { kind: 'already'; refs: string[] }
   | { kind: 'posted'; posted: number; permalink?: string }
   | { kind: 'failed'; step: 'resolve' | 'post'; error: string };
 
@@ -1491,7 +1491,7 @@ async function postReviewRequest(
   const toResolve = picked.filter(
     m => existingRefs.get(m.webUrl!)?.status !== 'found'
   );
-  const freshlyFound: Array<{ iid: number; permalink?: string }> = [];
+  const freshlyFound: Array<{ mr: BoardMR; permalink?: string }> = [];
   try {
     for (const m of toResolve) {
       const ref = await resolveSlackRef(
@@ -1501,7 +1501,7 @@ async function postReviewRequest(
         m.iid
       );
       if (ref.status === 'found')
-        freshlyFound.push({ iid: m.iid, permalink: ref.permalink });
+        freshlyFound.push({ mr: m, permalink: ref.permalink });
     }
   } catch (err) {
     return {
@@ -1510,14 +1510,13 @@ async function postReviewRequest(
       error: err instanceof Error ? err.message : String(err),
     };
   }
-  const alreadyIids = [
-    ...picked
-      .filter(m => existingRefs.get(m.webUrl!)?.status === 'found')
-      .map(m => m.iid),
-    ...freshlyFound.map(f => f.iid),
+  const already = [
+    ...picked.filter(m => existingRefs.get(m.webUrl!)?.status === 'found'),
+    ...freshlyFound.map(f => f.mr),
   ];
-  if (alreadyIids.length) {
-    if (picked.length > 1) return { kind: 'already', iids: alreadyIids };
+  if (already.length) {
+    if (picked.length > 1)
+      return { kind: 'already', refs: already.map(m => mrRef(m)) };
     return {
       kind: 'linked',
       permalink:
@@ -4977,10 +4976,9 @@ const httpServer = Bun.serve({
               permalink: result.permalink,
             });
           case 'already':
-            return new Response(
-              `already in slack: ${result.iids.map(i => `!${i}`).join(', ')}`,
-              { status: 409 }
-            );
+            return new Response(`already in slack: ${result.refs.join(', ')}`, {
+              status: 409,
+            });
           case 'failed':
             return new Response(
               `slack ${result.step} failed: ${result.error}`,

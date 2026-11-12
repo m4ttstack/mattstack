@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Markdown, Modal } from '@mattstack/tui-kit';
 import type { BoardMRWithReview } from '../types.ts';
 import { cleanTitle } from './format.ts';
+import { mrRef } from './MrLinks.tsx';
 
 /** Modal that fetches and renders an agent's written report markdown for an
     MR -- the review's write-up or the respond fill's adjudication, whichever
@@ -41,10 +42,10 @@ function ReportModal({
     <Modal
       title={
         <>
-          ❯ {kindLabel} · !{mr.iid}
+          ❯ {kindLabel} · {mrRef(mr)}
         </>
       }
-      ariaLabel={`${kindLabel} for !${mr.iid}`}
+      ariaLabel={`${kindLabel} for ${mrRef(mr)}`}
       onClose={onClose}
       overlayClassName="tui-review-overlay"
       className="tui-review-modal"

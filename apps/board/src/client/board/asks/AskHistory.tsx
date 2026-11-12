@@ -2,6 +2,7 @@ import { Chip } from '@mattstack/tui-kit';
 import type { AskCardData } from '../../types.ts';
 import { AskGlyph } from '../ask-glyph.tsx';
 import { ago } from '../format.ts';
+import { mrRef } from '../MrLinks.tsx';
 import { usePeople } from '../people.ts';
 import { historyOutcome } from './ask-copy.ts';
 
@@ -39,7 +40,9 @@ export function AskHistory({
                   </span>
                 </div>
                 <div className="tui-ask-history-mr">
-                  <span className="tui-ask-iid">!{a.iid}</span>
+                  <span className="tui-ask-iid">
+                    {mrRef({ iid: a.iid, webUrl: a.mrUrl })}
+                  </span>
                   {a.title && ` ${a.title}`}
                 </div>
                 <div className="tui-ask-outcome" data-tone={outcome.tone}>

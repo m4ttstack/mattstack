@@ -284,12 +284,12 @@ const resumeReviewFailureMessage = (
   result: ActionResult,
   mr: BoardMR
 ): string =>
-  `resume review failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`;
+  `resume review failed for ${mrRef(mr)} (${result.status})${result.text ? `: ${result.text}` : ''}`;
 const resumeRespondFailureMessage = (
   result: ActionResult,
   mr: BoardMR
 ): string =>
-  `resume respond failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`;
+  `resume respond failed for ${mrRef(mr)} (${result.status})${result.text ? `: ${result.text}` : ''}`;
 
 // ── board ──────────────────────────────────────────────────────────────────
 
@@ -608,7 +608,7 @@ export function Board() {
       addToast(
         outcome === 'posted'
           ? `held note posted to !${mr.iid}`
-          : `held note dismissed on !${mr.iid}`
+          : `held note dismissed on ${mrRef(mr)}`
       );
     },
     [draftModal, addToast]
@@ -1162,7 +1162,9 @@ export function Board() {
       setNoteEditing(null);
       postAction('/note', { mrUrl: mr.webUrl, text }).then(result => {
         if (!result.ok) {
-          addToast(`could not save the note on !${mr.iid} (${result.status})`);
+          addToast(
+            `could not save the note on ${mrRef(mr)} (${result.status})`
+          );
           return;
         }
         load();
@@ -1177,7 +1179,7 @@ export function Board() {
         ? mrLine(mr, data.slackTemplates)
         : (mr.webUrl ?? mr.title);
       navigator.clipboard?.writeText(text).then(
-        () => addToast(`copied !${mr.iid} for slack`),
+        () => addToast(`copied ${mrRef(mr)} for slack`),
         () => {}
       );
     },

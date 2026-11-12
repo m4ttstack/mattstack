@@ -7,6 +7,7 @@ import { clauseOf } from './clause.ts';
 import { cleanTitle } from './format.ts';
 import { AgentGlyph, ChevronGlyph, CloudSpinner, Sun } from './icons.tsx';
 import { heldOrder, laneOf, moreAction, moreKey } from './more-actions.ts';
+import { mrRef } from './MrLinks.tsx';
 import type { Candidate, RowStatus, Verb } from './row-status.ts';
 import { RowSpotlight } from './RowSpotlight.tsx';
 import {
@@ -247,7 +248,7 @@ function SyncLogWord({
             <SideDrawer
               side="right"
               className="tui-cd-panel tui-sync-drawer tui-spotlit"
-              ariaLabel={`rt sync for !${mr.iid}`}
+              ariaLabel={`rt sync for ${mrRef(mr)}`}
               data-closing={drawer.leaving ? 'true' : undefined}
               onClose={close}
             >
@@ -261,7 +262,7 @@ function SyncLogWord({
                 </button>
               </div>
               <div className="tui-cd-title">
-                <span className="tui-cd-iid">!{mr.iid}</span>{' '}
+                <span className="tui-cd-iid">{mrRef(mr)}</span>{' '}
                 {cleanTitle(mr.title)}
               </div>
               <SyncSteps
@@ -319,7 +320,7 @@ function MoreStatuses({
       initialFocus={list}
       align="start"
       sideOffset={6}
-      ariaLabel={`other statuses for !${mr.iid}`}
+      ariaLabel={`other statuses for ${mrRef(mr)}`}
       classNames={{ popup: 'tui-status-more-pop' }}
       trigger={
         <button
