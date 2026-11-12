@@ -27,7 +27,7 @@ path out literally from then on. Write `<dir>/review-post.extras.json`:
 | `reviewer`, `round` | only when the caller supplies them (a re-review's caller supplies `round`); else omit the key |
 | `editable` | `true` when the report json carries a `comment` on every finding and `summary.comments` with exactly one line per `outcome` option value (this verb's own drafts); else omit the key. It tells the board this poster posts the edited text, else the draft, word for word |
 | `outcome` label | `Verdict on <target>: ` plus a clause composed from the json's `summary`, never a field verbatim: readiness `yes` reads "ready to merge"; `with-fixes` or `no` reads "not ready" or "ready once <the gist of the reasoning>" |
-| `outcome` options | `comment` and `approve`, each described by what picking it does; `request_changes` only when this verb runs the gate on GitHub (rt's GitLab tools have none). The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment`. The question's id is always `outcome`, and its option values are exactly the keys of the json's `summary.comments` |
+| `outcome` options | `comment` and `approve`, each described by what picking it does. The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment`. The question's id is always `outcome`, and its option values are exactly the keys of the json's `summary.comments` |
 | `next` | only when this verb runs the gate; a caller that owns the gates navigates itself |
 
 Direct, the object is `gate_open`'s inline `extras`, the report json (or
