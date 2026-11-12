@@ -95,7 +95,7 @@ describe('expectation tables', () => {
   });
 
   test('expectationFor selects the right table', () => {
-    expect(expectationFor('github', 'rebasePullRequest').support).toBe('unsupported');
-    expect(expectationFor('gitlab', 'rebasePullRequest').support).toBe('supported');
+    expect(expectationFor('github', 'fetchMergeRequestIndex').support).toBe('absent');
+    expect(expectationFor('gitlab', 'fetchMergeRequestIndex').support).toBe('supported');
   });
 });

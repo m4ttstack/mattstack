@@ -540,7 +540,7 @@ export interface GitProvider {
 
   /**
    * Rebase the MR source branch onto the target branch.
-   * GitLab-only — GitHub does not have a native rebase API.
+   * On GitHub this is updatePullRequestBranch with the REBASE method.
    * Check `capabilities.canRebase` before calling.
    */
   rebasePullRequest(projectPath: string, mrIid: number): Promise<void>;

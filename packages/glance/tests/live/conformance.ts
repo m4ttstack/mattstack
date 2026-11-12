@@ -500,8 +500,7 @@ export async function runUnsupportedConformance(
       // No placeholder skip here any more. Every method in `probes` now
       // reaches a real result on both providers, by one route or another:
       //   rebasePullRequest   GitLab (supported) via runGitLabMutationConformance;
-      //                       GitHub declares it unsupported, so it never
-      //                       reaches this branch at all and is probed below.
+      //                       GitHub is supported too but no live cycle covers it.
       //   setAutoMerge        GitLab (supported) via runGitLabMutationConformance;
       //                       GitHub declares it `approximate`, exercised by the
       //                       measured block in runWriteConformance.
@@ -1958,8 +1957,8 @@ async function cancelActiveGitLabPipelines(
  *
  * GitLab-only, for the same reason the measured auto-merge block inside
  * runWriteConformance is GitHub-only: these are not one behaviour with two
- * spellings. GitHub declares rebasePullRequest permanently unsupported (its
- * update-branch merges base into head), and its auto-merge pair is exercised
+ * spellings. GitHub's rebasePullRequest goes through updatePullRequestBranch
+ * and is not exercised by this cycle, and its auto-merge pair is exercised
  * against GitHub's own enablePullRequestAutoMerge semantics, which are
  * "queue behind required checks", not GitLab's "merge when the pipeline
  * succeeds".

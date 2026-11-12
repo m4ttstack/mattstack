@@ -691,7 +691,7 @@ export class GitHubProvider implements GitProvider {
     canMerge: true,
     canApprove: true,
     canUnapprove: true,
-    canRebase: false,
+    canRebase: true,
     canAutoMerge: true,
     canReportSourceProject: true,
     canEnqueue: true,
@@ -2087,16 +2087,44 @@ export class GitHubProvider implements GitProvider {
     }
   }
 
-  async rebasePullRequest(_projectPath: string, _mrIid: number): Promise<void> {
-    // TODO: GitHub has no native "rebase" API for pull requests.
-    // The closest equivalent is the update-branch API:
-    //   PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch
-    // which updates the PR branch with the latest from the base branch,
-    // but it's a merge (not a rebase). True rebase requires pushing
-    // locally rebased commits.
-    throw new Error(
-      'rebasePullRequest is not supported by GitHub. ' +
-        'Check provider.capabilities.canRebase before calling.'
+  async rebasePullRequest(projectPath: string, mrIid: number): Promise<void> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const read = await this.graphqlOrThrow<{
+      repository?: { pullRequest?: { id: string; headRefOid: string } | null } | null;
+    }>(
+      'rebasePullRequest',
+      `
+      query GlanceRebaseRead($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) { id headRefOid }
+        }
+      }
+    `,
+      { owner, repo, number: mrIid }
+    );
+    const pr = read.repository?.pullRequest;
+    if (!pr) {
+      throw new Error(
+        `rebasePullRequest failed: GitHub returned no pull request for ${projectPath}!${mrIid}`
+      );
+    }
+
+    // expectedHeadOid makes GitHub refuse the rebase if the branch moved
+    // after the read, instead of rebasing a head the caller never saw.
+    await this.graphqlOrThrow<{
+      updatePullRequestBranch?: { pullRequest?: { headRefOid: string } | null } | null;
+    }>(
+      'rebasePullRequest',
+      `
+      mutation GlanceRebase($id: ID!, $expectedHeadOid: GitObjectID!) {
+        updatePullRequestBranch(
+          input: { pullRequestId: $id, expectedHeadOid: $expectedHeadOid, updateMethod: REBASE }
+        ) {
+          pullRequest { headRefOid }
+        }
+      }
+    `,
+      { id: pr.id, expectedHeadOid: pr.headRefOid }
     );
   }
 

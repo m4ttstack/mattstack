@@ -71,11 +71,7 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     capability: 'canUnapprove',
     note: 'Implemented as a review dismissal, which leaves a DISMISSED review in the list rather than removing the approval record as GitLab does.'
   },
-  rebasePullRequest: {
-    support: 'unsupported',
-    capability: 'canRebase',
-    note: 'Permanent. GitHub update-branch merges base into head, which is not a rebase.'
-  },
+  rebasePullRequest: { support: 'supported', capability: 'canRebase' },
   enqueuePullRequest: {
     support: 'supported',
     capability: 'canEnqueue',
