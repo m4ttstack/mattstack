@@ -287,10 +287,19 @@ function approvedByUserIds(entry: CacheEntry): number[] {
  * the current user id can't be resolved, treat the MR as not-ours (suppress)
  * rather than risk resurfacing other people's alerts.
  */
-function isSelfAuthored(entry: CacheEntry, currentUserId: number | null): boolean {
-  if (currentUserId === null) return false;
+function isSelfAuthored(entry: CacheEntry, self: number | null | SelfIds): boolean {
+  const selfId = selfIdFor(entry, self);
+  if (selfId === null) return false;
   const authorId = numericUserId(entry.mr?.author?.id);
-  return authorId !== null && authorId === currentUserId;
+  return authorId !== null && authorId === selfId;
+}
+
+/** A bare number is the GitLab id; an entry is GitHub when its author id carries the `github:` prefix. */
+function selfIdFor(entry: CacheEntry, self: number | null | SelfIds): number | null {
+  if (self === null || typeof self === "number") {
+    return String(entry.mr?.author?.id ?? "").startsWith("github:") ? null : self;
+  }
+  return String(entry.mr?.author?.id ?? "").startsWith("github:") ? self.github : self.gitlab;
 }
 
 /**
@@ -461,7 +470,7 @@ export interface Notifier {
    * notifier — a bare broadcast reaches WebSocket clients only.
    */
   notifyEnabled(category: string, title: string, message: string, url?: string, pids?: number[], id?: string): void;
-  checkAndNotify(cacheEntries: Record<string, CacheEntry>, ports?: PortEntry[], currentUserId?: number | null): void;
+  checkAndNotify(cacheEntries: Record<string, CacheEntry>, ports?: PortEntry[], self?: number | null | SelfIds): void;
   checkRunawayProcesses(
     processes: SystemProcess[],
     markNotified: (pid: number) => void,
@@ -631,14 +640,14 @@ export function createNotifier(deps: NotifierDeps = {}): Notifier {
   function checkAndNotify(
     cacheEntries: Record<string, CacheEntry>,
     ports?: PortEntry[],
-    currentUserId: number | null = null,
+    self: number | null | SelfIds = null,
   ): void {
     const state = loadState();
     const prefs = loadNotificationPrefs();
     const fired = new Set(state.fired);
 
     // Branch transitions
-    detectBranchTransitions(state.branches, cacheEntries, fired, prefs, currentUserId, api.notify);
+    detectBranchTransitions(state.branches, cacheEntries, fired, prefs, self, api.notify);
 
     // Port staleness (skipped when called from real-time MR update path)
     if (ports) {
@@ -761,7 +770,7 @@ function detectBranchTransitions(
   current: Record<string, CacheEntry>,
   fired: Set<string>,
   prefs: NotificationPrefs,
-  currentUserId: number | null,
+  self: number | null | SelfIds,
   notify: NotifyFn,
 ): void {
   // `branch` is the branch-cache map key (composite `${identity}:${branch}`
@@ -777,7 +786,7 @@ function detectBranchTransitions(
     // Author gate: only the current user's own MRs generate notifications.
     // A teammate's branch checked out for review lands in this cache too; its
     // pipeline failures and state changes must stay silent.
-    if (!isSelfAuthored(entry, currentUserId)) continue;
+    if (!isSelfAuthored(entry, self)) continue;
 
     const was = prev[branch];
     if (!was) continue; // First time seeing this branch — no transition
@@ -853,7 +862,7 @@ function detectBranchTransitions(
       if (fired.has(key)) {
         log.debug(`suppressed duplicate mr_approved on ${branch}`);
       } else {
-        const verdict = shouldNotifyApprovalTransition(was, now, currentUserId);
+        const verdict = shouldNotifyApprovalTransition(was, now, selfIdFor(entry, self));
         if (verdict === "notify") {
           fired.add(key);
           log.info(`MR approved on ${branch} [was=${was.approved} now=${now.approved}]`);
@@ -1026,9 +1035,9 @@ export function checkRunawayProcesses(
 export function checkAndNotify(
   cacheEntries: Record<string, CacheEntry>,
   ports?: PortEntry[],
-  currentUserId: number | null = null,
+  self: number | null | SelfIds = null,
 ): void {
-  getDefaultNotifier().checkAndNotify(cacheEntries, ports, currentUserId);
+  getDefaultNotifier().checkAndNotify(cacheEntries, ports, self);
 }
 
 /** Register a callback to broadcast notification events (e.g. to WebSocket clients) */

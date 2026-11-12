@@ -240,7 +240,7 @@ export interface BatchRunner {
 /** Test seams. Production callers omit this. */
 export interface MappingOverrides {
   refreshDiscussions?: (env: FreshnessEnv, repoName: string, iid: number) => Promise<unknown>;
-  notify?:             (entries: Record<string, any>, userId: number | null) => void;
+  notify?:             (entries: Record<string, any>, self: SelfIds) => void;
   gapFillDebounceMs?:  number;
   grantsFor?:            (repoName: string) => RepoGrants;                   // default: grants(loadRepoTracking(), repoName)
   projectStore?:         ProjectMRs;                                          // default: getProjectMRs()
@@ -852,8 +852,8 @@ function createFreshnessCore() {
     // writes the row itself.
     if (mutated) {
       const notify = overrides.notify
-        ?? ((entries: Record<string, any>, uid: number | null) => checkAndNotify(entries, undefined, uid));
-      notify(ctx.cache.entries, getCurrentUserId());
+        ?? ((entries: Record<string, any>, self: SelfIds) => checkAndNotify(entries, undefined, self));
+      notify(ctx.cache.entries, getSelfIds());
     }
   }
 
@@ -899,8 +899,8 @@ function createFreshnessCore() {
     }
     if (mutated) {
       const notify = overrides.notify
-        ?? ((entries: Record<string, any>, uid: number | null) => checkAndNotify(entries, undefined, uid));
-      notify(ctx.cache.entries, getCurrentUserId());
+        ?? ((entries: Record<string, any>, self: SelfIds) => checkAndNotify(entries, undefined, self));
+      notify(ctx.cache.entries, getSelfIds());
       log.info({ repo: repoName, filled: [...found.values()].filter(Boolean).length }, "gap-fill applied");
     }
   }
