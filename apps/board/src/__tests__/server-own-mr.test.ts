@@ -836,3 +836,28 @@ test('a GitHub row on a GitLab board is refused after the row lookup', async () 
   expect(await res.text()).toBe('Not available on GitHub yet');
   expect(ghRow.gitlabSeen.length).toBe(before);
 }, 15_000);
+
+test('a GitHub row on a GitLab board refuses /draft after the row lookup', async () => {
+  const before = ghRow.gitlabSeen.length;
+  const res = await post(ghRow, '/draft', {
+    mrUrl: ghRow.url(30),
+    iid: 30,
+    draft: true,
+  });
+  expect(res.status).toBe(400);
+  expect(await res.text()).toBe('Not available on GitHub yet');
+  expect(ghRow.gitlabSeen.length).toBe(before);
+}, 15_000);
+
+test('a GitHub row on a GitLab board refuses a held-draft post after the row lookup', async () => {
+  held(ghRow, 30);
+  const before = ghRow.gitlabSeen.length;
+  const res = await post(ghRow, '/drafts', {
+    mrUrl: ghRow.url(30),
+    kind: 'ci-note',
+    action: 'post',
+  });
+  expect(res.status).toBe(400);
+  expect(await res.text()).toBe('Not available on GitHub yet');
+  expect(ghRow.gitlabSeen.length).toBe(before);
+}, 15_000);

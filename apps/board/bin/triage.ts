@@ -342,7 +342,7 @@ try {
   // can do. Both passes bank cooldown and budget counters into the same
   // memory, and this one runs whether or not a switchboard is configured, so
   // the persist below sits outside that block.
-  const latchToken = await loadGitLabToken();
+  const latchToken = forgeSkip ? null : await loadGitLabToken();
   if (!peerMode && !forgeSkip && latchToken && username && reReview.enabled) {
     try {
       const latchResult = await runLatchPass({

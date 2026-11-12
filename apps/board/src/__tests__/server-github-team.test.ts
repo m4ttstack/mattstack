@@ -90,14 +90,6 @@ const reviewGate = {
 };
 
 const home = mkdtempSync(join(tmpdir(), 'board-github-team-'));
-const gitlabSeen: string[] = [];
-const gitlab = Bun.serve({
-  port: 0,
-  fetch(req) {
-    gitlabSeen.push(`${req.method} ${new URL(req.url).pathname}`);
-    return Response.json({ message: '404 Not Found' }, { status: 404 });
-  },
-});
 
 const teamDir = join(
   home,
@@ -205,7 +197,6 @@ const server = bootBoardServer({
 
 afterAll(() => {
   daemon.stop(true);
-  gitlab.stop(true);
 });
 
 const base = () => `http://127.0.0.1:${server.port}`;
@@ -230,17 +221,15 @@ const held = (iid: number) =>
 const READS = new Set([
   'project-mrs:read',
   'gate:list',
+  'events:head',
   'discussions:read',
+  'chat:slack-avatars',
+  'reconciler:status',
   'runs:list',
   'runs:get',
+  'secrets:read',
 ]);
-const isRead = (cmd: string) =>
-  READS.has(cmd) ||
-  cmd.endsWith(':read') ||
-  cmd.endsWith(':list') ||
-  cmd.endsWith(':get') ||
-  cmd.startsWith('settings') ||
-  cmd.startsWith('secrets');
+const isRead = (cmd: string) => READS.has(cmd);
 
 type Row = {
   webUrl: string;
@@ -252,7 +241,7 @@ describe('a GitHub team', () => {
   test('boots the real board, not the setup page', async () => {
     const res = await fetch(`${base()}/healthz`);
     expect(res.status).toBe(200);
-    expect(await res.text()).not.toContain('configured: false');
+    expect(await res.text()).toBe('ok');
   });
 
   test('/data.json lists the GitHub PRs with their gate', async () => {
@@ -287,7 +276,6 @@ describe('a GitHub team', () => {
       expect(await res.text()).toBe('Not available on GitHub yet');
     }
     expect(daemonSeen.slice(daemonBefore).filter(c => !isRead(c))).toEqual([]);
-    expect(gitlabSeen).toEqual([]);
     expect(readDrafts(db).find(d => d.mrUrl === prUrl(7))?.status).toBe('held');
   }, 15_000);
 

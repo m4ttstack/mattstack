@@ -153,5 +153,8 @@ describe('projectKeyOf', () => {
     expect(projectKeyOf('https://gl.example.com/g/p/-/merge_requests/3')).toBe(
       '/g/p'
     );
+    expect(
+      projectKeyOf('https://gl.example.com/g/pull/5/-/merge_requests/3')
+    ).toBe('/g/pull');
   });
 });
