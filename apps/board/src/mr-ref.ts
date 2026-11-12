@@ -12,6 +12,37 @@ export function onGitHub(mr?: MrLinkTarget, subject?: string): boolean {
   return (mr?.webUrl ?? subject ?? '').includes('github.com');
 }
 
+/** The board's forge, for copy that is not about one row. */
+export type ForgeKind = 'gitlab' | 'github';
+
+function githubNoun(on?: MrLinkTarget | ForgeKind, subject?: string): boolean {
+  return typeof on === 'string' ? on === 'github' : onGitHub(on, subject);
+}
+
+/** "PR" on GitHub, "MR" on GitLab, for one row or for a whole board. */
+export function mrNoun(
+  on?: MrLinkTarget | ForgeKind,
+  subject?: string
+): 'PR' | 'MR' {
+  return githubNoun(on, subject) ? 'PR' : 'MR';
+}
+
+/** The plural of `mrNoun`. */
+export function mrNouns(
+  on?: MrLinkTarget | ForgeKind,
+  subject?: string
+): 'PRs' | 'MRs' {
+  return githubNoun(on, subject) ? 'PRs' : 'MRs';
+}
+
+/** "pull request" on GitHub, "merge request" on GitLab. */
+export function forgeNoun(
+  on?: MrLinkTarget | ForgeKind,
+  subject?: string
+): 'pull request' | 'merge request' {
+  return githubNoun(on, subject) ? 'pull request' : 'merge request';
+}
+
 /** "#12" on GitHub, "!12" on GitLab: each forge's own way to name one. */
 export function mrRef(mr: MrLinkTarget): string {
   return `${onGitHub(mr) ? '#' : '!'}${mr.iid}`;
