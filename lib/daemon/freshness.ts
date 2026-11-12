@@ -45,6 +45,7 @@ import type { HandlerContext } from "./handlers/types.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
 import { redactCredentials } from "./redact-credentials.ts";
 import { authorListed } from "./scope-authors.ts";
+import { readSingleStrict } from "./project-sync-github.ts";
 import { getProjectMRs, type ProjectMRs } from "./project-mrs-store.ts";
 import { getDiscussionsFileStore } from "./discussions-file-store.ts";
 import { createCursorStore, type CursorStore } from "../state/index.ts";
@@ -219,11 +220,11 @@ export type TargetedFetcher = Pick<
   "fetchSingleMR" | "fetchPullRequestByBranch" | "fetchPullRequestsByBranches" | "fetchApprovalRules"
 >;
 
-export interface RepoTarget {
-  repoName:    string;
-  projectPath: string;
-  provider:    TargetedFetcher;
-}
+export type GitHubTargetedFetcher = Pick<GitHubProvider, "fetchSingleMR" | "fetchPullRequestsByBranches">;
+
+export type RepoTarget =
+  | { repoName: string; projectPath: string; forge?: "gitlab"; provider: TargetedFetcher }
+  | { repoName: string; projectPath: string; forge: "github"; provider: GitHubTargetedFetcher };
 
 /** Mutable batch-processing state. RepoWatch satisfies this structurally. */
 export interface BatchRunner {
@@ -722,7 +723,14 @@ function createFreshnessCore() {
     overrides: MappingOverrides,
   ): Promise<void> {
     const { ctx } = env;
-    const { repoName, projectPath, provider } = target;
+    const { repoName, projectPath } = target;
+
+    // GitHub's fill reports a failed read as a warning and a null, so a null
+    // from it is never trusted as "no PR"; the strict read throws instead.
+    const readSingle = (iid: number): Promise<PullRequest | null> =>
+      target.forge === "github"
+        ? readSingleStrict(target.provider, projectPath, iid)
+        : target.provider.fetchSingleMR(projectPath, iid, getCurrentUserId());
 
     // Dedup by kind:ref. The SDK dedups within a tick, but merged pending
     // batches can re-introduce duplicates.
@@ -775,7 +783,7 @@ function createFreshnessCore() {
               scheduleGapFill(env, target, runner, overrides);
               break;
             }
-            const pr = await provider.fetchSingleMR(projectPath, iid, getCurrentUserId());
+            const pr = await readSingle(iid);
             const feedBranch = branch
               ?? (pr && ctx.cache.entries[composeKey(repoName, pr.sourceBranch)] !== undefined ? pr.sourceBranch : undefined);
             if (feedBranch) mutated = updateEntry(env, repoName, feedBranch, pr) || mutated;
@@ -783,12 +791,13 @@ function createFreshnessCore() {
             // GitLab's approval action bumps no updatedAt, so this is the only
             // signal that heals a tag within one events tick rather than
             // waiting on the next deep/delta sweep.
-            if (k.cause === "approved" && wantProject) {
+            if (k.cause === "approved" && wantProject && target.forge !== "github") {
+              const gitlab = target.provider;
               const rec = pStore.read(repoName);
               const sections = rec?.scope?.sections ?? [];
               if (sections.length > 0 && (rec?.mrs[iid]?.codeownerSections?.length ?? 0) > 0) {
                 const fetchRulesByIid = overrides.fetchRulesByIid
-                  ?? (async (iids: number[]) => provider.fetchApprovalRules({ projectPath, iids }));
+                  ?? (async (iids: number[]) => gitlab.fetchApprovalRules({ projectPath, iids }));
                 const rules = await fetchRulesByIid([iid]);
                 const match = rules.find((r) => r.iid === iid);
                 if (match) {
@@ -814,8 +823,20 @@ function createFreshnessCore() {
             const entry = ctx.cache.entries[composeKey(repoName, k.ref)];
             const isOurs = entry !== undefined;
             let fetchedForRef: PullRequest | null | undefined;
-            if (isOurs) {
-              fetchedForRef = await provider.fetchPullRequestByBranch(projectPath, k.ref, "all");
+            let unread = false;
+            if (isOurs && target.forge === "github") {
+              const found = await target.provider.fetchPullRequestsByBranches(projectPath, [k.ref], "all");
+              fetchedForRef = found.get(k.ref) ?? null;
+              // The batch returns null for a PR it found but could not fill.
+              const cachedIid = entry.mr?.iid;
+              if (fetchedForRef == null && typeof cachedIid === "number") {
+                fetchedForRef = await readSingle(cachedIid);
+                unread = fetchedForRef == null;
+              }
+            } else if (isOurs && target.forge !== "github") {
+              fetchedForRef = await target.provider.fetchPullRequestByBranch(projectPath, k.ref, "all");
+            }
+            if (isOurs && !unread) {
               if (!(fetchedForRef == null && runner.gapFillTimer)) {
                 // MR may be mid-creation when null and a gap-fill is already
                 // armed; let the gap-fill decide instead of writing null now.
@@ -830,7 +851,7 @@ function createFreshnessCore() {
                 // Teammate push: resolve the branch through the project store.
                 const hit = pStore.findBySourceBranch(repoName, k.ref);
                 if (hit) {
-                  const pr = await provider.fetchSingleMR(projectPath, hit.iid, getCurrentUserId());
+                  const pr = await readSingle(hit.iid);
                   if (pr) upsertProject(pr);
                 }
               }
