@@ -308,7 +308,10 @@ describe("GithubHeadReader per-commit reads", () => {
   test("the first read makes each per-commit read once and the second makes none", async () => {
     const h = harness(defaultResponder());
     const head = await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
-    expect(h.calls.filter((c) => c.name === "forge:get").map((c) => c.payload.path)).toEqual([RULES_PATH, BRANCH_PATH]);
+    expect(h.calls.filter((c) => c.name === "forge:get").map((c) => c.payload)).toEqual([
+      { repoName: "github.com/o/r", path: RULES_PATH, perPage: 100 },
+      { repoName: "github.com/o/r", path: BRANCH_PATH },
+    ]);
     const lists = h.calls.filter((c) => c.name === "pipeline:list");
     expect(lists.map((c) => c.payload)).toEqual([{ repoName: "github.com/o/r", ref: "feature", sha: SHA_FULL, limit: 100 }]);
     expect(head).toMatchObject({ id: "github:run:900", number: 900, status: "running", createdAt: "2026-11-11T10:00:00.000Z" });

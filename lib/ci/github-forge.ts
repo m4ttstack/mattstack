@@ -165,6 +165,7 @@ export const ANCHOR_TRIES = 3;
 
 const READ_TIMEOUT_MS = 30_000;
 const RUN_LIST_LIMIT = 100;
+const RULES_PER_PAGE = 100;
 const COMPLETED_RUN_STATUSES = new Set(["success", "failed", "canceled", "skipped", "manual"]);
 
 export interface FactsStore {
@@ -253,7 +254,7 @@ export class GithubHeadReader {
     if (facts.required === null && facts.requiredTries < REQUIRED_TRIES && mr.targetBranch) {
       const branch = encodeURIComponent(mr.targetBranch);
       const [rules, protection] = await Promise.all([
-        this.forgeGet(`:repo/rules/branches/${branch}`),
+        this.forgeGet(`:repo/rules/branches/${branch}`, { perPage: RULES_PER_PAGE }),
         this.forgeGet(`:repo/branches/${branch}`),
       ]);
       facts.requiredTries += 1;
@@ -298,8 +299,8 @@ export class GithubHeadReader {
     return buildHead(p, facts);
   }
 
-  private async forgeGet(path: string): Promise<ForgeAnswer> {
-    const r = await readForge(this.command, this.target, path);
+  private async forgeGet(path: string, opts: ForgeOpts = {}): Promise<ForgeAnswer> {
+    const r = await readForge(this.command, this.target, path, opts);
     if (r.ok) return { ok: true, body: r.body };
     return r.status === 404 ? { ok: true, body: null } : { ok: false };
   }
