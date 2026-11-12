@@ -160,7 +160,7 @@
   - `states: ['merged']` sends `state=closed` and drops rows with `merged_at: null`.
   - A pre-aborted `signal` rejects with the signal's reason and the stub sees no request; `onPage: () => controller.abort(new Error('stop'))` after page 1 rejects with that error and page 2 is never requested.
 - [ ] **Step 2: Run** `bun test tests/gh-merge-request-index.test.ts tests/metrics-reads-capabilities.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement** a private walk (not `listRepoPRs`, whose 20-page cap warns instead of throwing), passing `request: { signal }` to Octokit, checking `signal.aborted` before each page, and rethrowing `signal.reason` when a request fails while the signal is aborted (Octokit wraps a custom abort reason as a retryable 500). Method doc states GitHub's retry as `githubClient.ts` actually does it (GET 5xx retry plugin; rate limits throw `RateLimitedError`).
+- [ ] **Step 3: Implement** a private walk (not `listRepoPRs`, whose 20-page cap warns instead of throwing), passing `request: { signal }` to Octokit, checking `signal.aborted` before each page, and rethrowing `signal.reason` when a request fails while the signal is aborted (Octokit wraps a custom abort reason as a retryable 500). The method doc says an abort mid-request may still wait out the client's GET retries before it surfaces; no caller passes a signal on GitHub today. Method doc states GitHub's retry as `githubClient.ts` actually does it (GET 5xx retry plugin; rate limits throw `RateLimitedError`).
 - [ ] **Step 4: Run** the tests and the glance gate list. Expected: PASS.
 - [ ] **Step 5: Commit** `glance: GitHub fetchMergeRequestIndex`.
 
