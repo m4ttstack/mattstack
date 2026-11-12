@@ -31,4 +31,21 @@ describe("parseReviewSubmit", () => {
     bad({ comments, replies: replies(41) }, "at most 100 comments and replies in total per review");
     expect(parseReviewSubmit({ ...base, comments, replies: replies(40) }).ok).toBe(true);
   });
+  describe("expectedHeadSha", () => {
+    const sha40 = "a".repeat(39) + "F";
+    const sha64 = "AbCdEf01".repeat(8);
+    test("accepts a 40-hex or 64-hex sha in either case and keeps it as given", () => {
+      for (const sha of [sha40, sha40.toLowerCase(), sha64, sha64.toUpperCase()]) {
+        expect(parseReviewSubmit({ ...base, expectedHeadSha: sha })).toEqual({ ok: true, input: { ...base, expectedHeadSha: sha } });
+      }
+    });
+    test("refuses a short sha, a 41-character string and a non-string", () => {
+      for (const expectedHeadSha of ["abc1234", "a".repeat(41), 5]) bad({ expectedHeadSha }, "expectedHeadSha must be a full commit sha");
+    });
+    test("a missing field leaves expectedHeadSha undefined", () => {
+      const r = parseReviewSubmit(base);
+      expect(r.ok && r.input.expectedHeadSha).toBeUndefined();
+      expect(r.ok && "expectedHeadSha" in r.input).toBe(false);
+    });
+  });
 });

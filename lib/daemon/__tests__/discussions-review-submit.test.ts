@@ -37,7 +37,11 @@ interface Stub {
 }
 
 function stubProvider(
-  over: { submit?: (review: ReviewSubmission) => Promise<ReviewSubmitResult>; states?: () => Promise<Array<{ username: string; state: string }>> } = {},
+  over: {
+    submit?: (review: ReviewSubmission) => Promise<ReviewSubmitResult>;
+    states?: () => Promise<Array<{ username: string; state: string }>>;
+    head?: () => Promise<{ sha?: string } | null>;
+  } = {},
   baseURL = "https://gitlab.example.com",
 ): Stub {
   const calls: unknown[][] = [];
@@ -51,6 +55,12 @@ function stubProvider(
       calls.push(["fetchReviewerStates", projectPath, iid]);
       return over.states ? over.states() : [{ username: "pat", state: "approved" }];
     },
+    ...(over.head ? {
+      fetchSingleMR: async (projectPath: string, iid: number, user: string | null) => {
+        calls.push(["fetchSingleMR", projectPath, iid, user]);
+        return over.head!();
+      },
+    } : {}),
   } as unknown as ThreadProvider;
   const sent = () => {
     const call = calls.find((c) => c[0] === "submitReview");
@@ -304,6 +314,84 @@ describe("mr:review-submit", () => {
       expect("oldLine" in right!).toBe(false);
       expect(left).toEqual({ body: "left", path: "a.ts", oldLine: 1, oldPath: "a.ts" });
       expect("line" in left!).toBe(false);
+    });
+  });
+  describe("expectedHeadSha", () => {
+    const HEAD = "ABCDEF0123".repeat(4);
+    const expectedHeadSha = HEAD.toLowerCase();
+    const MOVED = "1234567890".repeat(4);
+    const PINNED = { ...PAYLOAD, expectedHeadSha };
+    const UNREADABLE = "could not read the MR's head to check expectedHeadSha; nothing was posted (";
+    const names = (stub: Stub) => stub.calls.map((c) => c[0]);
+
+    test("a matching head (any case) posts the review", async () => {
+      const stub = stubProvider({ head: async () => ({ sha: HEAD }) });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
+      const res = await h["mr:review-submit"](PINNED);
+      expect(res.ok && res.data.published).toBe(true);
+      expect(stub.calls[0]).toEqual(["fetchSingleMR", "g/sub/repo-tools", 7, null]);
+      expect(names(stub).indexOf("fetchSingleMR")).toBeLessThan(names(stub).indexOf("submitReview"));
+      expect("expectedHeadSha" in stub.sent()).toBe(false);
+    });
+
+    test("a matching head on GitHub reads by the repo path", async () => {
+      const stub = stubProvider({ head: async () => ({ sha: HEAD }), submit: async () => ({ ...PUBLISHED, reviewId: 1 }) }, "https://github.com");
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub, { refresh: async () => ({ discussions: [], fetchedAt: 1 }) }, "github"));
+      const res = await h["mr:review-submit"](PINNED);
+      expect(res.ok && res.data.published).toBe(true);
+      expect(stub.calls[0]).toEqual(["fetchSingleMR", "o/r", 7, null]);
+      expect(names(stub)).toContain("submitReview");
+    });
+
+    test("a moved head posts nothing and answers head-moved", async () => {
+      const stub = stubProvider({ head: async () => ({ sha: MOVED }) });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
+      const res = await h["mr:review-submit"](PINNED);
+      expect(res).toEqual({ ok: true, data: { published: false, reason: "head-moved", expectedHeadSha, headSha: MOVED, mrUrl: MR_URL } });
+      expect(names(stub)).not.toContain("submitReview");
+    });
+
+    for (const [label, head, reason] of [
+      ["throws", async () => { throw new Error("boom"); }, "Error: boom"],
+      ["returns null", async () => null, "no MR"],
+      ["returns no sha", async () => ({}), "no head sha"],
+    ] as const) {
+      test(`an unreadable head posts nothing: the read ${label}`, async () => {
+        const stub = stubProvider({ head });
+        const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
+        const res = await h["mr:review-submit"](PINNED);
+        expect(res.ok).toBe(false);
+        if (!res.ok) {
+          expect(res.error).toStartWith(UNREADABLE);
+          expect(res.error).toBe(`${UNREADABLE}${reason})`);
+        }
+        expect(names(stub)).not.toContain("submitReview");
+      });
+    }
+
+    test("a provider without fetchSingleMR reads as an unreadable head", async () => {
+      const stub = stubProvider();
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
+      const res = await h["mr:review-submit"](PINNED);
+      expect(res).toEqual({ ok: false, error: `${UNREADABLE}the provider cannot read the MR)` });
+      expect(stub.calls).toEqual([]);
+    });
+
+    test("an abort during the head read posts nothing", async () => {
+      const controller = new AbortController();
+      const stub = stubProvider({ head: async () => { controller.abort(); return { sha: HEAD }; } });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
+      const res = await h["mr:review-submit"](PINNED, controller.signal);
+      expect(res).toEqual({ ok: false, error: "request aborted before the review was posted" });
+      expect(names(stub)).not.toContain("submitReview");
+    });
+
+    test("no expectedHeadSha never reads the head", async () => {
+      const stub = stubProvider({ head: async () => ({ sha: MOVED }) });
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
+      const res = await h["mr:review-submit"](PAYLOAD);
+      expect(res.ok && res.data.published).toBe(true);
+      expect(names(stub)).not.toContain("fetchSingleMR");
     });
   });
 });

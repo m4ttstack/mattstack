@@ -732,6 +732,23 @@ describe("mcpTools", () => {
       });
     }
 
+    test("passes expectedHeadSha to the daemon and returns a head-moved reply as data", async () => {
+      const sha = "a".repeat(40);
+      const data = { published: false, reason: "head-moved", expectedHeadSha: sha, headSha: "b".repeat(40), mrUrl: "u" };
+      reply = () => ({ ok: true, data });
+      const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s", expectedHeadSha: sha }, {} as NodeJS.ProcessEnv);
+      expect(calls[0]!.payload.expectedHeadSha).toBe(sha);
+      expect(out).toEqual({ ok: true, body: data });
+    });
+
+    test("leaves expectedHeadSha off the payload when not given, and the schema and description carry it", async () => {
+      await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect("expectedHeadSha" in calls[0]!.payload).toBe(false);
+      const schema = tool().inputSchema as { properties: Record<string, { type?: string; description?: string }> };
+      expect(schema.properties.expectedHeadSha).toEqual({ type: "string", description: "the full head sha you reviewed" });
+      expect(tool().description).toContain('reason "head-moved"');
+    });
+
     test("a bare request timeout is still rewritten to the outcome-unknown wording", async () => {
       reply = () => ({ ok: false, error: "request timed out" });
       const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);

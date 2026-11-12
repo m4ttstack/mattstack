@@ -920,6 +920,7 @@ export interface ReviewSubmitReply { discussionId: string; body?: string; resolv
 export type ReviewSubmitData =
   | { published: false; reason: "pending-drafts"; pending: { count: number; firstLines: string[] }; mrUrl: string }
   | { published: false; reason: "bad-anchors"; badAnchors: Array<{ index: number; path: string; line: number }>; mrUrl: string }
+  | { published: false; reason: "head-moved"; expectedHeadSha: string; headSha: string; mrUrl: string }
   | {
       published: true;
       comments: number;
@@ -1228,7 +1229,7 @@ export interface Commands {
   "mr:review-submit": {
     payload: {
       repoName: string; iid: number; outcome: "comment" | "approve" | "request_changes"; summary: string;
-      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[];
+      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[]; expectedHeadSha?: string;
     };
     data: ReviewSubmitData;
   };
