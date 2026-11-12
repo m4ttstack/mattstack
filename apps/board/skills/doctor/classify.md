@@ -93,7 +93,7 @@ digraph doctor_classify_and_retry {
     "mr_retry {mrUrl, jobId}" -> "mr_retry result?";
     "mr_retry result?" -> "<status-bin> doctor-status <state> fixing <message naming the retried job and retry-flake>" [label="retried"];
     "mr_retry result?" -> "Fixed the mr_retry call once already?" [label="tool error"];
-    "mr_retry result?" -> "STOP: retries go through mr_retry" [label="tempted to rerun the job with the GitLab CLI"];
+    "mr_retry result?" -> "STOP: retries go through mr_retry" [label="tempted to rerun the job with the forge CLI"];
     "STOP: retries go through mr_retry" -> "Fixed the mr_retry call once already?";
     "Fixed the mr_retry call once already?" -> "Fix what the mr_retry error names" [label="no"];
     "Fixed the mr_retry call once already?" -> "doctor off-script escalation: mr_retry refused" [label="yes"];
@@ -167,7 +167,7 @@ numeric part of a `gitlab:job:N` id; pass exactly one of `jobId` or
 once. An error that names no input (a 403 scope error, for example) has
 nothing to correct: retry again unchanged, once, and the off-script
 escalation follows. An error is never a reason to rerun the job with the
-GitLab CLI.
+forge CLI.
 
 ### Classify each failed job (doctor)
 
