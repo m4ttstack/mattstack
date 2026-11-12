@@ -2039,7 +2039,7 @@ export class GitHubProvider implements GitProvider {
     const notDeleted = (why: string) => `The source branch "${branch}" was not deleted: ${why}`;
     if (!headRepo) {
       return notDeleted(
-        'its head repository is unknown (the fork was likely deleted), so the delete could not be targeted safely'
+        'its head repository is unknown (deleted, or not visible to this token), so the delete could not be targeted safely'
       );
     }
     const refused = await this.deleteMergedSourceBranch(headRepo, branch);

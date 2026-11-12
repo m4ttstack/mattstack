@@ -570,7 +570,7 @@ function createBranchDashboard(
           // Thrown after the read returns: the provider swallows a throw from inside onWarning.
           const pr = await provider.fetchPullRequestByBranch(projectPath, branch, 'all', {
             onWarning: (w) => {
-              if (w.source === 'list' || w.source === 'fill') readWarning = w;
+              if (w.kind === 'request-failed' && (w.source === 'list' || w.source === 'fill')) readWarning = w;
             }
           });
           if (readWarning) throw new Error(readWarning.message);

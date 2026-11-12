@@ -154,7 +154,7 @@ describe('GitHubProvider mergePullRequest when the read-back succeeds', () => {
 
     expect(pr.state).toBe('merged');
     expect(pr.sourceBranchNotDeleted).toBe(
-      'The source branch "feat" was not deleted: its head repository is unknown (the fork was likely deleted), so the delete could not be targeted safely'
+      'The source branch "feat" was not deleted: its head repository is unknown (deleted, or not visible to this token), so the delete could not be targeted safely'
     );
     expect(calls.some(c => c.startsWith('DELETE'))).toBe(false);
   });

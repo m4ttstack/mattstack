@@ -233,6 +233,39 @@ describe('dashboards without a push channel', () => {
     }
   });
 
+  test('branch dashboard whose by-branch read hits the scan cap with no PR still reports polling', async () => {
+    const provider = {
+      ...(readOnlyProvider(false) as unknown as Record<string, unknown>),
+      fetchPullRequestByBranch: async (
+        _path: string,
+        branch: string,
+        _state: unknown,
+        options?: ByBranchReadOptions
+      ) => {
+        options?.onWarning?.({
+          kind: 'page-cap',
+          source: 'list',
+          target: 'o/r',
+          branch,
+          message: 'The scan stopped at its 500-PR cap; whether branch feat/7 has a PR is unknown.'
+        });
+        return null;
+      },
+    } as unknown as GitProvider;
+    const dashboard = createDashboard({ provider, projectPath: 'o/r', branch: 'feat/7', userId: null });
+    const statuses: string[] = [];
+    dashboard.onStatusChange((s) => statuses.push(s.connection));
+    dashboard.subscribe(() => {});
+    await settle();
+
+    try {
+      expect(statuses).not.toContain('reconnecting');
+      expect(statuses.at(-1)).toBe('polling');
+    } finally {
+      dashboard.dispose();
+    }
+  });
+
   test('branch dashboard whose by-branch read warns only of contexts still reports polling', async () => {
     const provider = {
       ...(readOnlyProvider(false) as unknown as Record<string, unknown>),
