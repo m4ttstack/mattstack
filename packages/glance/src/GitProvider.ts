@@ -517,6 +517,18 @@ export interface GitProvider {
    * reported in `sourceBranchNotDeleted`, never thrown. A rejection means
    * the merge failed, or landed but could not be read back
    * (`ReadBackFailedError` with `writeApplied: true`).
+   *
+   * On GitHub the merge method, when not given, is the repository's default
+   * for the viewer (else the first allowed of merge, squash, rebase), and a
+   * method the repository forbids is refused before the write. When the
+   * base branch uses a merge queue, the PR is enqueued instead (`sha`
+   * becomes the expected head) and the result is the still-open PR with
+   * `queued` set; a PR already in the queue gets no second write. The queue
+   * applies its own settings, so `mergeMethod`, `squash`, `commitMessage`,
+   * `squashCommitMessage` and `shouldRemoveSourceBranch` are refused there
+   * when given at all, `false` included. A queued PR whose read-back fails
+   * throws `MergeReadBackFailedError` with `queued` set and `writeApplied`
+   * false when nothing was written.
    */
   mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<MergePullRequestResult>;
 

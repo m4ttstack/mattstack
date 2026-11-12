@@ -1,5 +1,5 @@
 import type { GHMergeContextResponse } from '../../src/githubMerge.ts';
-import type { MergeMethod } from '../../src/types.ts';
+import type { MergeMethod, MergeQueueEntry } from '../../src/types.ts';
 
 export interface MergeContextOptions {
   viewerDefaultMergeMethod?: string | null;
@@ -8,6 +8,8 @@ export interface MergeContextOptions {
   nodeId?: string;
   headBranch?: string;
   headRepo?: string | null;
+  inQueue?: boolean;
+  queueEntry?: MergeQueueEntry | null;
 }
 
 /** A GraphQL `data` payload for the merge context read; defaults to a repository allowing every method. */
@@ -17,7 +19,9 @@ export function mergeContextData({
   queueEnabled = false,
   nodeId = 'PR_node',
   headBranch = 'feature',
-  headRepo = 'o/r'
+  headRepo = 'o/r',
+  inQueue = false,
+  queueEntry = null
 }: MergeContextOptions = {}): GHMergeContextResponse {
   return {
     repository: {
@@ -31,8 +35,8 @@ export function mergeContextData({
         headRefName: headBranch,
         headRepository: headRepo ? { nameWithOwner: headRepo } : null,
         isMergeQueueEnabled: queueEnabled,
-        isInMergeQueue: false,
-        mergeQueueEntry: null
+        isInMergeQueue: inQueue,
+        mergeQueueEntry: queueEntry
       }
     }
   };

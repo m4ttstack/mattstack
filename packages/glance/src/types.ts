@@ -470,7 +470,7 @@ export interface MRDashboardProps {
  * Obtain via `createDashboard()`.
  */
 export interface MRDashboardActions {
-  merge: (input?: MergePullRequestInput) => Promise<PullRequest>;
+  merge: (input?: MergePullRequestInput) => Promise<MergePullRequestResult>;
   rebase: () => Promise<void>;
   approve: () => Promise<void>;
   unapprove: () => Promise<void>;
@@ -630,10 +630,16 @@ export interface MergePullRequestInput {
   sha?: string;
 }
 
-/** What `mergePullRequest` resolves with: the merged PR, plus any cleanup it could not finish. */
+/**
+ * What `mergePullRequest` resolves with: the merged PR, plus any cleanup it
+ * could not finish; or, on a base with a merge queue, the still-open PR and
+ * its queue entry.
+ */
 export type MergePullRequestResult = PullRequest & {
   /** Set only when the merge landed and the source branch could not be deleted: why, in one sentence. */
   sourceBranchNotDeleted?: string;
+  /** Set only when the PR went through a merge queue: its entry there. The PR has not merged yet. */
+  queued?: MergeQueueEntry;
 };
 
 /**

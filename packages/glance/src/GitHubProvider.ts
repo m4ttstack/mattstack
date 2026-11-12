@@ -363,6 +363,31 @@ function throwOnGraphQLErrors(op: string, errors: GraphQLReadError[]): void {
 }
 
 /**
+ * A single-PR read that came back with no pull request. Only a bare null or
+ * `NOT_FOUND` errors mean the PR is missing; any other error (a SAML or
+ * permission refusal) nulls the repository too and must surface as itself.
+ */
+function missingPullRequestError(
+  op: string,
+  projectPath: string,
+  mrIid: number,
+  errors: GraphQLReadError[]
+): Error {
+  if (errors.every(e => e.type === 'NOT_FOUND')) {
+    return new Error(`${op} failed: GitHub returned no pull request for ${projectPath}!${mrIid}`);
+  }
+  return new Error(`${op} failed: GitHub GraphQL returned ${errors.map(e => e.message).join('; ')}`);
+}
+
+const QUEUE_REFUSED_FIELDS = [
+  'mergeMethod',
+  'squash',
+  'commitMessage',
+  'squashCommitMessage',
+  'shouldRemoveSourceBranch'
+] as const satisfies ReadonlyArray<keyof MergePullRequestInput>;
+
+/**
  * The error, if any, that means PR `n`'s read failed rather than found
  * nothing. GitHub answers an unknown number with a null alias plus a
  * `NOT_FOUND` error, which is a missing PR, not a failure. An error under
@@ -1817,6 +1842,7 @@ export class GitHubProvider implements GitProvider {
     input?: MergePullRequestInput
   ): Promise<MergePullRequestResult> {
     const context = await this.mergeContext('mergePullRequest', projectPath, mrIid);
+    if (context.queueEnabled) return this.mergeThroughQueue(projectPath, mrIid, context, input);
     const mergeMethod = pickMergeMethod('mergePullRequest', projectPath, context, input);
     const body: Record<string, unknown> = { merge_method: mergeMethod };
     Object.assign(body, this.mergeCommitFields(input, mergeMethod));
@@ -1859,6 +1885,45 @@ export class GitHubProvider implements GitProvider {
         ...(notDeleted === null ? {} : { sourceBranchNotDeleted: notDeleted })
       }
     );
+  }
+
+  /**
+   * The queue applies its own method, messages and branch cleanup, so any
+   * caller choice of those is refused rather than silently dropped. An
+   * already-queued PR gets no second write; a dropped one is enqueued again,
+   * as GitHub's own merge button does.
+   */
+  private async mergeThroughQueue(
+    projectPath: string,
+    mrIid: number,
+    context: GitHubMergeContext,
+    input: MergePullRequestInput | undefined
+  ): Promise<MergePullRequestResult> {
+    const given = QUEUE_REFUSED_FIELDS.filter(field => input?.[field] !== undefined);
+    if (given.length > 0) {
+      throw new Error(
+        `mergePullRequest failed: ${projectPath}!${mrIid} merges through a merge queue, which applies its own settings; remove ${given.join(', ')}`
+      );
+    }
+    const alreadyQueued = context.inQueue && context.queueEntry !== null;
+    const queued: MergeQueueEntry = alreadyQueued
+      ? context.queueEntry!
+      : await this.enqueueByNodeId('mergePullRequest', projectPath, mrIid, context.nodeId, input?.sha ?? null);
+    let pr: PullRequest;
+    try {
+      pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Queued');
+    } catch (err) {
+      const original = err instanceof ReadBackFailedError ? err : undefined;
+      throw new MergeReadBackFailedError(err instanceof Error ? err.message : String(err), {
+        operation: original?.operation ?? 'fetchSingleMR after Queued',
+        projectPath,
+        iid: mrIid,
+        writeApplied: !alreadyQueued,
+        cause: original ? original.cause : err,
+        queued
+      });
+    }
+    return { ...pr, queued };
   }
 
   /**
@@ -1939,7 +2004,7 @@ export class GitHubProvider implements GitProvider {
    *
    * `repoPath` is the repository that owns `branch`, which for a fork PR is
    * the fork, not the base repository the PR was opened against. The caller
-   * resolves that from `head.repo.full_name` before calling in.
+   * takes it from the merge context's `headRepository`.
    *
    * Resolves null once the ref is gone, or why it may still be there.
    */
@@ -2107,11 +2172,7 @@ export class GitHubProvider implements GitProvider {
       { owner, repo, number: mrIid }
     );
     const pr = read.repository?.pullRequest;
-    if (!pr) {
-      throw new Error(
-        `rebasePullRequest failed: GitHub returned no pull request for ${projectPath}!${mrIid}`
-      );
-    }
+    if (!pr) throw missingPullRequestError('rebasePullRequest', projectPath, mrIid, readErrors);
     throwOnGraphQLErrors('rebasePullRequest', readErrors);
 
     // expectedHeadOid makes GitHub refuse the rebase if the branch moved
@@ -2141,9 +2202,7 @@ export class GitHubProvider implements GitProvider {
       number: mrIid
     });
     const context = toMergeContext(data);
-    if (!context) {
-      throw new Error(`${op} failed: GitHub returned no pull request for ${projectPath}!${mrIid}`);
-    }
+    if (!context) throw missingPullRequestError(op, projectPath, mrIid, errors);
     throwOnGraphQLErrors(op, errors);
     return context;
   }
@@ -2269,6 +2328,16 @@ export class GitHubProvider implements GitProvider {
     input: EnqueuePullRequestInput = {}
   ): Promise<MergeQueueEntry> {
     const nodeId = await this.pullRequestNodeId('enqueuePullRequest', projectPath, mrIid);
+    return this.enqueueByNodeId('enqueuePullRequest', projectPath, mrIid, nodeId, input.expectedHeadSha ?? null);
+  }
+
+  private async enqueueByNodeId(
+    op: string,
+    projectPath: string,
+    mrIid: number,
+    nodeId: string,
+    expectedHeadSha: string | null
+  ): Promise<MergeQueueEntry> {
     const mutation = `
       mutation GlanceEnqueue($id: ID!, $head: GitObjectID) {
         enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) {
@@ -2279,12 +2348,12 @@ export class GitHubProvider implements GitProvider {
 
     const data = await this.graphqlOrThrow<{
       enqueuePullRequest?: { mergeQueueEntry?: MergeQueueEntry | null };
-    }>('enqueuePullRequest', mutation, { id: nodeId, head: input.expectedHeadSha ?? null });
+    }>(op, mutation, { id: nodeId, head: expectedHeadSha });
 
     const entry = data.enqueuePullRequest?.mergeQueueEntry;
     if (!entry) {
       throw new Error(
-        `enqueuePullRequest failed: GitHub accepted the mutation but reported no queue entry on ${projectPath}!${mrIid}`
+        `${op} failed: GitHub accepted the mutation but reported no queue entry on ${projectPath}!${mrIid}`
       );
     }
     return entry;
