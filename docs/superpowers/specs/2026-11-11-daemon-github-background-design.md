@@ -278,12 +278,14 @@ while a forge's identity is still unresolved is suppressed and not
 replayed, which is GitLab's behaviour today.
 
 **Missing identity warning.** Today one warning says "userId is
-unresolved; ... (no gitlabToken, or token validation failed)". It becomes
-one warning per forge that has tracked repos but no resolved user, naming
-that forge and its fix: "rt could not tell which GitHub user you are, so
-alerts about your own GitHub PRs are off" with the `rt setup github
-connect` command, and the GitLab one with `rt setup gitlab connect`. Each
-fires once per daemon process. Wording follows `rt:ui-copy`.
+unresolved; ... (no gitlabToken, or token validation failed)", and it
+fires on a GitHub-only Mac too, naming the wrong account. It becomes one
+warning per forge that has tracked repos but no resolved user. The GitLab
+one keeps its words exactly and fires only when a tracked repo is on
+GitLab. The GitHub one is new: "rt could not tell which GitHub user you
+are, so alerts about your own GitHub PRs are off (no GitHub token, or
+GitHub refused it); run: rt setup github connect". Each fires once per
+daemon process.
 
 **The notifier.** `checkAndNotify`'s third argument widens from
 `number | null` to `number | null | SelfIds`. A bare number still means the
