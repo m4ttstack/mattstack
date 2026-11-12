@@ -136,6 +136,8 @@ export const NOTIFICATION_TYPES = [
 
 export type NotificationPrefs = Record<string, boolean>;
 
+export interface SelfIds { gitlab: number | null; github: number | null }
+
 export function loadNotificationPrefs(): NotificationPrefs {
   const defaults: NotificationPrefs = {};
   for (const t of NOTIFICATION_TYPES) defaults[t.key] = true;
