@@ -215,9 +215,9 @@ is not required. When no row in `pipeline.jobs` has `allowFailure: false`,
 the repo requires no checks: every row is blocking, as the head's status
 and `ci_watch` count it.
 
-- a blocking no-log row (`allowFailure: false`) classifies as `real, or
-  no licensed fix`, with the error naming the check and that it has no
-  Actions log;
+- a blocking no-log row (`allowFailure: false`, or any row when none has
+  `allowFailure: false`) classifies as `real, or no licensed fix`, with
+  the error naming the check and that it has no Actions log;
 - a no-log row that is not blocking (`allowFailure: true` while some row
   has `allowFailure: false`) is not a blocking failure. It is left out of
   the classification and never takes `real, or no licensed fix`; the
