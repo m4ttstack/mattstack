@@ -32,6 +32,12 @@ public enum UpdatePolicy {
         (isVisible || isMiniaturized) && canBecomeKey
     }
 
+    /// A scheduled update opens Sparkle's window in front, except while setup
+    /// runs: the menu item stands in then, and the next scheduled check asks again.
+    public static func opensUpdateWindow(handledBySparkle: Bool, userInitiated: Bool, setupRunning: Bool) -> Bool {
+        !handledBySparkle && !userInitiated && !setupRunning
+    }
+
     public static func hold(setupRunning: Bool, windowsOpen: Int) -> UpdateHold? {
         if setupRunning { return .setupRunning }
         if windowsOpen > 0 { return .windowsOpen }
