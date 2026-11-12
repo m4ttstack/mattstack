@@ -214,9 +214,10 @@ The identity rule does not change: a repo's rt identity is
 moves to `config.forge.host`:
 
 - `deriveRtRepos(forge.host, projects)`.
-- `resolveLaunchRepo`, `codeownerSlackOn`, `boardRepoSlug` (in
-  `manifest-bindings.ts`) and `daemonOwnerIo` take `forge.host` (or the
-  forge) where they took `gitlabHost`.
+- `resolveLaunchRepo`, `codeownerSlackOn` and `boardRepoSlug` (in
+  `manifest-bindings.ts`) take `forge.host` where they took `gitlabHost`;
+  `daemonOwnerIo` takes the config's forge and projects, since its
+  `repoSlugForMr` calls the parser.
 - The error "could not derive its rt repo identity from board.gitlabHost"
   becomes forge-neutral wording that still names the setting to fix on
   each forge.
@@ -297,9 +298,8 @@ the URL):
   button is not a row action and stays: it forces a daemon project sync,
   which RT-542 covers.
 - `DraftModal`'s post control is not offered; dismiss stays.
-- Forge words follow the row: `CommentsDrawer`'s "open in gitlab" links,
-  `action-runner.ts`'s "refreshing ... from gitlab" toast, and
-  `ReviewDraftCard`'s diff link (GitHub's changed-files page is
+- Forge words follow the row: `CommentsDrawer`'s "open in gitlab" links
+  and `ReviewDraftCard`'s diff link (GitHub's changed-files page is
   `<pr url>/files`, GitLab's stays `<mr url>/diffs`).
 - Rows with `behindTarget: null` and no `codeownerSections` render without
   errors and show no behind count.
