@@ -31,7 +31,7 @@ import { StepActivity } from './StepActivity';
 import { stepRows, type StepRow } from './steps';
 import classes from './UsageMrPage.module.css';
 import { UsageRepoSelect } from './UsageRepoSelect';
-import { UsageStats } from './UsageStats';
+import { billingStats, UsageStats } from './UsageStats';
 import { useUsageEnrichment, useUsageMr, useUsageStatus } from './useUsage';
 
 function StepLine({
@@ -282,11 +282,7 @@ export function UsageMrPage({ mrKey }: { mrKey: string }) {
 
                 <UsageStats
                   stats={[
-                    {
-                      key: 'cost',
-                      value: usd(mr.totals.cost),
-                      label: 'estimated cost',
-                    },
+                    ...billingStats(mr.byBilling),
                     {
                       key: 'output',
                       value: compact(mr.totals.output),

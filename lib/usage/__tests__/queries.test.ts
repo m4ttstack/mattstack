@@ -187,6 +187,16 @@ test("a run reports its own cost beside its MR's whole cost", () => {
   expect(run.mrCost).toBeCloseTo(50, 6);
 });
 
+test("a v1 store with no accounts table still reads", () => {
+  seedMixedMr();
+  db.exec("DROP TABLE usage_accounts; PRAGMA user_version = 1;");
+  db.close();
+  const { mrs } = usageMrs(dbPath, { now: NOW });
+  db = openUsageDb(dbPath);
+  expect(mrs).toHaveLength(1);
+  expect(mrs[0]!.totals.cost).toBeCloseTo(50, 6);
+});
+
 test("a run with no MR has no MR cost", () => {
   message({ runId: "loose", input: MILLION, ts: NOW - DAY });
   const run = usageRun(dbPath, "loose")!;
@@ -760,4 +770,120 @@ test("an agent-only session still counts in full", () => {
   const mr = usageMr(dbPath, MR_A)!;
   expect(mr.totals.input).toBe(3);
   expect(mr.outsideRuns.input).toBe(0);
+});
+
+function account(
+  session: string,
+  ts: number,
+  o: { account: string; label?: string; orgType?: string; seatTier?: string; machine?: string },
+): void {
+  db.query(
+    `INSERT INTO usage_accounts (machine_id, session_id, ts, account, label, org_type, seat_tier)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(o.machine ?? M, session, ts, o.account, o.label ?? null, o.orgType ?? null, o.seatTier ?? null);
+}
+
+type Billing = "metered" | "plan" | "unknown";
+
+function sumOf(byBilling: Record<Billing, { input: number; cost: number }>): { input: number; cost: number } {
+  const all = [byBilling.metered, byBilling.plan, byBilling.unknown];
+  return { input: all.reduce((s, t) => s + t.input, 0), cost: all.reduce((s, t) => s + t.cost, 0) };
+}
+
+function inputs(byBilling: Record<Billing, { input: number }>): number[] {
+  return [byBilling.plan.input, byBilling.metered.input, byBilling.unknown.input];
+}
+
+function seedAccountSwitch(): number {
+  const start = NOW - 2 * DAY;
+  run("w", { mrKey: MR_A, startedAt: start });
+  account("s-1", start + 100, { account: "acct-max", label: "me@home", orgType: "claude_max" });
+  account("s-1", start + 300, {
+    account: "acct-ent",
+    label: "me@work",
+    orgType: "claude_enterprise",
+    seatTier: "enterprise_usage_based",
+  });
+  message({ runId: "w", mrKey: MR_A, input: 1, output: 1, ts: start + 50 });
+  message({ runId: "w", mrKey: MR_A, input: 2, output: 2, ts: start + 100 });
+  message({ runId: "w", mrKey: MR_A, input: 4, output: 4, ts: start + 200 });
+  message({ runId: "w", mrKey: MR_A, input: 8, output: 8, ts: start + 300 });
+  message({ runId: "w", mrKey: MR_A, input: 16, output: 16, ts: start + 400 });
+  return start;
+}
+
+test("splits an MR by billing class", () => {
+  seedAccountSwitch();
+  const mr = usageMr(dbPath, MR_A)!;
+  expect(mr.byBilling.plan.input).toBe(2 + 4);
+  expect(mr.byBilling.metered.input).toBe(8 + 16);
+  expect(sumOf(mr.byBilling).input).toBe(mr.totals.input);
+  expect(sumOf(mr.byBilling).cost).toBeCloseTo(mr.totals.cost, 9);
+  const entry = mr.runs[0]!;
+  expect(inputs(entry.byBilling)).toEqual([6, 24, 1]);
+  expect(sumOf(entry.byBilling).cost).toBeCloseTo(entry.totals.cost, 9);
+});
+
+test("messages before a session's first account row are unknown", () => {
+  seedAccountSwitch();
+  const mr = usageMr(dbPath, MR_A)!;
+  expect(mr.byBilling.unknown.input).toBe(1);
+  expect(mr.runs[0]!.byBilling.unknown.input).toBe(1);
+});
+
+test("an account row on another session or machine is not matched", () => {
+  const start = NOW - 2 * DAY;
+  run("w", { mrKey: MR_A, startedAt: start });
+  account("s-other", start, { account: "acct-max", orgType: "claude_max" });
+  account("s-1", start, { account: "acct-max", orgType: "claude_max", machine: "machine-b" });
+  message({ runId: "w", mrKey: MR_A, input: 3, ts: start + 10 });
+  const mr = usageMr(dbPath, MR_A)!;
+  expect(inputs(mr.byBilling)).toEqual([0, 0, 3]);
+  expect(mr.runs[0]!.accounts).toEqual([]);
+});
+
+test("an entry lists the accounts it ran on", () => {
+  seedAccountSwitch();
+  expect(usageMr(dbPath, MR_A)!.runs[0]!.accounts).toEqual([
+    { account: "acct-max", label: "me@home", billing: "plan" },
+    { account: "acct-ent", label: "me@work", billing: "metered" },
+  ]);
+});
+
+test("an entry with no account rows lists no accounts", () => {
+  run("w", { mrKey: MR_A });
+  message({ runId: "w", mrKey: MR_A, input: 3 });
+  const entry = usageMr(dbPath, MR_A)!.runs[0]!;
+  expect(entry.accounts).toEqual([]);
+  expect(inputs(entry.byBilling)).toEqual([0, 0, 3]);
+});
+
+test("the MR list and trends carry byBilling", () => {
+  seedAccountSwitch();
+  const [row] = usageMrs(dbPath, { now: NOW }).mrs;
+  expect(inputs(row!.byBilling)).toEqual([6, 24, 1]);
+  expect(sumOf(row!.byBilling).cost).toBeCloseTo(row!.totals.cost, 9);
+  const trends = usageTrends(dbPath, { days: 30, now: NOW });
+  expect(inputs(trends.byBilling)).toEqual([6, 24, 1]);
+  expect(sumOf(trends.byBilling).cost).toBeCloseTo(trends.totals.cost, 9);
+});
+
+test("the MR list summary splits its totals by billing", () => {
+  const start = seedAccountSwitch();
+  run("r2", { mrKey: MR_B, startedAt: start });
+  message({ session: "s-2", runId: "r2", mrKey: MR_B, input: 32, output: 32, ts: start + 500 });
+  const { summary } = usageMrs(dbPath, { now: NOW });
+  expect(inputs(summary.byBilling)).toEqual([6, 24, 1 + 32]);
+  expect(sumOf(summary.byBilling).input).toBe(summary.totals.input);
+  expect(sumOf(summary.byBilling).cost).toBeCloseTo(summary.totals.cost, 9);
+});
+
+test("byBilling counts a run's session outside the run wherever totals do", () => {
+  const start = seedLongSession();
+  account("s-1", start - 6 * DAY, { account: "acct-max", orgType: "claude_max" });
+  const mr = usageMr(dbPath, MR_A)!;
+  expect(inputs(mr.byBilling)).toEqual([2, 0, 0]);
+  expect(inputs(mr.runs[0]!.byBilling)).toEqual([2, 0, 0]);
+  expect(inputs(usageMrs(dbPath, { now: NOW }).mrs[0]!.byBilling)).toEqual([2, 0, 0]);
+  expect(inputs(usageTrends(dbPath, { days: 30, now: NOW }).byBilling)).toEqual([7, 0, 0]);
 });

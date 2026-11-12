@@ -17,7 +17,7 @@ export type StepRow =
       label: string;
       level: 'group' | 'child';
       kind: UsageKind;
-      /** The line under the label: when, and how much was subagents. */
+      /** The line under the label: when and how much was subagents, or the run's accounts. */
       note?: string;
       /** Names this row to read what its session was doing. */
       activity: UsageActivityQuery;
@@ -114,12 +114,18 @@ export function stepRows(mr: UsageMrData): StepRow[] {
   ]);
 }
 
+function accountNote(entry: UsageMrEntry): string | undefined {
+  if (entry.accounts.length === 0) return undefined;
+  return entry.accounts.map(a => a.label ?? a.account).join(', ');
+}
+
 function entryRows(entry: UsageMrEntry): StepRow[] {
   const key = entryKey(entry);
   const group: StepRow = {
     type: 'step',
     key,
     label: groupLabel(entry),
+    note: accountNote(entry),
     level: 'group',
     kind: entry.kind,
     activity: entryActivity(entry),

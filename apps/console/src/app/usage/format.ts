@@ -65,22 +65,32 @@ export interface MrSortOrder {
   dir: 'asc' | 'desc';
 }
 
-const MR_SORT_VALUE: Record<MrSort, (row: UsageMrRow) => number> = {
-  cost: row => row.totals.cost,
-  date: row => row.lastActivity,
-  output: row => row.totals.output,
-  cacheRead: row => row.totals.cacheRead,
+const MR_SORT_VALUES: Record<MrSort, (row: UsageMrRow) => number[]> = {
+  cost: row => [row.byBilling.metered.cost, row.totals.cost],
+  date: row => [row.lastActivity],
+  output: row => [row.totals.output],
+  cacheRead: row => [row.totals.cacheRead],
 };
+
+function compareValues(a: number[], b: number[]): number {
+  for (let i = 0; i < a.length; i++) {
+    const diff = a[i]! - b[i]!;
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
 
 /** Ties fall back to the key so a re-sort never shuffles equal rows. */
 export function sortMrs(
   rows: UsageMrRow[],
   { sort, dir }: MrSortOrder
 ): UsageMrRow[] {
-  const value = MR_SORT_VALUE[sort];
+  const values = MR_SORT_VALUES[sort];
   const sign = dir === 'asc' ? 1 : -1;
   return [...rows].sort(
-    (a, b) => sign * (value(a) - value(b)) || a.mrKey.localeCompare(b.mrKey)
+    (a, b) =>
+      sign * compareValues(values(a), values(b)) ||
+      a.mrKey.localeCompare(b.mrKey)
   );
 }
 

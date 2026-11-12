@@ -1914,6 +1914,16 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: { exempt: "run by the daemon on a timer" },
         args: [],
       },
+      "record-account": {
+        description: "Note which Claude Code account a session runs under",
+        module: "./commands/usage.ts",
+        fn: "usageRecordAccountCommand",
+        hidden: true,
+        omitBehavior: { exempt: "run by a plugin hook, never by a person" },
+        args: [
+          { name: "Session", flag: "--session", type: "text", placeholder: "session id", hint: "The Claude Code session id" },
+        ],
+      },
     },
   },
 

@@ -351,6 +351,7 @@ jobs:
         run: |
           bash hooks/tests/test-pipeline-gate-stop.sh
           bash hooks/tests/test-progress-record.sh
+          bash hooks/tests/test-account-record.sh
           sh tests/test-gate-stop-hook.sh
           bash hooks/tests/test-agent-effort-guard.sh
           bash hooks/tests/test-agent-effort-note.sh

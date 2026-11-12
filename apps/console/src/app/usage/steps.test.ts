@@ -34,6 +34,8 @@ function entry(
     firstActivity: 1,
     lastActivity: 2,
     totals: totals(1),
+    byBilling: { metered: totals(0), plan: totals(0), unknown: totals(1) },
+    accounts: [],
     byModel: [],
     main: totals(1),
     subagent: totals(0),
@@ -184,6 +186,49 @@ describe('stepRows', () => {
       runId: 'run-other',
       outside: 'session',
     });
+  });
+
+  it('names the account a run ran on under its heading', () => {
+    const [group] = stepRows(
+      mr([
+        entry('review', {
+          accounts: [
+            {
+              account: 'acct-1',
+              label: 'work@example.com',
+              billing: 'metered',
+            },
+          ],
+        }),
+      ])
+    );
+    expect(group).toMatchObject({
+      label: 'Your review',
+      note: 'work@example.com',
+    });
+  });
+
+  it('names both accounts of a run that switched, falling back to the id', () => {
+    const [group] = stepRows(
+      mr([
+        entry('work', {
+          accounts: [
+            {
+              account: 'acct-1',
+              label: 'work@example.com',
+              billing: 'metered',
+            },
+            { account: 'acct-2', label: null, billing: 'plan' },
+          ],
+        }),
+      ])
+    );
+    expect(group).toMatchObject({ note: 'work@example.com, acct-2' });
+  });
+
+  it('adds no note when no account was recorded', () => {
+    const [group] = stepRows(mr([entry('review')]));
+    expect(group?.type === 'step' && group.note).toBeUndefined();
   });
 
   it('gives two run-less sessions their own keys', () => {

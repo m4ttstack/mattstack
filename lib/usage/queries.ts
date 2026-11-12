@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 import type {
+  UsageAccount,
+  UsageBilling,
   UsageKind,
   UsageModelRow,
   UsageMrData,
@@ -17,12 +19,14 @@ import type {
   UsageTrendsData,
   UsageWeekRow,
 } from "../../packages/rt-client/src/commands.ts";
+import { BILLING_CLASS_SQL } from "./accounts.ts";
 import { kindOf } from "./mr-key.ts";
 import { costOf } from "./pricing.ts";
-import { openUsageDbReadonly } from "./store.ts";
+import { openUsageDb, openUsageDbReadonly, USAGE_SCHEMA_VERSION } from "./store.ts";
 
 const DAY_MS = 86_400_000;
 const KINDS: readonly UsageKind[] = ["work", "review", "respond", "doctor", "other"];
+const BILLINGS: readonly UsageBilling[] = ["metered", "plan", "unknown"];
 
 interface MessageRow {
   machine_id: string;
@@ -30,6 +34,7 @@ interface MessageRow {
   mr_key: string | null;
   work_type: string | null;
   agent_kind: UsageKind;
+  billing: UsageBilling;
   pipeline: string | null;
   status: string | null;
   started_at: number | null;
@@ -55,6 +60,8 @@ interface MrDetailRow extends MessageRow {
   attempt: number | null;
   is_subagent: number;
   outside: UsageOutside | null;
+  account: string | null;
+  label: string | null;
 }
 
 interface Scope {
@@ -65,11 +72,14 @@ interface Scope {
 // usage_sessions holds several rows per session, so it joins only through this one-row-per-session
 // reduction. The Haiku 5.5 CASE keeps its messages apart: its price tier depends on one request's
 // prompt length, which a sum would hide. Bare r.* columns are safe because the group fixes the run.
+// The account join takes the session's latest account row at or before each message, through
+// usage_accounts' primary key; a message before the session's first row joins none.
 function selectMessages(db: Database, scope: Scope, dims: string[]): unknown[] {
   const groupBy = [
     "m.machine_id",
     "m.run_id",
-    "a.agent_kind",
+    "k.agent_kind",
+    "billing",
     "m.model",
     "m.speed",
     "CASE WHEN m.model GLOB 'claude-haiku-5-5*' THEN m.rowid END",
@@ -82,7 +92,8 @@ function selectMessages(db: Database, scope: Scope, dims: string[]): unknown[] {
            CASE WHEN MAX(agent_kind = 'doctor') = 1 THEN 'doctor' ELSE 'other' END AS agent_kind
          FROM usage_sessions WHERE source = 'agent' GROUP BY machine_id, session_id
        )
-       SELECT m.machine_id, m.run_id, COALESCE(a.agent_kind, 'other') AS agent_kind,
+       SELECT m.machine_id, m.run_id, COALESCE(k.agent_kind, 'other') AS agent_kind,
+         ${BILLING_CLASS_SQL} AS billing,
          r.work_type, r.pipeline, r.status, r.started_at, r.ended_at, r.mr_url, r.ticket, r.branch,
          m.model, m.speed,
          SUM(m.input) AS input, SUM(m.output) AS output, SUM(m.cache_read) AS cache_read,
@@ -92,7 +103,11 @@ function selectMessages(db: Database, scope: Scope, dims: string[]): unknown[] {
          ${dims.map((d) => `, ${d}`).join("")}
        FROM usage_messages m
        LEFT JOIN usage_runs r ON r.machine_id = m.machine_id AND r.run_id = m.run_id
-       LEFT JOIN agent_kinds a ON a.machine_id = m.machine_id AND a.session_id = m.session_id
+       LEFT JOIN agent_kinds k ON k.machine_id = m.machine_id AND k.session_id = m.session_id
+       LEFT JOIN usage_accounts a ON a.rowid = (
+         SELECT x.rowid FROM usage_accounts x
+         WHERE x.machine_id = m.machine_id AND x.session_id = m.session_id AND x.ts <= m.ts
+         ORDER BY x.ts DESC LIMIT 1)
        WHERE ${scope.where}
        GROUP BY ${groupBy.join(", ")}`,
     )
@@ -105,6 +120,10 @@ function emptyTotals(): UsageTotals {
 
 function byKindOf<T>(make: () => T): Record<UsageKind, T> {
   return Object.fromEntries(KINDS.map((k) => [k, make()])) as Record<UsageKind, T>;
+}
+
+function byBillingOf(): Record<UsageBilling, UsageTotals> {
+  return Object.fromEntries(BILLINGS.map((b) => [b, emptyTotals()])) as Record<UsageBilling, UsageTotals>;
 }
 
 function totalsOf(row: MessageRow): UsageTotals {
@@ -168,9 +187,19 @@ function hasSchema(db: Database): boolean {
   );
 }
 
+function needsMigration(db: Database): boolean {
+  const row = db.query("PRAGMA user_version").get() as { user_version: number };
+  return row.user_version < USAGE_SCHEMA_VERSION && hasSchema(db);
+}
+
 export function reading<T>(dbPath: string, empty: T, read: (db: Database) => T): T {
-  const db = openUsageDbReadonly(dbPath);
+  let db = openUsageDbReadonly(dbPath);
   if (!db) return empty;
+  if (needsMigration(db)) {
+    db.close();
+    openUsageDb(dbPath).close();
+    db = openUsageDbReadonly(dbPath)!;
+  }
   try {
     return hasSchema(db) ? read(db) : empty;
   } finally {
@@ -223,6 +252,7 @@ interface MrFold {
 function foldMr(fold: MrFold, row: MessageRow): void {
   const delta = totalsOf(row);
   add(fold.row.totals, delta);
+  add(fold.row.byBilling[row.billing], delta);
   fold.row.costByKind[kindFor(row)] += delta.cost;
   fold.row.firstActivity = Math.min(fold.row.firstActivity, row.first_ts);
   fold.row.lastActivity = Math.max(fold.row.lastActivity, row.last_ts);
@@ -238,7 +268,7 @@ export function usageMrs(
 ): UsageMrsData {
   const empty: UsageMrsData = {
     mrs: [],
-    summary: { mrCount: 0, totals: emptyTotals(), medianCost: 0 },
+    summary: { mrCount: 0, totals: emptyTotals(), byBilling: byBillingOf(), medianCost: 0 },
   };
   return reading(dbPath, empty, (db) => {
     const params: Scope["params"] = {};
@@ -263,6 +293,7 @@ export function usageMrs(
             firstActivity: row.first_ts,
             lastActivity: row.last_ts,
             totals: emptyTotals(),
+            byBilling: byBillingOf(),
             costByKind: byKindOf(() => 0),
             runCount: 0,
             roundCount: 0,
@@ -290,10 +321,14 @@ export function usageMrs(
     mrs.sort((a, b) => b.lastActivity - a.lastActivity);
 
     const totals = emptyTotals();
-    for (const mr of mrs) add(totals, mr.totals);
+    const byBilling = byBillingOf();
+    for (const mr of mrs) {
+      add(totals, mr.totals);
+      for (const billing of BILLINGS) add(byBilling[billing], mr.byBilling[billing]);
+    }
     return {
       mrs,
-      summary: { mrCount: mrs.length, totals, medianCost: median(mrs.map((m) => m.totals.cost)) },
+      summary: { mrCount: mrs.length, totals, byBilling, medianCost: median(mrs.map((m) => m.totals.cost)) },
     };
   });
 }
@@ -327,24 +362,35 @@ export function usageRun(dbPath: string, runId: string): UsageRunData | null {
 
 interface SplitFold {
   totals: UsageTotals;
+  byBilling: Record<UsageBilling, UsageTotals>;
   models: Map<string | null, UsageTotals>;
   main: UsageTotals;
   subagent: UsageTotals;
 }
 
 function emptySplits(): SplitFold {
-  return { totals: emptyTotals(), models: new Map(), main: emptyTotals(), subagent: emptyTotals() };
+  return {
+    totals: emptyTotals(),
+    byBilling: byBillingOf(),
+    models: new Map(),
+    main: emptyTotals(),
+    subagent: emptyTotals(),
+  };
 }
 
 function foldSplits(fold: SplitFold, row: MrDetailRow, delta: UsageTotals): void {
   add(fold.totals, delta);
+  add(fold.byBilling[row.billing], delta);
   addTo(fold.models, row.model, delta);
   add(row.is_subagent ? fold.subagent : fold.main, delta);
 }
 
-function splitsOf(fold: SplitFold): UsageSplits & { totals: UsageTotals } {
+function splitsOf(
+  fold: SplitFold,
+): UsageSplits & { totals: UsageTotals; byBilling: Record<UsageBilling, UsageTotals> } {
   return {
     totals: fold.totals,
+    byBilling: fold.byBilling,
     byModel: modelRows(fold.models),
     main: fold.main,
     subagent: fold.subagent,
@@ -361,9 +407,14 @@ interface StageFold {
   totals: UsageTotals;
 }
 
+interface AccountSeen extends UsageAccount {
+  firstTs: number;
+}
+
 interface EntryFold {
   first: MrDetailRow;
   splits: SplitFold;
+  accounts: Map<string, AccountSeen>;
   stages: Map<string, StageFold>;
   firstActivity: number;
   lastActivity: number;
@@ -463,8 +514,23 @@ function entryRow(db: Database, entry: EntryFold, round: number | null): UsageMr
     endedAt: first.ended_at,
     firstActivity: entry.firstActivity,
     lastActivity: entry.lastActivity,
+    accounts: [...entry.accounts.values()]
+      .sort((a, b) => a.firstTs - b.firstTs)
+      .map(({ account, label, billing }) => ({ account, label, billing })),
     stages: stageRows(db, entry),
   };
+}
+
+function noteAccount(entry: EntryFold, row: MrDetailRow): void {
+  if (row.account === null) return;
+  const seen = entry.accounts.get(row.account);
+  if (seen && seen.firstTs <= row.first_ts) return;
+  entry.accounts.set(row.account, {
+    account: row.account,
+    label: row.label,
+    billing: row.billing,
+    firstTs: row.first_ts,
+  });
 }
 
 function numberRounds(entries: EntryFold[]): Map<EntryFold, number> {
@@ -485,6 +551,8 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
         "m.attempt",
         "m.subagent_id IS NOT NULL AS is_subagent",
         OUTSIDE_STAGES,
+        "a.account AS account",
+        "a.label AS label",
       ],
     ) as MrDetailRow[];
     if (rows.length === 0) return null;
@@ -505,6 +573,7 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
         entry = {
           first: row,
           splits: emptySplits(),
+          accounts: new Map(),
           stages: new Map(),
           firstActivity: Infinity,
           lastActivity: -Infinity,
@@ -515,6 +584,7 @@ export function usageMr(dbPath: string, mrKey: string): UsageMrData | null {
         foldSplits(splits, row, delta);
         costByKind[kindFor(row)] += delta.cost;
         foldSplits(entry.splits, row, delta);
+        noteAccount(entry, row);
         entry.firstActivity = Math.min(entry.firstActivity, row.first_ts);
         entry.lastActivity = Math.max(entry.lastActivity, row.last_ts);
       } else {
@@ -581,7 +651,13 @@ export function usageTrends(
   dbPath: string,
   q: { days: number; repo?: string; now: number },
 ): UsageTrendsData {
-  const empty: UsageTrendsData = { weeks: [], totals: emptyTotals(), byPipeline: [], byModel: [] };
+  const empty: UsageTrendsData = {
+    weeks: [],
+    totals: emptyTotals(),
+    byBilling: byBillingOf(),
+    byPipeline: [],
+    byModel: [],
+  };
   return reading(dbPath, empty, (db) => {
     const since = q.now - q.days * DAY_MS;
     const params: Scope["params"] = {};
@@ -593,6 +669,7 @@ export function usageTrends(
 
     const weeks: UsageWeekRow[] = [];
     const totals = emptyTotals();
+    const byBilling = byBillingOf();
     const pipelines = new Map<string | null, UsageTotals>();
     const models = new Map<string | null, UsageTotals>();
     for (let week = mondayOf(since); week.getTime() <= q.now; week = nextWeek(week)) {
@@ -620,6 +697,7 @@ export function usageTrends(
         add(row.totals, delta);
         add(row.byKind[message.outside_run ? "other" : kindFor(message)], delta);
         add(totals, delta);
+        add(byBilling[message.billing], delta);
         addTo(pipelines, message.outside_run ? null : message.pipeline, delta);
         addTo(models, message.model, delta);
       }
@@ -630,7 +708,7 @@ export function usageTrends(
       pipeline,
       totals: t,
     }));
-    return { weeks, totals, byPipeline, byModel: modelRows(models) };
+    return { weeks, totals, byBilling, byPipeline, byModel: modelRows(models) };
   });
 }
 
