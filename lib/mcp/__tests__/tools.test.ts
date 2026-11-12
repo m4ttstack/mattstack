@@ -487,6 +487,34 @@ describe("mcpTools", () => {
       expect(res.error).toBe("no gitlabToken in secrets");
     });
 
+    describe("mr_comment_inline landing hint", () => {
+      const args = { repoName: "remote:x", iid: 7, body: "hi", path: "a.ts", line: 3 };
+
+      test("a timed-out mr_comment_inline says the note may still land and where to check", async () => {
+        fakeDaemon(() => ({ ok: false, error: "rt daemon unreachable at /x.sock: The operation timed out." }));
+        const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+        const res = await tool.handler(args, {} as NodeJS.ProcessEnv);
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain("may still land");
+        expect(res.error).toContain("the MR's discussions");
+      });
+
+      test("a daemon-unreachable mr_comment_inline error gets the same hint", async () => {
+        fakeDaemon(() => ({ ok: false, error: "rt daemon unreachable at /x.sock: connect ENOENT" }));
+        const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+        const res = await tool.handler(args, {} as NodeJS.ProcessEnv);
+        expect(res.error).toContain("may still land");
+        expect(res.error).toContain("the MR's discussions");
+      });
+
+      test("a daemon error that is not a timeout passes through unchanged", async () => {
+        fakeDaemon(() => ({ ok: false, error: "no gitlabToken in secrets" }));
+        const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+        const res = await tool.handler(args, {} as NodeJS.ProcessEnv);
+        expect(res.error).toBe("no gitlabToken in secrets");
+      });
+    });
+
     test("mr_create schema requires the branches and title, offers repoName, mrUrl, labels, squash and ifExists, and has no iid", () => {
       const schema = mcpTools().find((t) => t.name === "mr_create")!.inputSchema as { required?: string[]; properties?: Record<string, unknown> };
       expect(schema.required).toEqual(["sourceBranch", "targetBranch", "title"]);
