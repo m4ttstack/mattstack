@@ -1409,7 +1409,8 @@ async function awaitRead(
  * What differs between the forges is read from the capability flags and the
  * returned values, never from the fixture's name: GitHub pull request
  * comments are not threads, so `canReplyToGeneralComments` is false there
- * and a reply to one is refused before any request.
+ * and a reply to one is refused before any request. The one exception is
+ * the `github:<owner>/<repo>` read, an input form only GitHub has.
  */
 async function runCommentWriteConformance(
   fixture: ProviderFixture,
@@ -1487,6 +1488,16 @@ async function runCommentWriteConformance(
     assert(hit !== null, 'the plain comment did not read back');
     assert(hit.note.resolvable !== true, `expected a note that is not resolvable, got ${hit.note.resolvable}`);
   });
+
+  if (fixture.name === 'github') {
+    await check(report, fixture, 'fetchMRDiscussions', 'the github:<owner>/<repo> form reads the general comment back', async () => {
+      const target = requireSetup<NoteWriteResult>(general, 'the general comment');
+      const repoRef = `github:${projectPath}`;
+      const detail = await provider.fetchMRDiscussions(repoRef, iid);
+      const found = detail.discussions.some(d => d.notes.some(n => n.id === target.noteId && n.body === generalBody));
+      assert(found, `${repoRef} did not read back note ${target.noteId}`);
+    });
+  }
 
   await check(report, fixture, 'replyToDiscussion', 'a reply to a general comment follows canReplyToGeneralComments', async () => {
     const target = requireSetup<NoteWriteResult>(general, 'the general comment');

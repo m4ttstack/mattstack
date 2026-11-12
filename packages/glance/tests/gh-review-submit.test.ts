@@ -232,10 +232,38 @@ describe('GitHub submitReview', () => {
     expect(calls.filter((c) => c.method !== 'GET')).toHaveLength(2);
   });
 
-  test('a 502 on the POST throws after one POST', async () => {
+  test('a 502 on the POST throws the unknown-outcome message after one POST', async () => {
     const calls = forge(routes(jsonResponse({ message: 'Bad Gateway' }, 502)));
-    await expect(provider().submitReview('o/r', 7, REVIEW)).rejects.toThrow(/^review not posted: .*502/);
+    const err = await provider()
+      .submitReview('o/r', 7, REVIEW)
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      'publish failed and its outcome is unknown: GitHub returned 502 Bad Gateway: Bad Gateway; look at the pull request before retrying'
+    );
     expect(calls.filter((c) => c.method !== 'GET')).toHaveLength(1);
+  });
+
+  test('a 500 on the POST throws the unknown-outcome message after one POST', async () => {
+    const calls = forge(routes(jsonResponse({ message: 'Server Error' }, 500)));
+    const err = await provider()
+      .submitReview('o/r', 7, REVIEW)
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      'publish failed and its outcome is unknown: GitHub returned 500 Internal Server Error: Server Error; look at the pull request before retrying'
+    );
+    expect(calls.filter((c) => c.method !== 'GET')).toHaveLength(1);
+  });
+
+  test('a 502 on the comment retry after an own-PR approve throws the unknown-outcome message after two POSTs', async () => {
+    const calls = forge(routes(jsonResponse(OWN_PR_422, 422), jsonResponse({ message: 'Bad Gateway' }, 502)));
+    const err = await provider()
+      .submitReview('o/r', 7, { ...REVIEW, outcome: 'approve' })
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      'publish failed and its outcome is unknown: GitHub returned 502 Bad Gateway: Bad Gateway; look at the pull request before retrying'
+    );
+    expect(posts(calls)).toHaveLength(2);
+    expect(calls.filter((c) => c.method !== 'GET')).toHaveLength(2);
   });
 
   test('a POST that outlives reviewTimeoutMs throws the unknown-outcome message after one POST', async () => {

@@ -158,9 +158,12 @@ export class EmptyDiscussionError extends Error {
  */
 export class WriteOutcomeUnknownError extends Error {
   readonly operation: string;
-  readonly reason: 'timed-out' | 'no-answer';
+  readonly reason: 'timed-out' | 'no-answer' | 'server-error';
 
-  constructor(message: string, details: { operation: string; reason: 'timed-out' | 'no-answer'; cause?: unknown }) {
+  constructor(
+    message: string,
+    details: { operation: string; reason: 'timed-out' | 'no-answer' | 'server-error'; cause?: unknown }
+  ) {
     super(message, details.cause === undefined ? undefined : { cause: details.cause });
     this.name = 'WriteOutcomeUnknownError';
     this.operation = details.operation;

@@ -67,7 +67,7 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `unresolveDiscussion(path, iid, discussionId)` | Unresolve a discussion thread |
 | `createComment(path, iid, body, options?)` | Post a top-level comment: a resolvable thread on GitLab (`resolvable: false` for a plain note), a pull request comment on GitHub |
 | `createInlineComment(path, iid, body, anchor)` | Comment on a diff line; the `CommentAnchor` takes `path` plus `line`, `oldLine` or both |
-| `replyToDiscussion(path, iid, discussionId, body)` | Reply inside a thread; on GitHub only `gh-review-thread-<id>` threads take replies (`canReplyToGeneralComments` is false) |
+| `replyToDiscussion(path, iid, discussionId, body)` | Reply inside a thread; on GitHub only `gh-review-thread-<id>` threads take replies (`canReplyToGeneralComments` is false), and a pull request comment or a review summary is refused before any request |
 | `updateComment(path, iid, note, body)` | Replace a comment's body; `note` is a `NoteRef`, and on GitHub its `kind` picks the endpoint |
 | `deleteComment(path, iid, note)` | Delete a comment; GitHub cannot delete a review |
 | `submitReview(path, iid, review)` | Post a summary, diff comments, replies and resolves with an outcome of `comment`, `approve` or `request_changes`; returns `pending-drafts` or `bad-anchors` with nothing posted when the forge refuses |
@@ -469,9 +469,10 @@ The `GitHubProvider` comment writes (`createComment`, `createInlineComment`,
 `replyToDiscussion`, `updateComment`, `deleteComment`) and the review POST in
 `submitReview` go out once, with no retry, under an abort signal: 15 s for a
 comment write (`writeTimeoutMs`) and 60 s for the review POST
-(`reviewTimeoutMs`). On a comment write, a timeout or a lost answer throws
-`WriteOutcomeUnknownError`, which means GitHub may still have applied the
-write. Look at the pull request before sending it again.
+(`reviewTimeoutMs`). On a comment write, a timeout, a lost answer or a 5xx
+throws `WriteOutcomeUnknownError`, which means GitHub may still have applied
+the write: GitHub can apply a write and still answer 5xx. Look at the pull
+request before sending it again. A 4xx still throws `ForgeHttpError`.
 
 `submitReview` throws a plain `Error` instead, whose message starts
 `publish failed and its outcome is unknown` and whose `cause` is the
@@ -480,8 +481,8 @@ write. Look at the pull request before sending it again.
 | Property | Description |
 |---|---|
 | `operation` | The write that gave up, e.g. `"createComment"` |
-| `reason` | `'timed-out'` or `'no-answer'` |
-| `cause` | The underlying error, when there was one |
+| `reason` | `'timed-out'`, `'no-answer'` or `'server-error'` (a 5xx) |
+| `cause` | The underlying error, when there was one; a `ForgeHttpError` with the status for `'server-error'` |
 
 ## License
 

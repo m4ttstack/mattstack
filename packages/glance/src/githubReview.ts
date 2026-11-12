@@ -173,10 +173,13 @@ export async function submitGitHubReview(deps: GitHubReviewDeps, review: ReviewS
  */
 function notPosted(err: unknown): Error {
   if (err instanceof WriteOutcomeUnknownError) {
+    const cause = err.cause instanceof Error ? err.cause.message : String(err.cause);
     const what =
       err.reason === 'timed-out'
         ? 'the review request timed out'
-        : `the review request got no answer from GitHub (${err.cause instanceof Error ? err.cause.message : String(err.cause)})`;
+        : err.reason === 'server-error'
+          ? cause
+          : `the review request got no answer from GitHub (${cause})`;
     return new Error(`publish failed and its outcome is unknown: ${what}; look at the pull request before retrying`, {
       cause: err
     });

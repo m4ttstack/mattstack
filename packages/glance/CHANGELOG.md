@@ -4,6 +4,12 @@
 
 ### Minor Changes
 
+- Breaking for an outside `GitProvider` implementation or a full mock:
+  `createComment`, `createInlineComment`, `replyToDiscussion`,
+  `updateComment`, `deleteComment` and `submitReview` are new required
+  members, and `canReplyToGeneralComments`, `canRequestChanges` and
+  `canFetchPullRequestDiffs` are new required `ProviderCapabilities` fields.
+  Code that only calls the providers is unaffected.
 - Comment writes on both providers: `createComment` (a resolvable thread on
   GitLab, or a plain note with `resolvable: false`; a pull request comment on
   GitHub), `createInlineComment` (a `CommentAnchor` of `path` plus `line`,
@@ -17,7 +23,9 @@
   `request_changes`. GitLab publishes pending comments once, at most 100
   comments and replies together, and deletes what it created when a step
   fails before the publish. GitHub sends one review POST, then the replies and
-  resolves; every reply must name a `gh-review-thread-<id>`. An approve GitHub
+  resolves; every reply must name a `gh-review-thread-<id>`, and
+  `replyToDiscussion` refuses a pull request comment or a review summary
+  before any request. An approve GitHub
   refuses on the caller's own pull request posts as a comment with
   `approved: false` and `approveError`. A reply that fails is listed in
   `replyErrors` and its resolve is skipped. Either provider returns
@@ -36,12 +44,14 @@
   `replyToDiscussion`, `updateComment`, `deleteComment`) and the review POST in
   `submitReview` go out once, with no retry, under an abort signal: 15 s for a
   comment write and 60 s for the review POST, set by the new `GitHubProvider`
-  options `writeTimeoutMs` and `reviewTimeoutMs`. On a comment write, a
-  timeout or a lost answer throws `WriteOutcomeUnknownError`, whose message
-  says GitHub may still have applied the write and to check the pull request
-  before retrying. `submitReview` instead throws a plain `Error` whose message
-  starts `publish failed and its outcome is unknown` and whose `cause` is the
-  `WriteOutcomeUnknownError`.
+  options `writeTimeoutMs` and `reviewTimeoutMs`; `createInlineComment`'s
+  head commit read shares the write's bound and is not retried. On a comment
+  write, a timeout, a lost answer or a 5xx (GitHub can apply a write and
+  still answer 5xx) throws `WriteOutcomeUnknownError`, whose message says
+  GitHub may still have applied the write and to check the pull request
+  before retrying; a 4xx still throws `ForgeHttpError`. `submitReview`
+  instead throws a plain `Error` whose message starts `publish failed and its
+  outcome is unknown` and whose `cause` is the `WriteOutcomeUnknownError`.
 - `NoteMutator` accepts a project path string as well as a numeric id, and
   `GitLabProvider.fetchReviewerStates` reads reviewer states.
 - GitHub `fetchMRDiscussions` accepts `github:<owner>/<repo>` as the

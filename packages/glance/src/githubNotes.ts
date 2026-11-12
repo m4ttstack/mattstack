@@ -85,9 +85,10 @@ const CHECK_BEFORE_RETRYING = 'GitHub may still have applied it; check the pull 
 
 /**
  * Runs one GitHub write under its own timeout. A rate limit becomes
- * `RateLimitedError` and a non-2xx `ForgeHttpError` with `githubErrorDetail`.
- * A timeout or a lost answer becomes `WriteOutcomeUnknownError`: the client
- * sends writes with `retries: 0`, so nothing here ever sends it twice.
+ * `RateLimitedError` and a 4xx `ForgeHttpError` with `githubErrorDetail`.
+ * A timeout, a lost answer or a 5xx becomes `WriteOutcomeUnknownError`
+ * (GitHub can apply a write and still answer 5xx): the client sends writes
+ * with `retries: 0`, so nothing here ever sends it twice.
  */
 export async function forgeWrite<T>(
   op: string,
@@ -108,7 +109,16 @@ export async function forgeWrite<T>(
     }
     const limited = toRateLimitedError(err, op);
     if (limited) throw limited;
-    if (err instanceof RequestError && err.response) throw githubHttpError(err, githubErrorDetail(err));
+    if (err instanceof RequestError && err.response) {
+      const httpError = githubHttpError(err, githubErrorDetail(err));
+      if (err.status >= 500 && err.status <= 599) {
+        throw new WriteOutcomeUnknownError(
+          `${op} got a ${err.status} ${httpError.statusText} from GitHub (${httpError.bodyText}): ${CHECK_BEFORE_RETRYING}`,
+          { operation: op, reason: 'server-error', cause: httpError }
+        );
+      }
+      throw httpError;
+    }
     if (err instanceof RequestError) {
       throw new WriteOutcomeUnknownError(
         `${op} got no answer from GitHub (${err.message}): ${CHECK_BEFORE_RETRYING}`,

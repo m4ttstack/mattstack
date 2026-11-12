@@ -48,11 +48,23 @@ describe('GitHub createComment', () => {
     });
   });
 
-  test('a 502 on the POST rejects after exactly one request', async () => {
+  test('a 502 on the POST rejects with the may-have-landed message after exactly one request', async () => {
     const calls = forge(() => jsonResponse({ message: 'Bad Gateway' }, 502));
     const err = await provider().createComment('o/r', 7, 'hello').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WriteOutcomeUnknownError);
+    expect((err as WriteOutcomeUnknownError).reason).toBe('server-error');
+    expect((err as Error).message).toBe(
+      'createComment got a 502 Bad Gateway from GitHub (Bad Gateway): GitHub may still have applied it; check the pull request before retrying'
+    );
+    expect(((err as Error).cause as ForgeHttpError).status).toBe(502);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a 4xx on the POST still rejects with ForgeHttpError', async () => {
+    const calls = forge(() => jsonResponse({ message: 'Not Found' }, 404));
+    const err = await provider().createComment('o/r', 7, 'hello').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ForgeHttpError);
-    expect((err as ForgeHttpError).status).toBe(502);
+    expect((err as ForgeHttpError).status).toBe(404);
     expect(calls).toHaveLength(1);
   });
 
@@ -138,6 +150,24 @@ describe('GitHub createInlineComment', () => {
     expect(calls[1]!.body).toEqual({ body: 'gone', commit_id: 'abc', path: 'a.ts', line: 9, side: 'LEFT' });
   });
 
+  test('a head read that outlives writeTimeoutMs rejects without posting', async () => {
+    const methods: string[] = [];
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+      methods.push(String(init?.method ?? 'GET').toUpperCase());
+      return new Promise<Response>((_resolve, reject) => {
+        if (init?.signal?.aborted) reject(init.signal.reason);
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      });
+    }) as typeof fetch;
+    const err = await provider({ writeTimeoutMs: 50 })
+      .createInlineComment('o/r', 7, 'look', { path: 'a.ts', line: 4 })
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      "createInlineComment timed out reading the pull request's head commit; nothing was posted"
+    );
+    expect(methods).toEqual(['GET']);
+  });
+
   test("a 422 carrying object-shaped errors surfaces each entry's message", async () => {
     forge((method, path) => {
       if (method === 'GET') return jsonResponse({ number: 7, head: { sha: 'abc' } });
@@ -184,13 +214,19 @@ describe('GitHub replyToDiscussion', () => {
     });
   });
 
-  test('a pull request comment or a review summary is refused before any request', async () => {
+  test('a pull request comment is refused before any request', async () => {
     const calls = forge(() => jsonResponse({}, 201));
-    for (const id of ['gh-issue-comment-5', 'gh-review-9']) {
-      await expect(provider().replyToDiscussion('o/r', 7, id, 'agreed')).rejects.toThrow(
-        `replyToDiscussion: ${id} is a pull request comment with no thread on GitHub; post a new comment instead`
-      );
-    }
+    await expect(provider().replyToDiscussion('o/r', 7, 'gh-issue-comment-5', 'agreed')).rejects.toThrow(
+      'replyToDiscussion: gh-issue-comment-5 is a pull request comment with no thread on GitHub; post a new comment instead'
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  test('a review summary is refused before any request', async () => {
+    const calls = forge(() => jsonResponse({}, 201));
+    await expect(provider().replyToDiscussion('o/r', 7, 'gh-review-9', 'agreed')).rejects.toThrow(
+      'replyToDiscussion: gh-review-9 is a review summary with no thread on GitHub; post a new comment instead'
+    );
     expect(calls).toHaveLength(0);
   });
 });

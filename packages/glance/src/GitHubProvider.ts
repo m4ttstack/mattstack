@@ -2285,9 +2285,23 @@ export class GitHubProvider implements GitProvider {
   ): Promise<InlineCommentResult> {
     const { owner, repo } = this.splitOwnerRepo(projectPath);
     const { line, side } = githubLineAndSide(anchor);
+    const headSignal = AbortSignal.timeout(this.writeTimeoutMs);
     const pr = await this.forgeRead('createInlineComment', () =>
-      this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', { owner, repo, pull_number: mrIid })
-    );
+      this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+        owner,
+        repo,
+        pull_number: mrIid,
+        // The retry plugin would wait 1, 4 and 9 s after an abort, past the caller's budget.
+        request: { signal: headSignal, retries: 0 }
+      })
+    ).catch((err: unknown) => {
+      if (headSignal.aborted) {
+        throw new Error("createInlineComment timed out reading the pull request's head commit; nothing was posted", {
+          cause: err
+        });
+      }
+      throw err;
+    });
     const { data } = await forgeWrite('createInlineComment', this.writeTimeoutMs, (signal) =>
       this.octokit.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/comments', {
         owner,
@@ -2320,8 +2334,9 @@ export class GitHubProvider implements GitProvider {
   ): Promise<NoteWriteResult> {
     const root = parseReviewThreadDiscussionId(discussionId);
     if (root == null) {
+      const what = /^gh-review-\d+$/.test(discussionId) ? 'a review summary' : 'a pull request comment';
       throw new Error(
-        `replyToDiscussion: ${discussionId} is a pull request comment with no thread on GitHub; post a new comment instead`
+        `replyToDiscussion: ${discussionId} is ${what} with no thread on GitHub; post a new comment instead`
       );
     }
     const { owner, repo } = this.splitOwnerRepo(projectPath);
