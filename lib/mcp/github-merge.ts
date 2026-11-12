@@ -3,7 +3,7 @@
  * the daemon holds the token, and it asks GitHub whether the PR goes through
  * a merge queue so callers never have to know. The queue wait loop stays here.
  */
-import { ReadBackFailedError, type GitProvider, type MergeQueueStatus } from "@mattstack/glance";
+import { MergeReadBackFailedError, ReadBackFailedError, type GitProvider, type MergeQueueStatus } from "@mattstack/glance";
 import { DAEMON_UNREACHABLE_PREFIX, rtCommand, type Commands } from "../../packages/rt-client/src/index.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { isRepoRegistered } from "../repo-index.ts";
@@ -139,11 +139,15 @@ export function daemonMergeProvider(identity: string, command: DaemonCommand = r
         throw new Error(merged.error);
       }
       const note = merged.data?.sourceBranchNotDeleted;
+      const queued = merged.data?.queued;
       const cleanup = typeof note === "string" ? { sourceBranchNotDeleted: note } : {};
       if (!back.ok || !back.data?.mr) {
-        throw new ReadBackFailedError(`Merged #${iid} but could not read it back: ${back.error ?? "mr:get returned no pull request"}`, { operation: "mergePullRequest", projectPath, iid, writeApplied: true });
+        const what = queued ? `Queued #${iid}` : `Merged #${iid}`;
+        throw new MergeReadBackFailedError(`${what} but could not read it back: ${back.error ?? "mr:get returned no pull request"}`, {
+          operation: "mergePullRequest", projectPath, iid, writeApplied: true, ...cleanup, ...(queued && { queued }),
+        });
       }
-      return { ...back.data.mr, ...cleanup };
+      return { ...back.data.mr, ...cleanup, ...(queued && { queued }) };
     },
   };
 }
@@ -184,9 +188,15 @@ export async function mergeOnGitHub(
       ...(options.removeSourceBranch !== undefined && { shouldRemoveSourceBranch: options.removeSourceBranch }),
     });
     const cleanup = pr.sourceBranchNotDeleted === undefined ? {} : { sourceBranchNotDeleted: pr.sourceBranchNotDeleted };
-    return pr.state === "merged" ? ok({ merged: true, ...cleanup }) : ok({ requested: "merge", verified: false, state: pr.state, ...cleanup });
+    if (pr.state === "merged") return ok({ merged: true, ...cleanup });
+    if (pr.queued) return ok({ queued: true, position: pr.queued.position, state: pr.queued.state });
+    return ok({ requested: "merge", verified: false, state: pr.state, ...cleanup });
   } catch (e) {
-    if (e instanceof ReadBackFailedError && e.writeApplied) return ok({ requested: "merge", verified: false });
+    if (e instanceof MergeReadBackFailedError && e.queued) return ok({ queued: true, position: e.queued.position, state: e.queued.state });
+    if (e instanceof ReadBackFailedError && e.writeApplied) {
+      const note = e instanceof MergeReadBackFailedError ? e.sourceBranchNotDeleted : undefined;
+      return ok({ requested: "merge", verified: false, ...(note !== undefined && { sourceBranchNotDeleted: note }) });
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }

@@ -40,8 +40,8 @@
  */
 
 import { applyMRWriteback, getCurrentUserId, getRepoContext } from "../freshness.ts";
-import type { PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
-import { PartialCreateError, ReadBackFailedError } from "@mattstack/glance";
+import type { MergeQueueEntry, PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
+import { MergeReadBackFailedError, PartialCreateError, ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrCreateFailedStep, MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
@@ -134,7 +134,8 @@ export interface MRHandlerOverrides {
 }
 
 // "mr:action" keeps its pre-existing `{ok:true}` wire reply verbatim, with
-// `data` only for a merge that left its source branch, so it stays on the
+// `data` only for a merge that left its source branch or entered a merge
+// queue, so it stays on the
 // loose `Promise<any>` escape hatch (same trick as endpoint.ts/repos.ts); the
 // two job-detail verbs already envelope as {ok,data} and get the standard
 // CommandResult carve-out.
@@ -238,12 +239,14 @@ export function createMRHandlers(
         }
         let returnedPr: PullRequest | null = null;
         let sourceBranchNotDeleted: string | undefined;
+        let queued: MergeQueueEntry | undefined;
         try {
           switch (action) {
             case "merge": {
               const merged = await provider.mergePullRequest(projectPath, iid, args[0]);
               returnedPr = merged;
               sourceBranchNotDeleted = merged?.sourceBranchNotDeleted;
+              queued = merged?.queued;
               break;
             }
             case "rebase":           await provider.rebasePullRequest(projectPath, iid);                  break;
@@ -269,11 +272,19 @@ export function createMRHandlers(
           //
           // `returnedPr` stays null, which drops through to the same follow-up
           // fetch the void actions use, so the stores still get a fresh shape.
-          if (!(err instanceof ReadBackFailedError && err.writeApplied)) throw err;
+          // A PR already in the queue is queued even when nothing was written.
+          const merge = err instanceof MergeReadBackFailedError ? err : null;
+          if (!(err instanceof ReadBackFailedError && (err.writeApplied || merge?.queued))) throw err;
+          sourceBranchNotDeleted = merge?.sourceBranchNotDeleted;
+          queued = merge?.queued;
           ctx.log.warn({ err, repo: repoName, iid, action }, "action landed but its read-back failed; recovering via follow-up fetch");
         }
 
-        const done = sourceBranchNotDeleted ? { ok: true, data: { sourceBranchNotDeleted } } : { ok: true };
+        const data = {
+          ...(sourceBranchNotDeleted && { sourceBranchNotDeleted }),
+          ...(queued && { queued: { position: queued.position, state: queued.state } }),
+        };
+        const done = Object.keys(data).length > 0 ? { ok: true, data } : { ok: true };
 
         const followUp = async () => {
           try {

@@ -75,6 +75,12 @@ describe("mergeOnGitHub", () => {
     expect((await mergeOnGitHub(TARGET, { removeSourceBranch: true }, { provider })).body).toEqual({ merged: true, sourceBranchNotDeleted });
   });
 
+  test("a merge the provider resolved as queued reads as queued, never as merged", async () => {
+    const mergePullRequest = (async () => ({ state: "opened", queued: { position: 2, state: "QUEUED" } })) as unknown as GithubMergeProvider["mergePullRequest"];
+    const { provider } = github({ enabled: false, inQueue: false }, { mergePullRequest });
+    expect((await mergeOnGitHub(TARGET, {}, { provider })).body).toEqual({ queued: true, position: 2, state: "QUEUED" });
+  });
+
   test("a merge whose read-back failed is unverified, not failed", async () => {
     const mergePullRequest = (async () => {
       throw Object.assign(Object.create(ReadBackFailedError.prototype), { writeApplied: true });
@@ -340,6 +346,34 @@ describe("daemonMergeProvider", () => {
       "mr:get": [{ ok: true, data: { mr: MERGED_PR, fetchedAt: 1 } }],
     });
     expect((await mergeOnGitHub(TARGET, { removeSourceBranch: true }, seams)).body).toEqual({ merged: true, sourceBranchNotDeleted });
+  });
+
+  test("a merge the daemon put in the merge queue reads as queued, never as merged", async () => {
+    const { seams } = daemon({
+      "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+      "mr:action": [{ ok: true, data: { queued: { position: 3, state: "QUEUED" } } }],
+      "mr:get": [{ ok: true, data: { mr: { ...MERGED_PR, state: "opened" }, fetchedAt: 1 } }],
+    });
+    expect((await mergeOnGitHub(TARGET, {}, seams)).body).toEqual({ queued: true, position: 3, state: "QUEUED" });
+  });
+
+  test("a queued merge whose read-back failed still reads as queued", async () => {
+    const { seams } = daemon({
+      "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+      "mr:action": [{ ok: true, data: { queued: { position: 1, state: "AWAITING_CHECKS" } } }],
+      "mr:get": [{ ok: false, error: "rt daemon unreachable" }],
+    });
+    expect((await mergeOnGitHub(TARGET, {}, seams)).body).toEqual({ queued: true, position: 1, state: "AWAITING_CHECKS" });
+  });
+
+  test("a landed merge that could not be read back still says why its source branch is left", async () => {
+    const sourceBranchNotDeleted = "The source branch was not deleted: GitHub refused the delete with 422.";
+    const { seams } = daemon({
+      "mr:merge-queue-status": [{ ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } }],
+      "mr:action": [{ ok: true, data: { sourceBranchNotDeleted } }],
+      "mr:get": [{ ok: false, error: "rt daemon unreachable" }],
+    });
+    expect((await mergeOnGitHub(TARGET, {}, seams)).body).toEqual({ requested: "merge", verified: false, sourceBranchNotDeleted });
   });
 
   test("a merge that landed but could not be read back is unverified, not failed", async () => {

@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { PartialCreateError, RateLimitedError, ReadBackFailedError } from "@mattstack/glance";
+import { MergeReadBackFailedError, PartialCreateError, RateLimitedError, ReadBackFailedError } from "@mattstack/glance";
 import { createMRHandlers } from "../mr.ts";
 import { createProjectMRsHandlers } from "../project-mrs.ts";
 import { createProjectMRs } from "../../project-mrs-store.ts";
@@ -84,6 +84,36 @@ describe("mr:action on GitHub", () => {
     const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge", args: [{ shouldRemoveSourceBranch: true }] });
     expect(res).toEqual({ ok: true, data: { sourceBranchNotDeleted: note } });
     expect(h.writebacks.length).toBe(1);
+  });
+
+  test("a merge that entered the merge queue replies with its queue entry and writes the still-open PR back", async () => {
+    const queued = { position: 2, state: "QUEUED" };
+    const h = harness({ mergePullRequest: async () => prOf(7, { state: "opened", queued }) });
+    const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge" });
+    expect(res).toEqual({ ok: true, data: { queued } });
+    expect(h.writebacks).toEqual([[REPO, "o/r", prOf(7, { state: "opened", queued })]]);
+  });
+
+  test("a landed merge whose read-back failed still passes on why its source branch is left", async () => {
+    const note = "The source branch was not deleted: GitHub refused the delete with 422.";
+    const h = harness({
+      mergePullRequest: async () => {
+        throw new MergeReadBackFailedError("Merged PR #7 but could not read it back", { operation: "mergePullRequest", projectPath: "o/r", iid: 7, writeApplied: true, sourceBranchNotDeleted: note });
+      },
+    });
+    const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge" });
+    expect(res).toEqual({ ok: true, data: { sourceBranchNotDeleted: note } });
+  });
+
+  test("a PR already queued whose read-back failed replies queued, not failed", async () => {
+    const queued = { position: 1, state: "AWAITING_CHECKS" };
+    const h = harness({
+      mergePullRequest: async () => {
+        throw new MergeReadBackFailedError("PR #7 is queued but could not be read back", { operation: "mergePullRequest", projectPath: "o/r", iid: 7, writeApplied: false, queued });
+      },
+    });
+    const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "merge" });
+    expect(res).toEqual({ ok: true, data: { queued } });
   });
 
   test("approve schedules the follow-up write-back", async () => {

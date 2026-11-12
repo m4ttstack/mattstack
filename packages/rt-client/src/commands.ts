@@ -1234,8 +1234,10 @@ export interface Commands {
   };
 
   /** Wire reply is `{ok:true}` on success (no `data`); a failure is `{ok:false,error}`.
-      A merge whose source branch could not be deleted replies `{ok:true,data:{sourceBranchNotDeleted}}` (why, in one sentence). */
-  "mr:action": { payload: { repoName: string; iid: number; action: MRActionName; args?: unknown[] }; data: { sourceBranchNotDeleted?: string } };
+      A merge whose source branch could not be deleted replies `{ok:true,data:{sourceBranchNotDeleted}}` (why, in one sentence).
+      A GitHub merge that entered the base branch's merge queue replies `{ok:true,data:{queued}}`:
+      the PR has not merged yet, so `queued` is never a landed merge. */
+  "mr:action": { payload: { repoName: string; iid: number; action: MRActionName; args?: unknown[] }; data: { sourceBranchNotDeleted?: string; queued?: { position: number; state: string } } };
 
   /** Creates an MR (a draft unless `draft: false`) and writes it back so the
       board sees it before the next sweep. Never retries. `url` is null when
