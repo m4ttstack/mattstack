@@ -577,6 +577,14 @@ describe("a GitHub PR", () => {
     expect(res.hold).toBe("held");
   });
 
+  test("a merged same-repo GitHub PR holds the fix row with the PR text", async () => {
+    const w = ghWorld("acme/app");
+    w.cmd["mr:get"] = [okData({ mr: { sourceBranch: "feat-x", state: "merged", sourceProjectPath: "acme/app" } })];
+    const { res, calls } = await done(w);
+    expect(res.held).toEqual([{ threadId: GA, kind: "mismatch", error: "PR #5 is merged, so a fix push would not reach it" }]);
+    expect(pushCalls(calls)).toEqual([]);
+  });
+
   test("a merged fork PR reports the fork reason", async () => {
     const w = ghWorld("someone/r");
     w.cmd["mr:get"] = [okData({ mr: { sourceBranch: "feat-x", state: "merged", sourceProjectPath: "someone/r" } })];
@@ -911,6 +919,8 @@ describe("the tool", () => {
     expect(at("recorded")).toBeLessThan(at("retried once"));
     expect(at("retried once")).toBeLessThan(at("held[]"));
     expect(at("held[]")).toBeLessThan(at("GitHub"));
+    expect(t.description).toContain("another repository");
+    expect(t.description).toContain("gh-issue-comment");
     expect(t.shellForms).toEqual({ none: "composes git_push, mr_reply_thread and mr_resolve_thread; no single shell command is equivalent" });
     expect(t.inputSchema).toMatchObject({ required: ["runDb", "tree", "stage"] });
   });

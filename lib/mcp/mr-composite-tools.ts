@@ -48,7 +48,7 @@ export const realMrCompositeDeps: MrCompositeDeps = {
 
 const READ_TIMEOUT_MS = 30_000;
 const NOTE_BODY_CAP = 2000;
-/** decided_at is this machine's clock and a note's createdAt is GitLab's, so the author rule allows a minute of skew before counting a note as an earlier round's. */
+/** decided_at is this machine's clock and a note's createdAt is the forge's, so the author rule allows a minute of skew before counting a note as an earlier round's. */
 export const AUTHOR_RULE_GRACE_MS = 60_000;
 
 export type ThreadPosted = { discussionId: string; found: boolean; posted: boolean; noteId: number | null; via: "body" | "author" | null };
@@ -733,7 +733,7 @@ async function expectedBranch(deps: MrCompositeDeps, t: Target, fromRun: string 
   const r = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: t.identity, iid: t.iid }, { timeoutMs: READ_TIMEOUT_MS });
   if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR read failed") };
   const { sourceBranch: source, state } = r.data.mr;
-  const notOpen = state === "opened" ? null : `MR !${t.iid} is ${state}, so a fix push would not reach it`;
+  const notOpen = state === "opened" ? null : `${githubProjectOf(t.identity) ? `PR #${t.iid}` : `MR !${t.iid}`} is ${state}, so a fix push would not reach it`;
   const fork = sourceInRepo(t.identity, r.data.mr) ? null : "the PR's branch lives in another repository, so this tool will not push it";
   if (fromRun === null) return { ok: true, branch: source, mismatch: null, notOpen, fork };
   return { ok: true, branch: fromRun, mismatch: source === fromRun ? null : `the run's branch is ${fromRun} but the MR's source branch is ${source}`, notOpen, fork };
@@ -1023,7 +1023,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "mr_map",
-      description: `A repo's open MRs joined to the local worktrees holding their branches, read live from the forge on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_TARGET_RULE}`,
+      description: `A repo's open MRs joined to the local worktrees holding their branches, read live from the forge on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: ref is \`!<iid>\` on GitLab and \`#<iid>\` on GitHub; stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_TARGET_RULE}`,
       inputSchema: {
         type: "object",
         properties: {

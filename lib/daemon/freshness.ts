@@ -476,6 +476,19 @@ function createFreshnessCore() {
     }
   }
 
+  async function resolveGitHubSelfLogin(repoName: string, repoPath: string): Promise<string | null> {
+    try {
+      const ctx = await getRepoContext(repoName, repoPath);
+      if (ctx.forge !== "github") return null;
+      await getSelfUserId(ctx);
+      const token = githubProviderTokens.get(ctx.provider);
+      return token !== undefined ? githubSelf.get(token)?.login ?? null : null;
+    } catch (err) {
+      log.warn({ err, repo: repoName }, "GitHub self login resolution failed");
+      return null;
+    }
+  }
+
   async function cachedSelfUsername(_repoName: string, repoPath: string): Promise<string | null> {
     if (await isGitHubRepo(repoPath)) {
       return currentGithubSelf()?.login ?? null;
@@ -1126,6 +1139,7 @@ function createFreshnessCore() {
     resolveUserIdAcrossTracking,
     getSelfUsername,
     resolveSelfUsername,
+    resolveGitHubSelfLogin,
     cachedSelfUsername,
     getSelfIds,
     getAggregatedConnection,
@@ -1215,6 +1229,11 @@ export function getSelfUsername(): string | null {
 
 export function resolveSelfUsername(repoName: string, repoPath: string): Promise<string | null> {
   return getDefaultCore().resolveSelfUsername(repoName, repoPath);
+}
+
+/** The GitHub token's own login; null for any repo whose context is not GitHub, never the GitLab name. */
+export function resolveGitHubSelfLogin(repoName: string, repoPath: string): Promise<string | null> {
+  return getDefaultCore().resolveGitHubSelfLogin(repoName, repoPath);
 }
 
 /** Login cached for this repo's forge; never reads the network, and a GitHub repo never gets the GitLab name. */

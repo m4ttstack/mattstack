@@ -21,6 +21,7 @@
  *   pipeline:list            - pipelines for a branch, a commit or an MR (GitLab or GitHub)
  *   forge:get                - one guarded GET against the repo's own forge REST API (GitLab, or GitHub under the repo)
  *   forge:file-diff          - one file's diff in an MR or PR, from the repo's own forge (GitLab or GitHub)
+ *   forge:self               - the repo token's own login (GitHub)
  *
  * Every handler routes by `{ repoName, iid }`. If no provider can be built
  * for the repo (missing token, unparseable remote), the handler returns
@@ -39,7 +40,8 @@
  * Follow-up failures log at warn and never fail the action.
  */
 
-import { applyMRWriteback, getCurrentUserId, getRepoContext, resolveSelfUsername } from "../freshness.ts";
+import { applyMRWriteback, getCurrentUserId, getRepoContext, resolveGitHubSelfLogin } from "../freshness.ts";
+import { parseIdentity } from "../../settings/identity.ts";
 import type { FetchPullRequestsWarning, MergeQueueEntry, PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
 import { MergeReadBackFailedError, PartialCreateError, ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
@@ -177,7 +179,7 @@ export function createMRHandlers(
   const fileDiffContext = overrides.fileDiffContext
     ?? (async (repoName: string) => fileDiffContextOf(await contextFor(repoName)));
   const readFileDiff = createFileDiffReader();
-  const selfUsername = overrides.selfUsername ?? resolveSelfUsername;
+  const selfUsername = overrides.selfUsername ?? resolveGitHubSelfLogin;
 
   function contextFor(repoName: string): Promise<HandlerRepoContext> {
     return getContext(repoName);
@@ -797,10 +799,9 @@ export function createMRHandlers(
     "forge:self": async (payload) => {
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
-      const repoPath = ctx.repoIndex()[decoded.repo];
-      if (repoPath === undefined) return { ok: false, error: "repo-unknown" };
+      if (!parseIdentity(decoded.repo)?.id.toLowerCase().startsWith("github.com/")) return { ok: false, error: "forge:self answers only for a GitHub repo" };
       try {
-        const username = await selfUsername(decoded.repo, repoPath);
+        const username = await selfUsername(decoded.repo, ctx.repoIndex()[decoded.repo]!);
         if (username === null) return { ok: false, error: `could not read the token's own user for ${decoded.repo}` };
         return { ok: true, data: { username } };
       } catch (err) {

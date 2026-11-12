@@ -3,10 +3,11 @@ import { createMRHandlers } from "../handlers/mr.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 
 const REPO = "remote:github.com%2Fo%2Fr";
+const GITLAB_REPO = "remote:gitlab.com%2Fo%2Fr";
 
 function handlers(selfUsername: (repoName: string, repoPath: string) => Promise<string | null>) {
   return createMRHandlers(
-    { cache: fakeStore({}), repoIndex: () => ({ [REPO]: "/repo" }), log: { warn() {}, info() {}, debug() {}, error() {} } as any },
+    { cache: fakeStore({}), repoIndex: () => ({ [REPO]: "/repo", [GITLAB_REPO]: "/gl-repo" }), log: { warn() {}, info() {}, debug() {}, error() {} } as any },
     () => {},
     { selfUsername },
   );
@@ -29,6 +30,13 @@ describe("forge:self", () => {
     let called = false;
     const h = handlers(async () => { called = true; return "octo"; });
     expect(await h["forge:self"]({ repoName: "o/r" })).toEqual({ ok: false, error: "repo-unknown" });
+    expect(called).toBe(false);
+  });
+
+  test("a GitLab identity is refused before the seam", async () => {
+    let called = false;
+    const h = handlers(async () => { called = true; return "gl-me"; });
+    expect(await h["forge:self"]({ repoName: GITLAB_REPO })).toEqual({ ok: false, error: "forge:self answers only for a GitHub repo" });
     expect(called).toBe(false);
   });
 
