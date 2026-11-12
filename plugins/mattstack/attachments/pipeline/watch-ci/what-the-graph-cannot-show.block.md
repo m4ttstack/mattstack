@@ -24,7 +24,9 @@ label: Graph notes
   has finished, and `ci_watch` returns `failed` while other jobs still run.
   Take the wait edge only when the `mr_retry` error plainly says the job's
   workflow run is still in progress; any other refusal takes the
-  tool-error edge.
+  tool-error edge. When some jobs retried and others were refused as
+  still in progress, the wait edge wins, and only the refused jobs are
+  retried after it.
 - **The new attempt.** A fix push in an own run starts the next attempt of
   `watch-ci` with `run_resolve` (`next: iterate`, `to` left out), never
   `run_stage` start: `attempt` is the attempt now running (`run_enter`'s

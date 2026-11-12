@@ -28,8 +28,10 @@ same call. `mr_retry` keeps `leaseMrUrl: <mr>` either way. `<N>` is the
 number in `ci_watch`'s `pipeline.id` (`gitlab:pipeline:N`). On GitHub,
 `ci_triage` and `pipeline_jobs` take no `pipelineId`: their default is
 every check on the PR head, which is the watched sha (a moved head returns
-`superseded` first), while a `github:run:N` id names one workflow run
-alone.
+`superseded` first). `ci_watch`'s own `N` is the head's anchor run and
+maps back to every head check, but any other run id names one workflow
+run alone, so leaving `pipelineId` out is the form that cannot narrow the
+read.
 
 ```mermaid
 flowchart TB
@@ -70,7 +72,7 @@ flowchart TB
     mr_retry[/"mr_retry {mrUrl: <mr>, jobId, leaseMrUrl: <mr>} per INFRA job"/]
     mr_retry_result{mr_retry result?}
     gate_retry_refused
-    run_budget_retry_waits[/"run_budget {key: watch-ci:retry-waits:<sha12>, limit: 20, stage}"/]
+    run_budget_retry_waits[/"run_budget {key: watch-ci:retry-waits:<sha12>, limit: 21, stage}"/]
     retry_waits_spent{retry-waits spent?}
     sleep_before_retry[/"sleep 60 as a background Bash task (GitHub retry wait)"/]
     end_turn_retry_wait["End the turn: waiting to retry"]
@@ -162,7 +164,7 @@ flowchart TB
     mr_retry --> mr_retry_result
     mr_retry_result -->|retried: watch again| ci_watch
     mr_retry_result -->|refused: lease_held, holder named| stop_lease_holder_owns
-    mr_retry_result -->|GitHub: tool error, the job's run is still in progress| run_budget_retry_waits
+    mr_retry_result -->|GitHub: any job's retry refused because its run is still in progress| run_budget_retry_waits
     mr_retry_result -->|tool error| gate_retry_refused
     run_budget_retry_waits --> retry_waits_spent
     retry_waits_spent -->|no| sleep_before_retry

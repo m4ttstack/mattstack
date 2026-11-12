@@ -9,4 +9,4 @@ The background `sleep 60` is running: end the turn here, in one line
 naming the wait (`waiting to retry the job, wait <n>`). Run one
 sleep task at a time and never sleep in the foreground. The task's finish
 wakes the pane at `Trigger: the retry wait's sleep finished`, and
-`mr_retry` runs again for the jobs it refused.
+`mr_retry` runs again only for the jobs it refused.

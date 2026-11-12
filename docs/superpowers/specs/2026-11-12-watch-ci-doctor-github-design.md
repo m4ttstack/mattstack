@@ -97,7 +97,9 @@ forge-specific work, and the GitLab walk does not change.
   GitHub reruns a job only once its workflow run has finished. So
   `mr_retry_result` gains one edge, "tool error: GitHub says the job's
   run is still in progress", to
-  `run_budget {key: watch-ci:retry-waits:<sha12>, limit: 20, stage}`:
+  `run_budget {key: watch-ci:retry-waits:<sha12>, limit: 21, stage}`
+  (20 waits, as the budget rule counts: the count that reaches the limit
+  takes yes):
   - not spent: one background Bash task `sleep 60`, end the turn, and on
     its trigger the same `mr_retry` again;
   - spent: `gate_retry_refused`, as any other refusal.
@@ -362,6 +364,11 @@ formed; the projection diff shows the GitLab path is the same.
   not an Actions job (most likely a Not Found from the Actions job log
   request), and pin it in doctor's `GitHub: no Actions log for the check`
   edge.
+- Doctor's GitHub rebase refusal message says "the conflicts need a
+  checkout" for every refusal, including the ones that are not conflicts
+  (the branch is already up to date, a fork).
+- The stage's `run_field_get_branch` read is now unused. Removing it
+  changes the GitLab walk, so it waits for its own change.
 
 - Remove the `gh` rules from `lib/setup/base-permissions.ts`.
 - Retire ci-forge code under `lib/`, the `attachments/ci-forge-gitlab`

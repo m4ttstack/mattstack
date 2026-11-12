@@ -14,8 +14,10 @@ too) or UNKNOWN (no base); the `blocking` list decides the verdict. Read
 each UNCLEAR job with `mr_job_trace`: the tail, then `grep` or
 `headLines`; a teardown-only tail (cleanup, artifact upload, runner exit)
 says nothing. On GitLab, a `crossProject` entry is read as the failedJobs
-section says. On GitHub, one is a failed check with no readable log: it is
-UNCLEAR as it stands, and gets no `mr_job_trace` call.
+section says. On GitHub, one is a failed check with no readable log: a
+`crossProject` entry with `blocking: true` is UNCLEAR as it stands, and gets
+no `mr_job_trace` call. One with `blocking: false` is optional and never
+decides the verdict; the `blocking` list decides it.
 Each blocking failure is then REAL (the change broke it: a test, type or
 lint failure in touched code), INFRA (unrelated: a runner, network or
 dependency outage, a known flake) or, still UNCLEAR, the gate's.

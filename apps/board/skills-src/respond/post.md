@@ -429,8 +429,9 @@ reason to post with the forge CLI or the API.
 
 Before posting again, read `mr_threads {mrUrl, refresh: true}` with no
 filter. `Reply already up (mr_reply_thread)?` answers yes when the row's
-discussion holds a note by the account this run posts as, created after
-the `answeredAt` in `--report`'s `gate-2-answer` line, whose text starts
+discussion holds a note by the account this run posts as, created at or
+after the `answeredAt` in `--report`'s `gate-2-answer` line minus 60
+seconds (GitHub stamps notes to the second, and clocks skew), whose text starts
 with the first line of the reply due; the reply
 then counts as posted and is never posted again. No such note is no. A
 read that errors is the read errored: the off-script gate follows,
@@ -452,8 +453,9 @@ or the API.
 
 Before posting again, read `mr_threads {mrUrl, refresh: true}` with no
 filter. `Reply already up (mr_comment)?` answers yes when a PR-level
-comment by the account this run posts as, created after the
-`answeredAt` in `--report`'s `gate-2-answer` line, ends with the marker
+comment by the account this run posts as, created at or after the
+`answeredAt` in `--report`'s `gate-2-answer` line minus 60 seconds
+(GitHub stamps notes to the second, and clocks skew), ends with the marker
 line naming the row's id; the reply then counts as posted and
 is never posted again. No such comment is no. A read that errors is the
 read errored: the off-script gate follows, quoting it, with no second

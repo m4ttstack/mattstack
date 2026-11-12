@@ -188,7 +188,9 @@ pipeline for <sha>`), so a human reruns or starts it.
   GitHub, `mr_rebase` with `wait: true` returns the outcome itself, so the
   poll runs only after an off-script take, and there `rebaseInProgress` is
   always false: a moved `sha` is rebased cleanly, and an unchanged `sha`
-  with `conflicts` true is conflicts the forge cannot rebase.
+  with `conflicts` true is conflicts the forge cannot rebase. On GitHub,
+  an unchanged `sha` with `conflicts` false takes `still rebasing`, which
+  the 5-poll bound ends.
 
 ### Fix what the mr_view error names
 

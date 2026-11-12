@@ -208,34 +208,45 @@ retried. The signals:
   so this never reads them);
 - in `ci_watch`'s `failedJobs`, `jobId` null.
 
-Such a row skips the trace read and is never retried as flaky. Whether
-it blocks decides the rest; `mr_pipeline`'s `pipeline.jobs` rows and
-`ci_watch`'s `failedJobs` rows carry `allowFailure`, true when the check
-is not required. When no row in `pipeline.jobs` has `allowFailure: false`,
-the repo requires no checks: every row is blocking, as the head's status
-and `ci_watch` count it.
+Such a row skips the trace read and is never retried as flaky.
 
-- a blocking no-log row (`allowFailure: false`, or any row when none has
-  `allowFailure: false`) classifies as `real, or no licensed fix`, with
+On GitHub, only blocking rows are classified. `mr_pipeline`'s
+`pipeline.jobs` rows carry `allowFailure`, true when the check is not
+required, so in a repo with no required checks no row has
+`allowFailure: false`. `ci_watch`'s `failedJobs` rows carry
+`allowFailure: false` on every row that blocks, so in a repo with no
+required checks every row comes back `allowFailure: false`. Either way a
+row is blocking when it has `allowFailure: false`, and every row is
+blocking when none has `allowFailure: false`, as the head's status and
+`ci_watch` count it.
+
+- a blocking no-log row classifies as `real, or no licensed fix`, with
   the error naming the check and that it has no Actions log;
-- a no-log row that is not blocking (`allowFailure: true` while some row
-  has `allowFailure: false`) is not a blocking failure. It is left out of
-  the classification and never takes `real, or no licensed fix`; the
-  status message the run writes next, whichever that is (`fixing`,
-  `done` or `error`), names it as an optional check that is also red.
+- on GitHub, a red row that is not blocking (`allowFailure: true` while
+  some row has `allowFailure: false`) is not a blocking failure, with a
+  log or without one. It gets no trace call, is left out of the
+  classification and never takes `real, or no licensed fix`; the status
+  message the run writes next, whichever that is (`fixing`, `done` or
+  `error`), names it as an optional check that is also red.
+
+The blocking rule applies on GitHub only; on GitLab it leaves no failed
+job out of the classification.
 
 `mr_job_trace {mrUrl, jobId} per failed job` means per failed job with a
-log: a no-log row gets no trace call, so a mixed red traces only the rows
-that have a log. A GitHub red always has a blocking failed row, since
-only blocking checks (every check, when none is required) set the head's
-status and `ci_watch` returns `failed` on a blocking failure. A red where no blocking failed row has a log comes
-straight here on a `GitHub: every blocking ...` edge: those rows take
-`real, or no licensed fix`, which decides the run, so no optional row is
-read either. A check another app
-reported keeps a numeric `jobId` in `failedJobs`, so it can still reach
-`mr_job_trace`; the error saying it has no Actions log, or a Not Found
-on a check with no Actions run, takes `GitHub: no Actions log for the
-check` to the same outcome, blocking or optional by its `allowFailure`.
+log, and on GitHub per blocking failed job with a log: a no-log row, or a
+GitHub row that is not blocking, gets no trace call, so a mixed red
+traces only the blocking rows that have a log. On GitHub, `Trace tails
+enough to classify (doctor)?` asks about the blocking rows only. A
+GitHub red always has a blocking failed row, since only blocking checks
+(every check, when none is required) set the head's status and
+`ci_watch` returns `failed` on a blocking failure. A red where no
+blocking failed row has a log comes straight here on a `GitHub: every
+blocking ...` edge: those rows take `real, or no licensed fix`, which
+decides the run. A check another app reported keeps a numeric `jobId` in
+`failedJobs`, so a blocking one can still reach `mr_job_trace`; the
+error saying it has no Actions log, or a Not Found on a check with no
+Actions run, takes `GitHub: no Actions log for the check` to the same
+outcome as any blocking no-log row.
 After a successful `mr_pipeline` read, `pipeline.jobs` can be empty (the
 pipeline has no jobs yet), and then there is no job id to trace: `Failed jobs
 listed in pipeline.jobs (doctor)?` answers no, and the map watches the head
