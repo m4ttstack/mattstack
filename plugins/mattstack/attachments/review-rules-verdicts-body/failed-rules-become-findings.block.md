@@ -8,7 +8,8 @@ Each rule in the selection's `rules` or `alsoInScope` whose verdict is
 `fail`, and whose verdict no leftover problem names, is one finding in the
 draft's Issues, in the same shape as the reviewer's own. `pass` and
 `not-applicable` verdicts make none, and so does a verdict for a rule id
-in neither list.
+in neither list. A leftover problem that names no rule leaves the whole
+set unvalidated, and then no verdict makes a finding.
 
 | Part | Filled from |
 |---|---|
