@@ -39,12 +39,15 @@ export interface OutcomeRefresherOpts {
   openTtlMs?: number;
   maxAgeMs?: number;
   mrTimeoutMs?: number;
+  /** Longest wait after repeated failed lookups; the wait starts at `openTtlMs` and doubles. */
+  maxBackoffMs?: number;
 }
 
 const DEFAULT_BATCH = 4;
 const DEFAULT_OPEN_TTL_MS = 10 * 60_000;
 const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_MR_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_BACKOFF_MS = 6 * 60 * 60_000;
 
 const RECOMMENDED_SUFFIX = /\s*\(\s*recommended\s*\)\s*$/i;
 
@@ -98,9 +101,10 @@ export function createOutcomeRefresher(
   const openTtlMs = opts.openTtlMs ?? DEFAULT_OPEN_TTL_MS;
   const maxAgeMs = opts.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const mrTimeoutMs = opts.mrTimeoutMs ?? DEFAULT_MR_TIMEOUT_MS;
+  const maxBackoffMs = opts.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
   // A failed lookup keeps its entry as it was, so without this a run the
   // forge cannot answer for would take a batch slot on every tick.
-  const failedAt = new Map<string, number>();
+  const failedAt = new Map<string, { at: number; failures: number }>();
   // A review past the max age is asked for its post gate once per process;
   // without this one with no answered post gate would be asked every tick.
   const askedOld = new Set<string>();
@@ -165,14 +169,14 @@ export function createOutcomeRefresher(
           if (now - run.started_at > maxAgeMs) continue;
         }
         const failed = failedAt.get(run.id);
-        if (failed !== undefined && now - failed < openTtlMs) continue;
+        if (failed !== undefined && now - failed.at < Math.min(openTtlMs * 2 ** (failed.failures - 1), maxBackoffMs)) continue;
         due.push({ run, iid: ref.iid, previous });
       }
       due.sort((a, b) => (a.previous?.checkedAt ?? 0) - (b.previous?.checkedAt ?? 0));
       for (const { run, iid, previous } of due.slice(0, batch)) {
         const mr = await getMrBounded(run.repo, iid);
         if (!mr.ok) {
-          failedAt.set(run.id, now);
+          failedAt.set(run.id, { at: now, failures: (failedAt.get(run.id)?.failures ?? 0) + 1 });
           continue;
         }
         failedAt.delete(run.id);

@@ -214,6 +214,61 @@ describe("outcome refresher tick", () => {
     expect(h.calls).toHaveLength(2);
   });
 
+  test("a failing run waits 10, 20, then 40 minutes between asks", async () => {
+    const h = harness([ownRun()]);
+    h.answer({ ok: false });
+    const refresher = createOutcomeRefresher(h.deps);
+    const counts: number[] = [];
+    let at = 0;
+    for (const t of [0, 10, 29, 30, 69, 70]) {
+      h.advance((t - at) * MIN);
+      at = t;
+      await refresher.tick();
+      counts.push(h.calls.length);
+    }
+    expect(counts).toEqual([1, 2, 2, 3, 3, 4]);
+  });
+
+  test("the backoff caps at maxBackoffMs", async () => {
+    const h = harness([ownRun()]);
+    h.answer({ ok: false });
+    const refresher = createOutcomeRefresher(h.deps, { openTtlMs: 10 * MIN, maxBackoffMs: 30 * MIN });
+    const counts: number[] = [];
+    let at = 0;
+    for (const t of [0, 10, 30, 59, 60, 89, 90]) {
+      h.advance((t - at) * MIN);
+      at = t;
+      await refresher.tick();
+      counts.push(h.calls.length);
+    }
+    expect(counts).toEqual([1, 2, 3, 3, 4, 4, 5]);
+  });
+
+  test("a success resets the backoff", async () => {
+    const h = harness([ownRun()]);
+    h.answer({ ok: false });
+    const refresher = createOutcomeRefresher(h.deps);
+    const counts: number[] = [];
+    let at = 0;
+    const tickAt = async (t: number) => {
+      h.advance((t - at) * MIN);
+      at = t;
+      await refresher.tick();
+      counts.push(h.calls.length);
+    };
+    await tickAt(0);
+    await tickAt(10);
+    h.answer(opened);
+    await tickAt(30);
+    await tickAt(39);
+    await tickAt(40);
+    h.answer({ ok: false });
+    await tickAt(50);
+    await tickAt(59);
+    await tickAt(60);
+    expect(counts).toEqual([1, 2, 3, 3, 4, 5, 5, 6]);
+  });
+
   test("a failing run does not starve the others of batch slots", async () => {
     const broken = ownRun({}, 1);
     const fine = ownRun({}, 2);
