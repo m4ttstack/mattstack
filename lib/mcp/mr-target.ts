@@ -135,3 +135,25 @@ export async function resolveMrTarget(input: TargetInput, opts: TargetOptions = 
   if (res.iid === undefined) return { ok: false, error: 'pass "iid" or "mrUrl"' };
   return { ok: true, identity: res.identity, iid: res.iid };
 }
+
+/**
+ * Whether a PR's source branch lives in the repo `identity` names, so a local
+ * branch of the same name is the PR's branch. GitHub reports the head repo;
+ * a fork, a deleted fork (null) and a head repo the token cannot see
+ * (undefined) all answer false. The base repo is read from the PR's own URL
+ * when it has one, since both it and the head repo are GitHub's current
+ * names, while a checkout's origin can still carry a name from before a
+ * rename. GitLab reports no head repo, so its MRs answer true.
+ */
+export function sourceInRepo(identity: string, pr: { sourceProjectPath?: string | null; webUrl?: string | null }): boolean {
+  const project = githubProjectOf(identity);
+  if (project === null) return true;
+  const base = (typeof pr.webUrl === "string" ? parsePrUrl(pr.webUrl)?.projectPath : undefined) ?? project;
+  return typeof pr.sourceProjectPath === "string" && pr.sourceProjectPath.toLowerCase() === base.toLowerCase();
+}
+
+/** The `owner/repo` of a github.com identity, or null for any other forge. */
+export function githubProjectOf(identity: string): string | null {
+  const id = parseIdentity(identity)?.id;
+  return id?.toLowerCase().startsWith("github.com/") ? id.slice("github.com/".length) : null;
+}

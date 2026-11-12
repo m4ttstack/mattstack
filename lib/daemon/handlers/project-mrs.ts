@@ -8,7 +8,8 @@
  * mr:by-branch ... batch branch → MR resolution for the same repo, same grant.
  * Store-first (any stored state), forge-fallthrough on a miss with a
  * write-back upsert so the next call for that branch is a store hit. A
- * per-branch forge failure resolves to null rather than failing the batch.
+ * per-branch forge failure resolves to null rather than failing the batch,
+ * except on GitHub, where a failed or incomplete read fails the whole call.
  *
  * `payload.repoName` is opaque here — the store, grants, and sync it drives
  * all key on whatever string arrives. It becomes the serialized repo identity
@@ -16,14 +17,14 @@
  * rows unchanged.
  */
 
-import type { PullRequest } from "@mattstack/glance";
+import type { FetchPullRequestsWarning, PullRequest } from "@mattstack/glance";
 import { decodeRepo } from "../identity-decoder.ts";
 import { loadRepoTracking, grants, type RepoTracking } from "../../repo-tracking.ts";
 import { getProjectMRs, freshnessOf, type ProjectMRs } from "../project-mrs-store.ts";
 import { syncProjectMRs, backfillAuthors, backfillSections } from "../project-sync.ts";
 import { readSyncHealth } from "../project-sync-health.ts";
 import { getRepoContext, isGitHubRepo } from "../freshness.ts";
-import { forgeFailure } from "../forge-reads.ts";
+import { forgeFailure, incompleteBranchRead } from "../forge-reads.ts";
 import { prInScope } from "../scope-authors.ts";
 import type { HandlerContext } from "./types.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
@@ -80,7 +81,18 @@ export interface ProjectMRsHandlerOverrides {
 
 /** On GitHub a failed read must not pass for "no PR", so it fails the whole call. */
 class GitHubReadFailure {
-  constructor(readonly cause: unknown) {}
+  constructor(readonly cause: unknown, readonly text?: string) {}
+}
+
+type BranchWarnings = { onWarning: (w: FetchPullRequestsWarning) => void; first: (branch: string) => FetchPullRequestsWarning | undefined };
+
+/** Keeps each branch's first warning, so a null the read could not vouch for is a failed read, not "no PR". */
+function branchWarnings(): BranchWarnings {
+  const seen = new Map<string, FetchPullRequestsWarning>();
+  return {
+    onWarning: (w) => { if (w.branch && !seen.has(w.branch)) seen.set(w.branch, w); },
+    first: (branch) => seen.get(branch),
+  };
 }
 
 export function createProjectMRsHandlers(
@@ -264,13 +276,19 @@ export function createProjectMRsHandlers(
           throw (await onGitHubPromise) ? new GitHubReadFailure(err) : err;
         }
         const github = repoCtx.forge === "github";
+        // On GitHub a fork branch is found by scanning at most 500 pull requests of any state; a provider that reports incomplete reads says when that cap, a failed list or a failed fill left the null unproven.
+        const warnings = github && repoCtx.provider.capabilities?.canReportIncompleteBranchReads === true ? branchWarnings() : null;
+        let pr: PullRequest | null;
         try {
-          // On GitHub a fork branch is found by scanning at most 500 pull requests of any state, and a null cannot say whether that cap was hit.
-          const pr = await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all");
-          return { pr, projectPath: repoCtx.projectPath };
+          pr = warnings
+            ? await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all", { onWarning: warnings.onWarning })
+            : await repoCtx.provider.fetchPullRequestByBranch(repoCtx.projectPath, branch, "all");
         } catch (err) {
           throw github ? new GitHubReadFailure(err) : err;
         }
+        const warning = pr ? undefined : warnings?.first(branch);
+        if (warning) throw new GitHubReadFailure(null, incompleteBranchRead(branch, repoCtx.projectPath, warning));
+        return { pr, projectPath: repoCtx.projectPath };
       });
       let githubFailure: string | null = null;
 
@@ -288,11 +306,18 @@ export function createProjectMRsHandlers(
         repoCtxPromise ??= getContext(repoName);
         const repoCtx = await repoCtxPromise.catch(() => null);
         if (repoCtx?.forge === "github" && typeof repoCtx.provider.fetchPullRequestsByBranches === "function") {
+          const warnings = repoCtx.provider.capabilities?.canReportIncompleteBranchReads === true ? branchWarnings() : null;
           let found: Map<string, PullRequest | null>;
           try {
-            found = await repoCtx.provider.fetchPullRequestsByBranches(repoCtx.projectPath, misses, "all");
+            found = warnings
+              ? await repoCtx.provider.fetchPullRequestsByBranches(repoCtx.projectPath, misses, "all", { onWarning: warnings.onWarning })
+              : await repoCtx.provider.fetchPullRequestsByBranches(repoCtx.projectPath, misses, "all");
           } catch (err) {
             return { ok: false, error: forgeFailure(err, "github") };
+          }
+          for (const branch of misses) {
+            const warning = found.get(branch) ? undefined : warnings?.first(branch);
+            if (warning) return { ok: false, error: incompleteBranchRead(branch, repoCtx.projectPath, warning) };
           }
           for (const branch of misses) {
             const pr = found.get(branch) ?? null;
@@ -318,7 +343,7 @@ export function createProjectMRsHandlers(
             }
           } catch (err) {
             if (err instanceof GitHubReadFailure) {
-              githubFailure ??= forgeFailure(err.cause, "github");
+              githubFailure ??= err.text ?? forgeFailure(err.cause, "github");
               return;
             }
             ctx.log.warn({ err, repo: repoName, branch }, "by-branch forge fetch failed");

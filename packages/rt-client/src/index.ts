@@ -134,6 +134,7 @@ export type {
   MrListState,
   MrListLiveFilters,
   MrListLiveData,
+  MrCreateFailedStep,
   MrLiveByBranchData,
   ProjectLabel,
   PipelineListRow,

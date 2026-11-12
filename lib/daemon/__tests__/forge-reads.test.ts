@@ -308,6 +308,21 @@ describe("forgeGet", () => {
     expect(paths).toHaveLength(1);
   });
 
+  test("a redirect's streamed body is cancelled, not left open", async () => {
+    for (const forge of ["gitlab", "github"] as const) {
+      let cancelled = false;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) { controller.enqueue(new Uint8Array(1024)); },
+        cancel() { cancelled = true; },
+      });
+      const { provider } = restFake([new Response(stream, { status: 302, headers: { location: "https://objects.example.net/x" } })]);
+      const path = forge === "github" ? ":repo/releases/assets/1" : "projects/:id/releases/v1/downloads/a";
+      const r = await forgeGet(provider, "grp/proj", { path }, forge);
+      expect(r.ok ? "" : r.error, forge).toContain("does not follow redirects");
+      expect(cancelled, forge).toBe(true);
+    }
+  });
+
   test("a redirect with a relative or missing Location still refuses without a URL", async () => {
     const rel = await forgeGet(restFake([new Response(null, { status: 301, headers: { location: "/other?token=abc" } })]).provider, "grp/proj", { path: "projects/:id" });
     expect(rel).toEqual({ ok: false, error: "gitlab_get does not follow redirects: GitLab answered 301 redirecting to a relative location" });

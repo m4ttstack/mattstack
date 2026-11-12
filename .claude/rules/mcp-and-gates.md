@@ -114,10 +114,12 @@ review the way GitLab's own submit does: pending comments, one publish with
 the summary and a reviewed state, then the approval; it refuses when the
 caller already has pending comments on the MR, because a publish would post
 those too. `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`,
-`mr_merge` and the thread, comment and review tools (`mr_reply_thread`,
+`mr_merge`, `mr_rebase` and the thread, comment and review tools (`mr_reply_thread`,
 `mr_resolve_thread`, `mr_update_note`, `mr_comment`, `mr_comment_inline`,
 `mr_review_submit`) work on both forges; on GitHub a review posts in one
-request. The upload and rebase tools are GitLab only. `mr_merge` is on the server for both forges
+request, and `mr_rebase` with `wait` reads the PR back through `mr:get`
+until its head moves, since GitHub reports no rebase in progress. The
+upload tool is GitLab only. `mr_merge` is on the server for both forges
 (the forge still enforces approvals and pipeline rules); on GitHub it goes
 through the daemon too (`mr:merge-queue-status`, `mr:enqueue`, `mr:action`,
 and `mr:get` to read the merge back), so only the daemon holds the token, and the tool keeps the merge queue wait

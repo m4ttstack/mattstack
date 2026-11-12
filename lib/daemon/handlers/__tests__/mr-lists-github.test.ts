@@ -21,9 +21,9 @@ const READS = [
   "fetchCommitParents", "fetchPipelineFailedJobs", "fetchSingleMR",
 ] as const;
 
-function harness(methods: Partial<Record<(typeof READS)[number], (...args: any[]) => unknown>> = {}) {
+function harness(methods: Partial<Record<(typeof READS)[number], (...args: any[]) => unknown>> = {}, extra: Record<string, unknown> = {}) {
   const calls: Array<{ name: string; args: unknown[] }> = [];
-  const provider: Record<string, unknown> = { baseURL: "https://github.com" };
+  const provider: Record<string, unknown> = { baseURL: "https://github.com", ...extra };
   for (const name of READS) {
     provider[name] = async (...args: unknown[]) => {
       calls.push({ name, args });
@@ -155,6 +155,41 @@ describe("mr:live-by-branch on GitHub", () => {
     });
     expect(h.names()).toEqual(["fetchPullRequestsByBranches", "fetchPullRequestSummaries", "fetchSingleMR"]);
     expect(h.calls[1]!.args).toEqual(["o/r", { state: "opened", sourceBranch: "feat", limit: 1 }]);
+  });
+});
+
+describe("mr:live-by-branch on a GitHub provider that reports incomplete branch reads", () => {
+  const reporting = { capabilities: { canReportIncompleteBranchReads: true } };
+  type Warn = (w: Record<string, unknown>) => void;
+
+  test("a branch whose fill failed is a failed read, not a null, and makes no further request", async () => {
+    const h = harness({
+      fetchPullRequestsByBranches: async (_p: string, _b: string[], _s: unknown, options: { onWarning: Warn }) => {
+        options.onWarning({ kind: "request-failed", source: "fill", status: 502, message: "GitHub GraphQL returned 502", target: "o/r#9", branch: "feat" });
+        return new Map([["feat", null], ["other", prOf(4, "other")]]);
+      },
+    }, reporting);
+    expect(await h.handlers["mr:live-by-branch"]({ repoName: REPO, branches: ["feat", "other"] })).toEqual({
+      ok: false, error: "GitHub could not finish reading the pull request on feat in o/r (502 GitHub GraphQL returned 502); try again",
+    });
+    expect(h.names()).toEqual(["fetchPullRequestsByBranches"]);
+  });
+
+  test("a branch with no pull request and no warning is a confirmed miss, read once", async () => {
+    const h = harness({ fetchPullRequestsByBranches: async () => new Map([["gone", null]]) }, reporting);
+    expect(await h.handlers["mr:live-by-branch"]({ repoName: REPO, branches: ["gone"] })).toEqual({ ok: true, data: { byBranch: { gone: null } } });
+    expect(h.names()).toEqual(["fetchPullRequestsByBranches"]);
+    expect(typeof (h.calls[0]!.args[3] as { onWarning?: unknown }).onWarning).toBe("function");
+  });
+
+  test("a warning about a pull request the read kept leaves that pull request in the answer", async () => {
+    const h = harness({
+      fetchPullRequestsByBranches: async (_p: string, _b: string[], _s: unknown, options: { onWarning: Warn }) => {
+        options.onWarning({ kind: "request-failed", source: "contexts", status: 502, message: "checks page failed", target: "o/r#4", branch: "feat" });
+        return new Map([["feat", prOf(4, "feat")]]);
+      },
+    }, reporting);
+    expect(await h.handlers["mr:live-by-branch"]({ repoName: REPO, branches: ["feat"] })).toEqual({ ok: true, data: { byBranch: { feat: prOf(4, "feat") } } });
   });
 });
 
