@@ -4,14 +4,17 @@ order: 3
 
 # Failed rules become findings
 
-Each rule with a `fail` verdict is one finding in the draft's Issues, in
-the same shape as the reviewer's own. `pass` and `not-applicable` verdicts
-make none.
+Each rule in the selection's `rules` or `alsoInScope` whose verdict is
+`fail`, and whose verdict no leftover problem names, is one finding in the
+draft's Issues, in the same shape as the reviewer's own. `pass` and
+`not-applicable` verdicts make none, and so does a verdict for a rule id
+in neither list. A leftover problem that names no rule leaves the whole
+set unvalidated, and then no verdict makes a finding.
 
 | Part | Filled from |
 |---|---|
-| Title | `<rule id>: <summary>`, the summary from the selection |
-| Tier | `blocking` rule: Important. `advisory` rule: Minor. A rule never assigns Critical |
+| Title | `<rule id>: <summary>`, the summary from the rule's entry in the selection |
+| Tier | From the `severity` of that entry. `blocking` rule: Important. `advisory` rule: Minor. A rule never assigns Critical |
 | Anchor | the first evidence entry on the `new` side (an entry with no `side` is `new`) |
 | Body | the verdict's note, and every `old`-side location as `file:line (old side)` |
 

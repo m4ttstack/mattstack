@@ -15,14 +15,16 @@ Append to every dispatched prompt, in this order, after its filled template:
    block is left out.
 3. The caller's addendum block, verbatim when provided, except that each
    `@key` in it goes as the absolute path `skills_resolve` returned for it.
-4. The rule selection, only when the caller hands one: `## Rules this
-   change triggers`, the selection text verbatim, then, when the caller
-   asks for one, the verdict request. The request says: end the reply with
+4. The rule selection, only when the caller hands one:
+   `## Rules for this change`, the selection text verbatim, then, when the
+   caller asks for one, the verdict request. The request says: end the reply with
    the verdict set in one fenced block tagged with the `fence` value, in
    the shape `{"verdicts": [{"rule", "verdict": "pass" | "fail" |
    "not-applicable", "evidence": [{"file", "line", "side"?: "new" |
-   "old"}], "note"}]}`, with one verdict for every rule id in the
-   selection (the `id` of each entry in `selection.json`'s `rules[]`).
+   "old"}], "note"}]}`, with one verdict for every rule the change
+   triggered (the `id` of each entry in `selection.json`'s `rules[]`); a
+   verdict for a rule the selection only lists as in scope (an entry of
+   `alsoInScope[]`) is allowed and never required.
    With no selection text this block is left out.
 5. No fabrication: do not invent requirements, files, or findings; if the
    diff, the requirements, or a referenced file cannot be read, say so for

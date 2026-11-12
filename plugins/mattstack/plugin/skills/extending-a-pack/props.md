@@ -74,7 +74,7 @@ block. One fill may bind to any number of blocks.
 | MR preflight, fast checks, commit shape, description shape, labels | `stage-ship` and `ship`: the step blocks below, `domain-rules` |
 | CI job names, retry rules, triage | `stage-watch-ci` and `watch-ci`: `classify-triage-report`, `domain-rules`, `forge` |
 | what reviewers check | `review`, `self-review`, `receive-review`: `criteria` |
-| which written rules a review is checked against, one verdict per rule; the check implement runs before self-review | `review`, `self-review`, `receive-review`, `stage-implement`: `rule-selector` |
+| which written rules a review is checked against, one verdict per triggered rule; the check implement runs before self-review | `review`, `self-review`, `receive-review`, `stage-implement`: `rule-selector` |
 | how to answer review threads | `receive-review`: `reply-rules` |
 | fan-out rules for parallel agents | `shepherdr`: the root's `rules`, or a step block below |
 
