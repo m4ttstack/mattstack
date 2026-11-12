@@ -1079,6 +1079,10 @@ export class GitLabProvider implements GitProvider {
     currentUserNumericId: number | null,
   ): Promise<PullRequest | null> {
     // Run GraphQL detail query and REST diverged_commits_count fetch in parallel.
+    // The REST read is also the only one that makes GitLab recheck
+    // mergeability: its MR entity calls `check_mergeability(async: true)`,
+    // while GraphQL's `detailedMergeStatus` only reads the stored state. A
+    // poll whose REST reads all fail sees `unchecked` indefinitely.
     let resp: MRDetailResponse;
     let divergedCommitsCount: number | null = null;
     try {
@@ -1091,8 +1095,12 @@ export class GitLabProvider implements GitProvider {
           .then((data) => {
             divergedCommitsCount = (data as unknown as { diverged_commits_count?: number }).diverged_commits_count ?? null;
           })
-          .catch(() => {
-            // Non-fatal: leave divergedCommitsCount null.
+          .catch((err: unknown) => {
+            this.log.warn('fetchSingleMR: the REST read of the MR failed, so GitLab was not asked to recheck mergeability', {
+              projectPath,
+              mrIid,
+              message: err instanceof Error ? err.message : String(err),
+            });
           }),
       ] as unknown as [MRDetailResponse, void]);
     } catch (err) {

@@ -1,6 +1,7 @@
 import { GitHubProvider } from '../../src/GitHubProvider.ts';
 import { GitLabProvider } from '../../src/GitLabProvider.ts';
 import type { GitProvider } from '../../src/GitProvider.ts';
+import type { ForgeLogger } from '../../src/logger.ts';
 import {
   approverUsers,
   githubApproverUsername,
@@ -38,6 +39,18 @@ async function githubApprover(): Promise<GitProvider | null> {
   }
   return new GitHubProvider('https://github.com', token);
 }
+
+/**
+ * Prints glance's warnings and errors into the run log. A merge-readiness
+ * poll stuck at `unchecked` has one sign of why: fetchSingleMR's warning
+ * that its REST read, the one that asks GitLab to recheck, failed.
+ */
+const harnessLogger: ForgeLogger = {
+  debug() {},
+  info() {},
+  warn: (msg, meta) => console.error(`  [glance warn] ${msg}${meta ? ` ${JSON.stringify(meta)}` : ''}`),
+  error: (msg, meta) => console.error(`  [glance error] ${msg}${meta ? ` ${JSON.stringify(meta)}` : ''}`)
+};
 
 export interface ProviderFixture {
   name: 'github' | 'gitlab';
@@ -133,11 +146,11 @@ export async function buildFixtures(): Promise<BuildFixturesResult> {
       const approvers = approverUsers(creds);
       fixtures.push({
         name: 'gitlab',
-        provider: new GitLabProvider('https://gitlab.com', ownerUser(creds).token),
+        provider: new GitLabProvider('https://gitlab.com', ownerUser(creds).token, { logger: harnessLogger }),
         projectPath: glPath,
         defaultBranch: 'main',
         approver: approvers[0]
-          ? new GitLabProvider('https://gitlab.com', approvers[0].token)
+          ? new GitLabProvider('https://gitlab.com', approvers[0].token, { logger: harnessLogger })
           : null
       });
     } catch (err) {
