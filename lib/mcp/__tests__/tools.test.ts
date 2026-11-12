@@ -952,12 +952,39 @@ describe("mcpTools", () => {
         expect(calls).toEqual([]);
       });
 
-      test("wait on a GitHub repo or mrUrl is refused with no call", async () => {
-        const calls = fakeDaemon();
-        const expected = "GitLab only: mr_rebase does not speak GitHub; no server-side rebase on GitHub";
-        expect((await rebase().handler({ repoName: "remote:github.com%2Facme%2Fapp", iid: 3, wait: true }, {} as NodeJS.ProcessEnv)).error).toBe(expected);
-        expect((await rebase().handler({ mrUrl: "https://github.com/acme/app/pull/3", wait: true }, {} as NodeJS.ProcessEnv)).error).toBe(expected);
-        expect(calls).toEqual([]);
+      describe("on GitHub", () => {
+        const GH_T = { repoName: "remote:github.com%2Facme%2Fapp", iid: 3 };
+        const PR = (sha: string) => ({ ok: true, data: { mr: { sha, rebaseInProgress: false, mergeError: null, conflicts: true, divergedCommitsCount: null } } });
+
+        test("without wait it asks GitHub to rebase and says the request was accepted", async () => {
+          const calls = fakeDaemon();
+          const res = await rebase().handler({ ...GH_T }, {} as NodeJS.ProcessEnv);
+          expect(res).toEqual({ ok: true, body: { rebased: true } });
+          expect(calls.map((c) => [c.cmd, c.payload])).toEqual([["mr:action", { ...GH_T, action: "rebase", args: [] }]]);
+        });
+
+        test("wait reads the PR back and reports the moved head, though GitHub still flags conflicts and no divergence", async () => {
+          let gets = 0;
+          const calls = fakeDaemon((cmd) => (cmd === "mr:get" ? PR(gets++ === 0 ? "old" : "new") : { ok: true }));
+          const res = await rebase().handler({ ...GH_T, wait: true, maxWaitSeconds: 30 }, {} as NodeJS.ProcessEnv);
+          expect(res).toEqual({ ok: true, body: { status: "rebased", sha: "new", previousSha: "old" } });
+          expect(calls.map((c) => c.cmd)).toEqual(["mr:get", "mr:action", "mr:get"]);
+        });
+
+        test("a head that has not moved when the budget runs out is pending, never failed or current", async () => {
+          const calls = fakeDaemon((cmd) => (cmd === "mr:get" ? PR("old") : { ok: true }));
+          const res = await rebase().handler({ ...GH_T, wait: true, maxWaitSeconds: 1 }, {} as NodeJS.ProcessEnv);
+          expect(res).toEqual({ ok: true, body: { status: "pending", sha: "old" } });
+          expect(calls.map((c) => c.cmd)).toEqual(["mr:get", "mr:action", "mr:get"]);
+        });
+
+        test("a failed last read is named when the budget ends on it", async () => {
+          let gets = 0;
+          fakeDaemon((cmd) => (cmd === "mr:get" ? (gets++ === 0 ? PR("old") : { ok: false, error: "GitHub returned 502" }) : { ok: true }));
+          const res = await rebase().handler({ ...GH_T, wait: true, maxWaitSeconds: 1 }, {} as NodeJS.ProcessEnv);
+          expect(res).toMatchObject({ ok: true, body: { status: "pending", sha: "old" } });
+          expect((res.body as { lastError?: string }).lastError).toContain("502");
+        });
       });
 
       test("schema offers wait and maxWaitSeconds (1 to 600) and the description names the statuses", () => {
@@ -1147,30 +1174,27 @@ describe("mcpTools", () => {
         expect(calls).toEqual([]);
       });
 
-      test("tools whose verbs do not answer on GitHub keep refusing it, with no daemon call", async () => {
+      test("mr_rebase takes a GitHub PR URL, with or without wait, as its target", async () => {
         setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
-        const calls = fakeDaemon();
-        const inputs: Record<string, Record<string, unknown>> = {
-          mr_rebase: {},
-        };
-        for (const [name, input] of Object.entries(inputs)) {
-          const res = await mcpTools().find((t) => t.name === name)!.handler({ ...input, mrUrl: PR }, {} as NodeJS.ProcessEnv);
-          expect(res.ok, name).toBe(false);
-        }
-        const wait = await mcpTools().find((t) => t.name === "mr_rebase")!.handler({ mrUrl: PR, wait: true }, {} as NodeJS.ProcessEnv);
-        expect(wait.error).toBe("GitLab only: mr_rebase does not speak GitHub; no server-side rebase on GitHub");
-        expect(calls).toEqual([]);
+        const calls = fakeDaemon((cmd) => (cmd === "mr:get" ? { ok: true, data: { mr: { sha: calls.length > 2 ? "new" : "old" } } } : { ok: true }));
+        const rebase = mcpTools().find((t) => t.name === "mr_rebase")!;
+        expect((await rebase.handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+        expect(await rebase.handler({ mrUrl: PR, wait: true, maxWaitSeconds: 1 }, {} as NodeJS.ProcessEnv)).toEqual({ ok: true, body: { status: "rebased", sha: "new", previousSha: "old" } });
+        expect(calls.map((c) => [c.cmd, c.payload])).toEqual([
+          ["mr:action", { repoName: GH, iid: 3, action: "rebase", args: [] }],
+          ["mr:get", { repoName: GH, iid: 3 }],
+          ["mr:action", { repoName: GH, iid: 3, action: "rebase", args: [] }],
+          ["mr:get", { repoName: GH, iid: 3 }],
+        ]);
       });
 
       test("descriptions say GitLab only exactly where the tool still is", () => {
         const describe = (name: string) => mcpTools().find((t) => t.name === name)!.description;
-        for (const name of ["mr_approve", "mr_ready", "mr_retry", "mr_update", "mr_create", "mr_merge", "mr_reply_thread", "mr_update_note", "mr_comment_inline", "mr_comment", "mr_review_submit", "mr_resolve_thread"]) {
+        for (const name of ["mr_approve", "mr_ready", "mr_retry", "mr_update", "mr_create", "mr_merge", "mr_rebase", "mr_reply_thread", "mr_update_note", "mr_comment_inline", "mr_comment", "mr_review_submit", "mr_resolve_thread"]) {
           expect(describe(name), name).not.toContain("GitLab only");
           expect(describe(name), name).toContain("github.com/<owner>/<repo>/pull/<number>");
         }
-        for (const name of ["mr_rebase", "mr_upload"]) {
-          expect(describe(name), name).toStartWith("GitLab only.");
-        }
+        expect(describe("mr_upload")).toStartWith("GitLab only.");
       });
     });
 

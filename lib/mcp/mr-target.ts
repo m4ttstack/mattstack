@@ -143,8 +143,13 @@ export async function resolveMrTarget(input: TargetInput, opts: TargetOptions = 
  * (undefined) all answer false. GitLab reports none, so its MRs answer true.
  */
 export function sourceInRepo(identity: string, pr: { sourceProjectPath?: string | null }): boolean {
+  const project = githubProjectOf(identity);
+  if (project === null) return true;
+  return typeof pr.sourceProjectPath === "string" && pr.sourceProjectPath.toLowerCase() === project.toLowerCase();
+}
+
+/** The `owner/repo` of a github.com identity, or null for any other forge. */
+export function githubProjectOf(identity: string): string | null {
   const id = parseIdentity(identity)?.id;
-  if (!id?.toLowerCase().startsWith("github.com/")) return true;
-  const project = id.slice("github.com/".length).toLowerCase();
-  return typeof pr.sourceProjectPath === "string" && pr.sourceProjectPath.toLowerCase() === project;
+  return id?.toLowerCase().startsWith("github.com/") ? id.slice("github.com/".length) : null;
 }

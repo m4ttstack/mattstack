@@ -24,7 +24,7 @@ import { whoamiToolDefs } from "./whoami-tool.ts";
 import { skillsResolveToolDefs } from "./skills-resolve-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
-import { resolveMrTarget, resolveRepoTarget, sourceInRepo } from "./mr-target.ts";
+import { githubProjectOf, resolveMrTarget, resolveRepoTarget, sourceInRepo } from "./mr-target.ts";
 import { herdToolDefs } from "./herd-tools.ts";
 import { mrReadToolDefs } from "./mr-read-tools.ts";
 import { EXISTING_MR, findOpenMrForBranch, githubRefusal, mrCompositeToolDefs, refuseGithubTarget, REBASE_DEFAULT_WAIT_S, REBASE_MAX_WAIT_S, REBASE_POLL_MS, waitForRebase, type OpenMr } from "./mr-composite-tools.ts";
@@ -57,7 +57,6 @@ function withReviewTimeout(res: ToolResult): ToolResult {
 }
 
 const MR_UPLOAD_GH_MOVE = "GitHub uploads a file only as part of a PR write; on a PR, evidence_attach uploads the images into its description";
-const MR_REBASE_GH_MOVE = "no server-side rebase on GitHub";
 
 function joinWords(parts: string[]): string {
   return parts.length <= 1 ? (parts[0] ?? "") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
@@ -82,6 +81,40 @@ function ownRepoLookup(identity: string): typeof rtCommand {
 
 function existingMrResult(mr: OpenMr): ToolResult {
   return ok({ iid: mr.iid, url: mr.url, existing: true, targetBranch: mr.targetBranch, draft: mr.draft, title: mr.title, applied: false });
+}
+
+const REBASE_READ_TIMEOUT_MS = 30_000;
+
+type GithubRebaseWait =
+  | { status: "rebased"; sha: string | null; previousSha: string | null }
+  | { status: "pending"; sha: string | null; lastError?: string };
+
+/** GitHub reports no rebase in progress, no merge error and no divergence count, and its conflict flag can predate the rebase, so only a moved head settles the wait. Same budget rules as waitForRebase. */
+async function waitForGithubRebase(
+  sleep: (ms: number) => Promise<void>,
+  target: { identity: string; iid: number },
+  previousSha: string | null,
+  opts: { maxWaitMs: number; pollMs: number; signal?: AbortSignal; progress?: () => void },
+): Promise<GithubRebaseWait> {
+  const deadline = Date.now() + opts.maxWaitMs;
+  let sha = previousSha;
+  let lastError: string | undefined;
+  let slept = 0;
+  while (!opts.signal?.aborted) {
+    opts.progress?.();
+    const r = await rtCommand<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: REBASE_READ_TIMEOUT_MS });
+    if (!r.ok || !r.data) {
+      lastError = explainError(r.error ?? "PR read failed");
+    } else {
+      lastError = undefined;
+      sha = r.data.mr.sha;
+      if (sha !== previousSha) return { status: "rebased", sha, previousSha };
+    }
+    if (slept + opts.pollMs > opts.maxWaitMs || Date.now() >= deadline) break;
+    await sleep(opts.pollMs);
+    slept += opts.pollMs;
+  }
+  return { status: "pending", sha, ...(lastError !== undefined && { lastError }) };
 }
 
 /** The CI lease guard mr_retry reads; a test replaces `ensureLease` and restores it. */
@@ -744,7 +777,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_rebase",
-      description: `GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-side (no checkout). GitLab accepts the request and rebases asynchronously: without \`wait\` the reply only says the request was accepted, so re-read the MR before assuming the rebase finished or succeeded. With \`wait: true\` the tool reads the MR, asks for the rebase, then re-reads it every ${REBASE_POLL_MS / 1000} seconds for up to \`maxWaitSeconds\` (1 to ${REBASE_MAX_WAIT_S}, default ${REBASE_DEFAULT_WAIT_S}) and returns one of: {status: "rebased", sha, previousSha} when the source branch sha moved; {status: "failed", mergeError, conflicts, sha} when, with no rebase running, GitLab reports a merge error or conflicts; {status: "current", sha} when nothing moved and the branch is not behind its target; {status: "unchanged", sha} when nothing moved across two reads and GitLab does not say whether the branch was behind, so it may already have been current; {status: "pending", sha, rebaseInProgress, lastError?} when the budget ran out, so call again or look at the MR. A failed re-read counts as a poll and is reported as lastError only if the budget ends on it. ${REPO_NAME_RULE}`,
+      description: `Ask the forge to rebase the MR's source branch onto its target server-side (no checkout): GitLab accepts the request and rebases asynchronously, and GitHub updates the PR's branch by rebasing it. Without \`wait\` the reply only says the request was accepted, so re-read the MR before assuming the rebase finished or succeeded. With \`wait: true\` the tool reads the MR, asks for the rebase, then re-reads it every ${REBASE_POLL_MS / 1000} seconds for up to \`maxWaitSeconds\` (1 to ${REBASE_MAX_WAIT_S}, default ${REBASE_DEFAULT_WAIT_S}) and returns one of: {status: "rebased", sha, previousSha} when the source branch sha moved; {status: "failed", mergeError, conflicts, sha} when, with no rebase running, GitLab reports a merge error or conflicts; {status: "current", sha} when nothing moved and the branch is not behind its target; {status: "unchanged", sha} when nothing moved across two reads and GitLab does not say whether the branch was behind, so it may already have been current; {status: "pending", sha, rebaseInProgress, lastError?} when the budget ran out, so call again or look at the MR. On GitHub, which reports no rebase in progress, merge error or divergence, wait returns only {status: "rebased", sha, previousSha} once the head moved or {status: "pending", sha, lastError?} when the budget ran out. A failed re-read counts as a poll and is reported as lastError only if the budget ends on it. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -760,7 +793,7 @@ export function mcpTools(): McpToolDef[] {
         if (bad) return err(bad);
         if (input.wait !== true && input.maxWaitSeconds !== undefined) return err("maxWaitSeconds needs wait: true");
         if (input.wait !== true) {
-          const target = await resolveMrTarget(input);
+          const target = await resolveMrTarget(input, { github: true });
           if (!target.ok) return err(target.error);
           return runMrAction(target, "rebase", [], { rebased: true });
         }
@@ -768,25 +801,18 @@ export function mcpTools(): McpToolDef[] {
         if (typeof maxWait !== "number" || !Number.isInteger(maxWait) || maxWait < 1 || maxWait > REBASE_MAX_WAIT_S) {
           return err(`"maxWaitSeconds" must be an integer from 1 to ${REBASE_MAX_WAIT_S}`);
         }
-        const early = refuseGithubTarget(input, "mr_rebase", MR_REBASE_GH_MOVE);
-        if (early) return err(early);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
-        const refused = githubRefusal(target.identity, "mr_rebase", MR_REBASE_GH_MOVE);
-        if (refused) return err(refused);
 
         const before = await rtCommand<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
         if (!before.ok || !before.data) return err(explainError(before.error ?? "MR read failed"));
         const asked = await runMrAction(target, "rebase", [], null);
         if (!asked.ok) return asked;
 
-        const result = await waitForRebase(
-          { command: rtCommand, sleep: (ms) => abortableSleep(ms, signal) },
-          target,
-          before.data.mr.sha,
-          { maxWaitMs: maxWait * 1000, pollMs: REBASE_POLL_MS, ...(signal && { signal }), ...(progress && { progress }) },
-        );
-        return ok(result);
+        const sleep = (ms: number) => abortableSleep(ms, signal);
+        const opts = { maxWaitMs: maxWait * 1000, pollMs: REBASE_POLL_MS, ...(signal && { signal }), ...(progress && { progress }) };
+        if (githubProjectOf(target.identity) !== null) return ok(await waitForGithubRebase(sleep, target, before.data.mr.sha, opts));
+        return ok(await waitForRebase({ command: rtCommand, sleep }, target, before.data.mr.sha, opts));
       },
     },
     {
