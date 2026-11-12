@@ -61,11 +61,11 @@ export function pluginOfSeam(seamLine: string): string | null {
  */
 const PROP_REFERENCE_RE = /^(?:For [^,`]+, invoke the `[^`]+` skill(?: \(| when this flow needs it\.$)|Prop \S+ is bound to `)/;
 
-const VERSIONED_REFERENCE_RE = /^(For [^,`\n]+, invoke the `[^`\n]+` skill) \([^)\n]+\)( when this flow needs it\.)$/gm;
+const VERSIONED_REFERENCE_RE = /^(For [^,`\n]+, invoke the `([^`\n]+)` skill) \(\2@[^)\s]+\)( when this flow needs it\.)$/gm;
 
 /** A reference line an older compile wrote with `(<binding>@<version>)` reads as the versionless line a current compile writes. */
 export function withoutReferenceVersions(text: string): string {
-  return text.replace(VERSIONED_REFERENCE_RE, "$1$2");
+  return text.replace(VERSIONED_REFERENCE_RE, "$1$3");
 }
 
 export function isPropReference(text: string): boolean {

@@ -1,6 +1,7 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import { childEnv } from "../subprocess.ts";
+import { warn } from "../ui/warn.ts";
 import { maskProvenanceVersion } from "./base-attachments.ts";
 import { LOCK_REL } from "./compiled-lock.ts";
 import { maskProvenance } from "./provenance.ts";
@@ -12,15 +13,27 @@ const DIRTY_FLAG_RE = /(--mattstack-dirty )[01]\b/g;
 const OPENING_LINE_RE = /^Pointers here are `@keys`\..*$/gm;
 const UNIT_ID_VERSION_RE = /([a-z0-9][a-z0-9-]*)@\d+(?:\.\d+)*:(?=[a-z0-9])/g;
 const MAP_ID_LINE_RE = /^(\s*(?:"id": )?")([a-z0-9][a-z0-9-]*)@\d+(?:\.\d+)*:([a-z0-9][a-z0-9-]*",?)$/gm;
-const MANIFEST_VERSION_RE = /^(\s*"version"\s*:\s*)"[^"\n]*"/m;
+const JSON_STRING_RE = /"(?:[^"\\\n]|\\.)*"/g;
 const MIN_ENGINE_RE = /("minEngine"\s*:\s*)"[^"\n]*"/;
 
 const endsWith = (path: string, rel: string) => path === rel || path.endsWith(`/${rel}`);
 
+/** The manifest's values with only the top-level version masked, then its layout with every string emptied, so a nested version or a reformat still reads as a change. */
+function maskManifestVersion(text: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return text;
+  return `${JSON.stringify({ ...parsed, version: "*" })}\n${text.replace(JSON_STRING_RE, '""')}`;
+}
+
 /** A file's text with every version stamp an old or current compile, bump or sync writes masked, so two texts that differ only in stamps compare equal. */
 export function maskStamps(path: string, text: string): string {
   if (endsWith(path, LOCK_REL)) return "<compiled lock>";
-  if (endsWith(path, ".claude-plugin/plugin.json")) return text.replace(MANIFEST_VERSION_RE, '$1"*"');
+  if (endsWith(path, ".claude-plugin/plugin.json")) return maskManifestVersion(text);
   if (endsWith(path, "pack/requires.json")) return text.replace(MIN_ENGINE_RE, '$1"*"');
   if (path.split("/").pop() === "compiled.json") return maskProvenanceVersion(text).replace(MAP_ID_LINE_RE, "$1$2@*:$3");
   return maskProvenance(text)
@@ -47,11 +60,21 @@ function readCache(path: string): Cache {
   return { rule: CLASSIFY_RULE, shas: {} };
 }
 
+/** The cache only saves work, so a write that fails is logged and the answer still goes back. */
 function writeCache(path: string, cache: Cache): void {
-  mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(cache) + "\n");
-  renameSync(tmp, path);
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(tmp, JSON.stringify(cache) + "\n");
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // the folder the tmp file would sit in may not exist at all
+    }
+    warn("history-classify", `could not save the history classify cache: ${err instanceof Error ? err.message : String(err)}`, { context: { path } });
+  }
 }
 
 function git(repoDir: string, args: string[], stdin?: string): Buffer | null {
@@ -113,25 +136,37 @@ function classifyOne(repoDir: string, sha: string): boolean | null {
 }
 
 const SHA_RE = /^[0-9a-f]{4,64}$/;
+const FULL_OID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export function isCommitSha(value: string): boolean {
   return SHA_RE.test(value);
 }
 
+/** A full oid names one commit for good, so it needs no git; a prefix or a hex-named ref is resolved, since it could name a different commit later. */
+function fullOid(repoDir: string, sha: string): string | null {
+  if (FULL_OID_RE.test(sha)) return sha;
+  return git(repoDir, ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`])?.toString().trim() || null;
+}
+
 /**
- * The input shas whose commits changed nothing but version stamps, in input order. The whole commit counts, so a change
- * outside the pack keeps it unfolded. A commit never changes, so its answer is cached under the sha as given.
+ * The input shas whose commits changed nothing but version stamps, in input order and as given. The whole commit
+ * counts, so a change outside the pack keeps it unfolded. A commit never changes, so its answer is cached by full oid.
  */
 export function classifyCommits(repoDir: string, shas: string[], cachePath: string): string[] {
   const cache = readCache(cachePath);
   let learned = false;
+  const oids = new Map<string, string>();
   for (const sha of new Set(shas)) {
-    if (Object.hasOwn(cache.shas, sha) || !isCommitSha(sha)) continue;
-    const answer = classifyOne(repoDir, sha);
+    if (!isCommitSha(sha)) continue;
+    const oid = fullOid(repoDir, sha);
+    if (oid === null) continue;
+    oids.set(sha, oid);
+    if (Object.hasOwn(cache.shas, oid)) continue;
+    const answer = classifyOne(repoDir, oid);
     if (answer === null) continue;
-    cache.shas[sha] = answer;
+    cache.shas[oid] = answer;
     learned = true;
   }
   if (learned) writeCache(cachePath, cache);
-  return shas.filter((sha) => cache.shas[sha] === true);
+  return shas.filter((sha) => oids.has(sha) && cache.shas[oids.get(sha)!] === true);
 }

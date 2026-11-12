@@ -4,6 +4,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { classifyCommits, CLASSIFY_RULE, isVersionOnly, maskStamps } from "../history-classify.ts";
+import { __test__ as warnTest } from "../../ui/warn.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
 
 const PACK = "teams/acme/plugin";
 
@@ -48,7 +50,7 @@ function skillMd(s: Stamps): string {
     "```",
     "",
     `<!-- part: prop:review binding=acme-base:review version=${s.base} lines=18-18 -->`,
-    `For review, invoke the \`acme-base:review\` skill (acme-base@${s.base}) when this flow needs it.`,
+    `For review, invoke the \`acme-base:review\` skill (acme-base:review@${s.base}) when this flow needs it.`,
     "",
   ].join("\n");
 }
@@ -218,6 +220,31 @@ describe("classifyCommits", () => {
     expect(JSON.parse(readFileSync(cachePath, "utf8"))).toEqual({ rule: CLASSIFY_RULE, shas: { [fresh]: true, [freshEdit]: false } });
   });
 
+  test("a short sha answers as given and caches under the full oid", () => {
+    seed();
+    put(`${PACK}/.claude-plugin/plugin.json`, pluginJson("0.4.12"));
+    const full = commit("bump");
+    const short = full.slice(0, 7);
+    expect(classify(short)).toEqual([short]);
+    expect(JSON.parse(readFileSync(cachePath, "utf8")).shas).toEqual({ [full]: true });
+  });
+
+  test("a cache that cannot be written still answers, and warns", () => {
+    seed();
+    put(`${PACK}/.claude-plugin/plugin.json`, pluginJson("0.4.12"));
+    const sha = commit("bump");
+    writeFileSync(join(scratch, "cache"), "a file where the folder should be");
+    warnTest.reset();
+    const cap = captureOut();
+    try {
+      expect(classify(sha)).toEqual([sha]);
+      expect(cap.stderr()).toContain("could not save the history classify cache");
+    } finally {
+      cap.restore();
+      warnTest.reset();
+    }
+  });
+
   test("a sha git cannot read is not version-only and is not cached", () => {
     seed();
     const missing = "0".repeat(40);
@@ -236,6 +263,47 @@ describe("maskStamps", () => {
   test("leaves a body edit visible", () => {
     const path = `${PACK}/skills/work/SKILL.md`;
     expect(maskStamps(path, skillMd(V1))).not.toBe(maskStamps(path, skillMd({ ...V1, body: "Something else." })));
+  });
+
+  test("a changed lines= span, source= or binding= stays real", () => {
+    const path = `${PACK}/skills/work/SKILL.md`;
+    const md = skillMd(V1);
+    for (const edited of [
+      md.replace("lines=10-11", "lines=10-12"),
+      md.replace("source=mattstack:gate", "source=mattstack:gate-v2"),
+      md.replace("binding=acme-base:review", "binding=acme-base:review-lite"),
+    ]) expect(maskStamps(path, edited)).not.toBe(maskStamps(path, md));
+  });
+
+  test("a reference parenthetical that is not <binding>@<version> stays real", () => {
+    const path = `${PACK}/skills/work/SKILL.md`;
+    const line = (paren: string) => `For review, invoke the \`acme-base:review\` skill (${paren}) when this flow needs it.\n`;
+    expect(maskStamps(path, line("acme-base:review@0.2.3"))).toBe(maskStamps(path, line("acme-base:review@0.2.4")));
+    expect(maskStamps(path, line("optional"))).not.toBe(maskStamps(path, line("required")));
+    expect(maskStamps(path, line("acme-base:other@0.2.3"))).not.toBe(maskStamps(path, line("acme-base:review@0.2.3")));
+  });
+
+  test("a covers entry added or removed in compiled.json stays real", () => {
+    const path = `${PACK}/skills/work/compiled.json`;
+    const map = unitMap("0.4.11");
+    const added = map.replace(`"acme@0.4.11:stage-plan"`, `"acme@0.4.12:stage-plan",\n    "acme@0.4.12:stage-ship"`);
+    const removed = map.replace(`,\n    "acme@0.4.11:stage-plan"`, "");
+    expect(maskStamps(path, map)).toBe(maskStamps(path, unitMap("0.4.12")));
+    expect(maskStamps(path, added)).not.toBe(maskStamps(path, map));
+    expect(maskStamps(path, removed)).not.toBe(maskStamps(path, map));
+  });
+
+  test("a requires.json field other than minEngine stays real", () => {
+    const path = `${PACK}/pack/requires.json`;
+    expect(maskStamps(path, `{ "minEngine": "1.0.0", "maxEngine": "2.0.0" }\n`)).not.toBe(maskStamps(path, `{ "minEngine": "1.0.0", "maxEngine": "3.0.0" }\n`));
+  });
+
+  test("a nested version inside plugin.json stays real", () => {
+    const path = `${PACK}/.claude-plugin/plugin.json`;
+    const manifest = (nested: string) => JSON.stringify({ name: "acme", version: "0.4.11", engines: { version: nested } }, null, 2) + "\n";
+    expect(maskStamps(path, manifest("1.0.0"))).not.toBe(maskStamps(path, manifest("2.0.0")));
+    const reordered = JSON.stringify({ version: "0.4.12", name: "acme", engines: { version: "1.0.0" } }, null, 2) + "\n";
+    expect(maskStamps(path, reordered)).not.toBe(maskStamps(path, manifest("1.0.0")));
   });
 
   test("masks the lock to a constant", () => {
