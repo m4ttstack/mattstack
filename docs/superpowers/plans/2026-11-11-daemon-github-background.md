@@ -265,5 +265,5 @@ test("reads a GitHub pull url on any host and a #iid", () => {
 - [ ] **Step 1: Run** `bun run typecheck`. Expected: exit 0.
 - [ ] **Step 2: Run** `bun run purity`. Expected: exit 0.
 - [ ] **Step 3: Run** `bun test lib/__tests__/no-raw-output.test.ts`. Expected: pass (no new raw output).
-- [ ] **Step 4: Run** `rg -n "—|–" $(git diff --name-only --diff-filter=d origin/main...HEAD)` from the worktree root. Expected: no matches.
+- [ ] **Step 4: Run** `rg -n "\x{2014}|\x{2013}" $(git diff --name-only --diff-filter=d origin/main...HEAD)` from the worktree root. Expected: no matches.
 - [ ] **Step 5:** Fix anything red in the task that introduced it, with its own commit.
