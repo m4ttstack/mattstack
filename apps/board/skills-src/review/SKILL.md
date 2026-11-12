@@ -419,18 +419,21 @@ What the graph cannot show:
   the moment `review-status <state> done` lands, which ends this session
   mid-batch. So the done write is a call of its own, sent only after every
   other write of the run has returned: the posting (the domain skill's, or
-  this skill's own one `mr_review_submit`, and `mr_approve` alone after a
-  refused approval), the `--report` write, and under a run the domain
+  this skill's own one `mr_review_submit`, the `replyErrors` replies and
+  their resolves, and `mr_approve` alone after a refused approval), the
+  `--report` write, and under a run the domain
   skill's `run_stage` done and `run_status` done. A write sent in the same
   batch as the done write is lost.
 - **A submit result with `replyErrors` (GitHub).** On GitHub a submit that
   returns `published: true` with `replyErrors` is a review that is up and
-  complete: the listed replies are the only part missing. It takes the
-  edge its approval names, as a result without them would, so an asked
-  approval that came back `approved: false` still goes to the approval
-  recovery. Post each listed reply once with `mr_reply_thread`; its thread stays unresolved unless that
-  reply posts, and a `resolve` that was due runs after it with
-  `mr_resolve_thread`. The review is never submitted again, and that is not
+  complete: the listed replies are the only part missing. Post them
+  first, right after the submit result: each listed reply once with
+  `mr_reply_thread`; its thread stays unresolved unless that reply posts,
+  and a `resolve` that was due runs after it with `mr_resolve_thread`.
+  Only then follow the edge the approval names, as a result without
+  `replyErrors` would, so an asked approval that came back `approved:
+  false` still goes to the approval recovery, and a hold there leaves no
+  reply unposted. The review is never submitted again, and that is not
   the split-posting the STOP guards against. A reply that still fails is
   reported in the done summary with its error, apart from `resolveErrors`.
 - **Resumed entry.** `--resumed-gate <gateId>` means a human answered a

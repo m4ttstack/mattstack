@@ -99,6 +99,7 @@ digraph respond_triage_and_gate_1 {
     "Fixed the fetch mr_threads call once already?" -> "respond off-script gate: mr_threads refused (fetch)" [label="yes"];
     "Fix what the fetch mr_threads error names" -> "mr_threads {mrUrl, refresh: true, filter: unresolved-human} (fetch)";
     "Adjudicate each unresolved thread" -> "Unresolved human threads = 0?";
+    "Adjudicate each unresolved thread" -> "Fixed the fetch mr_threads call once already?" [label="the marker read errored"];
     "Unresolved human threads = 0?" -> "No unresolved threads: continue at the done write" [label="yes: no unresolved threads, 0 and 0"];
     "Unresolved human threads = 0?" -> "Write the verdict table and drafts to --report" [label="no"];
     "Write the verdict table and drafts to --report" -> "<status-bin> respond-status <state> drafting --round <n>";
@@ -241,7 +242,9 @@ this account answers is already answered: that comment's marker line
 in one more read, `mr_threads {mrUrl, refresh: true}` with no filter: the
 filter drops a comment whose author reads as a bot, so a reply posted by
 a bot-named account is missing from the filtered read. Only the filtered
-rows are ever adjudicated. Rows dropped this way count
+rows are ever adjudicated. A marker read that errors is a fetch error:
+it takes the fetch read's fix-once path and its off-script gate, quoting
+the error, and nothing is adjudicated until both reads succeed. Rows dropped this way count
 as no thread for `Unresolved human threads = 0?`.
 
 With `--person <username>`, keep only that person's feedback:

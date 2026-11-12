@@ -13,6 +13,7 @@ this account answers is already answered: that comment's marker line
 in one more read, `mr_threads {mrUrl, refresh: true}` with no filter: the
 filter drops a comment whose author reads as a bot, so a reply posted by
 a bot-named account is missing from the filtered read. Only the filtered
-rows are ever adjudicated. Rows dropped this way count
+rows are ever adjudicated. A marker read that errors fails the run,
+quoting it, as an error from the filtered read does. Rows dropped this way count
 as no thread. With nothing left the answer is none: say so. Otherwise
 the adjudicator gets the rows that remain.

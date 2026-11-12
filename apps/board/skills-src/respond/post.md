@@ -55,11 +55,15 @@ digraph respond_gate_2_and_posting {
     "STOP: replies post with mr_reply_thread" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the mr_reply_thread call once already?" [shape=diamond];
     "Fix what the mr_reply_thread error names" [shape=box];
+    "Check the MR for the reply (mr_reply_thread)" [shape=box];
+    "Reply already up (mr_reply_thread)?" [shape=diamond];
     "mr_comment {mrUrl, body, resolvable: false} (respond)" [shape=plaintext];
     "mr_comment result (respond)?" [shape=diamond];
     "STOP: PR-level replies post with mr_comment" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the mr_comment call once already (respond)?" [shape=diamond];
     "Fix what the mr_comment error names" [shape=box];
+    "Check the MR for the reply (mr_comment)" [shape=box];
+    "Reply already up (mr_comment)?" [shape=diamond];
     "Resolve this thread?" [shape=diamond];
     "mr_resolve_thread {mrUrl, discussionId}" [shape=plaintext];
     "mr_resolve_thread result?" [shape=diamond];
@@ -151,7 +155,11 @@ digraph respond_gate_2_and_posting {
     "STOP: replies post with mr_reply_thread" -> "Fixed the mr_reply_thread call once already?";
     "Fixed the mr_reply_thread call once already?" -> "Fix what the mr_reply_thread error names" [label="no"];
     "Fixed the mr_reply_thread call once already?" -> "respond off-script gate: mr_reply_thread refused" [label="yes"];
-    "Fix what the mr_reply_thread error names" -> "mr_reply_thread {mrUrl, discussionId, body}";
+    "Fix what the mr_reply_thread error names" -> "Check the MR for the reply (mr_reply_thread)";
+    "Check the MR for the reply (mr_reply_thread)" -> "Reply already up (mr_reply_thread)?";
+    "Reply already up (mr_reply_thread)?" -> "Resolve this thread?" [label="yes: it posted"];
+    "Reply already up (mr_reply_thread)?" -> "mr_reply_thread {mrUrl, discussionId, body}" [label="no"];
+    "Reply already up (mr_reply_thread)?" -> "respond off-script gate: mr_reply_thread refused" [label="the read errored"];
     "mr_comment {mrUrl, body, resolvable: false} (respond)" -> "mr_comment result (respond)?";
     "mr_comment result (respond)?" -> "Resolve this thread?" [label="posted"];
     "mr_comment result (respond)?" -> "Fixed the mr_comment call once already (respond)?" [label="tool error"];
@@ -159,7 +167,11 @@ digraph respond_gate_2_and_posting {
     "STOP: PR-level replies post with mr_comment" -> "Fixed the mr_comment call once already (respond)?";
     "Fixed the mr_comment call once already (respond)?" -> "Fix what the mr_comment error names" [label="no"];
     "Fixed the mr_comment call once already (respond)?" -> "respond off-script gate: mr_comment refused" [label="yes"];
-    "Fix what the mr_comment error names" -> "mr_comment {mrUrl, body, resolvable: false} (respond)";
+    "Fix what the mr_comment error names" -> "Check the MR for the reply (mr_comment)";
+    "Check the MR for the reply (mr_comment)" -> "Reply already up (mr_comment)?";
+    "Reply already up (mr_comment)?" -> "Resolve this thread?" [label="yes: it posted"];
+    "Reply already up (mr_comment)?" -> "mr_comment {mrUrl, body, resolvable: false} (respond)" [label="no"];
+    "Reply already up (mr_comment)?" -> "respond off-script gate: mr_comment refused" [label="the read errored"];
     "Resolve this thread?" -> "mr_resolve_thread {mrUrl, discussionId}" [label="yes: resolve picked; not held, no mark stopping its resolve, not an Overview comment"];
     "Resolve this thread?" -> "Threads left to post (respond)?" [label="no"];
     "mr_resolve_thread {mrUrl, discussionId}" -> "mr_resolve_thread result?";
@@ -189,7 +201,7 @@ digraph respond_gate_2_and_posting {
     "Off-script outcome (mr_reply_thread)?" -> "Threads left to post (respond)?" [label="hand back: this thread stays unposted"];
     "Off-script outcome (mr_reply_thread)?" -> "Posting gate gone: continue at Respond gate gone" [label="gate gone"];
     "Off-script outcome (mr_reply_thread)?" -> "Threads left to post (respond)?" [label="gate unavailable: this thread stays unposted"];
-    "Off-script rounds = 2 (mr_reply_thread)?" -> "mr_reply_thread {mrUrl, discussionId, body}" [label="no: post again"];
+    "Off-script rounds = 2 (mr_reply_thread)?" -> "Check the MR for the reply (mr_reply_thread)" [label="no: post again"];
     "Off-script rounds = 2 (mr_reply_thread)?" -> "Threads left to post (respond)?" [label="yes: this thread stays unposted"];
     "respond off-script gate: mr_comment refused" -> "Off-script outcome (mr_comment)?";
     "Off-script outcome (mr_comment)?" -> "Resolve this thread?" [label="take: the human posted it"];
@@ -198,7 +210,7 @@ digraph respond_gate_2_and_posting {
     "Off-script outcome (mr_comment)?" -> "Threads left to post (respond)?" [label="hand back: this thread stays unposted"];
     "Off-script outcome (mr_comment)?" -> "Posting gate gone: continue at Respond gate gone" [label="gate gone"];
     "Off-script outcome (mr_comment)?" -> "Threads left to post (respond)?" [label="gate unavailable: this thread stays unposted"];
-    "Off-script rounds = 2 (mr_comment)?" -> "mr_comment {mrUrl, body, resolvable: false} (respond)" [label="no: post again"];
+    "Off-script rounds = 2 (mr_comment)?" -> "Check the MR for the reply (mr_comment)" [label="no: post again"];
     "Off-script rounds = 2 (mr_comment)?" -> "Threads left to post (respond)?" [label="yes: this thread stays unposted"];
     "respond off-script gate: mr_resolve_thread refused" -> "Off-script outcome (mr_resolve_thread)?";
     "Off-script outcome (mr_resolve_thread)?" -> "Threads left to post (respond)?" [label="take: the human resolved it"];
@@ -408,9 +420,20 @@ only on the listed threads.
 https URL, `discussionId` the thread id from its report row exactly as
 `mr_threads` gave it, `body` the non-empty reply text. A "discussion not
 found" error with the id already matching the row, or an error that names
-no input, has nothing to correct: post again unchanged, once, and the
-off-script gate follows. An error is never a reason to post with the
-forge CLI or the API.
+no input (a timeout, the daemon down), has nothing to correct: the next
+post goes out unchanged. Either way the reply may have landed before the
+error, so the MR is checked before any second post. An error is never a
+reason to post with the forge CLI or the API.
+
+### Check the MR for the reply (mr_reply_thread)
+
+Before posting again, read `mr_threads {mrUrl, refresh: true}` with no
+filter. `Reply already up (mr_reply_thread)?` answers yes when the row's
+discussion holds a note by the account this run posts as, made in this
+pass, whose text starts with the first line of the reply due; the reply
+then counts as posted and is never posted again. No such note is no. A
+read that errors is the read errored: the off-script gate follows,
+quoting it, with no second post.
 
 ### Fix what the mr_comment error names
 
@@ -419,13 +442,20 @@ https URL, `body` the non-empty reply text (the quote of the comment's
 first line, a blank line, `@<author>`, the reply, a blank line, then the
 `<!-- mattstack-reply-to: <the row's id> -->` marker line), `resolvable`
 false. An error that names no input (a timeout, the daemon down) has
-nothing to correct, and the comment may still have landed: read
-`mr_threads {mrUrl, refresh: true}` first, and a comment by this account
-whose marker names the row's id means it posted, so record it as posted
-and never post it again. With no such comment, post again unchanged,
-once, and the off-script gate follows; a read that errors goes
-straight to the off-script gate, quoting it, with no second post. An
-error is never a reason to post with the forge CLI or the API.
+nothing to correct: the next post goes out unchanged. Either way the
+comment may have landed before the error, so the PR is checked before
+any second post. An error is never a reason to post with the forge CLI
+or the API.
+
+### Check the MR for the reply (mr_comment)
+
+Before posting again, read `mr_threads {mrUrl, refresh: true}` with no
+filter. `Reply already up (mr_comment)?` answers yes when a PR-level
+comment by the account this run posts as, made in this pass, ends with
+the marker line naming the row's id; the reply then counts as posted and
+is never posted again. No such comment is no. A read that errors is the
+read errored: the off-script gate follows, quoting it, with no second
+post.
 
 ### Fix what the mr_resolve_thread error names
 
@@ -464,8 +494,10 @@ threads, marked `push handed back`, every other reply posted.
 ### respond off-script gate: mr_reply_thread refused
 
 Take "Off-script step" with this question. Label: `reply to thread
-<threadId> refused twice on !<iid>: <second error>`. Context: both
-`mr_reply_thread` errors, quoted, and the reply text.
+<threadId> not posted on !<iid>: <last error>`. Context: every
+`mr_reply_thread` error and any check read error, quoted, the reply
+text, and that an errored call may still have landed, so a take checks
+the thread before posting by hand.
 
 | Value                                                                                                          | Label                | Description                                                                   |
 | -------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------- |
@@ -477,7 +509,7 @@ Take "Off-script step" with this question. Label: `reply to thread
 A take counts the reply as posted, marks the thread `posted by hand`, and
 runs the thread's `resolve:` pick.
 Iterate passes `Off-script rounds = 2 (mr_reply_thread)?` for this
-thread before posting again. Hand back, gate unavailable and a spent
+thread, then checks the MR for the reply before posting again. Hand back, gate unavailable and a spent
 round budget leave this thread unposted and unresolved, marked `reply
 handed back`, and move to the next thread; it counts neither posted nor
 held.
@@ -485,9 +517,10 @@ held.
 ### respond off-script gate: mr_comment refused
 
 Take "Off-script step" with this question. Label: `reply to PR comment
-<threadId> refused twice on !<iid>: <second error>`. Context: both
-`mr_comment` errors, quoted, and the full body to post, marker line
-included.
+<threadId> not posted on !<iid>: <last error>`. Context: every
+`mr_comment` error and any check read error, quoted, the full body to
+post, marker line included, and that an errored call may still have
+landed, so a take checks the PR for the marker before posting by hand.
 
 | Value                                                                                                         | Label                | Description                                               |
 | ------------------------------------------------------------------------------------------------------------- | -------------------- | --------------------------------------------------------- |
@@ -498,7 +531,8 @@ included.
 
 A take counts the reply as posted, marks the thread `posted by hand`, and
 runs the thread's `resolve:` pick, which a PR-level row skips. Iterate passes `Off-script rounds = 2
-(mr_comment)?` for this thread before posting again. Hand back, gate
+(mr_comment)?` for this thread, then checks the PR for the reply before
+posting again. Hand back, gate
 unavailable and a spent round budget leave this thread unposted, marked
 `reply handed back`, and move to the next thread; it counts neither
 posted nor held.

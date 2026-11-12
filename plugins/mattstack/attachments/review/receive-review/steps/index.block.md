@@ -200,6 +200,7 @@ flowchart TB
     any_unresolved -->|yes| select_rules
     select_rules --> dispatch_adjudicator
     any_unresolved -->|none: say so| report_outcome
+    any_unresolved -->|the marker read errored: fail, quoting it| own_run_failed_or_abandoned
     dispatch_adjudicator --> draft_verdict_table
     draft_verdict_table --> build_plan_open
     build_plan_open --> caller_owns_plan_gates
