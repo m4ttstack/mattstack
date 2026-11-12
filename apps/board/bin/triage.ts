@@ -67,6 +67,7 @@ import {
   loadTriageConfig,
 } from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
+import { triageForgeSkip } from '../src/triage/forge-skip.ts';
 import {
   latchInScope,
   runLatchPass,
@@ -181,7 +182,9 @@ try {
       throw new Error('triage: no gitlab token available for identity');
     return resolved;
   };
-  if (!peerMode) username = await resolveUsername();
+  const forgeSkip = peerMode ? null : triageForgeSkip(boardConfig);
+  if (forgeSkip) console.log(forgeSkip);
+  if (!peerMode && !forgeSkip) username = await resolveUsername();
 
   // SCOPE (review fix 1): triage's MR scope is deliberately the BOARD's
   // visibility scope -- buildBoard applies the member, own-draft, stale-window,
@@ -234,7 +237,7 @@ try {
     }));
   };
 
-  if (!peerMode) {
+  if (!peerMode && !forgeSkip) {
     const result = await runTriage({
       triage,
       doctorCwd: boardConfig.doctorCwd || boardConfig.reviewCwd,
@@ -277,8 +280,8 @@ try {
         boardMaterializeDeps(line => console.error(line))
       );
     let ownUrls = new Set<string>();
-    let nudgeReady = true;
-    if (!peerMode || needsOwnMrs(readNudges())) {
+    let nudgeReady = !forgeSkip;
+    if (nudgeReady && (!peerMode || needsOwnMrs(readNudges()))) {
       try {
         if (peerMode) username = await resolveUsername();
         ownUrls = new Set((await fetchOwnMrs()).map(m => m.mrUrl));
@@ -340,7 +343,7 @@ try {
   // memory, and this one runs whether or not a switchboard is configured, so
   // the persist below sits outside that block.
   const latchToken = await loadGitLabToken();
-  if (!peerMode && latchToken && username && reReview.enabled) {
+  if (!peerMode && !forgeSkip && latchToken && username && reReview.enabled) {
     try {
       const latchResult = await runLatchPass({
         readReviewStates,

@@ -78,6 +78,7 @@ import {
   codeownerSlackOn,
   daemonRepoField,
   displayName,
+  FORGE_NOT_YET,
   gitlabOnly,
   loadAgentSettings,
   loadConfig,
@@ -253,6 +254,7 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
+import { onGitHub } from './mr-ref.ts';
 import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
   acceptAsk,
@@ -588,10 +590,14 @@ if (!FIXTURE_DIR && !writer) {
 const isTokenFailure = (v: string | null): boolean => v === null;
 
 // Optional: display-name lookups only. The board's data plane is rt.
-const getGitlabToken = memoizeAsync<string | null>(
+const memoGitlabToken = memoizeAsync<string | null>(
   () => (FIXTURE_DIR ? Promise.resolve(null) : loadGitLabToken()),
   isTokenFailure
 );
+// Checked per call, outside the memo: the team's forge can change under a
+// running board.
+const getGitlabToken = (): Promise<string | null> =>
+  config.forge.kind === 'github' ? Promise.resolve(null) : memoGitlabToken();
 // Optional: enables the Slack review-thread menu actions when a token is set.
 const getSlackToken = memoizeAsync<string | null>(
   () => (FIXTURE_DIR ? Promise.resolve(null) : loadSlackToken()),
@@ -1315,6 +1321,7 @@ async function readOwnerRules(
   const projectPath = mr.webUrl
     ? projectPathFromWebUrl(mr.webUrl, config)
     : null;
+  if (config.forge.kind === 'github') return { ok: true, rules: [] };
   const repoName = projectPath ? daemonRepoField(config, projectPath) : null;
   if (!repoName) {
     return {
@@ -3495,11 +3502,14 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
+        if (config.forge.kind === 'github')
+          return new Response(FORGE_NOT_YET, { status: 400 });
         if (!gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === mrUrl);
         if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
@@ -3538,6 +3548,8 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
+        if (config.forge.kind === 'github')
+          return new Response(FORGE_NOT_YET, { status: 400 });
         if (!gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         let body: unknown;
@@ -3558,6 +3570,7 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -3847,6 +3860,8 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
+        if (config.forge.kind === 'github')
+          return new Response(FORGE_NOT_YET, { status: 400 });
         if (!gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         let body: unknown;
@@ -3866,6 +3881,7 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -5561,7 +5577,12 @@ async function handleAgentSignal(
   // Best-effort, like every other side effect here: the triage latch pass
   // reconciles anything a down or throwing board misses, so a failure must
   // never fail the agent's status write.
-  if (signal.kind === 'review' && signal.status === 'done' && gitlabToken) {
+  if (
+    config.forge.kind === 'gitlab' &&
+    signal.kind === 'review' &&
+    signal.status === 'done' &&
+    gitlabToken
+  ) {
     try {
       // Arming honours board.reReview; landing and spending never do, since
       // a latch left running or armed on a team that switched re-review off
