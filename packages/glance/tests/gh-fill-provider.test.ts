@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { GitLabProvider } from '../src/GitLabProvider.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
 import { RateLimitedError, ReadBackFailedError } from '../src/errors.ts';
 import {
@@ -577,6 +578,29 @@ describe('toPullRequestFromNode', () => {
     const node = nodeFor(4, { mergeable: 'UNKNOWN', mergeStateStatus: 'DIRTY' });
 
     expect(toPullRequestFromNode(node, ctx(node)).conflicts).toBe(true);
+  });
+});
+
+describe('sourceProjectPath', () => {
+  const ctx = (node: GHFillNode) => ({
+    roles: ['author'],
+    contexts: node.commits.nodes[0]!.commit.statusCheckRollup!.contexts.nodes,
+    contextsComplete: true,
+    rulesRequired: null
+  });
+
+  test('sourceProjectPath maps a same-repo PR, a fork and a deleted fork', () => {
+    const same = ghNode();
+    const fork = ghNode({ headRepository: { nameWithOwner: 'fork/r' } });
+    const deleted = { ...ghNode(), headRepository: null } as GHFillNode;
+    expect(toPullRequestFromNode(same, ctx(same)).sourceProjectPath).toBe('o/r');
+    expect(toPullRequestFromNode(fork, ctx(fork)).sourceProjectPath).toBe('fork/r');
+    expect(toPullRequestFromNode(deleted, ctx(deleted)).sourceProjectPath).toBeNull();
+  });
+
+  test('capability flags', () => {
+    expect(new GitHubProvider('https://github.com', 'tok').capabilities.canReportSourceProject).toBe(true);
+    expect(new GitLabProvider('https://gitlab.com', 'tok').capabilities.canReportSourceProject).toBe(false);
   });
 });
 

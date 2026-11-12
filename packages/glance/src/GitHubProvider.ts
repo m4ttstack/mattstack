@@ -693,6 +693,7 @@ export class GitHubProvider implements GitProvider {
     canUnapprove: true,
     canRebase: false,
     canAutoMerge: true,
+    canReportSourceProject: true,
     canEnqueue: true,
     canResolveDiscussions: true,
     canRetryPipeline: true,

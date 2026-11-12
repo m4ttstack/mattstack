@@ -174,6 +174,10 @@ export interface PullRequest {
   conflicts: boolean;
   webUrl: string | null;
   sourceBranch: string;
+  /** The `owner/repo` the source branch lives in. GitHub only: null when the
+      head repository is gone (a deleted fork); absent on GitLab. Compare with
+      the project path to tell a fork PR from a same-named base branch. */
+  sourceProjectPath?: string | null;
   targetBranch: string;
   /** True when targetBranch differs from the repo's default branch (a stack
       MR pointed at its parent). False/absent when the default branch is
@@ -689,6 +693,8 @@ export interface ProviderCapabilities {
   canRequestChanges: boolean;
   /** Can read a pull request's per-file diffs with `fetchPullRequestDiffs`. */
   canFetchPullRequestDiffs: boolean;
+  /** Pull requests carry `sourceProjectPath`, the repository their source branch lives in. */
+  canReportSourceProject?: boolean;
 }
 
 // ── Metric-grade reads ────────────────────────────────────────────────────────

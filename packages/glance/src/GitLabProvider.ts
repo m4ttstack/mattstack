@@ -974,6 +974,7 @@ export class GitLabProvider implements GitProvider {
     canUnapprove: true,
     canRebase: true,
     canAutoMerge: true,
+    canReportSourceProject: false,
     canEnqueue: false,
     canResolveDiscussions: true,
     canRetryPipeline: true,
