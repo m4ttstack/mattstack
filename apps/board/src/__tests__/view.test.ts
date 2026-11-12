@@ -587,6 +587,15 @@ describe('statusFlags', () => {
     ]);
   });
 
+  test('a stood-down GitHub row names the PR in its tooltip', () => {
+    const flags = statusFlags(
+      mr({ standDown: true, provider: 'github' } as any)
+    );
+    expect(flags.find(f => f.key === 'stood-down')?.title).toBe(
+      'auto-doctor stood down for this PR, right-click to re-enable'
+    );
+  });
+
   test('no auto-doctor-off flag when not stood down', () => {
     const flags = statusFlags(mr({ standDown: false } as any));
     expect(flags.some(f => f.key === 'stood-down')).toBe(false);
@@ -755,6 +764,22 @@ describe('nestStacks', () => {
         ok: false,
         status: 403,
         error: 'not your MR',
+      });
+    });
+
+    test('a GitHub board refuses in PR words', () => {
+      const solo = smr(1, 'feat-a', 'master');
+      expect(
+        resolveStandDownTarget('https://x/nope', [solo], 'alice', 'github')
+      ).toEqual({
+        ok: false,
+        status: 400,
+        error: 'unknown PR "https://x/nope"',
+      });
+      expect(resolveStandDownTarget(url(1), [solo], 'all', 'github')).toEqual({
+        ok: false,
+        status: 403,
+        error: 'not your PR',
       });
     });
 

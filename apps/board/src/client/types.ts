@@ -308,6 +308,9 @@ export interface OrgTeam {
 
 export interface BoardData {
   title: string;
+  /** The board's forge, which names MRs or PRs in board-wide copy; absent
+      on older servers and in fixtures. */
+  forge?: 'gitlab' | 'github';
   defaultMember: string;
   /** The GitLab token's user once the server has learned it; with the seat
       it decides what is the board's own (effectiveSeat). */

@@ -267,7 +267,7 @@ import {
 } from './manifest-bindings.ts';
 import { memoizeAsync } from './memoize-async.ts';
 import { parseMrActionBody } from './mr-action.ts';
-import { forgeWord, mrRef, onGitHub } from './mr-ref.ts';
+import { forgeWord, mrNoun, mrNouns, mrRef, onGitHub } from './mr-ref.ts';
 import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
   acceptAsk,
@@ -677,7 +677,7 @@ async function rebaseOnForge(
   let deps: ReturnType<typeof gitlabRebaseDeps>;
   if (onGitHub(mr)) {
     const repoName = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
-    if (!repoName) return failed('this MR has no rt repo');
+    if (!repoName) return failed(`this ${boardNoun()} has no rt repo`);
     deps = githubRebaseDeps(repoName, mr.iid);
   } else {
     const path = mr.webUrl ? projectPathFromWebUrl(mr.webUrl, config) : null;
@@ -1179,12 +1179,12 @@ async function ringActiveWorker(
   if (mr.blockers.needsRebase || mr.blockers.hasConflicts)
     kinds.push('needs-rebase');
   if (kinds.length === 0)
-    return new Response('nothing on this MR needs the worker', {
+    return new Response(`nothing on this ${boardNoun()} needs the worker`, {
       status: 409,
     });
   const doctor = readDoctorStates().get(mr.webUrl);
   if (doctor && DOCTOR_IN_FLIGHT.has(doctor.status))
-    return new Response('a doctor is already running on this MR', {
+    return new Response(`a doctor is already running on this ${boardNoun()}`, {
       status: 409,
     });
   const io = ownerIo();
@@ -1199,7 +1199,9 @@ async function ringActiveWorker(
     io.probe
   );
   if (!found)
-    return new Response('no work run is active on this MR', { status: 409 });
+    return new Response(`no work run is active on this ${boardNoun()}`, {
+      status: 409,
+    });
   const { owner, step } = found;
   const pipelineId = mr.pipeline ? numericPipelineId(mr.pipeline.id) : null;
   const target = { iid: mr.iid, targetBranch: mr.targetBranch, pipelineId };
@@ -1242,18 +1244,24 @@ function iidMismatch(
       });
 }
 
+/** The board's noun in a reply a person reads; a GitLab board keeps MR. */
+const boardNoun = () => mrNoun(config.forge.kind);
+const boardNouns = () => mrNouns(config.forge.kind);
+
 /** The one refusal every author-only route answers with when the MR is not
     the seat's; null when it is. An "all" board owns nothing, so it refuses
     everything. */
 function requireOwnMr(mr: BoardMR): Response | null {
-  return ownedHere(mr) ? null : new Response('not your MR', { status: 403 });
+  return ownedHere(mr)
+    ? null
+    : new Response(`not your ${boardNoun()}`, { status: 403 });
 }
 
 function githubRepoName(mr: BoardMR): string | null {
   return mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
 }
 
-const NO_RT_REPO = 'this MR has no rt repo';
+const noRtRepo = () => `this ${boardNoun()} has no rt repo`;
 
 function githubWriteFailure(
   result: Exclude<GithubWriteResult, { kind: 'done' }>
@@ -1783,6 +1791,7 @@ function ownName(mr: BoardMR): string {
 }
 
 const remindReviewer = createReminder({
+  forge: () => config.forge.kind,
   peerReview: (mrUrl, reviewer) =>
     getKvValue<PeerReviewState | undefined>(
       PEER_REVIEW_NS,
@@ -1863,7 +1872,9 @@ async function requireGateOwner(
         m => !!m.webUrl && normalizeMrUrl(m.webUrl) === url
       )
     : undefined;
-  return mr ? requireOwnMr(mr) : new Response('not your MR', { status: 403 });
+  return mr
+    ? requireOwnMr(mr)
+    : new Response(`not your ${boardNoun()}`, { status: 403 });
 }
 
 const sendThreadWrite: ThreadWriteSend = (verb, payload) =>
@@ -2356,6 +2367,7 @@ const httpServer = Bun.serve({
     if (pathname === '/review/file-diff')
       return fileDiffRoute(req, {
         isLocal: r => isLocalRequest(r, server),
+        forge: config.forge.kind,
         findMr: async mrUrl => {
           const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
           return mr ? { iid: mr.iid, webUrl: mrUrl } : null;
@@ -2470,6 +2482,7 @@ const httpServer = Bun.serve({
         return new Response(
           JSON.stringify({
             title: config.title,
+            forge: config.forge.kind,
             defaultMember: config.defaultMember,
             tokenUser: forgeSelf.get(),
             seatUnverified: seatUnverified(),
@@ -2867,7 +2880,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         }
         {
           const mismatch = iidMismatch(parsed, mr);
@@ -3073,7 +3088,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         }
         {
           const mismatch = iidMismatch(parsed, mr);
@@ -3126,9 +3143,12 @@ const httpServer = Bun.serve({
           !mr.respondTargets?.some(t => t.username === person) &&
           !Object.hasOwn(readRespondRounds().get(parsed.mrUrl) ?? {}, person)
         )
-          return new Response(`person "${person}" has no feedback on this MR`, {
-            status: 400,
-          });
+          return new Response(
+            `person "${person}" has no feedback on this ${boardNoun()}`,
+            {
+              status: 400,
+            }
+          );
         {
           const dedup = await dedupInFlight(
             existing,
@@ -3261,7 +3281,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         }
         {
           const mismatch = iidMismatch(parsed, mr);
@@ -3306,9 +3328,12 @@ const httpServer = Bun.serve({
         // A running rebase chain's row carries no tabId, so dedup lets an
         // ordinary launch through.
         if (parsed.mode !== 'rebase' && LOCAL_SYNCS.has(parsed.mrUrl))
-          return new Response('a sync is already running on this MR', {
-            status: 409,
-          });
+          return new Response(
+            `a sync is already running on this ${boardNoun()}`,
+            {
+              status: 409,
+            }
+          );
         const doctorSkill = resolveLaunchSkillFor(
           'doctor',
           parsed.mrUrl,
@@ -3335,9 +3360,12 @@ const httpServer = Bun.serve({
         let handOff = false;
         if (parsed.mode === 'rebase') {
           if (LOCAL_SYNCS.has(parsed.mrUrl))
-            return new Response('a sync is already running on this MR', {
-              status: 409,
-            });
+            return new Response(
+              `a sync is already running on this ${boardNoun()}`,
+              {
+                status: 409,
+              }
+            );
           LOCAL_SYNCS.add(parsed.mrUrl);
           // The forge wait has no clock, so it can outlast Bun's 60s idle
           // timeout.
@@ -3677,7 +3705,7 @@ const httpServer = Bun.serve({
           d => d.mrUrl === mrUrl && d.kind === kind && d.status === 'held'
         );
         if (!draft)
-          return new Response('no held draft for that MR/kind', {
+          return new Response(`no held draft for that ${boardNoun()}/kind`, {
             status: 404,
           });
         if (action === 'dismiss') {
@@ -3690,7 +3718,10 @@ const httpServer = Bun.serve({
           return new Response('gitlab token not configured', { status: 400 });
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === mrUrl);
-        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        if (!mr)
+          return new Response(`unknown ${boardNoun()} "${mrUrl}"`, {
+            status: 400,
+          });
         if (onGitHub(mr) !== (config.forge.kind === 'github'))
           return new Response(FORGE_NOT_YET, { status: 400 });
         {
@@ -3699,7 +3730,7 @@ const httpServer = Bun.serve({
         }
         if (config.forge.kind === 'github') {
           const repoName = githubRepoName(mr);
-          if (!repoName) return new Response(NO_RT_REPO, { status: 400 });
+          if (!repoName) return new Response(noRtRepo(), { status: 400 });
           server.timeout(req, 0);
           const result = await githubPostNote(repoName, mr.iid, draft.body);
           if (result.kind !== 'done') return githubWriteFailure(result);
@@ -3779,7 +3810,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         if (onGitHub(mr) !== (config.forge.kind === 'github'))
           return new Response(FORGE_NOT_YET, { status: 400 });
         {
@@ -3797,7 +3830,7 @@ const httpServer = Bun.serve({
         }
         if (config.forge.kind === 'github') {
           const repoName = githubRepoName(mr);
-          if (!repoName) return new Response(NO_RT_REPO, { status: 400 });
+          if (!repoName) return new Response(noRtRepo(), { status: 400 });
           server.timeout(req, 0);
           const result = await githubSetDraft(repoName, parsed.iid, draft);
           if (result.kind !== 'done') return githubWriteFailure(result);
@@ -3862,14 +3895,19 @@ const httpServer = Bun.serve({
             status: 400,
           });
         const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
-        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        if (!mr)
+          return new Response(`unknown ${boardNoun()} "${mrUrl}"`, {
+            status: 400,
+          });
         {
           const mismatch = iidMismatch({ mrUrl, iid }, mr);
           if (mismatch) return mismatch;
         }
         const repoId = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
         if (!repoId)
-          return new Response('this MR has no rt repo', { status: 400 });
+          return new Response(`this ${boardNoun()} has no rt repo`, {
+            status: 400,
+          });
         const res = await rtCommand(
           'mr:get',
           { repoName: repoId, iid, refresh: true },
@@ -3909,7 +3947,10 @@ const httpServer = Bun.serve({
             status: 400,
           });
         const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
-        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        if (!mr)
+          return new Response(`unknown ${boardNoun()} "${mrUrl}"`, {
+            status: 400,
+          });
         {
           const mismatch = iidMismatch({ mrUrl, iid }, mr);
           if (mismatch) return mismatch;
@@ -3920,7 +3961,9 @@ const httpServer = Bun.serve({
         }
         const repoName = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
         if (!repoName)
-          return new Response('this MR has no rt repo', { status: 400 });
+          return new Response(`this ${boardNoun()} has no rt repo`, {
+            status: 400,
+          });
         const commands = parseFlockCommands(
           boardSetting<unknown>('board.flockCommands')
         );
@@ -3963,7 +4006,7 @@ const httpServer = Bun.serve({
             { status: 409 }
           );
         if (FLOCK_OPENS.has(mrUrl))
-          return new Response('already opening this MR in flock', {
+          return new Response(`already opening this ${boardNoun()} in flock`, {
             status: 409,
           });
         // Provisioning a worktree can outlast Bun's 60s idle timeout.
@@ -3973,7 +4016,7 @@ const httpServer = Bun.serve({
           let folder: string;
           if (action === 'resume') {
             if (!menu.resume)
-              return new Response('no work session for this MR', {
+              return new Response(`no work session for this ${boardNoun()}`, {
                 status: 409,
               });
             if (menu.resume.livePane) {
@@ -4053,7 +4096,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         if (onGitHub(mr) !== (config.forge.kind === 'github'))
           return new Response(FORGE_NOT_YET, { status: 400 });
         {
@@ -4066,7 +4111,7 @@ const httpServer = Bun.serve({
         }
         if (config.forge.kind === 'github') {
           const repoName = githubRepoName(mr);
-          if (!repoName) return new Response(NO_RT_REPO, { status: 400 });
+          if (!repoName) return new Response(noRtRepo(), { status: 400 });
           server.timeout(req, 0);
           const result = await githubMrWrite(
             repoName,
@@ -4385,7 +4430,8 @@ const httpServer = Bun.serve({
         const resolved = resolveStandDownTarget(
           mrUrl,
           snapshot.mrs,
-          config.defaultMember
+          config.defaultMember,
+          config.forge.kind
         );
         if (!resolved.ok)
           return new Response(resolved.error, { status: resolved.status });
@@ -4596,7 +4642,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -4613,9 +4661,12 @@ const httpServer = Bun.serve({
             canonicalUsername(reviewer) !==
             canonicalUsername(mr.author.username)
           )
-            return new Response('a respond ask goes to the MR author', {
-              status: 400,
-            });
+            return new Response(
+              `a respond ask goes to the ${boardNoun()} author`,
+              {
+                status: 400,
+              }
+            );
         } else {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
@@ -5149,9 +5200,12 @@ const httpServer = Bun.serve({
             channels => !channels.has('')
           );
           if (resolved.size > 1) {
-            return new Response('MRs span Slack channels; post them per tab', {
-              status: 400,
-            });
+            return new Response(
+              `${boardNouns()} span Slack channels; post them per tab`,
+              {
+                status: 400,
+              }
+            );
           }
           targetChannel = [...resolved][0]!;
         }
@@ -5220,15 +5274,21 @@ const httpServer = Bun.serve({
         if (typeof mrUrl !== 'string')
           return new Response('expected { mrUrl: string }', { status: 400 });
         const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
-        if (!mr) return new Response('MR is not on the board', { status: 400 });
+        if (!mr)
+          return new Response(`${boardNoun()} is not on the board`, {
+            status: 400,
+          });
         const refused = requireOwnMr(mr);
         if (refused) return refused;
         if (pathname === '/slack/owners/preview')
           return ownersPreviewOrPost(mr, slackToken, null);
         if (ownerPostsRunning.has(mrUrl))
-          return new Response('a post for this MR is still running', {
-            status: 409,
-          });
+          return new Response(
+            `a post for this ${boardNoun()} is still running`,
+            {
+              status: 409,
+            }
+          );
         ownerPostsRunning.add(mrUrl);
         try {
           return await ownersPreviewOrPost(mr, slackToken, {

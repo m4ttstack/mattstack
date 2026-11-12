@@ -222,7 +222,7 @@ describe('a GitHub board with no recorded forge username', () => {
     ];
     for (const answer of answers) {
       expect(answer.status).toBe(403);
-      expect(answer.text).toBe('not your MR');
+      expect(answer.text).toBe('not your PR');
     }
     expect(writes.slice(from)).toEqual([]);
     expect(readDrafts(db).find(d => d.mrUrl === prUrl(7))?.status).toBe('held');

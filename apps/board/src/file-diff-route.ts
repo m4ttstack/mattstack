@@ -1,4 +1,5 @@
 import type { ForgeFileDiffData, RtResponse } from '@mattstack/rt-client';
+import { mrNoun, type ForgeKind } from './mr-ref.ts';
 
 /** The review sheet's FileDiff (client/board/diff-source.ts), as this
     route sends it. */
@@ -15,6 +16,8 @@ export interface FileDiffBody {
 
 export interface FileDiffRouteDeps {
   isLocal: (req: Request) => boolean;
+  /** The board's forge, which names the MR in each refusal; GitLab when absent. */
+  forge?: ForgeKind;
   /** The board's tracked MR with this web URL. */
   findMr: (mrUrl: string) => Promise<{ iid: number; webUrl: string } | null>;
   /** The MR's serialized rt repo identity. */
@@ -60,20 +63,25 @@ export async function fileDiffRoute(
   const file = params.get('file');
   if (!mrUrl || !file)
     return json({ error: 'expected ?mr=<url>&file=<path>' }, 400);
+  const noun = mrNoun(deps.forge);
   const mr = await deps.findMr(mrUrl);
-  if (!mr) return json({ error: 'This MR is not on the board.' }, 404);
+  if (!mr) return json({ error: `This ${noun} is not on the board.` }, 404);
   const repoName = deps.repoFor(mr);
   if (!repoName)
     return json(
-      { error: 'The board cannot tell which repo this MR is in.' },
+      { error: `The board cannot tell which repo this ${noun} is in.` },
       502
     );
   const res = await deps.readDiff({ repoName, iid: mr.iid, path: file });
   if (!res.ok || !res.data) return json({ error: shortError(res.error) }, 502);
   const { forge, file: diff, truncated } = res.data;
   if (!diff && truncated)
-    return json({ error: "This MR's diff is too long to search here." }, 413);
-  if (!diff) return json({ error: "This file is not in the MR's diff." }, 404);
+    return json(
+      { error: `This ${noun}'s diff is too long to search here.` },
+      413
+    );
+  if (!diff)
+    return json({ error: `This file is not in the ${noun}'s diff.` }, 404);
   const body: FileDiffBody = {
     path: diff.newPath,
     oldPath: diff.oldPath,

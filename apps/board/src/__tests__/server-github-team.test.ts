@@ -290,6 +290,13 @@ describe('a GitHub team', () => {
     expect(await res.text()).toBe('ok');
   });
 
+  test('/data.json names the board forge', async () => {
+    const data = (await (await fetch(`${base()}/data.json`)).json()) as {
+      forge?: string;
+    };
+    expect(data.forge).toBe('github');
+  });
+
   test('/data.json lists the GitHub PRs with their gate', async () => {
     let rows: Row[] = [];
     const deadline = Date.now() + 10_000;
@@ -476,8 +483,18 @@ describe('a GitHub team', () => {
     const from = writes.length;
     const res = await merge(20);
     expect(res.status).toBe(403);
-    expect(res.text).toBe('not your MR');
+    expect(res.text).toBe('not your PR');
     expect(writesSince(from)).toEqual([]);
+  }, 15_000);
+
+  test('a PR not on the board is refused in PR words', async () => {
+    const res = await postRead('/mr/action', {
+      mrUrl: prUrl(999),
+      iid: 999,
+      action: 'merge',
+    });
+    expect(res.status).toBe(400);
+    expect(res.text).toBe(`unknown PR "${prUrl(999)}"`);
   }, 15_000);
 
   test('dismissing a held draft still works on a GitHub team', async () => {
