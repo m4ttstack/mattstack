@@ -1008,12 +1008,17 @@ function createFreshnessCore() {
     broadcastStatus(env);
   }
 
-  /** A provider other than the context's means the token changed, so the watch restarts on the new one. */
+  /**
+   * A provider other than the context's means the token changed, so the watch
+   * restarts on the new one. A removed token stops the watch rather than keep
+   * calling GitHub with a token the user took away.
+   */
   async function reconcileGitHubWatch(env: FreshnessEnv, repoName: string, repoPath: string): Promise<void> {
     let ctx: RepoContext;
     try {
       ctx = await getRepoContext(repoName, repoPath);
     } catch (err) {
+      stopWatch(repoName);
       if (!githubWatchSkipLogged.has(repoName)) {
         githubWatchSkipLogged.add(repoName);
         log.info(`${err instanceof Error ? err.message : String(err)}; skipping events watch for ${repoName}`);

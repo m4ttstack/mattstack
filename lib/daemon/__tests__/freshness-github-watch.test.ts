@@ -21,6 +21,7 @@ interface WatchCall {
   options: WatchEventsOptions;
   onInvalidations: (batch: InvalidationBatch) => void;
   disposed: number;
+  provider: GitHubProvider;
 }
 
 let repoPath: string;
@@ -60,11 +61,12 @@ beforeEach(() => {
       token === null ? null : { token, source: "stored" }) as never),
     spyOn(repoTrackingModule, "loadRepoTracking").mockImplementation(() => tracking),
     spyOn(GitHubProvider.prototype, "watchEvents").mockImplementation(function (
+      this: GitHubProvider,
       projectPath: string,
       options: WatchEventsOptions,
       onInvalidations: (batch: InvalidationBatch) => void,
     ) {
-      const call: WatchCall = { projectPath, options, onInvalidations, disposed: 0 };
+      const call: WatchCall = { projectPath, options, onInvalidations, disposed: 0, provider: this };
       watchCalls.push(call);
       return () => { call.disposed++; };
     }),
@@ -120,6 +122,29 @@ describe("live watch on a GitHub repo", () => {
     expect(watchCalls).toHaveLength(2);
     expect(watchCalls[0]!.disposed).toBe(1);
     expect(watchCalls[1]!.disposed).toBe(0);
+    expect(watchCalls[1]!.provider).not.toBe(watchCalls[0]!.provider);
+  });
+
+  test("two reconciles with the same token keep one watch", async () => {
+    await unit!.reconcile();
+    await unit!.reconcile();
+    expect(watchCalls).toHaveLength(1);
+    expect(watchCalls[0]!.disposed).toBe(0);
+  });
+
+  test("a removed token stops the watch and a returning token starts a new one", async () => {
+    await unit!.reconcile();
+    expect(watchCalls).toHaveLength(1);
+    token = null;
+    await unit!.reconcile();
+    expect(watchCalls[0]!.disposed).toBe(1);
+    expect(unit!.getSnapshot()).toEqual({});
+    expect(statuses.at(-1)).toBe("disconnected");
+    token = "ghp_a";
+    await unit!.reconcile();
+    expect(watchCalls).toHaveLength(2);
+    expect(watchCalls[1]!.disposed).toBe(0);
+    expect(unit!.getSnapshot()[REPO]?.state).toBe("live");
   });
 
   test("a watch on a repo no longer live is disposed", async () => {
