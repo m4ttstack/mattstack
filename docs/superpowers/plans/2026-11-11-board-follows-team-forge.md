@@ -31,7 +31,7 @@
 2. A GitLab team whose org repo is on GitHub (`mattstack.integrations.forge` says github AND `board.gitlabHost` is set): stays exactly GitLab. Pinned in Task 1.
 3. GitHub URLs with a tail (`/files`, `#discussion_r12`, `?w=1`) or dotted names (`my.org/repo-name.js`): parse to the repo. Pinned in Task 2.
 4. A bulk selection of GitHub rows: the bulk menu offers no merge, rebase, auto-merge or draft entry. Pinned in Task 6.
-5. A held doctor draft on a GitHub row reached by deep link: the server refuses the post with the sentence even though the client hides the control. Pinned in Task 4.
+5. A held doctor draft on a GitHub row: dismiss still works, and a post (from a deep link, with the client control hidden) is refused with the sentence. Pinned in Task 4.
 
 ---
 
@@ -39,12 +39,14 @@
 
 **Files:**
 - Modify: `apps/board/src/config.ts` (`BoardConfig`, `parseConfig` ~271-400, `loadConfig` ~711-775, `deriveRtRepos`, `codeownerSlackOn`, `resolveLaunchRepo`)
-- Modify (mechanical `config.gitlabHost` to `config.forge.host`): `apps/board/src/server.ts`, `apps/board/src/manifest-bindings.ts`, `apps/board/src/peer/launch-ask.ts`, `apps/board/src/run-owner-io.ts` callers, `apps/board/bin/triage.ts`, any other hit of `grep -rn gitlabHost apps/board/src apps/board/bin`
+- Modify (mechanical `config.gitlabHost` to `config.forge.host`, or to `gitlabOnly(config)` where a GitLab client is built): `apps/board/src/server.ts`, `apps/board/src/manifest-bindings.ts`, `apps/board/src/peer/launch-ask.ts`, `apps/board/src/run-owner-io.ts` callers, `apps/board/bin/triage.ts`, `apps/board/scripts/parity-check.ts`, any other hit of `grep -rn gitlabHost apps/board/src apps/board/bin apps/board/scripts`
+- Create: `apps/board/src/__tests__/forge-door.test.ts`, `apps/board/src/__tests__/no-hardcoded-forge.test.ts`
 - Test: `apps/board/src/__tests__/config-store.test.ts`, `apps/board/src/__tests__/config.test.ts`
 
 **Interfaces:**
 - Produces: `export type BoardForge = { kind: 'gitlab' | 'github'; host: string }`; `BoardConfig.forge: BoardForge` (the `gitlabHost` field is gone); `export function normalizeForgeHost(host: string): string` (strips a scheme and trailing slashes, lowercases, prefixes `https://`).
 - `parseConfig(raw, source)` accepts `gitlabHost?: string` and `forge?: { provider: string; host: string }` in the raw JSON.
+- Produces: `export const FORGE_NOT_YET = 'Not available on GitHub yet'`; `export class ForgeNotSupported extends Error` (message `FORGE_NOT_YET`); `export function gitlabOnly(config: Pick<BoardConfig, 'forge'>): string` (the GitLab host, or throws `ForgeNotSupported`), all in `config.ts`.
 
 - [ ] **Step 1: Write the failing tests** in `config-store.test.ts` (use the file's `fakeResolve` and `TEAM`):
 
@@ -76,26 +78,31 @@ test('a GitLab team forge with no board.gitlabHost is not configured', () => {
 
 Also add `expect(cfg.forge).toEqual({ kind: 'gitlab', host: 'gitlab.example.com' })` to the existing "with only the team keys set" test, and in `config.test.ts`: `parseConfig` with `{forge: {provider: 'github', host: 'github.com'}, projects, members}` gives a github forge; with neither field it throws `/missing required field "gitlabHost"/`.
 
+`forge-door.test.ts`: `gitlabOnly` returns the host for a GitLab forge and throws `ForgeNotSupported` with message `Not available on GitHub yet` for GitHub.
+
+`no-hardcoded-forge.test.ts`, named `no board code builds a GitLab client from a hard-coded forge`: reads every `.ts` file under `apps/board/src`, `apps/board/bin` and `apps/board/scripts` except `__tests__` and `src/latch/gateway.ts`; for each `new GitLabProvider(`, `new NoteMutator(`, `new MRDetailFetcher(` and `latchGateway(` call (its text up to the matching close paren), the arguments contain `gitlabOnly(`. This static scan stands in for the spec's "stubbed constructors": the argument is evaluated before the constructor runs, so `gitlabOnly` throwing on GitHub gives the same guarantee.
+
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `cd apps/board && bun test src/__tests__/config-store.test.ts src/__tests__/config.test.ts`
+Run: `cd apps/board && bun test src/__tests__/config-store.test.ts src/__tests__/config.test.ts src/__tests__/forge-door.test.ts src/__tests__/no-hardcoded-forge.test.ts`
 Expected: FAIL (`forge` undefined).
 
 - [ ] **Step 3: Implement** in `config.ts`:
   - `parseConfig`: a non-empty `gitlabHost` gives `{kind: 'gitlab', host: <verbatim>}` with today's type validation and messages; else `forge.provider === 'github'` with a non-empty string `host` gives `{kind: 'github', host: normalizeForgeHost(host)}`; else throw today's `missing required field "gitlabHost"` message. `projects` and `members` stay required. `rtRepos: deriveRtRepos(forge.host, projects)`.
   - `loadConfig`: add `forge: read<{forge?: unknown}>('mattstack.integrations')?.forge ?? undefined` to `merged` (keep `gitlabHost` there).
   - `codeownerSlackOn(config: Pick<BoardConfig, 'forge'>, ...)` uses `config.forge.host`; `resolveLaunchRepo`'s second parameter becomes `forgeHost: string` (its warning names `forgeHost`).
-  - Every `.gitlabHost` read in the files above becomes `.forge.host`. The three "could not derive its rt repo identity from board.gitlabHost" strings in `server.ts` become the identity error from Global Constraints. Leave `projectPathFromWebUrl`'s signature alone in this task (callers pass `config.forge.host`).
+  - The three exports above. Every GitLab client construction takes `gitlabOnly(config)` (or `gitlabOnly(boardConfig)`) as its host: the `gitlab()` helper in `server.ts`, the `/drafts` `NoteMutator`, the latch `MRDetailFetcher` and `latchGateway` (server and `bin/triage.ts`), `bin/triage.ts`'s identity `GitLabProvider`, and `scripts/parity-check.ts`.
+  - Every other `.gitlabHost` read in the files above becomes `.forge.host`. The three "could not derive its rt repo identity from board.gitlabHost" strings in `server.ts` become the identity error from Global Constraints. Leave `projectPathFromWebUrl`'s signature alone in this task (callers pass `config.forge.host`).
 
 - [ ] **Step 4: Run the tests and the type check**
 
-Run: `cd apps/board && bun test src/__tests__/config-store.test.ts src/__tests__/config.test.ts src/__tests__/board.test.ts src/__tests__/launch-ask.test.ts src/__tests__/manifest-bindings.test.ts && bun run typecheck`
+Run: `cd apps/board && bun test src/__tests__/config-store.test.ts src/__tests__/config.test.ts src/__tests__/forge-door.test.ts src/__tests__/no-hardcoded-forge.test.ts src/__tests__/board.test.ts src/__tests__/launch-ask.test.ts src/__tests__/manifest-bindings.test.ts && bun run typecheck`
 Expected: PASS, no type errors. Update test fixtures that build a `BoardConfig` literal with `gitlabHost` to `forge: { kind: 'gitlab', host: ... }`, values unchanged.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/board/src/config.ts apps/board/src/server.ts apps/board/src/manifest-bindings.ts apps/board/src/peer/launch-ask.ts apps/board/bin/triage.ts apps/board/src/__tests__/config-store.test.ts apps/board/src/__tests__/config.test.ts <each other touched file>
+git add apps/board/src/config.ts apps/board/src/server.ts apps/board/src/manifest-bindings.ts apps/board/src/peer/launch-ask.ts apps/board/bin/triage.ts apps/board/scripts/parity-check.ts apps/board/src/__tests__/config-store.test.ts apps/board/src/__tests__/config.test.ts apps/board/src/__tests__/forge-door.test.ts apps/board/src/__tests__/no-hardcoded-forge.test.ts <each other touched file>
 git commit -m "board: one forge value replaces gitlabHost (BOARD-59)"
 ```
 
@@ -117,8 +124,9 @@ git commit -m "board: one forge value replaces gitlabHost (BOARD-59)"
 - [ ] **Step 1: Write the failing tests** in `forge-url.test.ts`:
 
 ```ts
-const GH = { forge: { kind: 'github', host: 'https://github.com' }, projects: ['acme/widgets'] } as const;
-const GL = { forge: { kind: 'gitlab', host: 'https://gitlab.example.com' }, projects: ['g/p'] } as const;
+type ForgeCfg = Pick<BoardConfig, 'forge' | 'projects'>;
+const GH: ForgeCfg = { forge: { kind: 'github', host: 'https://github.com' }, projects: ['acme/widgets'] };
+const GL: ForgeCfg = { forge: { kind: 'gitlab', host: 'https://gitlab.example.com' }, projects: ['g/p'] };
 test('a GitHub PR URL parses to owner/repo, with or without a tail', () => {
   for (const tail of ['', '/files', '#discussion_r12', '?w=1'])
     expect(projectPathFromWebUrl(`https://github.com/acme/widgets/pull/7${tail}`, GH)).toBe('acme/widgets');
@@ -205,39 +213,39 @@ git commit -m "board: no codeowner demand or section scope on GitHub (BOARD-59)"
 
 ---
 
-### Task 4: The one GitLab door, server refusals and triage skip
+### Task 4: Server refusals, quiet skips and the triage skip
 
 **Files:**
-- Modify: `apps/board/src/config.ts` (accessor and refusal)
-- Modify: `apps/board/src/server.ts`: `gitlab()` 618-623, token getter ~591, `approval_state` read ~1317-1334, `/drafts` post 3456-3530, `/draft` 3532+, `/mr/action` 3841-3888, latch step ~5575-5680
-- Modify: `apps/board/bin/triage.ts` (170-183 identity, 236-265 doctor pass, 276-300 nudge pass, 340-390 latch pass)
+- Modify: `apps/board/src/server.ts`: token getter ~591, `approval_state` read ~1317-1334, `/drafts` post 3456-3530, `/draft` 3532+, `/mr/action` 3841-3888, latch step ~5575-5680
+- Modify: `apps/board/bin/triage.ts` (183 identity, 236-265 doctor pass, 276-300 nudge pass, 340-390 latch pass)
 - Create: `apps/board/src/triage/forge-skip.ts`
-- Create: `apps/board/src/__tests__/forge-door.test.ts`, `apps/board/src/__tests__/no-hardcoded-forge.test.ts`, `apps/board/src/__tests__/server-github-team.test.ts`
-- Test: `apps/board/src/__tests__/gates-run-mr.test.ts`
+- Create: `apps/board/src/__tests__/server-github-team.test.ts`
+- Test: `apps/board/src/__tests__/forge-door.test.ts`, `apps/board/src/__tests__/gates-run-mr.test.ts`
 
 **Interfaces:**
-- Consumes: `BoardConfig.forge` (Task 1), `projectPathFromWebUrl(webUrl, config)` (Task 2), `onGitHub(mr)` from `apps/board/src/mr-ref.ts`.
-- Produces: `export const FORGE_NOT_YET = 'Not available on GitHub yet'`; `export class ForgeNotSupported extends Error` (message `FORGE_NOT_YET`); `export function gitlabOnly(config: Pick<BoardConfig, 'forge'>): string` (the GitLab host, or throws `ForgeNotSupported`), all in `config.ts`. `export function triageForgeSkip(config: Pick<BoardConfig, 'forge'>): string | null` in `src/triage/forge-skip.ts`, returning `'triage: auto-doctor, respond asks and the re-review latch skip GitHub teams for now'` on GitHub, else null.
+- Consumes: `BoardConfig.forge`, `FORGE_NOT_YET`, `gitlabOnly` (Task 1), `projectPathFromWebUrl(webUrl, config)` (Task 2), `onGitHub(mr)` from `apps/board/src/mr-ref.ts`.
+- Produces: `export function triageForgeSkip(config: Pick<BoardConfig, 'forge'>): string | null` in `src/triage/forge-skip.ts`, returning `'triage: auto-doctor, respond asks and the re-review latch skip GitHub teams for now'` on GitHub, else null.
 
 - [ ] **Step 1: Write the failing unit tests**
-  - `forge-door.test.ts`: `gitlabOnly` returns the host for a GitLab forge and throws `ForgeNotSupported` with message `Not available on GitHub yet` for GitHub; `triageForgeSkip` returns the line on GitHub and null on GitLab.
-  - `no-hardcoded-forge.test.ts`: reads every `.ts` file under `apps/board/src` and `apps/board/bin` except `__tests__` and `src/latch/gateway.ts`; for each `new GitLabProvider(`, `new NoteMutator(`, `new MRDetailFetcher(` and `latchGateway(` call (its text up to the matching close paren), the arguments contain `gitlabOnly(`. Name: `no board code builds a GitLab client from a hard-coded forge`.
+  - `forge-door.test.ts`: `triageForgeSkip` returns the line on GitHub and null on GitLab.
   - `gates-run-mr.test.ts`: a run recording a GitHub PR URL resolves to that URL.
 
-- [ ] **Step 2: Write the failing server test** `server-github-team.test.ts`, copying `boot()` from `server-own-mr.test.ts` (temp HOME, org store, fake rt daemon) with these changes: the org store has `mattstack.integrations: {forge: {provider: 'github', host: 'github.test'}}`, `board.projects: ['o/r']`, no `board.gitlabHost`, roster `alice`, `bob`; the seat is `alice`; the fake daemon answers `project-mrs:read` with two opened GitHub PRs (`provider: 'github'`, `repositoryId: 'github:9'`, `webUrl: 'https://github.test/o/r/pull/<n>'`, alice's #7 and bob's #20) and the gate list with one open `review-post` gate on `mr:https://github.test/o/r/pull/20`. Tests:
+- [ ] **Step 2: Write the failing server test** `server-github-team.test.ts`, copying `boot()` from `server-own-mr.test.ts` (temp HOME, org store, fake rt daemon) with these changes: the org store has `mattstack.integrations: {forge: {provider: 'github', host: 'github.test'}}`, `board.projects: ['o/r']`, no `board.gitlabHost`, roster `alice`, `bob`; the seat is `alice`; the env keeps `GITLAB_TOKEN` set, so no refusal depends on a missing token; the fake daemon answers `project-mrs:read` with two opened GitHub PRs (`provider: 'github'`, `repositoryId: 'github:9'`, `webUrl: 'https://github.test/o/r/pull/<n>'`, alice's #7 and bob's #20) and the gate list with one open `review-post` gate on `mr:https://github.test/o/r/pull/20`. Tests:
   - `a GitHub team boots the real board, not the setup page`: `/healthz` does not report `configured: false`.
   - `/data.json lists the GitHub PRs with their gate`: both rows, `provider` `github`, the gate on #20.
   - `merge, draft and held-draft post refuse a GitHub PR`: POST `/mr/action` (`action: 'merge'`, #7), `/draft` (#7, `draft: true`) and `/drafts` (`action: 'post'` on a held draft seeded with `writeDraft` for #7) each answer 400 with body `Not available on GitHub yet`, and the fake daemon saw no write verb.
+  - `dismissing a held draft still works on a GitHub team`: POST `/drafts` with `action: 'dismiss'` on a held draft for #7 answers ok with `dismissed: true`.
+
+  In `server-own-mr.test.ts` (a GitLab team with a fake GitLab), add a row to the fake daemon's read with `provider: 'github'` and a GitLab-shaped URL (`onGitHub` reads `provider` first), owned by the seat, and a test `a GitHub row on a GitLab board is refused after the row lookup`: POST `/mr/action` (`action: 'merge'`) on it answers 400 `Not available on GitHub yet` and `gitlabSeen` does not grow. Keep every existing assertion in that file unchanged (count-based ones included).
 
 - [ ] **Step 3: Run to verify they fail**
 
-Run: `cd apps/board && bun test src/__tests__/forge-door.test.ts src/__tests__/no-hardcoded-forge.test.ts src/__tests__/gates-run-mr.test.ts src/__tests__/server-github-team.test.ts`
+Run: `cd apps/board && bun test src/__tests__/forge-door.test.ts src/__tests__/gates-run-mr.test.ts src/__tests__/server-github-team.test.ts src/__tests__/server-own-mr.test.ts`
 Expected: FAIL.
 
 - [ ] **Step 4: Implement**
-  - `config.ts`: the three exports above.
-  - `server.ts`: `gitlab()`, the `/drafts` `NoteMutator`, the latch `MRDetailFetcher` and `latchGateway` take `gitlabOnly(config)` as host. The GitLab token getter resolves null on a GitHub team, checked per call outside the memo (so the roster name lookup falls to its existing no-token branch). `/mr/action`, `/draft` and the `/drafts` post return `400 FORGE_NOT_YET` when `config.forge.kind === 'github'`, placed after the method, locality and JSON checks and before the token check; after each route's row lookup, `onGitHub(mr)` returns the same 400 (the backstop for a GitHub row on a GitLab board). The latch step after a review signal returns early on a GitHub team, with no log. The `approval_state` read returns its empty result on a GitHub team without calling `forge:get`. The manual doctor launch needs no change: `resolveDispatchIdentity` already turns the thrown refusal into a null identity.
-  - `bin/triage.ts`: the identity `GitLabProvider`, `latchGateway` and `MRDetailFetcher` take `gitlabOnly(boardConfig)`. In a non-peer run, when `triageForgeSkip(boardConfig)` returns a line, log it once with `console.log` and skip `resolveUsername`, the doctor pass, the nudge pass and the latch pass; everything else in the run is unchanged. Peer mode is unchanged: its `resolveUsername` throws through `gitlabOnly` into the existing catch, so respond asks wait.
+  - `server.ts`: the GitLab token getter resolves null on a GitHub team, checked per call outside the memo (so the roster name lookup falls to its existing no-token branch). `/mr/action` and `/draft` return `400 FORGE_NOT_YET` when `config.forge.kind === 'github'`, placed after the method, locality and JSON checks and before the token check. In `/drafts` the check applies to `action === 'post'` only: after the body parse, the held-draft lookup and the dismiss branch, and before `if (!gitlabToken)`, so dismiss keeps working. After each route's row lookup, `onGitHub(mr)` returns the same 400 (the backstop for a GitHub row on a GitLab board). The latch step after a review signal returns early on a GitHub team, with no log. The `approval_state` read returns its empty result on a GitHub team without calling `forge:get`. The manual doctor launch needs no change: `resolveDispatchIdentity` already turns the thrown refusal into a null identity.
+  - `bin/triage.ts`: in a non-peer run, when `triageForgeSkip(boardConfig)` returns a line, log it once with `console.log` and skip `resolveUsername`, the doctor pass (`runTriage`) and the latch pass; in the switchboard block, the nudge pass behaves exactly as it does in peer mode when own MRs are unavailable (`nudgeReady = false`), so whatever that path runs today (`drainOutbox` included or not) is unchanged. Peer mode is unchanged: its `resolveUsername` throws through `gitlabOnly` into the existing catch, so respond asks wait.
 
 - [ ] **Step 5: Run tests and type check**
 
@@ -247,8 +255,8 @@ Expected: PASS; `server-own-mr.test.ts` and `server-note.test.ts` (GitLab) uncha
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/board/src/config.ts apps/board/src/server.ts apps/board/bin/triage.ts apps/board/src/triage/forge-skip.ts apps/board/src/__tests__/forge-door.test.ts apps/board/src/__tests__/no-hardcoded-forge.test.ts apps/board/src/__tests__/gates-run-mr.test.ts apps/board/src/__tests__/server-github-team.test.ts
-git commit -m "board: one GitLab door; GitHub teams refuse GitLab-only writes (BOARD-59)"
+git add apps/board/src/server.ts apps/board/bin/triage.ts apps/board/src/triage/forge-skip.ts apps/board/src/__tests__/forge-door.test.ts apps/board/src/__tests__/gates-run-mr.test.ts apps/board/src/__tests__/server-github-team.test.ts apps/board/src/__tests__/server-own-mr.test.ts
+git commit -m "board: GitHub teams refuse GitLab-only writes and skip later-ticket features (BOARD-59)"
 ```
 
 ---
@@ -262,7 +270,7 @@ git commit -m "board: one GitLab door; GitHub teams refuse GitLab-only writes (B
 
 **Interfaces:** none.
 
-- [ ] **Step 1: Write the failing test** in `unconfigured.test.ts`: the setup page text contains `open merge requests and pull requests`, contains `board.projects`, contains `board.gitlabHost too on a GitLab team`, and does not contain `open GitLab merge requests`.
+- [ ] **Step 1: Write the failing test** in `unconfigured.test.ts`: the setup page text contains `open merge requests and pull requests`, contains `board.projects`, contains `too on a GitLab team`, and does not contain `open GitLab merge requests`.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -277,7 +285,7 @@ Expected: FAIL.
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd apps/board && bun test src/__tests__/unconfigured.test.ts src/__tests__/registry-defaults.test.ts` then, from the worktree root, `bun test packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts packages/rt-client/test/dist-freshness.test.ts`
+Run: `cd apps/board && bun test src/__tests__/unconfigured.test.ts src/__tests__/registry-defaults.test.ts` then, from the worktree root, `bun test packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts packages/rt-client/src/settings/__tests__/registry.test.ts packages/rt-client/test/dist-freshness.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -292,7 +300,7 @@ git commit -m "board: forge-neutral setup page and settings wording (BOARD-59)"
 ### Task 6: The client on GitHub rows
 
 **Files:**
-- Modify: `apps/board/src/client/board/row-actions.ts:600-725` (the forge section), `ActionMenu.tsx:26-45,427` (section headings), `DraftModal.tsx` (post control), `CommentsDrawer.tsx:105,610`, `ReviewDraftCard.tsx:288`
+- Modify: `apps/board/src/client/board/row-actions.ts:600-725` (the forge section), `ActionMenu.tsx:26-45,427` (section headings), `DraftModal.tsx` (post control), `CommentsDrawer.tsx:105,610`; `ReviewDraftCard.tsx:283-292` (`changesLink` already maps `/pull/N` to `/files`: verify with the test, no change expected)
 - Modify: `apps/board/src/mr-ref.ts` (a lowercase forge word helper)
 - Test: `apps/board/src/client/board/__tests__/row-actions.test.ts`, `menu-fixtures.ts`, `bulk-menu-dom.test.tsx`, `draft-modal-dom.test.tsx`, `comments-drawer-dom.test.tsx`, `review-question-dom.test.tsx` (renders `ReviewDraftCard`)
 
@@ -313,7 +321,7 @@ git commit -m "board: forge-neutral setup page and settings wording (BOARD-59)"
 Run: `cd apps/board && bun test src/client/board/__tests__/row-actions.test.ts src/client/board/__tests__/bulk-menu-dom.test.tsx src/client/board/__tests__/draft-modal-dom.test.tsx src/client/board/__tests__/comments-drawer-dom.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** with `onGitHub` and `forgeWord`: skip the merge, rebase, auto-merge, draft and refresh items on a GitHub row (auto-merge cannot lead `top` there); label the open item `open in ${forgeWord(mr)}`; the forge heading in the row menu and the bulk menu uses `forgeWord` of the menu's MR (the bulk menu's first MR); `DraftModal` renders no post control on a GitHub row; `CommentsDrawer` and `ReviewDraftCard` follow the row's forge. GitLab rows render exactly as today.
+- [ ] **Step 3: Implement** with `onGitHub` and `forgeWord`: skip the merge, rebase, auto-merge, draft and refresh items on a GitHub row (auto-merge cannot lead `top` there); label the open item `open in ${forgeWord(mr)}`; the forge heading in the row menu and the bulk menu uses `forgeWord` of the menu's MR (the bulk menu's first MR); `DraftModal` renders no post control on a GitHub row; `CommentsDrawer` follows the row's forge; `ReviewDraftCard` needs only its test unless that test fails. GitLab rows render exactly as today.
 
 - [ ] **Step 4: Run tests and type check**
 
@@ -323,7 +331,7 @@ Expected: PASS, including `menu-key-baseline.test.ts` unchanged.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/board/src/mr-ref.ts apps/board/src/client/board/row-actions.ts apps/board/src/client/board/ActionMenu.tsx apps/board/src/client/board/DraftModal.tsx apps/board/src/client/board/CommentsDrawer.tsx apps/board/src/client/board/ReviewDraftCard.tsx <each touched test file>
+git add apps/board/src/mr-ref.ts apps/board/src/client/board/row-actions.ts apps/board/src/client/board/ActionMenu.tsx apps/board/src/client/board/DraftModal.tsx apps/board/src/client/board/CommentsDrawer.tsx <each touched test file>
 git commit -m "board: GitHub rows offer only what works and name their forge (BOARD-59)"
 ```
 
@@ -338,14 +346,14 @@ git commit -m "board: GitHub rows offer only what works and name their forge (BO
 **Interfaces:**
 - Consumes: `parseConfig` with `forge` (Task 1).
 
-- [ ] **Step 1: Write the failing test** `fixture-github.test.ts`: `parseConfig` of `tests/fixture-github/config.json` gives a github forge; every `data.json` row has `provider: 'github'` and a `webUrl` starting `https://github.com/acme/webapp/pull/`; at least one row has `behindTarget: null`; no row carries `codeownerSections`.
+- [ ] **Step 1: Write the failing test** `fixture-github.test.ts`: `parseConfig` of `tests/fixture-github/config.json` gives a github forge; every `data.json` row has `provider: 'github'` and a `webUrl` starting `https://github.com/acme/webapp/pull/`; at least one row has `behindTarget: null`; every row's `codeownerSections` is `[]` (the shape `buildBoard` serves when the daemon entry has none).
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `cd apps/board && bun test src/__tests__/fixture-github.test.ts`
 Expected: FAIL (no fixture).
 
-- [ ] **Step 3: Build the fixture** from `tests/fixture/` as the shape reference: `config.json` with `"forge": {"provider": "github", "host": "github.com"}`, `"projects": ["acme/webapp"]`, invented members and `defaultMember` set to one of them; `data.json` with five invented rows (an approved PR, a draft own PR, a PR with an open structured review-post gate, a PR with threads in `discussions.json`, a row with `behindTarget: null`), all with GitHub URLs, `provider: "github"`, `rtRepo` `github.com/acme/webapp`, no `codeownerSections`; `meta.json`'s `now`; `flock-menu.json` copied; a `README.md` saying what each row carries and that everything is invented. Nothing pasted from a real board.
+- [ ] **Step 3: Build the fixture** from `tests/fixture/` as the shape reference: `config.json` with `"forge": {"provider": "github", "host": "github.com"}`, `"projects": ["acme/webapp"]`, invented members and `defaultMember` set to one of them; `data.json` with five invented rows (an approved PR, a draft own PR, a PR with an open structured review-post gate, a PR with threads in `discussions.json`, a row with `behindTarget: null`), all with GitHub URLs, `provider: "github"`, `rtRepo` `github.com/acme/webapp`, `codeownerSections: []`; `meta.json`'s `now`; `flock-menu.json` copied; a `README.md` saying what each row carries and that everything is invented. Nothing pasted from a real board.
 
 - [ ] **Step 4: Run tests and purity**
 
@@ -368,3 +376,10 @@ git commit -m "board: a GitHub fixture team (BOARD-59)"
 - `cd apps/board && bun test` (the whole board suite) and `bun run typecheck`
 - From the worktree root: `bun run purity` and `bun test packages/rt-client/src/settings/__tests__/registry-console-ready.test.ts packages/rt-client/test/dist-freshness.test.ts`
 - Final whole-branch review on `opus` at `xhigh`.
+
+## The PR
+
+- Push with `git_push` (`tree` = the worktree root, `setUpstream: true`), then `gh pr create` against `main`, title `board: follow the team's forge so GitHub teams see their PRs (BOARD-59)`.
+- The body follows the repo's PR template and lists, from the spec's section 4 table, each hidden action and skipped feature with the ticket that turns it back on: merge, rebase, auto-merge and draft toggle (BOARD-63), held doctor note post (BOARD-63), roster display names and manual doctor identity (BOARD-63), auto-doctor and respond asks in triage (BOARD-64), the re-review latch (BOARD-65), codeowner tabs and `approval_state` (BOARD-66).
+- A Follow-up line: turn row refresh back on for GitHub rows once the daemon PR that lifts the `mr:get` write-back skip merges (gh-daemon-background lane, RT-542). The same line goes in the report's Notes.
+- Live GitHub rows need RT-542; the body says so.
