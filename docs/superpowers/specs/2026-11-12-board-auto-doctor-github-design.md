@@ -84,8 +84,11 @@ requires an up-to-date branch. GitLab behaviour does not change.
 - **Fixture.** `tests/fixture-github/data.json` moves to the 0.31 id shape
   (`github:run:<n>` with `runIds`; the statuses-only fallback
   `github:checks:<prUrl>` on one row) and gains two seat-owned PRs: one with a
-  failed Actions run, one BEHIND (`shouldBeRebased`, `needsRebase: true`).
-  The README table lists them. The capture baselines use only
+  failed Actions run, one behind its base (`blockers.needsRebase: true` and
+  `actions.rebase` visible, as `buildBoard` serves a BEHIND PR). The README
+  table lists them, its "rebase shows only when a row needs one, which none
+  here do" sentence is corrected, and the `members` counts in `data.json`
+  follow the new rows. The capture baselines use only
   `tests/fixture`, so they do not move.
 
 ## Tests
@@ -98,7 +101,13 @@ requires an up-to-date branch. GitLab behaviour does not change.
   nothing and a new run id (a new push) fires again. The BEHIND PR gives
   `needs-rebase`. The statuses-only PR gives no edge and is named by the
   helper. Rows the seat does not own give nothing.
-- A GitLab regression check: the existing triage suites pass unchanged.
+- Username case: a recorded username in a different case from
+  `author.username` still owns the PR (`triageOwns` ignores case), and the
+  branch-writing classes follow `composeFixClasses`' exact match as today.
+- `src/__tests__/forge-door.test.ts` asserts today's GitHub skip line
+  exactly; it moves with the forge plan. That change is expected, not a
+  GitLab regression.
+- A GitLab regression check: every other triage suite passes unchanged.
 
 ## Non-goals
 
@@ -109,6 +118,18 @@ requires an up-to-date branch. GitLab behaviour does not change.
   row-actions, CommentsDrawer and mr action routes are not touched.
 - No new poll, interval or forge read: triage reads the daemon store as now.
 - Statuses-only CI on GitHub (follow-up).
+- Mixed CI (follow-up): a failing commit status beside green Actions runs
+  gives `github:run:<highest>`, a green run's id, with a failed status. The
+  edge fires, but the doctor finds no failed run. Listed with the
+  statuses-only gap in the PR body.
+
+## Rollout
+
+The trigger only reaches a real board once the bundled board is rebuilt
+from a merged ref. Until the skills-watch-ci lane lands, a dispatched doctor
+stops at entry, and the dispatch still latches `lastHandledPipelineId`, so
+that run's red will not fire again; the next push will. The PR body asks for
+this PR to ship with or after the skill change.
 
 ## Write scope
 
