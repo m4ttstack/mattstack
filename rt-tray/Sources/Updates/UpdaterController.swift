@@ -145,7 +145,10 @@ final class UpdaterController: NSObject, UpdateChecking, SPUUpdaterDelegate, SPU
                                                    userInitiated: state.userInitiated,
                                                    setupRunning: isBusy())
         DispatchQueue.main.async {
-            self.writeStatus { $0.offeredVersion = version }
+            self.writeStatus {
+                $0.offeredVersion = version
+                $0.lastCheckAt = Date()
+            }
             guard opens, let c = self.controller else { return }
             TrayLog.info("update window opened", ["version": version])
             NSApp.activate(ignoringOtherApps: true)
