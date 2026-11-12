@@ -99,7 +99,7 @@ describe('expectation tables', () => {
   });
 
   test('expectationFor selects the right table', () => {
-    expect(expectationFor('github', 'fetchMergeRequestIndex').support).toBe('absent');
+    expect(expectationFor('github', 'fetchMergeRequestIndex').support).toBe('supported');
     expect(expectationFor('gitlab', 'fetchMergeRequestIndex').support).toBe('supported');
   });
 });

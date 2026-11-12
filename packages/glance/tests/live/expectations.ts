@@ -123,9 +123,9 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     note: 'polls the repository events feed as an accelerator, not a replacement for a full poll: the feed carries no CI events, so pipelines invalidations never fire on GitHub.'
   },
   fetchMergeRequestIndex: {
-    support: 'absent',
+    support: 'supported',
     capability: 'canFetchMergeRequestIndex',
-    note: 'Not implemented on GitHub yet; the metric-grade reads landed GitLab-first for boxscore.'
+    note: 'projectPaths only; groupPath throws, since a GitHub organization is not a GitLab group.'
   },
   fetchMergeRequestMetrics: {
     support: 'absent',

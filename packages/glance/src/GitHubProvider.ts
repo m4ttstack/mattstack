@@ -13,6 +13,7 @@
  */
 
 import type {
+  FetchMergeRequestIndexOptions,
   FetchPullRequestsOptions,
   FetchPullRequestsWarning,
   ByBranchReadOptions,
@@ -30,6 +31,7 @@ import type {
   JobDetail,
   EnqueuePullRequestInput,
   MergeMethod,
+  MergeRequestIndexRow,
   MergePullRequestInput,
   MergePullRequestResult,
   MergeQueueEntry,
@@ -570,6 +572,23 @@ const SEARCH_MAX_PAGES = 5;
 /** Pages of 100 to walk when listing every PR in a repository. */
 const LIST_MAX_PAGES = 20;
 
+/** Pages of 100 `fetchMergeRequestIndex` walks per project before it throws instead of returning a short list. */
+const INDEX_MAX_PAGES = 100;
+
+/** The fields of a `/pulls` listing row that an index row reads. */
+interface GHIndexListRow {
+  number: number;
+  title: string;
+  state: string;
+  merged_at: string | null;
+  created_at: string;
+  updated_at: string;
+  user: { login: string } | null;
+  head: { ref: string };
+  base: { ref: string };
+  labels: Array<{ name: string }>;
+}
+
 /**
  * How long a branch's ruleset answer is reused. A daemon loop re-reads the
  * same PRs constantly, and rulesets change rarely, so this keeps the extra
@@ -852,7 +871,7 @@ export class GitHubProvider implements GitProvider {
      * recovery.
      */
     canWatchEvents: true,
-    canFetchMergeRequestIndex: false,
+    canFetchMergeRequestIndex: true,
     canFetchMergeRequestMetrics: false,
     canFetchGroupProjects: false,
     canFetchProject: false,
@@ -3530,6 +3549,99 @@ export class GitHubProvider implements GitProvider {
       }
       after = endCursor;
     }
+  }
+
+  /**
+   * Pull requests updated at or after `updatedAfter`, one row each, from the
+   * REST pulls listing alone. `projectPaths` only: a GitHub organization is
+   * not a GitLab group, so `groupPath` throws.
+   *
+   * Each path is walked newest-updated first, 100 rows a request, until a
+   * page is short or its last row falls before `updatedAfter`. Past
+   * `INDEX_MAX_PAGES` pages of one path it throws naming the path, never a
+   * short list. A PR updated mid-walk can move ahead of the page being read
+   * and be missed, so a consumer keeping a watermark should take it from the
+   * instant the scan started, with a small overlap.
+   *
+   * Retry is the GitHub client's: a GET that fails with a 5xx is retried up
+   * to three times on a 1s, 4s, 9s ladder; a rate limit is waited out only
+   * when `retry-after` is within 30s, at most twice, and otherwise (and for
+   * any other 429) throws `RateLimitedError`; other 4xx fail at once.
+   *
+   * `signal` is checked before each request and is passed to it. An abort
+   * mid-request surfaces as the signal's reason, but the client can read it
+   * as a 5xx and wait out its GET retries first.
+   */
+  async fetchMergeRequestIndex(options: FetchMergeRequestIndexOptions): Promise<MergeRequestIndexRow[]> {
+    const hasGroup = options.groupPath !== undefined;
+    const hasProjects = options.projectPaths !== undefined;
+    if (hasGroup === hasProjects) {
+      throw new Error('fetchMergeRequestIndex: pass exactly one of groupPath or projectPaths');
+    }
+    if (hasGroup) {
+      throw new Error('fetchMergeRequestIndex: groupPath is GitLab-only; pass projectPaths on GitHub');
+    }
+    const cutoff = Date.parse(options.updatedAfter);
+    if (typeof options.updatedAfter !== 'string' || Number.isNaN(cutoff)) {
+      throw new Error(
+        `fetchMergeRequestIndex: updatedAfter must be an ISO-8601 instant, got "${options.updatedAfter}"`
+      );
+    }
+
+    const wanted = new Set<MRState>(options.states ?? []);
+    const state = wanted.size === 0 ? 'all' : listStateParam(wanted);
+    const excluded = new Set(options.excludeTargetBranches ?? []);
+    const { signal } = options;
+    const out: MergeRequestIndexRow[] = [];
+
+    for (const projectPath of options.projectPaths!) {
+      for (let page = 1; ; page++) {
+        signal?.throwIfAborted();
+        let listed: GHIndexListRow[];
+        try {
+          const res = await this.octokit.request(
+            `GET /repos/${projectPath}/pulls?state=${state}&sort=updated&direction=desc&per_page=100&page=${page}`,
+            { request: { signal } }
+          );
+          listed = res.data as unknown as GHIndexListRow[];
+        } catch (err) {
+          if (signal?.aborted) throw signal.reason;
+          if (err instanceof RequestError && err.response) {
+            throw ghError('fetchMergeRequestIndex', err);
+          }
+          throw err;
+        }
+
+        for (const pr of listed) {
+          if (Date.parse(pr.updated_at) < cutoff) continue;
+          const mapped = toMRState(pr.state, pr.merged_at);
+          if (wanted.size > 0 && !wanted.has(mapped)) continue;
+          if (excluded.has(pr.base.ref)) continue;
+          out.push({
+            iid: pr.number,
+            projectPath,
+            title: pr.title,
+            state: mapped,
+            createdAt: pr.created_at,
+            updatedAt: pr.updated_at,
+            mergedAt: pr.merged_at,
+            authorUsername: pr.user?.login ?? null,
+            sourceBranch: pr.head.ref,
+            labels: pr.labels.map(label => label.name)
+          });
+        }
+        options.onPage?.(out.length);
+
+        const last = listed.at(-1);
+        if (listed.length < 100 || (last && Date.parse(last.updated_at) < cutoff)) break;
+        if (page === INDEX_MAX_PAGES) {
+          throw new Error(
+            `fetchMergeRequestIndex: ${projectPath} has more than ${INDEX_MAX_PAGES * 100} PRs updated since ${options.updatedAfter}; narrow the window`
+          );
+        }
+      }
+    }
+    return out;
   }
 
   /**
