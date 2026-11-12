@@ -94,8 +94,10 @@ the GitHub head the tools use. It rests on two per-commit reads, both through
   into both paths percent-encoded once (`encodeURIComponent`, so a `/` in a
   branch name is one segment). When either read fails, including a path the
   guard refuses, the list is unset for this poll: the head uses glance's
-  `isRequired` for that poll, nothing is stored, and the next poll retries
-  both. Only a list read with both sources answering is kept for the commit.
+  `isRequired` for that poll, nothing is stored, and a later poll retries
+  both, at most twice per call. A 404 is an answer (no rules, or no
+  protection), not a failure. Only a list read with both sources answering
+  is kept for the commit.
 - **Anchor.** `pipeline:list {ref: <head branch>, sha: <head sha>, limit: 100}`
   lists the head sha's workflow runs on the PR's branch (the branch filter
   keeps an older run of the same sha on another branch out). The anchor is
