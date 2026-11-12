@@ -147,6 +147,18 @@ The check sits after the license diamond so an unlicensed run, which
 ends anyway, spends no read. It sits before the lease check so a stack
 parent never claims or touches the lease for a rebase it will not run.
 
+Re-entries after an escalation (added in the follow-up round, agreed with
+skills-watch-ci): a gate can be held for hours and a child can open
+meanwhile, so every return toward the rebase after an escalation answer
+runs the check again. The lease check's iterate and `mr_rebase`'s
+iterate re-enter at the check node, whose pass edge goes on to the lease
+check. The lease check's take must skip the lease check, which would
+refuse again, so it gets its own copy of the check
+(`Stack-parent check after the lease take (doctor)?`) that goes on to the
+`rebasing` write. `Fix what the mr_rebase error names` keeps its edge to
+the lease check: it is a seconds-long retry with no human wait. The
+human-rebased take goes to the poll as before.
+
 Prose: one new bullet under "What this graph cannot show" explaining
 the check and its three outcomes, and one sentence in SKILL.md's Fix
 classes entry for `clean-api-rebase` saying a stack parent is never
