@@ -44,11 +44,27 @@ built on the old ones, which then needs a restack by hand.
 Nothing tests the GitHub half of the live read either: no test passes
 `mr_list` a PR URL with `targetBranch` and checks `full`.
 
+### Which forge this covers, and when
+
+On GitHub the generic doctor does not reach Diagnose and rebase today.
+`entry.md`'s first diamond, `mrUrl on github.com (doctor)?`, writes
+`error Doctor can't run on GitHub yet: CI watch and server-side rebase
+are GitLab only for now` and ends the run (SKILL.md carries only the
+matching outcome edge). The skills-watch-ci lane is removing that stop
+in `entry.md` and SKILL.md, in its own PR.
+
+So when this change merges, the new check guards GitLab repos that have
+no fill. The same nodes guard GitHub repos from the moment skills-watch-ci
+lifts the entry stop, with nothing more to change here: the check's only
+tool, `mr_list` by `mrUrl` and `targetBranch`, already answers on both
+forges, and this change's tests pin the GitHub read.
+
 ## Goals
 
 - Before the generic doctor's server-side rebase, it proves the branch
-  has no open children with the same live read the pack fills use, on
-  GitLab and GitHub alike.
+  has no open children with the same live read the pack fills use. The
+  stage text is forge-neutral: live on GitLab at merge, live on GitHub
+  once the entry stop is lifted (above).
 - A stack parent ends the run with an error that names the children and
   the restack need, and nothing is rebased.
 - A failed read ends the run with an error quoting the failure. It is
@@ -62,8 +78,10 @@ Nothing tests the GitHub half of the live read either: no test passes
   they already do the live check, and that repo is employer-visible.
 - No change to `mr_list`, `mr:list-live`, glance, `mr_map` or
   `branch_stack`.
-- No check on a stacked MR itself (its target is not the default
-  branch). `mr_rebase` moves an MR onto its own target and never
+- No check on the MR's own parent, and no condition on its target
+  branch. The new check runs on every MR that reaches the rebase,
+  stacked or not, and asks only about MRs that target this MR's source
+  branch. `mr_rebase` moves an MR onto its own target and never
   retargets, so the MR being rebased is safe; only its children are at
   risk.
 - No restack: the doctor only stops and says what is needed.
@@ -112,6 +130,17 @@ In `diagnose.md`, between `Server-side rebase licensed?` (yes) and
      the error, such as `cannot prove MR !<iid> has no stacked children:
      the live target-branch query failed (<error>)`.
 
+The call passes no `limit`, so it takes `mr_list`'s default of 50. A
+branch with more than 50 open children comes back with 50 rows and
+`full: false`, which takes the stack-parent edge: the safe outcome, and
+the error still names children.
+
+A tool error ends the run on the first refusal. That departs on purpose
+from the stage's usual pattern (`Fixed the <tool> call once already?`
+plus an off-script escalation): the ticket asks for the error to be
+quoted in the hand-back, the pack fills do the same, and the run has
+moved nothing yet, so a human relaunch costs nothing.
+
 The check sits after the license diamond so an unlicensed run, which
 ends anyway, spends no read. It sits before the lease check so a stack
 parent never claims or touches the lease for a rebase it will not run.
@@ -130,19 +159,30 @@ Tests:
   {mrUrl: <PR URL>, targetBranch}` sends `mr:list-live` with the GitHub
   identity and the branch, and returns `full: true` when not truncated
   and `full: false` when truncated.
-- `lib/daemon/__tests__/`: one `mr:list-live` case on a GitHub repo
-  context that passes `targetBranch` to the provider and returns its rows
-  and `truncated`.
+- `lib/daemon/__tests__/mr-ci-verbs.test.ts` (it already drives
+  `createMRHandlers` with a fake `getContext`): a `mr:list-live` handler
+  case whose context is `{forge: "github", provider, projectPath}`. It
+  checks that `targetBranch` reaches `fetchPullRequestSummaries`, that
+  rows and `truncated` come back as the provider gave them, and that a
+  thrown `ForgeHttpError` comes back as `GitHub returned <status> ...`,
+  never as an empty list.
+- Glance's own mapping of `targetBranch` to GitHub's `base:` is already
+  pinned in `packages/glance/tests/gh-summaries.test.ts`; nothing to add
+  there.
 
 ## Coordination
 
 skills-watch-ci edits `diagnose.md` from the `mr_rebase {mrUrl}` node
 downstream (a GitHub branch with `mr_rebase {wait: true}`, its result
 edges, the rebase poll, "The rebase poll" bullet and "Fix what the
-mr_rebase error names"), and SKILL.md's GitHub entry stop and lease and
-API tier notes. This lane touches only the nodes above the lease check,
-one new prose bullet, and the Fix classes line. This lane will probably
-push first; skills-watch-ci rebases onto it.
+mr_rebase error names"). It also removes the GitHub entry stop: the
+`mrUrl on github.com (doctor)?` diamond and its error in `entry.md`, and
+the matching outcome edge in SKILL.md, plus SKILL.md's lease and API tier
+notes. This lane touches only the nodes above the lease check in
+`diagnose.md`, one new prose bullet there, and the Fix classes line in
+SKILL.md. This lane will probably push first; skills-watch-ci rebases
+onto it, regenerates `apps/board/skills/doctor/` and re-bumps the plugin
+if its own change needs a bump.
 
 ## Shipping
 
@@ -153,7 +193,15 @@ no `minEngine` change. If the `plugin-mattstack` job's Engine floor check
 asks anyway, the PR body gets `engine-floor: unchanged <reason>`.
 
 Verification: RED and GREEN walks of the generic doctor by fresh agents
-against fixtures (no live forge call), `bun run skills:expand:board` and
+against fixtures (no live forge call). The walks use GitLab MR URLs and
+run from the start of the skill, since a GitHub URL ends at the entry
+stop today and never reaches the new nodes. Three fixtures: a conflicted
+MR with no children (reaches `mr_rebase`), a conflicted stack parent with
+a child by another author (ends with the stack-parent error, no lease
+check before the rebase, no `mr_rebase`), and a conflicted MR whose `mr_list` returns a
+tool error (ends with the quoted error). One more GREEN walk starts at
+Diagnose and rebase with a GitHub PR URL, to show the new nodes read the
+same on GitHub. Then `bun run skills:expand:board` and
 `bun run skills:check:board`, `check-dot.py` on `diagnose.md`, certify
 where it accepts the folder, `bun test` on each touched test file, `bun
 run typecheck` and `bun run purity`.
@@ -164,6 +212,3 @@ run typecheck` and `bun run purity`.
   style.
 - Whether certify accepts `apps/board/skills-src/doctor` directly or
   only the generated folder.
-- Which daemon test file holds the `mr:list-live` GitHub case
-  (`forge-reads.test.ts` or a handler test), following where the
-  existing `mr:list-live` tests live.
