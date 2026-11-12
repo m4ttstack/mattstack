@@ -114,8 +114,10 @@ const on = (done: Done[]) => iids(done.map(d => d.mr));
 const isUnanswered = (r: ActionResult | undefined): boolean =>
   r?.status === 504 && !!r.body?.reason;
 
-const noAnswer = (list: string, r: ActionResult) =>
-  `no answer for ${list}; ${r.body?.reason}`;
+const noAnswer = (list: string, r: ActionResult, grouped = false) =>
+  grouped
+    ? `no answer for ${list} (${r.body?.reason})`
+    : `no answer for ${list}; ${r.body?.reason}`;
 
 const unanswered = (mr: BoardMR, r: ActionResult) => noAnswer(mrRef(mr), r);
 
@@ -204,7 +206,7 @@ function postSpec(req: PostRequest, people: People): PostSpec {
           isUnanswered(r)
             ? unanswered(mr, r)
             : r.body?.reason
-              ? `couldn't ${req.action} ${mrRef(mr)}: ${r.body.reason}`
+              ? `couldn't ${w.manyVerb} ${mrRef(mr)}: ${r.body.reason}`
               : `couldn't ${req.action} ${mrRef(mr)} (${r.status})`,
         fresh: true,
         manyDone: done => {
@@ -468,7 +470,7 @@ export async function runMany(
   const parts: string[] = [];
   if (done.length) parts.push(plan.manyDone(done));
   if (unansweredRows[0])
-    parts.push(noAnswer(on(unansweredRows), unansweredRows[0].result));
+    parts.push(noAnswer(on(unansweredRows), unansweredRows[0].result, true));
   if (failed.length) {
     const only = failed.length === 1 ? failed[0]?.result : undefined;
     parts.push(

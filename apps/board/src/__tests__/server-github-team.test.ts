@@ -431,6 +431,31 @@ describe('a GitHub team', () => {
     expect(draft?.postedNoteId).toBe(555);
   }, 15_000);
 
+  test('a note that posted still answers 200 when recording it fails', async () => {
+    held(8);
+    db.run(
+      `CREATE TRIGGER no_posted BEFORE UPDATE ON drafts
+       WHEN json_extract(NEW.draft, '$.status') = 'posted'
+       BEGIN SELECT RAISE(ABORT, 'disk gone'); END`
+    );
+    try {
+      const res = await postRead('/drafts', {
+        mrUrl: prUrl(8),
+        kind: 'ci-note',
+        action: 'post',
+      });
+      expect(res.status).toBe(200);
+      expect(JSON.parse(res.text)).toEqual({
+        ok: true,
+        posted: true,
+        noteId: 555,
+      });
+      expect(server.output()).toContain('could not record the draft');
+    } finally {
+      db.run('DROP TRIGGER no_posted');
+    }
+  }, 15_000);
+
   test('a refused note post answers 409 and the draft stays held', async () => {
     held(11);
     const res = await postRead('/drafts', {

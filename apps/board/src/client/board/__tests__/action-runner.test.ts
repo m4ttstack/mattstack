@@ -780,9 +780,17 @@ test('bulk merge names merged, queued and unanswered rows apart', async () => {
   const summary = events.find(e => e.startsWith('toast ')) ?? '';
   expect(summary).toContain('merge accepted on #7');
   expect(summary).toContain('#8 joined the merge queue');
-  expect(summary).toContain('no answer for #10');
+  expect(summary).toContain('no answer for #10 (the merge may still land)');
   expect(summary).not.toContain("couldn't");
   expect(events.filter(e => /^release/.test(e)).sort()).toEqual(['release 8']);
+});
+
+test('a refused auto-merge change on GitHub names the action readably', async () => {
+  const { deps, events } = fakeDeps(() => reply(409, { reason: 'x' }));
+  await runOne({ kind: 'mr', action: 'setAutoMerge' }, ghMr(7), deps);
+  await runOne({ kind: 'mr', action: 'cancelAutoMerge' }, ghMr(7), deps);
+  expect(events).toContain("fail couldn't arm auto-merge on #7: x");
+  expect(events).toContain("fail couldn't cancel auto-merge on #7: x");
 });
 
 test('bulk merge keeps the merged list apart from the queued one', async () => {

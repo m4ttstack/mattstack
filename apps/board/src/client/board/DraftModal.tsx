@@ -31,9 +31,11 @@ function DraftModal({
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState<'post' | 'dismiss' | null>(null);
   const [failed, setFailed] = useState<'failed' | 'unanswered' | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
   const act = async (action: 'post' | 'dismiss') => {
     setBusy(action);
     setFailed(null);
+    setRefusal(null);
     try {
       const res = await fetch('/drafts', {
         method: 'POST',
@@ -44,6 +46,14 @@ function DraftModal({
         setBusy(null);
         setArmed(false);
         setFailed(res.status === 504 ? 'unanswered' : 'failed');
+        if (res.status !== 504) {
+          const body = (await res.json().catch(() => null)) as {
+            reason?: unknown;
+          } | null;
+          if (typeof body?.reason === 'string' && body.reason) {
+            setRefusal(body.reason);
+          }
+        }
         return;
       }
       onResolved(action === 'post' ? 'posted' : 'dismissed');
@@ -71,7 +81,9 @@ function DraftModal({
           <span className="tui-draft-error">
             {failed === 'unanswered'
               ? 'no answer; the note may have posted, check the PR'
-              : 'action failed — nothing was sent, try again'}
+              : refusal
+                ? `couldn't post: ${refusal}`
+                : 'action failed; nothing was sent, try again'}
           </span>
         )}
         {local ? (

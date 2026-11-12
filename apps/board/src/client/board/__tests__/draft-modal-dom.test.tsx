@@ -119,3 +119,16 @@ test('any other failed post keeps the nothing-was-sent message', async () => {
   const text = await postWith(Response.json({}, { status: 502 }));
   expect(text).toContain('nothing was sent');
 });
+
+test('a refused post says why instead of nothing-was-sent', async () => {
+  const text = await postWith(
+    Response.json({ reason: 'the PR is closed' }, { status: 409 })
+  );
+  expect(text).toContain("couldn't post: the PR is closed");
+  expect(text).not.toContain('nothing was sent');
+});
+
+test('a reasonless failure keeps the semicolon wording', async () => {
+  const text = await postWith(Response.json({}, { status: 502 }));
+  expect(text).toContain('action failed; nothing was sent, try again');
+});

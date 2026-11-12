@@ -21,7 +21,10 @@ export function createForgeSelf(deps: ForgeSelfDeps): {
         let value: string | null;
         try {
           value = deps.teamUsername();
-        } catch {
+        } catch (err) {
+          console.error(
+            `board: team identity read failed: ${err instanceof Error ? err.message : String(err)}`
+          );
           value = null;
         }
         team = { value };

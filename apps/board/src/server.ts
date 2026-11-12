@@ -177,7 +177,7 @@ import {
   gitlabMrWrite,
   gitlabPostNote,
   gitlabSetDraft,
-  type ForgeWriteResult,
+  type GithubWriteResult,
 } from './forge-writes.ts';
 import { answerGate } from './gates/answer.ts';
 import {
@@ -1256,15 +1256,13 @@ function githubRepoName(mr: BoardMR): string | null {
 const NO_RT_REPO = 'this MR has no rt repo';
 
 function githubWriteFailure(
-  result: Exclude<ForgeWriteResult, { kind: 'done' }>
+  result: Exclude<GithubWriteResult, { kind: 'done' }>
 ): Response {
   switch (result.kind) {
     case 'refused':
       return Response.json({ reason: result.reason }, { status: 409 });
     case 'unanswered':
       return Response.json({ reason: result.reason }, { status: 504 });
-    case 'failed':
-      return new Response(result.message, { status: 502 });
   }
 }
 
@@ -3632,7 +3630,7 @@ const httpServer = Bun.serve({
             });
       }
       case '/drafts': {
-        // The ONLY path from a held doctor draft to a GitLab note. The human
+        // The ONLY path from a held doctor draft to a forge note. The human
         // click is the approval (spec §6): the doctor tier writes drafts and
         // nothing here runs unattended.
         if (req.method !== 'POST')
@@ -3695,10 +3693,16 @@ const httpServer = Bun.serve({
           const result = await githubPostNote(repoName, mr.iid, draft.body);
           if (result.kind !== 'done') return githubWriteFailure(result);
           cache.invalidate();
-          writeDraft(mrUrl, kind, {
-            status: 'posted',
-            postedNoteId: result.noteId,
-          });
+          try {
+            writeDraft(mrUrl, kind, {
+              status: 'posted',
+              postedNoteId: result.noteId,
+            });
+          } catch (err) {
+            console.error(
+              `board: posted note but could not record the draft: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
           return Response.json({
             ok: true,
             posted: true,
@@ -3732,9 +3736,10 @@ const httpServer = Bun.serve({
         }
       }
       case '/draft': {
-        // Flip one of your own MRs between draft and ready. GitLab has no draft
-        // flag: the draft state IS the title prefix, so rewriting the title is
-        // the whole operation, both directions. Gated to your own MRs on both
+        // Flip one of your own MRs between draft and ready. On GitLab there is no
+        // draft flag: the draft state IS the title prefix, so rewriting the
+        // title is the whole operation, both directions. GitHub toggles its
+        // draft flag through the daemon. Gated to your own MRs on both
         // sides (the menu item only renders for them, and this refuses others').
         if (req.method !== 'POST')
           return new Response('method not allowed', { status: 405 });
@@ -3820,7 +3825,7 @@ const httpServer = Bun.serve({
         );
       }
       case '/mr/refresh': {
-        // Re-read one MR from GitLab into the daemon's store. The store's
+        // Re-read one MR from its forge into the daemon's store. The store's
         // routine sync only re-reads MRs whose updatedAt moved, and some
         // changes (an approval) never move it.
         if (req.method !== 'POST')
@@ -4007,10 +4012,10 @@ const httpServer = Bun.serve({
         }
       }
       case '/mr/action': {
-        // Fire one GitLab-side MR action (merge / rebase / auto-merge arm or
-        // cancel) from the row menu, on the seat's own MR only. Which of them
-        // shows is the client's job (the view-model's button state); GitLab
-        // still has the last word on permission.
+        // Fire one MR action (merge / rebase / auto-merge arm or cancel) on the
+        // board's forge from the row menu, on the seat's own MR only. Which of
+        // them shows is the client's job (the view-model's button state); the
+        // forge still has the last word on permission.
         if (req.method !== 'POST')
           return new Response('method not allowed', { status: 405 });
         if (!isLocalRequest(req, server))

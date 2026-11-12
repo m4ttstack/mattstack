@@ -36,6 +36,8 @@ type Written<K extends ForgeWriteResult['kind']> = Extract<
   { kind: K }
 >;
 
+export type GithubWriteResult = Written<'done' | 'refused' | 'unanswered'>;
+
 type Command = typeof rtCommand;
 
 const OPTS = { timeoutMs: FORGE_WRITE_TIMEOUT_MS };
@@ -72,13 +74,13 @@ export async function githubMrWrite(
   iid: number,
   action: MrAction,
   command: Command = rtCommand
-): Promise<ForgeWriteResult> {
+): Promise<GithubWriteResult> {
   const res = await command<{
     sourceBranchNotDeleted?: string;
     queued?: { position: number | null; state: string };
   }>('mr:action', { repoName, iid, action, args: [] }, OPTS);
   if (res.ok) {
-    const done: ForgeWriteResult = { kind: 'done' };
+    const done: Written<'done'> = { kind: 'done' };
     if (res.data?.queued) done.mergeQueued = res.data.queued;
     if (res.data?.sourceBranchNotDeleted)
       done.sourceBranchNotDeleted = res.data.sourceBranchNotDeleted;
@@ -99,7 +101,7 @@ export async function githubSetDraft(
   iid: number,
   draft: boolean,
   command: Command = rtCommand
-): Promise<ForgeWriteResult> {
+): Promise<GithubWriteResult> {
   const res = await command(
     'mr:action',
     { repoName, iid, action: 'toggleDraft', args: [draft] },
@@ -116,7 +118,7 @@ export async function githubPostNote(
   iid: number,
   body: string,
   command: Command = rtCommand
-): Promise<ForgeWriteResult> {
+): Promise<GithubWriteResult> {
   const res = await command<{ noteId?: number }>(
     'mr:comment',
     { repoName, iid, body, resolvable: false },
