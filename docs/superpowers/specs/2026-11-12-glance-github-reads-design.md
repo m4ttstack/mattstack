@@ -52,7 +52,10 @@ at 20 and at 100 open PRs, and the PR body states the total.
   `ProviderCapabilities` flags are optional (gitq's tests build full fakes).
 - Write fence: `packages/glance/` on the GitHub side (not the GitLab client,
   `NoteMutator`, `retry.ts`, the live harness pacing or
-  `harness_credentials.json`); `lib/daemon/project-sync.ts`,
+  `harness_credentials.json`), plus exactly three added lines in
+  `GitLabProvider.ts`'s capabilities literal (shepherd, 2026-11-12; PR #1110
+  has that file open, so main comes in before the push if it merged);
+  `lib/daemon/project-sync.ts`,
   `lib/daemon/project-sync-github.ts` and their tests; `lib/daemon/cache-refresh.ts`
   only for the behind-count GitHub skip (none is needed there: the skip
   lives in `project-sync.ts`); the root `bun.lock` glance version line.
@@ -75,6 +78,13 @@ rule ours to get right.
 request, plus a single-PR form. Picked over B (ride the existing fill: free,
 but counts go stale on unchanged PRs and a compare failure drops PRs) and C
 (REST compare per PR: 120 requests an hour at GitLab's re-measure cap).
+
+**Codeowner tags on GitHub are sticky** (shepherd, 2026-11-12). The
+daemon keeps a GitHub PR's codeowner tag until merge or close, matching the
+rule GitLab boards follow (`sectionsMatching`: approval does not drop the
+match). Picked over tags following GitHub's live state, which would drop a
+PR from an owner's tab the moment that owner reviews. A tag from a request
+someone removed by hand also stays until the PR closes; the PR body says so.
 
 **Merged-PR index.** One sensible shape: the REST closed listing the delta
 already pays for, mapped straight to `MergeRequestIndexRow` with no fill.
@@ -106,6 +116,11 @@ methods so `GitLabProvider` satisfies them unchanged:
   (GitHub only; GitLab leaves it absent)
 
 `providerConformance.ts` picks the new members up automatically.
+`tests/live/expectations.ts` is an exhaustive record over every
+`GitProvider` method, so it gains entries for all four on both providers
+(GitLab's `fetchDivergedCounts` is `support: 'absent'`), and
+`tests/metrics-reads-capabilities.test.ts`, which asserts GitHub's
+`fetchMergeRequestIndex` is undefined, flips.
 
 `MRApprovalRules` gains `unknownReason?: string`. When set, `rules` is
 empty and means "not read", never "no rules"; the string says why in one
@@ -150,29 +165,37 @@ Per PR, the GraphQL selection is:
 
 ```graphql
 number isDraft updatedAt baseRefName
-reviewRequests(first: 20) { nodes { asCodeOwner requestedReviewer {
+reviewRequests(first: 100) { totalCount nodes { asCodeOwner requestedReviewer {
   __typename ... on User { login } ... on Team { combinedSlug } } } }
-latestOpinionatedReviews(first: 20) { nodes { state author { login }
-  onBehalfOf(first: 5) { nodes { combinedSlug } } } }
+latestReviews(first: 20) { totalCount nodes { state author { login }
+  onBehalfOf(first: 5) { totalCount nodes { combinedSlug } } } }
 ```
+
+`latestReviews` (which includes `COMMENTED`) rather than
+`latestOpinionatedReviews`, so a team member's comment review still carries
+the team's rule.
 
 - **iids mode**: aliased `p<n>: pullRequest(number: n)`, 50 PRs per
   request. Drafts are kept (the caller named them).
 - **updatedAfter mode**: `repository.pullRequests(states: OPEN,
   orderBy: {field: UPDATED_AT, direction: DESC}, first: <pageSize>, after)`,
-  default and maximum page size 50; stops once a node is older than
-  `updatedAfter`. Drafts are left out, matching GitLab's `draft: false`
-  (GitHub does not request code owners on a draft anyway).
-  `excludeTargetBranches` drops by `baseRefName`.
+  default page size 50; a `pageSize` above 50 is clamped to 50 (it changes
+  request count, never the result), and a non-positive or non-integer one
+  throws as on GitLab. Stops once a node is older than `updatedAfter`.
+  Drafts are left out, matching GitLab's `draft: false` (GitHub does not
+  request code owners on a draft anyway). `excludeTargetBranches` drops by
+  `baseRefName`.
 
-Rules per PR, one per owner (section = the owner, lowercased: `@org/team`
-or `@login`; GitHub team slugs are lowercase and logins are
-case-insensitive, so lowercasing keeps both reads joinable):
+Rules per PR, one per owner. The section is the owner lowercased: a team is
+`'@' + combinedSlug.toLowerCase()` (`@org/team`), a user is
+`'@' + login.toLowerCase()`. GitHub team slugs are lowercase and logins are
+case-insensitive, so lowercasing keeps the rules and the owner list
+(`fetchCodeownerSections`) joinable.
 
 - A review request with `asCodeOwner: true` gives `{ type: 'CODE_OWNER',
   section: owner, approved: false }`.
-- A latest opinionated review whose `onBehalfOf` names a team gives that
-  team's rule, `approved: true` when the review state is `APPROVED`.
+- A latest review whose `onBehalfOf` names a team gives that team's rule,
+  `approved: true` when the review state is `APPROVED`, otherwise false.
 - Several entries for one owner merge into one rule, approved if any is.
 - Rules are sorted by section, so every producer stores the same order.
 
@@ -183,6 +206,9 @@ Unknown, never guessed:
   `{ iid, rules: [], unknownReason }`.
 - A codeowner request whose `requestedReviewer` comes back null (a reviewer
   the token cannot see) gives the same.
+- A capped connection that overflowed (`totalCount` above the nodes read on
+  `reviewRequests`, `latestReviews` or any `onBehalfOf`) gives the same, so
+  a truncated list never reads as complete.
 - A PR the iids mode cannot find (`NOT_FOUND`) is left out of the result,
   as GitLab leaves out an iid it does not return.
 - A failed request (HTTP error, rate limit) throws, as GitLab's does.
@@ -192,10 +218,13 @@ Supported and not supported, stated in the method doc:
 - Supported: team owners, with approval read from GitHub's `onBehalfOf`, so
   no team membership read is needed; user owners while their codeowner
   request is pending.
-- Not seen: a user owner's approval (GitHub records no `onBehalfOf` for
-  users, so that owner's rule leaves the PR once they approve); owners
-  GitHub itself does not request (no write access, drafts); a codeowner
-  request someone removed by hand.
+- Not seen: a user owner's review of any kind. GitHub clears a requested
+  reviewer's request as soon as they submit any review (approve, request
+  changes or comment) and records no `onBehalfOf` for users, so that
+  owner's rule leaves the PR once they review. Also not seen: owners
+  GitHub itself does not request (no write access, drafts), and a
+  codeowner request someone removed by hand. The daemon section says how
+  tags treat this.
 
 Cost: one GraphQL request per 50 PRs. Points per request about 11 (50 PRs,
 three small nested connections), against GitHub's 5,000 an hour.
@@ -247,6 +276,9 @@ commits the head lacks, GitLab's `diverged_commits_count`.
   The live case asserts a known count on a fixture PR. If GitHub refuses it,
   the fallback is `headRefName` for same-repository PRs (unknown for forks),
   decided after that run.
+- 25 compares in one request may run into GitHub's GraphQL timeout on large
+  divergences. A timed-out alias has no entry, the safe outcome; the live
+  run watches for it, and the batch size drops if it shows.
 
 Cost: one GraphQL request per 25 PRs, about 1 point each (no connections).
 
@@ -289,6 +321,14 @@ and the one `bun.lock` line; the README's SDK section lists the new reads.
   section sweep, the sections delta and `backfillSections` run on GitHub.
   The "not available on GitHub yet" notice, `githubSectionsLogged` and their
   test go.
+- Sticky tags on GitHub only: in every sweep (deep, delta and
+  `backfillSections`), an open GitHub PR's new tag set is the union of its
+  fresh match and its stored tags still among the demanded sections. The
+  deep sweep's `replaceAll` therefore writes stored tags for PRs whose rule
+  has gone, and keeps those PRs in `byIid` from the store as it does for
+  other matches. Tags leave with the PR when it merges or closes (the
+  opened-only sweep prunes it) or when no demand names the section.
+  GitLab's sweeps are unchanged.
 - Unknown rules: an entry with `unknownReason` keeps the PR's stored tag in
   every sweep. The deep sweep's `replaceAll` carries the stored tag over for
   it, the delta leaves it out of `freshTags`, and `backfillSections` skips
@@ -321,7 +361,10 @@ declared a codeowner tab for the repo.
 | Behind counts (every cycle) | 12 GraphQL; each PR re-measured every cycle | 12 GraphQL; each PR every 20 minutes | No: separate read |
 
 Assumes fewer than 100 terminal and 50 open PRs change per 5 minutes; each
-50 more costs one more request that cycle.
+further 100 terminal or 50 open PRs costs one more request that cycle.
+Forced syncs (a board's manual refresh) run the same delta, sections delta
+included, so each adds its own 1 to 3 requests on top of the hourly
+figures; the PR body says so.
 
 Total added per repo per hour: with section demand, +24 new requests less
 the 0 to 12 terminal fills the index removes, so +12 to +24; without it,
