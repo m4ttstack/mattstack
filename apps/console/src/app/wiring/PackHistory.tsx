@@ -165,14 +165,18 @@ export function HistorySidebar({ pack }: { pack: string }) {
   const onWorking = picks[0] === WORKING;
   const onCompile = picks[0] === COMPILE;
   const comparing = picks.length === 2;
-  const rows = useMemo(() => foldVersionOnly(commits), [commits]);
+  // Shas of the folds a reader opened, so an open fold stays open when a
+  // pick reshapes the runs around it.
   const [shownFolds, setShownFolds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
-  const toggleFold = (key: string) =>
+  const toggleFold = (shas: string[], show: boolean) =>
     setShownFolds(shown => {
       const next = new Set(shown);
-      if (!next.delete(key)) next.add(key);
+      for (const sha of shas) {
+        if (show) next.add(sha);
+        else next.delete(sha);
+      }
       return next;
     });
   // A compare runs from the older pick to the newer one; the log lists the
@@ -223,8 +227,8 @@ export function HistorySidebar({ pack }: { pack: string }) {
     }
   };
 
-  // A hidden fold still shows the commits a reader must see: both ends of
-  // the diff on screen, the newest commit and any commit not compiled yet.
+  // Never folded: both ends of the diff on screen, the newest commit and any
+  // commit not compiled yet.
   const range = rangeOf(picks, commits);
   const inView = new Set<string>([
     ...picks,
@@ -236,6 +240,16 @@ export function HistorySidebar({ pack }: { pack: string }) {
           .map(c => c.sha)
       : []),
   ]);
+
+  // Only what a fold would hide folds: a commit kept in view is a row in its
+  // own place and splits the run around it.
+  const rows = foldVersionOnly(
+    commits.map(commit => ({
+      sha: commit.sha,
+      commit,
+      versionOnly: commit.versionOnly && !inView.has(commit.sha),
+    }))
+  );
 
   const commitRow = (commit: (typeof commits)[number]) => {
     const i = commits.indexOf(commit);
@@ -387,19 +401,17 @@ export function HistorySidebar({ pack }: { pack: string }) {
             </UnstyledButton>
           </Collapse>
           {rows.map(row => {
-            if (row.kind === 'commit') return commitRow(row.commit);
-            const key = row.commits[0]!.sha;
-            const shown = shownFolds.has(key);
-            const visible = shown
-              ? row.commits
-              : row.commits.filter(commit => inView.has(commit.sha));
+            if (row.kind === 'commit') return commitRow(row.commit.commit);
+            const folded = row.commits.map(entry => entry.commit);
+            const shas = folded.map(commit => commit.sha);
+            const shown = shas.some(sha => shownFolds.has(sha));
             return (
-              <Fragment key={`fold-${key}`}>
+              <Fragment key={`fold-${shas[0]}`}>
                 <UnstyledButton
                   className={`${classes.row} ${classes.fold}`}
                   aria-expanded={shown}
-                  onClick={() => toggleFold(key)}
-                  data-testid={`fold-${row.commits[0]!.shortSha}`}
+                  onClick={() => toggleFold(shas, !shown)}
+                  data-testid={`fold-${folded[0]!.shortSha}`}
                 >
                   <span className={classes.foldHead}>
                     <Icon
@@ -407,14 +419,14 @@ export function HistorySidebar({ pack }: { pack: string }) {
                       size={14}
                     />
                     <span className={classes.foldLabel}>
-                      {row.commits.length} version-only commits
+                      {folded.length} version-only commits
                     </span>
                     <span className={classes.foldToggle}>
                       {shown ? 'Hide' : 'Show'}
                     </span>
                   </span>
                 </UnstyledButton>
-                {visible.map(commitRow)}
+                {shown && folded.map(commitRow)}
               </Fragment>
             );
           })}
