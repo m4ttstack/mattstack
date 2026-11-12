@@ -35,9 +35,9 @@ never asked again.
   (`answers`, `decidedBy`), then the post side; the rows walk nothing.
 - **A `respond-post` record, held or not:** the post side again, never a
   close on the record alone: a pane can record and die before it posts.
-  On GitLab `respond_post_execute` counts what landed. On GitHub the gh
-  read does, and the reply texts come from the stored cards, never this
-  conversation: for a `gate-1: reply` row the
+  On GitLab `respond_post_execute` counts what landed. On GitHub the
+  `mr_threads` read does, and the reply texts come from the stored cards,
+  never this conversation: for a `gate-1: reply` row the
   respond-plan decision's `texts` entry, else its card's `reply.text`; for
   an offered thread the respond-post decision's `text`, else its `reply@1`
   card's `text` (`run_field_get {runDb, key:
