@@ -101,7 +101,7 @@ export function liveSyncLines(mrUrl: string): readonly string[] | undefined {
   return live.get(mrUrl);
 }
 
-/** A click on "rebase locally": a fresh log, opened for whoever clicked. */
+/** A click on "rebase": a fresh log, opened for whoever clicked. */
 export function startSyncLines(mrUrl: string): void {
   live.set(mrUrl, []);
   autoOpen.add(mrUrl);

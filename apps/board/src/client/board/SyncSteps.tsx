@@ -65,17 +65,43 @@ const shortRef = (ref: string) => {
   return `${parts[0]}/…/${stamp.split('T').at(-1)}`;
 };
 
-/** A local sync as four fixed steps, with the raw log one click away. */
+const GITHUB_NOTE = 'Re-runs checks; can drop the PR from a merge queue';
+
+function CancelRebase({ onCancel }: { onCancel: () => Promise<unknown> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      className="tui-syncsteps-action tui-syncsteps-cancel"
+      title="Stop waiting on the forge"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        onCancel()
+          .catch(() => {})
+          .finally(() => setBusy(false));
+      }}
+    >
+      cancel
+    </button>
+  );
+}
+
+/** A local sync as four fixed steps, led by the forge's rebase when the
+    chain asked it first, with the raw log one click away. */
 export function SyncSteps({
   view,
   raw,
   handoff,
+  onCancel,
 }: {
   view: SyncView;
   /** The terminal-style log, shown under "Raw output". */
   raw: ReactNode;
   /** A doctor picked up the paused rebase. */
   handoff?: { onFocus: () => void };
+  /** Ends the forge's rebase; offered only while that step runs. */
+  onCancel?: () => Promise<unknown>;
 }) {
   const [showRaw, setShowRaw] = useState(true);
   const note =
@@ -87,7 +113,11 @@ export function SyncSteps({
         ? { tone: 'bad' as const, text: view.failure }
         : null;
   return (
-    <div className="tui-syncsteps" data-outcome={view.outcome}>
+    <div
+      className="tui-syncsteps"
+      data-outcome={view.outcome}
+      data-forge={view.forge}
+    >
       <div className="tui-syncsteps-head">
         <span className="tui-syncsteps-title">{view.title}</span>
         {view.tree && (
@@ -120,9 +150,17 @@ export function SyncSteps({
                 <span className="tui-syncsteps-detail">{step.detail}</span>
               )
             )}
+            {step.key === 'forge' && step.state === 'running' && onCancel && (
+              <CancelRebase onCancel={onCancel} />
+            )}
           </li>
         ))}
       </ol>
+      {view.forge === 'github' && (
+        <div className="tui-syncsteps-note" data-tone="quiet">
+          <span className="tui-syncsteps-note-text">{GITHUB_NOTE}</span>
+        </div>
+      )}
       {note && (
         <div className="tui-syncsteps-note" data-tone={note.tone}>
           <span className="tui-syncsteps-note-text">
@@ -142,18 +180,22 @@ export function SyncSteps({
           )}
         </div>
       )}
-      <div className="tui-syncsteps-foot">
-        <button
-          type="button"
-          className="tui-syncsteps-raw"
-          aria-expanded={showRaw}
-          onClick={() => setShowRaw(v => !v)}
-        >
-          <Icon d={PATHS.chevron} width={12} height={12} />
-          Raw output
-        </button>
-      </div>
-      {showRaw && <div className="tui-syncsteps-rawlog">{raw}</div>}
+      {!view.noRaw && (
+        <>
+          <div className="tui-syncsteps-foot">
+            <button
+              type="button"
+              className="tui-syncsteps-raw"
+              aria-expanded={showRaw}
+              onClick={() => setShowRaw(v => !v)}
+            >
+              <Icon d={PATHS.chevron} width={12} height={12} />
+              Raw output
+            </button>
+          </div>
+          {showRaw && <div className="tui-syncsteps-rawlog">{raw}</div>}
+        </>
+      )}
     </div>
   );
 }

@@ -564,14 +564,14 @@ describe('your own MR gets past the gate', () => {
       ).toBe(true);
     }, 15_000);
 
-  test('/doctor launches a pane; rebase mode with no doctor skill is refused', async () => {
+  test('/doctor launches a pane; rebase mode with no doctor skill runs the chain', async () => {
     const rebase = await post(seated, '/doctor', {
       mrUrl: seated.url(7),
       iid: 7,
       mode: 'rebase',
     });
-    expect(rebase.status).toBe(409);
-    expect(await rebase.text()).toContain('no doctor skill');
+    expect(rebase.status).toBe(200);
+    expect(await rebase.json()).toMatchObject({ ok: true });
     const res = await post(seated, '/doctor', { mrUrl: seated.url(7), iid: 7 });
     expect(res.status).toBe(200);
     await new Promise(r => setTimeout(r, 200));

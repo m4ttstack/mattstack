@@ -554,6 +554,23 @@ test('ring while a doctor is running on the MR is a 409 and rings nobody', async
   expect(readMemory(db).mrs[IN_FLIGHT]?.handoffs).toBeUndefined();
 }, 15_000);
 
+test('ring while a rebase waits on the forge is a 409 and rings nobody', async () => {
+  writeDoctorState(
+    mintHandle('doctor', IN_FLIGHT, fakeHome),
+    { mrUrl: IN_FLIGHT, iid: iidOf(IN_FLIGHT), status: 'forge-rebasing' },
+    Date.now(),
+    db
+  );
+  const res = await doctor({
+    mrUrl: IN_FLIGHT,
+    iid: iidOf(IN_FLIGHT),
+    ring: true,
+  });
+  expect(res.status).toBe(409);
+  expect(await res.text()).toBe('a doctor is already running on this MR');
+  expect(ringsTo('sess-in-flight')).toHaveLength(0);
+}, 15_000);
+
 test('a conflicts-only handoff shows on the snapshot', async () => {
   writeHandoff(
     SNAP_CONFLICTED,

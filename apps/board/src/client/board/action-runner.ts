@@ -157,7 +157,7 @@ const LAUNCH_WORDING: Record<LaunchFlow, { done: string; noun: string }> = {
   respond: { done: 'response started on', noun: 'response' },
   'resume-respond': { done: 'response resumed on', noun: 'response' },
   doctor: { done: 'doctor called on', noun: 'doctor' },
-  'rebase-local': { done: 'local rebase ran on', noun: 'local rebase' },
+  rebase: { done: 'rebase ran on', noun: 'rebase' },
 };
 
 async function post(
@@ -481,7 +481,7 @@ export function runBulk(
           : null;
       if (reviewer) presenceSkipped.push({ mr: m, reviewer });
       const run =
-        req.flow === 'doctor' || req.flow === 'rebase-local'
+        req.flow === 'doctor' || req.flow === 'rebase'
           ? (deps.activeRun?.(req.flow, m) ?? null)
           : null;
       if (run) runSkipped.push({ mr: m, run });

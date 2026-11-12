@@ -270,6 +270,26 @@ describe('runTriage', () => {
     expect(d.audit.some(e => e.reason === 'doctor-in-flight')).toBe(true);
   });
 
+  test('a rebase waiting on the forge counts as a doctor in flight', async () => {
+    const waiting = new Map([
+      [
+        'https://x/mr/1',
+        {
+          mrUrl: 'https://x/mr/1',
+          iid: 1,
+          status: 'forge-rebasing' as const,
+          origin: 'manual' as const,
+          startedAt: 0,
+          updatedAt: 0,
+        },
+      ],
+    ]);
+    const d = deps({ readDoctorStates: () => waiting });
+    await runTriage(d);
+    expect(d.launches).toHaveLength(0);
+    expect(d.audit.some(e => e.reason === 'doctor-in-flight')).toBe(true);
+  });
+
   test('disabled runs do nothing at all', async () => {
     const d = deps({ triage: parseTriageBlock(undefined) });
     const result = await runTriage(d);

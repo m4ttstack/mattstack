@@ -72,7 +72,7 @@ export type LaunchFlow =
   | 'respond'
   | 'resume-respond'
   | 'doctor'
-  | 'rebase-local';
+  | 'rebase';
 
 export type ActionRequest =
   | { kind: 'launch'; flow: LaunchFlow; intent?: 'focus'; person?: string }
@@ -211,9 +211,8 @@ const SHELL: ActionGlyph = { kind: 'menu', name: 'shell' };
 const CLAUDE: ActionGlyph = { kind: 'agent' };
 const RESUME: ActionGlyph = { kind: 'menu', name: 'resume' };
 const COMMAND: ActionGlyph = { kind: 'menu', name: 'command' };
-const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
+const GITLAB_GLYPH: Record<Exclude<MrAction, 'rebase'>, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
-  rebase: { kind: 'menu', name: 'branch' },
   setAutoMerge: { kind: 'flag', name: 'auto-merge' },
   cancelAutoMerge: { kind: 'flag', name: 'auto-merge' },
 };
@@ -250,7 +249,7 @@ const ABSENT = new Set(['no session', 'no report yet', 'nothing to dismiss']);
 /** Every action this MR offers, in menu order, each in one section. A row
     is omitted for who is looking (local board, own MR, seat, Slack on, an
     opted-in repo) and in these state cases: call doctor on a healthy MR,
-    rebase locally on a current one, and a session row (resume, view report,
+    rebase on a current one, and a session row (resume, view report,
     dismiss) with nothing to act on. Every other state blocks
     the row with a reason instead of removing it. */
 export function rowActions(
@@ -442,20 +441,31 @@ export function rowActions(
     }
     if (
       own &&
-      (!mrx.doctorSkillTabs || mrx.doctorSkillTabs.includes(env.tab ?? '')) &&
       (mrx.blockers?.hasConflicts ||
         mrx.rebaseButton.visible ||
-        (mrx.behindTarget ?? 0) > 0)
-    )
+        (mrx.behindTarget ?? 0) > 0 ||
+        mrx.readiness?.reasons.includes('behind'))
+    ) {
+      const status = mrx.doctor?.status;
       agent.push(
         agentItem(
           'doctor',
-          'rebase-local',
-          'rebase locally',
-          { kind: 'launch', flow: 'rebase-local' },
-          { notable: true }
+          'rebase',
+          'rebase',
+          { kind: 'launch', flow: 'rebase' },
+          {
+            notable: true,
+            bulk: 'rebase',
+            ...block(
+              (mrx.rebaseButton.loading ||
+                status === 'forge-rebasing' ||
+                status === 'syncing') &&
+                'rebasing'
+            ),
+          }
         )
       );
+    }
   }
 
   sessions.push(
@@ -629,25 +639,6 @@ export function rowActions(
           confirm: 'really merge?',
           ...block(
             mergeBlockedReason(mrx) || (!mrx.mergeButton.visible && hidden)
-          ),
-        }
-      )
-    );
-    gitlab.push(
-      item(
-        'gitlab',
-        'rebase',
-        'rebase on target',
-        GITLAB_GLYPH.rebase,
-        { kind: 'mr', action: 'rebase' },
-        {
-          bulk: 'rebase on target',
-          ...block(
-            mrx.rebaseButton.loading
-              ? 'rebasing'
-              : !mrx.rebaseButton.visible &&
-                  mrx.behindTarget === 0 &&
-                  'up to date'
           ),
         }
       )
@@ -974,13 +965,6 @@ function mergeBlock(checked: BoardMR[], allMrs: BoardMR[]): string | undefined {
   return undefined;
 }
 
-/** An unknown behind count leaves the row's rebase enabled, but a bulk
-    rebase only targets an MR GitLab or the behind count says is behind;
-    the rest count as already there. */
-function rebaseNeeded(mr: BoardMR): boolean {
-  return mr.rebaseButton.visible || (mr.behindTarget ?? 0) > 0;
-}
-
 /** The bulk menu: an action shows when every checked MR either offers it
     (a target) or is already where it leads (skipped); one checked MR that
     cannot get there hides it. Eligibility comes only from rowActions; what
@@ -992,9 +976,7 @@ export function bulkActions(
 ): BulkEntry[] {
   if (!env.local) return [];
   const rows = mrs.map(mr => {
-    const actions = rowActions(mr, env).filter(
-      a => !a.blocked && (a.key !== 'rebase' || rebaseNeeded(mr))
-    );
+    const actions = rowActions(mr, env).filter(a => !a.blocked);
     return {
       mr,
       actions,

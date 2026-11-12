@@ -218,7 +218,7 @@ test('right-click on a checked row, two checked, opens the menu for the selectio
   await check(102);
   await rightClick(101);
   expect(menu()?.getAttribute('aria-label')).toBe('actions for 2 selected');
-  expect(items().some(i => i.textContent === 'rebase on target')).toBe(true);
+  expect(items().some(i => i.textContent === 'rebase')).toBe(true);
 });
 
 test('an action one checked MR cannot take is hidden', async () => {
@@ -231,7 +231,7 @@ test('an action one checked MR cannot take is hidden', async () => {
   await check(104);
   await rightClick(101);
   const texts = items().map(i => i.textContent);
-  expect(texts).toContain('rebase on target');
+  expect(texts).toContain('rebase');
   expect(texts.some(t => t?.startsWith('merge'))).toBe(false);
 });
 
@@ -411,16 +411,14 @@ test('a bulk rebase posts once per MR and speaks once', async () => {
   await check(101);
   await check(102);
   await rightClick(101);
-  await click('rebase on target');
+  await click('rebase');
   expect(
-    posts
-      .filter(p => p.url === '/mr/action')
-      .map(p => [p.body.iid, p.body.action])
+    posts.filter(p => p.url === '/doctor').map(p => [p.body.iid, p.body.mode])
   ).toEqual([
     [101, 'rebase'],
     [102, 'rebase'],
   ]);
-  expect(document.body.textContent).toContain('rebase started on !101, !102');
+  expect(document.body.textContent).toContain('rebase ran on !101, !102');
 });
 
 test('a bulk rebase keeps the selection checked', async () => {
@@ -428,7 +426,7 @@ test('a bulk rebase keeps the selection checked', async () => {
   await check(101);
   await check(102);
   await rightClick(101);
-  await click('rebase on target');
+  await click('rebase');
   const bar = container.querySelector('.tui-selbar');
   expect(bar?.textContent).toContain('2 selected');
   const boxes = [101, 102].map(iid =>

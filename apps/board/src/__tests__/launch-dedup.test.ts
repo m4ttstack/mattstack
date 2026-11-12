@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { dedupInFlight, REVIEW_IN_FLIGHT } from '../launch-dedup.ts';
+import {
+  dedupInFlight,
+  DOCTOR_IN_FLIGHT,
+  REVIEW_IN_FLIGHT,
+} from '../launch-dedup.ts';
 
 const live = { status: 'reviewing', tabId: 't1', paneId: 'p1' };
 const focusOk = { focusPane: async () => ({ focused: true }) };
@@ -52,4 +56,8 @@ test('a focus click never launches: it refuses with the reason', async () => {
       focusOk
     )
   ).toEqual({ kind: 'refused', reason: 'nothing running to focus' });
+});
+
+test('a rebase waiting on the forge is a doctor in flight', () => {
+  expect(DOCTOR_IN_FLIGHT.has('forge-rebasing')).toBe(true);
 });
