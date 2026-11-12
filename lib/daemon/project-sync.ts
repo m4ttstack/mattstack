@@ -281,12 +281,14 @@ interface SyncReads {
   fetchKnownSections: NonNullable<ProjectSyncOverrides["fetchKnownSections"]>;
 }
 
+async function resolveGitHubContext(deps: ProjectSyncDeps, repo: string): Promise<GitHubSyncContext> {
+  const ctx = await freshness.getRepoContext(repo, deps.repoIndex()[repo]);
+  if (ctx.forge !== "github") throw new Error(`project sync: ${repo} is not a GitHub repo`);
+  return { provider: ctx.provider, projectPath: ctx.projectPath };
+}
+
 function githubReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides): SyncReads {
-  const context = overrides.githubContext ?? (async (repo: string): Promise<GitHubSyncContext> => {
-    const ctx = await freshness.getRepoContext(repo, deps.repoIndex()[repo]);
-    if (ctx.forge !== "github") throw new Error(`project sync: ${repo} is not a GitHub repo`);
-    return { provider: ctx.provider, projectPath: ctx.projectPath };
-  });
+  const context = overrides.githubContext ?? ((repo: string) => resolveGitHubContext(deps, repo));
   return {
     fetchProject: overrides.fetchProject ?? (async (repo: string) => {
       const ctx = await context(repo);
@@ -667,6 +669,9 @@ async function syncImpl(
  */
 export const DIVERGED_REMEASURE_CAP = 10;
 
+/** GitHub reads behind counts 25 PRs to a GraphQL request, so one request per cycle re-measures up to 25. */
+export const GITHUB_DIVERGED_REMEASURE_CAP = 25;
+
 /**
  * repoName → iid → when this daemon last measured its behind count.
  * In-memory on purpose: after a restart every count is unmeasured again, and
@@ -695,10 +700,12 @@ export interface RemeasureOverrides {
   /** The repo's forge; production reads it from the repo's origin remote. */
   forge?: SyncForge;
   fetchDiverged?: (repoName: string, projectPath: string, iid: number) => Promise<number | null>;
+  /** GitHub only: an entry per PR read (null when there is no comparison); a PR with no entry failed. */
+  fetchDivergedBatch?: (repoName: string, projectPath: string, iids: number[]) => Promise<Map<number, number | null>>;
 }
 
 /**
- * Refreshes up to DIVERGED_REMEASURE_CAP stored behind counts for one repo
+ * Refreshes up to DIVERGED_REMEASURE_CAP (GITHUB_DIVERGED_REMEASURE_CAP on GitHub) stored behind counts for one repo
  * and broadcasts the iids whose count moved. Callers run it after a sync
  * without awaiting it, so a forced read never waits on these calls.
  */
@@ -713,32 +720,52 @@ export async function remeasureDivergedCounts(
     const store = overrides.store ?? getProjectMRs();
     const record = store.read(repoName);
     if (!record?.projectPath) return [];
-    if ((await resolveForge(deps, repoName, overrides.forge)) === "github") return [];
+    const github = (await resolveForge(deps, repoName, overrides.forge)) === "github";
     const measured = divergedMeasuredAt.get(repoName) ?? new Map<number, number>();
     divergedMeasuredAt.set(repoName, measured);
     for (const iid of measured.keys()) if (!record.mrs[iid]) measured.delete(iid);
 
-    const picks = pickRemeasure(record, measured, DIVERGED_REMEASURE_CAP);
+    const picks = pickRemeasure(record, measured, github ? GITHUB_DIVERGED_REMEASURE_CAP : DIVERGED_REMEASURE_CAP);
     if (picks.length === 0) return [];
-    const fetchDiverged = overrides.fetchDiverged ?? (async (repo: string, projectPath: string, iid: number) => {
-      const { provider } = await freshness.getGitLabContext("project sync", repo, deps.repoIndex()[repo]);
-      return provider.fetchDivergedCount(projectPath, iid);
-    });
 
     const startedAt = Date.now();
     const counts: Record<number, number> = {};
     let failed = 0;
-    for (let i = 0; i < picks.length; i += TOPUP_CONCURRENCY) {
-      await Promise.all(picks.slice(i, i + TOPUP_CONCURRENCY).map(async (iid) => {
-        try {
-          const n = await fetchDiverged(repoName, record.projectPath, iid);
+    if (github) {
+      const fetchBatch = overrides.fetchDivergedBatch ?? (async (repo: string, projectPath: string, iids: number[]) => {
+        const { provider } = await resolveGitHubContext(deps, repo);
+        return provider.fetchDivergedCounts(projectPath, iids);
+      });
+      try {
+        const read = await fetchBatch(repoName, record.projectPath, picks);
+        for (const iid of picks) {
+          if (!read.has(iid)) { failed++; continue; }
           measured.set(iid, Date.now());
-          if (n !== null) counts[iid] = n;
-        } catch (err) {
-          failed++;
-          log.warn({ err, repo: repoName, iid }, "behind count re-measure failed");
+          const n = read.get(iid);
+          if (n != null) counts[iid] = n;
         }
-      }));
+        if (failed > 0) log.warn({ repo: repoName, failed }, "behind count re-measure missed PRs");
+      } catch (err) {
+        failed = picks.length;
+        log.warn({ err, repo: repoName }, "behind count re-measure failed");
+      }
+    } else {
+      const fetchDiverged = overrides.fetchDiverged ?? (async (repo: string, projectPath: string, iid: number) => {
+        const { provider } = await freshness.getGitLabContext("project sync", repo, deps.repoIndex()[repo]);
+        return provider.fetchDivergedCount(projectPath, iid);
+      });
+      for (let i = 0; i < picks.length; i += TOPUP_CONCURRENCY) {
+        await Promise.all(picks.slice(i, i + TOPUP_CONCURRENCY).map(async (iid) => {
+          try {
+            const n = await fetchDiverged(repoName, record.projectPath, iid);
+            measured.set(iid, Date.now());
+            if (n !== null) counts[iid] = n;
+          } catch (err) {
+            failed++;
+            log.warn({ err, repo: repoName, iid }, "behind count re-measure failed");
+          }
+        }));
+      }
     }
     const changed = store.setDivergedCounts(repoName, counts);
     log.debug({ repo: repoName, mode: "behind", measured: picks.length - failed, failed, changed: changed.length, durationMs: Date.now() - startedAt }, "project sync");

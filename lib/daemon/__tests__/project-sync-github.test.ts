@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { FetchPullRequestsOptions, FetchPullRequestsWarning, PullRequest } from "@mattstack/glance";
+import type { FetchMergeRequestIndexOptions, FetchPullRequestsOptions, FetchPullRequestsWarning, MergeRequestIndexRow, PullRequest } from "@mattstack/glance";
 import { authorListed, prInScope } from "../scope-authors.ts";
 import { githubFetchDelta, githubFetchOpen, githubFetchSingle, type GitHubSyncContext } from "../project-sync-github.ts";
 import type { ProjectMREntry, ProjectMRStore } from "../project-mrs-store.ts";
@@ -16,10 +16,19 @@ function pr(iid: number, over: Partial<PullRequest> = {}): PullRequest {
 
 type Reply = { prs: PullRequest[]; warnings?: FetchPullRequestsWarning[] };
 
-function fakeProvider(list: (opts: FetchPullRequestsOptions) => Reply, single: (iid: number) => { pr: PullRequest | null; warnings?: FetchPullRequestsWarning[] } = () => ({ pr: null })) {
+function fakeProvider(
+  list: (opts: FetchPullRequestsOptions) => Reply,
+  single: (iid: number) => { pr: PullRequest | null; warnings?: FetchPullRequestsWarning[] } = () => ({ pr: null }),
+  index: (opts: FetchMergeRequestIndexOptions) => Promise<MergeRequestIndexRow[]> = async () => [],
+) {
   const listCalls: FetchPullRequestsOptions[] = [];
   const singleCalls: number[] = [];
+  const indexCalls: FetchMergeRequestIndexOptions[] = [];
   const provider = {
+    async fetchMergeRequestIndex(opts: FetchMergeRequestIndexOptions) {
+      indexCalls.push(opts);
+      return index(opts);
+    },
     async fetchPullRequests(opts?: FetchPullRequestsOptions) {
       listCalls.push(opts!);
       const reply = list(opts!);
@@ -34,7 +43,16 @@ function fakeProvider(list: (opts: FetchPullRequestsOptions) => Reply, single: (
     },
   };
   const ctx = { provider, projectPath: "o/r" } as unknown as GitHubSyncContext;
-  return { ctx, listCalls, singleCalls };
+  return { ctx, listCalls, singleCalls, indexCalls };
+}
+
+function row(iid: number, over: Partial<MergeRequestIndexRow> = {}): MergeRequestIndexRow {
+  return {
+    iid, projectPath: "o/r", title: `PR ${iid}`, state: "merged",
+    createdAt: "2026-11-01T00:00:00Z", updatedAt: "2026-11-11T00:00:00Z", mergedAt: "2026-11-11T00:00:00Z",
+    authorUsername: "octo", sourceBranch: `b${iid}`, labels: [],
+    ...over,
+  };
 }
 
 const warn = (kind: FetchPullRequestsWarning["kind"], source: FetchPullRequestsWarning["source"]): FetchPullRequestsWarning =>
@@ -117,35 +135,54 @@ describe("githubFetchDelta", () => {
     return { projectPath: "o/r", mrs, listSyncedAt: 0, source: "poll", scope: { authors: ["octo"], windowDays: 30 } };
   }
 
+  const UA = "2026-11-10T00:00:00Z";
+
   test("terminal rows follow fetchDeltaFrom's reuse rule", async () => {
     const stored = storeWith([
       pr(5, { sourceBranch: "b" }),
       pr(2, { sourceBranch: "c", state: "merged" }),
       pr(4, { sourceBranch: "e", state: "merged" }),
     ]);
-    const terminal = [
-      pr(3, { sourceBranch: "b", state: "merged" }),
-      pr(8, { sourceBranch: "c", state: "merged", author: { username: "Octo" } } as Partial<PullRequest>),
-      pr(9, { sourceBranch: "d", state: "closed" }),
-      pr(11, { sourceBranch: "e", state: "merged", author: { username: "stranger" } } as Partial<PullRequest>),
+    const rows = [
+      row(3, { sourceBranch: "b" }),
+      row(8, { sourceBranch: "c", authorUsername: "Octo" }),
+      row(9, { sourceBranch: "d", state: "closed", mergedAt: null }),
+      row(11, { sourceBranch: "e", authorUsername: "stranger" }),
     ];
-    const { ctx, singleCalls } = fakeProvider((opts) => ({ prs: Array.isArray(opts.state) ? terminal : [] }));
-    const out = await githubFetchDelta(ctx, "2026-11-10T00:00:00Z", stored);
-    expect(out.map((p) => p.iid)).toEqual([8]);
+    const filled = pr(8, { sourceBranch: "c", state: "merged" });
+    const { ctx, singleCalls } = fakeProvider(() => ({ prs: [] }), (iid) => ({ pr: iid === 8 ? filled : null }), async () => rows);
+    const out = await githubFetchDelta(ctx, UA, stored);
+    expect(out).toEqual([filled]);
+    expect(singleCalls).toEqual([8]);
+  });
+
+  test("a row authored bob with scope author Bob comes back as Bob", async () => {
+    const stored = { ...storeWith([pr(2, { sourceBranch: "c", state: "merged" })]), scope: { authors: ["Bob"], windowDays: 30 } };
+    const { ctx, singleCalls } = fakeProvider(() => ({ prs: [] }), (iid) => ({ pr: pr(iid) }), async () => [row(8, { sourceBranch: "c", authorUsername: "bob" })]);
+    await githubFetchDelta(ctx, UA, stored);
+    expect(singleCalls).toEqual([8]);
+  });
+
+  test("a stored terminal row moves its entry with no fill", async () => {
+    const stored = storeWith([pr(5, { sourceBranch: "b" })]);
+    const { ctx, singleCalls } = fakeProvider(() => ({ prs: [] }), () => ({ pr: null }), async () => [row(5, { sourceBranch: "b", title: "renamed" })]);
+    const out = await githubFetchDelta(ctx, UA, stored);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ iid: 5, state: "merged", title: "renamed", mergedAt: "2026-11-11T00:00:00Z" });
     expect(singleCalls).toEqual([]);
   });
 
-  test("one delta cycle costs two list reads", async () => {
-    const { ctx, listCalls, singleCalls } = fakeProvider(() => ({ prs: [] }));
-    await githubFetchDelta(ctx, "2026-11-10T00:00:00Z", storeWith([pr(5)]));
-    expect(listCalls).toHaveLength(2);
-    expect(listCalls[0]).toMatchObject({ projectPath: "o/r", state: "opened", updatedAfter: "2026-11-10T00:00:00Z", listWeight: true });
-    expect(listCalls[1]).toMatchObject({ projectPath: "o/r", state: ["merged", "closed"], updatedAfter: "2026-11-10T00:00:00Z", listWeight: true });
+  test("one delta cycle costs one listing plus one index call and no terminal fill", async () => {
+    const { ctx, listCalls, singleCalls, indexCalls } = fakeProvider(() => ({ prs: [] }));
+    await githubFetchDelta(ctx, UA, storeWith([pr(5)]));
+    expect(listCalls).toHaveLength(1);
+    expect(listCalls[0]).toMatchObject({ projectPath: "o/r", state: "opened", updatedAfter: UA, listWeight: true });
+    expect(indexCalls).toEqual([{ projectPaths: ["o/r"], updatedAfter: UA, states: ["merged", "closed"] }]);
     expect(singleCalls).toEqual([]);
   });
 
-  test("a warning on the terminal listing fails the delta", async () => {
-    const { ctx } = fakeProvider((opts) => ({ prs: [], warnings: Array.isArray(opts.state) ? [warn("page-cap", "list")] : [] }));
-    await expect(githubFetchDelta(ctx, "2026-11-10T00:00:00Z", undefined)).rejects.toThrow("GitHub read incomplete");
+  test("a failed index read fails the delta", async () => {
+    const { ctx } = fakeProvider(() => ({ prs: [] }), () => ({ pr: null }), async () => { throw new Error("index 502"); });
+    await expect(githubFetchDelta(ctx, UA, undefined)).rejects.toThrow("index 502");
   });
 });

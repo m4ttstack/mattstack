@@ -8,7 +8,9 @@ import {
   backfillAuthors,
   backfillSections,
   DEEP_RECONCILE_MS,
+  GITHUB_DIVERGED_REMEASURE_CAP,
   remeasureDivergedCounts,
+  __resetDivergedMeasuresForTest,
   syncProjectMRs,
   type ProjectSyncOverrides,
 } from "../project-sync.ts";
@@ -47,6 +49,9 @@ function fakeGitHub(list: (opts: FetchPullRequestsOptions) => Reply, single: (ii
       const reply = list(opts!);
       for (const w of reply.warnings ?? []) opts?.onWarning?.(w);
       return reply.prs;
+    },
+    async fetchMergeRequestIndex() {
+      return [];
     },
     async fetchSingleMR(_pp: string, iid: number, _user: number | null, onWarning?: (w: FetchPullRequestsWarning) => void) {
       singleCalls.push(iid);
@@ -180,17 +185,26 @@ describe("project sync on GitHub", () => {
     expect(gh.singleCalls.sort()).toEqual([1, 2]);
   });
 
-  test("remeasureDivergedCounts makes no read on GitHub", async () => {
+  test("remeasureDivergedCounts reads GitHub behind counts in one batch of 25", async () => {
+    __resetDivergedMeasuresForTest();
     const repo = "github.com/acme/behind";
     const store = tmpStore();
-    store.fullSync(repo, "o/r", [pr(1)], Date.now());
-    let reads = 0;
-    const out = await remeasureDivergedCounts(deps(repo), repo, {
+    store.fullSync(repo, "o/r", Array.from({ length: 30 }, (_, i) => pr(i + 1, { divergedCommitsCount: 0 })), Date.now());
+    const batches: Array<{ projectPath: string; iids: number[] }> = [];
+    const broadcasts: unknown[] = [];
+    const out = await remeasureDivergedCounts(deps(repo, broadcasts), repo, {
       store, forge: "github",
-      fetchDiverged: async () => { reads++; throw new Error("must not read"); },
+      fetchDiverged: async () => { throw new Error("GitHub never reads per PR"); },
+      fetchDivergedBatch: async (_repo, projectPath, iids) => {
+        batches.push({ projectPath, iids });
+        return new Map(iids.map((iid) => [iid, iid === 4 ? 7 : 0]));
+      },
     });
-    expect(out).toEqual([]);
-    expect(reads).toBe(0);
+    expect(batches).toEqual([{ projectPath: "o/r", iids: Array.from({ length: GITHUB_DIVERGED_REMEASURE_CAP }, (_, i) => i + 1) }]);
+    expect(GITHUB_DIVERGED_REMEASURE_CAP).toBe(25);
+    expect(out).toEqual([4]);
+    expect(store.read(repo)!.mrs[4]!.pr.divergedCommitsCount).toBe(7);
+    expect(broadcasts).toEqual([{ repoName: repo, iids: [4] }]);
   });
 
   test("backfillAuthors on GitHub adds the GitHub login, not the GitLab username", async () => {

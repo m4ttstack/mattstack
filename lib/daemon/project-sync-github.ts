@@ -1,4 +1,4 @@
-import type { FetchPullRequestsWarning, GitHubProvider, MergeRequestIndexRow, MRApprovalRules, PullRequest } from "@mattstack/glance";
+import type { FetchPullRequestsWarning, GitHubProvider, MRApprovalRules, PullRequest } from "@mattstack/glance";
 import { fetchDeltaFrom, type DeltaProvider } from "./project-sync.ts";
 import type { ProjectMRStore } from "./project-mrs-store.ts";
 import { authorListed } from "./scope-authors.ts";
@@ -62,42 +62,27 @@ export function githubFetchKnownSections(ctx: GitHubSyncContext): Promise<string
   return ctx.provider.fetchCodeownerSections({ projectPath: ctx.projectPath });
 }
 
-function indexRow(pr: PullRequest, projectPath: string, scopeAuthors: readonly string[] | undefined): MergeRequestIndexRow {
-  const username = pr.author?.username ?? null;
-  const scoped = scopeAuthors && authorListed(scopeAuthors, pr)
-    ? scopeAuthors.find((a) => a.toLowerCase() === username?.toLowerCase()) ?? username
-    : username;
-  return {
-    iid: pr.iid,
-    projectPath,
-    title: pr.title,
-    state: pr.state,
-    createdAt: pr.createdAt ?? "",
-    updatedAt: pr.updatedAt ?? "",
-    mergedAt: pr.mergedAt ?? null,
-    authorUsername: scoped,
-    sourceBranch: pr.sourceBranch,
-    labels: [],
-  };
+/** fetchDeltaFrom compares authors exactly, so a GitHub login takes the scope's spelling when it matches case-insensitively. */
+function scopeSpelling(username: string | null, scopeAuthors: readonly string[] | undefined): string | null {
+  if (!username || !scopeAuthors) return username;
+  const lower = username.toLowerCase();
+  return scopeAuthors.find((a) => a.toLowerCase() === lower) ?? username;
 }
 
-/** GitHub has no merged-PR index read, so the index rows come from a terminal-state listing whose PRs are kept for reuse. */
 export function githubFetchDelta(
   ctx: GitHubSyncContext,
   updatedAfter: string,
   stored: ProjectMRStore | undefined,
 ): Promise<PullRequest[]> {
   const { provider, projectPath } = ctx;
-  const terminalRead = new Map<number, PullRequest>();
+  const scopeAuthors = stored?.scope?.authors;
   const adapter: DeltaProvider = {
     fetchPullRequests: (opts) => strict(projectPath, (onWarning) => provider.fetchPullRequests({ ...opts, onWarning })),
-    fetchMergeRequestIndex: async () => {
-      const prs = await strict(projectPath, (onWarning) =>
-        provider.fetchPullRequests({ projectPath, state: ["merged", "closed"], updatedAfter, listWeight: true, onWarning }));
-      for (const pr of prs) terminalRead.set(pr.iid, pr);
-      return prs.map((pr) => indexRow(pr, projectPath, stored?.scope?.authors));
+    fetchMergeRequestIndex: async (opts) => {
+      const rows = await provider.fetchMergeRequestIndex({ projectPaths: opts.projectPaths, updatedAfter: opts.updatedAfter, states: opts.states });
+      return rows.map((row) => ({ ...row, authorUsername: scopeSpelling(row.authorUsername, scopeAuthors) }));
     },
-    fetchSingleMR: async (_pp: string, iid: number) => terminalRead.get(iid) ?? githubFetchSingle(ctx, iid),
+    fetchSingleMR: (_pp: string, iid: number) => githubFetchSingle(ctx, iid),
   };
   return fetchDeltaFrom(adapter, projectPath, updatedAfter, stored, []);
 }

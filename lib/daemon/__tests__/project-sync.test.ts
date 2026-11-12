@@ -2,7 +2,7 @@ import { describe, expect, setSystemTime, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { syncProjectMRs, fetchDeltaFrom, backfillAuthors, backfillSections, effectiveSections, sectionsMatching, sweepTags, remeasureDivergedCounts, __resetDivergedMeasuresForTest, DIVERGED_REMEASURE_CAP, DEEP_RECONCILE_MS, DEEP_RETRY_BACKOFF_MS, DELTA_OVERLAP_MS, DEMAND_IDLE_EXPIRY_MS } from "../project-sync.ts";
+import { syncProjectMRs, fetchDeltaFrom, backfillAuthors, backfillSections, effectiveSections, sectionsMatching, sweepTags, remeasureDivergedCounts, __resetDivergedMeasuresForTest, DIVERGED_REMEASURE_CAP, GITHUB_DIVERGED_REMEASURE_CAP, DEEP_RECONCILE_MS, DEEP_RETRY_BACKOFF_MS, DELTA_OVERLAP_MS, DEMAND_IDLE_EXPIRY_MS } from "../project-sync.ts";
 import { createProjectMRs } from "../project-mrs-store.ts";
 import { openStateDb } from "../../state/index.ts";
 import { readSyncHealth, recordSyncFailure } from "../project-sync-health.ts";
@@ -1915,6 +1915,113 @@ describe("remeasureDivergedCounts", () => {
 
     expect(second).toEqual([]);
     expect(calls).toBe(1);
+  });
+
+  describe("on GitHub", () => {
+    const thirty = () => Array.from({ length: 30 }, (_, i) => withCount(i + 1, 0));
+    const batchOf = (answer: (iid: number) => number | null | undefined, seen: number[][] = []) =>
+      async (_repo: string, _pp: string, iids: number[]) => {
+        seen.push(iids);
+        const out = new Map<number, number | null>();
+        for (const iid of iids) {
+          const n = answer(iid);
+          if (n !== undefined) out.set(iid, n);
+        }
+        return out;
+      };
+
+    test("30 open PRs make one batched read of the 25 oldest-measured", async () => {
+      __resetDivergedMeasuresForTest();
+      const store = tmpStore();
+      store.fullSync("repo", "g/p", thirty(), Date.now());
+      const seen: number[][] = [];
+      let single = 0;
+
+      const changed = await remeasureDivergedCounts(deps(), "repo", {
+        store, forge: "github",
+        fetchDiverged: async () => { single++; return 0; },
+        fetchDivergedBatch: batchOf((iid) => (iid <= 2 ? 6 : 0), seen),
+      });
+
+      expect(GITHUB_DIVERGED_REMEASURE_CAP).toBe(25);
+      expect(seen).toEqual([Array.from({ length: 25 }, (_, i) => i + 1)]);
+      expect(single).toBe(0);
+      expect(changed).toEqual([1, 2]);
+      expect(store.read("repo")!.mrs[1]!.pr.divergedCommitsCount).toBe(6);
+    });
+
+    test("an iid missing from the batch counts failed and is re-picked first next run", async () => {
+      __resetDivergedMeasuresForTest();
+      const store = tmpStore();
+      store.fullSync("repo", "g/p", thirty(), Date.now());
+      await remeasureDivergedCounts(deps(), "repo", { store, forge: "github", fetchDivergedBatch: batchOf((iid) => (iid === 3 ? undefined : 0)) });
+      const seen: number[][] = [];
+
+      await remeasureDivergedCounts(deps(), "repo", { store, forge: "github", fetchDivergedBatch: batchOf(() => 0, seen) });
+
+      expect(seen[0]!.slice(0, 6)).toEqual([3, 26, 27, 28, 29, 30]);
+    });
+
+    test("a null count marks the PR measured without writing it", async () => {
+      __resetDivergedMeasuresForTest();
+      const store = tmpStore();
+      store.fullSync("repo", "g/p", thirty(), Date.now());
+      const changed = await remeasureDivergedCounts(deps(), "repo", { store, forge: "github", fetchDivergedBatch: batchOf((iid) => (iid === 2 ? null : 0)) });
+      const seen: number[][] = [];
+
+      await remeasureDivergedCounts(deps(), "repo", { store, forge: "github", fetchDivergedBatch: batchOf(() => 0, seen) });
+
+      expect(changed).toEqual([]);
+      expect(store.read("repo")!.mrs[2]!.pr.divergedCommitsCount).toBe(0);
+      expect(seen[0]!.slice(0, 6)).toEqual([26, 27, 28, 29, 30, 1]);
+    });
+
+    test("a rejected batch counts every pick failed and does not throw", async () => {
+      __resetDivergedMeasuresForTest();
+      const store = tmpStore();
+      store.fullSync("repo", "g/p", thirty(), Date.now());
+      const changed = await remeasureDivergedCounts(deps(), "repo", {
+        store, forge: "github", fetchDivergedBatch: async () => { throw new Error("graphql 502"); },
+      });
+      const seen: number[][] = [];
+
+      await remeasureDivergedCounts(deps(), "repo", { store, forge: "github", fetchDivergedBatch: batchOf(() => 0, seen) });
+
+      expect(changed).toEqual([]);
+      expect(seen[0]).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
+    });
+
+    test("GitLab with the same store reads per iid at cap 10", async () => {
+      __resetDivergedMeasuresForTest();
+      const store = tmpStore();
+      store.fullSync("repo", "g/p", thirty(), Date.now());
+      let single = 0;
+      let batches = 0;
+
+      await remeasureDivergedCounts(deps(), "repo", {
+        store, forge: "gitlab",
+        fetchDiverged: async () => { single++; return 0; },
+        fetchDivergedBatch: async () => { batches++; return new Map(); },
+      });
+
+      expect(single).toBe(DIVERGED_REMEASURE_CAP);
+      expect(DIVERGED_REMEASURE_CAP).toBe(10);
+      expect(batches).toBe(0);
+    });
+
+    test("needsRebase on a stored PR is unchanged after a GitHub re-measure", async () => {
+      __resetDivergedMeasuresForTest();
+      const store = tmpStore();
+      store.fullSync("repo", "g/p", [withCount(1, 0, { shouldBeRebased: true } as Partial<PullRequest>)], Date.now());
+      const before = store.read("repo")!.mrs[1]!.pr;
+
+      await remeasureDivergedCounts(deps(), "repo", { store, forge: "github", fetchDivergedBatch: batchOf(() => 12) });
+
+      const after = store.read("repo")!.mrs[1]!.pr;
+      expect(after.shouldBeRebased).toBe(true);
+      expect(after.divergedCommitsCount).toBe(12);
+      expect({ ...after, divergedCommitsCount: null }).toEqual({ ...before, divergedCommitsCount: null });
+    });
   });
 
   test("a repo with no record makes no calls", async () => {
