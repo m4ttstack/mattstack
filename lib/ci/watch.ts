@@ -77,6 +77,12 @@ export function isMergeRefPipeline(p: WatchPipeline, iid: number): boolean {
   return m !== null && Number(m[1]) === iid;
 }
 
+const STATUS_ONLY_NEXT = "every failed row is a commit status with no log to read here; open its webUrl, or the pipeline's webUrl when it has none";
+
+function onlyStatuses(rows: WatchResult["failedJobs"]): boolean {
+  return rows.length > 0 && rows.every((j) => j.jobId === null);
+}
+
 function idNumber(id: string | null | undefined): number | null {
   const m = /:(\d+)$/.exec(id ?? "");
   return m ? Number(m[1]) : null;
@@ -317,7 +323,9 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
               ? "the failed jobs could not be read; read them with mr_pipeline or mr_job_trace"
               : f.failedJobs.length === 0
                 ? "no failed job rows (a bridge job's downstream pipeline failed); read it with mr_pipeline and the bridge job's jobId"
-                : "read more of a job's log with mr_job_trace";
+                : onlyStatuses(f.failedJobs)
+                  ? STATUS_ONLY_NEXT
+                  : "read more of a job's log with mr_job_trace";
           return result(p.status as WatchState, mr, next, { failedJobs: f.failedJobs, blockingFailures: f.blockingFailures });
         }
         const early = await failures(p, true);
@@ -326,7 +334,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
           if (!after.ok) return leaseEnd(after, mr);
           lease = after.lease;
           observe();
-          return result("failed", mr, "a blocking job failed while the pipeline is still running; read more of its log with mr_job_trace", {
+          const next = onlyStatuses(early.failedJobs)
+            ? `a blocking check failed while the others still run; ${STATUS_ONLY_NEXT}`
+            : "a blocking job failed while the pipeline is still running; read more of its log with mr_job_trace";
+          return result("failed", mr, next, {
             failedJobs: early.failedJobs,
             blockingFailures: early.blockingFailures,
           });

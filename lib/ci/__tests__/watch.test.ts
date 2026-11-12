@@ -228,6 +228,35 @@ describe("watchPipeline", () => {
     expect(r.blockingFailures).toBe(2);
     expect(traced).toEqual([7]);
   });
+  describe("the next hint for failed rows", () => {
+    const status = { id: "github:status:ci/build:12", name: "ci/build:12", stage: "checks", status: "failed", allowFailure: false, webUrl: "https://ci.example.com/b/12" };
+    const check = { id: "github:check:7", name: "unit", stage: "checks", status: "failed", allowFailure: false, webUrl: null };
+    const glJob = { id: "gitlab:job:5", name: "unit", stage: "test", status: "failed", allowFailure: false, webUrl: null };
+
+    test.each([
+      ["settled", "failed"],
+      ["still running", "running"],
+    ])("%s with only commit status rows points at the status link, not mr_job_trace", async (_label, pipelineStatus) => {
+      const { deps } = fake([mr(SHA, pipe({ id: "github:run:10", status: pipelineStatus, jobs: [status] }))]);
+      const r = await watchPipeline(base, deps) as { state: string; next: string };
+      expect(r.state).toBe("failed");
+      expect(r.next).not.toContain("mr_job_trace");
+      expect(r.next).toContain("webUrl");
+    });
+
+    test("a commit status beside an Actions check keeps the mr_job_trace hint", async () => {
+      const { deps } = fake([mr(SHA, pipe({ id: "github:run:10", status: "failed", jobs: [check, status] }))]);
+      const r = await watchPipeline(base, deps) as { next: string };
+      expect(r.next).toBe("read more of a job's log with mr_job_trace");
+    });
+
+    test("GitLab hints are unchanged", async () => {
+      const settled = await watchPipeline(base, fake([mr(SHA, pipe({ status: "failed", jobs: [glJob] }))]).deps) as { next: string };
+      expect(settled.next).toBe("read more of a job's log with mr_job_trace");
+      const early = await watchPipeline(base, fake([mr(SHA, pipe({ status: "running", jobs: [glJob] }))]).deps) as { next: string };
+      expect(early.next).toBe("a blocking job failed while the pipeline is still running; read more of its log with mr_job_trace");
+    });
+  });
   test("merged_result: a successful parent fetch that misses the sha is no match, even for a pipeline new since the push", async () => {
     const { deps } = fake([mr(SHA, pipe({ id: "gitlab:pipeline:12", sha: "m".repeat(40), mergeRequestEventType: "merged_result", status: "success" }))], {
       commitParents: async () => ["t".repeat(40), OLD],
