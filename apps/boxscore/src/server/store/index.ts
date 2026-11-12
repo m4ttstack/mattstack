@@ -568,6 +568,9 @@ function buildStore() {
         stmtSetMeta.run(FORGE_HOST_KEY, host);
         return recorded !== undefined;
       });
+      // Runs on every request: the usual same-host case must not wait on another
+      // process's write lock. The locked transaction re-reads before it changes anything.
+      if (recordedHost() === host) return false;
       return tx.immediate();
     },
 

@@ -485,7 +485,11 @@ describe('forge host', () => {
     s.upsertMrMetrics([metrics('g/p', 1)]);
     s.upsertPipelines([pipeline()]);
     s.upsertPushEvents([
-      { username: 'ada', createdAt: '2026-05-01T00:00:00Z', repositoryId: null },
+      {
+        username: 'ada',
+        createdAt: '2026-05-01T00:00:00Z',
+        repositoryId: null,
+      },
     ]);
     s.upsertIdentities([
       {
@@ -601,7 +605,7 @@ describe('forge host', () => {
     const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
     const otherProcess = new Database(process.env.BOXSCORE_DB!);
     otherProcess.exec('PRAGMA busy_timeout = 0');
-    let otherSwitchedHost = false;
+    let otherProcessError: unknown = null;
     const guarded = guardForgeWrites(
       {
         ...s,
@@ -610,9 +614,8 @@ describe('forge host', () => {
             otherProcess.exec(
               "INSERT OR REPLACE INTO store_meta (key, value) VALUES ('forge_host', 'gl.other.example')"
             );
-            otherSwitchedHost = true;
-          } catch {
-            // SQLITE_BUSY: the guard still holds the write lock.
+          } catch (err) {
+            otherProcessError = err;
           }
           s.upsertIndexRows(rows);
         },
@@ -620,10 +623,28 @@ describe('forge host', () => {
       'https://gl.example'
     );
 
-    guarded.upsertIndexRows([row()]);
-    otherProcess.close();
+    try {
+      guarded.upsertIndexRows([row()]);
+    } finally {
+      otherProcess.close();
+    }
 
-    expect(otherSwitchedHost).toBe(false);
+    expect(String(otherProcessError)).toMatch(/database is locked/);
+  });
+
+  it('adopting the host already recorded never waits on another writer', () => {
+    const s = getStore();
+    s.clear();
+    s.adoptForgeHost('https://gl.example');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
+    const otherProcess = new Database(process.env.BOXSCORE_DB!);
+    otherProcess.exec('BEGIN IMMEDIATE');
+    try {
+      expect(s.adoptForgeHost('https://gl.example')).toBe(false);
+    } finally {
+      otherProcess.exec('ROLLBACK');
+      otherProcess.close();
+    }
   });
 });
-
