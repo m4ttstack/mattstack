@@ -11,7 +11,7 @@ import type {
   ProjectSyncError,
 } from '@mattstack/rt-client';
 import type { ExecutorState, ExecutorView } from './client/types.ts';
-import type { BoardConfig, Member } from './config.ts';
+import type { BoardConfig, BoardForge, Member } from './config.ts';
 import type { ReviewerLatch } from './latch/discussions.ts';
 import type { RespondTarget } from './respond-targets.ts';
 import { extractTicketId } from './ticket.ts';
@@ -273,7 +273,9 @@ export function boardDemand(config: BoardConfig, port: number): DemandDecl {
   return {
     client: `board:${port}`,
     authors: config.members.map(m => m.username),
-    ...(sections.length > 0 ? { codeownerSections: sections } : {}),
+    ...(sections.length > 0 && config.forge.kind === 'gitlab'
+      ? { codeownerSections: sections }
+      : {}),
     declaredAt: Date.now(),
   };
 }
@@ -334,7 +336,10 @@ export interface SyncScopeRead {
  * `projects` counting every failing read. A project that errored before
  * yielding a read is simply absent from `reads`.
  */
-export function aggregateSyncScope(reads: SyncScopeRead[]): {
+export function aggregateSyncScope(
+  reads: SyncScopeRead[],
+  forge: BoardForge['kind'] = 'gitlab'
+): {
   dataSyncedAt: number | null;
   scopeUncovered: string[];
   scopeWindowDays: number | null;
@@ -360,9 +365,11 @@ export function aggregateSyncScope(reads: SyncScopeRead[]): {
           ? read.scope.windowDays
           : Math.min(scopeWindowDays, read.scope.windowDays);
       for (const author of read.scope.uncovered) uncovered.add(author);
-      for (const section of read.scope.uncoveredSections ?? [])
+      for (const section of forge === 'github'
+        ? []
+        : (read.scope.uncoveredSections ?? []))
         uncoveredSections.add(section);
-      if (read.scope.knownSections) {
+      if (forge !== 'github' && read.scope.knownSections) {
         known ??= new Set<string>();
         for (const section of read.scope.knownSections) known.add(section);
       }

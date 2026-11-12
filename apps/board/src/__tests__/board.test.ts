@@ -766,6 +766,18 @@ describe('boardDemand', () => {
     expect(boardDemand(withTabs, 1).codeownerSections).toEqual(['Acme']);
     expect(boardDemand(config, 1).codeownerSections).toBeUndefined();
   });
+
+  test('boardDemand sends no codeownerSections on a GitHub team', () => {
+    const gh: BoardConfig = {
+      ...config,
+      forge: { kind: 'github', host: 'https://github.com' },
+      tabs: tabsWithCodeowners,
+    };
+    expect('codeownerSections' in boardDemand(gh, 1)).toBe(false);
+    expect(
+      boardDemand({ ...gh, forge: config.forge }, 1).codeownerSections
+    ).toEqual(['Acme']);
+  });
 });
 
 describe('channelForMR', () => {
@@ -892,6 +904,27 @@ describe('reviewSkillForTab', () => {
 });
 
 describe('aggregateSyncScope', () => {
+  test('aggregateSyncScope ignores section scope on GitHub', () => {
+    const reads = [
+      {
+        syncedAt: 1,
+        scope: {
+          windowDays: 7,
+          authors: [],
+          uncovered: [],
+          uncoveredSections: ['A'],
+          knownSections: ['A'],
+        },
+      },
+    ];
+    const gh = aggregateSyncScope(reads, 'github');
+    expect(gh.scopeUncoveredSections).toEqual([]);
+    expect(gh.scopeKnownSections).toBeNull();
+    const gl = aggregateSyncScope(reads);
+    expect(gl.scopeUncoveredSections).toEqual(['A']);
+    expect(gl.scopeKnownSections).toEqual(['A']);
+  });
+
   test('dataSyncedAt is the min syncedAt across reads', () => {
     const agg = aggregateSyncScope([
       { syncedAt: 300 },

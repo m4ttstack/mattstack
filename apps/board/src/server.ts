@@ -931,7 +931,7 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
   if (errors.length) throw new Error(errors.join(' · '));
   return {
     prs: [...byId.values()],
-    ...aggregateSyncScope(reads),
+    ...aggregateSyncScope(reads, config.forge.kind),
     tags,
     windows,
   };
