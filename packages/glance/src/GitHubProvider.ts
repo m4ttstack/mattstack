@@ -124,7 +124,7 @@ import { RequestError } from '@octokit/request-error';
 // instance, which requires this package's @octokit/graphql range to track
 // @octokit/core's.
 import { GraphqlResponseError } from '@octokit/graphql';
-import { ReadBackFailedError } from './errors.ts';
+import { MergeReadBackFailedError, ReadBackFailedError } from './errors.ts';
 
 // ---------------------------------------------------------------------------
 // GitHub REST API response shapes (only fields we consume)
@@ -353,6 +353,13 @@ interface GraphQLReadError {
   message: string;
   type: string | null;
   path: Array<string | number> | null;
+}
+
+/** A single-PR read that returned its PR alongside errors is not trusted, matching `graphqlOrThrow`. */
+function throwOnGraphQLErrors(op: string, errors: GraphQLReadError[]): void {
+  if (errors.length > 0) {
+    throw new Error(`${op} failed: GitHub GraphQL returned ${errors.map(e => e.message).join('; ')}`);
+  }
 }
 
 /**
@@ -982,7 +989,7 @@ export class GitHubProvider implements GitProvider {
   private async fetchSingleMRAfterMutation(
     projectPath: string,
     mrIid: number,
-    verb: 'Created' | 'Updated' | 'Merged'
+    verb: 'Created' | 'Updated' | 'Merged' | 'Queued'
   ): Promise<PullRequest> {
     const details = { operation: `fetchSingleMR after ${verb}`, projectPath, iid: mrIid, writeApplied: true };
     let warning: FetchPullRequestsWarning | undefined;
@@ -1797,10 +1804,12 @@ export class GitHubProvider implements GitProvider {
 
   /**
    * When `shouldRemoveSourceBranch` is set, the branch deletion happens as a
-   * second call after the merge PUT has already succeeded and been read
-   * back. If that cleanup fails, the merge still resolves, with the reason
-   * in `sourceBranchNotDeleted`: a rejection here would read as "the merge
-   * failed", and a caller retrying on it would re-issue a merge that landed.
+   * second call after the merge PUT has already succeeded, whether or not the
+   * read-back did. If that cleanup fails, the merge still resolves, with the
+   * reason in `sourceBranchNotDeleted`: a rejection here would read as "the
+   * merge failed", and a caller retrying on it would re-issue a merge that
+   * landed. A failed read-back throws `MergeReadBackFailedError`, which
+   * carries the same branch outcome.
    */
   async mergePullRequest(
     projectPath: string,
@@ -1827,54 +1836,42 @@ export class GitHubProvider implements GitProvider {
       }
       throw err;
     }
-    const pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Merged');
-    if (!input?.shouldRemoveSourceBranch) return pr;
-    const notDeleted = await this.removeMergedSourceBranch(projectPath, mrIid, pr.sourceBranch);
-    return notDeleted === null ? pr : { ...pr, sourceBranchNotDeleted: notDeleted };
+    let pr: PullRequest | undefined;
+    let readBackError: unknown;
+    try {
+      pr = await this.fetchSingleMRAfterMutation(projectPath, mrIid, 'Merged');
+    } catch (err) {
+      readBackError = err;
+    }
+    const notDeleted = input?.shouldRemoveSourceBranch
+      ? await this.removeMergedSourceBranch(context.headBranch, context.headRepo)
+      : null;
+    if (pr) return notDeleted === null ? pr : { ...pr, sourceBranchNotDeleted: notDeleted };
+    const original = readBackError instanceof ReadBackFailedError ? readBackError : undefined;
+    throw new MergeReadBackFailedError(
+      readBackError instanceof Error ? readBackError.message : String(readBackError),
+      {
+        operation: original?.operation ?? 'fetchSingleMR after Merged',
+        projectPath,
+        iid: mrIid,
+        writeApplied: true,
+        cause: original ? original.cause : readBackError,
+        ...(notDeleted === null ? {} : { sourceBranchNotDeleted: notDeleted })
+      }
+    );
   }
 
   /**
    * Deletes a merged PR's source branch from the repository that owns it.
    * Resolves null once the branch is gone, or the one-sentence reason it is
    * still there. Never throws: the merge in front of it already landed.
+   *
+   * `headRepo` comes from the merge context: for a fork PR the branch lives in
+   * the fork, and deleting against the base repository could remove an
+   * unrelated branch of the same name there.
    */
-  private async removeMergedSourceBranch(
-    projectPath: string,
-    mrIid: number,
-    branch: string
-  ): Promise<string | null> {
+  private async removeMergedSourceBranch(branch: string, headRepo: string | null): Promise<string | null> {
     const notDeleted = (why: string) => `The source branch "${branch}" was not deleted: ${why}`;
-    // `branch` is `head.ref`, a branch name with no repository
-    // attached. For a same-repo PR that name lives in `projectPath`, but
-    // for a fork PR it lives in the fork, and deleting against
-    // `projectPath` would either 404 (branch never existed there, so the
-    // delete silently does nothing while reporting success) or, worse,
-    // delete an unrelated same-named branch in the base repo. The raw PR
-    // (not the mapped `PullRequest`, which carries no head-repo field)
-    // has to be read to find out which repository actually owns the ref.
-    let raw: GHPullRequest | null = null;
-    try {
-      const res = await this.octokit.request(`GET /repos/${projectPath}/pulls/${mrIid}`);
-      raw = res.data as GHPullRequest;
-    } catch (err) {
-      // A failed read is not a deleted fork: saying so would send the
-      // caller looking for the wrong problem.
-      if (err instanceof RateLimitedError) {
-        return notDeleted(
-          `reading the PR to find its head repository was rate limited${err.resetAt ? ` until ${err.resetAt}` : ''}`
-        );
-      }
-      if (!(err instanceof RequestError && err.status === 404)) {
-        const reason =
-          err instanceof RequestError && err.response
-            ? `${err.status} ${bodyText(err)}`
-            : err instanceof Error
-              ? err.message
-              : String(err);
-        return notDeleted(`reading the PR to find its head repository failed: ${reason}`);
-      }
-    }
-    const headRepo = raw?.head?.repo?.full_name;
     if (!headRepo) {
       return notDeleted(
         'its head repository is unknown (the fork was likely deleted), so the delete could not be targeted safely'
@@ -2096,7 +2093,7 @@ export class GitHubProvider implements GitProvider {
 
   async rebasePullRequest(projectPath: string, mrIid: number): Promise<void> {
     const { owner, repo } = this.splitOwnerRepo(projectPath);
-    const read = await this.graphqlOrThrow<{
+    const { data: read, errors: readErrors } = await this.graphqlRead<{
       repository?: { pullRequest?: { id: string; headRefOid: string } | null } | null;
     }>(
       'rebasePullRequest',
@@ -2115,6 +2112,7 @@ export class GitHubProvider implements GitProvider {
         `rebasePullRequest failed: GitHub returned no pull request for ${projectPath}!${mrIid}`
       );
     }
+    throwOnGraphQLErrors('rebasePullRequest', readErrors);
 
     // expectedHeadOid makes GitHub refuse the rebase if the branch moved
     // after the read, instead of rebasing a head the caller never saw.
@@ -2137,7 +2135,7 @@ export class GitHubProvider implements GitProvider {
 
   private async mergeContext(op: string, projectPath: string, mrIid: number): Promise<GitHubMergeContext> {
     const { owner, repo } = this.splitOwnerRepo(projectPath);
-    const data = await this.graphqlOrThrow<GHMergeContextResponse>(op, MERGE_CONTEXT_QUERY, {
+    const { data, errors } = await this.graphqlRead<GHMergeContextResponse>(op, MERGE_CONTEXT_QUERY, {
       owner,
       repo,
       number: mrIid
@@ -2146,6 +2144,7 @@ export class GitHubProvider implements GitProvider {
     if (!context) {
       throw new Error(`${op} failed: GitHub returned no pull request for ${projectPath}!${mrIid}`);
     }
+    throwOnGraphQLErrors(op, errors);
     return context;
   }
 

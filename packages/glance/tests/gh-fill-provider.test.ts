@@ -925,7 +925,7 @@ const mergedFill = (numbers: number[]) =>
 const answerMergeContext = (query: string) => (isMergeContextQuery(query) ? mergeContextData() : undefined);
 
 interface MergeScenario {
-  headRead?: () => Response;
+  headRepo?: string | null;
   del?: () => Response;
   refCheck?: () => Response;
 }
@@ -935,17 +935,14 @@ function landedMerge(scenario: MergeScenario = {}): { calls: string[] } {
   const calls: string[] = [];
   stubForge({
     fill: mergedFill,
-    graphql: answerMergeContext,
+    graphql: (query) =>
+      isMergeContextQuery(query)
+        ? mergeContextData({ headRepo: scenario.headRepo === undefined ? 'o/r' : scenario.headRepo })
+        : undefined,
     rest: (url, method) => {
       const path = new URL(url).pathname;
       calls.push(`${method} ${path}`);
       if (method === 'PUT') return jsonResponse({ merged: true, sha: 'm1' });
-      if (method === 'GET' && /\/pulls\/9$/.test(path)) {
-        return (
-          scenario.headRead?.() ??
-          jsonResponse({ number: 9, head: { ref: 'feature', repo: { full_name: 'o/r' } } })
-        );
-      }
       if (method === 'DELETE') return scenario.del?.() ?? new Response(null, { status: 204 });
       if (method === 'GET' && path.includes('/git/ref/heads/')) {
         return scenario.refCheck?.() ?? jsonResponse({ message: 'Not Found' }, 404);
@@ -957,43 +954,14 @@ function landedMerge(scenario: MergeScenario = {}): { calls: string[] } {
 }
 
 describe('GitHubProvider mergePullRequest after the merge landed', () => {
-  test('a rate-limited head repository read resolves with the leftover branch and its reset time', async () => {
-    const reset = Math.floor(Date.now() / 1000) + 3600;
-    const { calls } = landedMerge({
-      headRead: () =>
-        jsonResponse({ message: 'API rate limit exceeded' }, 403, {
-          'x-ratelimit-remaining': '0',
-          'x-ratelimit-reset': String(reset)
-        })
-    });
-
-    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
-
-    expect(pr.state).toBe('merged');
-    expect(pr.sourceBranchNotDeleted).toContain('rate limit');
-    expect(pr.sourceBranchNotDeleted).toContain('"feature"');
-    expect(pr.sourceBranchNotDeleted).toContain(new Date(reset * 1000).toISOString());
-    expect(calls.some((c) => c.startsWith('DELETE'))).toBe(false);
-  });
-
-  test('a forbidden head repository read resolves with the leftover branch', async () => {
-    landedMerge({ headRead: () => jsonResponse({ message: 'Forbidden' }, 403) });
-
-    const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
-
-    expect(pr.state).toBe('merged');
-    expect(pr.sourceBranchNotDeleted).toMatch(
-      /^The source branch "feature" was not deleted: reading the PR to find its head repository failed: 403/
-    );
-  });
-
   test('an unknown head repository resolves with the leftover branch', async () => {
-    landedMerge({ headRead: () => jsonResponse({ number: 9, head: { ref: 'feature', repo: null } }) });
+    const { calls } = landedMerge({ headRepo: null });
 
     const pr = await provider().mergePullRequest('o/r', 9, { shouldRemoveSourceBranch: true });
 
     expect(pr.state).toBe('merged');
     expect(pr.sourceBranchNotDeleted).toContain('head repository is unknown');
+    expect(calls.some((c) => c.startsWith('DELETE'))).toBe(false);
   });
 
   test('a refused branch delete resolves with the leftover branch', async () => {

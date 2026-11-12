@@ -12,6 +12,7 @@
 import { describe, expect, test } from 'bun:test';
 import { RequestError } from '@octokit/request-error';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { GRAPHQL_READ_MARKER } from '../src/githubClient.ts';
 import { isMergeContextQuery, mergeContextData } from './helpers/gh-merge-context.ts';
 
 /**
@@ -81,7 +82,9 @@ describe('setAutoMerge', () => {
     // Proves the context read itself was scoped to the right repo and PR,
     // not just that some request happened to return a usable node id.
     expect(requests.length).toBe(0);
-    expect(contextReads).toEqual([{ owner: 'acme', repo: 'repo', number: 5 }]);
+    expect(contextReads).toEqual([
+      { owner: 'acme', repo: 'repo', number: 5, request: { [GRAPHQL_READ_MARKER]: true } }
+    ]);
 
     expect(mutations.length).toBe(1);
     expect(mutations[0]?.query).toContain('enablePullRequestAutoMerge');

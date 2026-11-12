@@ -2,6 +2,7 @@
 /** The transport is stubbed; nothing here touches a network. */
 import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
+import { GRAPHQL_READ_MARKER } from '../src/githubClient.ts';
 import { pickMergeMethod, type GitHubMergeContext } from '../src/githubMerge.ts';
 import type { MergeMethod } from '../src/types.ts';
 import { mergeContextData as contextPayload } from './helpers/gh-merge-context.ts';
@@ -164,7 +165,12 @@ describe('GitHubProvider mergePullRequest method', () => {
 
     expect(graphql).toHaveLength(1);
     expect(graphql[0]!.query).toContain('viewerDefaultMergeMethod');
-    expect(graphql[0]!.variables).toEqual({ owner: 'o', repo: 'r', number: 9 });
+    expect(graphql[0]!.variables).toEqual({
+      owner: 'o',
+      repo: 'r',
+      number: 9,
+      request: { [GRAPHQL_READ_MARKER]: true }
+    });
     expect(requests.map(r => r.route)).toEqual(['PUT /repos/o/r/pulls/9/merge']);
     expect(reads()).toBe(1);
   });

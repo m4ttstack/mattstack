@@ -131,6 +131,7 @@ export type { RequestInfo, OnRequestHook } from './instrumentation.ts';
 // that lets a caller tell a rejected write from a write it cannot read back.
 export {
   ReadBackFailedError,
+  MergeReadBackFailedError,
   RateLimitedError,
   ForgeHttpError,
   EmptyDiscussionError,
