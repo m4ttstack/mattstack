@@ -26,20 +26,29 @@ const API_KEY: AccountRecord = {
 
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
+// Claude Code records its answer to an env key under the key's last 20 characters.
+function keyDeclined(config: object, key: string): boolean {
+  const responses = (config as { customApiKeyResponses?: { rejected?: unknown } })
+    .customApiKeyResponses;
+  const rejected = responses?.rejected;
+  return Array.isArray(rejected) && rejected.includes(key.slice(-20));
+}
+
 export function readAccount(opts: {
   configDir: string | null;
   home: string;
   env: Record<string, string | undefined>;
 }): AccountRecord | null {
-  if (opts.env.ANTHROPIC_API_KEY) return { ...API_KEY };
+  const key = opts.env.ANTHROPIC_API_KEY;
   const file = join(opts.configDir ?? opts.home, ".claude.json");
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(file, "utf8"));
   } catch {
-    return null;
+    return key ? { ...API_KEY } : null;
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
+  if (typeof parsed !== "object" || parsed === null) return key ? { ...API_KEY } : null;
+  if (key && !keyDeclined(parsed, key)) return { ...API_KEY };
   const oauth = (parsed as { oauthAccount?: unknown }).oauthAccount;
   if (typeof oauth !== "object" || oauth === null) return { ...API_KEY };
   const o = oauth as Record<string, unknown>;

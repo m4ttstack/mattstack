@@ -47,6 +47,37 @@ describe("readAccount", () => {
     expect(r?.label).toBe("API key");
   });
 
+  describe("an API key and Claude Code's answer to it", () => {
+    const key = `sk-ant-${"x".repeat(30)}`;
+    const tail = key.slice(-20);
+    const withResponses = (customApiKeyResponses: unknown) => {
+      const d = tmp();
+      writeFileSync(join(d, ".claude.json"), JSON.stringify({ ...oauth, customApiKeyResponses }));
+      return readAccount({ configDir: d, home: tmp(), env: { ANTHROPIC_API_KEY: key } });
+    };
+
+    test("a declined key reads the oauth account", () => {
+      expect(withResponses({ approved: [], rejected: [tail] })?.account).toBe("u1");
+    });
+
+    test("an approved key reads api-key", () => {
+      expect(withResponses({ approved: [tail], rejected: [] })?.account).toBe("api-key");
+    });
+
+    test("a key in neither list reads api-key", () => {
+      expect(withResponses({ approved: ["other"], rejected: ["another"] })?.account).toBe("api-key");
+      expect(withResponses(undefined)?.account).toBe("api-key");
+    });
+
+    test("a missing or broken config with a key set reads api-key", () => {
+      const d = tmp();
+      const env = { ANTHROPIC_API_KEY: key };
+      expect(readAccount({ configDir: d, home: d, env })?.account).toBe("api-key");
+      writeFileSync(join(d, ".claude.json"), "{not json");
+      expect(readAccount({ configDir: d, home: d, env })?.account).toBe("api-key");
+    });
+  });
+
   test("a missing or broken config reads null", () => {
     const d = tmp();
     expect(readAccount({ configDir: d, home: d, env: {} })).toBeNull();
