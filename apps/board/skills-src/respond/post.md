@@ -239,7 +239,7 @@ error` and the fixed threads are held. `<root>` is the
   present, the draft otherwise) and is never resolved, so the reviewer can
   answer. On GitHub a PR-level row (`gh-issue-comment-<n>` or
   `gh-review-<n>`) posts as a new PR comment with `mr_comment {mrUrl,
-  body, resolvable: false}`: the body is `> <the comment's first line>`, a
+body, resolvable: false}`: the body is `> <the comment's first line>`, a
   blank line, `@<author>`, then the reply; `mr_reply_thread` refuses those
   ids. `resolve:` runs after the reply when both are picked. An empty
   array leaves the thread untouched. A held thread posts and resolves
@@ -480,12 +480,12 @@ Take "Off-script step" with this question. Label: `reply to PR comment
 <threadId> refused twice on !<iid>: <second error>`. Context: both
 `mr_comment` errors, quoted, and the reply text.
 
-| Value | Label | Description |
-| --- | --- | --- |
-| `take: you post the reply to PR comment <threadId> yourself (mr_comment refused, round <k>)` | Post it yourself | You post this reply and I continue with the next thread. |
-| `iterate: you fixed the cause, post the reply to PR comment <threadId> again (mr_comment refused, round <k>)` | Fixed it, post again | You fixed what refused the reply and I post it again. |
-| `hold: keep this pane open with the remaining replies unposted (mr_comment refused, round <k>)` | Hold this pane | I stop here and the replies not yet posted stay unposted. |
-| `hand back: leave PR comment <threadId> unposted and post the rest (mr_comment refused, round <k>)` | Skip this reply | I leave this thread unposted and carry on with the rest. |
+| Value                                                                                                         | Label                | Description                                               |
+| ------------------------------------------------------------------------------------------------------------- | -------------------- | --------------------------------------------------------- |
+| `take: you post the reply to PR comment <threadId> yourself (mr_comment refused, round <k>)`                  | Post it yourself     | You post this reply and I continue with the next thread.  |
+| `iterate: you fixed the cause, post the reply to PR comment <threadId> again (mr_comment refused, round <k>)` | Fixed it, post again | You fixed what refused the reply and I post it again.     |
+| `hold: keep this pane open with the remaining replies unposted (mr_comment refused, round <k>)`               | Hold this pane       | I stop here and the replies not yet posted stay unposted. |
+| `hand back: leave PR comment <threadId> unposted and post the rest (mr_comment refused, round <k>)`           | Skip this reply      | I leave this thread unposted and carry on with the rest.  |
 
 A take counts the reply as posted, marks the thread `posted by hand`, and
 runs the thread's `resolve:` pick, which a PR-level row skips. Iterate passes `Off-script rounds = 2
