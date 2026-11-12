@@ -93,7 +93,7 @@ Every doctor row runs `resolve-args.sh` with a nonzero exit (no domain skill), s
        - `mrUrl on github.com (doctor)?`: `no`.
        - `Forge (before the rebase)?`: `GitLab`.
        - A diamond absent from one side is a no-op there.
-    3. Keep only what is reachable from every node with no inbound edge (each trigger), as check-dot seeds its walk.
+    3. Keep only what the graph's start nodes reach in the projected graph. Find the start nodes in the graph as parsed, before steps 1 and 2: every node with no inbound edge there (the triggers, and the stage's `watch_ci_entered`). A node that loses its inbound edges in steps 1 and 2 is never a start node, so GitHub-only regions drop out.
   - Compare:
     - Compare edges as `(fromText, label, toText)` triples, plus the node texts.
     - Before comparing, apply the allowlist to the base side as text substitutions. The allowlist is a const array of `[old, new]` pairs, filled from the spec's list as Tasks 3 to 6 land; each task appends its own pairs.
@@ -110,7 +110,7 @@ Every doctor row runs `resolve-args.sh` with a nonzero exit (no domain skill), s
 - [ ] **Step 1:** Re-read Linear SKILLS-108, RT-370 and RT-546. If any of the three tickets' acceptance has changed since the spec, stop and `herd_ask`.
 - [ ] **Step 2:** Run `sh .superpowers/verify.sh`. Copy `<scratch>/pack/skills/watch-ci/`, `<scratch>/pack/attachments/stage-watch-ci/`, `apps/board/skills/doctor/` and `apps/board/skills/respond/` into `.superpowers/redgreen/red-skills/`.
 - [ ] **Step 3:** Dispatch the ten walkers from the scenario table in parallel, each on its RED skill copy (model `sonnet`, effort `medium`). Save each transcript summary to `red-<id>.md`.
-- [ ] **Step 4:** Record what each RED run did wrong against "GREEN expects". Expected misses include a CLI forge command for the retry or the draft check (W1, W3), doctor stopping at entry (D1 to D3), an unclear reply check (R1) and a refusal to adjudicate (R2). A scenario whose RED already matches GREEN is noted; its region still gets the spec's edit.
+- [ ] **Step 4:** Record what each RED run did wrong against "GREEN expects". Expected misses include a CLI forge command for the retry or the draft check (W1, W3), doctor stopping at entry (D1 to D4, D2b included), an unclear reply check (R1) and a refusal to adjudicate (R2). A scenario whose RED already matches GREEN is noted; its region still gets the spec's edit.
 
 ### Task 3: watch-ci verb on the shared path
 
@@ -180,7 +180,7 @@ Every doctor row runs `resolve-args.sh` with a nonzero exit (no domain skill), s
 ### Task 5: Board doctor runs on GitHub (entry, rebase, watch)
 
 **Files:**
-- Modify: `apps/board/skills-src/doctor/entry.md`, `apps/board/skills-src/doctor/SKILL.md` (the GitHub entry edge and prose only), `apps/board/skills-src/doctor/diagnose.md` (the rebase region from the status write down, and "The rebase poll" bullet), `apps/board/skills-src/doctor/watch.md`
+- Modify: `apps/board/skills-src/doctor/entry.md`, `apps/board/skills-src/doctor/SKILL.md` (the GitHub entry edge and prose only), `apps/board/skills-src/doctor/diagnose.md` (the rebase region from the status write down, "The rebase poll" bullet, and `Fix what the mr_view error names`), `apps/board/skills-src/doctor/watch.md`
 - Regenerate: `apps/board/skills/doctor/` (expand)
 
 **Interfaces:**
