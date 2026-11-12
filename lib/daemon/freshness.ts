@@ -1119,6 +1119,7 @@ function createFreshnessCore() {
     githubSuppressedWarned = false;
     userId = null;
     userIdResolved = false;
+    selfUsername = null;
   }
 
   return {
