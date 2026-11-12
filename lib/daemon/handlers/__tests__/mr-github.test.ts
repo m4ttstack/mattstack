@@ -359,6 +359,40 @@ describe("project-mrs on GitHub", () => {
     expect(res).toEqual({ ok: true, data: { byBranch: { gone: null }, syncedAt: 0 } });
   });
 
+  test("mr:by-branch answers a failed read, not a missing PR, when the batched fill of a branch failed", async () => {
+    const store = tmpStore();
+    const asked: unknown[] = [];
+    const provider = {
+      capabilities: { canReportIncompleteBranchReads: true },
+      fetchPullRequestsByBranches: async (...args: any[]) => {
+        asked.push(args);
+        args[3].onWarning({ kind: "request-failed", source: "fill", status: 502, message: "fill failed", target: "o/r#7", branch: "feat" });
+        return new Map([["feat", null], ["other", prOf(8, { sourceBranch: "other" })]]);
+      },
+    };
+    const h = createProjectMRsHandlers({ repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, {
+      store, tracking, getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }),
+    });
+    const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat", "other"] });
+    expect(res).toEqual({ ok: false, error: "GitHub could not finish reading the pull request on feat in o/r (502 fill failed); try again" });
+    expect(asked.length).toBe(1);
+  });
+
+  test("mr:by-branch answers a failed read when a single-branch read hit its scan cap", async () => {
+    const provider = {
+      capabilities: { canReportIncompleteBranchReads: true },
+      fetchPullRequestByBranch: async (_p: string, branch: string, _s: string, options: any) => {
+        options.onWarning({ kind: "page-cap", source: "list", message: "GitHub listed 500 PRs without finding it", target: "o/r", branch });
+        return null;
+      },
+    };
+    const h = createProjectMRsHandlers({ repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, {
+      store: tmpStore(), tracking, getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }),
+    });
+    const res = await h["mr:by-branch"]({ repoName: REPO, branches: ["feat"] });
+    expect(res).toEqual({ ok: false, error: "GitHub could not finish reading the pull request on feat in o/r (GitHub listed 500 PRs without finding it); try again" });
+  });
+
   const byBranchWith = (over: Record<string, unknown>) =>
     createProjectMRsHandlers({ repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, { store: tmpStore(), tracking, ...over });
 

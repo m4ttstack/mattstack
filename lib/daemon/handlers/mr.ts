@@ -40,13 +40,13 @@
  */
 
 import { applyMRWriteback, getCurrentUserId, getRepoContext } from "../freshness.ts";
-import type { MergeQueueEntry, PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
+import type { FetchPullRequestsWarning, MergeQueueEntry, PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
 import { MergeReadBackFailedError, PartialCreateError, ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrCreateFailedStep, MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
 import { createFileDiffReader, fileDiffContextOf, type FileDiffContext } from "../file-diff.ts";
-import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
+import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, incompleteBranchRead, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
 
 type ActionName =
   | "merge" | "rebase" | "approve" | "unapprove"
@@ -180,14 +180,22 @@ export function createMRHandlers(
     return getContext(repoName);
   }
 
-  /** The batch maps a pull request it found but could not fill to null too, so each null is checked against the open pull requests on that branch before it reads as "no PR". */
+  /** The batch maps a pull request it found but could not fill to null too. A provider that reports incomplete branch reads says so through onWarning; for any other, each null is checked against the open pull requests on that branch before it reads as "no PR". */
   async function liveByBranchOnGitHub(provider: any, projectPath: string, branches: string[]): Promise<CommandResult<"mr:live-by-branch">> {
-    const found: Map<string, PullRequest | null> = await provider.fetchPullRequestsByBranches(projectPath, branches.map((b) => b.trim()));
+    const reports = provider.capabilities?.canReportIncompleteBranchReads === true;
+    const warned = new Map<string, FetchPullRequestsWarning>();
+    const trimmed = branches.map((b) => b.trim());
+    const found: Map<string, PullRequest | null> = reports
+      ? await provider.fetchPullRequestsByBranches(projectPath, trimmed, undefined, { onWarning: (w: FetchPullRequestsWarning) => { if (w.branch && !warned.has(w.branch)) warned.set(w.branch, w); } })
+      : await provider.fetchPullRequestsByBranches(projectPath, trimmed);
     const byBranch: Record<string, PullRequest | null> = {};
     const unfilled: string[] = [];
     for (const branch of branches) {
       byBranch[branch] = found.get(branch.trim()) ?? null;
-      if (!byBranch[branch]) unfilled.push(branch);
+      if (byBranch[branch]) continue;
+      const warning = warned.get(branch.trim());
+      if (warning) return { ok: false, error: incompleteBranchRead(branch.trim(), projectPath, warning) };
+      if (!reports) unfilled.push(branch);
     }
     for (const branch of unfilled) {
       const open = await provider.fetchPullRequestSummaries(projectPath, { state: "opened", sourceBranch: branch.trim(), limit: 1 });

@@ -308,6 +308,12 @@ async function githubFailure(res: Response): Promise<string> {
   return wait === null ? "GitHub rate limit hit on gitlab_get" : `GitHub rate limit hit on gitlab_get (retry in ${Math.max(0, Math.ceil(wait))}s)`;
 }
 
+/** A by-branch read that came back short must not read as "no PR on this branch". */
+export function incompleteBranchRead(branch: string, projectPath: string, warning: { status?: number; message: string }): string {
+  const reason = `${warning.status ?? ""} ${warning.message}`.trim().slice(0, 200);
+  return `GitHub could not finish reading the pull request on ${branch} in ${projectPath} (${reason}); try again`;
+}
+
 export type ForgeGetInput = { path: unknown; query?: Record<string, string | number | boolean>; page?: number; perPage?: number };
 
 export async function forgeGet(
