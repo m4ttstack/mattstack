@@ -472,3 +472,122 @@ describe('legacy row normalization', () => {
     ]);
   });
 });
+
+describe('forge host', () => {
+  const seedForgeAndLinear = () => {
+    const s = getStore();
+    s.clear();
+    s.upsertIndexRows([row()]);
+    s.recordScan('g/p', {
+      from: '2026-04-01T00:00:00Z',
+      at: '2026-05-03T00:00:00Z',
+    });
+    s.upsertMrMetrics([metrics('g/p', 1)]);
+    s.upsertPipelines([pipeline()]);
+    s.upsertPushEvents([
+      { username: 'ada', createdAt: '2026-05-01T00:00:00Z', repositoryId: null },
+    ]);
+    s.upsertIdentities([
+      {
+        username: 'ada',
+        name: 'Ada L',
+        resolved: true,
+        userId: 7,
+        fetchedAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+    s.upsertLinearIssues([
+      {
+        id: '1',
+        identifier: 'ENG-1',
+        title: 'a',
+        url: 'u1',
+        creditedUser: 'ada',
+        linkedMrs: [{ projectPath: 'g/p', iid: 1, via: 'mention' }],
+        closedAt: null,
+        stateType: 'completed',
+        stateName: 'Done',
+      },
+    ]);
+    return s;
+  };
+  const allForgeRows = {
+    mrIndex: 1,
+    mrMetrics: 1,
+    pipelines: 1,
+    pushEvents: 1,
+    linearIssues: 1,
+  };
+
+  it('the first host seen adopts the data already in the store', () => {
+    const s = seedForgeAndLinear();
+
+    expect(s.adoptForgeHost('https://gl.example')).toBe(false);
+
+    expect(s.counts()).toEqual(allForgeRows);
+    expect(s.lastScan('g/p')).toBe('2026-05-03T00:00:00Z');
+    expect(s.identities(['ada'])).toHaveLength(1);
+  });
+
+  it('the same host again keeps the data, whatever its case', () => {
+    const s = seedForgeAndLinear();
+    s.adoptForgeHost('https://gl.example');
+
+    expect(s.adoptForgeHost('https://GL.example')).toBe(false);
+
+    expect(s.counts()).toEqual(allForgeRows);
+  });
+
+  it('a new host clears every forge row and watermark and keeps the Linear rows', () => {
+    const s = seedForgeAndLinear();
+    s.adoptForgeHost('https://gl.example');
+
+    expect(s.adoptForgeHost('https://gl.other.example')).toBe(true);
+
+    expect(s.counts()).toEqual({
+      mrIndex: 0,
+      mrMetrics: 0,
+      pipelines: 0,
+      pushEvents: 0,
+      linearIssues: 1,
+    });
+    expect(s.lastScan('g/p')).toBeNull();
+    expect(s.scanFloor('g/p')).toBeNull();
+    expect(s.identities(['ada'])).toEqual([]);
+  });
+
+  it("the new host's own rows survive its next check", () => {
+    const s = seedForgeAndLinear();
+    s.adoptForgeHost('https://gl.example');
+    s.adoptForgeHost('https://gl.other.example');
+    s.upsertIndexRows([row({ iid: 9 })]);
+
+    expect(s.adoptForgeHost('https://gl.other.example')).toBe(false);
+
+    expect(s.counts().mrIndex).toBe(1);
+  });
+
+  it('the recorded host outlives a reopen', () => {
+    const s = seedForgeAndLinear();
+    s.adoptForgeHost('https://gl.example');
+    __resetStore();
+
+    expect(getStore().adoptForgeHost('https://gl.other.example')).toBe(true);
+  });
+
+  it('a store from before the host was recorded keeps its data when it opens', () => {
+    const s = seedForgeAndLinear();
+    s.close();
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
+    const raw = new Database(process.env.BOXSCORE_DB!);
+    raw.exec('DROP TABLE IF EXISTS store_meta');
+    raw.close();
+    __resetStore();
+    const reopened = getStore();
+
+    expect(reopened.adoptForgeHost('https://gl.example')).toBe(false);
+
+    expect(reopened.counts()).toEqual(allForgeRows);
+  });
+});

@@ -1,4 +1,8 @@
-/** Bump whenever the DDL below changes; db.ts drops and recreates every table on mismatch. */
+/**
+ * Bump whenever an existing table's DDL changes; db.ts drops and recreates every table on
+ * mismatch. A new table needs no bump: the DDL runs with IF NOT EXISTS on every open, and a
+ * bump would throw away every install's stored data.
+ */
 export const SCHEMA_VERSION = 3;
 
 export const TABLES = [
@@ -9,6 +13,17 @@ export const TABLES = [
   'push_events',
   'linear_issues',
   'linear_ids',
+  'identities',
+  'store_meta',
+] as const;
+
+/** The tables holding data read from the GitLab host; cleared when the confirmed host changes. */
+export const FORGE_TABLES = [
+  'mr_index',
+  'scan_meta',
+  'mr_metrics',
+  'pipelines',
+  'push_events',
   'identities',
 ] as const;
 
@@ -30,4 +45,5 @@ CREATE INDEX IF NOT EXISTS push_events_created ON push_events (created_at);
 CREATE TABLE IF NOT EXISTS linear_issues (identifier TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS linear_ids (id TEXT PRIMARY KEY, valid INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS identities (username TEXT PRIMARY KEY, name TEXT, resolved INTEGER NOT NULL, user_id INTEGER, fetched_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;

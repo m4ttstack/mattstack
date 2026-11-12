@@ -1,6 +1,6 @@
 import { getDb, resetDb } from './db.js';
 import type { LinkVia } from './model.js';
-import { TABLES } from './schema.js';
+import { FORGE_TABLES, TABLES } from './schema.js';
 
 export type MrState = 'merged' | 'opened' | 'closed' | 'locked';
 
@@ -153,8 +153,24 @@ function toIndexRow(r: IndexRowRecord): IndexRow {
   };
 }
 
+/** "https://GitLab.example.com/" and "gitlab.example.com" are one host. */
+function hostOf(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host.toLowerCase();
+  } catch {
+    return baseUrl.trim().toLowerCase();
+  }
+}
+
+const FORGE_HOST_KEY = 'forge_host';
+
 function buildStore() {
   const db = getDb();
+
+  const stmtGetMeta = db.query('SELECT value FROM store_meta WHERE key = ?');
+  const stmtSetMeta = db.query(
+    'INSERT OR REPLACE INTO store_meta (key, value) VALUES (?, ?)'
+  );
 
   const stmtUpsertIndex = db.query(
     `INSERT OR REPLACE INTO mr_index
@@ -517,6 +533,28 @@ function buildStore() {
         pushEvents: (stmtCountPushEvents.get() as { c: number }).c,
         linearIssues: (stmtCountLinearIssues.get() as { c: number }).c,
       };
+    },
+
+    /**
+     * Ties the forge rows to the GitLab host they were read from. A store with no recorded
+     * host (one from before this was tracked) adopts `baseUrl`'s host and keeps its rows; a
+     * different recorded host clears every forge table, so no row or watermark from it
+     * shows for the new one. Returns whether it cleared.
+     */
+    adoptForgeHost(baseUrl: string): boolean {
+      const host = hostOf(baseUrl);
+      const tx = db.transaction((): boolean => {
+        const recorded = (
+          stmtGetMeta.get(FORGE_HOST_KEY) as { value: string } | null
+        )?.value;
+        if (recorded === host) return false;
+        if (recorded !== undefined) {
+          for (const table of FORGE_TABLES) db.exec(`DELETE FROM ${table}`);
+        }
+        stmtSetMeta.run(FORGE_HOST_KEY, host);
+        return recorded !== undefined;
+      });
+      return tx();
     },
 
     clear(): void {

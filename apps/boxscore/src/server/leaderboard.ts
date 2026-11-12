@@ -147,6 +147,11 @@ async function buildLeaderboard(
   const settings = readSettings();
   const scope = resolveScope();
   const store = getStore();
+  if (store.adoptForgeHost(env.baseUrl)) {
+    console.warn(
+      `[store] the confirmed GitLab host is now ${env.baseUrl}; cleared the previous host's MRs, pipelines, events and scan watermarks`
+    );
+  }
   const pw = priorWindow(opts.window);
   // Everything this request reads: the window, plus its prior when deltas are wanted.
   const read: TimeWindow = opts.trend
