@@ -127,23 +127,33 @@ function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps
   const [base, path] = real === null ? [cache, text] : [deps.fs.realPath(cache) ?? cache, real];
   if (!within(base, path)) return null;
   const [, named, version] = path.slice(base.length + 1).split("/");
-  if (named === undefined || version === undefined) return null;
+  if (!named || !version) return null;
   if (named !== plugin) {
     throw refuse("skills-resolve-wrong-folder", `The skill folder passed for ${id} belongs to ${named}, not ${plugin}.`, `${dir} is in ${named}'s plugin folder.`);
   }
   return version;
 }
 
+function manyMarketplaces(plugin: string, what: string, copies: { dir: string; market: string }[]): UserActionableError {
+  const uninstalls = copies.map((c) => `claude plugin uninstall ${plugin}@${c.market}`).join("; ");
+  return refuse(
+    "skills-resolve-many-marketplaces",
+    `${what} is installed from more than one marketplace.`,
+    `Copies: ${copies.map((c) => c.dir).join(", ")}. Keep one and uninstall each of the others with its command: ${uninstalls}.`,
+    "claude plugin list",
+  );
+}
+
 function highestInstalled(id: string, plugin: string, deps: ResolveDeps): string {
   const cache = pluginCache(deps.home);
-  let best: string | null = null;
-  for (const market of deps.fs.readDir(cache).filter((m) => !m.startsWith("temp_git_"))) {
-    for (const version of deps.fs.readDir(`${cache}/${market}/${plugin}`).filter(isIdSafeVersion)) {
-      if (best === null || compareVersions(version, best) > 0) best = version;
-    }
-  }
-  if (best === null) throw refuse("skills-resolve-not-installed", `${plugin} is not installed, so ${id} cannot resolve.`, `No version of ${plugin} is installed.`, "/reload-plugins");
-  return best;
+  const held = deps.fs
+    .readDir(cache)
+    .filter((m) => !m.startsWith("temp_git_"))
+    .map((market) => ({ market, dir: `${cache}/${market}/${plugin}`, versions: deps.fs.readDir(`${cache}/${market}/${plugin}`).filter(isIdSafeVersion) }))
+    .filter((h) => h.versions.length > 0);
+  if (held.length === 0) throw refuse("skills-resolve-not-installed", `${plugin} is not installed, so ${id} cannot resolve.`, `No version of ${plugin} is installed.`, "/reload-plugins");
+  if (held.length > 1) throw manyMarketplaces(plugin, plugin, held);
+  return held[0]!.versions.reduce((best, v) => (compareVersions(v, best) > 0 ? v : best));
 }
 
 function pluginUnit(id: string, plugin: string, version: string, unit: string, deps: ResolveDeps): Unit {
@@ -156,15 +166,7 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
     const why = found.length > 0 ? `The installed versions are ${found.join(", ")}. ${ownerWhy(plugin)}` : `No version of ${plugin} is installed.`;
     throw refuse("skills-resolve-not-installed", `${plugin} ${version} is not installed, so ${id} cannot resolve.`, why, "/reload-plugins");
   }
-  if (roots.length > 1) {
-    const uninstalls = roots.map((r) => `claude plugin uninstall ${plugin}@${marketplaceOf(r)}`).join("; ");
-    throw refuse(
-      "skills-resolve-many-marketplaces",
-      `${plugin} ${version} is installed from more than one marketplace.`,
-      `Copies: ${roots.join(", ")}. Keep one and uninstall each of the others with its command: ${uninstalls}.`,
-      "claude plugin list",
-    );
-  }
+  if (roots.length > 1) throw manyMarketplaces(plugin, `${plugin} ${version}`, roots.map((dir) => ({ dir, market: marketplaceOf(dir) })));
   const root = roots[0]!;
   const fix = `claude plugin update ${plugin}@${marketplaceOf(root)}`;
   const owner = ownerWhy(plugin);

@@ -191,7 +191,7 @@ function parseObject(text: string): Record<string, unknown> | null {
   }
 }
 
-/** The map a unit's last compile wrote, when it was written for `id`: a stamp from another version names other files. */
+/** The map a unit's last compile wrote, when it was written for `id`: a map from older output carries a versioned id and is not reused. */
 function readUnitMap(packDir: string, dir: string, id: string): PointerMap | null {
   const parsed = readJson(join(packDir, dir, MAP_FILE));
   if (!parsed || parsed.id !== id || !Array.isArray(parsed.covers) || !parsed.keys || typeof parsed.keys !== "object") return null;

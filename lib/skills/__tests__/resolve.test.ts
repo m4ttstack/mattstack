@@ -316,7 +316,7 @@ describe("resolvePointers: versionless ids", () => {
   });
 
   test("a dir outside the plugin cache is treated as no dir", () => {
-    for (const dir of ["/src/acme/skills/work", `${HOME}/.claude/skills/work`, `${ROOT}/0.4.11/../../../../../outside`, `${CACHE}/acme/acme`, "skills/work"]) {
+    for (const dir of ["/src/acme/skills/work", `${HOME}/.claude/skills/work`, `${ROOT}/0.4.11/../../../../../outside`, `${CACHE}/acme/acme`, `${CACHE}/acme/acme/`, "skills/work"]) {
       const r = resolvePointers("acme:work", { fs: twoInstalled(), home: HOME }, dir);
       expect(r.folder).toBe(`${ROOT}/0.4.12/skills/work`);
       expect(r.pinned).toBe(false);
@@ -330,6 +330,35 @@ describe("resolvePointers: versionless ids", () => {
       expect(e.code).toBe("skills-resolve-wrong-folder");
       expect(said(e)).toContain("acme-base");
     }
+  });
+
+  test("a link inside the cache that leads outside it is treated as no dir", () => {
+    const link = `${ROOT}/0.4.11/skills/linked`;
+    const fs = fakeFs({ ...acmeFiles("0.4.11"), ...acmeFiles("0.4.12"), "/outside/acme/0.4.11/skills/work/SKILL.md": "" }, { [link]: "/outside/acme/0.4.11/skills/work" });
+    const r = resolvePointers("acme:work", { fs, home: HOME }, link);
+    expect(r.folder).toBe(`${ROOT}/0.4.12/skills/work`);
+    expect(r.pinned).toBe(false);
+    expect(r.warning).toBe(UNPINNED);
+  });
+
+  test("a link inside the cache that leads into another plugin's folder is refused", () => {
+    const link = `${ROOT}/0.4.11/skills/linked`;
+    const other = `${CACHE}/acme/acme-base/0.1.0/skills/work`;
+    const fs = fakeFs({ ...acmeFiles("0.4.11"), ...acmeFiles("0.4.12"), [`${other}/SKILL.md`]: "" }, { [link]: other });
+    const e = refusal(() => resolvePointers("acme:work", { fs, home: HOME }, link));
+    expect(e.code).toBe("skills-resolve-wrong-folder");
+    expect(said(e)).toContain("acme-base");
+  });
+
+  test("with no dir and the plugin in two marketplaces at different versions, refuses", () => {
+    const fs = fakeFs({ ...acmeFiles("0.4.11"), [`${CACHE}/gadgets/acme/0.4.12/skills/work/compiled.json`]: map("acme:work", "skills/work", {}) });
+    const e = refusal(() => resolvePointers("acme:work", { fs, home: HOME }));
+    expect(e.code).toBe("skills-resolve-many-marketplaces");
+    expect(said(e)).toContain(`${CACHE}/acme/acme`);
+    expect(said(e)).toContain(`${CACHE}/gadgets/acme`);
+    expect(e.why).toContain("claude plugin uninstall acme@acme");
+    expect(e.why).toContain("claude plugin uninstall acme@gadgets");
+    expect(e.next).toBe("claude plugin list");
   });
 
   test("with no dir and the plugin in two marketplaces, refuses as today", () => {
