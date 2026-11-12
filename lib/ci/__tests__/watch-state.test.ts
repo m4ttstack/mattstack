@@ -59,6 +59,49 @@ describe("watch state", () => {
     expect(readWatchState(MR, SHA, { dir })).toMatchObject({ version: 1, held: true, heldBy: null, reclaims: 2 });
   });
 
+  test("GitHub commit facts read back with the state", () => {
+    const github = { required: ["checks"], requiredFor: "main", requiredTries: 1, anchor: { runId: 900, createdAt: 1234 }, anchorTries: 1, confirm: null };
+    writeWatchState(sample({ github }), { dir, now: () => 5000 });
+    expect(readWatchState(MR, SHA, { dir }).github).toEqual(github);
+  });
+
+  test.each([
+    ["missing", undefined],
+    ["a number", 7],
+    ["null", null],
+  ])("a stored requiredFor that is %s reads back as null", (_label, requiredFor) => {
+    mkdirSync(join(dir, "watch"), { recursive: true });
+    const github = { required: ["checks"], requiredFor, requiredTries: 1, anchor: null, anchorTries: 0, confirm: null };
+    writeFileSync(watchStatePath(MR, { dir }), JSON.stringify({ ...sample(), github }));
+    expect(readWatchState(MR, SHA, { dir }).github).toEqual({ ...github, requiredFor: null });
+  });
+
+  test("a new sha reads back without GitHub commit facts", () => {
+    writeWatchState(sample({ github: { required: [], requiredFor: "main", requiredTries: 1, anchor: null, anchorTries: 0, confirm: null } }), { dir });
+    expect(readWatchState(MR, "fffffff", { dir }).github).toBeUndefined();
+  });
+
+  test("a fresh state has no GitHub commit facts", () => {
+    expect(readWatchState(MR, SHA, { dir })).not.toHaveProperty("github");
+  });
+
+  test("a github field that is not an object is dropped", () => {
+    mkdirSync(join(dir, "watch"), { recursive: true });
+    writeFileSync(watchStatePath(MR, { dir }), JSON.stringify({ ...sample(), github: "nope" }));
+    expect(readWatchState(MR, SHA, { dir })).not.toHaveProperty("github");
+  });
+
+  test.each([
+    ["a string createdAt", { runId: 900, createdAt: "2026-11-11T10:00:00Z" }],
+    ["a null createdAt", { runId: 900, createdAt: null }],
+    ["a non-object anchor", 7],
+  ])("a stored anchor with %s is dropped and the rest of the facts kept", (_label, anchor) => {
+    mkdirSync(join(dir, "watch"), { recursive: true });
+    const github = { required: ["checks"], requiredFor: "main", requiredTries: 1, anchor, anchorTries: 1, confirm: null };
+    writeFileSync(watchStatePath(MR, { dir }), JSON.stringify({ ...sample(), github }));
+    expect(readWatchState(MR, SHA, { dir }).github).toEqual({ ...github, anchor: null });
+  });
+
   test("leaves no temp files", () => {
     writeWatchState(sample(), { dir });
     expect(readdirSync(join(dir, "watch")).filter((n) => n.endsWith(".tmp"))).toEqual([]);

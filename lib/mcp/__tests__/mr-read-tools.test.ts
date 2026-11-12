@@ -5,6 +5,7 @@ import { join } from "path";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 import { LATCH_MARKER, LATCH_MARKER_SPENT } from "../../../packages/rt-client/src/index.ts";
+import { __resetMemoryFacts } from "../../ci/github-forge.ts";
 import { filterHumanThreads, isBotUsername, mrReadToolDefs, tailTrace, type MrReadDeps } from "../mr-read-tools.ts";
 
 const pr = (iid: number, state: string, draft = false) => ({
@@ -382,16 +383,6 @@ describe("pipeline_jobs", () => {
     const r = await t.handler({ repoName: ID, iid: 2, scope: "bogus" }, env);
     expect(r.ok).toBe(false);
   });
-  test("a GitHub MR returns unsupported_forge and reads nothing else", async () => {
-    const { t, calls } = jobsTool({ webUrl: "https://github.com/acme/proj/pull/2" });
-    expect(await t.handler({ repoName: ID, iid: 2 }, env)).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
-    expect(calls.map((c) => c.name)).toEqual(["mr:get"]);
-  });
-  test("a GitHub PR passed as mrUrl is unsupported_forge with no read at all", async () => {
-    const { t, calls } = jobsTool();
-    expect(await t.handler({ mrUrl: "https://github.com/acme/proj/pull/2" }, env)).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
-    expect(calls).toEqual([]);
-  });
   test("no head pipeline and no pipelineId is a tool error", async () => {
     const { t } = jobsTool({ pipeline: null });
     const r = await t.handler({ repoName: ID, iid: 2 }, env);
@@ -453,20 +444,192 @@ describe("on GitHub", () => {
     expect(calls).toEqual([{ name: "discussions:refresh", payload: { repoName: GH, iid: 3 } }]);
   });
 
-  test("pipeline_jobs keeps its unsupported_forge answer for a PR URL", async () => {
-    const { deps, calls } = fake({ "mr:get": { mr: ghPr, fetchedAt: 5 } });
-    expect(await tool(deps, "pipeline_jobs").handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv)).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
-    expect(calls).toEqual([]);
+  describe("pipeline_jobs", () => {
+    const SHA = "d".repeat(40);
+    const RUN_URL = "https://github.com/acme/app/actions/runs/555";
+    const env = {} as NodeJS.ProcessEnv;
+    const ok200 = (b: unknown, more: Record<string, unknown> = {}) => ({ ok: true, data: { status: 200, body: b, truncated: false, nextPage: null, totalPages: null, ...more } });
+    const check = (id: string, name: string, status: string, runId: string | null, webUrl: string | null = null) => ({
+      id, name, stage: "checks", status, allowFailure: false, duration: null, webUrl, runId,
+    });
+    const headPipeline = {
+      id: "github:run:901", status: "failed", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: `${PR}/checks`, createdAt: null,
+      jobs: [
+        check("github:check:71", "unit", "failed", "901"),
+        check("github:check:7", "lint", "failed", "902"),
+        check("github:status:ci/build:12", "ci/build:12", "success", null, "https://ci.example/12"),
+      ],
+    };
+    const restJob = (id: number, name: string, status: string, conclusion: string | null, attempt: number) => ({
+      id, name, status, conclusion, html_url: `${RUN_URL}/job/${id}`, run_attempt: attempt, run_id: 555,
+    });
+    const runJobPages: Record<number, { jobs: unknown[]; nextPage: number | null }> = {
+      1: { jobs: [restJob(7, "lint", "completed", "failure", 2)], nextPage: 2 },
+      2: { jobs: [restJob(8, "e2e", "in_progress", null, 1)], nextPage: null },
+    };
+
+    type Answer = { ok: boolean; data?: unknown; error?: string };
+    function ghJobs(over: { pipeline?: unknown; run?: Answer; jobsPage?: (payload: Record<string, unknown>) => Answer } = {}) {
+      const calls: Call[] = [];
+      const deps: MrReadDeps = {
+        command: (async (name: string, payload: Record<string, unknown>) => {
+          calls.push({ name, payload });
+          if (name === "mr:get") {
+            const pipeline = "pipeline" in over ? over.pipeline : headPipeline;
+            return { ok: true, data: { mr: { ...ghPr, sha: SHA, sourceBranch: "feat", targetBranch: "main", pipeline }, fetchedAt: 5 } };
+          }
+          if (name === "pipeline:list") {
+            return { ok: true, data: { pipelines: [
+              { id: 901, status: "failed", ref: "feat", sha: SHA, source: "pull_request", webUrl: null, createdAt: "2026-11-11T10:00:05Z" },
+              { id: 900, status: "failed", ref: "feat", sha: SHA, source: "pull_request", webUrl: null, createdAt: "2026-11-11T10:00:00Z" },
+            ] } };
+          }
+          if (name === "forge:get") {
+            const path = payload.path as string;
+            if (path === ":repo/rules/branches/main") return ok200([{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "unit" }, { context: "ci/build:12" }] } }]);
+            if (path === ":repo/branches/main") return { ok: false, error: "GitHub returned 404 Not Found" };
+            if (path === ":repo/actions/runs/555") {
+              return over.run ?? ok200({ status: "completed", conclusion: "failure", html_url: RUN_URL, head_sha: SHA, head_branch: "feat" });
+            }
+            if (path === ":repo/actions/runs/555/jobs") {
+              if (over.jobsPage) return over.jobsPage(payload);
+              const p = runJobPages[payload.page as number]!;
+              return ok200({ total_count: 2, jobs: p.jobs }, { nextPage: p.nextPage });
+            }
+          }
+          return { ok: false, error: `unrouted ${name} ${String(payload.path ?? "")}` };
+        }) as any,
+      };
+      return { t: tool(deps, "pipeline_jobs"), calls };
+    }
+    const jobsCalls = (calls: Call[]) => calls.filter((c) => c.payload.path === ":repo/actions/runs/555/jobs");
+
+    beforeEach(() => { __resetMemoryFacts(); });
+
+    test("with no pipelineId lists the head's checks, a commit status with a null jobId, and no bridges", async () => {
+      const { t } = ghJobs();
+      const r = await t.handler({ mrUrl: PR }, env);
+      expect(r).toEqual({
+        ok: true,
+        body: {
+          state: "listed",
+          pipeline: { id: "github:run:900", status: "failed", sha: SHA, ref: "feat", webUrl: `${PR}/checks` },
+          jobs: [
+            { jobId: 71, name: "unit", stage: "checks", status: "failed", allowFailure: false, blocking: true, pipelineId: 901, attempt: 1, webUrl: null },
+            { jobId: 7, name: "lint", stage: "checks", status: "failed", allowFailure: true, blocking: false, pipelineId: 902, attempt: 1, webUrl: null },
+            { jobId: null, name: "ci/build:12", stage: "checks", status: "success", allowFailure: false, blocking: true, pipelineId: 900, attempt: 1, webUrl: "https://ci.example/12" },
+          ],
+          bridges: [],
+        },
+      });
+    });
+
+    test("pipelineId equal to the head's number lists the head and reads no run", async () => {
+      const { t, calls } = ghJobs();
+      const r = await t.handler({ mrUrl: PR, pipelineId: 900 }, env);
+      expect((r.body as any).pipeline.id).toBe("github:run:900");
+      expect((r.body as any).jobs.map((j: any) => j.jobId)).toEqual([71, 7, null]);
+      expect(calls.some((c) => String(c.payload.path ?? "").includes("actions/runs"))).toBe(false);
+    });
+
+    test("a PR with no checks and no pipelineId is a tool error", async () => {
+      const { t } = ghJobs({ pipeline: null });
+      expect(await t.handler({ mrUrl: PR }, env)).toMatchObject({ ok: false, error: "the PR has no checks; pass pipelineId" });
+    });
+
+    test("a run id pages that run's latest jobs at 30 a page, with attempt from run_attempt and blocking from the head", async () => {
+      const { t, calls } = ghJobs();
+      const r = await t.handler({ mrUrl: PR, pipelineId: 555 }, env);
+      expect(r).toEqual({
+        ok: true,
+        body: {
+          state: "listed",
+          pipeline: { id: "github:run:555", status: "failed", sha: SHA, ref: "feat", webUrl: RUN_URL },
+          jobs: [
+            { jobId: 7, name: "lint", stage: "checks", status: "failed", allowFailure: true, blocking: false, pipelineId: 555, attempt: 2, webUrl: `${RUN_URL}/job/7` },
+            { jobId: 8, name: "e2e", stage: "checks", status: "running", allowFailure: false, blocking: true, pipelineId: 555, attempt: 1, webUrl: `${RUN_URL}/job/8` },
+          ],
+          bridges: [],
+        },
+      });
+      expect(jobsCalls(calls).map((c) => c.payload)).toEqual([
+        { repoName: GH, path: ":repo/actions/runs/555/jobs", query: { filter: "latest" }, page: 1, perPage: 30 },
+        { repoName: GH, path: ":repo/actions/runs/555/jobs", query: { filter: "latest" }, page: 2, perPage: 30 },
+      ]);
+    });
+
+    test("a page over the 256 KiB cap halves perPage and retries from the first page", async () => {
+      const { t, calls } = ghJobs({
+        jobsPage: (payload) => {
+          const perPage = payload.perPage as number;
+          if (perPage > 7) return { ok: false, error: "GitHub's answer is 300000 bytes, over gitlab_get's 256 KiB cap; ask for less with perPage or a narrower path" };
+          if (perPage === 7) return ok200("{\"jobs\": [", { truncated: true });
+          return ok200({ total_count: 1, jobs: [restJob(8, "e2e", "completed", "success", 1)] });
+        },
+      });
+      const r = await t.handler({ mrUrl: PR, pipelineId: 555 }, env);
+      expect((r.body as any).jobs).toEqual([
+        { jobId: 8, name: "e2e", stage: "checks", status: "success", allowFailure: false, blocking: true, pipelineId: 555, attempt: 1, webUrl: `${RUN_URL}/job/8` },
+      ]);
+      expect(jobsCalls(calls).map((c) => [c.payload.page, c.payload.perPage])).toEqual([[1, 30], [1, 15], [1, 7], [1, 5]]);
+    });
+
+    test("a page still over the cap at 5 a page is a tool error", async () => {
+      const { t, calls } = ghJobs({ jobsPage: () => ok200("{", { truncated: true }) });
+      const r = await t.handler({ mrUrl: PR, pipelineId: 555 }, env);
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain("256 KiB");
+      expect(jobsCalls(calls).map((c) => c.payload.perPage)).toEqual([30, 15, 7, 5]);
+    });
+
+    test("a run the forge answers 404 for is not found, as on GitLab", async () => {
+      for (const run of [{ ok: false, error: "GitHub returned 404 Not Found" }, ok200(null, { status: 404 })]) {
+        __resetMemoryFacts();
+        const { t, calls } = ghJobs({ run });
+        expect(await t.handler({ mrUrl: PR, pipelineId: 555 }, env)).toMatchObject({ ok: false, error: "pipeline 555 not found" });
+        expect(jobsCalls(calls)).toEqual([]);
+      }
+    });
+
+    test("a run whose jobs listing 404s is not found", async () => {
+      const { t, calls } = ghJobs({ jobsPage: () => ({ ok: false, error: "GitHub returned 404 Not Found" }) });
+      expect(await t.handler({ mrUrl: PR, pipelineId: 555 }, env)).toMatchObject({ ok: false, error: "pipeline 555 not found" });
+      expect(jobsCalls(calls)).toHaveLength(1);
+    });
+
+    test("an anchorless head's commit status row has a null pipelineId", async () => {
+      const status = check("github:status:ci/build:12", "ci/build:12", "success", null, "https://ci.example/12");
+      const { t } = ghJobs({ pipeline: { ...headPipeline, id: `github:checks:${PR}`, status: "success", jobs: [status] } });
+      const r = await t.handler({ mrUrl: PR }, env);
+      expect((r.body as any).jobs).toEqual([
+        { jobId: null, name: "ci/build:12", stage: "checks", status: "success", allowFailure: false, blocking: true, pipelineId: null, attempt: 1, webUrl: "https://ci.example/12" },
+      ]);
+    });
+
+    test("scope and name filter the head's checks", async () => {
+      const { t } = ghJobs();
+      const failed = await t.handler({ mrUrl: PR, scope: "failed" }, env);
+      expect((failed.body as any).jobs.map((j: any) => j.name)).toEqual(["unit", "lint"]);
+      const named = await t.handler({ mrUrl: PR, name: "build" }, env);
+      expect((named.body as any).jobs.map((j: any) => j.name)).toEqual(["ci/build:12"]);
+    });
+
+    test("scope and name filter a run's jobs", async () => {
+      const { t } = ghJobs();
+      const running = await t.handler({ mrUrl: PR, pipelineId: 555, scope: "running" }, env);
+      expect((running.body as any).jobs.map((j: any) => j.name)).toEqual(["e2e"]);
+      const named = await t.handler({ mrUrl: PR, pipelineId: 555, name: "lin" }, env);
+      expect((named.body as any).jobs.map((j: any) => j.name)).toEqual(["lint"]);
+    });
   });
 
-  test("descriptions say GitLab only exactly where the tool still is", () => {
+  test("no read tool description says GitLab only and each names the PR URL form", () => {
     const defs = mrReadToolDefs();
-    for (const name of ["mr_view", "mr_list", "mr_for_branch", "mr_pipeline", "mr_job_trace", "mr_threads"]) {
+    for (const name of ["mr_view", "mr_list", "mr_for_branch", "mr_pipeline", "pipeline_jobs", "mr_job_trace", "mr_threads"]) {
       const d = defs.find((t) => t.name === name)!.description;
       expect(d, name).not.toContain("GitLab only");
       expect(d, name).toContain("github.com/<owner>/<repo>/pull/<number>");
     }
-    expect(defs.find((t) => t.name === "pipeline_jobs")!.description).toStartWith("GitLab only.");
     expect(defs.find((t) => t.name === "mr_threads")!.description).not.toContain("from GitLab");
   });
 });

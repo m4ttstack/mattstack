@@ -275,6 +275,24 @@ describe("rt ci watch exit codes (in-process)", () => {
     expect(JSON.parse(stdout).state).toBe("success");
   });
 
+  test("a GitHub PR URL that settles on success exits 0", async () => {
+    const PR_URL = "https://github.com/acme/proj/pull/42";
+    await run(ciLeaseClaim, [PR_URL, "--json"]);
+    const job = { id: "github:check:9", name: "checks", stage: "checks", status: "success", allowFailure: false, duration: null, webUrl: null, runId: "900" };
+    const pipeline = { id: "github:run:900", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: `${PR_URL}/checks`, createdAt: null, jobs: [job] };
+    const gh = fakes("success", {
+      command: (async (name: string) => {
+        if (name === "mr:get") return { ok: true, data: { mr: { iid: 42, sha: SHA, webUrl: PR_URL, sourceBranch: "feat", targetBranch: "main", pipeline }, fetchedAt: 0 } };
+        if (name === "forge:get") return { ok: true, data: { status: 404, body: null, truncated: false, nextPage: null, totalPages: null } };
+        if (name === "pipeline:list") return { ok: true, data: { pipelines: [{ id: 900, status: "success", ref: "feat", sha: SHA, source: "pull_request", webUrl: null, createdAt: new Date(0).toISOString() }] } };
+        return { ok: true, data: [] };
+      }) as unknown as CiWatchToolDeps["command"],
+    });
+    const { code, stdout } = await run((a) => runCiWatch(a, gh), [PR_URL, "--sha", SHA, "--json"]);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ state: "success", pipeline: { id: "github:run:900" } });
+  });
+
   test("a settled failure exits 1", async () => {
     await run(ciLeaseClaim, [MR_URL, "--json"]);
     const { code, stdout } = await run((a) => runCiWatch(a, fakes("failed")), [MR_URL, "--sha", SHA, "--json"]);
