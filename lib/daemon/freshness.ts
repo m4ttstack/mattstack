@@ -1,8 +1,9 @@
 /**
  * Live-freshness subsystem.
  *
- * One glance-sdk `watchEvents()` watcher per GitLab repo polls the project
- * events feed (SDK-owned loop, ~15s cadence) and reports invalidation keys.
+ * One glance-sdk `watchEvents()` watcher per live GitLab or GitHub repo polls
+ * the project events feed (SDK-owned loop, 15s on GitLab, 60s on GitHub) and
+ * reports invalidation keys.
  * The mapping in this module turns each key into the narrowest possible
  * cache refresh (single MR, single branch, one MR's discussions). The 5-min
  * full poll in cache-refresh.ts remains the safety net for the events feed's
@@ -89,7 +90,8 @@ export function repositoryIdFor(ctx: RepoContext): string {
 
 /** Per-repo live watcher state. Structurally a BatchRunner (Task 3). */
 interface RepoWatch {
-  provider:     GitLabProvider;
+  forge:        "gitlab" | "github";
+  provider:     GitLabProvider | GitHubProvider;
   projectPath:  string;
   dispose:      () => void;
   /** Numeric GitLab project id. Resolved lazily on first discussions fetch. */
@@ -148,12 +150,22 @@ async function fetchProjectId(provider: GitLabProvider, projectPath: string): Pr
 }
 
 // glance >=0.15 widened EventCursor.lastEventId to number | string | null for
-// GitHub's string event ids. This watch path is GitLab-only, whose ids stay
-// numeric; anything else reads as absent, same as glance's own pollers treat
-// foreign cursor shapes.
+// GitHub's string event ids. GitLab ids stay numeric; anything else reads as
+// absent, same as glance's own pollers treat foreign cursor shapes.
 function numericEventId(v: number | string | null | undefined): number | null {
   return typeof v === "number" ? v : null;
 }
+
+/** The snapshot's lastEventId is numeric, so a GitHub id too long to stay exact reports as absent. */
+function githubEventId(v: number | string | null | undefined): number | null {
+  if (typeof v !== "string" || !/^\d+$/.test(v)) return null;
+  const n = Number(v);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+type WatchSource =
+  | { forge: "gitlab"; provider: GitLabProvider }
+  | { forge: "github"; provider: GitHubProvider };
 
 /**
  * Write one refreshed MR into its cache entry, preserving enrichment fields
@@ -279,6 +291,7 @@ function createFreshnessCore() {
   let   userIdSuppressedWarned = false;
 
   const remoteUrlCache = new Map<string, string | null>();
+  const githubWatchSkipLogged = new Set<string>();
 
   /**
    * Cache of (projectPath, projectId) resolved for repos without a live watch.
@@ -934,7 +947,7 @@ function createFreshnessCore() {
 
   /**
    * Align watchers with the repo index and the tracking config: start one per
-   * live-tracked GitLab repo that lacks one, dispose watchers for repos removed
+   * live-tracked GitLab or GitHub repo that lacks one, dispose watchers for repos removed
    * from either. A watcher covers the whole project regardless of how many MRs
    * are cached, because pushes to MR-less branches matter too.
    */
@@ -950,6 +963,11 @@ function createFreshnessCore() {
 
     for (const [repoName, repoPath] of Object.entries(repoIndex)) {
       if (grants(tracking, repoName).mode !== "live") continue;
+
+      if (existsSync(repoPath) && (await isGitHubRepo(repoPath))) {
+        await reconcileGitHubWatch(env, repoName, repoPath);
+        continue;
+      }
 
       // A live watch whose provider token has since rotated must be dropped so the
       // ensureProvider/startWatch below rebuilds it with the current token (S048/S049).
@@ -974,7 +992,7 @@ function createFreshnessCore() {
       const remote = remoteUrl ? parseRemoteUrl(remoteUrl) : null;
       if (!remote) continue;
 
-      startWatch(env, repoName, provider, remote.projectPath);
+      startWatch(env, repoName, { forge: "gitlab", provider }, remote.projectPath);
     }
 
     for (const repoName of [...watches.keys()]) {
@@ -990,17 +1008,47 @@ function createFreshnessCore() {
     broadcastStatus(env);
   }
 
-  function startWatch(env: FreshnessEnv, repoName: string, provider: GitLabProvider, projectPath: string): void {
+  /** A provider other than the context's means the token changed, so the watch restarts on the new one. */
+  async function reconcileGitHubWatch(env: FreshnessEnv, repoName: string, repoPath: string): Promise<void> {
+    let ctx: RepoContext;
+    try {
+      ctx = await getRepoContext(repoName, repoPath);
+    } catch (err) {
+      if (!githubWatchSkipLogged.has(repoName)) {
+        githubWatchSkipLogged.add(repoName);
+        log.info(`${err instanceof Error ? err.message : String(err)}; skipping events watch for ${repoName}`);
+      }
+      return;
+    }
+    if (ctx.forge !== "github") return;
+
+    const existing = watches.get(repoName);
+    if (existing && existing.provider !== ctx.provider) stopWatch(repoName);
+    if (watches.has(repoName)) return;
+
+    await getSelfUserId(ctx);
+    if (watches.has(repoName)) return;
+
+    startWatch(env, repoName, { forge: "github", provider: ctx.provider }, ctx.projectPath);
+  }
+
+  function startWatch(env: FreshnessEnv, repoName: string, source: WatchSource, projectPath: string): void {
     const resumeCursor = cursorStore().get(repoName);
+    const { provider } = source;
+    const eventId = source.forge === "github" ? githubEventId : numericEventId;
+    const target: RepoTarget = source.forge === "github"
+      ? { repoName, projectPath, forge: "github", provider: source.provider }
+      : { repoName, projectPath, provider: source.provider };
 
     const watch: RepoWatch = {
+      forge:        source.forge,
       provider,
       projectPath,
       dispose:      () => {},
       projectId:    null,
       state:        "live",
       lastSyncedAt: null,
-      lastEventId:  numericEventId(resumeCursor?.lastEventId),
+      lastEventId:  eventId(resumeCursor?.lastEventId),
       processing:   false,
       pending:      [],
       gapFillTimer: null,
@@ -1013,7 +1061,7 @@ function createFreshnessCore() {
         cursor: resumeCursor,
         onCursor: (c) => {
           cursorStore().set(repoName, c);
-          watch.lastEventId = numericEventId(c.lastEventId);
+          watch.lastEventId = eventId(c.lastEventId);
         },
         onStatus: (s) => {
           const prev = watch.state;
@@ -1028,7 +1076,7 @@ function createFreshnessCore() {
       (batch) => {
         watch.lastSyncedAt = batch.syncedAt;
         if (batch.invalidations.length === 0) return;
-        applyInvalidationBatch(env, { repoName, projectPath, provider }, watch, batch.invalidations)
+        applyInvalidationBatch(env, target, watch, batch.invalidations)
           .catch((err) => log.warn({ err, repo: repoName }, "invalidation batch failed"));
       },
     );

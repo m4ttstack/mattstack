@@ -19,8 +19,10 @@
  * - Sweeps are serialized (one at a time) and skipped if a previous sweep
  *   is still running, so a slow forge or a large MR count can't pile up
  *   overlapping fetches.
- * - GitHub repos granting "discussions" are swept too. They get no events
- *   watcher, so this sweep is their only source of new-comment alerts. Each
+ * - GitHub repos granting "discussions" are swept too. A live GitHub repo's
+ *   events watcher routes `notes` events here within a minute; a poll-mode
+ *   one has no watcher, so this sweep is its only source of new-comment
+ *   alerts. Each
  *   open PR costs 4 REST requests and 1 GraphQL call per sweep when it has
  *   review comments, 3 REST requests otherwise, plus one `/user` read per
  *   provider.
