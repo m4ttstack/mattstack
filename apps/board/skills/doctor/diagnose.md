@@ -139,14 +139,14 @@ What this graph cannot show:
   it reads up to 50 open MRs (drafts included) by any author. Only
   `full: true` with no MR listed goes on to the lease check and the
   rebase: a rebase rewrites the commits every listed MR is built on. Any
-  MR listed, whatever `full` says, is `error` (`MR !<iid> is a stack
-  parent (stacked on it: <children>); a rebase would strand the stack:
-  needs a restack of the stack root`), where `<children>` is each listed
-  MR as `!<iid>`, comma separated, followed by `, and more` when `full`
-  is false. A tool error, or no MR listed with `full: false`, is `error`
-  (`cannot prove MR !<iid> has no stacked children: the live
-  target-branch query failed (<reason>)`), where `<reason>` is the tool's
-  error quoted as written, or `partial list, no rows`. Neither retries
+  MR listed, whatever `full` says, is `error` with
+  `MR !<iid> is a stack parent (stacked on it: <children>); a rebase would strand the stack: needs a restack of the stack root`,
+  where `<children>` is each listed MR as `!<iid>`, comma separated,
+  followed by `, and more` when `full` is false. A tool error, or no MR
+  listed with `full: false`, is `error` with
+  `cannot prove MR !<iid> has no stacked children: the live target-branch query failed (<reason>)`,
+  where `<reason>` is the tool's error quoted as written, or
+  `partial list, no rows`. Neither retries
   nor escalates: nothing has moved yet, so a human relaunch costs
   nothing. The check never reads rt's MR cache and never treats a failed
   read as no children.
