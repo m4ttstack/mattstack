@@ -149,6 +149,11 @@ describe('projectKeyOf', () => {
       '/acme/widgets'
     );
   });
+  test('a numeric GitHub repo name stays in the key', () => {
+    expect(projectKeyOf('https://github.com/acme/123/pull/7')).toBe(
+      '/acme/123'
+    );
+  });
   test('GitLab keys are unchanged', () => {
     expect(projectKeyOf('https://gl.example.com/g/p/-/merge_requests/3')).toBe(
       '/g/p'
@@ -156,5 +161,6 @@ describe('projectKeyOf', () => {
     expect(
       projectKeyOf('https://gl.example.com/g/pull/5/-/merge_requests/3')
     ).toBe('/g/pull');
+    expect(projectKeyOf('https://x/mr/1')).toBe('/mr');
   });
 });

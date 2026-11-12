@@ -3290,9 +3290,12 @@ const httpServer = Bun.serve({
         // network round-trip and the lock must never sit open for that long.
         const identityRead = readMemory();
         const identityBefore = identityRead.identity;
-        const identity = await resolveDispatchIdentity(identityRead, async () =>
-          (await gitlab()).validateToken()
-        );
+        const identity =
+          config.forge.kind === 'github'
+            ? null
+            : await resolveDispatchIdentity(identityRead, async () =>
+                (await gitlab()).validateToken()
+              );
         // Only touch state/auto-dispatch.json when the identity actually
         // refreshed (a cache hit leaves identityRead.identity's reference
         // unchanged). bin/triage.ts serializes every access to this file

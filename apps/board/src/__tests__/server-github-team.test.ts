@@ -5,7 +5,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import { readDrafts, writeDraft } from '../draft-state.ts';
 import { openStateDb } from '../state/db.ts';
@@ -149,36 +149,40 @@ const prs = [fakePr(7, ALICE), fakePr(20, BOB)];
 const daemonSeen: string[] = [];
 const rtDir = join(home, '.mattstack', 'rt');
 mkdirSync(rtDir, { recursive: true });
-const daemon = Bun.serve({
-  unix: join(rtDir, 'rt.sock'),
-  async fetch(req) {
-    const cmd = new URL(req.url).pathname.slice(1);
-    const body =
-      req.method === 'POST' ? await req.json().catch(() => null) : null;
-    daemonSeen.push(cmd);
-    if (cmd === 'project-mrs:read') {
-      const byId: Record<string, unknown> = {};
-      for (const pr of prs)
-        byId[pr.id] = { pr, fetchedAt: Date.now(), codeownerSections: [] };
-      return Response.json({
-        ok: true,
-        data: {
-          mrs: byId,
-          listSyncedAt: Date.now(),
-          source: 'poll',
-          syncedAt: Date.now(),
-        },
-      });
-    }
-    if (cmd === 'gate:list') {
-      const prefix = (body as { subjectPrefix?: string } | null)?.subjectPrefix;
-      return Response.json({
-        ok: true,
-        data: { gates: prefix === 'mr:' ? [reviewGate] : [], cursor: 0 },
-      });
-    }
-    return Response.json({ ok: false, error: 'not implemented' });
-  },
+let daemon: ReturnType<typeof Bun.serve> | undefined;
+beforeAll(() => {
+  daemon = Bun.serve({
+    unix: join(rtDir, 'rt.sock'),
+    async fetch(req) {
+      const cmd = new URL(req.url).pathname.slice(1);
+      const body =
+        req.method === 'POST' ? await req.json().catch(() => null) : null;
+      daemonSeen.push(cmd);
+      if (cmd === 'project-mrs:read') {
+        const byId: Record<string, unknown> = {};
+        for (const pr of prs)
+          byId[pr.id] = { pr, fetchedAt: Date.now(), codeownerSections: [] };
+        return Response.json({
+          ok: true,
+          data: {
+            mrs: byId,
+            listSyncedAt: Date.now(),
+            source: 'poll',
+            syncedAt: Date.now(),
+          },
+        });
+      }
+      if (cmd === 'gate:list') {
+        const prefix = (body as { subjectPrefix?: string } | null)
+          ?.subjectPrefix;
+        return Response.json({
+          ok: true,
+          data: { gates: prefix === 'mr:' ? [reviewGate] : [], cursor: 0 },
+        });
+      }
+      return Response.json({ ok: false, error: 'not implemented' });
+    },
+  });
 });
 
 const server = bootBoardServer({
@@ -196,7 +200,7 @@ const server = bootBoardServer({
 });
 
 afterAll(() => {
-  daemon.stop(true);
+  daemon?.stop(true);
 });
 
 const base = () => `http://127.0.0.1:${server.port}`;

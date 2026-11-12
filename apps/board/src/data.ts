@@ -114,6 +114,7 @@ export function projectPathFromWebUrl(
   if (!webUrl.startsWith(host)) return null;
   const rest = webUrl.slice(host.length);
   if (config.forge.kind === 'github') {
+    if (rest && !rest.startsWith('/')) return null;
     const m = /^\/?([^/?#]+)\/([^/?#]+)\/pull\/\d+(?:[/?#].*)?$/.exec(rest);
     if (!m) return null;
     const path = `${m[1]}/${m[2]}`;
