@@ -3265,6 +3265,12 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        // A running rebase chain's row carries no tabId, so dedup lets an
+        // ordinary launch through.
+        if (parsed.mode !== 'rebase' && LOCAL_SYNCS.has(parsed.mrUrl))
+          return new Response('a sync is already running on this MR', {
+            status: 409,
+          });
         const doctorSkill = resolveLaunchSkillFor(
           'doctor',
           parsed.mrUrl,

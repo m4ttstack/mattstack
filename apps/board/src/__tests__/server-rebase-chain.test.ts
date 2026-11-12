@@ -77,13 +77,15 @@ const github = (host: string, iid: number) =>
 
 /** 7 syncs clean, 9 pauses on a conflict, 8 is a row a restart cut off,
     30 is a GitHub PR the forge rebases, 31 one whose forge read hangs,
-    32 one whose forge read fails once the rebase is sent. */
+    32 one whose forge read fails once the rebase is sent, 33 another
+    that hangs. */
 const CLEAN = 7;
 const ORPHAN = 8;
 const CONFLICT = 9;
 const GH_REBASED = 30;
 const GH_HANGS = 31;
 const GH_READ_FAILS = 32;
+const GH_HANGS_TOO = 33;
 
 const home = mkdtempSync(join(tmpdir(), 'board-rebase-chain-'));
 const gitlab = Bun.serve({
@@ -167,6 +169,7 @@ const prs = [
   github(host, GH_REBASED),
   github(host, GH_HANGS),
   github(host, GH_READ_FAILS),
+  github(host, GH_HANGS_TOO),
 ];
 
 const daemonSeen: Array<{ cmd: string; body: Record<string, unknown> }> = [];
@@ -203,7 +206,7 @@ const daemon = Bun.serve({
       return Response.json({ ok: true, data: {} });
     }
     if (cmd === 'mr:get') {
-      if (iid === GH_HANGS && rebasedOnForge.has(iid))
+      if ((iid === GH_HANGS || iid === GH_HANGS_TOO) && rebasedOnForge.has(iid))
         return new Promise<Response>(() => {});
       if (iid === GH_READ_FAILS && rebasedOnForge.has(iid))
         return Response.json({ ok: false, error: 'daemon read failed' });
@@ -327,6 +330,30 @@ test('a failed read during the forge wait shows on the step, which keeps running
   await post('/rebase/cancel', { mrUrl: url(GH_READ_FAILS) });
   expect(await (await pending).json()).toEqual({ ok: true, cancelled: true });
   expect(row(GH_READ_FAILS)?.status).toBe('sync-stopped');
+}, 30_000);
+
+test('an ordinary doctor during a forge wait is refused and leaves the row', async () => {
+  const pending = rebase(GH_HANGS_TOO);
+  const deadline = Date.now() + 10_000;
+  while (!(
+    row(GH_HANGS_TOO)?.status === 'forge-rebasing' &&
+    rebasedOnForge.has(GH_HANGS_TOO)
+  )) {
+    if (Date.now() > deadline) throw new Error('the forge wait never started');
+    await Bun.sleep(50);
+  }
+  const res = await post('/doctor', {
+    mrUrl: url(GH_HANGS_TOO),
+    iid: GH_HANGS_TOO,
+  });
+  expect(res.status).toBe(409);
+  expect(await res.text()).toBe('a sync is already running on this MR');
+  expect(row(GH_HANGS_TOO)).toMatchObject({
+    status: 'forge-rebasing',
+    forge: { forge: 'github', state: 'running' },
+  });
+  await post('/rebase/cancel', { mrUrl: url(GH_HANGS_TOO) });
+  expect(await (await pending).json()).toEqual({ ok: true, cancelled: true });
 }, 30_000);
 
 test('a GitHub MR is not refused on rebase mode', async () => {

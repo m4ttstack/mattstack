@@ -26,7 +26,8 @@ export interface LaunchFlowDeps {
       rebase's does. */
   doneMessage?: (result: ActionResult, mr: BoardMR) => string | undefined;
   /** A 200 answer that still reports the action did not get there, as a
-      rebase that stopped does: the toast fails with this text. */
+      rebase that stopped does: the toast fails with this text, and the
+      flow returns the answer as not ok, so a bulk run counts it failed. */
   stoppedMessage?: (result: ActionResult, mr: BoardMR) => string | undefined;
   /** Overrides the default failure toast (`couldn't launch ${noun} for
       ${mrRef(mr)} (${status})`). Resume actions use this to surface the
@@ -100,7 +101,11 @@ export async function runLaunchFlow(
     deps.rollback();
     toast?.fail(stopped);
     deps.reload();
-    return result;
+    return {
+      ...result,
+      ok: false,
+      body: { ...result.body, reason: result.body?.stopped ?? stopped },
+    };
   }
   if (intent === 'focus') {
     if (result.body?.focused)

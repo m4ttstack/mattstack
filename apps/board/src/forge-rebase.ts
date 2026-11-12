@@ -105,17 +105,17 @@ async function waitForFlag(
   for (;;) {
     if (deps.signal.aborted) return { kind: 'cancelled' };
     const now = await readOnce();
-    if (now) {
+    // The head can move while GitLab is still rebasing, so nothing is
+    // decided until the flag clears.
+    if (now && !now.rebaseInProgress) {
       if (now.sha !== null && now.sha !== before)
         return { kind: 'rebased', sha: now.sha };
-      if (!now.rebaseInProgress) {
-        if (now.mergeError)
-          return { kind: 'failed', reason: now.mergeError, conflicts: false };
-        if (now.conflicts)
-          return { kind: 'failed', reason: CONFLICT_REASON, conflicts: true };
-        if (now.divergedCommitsCount === 0) return { kind: 'current' };
-        return { kind: 'unclear' };
-      }
+      if (now.mergeError)
+        return { kind: 'failed', reason: now.mergeError, conflicts: false };
+      if (now.conflicts)
+        return { kind: 'failed', reason: CONFLICT_REASON, conflicts: true };
+      if (now.divergedCommitsCount === 0) return { kind: 'current' };
+      return { kind: 'unclear' };
     }
     await deps.sleep(pollMs);
     if (deps.signal.aborted) return { kind: 'cancelled' };

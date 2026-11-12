@@ -88,6 +88,20 @@ describe('forgeRebase on GitLab', () => {
     expect(await forgeRebase(h.deps)).toEqual({ kind: 'rebased', sha: 'b' });
   });
 
+  test('a moved sha while the flag is still set waits for the settled read', async () => {
+    const h = harness([
+      read({ sha: 'a' }),
+      read({ sha: 'b', rebaseInProgress: true }),
+      read({ sha: 'a', mergeError: 'Rebase failed: conflict' }),
+    ]);
+    expect(await forgeRebase(h.deps)).toEqual({
+      kind: 'failed',
+      reason: 'Rebase failed: conflict',
+      conflicts: false,
+    });
+    expect(h.reads()).toBe(3);
+  });
+
   test('a failed read before the call fails without sending the rebase', async () => {
     const h = harness([new Error('502 Bad Gateway')]);
     expect(await forgeRebase(h.deps)).toEqual({

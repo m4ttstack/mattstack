@@ -11,6 +11,7 @@ import {
   type RowHandlers,
   type RunnerDeps,
 } from '../action-runner.ts';
+import { runLaunchFlow } from '../launch-flow.ts';
 
 const ok = (body: ActionResult['body'] = null): ActionResult => ({
   ok: true,
@@ -604,6 +605,34 @@ test('a bulk rebase launches only the targets and says how many it skipped', asy
     'launch rebase !1 {"quiet":true}',
     'launch rebase !3 {"quiet":true}',
     "toast rebase ran on !1, !3 · 1 didn't need it",
+    'reload false',
+  ]);
+});
+
+test('a bulk rebase counts a stopped reply as failed and names its reason', async () => {
+  const { deps, events } = fakeDeps();
+  deps.launch = (_flow, m) =>
+    runLaunchFlow(
+      {
+        post: async () =>
+          m.iid === 2 ? ok({ stopped: 'tree is dirty' }) : ok({ synced: 'x' }),
+        setQueued: () => {},
+        rollback: () => {},
+        addToast: () => {},
+        startToast: () => ({ done: () => {}, fail: () => {} }),
+        reload: () => {},
+        verbing: 'rebasing',
+        noun: 'rebase',
+        started: 'doctor called on the conflicts',
+        stoppedMessage: r =>
+          r.body?.stopped ? `couldn't rebase: ${r.body.stopped}` : undefined,
+      },
+      m,
+      {}
+    );
+  await runMany({ kind: 'launch', flow: 'rebase' }, [mr(1), mr(2)], deps);
+  expect(events).toEqual([
+    "toast rebase ran on !1 · couldn't launch rebase for !2 (tree is dirty)",
     'reload false',
   ]);
 });

@@ -258,7 +258,7 @@ test('launch flow returns the server result', async () => {
 });
 test('launch flow: a 200 that reports a stop fails the toast with that text', async () => {
   const events: string[] = [];
-  await runLaunchFlow(
+  const result = await runLaunchFlow(
     {
       post: async () => ({
         ok: true,
@@ -296,6 +296,7 @@ test('launch flow: a 200 that reports a stop fails the toast with that text', as
     "fail:couldn't rebase !7: daemon gone",
     'reload',
   ]);
+  expect(result).toMatchObject({ ok: false, body: { reason: 'daemon gone' } });
 });
 test('launch flow: a refused launch drops the claim, fails the toast with the reason and reloads', async () => {
   const events: string[] = [];
