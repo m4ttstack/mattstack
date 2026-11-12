@@ -2823,12 +2823,14 @@ export class GitHubProvider implements GitProvider {
   // ── Pipeline mutations ──────────────────────────────────────────────────
 
   /**
-   * Reruns the failed jobs of every failed workflow run on the head commit of
-   * run `pipelineId`, as GitLab's pipeline retry reruns failed jobs only.
+   * Reruns the failed jobs of every failed or cancelled workflow run on the
+   * head commit of run `pipelineId`, as GitLab's pipeline retry reruns failed
+   * jobs only and GitHub's `rerun-failed-jobs` covers cancelled jobs too.
    * `pipelineId` is the run id in `Pipeline.id` (`github:run:<id>`, the
    * commit's lowest run id; `Pipeline.runIds` lists every run). Costs two
-   * reads and one POST per failed run. A commit status from external CI has
-   * no run to rerun.
+   * reads and one POST per rerunnable run. Every POST is sent even when one
+   * is refused; the error then names the runs that reran and the runs
+   * refused. A commit status from external CI has no run to rerun.
    */
   async retryPipeline(projectPath: string, pipelineId: number): Promise<void> {
     try {
@@ -2839,21 +2841,39 @@ export class GitHubProvider implements GitProvider {
       const { data: list } = await this.octokit.request(
         `GET /repos/${projectPath}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=100`
       );
-      const failed = list.workflow_runs.filter(
-        (r: { status: string | null; conclusion: string | null }) =>
-          checkStatusFromParts(
+      const rerunnable = list.workflow_runs.filter(
+        (r: { status: string | null; conclusion: string | null }) => {
+          const status = checkStatusFromParts(
             (r.status ?? '').toUpperCase(),
             r.conclusion ? r.conclusion.toUpperCase() : null
-          ) === 'failed'
+          );
+          return status === 'failed' || status === 'canceled';
+        }
       );
-      if (failed.length === 0) {
+      if (rerunnable.length === 0) {
         throw new Error(
-          `retryPipeline failed: ${projectPath} run ${pipelineId} on ${sha} has no failed runs to rerun`
+          `retryPipeline failed: ${projectPath} run ${pipelineId} on ${sha} has no failed or cancelled runs to rerun`
         );
       }
-      for (const r of failed) {
-        await this.octokit.request(
-          `POST /repos/${projectPath}/actions/runs/${r.id}/rerun-failed-jobs`
+      const reran: number[] = [];
+      const refused: string[] = [];
+      for (const r of rerunnable) {
+        try {
+          await this.octokit.request(
+            `POST /repos/${projectPath}/actions/runs/${r.id}/rerun-failed-jobs`
+          );
+          reran.push(r.id);
+        } catch (err) {
+          const reason = ghError('retryPipeline', err, 'statusText').message.replace(
+            /^retryPipeline failed: /,
+            ''
+          );
+          refused.push(`${r.id} (${reason})`);
+        }
+      }
+      if (refused.length > 0) {
+        throw new Error(
+          `retryPipeline failed: ${projectPath} on ${sha}: reran ${reran.length > 0 ? reran.join(', ') : 'none'}; refused ${refused.join(', ')}`
         );
       }
     } catch (err) {
@@ -3463,8 +3483,10 @@ export class GitHubProvider implements GitProvider {
    * A PR whose rules could not be read comes back as
    * `{ iid, rules: [], unknownReason }`: a GraphQL error under that PR (a team
    * the token cannot read), a codeowner request whose reviewer is null, or a
-   * connection that overflowed what one read returns. It never fails the batch.
-   * A request that fails outright (HTTP error, rate limit) throws.
+   * connection that overflowed what one read returns. In `iids` mode that
+   * never fails the batch; in `updatedAfter` mode a null node or an error with
+   * no node path throws the whole read. A request that fails outright (HTTP
+   * error, rate limit) throws.
    *
    * `iids` reads 50 PRs per GraphQL request and keeps drafts, since the caller
    * named them; an iid GitHub does not find is left out of the result. With

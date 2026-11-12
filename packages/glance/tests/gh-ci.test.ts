@@ -95,7 +95,7 @@ describe('retryPipeline', () => {
     }
 
     /** Run 100 sits on sha `abc`; `runs` is what the commit's run list returns. */
-    function commit(runs: WorkflowRun[]) {
+    function commit(runs: WorkflowRun[], refuse: Record<number, number> = {}) {
       const calls: string[] = [];
       stubForge({
         rest: (url, method) => {
@@ -107,7 +107,13 @@ describe('retryPipeline', () => {
           if (method === 'GET' && u.pathname === '/repos/o/r/actions/runs') {
             return jsonResponse({ total_count: runs.length, workflow_runs: runs });
           }
-          if (method === 'POST') return jsonResponse({}, 201);
+          if (method === 'POST') {
+            const runId = Number(u.pathname.split('/')[6]);
+            const refused = refuse[runId];
+            return refused
+              ? jsonResponse({ message: 'Forbidden' }, refused)
+              : jsonResponse({}, 201);
+          }
           return undefined;
         }
       });
@@ -148,8 +154,60 @@ describe('retryPipeline', () => {
       ]);
     });
 
+    test('reruns a cancelled run when the rest are green', async () => {
+      const calls = commit([done(100, 'success'), done(101, 'cancelled'), done(102, 'skipped')]);
+
+      await new GitHubProvider('https://github.com', 'tok-retry-5').retryPipeline('o/r', 100);
+
+      expect(calls.filter(c => c.startsWith('POST '))).toEqual([
+        'POST /repos/o/r/actions/runs/101/rerun-failed-jobs'
+      ]);
+    });
+
+    test('reruns stale and startup_failure runs', async () => {
+      const calls = commit([
+        done(100, 'success'),
+        done(101, 'stale'),
+        done(102, 'startup_failure')
+      ]);
+
+      await new GitHubProvider('https://github.com', 'tok-retry-6').retryPipeline('o/r', 100);
+
+      expect(calls.filter(c => c.startsWith('POST '))).toEqual([
+        'POST /repos/o/r/actions/runs/101/rerun-failed-jobs',
+        'POST /repos/o/r/actions/runs/102/rerun-failed-jobs'
+      ]);
+    });
+
+    test('sends every rerun and names both groups when one is refused', async () => {
+      const calls = commit(
+        [done(100, 'failure'), done(101, 'failure'), done(102, 'cancelled')],
+        { 101: 403 }
+      );
+
+      const err = await new GitHubProvider('https://github.com', 'tok-retry-7')
+        .retryPipeline('o/r', 100)
+        .then(
+          () => null,
+          (e: unknown) => e as Error
+        );
+
+      expect(calls.filter(c => c.startsWith('POST '))).toEqual([
+        'POST /repos/o/r/actions/runs/100/rerun-failed-jobs',
+        'POST /repos/o/r/actions/runs/101/rerun-failed-jobs',
+        'POST /repos/o/r/actions/runs/102/rerun-failed-jobs'
+      ]);
+      expect(err?.message).toContain('retryPipeline failed');
+      expect(err?.message).toContain('reran 100, 102');
+      expect(err?.message).toContain('refused 101 (403 Forbidden');
+    });
+
     test('names the project, the run and the sha when nothing failed', async () => {
-      const calls = commit([done(100, 'success'), done(101, 'cancelled')]);
+      const calls = commit([
+        done(100, 'success'),
+        done(101, 'skipped'),
+        { id: 102, status: 'in_progress', conclusion: null }
+      ]);
 
       const err = await new GitHubProvider('https://github.com', 'tok-retry-3')
         .retryPipeline('o/r', 100)
@@ -161,6 +219,7 @@ describe('retryPipeline', () => {
       expect(err?.message).toContain('o/r');
       expect(err?.message).toContain('100');
       expect(err?.message).toContain('abc');
+      expect(err?.message).toContain('no failed or cancelled runs');
       expect(calls.filter(c => c.startsWith('POST '))).toEqual([]);
     });
 
