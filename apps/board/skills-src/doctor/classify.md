@@ -167,7 +167,7 @@ numeric part of a `gitlab:job:N` id; pass exactly one of `jobId` or
 once. An error that names no input (a 403 scope error, for example) has
 nothing to correct: retry again unchanged, once, and the off-script
 escalation follows. An error is never a reason to rerun the job with the
-GitLab CLI.
+forge CLI.
 
 ### Classify each failed job (doctor)
 

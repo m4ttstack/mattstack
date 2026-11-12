@@ -26,6 +26,7 @@ digraph doctor_entry {
     "Domain skill loaded (doctor)?" [shape=diamond];
     "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" [shape=plaintext];
     "Print why the run ended (doctor)" [shape=box];
+    "Print why the run ended on GitHub (doctor)" [shape=box];
     "Domain skill not loaded: continue at Doctor error written" [shape=doublecircle];
     "Doctor can't run on GitHub: continue at Doctor error written" [shape=doublecircle];
     "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" [shape=plaintext];
@@ -70,7 +71,7 @@ digraph doctor_entry {
     "Trigger: the map enters Launch and resume entry" -> "mrUrl on github.com (doctor)?";
     "mrUrl on github.com (doctor)?" -> "<status-bin> doctor-status <state> error Doctor can't run on GitHub yet: CI watch and server-side rebase are GitLab only for now" [label="yes"];
     "mrUrl on github.com (doctor)?" -> "--resumed-gate given (doctor)?" [label="no"];
-    "<status-bin> doctor-status <state> error Doctor can't run on GitHub yet: CI watch and server-side rebase are GitLab only for now" -> "Print why the run ended (doctor)";
+    "<status-bin> doctor-status <state> error Doctor can't run on GitHub yet: CI watch and server-side rebase are GitLab only for now" -> "Print why the run ended on GitHub (doctor)";
     "--resumed-gate given (doctor)?" -> "<status-bin> doctor-status <state> fixing (resumed gate)" [label="yes"];
     "--resumed-gate given (doctor)?" -> "<status-bin> doctor-status <state> diagnosing" [label="no: a fresh run"];
     "<status-bin> doctor-status <state> fixing (resumed gate)" -> "<status-bin> gate wait <state> (resumed escalation)";
@@ -84,8 +85,8 @@ digraph doctor_entry {
     "Domain skill loaded (doctor)?" -> "Branch-writing class under --tier api?" [label="yes"];
     "Domain skill loaded (doctor)?" -> "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" [label="no: Unknown skill, an unreadable path, any load error"];
     "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" -> "Print why the run ended (doctor)";
-    "Print why the run ended (doctor)" -> "Domain skill not loaded: continue at Doctor error written" [label="a load failure"];
-    "Print why the run ended (doctor)" -> "Doctor can't run on GitHub: continue at Doctor error written" [label="the GitHub stop"];
+    "Print why the run ended (doctor)" -> "Domain skill not loaded: continue at Doctor error written";
+    "Print why the run ended on GitHub (doctor)" -> "Doctor can't run on GitHub: continue at Doctor error written";
     "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" -> "resolve-args.sh exit (doctor)?";
     "resolve-args.sh exit (doctor)?" -> "Read <the tier's resolved path> (doctor)" [label="0"];
     "resolve-args.sh exit (doctor)?" -> "Print the resolver's errors verbatim (doctor)" [label="nonzero: generic path"];
@@ -260,6 +261,11 @@ Read tool's for `--skill-path`. For example:
 ```
 
 ### Print why the run ended (doctor)
+
+Print one line in the pane, the same text as the status message, and end
+the run. Nothing runs after it.
+
+### Print why the run ended on GitHub (doctor)
 
 Print one line in the pane, the same text as the status message, and end
 the run. Nothing runs after it.
