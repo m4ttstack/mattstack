@@ -209,9 +209,9 @@ serialized rt identity (`repoIdentityField(mr.rtRepo)`):
   anything else is `unanswered` ("no answer from rt; the merge may still
   land"). The board never retries a write. Other writes with no answer
   are `unanswered` without the read-back.
-- Every write uses one board constant, `FORGE_WRITE_TIMEOUT_MS`, set
-  above the daemon's own write budget (120 s), with a comment saying it
-  must stay above `mr:action`'s.
+- Every write uses one board constant, `FORGE_WRITE_TIMEOUT_MS`, 120 s,
+  above `mr:action`'s 90 s budget after PR #1110, with a comment saying it
+  must stay above the daemon's.
 
 The daemon follows every `mr:action` with a fetch and store write-back, so
 after a GitHub write the route only drops its snapshot cache, as GitLab
@@ -222,10 +222,11 @@ routes do now.
 `/mr/action`, `/draft` and the `/drafts` post lose their two
 `FORGE_NOT_YET` refusals and call `forge-writes.ts`:
 
-- The team check before the token check goes; the GitLab token check
-  stays, applied only when the row is a GitLab row, so a GitLab board's
-  error order is unchanged and a GitHub board never sees "gitlab token not
-  configured".
+- The team check before the token check goes. The GitLab token check stays
+  in its current position, gated on the board's forge
+  (`config.forge.kind === 'gitlab'`), so a GitLab board's error order is
+  unchanged and a GitHub board never sees "gitlab token not configured".
+  One forge per team makes the board's forge and the row's forge the same.
 - A GitHub row with no rt repo answers 400 "this MR has no rt repo", as
   `/mr/refresh` does.
 - `done` answers 200 `{ok: true}` plus `queued`, `sourceBranchNotDeleted`,
@@ -234,8 +235,15 @@ routes do now.
   already uses. `/draft` and `/drafts` keep their GitLab failure statuses
   and gain the same 409 for a GitHub refusal.
 - `unanswered` answers 504 `{reason}`.
+- `failed` comes only from the GitLab side, and each route answers it
+  with today's status and message (`gitlab <action> failed: …` 502,
+  `note post failed: …` 502, and `/draft`'s existing recovered and
+  unchanged replies).
 - `/drafts` records `postedNoteId` from the GitHub reply's `noteId` just
-  as it does from GitLab's note.
+  as it does from GitLab's note. An unanswered note post may have landed,
+  so the draft stays `held` and the toast says it may have posted and to
+  check the PR before posting again; the board never posts it a second
+  time on its own.
 
 Ownership (`requireOwnMr`), the iid check, the local-request check and the
 JSON-body check run on both forges exactly as today.
