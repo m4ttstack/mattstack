@@ -281,6 +281,11 @@ describe("settings/write", () => {
         expect(getSetting<string[]>("rt.mcp.uploadRoots").value).toEqual([...entries, join(home, "shots"), "relative/dir"]);
       });
 
+      test("a missing entry that normalizes to home still gets a notice", () => {
+        const entry = join(home, "missing", "..");
+        expect(capture([entry])).toEqual([broad(entry)]);
+      });
+
       test("a missing folder under home gets no notice", () => {
         expect(capture([join(home, "no", "such", "dir")])).toEqual([]);
       });
