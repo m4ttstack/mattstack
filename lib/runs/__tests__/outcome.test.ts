@@ -27,6 +27,15 @@ describe("parseMrRef", () => {
     expect(parseMrRef(" 405 ")).toEqual({ iid: 405, url: null });
   });
 
+  test("reads a GitHub pull url on any host and a #iid", () => {
+    expect(parseMrRef("https://github.com/acme/app/pull/12")).toEqual({ iid: 12, url: "https://github.com/acme/app/pull/12" });
+    expect(parseMrRef("https://ghe.example.com/acme/app/pull/7/files")).toEqual({ iid: 7, url: "https://ghe.example.com/acme/app/pull/7/files" });
+    expect(parseMrRef("https://github.com/acme/app/pull/12?w=1")).toEqual({ iid: 12, url: "https://github.com/acme/app/pull/12?w=1" });
+    expect(parseMrRef("#34")).toEqual({ iid: 34, url: null });
+    expect(parseMrRef("https://github.com/acme/app/pulls")).toBeNull();
+    expect(parseMrRef("#0")).toBeNull();
+  });
+
   test("junk, empty and zero are null", () => {
     for (const v of ["", "  ", null, undefined, "not an mr", "!x", "0", "https://example.test/issues/9"]) {
       expect(parseMrRef(v)).toBeNull();
