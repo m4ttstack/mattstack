@@ -7,6 +7,8 @@ import { ORG_MARKER_REL } from "../../lib/team/org-marker.ts";
 import { teamLocalPath } from "../../lib/team/team-local.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import type { SettingsReader } from "../../lib/setup/team-settings.ts";
+import { row, type Row } from "../../lib/setup/contract.ts";
+import { ADMIN_SECRETS_ROW_ID, ADMIN_SECRETS_SYNC_STEPS } from "../../lib/setup/validators/admin-secrets.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
@@ -155,6 +157,7 @@ describe("teamStatus", () => {
       lastPush: "2026-08-21T10:00:00+00:00",
       members: [{ username: "dev1", peered: null }],
       invites: [],
+      adminSecrets: null,
       role: "unknown",
       activeTeam: null,
       teams: [],
@@ -433,7 +436,7 @@ describe("teamStatus", () => {
   test("no --team and zero local teams -> mode solo, exit 0, in both output modes", async () => {
     const deps = baseDeps();
     await teamStatus(["--json"], {}, deps);
-    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [], invites: [], role: null, activeTeam: null, teams: [], orgTeams: [] });
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [], invites: [], adminSecrets: null, role: null, activeTeam: null, teams: [], orgTeams: [] });
 
     const text = baseDeps();
     const io = captureOut();
@@ -584,6 +587,87 @@ describe("teamStatus", () => {
       try {
         await teamStatus(["--team", SLUG], {}, deps);
         expect(io.stdout()).not.toContain("waiting to join");
+      } finally {
+        io.restore();
+      }
+    });
+  });
+
+  describe("admin secrets", () => {
+    const syncRow = (detail: string): Row => row({ id: ADMIN_SECRETS_ROW_ID, kind: "access", title: "Admin-only secrets", why: "", required: false, status: "needs-you", detail, action: ADMIN_SECRETS_SYNC_STEPS });
+
+    function adminDeps(username: string, adminSecretsState?: TeamDeps["adminSecretsState"]): TeamDeps & { lines: string[] } {
+      return baseDeps({
+        probes: fakeProbes({
+          home: HOME,
+          dirs: { [TEAM_DIR]: [] },
+          files: {
+            [join(TEAM_DIR, ".git", "config")]: GIT_CONFIG,
+            [join(TEAM_DIR, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({ "mattstack.org": { owners: ["dev1"], admins: ["dev2"] } }),
+            [join(HOME, ".mattstack", "rt", "teams", `${SLUG}.json`)]: JSON.stringify({ forgeUsername: username }),
+          },
+        }),
+        statusRead: fakeRead({}),
+        daemon: async () => null,
+        ...(adminSecretsState ? { adminSecretsState } : {}),
+      });
+    }
+
+    async function stateFor(rowValue: Row | null | Error, username = "dev1"): Promise<unknown> {
+      const deps = adminDeps(username, async () => {
+        if (rowValue instanceof Error) throw rowValue;
+        return rowValue;
+      });
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      return JSON.parse(deps.lines[0]!).adminSecrets;
+    }
+
+    test("no row reads current", async () => {
+      expect(await stateFor(null)).toEqual({ state: "current", detail: null });
+    });
+
+    test("the plain sync steps read needs-sync with the row's detail", async () => {
+      expect(await stateFor(syncRow("The org's owners and admins changed"))).toEqual({ state: "needs-sync", detail: "The org's owners and admins changed" });
+    });
+
+    test("any other needs-you reads needs-you", async () => {
+      const mismatch = row({ ...syncRow("The org shares a different switchboard admin token from this Mac's"), action: { type: "steps", label: "Show steps…", steps: ["If this Mac's token is the newer one, run rt team admin-secrets --replace-token"] } });
+      expect(await stateFor(mismatch)).toEqual({ state: "needs-you", detail: "The org shares a different switchboard admin token from this Mac's" });
+    });
+
+    test("skipped reads not-this-mac", async () => {
+      expect(await stateFor({ ...syncRow("Check this row on the Mac whose key the roster holds"), status: "skipped", action: null })).toEqual({ state: "not-this-mac", detail: "Check this row on the Mac whose key the roster holds" });
+    });
+
+    test("error reads unknown", async () => {
+      expect(await stateFor({ ...syncRow("sops failed"), status: "error" })).toEqual({ state: "unknown", detail: "sops failed" });
+    });
+
+    test("a throwing seam reads unknown and still answers", async () => {
+      expect(await stateFor(new Error("keychain locked"))).toEqual({ state: "unknown", detail: "keychain locked" });
+    });
+
+    test("an org admin gets it too", async () => {
+      expect(await stateFor(null, "dev2")).toEqual({ state: "current", detail: null });
+    });
+
+    test("a member gets null and the seam is never asked", async () => {
+      let asked = false;
+      const deps = adminDeps("dev3", async () => { asked = true; return null; });
+      await teamStatus(["--team", SLUG, "--json"], {}, deps);
+      expect(JSON.parse(deps.lines[0]!).adminSecrets).toBeNull();
+      expect(asked).toBe(false);
+    });
+
+    test("human output adds the admin secrets row only when they need updating", async () => {
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      try {
+        await teamStatus(["--team", SLUG], {}, adminDeps("dev1", async () => syncRow("The org's owners and admins changed")));
+        expect(io.stdout()).toContain("admin secrets: needs updating\n  rt team admin-secrets locks them to the current owners and admins\n");
+        const before = io.stdout().length;
+        await teamStatus(["--team", SLUG], {}, adminDeps("dev1", async () => null));
+        expect(io.stdout().slice(before)).not.toContain("admin secrets");
       } finally {
         io.restore();
       }

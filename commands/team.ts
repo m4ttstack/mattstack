@@ -62,6 +62,8 @@ import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeam
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { approvedBranches } from "../lib/team/approved-branch.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
+import { adminSecretsRowSafe, ADMIN_SECRETS_SYNC_STEPS } from "../lib/setup/validators/admin-secrets.ts";
+import type { Row } from "../lib/setup/contract.ts";
 import { syncAdminSecrets, type AdminSecretsResult, type TokenOutcome } from "../lib/team/admin-secrets.ts";
 import { canonicalHandle, readAdminToken, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
@@ -129,7 +131,48 @@ export interface TeamDeps {
   announce?: typeof sendAnnouncement;
   /** The open invites and their states for `teamStatus`; real relay and clock by default. */
   inviteStatuses?: (slug: string, roster: { username: string; teams?: string[] }[]) => Promise<InviteStatusResult>;
+  /** The `org.admin-secrets` setup row for `teamStatus`; real by default, read only for an org owner or admin. */
+  adminSecretsState?: (slug: string) => Promise<Row | null>;
 }
+
+export type AdminSecretsState = "current" | "needs-sync" | "needs-you" | "not-this-mac" | "unknown";
+
+export interface AdminSecretsStatus {
+  state: AdminSecretsState;
+  detail: string | null;
+}
+
+function isPlainSync(action: Row["action"]): boolean {
+  return JSON.stringify(action) === JSON.stringify(ADMIN_SECRETS_SYNC_STEPS);
+}
+
+export function adminSecretsStatusFrom(r: Row | null): AdminSecretsStatus {
+  if (r === null) return { state: "current", detail: null };
+  if (r.status === "needs-you") return { state: isPlainSync(r.action) ? "needs-sync" : "needs-you", detail: r.detail };
+  if (r.status === "skipped") return { state: "not-this-mac", detail: r.detail };
+  if (r.status === "error") return { state: "unknown", detail: r.detail };
+  return { state: "current", detail: null };
+}
+
+async function realAdminSecretsRow(deps: TeamDeps, slug: string): Promise<Row | null> {
+  const { realSecretPresence } = await import("../lib/setup/plan.ts");
+  return adminSecretsRowSafe(deps.probes, slug, deps.secretPresence ?? realSecretPresence());
+}
+
+async function readAdminSecretsStatus(deps: TeamDeps, slug: string): Promise<AdminSecretsStatus> {
+  try {
+    return adminSecretsStatusFrom(await (deps.adminSecretsState ?? ((s: string) => realAdminSecretsRow(deps, s)))(slug));
+  } catch (err) {
+    return { state: "unknown", detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+const ADMIN_SECRETS_KV: Record<Exclude<AdminSecretsState, "current">, { value: string; hint: (detail: string | null) => string | undefined }> = {
+  "needs-sync": { value: "needs updating", hint: () => "rt team admin-secrets locks them to the current owners and admins" },
+  "needs-you": { value: "needs you", hint: (detail) => detail ?? undefined },
+  "not-this-mac": { value: "not this Mac", hint: (detail) => detail ?? undefined },
+  unknown: { value: "unknown", hint: (detail) => detail ?? undefined },
+};
 
 async function defaultReadCode(json: boolean): Promise<string> {
   if (!json && process.stdin.isTTY) {
@@ -1165,7 +1208,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
   try {
     if (!flagValue(args, "--team") && listOrgs().length === 0) {
-      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], invites: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] };
+      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], invites: [] as never[], adminSecrets: null, role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] };
       if (json) deps.print(JSON.stringify(envelope(result)));
       else out.print(out.line("off", "No team on this Mac", "just you"));
       return;
@@ -1235,8 +1278,9 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     }
     const { invites, relayFailed } = inviteResult;
     const replied = invites.filter((invite) => invite.state === "replied").map((invite) => invite.handle);
+    const adminSecrets = isOrgAdmin(roleFor(deps.probes, slug)) ? await readAdminSecretsStatus(deps, slug) : null;
 
-    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
+    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, adminSecrets, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -1260,6 +1304,9 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
             replied.length > 0 ? replied.join(", ") : "unknown",
             relayFailed ? "the switchboard did not answer, so replies may be waiting" : "rt team members sync adds them",
           )]
+          : []),
+        ...(adminSecrets !== null && adminSecrets.state !== "current"
+          ? [out.kv("admin secrets", ADMIN_SECRETS_KV[adminSecrets.state].value, ADMIN_SECRETS_KV[adminSecrets.state].hint(adminSecrets.detail))]
           : []),
         out.kv("your team", active.team ?? "none"),
         out.kv("your role", role === "org-owner" ? "org owner" : role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),

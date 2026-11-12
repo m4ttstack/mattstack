@@ -35,7 +35,7 @@ const BASE = {
   recheck: "on-activate" as const,
 };
 
-const SYNC_STEPS: Action = { type: "steps", label: "Show steps…", steps: ["Run rt team admin-secrets", "Re-check this row"] };
+export const ADMIN_SECRETS_SYNC_STEPS: Action = { type: "steps", label: "Show steps…", steps: ["Run rt team admin-secrets", "Re-check this row"] };
 
 const NOT_THIS_MAC = "This Mac's age key is not the one the roster holds for you, so it cannot read or share the org's admin-only secrets. Check this row on the Mac whose key the roster holds";
 
@@ -71,11 +71,11 @@ async function ownToken(p: Probes, secrets: SecretPresence): Promise<OwnToken | 
 async function lockVerdict(p: Probes, org: string, secrets: SecretPresence, want: string[]): Promise<Row | null> {
   const sops = p.readFile(join(orgDirUnder(p.home, org), ".sops.yaml"));
   const locked = (sops === null ? null : parseSopsRules(sops))?.find((r) => r.pathRegex === ADMIN_PATH_REGEX)?.recipients ?? null;
-  const unshared = () => row({ ...BASE, status: "needs-you", detail: "This Mac holds the switchboard admin token, but the org's other owners and admins cannot use it yet", action: SYNC_STEPS });
+  const unshared = () => row({ ...BASE, status: "needs-you", detail: "This Mac holds the switchboard admin token, but the org's other owners and admins cannot use it yet", action: ADMIN_SECRETS_SYNC_STEPS });
 
   if (locked === null) return (await ownToken(p, secrets)) === null ? null : unshared();
   if (sameKeys(want, locked)) return tokenDrift(p, org, secrets, unshared);
-  return row({ ...BASE, status: "needs-you", detail: "The org's owners and admins changed since its admin-only secrets were last locked to them", action: SYNC_STEPS });
+  return row({ ...BASE, status: "needs-you", detail: "The org's owners and admins changed since its admin-only secrets were last locked to them", action: ADMIN_SECRETS_SYNC_STEPS });
 }
 
 async function tokenDrift(p: Probes, org: string, secrets: SecretPresence, unshared: () => Row): Promise<Row | null> {
