@@ -9,4 +9,5 @@ and which threads resolved (on GitLab from `posted`, `alreadyPosted`,
 `resolved` and `alreadyResolved`), quoting any `writeErrors`; a caller
 that owns the gates gets the same. Held threads are reported by Report the
 held threads verbatim (GitHub: Hold the picked fix rows and report the
-failure verbatim) instead.
+failure verbatim; a reply or resolve that errored is quoted the same way)
+instead.

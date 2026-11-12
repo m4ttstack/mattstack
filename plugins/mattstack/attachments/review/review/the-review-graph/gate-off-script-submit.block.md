@@ -22,4 +22,5 @@ recorded as posted by the human.
 `context` then says `iterate` is only for a human who confirmed
 nothing from this review is up, never a blind resubmit. From `This review
 already on the MR?` with partly, it quotes the hold reason and which
-`mr_posted_since` items are posted.
+items the posted-already read found posted (`mr_posted_since` items on
+GitLab, the `mr_threads` text matches on GitHub).

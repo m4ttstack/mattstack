@@ -24,3 +24,9 @@ style) and the new issues form in the fresh reviewer, weighting `git diff
 (`origin/mr-<iid>`, or `origin/pr-<n>`, with no MR-head checkout in hand).
 A missing, `unknown` or unfetched last reviewed commit makes the whole
 change what changed.
+
+On GitHub only `gh-review-thread-<n>` rows are kept as earlier threads
+when taking them: the PR-level rows (`gh-issue-comment-<n>` and
+`gh-review-<n>`) are left out, so no PR-level id can reach
+`mr_review_submit`'s `replies`, which takes `gh-review-thread-<n>` ids
+alone.

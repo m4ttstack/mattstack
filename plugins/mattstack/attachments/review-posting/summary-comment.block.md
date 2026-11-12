@@ -16,7 +16,7 @@ a restored one keeps its recorded text there too, plus its recorded
 
 Empty selection (`findings`, or legacy `levels`, is empty, and nothing
 restored): no inline threads, post only the summary. Under Approve with nothing selected: skip
-the issue list and just approve with a brief note; on GitLab that note is
+the issue list and just approve with a brief note; that note is
 the `summary` of the one submitted review, with the approve outcome.
 
 **Drafted reviews.** When the report json carries drafts (`summary` has

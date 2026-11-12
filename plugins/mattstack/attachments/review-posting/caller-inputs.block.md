@@ -12,7 +12,8 @@ order: 1
   so, never mapped to a neighbouring finding. A selected entry with no
   `file` anchor (its `fileLabel` says why) posts into the summary comment
   instead of an inline thread. `disposition` names the one the caller
-  already chose, in that lowercase vocabulary. Legacy `{levels: [...],
+  already chose, in that lowercase vocabulary; `"request_changes"` stays
+  accepted and posts as the blocking-framed Comment. Legacy `{levels: [...],
   disposition: ...}` stays accepted unchanged and posts whole tiers
   (whichever of Critical / Important / Minor the draft carries), for
   callers not yet migrated. Arriving with neither shape, or without a

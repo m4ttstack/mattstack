@@ -424,7 +424,7 @@ A `gate_open` refusal lists one problem per line. Fix each line it names
 in the source and fit again, once. A refusal line about an Overview
 comment's options (such as `options: exactly post:<t> and resolve:<t>`
 from an rt that predates post-alone Overview replies) is never fixed by
-adding `resolve:`, since GitLab cannot resolve that comment: it goes
+adding `resolve:`, since the forge cannot resolve that comment: it goes
 straight to the plain open. A second refusal also falls back to the
 plain open: the questions as drawn below, each `context` the thread's
 material as prose, the shared frame as `--context`, through `<status-bin>
@@ -477,7 +477,9 @@ is `thread-<n>` by 1-based position among these threads, its label the
 thread's `<file>:<line>`, and its two options `post:<threadId>` and
 `resolve:<threadId>`, thread id VERBATIM. An Overview comment's row
 (`resolvable: false` in `mr_threads`) is labelled `Overview comment` and
-gets `post:<threadId>` alone: GitLab cannot resolve it.
+gets `post:<threadId>` alone: GitLab cannot resolve it. On GitHub any
+`gh-issue-comment-<n>` or `gh-review-<n>` row is an Overview row too (a
+`gh-issue-comment` row carries `resolvable: null`).
 
 ```json
 [

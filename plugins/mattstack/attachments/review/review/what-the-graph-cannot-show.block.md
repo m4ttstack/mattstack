@@ -19,7 +19,7 @@ label: Graph notes
   <tiers>, disposition: <outcome>}`), restored findings selected, never
   deselected.
 - The post record, `gate_record {runDb, stage, scope: post, shape: post}`,
-  comes only once the review is up (by the submit, `gh`, or the human on a
+  comes only once the review is up (by the submit, or the human on a
   take): rt reads the latest post decision as what posted. Pass `gateId`
   for an answered gate, or the caller's selection as `answers` with its
   named `decidedBy`; the tool builds the record.
@@ -28,4 +28,13 @@ label: Graph notes
   ends. A gate that comes back `closed` is a hold, reason "gate closed".
 - `run_close` takes `outcome: done` after the post record, or `abandoned`
   with `reason: <why; what already posted>` on a hand back.
-- A fetch, diff or `gh pr diff` that errors is a hold quoting the error.
+- A submit result of `published: true` with `replyErrors` (GitHub) takes
+  the edge its approval names, as one without them would: `published,
+  approved as asked` when the approval landed or none was asked, and
+  `published, approved: false on an approve` when an asked approval did
+  not. Either way the review is up and complete,
+  and review-posting's mechanics post each listed reply once with
+  `mr_reply_thread`, never a second submit. That is not the split-posting
+  the STOP guards against. A reply that still fails is reported in the
+  close with its error, apart from `resolveErrors`.
+- A fetch or diff that errors is a hold quoting the error.

@@ -16,8 +16,7 @@ here, before any gate opens.
    demoted finding's comment says it is unverified, as its `body` does.
 3. `summary.comments`: one summary line per verdict the gate will offer,
    keyed by the option values of the extras' `outcome` question:
-   `{"comment": "...", "approve": "..."}`, plus `request_changes` only
-   when this verb runs the gate on GitHub. Exactly those keys, never one
+   `{"comment": "...", "approve": "..."}`. Exactly those keys, never one
    more or one fewer. Each value is the whole summary line for that
    verdict, in that voice, with the strengths and the assessment said as
    the reviewer wants them. None holds an issue list: each ticked finding
@@ -27,7 +26,6 @@ here, before any gate opens.
    `approve` line is the only one that may say the MR is ready to merge,
    good to merge, LGTM or nothing blocking. The `comment` line leaves the merge
    call to the author, or says approval is withheld pending the notes.
-   The `request_changes` line says what must change before it merges.
 
 Unless there was no selection, write `review-verdicts.json` (The verdict
 file) next to the report json. The draft's `Unanswered rules:` line, when

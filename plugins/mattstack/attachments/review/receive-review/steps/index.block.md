@@ -21,7 +21,6 @@ flowchart TB
     run_field_get_respond_plan[/"run_field_get {runDb, key: extra.gate-source.respond-plan}"/]
     caller_handed{What did the caller hand receive-review?}
     resolve_change
-    change_forge{Forge of the change?}
     mr_ref_in_hand{MR url or iid in hand?}
     mr_for_branch[/"mr_for_branch {repoName: <root>, branches: [<branch>]}"/]
     open_mr_found{Open MR with this source branch?}
@@ -34,7 +33,6 @@ flowchart TB
     write_pending_source
     handed_threads_where{Where are the handed plan's threads?}
     mr_threads_handed[/"mr_threads {mrUrl} for the handed plan's threads"/]
-    read_handed_threads_gh
     keep_plan_threads
     run_field_get_handed[/"run_field_get {runDb, key: extra.gate-source.respond-plan} for the handed plan"/]
     run_stores_source{The run stores a respond-plan source for the handed plan?}
@@ -42,10 +40,7 @@ flowchart TB
     pending_gate_id{The pending round's stored gate id?}
     gate_reconcile_pending[/"gate_reconcile {id: <the stored gate>, runDb, stage}"/]
     pending_reconcile_status{Pending round's gate_reconcile status?}
-    thread_read_forge{Forge for the thread read?}
     mr_threads_unresolved[/"mr_threads {mrUrl, filter: "unresolved-human"}"/]
-    read_pr_threads_gh
-    keep_unresolved_human
     any_unresolved{Any unresolved human threads?}
     select_rules
     dispatch_adjudicator
@@ -125,9 +120,11 @@ flowchart TB
     hold_fix_rows
     next_github_thread{Next GitHub thread?}
     post_reply
+    reply_result{GitHub reply result?}
     resolve_decided{resolve: decided for this thread?}
     resolve_thread
-    github_fix_held{Any GitHub fix row held this pass?}
+    resolve_result{GitHub resolve result?}
+    github_fix_held{Any GitHub row held this pass?}
     gate_record_held[/"gate_record {runDb, stage, scope: respond-post, shape: respond-post, gateId | answers + decidedBy, held}"/]
     run_field_set_hold_held[/"run_field_set {runDb, key: hold, value: held, stage: <stage>}"/]
     report_outcome
@@ -173,9 +170,7 @@ flowchart TB
     write_pending_source --> caller_owns_plan_gates
     caller_handed -->|"nothing, or a {plan} (alone or in {plan, post})"| resolve_change
     caller_handed -->|"a {post} alone"| gate_record_post
-    resolve_change --> change_forge
-    change_forge -->|GitLab| mr_ref_in_hand
-    change_forge -->|GitHub: the PR url| run_has_mr
+    resolve_change --> mr_ref_in_hand
     mr_ref_in_hand -->|yes| run_has_mr
     mr_ref_in_hand -->|no| mr_for_branch
     mr_for_branch --> open_mr_found
@@ -190,27 +185,22 @@ flowchart TB
     run_has_branch -->|yes: keep it| executing_handed_plan
     run_field_set_branch --> executing_handed_plan
     executing_handed_plan -->|yes, not yet spent: never re-adjudicate| handed_threads_where
-    executing_handed_plan -->|no, or spent by a revise| thread_read_forge
+    executing_handed_plan -->|no, or spent by a revise| mr_threads_unresolved
     executing_handed_plan -->|spent: the run records it| run_field_get_respond_plan
     handed_threads_where -->|in this conversation: read nothing| run_field_get_handed
-    handed_threads_where -->|not in this conversation: GitLab| mr_threads_handed
-    handed_threads_where -->|not in this conversation: GitHub| read_handed_threads_gh
+    handed_threads_where -->|not in this conversation| mr_threads_handed
     mr_threads_handed -->|threads, resolved ones included| keep_plan_threads
     mr_threads_handed -->|an error: fail, quoting it| own_run_failed_or_abandoned
-    read_handed_threads_gh --> keep_plan_threads
     keep_plan_threads --> run_field_get_handed
     run_field_get_handed --> run_stores_source
     run_stores_source -->|yes: record it| gate_record_plan
     run_stores_source -->|no: build it from the handed --report| build_plan_open
-    thread_read_forge -->|GitLab| mr_threads_unresolved
-    thread_read_forge -->|GitHub| read_pr_threads_gh
     mr_threads_unresolved -->|threads: already filtered| any_unresolved
     mr_threads_unresolved -->|an error: fail, quoting it| own_run_failed_or_abandoned
-    read_pr_threads_gh --> keep_unresolved_human
-    keep_unresolved_human --> any_unresolved
     any_unresolved -->|yes| select_rules
     select_rules --> dispatch_adjudicator
     any_unresolved -->|none: say so| report_outcome
+    any_unresolved -->|the marker read errored: fail, quoting it| own_run_failed_or_abandoned
     dispatch_adjudicator --> draft_verdict_table
     draft_verdict_table --> build_plan_open
     build_plan_open --> caller_owns_plan_gates
@@ -300,7 +290,7 @@ flowchart TB
     apply_post_note -->|a new gate| build_post_open
     gate_record_post --> post_forge
     post_forge -->|GitLab| respond_post_execute
-    post_forge -->|GitHub: never respond_post_execute or an mr_ tool| read_posted_threads_gh
+    post_forge -->|GitHub: never respond_post_execute| read_posted_threads_gh
     respond_post_execute --> execute_result
     execute_result -->|held is empty| run_field_set_hold_clear
     execute_result -->|a reply or resolve held| gate_off_script_forge
@@ -345,10 +335,14 @@ flowchart TB
     next_github_thread -->|"post: due (picked, or a gate-1: reply row), not held this pass, and the thread lacks this run's reply"| post_reply
     next_github_thread -->|no post due: not picked, held this pass, or already there| resolve_decided
     next_github_thread -->|threads done| github_fix_held
-    post_reply --> resolve_decided
-    resolve_decided -->|yes, not held this pass| resolve_thread
-    resolve_decided -->|no, or held this pass| next_github_thread
-    resolve_thread --> next_github_thread
+    post_reply --> reply_result
+    reply_result -->|posted| resolve_decided
+    reply_result -->|an error: hold this thread, quoting it| next_github_thread
+    resolve_decided -->|yes, not held this pass, and an inline thread| resolve_thread
+    resolve_decided -->|no, held this pass, or a PR-level row| next_github_thread
+    resolve_thread --> resolve_result
+    resolve_result -->|resolved| next_github_thread
+    resolve_result -->|an error: hold this thread, quoting it| next_github_thread
     github_fix_held -->|yes| gate_record_held
     github_fix_held -->|no| report_outcome
     gate_record_held --> run_field_set_hold_held

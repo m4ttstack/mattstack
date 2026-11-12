@@ -4,13 +4,13 @@ order: 5
 
 # Posting mechanics by disposition
 
-Comment and Approve execute everywhere. Request changes executes only on
-GitHub (`gh pr review --request-changes`); rt's GitLab MR tools have no
-Request changes. Where it is unavailable, post a blocking-framed Comment:
-the summary's Assessment names the findings that block the merge and says
-approval is withheld until they are fixed.
+Comment and Approve execute on both forges through `mr_review_submit`.
+rt's MR tools have no Request changes on either forge: post a
+blocking-framed Comment instead. The summary's Assessment names the
+findings that block the merge and says approval is withheld until they are
+fixed.
 
-On GitLab a review is ONE submitted review: the selected findings with a
+On either forge a review is ONE submitted review: the selected findings with a
 `file` and `line`, and the restored ones with both and `changed` false,
 as its comments, the summary as its summary note, the disposition as its
 outcome, and on a re-review the decided `replies` as its replies, all in
@@ -29,3 +29,12 @@ posted, never the finding's `body`.
 A review that posted but whose approval was refused is posted. The
 approval is then settled on its own, through the caller's approval gate;
 the review is never submitted a second time.
+
+On GitHub a submit that returns `published: true` with `replyErrors` is
+a review that is up and complete: the listed replies are the only part
+missing, apart from an approval that came back `approved: false`, which the
+caller's approval gate still settles. Post each listed reply once with `mr_reply_thread`; its thread
+stays unresolved unless that reply posts, and a `resolve` that was due
+runs after it with `mr_resolve_thread`. The review is never submitted
+again. A reply that still fails is reported in the close with its error,
+apart from `resolveErrors`.

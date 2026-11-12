@@ -226,7 +226,7 @@ is optional.
    dispatcher only ever includes these classes for the board's own
    identity, but do not trust the flag alone: confirm independently (the
    author from `mr_view {mrUrl, maxAgeMs: 5000}`, compared against the
-   authenticated GitLab identity for this checkout) that the MR author is
+   authenticated forge identity for this checkout) that the MR author is
    genuinely the board's own identity before touching the branch. If that
    check is inconclusive or they don't match, escalate; never apply a
    branch-writing fix on that ambiguity. When the ambiguity itself is worth
