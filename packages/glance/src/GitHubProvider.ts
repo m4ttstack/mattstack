@@ -3564,13 +3564,13 @@ export class GitHubProvider implements GitProvider {
    * instant the scan started, with a small overlap.
    *
    * Retry is the GitHub client's: a GET that fails with a 5xx is retried up
-   * to three times on a 1s, 4s, 9s ladder; a rate limit is waited out only
+   * to three times on a 1s, 4s, 9s ladder (not once its signal has aborted); a rate limit is waited out only
    * when `retry-after` is within 30s, at most twice, and otherwise (and for
    * any other 429) throws `RateLimitedError`; other 4xx fail at once.
    *
    * `signal` is checked before each request and is passed to it. An abort
-   * mid-request surfaces as the signal's reason, but the client can read it
-   * as a 5xx and wait out its GET retries first.
+   * surfaces as the signal's reason and is never retried: the client sends
+   * no further request once the signal has aborted.
    */
   async fetchMergeRequestIndex(options: FetchMergeRequestIndexOptions): Promise<MergeRequestIndexRow[]> {
     const hasGroup = options.groupPath !== undefined;

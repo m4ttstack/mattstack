@@ -245,9 +245,9 @@ describe('GitHubProvider.fetchMergeRequestIndex', () => {
     expect(urls).toHaveLength(1);
   });
 
-  test('an abort during a request surfaces the signal reason, not the client error', async () => {
+  test('an abort during a request surfaces the signal reason after exactly one request', async () => {
     const controller = new AbortController();
-    stubForge({
+    const { urls } = stubForge({
       rest: () => {
         controller.abort(new Error('cancelled mid-request'));
         return jsonResponse({ message: 'boom' }, 500);
@@ -256,6 +256,7 @@ describe('GitHubProvider.fetchMergeRequestIndex', () => {
     await expect(
       provider().fetchMergeRequestIndex({ projectPaths: ['o/r'], updatedAfter: UA, signal: controller.signal })
     ).rejects.toThrow('cancelled mid-request');
+    expect(urls).toHaveLength(1);
   });
 
   test('a failed page names the operation and status', async () => {
