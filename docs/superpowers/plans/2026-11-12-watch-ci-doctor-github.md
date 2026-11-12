@@ -36,11 +36,23 @@
 2. An `mr_retry` refusal that does not say the run is still going: it goes to the retry gate or escalation at once and never enters the 60 second wait. Pinned by W3.
 3. A resumed respond pane whose reply landed before a crash: the reply check counts it and never posts twice. Pinned by R1.
 4. A GitHub PR GitHub will not rebase (conflicts): doctor ends with "the conflicts need a checkout" and quotes the error, with no fix-once loop. Pinned by D1.
-5. A GitLab MR through every edited graph: the walk is unchanged. Pinned by the projection script in every task's verify step.
+5. A GitHub rebase that succeeds: doctor watches the `sha` `mr_rebase` returned, with no extra `mr_view` rebase poll and never the pre-rebase sha. Pinned by D4.
+
+The GitLab walk through every edited graph is pinned separately, by the projection script in every task's verify step.
 
 ## Walker scenarios (RED in Task 2, GREEN in Task 8)
 
-A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill folder to read and one scenario. It may use Read only. It answers with the ordered tool calls it would make (name and arguments), the canned result it reads for each, and where the run ends. Canned results come from the scenario; a call the scenario does not answer ends the walk with "unscripted: <call>". It never calls a real tool.
+A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill folder to read and one scenario. It may use Read only. It answers with the ordered tool calls it would make (name and arguments), the canned result it reads for each, and where the run ends. It never calls a real tool.
+
+Canned results come from the scenario row. Bookkeeping calls the row does not name return ordinary success:
+- status and field writes are ok;
+- `run_enter` and `run_field_get` return what the row states;
+- `run_budget` is not exhausted unless the row says so;
+- git reads return the row's branch and sha;
+- `ci_lease_read` returns null and `ci_lease_claim` returns `claimed: true`;
+- `ci_lease_release` and `run_close` are ok.
+
+Every doctor row runs `resolve-args.sh` with a nonzero exit (no domain skill), so the generic path runs. Any other call the scenario does not answer ends the walk with "unscripted: <call>".
 
 | Id | Skill | Scenario (canned results) | GREEN expects |
 |---|---|---|---|
@@ -49,6 +61,8 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
 | W3 | watch-ci verb | As W1 to the retry. First `mr_retry` errors `"rerun refused: the workflow run is still in progress"`; second `mr_retry` errors `"403 Resource not accessible by integration"`. | First error: `run_budget` retry-waits, one background `sleep 60`, the turn ends, then `mr_retry` again. Second error: the retry gate at once, no second wait. |
 | D1 | board doctor | Launched on `https://github.com/acme/widgets/pull/42`, own mode, `--fix-classes clean-api-rebase,retry-flake`. `mr_view` returns `conflicts: true`, head pipeline success. `mr_rebase {wait: true}` errors `"GraphQL: PullRequest::RebaseConflictError"`. | No GitHub stop at entry; lease claim; `mr_rebase {mrUrl, wait: true}`; error "the conflicts need a checkout" quoting it; no fix-once retry. |
 | D2 | board doctor | As D1 but `mr_view` returns no conflicts, head pipeline failed. `mr_pipeline` returns jobs `github:check:5001` (`runId: 9001`, failed, "unit (3/6)") and `github:check:5002` (`runId: null`, failed, "codecov/patch"). `mr_job_trace` for 5001 returns a network-timeout tail. | 5002 is classified without a trace read and the run ends `real, or no licensed fix` naming `codecov/patch` and that it has no Actions log; no `mr_retry`. |
+| D2b | board doctor | As D2 but only 5002 failed (`runId: null`, "codecov/patch"). | No `mr_job_trace` call; the run ends `real, or no licensed fix` naming `codecov/patch`; no `mr_retry`. |
+| D4 | board doctor | As D1 but `mr_rebase {wait: true}` returns `{status: "rebased", sha: "abc1234", previousSha: "def5678"}`; then `ci_watch` returns `success`. | `mr_rebase {mrUrl, wait: true}`, then `ci_watch {sha: "abc1234", ...}`; no rebase-poll `mr_view`, no sleep; the run ends green. |
 | D3 | board doctor | As D2 but only 5001 failed. First `mr_retry` errors `"rerun refused: the workflow run is still in progress"`; second ok. | Retry-wait count, one background `sleep 60`, the turn ends, then the lease check and `mr_retry` again, then the watch. |
 | R1 | board respond | Post phase on a resumed pane. `--report` holds `gate-2-answer: {"answers":{...},"by":"shepherd","answeredAt":1794500000000}`. `mr_reply_thread` for row `t1` errored with a timeout earlier. `mr_threads {refresh: true}` shows, in t1's discussion, a note by this run's account created at 1794500050000 whose text starts with the reply's first line. | The reply counts as posted (created after `answeredAt`); no second `mr_reply_thread`. |
 | R2 | board respond | Triage. The filtered `mr_threads` read succeeds; the unfiltered marker read errors twice; the off-script gate's answer is take, with the human pasting the threads. | The marker read takes the fetch fix-once path and the off-script gate; the take goes on to adjudication. |
@@ -79,7 +93,7 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
        - `mrUrl on github.com (doctor)?`: `no`.
        - `Forge (before the rebase)?`: `GitLab`.
        - A diamond absent from one side is a no-op there.
-    3. Keep only what the graph's first node reaches.
+    3. Keep only what is reachable from every node with no inbound edge (each trigger), as check-dot seeds its walk.
   - Compare:
     - Compare edges as `(fromText, label, toText)` triples, plus the node texts.
     - Before comparing, apply the allowlist to the base side as text substitutions. The allowlist is a const array of `[old, new]` pairs, filled from the spec's list as Tasks 3 to 6 land; each task appends its own pairs.
@@ -93,9 +107,9 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
 **Files:**
 - Create: `.superpowers/redgreen/red-<id>.md` per scenario, `.superpowers/redgreen/red-skills/` (copies of the compiled skills walked).
 
-- [ ] **Step 1:** Re-read Linear SKILLS-108, RT-370 and RT-546. If either ticket's acceptance has changed since the spec, stop and `herd_ask`.
+- [ ] **Step 1:** Re-read Linear SKILLS-108, RT-370 and RT-546. If any of the three tickets' acceptance has changed since the spec, stop and `herd_ask`.
 - [ ] **Step 2:** Run `sh .superpowers/verify.sh`. Copy `<scratch>/pack/skills/watch-ci/`, `<scratch>/pack/attachments/stage-watch-ci/`, `apps/board/skills/doctor/` and `apps/board/skills/respond/` into `.superpowers/redgreen/red-skills/`.
-- [ ] **Step 3:** Dispatch the eight walkers from the scenario table in parallel, each on its RED skill copy (model `sonnet`, effort `medium`). Save each transcript summary to `red-<id>.md`.
+- [ ] **Step 3:** Dispatch the ten walkers from the scenario table in parallel, each on its RED skill copy (model `sonnet`, effort `medium`). Save each transcript summary to `red-<id>.md`.
 - [ ] **Step 4:** Record what each RED run did wrong against "GREEN expects". Expected misses include a CLI forge command for the retry or the draft check (W1, W3), doctor stopping at entry (D1 to D3), an unclear reply check (R1) and a refusal to adjudicate (R2). A scenario whose RED already matches GREEN is noted; its region still gets the spec's edit.
 
 ### Task 3: watch-ci verb on the shared path
@@ -130,7 +144,11 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
   - In `what-the-graph-cannot-show`, add one bullet: the wait edge is taken only when the error plainly says the job's workflow run is still in progress; any other refusal takes the tool-error edge.
 - [ ] **Step 3: Text edits (spec section 1, Prose and Guards).**
   - `ci_triage` node label becomes `ci_triage {mrUrl: <mr>, pipelineId: <N> on GitLab, config?}`; the header says GitHub omits `pipelineId`.
-  - Widen the STOP texts and the "GitLab CLI" edge labels to "the GitLab or GitHub CLI".
+  - Widen the guards to these exact texts (the stage drops the ` (watch-ci)` suffix, trimming the space):
+    - `STOP: GitLab CI goes through ci_watch, the read tools, gitlab_get and mr_retry (watch-ci)` becomes `STOP: CI goes through ci_watch, the read tools, gitlab_get on GitLab and mr_retry (watch-ci)`.
+    - `STOP: GitLab triage goes through ci_triage (watch-ci)` becomes `STOP: triage goes through ci_triage (watch-ci)`, and the `domain-rules` quote of it changes to match in both trees.
+    - The edge label `tempted to watch with a script or the GitLab CLI` becomes `tempted to watch with a script or the GitLab or GitHub CLI`.
+    - The `the-attendant-lease` row "A ci_watch error, so a script or the GitLab CLI" becomes "...or the GitLab or GitHub CLI".
   - Apply the block prose the spec lists.
 - [ ] **Step 4: Allowlist.** Append this task's `[old, new]` text pairs to the script's allowlist: the target-lookup label, the `ci_triage` label, and each widened STOP text and edge label.
 - [ ] **Step 5: Verify.**
@@ -148,7 +166,7 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
 - Modify: `plugins/mattstack/attachments/pipeline/stage-watch-ci/{fix-watch-error,classify-failed-jobs,classify-triage-report,gate-ci,reading-gitlab-facts,the-attendant-lease,what-the-graph-cannot-show,domain-rules}.block.md` and `budgets-in-this-stage.block.md` as needed.
 
 **Interfaces:**
-- Consumes: Task 3's node ids and labels. Replace `(watch-ci)` in each label with nothing, since the stage's labels carry no verb suffix. The budget key `watch-ci:retry-waits:<sha12>` takes `stage`.
+- Consumes: Task 3's node ids and labels. Replace `(watch-ci)` in each label with nothing, since the stage's labels carry no verb suffix, and trim the space it leaves (`retry-waits spent?`, `End the turn: waiting to retry`). The budget key `watch-ci:retry-waits:<sha12>` takes `stage`.
 
 - [ ] **Step 1:** Mirror Task 3, Steps 1 to 3, on the stage (spec section 2).
   - Also drop `draft_forge_host`'s "anything else" edge to `run_field_set_ci_green`.
@@ -168,17 +186,18 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
 **Interfaces:**
 - Produces:
   - Node names `"Forge (before the rebase)?"` (edges `GitLab` and `GitHub`), `"mr_rebase {mrUrl, wait: true} (GitHub)"` and `"mr_rebase result (GitHub)?"`.
-  - The `mr_rebase result (GitHub)?` edges, every label starting `GitHub:`:
+  - The `mr_rebase result (GitHub)?` edges, each label starting `GitHub:` except the STOP edge:
     - rebased, to `Rebased or running: continue at Watch the pipeline`;
     - pending, to `Diagnosis ends the run: continue at the map's exit`;
     - will not rebase, to the same exit;
     - any other tool error, to `Fixed the mr_rebase call once already?`;
-    - the forge-CLI temptation, to `STOP: rebases go through mr_rebase`.
+    - `tempted to rebase the GitHub PR with the forge CLI or a checkout`, to `STOP: rebases go through mr_rebase` (check-dot requires every edge into a guard STOP to start "tempted").
+  - Only the region's entry edge (`Forge (before the rebase)?` to the GitHub call, label `GitHub`) must name GitHub for the projection; the rest is unreachable once it drops. Every label above still names GitHub.
 
 - [ ] **Step 1: Entry (spec section 3, Entry).** Remove the `mrUrl on github.com (doctor)?` diamond, its status write, print box, exit, edges and sections; the trigger goes to `--resumed-gate given (doctor)?`. Remove `SKILL.md`'s `doctor can't run on GitHub` edge and any prose naming that outcome. In `entry.md`'s `ci_lease_read` fix text, add the `/pull/<number>` URL shape beside `/-/merge_requests/<iid>`.
 - [ ] **Step 2: Rebase (spec section 3, Rebase).**
   - Insert `Forge (before the rebase)?` between the `rebasing` status write and `mr_rebase {mrUrl}`. Its `GitLab` edge goes to `mr_rebase {mrUrl}`; its `GitHub` edge goes to the GitHub call and its result diamond, with the edges in Interfaces.
-  - Add one GitHub sentence to "The rebase poll". Rename the diamond label `conflicts GitLab cannot rebase: error, needs a checkout` to `conflicts the forge cannot rebase: error, needs a checkout`.
+  - Add one GitHub sentence to "The rebase poll". Rename the diamond label `conflicts GitLab cannot rebase: error, needs a checkout` to `conflicts the forge cannot rebase: error, needs a checkout`, and the same words in the "rebase poll" prose bullet. In `Fix what the mr_view error names`, "GitLab's own refusal" becomes "the forge's own refusal".
   - Add the GitHub refusal rule to `Fix what the mr_rebase error names`: by meaning, anchored on `PullRequest::RebaseConflictError`.
   - Leave the stack-parent nodes and bullet from PR #1113 exactly as they are, if present.
 - [ ] **Step 3: Watch (spec section 3, Watch).**
@@ -209,14 +228,16 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
 - Produces the entry edges:
   - `"mr_retry result?" -> "Retry waits = 20 (doctor)?" [label="GitHub: tool error, the job's run is still in progress"]`
   - `"mr_job_trace result (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: no Actions log for the check"]`
+  - `"Failed jobs listed in pipeline.jobs (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: every failed row has no Actions log"]`
+  - `"Trace tails enough to classify (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: every row without a tail has no Actions log"]`
 
 - [ ] **Step 1: No-log rows (spec section 3, Classify).**
   - Name both jobId forms in the three Fix sections.
-  - Add the no-log edge.
+  - Add the three no-log edges.
   - In prose, add the signals:
     - `github:status:` id, or a `github:check:` row with `runId` null, in `mr_pipeline`;
     - `jobId` null in `failedJobs`.
-  - Such rows skip the trace read and classify as `real, or no licensed fix`, naming the check and that it has no Actions log.
+  - Such rows skip the trace read and classify as `real, or no licensed fix`, naming the check and that it has no Actions log. The rule lives in the `Classify each failed job (doctor)` section; the `mr_job_trace` node reads "per failed job" with a sentence there that a no-log row gets no trace call (a mixed red traces only the rows with a log).
 - [ ] **Step 2: Retry wait (spec section 3, Retry wait).**
   - Add the nodes and edges:
     - `Retry waits = 20 (doctor)?` "no" goes to the sleep;
@@ -224,6 +245,7 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
     - a dashed edge from the end-turn node to the trigger;
     - the trigger goes to `Lease mode (before the retry)?`;
     - "yes: GitHub retry waits spent" goes to `Fixed the mr_retry call once already?`.
+  - The end-turn node gets a section carrying the one-line turn-end message and the one-sleep-at-a-time rule, as the existing rebase-poll end-turn section does. The verb and stage end-turn nodes in Tasks 3 and 4 get the same in their block prose.
   - In prose, the count resets with a new watched sha, and only an error that plainly says the run is still in progress takes the edge.
 - [ ] **Step 3: Respond (spec section 4).**
   - In both "Check the MR for the reply" sections of `post.md`, replace "made in this pass" with "created after the `answeredAt` in `--report`'s `gate-2-answer` line".
@@ -247,7 +269,7 @@ A walker is a fresh subagent (model `sonnet`, effort `medium`) given one skill f
 
 ### Task 8: GREEN walks and revision (controller)
 
-- [ ] **Step 1:** Run `sh .superpowers/verify.sh`, then dispatch the eight walkers again on the edited compiled skills, as in Task 2. Save `green-<id>.md`.
+- [ ] **Step 1:** Run `sh .superpowers/verify.sh`, then dispatch the ten walkers again on the edited compiled skills, as in Task 2. Save `green-<id>.md`.
 - [ ] **Step 2:** Each scenario must match "GREEN expects", with no CLI forge command and no shell call a tool covers. On a miss:
   - revise the source;
   - repeat the owning task's verify and projection steps;
