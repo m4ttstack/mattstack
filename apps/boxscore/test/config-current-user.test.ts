@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   __resetCurrentUser,
+  __setCurrentUser,
   getCurrentUser,
 } from '../src/server/config/current-user.js';
 
@@ -55,4 +56,26 @@ describe('getCurrentUser', () => {
   it('returns null under vitest when no fetch is injected', async () => {
     expect(await getCurrentUser('https://gl.example', 'tok')).toBeNull();
   });
+
+  it('reads the user again for a different host or token, never reusing another one', async () => {
+    const alice = okFetch({ username: 'alice', name: null });
+    const bob = okFetch({ username: 'bob', name: null });
+    await getCurrentUser('https://gl.a.example', 'tok-a', alice);
+
+    expect(
+      (await getCurrentUser('https://gl.b.example', 'tok-a', bob))?.username
+    ).toBe('bob');
+    expect(
+      (await getCurrentUser('https://gl.b.example', 'tok-b', alice))?.username
+    ).toBe('alice');
+  });
+
+  it('a user set through __setCurrentUser answers for any host', async () => {
+    __setCurrentUser({ username: 'pinned', name: null });
+
+    expect(
+      (await getCurrentUser('https://gl.other.example', 'tok'))?.username
+    ).toBe('pinned');
+  });
 });
+
