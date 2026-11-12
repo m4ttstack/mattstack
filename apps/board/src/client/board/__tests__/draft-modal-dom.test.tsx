@@ -70,13 +70,14 @@ test("someone else's board can only dismiss it", async () => {
   expect(document.body.textContent).toContain('only the author posts');
 });
 
-test('a held draft on a GitHub row offers only dismiss', async () => {
+test('a held draft on a GitHub row follows the same author rule', async () => {
   const pr = {
     ...mr,
     iid: 7,
     webUrl: 'https://github.com/acme/webapp/pull/7',
     provider: 'github',
   } as unknown as BoardMRWithReview;
-  expect(await render(true, pr)).toEqual(['dismiss']);
-  expect(document.body.textContent).not.toContain('only the author posts');
+  expect(await render(true, pr)).toEqual(['dismiss', 'post']);
+  expect(await render(false, pr)).toEqual(['dismiss']);
+  expect(document.body.textContent).toContain('only the author posts');
 });

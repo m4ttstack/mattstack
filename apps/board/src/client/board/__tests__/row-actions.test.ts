@@ -1312,16 +1312,27 @@ const FORGE_WRITES = [
   'refresh-mr',
 ];
 
-test('a GitHub own MR keeps only open in github in its forge section', () => {
-  const rows = rowActions(ghOwnIdle, actionEnvOf(ownEnv, ghOwnIdle));
-  expect(
-    rows.filter(a => a.section === 'gitlab').map(a => `${a.key}:${a.label}`)
-  ).toEqual(['open-gitlab:open in github']);
-  const all = rows.map(a => a.key);
-  for (const key of FORGE_WRITES) expect(all).not.toContain(key);
+test('a GitHub own MR holds every forge write a GitLab own row does', () => {
+  const forgeKeys = (m: typeof ghOwnIdle) =>
+    rowActions(m, actionEnvOf(ownEnv, m))
+      .filter(a => a.section === 'gitlab')
+      .map(a => a.key);
+  const glOwnIdle = {
+    ...ghOwnIdle,
+    webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/7',
+    provider: 'gitlab',
+  } as typeof ghOwnIdle;
+  const gh = forgeKeys(ghOwnIdle);
+  for (const key of FORGE_WRITES) {
+    if (forgeKeys(glOwnIdle).includes(key)) expect(gh).toContain(key);
+  }
+  const refresh = rowActions(ghOwnIdle, actionEnvOf(ownEnv, ghOwnIdle)).find(
+    a => a.key === 'refresh-mr'
+  );
+  expect(refresh?.label).toBe('refresh from github');
 });
 
-test('auto-merge never leads the menu on a GitHub MR', () => {
+test('auto-merge leads the menu on a GitHub MR as on GitLab', () => {
   const ready = mrx(8, {
     webUrl: 'https://github.com/acme/webapp/pull/8',
     provider: 'github',
@@ -1329,16 +1340,10 @@ test('auto-merge never leads the menu on a GitHub MR', () => {
     blockers: { any: false, pipelineRunning: true },
     autoMergeButton: { visible: true, isActive: false },
   });
-  expect(sections(ready, ownEnv)).not.toContain('top:setAutoMerge');
-  const onGitLab = mrx(8, {
-    reviews: ready.reviews,
-    blockers: ready.blockers,
-    autoMergeButton: ready.autoMergeButton,
-  });
-  expect(sections(onGitLab, ownEnv)).toContain('top:setAutoMerge');
+  expect(sections(ready, ownEnv)).toContain('top:setAutoMerge');
 });
 
-test('bulk actions over GitHub rows offer no merge, auto-merge or draft entry', () => {
+test('bulk actions over GitHub rows offer merge and auto-merge', () => {
   const other = mrx(9, {
     webUrl: 'https://github.com/acme/webapp/pull/9',
     provider: 'github',
@@ -1351,8 +1356,8 @@ test('bulk actions over GitHub rows offer no merge, auto-merge or draft entry', 
     [ghOwnIdle, other],
     actionEnvOf(ownEnv, ghOwnIdle)
   ).map(e => e.key);
-  for (const key of FORGE_WRITES) expect(entries).not.toContain(key);
-  expect(entries.length).toBeGreaterThan(0);
+  expect(entries).toContain('merge');
+  expect(entries).toContain('setAutoMerge');
 });
 
 test('a GitHub teammate row offers no respond ask; review asks stay', () => {

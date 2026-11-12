@@ -621,8 +621,7 @@ export function rowActions(
       )
     );
 
-  const github = onGitHub(mrx);
-  if (env.local && own && !github) {
+  if (env.local && own) {
     // glance hides both buttons on a draft or an MR that is not open; the
     // board lists only open MRs, so a hidden button past draft is a state
     // the row blocks rather than one it trusts.
@@ -706,9 +705,9 @@ export function rowActions(
       { kind: 'open', url: mrx.webUrl ?? '' }
     )
   );
-  if (env.local && !github)
+  if (env.local)
     gitlab.push(
-      item('gitlab', 'refresh-mr', 'refresh from gitlab', REFRESH, {
+      item('gitlab', 'refresh-mr', `refresh from ${forgeWord(mrx)}`, REFRESH, {
         kind: 'refresh',
       })
     );

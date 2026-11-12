@@ -140,6 +140,23 @@ test('bulk merge names the reason when one MR is refused', async () => {
   ]);
 });
 
+test('refresh words its pending toast by forge', async () => {
+  const gh = fakeDeps();
+  await runOne(
+    { kind: 'refresh' },
+    {
+      iid: 12,
+      webUrl: 'https://github.com/acme/webapp/pull/12',
+      provider: 'github',
+    } as BoardMR,
+    gh.deps
+  );
+  expect(gh.events).toContain('toast refreshing #12 from github…');
+  const gl = fakeDeps();
+  await runOne({ kind: 'refresh' }, mr(7), gl.deps);
+  expect(gl.events).toContain('toast refreshing !7 from gitlab…');
+});
+
 test('runOne draft words both directions', async () => {
   const a = fakeDeps();
   await runOne({ kind: 'draft', draft: false }, mr(7), a.deps);

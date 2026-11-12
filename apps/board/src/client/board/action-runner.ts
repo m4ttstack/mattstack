@@ -4,6 +4,7 @@
     are reached through deps.launch. DOM-free, like launch-flow.ts. */
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
+import { forgeWord } from '../../mr-ref.ts';
 import type { ActionResult } from '../api.ts';
 import type { ActiveRun, AskKind } from '../types.ts';
 import type { ToastHandle } from './launch-flow.ts';
@@ -253,7 +254,7 @@ function postSpec(req: PostRequest, people: People): PostSpec {
       return {
         path: '/mr/refresh',
         payload: (mr, url) => ({ mrUrl: url, iid: mr.iid }),
-        pending: mr => `refreshing ${mrRef(mr)} from gitlab…`,
+        pending: mr => `refreshing ${mrRef(mr)} from ${forgeWord(mr)}…`,
         done: mr => `refreshed ${mrRef(mr)}`,
         fail: (mr, r) =>
           `couldn't refresh ${mrRef(mr)} (${r.status})${r.text ? `: ${r.text}` : ''}`,
