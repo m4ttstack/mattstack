@@ -28,4 +28,10 @@ label: Graph notes
   ends. A gate that comes back `closed` is a hold, reason "gate closed".
 - `run_close` takes `outcome: done` after the post record, or `abandoned`
   with `reason: <why; what already posted>` on a hand back.
+- A submit result of `published: true` with `replyErrors` (GitHub) takes
+  the `published, approved as asked` edge: the review is up and complete,
+  and review-posting's mechanics post each listed reply once with
+  `mr_reply_thread`, never a second submit. That is not the split-posting
+  the STOP guards against. A reply that still fails is reported in the
+  close with its error, apart from `resolveErrors`.
 - A fetch or diff that errors is a hold quoting the error.

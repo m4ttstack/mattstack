@@ -28,7 +28,8 @@ posted when a `gh-review-thread-<n>` note at its `path` and `line` (the
 note's `position.newPath` and `newLine`) contains the first line of the
 body Compose built for it. A matching note counts only when its
 `createdAt` is at or after the snapshot's `run.started_at`, as GitLab's
-`since` bounds its read. All posted is yes, some is partly, none is no;
+`since` bounds its read, and only when its author is the account this run
+posts as, as `mr_posted_since`'s `by` does on GitLab. All posted is yes, some is partly, none is no;
 a read error holds, quoting it. The read checks no approval state.
 
 **On both forges:** the latest hold's

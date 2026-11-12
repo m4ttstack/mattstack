@@ -29,3 +29,11 @@ posted, never the finding's `body`.
 A review that posted but whose approval was refused is posted. The
 approval is then settled on its own, through the caller's approval gate;
 the review is never submitted a second time.
+
+On GitHub a submit that returns `published: true` with `replyErrors` is
+a review that is up and complete: the listed replies are the only part
+missing. Post each listed reply once with `mr_reply_thread`; its thread
+stays unresolved unless that reply posts, and a `resolve` that was due
+runs after it with `mr_resolve_thread`. The review is never submitted
+again. A reply that still fails is reported in the close with its error,
+apart from `resolveErrors`.

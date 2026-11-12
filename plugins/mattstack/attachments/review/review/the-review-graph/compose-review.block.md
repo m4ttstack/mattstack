@@ -9,8 +9,9 @@ One call carries the whole review. Selected findings: the union of the
 legacy `tiers` answer's whole tiers, or the caller's selection (each
 finding as the report json it was decided on writes it). `outcome`: the
 picked option's value, `comment` or `approve`. A caller's legacy
-`request_changes` posts as `comment` (the blocking-framed Comment
-review-posting describes), and its summary line is the `comment` one.
+`request_changes` posts as `comment`, its summary line the `comment` one
+framed as review-posting's blocking-framed Comment: the Assessment names
+the findings that block the merge and says approval is withheld.
 
 **The json carries drafts** (its `summary` has `comments`): every text
 below is taken as it stands, never written here.
