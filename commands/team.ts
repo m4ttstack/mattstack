@@ -975,11 +975,14 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
 }
 
 /** A non-UserActionableError from the members path (a rollback error from addTeamRecipient/removeTeamRecipient, a keychain failure) already carries a complete, human-readable explanation in its own message: the user can act on it (retry, unlock), so it gets its own code and the same exit-2 envelope every other actionable failure uses, rather than falling through to a raw stack trace or an envelope the app's decoder can't reach at exit 1. */
-function reportMembersError(err: unknown, deps: TeamDeps, json: boolean): never {
+export function membersSyncAbortedFailure(err: MembersSyncAbortedError, slug: string | null): UserActionableError {
+  return new UserActionableError("members-error", err.message, {}, { why: "The keys it already added stay. Run the sync again.", next: slug ? `rt team members sync --team ${slug}` : "rt team members sync", log: err.detail });
+}
+
+function reportMembersError(err: unknown, deps: TeamDeps, json: boolean, slug: string | null): never {
   if (err instanceof UserActionableError) exitTeamError(err, json, deps);
   if (err instanceof MembersSyncAbortedError) {
-    const failure = new UserActionableError("members-error", err.message, {}, { why: "The keys it already added stay. Run the sync again.", next: "rt team members sync", log: err.detail });
-    return exitUserError(failure, json, deps.print);
+    return exitUserError(membersSyncAbortedFailure(err, slug), json, deps.print);
   }
   if (err instanceof MembersKeyError) {
     return exitUserError(new UserActionableError("members-error", err.message, {}, { why: "Check that your keychain is unlocked, then try again.", log: err.detail }), json, deps.print);
@@ -991,8 +994,9 @@ function reportMembersError(err: unknown, deps: TeamDeps, json: boolean): never 
 export async function teamMembersSync(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
 
+  let slug: string | null = null;
   try {
-    const slug = resolveTeamSlug(args, "team members sync");
+    slug = resolveTeamSlug(args, "team members sync");
     const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
     const secrets = createRealTeamSecretsSeams(slug);
     const result = await membersSync(deps.probes, relay, secrets, slug);
@@ -1003,7 +1007,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
     }
     out.print(...membersSyncBlocks(result));
   } catch (err) {
-    reportMembersError(err, deps, json);
+    reportMembersError(err, deps, json, slug);
   }
 }
 
@@ -1138,8 +1142,9 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
     }
   }
 
+  let slug: string | null = null;
   try {
-    const slug = resolveTeamSlug(args, `team members remove ${handle}`);
+    slug = resolveTeamSlug(args, `team members remove ${handle}`);
     const secrets = createRealTeamSecretsSeams(slug);
     const result = await membersRemove(deps.probes, secrets, slug, handle, key, {
       ...(deps.membersSeams ?? realMembersSeams()),
@@ -1153,7 +1158,7 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
     }
     out.print(...membersRemoveBlocks(handle, slug, result));
   } catch (err) {
-    reportMembersError(err, deps, json);
+    reportMembersError(err, deps, json, slug);
   }
 }
 
