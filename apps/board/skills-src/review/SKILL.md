@@ -792,13 +792,16 @@ branches. Under `--re-review` the threads are already read too, at
 `mr_threads {mrUrl, refresh: true} (re-review)`. Read the diff in the
 checkout this pane runs in (the board's configured review checkout): fetch
 both branches from `origin`, then read the diff of the target branch to
-the source branch with read-only git. A failed read is never a reason to
-read with the forge CLI or the API.
+the source branch with read-only git. On GitHub the source is fetched as
+`+pull/<n>/head:refs/remotes/origin/pr-<n>` (a fork's branch is not on
+`origin`), and the diff is `<target>...origin/pr-<n>`. A failed read is
+never a reason to read with the forge CLI or the API.
 
 `Generic review result?` answers failed when the MR link is bad or the
 diff cannot be read, and the review writes `error` naming which. A source
-branch this checkout's `origin` cannot reach (an MR from another project,
-or from a fork) is a failed read.
+branch this checkout's `origin` cannot reach (on GitLab, an MR from
+another project or from a fork) is a failed read; a GitHub fork's PR is
+reached through its pull ref.
 
 Read the diff critically and produce findings. Each finding has:
 
