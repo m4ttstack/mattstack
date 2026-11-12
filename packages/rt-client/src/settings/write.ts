@@ -210,7 +210,31 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
       notify({ text: `#${u.channel.replace(/^#/, "")} on ${u.team} has kind "${u.kind}", which no app reads yet.` });
   }
 
+  if (key === "rt.mcp.uploadRoots" && Array.isArray(value)) {
+    const home = process.env.HOME;
+    const entries = value.filter((e): e is string => typeof e === "string");
+    for (const entry of home ? broadUploadRoots(entries, home) : [])
+      notify({ text: `${entry} is a very broad folder: mr_upload and evidence_attach may send any image or video under it off this Mac. Name a narrower folder.` });
+  }
+
   shareTip("saved", key, scope, storePath);
+}
+
+function realOrResolved(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function broadUploadRoots(entries: string[], home: string): string[] {
+  const realHome = realOrResolved(home);
+  return entries.filter((entry) => {
+    if (!isAbsolute(entry)) return false;
+    const real = realOrResolved(entry);
+    return real === "/" || real === realHome || realHome.startsWith(real + sep);
+  });
 }
 
 export interface SettingsNotice {
