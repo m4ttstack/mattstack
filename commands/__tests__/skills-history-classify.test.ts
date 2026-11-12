@@ -20,8 +20,12 @@ class Exit extends Error {
 
 const MANIFEST = "teams/acme/plugin/.claude-plugin/plugin.json";
 
+// A git hook's GIT_DIR would point the fixture's git, and the verb's own, at the repo running the hook.
+const REPO_LOCATION_KEYS = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"];
+
 describe("rt skills history-classify", () => {
   const origHome = process.env.HOME;
+  const origLocation = Object.fromEntries(REPO_LOCATION_KEYS.map((k) => [k, process.env[k]]));
   let home: string;
   let repo: string;
   let cap: ReturnType<typeof captureOut>;
@@ -44,6 +48,7 @@ describe("rt skills history-classify", () => {
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-history-classify-cmd-")));
     process.env.HOME = home;
+    for (const key of REPO_LOCATION_KEYS) delete process.env[key];
     clearIdentityMemo();
     repo = join(home, "org");
     mkdirSync(repo);
@@ -60,6 +65,7 @@ describe("rt skills history-classify", () => {
     exit.mockRestore();
     cap.restore();
     process.env.HOME = origHome;
+    for (const [key, value] of Object.entries(origLocation)) if (value !== undefined) process.env[key] = value;
     clearIdentityMemo();
     rmSync(home, { recursive: true, force: true });
   });

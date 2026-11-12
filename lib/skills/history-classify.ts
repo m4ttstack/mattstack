@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname } from "path";
+import { scrubGitEnv } from "../../packages/git-core/src/exec.ts";
 import { childEnv } from "../subprocess.ts";
 import { warn } from "../ui/warn.ts";
 import { maskProvenanceVersion } from "./base-attachments.ts";
@@ -127,7 +128,7 @@ function writeCache(path: string, cache: Cache): void {
 }
 
 function git(repoDir: string, args: string[], stdin?: string): Buffer | null {
-  const r = Bun.spawnSync(["git", "-C", repoDir, ...args], { env: childEnv(), stdin: stdin === undefined ? "ignore" : Buffer.from(stdin), stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-C", repoDir, ...args], { env: scrubGitEnv(childEnv()), stdin: stdin === undefined ? "ignore" : Buffer.from(stdin), stdout: "pipe", stderr: "pipe" });
   return r.exitCode === 0 ? Buffer.from(r.stdout) : null;
 }
 

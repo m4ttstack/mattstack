@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
+import { scrubGitEnv } from "../../../packages/git-core/src/exec.ts";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -14,7 +15,7 @@ let scratch: string;
 let cachePath: string;
 
 function git(...args: string[]): string {
-  return execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: repo }).toString().trim();
+  return execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: repo, env: scrubGitEnv() }).toString().trim();
 }
 
 function put(rel: string, text: string): void {
