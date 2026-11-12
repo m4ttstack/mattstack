@@ -1,4 +1,5 @@
 import type { BoardConfig } from '../config.ts';
+import type { OwnMrFacts } from './edge.ts';
 
 export interface TriageForgePlan {
   /** 'gitlab-token': resolve from the GitLab token as today.
@@ -30,4 +31,13 @@ export function triageForgePlan(
       ? [GITHUB_ASKS_LATCH_SKIP]
       : [GITHUB_ASKS_LATCH_SKIP, GITHUB_NO_USERNAME],
   };
+}
+
+export function unparsedRedLines(mrs: OwnMrFacts[]): string[] {
+  return mrs
+    .filter((mr) => mr.pipelineState === 'failed' && mr.pipelineId === null)
+    .map(
+      (mr) =>
+        `triage: ${mr.mrUrl} has no workflow run id (commit statuses only), auto-doctor skips it`
+    );
 }

@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
 import { ForgeNotSupported, gitlabOnly } from '../config.ts';
+import type { OwnMrFacts } from '../triage/edge.ts';
 import {
   GITHUB_ASKS_LATCH_SKIP,
   GITHUB_NO_USERNAME,
   triageForgePlan,
+  unparsedRedLines,
 } from '../triage/forge-plan.ts';
 
 describe('gitlabOnly', () => {
@@ -67,5 +69,45 @@ describe('triageForgePlan', () => {
     expect(GITHUB_NO_USERNAME).toBe(
       'triage: no forge username is recorded for this team, so auto-doctor owns no PRs'
     );
+  });
+});
+
+describe('unparsedRedLines', () => {
+  const base = {
+    iid: 4104,
+    needsRebase: false,
+    author: 'mkeller',
+    sourceBranch: 'feature/cart-totals',
+    targetBranch: 'main',
+    isStacked: false,
+  };
+
+  test('names a red PR with no parsed pipeline id and nothing else', () => {
+    const mrs: OwnMrFacts[] = [
+      {
+        ...base,
+        mrUrl: 'https://github.test/acme/webapp/pull/4104',
+        iid: 4104,
+        pipelineId: null,
+        pipelineState: 'failed',
+      },
+      {
+        ...base,
+        mrUrl: 'https://github.test/acme/webapp/pull/4105',
+        iid: 4105,
+        pipelineId: 7004106,
+        pipelineState: 'failed',
+      },
+      {
+        ...base,
+        mrUrl: 'https://github.test/acme/webapp/pull/4106',
+        iid: 4106,
+        pipelineId: null,
+        pipelineState: 'passed',
+      },
+    ];
+    expect(unparsedRedLines(mrs)).toEqual([
+      'triage: https://github.test/acme/webapp/pull/4104 has no workflow run id (commit statuses only), auto-doctor skips it',
+    ]);
   });
 });
