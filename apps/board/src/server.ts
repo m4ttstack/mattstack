@@ -3658,26 +3658,30 @@ const httpServer = Bun.serve({
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
-        const result = await gitlabPostNote(
-          new NoteMutator(gitlabOnly(config), gitlabToken),
-          parseRepoId(mr.repositoryId),
-          mr.iid,
-          draft.body
-        );
-        if (result.kind === 'failed')
-          return new Response(`note post failed: ${result.message}`, {
-            status: 502,
+        try {
+          const result = await gitlabPostNote(
+            new NoteMutator(gitlabOnly(config), gitlabToken),
+            parseRepoId(mr.repositoryId),
+            mr.iid,
+            draft.body
+          );
+          if (result.kind === 'failed') throw new Error(result.message);
+          writeDraft(mrUrl, kind, {
+            status: 'posted',
+            postedNoteId: result.noteId,
           });
-        writeDraft(mrUrl, kind, {
-          status: 'posted',
-          postedNoteId: result.noteId,
-        });
-        return new Response(
-          JSON.stringify({ ok: true, posted: true, noteId: result.noteId }),
-          {
-            headers: { 'content-type': 'application/json' },
-          }
-        );
+          return new Response(
+            JSON.stringify({ ok: true, posted: true, noteId: result.noteId }),
+            {
+              headers: { 'content-type': 'application/json' },
+            }
+          );
+        } catch (err) {
+          return new Response(
+            `note post failed: ${err instanceof Error ? err.message : err}`,
+            { status: 502 }
+          );
+        }
       }
       case '/draft': {
         // Flip one of your own MRs between draft and ready. GitLab has no draft
@@ -3735,7 +3739,7 @@ const httpServer = Bun.serve({
             { status: 400 }
           );
         const result = await gitlabSetDraft(
-          await gitlab(),
+          gitlab,
           path,
           parsed.iid,
           draft,
@@ -3996,7 +4000,7 @@ const httpServer = Bun.serve({
             { status: 400 }
           );
         const result = await gitlabMrWrite(
-          await gitlab(),
+          gitlab,
           path,
           parsed.iid,
           parsed.action,

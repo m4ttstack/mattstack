@@ -418,3 +418,34 @@ describe('gitlabPostNote', () => {
     });
   });
 });
+
+describe('a provider factory that throws', () => {
+  test('gitlabMrWrite classifies it like a failed write', async () => {
+    const errors: string[] = [];
+    const broken = async () => {
+      throw new Error('gitlab token not configured');
+    };
+    expect(
+      await gitlabMrWrite(broken, 'g/p', 7, 'rebase', m => errors.push(m))
+    ).toEqual({ kind: 'failed', message: 'gitlab token not configured' });
+    expect(errors).toEqual(['gitlab token not configured']);
+    const refusing = async () => {
+      throw new Error('detailedMergeStatus="conflict"');
+    };
+    expect(await gitlabMrWrite(refusing, 'g/p', 7, 'merge')).toEqual({
+      kind: 'refused',
+      reason: 'merge conflicts',
+    });
+  });
+
+  test('gitlabSetDraft logs, then rejects on the recovery read like before', async () => {
+    const errors: string[] = [];
+    const broken = async () => {
+      throw new Error('gitlab token not configured');
+    };
+    await expect(
+      gitlabSetDraft(broken, 'g/p', 7, true, m => errors.push(m))
+    ).rejects.toThrow('gitlab token not configured');
+    expect(errors).toEqual(['gitlab token not configured']);
+  });
+});

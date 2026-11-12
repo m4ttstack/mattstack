@@ -136,15 +136,26 @@ export async function githubPostNote(
 const errorMessage = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
+/** A factory is resolved inside the write's own try, so a provider that
+    cannot be built is classified like any other failed write. */
+type Source<P> = P | (() => P | Promise<P>);
+
+const resolveSource = async <P extends object>(
+  source: Source<P>
+): Promise<P> =>
+  typeof source === 'function'
+    ? await (source as () => P | Promise<P>)()
+    : source;
+
 export async function gitlabMrWrite(
-  provider: MrActionProvider,
+  provider: Source<MrActionProvider>,
   path: string,
   iid: number,
   action: MrAction,
   onError?: (message: string) => void
 ): Promise<Written<'done' | 'refused' | 'failed'>> {
   try {
-    await runMrAction(provider, path, iid, action);
+    await runMrAction(await resolveSource(provider), path, iid, action);
     return { kind: 'done' };
   } catch (err) {
     const message = errorMessage(err);
@@ -155,14 +166,16 @@ export async function gitlabMrWrite(
 }
 
 export async function gitlabSetDraft(
-  provider: Pick<GitLabProvider, 'updatePullRequest' | 'fetchSingleMR'>,
+  provider: Source<Pick<GitLabProvider, 'updatePullRequest' | 'fetchSingleMR'>>,
   path: string,
   iid: number,
   draft: boolean,
   onError?: (message: string) => void
 ): Promise<Written<'done' | 'failed'>> {
   try {
-    const updated = await provider.updatePullRequest(path, iid, { draft });
+    const updated = await (
+      await resolveSource(provider)
+    ).updatePullRequest(path, iid, { draft });
     return { kind: 'done', title: updated.title };
   } catch (err) {
     const message = errorMessage(err);
@@ -170,7 +183,9 @@ export async function gitlabSetDraft(
     // glance retries its post-write read-back before giving up, and the edit
     // has landed either way, so ask GitLab what is true before calling a
     // write that worked a failure.
-    const after = await provider
+    const after = await (
+      await resolveSource(provider)
+    )
       .fetchSingleMR(path, iid, null)
       .catch(() => null);
     if (after?.draft === draft)
