@@ -174,7 +174,9 @@ describe('readSettings: which GitLab host gets the token', () => {
   });
 
   it('ignores a confirmed host that is not a bare hostname', () => {
-    store({ 'rt.integrations': { forgeHost: 'https://gitlab.corp.example/x' } });
+    store({
+      'rt.integrations': { forgeHost: 'https://gitlab.corp.example/x' },
+    });
     expect(readSettings().baseUrl).toBe('');
   });
 });
