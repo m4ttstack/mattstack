@@ -135,7 +135,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 40,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41010",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004101/job/9041011",
             "downstreamPipeline": null
           },
           {
@@ -146,7 +146,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 77,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41011",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004101/job/9041012",
             "downstreamPipeline": null
           },
           {
@@ -157,7 +157,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 114,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41012",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004101/job/9041013",
             "downstreamPipeline": null
           },
           {
@@ -168,7 +168,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 151,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41013",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004101/job/9041014",
             "downstreamPipeline": null
           }
         ]
@@ -293,7 +293,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 40,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41020",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004102/job/9041021",
             "downstreamPipeline": null
           },
           {
@@ -304,7 +304,7 @@
             "status": "running",
             "allowFailure": false,
             "duration": null,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41021",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004102/job/9041022",
             "downstreamPipeline": null
           },
           {
@@ -315,7 +315,7 @@
             "status": "running",
             "allowFailure": false,
             "duration": null,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41022",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004102/job/9041023",
             "downstreamPipeline": null
           },
           {
@@ -326,7 +326,7 @@
             "status": "running",
             "allowFailure": false,
             "duration": null,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41023",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004102/job/9041024",
             "downstreamPipeline": null
           }
         ]
@@ -444,7 +444,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 40,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41030",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004103/job/9041031",
             "downstreamPipeline": null
           },
           {
@@ -455,7 +455,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 77,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41031",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004103/job/9041032",
             "downstreamPipeline": null
           },
           {
@@ -466,7 +466,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 114,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41032",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004103/job/9041033",
             "downstreamPipeline": null
           },
           {
@@ -477,7 +477,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 151,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41033",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004103/job/9041034",
             "downstreamPipeline": null
           }
         ]
@@ -649,7 +649,7 @@
             "stage": "checks",
             "status": "success",
             "allowFailure": false,
-            "duration": 40,
+            "duration": null,
             "webUrl": "https://ci.acme.test/webapp/4104/lint",
             "downstreamPipeline": null
           },
@@ -660,7 +660,7 @@
             "stage": "checks",
             "status": "success",
             "allowFailure": false,
-            "duration": 77,
+            "duration": null,
             "webUrl": "https://ci.acme.test/webapp/4104/unit",
             "downstreamPipeline": null
           },
@@ -671,7 +671,7 @@
             "stage": "checks",
             "status": "success",
             "allowFailure": false,
-            "duration": 114,
+            "duration": null,
             "webUrl": "https://ci.acme.test/webapp/4104/build",
             "downstreamPipeline": null
           },
@@ -682,7 +682,7 @@
             "stage": "checks",
             "status": "failed",
             "allowFailure": false,
-            "duration": 151,
+            "duration": null,
             "webUrl": "https://ci.acme.test/webapp/4104/e2e",
             "downstreamPipeline": null
           }
@@ -801,7 +801,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 40,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41050",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004105/job/9041051",
             "downstreamPipeline": null
           },
           {
@@ -812,7 +812,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 77,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41051",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004105/job/9041052",
             "downstreamPipeline": null
           },
           {
@@ -823,7 +823,7 @@
             "status": "running",
             "allowFailure": false,
             "duration": null,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41052",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004105/job/9041053",
             "downstreamPipeline": null
           },
           {
@@ -834,7 +834,7 @@
             "status": "running",
             "allowFailure": false,
             "duration": null,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/41053",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004105/job/9041054",
             "downstreamPipeline": null
           }
         ]
@@ -952,7 +952,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 40,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004106",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004106/job/9041061",
             "downstreamPipeline": null
           },
           {
@@ -963,7 +963,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 77,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004106",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004106/job/9041062",
             "downstreamPipeline": null
           },
           {
@@ -974,7 +974,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 114,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004106",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004106/job/9041063",
             "downstreamPipeline": null
           },
           {
@@ -985,7 +985,7 @@
             "status": "failed",
             "allowFailure": false,
             "duration": 151,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004106",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004106/job/9041064",
             "downstreamPipeline": null
           }
         ]
@@ -1003,7 +1003,7 @@
         "haveNotStarted": 0
       },
       "status": "blocked",
-      "statusDetail": "ci_must_pass",
+      "statusDetail": "",
       "isReady": false,
       "isCheckingMergeability": false,
       "isMerging": false,
@@ -1103,7 +1103,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 40,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041071",
             "downstreamPipeline": null
           },
           {
@@ -1114,7 +1114,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 77,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041072",
             "downstreamPipeline": null
           },
           {
@@ -1125,7 +1125,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 114,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041073",
             "downstreamPipeline": null
           },
           {
@@ -1136,7 +1136,7 @@
             "status": "success",
             "allowFailure": false,
             "duration": 151,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041074",
             "downstreamPipeline": null
           }
         ]
@@ -1154,7 +1154,7 @@
         "haveNotStarted": 0
       },
       "status": "blocked",
-      "statusDetail": "need_rebase",
+      "statusDetail": "",
       "isReady": false,
       "isCheckingMergeability": false,
       "isMerging": false,
