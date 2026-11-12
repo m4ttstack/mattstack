@@ -1,7 +1,7 @@
 {
   "threads": [
     {
-      "discussionId": "fx-gh-thread-1",
+      "discussionId": "gh-review-thread-3001",
       "status": "awaiting",
       "notes": [
         {
@@ -14,7 +14,7 @@
       ]
     },
     {
-      "discussionId": "fx-gh-thread-2",
+      "discussionId": "gh-review-thread-3002",
       "status": "replied",
       "notes": [
         {
@@ -34,7 +34,7 @@
       ]
     },
     {
-      "discussionId": "fx-gh-thread-3",
+      "discussionId": "gh-review-thread-3004",
       "status": "resolved",
       "notes": [
         {
@@ -60,7 +60,8 @@
       "name": "Release Bot",
       "username": "release-bot",
       "at": "2025-08-18T08:20:00.000Z",
-      "body": "Preview for this pull request is ready: https://preview.example.com/web-420"
+      "body": "Preview for this pull request is ready: https://preview.example.com/web-420",
+      "discussionId": "gh-issue-comment-3101"
     }
   ]
 }

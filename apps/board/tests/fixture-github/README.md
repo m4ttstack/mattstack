@@ -11,19 +11,22 @@ Fixture mode reads `config.json`, `data.json`, `meta.json`,
 `discussions.json`, `review-report.md`, `respond-report.md` and
 `flock-menu.json`. The seat is `mkeller`.
 
-| PR    | owner    | carries                                                                               |
-| ----- | -------- | ------------------------------------------------------------------------------------- |
-| #4101 | tobrandt | approved and mergeable, green checks, 12 behind main                                  |
-| #4102 | mkeller  | the seat's own draft, checks still running                                            |
-| #4103 | mkeller  | the seat's own PR with an open structured review-post gate and a peer reviewing       |
-| #4104 | ivasco   | three threads (awaiting, replied, resolved in `discussions.json`) and a failing check |
-| #4105 | mkeller  | `behindTarget: null`, as a GitHub row serves it, checks running                       |
+| PR    | owner    | carries                                                                                                    |
+| ----- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| #4101 | tobrandt | approved and mergeable, green checks, 12 behind main, two Slack posts (the Slack posts modal)              |
+| #4102 | mkeller  | the seat's own draft, checks still running                                                                 |
+| #4103 | mkeller  | the seat's own PR with an open structured review-post gate and a peer reviewing                            |
+| #4104 | ivasco   | three threads (awaiting, replied, resolved), a failing check and a finished review lane (the review modal) |
+| #4105 | mkeller  | `behindTarget: null`, checks running, a held note draft (the draft modal and its post control)             |
+| #4106 | mkeller  | the seat's own approved, mergeable PR: merge, auto-merge and the draft toggle all show                     |
+
+In `discussions.json`, thread ids take glance's `gh-review-thread-<id>` shape
+and the general comment `gh-issue-comment-<id>`, so the drawer links end in
+`#discussion_r<noteId>` and `#issuecomment-<noteId>`.
 
 Rows are what `buildBoard` serves for a GitHub row: `provider: "github"`,
 `repositoryId` as `github:<n>`, `rtRepo` `github.com/acme/webapp` and empty
 `codeownerSections`. The button fields carry what glance derives for any
 forge: merge and auto-merge are visible on open non-draft rows (merge
 disabled unless the row is ready), and rebase shows only when a row needs
-one, which none here do. The client hides merge, rebase, auto-merge and the
-draft toggle on GitHub rows, so the render shows none of them even though
-the data offers them.
+one, which none here do.
