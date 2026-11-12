@@ -1,7 +1,7 @@
 /** A GitHub team's board: it boots the real board, lists the team's PRs with
-    their gates from the daemon store, and refuses the GitLab-only writes
-    with one sentence before anything reaches the daemon or a forge. The
-    env keeps a GitLab token set, so no refusal here leans on a missing one. */
+    their gates from the daemon store, and sends its own PRs' writes through
+    daemon verbs. The env keeps a GitLab token set, yet a GitHub team never
+    reads it, so no write here may lean on one. */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -145,8 +145,24 @@ writeMemory(
   db
 );
 
-const prs = [fakePr(7, ALICE), fakePr(20, BOB)];
-const daemonSeen: string[] = [];
+const prs = [
+  fakePr(7, ALICE),
+  fakePr(8, ALICE),
+  fakePr(9, ALICE),
+  fakePr(10, ALICE),
+  fakePr(20, BOB),
+];
+const writes: Array<{ cmd: string; body: Record<string, unknown> }> = [];
+
+const MERGE_ANSWERS: Record<number, unknown> = {
+  7: { ok: true },
+  8: { ok: true, data: { queued: { position: 2, state: 'QUEUED' } } },
+  9: {
+    ok: false,
+    error: 'Error: mergePullRequest failed: 405 Pull Request is not mergeable',
+  },
+  10: { ok: false, error: 'rt daemon unreachable at /x (timed out)' },
+};
 const rtDir = join(home, '.mattstack', 'rt');
 mkdirSync(rtDir, { recursive: true });
 let daemon: ReturnType<typeof Bun.serve> | undefined;
@@ -157,7 +173,6 @@ beforeAll(() => {
       const cmd = new URL(req.url).pathname.slice(1);
       const body =
         req.method === 'POST' ? await req.json().catch(() => null) : null;
-      daemonSeen.push(cmd);
       if (cmd === 'project-mrs:read') {
         const byId: Record<string, unknown> = {};
         for (const pr of prs)
@@ -180,6 +195,26 @@ beforeAll(() => {
           data: { gates: prefix === 'mr:' ? [reviewGate] : [], cursor: 0 },
         });
       }
+      if (cmd === 'mr:action' || cmd === 'mr:comment') {
+        const write = (body ?? {}) as Record<string, unknown>;
+        writes.push({ cmd, body: write });
+        if (cmd === 'mr:comment')
+          return Response.json({
+            ok: true,
+            data: {
+              noteId: 555,
+              discussionId: null,
+              resolvable: false,
+              url: 'u',
+              mrUrl: 'm',
+            },
+          });
+        if (write.action === 'merge')
+          return Response.json(MERGE_ANSWERS[write.iid as number]);
+        return Response.json({ ok: true });
+      }
+      if (cmd === 'mr:get')
+        return Response.json({ ok: true, data: { mr: { state: 'opened' } } });
       return Response.json({ ok: false, error: 'not implemented' });
     },
   });
@@ -222,19 +257,6 @@ const held = (iid: number) =>
     db
   );
 
-const READS = new Set([
-  'project-mrs:read',
-  'gate:list',
-  'events:head',
-  'discussions:read',
-  'chat:slack-avatars',
-  'reconciler:status',
-  'runs:list',
-  'runs:get',
-  'secrets:read',
-]);
-const isRead = (cmd: string) => READS.has(cmd);
-
 type Row = {
   webUrl: string;
   provider: string;
@@ -259,7 +281,13 @@ describe('a GitHub team', () => {
       if (rows.find(r => r.webUrl === prUrl(20))?.gates.length) break;
       await Bun.sleep(200);
     }
-    expect(rows.map(r => r.webUrl).sort()).toEqual([prUrl(20), prUrl(7)]);
+    expect(rows.map(r => r.webUrl).sort()).toEqual([
+      prUrl(10),
+      prUrl(20),
+      prUrl(7),
+      prUrl(8),
+      prUrl(9),
+    ]);
     expect(rows.every(r => r.provider === 'github')).toBe(true);
     expect(
       rows.find(r => r.webUrl === prUrl(20))?.gates.map(g => g.gateId)
@@ -267,21 +295,136 @@ describe('a GitHub team', () => {
     expect(rows.find(r => r.webUrl === prUrl(7))?.gates).toEqual([]);
   }, 15_000);
 
-  test('merge, draft and held-draft post refuse a GitHub PR', async () => {
-    held(7);
-    const daemonBefore = daemonSeen.length;
-    const responses = await Promise.all([
-      post('/mr/action', { mrUrl: prUrl(7), iid: 7, action: 'merge' }),
-      post('/draft', { mrUrl: prUrl(7), iid: 7, draft: true }),
-      post('/drafts', { mrUrl: prUrl(7), kind: 'ci-note', action: 'post' }),
-    ]);
-    for (const res of responses) {
-      expect(res.status).toBe(400);
-      expect(await res.text()).toBe('Not available on GitHub yet');
-    }
-    expect(daemonSeen.slice(daemonBefore).filter(c => !isRead(c))).toEqual([]);
-    expect(readDrafts(db).find(d => d.mrUrl === prUrl(7))?.status).toBe('held');
+  const bodies: string[] = [];
+  async function postRead(path: string, body: unknown) {
+    const res = await post(path, body);
+    const text = await res.text();
+    bodies.push(text);
+    return { status: res.status, text };
+  }
+  const merge = (iid: number) =>
+    postRead('/mr/action', { mrUrl: prUrl(iid), iid, action: 'merge' });
+  const writesSince = (from: number) => writes.slice(from);
+
+  test('merge on an own PR goes through mr:action', async () => {
+    const from = writes.length;
+    const res = await merge(7);
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.text)).toEqual({ ok: true });
+    const [sent] = writesSince(from);
+    expect(sent?.cmd).toBe('mr:action');
+    expect(sent?.body).toMatchObject({ iid: 7, action: 'merge', args: [] });
+    expect(typeof sent?.body.repoName).toBe('string');
+    expect(sent?.body.repoName).not.toBe('');
   }, 15_000);
+
+  test('a queued merge answers mergeQueued', async () => {
+    const res = await merge(8);
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.text)).toEqual({
+      ok: true,
+      mergeQueued: { position: 2, state: 'QUEUED' },
+    });
+  }, 15_000);
+
+  test('a refused merge answers 409 with the forge reason', async () => {
+    const res = await merge(9);
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.text)).toEqual({
+      reason: '405 Pull Request is not mergeable',
+    });
+  }, 15_000);
+
+  test('an unanswered merge answers 504', async () => {
+    const res = await merge(10);
+    expect(res.status).toBe(504);
+    expect(JSON.parse(res.text)).toEqual({
+      reason: 'the merge may still land',
+    });
+  }, 15_000);
+
+  test('auto-merge arm and cancel reach mr:action', async () => {
+    for (const action of ['setAutoMerge', 'cancelAutoMerge']) {
+      const from = writes.length;
+      const res = await postRead('/mr/action', {
+        mrUrl: prUrl(7),
+        iid: 7,
+        action,
+      });
+      expect(res.status).toBe(200);
+      expect(writesSince(from)).toEqual([
+        {
+          cmd: 'mr:action',
+          body: expect.objectContaining({ iid: 7, action }),
+        },
+      ]);
+    }
+  }, 15_000);
+
+  test('the draft toggle sends toggleDraft', async () => {
+    const from = writes.length;
+    const res = await postRead('/draft', {
+      mrUrl: prUrl(7),
+      iid: 7,
+      draft: true,
+    });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.text)).toEqual({ ok: true, draft: true });
+    expect(writesSince(from)).toEqual([
+      {
+        cmd: 'mr:action',
+        body: expect.objectContaining({
+          iid: 7,
+          action: 'toggleDraft',
+          args: [true],
+        }),
+      },
+    ]);
+  }, 15_000);
+
+  test('a held draft posts through mr:comment', async () => {
+    held(7);
+    const from = writes.length;
+    const res = await postRead('/drafts', {
+      mrUrl: prUrl(7),
+      kind: 'ci-note',
+      action: 'post',
+    });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.text)).toEqual({
+      ok: true,
+      posted: true,
+      noteId: 555,
+    });
+    expect(writesSince(from)).toEqual([
+      {
+        cmd: 'mr:comment',
+        body: expect.objectContaining({
+          iid: 7,
+          body: 'the cache key changed',
+          resolvable: false,
+        }),
+      },
+    ]);
+    const draft = readDrafts(db).find(d => d.mrUrl === prUrl(7));
+    expect(draft?.status).toBe('posted');
+    expect(draft?.postedNoteId).toBe(555);
+  }, 15_000);
+
+  test("another author's PR is refused before any write", async () => {
+    const from = writes.length;
+    const res = await merge(20);
+    expect(res.status).toBe(403);
+    expect(res.text).toBe('not your MR');
+    expect(writesSince(from)).toEqual([]);
+  }, 15_000);
+
+  test('no write leans on a GitLab token', () => {
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies.some(b => b.includes('gitlab token not configured'))).toBe(
+      false
+    );
+  });
 
   test('dismissing a held draft still works on a GitHub team', async () => {
     held(7);

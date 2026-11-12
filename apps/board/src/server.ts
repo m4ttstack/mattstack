@@ -169,9 +169,13 @@ import {
   type ForgeRebaseResult,
 } from './forge-rebase.ts';
 import {
+  githubMrWrite,
+  githubPostNote,
+  githubSetDraft,
   gitlabMrWrite,
   gitlabPostNote,
   gitlabSetDraft,
+  type ForgeWriteResult,
 } from './forge-writes.ts';
 import { answerGate } from './gates/answer.ts';
 import {
@@ -1241,6 +1245,25 @@ function iidMismatch(
     everything. */
 function requireOwnMr(mr: BoardMR): Response | null {
   return ownedHere(mr) ? null : new Response('not your MR', { status: 403 });
+}
+
+function githubRepoName(mr: BoardMR): string | null {
+  return mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
+}
+
+const NO_RT_REPO = 'this MR has no rt repo';
+
+function githubWriteFailure(
+  result: Exclude<ForgeWriteResult, { kind: 'done' }>
+): Response {
+  switch (result.kind) {
+    case 'refused':
+      return Response.json({ reason: result.reason }, { status: 409 });
+    case 'unanswered':
+      return Response.json({ reason: result.reason }, { status: 504 });
+    case 'failed':
+      return new Response(result.message, { status: 502 });
+  }
 }
 
 /** Each MR with the channel `/slack/post` would send it to. */
@@ -3646,22 +3669,39 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
-        if (config.forge.kind === 'github')
-          return new Response(FORGE_NOT_YET, { status: 400 });
-        if (!gitlabToken)
+        if (config.forge.kind === 'gitlab' && !gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === mrUrl);
         if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
-        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
+        if (onGitHub(mr) !== (config.forge.kind === 'github'))
+          return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
+        if (config.forge.kind === 'github') {
+          const repoName = githubRepoName(mr);
+          if (!repoName) return new Response(NO_RT_REPO, { status: 400 });
+          server.timeout(req, 0);
+          const result = await githubPostNote(repoName, mr.iid, draft.body);
+          if (result.kind !== 'done') return githubWriteFailure(result);
+          cache.invalidate();
+          writeDraft(mrUrl, kind, {
+            status: 'posted',
+            postedNoteId: result.noteId,
+          });
+          return Response.json({
+            ok: true,
+            posted: true,
+            noteId: result.noteId,
+          });
+        }
         try {
+          const projectId = parseRepoId(mr.repositoryId);
           const result = await gitlabPostNote(
-            new NoteMutator(gitlabOnly(config), gitlabToken),
-            parseRepoId(mr.repositoryId),
+            new NoteMutator(gitlabOnly(config), gitlabToken!),
+            projectId,
             mr.iid,
             draft.body
           );
@@ -3696,9 +3736,7 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
-        if (config.forge.kind === 'github')
-          return new Response(FORGE_NOT_YET, { status: 400 });
-        if (!gitlabToken)
+        if (config.forge.kind === 'gitlab' && !gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         let body: unknown;
         try {
@@ -3718,7 +3756,8 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
-        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
+        if (onGitHub(mr) !== (config.forge.kind === 'github'))
+          return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -3731,6 +3770,15 @@ const httpServer = Bun.serve({
           return new Response(JSON.stringify({ ok: true, unchanged: true }), {
             headers: { 'content-type': 'application/json' },
           });
+        }
+        if (config.forge.kind === 'github') {
+          const repoName = githubRepoName(mr);
+          if (!repoName) return new Response(NO_RT_REPO, { status: 400 });
+          server.timeout(req, 0);
+          const result = await githubSetDraft(repoName, parsed.iid, draft);
+          if (result.kind !== 'done') return githubWriteFailure(result);
+          cache.invalidate();
+          return Response.json({ ok: true, draft });
         }
         const path = projectPathFromWebUrl(parsed.mrUrl, config);
         if (!path)
@@ -3963,9 +4011,7 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
-        if (config.forge.kind === 'github')
-          return new Response(FORGE_NOT_YET, { status: 400 });
-        if (!gitlabToken)
+        if (config.forge.kind === 'gitlab' && !gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         let body: unknown;
         try {
@@ -3984,7 +4030,8 @@ const httpServer = Bun.serve({
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
           return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
-        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
+        if (onGitHub(mr) !== (config.forge.kind === 'github'))
+          return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -3992,6 +4039,24 @@ const httpServer = Bun.serve({
         {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
+        }
+        if (config.forge.kind === 'github') {
+          const repoName = githubRepoName(mr);
+          if (!repoName) return new Response(NO_RT_REPO, { status: 400 });
+          server.timeout(req, 0);
+          const result = await githubMrWrite(
+            repoName,
+            parsed.iid,
+            parsed.action
+          );
+          if (result.kind !== 'done') return githubWriteFailure(result);
+          cache.invalidate();
+          const { mergeQueued, sourceBranchNotDeleted } = result;
+          return Response.json({
+            ok: true,
+            mergeQueued,
+            sourceBranchNotDeleted,
+          });
         }
         const path = projectPathFromWebUrl(parsed.mrUrl, config);
         if (!path)
