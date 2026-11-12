@@ -1,4 +1,7 @@
 import type { Pipeline, PipelineJob } from "@mattstack/glance";
+import type { rtCommand } from "../../packages/rt-client/src/index.ts";
+import type { ForgeGetData, PipelineListRow } from "../../packages/rt-client/src/commands.ts";
+import { shaMatches } from "./watch.ts";
 
 export interface GithubJob {
   id: string;
@@ -149,4 +152,142 @@ export function buildHead(p: Pipeline, facts: GithubCommitFacts): GithubHead {
     jobs,
     allBlock,
   };
+}
+
+export const CONFIRM_EVERY_MS = 300_000;
+export const REQUIRED_TRIES = 3;
+export const ANCHOR_TRIES = 3;
+
+const READ_TIMEOUT_MS = 30_000;
+const RUN_LIST_LIMIT = 100;
+const COMPLETED_RUN_STATUSES = new Set(["success", "failed", "canceled", "skipped", "manual"]);
+
+export interface FactsStore {
+  get(): GithubCommitFacts;
+  set(f: GithubCommitFacts): void;
+}
+
+const memory = new Map<string, GithubCommitFacts>();
+
+export function memoryFacts(key: string): FactsStore {
+  return {
+    get: () => structuredClone(memory.get(key) ?? emptyFacts()),
+    set: (f) => { memory.set(key, structuredClone(f)); },
+  };
+}
+
+export function __resetMemoryFacts(): void {
+  memory.clear();
+}
+
+export interface GithubTarget {
+  identity: string;
+  iid: number;
+}
+
+type ForgeAnswer = { ok: true; body: unknown } | { ok: false };
+
+// The daemon reports a non-2xx GitHub answer either as ok:false with the status only in its text or as data.status.
+function githubStatusOf(error: string): number | null {
+  const m = /GitHub returned (\d{3})/.exec(error);
+  return m ? Number(m[1]) : null;
+}
+
+export class GithubHeadReader {
+  constructor(
+    private readonly command: typeof rtCommand,
+    private readonly target: GithubTarget,
+    private readonly store: FactsStore,
+    private readonly now: () => number,
+  ) {}
+
+  async read(
+    mr: { sha: string | null; targetBranch: string | null; pipeline: Pipeline | null },
+    watchedSha: string | null,
+  ): Promise<GithubHead | null> {
+    const p = mr.pipeline;
+    if (!p) return null;
+    const onWatched = mr.sha !== null && watchedSha !== null && shaMatches(mr.sha, watchedSha);
+    if (!onWatched) return buildHead(p, emptyFacts());
+
+    const facts = this.store.get();
+    const sha = mr.sha!;
+    let rows: PipelineListRow[] | null = null;
+
+    if (facts.required === null && facts.requiredTries < REQUIRED_TRIES && mr.targetBranch) {
+      const branch = encodeURIComponent(mr.targetBranch);
+      const [rules, protection] = await Promise.all([
+        this.forgeGet(`:repo/rules/branches/${branch}`),
+        this.forgeGet(`:repo/branches/${branch}`),
+      ]);
+      facts.requiredTries += 1;
+      if (rules.ok && protection.ok) facts.required = requiredNames(rules.body, protection.body);
+      this.store.set(facts);
+    }
+
+    if (p.jobs.length > 0) {
+      if (facts.anchor === null) {
+        facts.anchor = { runId: null, createdAt: this.now() };
+        this.store.set(facts);
+      }
+      if (facts.anchor.runId === null && facts.anchorTries < ANCHOR_TRIES && p.jobs.some((j) => j.runId)) {
+        rows = await this.listRuns(p.ref ?? null, sha);
+        facts.anchorTries += 1;
+        const earliest = rows ? earliestRun(rows) : null;
+        if (earliest) facts.anchor = earliest;
+        this.store.set(facts);
+      }
+    }
+
+    const raw = buildHead(p, { ...facts, confirm: null });
+    if (raw.allBlock && raw.status === "success") {
+      const due = facts.confirm === null || this.now() - facts.confirm.at >= CONFIRM_EVERY_MS;
+      if (due) {
+        rows ??= await this.listRuns(p.ref ?? null, sha);
+        facts.confirm = {
+          at: this.now(),
+          open: rows ? rows.some((r) => !COMPLETED_RUN_STATUSES.has(r.status)) : (facts.confirm?.open ?? false),
+        };
+        this.store.set(facts);
+      }
+    }
+
+    return buildHead(p, facts);
+  }
+
+  private async forgeGet(path: string): Promise<ForgeAnswer> {
+    const res = await this.command<ForgeGetData>(
+      "forge:get",
+      { repoName: this.target.identity, path },
+      { timeoutMs: READ_TIMEOUT_MS },
+    );
+    if (!res.ok || !res.data) {
+      return githubStatusOf(res.error ?? "") === 404 ? { ok: true, body: null } : { ok: false };
+    }
+    if (res.data.status === 404) return { ok: true, body: null };
+    if (res.data.status < 200 || res.data.status >= 300) return { ok: false };
+    return { ok: true, body: res.data.body };
+  }
+
+  private async listRuns(ref: string | null, sha: string): Promise<PipelineListRow[] | null> {
+    const payload: Record<string, unknown> = { repoName: this.target.identity };
+    if (ref !== null) payload.ref = ref;
+    payload.sha = sha;
+    payload.limit = RUN_LIST_LIMIT;
+    const res = await this.command<{ pipelines: PipelineListRow[] }>("pipeline:list", payload, { timeoutMs: READ_TIMEOUT_MS });
+    if (!res.ok || !res.data || !Array.isArray(res.data.pipelines)) return null;
+    return res.data.pipelines;
+  }
+}
+
+function earliestRun(rows: PipelineListRow[]): { runId: number; createdAt: number } | null {
+  let best: { runId: number; createdAt: number } | null = null;
+  for (const r of rows) {
+    const at = r.createdAt === null ? NaN : Date.parse(r.createdAt);
+    if (!Number.isFinite(at) || !Number.isSafeInteger(r.id)) continue;
+    if (best === null || at < best.createdAt || (at === best.createdAt && r.id < best.runId)) {
+      best = { runId: r.id, createdAt: at };
+    }
+  }
+  return best;
 }

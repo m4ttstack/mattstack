@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ciLeaseDir, ciLeaseFileName } from "../../packages/rt-client/src/index.ts";
+import type { GithubCommitFacts } from "./github-forge.ts";
 import { shaMatches } from "./watch.ts";
 
 export interface PersistedWatch {
@@ -18,6 +19,7 @@ export interface PersistedWatch {
   heldBy: string | null;
   reclaims: number;
   updatedAt: number;
+  github?: GithubCommitFacts;
 }
 
 interface WatchStateOpts { dir?: string; now?: () => number }
@@ -37,7 +39,10 @@ function parse(raw: string): PersistedWatch | null {
   try {
     const v = JSON.parse(raw) as PersistedWatch;
     if (!(v && v.version === 1 && typeof v.sha === "string")) return null;
-    return { ...v, heldBy: typeof v.heldBy === "string" ? v.heldBy : null };
+    const { github, ...rest } = v;
+    const parsed: PersistedWatch = { ...rest, heldBy: typeof v.heldBy === "string" ? v.heldBy : null };
+    if (typeof github === "object" && github !== null && !Array.isArray(github)) parsed.github = github;
+    return parsed;
   } catch {
     return null;
   }

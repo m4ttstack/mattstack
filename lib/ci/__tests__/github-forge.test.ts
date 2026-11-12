@@ -1,11 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { Pipeline, PipelineJob } from "@mattstack/glance";
+import type { rtCommand } from "../../../packages/rt-client/src/index.ts";
 import {
+  CONFIRM_EVERY_MS,
   GITHUB_INFRA_PATTERNS,
+  GithubHeadReader,
+  __resetMemoryFacts,
   buildHead,
   emptyFacts,
+  memoryFacts,
   requiredNames,
   restJobStatus,
+  type FactsStore,
   type GithubCommitFacts,
 } from "../github-forge.ts";
 
@@ -214,5 +220,325 @@ describe("GITHUB_INFRA_PATTERNS", () => {
     expect(hit("The hosted runner encountered an error")).toBe(true);
     expect(hit("exceeded the maximum execution time")).toBe(true);
     expect(hit("assertion failed")).toBe(false);
+  });
+});
+
+type Call = { name: string; payload: Record<string, unknown> };
+type Reply = { ok: boolean; data?: unknown; error?: string };
+type Responder = (name: string, payload: Record<string, unknown>) => Reply;
+
+const SHA_FULL = "ABCDEF0123456789abcdef0123456789abcdef01";
+const T0 = Date.parse("2026-11-11T12:00:00Z");
+
+function forgeOk(body: unknown, status = 200): Reply {
+  return { ok: true, data: { status, body, truncated: false, nextPage: null, totalPages: null } };
+}
+
+function runRow(id: number, createdAt: string | null, status = "success") {
+  return { id, status, ref: "feature", sha: SHA_FULL, source: "pull_request", webUrl: null, createdAt };
+}
+
+const RULES_PATH = ":repo/rules/branches/feat%2Fx";
+const BRANCH_PATH = ":repo/branches/feat%2Fx";
+
+function defaultResponder(over: { rules?: Reply; branch?: Reply; list?: Reply } = {}): Responder {
+  return (name, payload) => {
+    if (name === "forge:get" && payload.path === RULES_PATH) {
+      return over.rules ?? forgeOk([{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "checks" }] } }]);
+    }
+    if (name === "forge:get" && payload.path === BRANCH_PATH) return over.branch ?? forgeOk({ protected: false });
+    if (name === "pipeline:list") {
+      return over.list ?? { ok: true, data: { pipelines: [runRow(902, "2026-11-11T10:00:05Z"), runRow(900, "2026-11-11T10:00:00Z")] } };
+    }
+    return { ok: false, error: `unexpected ${name}` };
+  };
+}
+
+function harness(responder: Responder, opts: { store?: FactsStore } = {}) {
+  const calls: Call[] = [];
+  let clock = T0;
+  let respond = responder;
+  const command = (async (name: string, payload: Record<string, unknown>) => {
+    calls.push({ name, payload });
+    return respond(name, payload);
+  }) as unknown as typeof rtCommand;
+  const store = opts.store ?? memoryFacts(`https://github.com/o/r/pull/1#${SHA_FULL.toLowerCase()}`);
+  const reader = new GithubHeadReader(command, { identity: "github.com/o/r", iid: 1 }, store, () => clock);
+  return {
+    calls,
+    store,
+    reader,
+    count: (name: string) => calls.filter((c) => c.name === name).length,
+    reset: () => calls.splice(0),
+    advance: (ms: number) => { clock += ms; },
+    setResponder: (r: Responder) => { respond = r; },
+  };
+}
+
+function mrOf(jobs: PipelineJob[], over: { sha?: string | null; pipeline?: Pipeline | null } = {}) {
+  return {
+    sha: over.sha === undefined ? SHA_FULL : over.sha,
+    targetBranch: "feat/x",
+    pipeline: over.pipeline === undefined ? pipeline(jobs, { sha: SHA_FULL }) : over.pipeline,
+  };
+}
+
+describe("memoryFacts", () => {
+  beforeEach(() => __resetMemoryFacts());
+
+  test("starts empty and keeps what is set per key", () => {
+    const a = memoryFacts("k1");
+    expect(a.get()).toEqual(emptyFacts());
+    a.set({ ...emptyFacts(), requiredTries: 2 });
+    expect(memoryFacts("k1").get().requiredTries).toBe(2);
+    expect(memoryFacts("k2").get()).toEqual(emptyFacts());
+  });
+
+  test("reset clears every key", () => {
+    memoryFacts("k1").set({ ...emptyFacts(), requiredTries: 2 });
+    __resetMemoryFacts();
+    expect(memoryFacts("k1").get()).toEqual(emptyFacts());
+  });
+});
+
+describe("GithubHeadReader per-commit reads", () => {
+  beforeEach(() => __resetMemoryFacts());
+
+  test("the first read makes each per-commit read once and the second makes none", async () => {
+    const h = harness(defaultResponder());
+    const head = await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.calls.filter((c) => c.name === "forge:get").map((c) => c.payload.path)).toEqual([RULES_PATH, BRANCH_PATH]);
+    const lists = h.calls.filter((c) => c.name === "pipeline:list");
+    expect(lists.map((c) => c.payload)).toEqual([{ repoName: "github.com/o/r", ref: "feature", sha: SHA_FULL, limit: 100 }]);
+    expect(head).toMatchObject({ id: "github:run:900", number: 900, status: "running", createdAt: "2026-11-11T10:00:00.000Z" });
+    expect(h.store.get().required).toEqual(["checks"]);
+
+    h.reset();
+    await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.count("forge:get")).toBe(0);
+    expect(h.count("pipeline:list")).toBe(0);
+  });
+
+  test("a short watched sha matches the full head sha", async () => {
+    const h = harness(defaultResponder());
+    await h.reader.read(mrOf([job("checks", "running")]), "abcdef0");
+    expect(h.count("forge:get")).toBe(2);
+  });
+
+  test.each([
+    ["an ok answer with status 404", forgeOk({ message: "Not Found" }, 404)],
+    ["an ok:false GitHub 404", { ok: false, error: "GitHub returned 404 Not Found: Not Found" }],
+  ])("%s on rules is an answer, kept with no retry", async (_label, rules) => {
+    const h = harness(defaultResponder({
+      rules: rules as Reply,
+      branch: forgeOk({ protection: { required_status_checks: { contexts: ["lint"] } } }),
+    }));
+    await h.reader.read(mrOf([job("lint", "running")]), SHA_FULL);
+    expect(h.store.get().required).toEqual(["lint"]);
+    h.reset();
+    await h.reader.read(mrOf([job("lint", "running")]), SHA_FULL);
+    expect(h.count("forge:get")).toBe(0);
+  });
+
+  test("a 404 on both reads is an empty required list", async () => {
+    const h = harness(defaultResponder({
+      rules: forgeOk(null, 404),
+      branch: { ok: false, error: "GitHub returned 404 Not Found: Branch not found" },
+    }));
+    await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.store.get().required).toEqual([]);
+  });
+
+  test.each([
+    ["rules", { rules: forgeOk({ message: "Forbidden" }, 403) }],
+    ["branch", { branch: { ok: false, error: "GitHub returned 403 Forbidden: Resource not accessible" } as Reply }],
+    ["a guard refusal", { rules: { ok: false, error: "\"path\" must sit under this repo on GitHub" } as Reply }],
+  ])("a failed %s read leaves the list unset, retries, and stops after 3 attempts", async (_label, over) => {
+    const h = harness(defaultResponder(over));
+    const jobs = [job("lint", "failed", { allowFailure: true }), job("build", "running")];
+    const head = await h.reader.read(mrOf(jobs), SHA_FULL);
+    expect(h.store.get().required).toBeNull();
+    expect(head?.jobs.map((j) => [j.name, j.blocking])).toEqual([["lint", false], ["build", true]]);
+    expect(head?.status).toBe("running");
+
+    await h.reader.read(mrOf(jobs), SHA_FULL);
+    await h.reader.read(mrOf(jobs), SHA_FULL);
+    expect(h.store.get().requiredTries).toBe(3);
+    h.reset();
+    await h.reader.read(mrOf(jobs), SHA_FULL);
+    expect(h.count("forge:get")).toBe(0);
+    expect(h.store.get().required).toBeNull();
+  });
+
+  test("a failed read followed by a good one keeps the list", async () => {
+    const h = harness(defaultResponder({ rules: forgeOk(null, 500) }));
+    await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.store.get().required).toBeNull();
+    h.setResponder(defaultResponder());
+    await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.store.get().required).toEqual(["checks"]);
+  });
+});
+
+describe("GithubHeadReader anchor", () => {
+  beforeEach(() => __resetMemoryFacts());
+
+  test("checks with no run id set the first-seen fallback and make no listing", async () => {
+    const h = harness(defaultResponder());
+    const head = await h.reader.read(mrOf([job("checks", "running", { runId: null })]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(0);
+    expect(h.store.get().anchor).toEqual({ runId: null, createdAt: T0 });
+    expect(head).toMatchObject({ number: 0, createdAt: new Date(T0).toISOString() });
+  });
+
+  test("the fallback upgrades once a check with a run id appears", async () => {
+    const h = harness(defaultResponder());
+    await h.reader.read(mrOf([job("checks", "running", { runId: null })]), SHA_FULL);
+    h.advance(60_000);
+    await h.reader.read(mrOf([job("checks", "running", { runId: null })]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(0);
+    expect(h.store.get().anchor).toEqual({ runId: null, createdAt: T0 });
+
+    const head = await h.reader.read(mrOf([job("checks", "running", { runId: null }), job("build", "running")]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(1);
+    expect(h.store.get().anchor).toEqual({ runId: 900, createdAt: Date.parse("2026-11-11T10:00:00Z") });
+    expect(head?.id).toBe("github:run:900");
+  });
+
+  test("an empty listing keeps the fallback and stops after 3 attempts", async () => {
+    const h = harness(defaultResponder({ list: { ok: true, data: { pipelines: [] } } }));
+    for (let i = 0; i < 4; i++) {
+      await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+      h.advance(60_000);
+    }
+    expect(h.count("pipeline:list")).toBe(3);
+    expect(h.store.get().anchor).toEqual({ runId: null, createdAt: T0 });
+    expect(h.store.get().anchorTries).toBe(3);
+  });
+
+  test("a failed listing keeps the fallback and a later listing replaces it", async () => {
+    const h = harness(defaultResponder({ list: { ok: false, error: "GitHub returned 502 Bad Gateway" } }));
+    await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.store.get().anchor).toEqual({ runId: null, createdAt: T0 });
+    h.setResponder(defaultResponder());
+    h.advance(60_000);
+    await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.store.get().anchor?.runId).toBe(900);
+  });
+
+  test("rows whose createdAt does not parse are never the anchor", async () => {
+    const h = harness(defaultResponder({
+      list: { ok: true, data: { pipelines: [runRow(950, "2026-11-11T10:00:09Z"), runRow(800, "garbage"), runRow(700, null)] } },
+    }));
+    const head = await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.store.get().anchor).toEqual({ runId: 950, createdAt: Date.parse("2026-11-11T10:00:09Z") });
+    expect(head?.createdAt).toBe("2026-11-11T10:00:09.000Z");
+  });
+
+  test("a listing with no parseable row keeps the fallback", async () => {
+    const h = harness(defaultResponder({ list: { ok: true, data: { pipelines: [runRow(800, "garbage")] } } }));
+    await h.reader.read(mrOf([job("checks", "running")]), SHA_FULL);
+    expect(h.store.get().anchor).toEqual({ runId: null, createdAt: T0 });
+  });
+});
+
+describe("GithubHeadReader off the watched commit", () => {
+  beforeEach(() => __resetMemoryFacts());
+
+  test("a head sha that is not the watched sha makes no per-commit read", async () => {
+    const h = harness(defaultResponder());
+    const head = await h.reader.read(mrOf([job("checks", "running")]), "fffffff");
+    expect(h.calls).toEqual([]);
+    expect(head).toMatchObject({ id: "github:run:5", status: "running", createdAt: null });
+  });
+
+  test("a null watched sha makes no per-commit read", async () => {
+    const h = harness(defaultResponder());
+    await h.reader.read(mrOf([job("checks", "running")]), null);
+    expect(h.calls).toEqual([]);
+  });
+
+  test("a null pipeline returns null with no read", async () => {
+    const h = harness(defaultResponder());
+    expect(await h.reader.read(mrOf([], { pipeline: null }), SHA_FULL)).toBeNull();
+    expect(h.calls).toEqual([]);
+  });
+});
+
+describe("GithubHeadReader success confirmation", () => {
+  beforeEach(() => __resetMemoryFacts());
+
+  const noRules = { rules: forgeOk([]), branch: forgeOk({ protected: false }) };
+
+  test.each(["running", "pending"])("an unfinished %s run holds an all-blocking success at running", async (status) => {
+    const h = harness(defaultResponder({
+      ...noRules,
+      list: { ok: true, data: { pipelines: [runRow(901, "2026-11-11T10:00:01Z", status), runRow(900, "2026-11-11T10:00:00Z")] } },
+    }));
+    const head = await h.reader.read(mrOf([job("build", "success")]), SHA_FULL);
+    expect(head?.allBlock).toBe(true);
+    expect(head?.status).toBe("running");
+  });
+
+  test("confirmation reads at most once every 5 minutes", async () => {
+    const h = harness(defaultResponder({
+      ...noRules,
+      list: { ok: true, data: { pipelines: [runRow(900, "2026-11-11T10:00:00Z", "running")] } },
+    }));
+    await h.reader.read(mrOf([job("build", "success")]), SHA_FULL);
+    h.reset();
+    h.advance(CONFIRM_EVERY_MS - 1);
+    const held = await h.reader.read(mrOf([job("build", "success")]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(0);
+    expect(held?.status).toBe("running");
+
+    h.setResponder(defaultResponder({
+      ...noRules,
+      list: { ok: true, data: { pipelines: [runRow(900, "2026-11-11T10:00:00Z", "success")] } },
+    }));
+    h.advance(1);
+    const done = await h.reader.read(mrOf([job("build", "success")]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(1);
+    expect(done?.status).toBe("success");
+  });
+
+  test.each(["success", "failed", "canceled", "skipped", "manual"])("a %s run counts as completed", async (status) => {
+    const h = harness(defaultResponder({
+      ...noRules,
+      list: { ok: true, data: { pipelines: [runRow(900, "2026-11-11T10:00:00Z", status)] } },
+    }));
+    expect((await h.reader.read(mrOf([job("build", "success")]), SHA_FULL))?.status).toBe("success");
+  });
+
+  test("a null list with no glance-required check confirms too", async () => {
+    const h = harness(defaultResponder({
+      rules: forgeOk(null, 500),
+      list: { ok: true, data: { pipelines: [runRow(900, "2026-11-11T10:00:00Z", "running")] } },
+    }));
+    const head = await h.reader.read(mrOf([job("build", "success", { allowFailure: true })]), SHA_FULL);
+    expect(head?.allBlock).toBe(true);
+    expect(head?.status).toBe("running");
+  });
+
+  test("a failed confirmation listing leaves the head success", async () => {
+    const h = harness(defaultResponder({ ...noRules, list: { ok: false, error: "GitHub returned 502 Bad Gateway" } }));
+    const head = await h.reader.read(mrOf([job("build", "success", { runId: null })]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(1);
+    expect(head?.status).toBe("success");
+  });
+
+  test("a non-empty required list makes no confirmation listing", async () => {
+    const h = harness(defaultResponder({
+      list: { ok: true, data: { pipelines: [runRow(900, "2026-11-11T10:00:00Z", "running")] } },
+    }));
+    const head = await h.reader.read(mrOf([job("checks", "success", { runId: null })]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(0);
+    expect(head?.status).toBe("success");
+  });
+
+  test("a head that is not success makes no confirmation listing", async () => {
+    const h = harness(defaultResponder(noRules));
+    await h.reader.read(mrOf([job("build", "running", { runId: null })]), SHA_FULL);
+    expect(h.count("pipeline:list")).toBe(0);
   });
 });

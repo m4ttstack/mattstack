@@ -59,6 +59,27 @@ describe("watch state", () => {
     expect(readWatchState(MR, SHA, { dir })).toMatchObject({ version: 1, held: true, heldBy: null, reclaims: 2 });
   });
 
+  test("GitHub commit facts read back with the state", () => {
+    const github = { required: ["checks"], requiredTries: 1, anchor: { runId: 900, createdAt: 1234 }, anchorTries: 1, confirm: null };
+    writeWatchState(sample({ github }), { dir, now: () => 5000 });
+    expect(readWatchState(MR, SHA, { dir }).github).toEqual(github);
+  });
+
+  test("a new sha reads back without GitHub commit facts", () => {
+    writeWatchState(sample({ github: { required: [], requiredTries: 1, anchor: null, anchorTries: 0, confirm: null } }), { dir });
+    expect(readWatchState(MR, "fffffff", { dir }).github).toBeUndefined();
+  });
+
+  test("a fresh state has no GitHub commit facts", () => {
+    expect(readWatchState(MR, SHA, { dir })).not.toHaveProperty("github");
+  });
+
+  test("a github field that is not an object is dropped", () => {
+    mkdirSync(join(dir, "watch"), { recursive: true });
+    writeFileSync(watchStatePath(MR, { dir }), JSON.stringify({ ...sample(), github: "nope" }));
+    expect(readWatchState(MR, SHA, { dir })).not.toHaveProperty("github");
+  });
+
   test("leaves no temp files", () => {
     writeWatchState(sample(), { dir });
     expect(readdirSync(join(dir, "watch")).filter((n) => n.endsWith(".tmp"))).toEqual([]);
