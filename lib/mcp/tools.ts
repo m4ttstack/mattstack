@@ -323,7 +323,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_reply_thread",
-      description: `GitLab only. Reply to an existing MR discussion thread. Returns discussionId, noteId (the posted reply) and the thread's resolved state. ${REPO_NAME_RULE}`,
+      description: `Reply to an existing MR discussion thread. On GitHub it replies only to review threads. Returns discussionId, noteId (the posted reply) and the thread's resolved state. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: { ...MR_TARGET_PROPS, discussionId: { type: "string" }, body: { type: "string" } },
@@ -334,7 +334,7 @@ export function mcpTools(): McpToolDef[] {
       async handler(input) {
         const bad = checkRequired(input, [{ name: "discussionId", type: "string" }, { name: "body", type: "string" }]);
         if (bad) return err(bad);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const res = await rtCommand<Commands["discussions:reply"]["data"]>("discussions:reply", {
           repoName: target.identity,
@@ -350,7 +350,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_update_note",
-      description: `GitLab only. Replace the body of an existing MR note or thread comment by its noteId (from mr_threads, mr_comment, mr_comment_inline or mr_reply_thread). GitLab only lets you edit notes you are allowed to edit, and its refusal comes back as its own text. ${REPO_NAME_RULE}`,
+      description: `Replace the body of an existing MR note or thread comment by its noteId (from mr_threads, mr_comment, mr_comment_inline or mr_reply_thread). The forge only lets you edit notes you are allowed to edit, and its refusal comes back as its own text. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: { ...MR_TARGET_PROPS, noteId: { type: "number" }, body: { type: "string" } },
@@ -361,7 +361,7 @@ export function mcpTools(): McpToolDef[] {
       async handler(input) {
         const bad = checkRequired(input, [{ name: "noteId", type: "number" }, { name: "body", type: "string" }]);
         if (bad) return err(bad);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         return fromResponse(await rtCommand<Commands["mr:note-update"]["data"]>("mr:note-update", {
           repoName: target.identity,
@@ -373,7 +373,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_comment_inline",
-      description: `GitLab only. Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. ${REPO_NAME_RULE}`,
+      description: `Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -395,7 +395,7 @@ export function mcpTools(): McpToolDef[] {
           { name: "line", type: "number" },
         ]) ?? checkOptional(input, [{ name: "oldPath", type: "string" }, { name: "oldLine", type: "number" }]);
         if (bad) return err(bad);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const payload: Commands["mr:comment-inline"]["payload"] = {
           repoName: target.identity,
@@ -411,7 +411,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_comment",
-      description: `GitLab only. Post a NEW top-level note on an MR: a review's summary, or anything with no diff line to anchor to. resolvable (default true) opens a discussion a human can resolve; false posts a plain note, for a summary that carries nothing to resolve. Posts once and never retries. Returns noteId, discussionId (null for a plain note), resolvable as GitLab reports it, url (the note) and mrUrl. Use mr_comment_inline for a diff line and mr_reply_thread for an existing thread. ${REPO_NAME_RULE}`,
+      description: `Post a NEW top-level note on an MR: a review's summary, or anything with no diff line to anchor to. resolvable (default true) opens a discussion a human can resolve; false posts a plain note, for a summary that carries nothing to resolve. On GitHub it posts a comment that cannot be resolved. Posts once and never retries. Returns noteId, discussionId (null for a plain note; gh-issue-comment-<id> on GitHub, which cannot be resolved or replied to), resolvable as the forge reports it, url (the note) and mrUrl. Use mr_comment_inline for a diff line and mr_reply_thread for an existing thread. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: { ...MR_TARGET_PROPS, body: { type: "string" }, resolvable: { type: "boolean" } },
@@ -422,7 +422,7 @@ export function mcpTools(): McpToolDef[] {
       async handler(input) {
         const bad = checkRequired(input, [{ name: "body", type: "string" }]) ?? checkOptional(input, [{ name: "resolvable", type: "boolean" }]);
         if (bad) return err(bad);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const payload: Commands["mr:comment"]["payload"] = { repoName: target.identity, iid: target.iid, body: input.body as string };
         if (input.resolvable !== undefined) payload.resolvable = input.resolvable as boolean;
@@ -432,7 +432,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_review_submit",
-      description: `GitLab only. Post one whole review in one call, exactly as GitLab's "Submit your review" does: every entry in comments becomes an inline thread, every entry in replies lands in its existing thread (resolve: true resolves it; a reply with no body only resolves), summary posts as the review's summary note, and the caller is marked as having reviewed. outcome "approve" also approves. Nothing reaches the MR unless all of it can: published: false with reason "bad-anchors" lists the comments whose line is outside the diff (move those findings into summary and call again), and reason "pending-drafts" means the caller already has pending comments on the MR that a submit would publish (they submit or discard them in GitLab first). A review carries at most 100 comments and replies in total. published: true with approved: false means the review is up and only the approval was refused: never call this again for that review, use mr_approve. Returns counts, repliedTo, resolved, resolveErrors (the threads a resolve-only reply could not resolve), approved, approveError (when the approval was refused), reviewerState, summaryNoteId and mrUrl. ${REPO_NAME_RULE}`,
+      description: `Post one whole review in one call, exactly as GitLab's "Submit your review" does (on GitHub it posts one review in one request): every entry in comments becomes an inline thread, every entry in replies lands in its existing thread (resolve: true resolves it; a reply with no body only resolves), summary posts as the review's summary note, and the caller is marked as having reviewed. outcome "approve" also approves. A refused review posts nothing: published: false with reason "bad-anchors" lists the comments whose line is outside the diff (move those findings into summary and call again), and reason "pending-drafts" means the caller already has pending comments on the MR that a submit would publish (the caller submits or discards them first: pending drafts on GitLab, a pending review on GitHub). A review carries at most 100 comments and replies in total. published: true with approved: false means the review is up and only the approval was refused: never call this again for that review, use mr_approve. Returns counts, repliedTo, resolved, resolveErrors (the threads a reply could not resolve), replyErrors (GitHub only: the review is up but those replies did not post and their threads stay unresolved; post each with mr_reply_thread, never by calling this again), approved, approveError (when the approval was refused), reviewerState, summaryNoteId and mrUrl. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -468,7 +468,7 @@ export function mcpTools(): McpToolDef[] {
         if (input.outcome !== "comment" && input.outcome !== "approve") return err("outcome must be comment or approve");
         if (input.comments !== undefined && !Array.isArray(input.comments)) return err("comments must be an array");
         if (input.replies !== undefined && !Array.isArray(input.replies)) return err("replies must be an array");
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const payload: Commands["mr:review-submit"]["payload"] = {
           repoName: target.identity,
@@ -651,7 +651,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_resolve_thread",
-      description: `GitLab only. Resolve an MR discussion thread, or reopen it with resolved: false. Post any reply first with mr_reply_thread; resolving does not post. Returns {discussionId, resolved}. ${REPO_NAME_RULE}`,
+      description: `Resolve an MR discussion thread, or reopen it with resolved: false. Post any reply first with mr_reply_thread; resolving does not post. Returns {discussionId, resolved}. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: { ...MR_TARGET_PROPS, discussionId: { type: "string" }, resolved: { type: "boolean" } },
@@ -662,7 +662,7 @@ export function mcpTools(): McpToolDef[] {
       async handler(input) {
         const bad = checkRequired(input, [{ name: "discussionId", type: "string" }]) ?? checkOptional(input, [{ name: "resolved", type: "boolean" }]);
         if (bad) return err(bad);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const discussionId = input.discussionId as string;
         const resolved = input.resolved !== false;

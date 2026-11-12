@@ -94,6 +94,12 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   },
   resolveDiscussion: { support: 'supported', capability: 'canResolveDiscussions' },
   unresolveDiscussion: { support: 'supported', capability: 'canResolveDiscussions' },
+  createComment: { support: 'supported' },
+  createInlineComment: { support: 'supported' },
+  replyToDiscussion: { support: 'supported' },
+  updateComment: { support: 'supported' },
+  deleteComment: { support: 'supported' },
+  submitReview: { support: 'supported' },
   retryPipeline: { support: 'supported', capability: 'canRetryPipeline' },
   retryJob: { support: 'supported', capability: 'canRetryPipeline' },
   fetchJobTrace: { support: 'supported' },
@@ -156,7 +162,8 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
   fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
   addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
-  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' }
+  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
+  fetchPullRequestDiffs: { support: 'supported', capability: 'canFetchPullRequestDiffs' }
 };
 
 export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
@@ -203,6 +210,12 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   },
   resolveDiscussion: { support: 'supported', capability: 'canResolveDiscussions' },
   unresolveDiscussion: { support: 'supported', capability: 'canResolveDiscussions' },
+  createComment: { support: 'supported' },
+  createInlineComment: { support: 'supported' },
+  replyToDiscussion: { support: 'supported' },
+  updateComment: { support: 'supported' },
+  deleteComment: { support: 'supported' },
+  submitReview: { support: 'supported' },
   retryPipeline: { support: 'supported', capability: 'canRetryPipeline' },
   retryJob: { support: 'supported', capability: 'canRetryPipeline' },
   fetchJobTrace: { support: 'supported' },
@@ -228,7 +241,12 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPipelineList: { support: 'supported', capability: 'canFetchPipelineList' },
   fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
   addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
-  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' }
+  removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
+  fetchPullRequestDiffs: {
+    support: 'absent',
+    capability: 'canFetchPullRequestDiffs',
+    note: 'The daemon reads the GitLab diffs through restRequest, so glance does not implement the read.'
+  }
 };
 
 export function expectationFor(

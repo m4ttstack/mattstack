@@ -11,6 +11,13 @@ import { expectationFor, type ProviderMethod } from './expectations.ts';
 import type { ProviderFixture } from './fixture.ts';
 import { pollUntil } from './poll.ts';
 import { isTransitionalMergeStatus } from '../../src/types.ts';
+import type {
+  Discussion,
+  InlineCommentResult,
+  Note,
+  NoteKind,
+  NoteWriteResult
+} from '../../src/types.ts';
 import type { Reporter } from './report.ts';
 
 /**
@@ -1180,6 +1187,8 @@ export async function runWriteConformance(
       }
     }
 
+    await runCommentWriteConformance(fixture, report, iid, seedFilePath);
+
     // GitHub only: task 7's spike measured this fixture's own required
     // check, not GitLab's, and the armable window this block navigates is a
     // property of GitHub's enablePullRequestAutoMerge, which refuses at both
@@ -1323,6 +1332,439 @@ export async function runWriteConformance(
       console.error(`  cleanup: could not delete ${branch}: ${err}`);
     });
   }
+}
+
+interface NoteHit {
+  discussion: Discussion;
+  note: Note;
+}
+
+/** The note with this id and the thread it sits in, or null when no thread carries it. */
+async function findNote(
+  fixture: ProviderFixture,
+  repoId: string,
+  iid: number,
+  noteId: number
+): Promise<NoteHit | null> {
+  const detail = await fixture.provider.fetchMRDiscussions(repoId, iid);
+  for (const discussion of detail.discussions) {
+    const note = discussion.notes.find(n => n.id === noteId);
+    if (note) return { discussion, note };
+  }
+  return null;
+}
+
+/** The first note whose body is exactly `body`, with its thread. */
+async function findNoteByBody(
+  fixture: ProviderFixture,
+  repoId: string,
+  iid: number,
+  body: string
+): Promise<NoteHit | null> {
+  const detail = await fixture.provider.fetchMRDiscussions(repoId, iid);
+  for (const discussion of detail.discussions) {
+    const note = discussion.notes.find(n => n.body === body);
+    if (note) return { discussion, note };
+  }
+  return null;
+}
+
+/**
+ * Waits until `accept` likes what a re-read returns, and on a timeout
+ * re-reads once more so the failure names the state it actually saw instead
+ * of pollUntil's generic text. Wrapped in an object because absence (null)
+ * is a result `accept` can be waiting for.
+ */
+async function awaitRead(
+  label: string,
+  read: () => Promise<NoteHit | null>,
+  accept: (hit: NoteHit | null) => boolean
+): Promise<NoteHit | null> {
+  try {
+    const { hit } = await pollUntil(label, async () => {
+      const found = await read();
+      return accept(found) ? { hit: found } : null;
+    });
+    return hit;
+  } catch (pollErr) {
+    let seen: string;
+    try {
+      const last = await read();
+      seen = last
+        ? JSON.stringify({
+            thread: last.discussion.id,
+            body: last.note.body,
+            resolved: last.discussion.resolved,
+            position: last.note.position
+          })
+        : 'no such note';
+    } catch (readErr) {
+      seen = `nothing, the re-read failed too: ${readErr instanceof Error ? readErr.message : String(readErr)}`;
+    }
+    throw new Error(`${pollErr instanceof Error ? pollErr.message : String(pollErr)}; the last re-read saw ${seen}`);
+  }
+}
+
+/**
+ * Create, anchor, reply to, edit and delete comments on the write cycle's PR,
+ * then post a comment-only review and a review with an anchor outside the
+ * diff. Every check re-reads through `fetchMRDiscussions`: a write that
+ * answers success and changes nothing would pass a call-only assertion.
+ *
+ * What differs between the forges is read from the capability flags and the
+ * returned values, never from the fixture's name: GitHub pull request
+ * comments are not threads, so `canReplyToGeneralComments` is false there
+ * and a reply to one is refused before any request. The one exception is
+ * the `github:<owner>/<repo>` read, an input form only GitHub has.
+ */
+async function runCommentWriteConformance(
+  fixture: ProviderFixture,
+  report: Reporter,
+  iid: number,
+  path: string
+): Promise<void> {
+  const { provider, projectPath } = fixture;
+  const stamp = Date.now().toString(36);
+  const generalThreads = provider.capabilities.canReplyToGeneralComments;
+  let repoIdRead: Promise<string> | undefined;
+  const repoId = () =>
+    (repoIdRead ??= scopedRepoId(fixture).catch((err: unknown) => {
+      repoIdRead = undefined;
+      throw err;
+    }));
+  const noteNow = async (noteId: number) => findNote(fixture, await repoId(), iid, noteId);
+
+  let general: NoteWriteResult | null = null;
+  let plain: NoteWriteResult | null = null;
+  let generalReply: NoteWriteResult | null = null;
+  let inline: InlineCommentResult | null = null;
+  let inlineReply: NoteWriteResult | null = null;
+
+  const generalBody = `conformance: general comment ${stamp}`;
+  const plainBody = `conformance: plain comment ${stamp}`;
+  const inlineBody = `conformance: inline comment ${stamp}`;
+  const requireSetup = <T>(value: T | null, what: string): T => {
+    if (value === null) throw new Inconclusive(`${what} did not post, so there is nothing to act on`);
+    return value;
+  };
+
+  await check(report, fixture, 'createComment', 'posts a general comment and a re-read shows it', async () => {
+    const me = (await provider.validateToken()).username;
+    const created = await provider.createComment(projectPath, iid, generalBody);
+    general = created;
+    assert(created.noteId > 0, `expected a positive noteId, got ${created.noteId}`);
+    assert(created.url.startsWith('http'), `expected a url, got "${created.url}"`);
+    assert(
+      created.resolvable === generalThreads,
+      `expected resolvable ${generalThreads} (it follows canReplyToGeneralComments), got ${created.resolvable}`
+    );
+    assert(
+      typeof created.discussionId === 'string' && created.discussionId.length > 0,
+      `expected a discussion id, got ${JSON.stringify(created.discussionId)}`
+    );
+    const hit = await awaitRead(
+      `general comment ${created.noteId} reads back`,
+      () => noteNow(created.noteId),
+      h => h !== null && h.note.body === generalBody
+    );
+    assert(hit !== null, 'the comment did not read back');
+    assert(
+      hit.discussion.id === created.discussionId,
+      `expected thread "${created.discussionId}", the re-read put it in "${hit.discussion.id}"`
+    );
+    assert(
+      hit.note.author.username === me,
+      `expected author "${me}", got "${hit.note.author.username}"`
+    );
+  });
+
+  await check(report, fixture, 'createComment', 'resolvable: false posts a comment that cannot be resolved', async () => {
+    const created = await provider.createComment(projectPath, iid, plainBody, { resolvable: false });
+    plain = created;
+    assert(created.noteId > 0, `expected a positive noteId, got ${created.noteId}`);
+    assert(created.resolvable === false, `expected resolvable false, got ${created.resolvable}`);
+    if (generalThreads) {
+      assert(
+        created.discussionId === null,
+        `expected no discussion id for a plain note, got ${JSON.stringify(created.discussionId)}`
+      );
+    }
+    const hit = await awaitRead(
+      `plain comment ${created.noteId} reads back`,
+      () => noteNow(created.noteId),
+      h => h !== null && h.note.body === plainBody
+    );
+    assert(hit !== null, 'the plain comment did not read back');
+    assert(hit.note.resolvable !== true, `expected a note that is not resolvable, got ${hit.note.resolvable}`);
+  });
+
+  if (fixture.name === 'github') {
+    await check(report, fixture, 'fetchMRDiscussions', 'the github:<owner>/<repo> form reads the general comment back', async () => {
+      const target = requireSetup<NoteWriteResult>(general, 'the general comment');
+      const repoRef = `github:${projectPath}`;
+      const detail = await provider.fetchMRDiscussions(repoRef, iid);
+      const found = detail.discussions.some(d => d.notes.some(n => n.id === target.noteId && n.body === generalBody));
+      assert(found, `${repoRef} did not read back note ${target.noteId}`);
+    });
+  }
+
+  await check(report, fixture, 'replyToDiscussion', 'a reply to a general comment follows canReplyToGeneralComments', async () => {
+    const target = requireSetup<NoteWriteResult>(general, 'the general comment');
+    const body = `conformance: reply to a general comment ${stamp}`;
+    const discussionId = target.discussionId;
+    assert(discussionId !== null, 'the general comment carried no discussion id');
+    if (!generalThreads) {
+      let message = '';
+      try {
+        await provider.replyToDiscussion(projectPath, iid, discussionId, body);
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err);
+      }
+      assert(message.includes('no thread'), `expected a refusal naming the missing thread, got "${message}"`);
+      const posted = await findNoteByBody(fixture, await repoId(), iid, body);
+      assert(posted === null, 'the refused reply still posted');
+      return;
+    }
+    const reply = await provider.replyToDiscussion(projectPath, iid, discussionId, body);
+    generalReply = reply;
+    assert(reply.noteId > 0 && reply.noteId !== target.noteId, `expected a new noteId, got ${reply.noteId}`);
+    assert(reply.discussionId === discussionId, `expected thread "${discussionId}", got "${reply.discussionId}"`);
+    const hit = await awaitRead(
+      `reply ${reply.noteId} reads back in the thread`,
+      () => noteNow(reply.noteId),
+      h => h !== null && h.note.body === body && h.discussion.id === discussionId
+    );
+    assert(hit !== null, 'the reply did not read back');
+  });
+
+  await check(report, fixture, 'createInlineComment', 'anchors a comment on line 1 and a re-read shows the position', async () => {
+    const created = await provider.createInlineComment(projectPath, iid, inlineBody, { path, line: 1 });
+    inline = created;
+    assert(created.noteId > 0, `expected a positive noteId, got ${created.noteId}`);
+    assert(created.anchored === true, `expected anchored true, got ${created.anchored}`);
+    assert(created.noteType === 'DiffNote', `expected noteType "DiffNote", got ${JSON.stringify(created.noteType)}`);
+    assert(created.resolvable === true, `expected a resolvable thread, got ${created.resolvable}`);
+    assert(created.discussionId.length > 0, 'expected a discussion id');
+    assert(created.url.startsWith('http'), `expected a url, got "${created.url}"`);
+    const hit = await awaitRead(
+      `inline comment ${created.noteId} reads back`,
+      () => noteNow(created.noteId),
+      h => h !== null && h.note.body === inlineBody
+    );
+    assert(hit !== null, 'the inline comment did not read back');
+    assert(
+      hit.discussion.id === created.discussionId,
+      `expected thread "${created.discussionId}", the re-read put it in "${hit.discussion.id}"`
+    );
+    assert(
+      hit.note.position?.newPath === path && hit.note.position.newLine === 1,
+      `expected position ${path}:1, got ${JSON.stringify(hit.note.position)}`
+    );
+  });
+
+  await check(report, fixture, 'replyToDiscussion', 'a reply inside a diff thread lands in that thread', async () => {
+    const thread = requireSetup<InlineCommentResult>(inline, 'the inline comment');
+    const body = `conformance: reply in a diff thread ${stamp}`;
+    const reply = await provider.replyToDiscussion(projectPath, iid, thread.discussionId, body);
+    inlineReply = reply;
+    assert(reply.noteId > 0 && reply.noteId !== thread.noteId, `expected a new noteId, got ${reply.noteId}`);
+    assert(
+      reply.discussionId === thread.discussionId,
+      `expected thread "${thread.discussionId}", got "${reply.discussionId}"`
+    );
+    const hit = await awaitRead(
+      `reply ${reply.noteId} reads back in the diff thread`,
+      () => noteNow(reply.noteId),
+      h => h !== null && h.note.body === body && h.discussion.id === thread.discussionId
+    );
+    assert(hit !== null, 'the reply did not read back');
+    assert(
+      hit.discussion.notes.length === 2 && hit.discussion.notes[0]?.id === thread.noteId,
+      `expected the thread to hold the comment then the reply, got ids ${JSON.stringify(hit.discussion.notes.map(n => n.id))}`
+    );
+  });
+
+  await check(report, fixture, 'updateComment', 'edits a diff comment named by kind and a re-read shows the new body', async () => {
+    const reply = requireSetup<NoteWriteResult>(inlineReply, 'the diff thread reply');
+    const body = `conformance: edited diff reply ${stamp}`;
+    await provider.updateComment(projectPath, iid, { id: reply.noteId, kind: 'diff' }, body);
+    const hit = await awaitRead(
+      `reply ${reply.noteId} shows the edit`,
+      () => noteNow(reply.noteId),
+      h => h !== null && h.note.body === body
+    );
+    assert(hit !== null, 'the edited reply did not read back');
+  });
+
+  await check(report, fixture, 'updateComment', 'edits a comment with no kind and a re-read shows the new body', async () => {
+    const target = requireSetup<NoteWriteResult>(general, 'the general comment');
+    const body = `conformance: edited general comment ${stamp}`;
+    await provider.updateComment(projectPath, iid, { id: target.noteId }, body);
+    const hit = await awaitRead(
+      `general comment ${target.noteId} shows the edit`,
+      () => noteNow(target.noteId),
+      h => h !== null && h.note.body === body
+    );
+    assert(hit !== null, 'the edited comment did not read back');
+  });
+
+  const goneCheck = async (target: NoteWriteResult | null, what: string, kind?: NoteKind): Promise<void> => {
+    const note = requireSetup<NoteWriteResult>(target, what);
+    await provider.deleteComment(projectPath, iid, kind ? { id: note.noteId, kind } : { id: note.noteId });
+    const hit = await awaitRead(
+      `${what} is gone`,
+      () => noteNow(note.noteId),
+      h => h === null
+    );
+    assert(hit === null, `${what} is still there`);
+  };
+
+  await check(report, fixture, 'deleteComment', 'deletes a diff reply named by kind and a re-read no longer shows it', async () => {
+    await goneCheck(inlineReply, 'the diff thread reply', 'diff');
+    const root = requireSetup<InlineCommentResult>(inline, 'the inline comment');
+    const stillThere = await noteNow(root.noteId);
+    assert(stillThere !== null, 'deleting the reply also removed the comment it answered');
+  });
+
+  await check(report, fixture, 'deleteComment', 'deletes a plain comment named by kind and a re-read no longer shows it', async () => {
+    await goneCheck(plain, 'the plain comment', 'general');
+  });
+
+  await check(report, fixture, 'deleteComment', 'deletes a comment with no kind and a re-read no longer shows it', async () => {
+    if (generalReply !== null) await goneCheck(generalReply, 'the general reply');
+    await goneCheck(general, 'the general comment');
+  });
+
+  if (expectationFor(fixture.name, 'fetchPullRequestDiffs').support === 'absent') {
+    await check(report, fixture, 'fetchPullRequestDiffs', 'is absent, so callers read the diffs through restRequest', async () => {
+      assert(
+        provider.fetchPullRequestDiffs === undefined,
+        'declared absent but the method exists, so the table is stale'
+      );
+      assert(
+        provider.capabilities.canFetchPullRequestDiffs === false,
+        'canFetchPullRequestDiffs should be false where the read is absent'
+      );
+    });
+  } else {
+    await check(report, fixture, 'fetchPullRequestDiffs', 'returns the seed file with its patch', async () => {
+      assert(provider.fetchPullRequestDiffs !== undefined, 'declared present but the method is undefined');
+      assert(
+        provider.capabilities.canFetchPullRequestDiffs === true,
+        'canFetchPullRequestDiffs should be true where the read exists'
+      );
+      const { diffs, truncated } = await provider.fetchPullRequestDiffs(projectPath, iid);
+      assert(truncated === false, 'a one-file pull request came back truncated');
+      assert(diffs.length === 1, `expected one file, got ${JSON.stringify(diffs.map(d => d.newPath))}`);
+      const file = diffs[0]!;
+      assert(file.newPath === path, `expected "${path}", got "${file.newPath}"`);
+      assert(file.diff.includes('+# conformance'), `expected the added line in the patch, got ${JSON.stringify(file.diff)}`);
+      assert(file.tooLarge !== true, 'a one-line file was reported too large');
+    });
+  }
+
+  await check(report, fixture, 'submitReview', 'a comment-only review posts its summary, comment, reply and resolve', async () => {
+    const thread = requireSetup<InlineCommentResult>(inline, 'the inline comment');
+    const summary = `conformance: review summary ${stamp}`;
+    const commentBody = `conformance: review comment ${stamp}`;
+    const replyBody = `conformance: review reply ${stamp}`;
+    const out = await provider.submitReview(projectPath, iid, {
+      outcome: 'comment',
+      summary,
+      comments: [{ path, line: 1, body: commentBody }],
+      replies: [{ discussionId: thread.discussionId, body: replyBody, resolve: true }]
+    });
+    if (!out.published) throw new Error(`expected a published review, got ${JSON.stringify(out)}`);
+    assert(out.comments === 1, `expected 1 comment, got ${out.comments}`);
+    assert(out.replies === 1, `expected 1 reply, got ${out.replies}`);
+    assert(
+      JSON.stringify(out.repliedTo) === JSON.stringify([thread.discussionId]),
+      `expected repliedTo [${thread.discussionId}], got ${JSON.stringify(out.repliedTo)}`
+    );
+    assert(
+      JSON.stringify(out.resolved) === JSON.stringify([thread.discussionId]),
+      `expected resolved [${thread.discussionId}], got ${JSON.stringify(out.resolved)}`
+    );
+    assert(out.approved === false, 'a comment-only review reported approved');
+    assert(out.resolveErrors.length === 0, `expected no resolve errors, got ${JSON.stringify(out.resolveErrors)}`);
+    assert(
+      (out.replyErrors ?? []).length === 0,
+      `expected no reply errors, got ${JSON.stringify(out.replyErrors)}`
+    );
+    assert(
+      (out.reviewId === null) === (out.reviewerState === null),
+      `reviewId ${out.reviewId} and reviewerState ${out.reviewerState} should be set together`
+    );
+    if (out.reviewId !== null) {
+      assert(out.reviewId > 0, `expected a positive reviewId, got ${out.reviewId}`);
+      assert(out.reviewerState === 'reviewed', `expected reviewerState "reviewed", got ${out.reviewerState}`);
+    }
+
+    const id = await repoId();
+    const summaryHit = await awaitRead(
+      'the review summary reads back',
+      () => findNoteByBody(fixture, id, iid, summary),
+      h => h !== null
+    );
+    assert(summaryHit !== null, 'the review summary did not read back');
+    const readsAsReview = /^gh-review-\d+$/.test(summaryHit.discussion.id);
+    assert(
+      (out.reviewId !== null) === readsAsReview,
+      `the summary reads back in thread "${summaryHit.discussion.id}" but reviewId is ${out.reviewId}`
+    );
+    if (out.reviewId !== null) {
+      assert(
+        summaryHit.discussion.id === `gh-review-${out.reviewId}` && summaryHit.note.id === out.reviewId,
+        `expected the summary as review ${out.reviewId}, got thread "${summaryHit.discussion.id}" note ${summaryHit.note.id}`
+      );
+    }
+    const commentHit = await awaitRead(
+      'the review comment reads back',
+      () => findNoteByBody(fixture, id, iid, commentBody),
+      h => h !== null
+    );
+    assert(
+      commentHit?.note.position?.newPath === path && commentHit.note.position.newLine === 1,
+      `expected the review comment at ${path}:1, got ${JSON.stringify(commentHit?.note.position)}`
+    );
+    const replyHit = await awaitRead(
+      'the review reply reads back',
+      () => findNoteByBody(fixture, id, iid, replyBody),
+      h => h !== null && h.discussion.id === thread.discussionId
+    );
+    assert(replyHit !== null, `the review reply did not read back in thread "${thread.discussionId}"`);
+    const resolvedHit = await awaitRead(
+      'the replied thread reads back resolved',
+      () => noteNow(thread.noteId),
+      h => h !== null && h.discussion.resolved === true
+    );
+    assert(resolvedHit !== null, 'the replied thread did not read back');
+  });
+
+  await check(report, fixture, 'submitReview', 'a comment outside the diff returns bad-anchors and posts nothing', async () => {
+    const summary = `conformance: refused review summary ${stamp}`;
+    const commentBody = `conformance: refused review comment ${stamp}`;
+    const out = await provider.submitReview(projectPath, iid, {
+      outcome: 'comment',
+      summary,
+      comments: [{ path, line: 9999, body: commentBody }],
+      replies: []
+    });
+    assert(
+      !out.published && out.reason === 'bad-anchors',
+      `expected bad-anchors, got ${JSON.stringify(out)}`
+    );
+    assert(
+      JSON.stringify(out.badAnchors) === JSON.stringify([{ index: 0, path, line: 9999 }]),
+      `expected the one comment listed, got ${JSON.stringify(out.badAnchors)}`
+    );
+    const id = await repoId();
+    assert(
+      (await findNoteByBody(fixture, id, iid, commentBody)) === null &&
+        (await findNoteByBody(fixture, id, iid, summary)) === null,
+      'a refused review still posted something'
+    );
+  });
 }
 
 async function branchExists(fixture: ProviderFixture, branch: string): Promise<boolean> {

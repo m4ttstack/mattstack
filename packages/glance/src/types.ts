@@ -682,6 +682,12 @@ export interface ProviderCapabilities {
   canFetchPullRequestSummaries: boolean;
   /** Can add and remove pull request labels with `addPullRequestLabels` and `removePullRequestLabels`. */
   canEditLabels: boolean;
+  /** Can reply inside a general (non-diff) comment with `replyToDiscussion`. */
+  canReplyToGeneralComments: boolean;
+  /** Can submit a review that requests changes. */
+  canRequestChanges: boolean;
+  /** Can read a pull request's per-file diffs with `fetchPullRequestDiffs`. */
+  canFetchPullRequestDiffs: boolean;
 }
 
 // ── Metric-grade reads ────────────────────────────────────────────────────────
@@ -911,6 +917,8 @@ export interface NoteAuthor {
   username: string;
   name: string;
   avatarUrl: string | null;
+  /** GitHub sets it; GitLab leaves it absent. */
+  bot?: boolean;
 }
 
 export interface NotePosition {
@@ -1100,4 +1108,81 @@ export interface WatchEventsOptions {
   perPage?: number;
   /** Max pages walked per tick on a busy feed. Default 5. */
   maxPagesPerTick?: number;
+}
+
+// ── Comment and review writes ─────────────────────────────────────────────────
+
+/** Where a diff comment sits. At least one of `line` and `oldLine` is required. */
+export interface CommentAnchor {
+  path: string;
+  line?: number;
+  oldPath?: string;
+  oldLine?: number;
+}
+
+export type NoteKind = 'general' | 'diff' | 'review';
+
+export interface NoteRef {
+  id: number;
+  kind?: NoteKind;
+}
+
+export interface NoteWriteResult {
+  noteId: number;
+  discussionId: string | null;
+  resolvable: boolean;
+  url: string;
+}
+
+export interface InlineCommentResult extends NoteWriteResult {
+  discussionId: string;
+  anchored: boolean;
+  noteType: string | null;
+}
+
+export interface ReviewComment extends CommentAnchor {
+  body: string;
+}
+
+export interface ReviewReply {
+  discussionId: string;
+  body?: string;
+  resolve: boolean;
+}
+
+export interface ReviewSubmission {
+  outcome: 'comment' | 'approve' | 'request_changes';
+  summary: string;
+  comments: ReviewComment[];
+  replies: ReviewReply[];
+}
+
+export type ReviewSubmitResult =
+  | { published: false; reason: 'pending-drafts'; pending: { count: number; firstLines: string[] } }
+  | {
+      published: false;
+      reason: 'bad-anchors';
+      /** `line` is the comment's `line ?? oldLine`. */
+      badAnchors: Array<{ index: number; path: string; line: number }>;
+    }
+  | {
+      published: true;
+      comments: number;
+      replies: number;
+      repliedTo: string[];
+      resolved: string[];
+      approved: boolean;
+      approveError?: string;
+      resolveErrors: Array<{ discussionId: string; error: string }>;
+      replyErrors?: Array<{ discussionId: string; error: string }>;
+      reviewId: number | null;
+      reviewerState: string | null;
+    };
+
+export interface PullRequestFileDiff {
+  newPath: string;
+  oldPath?: string;
+  diff: string;
+  collapsed?: boolean;
+  tooLarge?: boolean;
 }

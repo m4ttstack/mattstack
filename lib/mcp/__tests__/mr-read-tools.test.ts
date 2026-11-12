@@ -446,12 +446,11 @@ describe("on GitHub", () => {
     ]);
   });
 
-  test("mr_threads keeps refusing a PR URL, with no daemon call", async () => {
+  test("mr_threads with a PR URL refreshes the PR's threads with the GitHub identity and number", async () => {
     const { deps, calls } = fake({ "discussions:refresh": { discussions: [], fetchedAt: 5 } });
     const res = await tool(deps, "mr_threads").handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv);
-    expect(res.ok).toBe(false);
-    expect(res.error).toContain("merge_requests");
-    expect(calls).toEqual([]);
+    expect(res).toEqual({ ok: true, body: { discussions: [], fetchedAt: 5, stale: false } });
+    expect(calls).toEqual([{ name: "discussions:refresh", payload: { repoName: GH, iid: 3 } }]);
   });
 
   test("pipeline_jobs keeps its unsupported_forge answer for a PR URL", async () => {
@@ -462,11 +461,12 @@ describe("on GitHub", () => {
 
   test("descriptions say GitLab only exactly where the tool still is", () => {
     const defs = mrReadToolDefs();
-    for (const name of ["mr_view", "mr_list", "mr_for_branch", "mr_pipeline", "mr_job_trace"]) {
+    for (const name of ["mr_view", "mr_list", "mr_for_branch", "mr_pipeline", "mr_job_trace", "mr_threads"]) {
       const d = defs.find((t) => t.name === name)!.description;
       expect(d, name).not.toContain("GitLab only");
       expect(d, name).toContain("github.com/<owner>/<repo>/pull/<number>");
     }
-    for (const name of ["mr_threads", "pipeline_jobs"]) expect(defs.find((t) => t.name === name)!.description, name).toStartWith("GitLab only.");
+    expect(defs.find((t) => t.name === "pipeline_jobs")!.description).toStartWith("GitLab only.");
+    expect(defs.find((t) => t.name === "mr_threads")!.description).not.toContain("from GitLab");
   });
 });

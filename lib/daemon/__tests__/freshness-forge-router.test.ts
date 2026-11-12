@@ -6,7 +6,7 @@ import { join } from "path";
 import * as githubTokenModule from "../../github-token.ts";
 import * as linearModule from "../../linear.ts";
 import * as teamSettings from "../../setup/team-settings.ts";
-import { getGitLabContext, getRepoContext } from "../freshness.ts";
+import { getCurrentUserId, getGitLabContext, getRepoContext, getSelfUserId, repositoryIdFor } from "../freshness.ts";
 
 const GITLAB_TOKEN = "glpat-router-secret";
 const GITHUB_TOKEN = "ghp_router_secret";
@@ -20,6 +20,7 @@ let forgeHost: string | undefined;
 let loadSecretsSpy: ReturnType<typeof spyOn>;
 let resolveGithubSpy: ReturnType<typeof spyOn>;
 let repoCounter = 0;
+let githubUserStatus: number;
 
 function repoWithOrigin(origin: string): { name: string; path: string } {
   const path = realpathSync(mkdtempSync(join(tmpdir(), "rt-forge-router-")));
@@ -36,6 +37,7 @@ beforeEach(() => {
   requests = [];
   secrets = {};
   forgeHost = undefined;
+  githubUserStatus = 200;
   loadSecretsSpy = spyOn(linearModule, "loadSecrets").mockImplementation((async () => ({ ...secrets })) as never);
   resolveGithubSpy = spyOn(githubTokenModule, "resolveGithubToken");
   spies = [
@@ -47,8 +49,10 @@ beforeEach(() => {
       const headers: Record<string, string> = {};
       new Headers(input instanceof Request ? input.headers : init?.headers).forEach((v, k) => { headers[k] = v; });
       requests.push({ url, headers });
-      const body = url.startsWith("https://api.github.com/") ? { id: 9, login: "octo" } : { id: 7 };
-      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+      const github = url.startsWith("https://api.github.com/");
+      const status = github ? githubUserStatus : 200;
+      const body = status !== 200 ? { message: "Bad credentials" } : github ? { id: 9, login: "octo" } : { id: 7 };
+      return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
     }) as typeof fetch),
   ];
 });
@@ -209,5 +213,54 @@ describe("getRepoContext picks the forge from the repo's remote", () => {
     const ctx = await getRepoContext(name, path);
     expect(ctx.forge).toBe("github");
     expect(ctx.projectPath).toBe("acme/late");
+  });
+});
+
+describe("repositoryIdFor", () => {
+  test("names a GitHub repo by owner and name", async () => {
+    secrets = { githubToken: GITHUB_TOKEN };
+    const repo = repoWithOrigin("git@github.com:acme/widgets.git");
+    expect(repositoryIdFor(await getRepoContext(repo.name, repo.path))).toBe("github:acme/widgets");
+  });
+
+  test("names a GitLab repo by its numeric project id", async () => {
+    secrets = { gitlabToken: GITLAB_TOKEN };
+    const repo = repoWithOrigin("git@gitlab.com:acme/widgets.git");
+    expect(repositoryIdFor(await getRepoContext(repo.name, repo.path))).toBe("gitlab:7");
+  });
+});
+
+describe("getSelfUserId", () => {
+  test("on GitHub reads /user once per provider and again after the token changes", async () => {
+    secrets = { githubToken: GITHUB_TOKEN };
+    const repo = repoWithOrigin("git@github.com:acme/widgets.git");
+    expect(await getSelfUserId(await getRepoContext(repo.name, repo.path))).toBe(9);
+    expect(await getSelfUserId(await getRepoContext(repo.name, repo.path))).toBe(9);
+    expect(requests.map((r) => r.url)).toEqual(["https://api.github.com/user"]);
+
+    secrets = { githubToken: "ghp_rotated" };
+    expect(await getSelfUserId(await getRepoContext(repo.name, repo.path))).toBe(9);
+    expect(requests.map((r) => r.url)).toEqual(["https://api.github.com/user", "https://api.github.com/user"]);
+    expect(headerValues(requests[1]!)).toContain("ghp_rotated");
+  });
+
+  test("on GitHub a failed /user read returns null and is tried again next time", async () => {
+    secrets = { githubToken: GITHUB_TOKEN };
+    const repo = repoWithOrigin("git@github.com:acme/widgets.git");
+    const ctx = await getRepoContext(repo.name, repo.path);
+    githubUserStatus = 401;
+    expect(await getSelfUserId(ctx)).toBeNull();
+    githubUserStatus = 200;
+    expect(await getSelfUserId(ctx)).toBe(9);
+    expect(requests.map((r) => r.url)).toEqual(["https://api.github.com/user", "https://api.github.com/user"]);
+  });
+
+  test("on GitLab returns the resolved user id with no request", async () => {
+    secrets = { gitlabToken: GITLAB_TOKEN };
+    const repo = repoWithOrigin("git@gitlab.com:acme/widgets.git");
+    const ctx = await getRepoContext(repo.name, repo.path);
+    const before = requests.length;
+    expect(await getSelfUserId(ctx)).toBe(getCurrentUserId());
+    expect(requests.length).toBe(before);
   });
 });

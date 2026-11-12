@@ -45,12 +45,13 @@ over `lib/gates/`), the `mr_*` writes, `rt_verb`, the herd worker tools
 (`chat_post`, `chat_dm`, `chat_ack`, `chat_claim`, `chat_release`), and
 spreads in the rest: the composites (`mr-composite-tools.ts`:
 `mr_map`, `mr_posted_since`, `mr_resolve_branch`, `respond_post_execute`;
-only `mr_resolve_branch` works on GitHub), run tracking (`run-tools.ts`,
+only `mr_resolve_branch` works on GitHub, unlike the thread, comment and
+review tools, which work on both forges), run tracking (`run-tools.ts`,
 in-process over `runWriteVerb`, a caller's `runDb` confined to the runs
 root), forge reads (`mr-read-tools.ts`, `forge-read-tools.ts`: every one
 asks the repo's own forge through the daemon on each call and none reads
 the open-MR cache, so an agent can read any MR its token can; all but
-`mr_threads` and `pipeline_jobs` work on GitHub too; `mr_map` also lists
+`pipeline_jobs` work on GitHub too, `mr_threads` included; `mr_map` also lists
 the MRs live and reads the daemon's synced MR list only for each row's
 `ciStatus`; `gitlab_get` is a GET-only passthrough, guarded as below), CI
 (`ci-tools.ts`: `ci_watch`, which reads GitLab on every poll, and the
@@ -112,9 +113,11 @@ retries, rebase, create, update, upload, merge). `mr_review_submit` posts a
 review the way GitLab's own submit does: pending comments, one publish with
 the summary and a reviewed state, then the approval; it refuses when the
 caller already has pending comments on the MR, because a publish would post
-those too. `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`
-and `mr_merge` work on both forges; the thread, comment, review, upload and
-rebase tools are GitLab only. `mr_merge` is on the server for both forges
+those too. `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`,
+`mr_merge` and the thread, comment and review tools (`mr_reply_thread`,
+`mr_resolve_thread`, `mr_update_note`, `mr_comment`, `mr_comment_inline`,
+`mr_review_submit`) work on both forges; on GitHub a review posts in one
+request. The upload and rebase tools are GitLab only. `mr_merge` is on the server for both forges
 (the forge still enforces approvals and pipeline rules); on GitHub it goes
 through the daemon too (`mr:merge-queue-status`, `mr:enqueue`, `mr:action`,
 and `mr:get` to read the merge back), so only the daemon holds the token, and the tool keeps the merge queue wait

@@ -16,9 +16,9 @@
  * repo granting `discussions` gets `notes` events routed to the discussions
  * store, but only for MRs whose discussions are already cached.
  *
- * This module is also the daemon's shared GitLab plumbing: per-repo provider
- * registry, current-user id, and the aggregated connection state broadcast
- * as `mr:status`.
+ * This module is also the daemon's shared forge plumbing: per-repo provider
+ * registry, the signed-in user's id on each forge, and the aggregated
+ * connection state broadcast as `mr:status`.
  *
  * Lifecycle:
  *   initFreshness(env)      — daemon startup, after first cache refresh
@@ -37,7 +37,7 @@ import { GitHubProvider, GitLabProvider, type InvalidationKey, type MRApprovalRu
 import { loadRepoTracking, grants, type RepoGrants, type RepoTracking } from "../repo-tracking.ts";
 import { existsSync } from "fs";
 import { loadSecrets } from "../linear.ts";
-import { parseRemoteUrl, isGitHubRemote, isGitLabRemote, toMRInfo } from "../enrich.ts";
+import { parseRemoteUrl, isGitHubRemote, isGitLabRemote, numericUserId, toMRInfo } from "../enrich.ts";
 import { resolveGithubToken } from "../github-token.ts";
 import { gitlabHostRefusal } from "../team/forge-token.ts";
 import { checkAndNotify } from "../notifier.ts";
@@ -76,6 +76,11 @@ export type RepoContext =
   | { forge: "github"; provider: GitHubProvider; projectPath: string; projectId: null };
 
 export type GitLabRepoContext = Extract<RepoContext, { forge: "gitlab" }>;
+
+/** The id glance's thread reads take. GitHub's numeric form costs a `/repositories` lookup per call, so it is named by path. */
+export function repositoryIdFor(ctx: RepoContext): string {
+  return ctx.forge === "github" ? `github:${ctx.projectPath}` : `gitlab:${ctx.projectId}`;
+}
 
 // ─── Per-repo live watcher state ─────────────────────────────────────────────
 
@@ -261,6 +266,7 @@ function createFreshnessCore() {
   const watches   = new Map<string, RepoWatch>();
   const providers = new Map<string, { provider: GitLabProvider; token: string }>();
   const githubProviders = new Map<string, { provider: GitHubProvider; token: string }>();
+  const githubSelfIds = new WeakMap<GitHubProvider, number>();
   let   userId: number | null = null;
   let   userIdResolved = false;
   let   selfUsername: string | null = null;
@@ -600,6 +606,25 @@ function createFreshnessCore() {
    */
   function getCurrentUserId(): number | null {
     return userId;
+  }
+
+  /**
+   * Numeric id of the token's own user on the repo's forge. A GitHub provider
+   * is rebuilt when its token changes, so keying by provider re-reads `/user`
+   * for a new token; a failed read is not remembered.
+   */
+  async function getSelfUserId(ctx: RepoContext): Promise<number | null> {
+    if (ctx.forge === "gitlab") return getCurrentUserId();
+    const known = githubSelfIds.get(ctx.provider);
+    if (known !== undefined) return known;
+    try {
+      const id = numericUserId((await ctx.provider.validateToken()).id);
+      if (id !== null) githubSelfIds.set(ctx.provider, id);
+      return id;
+    } catch (err) {
+      log.warn({ err }, "GitHub user lookup failed");
+      return null;
+    }
   }
 
   /**
@@ -975,6 +1000,7 @@ function createFreshnessCore() {
     getGitLabContext,
     isGitHubRepo,
     getCurrentUserId,
+    getSelfUserId,
     applyInvalidationBatch,
     initFreshness,
     reconcileFreshness,
@@ -1086,6 +1112,10 @@ export function isGitHubRepo(repoPath: string): Promise<boolean> {
 
 export function getCurrentUserId(): number | null {
   return getDefaultCore().getCurrentUserId();
+}
+
+export function getSelfUserId(ctx: RepoContext): Promise<number | null> {
+  return getDefaultCore().getSelfUserId(ctx);
 }
 
 export function applyInvalidationBatch(

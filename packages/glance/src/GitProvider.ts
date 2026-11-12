@@ -1,5 +1,6 @@
 import type {
   BranchProtectionRule,
+  CommentAnchor,
   CreatePullRequestInput,
   Discussion,
   InvalidationBatch,
@@ -12,8 +13,12 @@ import type {
   MergeRequestIndexRow,
   MergeRequestMetrics,
   MRDetail,
+  InlineCommentResult,
+  NoteRef,
+  NoteWriteResult,
   Pipeline,
   PipelineJob,
+  PullRequestFileDiff,
   PipelineListEntry,
   PipelineSummary,
   ProjectLabel,
@@ -22,6 +27,8 @@ import type {
   PullRequest,
   PullRequestSummary,
   FetchSummariesOptions,
+  ReviewSubmission,
+  ReviewSubmitResult,
   UpdatePullRequestInput,
   UserEvent,
   UserRef,
@@ -596,6 +603,74 @@ export interface GitProvider {
    */
   unresolveDiscussion(projectPath: string, mrIid: number, discussionId: string): Promise<void>;
 
+  // ── Comment writes ──────────────────────────────────────────────────────
+
+  /**
+   * Post a new top-level comment.
+   * On GitLab: a resolvable discussion, or a plain note when
+   * `resolvable: false`.
+   * On GitHub: a pull request comment, never resolvable whatever the option.
+   */
+  createComment(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    options?: { resolvable?: boolean }
+  ): Promise<NoteWriteResult>;
+
+  /**
+   * Post a comment on a diff line.
+   * On GitLab: one positioned discussion; GitLab can silently drop the
+   * position, which comes back as `anchored: false` with no retry.
+   * On GitHub: a review comment at the head commit, on side `RIGHT` at
+   * `anchor.line`, or side `LEFT` at `anchor.oldLine` when `line` is absent.
+   */
+  createInlineComment(
+    projectPath: string,
+    mrIid: number,
+    body: string,
+    anchor: CommentAnchor
+  ): Promise<InlineCommentResult>;
+
+  /**
+   * Reply inside an existing thread.
+   * On GitHub only `gh-review-thread-<id>` threads take replies; any other
+   * id is refused before a request. Check
+   * `capabilities.canReplyToGeneralComments`.
+   */
+  replyToDiscussion(
+    projectPath: string,
+    mrIid: number,
+    discussionId: string,
+    body: string
+  ): Promise<NoteWriteResult>;
+
+  /**
+   * Replace a comment's body.
+   * On GitHub, `note.kind` picks the endpoint; with no kind the diff comment
+   * is tried first and the pull request comment on a 404, and a comment that
+   * belongs to another pull request is refused before any write.
+   */
+  updateComment(projectPath: string, mrIid: number, note: NoteRef, body: string): Promise<void>;
+
+  /** Delete a comment; `note.kind` resolves as in `updateComment`. GitHub cannot delete a review. */
+  deleteComment(projectPath: string, mrIid: number, note: NoteRef): Promise<void>;
+
+  /**
+   * Post a whole review: a summary, diff comments, replies and resolves, with
+   * an outcome. Nothing posts when the caller already has a pending review
+   * (`pending-drafts`) or the forge refuses a comment's anchor (`bad-anchors`).
+   * On GitLab: pending comments published once, then approve and resolve; a
+   * failure before the publish deletes what it created. At most 100 comments
+   * and replies together; more is refused before any request.
+   * On GitHub: one review POST, then replies and resolves. Every reply must
+   * name a `gh-review-thread-<id>`, checked before any request. An approve
+   * GitHub refuses on the caller's own pull request posts as a comment with
+   * `approved: false` and `approveError`. A reply that fails is listed in
+   * `replyErrors` and its resolve is skipped.
+   */
+  submitReview(projectPath: string, mrIid: number, review: ReviewSubmission): Promise<ReviewSubmitResult>;
+
   // ── Pipeline mutations ──────────────────────────────────────────────────
 
   /**
@@ -683,6 +758,19 @@ export interface GitProvider {
    * `capabilities.canFetchPipelineFailedJobs` before calling.
    */
   fetchPipelineFailedJobs?(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
+
+  /**
+   * A pull request's per-file diffs, one page of up to 100 files; `truncated`
+   * is set when 100 came back, as GitLab's reads do. A file with no patch
+   * (binary, or too large for GitHub to inline) comes back with an empty
+   * `diff` and `tooLarge: true`. Check `capabilities.canFetchPullRequestDiffs`
+   * before calling.
+   */
+  fetchPullRequestDiffs?(
+    projectPath: string,
+    mrIid: number,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ diffs: PullRequestFileDiff[]; truncated: boolean }>;
 
   /**
    * Fetch the child/downstream pipeline for a trigger bridge job.

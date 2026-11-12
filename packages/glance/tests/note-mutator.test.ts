@@ -40,6 +40,20 @@ function stub(status: number, payload: unknown): Captured[] {
 }
 
 describe('createNote', () => {
+  test('a string project is sent as its URL-encoded path', async () => {
+    const calls = stub(201, { id: 5, body: 'b' });
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    await m.createNote('group/proj', 7, 'b');
+    expect(calls[0]!.url).toBe('https://gitlab.example.com/api/v4/projects/group%2Fproj/merge_requests/7/notes');
+  });
+
+  test('a numeric project keeps the numeric URL', async () => {
+    const calls = stub(201, { id: 5, body: 'b' });
+    const m = new NoteMutator('https://gitlab.example.com', 'tok');
+    await m.createNote(42, 7, 'b');
+    expect(calls[0]!.url).toBe('https://gitlab.example.com/api/v4/projects/42/merge_requests/7/notes');
+  });
+
   test('normalizes a missing type field to null', async () => {
     stub(201, { id: 5, body: 'hi', resolvable: null, resolved: null });
     const m = new NoteMutator('https://gitlab.example.com', 'tok');
