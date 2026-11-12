@@ -275,7 +275,7 @@ function githubReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides): Sy
 }
 
 /** The default reads syncImpl and the backfills share, each carrying the repo's excluded target branches. */
-function defaultReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides, forge: SyncForge = "gitlab"): SyncReads {
+function defaultReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides, forge: SyncForge): SyncReads {
   if (forge === "github") return githubReads(deps, overrides);
   const context = overrides.repoContext ?? ((repo: string) => freshness.getGitLabContext("project sync", repo, deps.repoIndex()[repo]));
   const excluded = overrides.excludedTargets ?? (async (repo: string) => {

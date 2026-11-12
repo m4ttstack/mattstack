@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync } from "fs";
+import { execFileSync } from "child_process";
+import { mkdtempSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { FetchPullRequestsOptions, FetchPullRequestsWarning, PullRequest } from "@mattstack/glance";
@@ -64,6 +65,13 @@ function deps(repoName: string, broadcasts: unknown[] = []) {
   return { repoIndex: () => ({ [repoName]: `/repos/${repoName}` }), broadcast: (_t: string, d: unknown) => { broadcasts.push(d); } };
 }
 
+function repoWithOrigin(origin: string): string {
+  const path = realpathSync(mkdtempSync(join(tmpdir(), "rt-psync-github-")));
+  execFileSync("git", ["init", "-q"], { cwd: path, stdio: "pipe" });
+  execFileSync("git", ["remote", "add", "origin", origin], { cwd: path, stdio: "pipe" });
+  return path;
+}
+
 const spies: Array<{ mockRestore(): void }> = [];
 afterEach(() => { while (spies.length) spies.pop()!.mockRestore(); });
 
@@ -77,6 +85,16 @@ describe("project sync on GitHub", () => {
     expect(Object.keys(store.read(repo)!.mrs).map(Number).sort()).toEqual([1, 2]);
     expect(broadcasts).toEqual([{ repoName: repo, iids: expect.arrayContaining([1, 2]) }]);
     expect(readSyncHealth(repo)).toBeUndefined();
+  });
+
+  test("a repo with a GitHub origin takes the GitHub reads without a forge override", async () => {
+    const repo = "github.com/acme/detect";
+    const path = repoWithOrigin("git@github.com:acme/detect.git");
+    const store = tmpStore();
+    const gh = fakeGitHub(() => ({ prs: [pr(1)] }));
+    await syncProjectMRs({ repoIndex: () => ({ [repo]: path }), broadcast: () => {} }, repo, { store, githubContext: gh.githubContext });
+    expect(gh.listCalls).toHaveLength(1);
+    expect(store.read(repo)!.mrs[1]).toBeDefined();
   });
 
   test("a failed GitHub deep with a record falls back to delta and prunes nothing", async () => {
