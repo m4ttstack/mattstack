@@ -1376,3 +1376,19 @@ test('bulk actions over GitHub rows offer no merge, rebase, auto-merge or draft 
   for (const key of FORGE_WRITES) expect(entries).not.toContain(key);
   expect(entries.length).toBeGreaterThan(0);
 });
+
+test('a GitHub teammate row offers no respond ask; review asks stay', () => {
+  const gh = {
+    ...teammateReviewed,
+    webUrl: 'https://github.com/acme/webapp/pull/1418',
+    provider: 'github',
+  } as typeof teammateReviewed;
+  const keys = rowActions(gh, actionEnvOf(ownEnv, gh)).map(a => a.key);
+  expect(keys).not.toContain('ask-respond');
+  expect(keys).toContain('re-review');
+  expect(
+    rowActions(teammateReviewed, actionEnvOf(ownEnv, teammateReviewed)).map(
+      a => a.key
+    )
+  ).toContain('ask-respond');
+});

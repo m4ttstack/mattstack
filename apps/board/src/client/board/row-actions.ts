@@ -574,7 +574,7 @@ export function rowActions(
       )
     );
   }
-  if (env.local && env.self !== null && !own) {
+  if (env.local && env.self !== null && !own && !onGitHub(mrx)) {
     const target = respondAskTarget(mrx, env.peers);
     const who = target ?? mrx.author.username;
     agent.push(
