@@ -712,22 +712,88 @@ describe("ci_triage", () => {
   test("declares no shell form and names why", () => {
     expect(triageTool().t.shellForms).toEqual({ none: expect.stringContaining("wave 3") });
   });
-  test("a GitHub MR returns unsupported_forge after the mr:get read and nothing else", async () => {
-    const { t, calls } = triageTool({ webUrl: GITHUB_URL });
-    const r = await t.handler(target, A);
-    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
-    expect(typeof (r.body as any).next).toBe("string");
-    expect(calls.map((c) => c.name)).toEqual(["mr:get"]);
-  });
-  test("a GitHub PR passed as mrUrl is unsupported_forge with no read at all", async () => {
-    const { t, calls } = triageTool();
-    const r = await t.handler({ mrUrl: GITHUB_URL, noBase: true }, A);
-    expect(r).toMatchObject({ ok: true, body: { state: "unsupported_forge", forge: "github" } });
-    expect(calls).toEqual([]);
-  });
-  test("a github: head pipeline id is unsupported_forge too", async () => {
-    const { t } = triageTool({ pipeline: { id: "github:run:3", status: "failed", jobs: [] } });
-    expect(await t.handler(target, A)).toMatchObject({ body: { state: "unsupported_forge", forge: "github" } });
+  describe("on GitHub", () => {
+    const SHA = "D".repeat(40);
+    const ghCheck = (id: number, name: string, status: string, runId: string | null) => ({
+      id: `github:check:${id}`, name, stage: "checks", status, allowFailure: false, duration: null, webUrl: null, runId,
+    });
+    beforeEach(() => { __resetMemoryFacts(); });
+
+    function ghTriageTool(over: { settings?: Record<string, unknown>; traces?: Record<number, string> } = {}) {
+      const calls: Array<{ name: string; payload: Record<string, unknown> }> = [];
+      const resolveArgs: unknown[][] = [];
+      const traces: Record<number, string> = { 71: "Tests: 3 failed\n", 44: "lint broke\n", ...over.traces };
+      const command = (async (name: string, payload: Record<string, unknown>) => {
+        calls.push({ name, payload });
+        if (name === "mr:get") {
+          const pipeline = {
+            id: "github:run:901", status: "failed", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: `${GITHUB_URL}/checks`, createdAt: null,
+            jobs: [ghCheck(71, "unit", "failed", "901"), ghCheck(44, "lint", "failed", "902")],
+          };
+          return { ok: true, data: { mr: { iid: 42, sha: SHA, webUrl: GITHUB_URL, sourceBranch: "feat", targetBranch: "main", pipeline }, fetchedAt: 0 } };
+        }
+        if (name === "forge:get") {
+          const path = payload.path as string;
+          if (path === ":repo") return body({ default_branch: "main" });
+          if (path.startsWith(":repo/rules/branches/")) return body([{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "unit" }] } }]);
+          if (path.startsWith(":repo/branches/")) return { ok: true, data: { status: 404, body: null, truncated: false, nextPage: null, totalPages: null } };
+        }
+        if (name === "pipeline:list") {
+          const rows = payload.sha
+            ? [{ id: 901, status: "failed", ref: "feat", sha: SHA, source: "pull_request", webUrl: null, createdAt: "2026-11-11T10:00:05Z" },
+               { id: 900, status: "failed", ref: "feat", sha: SHA, source: "pull_request", webUrl: null, createdAt: "2026-11-11T10:00:00Z" }]
+            : [{ id: 700, status: "failed", ref: "main", sha: "b".repeat(40), source: "push", webUrl: null, createdAt: "2026-11-10T10:00:00Z" }];
+          return { ok: true, data: { pipelines: rows } };
+        }
+        if (name === "mr:pipeline-failed-jobs" && payload.pipelineId === 700) return { ok: true, data: [ghCheck(500, "unit", "failed", "700")] };
+        if (name === "mr:fetch-job-trace") return { ok: true, data: traces[payload.jobId as number] ?? "" };
+        return { ok: false, error: `unrouted ${name} ${String(payload.path ?? "")}` };
+      }) as any;
+      const merged = { ...settings, ...over.settings };
+      const t = ciToolDefs({
+        triage: {
+          command,
+          resolve: (async (...args: unknown[]) => { resolveArgs.push(args); return { ok: true, identity: "remote:x", iid: 42 }; }) as any,
+          readSetting: (k) => merged[k],
+        },
+      }).find((x) => x.name === "ci_triage")!;
+      return { t, calls, resolveArgs };
+    }
+
+    test("a required failure that also failed on a base commit is REAL and INHERITED", async () => {
+      const { t, calls, resolveArgs } = ghTriageTool();
+      const r = await t.handler({ mrUrl: GITHUB_URL }, A);
+      expect(resolveArgs[0]![1]).toEqual({ github: true });
+      expect(r).toMatchObject({ ok: true, body: { state: "triaged", pipeline: { id: 900, status: "failed", webUrl: `${GITHUB_URL}/checks`, sha: SHA, ref: "feat" } } });
+      const b = r.body as any;
+      expect(b.blocking).toHaveLength(1);
+      expect(b.blocking[0]).toMatchObject({ name: "unit", jobId: 71, pipelineId: 901, verdict: "REAL", ownership: "INHERITED", inheritedOn: ["main"] });
+      expect(b.base).toEqual({ refs: ["main"], scanned: 1, off: false });
+      expect(calls.filter((c) => c.name === "pipeline:list" && !c.payload.sha).map((c) => c.payload)).toEqual([{ repoName: "remote:x", ref: "main", limit: 100 }]);
+    });
+
+    test("an optional failed check lands in nonBlocking", async () => {
+      const { t } = ghTriageTool();
+      const b = (await t.handler({ mrUrl: GITHUB_URL }, A)).body as any;
+      expect(b.nonBlocking).toHaveLength(1);
+      expect(b.nonBlocking[0]).toMatchObject({ name: "lint", jobId: 44, pipelineId: 902, blocking: false });
+    });
+
+    test("a team infra pattern read through the settings turns a matching log INFRA", async () => {
+      const { t } = ghTriageTool({ settings: { "ci.triage.infraPatterns": ["flaky-runner"] }, traces: { 71: "step died on flaky-runner 3\n" } });
+      const b = (await t.handler({ mrUrl: GITHUB_URL, noBase: true }, A)).body as any;
+      expect(b.blocking[0]).toMatchObject({ name: "unit", verdict: "INFRA", infraHits: ["step died on flaky-runner 3"] });
+      expect(b.summary.allInfraBlocking).toBe(true);
+    });
+
+    test("pipelineId equal to the head's anchor id triages the head", async () => {
+      const { t, calls } = ghTriageTool();
+      const r = await t.handler({ mrUrl: GITHUB_URL, pipelineId: 900, noBase: true }, A);
+      expect(r).toMatchObject({ ok: true, body: { state: "triaged", pipeline: { id: 900 } } });
+      expect((r.body as any).blocking.map((j: any) => j.jobId)).toEqual([71]);
+      expect(calls.some((c) => c.name === "mr:pipeline-failed-jobs")).toBe(false);
+      expect(calls.some((c) => c.name === "forge:get" && String(c.payload.path).includes("actions/runs"))).toBe(false);
+    });
   });
   test("a store-set baseDepth out of range is a tool error naming the key, before any read", async () => {
     settings["ci.triage.baseDepth"] = 0;

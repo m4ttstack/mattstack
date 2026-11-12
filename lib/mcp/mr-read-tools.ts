@@ -64,7 +64,7 @@ async function readMr(command: typeof rtCommand, identity: string, iid: number):
 }
 
 export type PipelineSubject =
-  | { kind: "github" }
+  | { kind: "github"; mr: Commands["mr:get"]["data"]["mr"] }
   | { kind: "gitlab"; pipelineId: number; targetBranch: string | null }
   | { kind: "error"; error: string };
 
@@ -74,7 +74,7 @@ export async function readPipelineSubject(command: typeof rtCommand, target: { i
   const read = await readMr(command, target.identity, target.iid);
   if (!read.ok) return { kind: "error", error: read.error };
   const mr = read.data.mr;
-  if (parseMrUrl(mr.webUrl ?? "") === null || mr.pipeline?.id.startsWith("github:")) return { kind: "github" };
+  if (parseMrUrl(mr.webUrl ?? "") === null || mr.pipeline?.id.startsWith("github:")) return { kind: "github", mr };
   const id = pipelineId ?? pipelineNumber(mr);
   if (id === undefined) return { kind: "error", error: "the MR has no pipeline; pass pipelineId" };
   return { kind: "gitlab", pipelineId: id, targetBranch: mr.targetBranch ?? null };

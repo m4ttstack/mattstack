@@ -8,6 +8,7 @@ import {
   __resetMemoryFacts,
   buildHead,
   emptyFacts,
+  githubTriageForge,
   memoryFacts,
   requiredNames,
   restJobStatus,
@@ -601,5 +602,138 @@ describe("GithubHeadReader listing reuse and stale confirmation", () => {
     h.advance(CONFIRM_EVERY_MS);
     expect((await h.reader.read(mrOf(green), SHA_FULL))?.status).toBe("success");
     expect(h.count("pipeline:list")).toBe(1);
+  });
+});
+
+describe("githubTriageForge", () => {
+  const TARGET = { identity: "github.com/o/r", iid: 1 };
+  const head = buildHead(
+    pipeline([
+      job("unit", "failed", { id: "github:check:71", runId: "901" }),
+      job("lint", "failed", { id: "github:check:7", runId: "902" }),
+      job("ci/ext", "failed", { id: "github:status:ci/ext", runId: null }),
+      job("app-check", "failed", { id: "github:check:55", runId: null }),
+      job("build", "success", { id: "github:check:60", runId: "901" }),
+      job("e2e", "canceled", { id: "github:check:61", runId: "901" }),
+    ], { sha: SHA_FULL }),
+    facts({ required: ["unit", "ci/ext", "build", "e2e"], anchor: { runId: 900, createdAt: T0 } }),
+  );
+
+  function failedRow(id: number, name: string, status: string, runId: number) {
+    return { id: `github:check:${id}`, name, stage: "checks", status, allowFailure: false, duration: 1, webUrl: `https://github.com/o/r/actions/runs/${runId}/job/${id}`, runId: String(runId) };
+  }
+  function baseRow(id: number, sha: string, status: string, source = "push") {
+    return { id, status, ref: "main", sha, source, webUrl: `https://github.com/o/r/actions/runs/${id}`, createdAt: null };
+  }
+
+  function forgeOf(responder: Responder) {
+    const calls: Call[] = [];
+    const command = (async (name: string, payload: Record<string, unknown>) => {
+      calls.push({ name, payload });
+      return responder(name, payload);
+    }) as unknown as typeof rtCommand;
+    return { forge: githubTriageForge(command, TARGET, head), calls };
+  }
+
+  const baseResponder: Responder = (name, payload) => {
+    if (name === "pipeline:list") {
+      return { ok: true, data: { pipelines: [
+        baseRow(812, "aaa", "failed"),
+        baseRow(811, "aaa", "success"),
+        baseRow(810, "bbb", "failed", "schedule"),
+        baseRow(805, "ccc", "failed"),
+      ] } };
+    }
+    if (name === "mr:pipeline-failed-jobs" && payload.pipelineId === 812) {
+      return { ok: true, data: [failedRow(301, "unit", "failed", 812), failedRow(302, "e2e", "canceled", 812)] };
+    }
+    return { ok: false, error: `unexpected ${name}` };
+  };
+
+  test("pipelinesForRef groups base runs by sha, newest first, drops schedule runs and keeps the newest run's id", async () => {
+    const { forge, calls } = forgeOf(baseResponder);
+    const groups = await forge.pipelinesForRef("main", 4);
+    expect(calls.map((c) => c.payload)).toEqual([{ repoName: "github.com/o/r", ref: "main", limit: 100 }]);
+    expect(groups).toEqual([
+      { id: 812, status: "failed", webUrl: "https://github.com/o/r/actions/runs/812" },
+      { id: 805, status: "failed", webUrl: "https://github.com/o/r/actions/runs/805" },
+    ]);
+  });
+
+  test("pipelinesForRef returns at most limit commits", async () => {
+    const { forge } = forgeOf(baseResponder);
+    expect((await forge.pipelinesForRef("main", 1))?.map((g) => g.id)).toEqual([812]);
+  });
+
+  test("a base commit's failed jobs read only its failed runs and drop cancelled jobs", async () => {
+    const { forge, calls } = forgeOf(baseResponder);
+    await forge.pipelinesForRef("main", 4);
+    calls.splice(0);
+    const failed = await forge.failedJobs(812);
+    expect(calls).toEqual([{ name: "mr:pipeline-failed-jobs", payload: { repoName: "github.com/o/r", iid: 1, pipelineId: 812 } }]);
+    expect(failed).toEqual({
+      jobs: [{ pipelineId: 812, jobId: 301, name: "unit", stage: "checks", status: "failed", allowFailure: false, attempt: 1, webUrl: "https://github.com/o/r/actions/runs/812/job/301" }],
+      crossProject: [],
+    });
+  });
+
+  test("the head's failed Actions checks are jobs and every other failed check is a crossProject row", async () => {
+    const { forge, calls } = forgeOf(baseResponder);
+    expect(await forge.failedJobs(900)).toEqual({
+      jobs: [
+        { pipelineId: 901, jobId: 71, name: "unit", stage: "checks", status: "failed", allowFailure: false, attempt: 1, webUrl: null },
+        { pipelineId: 902, jobId: 7, name: "lint", stage: "checks", status: "failed", allowFailure: true, attempt: 1, webUrl: null },
+      ],
+      crossProject: [
+        { name: "ci/ext", status: "failed", blocking: true, downstream: null },
+        { name: "app-check", status: "failed", blocking: false, downstream: null },
+      ],
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("pipelineInfo for the head makes no request", async () => {
+    const { forge, calls } = forgeOf(baseResponder);
+    expect(await forge.pipelineInfo(900)).toEqual({ id: 900, status: head.status, webUrl: "https://github.com/o/r/pull/1/checks", sha: SHA_FULL, ref: "feature" });
+    expect(calls).toEqual([]);
+  });
+
+  test("pipelineInfo for a run reads it once", async () => {
+    const { forge, calls } = forgeOf((name, payload) =>
+      name === "forge:get" && payload.path === ":repo/actions/runs/555"
+        ? forgeOk({ status: "completed", conclusion: "failure", html_url: "https://github.com/o/r/actions/runs/555", head_sha: "def", head_branch: "feat" })
+        : { ok: false, error: `unexpected ${name}` });
+    expect(await forge.pipelineInfo(555)).toEqual({ id: 555, status: "failed", webUrl: "https://github.com/o/r/actions/runs/555", sha: "def", ref: "feat" });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("pipelineInfo for a run GitHub does not know is null, either way the 404 arrives", async () => {
+    expect(await forgeOf(() => ({ ok: false, error: "GitHub returned 404: Not Found" })).forge.pipelineInfo(555)).toBeNull();
+    expect(await forgeOf(() => forgeOk({ message: "Not Found" }, 404)).forge.pipelineInfo(555)).toBeNull();
+  });
+
+  test("defaultBranch reads the repo and infraPatterns are GitHub's", async () => {
+    const { forge, calls } = forgeOf((name, payload) =>
+      name === "forge:get" && payload.path === ":repo" ? forgeOk({ default_branch: "trunk" }) : { ok: false, error: `unexpected ${name}` });
+    expect(await forge.defaultBranch()).toBe("trunk");
+    expect(calls).toHaveLength(1);
+    expect(forge.infraPatterns()).toEqual([...GITHUB_INFRA_PATTERNS]);
+  });
+
+  test("a run that is neither the head nor a base commit takes the head's blocking flag by job id", async () => {
+    const { forge, calls } = forgeOf((name, payload) =>
+      name === "mr:pipeline-failed-jobs" && payload.pipelineId === 555
+        ? { ok: true, data: [failedRow(7, "lint", "failed", 555), failedRow(8, "other", "failed", 555), failedRow(9, "gone", "canceled", 555)] }
+        : { ok: false, error: `unexpected ${name}` });
+    const failed = await forge.failedJobs(555);
+    expect(calls.map((c) => c.payload)).toEqual([{ repoName: "github.com/o/r", iid: 1, pipelineId: 555 }]);
+    expect(failed?.crossProject).toEqual([]);
+    expect(failed?.jobs.map((j) => [j.jobId, j.pipelineId, j.allowFailure])).toEqual([[7, 555, true], [8, 555, false]]);
+  });
+
+  test("trace reads the job log", async () => {
+    const { forge, calls } = forgeOf((name) => name === "mr:fetch-job-trace" ? { ok: true, data: "log" } : { ok: false, error: "no" });
+    expect(await forge.trace(71)).toEqual({ ok: true, text: "log" });
+    expect(calls[0]!.payload).toEqual({ repoName: "github.com/o/r", iid: 1, jobId: 71 });
   });
 });

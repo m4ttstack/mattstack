@@ -10,18 +10,18 @@ import {
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
-import { emptyFacts, GithubHeadReader, memoryFacts, type FactsStore, type GithubHead } from "../ci/github-forge.ts";
+import { emptyFacts, GithubHeadReader, githubTriageForge, memoryFacts, type FactsStore, type GithubHead, type GithubTarget } from "../ci/github-forge.ts";
 import { gitlabTriageForge } from "../ci/gitlab-forge.ts";
 import { isHttpsMrUrl, NO_SESSION, ownerFromEnv } from "../ci/lease-guard.ts";
 import { keepalive as processKeepalive, type LeaseKeepalive } from "../ci/lease-keepalive.ts";
 import { mergeConfig, settingsConfig, type InlineConfig } from "../ci/triage-config.ts";
-import { runTriage } from "../ci/triage.ts";
+import { runTriage, type TriageForge } from "../ci/triage.ts";
 import { readWatchState, writeWatchState, type PersistedWatch } from "../ci/watch-state.ts";
 import { watchPipeline, type LeaseCheck, type WatchDeps, type WatchPipeline } from "../ci/watch.ts";
 import type { Pipeline as GlancePipeline } from "@mattstack/glance";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
-import { isGithubPrUrl, readPipelineSubject, tailTrace, unsupportedGithub } from "./mr-read-tools.ts";
+import { isGithubPrUrl, readPipelineSubject, tailTrace } from "./mr-read-tools.ts";
 import { checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 
 export interface CiLeaseToolDeps {
@@ -100,6 +100,23 @@ function attendFacts(st: PersistedWatch): FactsStore {
     get: () => structuredClone({ ...emptyFacts(), ...st.github }),
     set: (f) => { st.github = structuredClone(f); },
   };
+}
+
+type PrRead = Commands["mr:get"]["data"]["mr"];
+
+// Facts belong to the full head sha mr:get reports, never the caller's possibly short one.
+function prFacts(prUrl: string, pr: PrRead): FactsStore {
+  return memoryFacts(`${prUrl}#${(pr.sha ?? "").toLowerCase()}`);
+}
+
+// The reader only touches the facts on the watched sha.
+function readGithubHead(command: typeof rtCommand, target: GithubTarget, pr: PrRead, store: FactsStore, now: () => number, watchedSha: string | null): Promise<GithubHead | null> {
+  return new GithubHeadReader(command, target, store, now)
+    .read({ sha: pr.sha ?? null, targetBranch: pr.targetBranch ?? null, pipeline: pr.pipeline ?? null }, watchedSha);
+}
+
+function emptyHead(pr: PrRead): GithubHead {
+  return { id: "", number: 0, status: "", sha: pr.sha ?? null, ref: pr.sourceBranch ?? null, webUrl: null, createdAt: null, jobs: [], allBlock: true };
 }
 
 function settingBudget(): number {
@@ -276,8 +293,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         let mrUrl: string | null = null;
         let sourceBranch: string | undefined;
         const underBoard = input.underBoardLease === true;
-        type RawMr = Commands["mr:get"]["data"]["mr"];
-        let firstRaw: RawMr | null = null;
+        let firstRaw: PrRead | null = null;
         let github = false;
         // Only set with attend; the leaseCheck mutates held and reclaims, and observe persists them once a poll proves the lease.
         let watched: PersistedWatch | null = null;
@@ -348,7 +364,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           }
         };
 
-        const readRaw = async (): Promise<{ ok: true; mr: RawMr } | { ok: false; error: string }> => {
+        const readRaw = async (): Promise<{ ok: true; mr: PrRead } | { ok: false; error: string }> => {
           const res = await w.command<Commands["mr:get"]["data"]>("mr:get", { repoName: target.identity, iid: target.iid }, { timeoutMs: 30_000 });
           if (!res.ok || !res.data) return { ok: false, error: explainError(res.error ?? "failed to read the MR") };
           const pr = res.data.mr;
@@ -356,12 +372,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           return { ok: true, mr: pr };
         };
 
-        // Facts belong to the full head sha mr:get reports, never the caller's possibly short one; the reader only touches them on the watched sha.
-        const githubHead = (pr: RawMr): Promise<GithubHead | null> => {
-          const store = watched ? attendFacts(watched) : memoryFacts(`${mrUrl}#${(pr.sha ?? "").toLowerCase()}`);
-          return new GithubHeadReader(w.command, target, store, w.now)
-            .read({ sha: pr.sha ?? null, targetBranch: pr.targetBranch ?? null, pipeline: pr.pipeline ?? null }, sha);
-        };
+        const githubHead = (pr: PrRead): Promise<GithubHead | null> =>
+          readGithubHead(w.command, target, pr, watched ? attendFacts(watched) : prFacts(mrUrl ?? "", pr), w.now, sha);
 
         const watchDeps: WatchDeps = {
           now: w.now,
@@ -380,7 +392,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           },
           readMr: async () => {
             progress?.();
-            let pr: RawMr;
+            let pr: PrRead;
             if (firstRaw) {
               pr = firstRaw;
               firstRaw = null;
@@ -482,15 +494,24 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           return err(e instanceof Error ? e.message : String(e));
         }
         if ("error" in config) return err(config.error);
-        if (isGithubPrUrl(input.mrUrl)) return ok(unsupportedGithub("ci_triage"));
-        const target = await tri.resolve(input);
+        const target = await tri.resolve(input, { github: true });
         if (!target.ok) return err(target.error);
-        const subject = await readPipelineSubject(tri.command, target, input.pipelineId as number | undefined);
+        const pipelineId = input.pipelineId as number | undefined;
+        const subject = await readPipelineSubject(tri.command, target, pipelineId);
         if (subject.kind === "error") return err(subject.error);
-        if (subject.kind === "github") return ok(unsupportedGithub("ci_triage"));
-        const report = await runTriage(gitlabTriageForge(tri.command, target), {
-          pipelineId: subject.pipelineId,
-          targetBranch: subject.targetBranch,
+        let run: { forge: TriageForge; pipelineId: number; targetBranch: string | null };
+        if (subject.kind === "github") {
+          const pr = subject.mr;
+          const read = await readGithubHead(tri.command, target, pr, prFacts(pr.webUrl ?? "", pr), Date.now, pr.sha ?? null);
+          if (!read && pipelineId === undefined) return err("the PR has no checks; pass pipelineId");
+          const head = read ?? emptyHead(pr);
+          run = { forge: githubTriageForge(tri.command, target, head), pipelineId: pipelineId ?? head.number, targetBranch: pr.targetBranch ?? null };
+        } else {
+          run = { forge: gitlabTriageForge(tri.command, target), pipelineId: subject.pipelineId, targetBranch: subject.targetBranch };
+        }
+        const report = await runTriage(run.forge, {
+          pipelineId: run.pipelineId,
+          targetBranch: run.targetBranch,
           config,
           ...(typeof input.base === "string" && { base: input.base }),
           ...(input.noBase === true && { noBase: true }),

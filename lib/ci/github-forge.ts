@@ -1,6 +1,7 @@
 import type { Pipeline, PipelineJob } from "@mattstack/glance";
 import type { rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { ForgeGetData, PipelineListRow } from "../../packages/rt-client/src/commands.ts";
+import type { FailedJobs, ForgeJob, TriageForge } from "./triage.ts";
 import { shaMatches } from "./watch.ts";
 
 export interface GithubJob {
@@ -186,11 +187,24 @@ export interface GithubTarget {
 }
 
 type ForgeAnswer = { ok: true; body: unknown } | { ok: false };
+type ForgeRead = { ok: true; body: unknown } | { ok: false; status: number | null; error: string };
 
 // The daemon reports a non-2xx GitHub answer either as ok:false with the status only in its text or as data.status.
 function githubStatusOf(error: string): number | null {
   const m = /GitHub returned (\d{3})/.exec(error);
   return m ? Number(m[1]) : null;
+}
+
+async function readForge(command: typeof rtCommand, target: GithubTarget, path: string): Promise<ForgeRead> {
+  const res = await command<ForgeGetData>("forge:get", { repoName: target.identity, path }, { timeoutMs: READ_TIMEOUT_MS });
+  if (!res.ok || !res.data) {
+    const error = res.error ?? "GitHub read failed";
+    return { ok: false, status: githubStatusOf(error), error };
+  }
+  if (res.data.status < 200 || res.data.status >= 300) {
+    return { ok: false, status: res.data.status, error: `GitHub returned ${res.data.status}` };
+  }
+  return { ok: true, body: res.data.body };
 }
 
 export class GithubHeadReader {
@@ -263,17 +277,9 @@ export class GithubHeadReader {
   }
 
   private async forgeGet(path: string): Promise<ForgeAnswer> {
-    const res = await this.command<ForgeGetData>(
-      "forge:get",
-      { repoName: this.target.identity, path },
-      { timeoutMs: READ_TIMEOUT_MS },
-    );
-    if (!res.ok || !res.data) {
-      return githubStatusOf(res.error ?? "") === 404 ? { ok: true, body: null } : { ok: false };
-    }
-    if (res.data.status === 404) return { ok: true, body: null };
-    if (res.data.status < 200 || res.data.status >= 300) return { ok: false };
-    return { ok: true, body: res.data.body };
+    const r = await readForge(this.command, this.target, path);
+    if (r.ok) return { ok: true, body: r.body };
+    return r.status === 404 ? { ok: true, body: null } : { ok: false };
   }
 
   private async listRuns(ref: string | null, sha: string): Promise<PipelineListRow[] | null> {
@@ -297,4 +303,134 @@ function earliestRun(rows: PipelineListRow[]): { runId: number; createdAt: numbe
     }
   }
   return best;
+}
+
+const TRACE_TIMEOUT_MS = 60_000;
+const GITHUB_STAGE = "checks";
+
+function checkJobId(id: string): number | null {
+  if (!id.startsWith(CHECK_ID_PREFIX)) return null;
+  const n = Number(id.slice(CHECK_ID_PREFIX.length));
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+function str(v: unknown): string | null {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+
+export function githubTriageForge(command: typeof rtCommand, target: GithubTarget, head: GithubHead): TriageForge {
+  const baseRuns = new Map<number, PipelineListRow[]>();
+  const headBlocking = new Map(head.jobs.map((j) => [j.id, j.blocking]));
+
+  async function runFailedJobs(runId: number): Promise<PipelineJob[] | null> {
+    const res = await command<PipelineJob[]>(
+      "mr:pipeline-failed-jobs",
+      { repoName: target.identity, iid: target.iid, pipelineId: runId },
+      { timeoutMs: READ_TIMEOUT_MS },
+    );
+    if (!res.ok || !Array.isArray(res.data)) {
+      const error = res.error ?? "failed-jobs read failed";
+      if (githubStatusOf(error) === 404) return null;
+      throw new Error(error);
+    }
+    return res.data;
+  }
+
+  function asForgeJobs(rows: PipelineJob[], runId: number, allowFailure: (id: string) => boolean): ForgeJob[] {
+    const jobs: ForgeJob[] = [];
+    for (const j of rows) {
+      const jobId = checkJobId(j.id);
+      if (j.status !== "failed" || jobId === null) continue;
+      jobs.push({ pipelineId: runId, jobId, name: j.name, stage: j.stage, status: j.status, allowFailure: allowFailure(j.id), attempt: 1, webUrl: j.webUrl });
+    }
+    return jobs;
+  }
+
+  function headFailedJobs(): FailedJobs {
+    const out: FailedJobs = { jobs: [], crossProject: [] };
+    for (const j of head.jobs) {
+      if (j.status !== "failed") continue;
+      if (j.runId !== null && j.jobId !== null) {
+        out.jobs.push({ pipelineId: j.runId, jobId: j.jobId, name: j.name, stage: GITHUB_STAGE, status: j.status, allowFailure: !j.blocking, attempt: 1, webUrl: j.webUrl });
+      } else {
+        out.crossProject.push({ name: j.name, status: j.status, blocking: j.blocking, downstream: null });
+      }
+    }
+    return out;
+  }
+
+  return {
+    async pipelinesForRef(ref, limit) {
+      const res = await command<{ pipelines: PipelineListRow[] }>(
+        "pipeline:list",
+        { repoName: target.identity, ref, limit: RUN_LIST_LIMIT },
+        { timeoutMs: READ_TIMEOUT_MS },
+      );
+      if (!res.ok || !res.data || !Array.isArray(res.data.pipelines)) {
+        const error = res.error ?? "run listing failed";
+        if (githubStatusOf(error) === 404) return null;
+        throw new Error(error);
+      }
+      const bySha = new Map<string, PipelineListRow[]>();
+      for (const r of res.data.pipelines) {
+        if (r.source === "schedule" || r.sha === null) continue;
+        const runs = bySha.get(r.sha) ?? [];
+        runs.push(r);
+        bySha.set(r.sha, runs);
+      }
+      return [...bySha.values()].slice(0, limit).map((runs) => {
+        const newest = runs[0]!;
+        baseRuns.set(newest.id, runs);
+        return { id: newest.id, status: aggregate(runs.map((r) => r.status)), webUrl: newest.webUrl };
+      });
+    },
+    async pipelineInfo(id) {
+      if (id === head.number) return { id, status: head.status, webUrl: head.webUrl, sha: head.sha, ref: head.ref };
+      const r = await readForge(command, target, `:repo/actions/runs/${id}`);
+      if (!r.ok) {
+        if (r.status === 404) return null;
+        throw new Error(r.error);
+      }
+      const b = isRecord(r.body) ? r.body : {};
+      return {
+        id,
+        status: restJobStatus(str(b.status), str(b.conclusion)),
+        webUrl: str(b.html_url),
+        sha: str(b.head_sha),
+        ref: str(b.head_branch),
+      };
+    },
+    async failedJobs(id) {
+      if (id === head.number) return headFailedJobs();
+      const runs = baseRuns.get(id);
+      if (runs) {
+        const jobs: ForgeJob[] = [];
+        for (const run of runs) {
+          if (run.status !== "failed") continue;
+          const rows = await runFailedJobs(run.id);
+          if (rows) jobs.push(...asForgeJobs(rows, run.id, () => false));
+        }
+        return { jobs, crossProject: [] };
+      }
+      const rows = await runFailedJobs(id);
+      if (!rows) return null;
+      return { jobs: asForgeJobs(rows, id, (jobId) => headBlocking.get(jobId) === false), crossProject: [] };
+    },
+    async trace(jobId) {
+      const res = await command<string>("mr:fetch-job-trace", { repoName: target.identity, iid: target.iid, jobId }, { timeoutMs: TRACE_TIMEOUT_MS });
+      if (!res.ok || typeof res.data !== "string") return { ok: false, error: res.error ?? "trace read failed" };
+      return { ok: true, text: res.data };
+    },
+    async defaultBranch() {
+      const r = await readForge(command, target, ":repo");
+      if (!r.ok) {
+        if (r.status === 404) return null;
+        throw new Error(r.error);
+      }
+      return isRecord(r.body) ? str(r.body.default_branch) : null;
+    },
+    infraPatterns() {
+      return [...GITHUB_INFRA_PATTERNS];
+    },
+  };
 }
