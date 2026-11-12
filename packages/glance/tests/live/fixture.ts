@@ -11,6 +11,7 @@ import {
   parseGitHubSlug,
   resolveGitHubToken
 } from './credentials.ts';
+import { installGitLabPacer } from './gitlabPacer.ts';
 
 /**
  * The GitHub second identity, or null when none is configured.
@@ -79,6 +80,8 @@ export interface BuildFixturesResult {
 export const EXPECTED_PROVIDERS = ['github', 'gitlab'] as const;
 
 export async function buildFixtures(): Promise<BuildFixturesResult> {
+  // Before any provider exists, so no GitLab request escapes the per-identity pacing.
+  installGitLabPacer();
   const creds = await loadCredentials();
   if (!creds) {
     console.error('No harness_credentials.json. Copy harness_credentials.example.json and fill it in.');
