@@ -2006,6 +2006,11 @@ export class GitHubProvider implements GitProvider {
       );
     }
     const alreadyQueued = context.inQueue && context.queueEntry !== null;
+    if (alreadyQueued && input?.sha !== undefined && input.sha !== context.headSha) {
+      throw new Error(
+        `mergePullRequest failed: ${projectPath}!${mrIid} head is ${context.headSha}, not the expected ${input.sha}`
+      );
+    }
     const queued: MergeQueueEntry = alreadyQueued
       ? context.queueEntry!
       : await this.enqueueByNodeId('mergePullRequest', projectPath, mrIid, context.nodeId, input?.sha ?? null);

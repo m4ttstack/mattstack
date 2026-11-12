@@ -111,6 +111,30 @@ describe('GitHubProvider mergePullRequest on a merge queue base', () => {
     expect(writesOrPullReads(calls)).toEqual([]);
   });
 
+  test('already queued at a different head than input.sha is refused with no write', async () => {
+    const entry = { position: 1, state: 'MERGEABLE' };
+    const { calls, enqueues } = queueBase({ inQueue: true, queueEntry: entry });
+
+    const err = await rejection(provider().mergePullRequest('o/r', 7, { sha: 'def456' }));
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('mergePullRequest failed: o/r!7 head is abc123, not the expected def456');
+    expect(enqueues).toEqual([]);
+    expect(calls).toEqual(['POST context']);
+  });
+
+  test('already queued with input.sha equal to the head still resolves queued with no write', async () => {
+    const entry = { position: 1, state: 'MERGEABLE' };
+    const { calls, enqueues } = queueBase({ inQueue: true, queueEntry: entry });
+
+    const result = await provider().mergePullRequest('o/r', 7, { sha: 'abc123' });
+
+    expect(enqueues).toEqual([]);
+    expect(result.queued).toEqual(entry);
+    expect(posts(calls)).toEqual(['POST context', 'POST fill']);
+    expect(writesOrPullReads(calls)).toEqual([]);
+  });
+
   const refused: Array<[keyof MergePullRequestInput, MergePullRequestInput]> = [
     ['mergeMethod', { mergeMethod: 'merge' }],
     ['squash', { squash: false }],

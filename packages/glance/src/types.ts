@@ -629,7 +629,11 @@ export interface MergePullRequestInput {
    * this field says, including when it is explicitly `false`.
    */
   shouldRemoveSourceBranch?: boolean;
-  /** SHA that HEAD must match for the merge to proceed (optimistic locking). */
+  /**
+   * SHA that HEAD must match for the merge to proceed (optimistic locking).
+   * On a base with a merge queue it also guards a PR already queued: a
+   * different head throws instead of resolving queued.
+   */
   sha?: string;
 }
 

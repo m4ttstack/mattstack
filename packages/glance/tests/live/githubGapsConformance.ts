@@ -761,7 +761,7 @@ async function partialCreateCase(
 const STREAM_CAP_BYTES = 4 * 1024;
 
 async function boundedRestRequestCase(fixture: ProviderFixture, report: Reporter): Promise<void> {
-  await check(report, fixture, 'restRequest', 'a reader stops a large response at its own cap', async () => {
+  await check(report, fixture, 'restRequest', 'a caller that stops reading at its own cap leaves response bytes unread', async () => {
     const res = await fixture.provider.restRequest('GET', `/repos/${fixture.projectPath}/commits?per_page=100`);
     assert(res.ok, `HTTP ${res.status}`);
     assert(res.body !== null, 'the response has no body stream');
@@ -782,12 +782,23 @@ async function boundedRestRequestCase(fixture: ProviderFixture, report: Reporter
       );
     }
     await reader.cancel();
+    // A chunk can hold the whole body and still report done:false, so stopping
+    // at the cap proves nothing unless the headers show bytes left unread. An
+    // encoded length is not comparable with the decoded bytes counted here.
     const declared = Number(res.headers.get('content-length') ?? NaN);
+    const encoding = res.headers.get('content-encoding');
     console.log(
-      `  restRequest stream: stopped after ${bytes} bytes (content-length ${Number.isNaN(declared) ? 'absent' : declared})`
+      `  restRequest stream: stopped after ${bytes} bytes (content-length ${Number.isNaN(declared) ? 'absent' : declared}, content-encoding ${encoding ?? 'none'})`
     );
-    if (!Number.isNaN(declared)) {
-      assert(bytes < declared, `read ${bytes} bytes of a ${declared}-byte body, so nothing was left unread`);
+    if (Number.isNaN(declared) || encoding) {
+      throw new Inconclusive(
+        `read ${bytes} bytes, but ${Number.isNaN(declared) ? 'the response has no content-length' : `content-encoding "${encoding}" makes content-length incomparable`}, so unread data is not established`
+      );
+    }
+    if (bytes >= declared) {
+      throw new Inconclusive(
+        `read ${bytes} bytes of a ${declared}-byte body, so the cap consumed the whole payload and stopping early is unproven`
+      );
     }
   });
 }
@@ -797,7 +808,14 @@ interface BranchRule {
   parameters?: { required_status_checks?: Array<{ context: string }> };
 }
 
-/** Throws Inconclusive unless the branch has an active merge queue and a required check. */
+/**
+ * Required check no run ever reports. The queue repo's default-branch ruleset
+ * must require it, so a queued group can never satisfy its checks and merge
+ * before the case dequeues it.
+ */
+const QUEUE_HOLD_CONTEXT = 'glance-conformance/queue-hold';
+
+/** Throws Inconclusive unless the branch has an active merge queue and requires the queue-hold check. */
 async function assertQueueGuarded(fixture: ProviderFixture, branch: string): Promise<void> {
   const rules = await readJson<BranchRule[]>(
     fixture,
@@ -812,9 +830,9 @@ async function assertQueueGuarded(fixture: ProviderFixture, branch: string): Pro
   const checks = rules
     .filter(r => r.type === 'required_status_checks')
     .flatMap(r => r.parameters?.required_status_checks ?? []);
-  if (checks.length === 0) {
+  if (!checks.some(c => c.context === QUEUE_HOLD_CONTEXT)) {
     throw new Inconclusive(
-      `${fixture.projectPath}:${branch} requires no status check, so its queue could merge the PR before it is dequeued; nothing was written`
+      `${fixture.projectPath}:${branch} does not require the status check "${QUEUE_HOLD_CONTEXT}", so its queue could merge the PR before it is dequeued; nothing was written`
     );
   }
 }
@@ -852,8 +870,8 @@ async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: str
       );
       queueFixture = { ...queueFixture, defaultBranch: repo.default_branch };
       // Without an active queue the SDK merges directly, into a real default
-      // branch; without a required check the queue can land the PR before
-      // the dequeue below runs. Either way nothing is written.
+      // branch; without the never-reported hold check the queue can land the
+      // PR before the dequeue below runs. Either way nothing is written.
       await assertQueueGuarded(queueFixture, repo.default_branch);
       await createBranch(queueFixture, branch);
       created = true;
