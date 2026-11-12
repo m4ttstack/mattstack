@@ -24,14 +24,16 @@ vi.mock('../api', async () => (await import('./teamTestData')).apiMock());
 
 const { TeamPage } = await import('./TeamPage');
 
-function renderPage(teams?: TeamRead[]) {
-  if (teams) serveTeams(teams);
-  const queryClient = new QueryClient({
+const newClient = () =>
+  new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { networkMode: 'always' },
     },
   });
+
+function renderPage(teams?: TeamRead[], queryClient = newClient()) {
+  if (teams) serveTeams(teams);
   return renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <TeamPage />
@@ -39,13 +41,17 @@ function renderPage(teams?: TeamRead[]) {
   );
 }
 
+/** As rt reads it: each invitee is on the roster too. */
 const acme = () =>
   team('acme', {
     name: 'acme',
     members: [
-      member('matt', { role: 'owner' }),
       member('priya'),
+      member('matt', { role: 'org-owner' }),
       member('dana', { peered: false }),
+      member('marsh', { role: 'member', peered: false }),
+      member('carol', { role: 'member', peered: false }),
+      member('old', { role: 'member', peered: false }),
     ],
     invites: [
       invite('marsh', 'replied'),
@@ -68,6 +74,56 @@ describe('TeamPage', () => {
     expect(screen.getByText('Joins after you add')).toBeInTheDocument();
     expect(screen.getByText('priya')).toBeInTheDocument();
     expect(screen.queryByText('carol')).toBeNull();
+  });
+
+  it('shows each invitee once, and counts only those rows', async () => {
+    renderPage([acme()]);
+    expect(await screen.findAllByText('marsh')).toHaveLength(1);
+    expect(screen.queryByText('carol')).toBeNull();
+    expect(screen.queryByText('old')).toBeNull();
+    expect(screen.getByRole('tab', { name: /Members/ })).toHaveTextContent(
+      'Members4'
+    );
+  });
+
+  it('names each role in words and puts owners and admins first', async () => {
+    renderPage([
+      team('acme', {
+        members: [
+          member('mo', { role: 'member' }),
+          member('tess', { role: 'owner' }),
+          member('ada', { role: 'admin' }),
+          member('olga', { role: 'org-owner' }),
+        ],
+      }),
+    ]);
+    await screen.findByText('olga');
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(rows.map(r => r.textContent)).toEqual([
+      expect.stringContaining('olgaOrg owner'),
+      expect.stringContaining('adaOrg admin'),
+      expect.stringContaining('tessTeam owner'),
+      expect.stringContaining('moMember'),
+    ]);
+  });
+
+  it('names the team the members list belongs to', async () => {
+    renderPage([team('acme', { activeTeam: 'web' })]);
+    expect(await screen.findByText('web team')).toBeInTheDocument();
+    expect(screen.getByText('in acme')).toBeInTheDocument();
+  });
+
+  it('says when the switchboard did not answer', async () => {
+    renderPage([team('acme', { relayFailed: true })]);
+    const note = await screen.findByTestId('relay-notice');
+    expect(note).toHaveTextContent("Switchboard didn't answer");
+    expect(note).toHaveTextContent('Replies may be waiting');
+  });
+
+  it('opens on the first team that read with no link', async () => {
+    renderPage([failed('beta', 'offline'), team('acme')]);
+    expect(await screen.findByText('acme members')).toBeInTheDocument();
+    expect(screen.queryByText('offline')).toBeNull();
   });
 
   it('shows a member with no role as Member', async () => {
@@ -93,7 +149,7 @@ describe('TeamPage', () => {
   it("shows a failed team's error in the panel and keeps the other segment", async () => {
     renderPage([acme(), failed('beta', 'rt team status failed: offline')]);
     await screen.findByText('marsh');
-    await userEvent.click(screen.getByText('beta'));
+    await userEvent.click(await screen.findByText('beta'));
     expect(
       await screen.findByText('rt team status failed: offline')
     ).toBeInTheDocument();
@@ -202,6 +258,75 @@ describe('TeamPage', () => {
     expect(screen.getByText('Waiting for approval')).toBeInTheDocument();
   });
 
+  it('reports a warning beside a sync that added someone', async () => {
+    confirmPost.mockResolvedValue(
+      ok({
+        added: ['marsh'],
+        pending: [],
+        warnings: ['The board for marsh could not be connected'],
+      })
+    );
+    renderPage([acme()]);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Approve' })
+    );
+    expect(await screen.findByText('Added marsh')).toBeInTheDocument();
+    expect(
+      screen.getByText('The board for marsh could not be connected')
+    ).toBeInTheDocument();
+  });
+
+  it('keeps Approve off while an access update runs on the same org', async () => {
+    let finish: (value: unknown) => void = () => {};
+    adminSecretsPost.mockReturnValue(new Promise(r => (finish = r)));
+    renderPage([
+      team('acme', {
+        invites: [invite('alice', 'replied')],
+        adminSecrets: { state: 'needs-sync', detail: null },
+      }),
+    ]);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Update access' })
+    );
+    const approve = screen.getByRole('button', { name: 'Approve' });
+    expect(approve).toBeDisabled();
+    await userEvent.click(approve);
+    expect(confirmPost).not.toHaveBeenCalled();
+    await act(async () =>
+      finish(
+        ok({
+          state: 'updated',
+          holders: [],
+          withoutKey: [],
+          removed: 0,
+          token: 'kept',
+        })
+      )
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+    );
+  });
+
+  it('keeps Approve off after leaving and coming back mid-sync', async () => {
+    let finish: (value: unknown) => void = () => {};
+    confirmPost.mockReturnValue(new Promise(r => (finish = r)));
+    const queryClient = newClient();
+    const teams = [team('acme', { invites: [invite('alice', 'replied')] })];
+    const first = renderPage(teams, queryClient);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Approve' })
+    );
+    first.unmount();
+    renderPage(teams, queryClient);
+    expect(
+      await screen.findByRole('button', { name: 'Approve' })
+    ).toBeDisabled();
+    await act(async () =>
+      finish(ok({ added: ['alice'], pending: [], warnings: [] }))
+    );
+  });
+
   it('falls back to its own copy when an empty sync gives no warning', async () => {
     confirmPost.mockResolvedValue(ok({ added: [], pending: [], warnings: [] }));
     renderPage([acme()]);
@@ -222,10 +347,8 @@ describe('TeamPage', () => {
     it('offers Update access in the panel when the admins changed', async () => {
       renderPage([drifted()]);
       const notice = await screen.findByTestId('admin-secrets-notice');
-      expect(notice).toHaveTextContent('Admins changed');
-      expect(notice).toHaveTextContent(
-        'Admin-only secrets still open for the old set'
-      );
+      expect(notice).toHaveTextContent('Admin access out of date');
+      expect(notice).toHaveTextContent('The admins changed');
       expect(
         within(notice).getByRole('button', { name: 'Update access' })
       ).toBeInTheDocument();
@@ -254,6 +377,7 @@ describe('TeamPage', () => {
             state: 'updated',
             holders: ['matt'],
             withoutKey: [],
+            removed: 0,
             token: 'kept',
           })
         )
@@ -331,12 +455,77 @@ describe('TeamPage', () => {
       }
     });
 
+    it('falls back to its own words when rt gives no detail', async () => {
+      renderPage([
+        team('acme', { adminSecrets: { state: 'needs-sync', detail: null } }),
+      ]);
+      expect(
+        await screen.findByTestId('admin-secrets-notice')
+      ).toHaveTextContent('Admin-only secrets still open for the old set');
+    });
+
+    it("carries rt's notes on who cannot open them and who was taken off", async () => {
+      adminSecretsPost.mockResolvedValue(
+        ok({
+          state: 'updated',
+          holders: ['matt'],
+          withoutKey: ['priya', 'lee'],
+          removed: 1,
+          token: 'kept',
+        })
+      );
+      renderPage([drifted()]);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Update access' })
+      );
+      expect(
+        await screen.findByText('Admin access updated')
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'priya, lee cannot open them yet: no age key on the roster'
+        )
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText('Anyone taken off keeps what they already opened')
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText('Change the switchboard admin token')
+      ).toBeInTheDocument();
+    });
+
+    it("says when the org's token differs, never that it was current", async () => {
+      adminSecretsPost.mockResolvedValue(
+        ok({
+          state: 'current',
+          holders: ['matt'],
+          withoutKey: [],
+          removed: 0,
+          token: 'differs',
+        })
+      );
+      renderPage([drifted()]);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Update access' })
+      );
+      expect(
+        await screen.findByText("The org's admin token differs from this Mac's")
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Keep theirs unless yours is newer: rt team admin-secrets --team acme --replace-token'
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Admin access was already current')).toBeNull();
+    });
+
     it('says nothing changed when the access was already current', async () => {
       adminSecretsPost.mockResolvedValue(
         ok({
           state: 'current',
           holders: ['matt'],
           withoutKey: [],
+          removed: 0,
           token: 'kept',
         })
       );
@@ -356,6 +545,7 @@ describe('TeamPage', () => {
           state: 'current',
           holders: ['matt'],
           withoutKey: [],
+          removed: 0,
           token: 'seeded',
         })
       );
@@ -370,7 +560,13 @@ describe('TeamPage', () => {
 
     it('says when the org keeps no admin-only secrets', async () => {
       adminSecretsPost.mockResolvedValue(
-        ok({ state: 'unused', holders: [], withoutKey: [], token: 'none' })
+        ok({
+          state: 'unused',
+          holders: [],
+          withoutKey: [],
+          removed: 0,
+          token: 'none',
+        })
       );
       renderPage([drifted()]);
       await userEvent.click(

@@ -1,6 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { notifications } from '@mattstack/app-kit/notifications';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 
 import type {
   AdminSecretsUpdate,
@@ -8,10 +14,13 @@ import type {
   TeamRead,
 } from '../../shared/team';
 import { client } from '../api';
-import { POLL_MS, readApiError, retryOnce } from '../runs/useRuns';
+import { readApiError, retryOnce } from '../runs/useRuns';
 import { TEAM_KEY } from './teamKey';
 
 export { TEAM_KEY };
+
+/** About once a minute: a reply waits for a person, not a pipeline. */
+export const TEAM_POLL_MS = 60_000;
 
 /** rt's `isOrgAdmin`: only these roles can approve a teammate. */
 const ADMIN_ROLES = new Set(['org-owner', 'admin']);
@@ -24,15 +33,6 @@ export function adminTeams(teams: TeamRead[]): TeamRead[] {
   const isAdmin = (t: TeamRead) => t.ok && ADMIN_ROLES.has(t.team.role ?? '');
   if (!teams.some(isAdmin)) return NO_TEAMS;
   return teams.filter(t => !t.ok || isAdmin(t));
-}
-
-/** Whether the run re-locked the secrets or shared this Mac's token. */
-function accessChanged(result: AdminSecretsUpdate): boolean {
-  return (
-    result.state === 'updated' ||
-    result.token === 'seeded' ||
-    result.token === 'replaced'
-  );
 }
 
 /** Teams whose admin-only secrets still open for an older set of admins. */
@@ -54,10 +54,16 @@ export function repliedHandles(teams: TeamRead[]) {
   );
 }
 
+/** Polling stops once a read shows this viewer administers nothing; the
+    `mattstack.org` save invalidates the query, which checks again. */
+export function teamPollInterval(data: { teams: TeamRead[] } | undefined) {
+  if (data && adminTeams(data.teams).length === 0) return false;
+  return TEAM_POLL_MS;
+}
+
 /** The org teams this viewer administers and who waits on them. The Team
     page, the rail badge and the Runs toast read the same query. */
 export function useTeam() {
-  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: TEAM_KEY,
     queryFn: async () => {
@@ -66,91 +72,151 @@ export function useTeam() {
       return (await res.json()) as { teams: TeamRead[] };
     },
     retry: retryOnce,
-    refetchInterval: POLL_MS,
+    refetchInterval: q => teamPollInterval(q.state.data),
   });
   const all = query.data?.teams;
   const teams = useMemo(() => (all ? adminTeams(all) : NO_TEAMS), [all]);
   const waiting = repliedHandles(teams).length;
 
-  const [confirming, setConfirming] = useState<string | null>(null);
-  // State lands a render late, so a double click would read it as free.
-  const inFlight = useRef(false);
-
-  const confirm = useCallback(
-    async (slug: string) => {
-      if (inFlight.current) return;
-      inFlight.current = true;
-      setConfirming(slug);
-      try {
-        const res = await client.api.team.confirm.$post({ json: { slug } });
-        if (!res.ok) throw await readApiError(res, 'approve failed');
-        const result = (await res.json()) as ConfirmResult;
-        if (result.added.length === 0) {
-          notifications.error(result.warnings[0] ?? 'Nobody was added');
-        } else {
-          notifications.success(
-            result.added.length === 1
-              ? `Added ${result.added[0]}`
-              : `Added ${result.added.length} people`
-          );
-        }
-      } catch (err) {
-        notifications.error((err as Error).message);
-      } finally {
-        // Released after the refetch, so the row cannot be approved twice
-        // while it still shows as waiting.
-        await queryClient
-          .invalidateQueries({ queryKey: TEAM_KEY })
-          .catch(() => undefined);
-        inFlight.current = false;
-        setConfirming(null);
-      }
-    },
-    [queryClient]
-  );
-
-  const [updating, setUpdating] = useState<string | null>(null);
-  const updateInFlight = useRef(false);
-
-  const updateAccess = useCallback(
-    async (slug: string) => {
-      if (updateInFlight.current) return;
-      updateInFlight.current = true;
-      setUpdating(slug);
-      try {
-        const res = await client.api.team['admin-secrets'].$post({
-          json: { slug },
-        });
-        if (!res.ok) throw await readApiError(res, 'update failed');
-        const result = (await res.json()) as AdminSecretsUpdate;
-        if (accessChanged(result))
-          notifications.success('Admin access updated');
-        else if (result.state === 'unused')
-          notifications.info('No admin-only secrets to update');
-        else notifications.info('Admin access was already current');
-      } catch (err) {
-        notifications.error((err as Error).message);
-      } finally {
-        await queryClient
-          .invalidateQueries({ queryKey: TEAM_KEY })
-          .catch(() => undefined);
-        updateInFlight.current = false;
-        setUpdating(null);
-      }
-    },
-    [queryClient]
-  );
-
   return {
     teams,
     waiting,
-    updateAccess,
-    updating,
     loaded: query.isSuccess,
     failed: query.isError,
     updatedAt: query.dataUpdatedAt,
     refetch: query.refetch,
-    confirm,
-    confirming,
   };
+}
+
+/** Approve and Update access both rewrite the org's `.sops.yaml`, so every
+    write to one org runs under this key and one count guards them both,
+    held by the query client across navigation. */
+export const teamWriteKey = (slug: string) => ['team', 'write', slug];
+
+type WriteKind = 'confirm' | 'update';
+
+function confirmNotices(result: ConfirmResult) {
+  if (result.added.length === 0) {
+    notifications.error(result.warnings[0] ?? 'Nobody was added');
+    return;
+  }
+  notifications.success(
+    result.added.length === 1
+      ? `Added ${result.added[0]}`
+      : `Added ${result.added.length} people`
+  );
+  if (result.warnings[0]) notifications.warning(result.warnings[0]);
+}
+
+/** `adminSecretsBlocks` in rt's commands/team.ts, in console's words. */
+function updateNotices(slug: string, result: AdminSecretsUpdate) {
+  if (result.state === 'unused') {
+    notifications.info('No admin-only secrets to update');
+    return;
+  }
+  const changed =
+    result.state === 'updated' ||
+    result.token === 'seeded' ||
+    result.token === 'replaced';
+  if (changed) notifications.success('Admin access updated');
+  if (result.token === 'differs') {
+    notifications.warning({
+      title: "The org's admin token differs from this Mac's",
+      message: `Keep theirs unless yours is newer: rt team admin-secrets --team ${slug} --replace-token`,
+    });
+  } else if (!changed) {
+    notifications.info('Admin access was already current');
+  }
+  if (result.withoutKey.length > 0) {
+    notifications.warning(
+      `${result.withoutKey.join(', ')} cannot open them yet: no age key on the roster`
+    );
+  }
+  if (result.removed > 0) {
+    notifications.warning({
+      title: 'Anyone taken off keeps what they already opened',
+      message: 'Change the switchboard admin token',
+    });
+  }
+}
+
+async function post<T>(
+  call: () => Promise<{
+    ok: boolean;
+    status: number;
+    json: () => Promise<unknown>;
+  }>,
+  fallback: string
+): Promise<T> {
+  const res = await call();
+  if (!res.ok) throw await readApiError(res, fallback);
+  return (await res.json()) as T;
+}
+
+function useTeamWrite(slug: string, kind: WriteKind, run: () => Promise<void>) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationKey: teamWriteKey(slug),
+    meta: { kind },
+    mutationFn: async () => {
+      try {
+        await run();
+      } catch (err) {
+        notifications.error((err as Error).message);
+      } finally {
+        // Held until the refetch lands, so a row cannot be approved twice
+        // while it still shows as waiting.
+        await queryClient
+          .invalidateQueries({ queryKey: TEAM_KEY })
+          .catch(() => undefined);
+      }
+    },
+  });
+  const { mutate } = mutation;
+  return useCallback(() => {
+    if (isTeamWriting(queryClient, slug)) return;
+    mutate();
+  }, [queryClient, slug, mutate]);
+}
+
+function isTeamWriting(queryClient: QueryClient, slug: string) {
+  return queryClient.isMutating({ mutationKey: teamWriteKey(slug) }) > 0;
+}
+
+/** The writes for one org: Approve runs `members sync`, Update access runs
+    `admin-secrets`; only one runs at a time, from any caller. */
+export function useTeamWrites(slug: string) {
+  const confirm = useTeamWrite(slug, 'confirm', async () =>
+    confirmNotices(
+      await post<ConfirmResult>(
+        () => client.api.team.confirm.$post({ json: { slug } }),
+        'approve failed'
+      )
+    )
+  );
+  const updateAccess = useTeamWrite(slug, 'update', async () =>
+    updateNotices(
+      slug,
+      await post<AdminSecretsUpdate>(
+        () => client.api.team['admin-secrets'].$post({ json: { slug } }),
+        'update failed'
+      )
+    )
+  );
+  return {
+    confirm,
+    updateAccess,
+    busy: useTeamWriting(slug),
+    confirming: useTeamWriting(slug, 'confirm'),
+    updating: useTeamWriting(slug, 'update'),
+  };
+}
+
+function useTeamWriting(slug: string, kind?: WriteKind): boolean {
+  return (
+    useIsMutating({
+      mutationKey: teamWriteKey(slug),
+      ...(kind ? { predicate: m => m.options.meta?.kind === kind } : {}),
+    }) > 0
+  );
 }

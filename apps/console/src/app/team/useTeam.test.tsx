@@ -7,7 +7,8 @@ import { failed, invite, serveTeams, team } from './teamTestData';
 
 vi.mock('../api', async () => (await import('./teamTestData')).apiMock());
 
-const { adminTeams, useTeam } = await import('./useTeam');
+const { adminTeams, teamPollInterval, TEAM_POLL_MS, useTeam } =
+  await import('./useTeam');
 
 function wrapper({ children }: { children: ReactNode }) {
   const queryClient = new QueryClient({
@@ -43,6 +44,20 @@ describe('adminTeams', () => {
     expect(
       adminTeams([team('c', { role: 'member' }), failed('x', 'boom')])
     ).toEqual([]);
+  });
+});
+
+describe('teamPollInterval', () => {
+  it('polls about once a minute while a team is mine to manage', () => {
+    expect(teamPollInterval(undefined)).toBe(TEAM_POLL_MS);
+    expect(teamPollInterval({ teams: [team('a')] })).toBe(60_000);
+  });
+
+  it('stops once a read shows no team I administer', () => {
+    expect(teamPollInterval({ teams: [] })).toBe(false);
+    expect(teamPollInterval({ teams: [team('c', { role: 'member' })] })).toBe(
+      false
+    );
   });
 });
 

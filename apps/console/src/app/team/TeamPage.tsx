@@ -19,6 +19,8 @@ import { useSearch } from 'wouter';
 
 import {
   confirmLabel,
+  settledMembers,
+  type MemberRole,
   type TeamInvite,
   type TeamMember,
   type TeamRead,
@@ -28,7 +30,7 @@ import { PAGE_ROW_HEIGHT } from '../chrome';
 import { RetryAlert } from '../runs/RetryAlert';
 import { clockTime } from '../usage/format';
 import classes from './TeamPage.module.css';
-import { useTeam } from './useTeam';
+import { useTeam, useTeamWrites } from './useTeam';
 
 const PANEL_WIDTH = 1080;
 const PAGE_PAD_X = 40;
@@ -38,10 +40,26 @@ const VIEWER_ROLE: Record<string, string> = {
   admin: "You're an org admin",
 };
 
-function roleWords(role: string | undefined): string {
-  if (!role) return 'Member';
-  return role.charAt(0).toUpperCase() + role.slice(1);
-}
+const ROLE_WORDS: Record<MemberRole, string> = {
+  'org-owner': 'Org owner',
+  admin: 'Org admin',
+  owner: 'Team owner',
+  member: 'Member',
+  unknown: 'Member',
+};
+
+/** Org owners, then admins, then team owners, before everyone else. */
+const ROLE_RANK: Record<MemberRole, number> = {
+  'org-owner': 0,
+  admin: 1,
+  owner: 2,
+  member: 3,
+  unknown: 3,
+};
+
+const roleWords = (role: MemberRole | undefined) =>
+  ROLE_WORDS[role ?? 'member'];
+const rank = (member: TeamMember) => ROLE_RANK[member.role ?? 'member'];
 
 function expiresOn(iso: string): string {
   const date = new Date(iso);
@@ -105,10 +123,12 @@ type Row =
   | { kind: 'member'; member: TeamMember }
   | { kind: 'waiting'; invite: TeamInvite };
 
-/** Owners first, then whoever waits for approval, then everyone else. */
+/** Owners and admins first, then whoever waits for approval, then everyone
+    else. An invitee shows once, as their invite. */
 function memberRows(team: TeamView): Row[] {
-  const owners = team.members.filter(m => m.role === 'owner');
-  const rest = team.members.filter(m => m.role !== 'owner');
+  const members = settledMembers(team).sort((a, b) => rank(a) - rank(b));
+  const owners = members.filter(m => rank(m) < ROLE_RANK.member);
+  const rest = members.filter(m => rank(m) >= ROLE_RANK.member);
   const waiting = team.invites.filter(i => i.state === 'replied');
   return [
     ...owners.map(member => ({ kind: 'member' as const, member })),
@@ -153,18 +173,21 @@ function TeamTable({
 }
 
 function MembersTable({
-  team,
+  rows,
+  label,
+  busy,
   confirming,
   onConfirm,
 }: {
-  team: TeamView;
-  confirming: string | null;
-  onConfirm: (slug: string) => void;
+  rows: Row[];
+  label: string | null;
+  busy: boolean;
+  confirming: boolean;
+  onConfirm: () => void;
 }) {
-  const label = confirmLabel(team.invites);
   return (
     <TeamTable columns={['Member', 'Role', 'Board']}>
-      {memberRows(team).map(row =>
+      {rows.map(row =>
         row.kind === 'member' ? (
           <Table.Tr key={`m-${row.member.username}`}>
             <Table.Td>
@@ -192,9 +215,9 @@ function MembersTable({
                 <Button
                   size="compact-sm"
                   leftSection={<Icon name="check" size={12} />}
-                  disabled={confirming !== null}
-                  loading={confirming === team.slug}
-                  onClick={() => onConfirm(team.slug)}
+                  disabled={busy}
+                  loading={confirming}
+                  onClick={onConfirm}
                 >
                   {label}
                 </Button>
@@ -259,8 +282,8 @@ function AdminSecretsNotice({
   onUpdate,
 }: {
   team: TeamView;
-  updating: string | null;
-  onUpdate: (slug: string) => void;
+  updating: boolean;
+  onUpdate: () => void;
 }) {
   const state = team.adminSecrets?.state;
   if (state === 'needs-sync') {
@@ -270,15 +293,16 @@ function AdminSecretsNotice({
           color="warn"
           icon="lock"
           retryLabel="Update access"
-          busy={updating === team.slug}
-          onRetry={() => onUpdate(team.slug)}
+          busy={updating}
+          onRetry={onUpdate}
           data-testid="admin-secrets-notice"
         >
           <Text span inherit fw={600}>
-            Admins changed
+            Admin access out of date
           </Text>{' '}
           <Text span inherit c="dimmed">
-            Admin-only secrets still open for the old set
+            {team.adminSecrets?.detail ??
+              'Admin-only secrets still open for the old set'}
           </Text>
         </RetryAlert>
       </div>
@@ -309,22 +333,50 @@ function AdminSecretsNotice({
   return null;
 }
 
-function TeamPanel({
-  read,
-  confirming,
-  onConfirm,
-  onRetry,
-  updating,
-  onUpdate,
-}: {
-  read: TeamRead;
-  confirming: string | null;
-  onConfirm: (slug: string) => void;
-  onRetry: () => void;
-  updating: string | null;
-  onUpdate: (slug: string) => void;
-}) {
+/** The switchboard holds the replies, so without it nobody shows as waiting. */
+function RelayNotice({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className={classes.notice}>
+      <RetryAlert
+        color="warn"
+        icon="unplug"
+        onRetry={onRetry}
+        data-testid="relay-notice"
+      >
+        <Text span inherit fw={600}>
+          Switchboard didn&apos;t answer
+        </Text>{' '}
+        <Text span inherit c="dimmed">
+          Replies may be waiting
+        </Text>
+      </RetryAlert>
+    </div>
+  );
+}
+
+function PanelTitle({ team }: { team: TeamView }) {
+  if (!team.activeTeam) {
+    return (
+      <Text fz={15} fw={700} lh="normal">
+        {`${team.name} members`}
+      </Text>
+    );
+  }
+  return (
+    <Group gap={6} align="baseline">
+      <Text fz={15} fw={700} lh="normal">
+        {`${team.activeTeam} team`}
+      </Text>
+      <Text fz="sm" c="dimmed" lh="normal">
+        {`in ${team.name}`}
+      </Text>
+    </Group>
+  );
+}
+
+function TeamPanel({ read, onRetry }: { read: TeamRead; onRetry: () => void }) {
   const [tab, setTab] = useState<string | null>('members');
+  const writes = useTeamWrites(read.slug);
 
   if (!read.ok) {
     return (
@@ -354,6 +406,7 @@ function TeamPanel({
 
   const team = read.team;
   const invites = team.invites.filter(i => i.state !== 'replied');
+  const rows = memberRows(team);
   return (
     <Paper
       variant="ground"
@@ -363,16 +416,19 @@ function TeamPanel({
       data-testid="team-panel"
     >
       <header className={classes.head}>
-        <Text fz={15} fw={700} lh="normal">
-          {`${team.name} members`}
-        </Text>
+        <PanelTitle team={team} />
         {team.role && VIEWER_ROLE[team.role] ? (
           <Text fz="sm" c="dimmed" lh="normal">
             {VIEWER_ROLE[team.role]}
           </Text>
         ) : null}
       </header>
-      <AdminSecretsNotice team={team} updating={updating} onUpdate={onUpdate} />
+      {team.relayFailed ? <RelayNotice onRetry={onRetry} /> : null}
+      <AdminSecretsNotice
+        team={team}
+        updating={writes.updating}
+        onUpdate={writes.updateAccess}
+      />
       <Tabs
         value={tab}
         onChange={setTab}
@@ -381,7 +437,7 @@ function TeamPanel({
       >
         <Tabs.List>
           <Tabs.Tab value="members">
-            <TabLabel label="Members" count={team.members.length} />
+            <TabLabel label="Members" count={rows.length} />
           </Tabs.Tab>
           <Tabs.Tab value="invites">
             <TabLabel label="Invites" count={invites.length} />
@@ -389,9 +445,11 @@ function TeamPanel({
         </Tabs.List>
         <Tabs.Panel value="members">
           <MembersTable
-            team={team}
-            confirming={confirming}
-            onConfirm={onConfirm}
+            rows={rows}
+            label={confirmLabel(team.invites)}
+            busy={writes.busy}
+            confirming={writes.confirming}
+            onConfirm={writes.confirm}
           />
         </Tabs.Panel>
         <Tabs.Panel value="invites">
@@ -466,6 +524,7 @@ export function TeamPage() {
   const selected =
     teams.find(t => t.slug === chosen) ??
     teams.find(t => t.slug === linked) ??
+    teams.find(t => t.ok) ??
     teams[0];
 
   return (
@@ -533,11 +592,7 @@ export function TeamPage() {
               <TeamPanel
                 key={selected.slug}
                 read={selected}
-                confirming={view.confirming}
-                onConfirm={slug => void view.confirm(slug)}
                 onRetry={() => void view.refetch()}
-                updating={view.updating}
-                onUpdate={slug => void view.updateAccess(slug)}
               />
             ) : null}
           </div>
