@@ -289,6 +289,19 @@ describe("settings/write", () => {
       test("a missing folder under home gets no notice", () => {
         expect(capture([join(home, "no", "such", "dir")])).toEqual([]);
       });
+
+      test("a ${home} entry is expanded and noticed as stored", () => {
+        expect(capture(["${home}", "${home}/"])).toEqual([broad("${home}"), broad("${home}/")]);
+      });
+
+      test("a ${home} entry under home gets no notice", () => {
+        expect(capture(["${home}/shots"])).toEqual([]);
+      });
+
+      test("an entry with an unexpandable variable gets no notice and the write lands", () => {
+        expect(capture(["${repoRoot}"])).toEqual([]);
+        expect(readStore(machineSettingsPath()).global["rt.mcp.uploadRoots"]).toEqual(["${repoRoot}"]);
+      });
     });
 
     test("scope team writes the active team's store", () => {

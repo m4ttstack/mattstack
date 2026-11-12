@@ -97,7 +97,7 @@ import { machineSettingsPath, orgDir, orgSettingsPath, orgsDir, teamSettingsPath
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { orgOwnersAsk, roleOf, writeRefusalFor, type OrgRole } from "./org-roles.ts";
 import { orgStoreChangeRefusal } from "./org-store-guard.ts";
-import { getSetting } from "./resolve.ts";
+import { expandVariables, getSetting } from "./resolve.ts";
 import { currentOrg, parseStoreText, readStore, TEAM_NAME_RE } from "./stores.ts";
 import { readForgeUsername } from "./team-local-read.ts";
 import { directoryIssues } from "./team-directory.ts";
@@ -228,11 +228,22 @@ function realOrResolved(path: string): string {
   }
 }
 
+function expandedEntry(entry: string, home: string): string {
+  try {
+    const org = currentOrg();
+    const ctx = { home, orgDir: org === null ? null : orgDir(org) };
+    return expandVariables(entry, ctx) as string;
+  } catch {
+    return entry;
+  }
+}
+
 function broadUploadRoots(entries: string[], home: string): string[] {
   const realHome = realOrResolved(home);
   return entries.filter((entry) => {
-    if (!isAbsolute(entry)) return false;
-    const real = realOrResolved(entry);
+    const path = expandedEntry(entry, home);
+    if (!isAbsolute(path)) return false;
+    const real = realOrResolved(path);
     return real === "/" || real === realHome || realHome.startsWith(real + sep);
   });
 }
