@@ -4,6 +4,7 @@ import type { Database } from 'bun:sqlite';
 import type { Commands, RtResponse } from '@mattstack/rt-client';
 import { boardRootFromStatePath } from '../agent-status/emit.ts';
 import { writeDoctorState, type DoctorStatus } from '../doctor-state.ts';
+import { mrRef } from '../mr-ref.ts';
 import { writeRespondState, type RespondStatus } from '../respond-state.ts';
 import { writeReviewState, type ReviewStatus } from '../review-state.ts';
 import {
@@ -163,13 +164,14 @@ export async function gateOpen(
   if (state.tabId) origin.tabId = state.tabId;
   if (extras.worktree) origin.worktree = extras.worktree;
 
+  const ref = mrRef({ iid: state.iid, webUrl: state.mrUrl });
   const payload: Commands['gate:ask']['payload'] = {
     subject: `mr:${state.mrUrl}`,
     kind,
     questions,
     meta: {
-      label: `${domain} gate !${state.iid}`,
-      ...gateNotifyCopy(kind, state.iid, questions),
+      label: `${domain} gate ${ref}`,
+      ...gateNotifyCopy(kind, ref, questions),
     },
     origin,
   };

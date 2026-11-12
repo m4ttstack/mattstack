@@ -11,7 +11,7 @@ import type {
   ProjectSyncError,
 } from '@mattstack/rt-client';
 import type { ExecutorState, ExecutorView } from './client/types.ts';
-import type { BoardConfig, Member } from './config.ts';
+import type { BoardConfig, BoardForge, Member } from './config.ts';
 import type { ReviewerLatch } from './latch/discussions.ts';
 import type { RespondTarget } from './respond-targets.ts';
 import { extractTicketId } from './ticket.ts';
@@ -103,15 +103,27 @@ export interface Snapshot {
   syncError: BoardSyncError | null;
 }
 
-/** Parse "group/project" out of a GitLab MR web URL. */
+/** Parse "group/project" (GitLab) or "owner/repo" (GitHub) out of an MR web
+    URL. A GitHub match returns the `board.projects` spelling of the repo, so
+    every caller keys it the same way whatever case the URL carries. */
 export function projectPathFromWebUrl(
   webUrl: string,
-  gitlabHost: string
+  config: Pick<BoardConfig, 'forge' | 'projects'>
 ): string | null {
-  if (!webUrl.startsWith(gitlabHost)) return null;
-  const rest = webUrl.slice(gitlabHost.length).replace(/^\//, '');
-  const idx = rest.indexOf('/-/');
-  return idx === -1 ? null : rest.slice(0, idx);
+  const host = config.forge.host;
+  if (!webUrl.startsWith(host)) return null;
+  const rest = webUrl.slice(host.length);
+  if (config.forge.kind === 'github') {
+    if (rest && !rest.startsWith('/')) return null;
+    const m = /^\/?([^/?#]+)\/([^/?#]+)\/pull\/\d+(?:[/?#].*)?$/.exec(rest);
+    if (!m) return null;
+    const path = `${m[1]}/${m[2]}`;
+    const lower = path.toLowerCase();
+    return config.projects.find(p => p.toLowerCase() === lower) ?? path;
+  }
+  const trimmed = rest.replace(/^\//, '');
+  const idx = trimmed.indexOf('/-/');
+  return idx === -1 ? null : trimmed.slice(0, idx);
 }
 
 /** Collapse the SDK's pipeline signals into one grouping/sorting key. */
@@ -194,9 +206,7 @@ export function buildBoard(
       const prefix = ticket ? ticket.slice(0, ticket.indexOf('-')) : null;
       if (!prefix || !prefixes.has(prefix)) continue;
     }
-    const path = pr.webUrl
-      ? projectPathFromWebUrl(pr.webUrl, config.gitlabHost)
-      : null;
+    const path = pr.webUrl ? projectPathFromWebUrl(pr.webUrl, config) : null;
     if (!path || !projects.has(path)) continue;
     // Drop MRs gone quiet: no activity (last update) within the stale window.
     const staleDays =
@@ -264,7 +274,9 @@ export function boardDemand(config: BoardConfig, port: number): DemandDecl {
   return {
     client: `board:${port}`,
     authors: config.members.map(m => m.username),
-    ...(sections.length > 0 ? { codeownerSections: sections } : {}),
+    ...(sections.length > 0 && config.forge.kind === 'gitlab'
+      ? { codeownerSections: sections }
+      : {}),
     declaredAt: Date.now(),
   };
 }
@@ -325,7 +337,10 @@ export interface SyncScopeRead {
  * `projects` counting every failing read. A project that errored before
  * yielding a read is simply absent from `reads`.
  */
-export function aggregateSyncScope(reads: SyncScopeRead[]): {
+export function aggregateSyncScope(
+  reads: SyncScopeRead[],
+  forge: BoardForge['kind'] = 'gitlab'
+): {
   dataSyncedAt: number | null;
   scopeUncovered: string[];
   scopeWindowDays: number | null;
@@ -351,9 +366,11 @@ export function aggregateSyncScope(reads: SyncScopeRead[]): {
           ? read.scope.windowDays
           : Math.min(scopeWindowDays, read.scope.windowDays);
       for (const author of read.scope.uncovered) uncovered.add(author);
-      for (const section of read.scope.uncoveredSections ?? [])
+      for (const section of forge === 'github'
+        ? []
+        : (read.scope.uncoveredSections ?? []))
         uncoveredSections.add(section);
-      if (read.scope.knownSections) {
+      if (forge !== 'github' && read.scope.knownSections) {
         known ??= new Set<string>();
         for (const section of read.scope.knownSections) known.add(section);
       }

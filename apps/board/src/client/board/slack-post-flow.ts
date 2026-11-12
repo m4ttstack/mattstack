@@ -1,5 +1,6 @@
 import { NO_REVIEW_CHANNEL } from '../../codeowner-posts.ts';
 import type { BoardMR } from '../../data.ts';
+import { mrRef } from '../../mr-ref.ts';
 import type { ActionResult } from '../api.ts';
 import type { ToastHandle } from './launch-flow.ts';
 import type { SlackPostPreview } from './OwnersPostModal.tsx';
@@ -68,10 +69,10 @@ export async function startSlackPost(
 ): Promise<void> {
   if (!mr.webUrl) return;
   if (!mr.rtRepo || !deps.ownerRepos.includes(mr.rtRepo)) {
-    const toast = deps.startToast(`posting !${mr.iid} to slack…`);
+    const toast = deps.startToast(`posting ${mrRef(mr)} to slack…`);
     return postTeam(mr, deps, toast);
   }
-  const toast = deps.startToast(`checking where !${mr.iid} goes in slack…`);
+  const toast = deps.startToast(`checking where ${mrRef(mr)} goes in slack…`);
   const read = await deps.post('/slack/owners/preview', { mrUrl: mr.webUrl });
   if (!read.ok) {
     const refusal = slackRefusal(read);
@@ -85,11 +86,11 @@ export async function startSlackPost(
   }
   const preview = read.body as unknown as SlackPostPreview;
   if (preview.team.posted && preview.channels.length === 0) {
-    toast.done(`nothing left to post for !${mr.iid}`);
+    toast.done(`nothing left to post for ${mrRef(mr)}`);
     return;
   }
   if (!preview.direct) {
-    toast.done(`!${mr.iid} needs code owners too, pick channels`);
+    toast.done(`${mrRef(mr)} needs code owners too, pick channels`);
     deps.openDialog(mr, preview, only);
     return;
   }
@@ -100,7 +101,7 @@ export async function startSlackPost(
   const outcome = sent.body as unknown as PostOutcome | null;
   if (!sent.ok || !outcome || outcome.failed.length > 0)
     return toast.fail(
-      `slack post failed for !${mr.iid}: ${
+      `slack post failed for ${mrRef(mr)}: ${
         outcome?.failed
           .map(f => `#${f.channel} failed: ${f.error}`)
           .join(', ') || `${sent.status}${sent.text ? ` ${sent.text}` : ''}`
@@ -108,8 +109,8 @@ export async function startSlackPost(
     );
   toast.done(
     outcome.posted.some(p => p.linked)
-      ? `!${mr.iid} already in slack... linked`
-      : `posted !${mr.iid} to #${preview.team.channel}`
+      ? `${mrRef(mr)} already in slack... linked`
+      : `posted ${mrRef(mr)} to #${preview.team.channel}`
   );
   deps.reload();
 }
@@ -124,11 +125,11 @@ async function postTeam(
   if (!result.ok)
     return toast.fail(
       slackRefusal(result) ??
-        `slack post failed for !${mr.iid} (${result.status})${note ? `; ${note}` : ''}`
+        `slack post failed for ${mrRef(mr)} (${result.status})${note ? `; ${note}` : ''}`
     );
   const said = result.body?.linked
-    ? `!${mr.iid} already in slack... linked`
-    : `posted !${mr.iid} to slack`;
+    ? `${mrRef(mr)} already in slack... linked`
+    : `posted ${mrRef(mr)} to slack`;
   toast.done(note ? `${said}; ${note}` : said);
   deps.reload();
 }

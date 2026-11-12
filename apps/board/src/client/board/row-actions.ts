@@ -5,6 +5,7 @@
 import { mergeBlockedReason } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
+import { forgeWord, mrRef, onGitHub } from '../../mr-ref.ts';
 import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
 import type { BoardMRWithReview, OrgTeam } from '../types.ts';
 import { askPickerModel, type AskPickerModel } from './ask-picker.ts';
@@ -573,7 +574,7 @@ export function rowActions(
       )
     );
   }
-  if (env.local && env.self !== null && !own) {
+  if (env.local && env.self !== null && !own && !onGitHub(mrx)) {
     const target = respondAskTarget(mrx, env.peers);
     const who = target ?? mrx.author.username;
     agent.push(
@@ -610,7 +611,8 @@ export function rowActions(
       )
     );
 
-  if (env.local && own) {
+  const github = onGitHub(mrx);
+  if (env.local && own && !github) {
     // glance hides both buttons on a draft or an MR that is not open; the
     // board lists only open MRs, so a hidden button past draft is a state
     // the row blocks rather than one it trusts.
@@ -708,12 +710,12 @@ export function rowActions(
     item(
       'gitlab',
       'open-gitlab',
-      'open in gitlab',
+      `open in ${forgeWord(mrx)}`,
       { kind: 'out' },
       { kind: 'open', url: mrx.webUrl ?? '' }
     )
   );
-  if (env.local)
+  if (env.local && !github)
     gitlab.push(
       item('gitlab', 'refresh-mr', 'refresh from gitlab', REFRESH, {
         kind: 'refresh',
@@ -966,7 +968,8 @@ function mergeBlock(checked: BoardMR[], allMrs: BoardMR[]): string | undefined {
   );
   for (const mr of checked) {
     const parent = parentByUrl.get(mr.webUrl);
-    if (parent) return `!${mr.iid} sits on !${parent.iid}, which is still open`;
+    if (parent)
+      return `${mrRef(mr)} sits on ${mrRef(parent)}, which is still open`;
   }
   return undefined;
 }

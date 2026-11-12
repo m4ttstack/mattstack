@@ -45,7 +45,7 @@ const noop = () => {};
 
 const dialog = (run: ActiveRun) => (
   <RunActiveConfirmDialog
-    pending={{ run, iid: 1418, ring: noop, launch: noop }}
+    pending={{ run, mr: { iid: 1418 }, ring: noop, launch: noop }}
     onDone={noop}
   />
 );

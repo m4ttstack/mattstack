@@ -25,11 +25,11 @@ export interface LaunchFlowDeps {
   /** Overrides `started` when the answer says what happened, as a local
       rebase's does. */
   doneMessage?: (result: ActionResult, mr: BoardMR) => string | undefined;
-  /** Overrides the default failure toast (`couldn't launch ${noun} for !${iid}
-      (${status})`). Resume actions use this to surface the server's own
-      response text, matching today's handleResume (`resume review failed for
-      !N (400): <server message>`) -- the other six handlers rely on the
-      default and are unaffected. */
+  /** Overrides the default failure toast (`couldn't launch ${noun} for
+      ${mrRef(mr)} (${status})`). Resume actions use this to surface the
+      server's own response text, matching today's handleResume (`resume
+      review failed for !N (400): <server message>`, `#N` on GitHub) -- the
+      other six handlers rely on the default and are unaffected. */
   failureMessage?: (result: ActionResult, mr: BoardMR) => string;
 }
 
@@ -116,7 +116,7 @@ export const FINDING_QUESTION = {
   started: 'Question asked in the review pane',
   noun: 'question',
   failureMessage: (result: ActionResult, mr: BoardMR): string =>
-    `Question failed for !${mr.iid} (${result.status})${result.text ? `: ${result.text}` : ''}`,
+    `Question failed for ${mrRef(mr)} (${result.status})${result.text ? `: ${result.text}` : ''}`,
 } as const;
 
 /** The `/review/finding-question` body beyond the flow's own `mrUrl`/`iid`.

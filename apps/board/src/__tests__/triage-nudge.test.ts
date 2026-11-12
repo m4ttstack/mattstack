@@ -595,6 +595,33 @@ describe('runNudgePass notification copy', () => {
   });
 });
 
+describe('runNudgePass notification copy on a GitHub PR', () => {
+  const ghNudge = {
+    ...nudge,
+    mrUrl: 'https://github.com/acme/webapp/pull/1',
+  };
+
+  test('a launch names the PR #<n>', async () => {
+    const d = deps({
+      readNudges: () => [{ ...ghNudge, kind: 'review' }],
+      readReviewStates: () => new Map(),
+    });
+    await runNudgePass(d);
+    expect(d.notifyCalls[0]?.title).toBe('Review started on #1');
+  });
+
+  test('a skipped ask names the PR #<n>', async () => {
+    const d = deps({
+      readNudges: () => [ghNudge],
+      readReviewStates: () => new Map(),
+    });
+    await runNudgePass(d);
+    expect(d.notifyCalls[0]?.title).toBe(
+      'Follow-up review request skipped on #1'
+    );
+  });
+});
+
 describe('plainReason', () => {
   test('every code decideRequest produces maps to a plain phrase', () => {
     expect(plainReason('stale', cfg)).toBe('The ask is over 48 hours old');

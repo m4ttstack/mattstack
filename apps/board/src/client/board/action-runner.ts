@@ -405,12 +405,12 @@ export async function runMany(
   const presenceNote = presenceSkipped
     .map(
       s =>
-        `skipped !${s.mr.iid}, ${(deps.people ?? NO_PEOPLE).short(s.reviewer)} is reviewing`
+        `skipped ${mrRef(s.mr)}, ${(deps.people ?? NO_PEOPLE).short(s.reviewer)} is reviewing`
     )
     .join(', ');
   const runNotes = runSkipped.map(
     s =>
-      `skipped !${s.mr.iid}, ${s.run.name ? `${s.run.name}'s run` : 'a work run'} is active`
+      `skipped ${mrRef(s.mr)}, ${s.run.name ? `${s.run.name}'s run` : 'a work run'} is active`
   );
   const skipNotes = [...(presenceNote ? [presenceNote] : []), ...runNotes];
   // A stale picker snapshot (runBulk's pickTargets.get(pick) ?? []) can reach
