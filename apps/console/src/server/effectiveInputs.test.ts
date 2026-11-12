@@ -115,9 +115,9 @@ describe('parsePackCommits', () => {
   });
 
   it('keeps a version token as a version', () => {
-    expect(parsePackCommits('mattstack=0.32.56,acme=0.4.11')).toEqual([
-      { pack: 'mattstack', version: '0.32.56' },
+    expect(parsePackCommits('acme=0.4.11,mattstack=0.32.56')).toEqual([
       { pack: 'acme', version: '0.4.11' },
+      { pack: 'mattstack', version: '0.32.56' },
     ]);
   });
 
@@ -393,7 +393,7 @@ describe('effective-inputs route', () => {
     vi.mocked(rt.getRun).mockResolvedValue({
       ok: true,
       data: baseDetail({
-        run: baseRun({ pack_commits: 'mattstack=0.32.56,acme=0.4.11' }),
+        run: baseRun({ pack_commits: 'acme=0.4.11,mattstack=0.32.56' }),
       }),
     });
     vi.mocked(rt.getSetting).mockImplementation(() => ({
@@ -413,16 +413,16 @@ describe('effective-inputs route', () => {
     const body = await res.json();
     expect(body.packVersions).toEqual([
       {
-        pack: 'mattstack',
+        pack: 'acme',
         recordedSha: null,
-        recordedVersion: '0.32.56',
+        recordedVersion: '0.4.11',
         currentSha: null,
         drifted: null,
       },
       {
-        pack: 'acme',
+        pack: 'mattstack',
         recordedSha: null,
-        recordedVersion: '0.4.11',
+        recordedVersion: '0.32.56',
         currentSha: null,
         drifted: null,
       },

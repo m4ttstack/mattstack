@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
+import { realpathSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { join, sep } from "path";
 import { installedProvenance, lockedMattstack, realInstalledDeps, realReadFile } from "./installed-provenance.ts";
 import { isPathComponent } from "./paths.ts";
 import { composePackCommits, packProvenance, type PackProvenance } from "./provenance.ts";
@@ -39,16 +40,30 @@ function runProvenance(o: RunStartOpts): PackProvenance {
   const checkouts = packProvenance(o.packDirs ?? []);
   const baked = o.mattstackSha !== undefined || o.mattstackDirty !== undefined || o.packSha !== undefined;
   if (baked || !o.skillDir) return checkouts;
-  if (checkouts.commits.length > 0) {
+  const home = o.env?.HOME ?? process.env.HOME ?? homedir();
+  // git answers inside any enclosing work tree, so a cache copy under a dotfiles repo would read as a checkout.
+  if (!inPluginCache(o.skillDir, home) && checkouts.commits.length > 0) {
     const mattstack = lockedMattstack(o.skillDir, realReadFile);
     return {
       commits: mattstack.token ? [...checkouts.commits, mattstack.token] : checkouts.commits,
       dirty: checkouts.dirty || mattstack.dirty ? 1 : 0,
     };
   }
-  const home = o.env?.HOME ?? process.env.HOME ?? homedir();
   const installed = installedProvenance(o.skillDir, realInstalledDeps(home));
   return { commits: installed.tokens, dirty: installed.dirty };
+}
+
+function realpathOr(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+function inPluginCache(skillDir: string, home: string): boolean {
+  const cache = realpathOr(join(home, ".claude", "plugins", "cache"));
+  return realpathOr(skillDir).startsWith(`${cache}${sep}`);
 }
 
 export function runStart(root: string, o: RunStartOpts): Ok<{ runId: string; runDb: string }> | Fail {

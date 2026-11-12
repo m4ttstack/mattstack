@@ -619,16 +619,16 @@ describe('runsFixture', () => {
     const inputs = await runs.effectiveInputs(REPO, '20261007-0958');
     expect(inputs!.packVersions).toEqual([
       {
-        pack: 'mattstack',
+        pack: 'acme',
         recordedSha: null,
-        recordedVersion: '0.32.56',
+        recordedVersion: '0.4.11',
         currentSha: null,
         drifted: null,
       },
       {
-        pack: 'acme',
+        pack: 'mattstack',
         recordedSha: null,
-        recordedVersion: '0.4.11',
+        recordedVersion: '0.32.56',
         currentSha: null,
         drifted: null,
       },

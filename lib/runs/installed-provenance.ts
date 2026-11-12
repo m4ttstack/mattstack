@@ -10,7 +10,6 @@ import { readLock } from "../skills/compiled-lock.ts";
 import { generatedMarketplaceRef } from "../setup/generated-marketplace.ts";
 import { generatedMarketplaceDir, orgDir, orgDirUnder, orgsDirUnder, teamPackDir } from "../rt-paths.ts";
 import { childEnv } from "../subprocess.ts";
-import { isPathComponent } from "./paths.ts";
 
 export type InstalledProvenance = { tokens: string[]; dirty: 0 | 1 };
 
@@ -66,29 +65,38 @@ function bumpCommit(git: InstalledDeps["git"], clone: OrgClone, version: string)
   return bumpedAt;
 }
 
+/** pack_commits is `name=value,...`, so a value is only ever a plain version or a hex sha. */
+const VERSION_VALUE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+const SHA_VALUE = /^[0-9a-f]{4,40}$/i;
+const PACK_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
+
+const tokenValue = (v: unknown): string | null =>
+  typeof v === "string" && (VERSION_VALUE.test(v) || SHA_VALUE.test(v)) ? v : null;
+
 /** The mattstack token and dirty bit the pack's lock recorded for the skill's own target. */
 export function lockedMattstack(skillDir: string, readFile: InstalledDeps["readFile"]): { token: string | null; dirty: 0 | 1 } {
   const packRoot = dirname(dirname(skillDir));
   const target = relative(packRoot, skillDir);
   const lock = readLock(packRoot, readFile);
-  const value = lock.mattstackSha[target] ?? lock.targets[target]?.mattstack;
+  const value = tokenValue(lock.mattstackSha[target]) ?? tokenValue(lock.targets[target]?.mattstack);
   return { token: value ? `mattstack=${value}` : null, dirty: lock.mattstackDirty[target] === 1 ? 1 : 0 };
 }
 
 export function installedProvenance(skillDir: string, deps: InstalledDeps): InstalledProvenance {
   const packRoot = dirname(dirname(skillDir));
   const mattstack = lockedMattstack(skillDir, deps.readFile);
-  const tokens = mattstack.token ? [mattstack.token] : [];
   const manifest = readJson(deps.readFile, join(packRoot, MANIFEST_REL));
-  const name = typeof manifest?.name === "string" ? manifest.name : "";
-  const version = typeof manifest?.version === "string" ? manifest.version : "";
-  if (name && version) {
+  const name = typeof manifest?.name === "string" && PACK_NAME.test(manifest.name) ? manifest.name : null;
+  const version = tokenValue(manifest?.version);
+  let pack: string | null = null;
+  // The mattstack plugin's own lock already names mattstack, and may carry its checkout sha.
+  if (name && version && !(name === "mattstack" && mattstack.token)) {
     const market = basename(dirname(dirname(packRoot)));
-    const clone = isPathComponent(name) ? deps.orgCloneFor(market, name) : null;
+    const clone = deps.orgCloneFor(market, name);
     const sha = clone ? bumpCommit(deps.git, clone, version) : null;
-    tokens.push(`${name}=${sha ?? version}`);
+    pack = `${name}=${sha ?? version}`;
   }
-  return { tokens, dirty: mattstack.dirty };
+  return { tokens: [pack, mattstack.token].filter((t): t is string => t !== null), dirty: mattstack.dirty };
 }
 
 export function realGit(cwd: string, args: string[]): { code: number; stdout: string } {

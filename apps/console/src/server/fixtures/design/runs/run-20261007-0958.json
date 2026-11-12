@@ -1,7 +1,7 @@
 {
   "run": {
     "id": "20261007-0958",
-    "pack_commits": "mattstack=0.32.56,acme=0.4.11",
+    "pack_commits": "acme=0.4.11,mattstack=0.32.56",
     "work_type": "review",
     "pipeline": "review",
     "status": "done",

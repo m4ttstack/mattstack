@@ -97,13 +97,21 @@ describe("runStart provenance from the skill folder", () => {
     const { home, clone, sync11 } = homeWithOrgClone();
     moveToTrial(clone, sync11);
     const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56" }, join(home, ".claude", "plugins", "cache"));
-    expect(recorded(start(skillDir, home))).toEqual({ pack_commits: `mattstack=0.32.56,acme=${sync11}`, pack_dirty: 0 });
+    expect(recorded(start(skillDir, home))).toEqual({ pack_commits: `acme=${sync11},mattstack=0.32.56`, pack_dirty: 0 });
   });
 
   test("a pack installed with no org clone records its version", () => {
     const home = tmp();
     const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56" }, join(home, ".claude", "plugins", "cache"));
-    expect(recorded(start(skillDir, home))).toEqual({ pack_commits: "mattstack=0.32.56,acme=0.4.11", pack_dirty: 0 });
+    expect(recorded(start(skillDir, home))).toEqual({ pack_commits: "acme=0.4.11,mattstack=0.32.56", pack_dirty: 0 });
+  });
+
+  test("a cache-installed pack inside an enclosing work tree skips the checkout path", () => {
+    const home = tmp();
+    git(home, "init", "-q");
+    git(home, "commit", "-q", "--allow-empty", "-m", "dotfiles");
+    const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56" }, join(home, ".claude", "plugins", "cache"));
+    expect(recorded(start(skillDir, home))).toEqual({ pack_commits: "acme=0.4.11,mattstack=0.32.56", pack_dirty: 0 });
   });
 
   test("old baked flags still record provenance", () => {
@@ -113,7 +121,7 @@ describe("runStart provenance from the skill folder", () => {
     expect(recorded(r)).toEqual({ pack_commits: "mattstack=0.32.55,acme=deadbee", pack_dirty: 0 });
   });
 
-  test("a pack run from a checkout keeps its sha and dirty bit, and takes mattstack from the lock", () => {
+  test("a pack run from a checkout outside the plugin cache keeps its sha and dirty bit, and takes mattstack from the lock", () => {
     const packRoot = join(tmp(), "acme");
     const skillDir = seedPack(packRoot, "0.4.11", { mattstack: "0.32.56", sha: "abc1234", dirty: 1 });
     git(packRoot, "init", "-q");

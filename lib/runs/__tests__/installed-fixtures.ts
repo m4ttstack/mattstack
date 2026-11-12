@@ -55,11 +55,11 @@ export function moveToTrial(dir: string, sync11: string): void {
 export type LockSeed = { mattstack?: string; sha?: string; dirty?: 0 | 1 };
 
 /** The work skill of an acme pack at `packRoot`, compiled against `lock`. */
-export function seedPack(packRoot: string, version: string, lock: LockSeed = { mattstack: "0.32.56" }): string {
-  put(join(packRoot, ".claude-plugin", "plugin.json"), manifest(version));
+export function seedPack(packRoot: string, version: string, lock: LockSeed = { mattstack: "0.32.56" }, name = "acme"): string {
+  put(join(packRoot, ".claude-plugin", "plugin.json"), JSON.stringify({ name, version }));
   const target = "skills/work";
   put(join(packRoot, "pack", "compiled.lock.json"), JSON.stringify({
-    targets: { [target]: { acme: version, ...(lock.mattstack ? { mattstack: lock.mattstack } : {}) } },
+    targets: { [target]: { [name]: version, ...(lock.mattstack ? { mattstack: lock.mattstack } : {}) } },
     bases: {},
     mattstackSha: lock.sha ? { [target]: lock.sha } : {},
     mattstackDirty: lock.dirty !== undefined ? { [target]: lock.dirty } : {},
@@ -70,8 +70,8 @@ export function seedPack(packRoot: string, version: string, lock: LockSeed = { m
 }
 
 /** An installed acme at `version` in a plugin cache under `market`. */
-export function installedSkill(version: string, lock?: LockSeed, cache = join(tmp("rt-installed-home-"), ".claude", "plugins", "cache"), market = "acme-plugins"): string {
-  return seedPack(join(cache, market, "acme", version), version, lock);
+export function installedSkill(version: string, lock?: LockSeed, cache = join(tmp("rt-installed-home-"), ".claude", "plugins", "cache"), market = "acme-plugins", name = "acme"): string {
+  return seedPack(join(cache, market, name, version), version, lock, name);
 }
 
 /** A HOME whose one org clone `acme` serves the `acme-plugins` marketplace from its `mattstack` data branch. */

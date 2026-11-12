@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { readFileSync, rmSync } from "fs";
+import { dirname, join } from "path";
 import { installedProvenance, realGit, realOrgCloneFor, type OrgClone } from "../installed-provenance.ts";
-import { homeWithOrgClone, installedSkill, moveToTrial, PACK_REL, seedOrgClone, tmp } from "./installed-fixtures.ts";
+import { bumpAcme, homeWithOrgClone, installedSkill, moveToTrial, PACK_REL, put, seedOrgClone, tmp } from "./installed-fixtures.ts";
 
 const readFile = (p: string): string | null => {
   try {
@@ -23,9 +23,34 @@ function orgClone(): { dir: string; sync11: string } {
 const depsFor = (dir: string | null) => ({ readFile, git: realGit, orgCloneFor: cloneAt(dir === null ? null : { dir, ref: "mattstack", packRel: PACK_REL }) });
 
 describe("installedProvenance", () => {
-  test("names the sync commit that reached the installed version", () => {
+  test("names the sync commit that reached the installed version, pack first", () => {
     const { dir, sync11 } = orgClone();
-    expect(installedProvenance(installedSkill("0.4.11"), depsFor(dir)).tokens).toContain(`acme=${sync11}`);
+    expect(installedProvenance(installedSkill("0.4.11"), depsFor(dir)).tokens).toEqual([`acme=${sync11}`, "mattstack=0.32.56"]);
+  });
+
+  test("a version the data branch returned to names the newest run, the revert", () => {
+    const { dir } = orgClone();
+    const revert = bumpAcme(dir, "0.4.11");
+    expect(installedProvenance(installedSkill("0.4.11"), depsFor(dir)).tokens).toContain(`acme=${revert}`);
+  });
+
+  test("the mattstack plugin records one mattstack token, the lock's when it has one", () => {
+    const fromCheckout = installedSkill("0.32.56", { mattstack: "0.32.56", sha: "abc1234" }, undefined, "mattstack", "mattstack");
+    expect(installedProvenance(fromCheckout, depsFor(null)).tokens).toEqual(["mattstack=abc1234"]);
+    const unlocked = installedSkill("0.32.56", {}, undefined, "mattstack", "mattstack");
+    rmSync(join(dirname(dirname(unlocked)), "pack", "compiled.lock.json"));
+    expect(installedProvenance(unlocked, depsFor(null)).tokens).toEqual(["mattstack=0.32.56"]);
+  });
+
+  test("drops a token whose value is not a plain version or sha", () => {
+    const skillDir = installedSkill("0.4.11");
+    const packRoot = dirname(dirname(skillDir));
+    put(join(packRoot, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme", version: "0.4.11,evil=1" }));
+    put(join(packRoot, "pack", "compiled.lock.json"), JSON.stringify({
+      targets: { "skills/work": { mattstack: "0.32.56" } },
+      mattstackSha: { "skills/work": { not: "a sha" } },
+    }));
+    expect(installedProvenance(skillDir, depsFor(null)).tokens).toEqual(["mattstack=0.32.56"]);
   });
 
   test("reads the data branch while the clone is on a trial branch", () => {

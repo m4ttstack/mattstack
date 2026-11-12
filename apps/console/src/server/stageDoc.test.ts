@@ -172,7 +172,7 @@ describe('resolveStageDoc', () => {
   it('a sync-commit sha finds the stage doc', async () => {
     expect(
       await resolveStageDoc(deps(), {
-        packCommits: 'mattstack=0.32.56,acme=ccc3333',
+        packCommits: 'acme=ccc3333,mattstack=0.32.56',
         stage: 'plan',
         pipeline: null,
       })
@@ -183,7 +183,7 @@ describe('resolveStageDoc', () => {
     const runGit = vi.fn(fakeGit({ org }));
     expect(
       await resolveStageDoc(deps({ runGit }), {
-        packCommits: 'mattstack=0.32.56,acme=0.4.11',
+        packCommits: 'acme=0.4.11,mattstack=0.32.56',
         stage: 'plan',
         pipeline: null,
       })
