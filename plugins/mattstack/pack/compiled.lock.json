@@ -1,0 +1,22 @@
+{
+  "bases": {},
+  "mattstackDirty": {},
+  "mattstackSha": {},
+  "targets": {
+    "skills/shepherdr": {
+      "mattstack": "0.32.58"
+    },
+    "skills/wrap-up": {
+      "mattstack": "0.32.58"
+    },
+    "skills/writing-style-conversational": {
+      "mattstack": "0.32.58"
+    },
+    "skills/writing-style-sparse": {
+      "mattstack": "0.32.58"
+    },
+    "skills/writing-style-structured": {
+      "mattstack": "0.32.58"
+    }
+  }
+}

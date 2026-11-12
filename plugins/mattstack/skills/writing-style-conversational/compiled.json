@@ -1,8 +1,8 @@
 {
-  "id": "mattstack@0.32.56:writing-style-conversational",
+  "id": "mattstack:writing-style-conversational",
   "dir": "skills/writing-style-conversational",
   "covers": [
-    "mattstack@0.32.56:writing-style-conversational"
+    "mattstack:writing-style-conversational"
   ],
   "keys": {
     "writing-style-conversational/pr-description.md": "skills/writing-style-conversational/pr-description.md"
