@@ -32,7 +32,8 @@ the review is never submitted a second time.
 
 On GitHub a submit that returns `published: true` with `replyErrors` is
 a review that is up and complete: the listed replies are the only part
-missing. Post each listed reply once with `mr_reply_thread`; its thread
+missing, apart from an approval that came back `approved: false`, which the
+caller's approval gate still settles. Post each listed reply once with `mr_reply_thread`; its thread
 stays unresolved unless that reply posts, and a `resolve` that was due
 runs after it with `mr_resolve_thread`. The review is never submitted
 again. A reply that still fails is reported in the close with its error,

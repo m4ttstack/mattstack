@@ -29,7 +29,10 @@ label: Graph notes
 - `run_close` takes `outcome: done` after the post record, or `abandoned`
   with `reason: <why; what already posted>` on a hand back.
 - A submit result of `published: true` with `replyErrors` (GitHub) takes
-  the `published, approved as asked` edge: the review is up and complete,
+  the edge its approval names, as one without them would: `published,
+  approved as asked` when the approval landed or none was asked, and
+  `published, approved: false on an approve` when an asked approval did
+  not. Either way the review is up and complete,
   and review-posting's mechanics post each listed reply once with
   `mr_reply_thread`, never a second submit. That is not the split-posting
   the STOP guards against. A reply that still fails is reported in the

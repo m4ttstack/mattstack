@@ -15,14 +15,14 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.32.57"
+  compiled: "mattstack:gate-protocol@0.32.58"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:review`, use it; otherwise call `skills_resolve {id: "skills:board:review"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2157 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-2162 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -431,8 +431,10 @@ What the graph cannot show:
   batch as the done write is lost.
 - **A submit result with `replyErrors` (GitHub).** On GitHub a submit that
   returns `published: true` with `replyErrors` is a review that is up and
-  complete: the listed replies are the only part missing. Post each listed
-  reply once with `mr_reply_thread`; its thread stays unresolved unless that
+  complete: the listed replies are the only part missing. It takes the
+  edge its approval names, as a result without them would, so an asked
+  approval that came back `approved: false` still goes to the approval
+  recovery. Post each listed reply once with `mr_reply_thread`; its thread stays unresolved unless that
   reply posts, and a `resolve` that was due runs after it with
   `mr_resolve_thread`. The review is never submitted again, and that is not
   the split-posting the STOP guards against. A reply that still fails is
@@ -806,9 +808,12 @@ branches. Under `--re-review` the threads are already read too, at
 `mr_threads {mrUrl, refresh: true} (re-review)`. Read the diff in the
 checkout this pane runs in (the board's configured review checkout): fetch
 both branches from `origin`, then read the diff of the target branch to
-the source branch with read-only git. On GitHub the source is fetched as
+the source ref with read-only git. The source ref is `origin/<source branch>`
+on GitLab; on GitHub it is `origin/pr-<n>`, fetched as
 `+pull/<n>/head:refs/remotes/origin/pr-<n>` (a fork's branch is not on
-`origin`), and the diff is `<target>...origin/pr-<n>`. A failed read is
+`origin`), so the diff is `<target>...origin/pr-<n>`. Every later read of
+the source (the re-review diff, the skipped findings' `changed` test, the
+round's sha fallback) uses the source ref. A failed read is
 never a reason to read with the forge CLI or the API.
 
 `Generic review result?` answers failed when the MR link is bad or the
@@ -845,7 +850,7 @@ post:
   hold.
 
 Then hunt for new issues, weighting the diff since the last reviewed
-commit (`git diff <last reviewed sha>..origin/<source branch>`) while
+commit (`git diff <last reviewed sha>..<source ref>`) while
 still reading the whole change; with no last reviewed commit, a last
 reviewed commit of `unknown` (a round rebuilt from an old report), or one
 the fetch does not have, the whole change is what changed. An issue an
@@ -865,10 +870,10 @@ the `reviewedSha` of its round. A would-be finding that says what a
 skipped one says, about the same code, is that skipped finding: it stays
 out of the findings, so out of `tiers` too, and the gate offers it back
 on its own. For each skipped finding work out `changed`: true when `git
-diff <its round's sha>..origin/<source branch> -- <file>` touches its
+diff <its round's sha>..<source ref> -- <file>` touches its
 `line` (any hunk in the file, when it has a `file` and no `line`), or its
-`snippet`, when non-empty, is no longer in the file at `origin/<source
-branch>`. When its round's sha is `unknown` or not in this checkout (`git
+`snippet`, when non-empty, is no longer in the file at `<source ref>`. When its round's sha is
+`unknown` or not in this checkout (`git
 cat-file -e <sha>^{commit}` fails: the MR was rebased or force-pushed),
 the snippet test alone decides, and with no snippet `changed` is false.
 It is false when the finding has no `file`.
@@ -941,7 +946,7 @@ reviewed:
 `<n>` is 1 on a first review, else the round "Re-review mode" worked
 out. `<sha>` is the MR head this pass reviewed: on the generic path
 `mr_view`'s `mr.sha` (after a take at `mr_view`, which read no MR, `git
-rev-parse origin/<source branch>` from the fetch), on the domain path
+rev-parse <source ref>` from the fetch), on the domain path
 the sha the domain skill handed back. Never a guess: a domain skill that
 handed back no sha gets no line, and neither does a re-review whose
 ledger read exited nonzero, since its round number is a guess and a
@@ -2160,7 +2165,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: block:gate-protocol source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/index.block.md lines=9-126 -->
+<!-- part: block:gate-protocol source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/index.block.md lines=9-126 -->
 The daemon's gate registry is the single arbiter; under a run the gate
 tools record the decision.
 
@@ -2283,7 +2288,7 @@ digraph gate_protocol {
 }
 ```
 
-<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/build-questions.block.md lines=5-46 -->
+<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/build-questions.block.md lines=5-46 -->
 ### Build the gate's questions and context
 
 Open before anything that depends on the answer. A question is `{"id",
@@ -2327,14 +2332,14 @@ not your own.
   question; a longer list splits into `<id>-1`, `<id>-2`, ... read as one
   union.
 
-<!-- part: block:gate-protocol/trigger-site-opened source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/trigger-site-opened.block.md lines=6-10 -->
+<!-- part: block:gate-protocol/trigger-site-opened source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/trigger-site-opened.block.md lines=6-10 -->
 ### Trigger: a site opened its gate with gate_open
 
 A site opening a structured gate calls `gate_open` itself and enters here.
 Its result carries what `gate_ask`'s does (see gate_ask result?), and under
 a run it has already written `gate` and, on `wait`, armed `waiting-gate`.
 
-<!-- part: block:gate-protocol/gate-ask-result source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/gate-ask-result.block.md lines=5-11 -->
+<!-- part: block:gate-protocol/gate-ask-result source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/gate-ask-result.block.md lines=5-11 -->
 ### gate_ask result?
 
 **ok:** keep `id`, `paneAction`, `formContext` and `formChunks`;
@@ -2343,7 +2348,7 @@ yourself. **`runErrors`:** the gate is open but a run write failed: quote it
 in one line and carry on at `paneAction?`, never re-asking the gate or
 writing that field yourself.
 
-<!-- part: block:gate-protocol/fix-refusal source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/fix-refusal.block.md lines=5-12 -->
+<!-- part: block:gate-protocol/fix-refusal source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/fix-refusal.block.md lines=5-12 -->
 ### Fix what the gate_ask refusal names
 
 Fix exactly what it names (a blank context, several running runs, a bad
@@ -2353,13 +2358,13 @@ with no run, count in context. A second refusal fails the stage or ends the
 verb, quoting it verbatim; never off-script, which opens through `gate_ask`
 too.
 
-<!-- part: block:gate-protocol/present-form-no-registry source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/present-form-no-registry.block.md lines=6-9 -->
+<!-- part: block:gate-protocol/present-form-no-registry source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/present-form-no-registry.block.md lines=6-9 -->
 ### Present the gate form with no registry
 
 Form-only, with no other gate call: the answer is the decision (no CAS),
 `decidedBy` `pane`, and under a run `gate_record` records it.
 
-<!-- part: block:gate-protocol/boards-to-open source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/boards-to-open.block.md lines=5-11 -->
+<!-- part: block:gate-protocol/boards-to-open source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/boards-to-open.block.md lines=5-11 -->
 ### A boards@1 context in an attended session, with a board not yet opened?
 
 A terminal form cannot show an image, so in an attended session (see
@@ -2368,7 +2373,7 @@ before its form: `open '<path>'`, once per entry, the path as the entry
 gives it. Unattended, the human answers in the console, which shows every
 board as a thumbnail, so nothing opens on this machine's screen.
 
-<!-- part: block:gate-protocol/present-pane-form source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/present-pane-form.block.md lines=5-13 -->
+<!-- part: block:gate-protocol/present-pane-form source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/present-pane-form.block.md lines=5-13 -->
 ### Present the in-pane gate form
 
 The `paneAction: form` branch (older sites say the
@@ -2379,7 +2384,7 @@ after the last. Dismissed: another surface answered, and the doorbell is
 your next input. Cancelled: the gate stays open; never re-present it
 yourself.
 
-<!-- part: block:gate-protocol/map-answer source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/map-answer.block.md lines=5-13 -->
+<!-- part: block:gate-protocol/map-answer source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/map-answer.block.md lines=5-13 -->
 ### Map the gate answer to exact option values
 
 `answers` is one object keyed by question id, values per Answers are option
@@ -2390,20 +2395,20 @@ option; beside ticks on a multi it is `{"value": [<ticks>], "note":
 "<text>"}`. A refused value is remapped once, counted as in Fix what the
 gate_ask refusal names, then left open for another surface.
 
-<!-- part: block:gate-protocol/say-surface source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/say-surface.block.md lines=5-8 -->
+<!-- part: block:gate-protocol/say-surface source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/say-surface.block.md lines=5-8 -->
 ### Say which surface won
 
 Say in one line which answer won and from where (`decidedBy`), drop the
 pane's own answer or words, and go on with the result's `answers`.
 
-<!-- part: block:gate-protocol/end-turn-holding source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/end-turn-holding.block.md lines=5-9 -->
+<!-- part: block:gate-protocol/end-turn-holding source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/end-turn-holding.block.md lines=5-9 -->
 ### End the turn: holding at gate <id>
 
 Never launch a second wait for this gate. End the turn in one line,
 `holding at gate <id>`. Under a run a turn ends only with `waiting-gate`
 set.
 
-<!-- part: block:gate-protocol/reconcile-status source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/reconcile-status.block.md lines=5-14 -->
+<!-- part: block:gate-protocol/reconcile-status source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/reconcile-status.block.md lines=5-14 -->
 ### gate_reconcile status?
 
 It re-reads the gate (up to 2 seconds), records the answer under a run and
@@ -2415,7 +2420,7 @@ words in hand lose to it. `open` with words: map them and let
 marker stand). A daemon-unreachable refusal takes the daemon-down branch,
 quoting it.
 
-<!-- part: block:gate-protocol/write-in-to-act source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/write-in-to-act.block.md lines=6-12 -->
+<!-- part: block:gate-protocol/write-in-to-act source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/write-in-to-act.block.md lines=6-12 -->
 ### A write-in to act on (actOnWriteIn)?
 
 Read `actOnWriteIn` off the tool result: it is the deliberate-pick rule. A
@@ -2424,7 +2429,7 @@ any other `next` (`hold`, `go-back`, Abandon) was picked on purpose, and the
 site takes it with the write-in as its note. With no tool result, apply the
 rule yourself.
 
-<!-- part: block:gate-protocol/act-write-in source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/act-write-in.block.md lines=5-11 -->
+<!-- part: block:gate-protocol/act-write-in source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/act-write-in.block.md lines=5-11 -->
 ### Act on a write-in
 
 Handle the gate like `iterate`: skip the site's own branch (a `proceed`
@@ -2433,14 +2438,14 @@ the whole answer set, then open a NEW gate at the same site so the human
 sees the result first. One too unclear to act on goes straight to that new
 gate, which asks about it.
 
-<!-- part: block:gate-protocol/attendance source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/attendance.block.md lines=5-9 -->
+<!-- part: block:gate-protocol/attendance source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/attendance.block.md lines=5-9 -->
 ### Attendance
 
 Attendance comes from the invocation context, never from asking: under a
 run, `spawnedBy` set means unattended; with no run, the launch instruction
 says (a pane a surface launched is unattended).
 
-<!-- part: block:gate-protocol/runs-integration source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/runs-integration.block.md lines=5-22 -->
+<!-- part: block:gate-protocol/runs-integration source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/runs-integration.block.md lines=5-22 -->
 ### Runs integration
 
 A site that says "run gate-protocol's Runs integration with kind `<k>` and
@@ -2460,7 +2465,7 @@ tool.
   review gate (`respond-plan`, `respond-post`, `review-post`, scope `post`)
   unless passed `record: true`; the site records with `gate_record`.
 
-<!-- part: block:gate-protocol/off-script-gate source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/off-script-gate.block.md lines=5-19 -->
+<!-- part: block:gate-protocol/off-script-gate source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/off-script-gate.block.md lines=5-19 -->
 ### Off-script gate
 
 A host STOP opens it through the graph: scope `off-script:<site>:<n>` (`n`
@@ -2477,7 +2482,7 @@ Hand back: follow the site's own hand-back edge where its graph draws one;
 otherwise, under a run, `run_stage {action: fail}` with the why as reason;
 with no run, end the verb quoting it.
 
-<!-- part: block:gate-protocol/structured-context-gate-ctx-1 source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/structured-context-gate-ctx-1.block.md lines=6-13 -->
+<!-- part: block:gate-protocol/structured-context-gate-ctx-1 source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/structured-context-gate-ctx-1.block.md lines=6-13 -->
 ### Structured context (gate-ctx@1)
 
 A site that opens a structured gate builds its source per
@@ -2487,7 +2492,7 @@ the context is the object itself, never a string of it. A gate that asks the hum
 `evidence-boards`, `evidence-redaction`) carries them as a `boards@1`
 context, so the console shows each board itself rather than its path.
 
-<!-- part: block:gate-protocol/answers-are-option-values source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/answers-are-option-values.block.md lines=5-12 -->
+<!-- part: block:gate-protocol/answers-are-option-values source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/answers-are-option-values.block.md lines=5-12 -->
 ### Answers are option values
 
 An answer to a question with options is one of its option VALUES verbatim
@@ -2497,19 +2502,19 @@ rides `text`, which the in-pane form never sends. The verb's act step
 decides what either changes. A `writeIn: true` question may instead take
 `{"writeIn": "<their words>"}` alone.
 
-<!-- part: block:gate-protocol/closed-gates-hold-iterate source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/closed-gates-hold-iterate.block.md lines=6-9 -->
+<!-- part: block:gate-protocol/closed-gates-hold-iterate source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/closed-gates-hold-iterate.block.md lines=6-9 -->
 ### Closed gates, Hold / Iterate
 
 `closed` ends that path per the verb's policy. The verb handles `hold` and
 `iterate` in the pane once the answer is recorded; a re-ask opens a NEW gate.
 
-<!-- part: block:gate-protocol/doorbell source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/doorbell.block.md lines=5-8 -->
+<!-- part: block:gate-protocol/doorbell source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/doorbell.block.md lines=5-8 -->
 ### Doorbell
 
 Verify-only: it never carries the answer, only "re-read the registry",
 which is `gate_reconcile`.
 
-<!-- part: block:gate-protocol/red-flags source=mattstack:gate-protocol version=0.32.57 path=attachments/gate-protocol/red-flags.block.md lines=5-9 -->
+<!-- part: block:gate-protocol/red-flags source=mattstack:gate-protocol version=0.32.58 path=attachments/gate-protocol/red-flags.block.md lines=5-9 -->
 ### Red flags
 
 | Thought | Reality |

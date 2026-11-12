@@ -237,7 +237,11 @@ On GitHub, before judging, drop two kinds of PR-level row
 note is by the account this run posts as is out of scope, never
 adjudicated or replied to; and a row that a later PR-level comment by
 this account answers is already answered: that comment's marker line
-(per the PR-level reply shape) names the row's id. Rows dropped this way count
+(per the PR-level reply shape) names the row's id. Look for that comment
+in one more read, `mr_threads {mrUrl, refresh: true}` with no filter: the
+filter drops a comment whose author reads as a bot, so a reply posted by
+a bot-named account is missing from the filtered read. Only the filtered
+rows are ever adjudicated. Rows dropped this way count
 as no thread for `Unresolved human threads = 0?`.
 
 With `--person <username>`, keep only that person's feedback:

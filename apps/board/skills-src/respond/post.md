@@ -418,9 +418,14 @@ forge CLI or the API.
 https URL, `body` the non-empty reply text (the quote of the comment's
 first line, a blank line, `@<author>`, the reply, a blank line, then the
 `<!-- mattstack-reply-to: <the row's id> -->` marker line), `resolvable`
-false. An error that names no input has nothing to correct: post again
-unchanged, once, and the off-script gate follows. An error is never a
-reason to post with the forge CLI or the API.
+false. An error that names no input (a timeout, the daemon down) has
+nothing to correct, and the comment may still have landed: read
+`mr_threads {mrUrl, refresh: true}` first, and a comment by this account
+whose marker names the row's id means it posted, so record it as posted
+and never post it again. With no such comment, post again unchanged,
+once, and the off-script gate follows; a read that errors goes
+straight to the off-script gate, quoting it, with no second post. An
+error is never a reason to post with the forge CLI or the API.
 
 ### Fix what the mr_resolve_thread error names
 

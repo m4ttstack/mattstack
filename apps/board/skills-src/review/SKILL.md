@@ -425,8 +425,10 @@ What the graph cannot show:
   batch as the done write is lost.
 - **A submit result with `replyErrors` (GitHub).** On GitHub a submit that
   returns `published: true` with `replyErrors` is a review that is up and
-  complete: the listed replies are the only part missing. Post each listed
-  reply once with `mr_reply_thread`; its thread stays unresolved unless that
+  complete: the listed replies are the only part missing. It takes the
+  edge its approval names, as a result without them would, so an asked
+  approval that came back `approved: false` still goes to the approval
+  recovery. Post each listed reply once with `mr_reply_thread`; its thread stays unresolved unless that
   reply posts, and a `resolve` that was due runs after it with
   `mr_resolve_thread`. The review is never submitted again, and that is not
   the split-posting the STOP guards against. A reply that still fails is
@@ -800,9 +802,12 @@ branches. Under `--re-review` the threads are already read too, at
 `mr_threads {mrUrl, refresh: true} (re-review)`. Read the diff in the
 checkout this pane runs in (the board's configured review checkout): fetch
 both branches from `origin`, then read the diff of the target branch to
-the source branch with read-only git. On GitHub the source is fetched as
+the source ref with read-only git. The source ref is `origin/<source branch>`
+on GitLab; on GitHub it is `origin/pr-<n>`, fetched as
 `+pull/<n>/head:refs/remotes/origin/pr-<n>` (a fork's branch is not on
-`origin`), and the diff is `<target>...origin/pr-<n>`. A failed read is
+`origin`), so the diff is `<target>...origin/pr-<n>`. Every later read of
+the source (the re-review diff, the skipped findings' `changed` test, the
+round's sha fallback) uses the source ref. A failed read is
 never a reason to read with the forge CLI or the API.
 
 `Generic review result?` answers failed when the MR link is bad or the
@@ -839,7 +844,7 @@ post:
   hold.
 
 Then hunt for new issues, weighting the diff since the last reviewed
-commit (`git diff <last reviewed sha>..origin/<source branch>`) while
+commit (`git diff <last reviewed sha>..<source ref>`) while
 still reading the whole change; with no last reviewed commit, a last
 reviewed commit of `unknown` (a round rebuilt from an old report), or one
 the fetch does not have, the whole change is what changed. An issue an
@@ -859,10 +864,10 @@ the `reviewedSha` of its round. A would-be finding that says what a
 skipped one says, about the same code, is that skipped finding: it stays
 out of the findings, so out of `tiers` too, and the gate offers it back
 on its own. For each skipped finding work out `changed`: true when `git
-diff <its round's sha>..origin/<source branch> -- <file>` touches its
+diff <its round's sha>..<source ref> -- <file>` touches its
 `line` (any hunk in the file, when it has a `file` and no `line`), or its
-`snippet`, when non-empty, is no longer in the file at `origin/<source
-branch>`. When its round's sha is `unknown` or not in this checkout (`git
+`snippet`, when non-empty, is no longer in the file at `<source ref>`. When its round's sha is
+`unknown` or not in this checkout (`git
 cat-file -e <sha>^{commit}` fails: the MR was rebased or force-pushed),
 the snippet test alone decides, and with no snippet `changed` is false.
 It is false when the finding has no `file`.
@@ -935,7 +940,7 @@ reviewed:
 `<n>` is 1 on a first review, else the round "Re-review mode" worked
 out. `<sha>` is the MR head this pass reviewed: on the generic path
 `mr_view`'s `mr.sha` (after a take at `mr_view`, which read no MR, `git
-rev-parse origin/<source branch>` from the fetch), on the domain path
+rev-parse <source ref>` from the fetch), on the domain path
 the sha the domain skill handed back. Never a guess: a domain skill that
 handed back no sha gets no line, and neither does a re-review whose
 ledger read exited nonzero, since its round number is a guess and a
