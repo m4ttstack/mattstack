@@ -62,6 +62,9 @@ export function isIdSafeVersion(version: string): boolean {
   return /^\d+(?:\.\d+)*$/.test(version);
 }
 
+/** The name alone, since ID_RE also takes the older versioned form and `skills:` ids, either of which a name could smuggle in. */
+const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
 /** The id `<plugin>:<unit>` has to pass `ID_RE`, so a name it cannot carry refuses here, not at resolve; `skills:` ids name linked skills. */
 export function readPackIdentity(packDir: string): PackIdentity {
   const file = join(packDir, ".claude-plugin", "plugin.json");
@@ -75,7 +78,7 @@ export function readPackIdentity(packDir: string): PackIdentity {
   const { name, version } = (parsed && typeof parsed === "object" ? parsed : {}) as { name?: unknown; version?: unknown };
   if (typeof name !== "string" || name === "") return { ok: false, file, fault: "has no name" };
   if (typeof version !== "string" || version === "") return { ok: false, file, fault: "has no version" };
-  if (!ID_RE.test(unitId(name, "unit"))) return { ok: false, file, fault: `has the name "${name}", which a skill id cannot carry: use lowercase letters, digits and dashes` };
+  if (!PLUGIN_NAME_RE.test(name) || !ID_RE.test(unitId(name, "unit"))) return { ok: false, file, fault: `has the name "${name}", which a skill id cannot carry: use lowercase letters, digits and dashes` };
   if (name === "skills") return { ok: false, file, fault: `has the name "skills", which a skill id cannot carry: skills ids name linked skills, so pick another name` };
   if (!isIdSafeVersion(version)) return { ok: false, file, fault: `has the version "${version}", which a skill id cannot carry: use numbers and dots only` };
   return { ok: true, name, version };

@@ -490,6 +490,8 @@ describe("refusals", () => {
     ["JSON it cannot read", "{ name: widgets", "cannot be read as JSON"],
     ["an uppercase name", JSON.stringify({ name: "Widgets", version: "0.4.2" }), 'has the name "Widgets", which a skill id cannot carry'],
     ["a prerelease version", JSON.stringify({ name: "widgets", version: "1.0.0-rc.1" }), 'has the version "1.0.0-rc.1", which a skill id cannot carry'],
+    ["a version in the name", JSON.stringify({ name: "widgets@1.0", version: "2.0.0" }), 'has the name "widgets@1.0", which a skill id cannot carry'],
+    ["a skills: prefix in the name", JSON.stringify({ name: "skills:board", version: "2.0.0" }), 'has the name "skills:board", which a skill id cannot carry'],
   ] as const) {
     test(`a plugin.json with ${label} refuses to compile, naming the file and the value`, async () => {
       const f = seed();
