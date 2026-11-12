@@ -566,18 +566,27 @@ function createBranchDashboard(
     subscribe(listener: (mr: MRDashboardProps) => void) {
       disposeWatcher = createRealtimeWatcher<PullRequest>({
         fetch: async () => {
-          const pr = await provider.fetchPullRequestByBranch(projectPath, branch, 'all');
+          let readWarning: FetchPullRequestsWarning | undefined;
+          // Thrown after the read returns: the provider swallows a throw from inside onWarning.
+          const pr = await provider.fetchPullRequestByBranch(projectPath, branch, 'all', {
+            onWarning: (w) => {
+              if (w.kind === 'request-failed' && (w.source === 'list' || w.source === 'fill')) readWarning = w;
+            }
+          });
+          if (readWarning) throw new Error(readWarning.message);
           if (pr && pr.iid !== resolvedIid) {
             resolvedIid = pr.iid;
             actions = buildActions(provider, projectPath, pr.iid);
           }
           return pr;
         },
-        subscribe: ({ onConnected }) => {
-          // No ActionCable for branch-based — IID not known upfront.
-          onConnected();
-          return () => {};
-        },
+        subscribe: provider.subscribePullRequestEvents
+          ? ({ onConnected }) => {
+              // No ActionCable for branch-based: IID not known upfront.
+              onConnected();
+              return () => {};
+            }
+          : undefined,
         onUpdate: (pr) => {
           _isInitialLoading = false;
           listener(getMRDashboardProps(pr, connectionState));
@@ -757,18 +766,16 @@ function createDashboardGroup(
     disposeWatcher = createRealtimeWatcher<Map<number, PullRequest>>({
       fetch: batchFetch,
 
-      subscribe: (callbacks) => {
-        if (!provider.subscribePullRequestEvents) {
-          callbacks.onConnected();
-          return () => {};
-        }
-        push = { callbacks, subscribed: new Set(), disposers: [] };
-        attachPush(fetchedPrs, true);
-        return () => {
-          for (const dispose of push?.disposers ?? []) dispose();
-          push = null;
-        };
-      },
+      subscribe: provider.subscribePullRequestEvents
+        ? (callbacks) => {
+            push = { callbacks, subscribed: new Set(), disposers: [] };
+            attachPush(fetchedPrs, true);
+            return () => {
+              for (const dispose of push?.disposers ?? []) dispose();
+              push = null;
+            };
+          }
+        : undefined,
 
       onUpdate: (freshMap) => {
         _isInitialLoading = false;

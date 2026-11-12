@@ -10,7 +10,8 @@ export type ConnectionState =
   | 'connecting'
   | 'connected'
   | 'disconnected'
-  | 'reconnecting';
+  | 'reconnecting'
+  | 'polling';
 
 export interface ConnectionStatusBadgeProps {
   /** Current connection state from useDashboard. */
@@ -52,6 +53,12 @@ const STATUS_CONFIG: Record<
     variant: 'subtle',
     pulse: true,
   },
+  polling: {
+    label: 'Polling for updates',
+    color: 'neutral',
+    variant: 'subtle',
+    dot: true,
+  },
   disconnected: {
     label: 'Disconnected',
     color: 'negative',
@@ -62,7 +69,7 @@ const STATUS_CONFIG: Record<
 /**
  * Compact connection health badge for real-time dashboards.
  *
- * Hidden by default when `status === 'connected'` (set `showWhenConnected` to override).
+ * Hidden by default when `status === 'connected'` or `'polling'` (set `showWhenConnected` to override).
  *
  * @example
  * const { connectionStatus } = useDashboard({ ... });
@@ -75,7 +82,8 @@ export function ConnectionStatusBadge({
   size,
   className,
 }: ConnectionStatusBadgeProps) {
-  if (status === 'connected' && !showWhenConnected) return null;
+  if ((status === 'connected' || status === 'polling') && !showWhenConnected)
+    return null;
 
   const config = STATUS_CONFIG[status];
 
@@ -95,6 +103,7 @@ export function ConnectionStatusBadge({
           className={cn(
             'size-1.5 rounded-full shrink-0',
             status === 'connected' && 'bg-positive',
+            status === 'polling' && 'bg-muted-foreground',
             status === 'disconnected' && 'bg-negative-foreground'
           )}
         />

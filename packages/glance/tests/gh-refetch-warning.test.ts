@@ -22,6 +22,7 @@ import { describe, expect, test } from 'bun:test';
 import { GitHubProvider } from '../src/GitHubProvider.ts';
 import type { FetchPullRequestsWarning } from '../src/GitProvider.ts';
 import { jsonResponse, stubForge, useForgeStub, useInstantTimers } from './helpers/gh-fill-fixture.ts';
+import { mergeContextData } from './helpers/gh-merge-context.ts';
 
 useForgeStub();
 useInstantTimers();
@@ -197,7 +198,10 @@ describe('GitHubProvider mutation refetch messages say what actually happened (M
 
   test('mergePullRequest: the thrown message carries the captured warning', async () => {
     const provider = new GitHubProvider('https://github.com', 'tok');
-    (provider as any).octokit = { request: stubMutationRequest(ghPR(9)) };
+    (provider as any).octokit = {
+      request: stubMutationRequest(ghPR(9)),
+      graphql: async () => mergeContextData()
+    };
     (provider as any).fetchSingleMR = async (
       _p: string,
       _iid: number,

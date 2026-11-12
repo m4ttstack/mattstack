@@ -6,6 +6,8 @@
  * message alone.
  */
 
+import type { MergeQueueEntry, PullRequest } from './types.ts';
+
 /**
  * A read-back that could not be completed, after a write that had already
  * landed (MAT-169).
@@ -62,6 +64,91 @@ export class ReadBackFailedError extends Error {
     this.projectPath = details.projectPath;
     this.iid = details.iid;
     this.writeApplied = details.writeApplied;
+  }
+}
+
+/**
+ * A GitHub merge whose write landed (or was already queued) but whose
+ * read-back failed. It still reports what happened to the source branch, so a
+ * landed merge always says whether its branch was deleted.
+ */
+export class MergeReadBackFailedError extends ReadBackFailedError {
+  /** Why the source branch is still there; absent when it was deleted or no deletion was asked for. */
+  declare readonly sourceBranchNotDeleted?: string;
+
+  /** The merge queue entry, when the merge went through the queue. */
+  declare readonly queued?: MergeQueueEntry;
+
+  constructor(
+    message: string,
+    details: {
+      operation: string;
+      projectPath: string;
+      iid: number;
+      writeApplied: boolean;
+      cause?: unknown;
+      sourceBranchNotDeleted?: string;
+      queued?: MergeQueueEntry;
+    },
+  ) {
+    super(message, details);
+    this.name = 'MergeReadBackFailedError';
+    // Assigned only when present, so `'sourceBranchNotDeleted' in err` matches the result's convention.
+    if (details.sourceBranchNotDeleted !== undefined) {
+      (this as { sourceBranchNotDeleted?: string }).sourceBranchNotDeleted = details.sourceBranchNotDeleted;
+    }
+    if (details.queued !== undefined) {
+      (this as { queued?: MergeQueueEntry }).queued = details.queued;
+    }
+  }
+}
+
+/** A follow-up write GitHub's create needs, since its create call cannot set these fields. */
+export type CreateFollowUpStep = 'reviewers' | 'assignees' | 'labels';
+
+/** One follow-up step that failed after the PR was created. */
+export interface FailedCreateStep {
+  step: CreateFollowUpStep;
+  message: string;
+  cause?: unknown;
+}
+
+/**
+ * A GitHub create whose PR exists but whose reviewers, assignees or labels
+ * step failed. Every requested step was attempted before this was thrown, so
+ * `failedSteps` is the complete list of what is missing. Retrying the create
+ * would hit GitHub's "a pull request already exists"; re-apply only the
+ * failed steps to PR `iid` instead.
+ *
+ * `pullRequest` is the read-back taken after the steps, null when that read
+ * failed too; `cause` is then the read-back's error, otherwise the first
+ * failed step's.
+ */
+export class PartialCreateError extends ReadBackFailedError {
+  readonly failedSteps: FailedCreateStep[];
+
+  readonly pullRequest: PullRequest | null;
+
+  constructor(
+    message: string,
+    details: {
+      projectPath: string;
+      iid: number;
+      failedSteps: FailedCreateStep[];
+      pullRequest: PullRequest | null;
+      cause?: unknown;
+    },
+  ) {
+    super(message, {
+      operation: 'createPullRequest',
+      projectPath: details.projectPath,
+      iid: details.iid,
+      writeApplied: true,
+      cause: details.cause,
+    });
+    this.name = 'PartialCreateError';
+    this.failedSteps = details.failedSteps;
+    this.pullRequest = details.pullRequest;
   }
 }
 

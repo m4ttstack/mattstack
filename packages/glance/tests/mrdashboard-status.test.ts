@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createDashboard } from '../src/MRDashboard.ts';
-import type { GitProvider } from '../src/GitProvider.ts';
+import type { ByBranchReadOptions, GitProvider } from '../src/GitProvider.ts';
 import {
   createRealtimeWatcher,
   type RealtimeWatcherOptions,
@@ -157,6 +157,182 @@ describe('single MR dashboard connection state', () => {
       cable().onEvent();
       await new Promise((r) => setTimeout(r, 200));
       expect(connections.at(-1)).toBe('connected');
+    } finally {
+      dashboard.dispose();
+    }
+  });
+});
+
+/** A provider that only answers the dashboards' plain reads; no watchMR. */
+function readOnlyProvider(withPush: boolean): GitProvider {
+  const provider: Record<string, unknown> = {
+    providerName: withPush ? 'gitlab' : 'github',
+    baseURL: 'https://forge.example',
+    capabilities: {} as ProviderCapabilities,
+    fetchPullRequestByBranch: async () => stubPR(7),
+    fetchPullRequests: async () => [stubPR(1), stubPR(2)],
+  };
+  if (withPush) provider.subscribePullRequestEvents = () => () => {};
+  return provider as unknown as GitProvider;
+}
+
+describe('dashboards without a push channel', () => {
+  test('branch dashboard without subscribePullRequestEvents reports polling', async () => {
+    const dashboard = createDashboard({
+      provider: readOnlyProvider(false),
+      projectPath: 'o/r',
+      branch: 'feat/7',
+      userId: null,
+    });
+    const statuses: string[] = [];
+    const connections: string[] = [];
+    dashboard.onStatusChange((s) => statuses.push(s.connection));
+    dashboard.subscribe((mr) => connections.push(mr.connection));
+    await settle();
+
+    try {
+      expect(statuses.at(-1)).toBe('polling');
+      expect(connections).toEqual(['polling']);
+    } finally {
+      dashboard.dispose();
+    }
+  });
+
+  test('branch dashboard whose by-branch read warns of a failed list reports reconnecting, not polling', async () => {
+    const provider = {
+      ...(readOnlyProvider(false) as unknown as Record<string, unknown>),
+      fetchPullRequestByBranch: async (
+        _path: string,
+        branch: string,
+        _state: unknown,
+        options?: ByBranchReadOptions
+      ) => {
+        options?.onWarning?.({
+          kind: 'request-failed',
+          source: 'list',
+          status: 502,
+          target: 'o/r',
+          branch,
+          message: 'GitHub could not list PRs in o/r (HTTP 502); whether branch feat/7 has a PR is unknown.'
+        });
+        return null;
+      },
+    } as unknown as GitProvider;
+    const dashboard = createDashboard({ provider, projectPath: 'o/r', branch: 'feat/7', userId: null });
+    const statuses: WatcherStatus[] = [];
+    dashboard.onStatusChange((s) => statuses.push(s));
+    dashboard.subscribe(() => {});
+    await settle();
+
+    try {
+      expect(statuses.map((s) => s.connection)).not.toContain('polling');
+      expect(statuses.at(-1)?.connection).toBe('reconnecting');
+      expect(statuses.at(-1)?.lastError?.message).toContain('could not list PRs');
+    } finally {
+      dashboard.dispose();
+    }
+  });
+
+  test('branch dashboard whose by-branch read hits the scan cap with no PR still reports polling', async () => {
+    const provider = {
+      ...(readOnlyProvider(false) as unknown as Record<string, unknown>),
+      fetchPullRequestByBranch: async (
+        _path: string,
+        branch: string,
+        _state: unknown,
+        options?: ByBranchReadOptions
+      ) => {
+        options?.onWarning?.({
+          kind: 'page-cap',
+          source: 'list',
+          target: 'o/r',
+          branch,
+          message: 'The scan stopped at its 500-PR cap; whether branch feat/7 has a PR is unknown.'
+        });
+        return null;
+      },
+    } as unknown as GitProvider;
+    const dashboard = createDashboard({ provider, projectPath: 'o/r', branch: 'feat/7', userId: null });
+    const statuses: string[] = [];
+    dashboard.onStatusChange((s) => statuses.push(s.connection));
+    dashboard.subscribe(() => {});
+    await settle();
+
+    try {
+      expect(statuses).not.toContain('reconnecting');
+      expect(statuses.at(-1)).toBe('polling');
+    } finally {
+      dashboard.dispose();
+    }
+  });
+
+  test('branch dashboard whose by-branch read warns only of contexts still reports polling', async () => {
+    const provider = {
+      ...(readOnlyProvider(false) as unknown as Record<string, unknown>),
+      fetchPullRequestByBranch: async (
+        _path: string,
+        branch: string,
+        _state: unknown,
+        options?: ByBranchReadOptions
+      ) => {
+        options?.onWarning?.({
+          kind: 'request-failed',
+          source: 'contexts',
+          target: 'o/r#7',
+          branch,
+          message: 'Some checks could not be read.'
+        });
+        return stubPR(7);
+      },
+    } as unknown as GitProvider;
+    const dashboard = createDashboard({ provider, projectPath: 'o/r', branch: 'feat/7', userId: null });
+    const statuses: string[] = [];
+    dashboard.onStatusChange((s) => statuses.push(s.connection));
+    dashboard.subscribe(() => {});
+    await settle();
+
+    try {
+      expect(statuses.at(-1)).toBe('polling');
+    } finally {
+      dashboard.dispose();
+    }
+  });
+
+  test('group dashboard without subscribePullRequestEvents reports polling', async () => {
+    const group = createDashboard({
+      provider: readOnlyProvider(false),
+      projectPath: 'o/r',
+      mrIid: [1, 2],
+      userId: null,
+    });
+    const statuses: string[] = [];
+    const connections: string[][] = [];
+    group.onStatusChange((s) => statuses.push(s.connection));
+    group.subscribe((mrs) => connections.push([...mrs.values()].map((m) => m.connection)));
+    await settle();
+
+    try {
+      expect(statuses.at(-1)).toBe('polling');
+      expect(connections).toEqual([['polling', 'polling']]);
+    } finally {
+      group.dispose();
+    }
+  });
+
+  test('branch dashboard with subscribePullRequestEvents still reports connected', async () => {
+    const dashboard = createDashboard({
+      provider: readOnlyProvider(true),
+      projectPath: 'g/p',
+      branch: 'feat/7',
+      userId: null,
+    });
+    const statuses: string[] = [];
+    dashboard.onStatusChange((s) => statuses.push(s.connection));
+    dashboard.subscribe(() => {});
+    await settle();
+
+    try {
+      expect(statuses.at(-1)).toBe('connected');
     } finally {
       dashboard.dispose();
     }

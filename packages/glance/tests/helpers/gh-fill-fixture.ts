@@ -95,6 +95,7 @@ export function ghNode(over: DeepPartial<GHFillNode> = {}): GHFillNode {
     headRefName: 'feature',
     headRefOid: 'abc123',
     baseRefName: 'main',
+    headRepository: { nameWithOwner: 'o/r' },
     baseRepository: {
       databaseId: 500,
       nameWithOwner: 'o/r',

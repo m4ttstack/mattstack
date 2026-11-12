@@ -20,6 +20,7 @@ import {
   runWriteConformance
 } from './conformance.ts';
 import { runConsumerFlows } from './consumerFlows.ts';
+import { runGitHubGapsConformance } from './githubGapsConformance.ts';
 import { ALL_METHODS } from './expectations.ts';
 import { buildFixtures } from './fixture.ts';
 import { Reporter } from './report.ts';
@@ -50,6 +51,9 @@ for (const fixture of fixtures) {
     await runGitLabMutationConformance(fixture, report);
     await runMergeConformance(fixture, report);
     await runCiConformance(fixture, report);
+    // After runCiConformance for the same reason as the consumer flows below:
+    // these cases push commits, which would put fresh pipelines in its scan.
+    await runGitHubGapsConformance(fixture, report);
     // After the conformance suite, deliberately: the consumer flows open
     // their own pull requests, and runCiConformance selects a settled
     // pipeline by scanning the most recent ones. Running the flows first

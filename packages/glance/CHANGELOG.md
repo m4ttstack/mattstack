@@ -1,5 +1,51 @@
 # @mattstack/glance
 
+## 0.31.0
+
+### Minor Changes
+
+- Breaking for an outside exhaustive switch: `'polling'` is a new member of
+  `WatcherStatus['connection']` and `MRDashboardProps['connection']`.
+  GitHub dashboards report it; GitLab is unchanged.
+- GitHub `watchMR` polls, every 60 s by default (`pollIntervalMs` overrides).
+  It costs about 60 GraphQL requests plus up to 6 REST requests per hour per
+  watched pull request, because the rules read is cached for 10 minutes.
+  Poll-only retries never come sooner than the interval and wait out a rate
+  limit. glance-react's `ConnectionStatusBadge` shows `polling` and hides it by
+  default, like `connected`.
+- GitHub rebase through the provider (`canRebase` is true).
+- GitHub `merge` and `setAutoMerge` pick an allowed merge method: the
+  caller's, then `squash: true`, then the viewer's default (the method they
+  last used in the repository, else the repository default), then the first
+  allowed one. `squash: false` now picks an allowed method that is not a
+  squash, possibly rebase, and is refused on a squash-only repository; before,
+  GitHub always made a merge commit.
+- GitHub `merge` enters the merge queue when the base branch uses one and
+  resolves with `queued` (the pull request state is still `opened`).
+  `MergePullRequestResult.queued` is the new optional field.
+- A GitHub merge that landed but whose read-back failed still removes the
+  source branch and reports `sourceBranchNotDeleted`; the read-back failure is
+  the new `MergeReadBackFailedError`. The merge-context and rebase reads retry
+  a 5xx.
+- `PullRequest.sourceProjectPath` and the capability `canReportSourceProject`
+  tell a caller which repository a pull request's source branch lives in. It
+  is null when the head repository was deleted and undefined when the token
+  cannot see it (a private fork); such a pull request still reads and merges.
+- GitHub by-branch reads report a failed or capped read: `ByBranchReadOptions`
+  carries `onWarning`, `FetchPullRequestsWarning.branch` names the branch, and
+  `canReportIncompleteBranchReads` says the provider does so.
+- A GitHub create whose pull request exists but whose reviewers, assignees or
+  labels step failed throws `PartialCreateError` with `failedSteps` (each a
+  `FailedCreateStep`, its `step` a `CreateFollowUpStep`) and the read-back
+  `pullRequest`, or null when that failed too.
+- GitHub `restRequest` streams its body, so a caller can stop reading early.
+- Consumers: the rt daemon still needs four follow-ups. `mr:create` reads
+  `failedSteps` (`lib/daemon/handlers/mr.ts`). `mr:action` passes `queued` and
+  reads `sourceBranchNotDeleted` (`mr.ts`, `packages/rt-client/src/commands.ts`,
+  and `lib/mcp/github-merge.ts`, which also drops it). `liveByBranchOnGitHub`
+  can use `onWarning`. `mr_resolve_branch` and `mr_create` `ifExists` should
+  compare `sourceProjectPath`.
+
 ## 0.30.0
 
 ### Minor Changes

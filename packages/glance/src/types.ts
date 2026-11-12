@@ -174,6 +174,12 @@ export interface PullRequest {
   conflicts: boolean;
   webUrl: string | null;
   sourceBranch: string;
+  /** The `owner/repo` the source branch lives in. GitHub only: null when the
+      head repository is gone (a deleted fork); undefined when it was not
+      reported, on GitLab or when the token cannot see the head repository (a
+      private fork). Compare with the project path to tell a fork PR from a
+      same-named base branch. */
+  sourceProjectPath?: string | null;
   targetBranch: string;
   /** True when targetBranch differs from the repo's default branch (a stack
       MR pointed at its parent). False/absent when the default branch is
@@ -452,9 +458,10 @@ export interface MRDashboardProps {
    * - `'connected'`  — push subscription healthy, data is live
    * - `'disconnected'` — push lost, falling back to polling
    * - `'reconnecting'` — push lost + fetch errors, retrying with backoff
+   * - `'polling'`: data is fresh as of the last poll; no push channel
    * - `'idle'`         — not subscribed (e.g. from `getMRDashboardProps` directly)
    */
-  connection: 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'idle';
+  connection: 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'polling' | 'idle';
 }
 
 /**
@@ -465,7 +472,7 @@ export interface MRDashboardProps {
  * Obtain via `createDashboard()`.
  */
 export interface MRDashboardActions {
-  merge: (input?: MergePullRequestInput) => Promise<PullRequest>;
+  merge: (input?: MergePullRequestInput) => Promise<MergePullRequestResult>;
   rebase: () => Promise<void>;
   approve: () => Promise<void>;
   unapprove: () => Promise<void>;
@@ -562,11 +569,13 @@ export interface UpdatePullRequestInput {
  * - "squash" — Squash all commits into one before merging.
  * - "rebase" — Rebase the source branch onto the target (fast-forward).
  *
- * When omitted, what happens differs by provider: GitLab's merge endpoint
- * defers to the project's configured default merge method, matching its web
- * UI. GitHub's REST merge endpoint has no such deference; it defaults
- * `merge_method` to "merge" regardless of the repository's configured
- * default, which only the web UI honors.
+ * When omitted, GitLab's merge endpoint defers to the project's configured
+ * default merge method. GitHub's endpoint would always merge, so glance reads
+ * the viewer's default merge method (the one they last used in the
+ * repository, else the repository default) and sends it, or the first method
+ * the repository allows (merge, squash, rebase) when that default is not
+ * allowed. A method the repository
+ * forbids is refused before anything is written.
  */
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
 
@@ -599,9 +608,9 @@ export interface MergeQueueEntry {
  * All fields are **optional**. On GitLab, omitting them defers to the
  * project-level settings configured in the forge UI (merge method, squash
  * policy, delete-source-branch, etc.), matching how the web UI works. On
- * GitHub, the REST merge endpoint does not defer to those settings the way
- * the web UI does: for example, an omitted `mergeMethod` becomes "merge",
- * not the repository's configured default.
+ * GitHub, an omitted `mergeMethod` is the viewer's default merge method
+ * (see `MergeMethod`), and `squash: false` picks an allowed method that is
+ * not a squash, refusing on a squash-only repository.
  */
 export interface MergePullRequestInput {
   /** Merge commit message. Omit to use the provider/project default. */
@@ -620,14 +629,24 @@ export interface MergePullRequestInput {
    * this field says, including when it is explicitly `false`.
    */
   shouldRemoveSourceBranch?: boolean;
-  /** SHA that HEAD must match for the merge to proceed (optimistic locking). */
+  /**
+   * SHA that HEAD must match for the merge to proceed (optimistic locking).
+   * On a base with a merge queue it also guards a PR already queued: a
+   * different head throws instead of resolving queued.
+   */
   sha?: string;
 }
 
-/** What `mergePullRequest` resolves with: the merged PR, plus any cleanup it could not finish. */
+/**
+ * What `mergePullRequest` resolves with: the merged PR, plus any cleanup it
+ * could not finish; or, on a base with a merge queue, the still-open PR and
+ * its queue entry.
+ */
 export type MergePullRequestResult = PullRequest & {
   /** Set only when the merge landed and the source branch could not be deleted: why, in one sentence. */
   sourceBranchNotDeleted?: string;
+  /** Set only when the PR went through a merge queue: its entry there. The PR had not merged when it was queued; check `state`. */
+  queued?: MergeQueueEntry;
 };
 
 /**
@@ -648,7 +667,10 @@ export interface ProviderCapabilities {
   canRebase: boolean;
   /** Can enable automatic merge when pipeline succeeds. */
   canAutoMerge: boolean;
-  /** Can add a pull request to the target branch's merge queue. */
+  /**
+   * Can add a pull request to the target branch's merge queue. On GitHub this
+   * also gates `mergePullRequest`'s queue routing on a branch with a merge queue.
+   */
   canEnqueue: boolean;
   /** Can resolve / unresolve discussion threads. */
   canResolveDiscussions: boolean;
@@ -688,6 +710,14 @@ export interface ProviderCapabilities {
   canRequestChanges: boolean;
   /** Can read a pull request's per-file diffs with `fetchPullRequestDiffs`. */
   canFetchPullRequestDiffs: boolean;
+  /** Pull requests carry `sourceProjectPath`, the repository their source branch lives in. */
+  canReportSourceProject?: boolean;
+  /**
+   * `fetchPullRequestByBranch` and `fetchPullRequestsByBranches` report a
+   * failed, capped or unfilled read through `options.onWarning`, so a null
+   * can be told apart from "no PR on this branch".
+   */
+  canReportIncompleteBranchReads?: boolean;
 }
 
 // ── Metric-grade reads ────────────────────────────────────────────────────────

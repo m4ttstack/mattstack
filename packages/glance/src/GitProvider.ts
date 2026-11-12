@@ -99,6 +99,25 @@ export interface FetchPullRequestsWarning {
    * on every call site independently getting the string literal right.
    */
   target?: string;
+  /**
+   * The source branch a by-branch read was resolving, set on every warning
+   * `fetchPullRequestByBranch` or `fetchPullRequestsByBranches` reports, so a
+   * batch caller can attribute it.
+   */
+  branch?: string;
+}
+
+/** Options for `fetchPullRequestByBranch` and `fetchPullRequestsByBranches`. */
+export interface ByBranchReadOptions {
+  /**
+   * Called when the answer may be incomplete: a failed list request, a
+   * fallback scan that hit its cap, a found PR whose fill failed, or a
+   * warning the fill reported for a PR it kept. Each warning carries
+   * `branch`. The result is unchanged (a failed read still resolves to
+   * null), and a throw from this callback is ignored. Providers whose
+   * `canReportIncompleteBranchReads` is not true never call it.
+   */
+  onWarning?: (warning: FetchPullRequestsWarning) => void;
 }
 
 /**
@@ -369,30 +388,44 @@ export interface GitProvider {
 
   /**
    * Fetch a single MR/PR by its source branch within a project.
-   * Returns null if no matching MR/PR exists for that branch.
+   * Returns null if no matching MR/PR exists for that branch, and also when
+   * the read could not tell: on GitHub a failed list request, a fallback
+   * scan that ended at its 500-PR cap, or a found PR whose fill failed.
+   * `options.onWarning` tells those apart from a confirmed miss where
+   * `capabilities.canReportIncompleteBranchReads` is true.
    * @param state - Filter by state. Defaults to `'opened'`. Pass `'all'` to include merged/closed.
    */
   fetchPullRequestByBranch(
     projectPath: string,
     sourceBranch: string,
     state?: MRState | 'all',
+    options?: ByBranchReadOptions,
   ): Promise<PullRequest | null>;
 
   /**
    * Batch-fetch MRs by source branches in a single operation.
-   * Returns a Map<branch, PullRequest | null>. Branches with no open MR map to null.
-   * Optional — providers that don't implement this fall back to
+   * Returns a Map<branch, PullRequest | null>. Branches with no open MR map to null,
+   * as does a branch whose PR was found but could not be filled; on GitHub
+   * `options.onWarning` reports that case, and any warning the fill raised
+   * for a PR it kept, with `branch` set.
+   * Optional: providers that don't implement this fall back to
    * sequential fetchPullRequestByBranch calls.
    */
   fetchPullRequestsByBranches?(
     projectPath: string,
     branches: string[],
     state?: MRState | 'all',
+    options?: ByBranchReadOptions,
   ): Promise<Map<string, PullRequest | null>>;
 
   /**
    * Create a new merge request / pull request.
    * Returns the created PullRequest.
+   *
+   * Can reject with `ReadBackFailedError` (`writeApplied: true`): the PR
+   * exists but could not be read back. On GitHub it can also reject with
+   * `PartialCreateError`: the PR exists but a reviewers, assignees or labels
+   * step failed; `failedSteps` and `pullRequest` say which.
    */
   createPullRequest(input: CreatePullRequestInput): Promise<PullRequest>;
 
@@ -513,10 +546,27 @@ export interface GitProvider {
    * All input fields are optional — omitting them defers to the project's
    * configured defaults (merge method, squash policy, delete-source-branch).
    *
-   * Resolves once the merge landed. A failed source-branch cleanup is
-   * reported in `sourceBranchNotDeleted`, never thrown. A rejection means
-   * the merge failed, or landed but could not be read back
-   * (`ReadBackFailedError` with `writeApplied: true`).
+   * Resolves once the merge landed, or, on a merge-queue base, once the PR
+   * is queued (see below). A failed source-branch cleanup is reported in
+   * `sourceBranchNotDeleted`, never thrown. A rejection means the merge
+   * failed, or its write was applied but the PR could not be read back
+   * (`ReadBackFailedError` with `writeApplied: true`): a landed merge, or
+   * on a merge-queue base a queued PR that has not merged. It can also mean
+   * nothing was written: a PR already in the queue whose read-back failed
+   * (`writeApplied: false`; see below).
+   *
+   * On GitHub the merge method, when not given, is the viewer's default
+   * (the method they last used here, else the repository default; when that
+   * is not allowed, the first allowed of merge, squash, rebase), and a
+   * method the repository forbids is refused before the write. When the
+   * base branch uses a merge queue, the PR is enqueued instead (`sha`
+   * becomes the expected head) and the result is the still-open PR with
+   * `queued` set; a PR already in the queue gets no second write. The queue
+   * applies its own settings, so `mergeMethod`, `squash`, `commitMessage`,
+   * `squashCommitMessage` and `shouldRemoveSourceBranch` are refused there
+   * when given at all, `false` included. A queued PR whose read-back fails
+   * throws `MergeReadBackFailedError` with `queued` set and `writeApplied`
+   * false when nothing was written.
    */
   mergePullRequest(projectPath: string, mrIid: number, input?: MergePullRequestInput): Promise<MergePullRequestResult>;
 
@@ -540,7 +590,7 @@ export interface GitProvider {
 
   /**
    * Rebase the MR source branch onto the target branch.
-   * GitLab-only — GitHub does not have a native rebase API.
+   * On GitHub this is updatePullRequestBranch with the REBASE method.
    * Check `capabilities.canRebase` before calling.
    */
   rebasePullRequest(projectPath: string, mrIid: number): Promise<void>;
@@ -549,8 +599,12 @@ export interface GitProvider {
    * Enable auto-merge: the MR will be merged automatically when the
    * pipeline succeeds and all approval rules are met.
    * On GitLab: PUT /merge_requests/:iid/merge with merge_when_pipeline_succeeds.
-   * On GitHub: GraphQL `enablePullRequestAutoMerge`. Requires the
-   * repository's `allow_auto_merge` setting to be on.
+   * On GitHub: GraphQL `enablePullRequestAutoMerge` with a merge method the
+   * repository allows (the viewer's default, which is the method they last
+   * used here or else the repository default; when that is not allowed, the
+   * first allowed of merge, squash, rebase); on a merge queue branch no
+   * method is sent, since the queue
+   * decides. Requires the repository's `allow_auto_merge` setting to be on.
    * Check `capabilities.canAutoMerge` before calling.
    */
   setAutoMerge(projectPath: string, mrIid: number): Promise<void>;
@@ -830,6 +884,11 @@ export interface GitProvider {
    * from `fetch`, so `res.url` is always empty there. Status, statusText,
    * headers, and body are all carried through; `url` is the one field the
    * Response constructor cannot set, so it cannot be restored.
+   *
+   * On both providers a successful body streams: it is not read before the
+   * Response resolves, so a caller can cancel `res.body`'s reader after the
+   * bytes it wants and the rest is not read further. `Content-Length` is
+   * carried through. A 4xx/5xx body is read in full on GitHub.
    */
   restRequest(
     method: string,
@@ -852,7 +911,10 @@ export interface GitProvider {
    * **GitLab**: Implemented via ActionCable WebSocket subscription on
    *   `userMergeRequestUpdated`, backed by a `MR_DETAIL_QUERY` re-fetch on
    *   each event to return a complete, strongly-typed PullRequest.
-   * **GitHub**: Not yet implemented — throws `ProviderNotSupportedError`.
+   * **GitHub**: Poll-only, since GitHub has no push channel: one
+   *   `fetchSingleMR` every `options.pollIntervalMs` (default 60s), status
+   *   `polling`. A failed fill reports `reconnecting` with a
+   *   `ReadBackFailedError`; a failed checks page still delivers the PR.
    *
    * @param projectPath - e.g. "group/project"
    * @param mrIid - the numeric MR/PR number

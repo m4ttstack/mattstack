@@ -60,7 +60,7 @@ function MergeRequestDashboard({ provider, projectPath, mrIid, userId }) {
 | `mr` | `MRDashboardProps \| null` | Render-ready props. `null` until first update. |
 | `actions` | `MRDashboardActions \| null` | Pre-bound mutations (merge, rebase, approve, etc.). `null` until an MR is resolved (relevant for branch-based dashboards). |
 | `isInitialLoading` | `boolean` | `true` until the first data payload arrives. |
-| `connectionStatus` | `'connecting' \| 'connected' \| 'disconnected' \| 'reconnecting' \| 'idle'` | WebSocket / push connection state. |
+| `connectionStatus` | `'connecting' \| 'connected' \| 'disconnected' \| 'reconnecting' \| 'polling' \| 'idle'` | WebSocket / push connection state. |
 | `error` | `Error \| null` | Last error from the realtime watcher, if any. |
 
 ### 2. SDK + State Manager (Zustand, Redux, etc.)
