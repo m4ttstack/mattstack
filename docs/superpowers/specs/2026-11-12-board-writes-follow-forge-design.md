@@ -229,7 +229,9 @@ routes do now.
   One forge per team makes the board's forge and the row's forge the same.
 - A GitHub row with no rt repo answers 400 "this MR has no rt repo", as
   `/mr/refresh` does.
-- `done` answers 200 `{ok: true}` plus `queued`, `sourceBranchNotDeleted`,
+- `done` answers 200 `{ok: true}` plus `mergeQueued` (named so because
+  the client's reply type already has an unrelated `queued`),
+  `sourceBranchNotDeleted`,
   `title` (draft) or `noteId` (note) when present.
 - `refused` answers 409 `{reason}`, the shape GitLab's merge refusal
   already uses. `/draft` and `/drafts` keep their GitLab failure statuses
@@ -241,8 +243,8 @@ routes do now.
   unchanged replies).
 - `/drafts` records `postedNoteId` from the GitHub reply's `noteId` just
   as it does from GitLab's note. An unanswered note post may have landed,
-  so the draft stays `held` and the toast says it may have posted and to
-  check the PR before posting again; the board never posts it a second
+  so the draft stays `held` and `DraftModal` says it may have posted and
+  to check the PR before posting again; the board never posts it a second
   time on its own.
 
 Ownership (`requireOwnMr`), the iid check, the local-request check and the
