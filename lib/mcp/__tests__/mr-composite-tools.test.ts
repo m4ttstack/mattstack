@@ -357,10 +357,25 @@ describe("mr_resolve_branch", () => {
       expect(calls[0]).toEqual({ name: "mr:get", payload: { repoName: GH, iid: 3 } });
     });
 
-    test("mr_map keeps refusing a GitHub PR URL, before any command", async () => {
-      const { deps, calls } = fake(answers());
-      expect((await tool(deps, "mr_map").handler({ mrUrl: "https://github.com/acme/app/pull/3" }, ENV)).error).toStartWith("GitLab only: mr_map does not speak GitHub");
-      expect(calls).toEqual([]);
+    test("mr_map lists a GitHub repo's PRs from a PR URL", async () => {
+      const pr = (iid: number, sourceBranch: string) => ({
+        iid, title: `PR ${iid}`, state: "opened", draft: false, sourceBranch, targetBranch: "main", author: "octo", webUrl: null, detailedMergeStatus: null,
+      });
+      const { deps, calls } = fake({
+        "mr:list-live": { mrs: [pr(5, "feat-5"), pr(6, "feat-6")], truncated: false },
+        "worktree:list": { trees: [{ name: "five", kind: "worktree", path: "/trees/five", branch: "feat-5", repoName: GH, mr: null }] },
+        "forge:get": { body: { default_branch: "main" } },
+      });
+      deps.readMrCache = (async () => ({ ok: false, error: "x" })) as any;
+      deps.status = async () => "";
+      const res = (await tool(deps, "mr_map").handler({ mrUrl: "https://github.com/acme/app/pull/5" }, ENV)) as any;
+      expect(res.ok).toBe(true);
+      expect(calls.find((c) => c.name === "mr:list-live")!.payload.repoName).toBe(GH);
+      expect(res.body.rows.map((r: any) => r.ref)).toEqual(["#5", "#6"]);
+      expect(res.body.rows.map((r: any) => r.worktree)).toEqual(["/trees/five", null]);
+      expect(res.body.rows.map((r: any) => r.stacked)).toEqual([false, false]);
+      const gets = calls.filter((c) => c.name === "forge:get");
+      expect(gets).toEqual([{ name: "forge:get", payload: { repoName: GH, path: ":repo" } }]);
     });
 
     test("mr_posted_since matches a GitHub PR's notes by the token's login", async () => {
@@ -551,21 +566,20 @@ describe("mr_map", () => {
     expect(res.ok).toBe(false);
   });
 
-  test("a GitHub repoName, legacy repo or mrUrl is refused naming the gh move, before any command", async () => {
-    for (const input of [{ repoName: GH }, { repo: GH }, { repo: "github.com/acme/app" }, { mrUrl: "https://github.com/acme/app/pull/3" }]) {
-      const { deps, calls } = withDeps();
-      const res = await call(deps, input);
-      expect(res.ok).toBe(false);
-      expect(res.error).toStartWith("GitLab only: mr_map does not speak GitHub; ");
-      expect(res.error).toContain("gh pr list --author @me");
-      expect(calls).toEqual([]);
-    }
+  test("mr_map on GitHub degrades to stacked null when :repo fails", async () => {
+    const { deps, calls } = withDeps({ "forge:get": new Error("GitHub returned 404 Not Found") });
+    const res = (await call(deps, { repoName: GH })) as any;
+    expect(res.ok).toBe(true);
+    expect(calls.find((c) => c.name === "forge:get")!.payload).toEqual({ repoName: GH, path: ":repo" });
+    expect(res.body.rows.map((r: any) => r.stacked)).toEqual([null, null, null]);
+    expect(res.body.rows.map((r: any) => r.ref)).toEqual(["#1", "#2", "#3"]);
   });
 
-  test("the description starts GitLab only, says live, and names the target rule", () => {
+  test("the description names no single forge, says read live from the forge, and names the target rule", () => {
     const t = tool(fake().deps, "mr_map");
-    expect(t.description).toStartWith("GitLab only.");
-    expect(t.description).toContain("live");
+    expect(t.description).not.toContain("GitLab only");
+    expect(t.description).toContain("read live from the forge");
+    expect((t.shellForms as any).none).toContain("read live from the forge");
     expect(t.description).toContain("200");
     expect(t.description).toContain("Name the target with repoName");
     expect(Object.keys((t.inputSchema as any).properties).sort()).toEqual(["author", "mrUrl", "repo", "repoName"]);

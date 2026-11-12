@@ -1,7 +1,7 @@
 /**
  * Composite tools: each answers in one call what a skill otherwise strings
- * together from several reads. mr_resolve_branch and mr_posted_since speak
- * GitHub; the rest refuse a github.com identity before any daemon call.
+ * together from several reads. mr_resolve_branch, mr_posted_since and mr_map
+ * speak GitHub; the rest refuse a github.com identity before any daemon call.
  */
 import { readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion, GateRow } from "../../packages/rt-client/src/index.ts";
@@ -194,10 +194,9 @@ function checkItems(v: unknown): string | ItemQuery[] {
 }
 
 const MR_MAP_LIMIT = 200;
-const MR_MAP_GH_MOVE = "gh pr list --author @me and the worktree list";
 
 async function defaultBranchOf(deps: MrCompositeDeps, identity: string): Promise<string | null> {
-  const r = await deps.command<Commands["forge:get"]["data"]>("forge:get", { repoName: identity, path: "projects/:id" }, { timeoutMs: READ_TIMEOUT_MS });
+  const r = await deps.command<Commands["forge:get"]["data"]>("forge:get", { repoName: identity, path: githubProjectOf(identity) ? ":repo" : "projects/:id" }, { timeoutMs: READ_TIMEOUT_MS });
   const branch = r.ok ? (r.data?.body as { default_branch?: unknown } | null)?.default_branch : undefined;
   return typeof branch === "string" && branch ? branch : null;
 }
@@ -1028,7 +1027,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "mr_map",
-      description: `GitLab only. A repo's open MRs joined to the local worktrees holding their branches, read live from GitLab on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_TARGET_RULE}`,
+      description: `A repo's open MRs joined to the local worktrees holding their branches, read live from the forge on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_TARGET_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -1038,20 +1037,17 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         },
         additionalProperties: false,
       },
-      shellForms: { none: "joins a live GitLab MR list to the local worktrees; no shell command is equivalent" },
+      shellForms: { none: "joins an open MR list read live from the forge to the local worktrees; no shell command is equivalent" },
       async handler(input) {
         if (input.repoName !== undefined && input.repo !== undefined) return err("pass repoName, not both repoName and repo");
         if (input.repo !== undefined && typeof input.repo !== "string") return err('"repo" must be a string');
         if (input.author !== undefined && (typeof input.author !== "string" || !input.author.trim())) return err('"author" must be a GitLab username or "me"');
         const targetInput = { repoName: input.repoName ?? input.repo, mrUrl: input.mrUrl };
 
-        const early = refuseGithubTarget(targetInput, "mr_map", MR_MAP_GH_MOVE);
-        if (early) return err(early);
-        const target = await resolveRepoTarget(targetInput);
+        const target = await resolveRepoTarget(targetInput, { github: true });
         if (!target.ok) return err(target.error);
-        const refused = githubRefusal(target.identity, "mr_map", MR_MAP_GH_MOVE);
-        if (refused) return err(refused);
         const identity = target.identity;
+        const github = githubProjectOf(identity) !== null;
 
         const listPayload: Record<string, unknown> = { repoName: identity, state: "opened", limit: MR_MAP_LIMIT };
         if (typeof input.author === "string") listPayload.author = input.author.trim();
@@ -1072,7 +1068,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         const dirtyByPath = await dirtyPerWorktree(deps, joined.map((row) => row.worktree));
         const rows = joined.map((row): MrMapRow => {
           const { mrState, ciStatus, ...head } = row;
-          return { ...head, dirty: row.worktree === null ? null : (dirtyByPath.get(row.worktree) ?? null), mrState, ciStatus };
+          return { ...head, ...(github && { ref: `#${row.iid}` }), dirty: row.worktree === null ? null : (dirtyByPath.get(row.worktree) ?? null), mrState, ciStatus };
         });
         return ok({ rows, complete: !list.data.truncated });
       },
