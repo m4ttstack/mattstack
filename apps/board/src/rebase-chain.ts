@@ -46,6 +46,15 @@ function stepAfterForge(kind: ForgeKind, result: ForgeRebaseResult): ForgeStep {
   };
 }
 
+function stopOnThrow(
+  write: RebaseChainDeps['write'],
+  err: unknown
+): RebaseChainEnd {
+  const message = err instanceof Error ? err.message : String(err);
+  write({ status: 'sync-stopped', message });
+  return { kind: 'stopped', message };
+}
+
 export async function runRebaseChain(
   deps: RebaseChainDeps
 ): Promise<RebaseChainEnd> {
@@ -63,11 +72,17 @@ export async function runRebaseChain(
       status: 'forge-rebasing',
       forge: { forge: forgeKind, state: 'running' },
     });
-    const result = await deps.forge();
+    let result: ForgeRebaseResult;
+    try {
+      result = await deps.forge();
+    } catch (err) {
+      return stopOnThrow(write, err);
+    }
     if (result.kind === 'cancelled') {
       write({
         status: 'sync-stopped',
         message: 'cancelled; the forge may still be rebasing',
+        forge: { forge: forgeKind, state: 'failed', detail: 'cancelled' },
       });
       return { kind: 'cancelled' };
     }
@@ -90,7 +105,12 @@ export async function runRebaseChain(
   }
 
   write({ status: 'syncing', forge });
-  const outcome = await deps.sync();
+  let outcome: LocalSyncOutcome;
+  try {
+    outcome = await deps.sync();
+  } catch (err) {
+    return stopOnThrow(write, err);
+  }
   const syncLog = outcome.log;
 
   if (outcome.kind === 'clean') {

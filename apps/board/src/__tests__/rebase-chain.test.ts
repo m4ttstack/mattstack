@@ -158,6 +158,53 @@ describe('runRebaseChain', () => {
     expect(h.patches.at(-1)).toMatchObject({
       status: 'sync-stopped',
       message: 'cancelled; the forge may still be rebasing',
+      forge: { forge: 'gitlab', state: 'failed', detail: 'cancelled' },
+    });
+  });
+
+  test('a forge that throws stops the chain with its message', async () => {
+    const patches: Patch[] = [];
+    let synced = 0;
+    const end = await runRebaseChain({
+      forge: async () => {
+        throw new Error('gitlab token not configured');
+      },
+      forgeKind: 'gitlab',
+      skipForge: false,
+      sync: async () => {
+        synced++;
+        return { kind: 'clean', message: 'rebased and pushed', log: [] };
+      },
+      write: patch => patches.push(patch),
+      hasDoctor: true,
+    });
+    expect(synced).toBe(0);
+    expect(end).toEqual({
+      kind: 'stopped',
+      message: 'gitlab token not configured',
+    });
+    expect(patches.at(-1)).toMatchObject({
+      status: 'sync-stopped',
+      message: 'gitlab token not configured',
+    });
+  });
+
+  test('a sync that throws stops the chain with its message', async () => {
+    const patches: Patch[] = [];
+    const end = await runRebaseChain({
+      forge: async () => ({ kind: 'unclear' }),
+      forgeKind: 'gitlab',
+      skipForge: false,
+      sync: async () => {
+        throw new Error('daemon gone');
+      },
+      write: patch => patches.push(patch),
+      hasDoctor: true,
+    });
+    expect(end).toEqual({ kind: 'stopped', message: 'daemon gone' });
+    expect(patches.at(-1)).toMatchObject({
+      status: 'sync-stopped',
+      message: 'daemon gone',
     });
   });
 

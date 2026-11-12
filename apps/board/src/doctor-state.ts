@@ -236,14 +236,16 @@ export const FRESH_SYNC_ROW = {
 } as unknown as Partial<DoctorState>;
 
 /** A doctor launch that is not a sync's hand-off starts with no paused
-    tree and no sync output from an earlier run. */
+    tree, no sync output and no forge step from an earlier run. */
 export const NO_SYNC_CARRY = {
   pausedTree: null,
   syncLog: null,
+  forge: null,
 } as unknown as Partial<DoctorState>;
 
-/** A sync runs inside this server's request, so a `syncing` row with no
-    running sync is one a restart cut off, and nothing else would end it. */
+/** A sync and its forge wait run inside this server's request, so a
+    `syncing` or `forge-rebasing` row with no running chain is one a restart
+    cut off, and nothing else would end it. */
 export function failOrphanedSyncs(
   running: ReadonlySet<string>,
   now: number = Date.now(),

@@ -163,6 +163,12 @@ import {
   type FlockMenu,
 } from './flock-open.ts';
 import { focusPane } from './focus-pane.ts';
+import {
+  forgeRebase,
+  githubRebaseDeps,
+  gitlabRebaseDeps,
+  type ForgeRebaseResult,
+} from './forge-rebase.ts';
 import { answerGate } from './gates/answer.ts';
 import {
   answeredWinner,
@@ -255,7 +261,7 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
-import { mrRef, onGitHub } from './mr-ref.ts';
+import { forgeWord, mrRef, onGitHub } from './mr-ref.ts';
 import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
   acceptAsk,
@@ -340,6 +346,7 @@ import {
   slackMatchPayload,
   type SlackMatch,
 } from './peer/slack-match.ts';
+import { runRebaseChain } from './rebase-chain.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
@@ -629,6 +636,61 @@ async function gitlab(): Promise<GitLabProvider> {
   if (!token) throw new Error('gitlab token not configured');
   gitlabProvider ??= new GitLabProvider(gitlabOnly(config), token);
   return gitlabProvider;
+}
+
+/** The rebase chain running on each MR, for POST /rebase/cancel. */
+const REBASE_ABORTS = new Map<string, AbortController>();
+
+/** A poll wait that a cancel cuts short. */
+function abortableSleep(signal: AbortSignal): (ms: number) => Promise<void> {
+  return ms =>
+    new Promise(resolve => {
+      if (signal.aborted) return resolve();
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      signal.addEventListener('abort', done, { once: true });
+    });
+}
+
+/** Step 1 of the rebase chain: the MR's own forge rebases it. A cancel
+    answers at once, even while a forge read is still out. */
+async function rebaseOnForge(
+  mr: BoardMR,
+  signal: AbortSignal
+): Promise<ForgeRebaseResult> {
+  const failed = (reason: string): ForgeRebaseResult => ({
+    kind: 'failed',
+    reason,
+    conflicts: false,
+  });
+  let deps: ReturnType<typeof gitlabRebaseDeps>;
+  if (onGitHub(mr)) {
+    const repoName = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
+    if (!repoName) return failed('this MR has no rt repo');
+    deps = githubRebaseDeps(repoName, mr.iid);
+  } else {
+    const path = mr.webUrl ? projectPathFromWebUrl(mr.webUrl, config) : null;
+    if (!path) return failed('this MR has no GitLab project');
+    try {
+      deps = gitlabRebaseDeps(await gitlab(), path, mr.iid);
+    } catch (err) {
+      return failed(err instanceof Error ? err.message : String(err));
+    }
+  }
+  const cancelled = new Promise<ForgeRebaseResult>(resolve => {
+    if (signal.aborted) resolve({ kind: 'cancelled' });
+    signal.addEventListener('abort', () => resolve({ kind: 'cancelled' }), {
+      once: true,
+    });
+  });
+  return Promise.race([
+    forgeRebase({ ...deps, signal, sleep: abortableSleep(signal) }),
+    cancelled,
+  ]);
 }
 
 // Daemon-backed gate rows for the board-row read (attachGates below). Fed by
@@ -3203,14 +3265,6 @@ const httpServer = Bun.serve({
           parsed.mrUrl,
           boardTabId
         );
-        // A rebase-only doctor with no domain skill has nothing that can
-        // rebase in a checkout, and its empty allowlist rules out GitLab's
-        // own rebase too, so it could only end in an error.
-        if (parsed.mode === 'rebase' && !doctorSkill)
-          return new Response(
-            'no doctor skill is set up for this board tab, so nothing can rebase in a checkout',
-            { status: 409 }
-          );
         const statePath = doctorFilePath(parsed.mrUrl);
         const doctorRefusal = await skillBindRefusal(doctorSkill);
         if (doctorRefusal) {
@@ -3232,57 +3286,70 @@ const httpServer = Bun.serve({
               status: 409,
             });
           LOCAL_SYNCS.add(parsed.mrUrl);
+          const abort = new AbortController();
+          REBASE_ABORTS.set(parsed.mrUrl, abort);
           const endLive = startLiveSync(parsed.mrUrl, repo, mr.sourceBranch);
           sseSyncStart(parsed.mrUrl);
           try {
             const priorPaused = existing?.pausedTree;
+            const skipForge = !!mr.blockers?.hasConflicts;
             writeDoctorState(statePath, {
               mrUrl: parsed.mrUrl,
               iid: parsed.iid,
-              status: 'syncing',
+              status: skipForge ? 'syncing' : 'forge-rebasing',
               origin: 'manual',
               boardTabId: boardTabId ?? '',
               ...FRESH_SYNC_ROW,
               syncLog: [],
+              forge: null as unknown as undefined,
             });
-            const outcome = await syncBranchLocally(
-              repo,
-              mr.sourceBranch,
-              priorPaused
-            );
-            // The reply's log is whole; streamed lines can land after it.
-            const syncLog = outcome.log.length
-              ? outcome.log
-              : (LIVE_SYNC_LOGS.get(parsed.mrUrl) ?? []);
-            if (outcome.kind === 'clean') {
-              writeDoctorState(statePath, {
-                status: 'synced',
-                message: outcome.message,
-                pausedTree: null as unknown as undefined,
-                syncLog,
-                pipelineAtSync:
-                  mr.pipeline?.id ?? (null as unknown as undefined),
-              });
-              return Response.json({ ok: true, synced: outcome.message });
-            }
-            if (outcome.kind === 'stopped') {
-              writeDoctorState(statePath, {
-                status: 'sync-stopped',
-                message: outcome.message,
-                pausedTree: null as unknown as undefined,
-                syncLog,
-              });
-              return Response.json({ ok: true, stopped: outcome.message });
-            }
-            pausedTree = outcome.tree;
-            writeDoctorState(statePath, {
-              status: 'queued',
-              pausedTree,
-              syncLog,
+            const end = await runRebaseChain({
+              forge: () => rebaseOnForge(mr, abort.signal),
+              forgeKind: forgeWord(mr),
+              skipForge,
+              sync: async () => {
+                const outcome = await syncBranchLocally(
+                  repo,
+                  mr.sourceBranch,
+                  priorPaused
+                );
+                // The reply's log is whole; streamed lines can land after it.
+                return outcome.log.length
+                  ? outcome
+                  : {
+                      ...outcome,
+                      log: LIVE_SYNC_LOGS.get(parsed.mrUrl) ?? [],
+                    };
+              },
+              write: patch =>
+                writeDoctorState(
+                  statePath,
+                  patch as Partial<DoctorState> & { status: DoctorStatus }
+                ),
+              hasDoctor: !!doctorSkill,
+              pipelineAtSync: mr.pipeline?.id,
             });
+            switch (end.kind) {
+              case 'forge-done':
+                cache.invalidate();
+                return Response.json({ ok: true, synced: end.message });
+              case 'synced':
+                return Response.json({ ok: true, synced: end.message });
+              case 'stopped':
+                return Response.json({ ok: true, stopped: end.message });
+              case 'cancelled':
+                return Response.json({ ok: true, cancelled: true });
+            }
+            if (!end.doctor)
+              return Response.json({
+                ok: true,
+                stopped: `paused in ${end.tree}; no doctor on this tab`,
+              });
+            pausedTree = end.tree;
           } finally {
             endLive();
             LOCAL_SYNCS.delete(parsed.mrUrl);
+            REBASE_ABORTS.delete(parsed.mrUrl);
           }
         }
         const triage = loadTriageConfig();
@@ -3405,6 +3472,34 @@ const httpServer = Bun.serve({
         return new Response(JSON.stringify({ ok: true }), {
           headers: { 'content-type': 'application/json' },
         });
+      }
+      case '/rebase/cancel': {
+        // Ends a rebase chain while it waits on the forge. A forge rebase
+        // already under way is not stopped.
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const mrUrl = (body as { mrUrl?: unknown } | null)?.mrUrl;
+        if (typeof mrUrl !== 'string')
+          return new Response('expected { mrUrl: string }', { status: 400 });
+        const abort = REBASE_ABORTS.get(mrUrl);
+        const waiting =
+          !!abort &&
+          !abort.signal.aborted &&
+          readDoctorStates().get(mrUrl)?.status === 'forge-rebasing';
+        if (waiting) abort.abort();
+        return Response.json({ ok: true, cancelled: waiting });
       }
       case '/review/finding-question': {
         // Types the human's question about one finding into the review
