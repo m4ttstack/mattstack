@@ -3,11 +3,14 @@ import { dirname } from "path";
 import { childEnv } from "../subprocess.ts";
 import { warn } from "../ui/warn.ts";
 import { maskProvenanceVersion } from "./base-attachments.ts";
+import { HEADER_COMMENTS } from "./compile.ts";
 import { LOCK_REL } from "./compiled-lock.ts";
+import { isEmittedAttachmentText } from "./emitted.ts";
+import { FRONTMATTER_RE } from "./frontmatter-re.ts";
 import { maskProvenance } from "./provenance.ts";
 
 /** Bump whenever maskStamps or isVersionOnly changes what they fold, so every cached answer is worked out again. */
-export const CLASSIFY_RULE = 1;
+export const CLASSIFY_RULE = 2;
 
 const DIRTY_FLAG_RE = /(--mattstack-dirty )[01]\b/g;
 const OPENING_LINE_RE = /^Pointers here are `@keys`\..*$/gm;
@@ -15,6 +18,8 @@ const UNIT_ID_VERSION_RE = /([a-z0-9][a-z0-9-]*)@\d+(?:\.\d+)*:(?=[a-z0-9])/g;
 const MAP_ID_LINE_RE = /^(\s*(?:"id": )?")([a-z0-9][a-z0-9-]*)@\d+(?:\.\d+)*:([a-z0-9][a-z0-9-]*",?)$/gm;
 const JSON_STRING_RE = /"(?:[^"\\\n]|\\.)*"/g;
 const MIN_ENGINE_RE = /("minEngine"\s*:\s*)"[^"\n]*"/;
+const SEAM_LINE_RE = /^<!-- part: /m;
+const OPENING_LINE_START = "Pointers here are `@keys`.";
 
 const endsWith = (path: string, rel: string) => path === rel || path.endsWith(`/${rel}`);
 
@@ -30,12 +35,56 @@ function maskManifestVersion(text: string): string {
   return `${JSON.stringify({ ...parsed, version: "*" })}\n${text.replace(JSON_STRING_RE, '""')}`;
 }
 
-/** A file's text with every version stamp an old or current compile, bump or sync writes masked, so two texts that differ only in stamps compare equal. */
+const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * Which targets the lock records, with the plugins each was compiled from, and which bases: losing one loses a
+ * run's provenance. The versions and shas are stamps, and so is whether a mattstack sha is kept, which follows
+ * where mattstack was compiled from.
+ */
+function maskLock(text: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  if (!isRecord(parsed)) return text;
+  const keysOf = (v: unknown) => (isRecord(v) ? Object.keys(v).sort() : []);
+  const targets = isRecord(parsed.targets) ? parsed.targets : {};
+  return JSON.stringify({ targets: Object.keys(targets).sort().map((t) => [t, keysOf(targets[t])]), bases: keysOf(parsed.bases) });
+}
+
+function isPointerMapText(text: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) && typeof parsed.id === "string" && typeof parsed.dir === "string" && Array.isArray(parsed.covers) && isRecord(parsed.keys);
+  } catch {
+    return false;
+  }
+}
+
+/** Compile marks its output with its header or a seam; a file it copies carries neither, only its line opening the body. */
+function isCompilerOutput(text: string): boolean {
+  if (HEADER_COMMENTS.some((h) => text.includes(h)) || SEAM_LINE_RE.test(text)) return true;
+  const head = text.match(FRONTMATTER_RE)?.[0] ?? "";
+  return text.slice(head.length).trimStart().startsWith(OPENING_LINE_START);
+}
+
+/**
+ * A file's text with every version stamp an old or current compile, bump or sync writes masked, so two texts that
+ * differ only in stamps compare equal. An authored file is compared as written: a run flag or a version in it is
+ * the author's.
+ */
 export function maskStamps(path: string, text: string): string {
-  if (endsWith(path, LOCK_REL)) return "<compiled lock>";
+  if (endsWith(path, LOCK_REL)) return maskLock(text);
   if (endsWith(path, ".claude-plugin/plugin.json")) return maskManifestVersion(text);
   if (endsWith(path, "pack/requires.json")) return text.replace(MIN_ENGINE_RE, '$1"*"');
-  if (path.split("/").pop() === "compiled.json") return maskProvenanceVersion(text).replace(MAP_ID_LINE_RE, "$1$2@*:$3");
+  if (path.split("/").pop() === "compiled.json") {
+    if (!isEmittedAttachmentText(text) && !isPointerMapText(text)) return text;
+    return maskProvenanceVersion(text).replace(MAP_ID_LINE_RE, "$1$2@*:$3");
+  }
+  if (!isCompilerOutput(text)) return text;
   return maskProvenance(text)
     .replace(DIRTY_FLAG_RE, "$1*")
     .replace(OPENING_LINE_RE, (line) => line.replace(UNIT_ID_VERSION_RE, "$1@*:"));

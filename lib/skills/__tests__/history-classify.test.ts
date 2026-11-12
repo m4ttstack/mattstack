@@ -291,7 +291,7 @@ describe("maskStamps", () => {
 
   test("a reference parenthetical that is not <binding>@<version> stays real", () => {
     const path = `${PACK}/skills/work/SKILL.md`;
-    const line = (paren: string) => `For review, invoke the \`acme-base:review\` skill (${paren}) when this flow needs it.\n`;
+    const line = (paren: string) => `<!-- part: prop:review binding=acme-base:review lines=2-2 -->\nFor review, invoke the \`acme-base:review\` skill (${paren}) when this flow needs it.\n`;
     expect(maskStamps(path, line("acme-base:review@0.2.3"))).toBe(maskStamps(path, line("acme-base:review@0.2.4")));
     expect(maskStamps(path, line("optional"))).not.toBe(maskStamps(path, line("required")));
     expect(maskStamps(path, line("acme-base:other@0.2.3"))).not.toBe(maskStamps(path, line("acme-base:review@0.2.3")));
@@ -320,8 +320,19 @@ describe("maskStamps", () => {
     expect(maskStamps(path, reordered)).not.toBe(maskStamps(path, manifest("1.0.0")));
   });
 
-  test("masks the lock to a constant", () => {
-    expect(maskStamps(`${PACK}/pack/compiled.lock.json`, lock("1", "a"))).toBe(maskStamps(`${PACK}/pack/compiled.lock.json`, "{}"));
+  test("masks the lock's versions and shas but keeps which targets, plugins and bases it records", () => {
+    const path = `${PACK}/pack/compiled.lock.json`;
+    expect(maskStamps(path, lock("1", "a"))).toBe(maskStamps(path, lock("2", "b")));
+    const parsed = JSON.parse(lock("1", "a"));
+    const withMattstack = (sha: Record<string, string>) => JSON.stringify({ ...parsed, mattstackSha: sha, mattstackDirty: Object.fromEntries(Object.keys(sha).map((k) => [k, 1])) });
+    expect(maskStamps(path, withMattstack({}))).toBe(maskStamps(path, withMattstack({ "skills/work": "abc1234" })));
+    for (const edited of [
+      { ...parsed, targets: {} },
+      { ...parsed, targets: { ...parsed.targets, "skills/plan": { mattstack: "0.32.56" } } },
+      { ...parsed, targets: { "skills/work": { mattstack: "0.32.56" } } },
+      { ...parsed, bases: {} },
+    ]) expect(maskStamps(path, JSON.stringify(edited))).not.toBe(maskStamps(path, lock("1", "a")));
+    expect(maskStamps(path, lock("1", "a"))).not.toBe(maskStamps(path, "{}"));
   });
 
   test("masks only the version of plugin.json and only minEngine of requires.json", () => {
@@ -330,6 +341,30 @@ describe("maskStamps", () => {
     expect(maskStamps(manifest, pluginJson("1.0.0"))).not.toBe(maskStamps(manifest, pluginJson("1.0.0").replace("The acme pack", "Another")));
     const requires = `${PACK}/pack/requires.json`;
     expect(maskStamps(requires, `{ "minEngine": "1.0.0" }\n`)).toBe(maskStamps(requires, `{ "minEngine": "2.0.0" }\n`));
+  });
+
+  test("an authored file's run flags, compiled: line and reference versions are not stamps", () => {
+    const fill = `${PACK}/fills/goal.md`;
+    const flags = (sha: string, dirty: string) => `rt run start --mattstack-sha ${sha} --mattstack-dirty ${dirty} --pack-sha acme=${sha}\n`;
+    expect(maskStamps(fill, flags("abc1234", "0"))).not.toBe(maskStamps(fill, flags("def5678", "0")));
+    expect(maskStamps(fill, flags("abc1234", "0"))).not.toBe(maskStamps(fill, flags("abc1234", "1")));
+    expect(maskStamps(fill, `  compiled: "a@1"\n`)).not.toBe(maskStamps(fill, `  compiled: "a@2"\n`));
+    const ref = (v: string) => `For review, invoke the \`acme-base:review\` skill (acme-base:review@${v}) when this flow needs it.\n`;
+    expect(maskStamps(fill, ref("0.2.3"))).not.toBe(maskStamps(fill, ref("0.2.4")));
+  });
+
+  test("a copied file opening with the compiler's line is output, though it carries no header", () => {
+    const copied = `${PACK}/skills/work/references/guide.md`;
+    const body = (pack: string) => `${skillMd({ ...V1, pack }).split("\n")[6]}\n\nRead @work/guide.md first.\n`;
+    expect(maskStamps(copied, body("0.4.11"))).toBe(maskStamps(copied, body("0.4.12")));
+    const quoted = (pack: string) => `Some prose first.\n\n${skillMd({ ...V1, pack }).split("\n")[6]}\n`;
+    expect(maskStamps(copied, quoted("0.4.11"))).not.toBe(maskStamps(copied, quoted("0.4.12")));
+  });
+
+  test("a hand-written compiled.json is not compiler output", () => {
+    const path = `${PACK}/fills/data/compiled.json`;
+    const data = (v: string) => JSON.stringify({ name: "widget", version: v, id: `acme@${v}:work` }, null, 2) + "\n";
+    expect(maskStamps(path, data("1.0.0"))).not.toBe(maskStamps(path, data("2.0.0")));
   });
 
   test("a version line in a fill body is not a stamp", () => {
