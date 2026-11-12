@@ -525,6 +525,20 @@ describe("mcpTools", () => {
       expect(calls[0]!.payload).toEqual({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a", "b"], squash: true });
     });
 
+    test("a GitHub create whose labels step failed says in plain words that the PR exists and which step to re-apply", async () => {
+      const failedSteps = [{ step: "labels", message: "422 label does not exist" }, { step: "reviewers", message: "404 no such user" }];
+      fakeDaemon(() => ({ ok: true, data: { iid: 9, url: "https://github.com/acme/app/pull/9", failedSteps } }));
+      const tool = mcpTools().find((t) => t.name === "mr_create")!;
+      const res = await tool.handler({ repoName: "remote:github.com%2Facme%2Fapp", sourceBranch: "feat", targetBranch: "main", title: "T", labels: ["a"] }, {} as NodeJS.ProcessEnv);
+      expect(res).toEqual({
+        ok: true,
+        body: {
+          iid: 9, url: "https://github.com/acme/app/pull/9", failedSteps,
+          incomplete: "Pull request #9 was created, but its labels step (422 label does not exist) and reviewers step (404 no such user) did not apply. Do not create it again; add what is missing to #9.",
+        },
+      });
+    });
+
     describe("mr_create ifExists", () => {
       const base = { repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T", ifExists: "return" };
       const OPEN = { iid: 7, title: "Existing", draft: true, webUrl: "https://gitlab.example.com/acme/app/-/merge_requests/7", sourceBranch: "feat", targetBranch: "develop" };
@@ -587,6 +601,33 @@ describe("mcpTools", () => {
         const res = await create().handler({ ...base, ifExists: "update" }, {} as NodeJS.ProcessEnv);
         expect(res.error).toBe('"ifExists" must be "return"');
         expect(calls).toEqual([]);
+      });
+
+      test("a fork's open PR on a same-named branch is not this repo's PR, so the create goes ahead", async () => {
+        const GH = "remote:github.com%2Facme%2Fapp";
+        const FORK = { ...OPEN, webUrl: "https://github.com/acme/app/pull/7", sourceProjectPath: "someone/app" };
+        const calls = fakeDaemon((cmd) => (cmd === "mr:live-by-branch" ? { ok: true, data: { byBranch: { feat: FORK } } } : { ok: true, data: { iid: 8, url: "https://github.com/acme/app/pull/8" } }));
+        const res = await create().handler({ ...base, repoName: GH }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 8, url: "https://github.com/acme/app/pull/8", existing: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch", "mr:create"]);
+      });
+
+      test("an open PR whose head repo the token cannot see is not taken for this repo's PR", async () => {
+        const GH = "remote:github.com%2Facme%2Fapp";
+        const HIDDEN = { ...OPEN, webUrl: "https://github.com/acme/app/pull/7" };
+        const calls = fakeDaemon((cmd) => (cmd === "mr:live-by-branch" ? { ok: true, data: { byBranch: { feat: HIDDEN } } } : { ok: true, data: { iid: 8, url: "u" } }));
+        const res = await create().handler({ ...base, repoName: GH }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 8, url: "u", existing: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch", "mr:create"]);
+      });
+
+      test("this repo's own open PR is returned", async () => {
+        const GH = "remote:github.com%2Facme%2Fapp";
+        const OWN = { ...OPEN, webUrl: "https://github.com/acme/app/pull/7", sourceProjectPath: "acme/app" };
+        const calls = fakeDaemon(() => ({ ok: true, data: { byBranch: { feat: OWN } } }));
+        const res = await create().handler({ ...base, repoName: GH }, {} as NodeJS.ProcessEnv);
+        expect(res).toEqual({ ok: true, body: { iid: 7, url: OWN.webUrl, existing: true, targetBranch: "develop", draft: true, title: "Existing", applied: false } });
+        expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch"]);
       });
 
       test("a GitHub repo looks for the open PR, then creates one, with its identity", async () => {
@@ -911,12 +952,39 @@ describe("mcpTools", () => {
         expect(calls).toEqual([]);
       });
 
-      test("wait on a GitHub repo or mrUrl is refused with no call", async () => {
-        const calls = fakeDaemon();
-        const expected = "GitLab only: mr_rebase does not speak GitHub; no server-side rebase on GitHub";
-        expect((await rebase().handler({ repoName: "remote:github.com%2Facme%2Fapp", iid: 3, wait: true }, {} as NodeJS.ProcessEnv)).error).toBe(expected);
-        expect((await rebase().handler({ mrUrl: "https://github.com/acme/app/pull/3", wait: true }, {} as NodeJS.ProcessEnv)).error).toBe(expected);
-        expect(calls).toEqual([]);
+      describe("on GitHub", () => {
+        const GH_T = { repoName: "remote:github.com%2Facme%2Fapp", iid: 3 };
+        const PR = (sha: string) => ({ ok: true, data: { mr: { sha, rebaseInProgress: false, mergeError: null, conflicts: true, divergedCommitsCount: null } } });
+
+        test("without wait it asks GitHub to rebase and says the request was accepted", async () => {
+          const calls = fakeDaemon();
+          const res = await rebase().handler({ ...GH_T }, {} as NodeJS.ProcessEnv);
+          expect(res).toEqual({ ok: true, body: { rebased: true } });
+          expect(calls.map((c) => [c.cmd, c.payload])).toEqual([["mr:action", { ...GH_T, action: "rebase", args: [] }]]);
+        });
+
+        test("wait reads the PR back and reports the moved head, though GitHub still flags conflicts and no divergence", async () => {
+          let gets = 0;
+          const calls = fakeDaemon((cmd) => (cmd === "mr:get" ? PR(gets++ === 0 ? "old" : "new") : { ok: true }));
+          const res = await rebase().handler({ ...GH_T, wait: true, maxWaitSeconds: 30 }, {} as NodeJS.ProcessEnv);
+          expect(res).toEqual({ ok: true, body: { status: "rebased", sha: "new", previousSha: "old" } });
+          expect(calls.map((c) => c.cmd)).toEqual(["mr:get", "mr:action", "mr:get"]);
+        });
+
+        test("a head that has not moved when the budget runs out is pending, never failed or current", async () => {
+          const calls = fakeDaemon((cmd) => (cmd === "mr:get" ? PR("old") : { ok: true }));
+          const res = await rebase().handler({ ...GH_T, wait: true, maxWaitSeconds: 1 }, {} as NodeJS.ProcessEnv);
+          expect(res).toEqual({ ok: true, body: { status: "pending", sha: "old" } });
+          expect(calls.map((c) => c.cmd)).toEqual(["mr:get", "mr:action", "mr:get"]);
+        });
+
+        test("a failed last read is named when the budget ends on it", async () => {
+          let gets = 0;
+          fakeDaemon((cmd) => (cmd === "mr:get" ? (gets++ === 0 ? PR("old") : { ok: false, error: "GitHub returned 502" }) : { ok: true }));
+          const res = await rebase().handler({ ...GH_T, wait: true, maxWaitSeconds: 1 }, {} as NodeJS.ProcessEnv);
+          expect(res).toMatchObject({ ok: true, body: { status: "pending", sha: "old" } });
+          expect((res.body as { lastError?: string }).lastError).toContain("502");
+        });
       });
 
       test("schema offers wait and maxWaitSeconds (1 to 600) and the description names the statuses", () => {
@@ -1106,30 +1174,27 @@ describe("mcpTools", () => {
         expect(calls).toEqual([]);
       });
 
-      test("tools whose verbs do not answer on GitHub keep refusing it, with no daemon call", async () => {
+      test("mr_rebase takes a GitHub PR URL, with or without wait, as its target", async () => {
         setKvValue(REPO_INDEX_NS, GH, "/repos/ghapp");
-        const calls = fakeDaemon();
-        const inputs: Record<string, Record<string, unknown>> = {
-          mr_rebase: {},
-        };
-        for (const [name, input] of Object.entries(inputs)) {
-          const res = await mcpTools().find((t) => t.name === name)!.handler({ ...input, mrUrl: PR }, {} as NodeJS.ProcessEnv);
-          expect(res.ok, name).toBe(false);
-        }
-        const wait = await mcpTools().find((t) => t.name === "mr_rebase")!.handler({ mrUrl: PR, wait: true }, {} as NodeJS.ProcessEnv);
-        expect(wait.error).toBe("GitLab only: mr_rebase does not speak GitHub; no server-side rebase on GitHub");
-        expect(calls).toEqual([]);
+        const calls = fakeDaemon((cmd) => (cmd === "mr:get" ? { ok: true, data: { mr: { sha: calls.length > 2 ? "new" : "old" } } } : { ok: true }));
+        const rebase = mcpTools().find((t) => t.name === "mr_rebase")!;
+        expect((await rebase.handler({ mrUrl: PR }, {} as NodeJS.ProcessEnv)).ok).toBe(true);
+        expect(await rebase.handler({ mrUrl: PR, wait: true, maxWaitSeconds: 1 }, {} as NodeJS.ProcessEnv)).toEqual({ ok: true, body: { status: "rebased", sha: "new", previousSha: "old" } });
+        expect(calls.map((c) => [c.cmd, c.payload])).toEqual([
+          ["mr:action", { repoName: GH, iid: 3, action: "rebase", args: [] }],
+          ["mr:get", { repoName: GH, iid: 3 }],
+          ["mr:action", { repoName: GH, iid: 3, action: "rebase", args: [] }],
+          ["mr:get", { repoName: GH, iid: 3 }],
+        ]);
       });
 
       test("descriptions say GitLab only exactly where the tool still is", () => {
         const describe = (name: string) => mcpTools().find((t) => t.name === name)!.description;
-        for (const name of ["mr_approve", "mr_ready", "mr_retry", "mr_update", "mr_create", "mr_merge", "mr_reply_thread", "mr_update_note", "mr_comment_inline", "mr_comment", "mr_review_submit", "mr_resolve_thread"]) {
+        for (const name of ["mr_approve", "mr_ready", "mr_retry", "mr_update", "mr_create", "mr_merge", "mr_rebase", "mr_reply_thread", "mr_update_note", "mr_comment_inline", "mr_comment", "mr_review_submit", "mr_resolve_thread"]) {
           expect(describe(name), name).not.toContain("GitLab only");
           expect(describe(name), name).toContain("github.com/<owner>/<repo>/pull/<number>");
         }
-        for (const name of ["mr_rebase", "mr_upload"]) {
-          expect(describe(name), name).toStartWith("GitLab only.");
-        }
+        expect(describe("mr_upload")).toStartWith("GitLab only.");
       });
     });
 

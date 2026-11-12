@@ -289,13 +289,27 @@ describe("mr_resolve_branch", () => {
   });
 
   test("a GitHub identity reads the PR and the trees on its branch", async () => {
-    const { deps, calls } = fake(answers({ "mr:get": { mr: mr({ iid: 3, webUrl: "https://github.com/acme/app/pull/3" }), fetchedAt: 5 } }));
+    const { deps, calls } = fake(answers({ "mr:get": { mr: mr({ iid: 3, webUrl: "https://github.com/acme/app/pull/3", sourceProjectPath: "acme/app" }), fetchedAt: 5 } }));
     const res = await tool(deps, "mr_resolve_branch").handler({ repoName: GH, iid: 3 }, ENV);
-    expect(res).toMatchObject({ ok: true, body: { iid: 3, sourceBranch: "feat-x", webUrl: "https://github.com/acme/app/pull/3", trees: [{ name: "a" }] } });
+    expect(res).toMatchObject({ ok: true, body: { iid: 3, sourceBranch: "feat-x", webUrl: "https://github.com/acme/app/pull/3", sourceProjectPath: "acme/app", trees: [{ name: "a" }] } });
     expect(calls).toEqual([
       { name: "mr:get", payload: { repoName: GH, iid: 3 } },
       { name: "worktree:list", payload: { repoName: GH } },
     ]);
+  });
+
+  test("a fork's PR on a same-named branch lists no trees and names the fork", async () => {
+    const { deps } = fake(answers({ "mr:get": { mr: mr({ iid: 3, webUrl: "https://github.com/acme/app/pull/3", sourceProjectPath: "someone/app" }), fetchedAt: 5 } }));
+    const res = await tool(deps, "mr_resolve_branch").handler({ repoName: GH, iid: 3 }, ENV);
+    expect(res).toMatchObject({ ok: true, body: { sourceBranch: "feat-x", sourceProjectPath: "someone/app", trees: [] } });
+  });
+
+  test("a PR whose head repo was deleted, or that the token cannot see, lists no trees", async () => {
+    for (const head of [{ sourceProjectPath: null }, {}]) {
+      const { deps } = fake(answers({ "mr:get": { mr: mr({ iid: 3, webUrl: "https://github.com/acme/app/pull/3", ...head }), fetchedAt: 5 } }));
+      const res = await tool(deps, "mr_resolve_branch").handler({ repoName: GH, iid: 3 }, ENV);
+      expect(res).toMatchObject({ ok: true, body: { sourceBranch: "feat-x", trees: [] } });
+    }
   });
 
   describe("with a registered GitHub repo", () => {
