@@ -97,11 +97,29 @@ check "no rt: no stamp written" "0" "$(ls "$SANDBOX/tmp" | wc -l | tr -d ' ')"
 
 reset
 echo '{}' > "$SANDBOX/home/.claude.json"
+FAILSTAMP="$SANDBOX/tmp/mattstack-account-fail-s6"
 check "rt exit 2 and noise stays silent" "exit=0 out=" "$(run s6 RT_STUB_EXIT=2)"
-check "rt exit 2: no stamp written" "0" "$(ls "$SANDBOX/tmp" | wc -l | tr -d ' ')"
+check "rt exit 2: no success stamp" "0" "$(ls "$SANDBOX/tmp" | grep -c '^mattstack-account-record-')"
+check "rt exit 2: failure stamp holds epoch seconds" "1" "$(grep -Ec '^[0-9]{10,}$' "$FAILSTAMP")"
+check "rt failed: immediate second call is throttled" "exit=0 out=" "$(run s6)"
+check "rt failed: immediate second call does not call rt" "1" "$(calls)"
+
+echo $(( $(date +%s) - 120 )) > "$FAILSTAMP"
+run s6 RT_STUB_EXIT=2 >/dev/null
+check "failure stamp older than 60s: rt is called again" "2" "$(calls)"
+check "a failed retry refreshes the failure stamp" "1" "$(( $(date +%s) - $(cat "$FAILSTAMP") < 60 ))"
+
+echo $(( $(date +%s) - 120 )) > "$FAILSTAMP"
 run s6 >/dev/null
-check "rt exit 2: next call retries" "2" "$(calls)"
-check "rt exit 0 after a retry writes the stamp" "1" "$(ls "$SANDBOX/tmp" | wc -l | tr -d ' ')"
+check "success after a failure calls rt" "3" "$(calls)"
+check "success clears the failure stamp" "no" "$([ -e "$FAILSTAMP" ] && echo yes || echo no)"
+check "success writes the stamp" "1" "$(ls "$SANDBOX/tmp" | grep -c '^mattstack-account-record-')"
+
+reset
+echo '{}' > "$SANDBOX/home/.claude.json"
+run s8 RT_STUB_EXIT=2 >/dev/null
+check "throttle is per session" "exit=0 out=" "$(run s9)"
+check "throttle is per session: other session calls rt" "2" "$(calls)"
 
 [ "$fails" -eq 0 ] && echo "all account-record tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))

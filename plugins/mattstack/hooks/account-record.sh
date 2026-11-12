@@ -4,7 +4,7 @@
 # rewrites it), run `rt usage record-account` so the account is recorded.
 # Every path exits 0 and prints nothing, since hook stdout is fed back to the
 # model; an rt too old for the verb exits 2, is swallowed the same way and
-# leaves no stamp, so the next call tries again.
+# leaves no stamp, so the next call tries again, at most once a minute.
 set -u
 : "${HOME:=}"
 
@@ -29,12 +29,20 @@ KEY="$MTIME:${ANTHROPIC_API_KEY:+key}"
 STAMP="${TMPDIR:-/tmp}/mattstack-account-record-${SESSION}"
 [ "$(cat "$STAMP" 2>/dev/null)" = "$KEY" ] && exit 0
 
+FAILSTAMP="${TMPDIR:-/tmp}/mattstack-account-fail-${SESSION}"
+NOW="$(date +%s)"
+LAST="$(cat "$FAILSTAMP" 2>/dev/null || echo 0)"
+case "$LAST" in ''|*[!0-9]*) LAST=0 ;; esac
+[ $((NOW - LAST)) -lt 60 ] && exit 0
+
 RT="$(command -v rt 2>/dev/null || true)"
 [ -n "$RT" ] && [ -x "$RT" ] || RT="$HOME/.local/bin/rt"
 [ -x "$RT" ] || exit 0
 
 # Stamp only on success, so an rt upgraded mid-session records on the next call.
 if "$RT" usage record-account --session "$SESSION" >/dev/null 2>&1; then
-  { printf '%s' "$KEY" > "$STAMP"; } 2>/dev/null
+  { printf '%s' "$KEY" > "$STAMP"; rm -f "$FAILSTAMP"; } 2>/dev/null
+else
+  { echo "$NOW" > "$FAILSTAMP"; } 2>/dev/null
 fi
 exit 0
