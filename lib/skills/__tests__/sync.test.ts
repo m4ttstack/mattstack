@@ -2385,6 +2385,7 @@ describe("commit-pending against real git", () => {
     expectBuildPutBack(pack);
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
+
   /** rebuildingCompile, plus the pack's compiled lock the way a real compile writes it. */
   function lockingCompile(pack: PackInfo): SyncDeps["compilePack"] {
     const rebuild = rebuildingCompile(pack);
@@ -2427,15 +2428,7 @@ describe("commit-pending against real git", () => {
     const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
     const deps = realGitDeps(root, pack, engine, world);
     deps.compilePack = lockingCompile(pack);
-    const checkPack = deps.checkPack;
-    deps.checkPack = async (name) => {
-      const answer = await checkPack(name);
-      if (world.calls.filter((c) => c.cmd === "checkPack").length === 2) {
-        writeFileSync(join(pack.dir, "skills", "keep", "slipped-in.md"), "staged by someone else\n");
-        mustGit(root, "add", "skills/keep/slipped-in.md");
-      }
-      return answer;
-    };
+    stageAfterRecheck(deps, world, root, "skills/keep/slipped-in.md", () => "staged by someone else\n");
 
     const report = await syncPack(pack, engine, deps, { commitPending: true });
 
@@ -2462,6 +2455,38 @@ describe("commit-pending against real git", () => {
     expect(mustGit(root, "show", "--name-only", "--format=", "HEAD").trim().split("\n")).toContain("pack/skills.jsonc");
   }, REAL_GIT_TIMEOUT_MS);
 
+  test("another process's add -A that sweeps in a stray file refuses before rt stages, and leaves no bump staged", async () => {
+    const { root, remote, pack } = realPackRepo("");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    writeFileSync(join(pack.dir, "pack", "skills.jsonc"), '{ "bindings": {} }\n');
+    const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
+    const deps = realGitDeps(root, pack, engine, world);
+    deps.compilePack = lockingCompile(pack);
+    const checkPack = deps.checkPack;
+    deps.checkPack = async (name) => {
+      const answer = await checkPack(name);
+      if (world.calls.filter((c) => c.cmd === "checkPack").length === 2) {
+        writeFileSync(join(pack.dir, "skills", "keep", "stray.md"), "stray\n");
+        mustGit(root, "add", "-A");
+      }
+      return answer;
+    };
+
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+
+    const detail = report.steps.at(-1)!.detail;
+    expect(report.steps.at(-1)).toMatchObject({ name: "commit-push", status: "refused" });
+    expect(detail).toContain(`The index in ${pack.dir} holds changes rt did not stage: skills/keep/stray.md`);
+    expect(detail).toContain("put the version and the rebuilt skills back, so your pack edits are still staged, not committed");
+    expect(world.calls.some((c) => c.cmd === "git" && ["commit", "push"].includes(c.args[0]!))).toBe(false);
+    expect(JSON.parse(mustGit(root, "show", ":.claude-plugin/plugin.json")).version).toBe("1.0.0");
+    expectBuildPutBack(pack);
+    expect(existsSync(join(pack.dir, "pack", "compiled.lock.json"))).toBe(false);
+    expect(mustGit(root, "status", "--porcelain")).toBe("M  pack/skills.jsonc\nA  skills/keep/stray.md\n");
+    expect(detail).not.toContain("still carries");
+    expect(remoteLog(remote)).toEqual(["base"]);
+  }, REAL_GIT_TIMEOUT_MS);
+
   test("a failed push undoes the one commit", async () => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -2469,8 +2494,7 @@ describe("commit-pending against real git", () => {
     const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
     const deps = realGitDeps(root, pack, engine, world);
     deps.compilePack = lockingCompile(pack);
-    const run = deps.run;
-    deps.run = async (cmd, args, opts) => (cmd === "git" && args[0] === "push" ? { code: 1, stdout: "", stderr: "fatal: could not read from remote repository" } : run(cmd, args, opts));
+    failPush(deps);
 
     const report = await syncPack(pack, engine, deps, { commitPending: true });
 
@@ -2494,8 +2518,7 @@ describe("commit-pending against real git", () => {
     const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
     const deps = realGitDeps(root, pack, engine, world);
     deps.compilePack = lockingCompile(pack);
-    const run = deps.run;
-    deps.run = async (cmd, args, opts) => (cmd === "git" && args[0] === "push" ? { code: 1, stdout: "", stderr: "fatal: could not read from remote repository" } : run(cmd, args, opts));
+    failPush(deps);
 
     const report = await syncPack(pack, engine, deps, { commitPending: true });
 
@@ -2513,8 +2536,7 @@ describe("commit-pending against real git", () => {
     const world: World = { calls: [], installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" }, drift: [true, false] };
     const deps = realGitDeps(root, pack, engine, world);
     deps.compilePack = rebuildingCompile(pack);
-    const run = deps.run;
-    deps.run = async (cmd, args, opts) => (cmd === "git" && args[0] === "push" ? { code: 1, stdout: "", stderr: "fatal: could not read from remote repository" } : run(cmd, args, opts));
+    failPush(deps);
 
     const report = await syncPack(pack, engine, deps);
 
@@ -2746,7 +2768,16 @@ describe("commit-pending against real git", () => {
     ["git write-tree before rt stages its build", () => (cmd, args) => cmd === "git" && args[0] === "write-tree", indexLocked, () => `git write-tree failed: ${indexLocked}`],
     ["the sync git commit", () => (cmd, args) => cmd === "git" && args[0] === "commit" && args.includes("skills sync: acme v1.0.1"), indexLocked, () => `git commit failed: ${indexLocked}`],
     ["git ls-files before the version add", () => (cmd, args) => cmd === "git" && args[0] === "ls-files" && args.includes("--ignored"), indexCorrupt, (dir) => `git ls-files failed in ${dir}: ${indexCorrupt}.`],
-    ["index check after the version add", () => (cmd, args) => cmd === "git" && args[0] === "diff" && args[1] === "--cached", indexCorrupt, (dir) => `git diff --cached failed in ${dir}: ${indexCorrupt}.`],
+    ["index check before the version add", () => (cmd, args) => cmd === "git" && args[0] === "diff" && args[1] === "--cached", indexCorrupt, (dir) => `git diff --cached failed in ${dir}: ${indexCorrupt}.`],
+    [
+      "index check after the version add",
+      () => {
+        let checks = 0;
+        return (cmd, args) => cmd === "git" && args[0] === "diff" && args[1] === "--cached" && ++checks === 2;
+      },
+      indexCorrupt,
+      (dir) => `git diff --cached failed in ${dir}: ${indexCorrupt}.`,
+    ],
   ])("a failing %s puts the build back and leaves the pack edits staged", async (_label, failing, stderr, lead) => {
     const { root, remote, pack } = realPackRepo("");
     const engine = fixturePack("beacon", "local", "2.0.0");
@@ -2885,6 +2916,15 @@ describe("commit-pending against real git", () => {
 
     expect(report.ok).toBe(true);
     expect(remoteLog(remote)).toEqual(["skills sync: acme v1.0.1", "base"]);
+    expect(mustGit(root, "show", "--name-status", "--format=", "HEAD").trim().split("\n").sort()).toEqual([
+      "A\tattachments/fresh/SKILL.md",
+      "D\tattachments/old/SKILL.md",
+      "M\t.claude-plugin/plugin.json",
+      "M\tpack/skills.jsonc",
+      "M\tskills/keep/SKILL.md",
+    ]);
+    expect(JSON.parse(mustGit(root, "show", "HEAD:.claude-plugin/plugin.json")).version).toBe("1.0.1");
+    expect(mustGit(root, "show", "HEAD:pack/skills.jsonc")).toBe('{ "bindings": {} }\n');
     expect(mustGit(root, "status", "--porcelain")).toBe("");
   }, REAL_GIT_TIMEOUT_MS);
   test("a clean pack inside a larger repo commits its rebuilt skills, read from the pack", async () => {

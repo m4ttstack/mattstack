@@ -550,7 +550,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   let staged: HashedFile[] = [];
   let compiled: { written: string[]; removed: string[] } = { written: [], removed: [] };
   let builtBlobs = new Map<string, string | null>();
-  /** rt's own commits this run, oldest first. */
+  /** rt's own commit this run, once made: at most one. */
   const made: (CommitId & { subject: string })[] = [];
 
   /** Where the pack sits in its repo, read once: git diff and status print repo-root paths. */
@@ -972,7 +972,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(recheck)) return finish();
 
   const syncSubject = `skills sync: ${pack.name} v${bumpAfter}`;
-  /** The index before rt stages its build (HEAD plus the person's staged edits), which an undo puts back. */
+  /** The index just before rt stages its build, checked to hold the person's staged edits; an undo puts those paths back from it. */
   let pendingTree: string | null = null;
 
   /**
@@ -1022,12 +1022,18 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     const undone = undid ? "undid its commit, but " : "";
 
     const ours = versionStaged.filter((p) => !skip.has(p));
-    if (ours.length > 0) {
-      const reset = await deps.run("git", ["reset", "-q", pendingTree ?? "HEAD", "--", ...ours.map(literal)], { cwd: pack.dir });
+    // pendingTree may also hold another process's stage of rt's own output,
+    // so only the person's paths come back from it.
+    const personal = new Set(pendingTree === null ? [] : expectedBlobs(staged).keys());
+    const resets: [string, string[]][] = [["HEAD", ours.filter((p) => !personal.has(p))]];
+    if (pendingTree !== null) resets.push([pendingTree, ours.filter((p) => personal.has(p))]);
+    for (const [source, paths] of resets) {
+      if (paths.length === 0) continue;
+      const reset = await deps.run("git", ["reset", "-q", source, "--", ...paths.map(literal)], { cwd: pack.dir });
       if (reset.code !== 0) {
         const edits = published ? ", and your pack edits are still staged, not committed" : "";
         return outcome(
-          `${ended(lead)} ${pushNote}${rtThen}${undone}could not take its own version staging back out of the index (${reset.stderr.trim()}), so that staging is still in the index: ${ours.join(", ")}; the worktree keeps the version bump (${bumpBefore} -> ${bumpAfter}) and the rebuilt skills${edits}. ${next}`,
+          `${ended(lead)} ${pushNote}${rtThen}${undone}could not take its own version staging back out of the index (${reset.stderr.trim()}), so that staging is still in the index: ${paths.join(", ")}; the worktree keeps the version bump (${bumpBefore} -> ${bumpAfter}) and the rebuilt skills${edits}. ${next}`,
         );
       }
     }
@@ -1094,13 +1100,20 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     // file dropped into a compiled folder meanwhile stays out of the commit.
     const ignored = await readOrStop([], () => ignoredUntracked(deps, pack.dir, compiled.written));
     if (!(ignored instanceof Set)) return ignored;
+    const addPaths = [MANIFEST_REL, ...compiled.written.filter((p) => !ignored.has(p))];
+    const versionStaged = [...addPaths, ...compiled.removed];
+    const built = versionStaged.map((p): [string, string | null] => [p, builtBlobs.get(p) ?? null]);
     if (published) {
       const tree = await deps.run("git", ["write-tree"], { cwd: pack.dir });
       if (tree.code !== 0) return stop(`git write-tree failed: ${tree.stderr.trim()}`, []);
       pendingTree = tree.stdout.trim();
+      // Checked before rt's add, which would overwrite a differing stage of the same path.
+      // A path the person staged must still hold their content here, even where rt then stages its build.
+      const beforeAdd = new Map([...built, ...expectedBlobs(staged)]);
+      const unseen = await readOrStop([], async () => unseenStaged(deps, pack.dir, await prefixOfPack(), beforeAdd));
+      if (!Array.isArray(unseen)) return unseen;
+      if (unseen.length > 0) return abandon(unseenLead(unseen), unseen, versionStaged, refused, unstage);
     }
-    const addPaths = [MANIFEST_REL, ...compiled.written.filter((p) => !ignored.has(p))];
-    const versionStaged = [...addPaths, ...compiled.removed];
     const add = await deps.run("git", ["add", "--", ...addPaths.map(literal)], { cwd: pack.dir });
     if (add.code !== 0) return stop(`git add failed: ${add.stderr.trim()}`, []);
     if (compiled.removed.length > 0) {
@@ -1112,7 +1125,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     // git commit takes the whole index, so rt first checks the index holds
     // exactly what it staged, content included, and then that the commit
     // holds exactly the index it checked.
-    const expected = new Map([...expectedBlobs(staged), ...versionStaged.map((p): [string, string | null] => [p, builtBlobs.get(p) ?? null])]);
+    const expected = new Map([...expectedBlobs(staged), ...built]);
     const unseen = await readOrStop(versionStaged, async () => unseenStaged(deps, pack.dir, await prefixOfPack(), expected));
     if (!Array.isArray(unseen)) return unseen;
     if (unseen.length > 0) return abandon(unseenLead(unseen), unseen, versionStaged, refused, unstage);
