@@ -149,7 +149,7 @@ flowchart TB
     ci_triage_result -->|tool error: quote it| classify_failed_jobs
     ci_triage_result -->|tempted to run the vendored triage script| stop_gitlab_triage_shortcut
     stop_gitlab_triage_shortcut --> ci_triage
-    unclear_jobs_present -->|yes| mr_job_trace
+    unclear_jobs_present -->|yes: an UNCLEAR job with a log to read| mr_job_trace
     unclear_jobs_present -->|no| classify_triage_report
     mr_job_trace --> classify_triage_report
     classify_triage_report --> only_infra_failures
