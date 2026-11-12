@@ -123,8 +123,14 @@ refusing with neutral words. Matt picked (a).
   - A mismatch: `ok: true`, data
     `{ published: false, reason: "head-moved", expectedHeadSha, headSha, mrUrl }`.
   - A match: submit as today.
-- `ThreadProvider` gains `fetchSingleMR`; `ReviewSubmitData` gains the
-  `head-moved` variant.
+  - The request's abort signal is checked after the read and before the
+    submit, as after the diff read: an aborted request answers
+    `request aborted before the review was posted` and posts nothing.
+- `ThreadProvider` gains `fetchSingleMR` as an optional pick
+  (`Partial<Pick<GitProvider, "fetchSingleMR">>`, like
+  `fetchPullRequestDiffs`), so existing fakes still type-check; a provider
+  without it reads as "could not read the MR's head". `ReviewSubmitData`
+  gains the `head-moved` variant.
 - `lib/mcp/tools.ts`: schema property, handler pass-through, and one
   description sentence: pass the sha you reviewed and a moved head returns
   `published: false, reason "head-moved"` with `headSha`; re-read the diff
@@ -163,7 +169,8 @@ Only timeout and daemon-unreachable errors change.
 
 ### 6. `mr_map` on GitHub
 
-- Drop the two refusals.
+- Drop the two refusals; resolve with `resolveRepoTarget(input, { github: true })`
+  so a GitHub PR URL in `mrUrl` names the repo.
 - `defaultBranchOf` reads `forge:get ":repo"` on GitHub (same
   `default_branch` key) and `projects/:id` on GitLab; a failure still
   degrades to `stacked: null`.
@@ -180,8 +187,8 @@ Only timeout and daemon-unreachable errors change.
   type stays `(input: TargetInput) => Promise<MrTarget>`.
 - The token's login comes through item 4 for the author rule.
 - Fork guard: when a push is due and `sourceInRepo(identity, mr)` is false,
-  no push is attempted and the fix rows go to `held` through the existing
-  push-precondition path, with the reason `the PR's branch lives in another
+  no push is attempted and the fix rows go to `held` with `kind: "push"`,
+  through the existing push-precondition path, with the reason `the PR's branch lives in another
   repository, so this tool will not push it`.
 - A reply or resolve on an id GitHub cannot thread (`gh-issue-comment-*`,
   `gh-review-*`) fails in the daemon and lands in `held` through the
@@ -204,15 +211,21 @@ still succeeds. Load `rt:settings` before touching this.
 
 `readVerified` in `lib/daemon/upload-guard.ts` reads through an injectable
 set of fs calls (`openSync`, `fstatSync`, `readSync`, `closeSync`),
-defaulting to the real ones. Tests force: identity mismatch (fstat reports
-another dev/ino), a swap between check and open (open lands on a different
-file), a short read, and a file that grew (the probe read returns a byte).
-Each asserts the exact refusal text. A handler test in
-`lib/daemon/__tests__/mr-upload.test.ts` swaps the file inside the
-`repoContext` seam, after the guard ran, and asserts the upload is refused
-and nothing reaches the provider. If the handler reads the bytes before
-calling `repoContext`, the builder moves the swap to the first seam that
-runs after the check and says so.
+defaulting to the real ones. Tests reach it through a new optional `fs`
+field on the `opts` that `checkUploadPath` and `checkTextPath` already
+take; production callers never pass it. Tests force: identity mismatch
+(fstat reports another dev/ino), a swap between check and open (open lands
+on a different file), a short read, and a file that grew (the probe read
+returns a byte). Each asserts the exact refusal text; the identity
+mismatch and the swap both refuse with `file changed identity between
+check and read` and differ only in which fake call they use.
+
+A handler test in `lib/daemon/__tests__/mr-upload.test.ts` swaps the file
+inside the `repoContext` seam. The handler has already read and verified
+the bytes by then (`checkAttachment` runs before `repoContextFn`), so the
+test asserts the multipart body sent through `fetchFn` carries the original
+verified bytes and none of the swapped file's bytes: the upload sends what
+was checked, never what is on disk later.
 
 ### 10. Docs and rules
 
@@ -246,5 +259,3 @@ HOME through `env -i`.
 
 - Which verb lists `forge:self` must join.
 - Exact test fixtures and file splits.
-- Whether the item 9 swap sits at `repoContext` or the next seam after the
-  check.
