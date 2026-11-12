@@ -1,0 +1,76 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel {
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 20px;
+}
+
+.tabs {
+  gap: 20px;
+  padding: 0 20px;
+}
+
+.tab {
+  padding: 10px 0;
+}
+
+.th {
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* Inter's ascent outweighs its descent, so a normal line height rides the
+   capital about 1.5px above the circle's centre. */
+.initial {
+  line-height: 1;
+}
+
+.boardDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tk-dot-ok);
+}
+
+.boardDot[data-peered='false'] {
+  background: var(--tk-muted);
+}
+
+.none,
+.empty {
+  padding: 14px 20px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.failure {
+  padding: 0 20px 20px;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.segmentIcon {
+  display: inline-flex;
+}
+
+.notice {
+  padding: 0 20px 14px;
+}

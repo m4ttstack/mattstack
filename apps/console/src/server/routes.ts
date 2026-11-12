@@ -5,11 +5,13 @@ import { mountEffectiveInputs } from './effectiveInputs';
 import { enrichRoutes } from './enrich';
 import { fixtureMode, fixtureRt } from './fixtures/design/fixtureRt';
 import { runsFixture } from './fixtures/design/runsFixture';
+import { teamFixture } from './fixtures/design/teamFixture';
 import { gatesRoutes } from './gates';
 import { panesRoutes } from './panes';
 import { runsRoutes } from './runs';
 import { settings } from './settings';
 import { mountSkills } from './skills';
+import { teamRoutes } from './team';
 import { usageRoutes } from './usage';
 
 // The embed page writes settings, so only the suite's own pages may frame it.
@@ -35,6 +37,7 @@ export const routes = new Hono()
   .route('/', panesRoutes(runsData))
   .route('/', gatesRoutes(runsData))
   .route('/', usageRoutes(runsData))
+  .route('/', teamRoutes({ fixture: scenario ? teamFixture : null }))
   .route('/', settings)
   .route('/', agentModels)
   .route(

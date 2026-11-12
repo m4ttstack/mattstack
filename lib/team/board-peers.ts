@@ -6,7 +6,7 @@
 
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
-import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
+import { createRealSecretsExecSeam, readSecret, type SecretsSeams } from "../secrets/store.ts";
 import { createRealTeamSecretsSeams, readAdminSecret } from "../secrets/team-store.ts";
 import type { Probes } from "../setup/probes.ts";
 import { warn as warnLine } from "../ui/warn.ts";
@@ -28,9 +28,11 @@ export interface AdminSource {
 }
 
 /** A failure other than "this Mac cannot open it" goes to the log only: the token still has the local secret to come from. */
-export const realReadAdminSecret: ReadAdminSecret = async (org, key) => {
+export const realReadAdminSecret: ReadAdminSecret = (org, key) => readAdminSecretOrNull(org, key, createRealTeamSecretsSeams(org));
+
+export async function readAdminSecretOrNull(org: string, key: string, seams: SecretsSeams): Promise<string | null> {
   try {
-    return await readAdminSecret(org, "rt", key, createRealTeamSecretsSeams(org));
+    return await readAdminSecret(org, "rt", key, seams);
   } catch (err) {
     warnLine("team", `admin-only secrets for ${org} could not be read: ${err instanceof Error ? err.message : String(err)}`);
     return null;

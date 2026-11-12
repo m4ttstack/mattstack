@@ -9,7 +9,7 @@ import { roleFor, rolesFor } from "../lib/team/roles.ts";
 import { applyForgeAccess, readForgeAccess, realForgeAccessSeams, sharedBranchSentence, type ForgeAccessApplied, type ForgeAccessReport, type ForgeAccessSeams } from "../lib/team/forge-access-apply.ts";
 import { diffLines, hasChanges, limitSentence } from "../lib/team/forge-access-plan.ts";
 import { restoreDataBranch, type RestorePlan, type RestoreResult } from "../lib/team/data-branch-guard.ts";
-import { isOrgAdmin } from "../packages/rt-client/src/settings/org-roles.ts";
+import { isOrgAdmin, roleOf } from "../packages/rt-client/src/settings/org-roles.ts";
 /**
  * rt team create|publish|rename|invite|join|members|status: the team-repo
  * lifecycle verbs.
@@ -62,6 +62,8 @@ import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeam
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { approvedBranches } from "../lib/team/approved-branch.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
+import { adminSecretsRowSafe, ADMIN_SECRETS_SYNC_STEPS } from "../lib/setup/validators/admin-secrets.ts";
+import type { Row } from "../lib/setup/contract.ts";
 import { syncAdminSecrets, type AdminSecretsResult, type TokenOutcome } from "../lib/team/admin-secrets.ts";
 import { canonicalHandle, readAdminToken, readPeeredBoards, realReadAdminSecret, realReadLocalSecret, type ReadAdminSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersAddToTeam, membersDropFromTeam, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
@@ -73,6 +75,7 @@ import { writeGeneratedMarketplace } from "../lib/setup/generated-marketplace.ts
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
+import { readInviteStatuses, type InviteStatusResult } from "../lib/team/invite-status.ts";
 import { withoutUrls } from "../lib/team/redact.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
@@ -126,7 +129,68 @@ export interface TeamDeps {
   forgeAccessSeams?: ForgeAccessSeams;
   /** The announcement send, seamed so a test never reaches the switchboard; real by default. */
   announce?: typeof sendAnnouncement;
+  /** The open invites and their states for `teamStatus`; real relay and clock by default. */
+  inviteStatuses?: (slug: string, roster: { username: string; teams?: string[] }[]) => Promise<InviteStatusResult>;
+  /** The `org.admin-secrets` setup row for `teamStatus`; real by default, read only for an org owner or admin. */
+  adminSecretsState?: (slug: string) => Promise<Row | null>;
+  /** How long `teamStatus` waits on `adminSecretsState` before reading unknown. */
+  adminSecretsTimeoutMs?: number;
 }
+
+export type AdminSecretsState = "current" | "needs-sync" | "needs-you" | "not-this-mac" | "unknown";
+
+export interface AdminSecretsStatus {
+  state: AdminSecretsState;
+  detail: string | null;
+}
+
+function isPlainSync(action: Row["action"]): boolean {
+  return JSON.stringify(action) === JSON.stringify(ADMIN_SECRETS_SYNC_STEPS);
+}
+
+export function adminSecretsStatusFrom(r: Row | null): AdminSecretsStatus {
+  if (r === null) return { state: "current", detail: null };
+  if (r.status === "needs-you") return { state: isPlainSync(r.action) ? "needs-sync" : "needs-you", detail: r.detail };
+  if (r.status === "skipped") return { state: "not-this-mac", detail: r.detail };
+  if (r.status === "error") return { state: "unknown", detail: r.detail };
+  return { state: "current", detail: null };
+}
+
+async function realAdminSecretsRow(deps: TeamDeps, slug: string, deadlineAt: number): Promise<Row | null> {
+  const { realSecretPresence } = await import("../lib/setup/plan.ts");
+  return adminSecretsRowSafe(deps.probes, slug, deps.secretPresence ?? realSecretPresence({ deadlineAt }));
+}
+
+const ADMIN_SECRETS_TIMEOUT_MS = 5_000;
+
+/** Bounded so a slow keychain or sops read never stalls a status read the console polls: the real check's children are killed at the same deadline, so none outlives it. */
+async function readAdminSecretsStatus(deps: TeamDeps, slug: string): Promise<AdminSecretsStatus> {
+  const timeoutMs = deps.adminSecretsTimeoutMs ?? ADMIN_SECRETS_TIMEOUT_MS;
+  const deadlineAt = Date.now() + timeoutMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<AdminSecretsStatus>((resolve) => {
+    timer = setTimeout(() => resolve({ state: "unknown", detail: "The admin secrets check took too long" }), timeoutMs);
+  });
+  const check = (async (): Promise<AdminSecretsStatus> => {
+    try {
+      return adminSecretsStatusFrom(await (deps.adminSecretsState ?? ((s: string) => realAdminSecretsRow(deps, s, deadlineAt)))(slug));
+    } catch (err) {
+      return { state: "unknown", detail: err instanceof Error ? err.message : String(err) };
+    }
+  })();
+  try {
+    return await Promise.race([check, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const ADMIN_SECRETS_KV: Record<Exclude<AdminSecretsState, "current">, { value: string; hint: (detail: string | null, slug: string) => string | undefined }> = {
+  "needs-sync": { value: "needs updating", hint: (_detail, slug) => `rt team admin-secrets --team ${slug} locks them to the current owners and admins` },
+  "needs-you": { value: "needs you", hint: (detail) => detail ?? undefined },
+  "not-this-mac": { value: "not this Mac", hint: (detail) => detail ?? undefined },
+  unknown: { value: "unknown", hint: (detail) => detail ?? undefined },
+};
 
 async function defaultReadCode(json: boolean): Promise<string> {
   if (!json && process.stdin.isTTY) {
@@ -912,11 +976,14 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
 }
 
 /** A non-UserActionableError from the members path (a rollback error from addTeamRecipient/removeTeamRecipient, a keychain failure) already carries a complete, human-readable explanation in its own message: the user can act on it (retry, unlock), so it gets its own code and the same exit-2 envelope every other actionable failure uses, rather than falling through to a raw stack trace or an envelope the app's decoder can't reach at exit 1. */
-function reportMembersError(err: unknown, deps: TeamDeps, json: boolean): never {
+export function membersSyncAbortedFailure(err: MembersSyncAbortedError, slug: string | null): UserActionableError {
+  return new UserActionableError("members-error", err.message, {}, { why: "The keys it already added stay. Run the sync again.", next: slug ? `rt team members sync --team ${slug}` : "rt team members sync", log: err.detail });
+}
+
+function reportMembersError(err: unknown, deps: TeamDeps, json: boolean, slug: string | null): never {
   if (err instanceof UserActionableError) exitTeamError(err, json, deps);
   if (err instanceof MembersSyncAbortedError) {
-    const failure = new UserActionableError("members-error", err.message, {}, { why: "The keys it already added stay. Run the sync again.", next: "rt team members sync", log: err.detail });
-    return exitUserError(failure, json, deps.print);
+    return exitUserError(membersSyncAbortedFailure(err, slug), json, deps.print);
   }
   if (err instanceof MembersKeyError) {
     return exitUserError(new UserActionableError("members-error", err.message, {}, { why: "Check that your keychain is unlocked, then try again.", log: err.detail }), json, deps.print);
@@ -928,8 +995,9 @@ function reportMembersError(err: unknown, deps: TeamDeps, json: boolean): never 
 export async function teamMembersSync(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
 
+  let slug: string | null = null;
   try {
-    const slug = resolveTeamSlug(args, "team members sync");
+    slug = resolveTeamSlug(args, "team members sync");
     const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
     const secrets = createRealTeamSecretsSeams(slug);
     const result = await membersSync(deps.probes, relay, secrets, slug);
@@ -940,7 +1008,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
     }
     out.print(...membersSyncBlocks(result));
   } catch (err) {
-    reportMembersError(err, deps, json);
+    reportMembersError(err, deps, json, slug);
   }
 }
 
@@ -1075,8 +1143,9 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
     }
   }
 
+  let slug: string | null = null;
   try {
-    const slug = resolveTeamSlug(args, `team members remove ${handle}`);
+    slug = resolveTeamSlug(args, `team members remove ${handle}`);
     const secrets = createRealTeamSecretsSeams(slug);
     const result = await membersRemove(deps.probes, secrets, slug, handle, key, {
       ...(deps.membersSeams ?? realMembersSeams()),
@@ -1090,7 +1159,7 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
     }
     out.print(...membersRemoveBlocks(handle, slug, result));
   } catch (err) {
-    reportMembersError(err, deps, json);
+    reportMembersError(err, deps, json, slug);
   }
 }
 
@@ -1163,7 +1232,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
   try {
     if (!flagValue(args, "--team") && listOrgs().length === 0) {
-      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] };
+      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], invites: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[], relayFailed: false, adminSecrets: null };
       if (json) deps.print(JSON.stringify(envelope(result)));
       else out.print(out.line("off", "No team on this Mac", "just you"));
       return;
@@ -1180,6 +1249,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const title = read<string>("board.title");
     const name = title && title.length > 0 ? title : slug;
     const active = activeTeamFor(deps.probes, slug);
+    const roles = rolesFor(deps.probes, slug);
     const role = roleFor(deps.probes, slug).kind;
     const teamsDir = join(dir, "mattstack", "teams");
     const orgTeams = deps.probes.readDir(teamsDir)
@@ -1207,13 +1277,34 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     const { reachable, heldBack, ...sync } = await readTeamSyncFields(deps, slug);
 
-    // null when nothing on this Mac can ask the switchboard, so "not peered"
-    // is only ever said when the switchboard said it.
-    const peeredBoards = await readPeeredBoards(deps.probes, deps.readLocalSecret ?? realReadLocalSecret, { org: slug, read: deps.readAdminSecret ?? realReadAdminSecret });
-    const membersWithPeering = members.map((m) => ({ ...m, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
+    const rosterForInvites = everyone.flatMap((member) => {
+      const username = (member as { username?: unknown } | null)?.username;
+      const teams = (member as { teams?: unknown } | null)?.teams;
+      if (typeof username !== "string") return [];
+      return [{ username, ...(Array.isArray(teams) ? { teams: teams.filter((t): t is string => typeof t === "string") } : {}) }];
+    });
+    const readInvites = deps.inviteStatuses
+      ?? ((s: string, roster: { username: string; teams?: string[] }[]) => readInviteStatuses(deps.probes, s, {
+        relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
+        roster,
+        now: Date.now(),
+      }));
+    const noInvites: InviteStatusResult = { invites: [], relayFailed: false };
+    const [peeredBoards, inviteResult, adminSecrets] = await Promise.all([
+      // null when nothing on this Mac can ask the switchboard, so "not peered"
+      // is only ever said when the switchboard said it.
+      readPeeredBoards(deps.probes, deps.readLocalSecret ?? realReadLocalSecret, { org: slug, read: deps.readAdminSecret ?? realReadAdminSecret }),
+      // a damaged invite file must not take the rest of the status down
+      Promise.resolve().then(() => readInvites(slug, rosterForInvites)).catch(() => noInvites),
+      isOrgAdmin(roleFor(deps.probes, slug)) ? readAdminSecretsStatus(deps, slug) : Promise.resolve(null),
+    ]);
+    const membersWithPeering = members.map((m) => ({ ...m, role: roleOf(m.username, roles).kind, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
     const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
 
-    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
+    const { invites, relayFailed } = inviteResult;
+    const replied = invites.filter((invite) => invite.state === "replied").map((invite) => invite.handle);
+
+    const result = { slug, name, remote, branch, dataBranch: homeBranch, trial, lastPush, members: membersWithPeering, invites, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync, relayFailed, adminSecrets };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -1231,6 +1322,16 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         ...branchRow(branch, homeBranch, trialBranch),
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
+        ...(replied.length > 0 || (relayFailed && invites.length > 0)
+          ? [out.kv(
+            "waiting to join",
+            replied.length > 0 ? replied.join(", ") : "unknown",
+            relayFailed ? "the switchboard did not answer, so replies may be waiting" : `rt team members sync --team ${slug} adds them`,
+          )]
+          : []),
+        ...(adminSecrets !== null && adminSecrets.state !== "current"
+          ? [out.kv("admin secrets", ADMIN_SECRETS_KV[adminSecrets.state].value, ADMIN_SECRETS_KV[adminSecrets.state].hint(adminSecrets.detail, slug))]
+          : []),
         out.kv("your team", active.team ?? "none"),
         out.kv("your role", role === "org-owner" ? "org owner" : role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),

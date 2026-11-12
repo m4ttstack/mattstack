@@ -32,7 +32,7 @@ shelling out to `rt` and nothing proxied through to another service. The dev ser
 ## Routes and chrome (`src/app/App.tsx`, `src/app/routes.ts`)
 
 Routing is `wouter`, via `useAppRoute()` (`src/app/routes.ts`), which maps the current location to
-a structured `AppRoute` union: `board`, `run`, `slack-gates`, `search`, `packs` (and `old-wiring`, its redirect), `settings`, `settings-embed`,
+a structured `AppRoute` union: `board`, `run`, `slack-gates`, `team`, `search`, `packs` (and `old-wiring`, its redirect), `settings`, `settings-embed`,
 `config`, `not-found`.
 `/settings` is the grouped, filterable page over every registered key (`src/app/settings/`);
 one row at a time opens in place on its Value | Where it's set panel (Value first, and a
@@ -63,6 +63,24 @@ teammate asking to resume a closed one) with Approve and Decline, answering thro
 `POST /api/gates/:id/answer` like any gate (`src/app/gates/SlackGates.tsx`, `GET /api/gates/slack`).
 Its rail entry carries the open count, requests past their 30 minutes drop out client-side, and
 `/gates/<id>` notification links for these gates land there with `?gate=<id>`.
+
+`/team` is where an org owner or admin approves teammates waiting to join (`src/app/team/`,
+`GET /api/team`, `POST /api/team/confirm`). Only teams whose role is `org-owner` or `admin` show;
+a team whose read failed shows only beside at least one of those. With none, the rail entry and the
+Runs pill hide and the page shows a short empty state.
+One centred panel per team, behind a segmented switch when there are several: a replied invite is a
+Members row with "Waiting for approval" and the Approve button, which runs the team's one
+`members sync`. rt puts an invitee on the roster before it makes the invite, so a member with an
+open invite shows only as that invite (`settledMembers`). Approve and Update access share one
+guard per org (`teamWriteKey`, held by the query client) and the server answers a second write
+to the same org with 409. A `relayFailed` read shows a note that replies may be waiting. The rail entry carries the waiting count, and the Runs page shows a once-per-list
+pill (`WaitingToast`, built on the shared `toast/ToastPill` the Packs page's unsynced toast uses)
+that opens `/team`. A team whose `adminSecrets` (from `rt team status --json`) reads `needs-sync`
+shows a warn notice above its tabs whose Update access runs `rt team admin-secrets`
+(`POST /api/team/admin-secrets`), its segment carries a lock mark, and the same pill says so after any waiting one, once per list. Review opens `/team?team=<slug>` on the team it names.
+Editing `mattstack.org` in Settings warns when admins are listed with no owners and refreshes the
+Team read on save. The design fixture draws one `org-owner` team with someone waiting, an `admin`
+team whose access needs updating, and a third team whose read fails.
 
 ## Runs domain (`src/app/runs/`, `src/server/runs.ts`)
 

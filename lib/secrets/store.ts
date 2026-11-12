@@ -546,6 +546,15 @@ type SecretsSpawn = (argv: string[], opts: any) => {
   kill: (sig?: number | string) => void;
 };
 
+/** Caps every spawn's timeout at the time left before `deadlineAt`, so a caller that stops waiting also stops the children it started. */
+export function withSpawnDeadline(seams: SecretsSeams, deadlineAt: number): SecretsSeams {
+  const left = (asked: number | undefined) => Math.max(1, Math.min(asked ?? Number.POSITIVE_INFINITY, deadlineAt - Date.now()));
+  return {
+    ageKeySeam: { run: (cmd, opts) => seams.ageKeySeam.run(cmd, { ...opts, timeoutMs: left(opts?.timeoutMs) }) },
+    execSeam: { ...seams.execSeam, run: (cmd, opts) => seams.execSeam.run(cmd, { ...opts, timeoutMs: left(opts?.timeoutMs) }) },
+  };
+}
+
 /**
  * Real seam: Bun.spawn-based capture, real fs reads/writes. `cwd`, when
  * given, is pinned for every sops spawn this seam instance makes — the

@@ -9,9 +9,10 @@
  */
 
 import type { DaemonResponse } from "../daemon-client.ts";
-import { realReadAdminSecret } from "../team/board-peers.ts";
+import { readAdminSecretOrNull, realReadAdminSecret } from "../team/board-peers.ts";
 import { createRealAgeKeySeam, readAgePublicKey } from "../home/age-key.ts";
-import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams } from "../secrets/store.ts";
+import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, withSpawnDeadline, type SecretsSeams } from "../secrets/store.ts";
+import { createRealTeamSecretsSeams } from "../secrets/team-store.ts";
 import { regroupTools } from "./regroup.ts";
 import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
@@ -255,8 +256,9 @@ export function applyApprovalWait(groups: Group[], wait: ApprovalState): Group[]
  * runs. A provably absent age key (NoAgeKeyError) means "nothing decryptable
  * yet", not a failure — the staging fallback still applies.
  */
-export function realSecretPresence(): SecretPresence {
-  const seams: SecretsSeams = { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() };
+export function realSecretPresence(opts: { deadlineAt?: number } = {}): SecretPresence {
+  const bound = (s: SecretsSeams) => (opts.deadlineAt === undefined ? s : withSpawnDeadline(s, opts.deadlineAt));
+  const seams = bound({ ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() });
   const p = createRealProbes();
   return {
     async has(domain, key) {
@@ -268,7 +270,7 @@ export function realSecretPresence(): SecretPresence {
       }
       return readStagedSecret(p, domain, key);
     },
-    hasAdmin: (org, key) => realReadAdminSecret(org, key),
+    hasAdmin: (org, key) => (opts.deadlineAt === undefined ? realReadAdminSecret(org, key) : readAdminSecretOrNull(org, key, bound(createRealTeamSecretsSeams(org)))),
     ownAgeKey: () => readAgePublicKey(seams.ageKeySeam),
   };
 }

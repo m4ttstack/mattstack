@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -206,6 +208,37 @@ describe('useConsoleSettings', () => {
     await waitFor(() => expect(ours()).toBe(before + 1));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(seen.slice(settled)).not.toContain(true);
+  });
+});
+
+describe('useConsoleSettings team refresh', () => {
+  function withClient() {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return { invalidate, wrapper };
+  }
+
+  it('refreshes the team read after a mattstack.org write', async () => {
+    const { invalidate, wrapper } = withClient();
+    const { result } = renderHook(() => useConsoleSettings(null), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.set('mattstack.org', 'org', { admins: ['lee'] });
+    });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['team'] });
+  });
+
+  it('leaves the team read alone for any other key', async () => {
+    const { invalidate, wrapper } = withClient();
+    const { result } = renderHook(() => useConsoleSettings(null), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.set('rt.logLevel', 'machine', 'info');
+    });
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });
 

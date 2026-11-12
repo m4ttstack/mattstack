@@ -16,6 +16,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { runIdOfGate } from '../../../shared/gate-run';
 import { PAGE_ROW_HEIGHT } from '../../chrome';
 import { StepLoader, useStepLoading, type StepLoading } from '../../StepLoader';
+import { WaitingToast } from '../../team/WaitingToast';
 import { agingWarning } from '../aging';
 import { CommandProvenance } from '../CommandProvenance';
 import { nowOf } from '../derive/clock';
@@ -242,6 +243,7 @@ export function RunsPage() {
             />
           }
         />
+        <WaitingToast />
         <PageShell.Content
           contentContainerProps={{ maw: 1680, my: 0, px: 40, py: 28 }}
         >

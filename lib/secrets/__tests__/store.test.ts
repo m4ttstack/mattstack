@@ -17,6 +17,7 @@ import {
   sopsKeyMismatch,
   InvalidSecretsSegmentError,
   SecretsTimeoutError,
+  withSpawnDeadline,
   type SecretsExecResult,
   type SecretsExecSeam,
   type SecretsSeams,
@@ -773,4 +774,32 @@ test("a secrets debug trace is logged, not printed", () => {
   expect(body).toContain('if (!CLI_DEBUG) return;');
   expect(body).toContain('logCliEvent("debug", "secrets", redactCredentials(formatDebugLine(cmd, { sensitive })))');
   expect(body).not.toContain("console.");
+});
+
+describe("withSpawnDeadline", () => {
+  function recording() {
+    const asked: Array<number | undefined> = [];
+    const ok = { code: 0, stdout: "", stderr: "" };
+    const seams: SecretsSeams = {
+      ageKeySeam: { run: async (_cmd, opts) => { asked.push(opts?.timeoutMs); return ok; } },
+      execSeam: { run: async (_cmd: string[], opts?: { timeoutMs?: number }) => { asked.push(opts?.timeoutMs); return ok; } } as unknown as SecretsExecSeam,
+    };
+    return { asked, seams };
+  }
+
+  test("caps every spawn's timeout at the time left, never raising a shorter one", async () => {
+    const { asked, seams } = recording();
+    const bound = withSpawnDeadline(seams, Date.now() + 5_000);
+    await bound.ageKeySeam.run(["age-keygen", "-y"]);
+    await bound.execSeam.run(["sops", "-d"], { timeoutMs: 100 });
+    expect(asked[0]).toBeGreaterThan(4_000);
+    expect(asked[0]).toBeLessThanOrEqual(5_000);
+    expect(asked[1]).toBe(100);
+  });
+
+  test("past the deadline a spawn gets the smallest timeout", async () => {
+    const { asked, seams } = recording();
+    await withSpawnDeadline(seams, Date.now() - 10).execSeam.run(["sops", "-d"]);
+    expect(asked).toEqual([1]);
+  });
 });

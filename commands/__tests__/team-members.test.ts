@@ -1,5 +1,6 @@
 import { describe, test, expect, spyOn } from "bun:test";
-import { teamMembersRemove, type TeamDeps } from "../team.ts";
+import { membersSyncAbortedFailure, teamMembersRemove, type TeamDeps } from "../team.ts";
+import { MembersSyncAbortedError } from "../../lib/team/members.ts";
 import { teamLocalPath } from "../../lib/team/team-local.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 
@@ -77,5 +78,13 @@ describe("teamMembersRemove --key parsing", () => {
     expect(code).toBe(2);
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("usage");
+  });
+});
+
+describe("membersSyncAbortedFailure", () => {
+  test("names the org in the command that runs the sync again", () => {
+    const err = new MembersSyncAbortedError(["age1aaa"], [], "sops failed");
+    expect(membersSyncAbortedFailure(err, "acme").next).toBe("rt team members sync --team acme");
+    expect(membersSyncAbortedFailure(err, null).next).toBe("rt team members sync");
   });
 });

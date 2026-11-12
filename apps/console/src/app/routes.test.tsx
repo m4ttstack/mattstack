@@ -123,3 +123,9 @@ describe('useAppRoute: /slack-gates', () => {
     expect(routeAt('/slack-gates')).toEqual({ name: 'slack-gates' });
   });
 });
+
+describe('useAppRoute: /team', () => {
+  it('matches the Team page', () => {
+    expect(routeAt('/team')).toEqual({ name: 'team' });
+  });
+});
