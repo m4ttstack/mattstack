@@ -1130,7 +1130,7 @@ not `resolve:<id>`: the reviewer said so and left resolving to the
 author, and no later round asks about it again. A resumed pane that
 finds the round already recorded records it again; the write replaces.
 The MR head sha is `mr_view`'s `mr.sha` (the source branch head as
-GitLab reports it; the field is on glance's `PullRequest`), read in the
+the forge reports it; the field is on glance's `PullRequest`), read in the
 same pass as the review; never a guess.
 
 Both `<n>` and the sha are read from `--report`'s `review-round:` line
@@ -1207,11 +1207,12 @@ one `mr_review_submit` call.
 ### Fix what the mr_view error names (review)
 
 `mr_view` refused. Correct what the error names: `mrUrl` the MR's https
-URL, `.../-/merge_requests/<iid>`, whose project is registered with rt.
-An error that names no input (the daemon down, a forge fetch failure)
-has nothing to correct: read again unchanged, once, and the off-script
-gate follows. An error is never a reason to read the MR with the forge
-CLI or the API.
+URL, `.../-/merge_requests/<iid>` on GitLab or
+`https://github.com/<owner>/<repo>/pull/<n>` on GitHub, whose project is
+registered with rt. An error that names no input (the daemon down, a
+forge fetch failure) has nothing to correct: read again unchanged, once,
+and the off-script gate follows. An error is never a reason to read the
+MR with the forge CLI or the API.
 
 ### Fix what the re-review mr_threads error names
 
@@ -1440,12 +1441,13 @@ refusal and what the MR shows.
 
 ### review off-script gate: pending comments on the MR
 
-Take "Off-script step" with this question. Label: `pending comments block
-the review of !<iid>: <count> pending`. Context: the count and the first
-lines the result gave, quoted, and that these pending comments are this
-account's own, started in the forge (pending comments on GitLab, a pending review on
-GitHub) or left by an earlier submit that failed, which a submit would
-publish along with the review. Then the summary and every comment in full, for a take.
+Take "Off-script step" with this question. Label: `pending comments
+block the review of !<iid>: <count> pending`. Context: the count and the
+first lines the result gave, quoted, and that these pending comments are
+this account's own, started in the forge (pending comments on GitLab, a
+pending review on GitHub) or left by an earlier submit that failed,
+which a submit would publish along with the review. Then the summary and
+every comment in full, for a take.
 
 | Value | Label | Description |
 |---|---|---|

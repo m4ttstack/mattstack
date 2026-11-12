@@ -202,23 +202,25 @@ it can post.
 ### Fix what the mr_view error names (respond)
 
 `mr_view` refused its input. Correct what the error names (`mrUrl` the
-MR's https URL, `.../-/merge_requests/<iid>`, whose project is registered
-with rt; `maxAgeMs` a number when you pass it) and read again, once. An
-error that names no input (the forge's own refusal, such as a 404 or 403,
-or the repo is not registered with rt) is quoted as written and has nothing to correct: read again unchanged,
-once, and the off-script gate follows. An error is never a reason to read
-the MR with the forge CLI.
+MR's https URL, `.../-/merge_requests/<iid>` on GitLab or
+`https://github.com/<owner>/<repo>/pull/<n>` on GitHub, whose project is
+registered with rt; `maxAgeMs` a number when you pass it) and read
+again, once. An error that names no input (the forge's own refusal, such
+as a 404 or 403, or the repo is not registered with rt) is quoted as
+written and has nothing to correct: read again unchanged, once, and the
+off-script gate follows. An error is never a reason to read the MR with
+the forge CLI.
 
 ### Fix what the fetch mr_threads error names
 
-`mr_threads` refused its input on the fetch. Correct what the error names
-(`mrUrl` the MR's https URL, `.../-/merge_requests/<iid>`, whose project
-is registered with rt; `refresh` a boolean; `filter` the string
-`unresolved-human`) and read again, once. An
-error that names no input (the daemon down, a forge fetch failure) has
-nothing to correct: read again unchanged, once, and the off-script gate
-follows. An error is never a reason to read the threads with the forge
-CLI or the API.
+`mr_threads` refused its input on the fetch. Correct what the error
+names (`mrUrl` the MR's https URL, `.../-/merge_requests/<iid>` on
+GitLab or `https://github.com/<owner>/<repo>/pull/<n>` on GitHub, whose
+project is registered with rt; `refresh` a boolean; `filter` the string
+`unresolved-human`) and read again, once. An error that names no input
+(the daemon down, a forge fetch failure) has nothing to correct: read
+again unchanged, once, and the off-script gate follows. An error is
+never a reason to read the threads with the forge CLI or the API.
 
 ### Adjudicate each unresolved thread
 
@@ -227,6 +229,14 @@ gives the title and description for context. The `mr_threads` result
 holds only the unresolved threads a human opened: the `unresolved-human`
 filter already dropped resolved threads, system notes, bot threads and
 mattstack's own re-review latch threads, and `dropped` counts each kind.
+
+On GitHub, before judging, drop two kinds of PR-level row
+(`gh-issue-comment-<n>` or `gh-review-<n>`) from the read: a row whose
+note is by the account this run posts as is out of scope, never
+adjudicated or replied to; and a row that a later PR-level comment by
+this account quotes (its first line as a Markdown quote, per the
+PR-level reply shape) is already answered. Rows dropped this way count
+as no thread for `Unresolved human threads = 0?`.
 
 With `--person <username>`, keep only that person's feedback:
 

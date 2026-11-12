@@ -382,12 +382,13 @@ rows, and the posting walk honours them.
 
 `mr_threads` refused its input on the Posted already read. Correct what
 the error names (`mrUrl` the MR's https URL,
-`.../-/merge_requests/<iid>`, whose project is registered with rt;
-`refresh` a boolean) and read again, once. An error that names no input
-(the daemon down, a forge fetch failure) has nothing to correct: read
-again unchanged, once, and the off-script gate follows. An error is never
-a reason to skip the read and post anyway: a reply posted twice is what
-this read prevents.
+`.../-/merge_requests/<iid>` on GitLab or
+`https://github.com/<owner>/<repo>/pull/<n>` on GitHub, whose project is
+registered with rt; `refresh` a boolean) and read again, once. An error
+that names no input (the daemon down, a forge fetch failure) has nothing
+to correct: read again unchanged, once, and the off-script gate follows.
+An error is never a reason to skip the read and post anyway: a reply
+posted twice is what this read prevents.
 
 ### Mark the threads that already carry this run's reply
 

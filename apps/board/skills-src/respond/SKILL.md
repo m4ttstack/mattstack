@@ -424,7 +424,7 @@ A `gate_open` refusal lists one problem per line. Fix each line it names
 in the source and fit again, once. A refusal line about an Overview
 comment's options (such as `options: exactly post:<t> and resolve:<t>`
 from an rt that predates post-alone Overview replies) is never fixed by
-adding `resolve:`, since GitLab cannot resolve that comment: it goes
+adding `resolve:`, since the forge cannot resolve that comment: it goes
 straight to the plain open. A second refusal also falls back to the
 plain open: the questions as drawn below, each `context` the thread's
 material as prose, the shared frame as `--context`, through `<status-bin>
