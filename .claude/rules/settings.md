@@ -107,13 +107,9 @@ branch holding the org store is accepted (a script `--no-pointer` trial),
 since there is no data branch to start from. A target is a trial unless it
 is the data branch origin `main`'s pointer names, or `main` itself when it
 names none, so `rt team branch use main` (layout 3) or `rt team branch use
-<dataBranch>` (layout 4 or 5) returns and clears the trial. Leaving the
-recorded trial never needs a push: its unpushed commits stay on the local
-trial branch (`leave` in `MoveOptions`, reported as `left`), are never carried
-to the data branch, and `rt team branch use <trial>` checks that local branch
-out again as it is (`keepLocal`). `rt team status --json` reports
-`dataBranch` and `trial`, which the console reads to hide Publish on a trial.
-The trial flow is
+<dataBranch>` (layout 4 or 5) returns and clears the trial, leaving unpushed
+trial commits on the local trial branch (`leave`), never carried; going back
+resumes them (`keepLocal`). `rt team status --json` carries `trial`. The trial flow is
 the script with `--data-branch <trial> --no-pointer --write`, then `rt team
 branch use <trial>` on the dev app's Mac. The daemon auto-commits only on an approved branch, the
 data branch or the recorded trial (`approvedBranches` in
