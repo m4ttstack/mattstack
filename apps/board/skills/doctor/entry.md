@@ -16,6 +16,8 @@ digraph doctor_entry {
     rankdir=TB;
 
     "Trigger: the map enters Launch and resume entry" [shape=ellipse];
+    "mrUrl on github.com (doctor)?" [shape=diamond];
+    "<status-bin> doctor-status <state> error Doctor can't run on GitHub yet: CI watch and server-side rebase are GitLab only for now" [shape=plaintext];
     "--resumed-gate given (doctor)?" [shape=diamond];
     "<status-bin> doctor-status <state> fixing (resumed gate)" [shape=plaintext];
     "<status-bin> doctor-status <state> diagnosing" [shape=plaintext];
@@ -27,6 +29,7 @@ digraph doctor_entry {
     "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" [shape=plaintext];
     "Print why the run ended (doctor)" [shape=box];
     "Domain skill not loaded: continue at Doctor error written" [shape=doublecircle];
+    "Doctor can't run on GitHub: continue at Doctor error written" [shape=doublecircle];
     "@doctor/scripts/resolve-args.sh (doctor)" [shape=plaintext];
     "resolve-args.sh exit (doctor)?" [shape=diamond];
     "Read <the tier's resolved path> (doctor)" [shape=plaintext];
@@ -66,7 +69,10 @@ digraph doctor_entry {
     "Entry ends the run: continue at the map's exit" [shape=doublecircle];
     "Resumed answer ends the run: continue at Which exit in the map" [shape=doublecircle];
 
-    "Trigger: the map enters Launch and resume entry" -> "--resumed-gate given (doctor)?";
+    "Trigger: the map enters Launch and resume entry" -> "mrUrl on github.com (doctor)?";
+    "mrUrl on github.com (doctor)?" -> "<status-bin> doctor-status <state> error Doctor can't run on GitHub yet: CI watch and server-side rebase are GitLab only for now" [label="yes"];
+    "mrUrl on github.com (doctor)?" -> "--resumed-gate given (doctor)?" [label="no"];
+    "<status-bin> doctor-status <state> error Doctor can't run on GitHub yet: CI watch and server-side rebase are GitLab only for now" -> "Print why the run ended (doctor)";
     "--resumed-gate given (doctor)?" -> "<status-bin> doctor-status <state> fixing (resumed gate)" [label="yes"];
     "--resumed-gate given (doctor)?" -> "<status-bin> doctor-status <state> diagnosing" [label="no: a fresh run"];
     "<status-bin> doctor-status <state> fixing (resumed gate)" -> "<status-bin> gate wait <state> (resumed escalation)";
@@ -80,7 +86,8 @@ digraph doctor_entry {
     "Domain skill loaded (doctor)?" -> "Branch-writing class under --tier api?" [label="yes"];
     "Domain skill loaded (doctor)?" -> "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" [label="no: Unknown skill, an unreadable path, any load error"];
     "<status-bin> doctor-status <state> error Couldn't load <--skill>: <loader message>" -> "Print why the run ended (doctor)";
-    "Print why the run ended (doctor)" -> "Domain skill not loaded: continue at Doctor error written";
+    "Print why the run ended (doctor)" -> "Domain skill not loaded: continue at Doctor error written" [label="a load failure"];
+    "Print why the run ended (doctor)" -> "Doctor can't run on GitHub: continue at Doctor error written" [label="the GitHub stop"];
     "@doctor/scripts/resolve-args.sh (doctor)" -> "resolve-args.sh exit (doctor)?";
     "resolve-args.sh exit (doctor)?" -> "Read <the tier's resolved path> (doctor)" [label="0"];
     "resolve-args.sh exit (doctor)?" -> "Print the resolver's errors verbatim (doctor)" [label="nonzero: generic path"];
@@ -215,6 +222,18 @@ pane` writes `error` naming the situation the gate described; both
   down naming the holder. A fresh run never waits: any fresh lease that is
   neither the board's nor `mine: true` is another attendant, and so is a
   non-doctor holder (a watch-ci session) on a resumed run.
+
+### mrUrl on github.com (doctor)?
+
+Yes when the host of `mrUrl` is `github.com`. Doctor's CI watch and
+server-side rebase work on GitLab only for now, so a GitHub PR ends the run
+here, before the domain skill, the resolver or any lease call. The stop
+comes out once CI watch and server-side rebase work on GitHub.
+
+### <status-bin> doctor-status <state> error Doctor can't run on GitHub yet: CI watch and server-side rebase are GitLab only for now
+
+Write that message as is, on one line. Nothing is claimed, so there is
+nothing to release.
 
 ### Load the --skill domain skill by name (doctor)
 
