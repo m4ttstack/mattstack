@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { BRAND, FILL, hovered, muted, pressed } from './theme'
+import { BRAND, FILL, SCROLL, hovered, muted, pressed } from './theme'
 import type { Style } from './text'
 
 function luminance(hex: string): number {
@@ -21,6 +21,11 @@ describe('unfocused fills', () => {
     expect(out).toBeDefined()
     expect(luminance(out as string)).toBeLessThanOrEqual(luminance(bg))
   })
+})
+
+test('an unfocused scroll bar keeps its thumb apart from its track', () => {
+  expect(muted({ bg: SCROLL.thumb }).bg).not.toBe(muted({ bg: SCROLL.track }).bg)
+  expect(luminance(muted({ bg: SCROLL.thumb }).bg as string)).toBeLessThanOrEqual(luminance(SCROLL.thumb))
 })
 
 describe('pointer states', () => {

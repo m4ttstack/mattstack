@@ -72,4 +72,12 @@ describe('narrow panes', () => {
     const line = buttonRow([{ label: 'Back', action: 'back' }], { label: 'Chat', action: 'chat' }, 60)
     expect(widthOf(line)).toBe(60)
   })
+
+  test('buttonRow with an indent starts its first button there and counts it in the fit', () => {
+    const left: Button<string>[] = [{ label: 'Run', action: 'run' }, { label: 'Done', action: 'done' }]
+    expect(buttonRow(left, undefined, 60, 0)[0]?.t).toBe('')
+    expect(buttonRow(left, undefined, 60, 2)[0]?.t).toBe('  ')
+    expect(buttonRow(left, undefined, 60, 2)[1]?.t).toBe('  Run  ')
+    expect(buttonRow(left, undefined, 18, 2)[1]?.t).toBe(' Run ')
+  })
 })

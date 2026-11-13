@@ -12,7 +12,7 @@ const ONE = 2
 const TWO = 12
 
 // The engine calls the module again after each setState, which sets a fresh listener over the new state.
-function mount(opts: { focused?: boolean; initial?: PointerState | null; isActive?: () => boolean } = {}) {
+function mount(opts: { focused?: boolean; initial?: PointerState | null; isActive?: () => boolean; lines?: () => Line<Action>[] } = {}) {
   let state: PointerState | undefined = opts.initial === null ? undefined : (opts.initial ?? {})
   let handler: ((event: ClientPointerEvent) => void) | undefined
   const actions: Action[] = []
@@ -30,18 +30,21 @@ function mount(opts: { focused?: boolean; initial?: PointerState | null; isActiv
     },
   } as unknown as ClientSurface<PointerState>
   const render = () =>
-    attachPointer(surface, LINES, {
+    attachPointer(surface, opts.lines?.() ?? LINES, {
       focused: opts.focused ?? true,
       onAction: a => actions.push(a),
       onEngage: () => (engaged += 1),
       ...(opts.isActive && { isActive: opts.isActive }),
     })
   let look = render().look
-  const send = (type: ClientPointerEvent['type'], x: number, button?: 'left' | 'right') => {
-    handler?.({ type, x, y: 0, ...(button && { button }) })
+  const send = (type: ClientPointerEvent['type'], x: number, button?: 'left' | 'right', y = 0) => {
+    handler?.({ type, x, y, ...(button && { button }) })
     look = render().look
   }
-  return { send, actions, state: () => state, look: () => look, engaged: () => engaged }
+  const redraw = () => {
+    look = render().look
+  }
+  return { send, redraw, actions, state: () => state, look: () => look, engaged: () => engaged }
 }
 
 test('hover follows the pointer, and leave clears it', () => {
@@ -110,4 +113,41 @@ test('look lights only the control still under a held press', () => {
   m.send('move', TWO, 'left')
   expect(m.look().pressed).toBeUndefined()
   expect(m.look().hover).toBeDefined()
+})
+
+// Output arriving while a button is held redraws the surface and can push the button down a row.
+function shifting() {
+  let lines = LINES
+  const m = mount({ lines: () => lines })
+  const shift = () => {
+    lines = [[sp('output')], ...LINES]
+    m.redraw()
+  }
+  return { ...m, shift }
+}
+
+test('a press survives a redraw that moves its control: releasing on it where it now is acts', () => {
+  const m = shifting()
+  m.send('down', ONE, 'left')
+  m.shift()
+  m.send('move', ONE, 'left', 1)
+  m.send('up', ONE, 'left', 1)
+  expect(m.actions).toEqual(['one'])
+})
+
+test('a release with no move since the press acts on what was pressed, though the lines moved under it', () => {
+  const m = shifting()
+  m.send('down', ONE, 'left')
+  m.shift()
+  m.send('up', ONE, 'left')
+  expect(m.actions).toEqual(['one'])
+})
+
+test('after a redraw, dragging off onto another control and releasing still does nothing', () => {
+  const m = shifting()
+  m.send('down', ONE, 'left')
+  m.shift()
+  m.send('move', TWO, 'left', 1)
+  m.send('up', TWO, 'left', 1)
+  expect(m.actions).toEqual([])
 })

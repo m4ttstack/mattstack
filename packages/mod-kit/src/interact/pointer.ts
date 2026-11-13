@@ -3,7 +3,8 @@ import type { ClientSurface } from 'claude-code'
 import { hitAt, hoverKeyAt, type Line } from '../draw/text'
 import type { Look } from '../draw/render'
 
-export type PointerState = { hover?: string; pressed?: string }
+// `armed` is the held control's action as JSON, so a release still finds it after a redraw moved its row.
+export type PointerState = { hover?: string; pressed?: string; armed?: string }
 
 type Options<A> = {
   focused: boolean
@@ -35,12 +36,17 @@ export function attachPointer<S extends PointerState, A>(surface: ClientSurface<
     if (ev.type === 'down') {
       opts.onEngage?.()
       if (!opts.focused || ev.button !== 'left' || !key || !isActive()) return
-      return surface.setState({ ...s, pressed: key, hover: key })
+      return surface.setState({ ...s, pressed: key, hover: key, armed: JSON.stringify(hitAt(lines[ev.y], ev.x)) })
     }
     if (ev.type === 'up') {
       if (s.pressed === undefined) return
-      surface.setState({ ...s, pressed: undefined })
-      const action = key === s.pressed ? hitAt(lines[ev.y], ev.x) : undefined
+      const { armed } = s
+      surface.setState({ ...s, pressed: undefined, armed: undefined })
+      // Output can redraw the lines under a held press: a release over the same action acts where its control now is,
+      // and a release with no move since the press acts on what was pressed.
+      const here = hitAt(lines[ev.y], ev.x)
+      const isStill = s.hover === s.pressed && armed !== undefined
+      const action = here !== undefined && JSON.stringify(here) === armed ? here : isStill ? (JSON.parse(armed) as A) : undefined
       if (action !== undefined) opts.onAction(action)
       return
     }

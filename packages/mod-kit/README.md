@@ -293,10 +293,11 @@ The line builders under the components. A component's `toLines` calls the
 matching builder. Reach for them when you build lines by hand for `<Lines>`.
 
 - `brandBar(label, width, hide?)`
-- `buttonRow(left, right, width)` and `buttonSpan(button, pad?)`, with `Button` data `{ label, action, tone?, disabled? }` and `ButtonTone`
+- `buttonRow(left, right, width, indent?)` (`indent` replaces the row's own lead-in, in cells) and `buttonSpan(button, pad?)`, with `Button` data `{ label, action, tone?, disabled? }` and `ButtonTone`
 - `selectList(spec)` with `SelectSpec` and `Choice`
 - `inputField(value, placeholder, width, showCursor)` and `textCursor(value, placeholder, showCursor)`
 - `tabStrip(spec)` with `Tab` and `TabStripSpec`, and `revealTab`
+- `scrollBar(rows, total, offset)`: a scroll bar for a window of `rows` over `total`, one three-cell line per row (a blank, the track or thumb, a blank). Blank lines when the list fits. Colours in `SCROLL`.
 
 ## Draw layer
 
@@ -347,7 +348,7 @@ call. `kitClient` does all of this.
 
 ### Theme
 
-`BRAND`, `FILL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
+`BRAND`, `FILL`, `SCROLL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
 `WARN`, `DIM` are the palette and glyph tables. `rail(style)` is the left rail
 spans. `hovered(span)`, `pressed(span)` and `muted(span)` give the state
 shades. Icons are Nerd Font codepoints.

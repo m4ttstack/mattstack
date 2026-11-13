@@ -54,6 +54,9 @@ export const FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum },
 }
 
+// A scroll bar's column, drawn as background colour: the track runs the window's height, the thumb sits on it.
+export const SCROLL = { track: '#383838', thumb: '#707070' }
+
 export const PLACEHOLDER: Style = { color: '#7a7a7a' }
 
 // A control under the pointer lightens; one held down darkens, so a click reads as a press.
@@ -99,7 +102,7 @@ export const rail = <A = never>(style: Style): Span<A>[] => [sp(SYMBOL.bar, styl
 // dimColor does nothing on a span that names a colour, so the unfocused look steps each level down to an explicit shade, keeping their order. Dark terminals only for now.
 const MUTED: Record<string, string> = { cyan: '#3d6f78', green: '#4d7a4d', yellow: '#857640', red: '#8a4a4a', gray: '#4a4a4a', [BRAND.pink]: '#7a3d58' }
 
-const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#6e3a52', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#5e2f45', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#24313f', color: '#8a8a8a' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#262626', color: '#8a8a8a' } }
+const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#6e3a52', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#5e2f45', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#24313f', color: '#8a8a8a' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#262626', color: '#8a8a8a' }, [SCROLL.track]: { bg: '#2a2a2a' }, [SCROLL.thumb]: { bg: '#4a4a4a' } }
 
 export function muted<S extends Style>(span: S): S {
   if (span.bg) return { ...span, ...(MUTED_FILL[span.bg] ?? { bg: '#3a3a3a', color: '#8a8a8a' }), dim: false }

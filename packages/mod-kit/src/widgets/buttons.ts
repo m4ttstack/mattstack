@@ -25,9 +25,10 @@ const widthWith = (left: Button<unknown>[], right: Button<unknown> | undefined, 
 const cut = (label: string, room: number) => (cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`)
 
 // Buttons for mouse users: `left` from the indent, `right` against the far edge.
-// A pane too narrow for the roomy layout tightens the padding and gaps, then cuts the right button's label.
-export function buttonRow<A>(left: Button<A>[], right: Button<A> | undefined, width: number): Line<A> {
-  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT
+// A pane too narrow for the roomy layout tightens the padding and gaps, then cuts the right button's label. `indent` replaces the layout's own lead-in.
+export function buttonRow<A>(left: Button<A>[], right: Button<A> | undefined, width: number, indent?: number): Line<A> {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent }
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent }
   const line: Line<A> = [sp(' '.repeat(space.indent))]
   for (const button of left) line.push(buttonSpan(button, space.pad), sp(' '.repeat(space.gap)))
   if (!right) return line
