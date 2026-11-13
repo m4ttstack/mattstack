@@ -2,9 +2,10 @@ import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
-import { runStart } from "../start.ts";
+import { dirname, join } from "path";
+import { runStart, type RunStartOpts } from "../start.ts";
 import { seedRun } from "./fixtures.ts";
+import { git, homeWithOrgClone, installedSkill, moveToTrial, seedPack } from "./installed-fixtures.ts";
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "rt-runs-write-"));
@@ -75,5 +76,67 @@ describe("runStart", () => {
     expect(db.query("SELECT value FROM fields WHERE key='claude-session'").get()).toEqual({ value: "s1" });
     expect(db.query("SELECT produced_by FROM fields WHERE key='herdr-pane'").get()).toEqual({ produced_by: "run" });
     db.close();
+  });
+});
+
+describe("runStart provenance from the skill folder", () => {
+  function recorded(r: ReturnType<typeof runStart>): { pack_commits: string | null; pack_dirty: number } {
+    if (!r.ok) throw new Error(r.error);
+    const db = new Database(r.runDb, { readonly: true });
+    try {
+      return db.query("SELECT pack_commits, pack_dirty FROM runs").get() as { pack_commits: string | null; pack_dirty: number };
+    } finally {
+      db.close();
+    }
+  }
+
+  const start = (skillDir: string, home: string, extra: Partial<RunStartOpts> = {}) =>
+    runStart(tmp(), { repo: "demo", workType: "feature", pipeline: "work", packDirs: [dirname(dirname(skillDir))], skillDir, env: { HOME: home }, ...extra });
+
+  test("an org clone on a trial branch: run start still finds the bump commit on the data branch", () => {
+    const { home, clone, sync11 } = homeWithOrgClone();
+    moveToTrial(clone, sync11);
+    const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56" }, join(home, ".claude", "plugins", "cache"));
+    expect(recorded(start(skillDir, home))).toEqual({ pack_commits: `acme=${sync11},mattstack=0.32.56`, pack_dirty: 0 });
+  });
+
+  test("a pack installed with no org clone records its version", () => {
+    const home = tmp();
+    const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56" }, join(home, ".claude", "plugins", "cache"));
+    expect(recorded(start(skillDir, home))).toEqual({ pack_commits: "acme=0.4.11,mattstack=0.32.56", pack_dirty: 0 });
+  });
+
+  test("a cache-installed pack inside an enclosing work tree skips the checkout path", () => {
+    const home = tmp();
+    git(home, "init", "-q");
+    git(home, "commit", "-q", "--allow-empty", "-m", "dotfiles");
+    const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56" }, join(home, ".claude", "plugins", "cache"));
+    expect(recorded(start(skillDir, home))).toEqual({ pack_commits: "acme=0.4.11,mattstack=0.32.56", pack_dirty: 0 });
+  });
+
+  test("a pack in CLAUDE_CONFIG_DIR's plugin cache inside an enclosing work tree skips the checkout path too", () => {
+    const home = tmp();
+    git(home, "init", "-q");
+    git(home, "commit", "-q", "--allow-empty", "-m", "dotfiles");
+    const configDir = join(home, ".claude-account");
+    const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56" }, join(configDir, "plugins", "cache"));
+    expect(recorded(start(skillDir, home, { env: { HOME: home, CLAUDE_CONFIG_DIR: configDir } }))).toEqual({ pack_commits: "acme=0.4.11,mattstack=0.32.56", pack_dirty: 0 });
+  });
+
+  test("old baked flags still record provenance", () => {
+    const { home } = homeWithOrgClone();
+    const skillDir = installedSkill("0.4.11", { mattstack: "0.32.56", sha: "abc1234", dirty: 1 }, join(home, ".claude", "plugins", "cache"));
+    const r = start(skillDir, home, { mattstackSha: "0.32.55", mattstackDirty: false, packSha: "acme=deadbee" });
+    expect(recorded(r)).toEqual({ pack_commits: "mattstack=0.32.55,acme=deadbee", pack_dirty: 0 });
+  });
+
+  test("a pack run from a checkout outside the plugin cache keeps its sha and dirty bit, and takes mattstack from the lock", () => {
+    const packRoot = join(tmp(), "acme");
+    const skillDir = seedPack(packRoot, "0.4.11", { mattstack: "0.32.56", sha: "abc1234", dirty: 1 });
+    git(packRoot, "init", "-q");
+    git(packRoot, "add", "-A");
+    git(packRoot, "commit", "-qm", "compile");
+    const sha = git(packRoot, "rev-parse", "--short", "HEAD");
+    expect(recorded(start(skillDir, tmp()))).toEqual({ pack_commits: `acme=${sha},mattstack=abc1234`, pack_dirty: 1 });
   });
 });

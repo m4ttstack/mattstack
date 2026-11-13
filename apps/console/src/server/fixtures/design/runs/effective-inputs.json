@@ -3,6 +3,7 @@
     {
       "pack": "acme",
       "recordedSha": "4c1d9e2b7a",
+      "recordedVersion": null,
       "currentSha": "4c1d9e2b7a51f0c3",
       "drifted": false,
       "commitsSince": null
@@ -10,6 +11,7 @@
     {
       "pack": "acme-base",
       "recordedSha": "71b0e44c9d",
+      "recordedVersion": null,
       "currentSha": "a92f3e1b07",
       "drifted": true,
       "commitsSince": 3

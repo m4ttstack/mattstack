@@ -3,7 +3,8 @@ import { parseDot, splitStatements } from "../../../lib/skills/blocks/dot.ts";
 const SEAM_LINE = /^(?:<!-- (?:part: .*|compiled by rt skills compile .*) -->|Pointers here are `@keys`\. .*)$/;
 const FENCE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 const HEADING = /^(#{1,6})\s+(.*)$/;
-const OLDER_REFERENCE = /^(?:Slot|Prop) (\S+) is bound to `([^`]+)` \(([^)]+)\) -- invoke that skill when this flow needs it\.$/;
+const OLDER_REFERENCE = /^(?:Slot|Prop) (\S+) is bound to `([^`]+)` \([^)]+\) -- invoke that skill when this flow needs it\.$/;
+const VERSIONED_REFERENCE = /^For ([^,`]+), invoke the `([^`]+)` skill \([^)]+\) when this flow needs it\.$/;
 const GRAPH_LEVEL = /^(?:(?:graph|node|edge)\s*\[.*\]|[\w-]+\s*=\s*.+)$/s;
 
 /**
@@ -89,8 +90,9 @@ export function normalizeCompiled(md: string): string {
       lastHeading = { level, title };
       continue;
     }
-    prose(line.replace(OLDER_REFERENCE, (_all, name: string, binding: string, version: string) =>
-      `For ${name.replaceAll("-", " ")}, invoke the \`${binding}\` skill (${version}) when this flow needs it.`));
+    prose(line
+      .replace(OLDER_REFERENCE, (_all, name: string, binding: string) => `For ${name.replaceAll("-", " ")}, invoke the \`${binding}\` skill when this flow needs it.`)
+      .replace(VERSIONED_REFERENCE, (_all, name: string, binding: string) => `For ${name}, invoke the \`${binding}\` skill when this flow needs it.`));
   }
   if (fence) out.push(`${fence.indent}${fence.marker}${fence.info}`, ...fence.body);
   while (out[out.length - 1] === "") out.pop();

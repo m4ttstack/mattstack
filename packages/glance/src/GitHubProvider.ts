@@ -794,6 +794,22 @@ function mapStateToGraphQLStates(
 // GitHubProvider
 // ---------------------------------------------------------------------------
 
+/**
+ * GitHub answers a review request for a login that is not a user who can
+ * review the repository with a 201 and leaves that login out of the PR's
+ * `requested_reviewers`, so a mistyped or unknown reviewer reads as success.
+ * A response without the array proves nothing either way and passes.
+ */
+function throwIfReviewersDropped(op: string, answered: unknown, wanted: string[]): void {
+  const requested = (answered as { requested_reviewers?: unknown } | null)?.requested_reviewers;
+  if (!Array.isArray(requested)) return;
+  const added = new Set(requested.map(u => String((u as { login?: unknown }).login ?? '').toLowerCase()));
+  const dropped = wanted.filter(login => !added.has(login.toLowerCase()));
+  if (dropped.length > 0) {
+    throw new Error(`${op}: GitHub accepted the request but did not add ${dropped.join(', ')} as a reviewer`);
+  }
+}
+
 export class GitHubProvider implements GitProvider {
   readonly providerName = 'github' as const;
   readonly baseURL: string;
@@ -1722,8 +1738,10 @@ export class GitHubProvider implements GitProvider {
 
     const failedSteps: FailedCreateStep[] = [];
     for (const { step, route, data } of steps) {
+      const op = `createPullRequest ${step} for #${created.number}`;
       try {
-        await this.fireAndThrow(`createPullRequest ${step} for #${created.number}`, route, data);
+        const answered = await this.fireAndThrow(op, route, data);
+        if (step === 'reviewers') throwIfReviewersDropped(op, answered, input.reviewers!);
       } catch (err) {
         failedSteps.push({ step, message: err instanceof Error ? err.message : String(err), cause: err });
       }
@@ -3374,9 +3392,9 @@ export class GitHubProvider implements GitProvider {
     op: string,
     route: string,
     data: unknown
-  ): Promise<void> {
+  ): Promise<unknown> {
     try {
-      await this.octokit.request(route, { data });
+      return (await this.octokit.request(route, { data })).data;
     } catch (err) {
       if (err instanceof RequestError && err.response) {
         throw ghError(op, err);

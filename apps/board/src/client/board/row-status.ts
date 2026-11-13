@@ -180,6 +180,7 @@ export function statusPhrase(mr: BoardMR): { text: string; hue: PillHue } {
 
 const REVIEW_IN_FLIGHT = new Set<ReviewStatus>(['queued', 'reviewing']);
 const DOCTOR_WORKING = new Set<DoctorStatus>([
+  'forge-rebasing',
   'syncing',
   'diagnosing',
   'rebasing',
@@ -801,6 +802,7 @@ function doctorStatusLine(
           ],
         };
       return { tone: 'quiet', word: DOCTOR_LABEL[d.status], verbs: [] };
+    case 'forge-rebasing':
     case 'syncing':
       return {
         tone: 'work',

@@ -1,15 +1,20 @@
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { withoutReferenceVersions } from "./drift.ts";
 
-const MARKER_VERSION_RE = /(<!-- part: [^>]*?\bversion=)[^\s>]+/g;
+const MARKER_VERSION_RE = /(<!-- part: [^>]*?) version=[^\s>]+/g;
 const COMPILED_RE = /^(\s*compiled: )"[^"\n]*"$/m;
 const BAKED_FLAG_RE = /(--(?:mattstack|pack)-sha )\S+/g;
 
-/** check compares artifacts with the versions and shas the compiler stamps masked out: a bump that changed no inlined body is not drift. */
+/**
+ * check compares artifacts with the versions and shas the compiler stamps masked out: a bump that changed no inlined body is not drift.
+ * A seam's `version=` and a reference line's version are deleted rather than masked, so what an older compile wrote equals the
+ * versionless text a current compile writes.
+ */
 export function maskProvenance(text: string): string {
-  return text
-    .replace(MARKER_VERSION_RE, "$1*")
+  return withoutReferenceVersions(text)
+    .replace(MARKER_VERSION_RE, "$1")
     .replace(COMPILED_RE, "$1*")
     .replace(BAKED_FLAG_RE, "$1*");
 }
@@ -29,7 +34,7 @@ export function packPluginIdentity(packDir: string): { name: string; version: st
 
 export type GitFacts = { sha: string; dirty: 0 | 1 };
 
-/** Feeds run-start.flags' --mattstack-sha/--mattstack-dirty; a non-git or unreadable mattstack dir degrades to empty/clean rather than failing resolution. */
+/** Feeds the lock's mattstackSha/mattstackDirty; a non-git or unreadable mattstack dir degrades to empty/clean rather than failing resolution. */
 export function gitFacts(dir: string): GitFacts {
   try {
     const sha = execFileSync("git", ["-C", dir, "rev-parse", "--short", "HEAD"], { stdio: "pipe" }).toString().trim();
@@ -41,11 +46,10 @@ export function gitFacts(dir: string): GitFacts {
 }
 
 /**
- * Only {{run-start.flags}} carries these facts, and only a pipeline body places
- * it, so a pack with no declared pipelines pays nothing for the two git
- * subprocesses. An installed plugin cache is a plain copy with no .git; its
- * version is the only provenance it carries, and it is what the run DB records
- * in that case.
+ * Run start reads these facts back from the lock only for a pipeline skill, so
+ * a pack with no declared pipelines pays nothing for the two git subprocesses.
+ * An installed plugin cache is a plain copy with no .git; its version is the
+ * only provenance it carries.
  */
 export function mattstackProvenance(
   pipelines: Record<string, string[]>,
@@ -56,37 +60,4 @@ export function mattstackProvenance(
   if (Object.keys(pipelines).length === 0) return { sha: plugin.version, dirty: 0 };
   const { sha, dirty } = facts(plugin.dir);
   return { sha: sha || plugin.version, dirty };
-}
-
-/** packProvenance never reports a dirty bit, so it only pays for the one subprocess gitFacts' second `git status` call would waste. */
-function gitShaOnly(dir: string): string {
-  try {
-    return execFileSync("git", ["-C", dir, "rev-parse", "--short", "HEAD"], { stdio: "pipe" }).toString().trim();
-  } catch {
-    return "";
-  }
-}
-
-/** The pack's own provenance token: its short sha when --pack-dir is a checkout, else the version its plugin.json declares. */
-export function packProvenance(packDir: string, shaOf: (dir: string) => string = gitShaOnly): string {
-  const sha = shaOf(packDir);
-  if (sha) return sha;
-  return packPluginIdentity(packDir)?.version ?? "";
-}
-
-/**
- * Mirrors mattstackProvenance's guard and reason: {{run-start.flags}} only ever
- * prints --pack-sha per declared pipeline, so a pack with none pays nothing for
- * packProvenance's git subprocess. An empty provenance never bakes a bare
- * "<name>=" -- that reads as a sha to anything parsing the flag downstream.
- */
-export function computePackSha(
-  pipelines: Record<string, unknown>,
-  self: { name: string; version: string } | null,
-  packDir: string,
-  provenanceOf: (dir: string) => string = packProvenance,
-): string {
-  if (!self || Object.keys(pipelines).length === 0) return "";
-  const sha = provenanceOf(packDir);
-  return sha ? `${self.name}=${sha}` : "";
 }

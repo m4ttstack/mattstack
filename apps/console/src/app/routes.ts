@@ -6,6 +6,7 @@ export type AppRoute =
   | { name: 'run'; repo: string; runId: string }
   | { name: 'gate'; id: string }
   | { name: 'slack-gates' }
+  | { name: 'team' }
   | { name: 'search' }
   | { name: 'usage' }
   | { name: 'usage-mr'; mrKey: string }
@@ -71,6 +72,7 @@ export function useAppRoute(): AppRoute {
   const [isRun, runParams] = useRoute('/runs/:repo/:runId');
   const [isGate, gateParams] = useRoute('/gates/:id');
   const [isSlackGates] = useRoute('/slack-gates');
+  const [isTeam] = useRoute('/team');
   const [isConfig, configParams] = useRoute('/config/:key');
 
   if (isBoard) return { name: 'board' };
@@ -103,6 +105,7 @@ export function useAppRoute(): AppRoute {
     return id !== undefined ? { name: 'gate', id } : { name: 'not-found' };
   }
   if (isSlackGates) return { name: 'slack-gates' };
+  if (isTeam) return { name: 'team' };
   if (isConfig) {
     const key = decodeParam(configParams.key ?? '');
     return key !== undefined ? { name: 'config', key } : { name: 'not-found' };

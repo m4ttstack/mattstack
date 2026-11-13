@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -15,6 +15,7 @@ import { navigate } from 'wouter/use-browser-location';
 import { StepLoader, useStepLoading } from '../StepLoader';
 import { CommitDiff, filesOf } from './CommitDiff';
 import { useConfirmCompile } from './graph/confirmCompile';
+import { foldVersionOnly } from './graph/model/foldHistory';
 import { UnsyncedActions, useUnsyncedSummary } from './graph/UnsyncedBanner';
 import classes from './PackHistory.module.css';
 import {
@@ -164,6 +165,20 @@ export function HistorySidebar({ pack }: { pack: string }) {
   const onWorking = picks[0] === WORKING;
   const onCompile = picks[0] === COMPILE;
   const comparing = picks.length === 2;
+  // Shas of the folds a reader opened, so an open fold stays open when a
+  // pick reshapes the runs around it.
+  const [shownFolds, setShownFolds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const toggleFold = (shas: string[], show: boolean) =>
+    setShownFolds(shown => {
+      const next = new Set(shown);
+      for (const sha of shas) {
+        if (show) next.add(sha);
+        else next.delete(sha);
+      }
+      return next;
+    });
   // A compare runs from the older pick to the newer one; the log lists the
   // newest first, so the newer pick sits higher in it.
   const newerIndex = comparing
@@ -182,7 +197,11 @@ export function HistorySidebar({ pack }: { pack: string }) {
       (onCompile && waiting !== undefined && staleSkills.length === 0)
     ) {
       if (unsynced > 0) write({ commits: [WORKING] });
-      else if (commits[0]) write({ commits: [commits[0].sha] });
+      else {
+        const opening =
+          commits.find(commit => !commit.versionOnly) ?? commits[0];
+        if (opening) write({ commits: [opening.sha] });
+      }
     }
   }, [
     changesPending,
@@ -206,6 +225,66 @@ export function HistorySidebar({ pack }: { pack: string }) {
       // Two picks at most: a third replaces the one picked first.
       write({ commits: add ? [...picks.slice(-1), sha] : [sha] });
     }
+  };
+
+  // Never folded: both ends of the diff on screen, the newest commit and any
+  // commit not compiled yet.
+  const range = rangeOf(picks, commits);
+  const inView = new Set<string>([
+    ...picks,
+    ...uncompiled,
+    ...(commits[0] ? [commits[0].sha] : []),
+    ...(range
+      ? commits
+          .filter(c => c.shortSha === range.from || c.shortSha === range.to)
+          .map(c => c.sha)
+      : []),
+  ]);
+
+  // Only what a fold would hide folds: a commit kept in view is a row in its
+  // own place and splits the run around it.
+  const rows = foldVersionOnly(
+    commits.map(commit => ({
+      sha: commit.sha,
+      commit,
+      versionOnly: commit.versionOnly && !inView.has(commit.sha),
+    }))
+  );
+
+  const commitRow = (commit: (typeof commits)[number]) => {
+    const i = commits.indexOf(commit);
+    const at = picks.indexOf(commit.sha);
+    return (
+      <UnstyledButton
+        key={commit.sha}
+        className={classes.row}
+        data-selected={at >= 0 || undefined}
+        aria-pressed={at >= 0}
+        aria-label={`show ${commit.shortSha}`}
+        onClick={event => pick(commit.sha, event.shiftKey)}
+        data-testid={`commit-${commit.shortSha}`}
+      >
+        <span className={classes.subject}>{commit.subject}</span>
+        <span className={classes.meta}>
+          <span className={classes.sha}>{commit.shortSha}</span>
+          <span>{relativeTime(commit.authoredAt)}</span>
+          {i === 0 && <span>newest</span>}
+          {uncompiled.has(commit.sha) && (
+            <span
+              className={classes.uncompiled}
+              data-testid={`uncompiled-${commit.shortSha}`}
+            >
+              not compiled
+            </span>
+          )}
+          {comparing && at >= 0 && (
+            <span className={classes.end}>
+              {i === newerIndex ? 'To' : 'From'}
+            </span>
+          )}
+        </span>
+      </UnstyledButton>
+    );
   };
 
   return (
@@ -321,38 +400,34 @@ export function HistorySidebar({ pack }: { pack: string }) {
               </span>
             </UnstyledButton>
           </Collapse>
-          {commits.map((commit, i) => {
-            const at = picks.indexOf(commit.sha);
+          {rows.map(row => {
+            if (row.kind === 'commit') return commitRow(row.commit.commit);
+            const folded = row.commits.map(entry => entry.commit);
+            const shas = folded.map(commit => commit.sha);
+            const shown = shas.some(sha => shownFolds.has(sha));
             return (
-              <UnstyledButton
-                key={commit.sha}
-                className={classes.row}
-                data-selected={at >= 0 || undefined}
-                aria-pressed={at >= 0}
-                aria-label={`show ${commit.shortSha}`}
-                onClick={event => pick(commit.sha, event.shiftKey)}
-                data-testid={`commit-${commit.shortSha}`}
-              >
-                <span className={classes.subject}>{commit.subject}</span>
-                <span className={classes.meta}>
-                  <span className={classes.sha}>{commit.shortSha}</span>
-                  <span>{relativeTime(commit.authoredAt)}</span>
-                  {i === 0 && <span>newest</span>}
-                  {uncompiled.has(commit.sha) && (
-                    <span
-                      className={classes.uncompiled}
-                      data-testid={`uncompiled-${commit.shortSha}`}
-                    >
-                      not compiled
+              <Fragment key={`fold-${shas[0]}`}>
+                <UnstyledButton
+                  className={`${classes.row} ${classes.fold}`}
+                  aria-expanded={shown}
+                  onClick={() => toggleFold(shas, !shown)}
+                  data-testid={`fold-${folded[0]!.shortSha}`}
+                >
+                  <span className={classes.foldHead}>
+                    <Icon
+                      name={shown ? 'chevronDown' : 'chevronRight'}
+                      size={14}
+                    />
+                    <span className={classes.foldLabel}>
+                      {folded.length} version-only commits
                     </span>
-                  )}
-                  {comparing && at >= 0 && (
-                    <span className={classes.end}>
-                      {i === newerIndex ? 'To' : 'From'}
+                    <span className={classes.foldToggle}>
+                      {shown ? 'Hide' : 'Show'}
                     </span>
-                  )}
-                </span>
-              </UnstyledButton>
+                  </span>
+                </UnstyledButton>
+                {shown && folded.map(commitRow)}
+              </Fragment>
             );
           })}
           {history.data?.truncated && (

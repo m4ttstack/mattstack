@@ -24,6 +24,7 @@ import { runGitHubGapsConformance } from './githubGapsConformance.ts';
 import { runParityReadsConformance } from './parityReadsConformance.ts';
 import { ALL_METHODS } from './expectations.ts';
 import { buildFixtures } from './fixture.ts';
+import { installGitLabPacer } from './gitlabPacer.ts';
 import { Reporter } from './report.ts';
 
 const { fixtures, missing } = await buildFixtures();
@@ -107,4 +108,5 @@ if (missing.length > 0) {
 }
 
 console.log(report.render());
+console.log(installGitLabPacer().summary());
 process.exit(missing.length > 0 ? 1 : report.exitCode);

@@ -1,7 +1,7 @@
 import { spyOn } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { loadBlockTree } from "../blocks/tree.ts";
 import { isInlined, type CompileSkillOpts } from "../compile.ts";
 import { compileBlockSkill, type BlockValues } from "../compile-blocks.ts";
@@ -107,4 +107,46 @@ export function rootPropValues(step: StepSource, fills: Record<string, Attachmen
 
 export function compileOneBlock(v: VerbDef, step: StepSource, fills: Record<string, AttachmentSource | null>, roster: Set<string>, opts: CompileSkillOpts = {}): CompileResult {
   return compileBlockSkill(v, step, rootPropValues(step, fills, opts.internalRoster), roster, opts);
+}
+
+const twoVerbEngine = (name: string) =>
+  `---\nname: ${name}\ndescription: "${name} things"\ntype: pipeline-step\nprops:\n  domain:\n    merge: replace\n    default: ""\n    contract: "domain@1"\n  guide:\n    merge: replace\n    default: ""\n    contract: "guide@1"\n---\n\nDo ${name}.\n\n{{props.domain}}\n\n{{props.guide}}\n`;
+
+function writeTo(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+}
+
+/**
+ * An acme pack 0.4.11 compiled against mattstack 1.0.0: two public verbs,
+ * alpha and beta, each with a prop inlining the pack's own fill and a prop
+ * bound by reference to the pack's own public skill, no pipeline and no
+ * pointer keys. `made` collects the temp dirs for the caller to remove.
+ */
+export function seedTwoVerbPack(made: string[]): { packDir: string; flags: string[] } {
+  const tmp = (prefix: string) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+    made.push(dir);
+    return dir;
+  };
+  const mattstackDir = tmp("rt-two-verb-mattstack-");
+  const engines = join(mattstackDir, "plugins", "mattstack");
+  writeTo(join(engines, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
+  for (const name of ["alpha", "beta"]) writeTo(join(engines, "skills", "pipeline", name, "index.block.md"), twoVerbEngine(name));
+
+  const packDir = tmp("rt-two-verb-pack-");
+  setTwoVerbPackVersion(packDir, "0.4.11");
+  writeTo(join(packDir, "pack", "stubs.jsonc"), JSON.stringify({
+    verbs: { alpha: { engine: "alpha", description: "Use for alpha." }, beta: { engine: "beta", description: "Use for beta." } },
+  }));
+  writeTo(join(packDir, "attachments", "policy", "SKILL.md"), `---\nname: policy\ndescription: "acme policy"\nmetadata:\n  provides: "domain@1"\n---\n\nFollow the acme policy.\n`);
+  writeTo(join(packDir, "skills", "guide", "SKILL.md"), `---\nname: guide\ndescription: "Use when an acme flow needs the guide."\nmetadata:\n  provides: "guide@1"\n---\n\nRead the acme guide.\n`);
+
+  const manifest = join(tmp("rt-two-verb-manifest-"), "skills.jsonc");
+  writeTo(manifest, JSON.stringify({ bindings: { "mattstack:alpha": { domain: "acme:policy", guide: "acme:guide" }, "mattstack:beta": { domain: "acme:policy", guide: "acme:guide" } } }));
+  return { packDir, flags: ["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifest] };
+}
+
+export function setTwoVerbPackVersion(packDir: string, version: string): void {
+  writeTo(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme", version }));
 }

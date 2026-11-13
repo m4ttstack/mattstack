@@ -67,9 +67,6 @@ function includeOnlyContext(includes: Record<string, AttachmentSource>): Placeho
     includes,
     pipelines: {},
     repoKey: "",
-    mattstackSha: "",
-    mattstackDirty: 0,
-    packSha: "",
     stageDir: null,
     stageMeta: null,
     compiledFrom: "",
@@ -229,7 +226,7 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   assertPathsInside(fm[0], outDir, name, where);
   assertPathsInside(expanded, outDir, name, where);
 
-  const stamp = names.length === 0 ? null : names.map((n) => `${includes[n]!.plugin}:${n}@${includes[n]!.version}`).join(" + ");
+  const stamp = names.length === 0 ? null : names.map((n) => `${includes[n]!.plugin}:${n}`).join(" + ");
   const frontmatter = stampFrontmatter(fm[0].replace(/\r?\n$/, ""), stamp, where);
   const span = `path=${where} lines=${bodyStartLine}-${bodyStartLine + bodyLines.length - 1}`;
   const skillMd = `${frontmatter}\n\n${EXPAND_HEADER}\n\n<!-- part: step source=${where} ${span} -->\n${expanded}\n`;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Alert,
   Button,
@@ -13,6 +13,7 @@ import { modals } from '@mattstack/app-kit/modals';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { checkValue, type SchemaIssue } from '@mattstack/settings-kit/shapes';
 
+import { draftNote } from './draftNotes';
 import { canDraw, type FormShape } from './formShape';
 import {
   footerSummary,
@@ -45,6 +46,41 @@ function parse(text: string): Parsed {
 
 function emptyOf(def: SettingDefWire): unknown {
   return def.type === 'array' ? [] : {};
+}
+
+// Centred on the wrapper: Alert's default top alignment plus the icon's
+// 1px offset rides a 12px line above a 14px icon.
+const NOTE_STYLES = {
+  wrapper: { alignItems: 'center' },
+  icon: { marginInlineEnd: 6, marginTop: 0 },
+} as const;
+
+/** One short line about the draft, beside its icon. */
+function DraftNote({
+  color,
+  icon,
+  testId,
+  children,
+}: {
+  color: 'accent' | 'warn';
+  icon: ReactNode;
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <Alert
+      variant="tint"
+      color={color}
+      icon={icon}
+      w="fit-content"
+      py={4}
+      px={10}
+      styles={NOTE_STYLES}
+      data-testid={testId}
+    >
+      <Text fz={12}>{children}</Text>
+    </Alert>
+  );
 }
 
 /** A local draft of one layer's value, as JSON or as a form, checked
@@ -136,6 +172,7 @@ export function DraftEditor({
         ...standingIssues(reported, start, parsed.value, checked, origin),
       ]
     : checked;
+  const keyNote = parsed.ok ? draftNote(def.key, parsed.value) : null;
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!reveal) return;
@@ -291,18 +328,22 @@ export function DraftEditor({
         </Group>
       </PanelToolbar>
       {showsDefault && (
-        <Alert
-          variant="tint"
+        <DraftNote
           color="accent"
           icon={<Icons.info size={14} />}
-          w="fit-content"
-          py={4}
-          px={10}
-          styles={{ icon: { marginInlineEnd: 6 } }}
-          data-testid="draft-default-note"
+          testId="draft-default-note"
         >
-          <Text fz={12}>Currently set to the default value</Text>
-        </Alert>
+          Currently set to the default value
+        </DraftNote>
+      )}
+      {keyNote !== null && (
+        <DraftNote
+          color="warn"
+          icon={<Icons.warning size={14} />}
+          testId="draft-key-note"
+        >
+          {keyNote}
+        </DraftNote>
       )}
       {mode === 'json' && (
         <div>
