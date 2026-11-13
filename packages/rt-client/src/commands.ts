@@ -5,7 +5,7 @@
  * plus one function, never a change to the transport itself.
  */
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
-import type { PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
+import type { ApprovalRuleLite, PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -1311,6 +1311,8 @@ export interface Commands {
   "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
   "pipeline:list": { payload: { repoName: string; ref?: string; sha?: string; iid?: number; limit?: number }; data: { pipelines: PipelineListRow[] } };
   "forge:get": { payload: { repoName: string; path: string; query?: Record<string, string | number | boolean>; page?: number; perPage?: number }; data: ForgeGetData };
+  /** One MR's or PR's code owner rules; `rules` is empty when glance has none or says why in `unknownReason`. */
+  "mr:owner-rules": { payload: { repoName: string; iid: number }; data: { rules: ApprovalRuleLite[]; unknownReason?: string } };
   /** The forge token's own login, and nothing else about that user. */
   "forge:self": { payload: { repoName: string }; data: { username: string } };
   /** One file's diff in an MR (GitLab) or PR (GitHub), read through the repo's own forge; iid is the MR iid or PR number. */
@@ -1610,6 +1612,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "project:labels",
   "pipeline:list",
   "forge:get",
+  "mr:owner-rules",
   "forge:self",
   "forge:file-diff",
   "endpoint:claim",
