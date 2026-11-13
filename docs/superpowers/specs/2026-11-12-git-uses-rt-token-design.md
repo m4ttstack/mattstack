@@ -281,10 +281,10 @@ credential config. No network, no write, no prompt. Each repo gets one row:
 | State | Shown as | next |
 |---|---|---|
 | HTTPS, rt is the sole helper for the host | `done` | none |
-| HTTPS with helper entries rt did not write for that host | `skipped` "has its own credential helper for <host>" | none |
+| HTTPS or SSH, with helper entries rt did not write for the (mapped) HTTPS host | `skipped` "has its own credential helper for <host>" | none |
 | SSH where an `insteadOf` rule maps the HTTPS URL back to SSH | `skipped` naming the rule | none |
 | HTTPS, rt not wired, token held, host confirmed | `pending` "uses its own git credentials" | `rt git auth <path>` |
-| SSH, token held for the mapped HTTPS host | `off` "uses SSH" | `rt git auth --https <path>` |
+| SSH, token held for the mapped HTTPS host, host confirmed | `off` "uses SSH" | `rt git auth --https <path>` |
 | no token, unconfirmed host, http, no origin, not a forge | `skipped` with the reason | none |
 
 Rows are chosen with the same local tests the plain form and `--https` use
