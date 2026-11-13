@@ -932,3 +932,50 @@ describe('runRefresh: Linear issue persistence', () => {
     expect(issues[0]).toMatchObject({ identifier: 'ACME-1' });
   });
 });
+
+describe('runRefresh: the confirmed host changes while it runs', () => {
+  it('writes nothing for the old host after the change, and stops', async () => {
+    const store = getStore();
+    store.adoptForgeHost(ENV.baseUrl);
+    const { provider } = makeFakeProvider({
+      restRequest: async () => userIdRes(1, 'alice'),
+      fetchMergeRequestIndex: async () => {
+        store.adoptForgeHost('https://gl.other.example');
+        return [indexRow()];
+      },
+    });
+
+    await expect(
+      runRefresh({
+        store,
+        provider,
+        settings: settings(),
+        env: ENV,
+        window: WINDOW,
+      })
+    ).rejects.toThrow('the confirmed GitLab host changed');
+
+    expect(store.counts().mrIndex).toBe(0);
+    expect(store.lastScan('g/p')).toBeNull();
+  });
+
+  it('a refresh whose host is still the confirmed one writes as before', async () => {
+    const store = getStore();
+    store.adoptForgeHost(ENV.baseUrl);
+    const { provider } = makeFakeProvider({
+      restRequest: async () => userIdRes(1, 'alice'),
+      fetchMergeRequestIndex: async () => [indexRow()],
+    });
+
+    await runRefresh({
+      store,
+      provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+    });
+
+    expect(store.counts().mrIndex).toBe(1);
+    expect(store.lastScan('g/p')).not.toBeNull();
+  });
+});

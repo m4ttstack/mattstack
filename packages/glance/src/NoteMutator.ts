@@ -17,6 +17,7 @@
  *   GET    /api/v4/projects/:id/merge_requests/:mrIid/reviewers
  */
 
+import { throwIfGitLabRateLimited, withGitLabRateLimit } from './gitlabRateLimit.ts';
 import { type OnRequestHook, safeEmit } from './instrumentation.ts';
 
 /** GitLab omits `type` on a general note; every CreatedNote producer must still return `null`, not `undefined`. */
@@ -88,7 +89,13 @@ function projectSegment(project: number | string): string {
   return typeof project === 'number' ? String(project) : encodeURIComponent(project);
 }
 
-/** Above GitLab's own request limit, so a publish GitLab is still running is never abandoned. */
+/** GitLab stops serving a request after this long. */
+const GITLAB_REQUEST_LIMIT_MS = 60_000;
+/**
+ * Above GitLab's own request limit, so a publish GitLab is still running is
+ * never abandoned. It also bounds the publish's 429 waits, which may use only
+ * what is left after reserving that limit for the send.
+ */
 const PUBLISH_TIMEOUT_MS = 90_000;
 /** Every other request a review submit makes (drafts, reviewer states, diff refs). */
 const DRAFT_TIMEOUT_MS = 15_000;
@@ -108,6 +115,43 @@ export class NoteMutator {
   }
 
   /**
+   * One request, sent again after GitLab's reset for as long as it answers
+   * 429. Each attempt gets its own `timeoutMs`, so time spent waiting for the
+   * reset never counts against the next send; with `shareBudget`, `timeoutMs`
+   * instead bounds the waits and every send together, so a caller timing the
+   * whole call is never outlasted.
+   */
+  private async send(
+    op: string,
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    init: { headers: Record<string, string>; body?: string | FormData; timeoutMs?: number; shareBudget?: boolean },
+  ): Promise<Response> {
+    const budgetEnd = init.shareBudget && init.timeoutMs !== undefined ? Date.now() + init.timeoutMs : undefined;
+    const limits = budgetEnd !== undefined ? { retryBy: budgetEnd - GITLAB_REQUEST_LIMIT_MS } : {};
+    return withGitLabRateLimit(`${method} ${path}`, method === 'GET' ? 'read' : 'write', async () => {
+      const timeoutMs = budgetEnd !== undefined ? Math.max(1, budgetEnd - Date.now()) : init.timeoutMs;
+      const started = performance.now();
+      const res = await fetch(`${this.baseURL}${path}`, {
+        method,
+        headers: init.headers,
+        ...(init.body !== undefined ? { body: init.body } : {}),
+        ...(timeoutMs !== undefined ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+      });
+      safeEmit(this.onRequest, {
+        op: `noteMutator.${op}`,
+        transport: 'rest',
+        method,
+        path,
+        durationMs: performance.now() - started,
+        status: res.status,
+      });
+      throwIfGitLabRateLimited(res);
+      return res;
+    }, limits);
+  }
+
+  /**
    * Create a note on an MR, optionally within an existing discussion thread.
    * If `discussionId` is provided the note is posted as a reply to that thread.
    */
@@ -120,25 +164,9 @@ export class NoteMutator {
     const path = discussionId
       ? `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/discussions/${discussionId}/notes`
       : `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/notes`;
-    const url = `${this.baseURL}${path}`;
-    const started = performance.now();
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "PRIVATE-TOKEN": this.token,
-      },
+    const res = await this.send('createNote', 'POST', path, {
+      headers: { "Content-Type": "application/json", "PRIVATE-TOKEN": this.token },
       body: JSON.stringify({ body }),
-    });
-
-    safeEmit(this.onRequest, {
-      op: 'noteMutator.createNote',
-      transport: 'rest',
-      method: 'POST',
-      path,
-      durationMs: performance.now() - started,
-      status: res.status,
     });
 
     if (!res.ok) {
@@ -163,25 +191,9 @@ export class NoteMutator {
     body: string,
   ): Promise<CreatedDiscussion> {
     const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/discussions`;
-    const url = `${this.baseURL}${path}`;
-    const started = performance.now();
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "PRIVATE-TOKEN": this.token,
-      },
+    const res = await this.send('createDiscussion', 'POST', path, {
+      headers: { "Content-Type": "application/json", "PRIVATE-TOKEN": this.token },
       body: JSON.stringify({ body }),
-    });
-
-    safeEmit(this.onRequest, {
-      op: 'noteMutator.createDiscussion',
-      transport: 'rest',
-      method: 'POST',
-      path,
-      durationMs: performance.now() - started,
-      status: res.status,
     });
 
     if (!res.ok) {
@@ -207,25 +219,9 @@ export class NoteMutator {
     position: TextPosition,
   ): Promise<CreatedDiscussion> {
     const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/discussions`;
-    const url = `${this.baseURL}${path}`;
-    const started = performance.now();
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "PRIVATE-TOKEN": this.token,
-      },
+    const res = await this.send('createPositionedDiscussion', 'POST', path, {
+      headers: { "Content-Type": "application/json", "PRIVATE-TOKEN": this.token },
       body: JSON.stringify({ body, position }),
-    });
-
-    safeEmit(this.onRequest, {
-      op: 'noteMutator.createPositionedDiscussion',
-      transport: 'rest',
-      method: 'POST',
-      path,
-      durationMs: performance.now() - started,
-      status: res.status,
     });
 
     if (!res.ok) {
@@ -245,22 +241,9 @@ export class NoteMutator {
    */
   async fetchDiffRefs(project: number | string, mrIid: number): Promise<DiffRefs> {
     const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}`;
-    const url = `${this.baseURL}${path}`;
-    const started = performance.now();
-
-    const res = await fetch(url, {
-      method: "GET",
+    const res = await this.send('fetchDiffRefs', 'GET', path, {
       headers: { "PRIVATE-TOKEN": this.token },
-      signal: AbortSignal.timeout(DRAFT_TIMEOUT_MS),
-    });
-
-    safeEmit(this.onRequest, {
-      op: 'noteMutator.fetchDiffRefs',
-      transport: 'rest',
-      method: 'GET',
-      path,
-      durationMs: performance.now() - started,
-      status: res.status,
+      timeoutMs: DRAFT_TIMEOUT_MS,
     });
 
     if (!res.ok) {
@@ -287,24 +270,9 @@ export class NoteMutator {
     body: string,
   ): Promise<void> {
     const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/notes/${noteId}`;
-    const url = `${this.baseURL}${path}`;
-    const started = performance.now();
-    const res = await fetch(url, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        "PRIVATE-TOKEN": this.token,
-      },
+    const res = await this.send('updateNote', 'PUT', path, {
+      headers: { "Content-Type": "application/json", "PRIVATE-TOKEN": this.token },
       body: JSON.stringify({ body }),
-    });
-
-    safeEmit(this.onRequest, {
-      op: 'noteMutator.updateNote',
-      transport: 'rest',
-      method: 'PUT',
-      path,
-      durationMs: performance.now() - started,
-      status: res.status,
     });
 
     if (!res.ok) {
@@ -318,21 +286,7 @@ export class NoteMutator {
   /** Permanently delete a note. */
   async deleteNote(project: number | string, mrIid: number, noteId: number): Promise<void> {
     const path = `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/notes/${noteId}`;
-    const url = `${this.baseURL}${path}`;
-    const started = performance.now();
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: { "PRIVATE-TOKEN": this.token },
-    });
-
-    safeEmit(this.onRequest, {
-      op: 'noteMutator.deleteNote',
-      transport: 'rest',
-      method: 'DELETE',
-      path,
-      durationMs: performance.now() - started,
-      status: res.status,
-    });
+    const res = await this.send('deleteNote', 'DELETE', path, { headers: { "PRIVATE-TOKEN": this.token } });
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -348,24 +302,16 @@ export class NoteMutator {
     path: string,
     body?: unknown,
     timeoutMs = DRAFT_TIMEOUT_MS,
+    shareBudget = false,
   ): Promise<Response> {
-    const started = performance.now();
-    const res = await fetch(`${this.baseURL}${path}`, {
-      method,
+    const res = await this.send(op, method, path, {
       headers: {
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         'PRIVATE-TOKEN': this.token,
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    safeEmit(this.onRequest, {
-      op: `noteMutator.${op}`,
-      transport: 'rest',
-      method,
-      path,
-      durationMs: performance.now() - started,
-      status: res.status,
+      timeoutMs,
+      shareBudget,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -437,6 +383,7 @@ export class NoteMutator {
       `/api/v4/projects/${projectSegment(project)}/merge_requests/${mrIid}/draft_notes/bulk_publish`,
       { note: opts.note, reviewer_state: opts.reviewerState },
       opts.timeoutMs ?? PUBLISH_TIMEOUT_MS,
+      true,
     );
   }
 
@@ -465,26 +412,10 @@ export class NoteMutator {
     contentType = "application/octet-stream",
   ): Promise<UploadedFile> {
     const path = `/api/v4/projects/${projectSegment(project)}/uploads`;
-    const url = `${this.baseURL}${path}`;
-    const started = performance.now();
-
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(bytes)], { type: contentType }), filename);
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "PRIVATE-TOKEN": this.token },
-      body: form,
-    });
-
-    safeEmit(this.onRequest, {
-      op: 'noteMutator.uploadFile',
-      transport: 'rest',
-      method: 'POST',
-      path,
-      durationMs: performance.now() - started,
-      status: res.status,
-    });
+    const res = await this.send('uploadFile', 'POST', path, { headers: { "PRIVATE-TOKEN": this.token }, body: form });
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");

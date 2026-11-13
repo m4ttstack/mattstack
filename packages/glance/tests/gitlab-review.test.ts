@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { GitLabProvider } from '../src/GitLabProvider.ts';
+import { RateLimitedError } from '../src/errors.ts';
 import type { DraftNote } from '../src/NoteMutator.ts';
 import { submitGitLabReview, type GitLabReviewDeps } from '../src/gitlabReview.ts';
 import type { ReviewSubmission } from '../src/types.ts';
@@ -286,6 +287,21 @@ describe('submitGitLabReview', () => {
     await expect(submitGitLabReview(f.deps, INPUT)).rejects.toThrow(
       /^publish failed, nothing was posted: Error: publishDraftNotes failed: 422$/
     );
+    expect(f.pending()).toEqual([]);
+  });
+
+  test('a publish still rate limited past the deadline reports nothing posted, since a 429 is never applied', async () => {
+    const f = fake({
+      publishDraftNotes: async () => {
+        throw new RateLimitedError('GitLab rate limit hit on POST /bulk_publish; retry after 70 seconds', {
+          kind: 'secondary',
+          resetAt: null,
+          retryAfterMs: 70_000,
+          operation: 'POST /bulk_publish'
+        });
+      }
+    });
+    await expect(submitGitLabReview(f.deps, INPUT)).rejects.toThrow(/^publish failed, nothing was posted: RateLimitedError: /);
     expect(f.pending()).toEqual([]);
   });
 
