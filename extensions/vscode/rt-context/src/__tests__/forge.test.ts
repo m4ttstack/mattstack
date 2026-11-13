@@ -163,6 +163,7 @@ describe('branchDataFromDaemonEntry', () => {
       mrUrl: OWN_PR,
       linearId: 'RT-9',
       fetchedAt: 5,
+      repoIdentity: OWN_ID,
     });
   });
   test('github, own identity maps across and is recorded', () => {
@@ -188,9 +189,9 @@ describe('branchDataFromDaemonEntry', () => {
   });
   test('github, another repo PR or a GitLab MR with no identity is stripped to a hit', () => {
     const foreign = branchDataFromDaemonEntry({ ticket: TICKET, mr: { webUrl: FOREIGN_PR, provider: 'github' }, linearId: 'RT-9', fetchedAt: 4 }, 'github', REMOTE, BRANCH);
-    expect(foreign).toEqual({ ticket: TICKET, mrUrl: null, linearId: null, fetchedAt: 4 });
+    expect(foreign).toEqual({ ticket: TICKET, mrUrl: null, linearId: null, fetchedAt: 4, repoIdentity: OWN_ID });
     const gitlab = branchDataFromDaemonEntry({ ticket: TICKET, mr: { webUrl: GITLAB_MR, provider: 'gitlab' } }, 'github', REMOTE, BRANCH, 8);
-    expect(gitlab).toEqual({ ticket: TICKET, mrUrl: null, linearId: null, fetchedAt: 8 });
+    expect(gitlab).toEqual({ ticket: TICKET, mrUrl: null, linearId: null, fetchedAt: 8, repoIdentity: OWN_ID });
   });
   test('github, a stripped entry keeps its ticket only when the branch itself names it', () => {
     const other = { identifier: 'RT-2' } as unknown as LinearTicket;
@@ -199,12 +200,54 @@ describe('branchDataFromDaemonEntry', () => {
     expect(branchDataFromDaemonEntry({ ...foreign, ticket: TICKET }, 'github', REMOTE, BRANCH)?.ticket).toBe(TICKET);
     expect(branchDataFromDaemonEntry({ ...foreign, ticket: TICKET }, 'github', REMOTE, 'plain-branch')?.ticket).toBeNull();
   });
+  test('github, a daemon repoName that is not a serialized identity falls back to the PR URL rule', () => {
+    const own = branchDataFromDaemonEntry({ mr: { webUrl: OWN_PR, provider: 'github' }, repoName: 'r', linearId: 'RT-9' }, 'github', REMOTE, BRANCH, 1);
+    expect(own).toEqual({ ticket: null, mrUrl: OWN_PR, linearId: 'RT-9', fetchedAt: 1, repoIdentity: OWN_ID });
+    const foreign = branchDataFromDaemonEntry({ mr: { webUrl: FOREIGN_PR, provider: 'github' }, repoName: 'r' }, 'github', REMOTE, BRANCH, 1);
+    expect(foreign.mrUrl).toBeNull();
+  });
+  test('github, a foreign identity with no mr drops the other repo PR-title ticket id', () => {
+    const other = { identifier: 'XYZ-5' } as unknown as LinearTicket;
+    const data = branchDataFromDaemonEntry({ mr: null, ticket: other, linearId: 'XYZ-5', repoName: FOREIGN_ID }, 'github', REMOTE, BRANCH, 1);
+    expect(data).toEqual({ ticket: null, mrUrl: null, linearId: null, fetchedAt: 1, repoIdentity: OWN_ID });
+    const named = branchDataFromDaemonEntry({ mr: null, ticket: TICKET, linearId: 'XYZ-5', repoName: FOREIGN_ID }, 'github', REMOTE, BRANCH, 1);
+    expect(named.ticket).toBe(TICKET);
+    expect(named.linearId).toBeNull();
+  });
+  test('github, a stripped entry keeps the own PR already cached, ticket and ticket id with it', () => {
+    const prior: CachedBranchData = { ticket: TICKET, mrUrl: OWN_PR, linearId: 'RT-9', fetchedAt: 1, repoIdentity: OWN_ID };
+    const foreign = { mr: { webUrl: FOREIGN_PR, provider: 'github' }, repoName: FOREIGN_ID, fetchedAt: 7 };
+    expect(branchDataFromDaemonEntry(foreign, 'github', REMOTE, 'plain-branch', 2, prior)).toEqual({
+      ticket: TICKET,
+      mrUrl: OWN_PR,
+      linearId: 'RT-9',
+      fetchedAt: 7,
+      repoIdentity: OWN_ID,
+    });
+  });
+  test('github, a stripped entry ignores a prior that is not own or has no PR', () => {
+    const foreign = { mr: { webUrl: FOREIGN_PR, provider: 'github' }, repoName: FOREIGN_ID };
+    const notOwn: CachedBranchData = { ticket: null, mrUrl: GITLAB_MR, linearId: null, fetchedAt: 1 };
+    const noPr: CachedBranchData = { ticket: TICKET, mrUrl: null, linearId: 'RT-9', fetchedAt: 1 };
+    expect(branchDataFromDaemonEntry(foreign, 'github', REMOTE, 'plain-branch', 2, notOwn).mrUrl).toBeNull();
+    expect(branchDataFromDaemonEntry(foreign, 'github', REMOTE, 'plain-branch', 2, noPr).linearId).toBeNull();
+  });
+  test('github, an own entry is never overridden by the prior', () => {
+    const prior: CachedBranchData = { ticket: null, mrUrl: OWN_PR, linearId: 'RT-1', fetchedAt: 1, repoIdentity: OWN_ID };
+    const fresh = { ...ENTRY_OWN, mr: { webUrl: 'https://github.com/o/r/pull/8', provider: 'github' }, repoName: OWN_ID };
+    expect(branchDataFromDaemonEntry(fresh, 'github', REMOTE, BRANCH, 2, prior).mrUrl).toBe('https://github.com/o/r/pull/8');
+  });
+  test('gitlab ignores the prior', () => {
+    const prior: CachedBranchData = { ticket: null, mrUrl: OWN_PR, linearId: 'RT-1', fetchedAt: 1 };
+    expect(branchDataFromDaemonEntry({ fetchedAt: 3 }, 'gitlab', 'git@gitlab.com:g/p.git', BRANCH, 2, prior).mrUrl).toBeNull();
+  });
   test('github, an mr with no webUrl and no identity is stripped', () => {
     expect(branchDataFromDaemonEntry({ mr: { provider: 'github' }, linearId: 'RT-9' }, 'github', REMOTE, BRANCH, 6)).toEqual({
       ticket: null,
       mrUrl: null,
       linearId: null,
       fetchedAt: 6,
+      repoIdentity: OWN_ID,
     });
   });
   test('github, no mr keeps the ticket with a null mrUrl', () => {
@@ -255,6 +298,15 @@ describe('ownBranchData', () => {
     const renamed = data('https://github.com/o/renamed/pull/7', OWN_ID);
     expect(ownBranchData(renamed, 'github', REMOTE)).toBe(renamed);
     expect(ownBranchData(data(OWN_PR, FOREIGN_ID), 'github', REMOTE)).toBeNull();
+  });
+  test('github treats a foreign identity as a miss even without an mrUrl, so its ticket id never shows', () => {
+    const withTicket: CachedBranchData = { ticket: TICKET, mrUrl: null, linearId: 'XYZ-5', fetchedAt: 1, repoIdentity: FOREIGN_ID };
+    expect(ownBranchData(withTicket, 'github', REMOTE)).toBeNull();
+    expect(ownBranchData(withTicket, 'gitlab', REMOTE)).toBe(withTicket);
+  });
+  test('github falls back to the URL rule for a stored value that is not an identity', () => {
+    expect(ownBranchData(data(OWN_PR, 'r'), 'github', REMOTE)?.mrUrl).toBe(OWN_PR);
+    expect(ownBranchData(data(FOREIGN_PR, 'r'), 'github', REMOTE)).toBeNull();
   });
   test('github returns own and absent mrUrl as the same object', () => {
     const own = data(OWN_PR);

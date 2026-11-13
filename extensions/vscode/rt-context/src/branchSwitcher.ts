@@ -230,7 +230,10 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
           const entry = allEntries[branch];
           if (entry) {
             hitCount++;
-            branchCache.set(branch, branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, now));
+            branchCache.set(
+              branch,
+              branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, now, branchCache.get(branch)),
+            );
           }
         }
         daemonHit = hitCount > 0;
@@ -252,8 +255,8 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     const hasStaleBranches = localBranchNames.some((branch) => {
       const linearId = extractLinearId(branch);
       if (!linearId) return false;
-      const existing = ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl);
-      return !existing || (now - existing.fetchedAt) >= cacheTtl;
+      const cached = branchCache.get(branch);
+      return !cached || (now - cached.fetchedAt) >= cacheTtl;
     });
 
     if (!hasStaleBranches) {
@@ -292,8 +295,8 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
 
       branchLinearMap.set(branch, linearId);
 
-      const existing = ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl);
-      if (existing && (now - existing.fetchedAt) < cacheTtl) continue;
+      const cached = branchCache.get(branch);
+      if (cached && (now - cached.fetchedAt) < cacheTtl) continue;
 
       staleLinearIds.push(linearId);
     }
@@ -309,7 +312,9 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     for (const branch of localBranchNames) {
       const mrInfo = mrResults.get(branch) ?? null;
       const linearId = branchLinearMap.get(branch) ?? null;
-      const existing = ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl);
+      const cached = branchCache.get(branch);
+      const existing = ownBranchData(cached, repoForge.forge, repoForge.remoteUrl);
+      if (cached && !existing && (now - cached.fetchedAt) < cacheTtl) continue;
       const isFreshCache = existing && (now - existing.fetchedAt) < cacheTtl;
 
       const freshTicket = linearId ? ticketMap.get(linearId) ?? null : null;

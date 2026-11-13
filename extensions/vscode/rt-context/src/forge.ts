@@ -1,4 +1,4 @@
-import { identityFromRemote, mayOfferGitLabTokenToHost, normalizeRemote, serializeIdentity } from '@mattstack/rt-client';
+import { identityFromRemote, mayOfferGitLabTokenToHost, normalizeRemote, parseIdentity, serializeIdentity } from '@mattstack/rt-client';
 import { extractLinearId } from './branchParser';
 import type { LinearTicket } from './linear';
 import type { CachedBranchData } from './types';
@@ -104,15 +104,23 @@ export function prBelongsToRemote(webUrl: string, remoteUrl: string): boolean {
   return `${url.host}${url.pathname}`.toLowerCase().startsWith(prefix);
 }
 
-/** Identity decides when the entry carries one; the PR URL text decides only for an entry written without one. */
-function belongsToRemote(
+function isSerializedIdentity(value: string | null | undefined): value is string {
+  return !!value && parseIdentity(value) !== null;
+}
+
+/**
+ * Identity decides when the entry carries a serialized one; the PR URL text decides
+ * for an entry with none, or with a legacy display name in its place.
+ */
+function isForeignEntry(
   identity: string | null | undefined,
   webUrl: string | null | undefined,
+  hasMr: boolean,
   remoteUrl: string | null,
 ): boolean {
-  if (remoteUrl === null) return false;
-  if (identity) return identity === repoIdentityOfRemote(remoteUrl);
-  return !!webUrl && prBelongsToRemote(webUrl, remoteUrl);
+  if (remoteUrl === null) return hasMr || isSerializedIdentity(identity);
+  if (isSerializedIdentity(identity)) return identity !== repoIdentityOfRemote(remoteUrl);
+  return hasMr && !(webUrl && prBelongsToRemote(webUrl, remoteUrl));
 }
 
 export function branchDataFromDaemonEntry(
@@ -121,26 +129,39 @@ export function branchDataFromDaemonEntry(
   remoteUrl: string | null,
   branch: string,
   now: number = Date.now(),
+  prior?: CachedBranchData | null,
 ): CachedBranchData {
   const mr = entry.mr ?? null;
   const fetchedAt = entry.fetchedAt ?? now;
-  if (forge === 'github' && mr !== null && !belongsToRemote(entry.repoName, mr.webUrl, remoteUrl)) {
-    const ticket = entry.ticket ?? null;
-    const named = extractLinearId(branch);
+  if (forge !== 'github') {
     return {
-      ticket: ticket !== null && named !== null && ticket.identifier === named ? ticket : null,
-      mrUrl: null,
-      linearId: null,
+      ticket: entry.ticket ?? null,
+      mrUrl: mr?.webUrl ?? null,
+      linearId: entry.linearId || null,
       fetchedAt,
-      ...(entry.repoName ? { repoIdentity: entry.repoName } : {}),
     };
   }
+  const repoIdentity = repoIdentityToStore(forge, undefined, remoteUrl);
+  const identityField = repoIdentity ? { repoIdentity } : {};
+  if (!isForeignEntry(entry.repoName, mr?.webUrl, mr !== null, remoteUrl)) {
+    return {
+      ticket: entry.ticket ?? null,
+      mrUrl: mr?.webUrl ?? null,
+      linearId: entry.linearId || null,
+      fetchedAt,
+      ...(mr !== null || isSerializedIdentity(entry.repoName) ? identityField : {}),
+    };
+  }
+  const ticket = entry.ticket ?? null;
+  const named = extractLinearId(branch);
+  const own = ownBranchData(prior, forge, remoteUrl);
+  const keepOwnPr = own?.mrUrl ? own : null;
   return {
-    ticket: entry.ticket ?? null,
-    mrUrl: mr?.webUrl ?? null,
-    linearId: entry.linearId || null,
+    ticket: ticket !== null && named !== null && ticket.identifier === named ? ticket : keepOwnPr?.ticket ?? null,
+    mrUrl: keepOwnPr?.mrUrl ?? null,
+    linearId: keepOwnPr?.linearId ?? null,
     fetchedAt,
-    ...(forge === 'github' && entry.repoName ? { repoIdentity: entry.repoName } : {}),
+    ...identityField,
   };
 }
 
@@ -150,6 +171,6 @@ export function ownBranchData(
   remoteUrl: string | null,
 ): CachedBranchData | null {
   if (!data) return null;
-  if (forge === 'github' && data.mrUrl && !belongsToRemote(data.repoIdentity, data.mrUrl, remoteUrl)) return null;
+  if (forge === 'github' && isForeignEntry(data.repoIdentity, data.mrUrl, !!data.mrUrl, remoteUrl)) return null;
   return data;
 }

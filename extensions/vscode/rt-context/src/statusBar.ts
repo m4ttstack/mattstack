@@ -308,7 +308,7 @@ export async function fetchBranchData(
     if (response?.ok && response.data) {
       const entries = response.data;
       const entry = entries[branch] ?? Object.values(entries)[0];
-      if (entry) return branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch);
+      if (entry) return branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, undefined, branchCache.get(branch));
     }
   } catch {
     // Daemon not available — fall through to direct fetch
