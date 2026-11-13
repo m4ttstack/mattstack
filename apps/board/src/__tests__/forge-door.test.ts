@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { ForgeNotSupported, gitlabOnly } from '../config.ts';
 import type { OwnMrFacts } from '../triage/edge.ts';
 import {
-  GITHUB_ASKS_LATCH_SKIP,
+  GITHUB_ASKS_SKIP,
   GITHUB_NO_USERNAME,
   triageForgePlan,
   unparsedRedLines,
@@ -43,28 +43,35 @@ describe('triageForgePlan', () => {
       triageForgePlan(gitlab, () => {
         throw new Error('recorded username read on GitLab');
       })
-    ).toEqual({ identity: 'gitlab-token', asksAndLatch: true, lines: [] });
-  });
-
-  test('owns PRs as the recorded username on a GitHub team', () => {
-    expect(triageForgePlan(github, () => 'mkeller')).toEqual({
-      identity: { recorded: 'mkeller' },
-      asksAndLatch: false,
-      lines: [GITHUB_ASKS_LATCH_SKIP],
+    ).toEqual({
+      identity: 'gitlab-token',
+      asks: true,
+      latch: true,
+      lines: [],
     });
   });
 
-  test('owns nothing on a GitHub team with no recorded username', () => {
+  test('owns PRs and runs the latch as the recorded username on a GitHub team', () => {
+    expect(triageForgePlan(github, () => 'mkeller')).toEqual({
+      identity: { recorded: 'mkeller' },
+      asks: false,
+      latch: true,
+      lines: [GITHUB_ASKS_SKIP],
+    });
+  });
+
+  test('owns nothing and runs no latch on a GitHub team with no recorded username', () => {
     expect(triageForgePlan(github, () => null)).toEqual({
       identity: null,
-      asksAndLatch: false,
-      lines: [GITHUB_ASKS_LATCH_SKIP, GITHUB_NO_USERNAME],
+      asks: false,
+      latch: false,
+      lines: [GITHUB_ASKS_SKIP, GITHUB_NO_USERNAME],
     });
   });
 
   test('names the skips in plain words', () => {
-    expect(GITHUB_ASKS_LATCH_SKIP).toBe(
-      'triage: respond asks and the re-review latch skip GitHub teams for now'
+    expect(GITHUB_ASKS_SKIP).toBe(
+      'triage: respond asks skip GitHub teams for now'
     );
     expect(GITHUB_NO_USERNAME).toBe(
       'triage: no forge username is recorded for this team, so auto-doctor owns no PRs'

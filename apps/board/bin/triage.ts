@@ -2,12 +2,7 @@
 // rt cron is the intended caller (spec §5); a human running it by hand gets
 // the same one idempotent evaluation pass. The board server NEVER runs this.
 import { deckAppUrl } from '@mattstack/app-server/event-bridge';
-import {
-  GitLabProvider,
-  MRDetailFetcher,
-  parseRepoId,
-  type MRDetail,
-} from '@mattstack/glance';
+import { GitLabProvider, parseRepoId, type MRDetail } from '@mattstack/glance';
 import {
   activeTeam,
   listOrgs,
@@ -30,8 +25,6 @@ import {
   writeDoctorState,
 } from '../src/doctor-state.ts';
 import { launchDoctor, mrTabOpen, sendPaneText } from '../src/herdr.ts';
-import { latchGateway } from '../src/latch/gateway.ts';
-import { fetchNewDiscussionCount } from '../src/latch/land.ts';
 import {
   casLatch,
   putLatchRow,
@@ -77,6 +70,7 @@ import {
 } from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
 import { triageForgePlan, unparsedRedLines } from '../src/triage/forge-plan.ts';
+import { latchPassSetup } from '../src/triage/latch-setup.ts';
 import {
   latchInScope,
   runLatchPass,
@@ -201,7 +195,7 @@ try {
     if (plan.identity === 'gitlab-token') username = await resolveUsername();
     else if (plan.identity) username = plan.identity.recorded;
   }
-  const asksAndLatch = peerMode || (plan !== null && plan.asksAndLatch);
+  const asks = peerMode || (plan !== null && plan.asks);
 
   // SCOPE (review fix 1): triage's MR scope is deliberately the BOARD's
   // visibility scope -- buildBoard applies the member, own-draft, stale-window,
@@ -242,7 +236,10 @@ try {
     ).map(m => ({
       mrUrl: m.webUrl!,
       iid: m.iid,
-      projectId: parseRepoId(m.repositoryId),
+      projectId:
+        boardConfig.forge.kind === 'gitlab'
+          ? parseRepoId(m.repositoryId)
+          : null,
       projectPath: projectPathFromWebUrl(m.webUrl!, boardConfig) ?? '',
       // Encoded, not the bare rtRepos value: readDetail below passes this
       // straight to readDiscussions, which is daemon-identity-keyed.
@@ -303,7 +300,7 @@ try {
         boardMaterializeDeps(line => console.error(line))
       );
     let ownUrls = new Set<string>();
-    let nudgeReady = asksAndLatch;
+    let nudgeReady = asks;
     const markHandled: AskActionDeps['markNudgeHandled'] = (
       id,
       r,
@@ -376,26 +373,43 @@ try {
     }
   }
 
-  // The latch pass writes to GitLab, so without a token there is nothing it
-  // can do. Both passes bank cooldown and budget counters into the same
-  // memory, and this one runs whether or not a switchboard is configured, so
-  // the persist below sits outside that block.
-  const latchToken = asksAndLatch ? await loadGitLabToken() : null;
-  if (!peerMode && asksAndLatch && latchToken && username && reReview.enabled) {
+  // Both passes bank cooldown and budget counters into the same memory, and
+  // this one runs whether or not a switchboard is configured, so the persist
+  // below sits outside that block.
+  const latch =
+    plan && reReview.enabled
+      ? latchPassSetup(
+          {
+            config: boardConfig,
+            plan,
+            gitlabToken:
+              plan.latch && boardConfig.forge.kind === 'gitlab'
+                ? await loadGitLabToken()
+                : null,
+            username,
+          },
+          {
+            appendAudit,
+            now: () => Date.now(),
+            log: line => console.log(line),
+          }
+        )
+      : null;
+  if (latch) {
     try {
       const latchResult = await runLatchPass({
         readReviewStates,
         readPrunedReviewStates,
         resurrectReviewState,
         dropPrunedReviewState,
-        fetchLatchMrs,
+        fetchLatchMrs: async () => latch.scope(await fetchLatchMrs()),
         readDetail: async mr => {
           const res = await readDiscussions(mr.rtRepo, mr.iid);
           if (!res.ok || !res.data) return null;
           return { discussions: res.data.discussions } as MRDetail;
         },
-        gateway: latchGateway(gitlabOnly(boardConfig), latchToken),
-        self: username,
+        gateway: latch.gateway,
+        self: latch.self,
         launchReReview: (mrUrl, iid) =>
           launchReReview(mrUrl, iid, {
             cwd: boardConfig.reviewCwd,
@@ -414,19 +428,7 @@ try {
           notifyEscalation(title, message, 'rt', {
             url: await boardLinkFor(mrUrl),
           }),
-        countNew: (mr, launchAt) => {
-          const { projectId } = mr;
-          if (projectId === null) return Promise.resolve(null);
-          return fetchNewDiscussionCount(
-            () =>
-              new MRDetailFetcher(
-                gitlabOnly(boardConfig),
-                latchToken
-              ).fetchDetail(projectId, mr.iid),
-            username,
-            launchAt
-          );
-        },
+        countNew: latch.countNew,
         readLatchRow: mrUrl => readLatchRow(mrUrl),
         casLatch: (mrUrl, from, patch, at, opts) =>
           casLatch(mrUrl, from, patch, at, undefined, opts),

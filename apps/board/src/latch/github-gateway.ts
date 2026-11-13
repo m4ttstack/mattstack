@@ -1,5 +1,7 @@
+import type { MRDetail } from '@mattstack/glance';
 import { rtCommand } from '@mattstack/rt-client';
 import { forgeReason } from '../forge-writes.ts';
+import { fetchNewDiscussionCount } from './land.ts';
 import type { LatchGateway, LatchMr } from './post.ts';
 import { stageFiles, type StageFn } from './stage.ts';
 
@@ -89,4 +91,28 @@ export function githubLatchGateway(deps: GithubLatchDeps = {}): LatchGateway {
       return { id: data.noteId };
     },
   };
+}
+
+/** countNewDiscussions over the PR's discussions freshly refetched by the
+    daemon; null when the refresh fails. */
+export function refreshedDiscussionCount(
+  mr: Pick<LatchMr, 'rtRepo' | 'iid'>,
+  self: string,
+  launchAt: number,
+  command: typeof rtCommand = rtCommand
+): Promise<number | null> {
+  return fetchNewDiscussionCount(
+    async () => {
+      const res = await command<Pick<MRDetail, 'discussions'>>(
+        'discussions:refresh',
+        { repoName: mr.rtRepo, iid: mr.iid },
+        { timeoutMs: LATCH_GITHUB_TIMEOUT_MS }
+      );
+      if (!res.ok || !res.data)
+        throw new Error(res.error ?? 'discussions:refresh failed');
+      return { discussions: res.data.discussions } as MRDetail;
+    },
+    self,
+    launchAt
+  );
 }

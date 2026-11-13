@@ -231,8 +231,10 @@ import {
   skillBindRefusal,
   statusBinPath,
 } from './herdr.ts';
+import { boardLatchGateway } from './latch/board-gateway.ts';
 import { reviewerLatches } from './latch/discussions.ts';
-import { latchGateway } from './latch/gateway.ts';
+import { refreshedDiscussionCount } from './latch/github-gateway.ts';
+import { identityMismatchLine, verifyLatchIdentity } from './latch/identity.ts';
 import { fetchNewDiscussionCount } from './latch/land.ts';
 import { readLatchRow } from './latch/latch-state.ts';
 import {
@@ -1840,6 +1842,39 @@ const forgeSelf = createForgeSelf({
   memoryUsername: () => readMemory().identity?.username ?? null,
   teamUsername: () => activeTeam().username,
 });
+
+/** The GitHub latch identity for one PR's repo, once the daemon's login is
+    confirmed to be it; null, logged (and audited on a mismatch), otherwise. */
+async function githubLatchSelf(
+  step: string,
+  mrUrl: string,
+  iid: number,
+  repoName: string
+): Promise<string | null> {
+  const self = forgeSelf.get();
+  if (!self) {
+    console.error(
+      `${step} skipped for ${mrUrl}: no forge username is recorded for this team`
+    );
+    return null;
+  }
+  if (!repoName) {
+    console.error(`${step} skipped for ${mrUrl}: no repo identity`);
+    return null;
+  }
+  const verdict = await verifyLatchIdentity(repoName, self);
+  if (verdict.ok) return self;
+  console.error(identityMismatchLine(repoName, self, verdict.login));
+  appendAudit({
+    ts: Date.now(),
+    mrUrl,
+    iid,
+    event: 'latch',
+    action: 'identity-mismatch',
+    reason: verdict.login ?? 'no login',
+  });
+  return null;
+}
 
 /** A GitHub board with no recorded forge username cannot tell whose seat
     this is, so it owns nothing; the fixture is inert and keeps its seat. */
@@ -5831,12 +5866,8 @@ async function handleAgentSignal(
   // Best-effort, like every other side effect here: the triage latch pass
   // reconciles anything a down or throwing board misses, so a failure must
   // never fail the agent's status write.
-  if (
-    config.forge.kind === 'gitlab' &&
-    signal.kind === 'review' &&
-    signal.status === 'done' &&
-    gitlabToken
-  ) {
+  const latchGw = boardLatchGateway(config, gitlabToken);
+  if (signal.kind === 'review' && signal.status === 'done' && latchGw) {
     try {
       // Arming honours board.reReview; landing and spending never do, since
       // a latch left running or armed on a team that switched re-review off
@@ -5857,16 +5888,24 @@ async function handleAgentSignal(
         // Latches belong to the reviewer whose token posted them. With no
         // resolvable identity this board cannot tell its own apart, so it
         // leaves the work to the triage pass rather than guess.
-        const self = await resolveDispatchIdentity(readMemory(), async () =>
-          (await gitlab()).validateToken()
-        );
+        const rtRepo = repoIdentityField(mr.rtRepo) ?? '';
+        const self =
+          config.forge.kind === 'github'
+            ? await githubLatchSelf('latch step', signal.mrUrl, mr.iid, rtRepo)
+            : await resolveDispatchIdentity(readMemory(), async () =>
+                (await gitlab()).validateToken()
+              );
         const detail = self ? await readLatchDetail(mr) : null;
         if (!self) {
-          console.error(
-            `latch step skipped for ${signal.mrUrl}: no gitlab identity for this token`
-          );
+          if (config.forge.kind === 'gitlab')
+            console.error(
+              `latch step skipped for ${signal.mrUrl}: no gitlab identity for this token`
+            );
         } else if (detail) {
-          const projectId = parseRepoId(mr.repositoryId);
+          const projectId =
+            config.forge.kind === 'gitlab'
+              ? parseRepoId(mr.repositoryId)
+              : null;
           // A lane no longer reading done was relaunched after this signal
           // was emitted, and one done with another outcome is a later run
           // than this replayed event: either way the signal cannot vouch for
@@ -5878,27 +5917,35 @@ async function handleAgentSignal(
             outcome,
             arm,
             reviewRunStartedAt: vouched ? runStamp(lane) : null,
-            runStamp: lane ? runStamp(lane) : emittedAt,
+            runStamp: vouched ? runStamp(lane) : emittedAt,
             appendAudit: entry => appendAudit(entry),
             countNew: launchAt =>
-              fetchNewDiscussionCount(
-                () =>
-                  new MRDetailFetcher(
-                    gitlabOnly(config),
-                    gitlabToken
-                  ).fetchDetail(projectId, mr.iid),
-                self,
-                launchAt
-              ),
+              config.forge.kind === 'github' ||
+              projectId === null ||
+              !gitlabToken
+                ? refreshedDiscussionCount(
+                    { rtRepo, iid: mr.iid },
+                    self,
+                    launchAt
+                  )
+                : fetchNewDiscussionCount(
+                    () =>
+                      new MRDetailFetcher(
+                        gitlabOnly(config),
+                        gitlabToken
+                      ).fetchDetail(projectId, mr.iid),
+                    self,
+                    launchAt
+                  ),
             self,
             approvedBy: mr.reviews.approvedBy.map(r => r.username),
             detail,
-            gateway: latchGateway(gitlabOnly(config), gitlabToken),
+            gateway: latchGw,
             mr: {
               projectId,
               projectPath: projectPathFromWebUrl(signal.mrUrl, config) ?? '',
               iid: mr.iid,
-              rtRepo: repoIdentityField(mr.rtRepo) ?? '',
+              rtRepo,
             },
             mrUrl: signal.mrUrl,
           });
@@ -5931,30 +5978,33 @@ async function handleAgentSignal(
   // A picked re-review resolves its latch discussions once respond is done.
   // Runs after the close so no await separates the stale read from it.
   // Best-effort: a failure here must never fail the agent's status write.
-  if (signal.kind === 'respond' && gitlabToken && !stale) {
+  if (signal.kind === 'respond' && latchGw && !stale) {
     try {
       const pending = readRespondStates().get(signal.mrUrl)?.pendingReReview;
-      if (pending?.length) {
+      const projectPath = projectPathFromWebUrl(signal.mrUrl, config) ?? '';
+      const rtRepo = config.rtRepos[projectPath];
+      const target = {
+        projectId: null,
+        projectPath,
+        iid: signal.iid,
+        rtRepo: (rtRepo && repoIdentityField(rtRepo)) || '',
+      };
+      if (
+        pending?.length &&
+        (config.forge.kind !== 'github' ||
+          (await githubLatchSelf(
+            're-review settle',
+            signal.mrUrl,
+            signal.iid,
+            target.rtRepo
+          )) !== null)
+      ) {
         let resolvedAny = false;
         await settleReReview(
           signal.status,
           pending,
           async id => {
-            const projectPath =
-              projectPathFromWebUrl(signal.mrUrl, config) ?? '';
-            const rtRepo = config.rtRepos[projectPath];
-            await latchGateway(
-              gitlabOnly(config),
-              gitlabToken
-            ).resolveDiscussion(
-              {
-                projectId: null,
-                projectPath,
-                iid: signal.iid,
-                rtRepo: (rtRepo && repoIdentityField(rtRepo)) || '',
-              },
-              id
-            );
+            await latchGw.resolveDiscussion(target, id);
             resolvedAny = true;
           },
           () => {
