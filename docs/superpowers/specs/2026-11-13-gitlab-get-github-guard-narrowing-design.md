@@ -61,6 +61,27 @@ These were put to Matt through the shepherd on 2026-11-13 and answered:
    revised sections pass the same reviewer. The guard code waits for
    PR #1130 on main.
 
+### PR #1130 as it lands
+
+PR #1130 (head 2a49f7eed) adds three checks this design keeps as they
+are:
+
+- `GITHUB_REFUSED_ROUTES = ["copilot"]`: `copilot`, dot suffix included,
+  refused only as the segment right after `repos/<owner>/<repo>`;
+  `copilot` leaves `GITHUB_REFUSED_SEGMENTS`.
+- Any path with an empty segment, raw `//` or decoded from `%2F`, is
+  refused, except a single trailing slash. A label whose name contains
+  `//` can no longer be read.
+- `projectPath` must match `^[^/]+/[^/]+$`, which is this design's
+  rule 1.
+
+Where #1130 is stricter, it wins (lists are widened, never narrowed,
+without review). So `:repo//pulls`, `:repo/actions//oidc/...` and
+`:repo//copilot/...` are refused at #1130's empty-segment check rather
+than read or dropped; rule 5 still drops parts whose skeleton is empty
+(`%20`, `%E2%80%8B`, `%CC%81`), which #1130 does not see as empty. The
+test plan's cases for those paths expect #1130's error text.
+
 ## Approaches considered
 
 | Approach | What it opens | Cost | Verdict |
