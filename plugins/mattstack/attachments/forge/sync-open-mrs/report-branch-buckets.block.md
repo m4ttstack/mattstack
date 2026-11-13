@@ -12,4 +12,5 @@ failed (with reason), or skipped (with reason: dirty tree, a `refusal`, a
 the map did not list, the sweep's error when the sweep fell to the
 per-branch path, and the `complete: false` line when the sweep returned it.
 When `mr_map` failed there is no table: the report is that one line, the
-GitLab error quoted.
+forge's error quoted. The report says MR or PR as the rows' `ref` marker
+does: `!` is an MR, `#` is a PR.
