@@ -183,24 +183,63 @@ export function tokenRefusedFailure(subject: string, host: string, forge: Forge,
   };
 }
 
-function noKeyFailure(output: string, viable: boolean): FetchFailed {
-  return new FetchFailed({
-    title: "Could not fetch from origin: no SSH key is loaded",
+function noKeyFailure(subject: string, output: string, viable: boolean): out.FailureInput {
+  return {
+    title: `Could not ${subject}: no SSH key is loaded`,
     why: "git reached origin over SSH, but no ssh-agent on this Mac holds a key. Load yours, then run this again.",
     next: viable
       ? ["Load your key with ", out.cmd("ssh-add"), ", or let rt sign in over HTTPS with ", out.cmd("rt git auth --https")]
       : ["Load your key in any terminal with ", out.cmd("ssh-add")],
-    details: output,
-  });
+    details: redactCredentials(output),
+  };
 }
 
-function refusedKeyFailure(output: string, viable: boolean): FetchFailed {
-  return new FetchFailed({
-    title: "Could not fetch from origin: the forge refused your SSH key",
+function refusedKeyFailure(subject: string, output: string, viable: boolean): out.FailureInput {
+  return {
+    title: `Could not ${subject}: the forge refused your SSH key`,
     why: "git reached origin over SSH with a loaded key, and the forge said no.",
     ...(viable ? { next: ["Let rt sign in over HTTPS with ", out.cmd("rt git auth --https")] } : {}),
-    details: output,
-  });
+    details: redactCredentials(output),
+  };
+}
+
+/** Never throws: a check that cannot run reads as "the switch would not go ahead". */
+function switchViableFor(cwd: string, auth: OriginAuth, seam?: (cwd: string) => Promise<boolean>): () => Promise<boolean> {
+  return async () => {
+    try {
+      return await (seam ?? ((c: string) => defaultSwitchViable(c, auth)))(cwd);
+    } catch {
+      return false;
+    }
+  };
+}
+
+function plainOutcome(env: NodeJS.ProcessEnv): RemoteOutcome {
+  return { env, usedRtToken: false, forge: null, host: null };
+}
+
+/**
+ * One retry through rt's helper after an HTTPS auth failure, when origin's
+ * fetch or push URL passes the checks; `fail` builds what is thrown for git's
+ * plain output, `refused` for a forge that turned rt's token down too.
+ */
+async function retryWithRtToken(
+  cwd: string,
+  push: boolean,
+  firstOutput: string,
+  base: NodeJS.ProcessEnv,
+  deps: { auth: OriginAuth; helper?: string },
+  attempt: (env: NodeJS.ProcessEnv) => Promise<{ ok: true } | { ok: false; output: string }>,
+  fail: (output: string) => Error,
+  refused: (host: string, forge: Forge, output: string) => Error,
+): Promise<RemoteOutcome> {
+  const v = await deps.auth.forOrigin(cwd, push);
+  if (!v.ok) throw fail(firstOutput);
+  const env = helperEnv(v.host, base, deps.helper);
+  const retry = await attempt(env);
+  if (retry.ok) return { env, usedRtToken: true, forge: v.forge, host: v.host };
+  if (isAuthFailure(retry.output)) throw refused(v.host, v.forge, retry.output);
+  throw fail(retry.output);
 }
 
 /**
@@ -211,36 +250,82 @@ function refusedKeyFailure(output: string, viable: boolean): FetchFailed {
  * fetch succeeded under, so the caller's later remote calls (a push) use it.
  */
 export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDeps()): Promise<RemoteOutcome> {
+  const subject = "fetch from origin";
   const first = await deps.run(cwd, deps.env);
-  if (first.ok) return { env: deps.env, usedRtToken: false, forge: null, host: null };
+  if (first.ok) return plainOutcome(deps.env);
   const plain = (output: string) => new FetchFailed({ title: "Could not fetch from origin", details: redactCredentials(output) });
 
   if (isAuthFailure(first.output)) {
-    const v = await deps.auth.forOrigin(cwd, false);
-    if (!v.ok) throw plain(first.output);
-    const env = helperEnv(v.host, deps.env, deps.helper);
-    const retry = await deps.run(cwd, env);
-    if (retry.ok) return { env, usedRtToken: true, forge: v.forge, host: v.host };
-    if (isAuthFailure(retry.output)) throw new FetchFailed(tokenRefusedFailure("fetch from origin", v.host, v.forge, retry.output));
-    throw plain(retry.output);
+    return retryWithRtToken(cwd, false, first.output, deps.env, deps, (env) => deps.run(cwd, env), plain, (host, forge, output) =>
+      new FetchFailed(tokenRefusedFailure(subject, host, forge, output)),
+    );
   }
 
   if (!looksLikeSshAuthFailure(first.output)) throw plain(first.output);
-  const viable = async (): Promise<boolean> => {
-    try {
-      return await (deps.switchViable ?? ((c: string) => defaultSwitchViable(c, deps.auth)))(cwd);
-    } catch {
-      return false;
-    }
-  };
+  const viable = switchViableFor(cwd, deps.auth, deps.switchViable);
   const found = await deps.findAgent(deps.env.SSH_AUTH_SOCK);
-  if (found?.preferred) throw refusedKeyFailure(first.output, await viable());
+  if (found?.preferred) throw new FetchFailed(refusedKeyFailure(subject, first.output, await viable()));
   if (found) {
     const env = { ...deps.env, SSH_AUTH_SOCK: found.socket };
     const retry = await deps.run(cwd, env);
-    if (retry.ok) return { env, usedRtToken: false, forge: null, host: null };
-    if (looksLikeSshAuthFailure(retry.output)) throw refusedKeyFailure(retry.output, await viable());
+    if (retry.ok) return plainOutcome(env);
+    if (looksLikeSshAuthFailure(retry.output)) throw new FetchFailed(refusedKeyFailure(subject, retry.output, await viable()));
     throw plain(retry.output);
   }
-  throw noKeyFailure(first.output, await viable());
+  throw new FetchFailed(noKeyFailure(subject, first.output, await viable()));
+}
+
+export interface PushDeps {
+  run(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<{ ok: true } | { ok: false; output: string }>;
+  findAgent(preferred: string | undefined): Promise<{ socket: string; preferred: boolean } | undefined>;
+  auth: OriginAuth;
+  /** Defaults to `rtSelfHelper()`. */
+  helper?: string;
+  /** Defaults to `httpsSwitchViable(cwd, realCloneDeps(auth))`. */
+  switchViable?: (cwd: string) => Promise<boolean>;
+}
+
+export function defaultPushDeps(auth: OriginAuth = createOriginAuth()): PushDeps {
+  return {
+    run: (cwd, args, env) =>
+      new Promise((resolve) => {
+        execFile("git", args, { cwd, env, encoding: "utf8" }, (err) => {
+          resolve(err ? { ok: false, output: errText(err) } : { ok: true });
+        });
+      }),
+    findAgent: (preferred) => findAgentWithKey(preferred),
+    auth,
+  };
+}
+
+/** What a failed `pushOrigin` throws, its failure ready for `asError`. */
+export class PushFailed extends Error {
+  constructor(readonly failure: out.FailureInput) {
+    super(failure.details ?? failure.title);
+  }
+}
+
+/**
+ * `git <args>` under the env the fetch succeeded with. A push that fails on
+ * HTTPS auth after a fetch that needed no token retries once through rt's
+ * helper, checked against the push URL; after a fetch that already used it,
+ * the forge has turned the token down and there is nothing left to try. The
+ * fetch already found any ssh-agent with a key, so an SSH refusal only says why.
+ */
+export async function pushOrigin(cwd: string, branch: string, args: string[], from: RemoteOutcome, deps: PushDeps = defaultPushDeps()): Promise<RemoteOutcome> {
+  const subject = `push ${branch}`;
+  const first = await deps.run(cwd, args, from.env);
+  if (first.ok) return from;
+  const plain = (output: string) => new PushFailed({ title: `Could not push ${branch}`, details: redactCredentials(output) });
+  const refused = (host: string, forge: Forge, output: string) => new PushFailed(tokenRefusedFailure(subject, host, forge, output));
+
+  if (isAuthFailure(first.output)) {
+    if (from.usedRtToken && from.host && from.forge) throw refused(from.host, from.forge, first.output);
+    return retryWithRtToken(cwd, true, first.output, from.env, deps, (env) => deps.run(cwd, args, env), plain, refused);
+  }
+
+  if (!looksLikeSshAuthFailure(first.output)) throw plain(first.output);
+  const viable = await switchViableFor(cwd, deps.auth, deps.switchViable)();
+  const found = await deps.findAgent(from.env.SSH_AUTH_SOCK);
+  throw new PushFailed(found ? refusedKeyFailure(subject, first.output, viable) : noKeyFailure(subject, first.output, viable));
 }

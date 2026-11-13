@@ -11,6 +11,8 @@ import { createRealProbes } from "../../lib/setup/probes.ts";
 import { forgeFromHost, forgeFromRemote, hostFromRemote, readUserIntegrationOverrides } from "../../lib/setup/team-settings.ts";
 import { forgeTokenLookupForGit, mayOfferGitLabToken, mayOfferToken, type ForgeTokenLookup } from "../../lib/team/forge-token.ts";
 import { forgeTokenKey } from "../../lib/team/git-credential.ts";
+import * as out from "../../lib/ui/out.ts";
+import type { Block } from "../../lib/ui/protocol.ts";
 import { runGit } from "../../lib/worktree/git-async.ts";
 
 export type Forge = "gitlab" | "github";
@@ -147,4 +149,20 @@ export async function sshToHttps(url: string): Promise<string | null> {
 
 export function forgeName(forge: Forge): "GitLab" | "GitHub" {
   return forge === "gitlab" ? "GitLab" : "GitHub";
+}
+
+function listed(names: string[]): string {
+  return names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+export function tokenNoteLine(forge: Forge, worktrees: string[] = []): Block {
+  const where = worktrees.length > 0 ? ` on ${listed(worktrees)}` : "";
+  return out.callout("note", `rt signed in with your ${forgeName(forge)} token for this run${where}, because git had no other way in`);
+}
+
+export const TOKEN_NOTE_NEXT: Block = out.callout("next", ["To use it for every git on this clone, run ", out.cmd("rt git auth")]);
+
+/** Printed after a run that finished only because rt's helper got git in; `worktrees` names them under `rt sync all`. */
+export function tokenNoteBlocks(forge: Forge, worktrees?: string[]): Block[] {
+  return [tokenNoteLine(forge, worktrees), TOKEN_NOTE_NEXT];
 }
