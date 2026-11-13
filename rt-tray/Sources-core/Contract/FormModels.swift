@@ -172,6 +172,8 @@ public struct SetupForm: Decodable, Equatable, Sendable {
     public var stage: FormStage?
     public var sections: FormSections
     public var continueReady: Bool
+    /// The connect footer's note; nil from an rt older than the field.
+    public var continueNote: String?
     public var startReady: Bool
     /// nil from an rt older than the field.
     public var start: FormStart?
@@ -182,13 +184,13 @@ public struct SetupForm: Decodable, Equatable, Sendable {
     /// Only on a whole read, while the org's setup file has an error.
     public var orgNotice: FormOrgNotice?
     public init(path: String? = nil, team: FormTeam? = nil, stage: FormStage? = nil, sections: FormSections = FormSections(),
-                continueReady: Bool = false, startReady: Bool = false, start: FormStart? = nil, paused: FormPaused? = nil, home: FormHome,
+                continueReady: Bool = false, continueNote: String? = nil, startReady: Bool = false, start: FormStart? = nil, paused: FormPaused? = nil, home: FormHome,
                 tools: FormTools? = nil, orgNotice: FormOrgNotice? = nil) {
         self.path = path; self.team = team; self.stage = stage; self.sections = sections
-        self.continueReady = continueReady; self.startReady = startReady; self.start = start; self.paused = paused; self.home = home
+        self.continueReady = continueReady; self.continueNote = continueNote; self.startReady = startReady; self.start = start; self.paused = paused; self.home = home
         self.tools = tools; self.orgNotice = orgNotice
     }
-    private enum CodingKeys: String, CodingKey { case path, team, stage, sections, continueReady, startReady, start, paused, home, tools, orgNotice }
+    private enum CodingKeys: String, CodingKey { case path, team, stage, sections, continueReady, continueNote, startReady, start, paused, home, tools, orgNotice }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         path = try c.decodeIfPresent(String.self, forKey: .path)
@@ -196,6 +198,7 @@ public struct SetupForm: Decodable, Equatable, Sendable {
         stage = try c.decodeIfPresent(String.self, forKey: .stage).flatMap(FormStage.init(rawValue:))
         sections = try c.decode(FormSections.self, forKey: .sections)
         continueReady = try c.decode(Bool.self, forKey: .continueReady)
+        continueNote = try c.decodeIfPresent(String.self, forKey: .continueNote)
         startReady = try c.decode(Bool.self, forKey: .startReady)
         start = try c.decodeIfPresent(FormStart.self, forKey: .start)
         paused = try c.decodeIfPresent(FormPaused.self, forKey: .paused)

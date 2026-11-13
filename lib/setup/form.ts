@@ -28,6 +28,7 @@ import { checkRepoRoot, detectCandidate, readStagedRepoRoot } from "./repo-root.
 import { readPackRequirements, type ToolRequirement } from "./requirements.ts";
 import { STEP_PHASES } from "./run-phases.ts";
 import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
+import { confirmedGitlabHost } from "./gitlab-host.ts";
 import { installHasRun, isSetupFinished, markSetupFinished, readSetupState, type HomeBackupChoice, type SetupRun, type SetupState } from "./state.ts";
 import { probeUserSettingsReader, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-create.ts";
@@ -92,6 +93,8 @@ export interface SetupForm {
   /** The tools screen's head: set when tools is the stage or the section asked for. */
   tools?: { heading: string; allDone: boolean };
   continueReady: boolean;
+  /** The connect footer's note beside Continue. */
+  continueNote: string;
   startReady: boolean;
   /** The this-mac footer's button and the note beside it. */
   start: { label: string; note: string };
@@ -148,7 +151,9 @@ export const FORM_COPY = {
     title: "You're in. Connect your accounts",
     subtitle: "One click each. Most open in your browser",
     connectedFromInvite: (login: string) => `Connected as ${login} from your invite`,
-    soloForge: "Optional. Lets mattstack open PRs and MRs",
+    soloForge: "Optional. Lets mattstack open PRs",
+    soloGitlab: "Optional. Lets mattstack open MRs",
+    soloGitlabHint: "On your own GitLab server? Connect from a terminal with rt setup gitlab connect --host <host>",
     slackApp: { title: "Slack app", subtext: "Lets your team connect Slack. One owner makes it once" },
     slack: { title: "Slack", label: "Connect Slack", subtext: (forge: Forge) => `Lets mattstack track and post ${reviews(forge)} in Slack`, waiting: "Waiting for Slack…" },
     connected: "Connected",
@@ -157,6 +162,7 @@ export const FORM_COPY = {
     linear: { title: "Linear", label: "Create token", subtext: "So mattstack can read and write Linear tickets" },
     fastBrowser: { title: "Fast Browser", label: "Add to Chrome", subtext: "Lets agents drive your real Chrome", waiting: "Waiting for Chrome…", done: "Added", getChrome: "Get Chrome" },
     footer: "Continue unlocks once each one is connected",
+    soloFooter: "Anything marked Optional can wait",
     continue: "Continue",
   },
   restore: {
@@ -470,13 +476,13 @@ type FormForge = { provider: Forge; host: string };
 /** What a path's screens draw as their own rows; ownership reads it so a row they do not draw falls through to the extra rows. */
 export interface DrawnContext {
   path: FormPath;
-  /** The team's forge; Just me always draws GitHub. */
+  /** The team's forge; Just me draws its own GitHub and GitLab rows instead. */
   forge: FormForge | null;
   signIn: readonly ToolRequirement[];
 }
 
 function drawnForge(d: Pick<DrawnContext, "path" | "forge">): FormForge | null {
-  return d.path === "solo" ? { provider: "github", host: "github.com" } : d.forge;
+  return d.path === "solo" ? null : d.forge;
 }
 
 /**
@@ -488,7 +494,11 @@ export function formOwnedIds(plan: Plan, d: DrawnContext): Set<string> {
   const forge = drawnForge(d);
   if (forge) owned.add(`account.${forge.provider}`);
   if (d.path === "create") owned.add("account.slack-app");
-  if (d.path === "solo") return owned;
+  if (d.path === "solo") {
+    owned.add("account.github");
+    owned.add("account.gitlab");
+    return owned;
+  }
   owned.add("account.slack");
   owned.add("account.linear");
   for (const tool of d.signIn) {
@@ -561,8 +571,23 @@ function forgeRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow 
   const login = (account?.status === "ready" ? GH_LOGIN.exec(account.detail)?.[1] : undefined) ?? i.forgeLogin;
   const connected = login === null ? c.connected : i.path === "join" ? c.connectedFromInvite(login) : FORM_COPY.invite.connectedAs(login);
   const role: ForgeRole = i.path === "create" ? "owner" : "member";
-  if (i.path === "solo") return { ...forgeAccountRow({ id: "forge", forge, account, role, subtext: c.soloForge, connected, confirmedHost: i.confirmedHost }), optional: true };
   return forgeAccountRow({ id: "forge", forge, account, role, subtext: FORM_COPY.invite.tokenSubtext(forge.provider), connected, confirmedHost: i.confirmedHost });
+}
+
+/** Just me connects either forge, neither required: GitLab keeps its own host. */
+function soloForgeRows(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow[] {
+  const c = FORM_COPY.connect;
+  const github = rows.get("account.github");
+  const gitlab = rows.get("account.gitlab");
+  const ghLogin = (github?.status === "ready" ? GH_LOGIN.exec(github.detail)?.[1] : undefined) ?? i.forgeLogin;
+  const asLogin = (login: string | null) => (login === null ? c.connected : FORM_COPY.invite.connectedAs(login));
+  const githubRow = forgeAccountRow({ id: "forge", forge: { provider: "github", host: "github.com" }, account: github, role: "member", subtext: c.soloForge, connected: asLogin(ghLogin), confirmedHost: i.confirmedHost });
+  const gitlabHost = confirmedGitlabHost({ forgeHost: i.confirmedHost ?? undefined });
+  const gitlabRow = forgeAccountRow({ id: "forge.gitlab", forge: { provider: "gitlab", host: gitlabHost ?? "gitlab.com" }, account: gitlab, role: "member", subtext: c.soloGitlab, connected: c.connected, confirmedHost: gitlabHost });
+  return [
+    { ...githubRow, optional: true },
+    { ...gitlabRow, optional: true, ...(gitlab?.status === "missing" ? { detail: c.soloGitlabHint } : {}) },
+  ];
 }
 
 function slackAppRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow | null {
@@ -688,7 +713,7 @@ export function connectRows(i: ConnectInputs): FormRow[] {
   const rows = new Map(planRows(i.plan).map((r) => [r.id, r]));
   const team = i.path !== "solo";
   const list: (ConnectRow | null)[] = [
-    forgeRow(i, rows),
+    ...(team ? [forgeRow(i, rows)] : soloForgeRows(i, rows)),
     team ? slackAppRow(i, rows) : null,
     team ? slackRow(i, rows) : null,
     claudeRow(i, rows),
@@ -1022,6 +1047,12 @@ function joinedClone(p: Probes, clones: Clone[]): { clone: Clone; approval: Appr
   return joined.find((j) => j.approval.kind === "waiting") ?? joined[0];
 }
 
+/** Just me draws rows a member may skip, so its note never asks for every row. */
+export function continueNote(path: FormPath | null): string {
+  const c = FORM_COPY.connect;
+  return (path ?? "solo") === "solo" ? c.soloFooter : c.footer;
+}
+
 /** Every row answered, or optional. */
 export function allAnswered(rows: FormRow[] | undefined): boolean {
   return rows !== undefined && rows.every((r) => r.optional || r.state === "done");
@@ -1324,6 +1355,7 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
     stage: null,
     sections,
     continueReady: allAnswered(sections.connect),
+    continueNote: continueNote(path),
     startReady: allAnswered(sections.thisMac),
     start: startButton(
       path,

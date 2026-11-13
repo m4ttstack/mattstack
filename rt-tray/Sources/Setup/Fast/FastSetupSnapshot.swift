@@ -299,6 +299,7 @@ enum FastSetupSnapshot {
         typealias C = ConnectRows
         func page(team: Bool = true, _ rows: [FormRow], waiting: [String: String] = [:], ready: Bool = false) -> AnyView {
             window(ConnectScreenBody(teamFirst: team, rows: rows, waiting: waiting, errors: [:], continueReady: ready,
+                                     continueNote: team ? nil : "Anything marked Optional can wait",
                                      onAction: { _, _, _ in }, onBack: team ? nil : {}, onContinue: {}),
                    .connect, path: team ? "join" : "solo")
         }

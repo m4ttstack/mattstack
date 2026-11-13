@@ -48,7 +48,7 @@ Pick **Create a team** to start one, or **Join a team** and paste the invite cod
 
 Just me skips the invite and the wait, and asks less:
 
-- **Connect your accounts** has GitHub, Claude, and Fast Browser. GitHub ("Optional. Lets mattstack open PRs and MRs") and Fast Browser never hold up **Continue**.
+- **Connect your accounts** has GitHub, GitLab, Claude, and Fast Browser. GitHub ("Optional. Lets mattstack open PRs"), GitLab ("Optional. Lets mattstack open MRs"), and Fast Browser never hold up **Continue**. While no GitLab token is stored, the GitLab row also says "On your own GitLab server? Connect from a terminal with `rt setup gitlab connect --host <host>`".
 - **This Mac** shows where new clones go instead of listing team repos: a folder it finds, such as `~/Documents/GitHub`, with **Change** to pick another. It also asks where your settings live: a GitHub repo (rt offers **Sign in to GitHub** when this Mac has no token) or this Mac only.
 
 ## What you get
@@ -78,11 +78,24 @@ Until you do, `rt team status --json` reports `"mode": "solo"`.
 
 Solo works without a GitHub or GitLab account, but connecting one adds a few things worth having as a solo developer:
 
-- worktrees auto-dispose once their PR merges
+- worktrees auto-dispose once their PR or MR merges
 - `rt` can open PRs and MRs directly
 - your home repo backup can push to a remote instead of staying local-only
 
-Connect GitHub on the **Connect your accounts** screen, or later with `rt setup github connect`.
+Connect GitHub or GitLab on the **Connect your accounts** screen, or later in **Settings → Accounts**, which lists the same two rows with a **Connect** button each. From a terminal:
+
+```bash
+rt setup github connect
+rt setup gitlab connect
+```
+
+On your own GitLab server, connect from a terminal with the host:
+
+```bash
+rt setup gitlab connect --host gitlab.example.com
+```
+
+Once you create or join a team, the team's forge decides the forge row. A team uses one forge.
 
 ## From a terminal
 

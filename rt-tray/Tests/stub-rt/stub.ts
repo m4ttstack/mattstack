@@ -15,7 +15,7 @@ import { AFTER_INSTALL_ROW } from "../../../lib/setup/plan.ts";
 import { isFinishGatedRowId, WAIVABLE_ROW_IDS } from "../../../lib/setup/contract.ts";
 import { WAIVED_NOTES } from "../../../lib/setup/finish-gate.ts";
 import { CLAUDE_SIGNIN_ACTION, FAST_BROWSER_ADD_ACTION } from "../../../lib/setup/validators/tools.ts";
-import { allAnswered, FORM_COPY, FORM_SECTIONS, homeApp, macosRows, startButton, toolsForm, type FormPath, type FormRow, type FormSection, type FormStage, type SetupForm } from "../../../lib/setup/form.ts";
+import { allAnswered, continueNote, FORM_COPY, FORM_SECTIONS, homeApp, macosRows, startButton, toolsForm, type FormPath, type FormRow, type FormSection, type FormStage, type SetupForm } from "../../../lib/setup/form.ts";
 import type { Action, Row, StepId } from "../../../lib/setup/contract.ts";
 import { FINISH_IN_BROWSER } from "../../../lib/setup/cli-login.ts";
 import { FANCY_URLS_DETAIL } from "../../../lib/setup/fancy-urls.ts";
@@ -736,6 +736,7 @@ function setupForm(): SetupForm {
     stage,
     sections,
     continueReady: allAnswered(sections.connect),
+    continueNote: continueNote(path),
     startReady: allAnswered(sections.thisMac),
     start: startButton(path, false, sections.thisMac ?? [], new Set()),
     paused: section || !failed ? null : { step: failed.step, title: STEP_PHASES[failed.step as StepId]?.paused ?? failed.detail,
