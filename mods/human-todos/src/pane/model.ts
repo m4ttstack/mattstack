@@ -86,8 +86,13 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
     const tail = (todo.liveTail ?? []).slice(todo.runner === 'local' ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR)
 
     const isRunning = todo.status === 'running'
-    wrapWords(`${isRunning ? `${spin} ` : '○ '}${todo.title}`, inner).forEach((line, n) =>
-      rows.push({ kind: 'text', text: line, tone: 'title', indent: false, ...(isRunning && n === 0 && { spin: true as const }) }),
+    // The mark takes two cells, so later title rows hang at the indent and line up under the first row's text.
+    wrapWords(todo.title, inner - 2).forEach((line, n) =>
+      rows.push(
+        n === 0
+          ? { kind: 'text', text: `${isRunning ? `${spin} ` : '○ '}${line}`, tone: 'title', indent: false, ...(isRunning && { spin: true as const }) }
+          : { kind: 'text', text: line, tone: 'title', indent: true },
+      ),
     )
     if (todo.detail) lines(todo.detail, width, 'dim', true)
     if (!isRunning && todo.note) lines(todo.note, width, 'warning', true)
