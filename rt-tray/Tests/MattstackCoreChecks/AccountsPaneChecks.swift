@@ -60,6 +60,21 @@ let accountsPaneChecks: [Check] = [
                           .rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"token\":\"t\"}".utf8)))
         }
     },
+    Check("an unconnected optional account draws a quiet dash; a required missing account keeps the warning") { c in
+        let gitlab = soloForgePlan().groups[0].rows[1]
+        c.expectEqual(StatusGlyph.symbol(for: gitlab), "minus.circle")
+        c.expectEqual(StatusGlyph.tint(for: gitlab), .grey)
+        c.expectEqual(StatusGlyph.multicolor(for: gitlab), false)
+        let slack = planWithSlack(.missing).groups[0].rows[1]
+        c.expectEqual(StatusGlyph.symbol(for: slack), "exclamationmark.triangle.fill")
+        c.expectEqual(StatusGlyph.multicolor(for: slack), true)
+        var gated = gitlab
+        gated.finishGated = true
+        c.expectEqual(StatusGlyph.symbol(for: gated), "exclamationmark.triangle.fill", "a row that holds Finish still needs you")
+        var ready = gitlab
+        ready.status = .ready
+        c.expectEqual(StatusGlyph.symbol(for: ready), "checkmark.circle.fill")
+    },
     Check("only Permissions runs the 1 s readiness tick; Accounts refreshes on appear and after each action") { c in
         c.expectEqual(SettingsPane.allCases.filter(\.watchesReadiness), [.permissions])
     },

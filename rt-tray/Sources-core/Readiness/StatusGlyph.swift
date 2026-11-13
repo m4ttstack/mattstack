@@ -27,4 +27,19 @@ public enum StatusGlyph {
     public static func multicolor(for status: RowStatus) -> Bool {
         tint(for: status) == .yellow
     }
+
+    /// Mirrors `checklistStatus` in lib/setup/plan-blocks.ts: an account that
+    /// blocks neither Install nor Finish, left unconnected, is off, not a warning.
+    public static func isOff(_ row: PlanRow) -> Bool {
+        row.kind == .account && !row.required && !row.finishGated && row.status == .missing
+    }
+    public static func symbol(for row: PlanRow) -> String {
+        isOff(row) ? "minus.circle" : symbol(for: row.status)
+    }
+    public static func tint(for row: PlanRow) -> GlyphTint {
+        isOff(row) ? .grey : tint(for: row.status)
+    }
+    public static func multicolor(for row: PlanRow) -> Bool {
+        tint(for: row) == .yellow
+    }
 }

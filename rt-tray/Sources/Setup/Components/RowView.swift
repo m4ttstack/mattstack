@@ -29,7 +29,7 @@ struct RowView: View {
                     .accessibilityIdentifier(actionID ?? AXID.checklistRowAction(row.id))
             }
             // Last, so every row's status lines up in one column whether or not it has a button.
-            StatusBadge(status: isChecking ? .checking : row.status, id: statusID ?? AXID.checklistRowStatus(row.id)).padding(.top, 1)
+            StatusBadge(row: row, isChecking: isChecking, id: statusID ?? AXID.checklistRowStatus(row.id)).padding(.top, 1)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)

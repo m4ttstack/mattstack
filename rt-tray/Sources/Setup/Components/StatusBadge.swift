@@ -2,14 +2,16 @@ import SwiftUI
 import MattstackCore
 
 struct StatusBadge: View {
-    let status: RowStatus
+    let row: PlanRow
+    let isChecking: Bool
     var id: String? = nil
+    private var status: RowStatus { isChecking ? .checking : row.status }
     var body: some View {
-        let symbol = StatusGlyph.symbol(for: status)
+        let symbol = isChecking ? StatusGlyph.symbol(for: .checking) : StatusGlyph.symbol(for: row)
         let badge = Group {
             if symbol == "progress" {
                 ProgressView().controlSize(.small)
-            } else if StatusGlyph.multicolor(for: status) {
+            } else if StatusGlyph.multicolor(for: row) {
                 Image(systemName: symbol).symbolRenderingMode(.multicolor)
             } else {
                 Image(systemName: symbol).foregroundStyle(color)
@@ -24,10 +26,10 @@ struct StatusBadge: View {
             badge
         }
     }
-    /// Only reached when `!StatusGlyph.multicolor(for: status)`, which is exactly
-    /// the statuses whose tint is never `.yellow` -- so that case cannot occur here.
+    /// Only reached when `!StatusGlyph.multicolor(for: row)`, which is exactly
+    /// the rows whose tint is never `.yellow` -- so that case cannot occur here.
     private var color: Color {
-        switch StatusGlyph.tint(for: status) {
+        switch StatusGlyph.tint(for: row) {
         case .green: return .green
         case .red: return .red
         case .yellow: fatalError("StatusGlyph.multicolor already renders yellow-tinted statuses before color is used")
