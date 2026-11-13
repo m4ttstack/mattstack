@@ -54,6 +54,16 @@ This is a security change: it decides how a credential reaches git.
 
 - `git_push` code (`lib/mcp/git-tools.ts`) does not change. It benefits only
   through the helper `rt git auth` writes.
+- The agent and daemon sync path does not change. `branch_sync` and the
+  daemon's `worktree:sync` (`commands/worktree-branch-sync.ts`) already rerun
+  `rt sync --json` with rt's token after an auth failure, through the older
+  inline helper in `lib/team/git-credential.ts` that carries the token in the
+  child's env (`RT_GIT_TOKEN`). Once `rt sync` retries by itself, that outer
+  retry fires only after the inner one failed: one extra harmless attempt.
+  When it does fire, its `GIT_CONFIG_*` pairs are already in the child's env,
+  so `rt sync`'s appended pairs come after them and its own helper is the one
+  git uses. Moving that path to `rt git credential` is a follow-up the report
+  names; the no-token-in-env rule below covers the paths this design adds.
 - No setup row, no tray change, no change to `lib/setup/validators/accounts.ts`,
   `lib/setup/form.ts` or `rt-tray/`.
 - No change to how rt-made clones are wired, or to the pool and daemon fetch
@@ -62,8 +72,8 @@ This is a security change: it decides how a credential reaches git.
 
 ## Anti-goals (a failure even if it works)
 
-- A token in git config, a URL, argv, a log line, an error message or a
-  `--json` envelope.
+- A token in git config, a URL, argv, an env var (on any path this design
+  adds), a log line, an error message or a `--json` envelope.
 - The token offered to any host other than github.com, gitlab.com or the host
   the person confirmed (`rt.integrations.forgeHost`), including after an HTTP
   redirect, over cleartext http, or to a submodule or push URL on another host.
@@ -128,9 +138,14 @@ token, `mayOfferGitLabToken`); rt holds a token for it
 (`forgeTokenLookupForGit`, the same read the helper does). Any miss means rt
 has nothing to add and git's own result stands.
 
-### 2. `rt sync`: one retry through rt's helper
+### 2. `rt sync`, `rt git rebase`, `rt git reset`: one retry through rt's helper
 
-`fetchOrigin` (`commands/git/shared.ts`): when the fetch fails and the output
+The fetch change lives in `fetchOrigin` (`commands/git/shared.ts`), which
+`rt sync`, `rt git rebase` and `rt git reset` share, so all three get the
+retry, the failure copy and the note below (decided through herd_ask). The
+push retry is `rt sync`'s alone, since only it pushes.
+
+`fetchOrigin`: when the fetch fails and the output
 is an HTTPS auth failure (`isAuthFailure` from `lib/worktree/fetch-auth.ts`),
 build the helper env (section 1) and retry once. On success it returns that
 env, as it already returns the env a fetch succeeded under, so the push uses
@@ -144,7 +159,9 @@ without rt's help but the push fails on an HTTPS auth failure (a separate push
 URL, or read-only credentials), retry once the same way, checking the push URL
 (`get-url --push`).
 
-After a sync that needed the fallback and finished, a non-quiet sync prints
+`fetchOrigin` reports whether the retry was used beside the env it returns,
+so each caller knows to print the note. After a run that needed the fallback
+and finished, a non-quiet `rt sync`, `rt git rebase` or `rt git reset` prints
 one note after its last progress line:
 `info  rt used its <forge> token for this sync` with
 `next  To use it for every git on this clone, run rt git auth`. A quiet
@@ -155,9 +172,9 @@ Copy goes through rt:ui-copy.
 The ssh-agent retry and the HTTPS retry are independent: the first runs only
 on an SSH auth failure, the second only on an HTTPS auth failure.
 
-### 3. `rt sync`: SSH failures say so and offer HTTPS
+### 3. SSH failures say so and offer HTTPS
 
-An SSH auth failure (`looksLikeSshAuthFailure`) on fetch, or on push, ends in
+In `fetchOrigin` (so all three verbs) and on `rt sync`'s push, an SSH auth failure (`looksLikeSshAuthFailure`) on fetch, or on push, ends in
 a failure that names the SSH key:
 
 - no agent holds a key (today's case): title stays "Could not fetch from
@@ -178,6 +195,11 @@ New file `commands/git/auth.ts`, registered under `rt git` in
 verb needs them; no other change there). Path defaults to the current
 directory's repo root. Output through `lib/ui/out.ts`; refusals through
 `refuseWith`; failures through `failWith` / `failPlain`.
+
+The node is not `agentSafe`, so `rt_verb` cannot reach it (my call, from the
+anti-goal that a clone changes only when a person agrees). The `rt sync`,
+`rt git rebase`, `rt git reset` and `rt repos register` notes that name it print only for a
+person, never under `--json`.
 
 **Plain form, HTTPS origin.** Runs the section 1 checks. If rt is already the
 clone's sole effective helper for that host, prints `done  <repo> already
@@ -260,7 +282,9 @@ section, and the rt CLI reference gains `rt git auth` (rt:docs).
 - Tests use an isolated HOME and temp git repos with `file://` or fake
   remotes; no live forge, no real `~/.gitconfig`, no real `~/.mattstack`. The
   token and helper are faked through seams; no test runs the compiled rt.
-- The e2e or pty file that covers a changed sync string is run.
+- The e2e or pty file that covers a changed string in `rt sync`,
+  `rt git rebase` or `rt git reset` is run, and so are the `branch_sync`
+  tests, since they read `rt sync --json`'s last stderr lines.
 - No `@{u}`.
 
 ## Left to the builder
