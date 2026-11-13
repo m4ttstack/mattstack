@@ -472,7 +472,8 @@ describe("gate:ask form-cap advisory (RT-202)", () => {
     expect(res.data.presentation).toBe("wait");
     expect(res.data.formCapExceeded).toEqual([{ question: "q1", options: 5 }]);
     expect(res.data.formCapAdvisory).toContain("4 options");
-    expect(res.data.formCapAdvisory).toContain("next");
+    expect(res.data.formCapAdvisory).toContain("<id>-1");
+    expect(res.data.formCapAdvisory).not.toContain("next question");
   });
 
   test("with no pane a form was never possible, so no advisory rides the wait", async () => {
