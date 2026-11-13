@@ -8,6 +8,7 @@ import {
   SectionLabel,
   type FleetRoom,
 } from './FleetTree';
+import { groupHerds } from './herds';
 import type { RosterBuddy } from './roster-types';
 import { useLiveSlackRoom } from './slack-chats-context';
 
@@ -29,6 +30,10 @@ export interface RoomRailProps {
   onNewSlackChat?: () => void;
   /** Inside `PageShell.Sidebar`: the sidebar is the surface, so no card. */
   sidebar?: boolean;
+  /** The herd open in the transcript. */
+  activeHerd?: string;
+  /** Opens a herd: its DMs and room leave the lists for one row in `Direct`. */
+  onOpenHerd?: (id: string) => void;
   /** Messages to you, pinned above the rooms. Its DMs leave `Direct`. */
   direct?: {
     active: boolean;
@@ -78,6 +83,8 @@ export function RoomRail({
   onNewSlackChat,
   sidebar = false,
   direct,
+  activeHerd,
+  onOpenHerd,
 }: RoomRailProps) {
   const isLive = useLiveSlackRoom();
   // A `dm` room with no participants has no pair to be named by, and
@@ -87,13 +94,16 @@ export function RoomRail({
   // so it leads the list until it has one.
   const newest = (r: FleetRoom) =>
     r.lastPostedAt ?? (isLive(r.room) ? Infinity : 0);
+  const herds = groupHerds(rooms);
   const directRooms = rooms
-    .filter(r => r.kind === 'dm' && r.participants && !direct?.isMine(r))
+    .filter(
+      r => r.kind === 'dm' && r.participants && !r.herd && !direct?.isMine(r)
+    )
     .sort((a, b) => {
       const [x, y] = [newest(a), newest(b)];
       return x === y ? 0 : y > x ? 1 : -1;
     });
-  const channelRooms = rooms.filter(r => r.kind !== 'dm');
+  const channelRooms = rooms.filter(r => r.kind !== 'dm' && !r.herd);
   const working = listedBuddies(channelRooms, buddies).filter(
     b => b.status === 'live'
   ).length;
@@ -128,6 +138,10 @@ export function RoomRail({
         onOpenDm={onSelectRoom}
         onNewSlackChat={onNewSlackChat}
         onClose={onCloseRoom}
+        herds={herds}
+        activeHerd={activeHerd}
+        onOpenHerd={onOpenHerd}
+        newest={newest}
       />
     </Stack>
   );
