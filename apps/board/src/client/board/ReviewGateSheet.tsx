@@ -825,17 +825,6 @@ function ReviewGateSheet({
       ariaLabel="review gate"
       actions={
         <>
-          {onDropReview && mr && (
-            <Button
-              type="button"
-              variant="subtle"
-              size="sm"
-              title="close this review without posting anything"
-              onClick={() => setConfirmDrop(true)}
-            >
-              drop review
-            </Button>
-          )}
           <Button
             type="button"
             variant="light"
@@ -854,6 +843,18 @@ function ReviewGateSheet({
           >
             focus pane
           </Button>
+          {onDropReview && mr && (
+            <Button
+              type="button"
+              variant="subtle"
+              intent="muted"
+              size="sm"
+              title="close this review without posting anything"
+              onClick={() => setConfirmDrop(true)}
+            >
+              drop review
+            </Button>
+          )}
         </>
       }
       queue={queue}
