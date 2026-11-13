@@ -251,9 +251,13 @@ export async function runGitHubGapsConformance(
   fixture: ProviderFixture,
   report: Reporter
 ): Promise<void> {
-  if (fixture.name !== 'github') return;
+  if (fixture.name !== 'github') {
+    await queueAbsenceCases(fixture, report);
+    return;
+  }
   if (isForbiddenRepo(fixture.projectPath)) {
     report.fail(fixture.name, 'mergePullRequest', 'GitHub gaps cases', forbiddenReason(fixture.projectPath));
+    skipQueueMethods(fixture, report, `queue cases not run: ${forbiddenReason(fixture.projectPath)}`);
     return;
   }
 
@@ -266,6 +270,7 @@ export async function runGitHubGapsConformance(
     await squashOnlyCase(fixture, report, scratch, prefix);
     await partialCreateCase(fixture, report, scratch, prefix);
     await boundedRestRequestCase(fixture, report);
+    await queueStatusWithoutQueueCase(fixture, report, scratch, prefix);
   } finally {
     await scratch.cleanup();
   }
@@ -837,20 +842,68 @@ async function assertQueueGuarded(fixture: ProviderFixture, branch: string): Pro
   }
 }
 
+const ENQUEUE_LABEL = 'a dequeued PR joins the queue again and reads back as queued';
+const QUEUED_STATUS_LABEL = 'a queued PR reads back as in an enabled queue, not merged';
+
+function skipQueueMethods(fixture: ProviderFixture, report: Reporter, reason: string): void {
+  report.skip(fixture.name, 'enqueuePullRequest', ENQUEUE_LABEL, reason);
+  report.skip(fixture.name, 'fetchMergeQueueStatus', QUEUED_STATUS_LABEL, reason);
+}
+
+/**
+ * GitLab merge trains are not wired up, so both queue methods are absent:
+ * the property is undefined and canEnqueue is false. Without these cases the
+ * runner's coverage check had nothing to find for either method on GitLab.
+ */
+async function queueAbsenceCases(fixture: ProviderFixture, report: Reporter): Promise<void> {
+  const { provider } = fixture;
+  for (const method of ['enqueuePullRequest', 'fetchMergeQueueStatus'] as const) {
+    await check(report, fixture, method, 'is absent, since merge trains are not wired up, and canEnqueue is false', async () => {
+      assert(provider[method] === undefined, `${method} is defined, so the absent expectation is stale`);
+      assert(provider.capabilities.canEnqueue === false, 'capabilities.canEnqueue should be false');
+    });
+  }
+}
+
+/** Read-only on a PR into a throwaway branch, which no merge queue covers. */
+async function queueStatusWithoutQueueCase(
+  fixture: ProviderFixture,
+  report: Reporter,
+  scratch: Scratch,
+  prefix: string
+): Promise<void> {
+  await check(report, fixture, 'fetchMergeQueueStatus', 'a PR into a branch with no merge queue reads as not enabled and not queued', async () => {
+    const target = await scratch.branch(`${prefix}-queue-status-target`);
+    const source = await scratch.branch(`${prefix}-queue-status-source`, target);
+    await commitFile(fixture, source, `conformance-queue-status-${Date.now()}.md`, '# queue status\n');
+    const pr = await openPr(fixture, source, target, 'merge queue status');
+    const status = await fixture.provider.fetchMergeQueueStatus!(fixture.projectPath, pr.iid);
+    if (status.enabled) {
+      throw new Inconclusive(`${fixture.projectPath}:${target} reports a merge queue, so the no-queue read is unproven`);
+    }
+    assert(!status.inQueue, `#${pr.iid} reports inQueue with no queue enabled`);
+    assert(!status.merged, `#${pr.iid} reports merged, though nothing merged it`);
+  });
+}
+
 async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: string): Promise<void> {
   const label = 'merge queue base: a merge with no input resolves queued';
   const raw = process.env[QUEUE_REPO_ENV];
   if (!raw?.trim()) {
-    report.skip(fixture.name, 'mergePullRequest', label, `queue path not run: ${QUEUE_REPO_ENV} is unset`);
+    const reason = `queue path not run: ${QUEUE_REPO_ENV} is unset`;
+    report.skip(fixture.name, 'mergePullRequest', label, reason);
+    skipQueueMethods(fixture, report, `${reason}, and the fixture repo has no merge queue to join`);
     return;
   }
   const target = mutationTarget(QUEUE_REPO_ENV, raw, 'repo');
   if (!target.ok) {
     report.fail(fixture.name, 'mergePullRequest', label, target.refusal);
+    skipQueueMethods(fixture, report, `queue path not run: ${target.refusal}`);
     return;
   }
   if (isForbiddenRepo(target.projectPath)) {
     report.fail(fixture.name, 'mergePullRequest', label, forbiddenReason(target.projectPath));
+    skipQueueMethods(fixture, report, `queue path not run: ${forbiddenReason(target.projectPath)}`);
     return;
   }
 
@@ -859,6 +912,7 @@ async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: str
   const branch = `${prefix}-queue-source`;
   let created = false;
   let nodeId: string | null = null;
+  let queuedIid: number | null = null;
   let queueFixture: ProviderFixture = { ...fixture, projectPath: queueProject };
 
   try {
@@ -907,6 +961,31 @@ async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: str
       assert(result.queued !== undefined, `resolved without a queue entry (state "${result.state}")`);
       assert(result.state === 'opened', `a queued PR should still be opened, got "${result.state}"`);
       console.log(`  queue: #${pr.iid} queued at position ${result.queued.position} (${result.queued.state})`);
+      queuedIid = pr.iid;
+    });
+
+    await check(report, fixture, 'fetchMergeQueueStatus', QUEUED_STATUS_LABEL, async () => {
+      if (queuedIid === null) throw new Inconclusive('the merge case did not queue a PR, so there is no entry to read');
+      const status = await provider.fetchMergeQueueStatus!(queueProject, queuedIid);
+      assert(status.enabled, `#${queuedIid} reports no merge queue on its target branch`);
+      assert(status.inQueue, `#${queuedIid} was queued but reports inQueue false`);
+      assert(!status.merged, `#${queuedIid} reports merged while it should be held in the queue`);
+    });
+
+    await check(report, fixture, 'enqueuePullRequest', ENQUEUE_LABEL, async () => {
+      if (queuedIid === null || nodeId === null) {
+        throw new Inconclusive('the merge case did not queue a PR, so there is nothing to dequeue and enqueue again');
+      }
+      await githubGraphql(
+        queueFixture,
+        'mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { clientMutationId } }',
+        { id: nodeId }
+      );
+      const entry = await provider.enqueuePullRequest!(queueProject, queuedIid);
+      assert(entry.position >= 1, `expected a queue position of at least 1, got ${entry.position}`);
+      assert(entry.state.length > 0, 'the queue entry came back with no state');
+      const status = await provider.fetchMergeQueueStatus!(queueProject, queuedIid);
+      assert(status.inQueue, `#${queuedIid} reports inQueue false after enqueuePullRequest returned an entry`);
     });
   } finally {
     // Dequeued at once so the queue never lands this PR on the default branch.
