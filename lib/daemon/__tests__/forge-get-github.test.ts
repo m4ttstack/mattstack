@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GitHubProvider } from "@mattstack/glance";
 import {
-  FORGE_GET_MAX_BYTES, GITHUB_REFUSED_BLOBS, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_ROUTES, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, dotSkeleton, foldsToSeparator, forgeGet, wordSkeleton, type RestProvider,
+  FORGE_GET_MAX_BYTES, GITHUB_REFUSED_BLOBS, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_ROUTES, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, dotSkeleton, foldsToSeparator, forgeGet, githubRouteRefusal, githubWordRefusal, matchingWindow, wordSkeleton, type RestProvider,
 } from "../forge-reads.ts";
 import { createMRHandlers } from "../handlers/mr.ts";
 import { fakeStore } from "./fake-cache-store.ts";
@@ -29,7 +29,9 @@ const PROJECT = "o/r";
 const check = (path: unknown) => checkGithubForgePath(path, PROJECT);
 const get = (provider: RestProvider, input: Parameters<typeof forgeGet>[2]) => forgeGet(provider, PROJECT, input, "github");
 const emptySegment = { ok: false as const, error: '"path" must not contain an empty segment (//)' };
-const credentialRefusal = (seg: string) => ({ ok: false as const, error: `"path" names ${seg}, which can return credentials; gitlab_get refuses it` });
+const credentialRefusal = (seg: string) => ({ ok: false as const, error: githubWordRefusal(seg) });
+const routeRefusal = (word: string) => ({ ok: false as const, error: githubRouteRefusal(word) });
+const ruleOne = { ok: false as const, error: "gitlab_get cannot read this GitHub repo, because its path is not owner/name. Check the repo's origin remote." };
 
 describe("checkGithubForgePath", () => {
   test("the refused segments are the spec's list, verbatim", () => {
@@ -265,9 +267,9 @@ describe("checkGithubForgePath fix round 1", () => {
 describe("checkGithubForgePath on the repo's own path", () => {
   test("refuses a repo path that is not exactly owner/repo, so the route and under-repo rules count from the right place", () => {
     for (const project of ["o/r/copilot", "o", "o/r/x/y", "/r", "o/", "o//r", ""]) {
-      expect(checkGithubForgePath(":repo/cloud-agent/configuration", project), project).toEqual({ ok: false, error: "gitlab_get reads a GitHub repo only by its owner/repo path" });
+      expect(checkGithubForgePath(":repo/cloud-agent/configuration", project), project).toEqual(ruleOne);
     }
-    expect(checkGithubForgePath("repos/o/other/pulls", "o")).toMatchObject({ ok: false });
+    expect(checkGithubForgePath("repos/o/other/pulls", "o")).toEqual(ruleOne);
   });
 });
 
@@ -311,7 +313,7 @@ describe("checkGithubForgePath on empty segments", () => {
 });
 
 describe("checkGithubForgePath on copilot routes", () => {
-  const refused = credentialRefusal("copilot");
+  const refused = routeRefusal("copilot");
 
   test("refuses the cloud agent configuration, the code review settings and anything under the repo's copilot route", () => {
     for (const path of [
@@ -424,6 +426,120 @@ describe("forgeGet through a real GitHubProvider", () => {
       ok: false, error: "gitlab_get does not follow redirects: GitHub answered 302 redirecting to objects.example.net",
     });
     expect(sent).toHaveLength(1);
+  });
+
+  const wire = async (projectPath: string, path: string) => {
+    sent = [];
+    const result = await forgeGet(provider(), projectPath, { path }, "github");
+    return { result, sent: [...sent] };
+  };
+  const refusedOnWire = async (path: string, error: string, projectPath = PROJECT) => {
+    const { result, sent: out } = await wire(projectPath, path);
+    expect(result, path).toEqual({ ok: false, error });
+    expect(out, path).toEqual([]);
+  };
+  const dotError = '"path" must not contain dot segments';
+  const plainError = '"path" must be a plain API path; pass query values in "query"';
+  const blobsError = '"path" names git/blobs, and a blob can be too large to read through gitlab_get; read the file with :repo/contents/<path> instead';
+
+  test("a guarded word hidden by blanks, invisibles, marks or compatibility forms is refused with the word", async () => {
+    const cases: Array<[string, string]> = [
+      [":repo/actions/secrets%20", "secrets"],
+      [":repo/actions/%20secrets", "secrets"],
+      [":repo/hooks%C2%A0", "hooks"],
+      [":repo/actions/sec%E2%80%8Brets", "secrets"],
+      [":repo/hooks%E2%80%AE", "hooks"],
+      [":repo/hoo%C2%ADks", "hooks"],
+      [":repo/%EF%BB%BFhooks", "hooks"],
+      [":repo/actions/secrets%CC%81", "secrets"],
+      [":repo/actions/s%CD%8Fecrets", "secrets"],
+      [":repo/actions/%C5%BFecrets", "secrets"],
+      [":repo/%E2%84%AAeys", "keys"],
+      [":repo/actions/%EF%BD%93%EF%BD%85%EF%BD%83%EF%BD%92%EF%BD%85%EF%BD%94%EF%BD%93", "secrets"],
+      [":repo/actions/secrets%20.json", "secrets"],
+      [":repo/actions/oidc%E2%80%8B/customization/sub", "actions/oidc"],
+      [":repo/actions%20/oidc/customization/sub", "actions/oidc"],
+      [":repo/actions/%20/oidc/customization/sub", "actions/oidc"],
+      [":repo/actions/%E2%80%8B/oidc/customization/sub", "actions/oidc"],
+      [":repo/actions%EF%BC%8Foidc/customization/sub", "actions/oidc"],
+    ];
+    for (const [path, word] of cases) await refusedOnWire(path, githubWordRefusal(word));
+  });
+
+  test("the copilot route hidden by blanks, marks, a suffix or a fullwidth slash is refused with the route text", async () => {
+    for (const path of [
+      ":repo/%E2%80%8Bcopilot/cloud-agent/configuration", ":repo/%20/copilot/cloud-agent/configuration",
+      ":repo/%CC%81/copilot/code-review/settings", ":repo/copilot.json/cloud-agent/configuration",
+      ":repo/copilot%EF%BC%8Fcloud-agent/configuration",
+    ]) {
+      await refusedOnWire(path, githubRouteRefusal("copilot"));
+    }
+  });
+
+  test("every guarded word and route padded at the end is refused with its own text", async () => {
+    const words = GITHUB_REFUSED_SEGMENTS.filter((entry) => !entry.includes("/"));
+    for (const pad of ["%20", "%E2%80%8B", "%CC%81", "%E3%85%A4"]) {
+      for (const word of words) await refusedOnWire(`:repo/${word}${pad}`, githubWordRefusal(word));
+      for (const word of GITHUB_REFUSED_ROUTES) await refusedOnWire(`:repo/${word}${pad}`, githubRouteRefusal(word));
+    }
+  });
+
+  test("a dot part or dot lookalike in the window is refused as a dot segment", async () => {
+    for (const path of [":repo/actions/.%E2%80%8B/oidc/customization/sub", ":repo/%EF%BC%8E%EF%BC%8E/pulls"]) {
+      await refusedOnWire(path, dotError);
+    }
+  });
+
+  test("a character whose NFKD form adds a separator is refused as a plain-path error", async () => {
+    for (const path of [
+      ":repo/contents/..%EF%BC%BChooks", ":repo/actions%EF%BC%BCoidc/customization/sub", ":repo/contents/x%EF%BC%9B/a",
+      ":repo/pulls%CD%BE", ":repo/contents/a%EF%BC%85b", ":repo/contents/a%EF%BC%9Fb", ":repo/contents/a%EF%BC%83b",
+    ]) {
+      await refusedOnWire(path, plainError);
+    }
+  });
+
+  test("git/blobs joined by a fullwidth slash is refused with the blobs text", async () => {
+    await refusedOnWire(":repo/git%EF%BC%8Fblobs/abc", blobsError);
+  });
+
+  test("a projectPath that is not owner/name is refused with the repo shape text", async () => {
+    for (const project of ["o/r/x", "o"]) await refusedOnWire(":repo/pulls", ruleOne.error, project);
+  });
+
+  test("spaced and accented names, escaped # and ?, and copilot off the route are read as sent", async () => {
+    const cases: Array<[string, string, string]> = [
+      [PROJECT, ":repo/labels/good%20first%20issue", "/repos/o/r/labels/good%20first%20issue"],
+      [PROJECT, ":repo/labels/help%20wanted", "/repos/o/r/labels/help%20wanted"],
+      [PROJECT, ":repo/readme/my%20docs", "/repos/o/r/readme/my%20docs"],
+      [PROJECT, ":repo/actions/workflows/ci%20build.yml", "/repos/o/r/actions/workflows/ci%20build.yml"],
+      [PROJECT, ":repo/labels/caf%C3%A9", "/repos/o/r/labels/caf%C3%A9"],
+      [PROJECT, ":repo/contents/docs/C%23.md", "/repos/o/r/contents/docs/C%23.md"],
+      [PROJECT, ":repo/contents/what%3F.md", "/repos/o/r/contents/what%3F.md"],
+      [PROJECT, ":repo/commits/copilot/fix", "/repos/o/r/commits/copilot/fix"],
+      [PROJECT, ":repo/git/ref/heads/copilot/x", "/repos/o/r/git/ref/heads/copilot/x"],
+      ["acme/copilot", ":repo/pulls", "/repos/acme/copilot/pulls"],
+    ];
+    for (const [project, path, pathname] of cases) {
+      const { result, sent: out } = await wire(project, path);
+      expect(result, path).toMatchObject({ ok: true });
+      expect(out, path).toHaveLength(1);
+      expect(new URL(out[0]!.url).pathname, path).toBe(pathname);
+      expect(out[0]!.redirect, path).toBe("manual");
+    }
+  });
+});
+
+describe("matchingWindow", () => {
+  test("splits skeletons on slashes and backslashes and drops empty parts", () => {
+    const segments = ["repos", "o", "r", "actions\uFF0Foidc", " ", "\u200B", "x\\y", ""];
+    expect(matchingWindow(segments, 3, segments.length)).toEqual({ ok: true, parts: ["actions", "oidc", "x", "y"] });
+  });
+
+  test("refuses a part that is a dot or two after folding", () => {
+    for (const seg of [".\u200B", "\uFF0E\uFF0E", "\u2024"]) {
+      expect(matchingWindow(["repos", "o", "r", seg], 3, 4), JSON.stringify(seg)).toEqual({ ok: false, error: '"path" must not contain dot segments' });
+    }
   });
 });
 

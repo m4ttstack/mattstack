@@ -197,6 +197,25 @@ export const GITHUB_REFUSED_ROUTES: readonly string[] = ["copilot"];
 export const GITHUB_REFUSED_QUERY_KEYS: readonly string[] = ["access_token", "client_secret", "token"];
 /** glance buffers a whole response before the cap runs, and a blob can be 100 MB. */
 export const GITHUB_REFUSED_BLOBS = "git/blobs";
+const BLOBS_REFUSAL = `"path" names ${GITHUB_REFUSED_BLOBS}, and a blob can be too large to read through gitlab_get; read the file with :repo/contents/<path> instead`;
+
+export const githubWordRefusal = (word: string): string =>
+  `gitlab_get refuses "path" because the path after the repo reads as "${word}", ignoring case, spaces and invisible characters. On GitHub that word names an endpoint that can return credentials, so it is refused in any segment after the repo, including branch and tag names. To read a file, use :repo/contents/<file path>, where file names are not checked.`;
+export const githubRouteRefusal = (word: string): string =>
+  `gitlab_get refuses "path" because the route right after the repo reads as "${word}", ignoring case, spaces and invisible characters. That GitHub endpoint can return credentials. A branch, file or repo named ${word} is fine.`;
+
+/** NFKD can fold a slash or backslash into a segment, and a part that folds to a dot could split an entry. */
+export function matchingWindow(segments: string[], from: number, to: number): { ok: true; parts: string[] } | { ok: false; error: string } {
+  const parts = segments.slice(from, to).flatMap((s) => wordSkeleton(s).split(/[\/\\]/)).filter((p) => p !== "");
+  if (parts.some((p) => p === "." || p === "..")) return { ok: false, error: '"path" must not contain dot segments' };
+  return { ok: true, parts };
+}
+
+const windowEntryAt = (parts: string[], entry: string): number => {
+  const words = entry.split("/");
+  const last = words.length - 1;
+  return parts.findIndex((_, i) => words.every((w, j) => (j === last ? namesWord(parts[i + j], w) : parts[i + j] === w)));
+};
 
 /** Where an entry first appears, or -1; an entry with a slash names consecutive segments, the last one suffixed or not. */
 const entryAt = (segments: string[], entry: string): number => {
@@ -207,7 +226,7 @@ const entryAt = (segments: string[], entry: string): number => {
 
 export function checkGithubForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
   // projectPath comes from the origin URL, and every rule below counts segments from it.
-  if (!/^[^/]+\/[^/]+$/.test(projectPath)) return { ok: false, error: "gitlab_get reads a GitHub repo only by its owner/repo path" };
+  if (!/^[^/]+\/[^/]+$/.test(projectPath)) return { ok: false, error: "gitlab_get cannot read this GitHub repo, because its path is not owner/name. Check the repo's origin remote." };
   const repoRoot = `repos/${projectPath}`;
   const plain = plainApiPath(path, (rest) => rest.replace(/^:repo(?=\/|$)/, () => repoRoot));
   if (!plain.ok) return plain;
@@ -218,6 +237,7 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   if (/[{}]/.test(decoded)) return { ok: false, error: '"path" must not contain { or }' };
   if (decoded.includes("\\")) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
   if (decoded.includes(";")) return { ok: false, error: '"path" must not contain ;' };
+  if (foldsToSeparator(decoded)) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
   const lower = decoded.toLowerCase();
   const root = repoRoot.toLowerCase();
   if (lower !== root && !lower.startsWith(`${root}/`)) {
@@ -230,13 +250,16 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   const inName = hits.find((h) => h.at >= 0 && h.at + h.length <= rootParts.length);
   if (inName) return { ok: false, error: `gitlab_get cannot read a GitHub repo whose owner or name is ${rootParts.slice(inName.at, inName.at + inName.length).join("/")}` };
   const refused = hits.find((h) => h.at >= 0 && h.entry !== GITHUB_REFUSED_BLOBS);
-  if (refused) return { ok: false, error: `"path" names ${refused.entry}, which can return credentials; gitlab_get refuses it` };
-  const route = segments[rootParts.length];
-  const refusedRoute = GITHUB_REFUSED_ROUTES.find((word) => namesWord(route, word));
-  if (refusedRoute) return { ok: false, error: `"path" names ${refusedRoute}, which can return credentials; gitlab_get refuses it` };
-  if (hits.some((h) => h.at >= 0)) {
-    return { ok: false, error: `"path" names ${GITHUB_REFUSED_BLOBS}, and a blob can be too large to read through gitlab_get; read the file with :repo/contents/<path> instead` };
-  }
+  if (refused) return { ok: false, error: githubWordRefusal(refused.entry) };
+  if (hits.some((h) => h.at >= 0)) return { ok: false, error: BLOBS_REFUSAL };
+  const window = matchingWindow(segments, rootParts.length, segments.length);
+  if (!window.ok) return window;
+  const { parts } = window;
+  const refusedRoute = GITHUB_REFUSED_ROUTES.find((word) => namesWord(parts[0], word));
+  if (refusedRoute) return { ok: false, error: githubRouteRefusal(refusedRoute) };
+  const refusedWord = GITHUB_REFUSED_SEGMENTS.find((entry) => windowEntryAt(parts, entry) >= 0);
+  if (refusedWord) return { ok: false, error: githubWordRefusal(refusedWord) };
+  if (windowEntryAt(parts, GITHUB_REFUSED_BLOBS) >= 0) return { ok: false, error: BLOBS_REFUSAL };
   return { ok: true, path: `/${rest}` };
 }
 
