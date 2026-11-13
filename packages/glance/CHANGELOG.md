@@ -10,8 +10,18 @@
   by-iid read failed. It now sends one single-MR query (the one
   `fetchSingleMR` sends) per distinct iid, at most 4 in flight, and returns the same
   results, newest first as before. A read of N iids is now N GitLab requests
-  instead of one, and that includes `createDashboardGroup`'s GitLab poll; an
-  empty `iids` list sends nothing.
+  instead of one; an empty `iids` list sends nothing.
+- A GitLab dashboard group (`createDashboard({ mrIid: [...] })`) sends at
+  most 20 GitLab requests in any 60 s window, however many MRs it watches
+  (`GITLAB_GROUP_REQUESTS_PER_MINUTE`, exported). Each fetch reads the MRs a
+  push event named first, then the ones read longest ago. While the push
+  cable is up, polls leave 5 of the 20 for push
+  (`GITLAB_GROUP_PUSH_RESERVE`). Worst-case staleness for N MRs is
+  `ceil(N / 20) x 71 s` with the cable down and `ceil(N / 15) x 93 s` with
+  it up (142 s and 186 s for 30 MRs). Small groups read every MR on every
+  poll as before, and GitHub groups are unchanged.
+  `WatcherSubscribeCallbacks.onEvent` takes an optional iid, which GitLab's
+  `subscribePullRequestEvents` now passes.
 - GitHub `Pipeline.id` can still move for a head commit, each time a lower
   run's checks appear after a higher run's (GLANCE-59). That is accepted:
   keeping the first id seen would need state per commit across reads, which

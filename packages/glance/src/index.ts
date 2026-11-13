@@ -98,7 +98,13 @@ export { TRANSITIONAL_MERGE_STATUSES, isTransitionalMergeStatus } from './types.
 export type { MRStatus, MRState, MRDashboardProps, MRDashboardActions } from './types.ts';
 
 // ── Dashboard helpers ─────────────────────────────────────────────────────────
-export { getMRDashboardProps, createDashboard, mergeBlockedReason } from './MRDashboard.ts';
+export {
+  getMRDashboardProps,
+  createDashboard,
+  mergeBlockedReason,
+  GITLAB_GROUP_REQUESTS_PER_MINUTE,
+  GITLAB_GROUP_PUSH_RESERVE
+} from './MRDashboard.ts';
 export type { Dashboard, DashboardGroup, CreateDashboardOptions } from './MRDashboard.ts';
 
 // ── Provider interface ────────────────────────────────────────────────────────

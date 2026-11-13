@@ -2162,7 +2162,8 @@ export class GitLabProvider implements GitProvider {
         return mr;
       },
 
-      subscribe: (callbacks) => this.attachToSharedCable(() => (mrGid ? [mrGid] : []), callbacks),
+      subscribe: (callbacks) =>
+        this.attachToSharedCable(() => (mrGid ? [mrGid] : []), { ...callbacks, onEvent: () => callbacks.onEvent() }),
 
       onUpdate,
       options: {
@@ -2178,8 +2179,12 @@ export class GitLabProvider implements GitProvider {
     prs: ReadonlyArray<Pick<PullRequest, 'id' | 'iid'>>,
     callbacks: WatcherSubscribeCallbacks,
   ): () => void {
-    const gids = prs.map((pr) => mergeRequestGid(pr.id));
-    return this.attachToSharedCable(() => gids, callbacks);
+    const iidByGid = new Map(prs.map((pr) => [mergeRequestGid(pr.id), pr.iid]));
+    const gids = [...iidByGid.keys()];
+    return this.attachToSharedCable(() => gids, {
+      ...callbacks,
+      onEvent: (gid) => callbacks.onEvent(iidByGid.get(gid)),
+    });
   }
 
   /**
@@ -2191,7 +2196,7 @@ export class GitLabProvider implements GitProvider {
    */
   private attachToSharedCable(
     gids: () => string[],
-    { onConnected, onDisconnected, onEvent }: WatcherSubscribeCallbacks,
+    { onConnected, onDisconnected, onEvent }: Omit<WatcherSubscribeCallbacks, 'onEvent'> & { onEvent: (gid: string) => void },
   ): () => void {
     const subscriptionIds = new Set<string>();
 
@@ -2202,7 +2207,7 @@ export class GitLabProvider implements GitProvider {
           const query = `subscription { ${channel}(issuableId: "${gid}") { iid } }`;
           const id = JSON.stringify({ channel: 'GraphqlChannel', query });
           subscriptionIds.add(id);
-          this.cableEventHandlers.set(id, onEvent);
+          this.cableEventHandlers.set(id, () => onEvent(gid));
           this.sharedCable.subscribe(id);
         }
       }

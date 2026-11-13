@@ -669,6 +669,21 @@ export async function fetchDashboardBatch(
   return { prs, degraded };
 }
 
+/**
+ * GitLab reads a group one request per iid and gitlab.com allows a Free-plan
+ * user 100 requests a minute, so a GitLab group's polls and push refreshes
+ * together send at most this many in any 60 s window, whatever its size.
+ */
+export const GITLAB_GROUP_REQUESTS_PER_MINUTE = 20;
+
+/**
+ * Held back from polls while the push cable is up, so an MR a push event
+ * names is read at once instead of waiting for the window to free.
+ */
+export const GITLAB_GROUP_PUSH_RESERVE = 5;
+
+const GROUP_BUDGET_WINDOW_MS = 60_000;
+
 function createDashboardGroup(
   provider: GitProvider,
   projectPath: string,
@@ -695,6 +710,32 @@ function createDashboardGroup(
   let connectionState: MRDashboardProps['connection'] = 'connecting';
   let _isInitialLoading = true;
 
+  const budgeted = provider.providerName === 'gitlab';
+  const sentAt: number[] = [];
+  const refreshedAt = new Map<number, number>();
+  const pushed = new Set<number>();
+
+  /** The iids this fetch reads: all of them, or on GitLab what the budget allows, push-named first, then oldest read. */
+  const pickIids = (): number[] => {
+    if (!budgeted) return currentIids;
+    const now = Date.now();
+    while (sentAt.length > 0 && sentAt[0]! <= now - GROUP_BUDGET_WINDOW_MS) sentAt.shift();
+    const room = GITLAB_GROUP_REQUESTS_PER_MINUTE - sentAt.length;
+    const named = currentIids.filter(iid => pushed.has(iid)).slice(0, room);
+    const reserve = connectionState === 'connected' ? GITLAB_GROUP_PUSH_RESERVE : 0;
+    const rest = currentIids
+      .filter(iid => !pushed.has(iid))
+      .sort((a, b) => (refreshedAt.get(a) ?? 0) - (refreshedAt.get(b) ?? 0))
+      .slice(0, Math.max(0, room - named.length - reserve));
+    const chosen = [...named, ...rest];
+    for (const iid of chosen) {
+      pushed.delete(iid);
+      refreshedAt.set(iid, now);
+      sentAt.push(now);
+    }
+    return chosen;
+  };
+
   /**
    * Batched fetch through fetchPullRequests' iids option (one GitHub call;
    * on GitLab, one call per iid). Includes all states so merged/closed MRs
@@ -715,11 +756,9 @@ function createDashboardGroup(
    * `warningListener` below.
    */
   const batchFetch = async (): Promise<Map<number, PullRequest> | null> => {
-    const { prs, degraded } = await fetchDashboardBatch(
-      provider,
-      projectPath,
-      currentIids
-    );
+    const iids = pickIids();
+    if (iids.length === 0) return null;
+    const { prs, degraded } = await fetchDashboardBatch(provider, projectPath, iids);
     for (const [iid, warning] of degraded) {
       if (!warningListener) break;
       try {
@@ -757,9 +796,13 @@ function createDashboardGroup(
 
     const attachPush = (prs: PullRequest[], first: boolean) => {
       const p = push!;
+      const onEvent = (iid?: number) => {
+        if (iid !== undefined) pushed.add(iid);
+        p.callbacks.onEvent();
+      };
       const callbacks = first
-        ? p.callbacks
-        : { onEvent: p.callbacks.onEvent, onConnected: () => {}, onDisconnected: () => {} };
+        ? { ...p.callbacks, onEvent }
+        : { onEvent, onConnected: () => {}, onDisconnected: () => {} };
       p.disposers.push(provider.subscribePullRequestEvents!(projectPath, prs, callbacks));
       for (const pr of prs) p.subscribed.add(pr.iid);
     };

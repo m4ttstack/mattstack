@@ -39,8 +39,11 @@ export interface WatcherSubscribeCallbacks {
   onConnected: () => void;
   /** Call when the push connection is lost. */
   onDisconnected: () => void;
-  /** Call when the server pushes a data event. */
-  onEvent: () => void;
+  /**
+   * Call when the server pushes a data event, with the iid of the MR it names
+   * when the transport knows it.
+   */
+  onEvent: (iid?: number) => void;
 }
 
 /** Connection + health status exposed to consumers. */

@@ -188,6 +188,22 @@ group.updateIids(prev => prev.filter(id => id !== 43));
 | `onStatusChange(cb)` | `(cb: (status: WatcherStatus) => void) => void` | Monitor connection health |
 | `dispose()` | `() => void` | Stop all subscriptions and clean up |
 
+On GitLab a group reads one request per MR, so a group sends at most
+`GITLAB_GROUP_REQUESTS_PER_MINUTE` (20) GitLab requests in any 60 s window,
+polls and push refreshes together, however many MRs it watches. Each fetch
+reads first the MRs a push event named, then the ones read longest ago, as
+many as the window has room for. While the push cable is up, polls leave
+`GITLAB_GROUP_PUSH_RESERVE` (5) of the 20 for push, so an MR a push event
+names is read within the 150 ms debounce; if the window is full it is the
+first MR read once room frees. Worst-case staleness for a group of N MRs:
+`ceil(N / 20) x 71 s` with the push cable down (10 s polls) and
+`ceil(N / 15) x 93 s` with it up (30 s polls); 30 MRs is at most 142 s and
+186 s. A group that fits the budget (3 MRs with the cable down, 5 with it up)
+reads every MR on every poll as before; with poll jitter a 3 MR group can
+rarely leave one MR to the next poll. GitHub reads a group in one request per
+poll and is not budgeted. `fetchPullRequests({ iids })` itself is not
+budgeted; it keeps at most 4 requests in flight.
+
 ### `getMRDashboardProps`
 
 Lower-level helper that transforms a raw `PullRequest` into render-ready `MRDashboardProps`. Useful when you already have the MR data from `fetchPullRequests()` or `fetchSingleMR()`:
