@@ -368,6 +368,13 @@ describe("mr:attach-upload", () => {
     expect(markers[0]).not.toBe(markers[1]);
   });
 
+  test("the holder opens with the line a PR participant reads", async () => {
+    const { files } = twoFiles();
+    await harness({ provider: BOTH }).handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    const firstLine = readFileSync(join(logDir, "body.md"), "utf8").split("\n")[0];
+    expect(firstLine).toBe("Uploading images for a review thread. mattstack deletes this comment once they are up.");
+  });
+
   test("a URL that is not a GitHub user attachment is not taken", async () => {
     const { files } = twoFiles();
     const h = harness({

@@ -102,7 +102,7 @@ export const GH_ATTACH_UPLOAD_TIMEOUT_MS = 60_000;
 const MAX_ATTACH_UPLOADS = 10;
 const ATTACH_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
 const ATTACH_GITHUB_ONLY = "unsupported: mr:attach-upload needs a GitHub repo";
-const HOLDER_LINE = "Uploading images for a review thread. rt deletes this comment once they are up.";
+const HOLDER_LINE = "Uploading images for a review thread. mattstack deletes this comment once they are up.";
 const HOSTED_PREFIX = "https://github.com/user-attachments/";
 
 type AttachPayload = { iid: number; files: DescribeAttachment[] };
