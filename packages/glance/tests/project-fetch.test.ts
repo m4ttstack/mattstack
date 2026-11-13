@@ -110,7 +110,7 @@ describe('fetchPullRequests({ projectPath })', () => {
     const calls = mockPaged([[node(9)]]);
     const provider = new GitLabProvider('https://gitlab.example', 't');
     await provider.fetchPullRequests({ projectPath: 'g/p', iids: [9] });
-    expect(calls[0].query).toContain('iids:');
+    expect(calls[0].query).toContain('mergeRequest(iid: $iid)');
   });
 
   test('throws instead of looping forever when the cursor stops advancing', async () => {

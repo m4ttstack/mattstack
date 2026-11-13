@@ -579,36 +579,35 @@ interface MRDetailResponse {
   project: { mergeRequest: GQLMR | null } | null;
 }
 
-const MR_BATCH_QUERY = `
-  query GlanceMRBatch($projectPath: ID!, $iids: [String!], $state: MergeRequestState) {
-    project(fullPath: $projectPath) {
-      mergeRequests(iids: $iids, state: $state, first: 100) {
-        nodes {
-          ...MRDashboardFields
-        }
+/**
+ * Per-iid reads in flight at once. withGitLabRateLimit only waits out a 429
+ * after the fact; this keeps a large batch from spending gitlab.com's 100
+ * requests a minute in one burst.
+ */
+const IID_READS_IN_FLIGHT = 4;
+
+async function mapInFlight<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failed = false;
+  const worker = async (): Promise<void> => {
+    while (!failed && next < items.length) {
+      const i = next++;
+      try {
+        results[i] = await fn(items[i]!);
+      } catch (err) {
+        failed = true;
+        throw err;
       }
     }
-  }
-  ${MR_DASHBOARD_FRAGMENT}
-`;
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 interface MRBatchResponse {
   project: { mergeRequests: { nodes: GQLMR[] } } | null;
 }
-
-/** Variant without the state filter — returns MRs in any state when queried by IID. */
-const MR_BATCH_QUERY_NO_STATE = `
-  query GlanceMRBatchAll($projectPath: ID!, $iids: [String!]) {
-    project(fullPath: $projectPath) {
-      mergeRequests(iids: $iids, first: 100) {
-        nodes {
-          ...MRDashboardFields
-        }
-      }
-    }
-  }
-  ${MR_DASHBOARD_FRAGMENT}
-`;
 
 /** All MRs in a project by a single author, with full dashboard fields. */
 const MR_BY_AUTHOR_QUERY = `
@@ -1152,26 +1151,22 @@ export class GitLabProvider implements GitProvider {
     const apiState = needsAllStates ? 'all' : (states[0] ?? 'opened');
     const filterSet = needsAllStates ? new Set(states) : null;
 
-    // IID batch path — use batch query for specific MRs.
     // Keyed off the field being present, not non-empty: an empty `iids` list
     // asks for no MRs, not for the role-based involvement set.
+    // One single-MR query per iid: gitlab.com scores the dashboard fragment
+    // inside a `mergeRequests(iids:)` connection at 739, over its cap of 250.
     if (options?.iids) {
       const projectPath = requireProjectPath(options.projectPath, 'iids');
-      // When fetching all states, omit the state filter entirely so
-      // GitLab returns MRs regardless of state (the default is 'opened').
-      const useStateFilter = !needsAllStates;
-      const query = useStateFilter ? MR_BATCH_QUERY : MR_BATCH_QUERY_NO_STATE;
-      const vars: Record<string, unknown> = {
-        projectPath,
-        iids: options.iids.map(String),
-      };
-      if (useStateFilter) {
-        vars.state = apiState;
-      }
-      const resp = await this.runQuery<MRBatchResponse>('fetchPullRequests.iids', query, vars);
-      const nodes = resp.project?.mergeRequests?.nodes ?? [];
-      const results = nodes.map((gql) => toMR(gql, 'author', this.baseURL, null, this.token));
-      return filterSet ? results.filter((pr) => filterSet.has(pr.state as MRState)) : results;
+      const wanted = new Set<string>(states.length > 0 ? states : ['opened']);
+      const iids = [...new Set(options.iids.map(String))];
+      const resps = await mapInFlight(iids, IID_READS_IN_FLIGHT, (iid) =>
+        this.runQuery<MRDetailResponse>('fetchPullRequests.iids', MR_DETAIL_QUERY, { projectPath, iid }),
+      );
+      return resps
+        .map((resp) => resp.project?.mergeRequest)
+        .filter((gql): gql is GQLMR => gql != null && wanted.has(gql.state))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || Number(b.iid) - Number(a.iid))
+        .map((gql) => toMR(gql, 'author', this.baseURL, null, this.token));
     }
 
     // Author batch path — one query per author, deduped by MR global ID.
@@ -2167,7 +2162,8 @@ export class GitLabProvider implements GitProvider {
         return mr;
       },
 
-      subscribe: (callbacks) => this.attachToSharedCable(() => (mrGid ? [mrGid] : []), callbacks),
+      subscribe: (callbacks) =>
+        this.attachToSharedCable(() => (mrGid ? [mrGid] : []), { ...callbacks, onEvent: () => callbacks.onEvent() }),
 
       onUpdate,
       options: {
@@ -2183,8 +2179,12 @@ export class GitLabProvider implements GitProvider {
     prs: ReadonlyArray<Pick<PullRequest, 'id' | 'iid'>>,
     callbacks: WatcherSubscribeCallbacks,
   ): () => void {
-    const gids = prs.map((pr) => mergeRequestGid(pr.id));
-    return this.attachToSharedCable(() => gids, callbacks);
+    const iidByGid = new Map(prs.map((pr) => [mergeRequestGid(pr.id), pr.iid]));
+    const gids = [...iidByGid.keys()];
+    return this.attachToSharedCable(() => gids, {
+      ...callbacks,
+      onEvent: (gid) => callbacks.onEvent(iidByGid.get(gid)),
+    });
   }
 
   /**
@@ -2196,7 +2196,7 @@ export class GitLabProvider implements GitProvider {
    */
   private attachToSharedCable(
     gids: () => string[],
-    { onConnected, onDisconnected, onEvent }: WatcherSubscribeCallbacks,
+    { onConnected, onDisconnected, onEvent }: Omit<WatcherSubscribeCallbacks, 'onEvent'> & { onEvent: (gid: string) => void },
   ): () => void {
     const subscriptionIds = new Set<string>();
 
@@ -2207,7 +2207,7 @@ export class GitLabProvider implements GitProvider {
           const query = `subscription { ${channel}(issuableId: "${gid}") { iid } }`;
           const id = JSON.stringify({ channel: 'GraphqlChannel', query });
           subscriptionIds.add(id);
-          this.cableEventHandlers.set(id, onEvent);
+          this.cableEventHandlers.set(id, () => onEvent(gid));
           this.sharedCable.subscribe(id);
         }
       }

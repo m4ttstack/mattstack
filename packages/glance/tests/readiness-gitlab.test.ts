@@ -171,7 +171,7 @@ describe('GitLabProvider attaches readiness', () => {
       headPipeline: null,
     };
     const provider = new GitLabProvider('https://gitlab.example', 't');
-    (provider as any).runQuery = async () => ({ project: { mergeRequests: { nodes: [node] } } });
+    (provider as any).runQuery = async () => ({ project: { mergeRequest: node } });
 
     const [pr] = await provider.fetchPullRequests({ projectPath: 'g/p', iids: [9] });
     expect(pr!.readiness).toEqual({ state: 'blocked', reasons: ['conflicts'] });

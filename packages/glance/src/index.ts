@@ -98,7 +98,13 @@ export { TRANSITIONAL_MERGE_STATUSES, isTransitionalMergeStatus } from './types.
 export type { MRStatus, MRState, MRDashboardProps, MRDashboardActions } from './types.ts';
 
 // ── Dashboard helpers ─────────────────────────────────────────────────────────
-export { getMRDashboardProps, createDashboard, mergeBlockedReason } from './MRDashboard.ts';
+export {
+  getMRDashboardProps,
+  createDashboard,
+  mergeBlockedReason,
+  GITLAB_GROUP_REQUESTS_PER_MINUTE,
+  GITLAB_GROUP_PUSH_RESERVE
+} from './MRDashboard.ts';
 export type { Dashboard, DashboardGroup, CreateDashboardOptions } from './MRDashboard.ts';
 
 // ── Provider interface ────────────────────────────────────────────────────────
@@ -142,6 +148,7 @@ export {
 } from './errors.ts';
 export type { CreateFollowUpStep, FailedCreateStep } from './errors.ts';
 export { GITLAB_READ_RATE_LIMIT_DEADLINE_S, GITLAB_WRITE_RATE_LIMIT_DEADLINE_S } from './gitlabRateLimit.ts';
+export { fetchSameOrigin, mayFollowRedirect } from './sameOriginFetch.ts';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 export {
