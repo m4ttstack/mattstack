@@ -57,6 +57,8 @@ The controller runs this with Matt. No subagent.
 
 Already known from an earlier probe: the engine scrolls the whole pane, Client included, and `ui.scroll` reports accurate offsets.
 
+**Done 2026-11-13: "owns", plus a scroll bar Matt tuned live (spec "Constraints learned" and "Scrolling").**
+
 - [ ] **Step 1:** Write the probe: a Pane whose hook draws a Client with 200 numbered rows. The hook passes `e.props.scroll` (offset, bodyRows) as Client props, and the Client draws `↑ offset N` on the first visible row (`offset`) and `↓` on the last (`offset + bodyRows - 1`).
 - [ ] **Step 2:** Matt scrolls with the wheel. Record whether the hints follow the window, which shows whether the Pane hook is asked again with the new offset. If they don't, try variant B in the same probe and have Matt scroll again. In B, a `ui.scroll` hook returns `{}` without `next` and keeps the offset in an atom, and the Client draws only its window.
 - [ ] **Step 3:** Record the answer in the spec's "Scroll hints" bullet:
@@ -214,12 +216,14 @@ Already known from an earlier probe: the engine scrolls the whole pane, Client i
   - `mods/human-todos/src/pane/kit-view.tsx` (the Client)
   - `mods/human-todos/src/band.tsx` (re-exports the kit's `bandClient`)
   - `mods/human-todos/harness/kit-pane.test.tsx`
+  - `packages/mod-kit/src/widgets/scroll-bar.ts`, `scroll-bar.test.ts` (kit widget, exported from `index.ts`, one README line)
 - Modify:
-  - `mods/human-todos/src/pane.tsx`: the surface switch, a single `ui.message` hook, focus hooks, the band, and the scroll hook if Task 1 found "owns"
+  - `mods/human-todos/src/pane.tsx`: the surface switch, a single `ui.message` hook, focus hooks, the band, the `ui.scroll` hook
   - `mod.json` (`clients: ["pane/kit-view.tsx", "band.tsx"]`)
   - `harness/test-world.ts`: a `press(pane, id, button)` helper that posts `{ type: 'press', id, button }`
-  - `harness/{actions,herdr,local,pane}.test.ts(x)`: `pane.press({ key })` calls become the helper
-  - `types/index.d.ts` (`keysInPane`, plus `scrollOffset: number` if "owns")
+  - `harness/{actions,herdr,local,pane}.test.ts(x)`: `pane.press({ key })` calls become the helper. `pane.test.tsx`'s plain-look assertions mount on `vscode` and `mobile`.
+  - `types/index.d.ts` (`keysInPane`, `scrollOffset: number`)
+  - `packages/mod-kit/src/draw/theme.ts`: `SCROLL = { track: '#383838', thumb: '#707070' }`, with light-mode pairs that follow the file's existing light mapping
 
 **Interfaces:**
 - Consumes:
@@ -227,7 +231,8 @@ Already known from an earlier probe: the engine scrolls the whole pane, Client i
   - kit: `kitClient`, `Panel`, `BrandBar`, `Lines`/`Row`/`Span`, `ButtonRow`/`Button`, `isEngaged`, `paneMessage`, `bandAbovePrompt`, `registerPaneRedraw`
   - existing: `press`, `toggleExpanded`, `removeTodos` + `cleanup`
 - Produces:
-  - Client props `{ model: PaneModel; focused: boolean; width: number; offset?: number; bodyRows?: number }`
+  - kit: `scrollBar(rows: number, total: number, offset: number): Line[]`, giving one line per window row. Each line is three cells: a blank, a track or thumb cell drawn as a background colour, and a blank. The thumb is `max(1, round(rows² / total))` tall, its top at `round(offset / (total - rows) * (rows - size))`. When `total <= rows` it returns blank lines (no bar).
+  - Client props `{ model: PaneModel; focused: boolean; width: number; offset: number; bodyRows: number }`
   - posts:
     - `{ type: 'press'; id: string; button: ButtonId }`
     - `{ type: 'toggle'; id: string }`
@@ -245,6 +250,11 @@ Already known from an earlier probe: the engine scrolls the whole pane, Client i
   - Mounting on `vscode` draws no `Client` and shows the plain `run-1` button.
   - **A press while output streams** (Review Focus): start a local run that prints a line every tick. Pointer down on Stop, two output lines and a spinner tick arrive, then pointer up on Stop. The item goes to `isStopping`.
   - **30 columns** (Review Focus): an item titled `🚀 Deploy 日本 build` with a long script. No row of the Client is wider than the pane: assert through the drawn row text widths, or through the model width the Client is given. A click on Done reports done.
+  - **Scrolling:** 30 items in a 20-row body. `$.ui.scroll` (or a dispatched `ui.scroll` with `by: 5`) moves the stored offset to 5, the result is `{}`, and the Client's first body row is row 5 of the model. The brand bar stays on top. `↑ N more` and `↓ N more` show, and the scroll bar's thumb is off the top.
+  - **Shrink while scrolled:** scrolled to the bottom, Clear finished removes rows. The window clamps, no blank window, last row in view.
+  - **Plain drawer keeps the engine's scroll:** on `vscode` with an overflowing list, `ui.scroll` passes to `next` (the offset atom is unchanged).
+
+  In `scroll-bar.test.ts`: `scrollBar(20, 200, 0)` has its thumb at row 0 with height 2. `scrollBar(20, 200, 180)` puts the thumb on the last rows. `scrollBar(20, 10, 0)` draws no thumb. Every line is 3 cells wide.
 - [ ] **Step 2:** `bun run mods:build human-todos && claude plugin test plugins/human-todos`: the new tests FAIL.
 - [ ] **Step 3: Implement.**
   - `kit-view.tsx`:
@@ -254,11 +264,14 @@ Already known from an earlier probe: the engine scrolls the whole pane, Client i
     - `buttons` rows use `<ButtonRow>` with `<Button tone>` per `PaneButton`
     - finished rows use `<Row>`/`<Span>`
     - the end-of-list line goes last when the list overflows
-    - "↑/↓ N more" plus windowing only if Task 1 recorded "owns"
+    - the brand bar is pinned; the body rows are windowed to `[offset, offset + bodyRows - barRows)`, with the offset clamped again here
+    - "↑ N more" / "↓ N more" (item spans above and below, today's counting) on the window's first and last body rows
+    - the kit `scrollBar` sits at the right edge of the body rows, and the text rows are 3 cells narrower to make room
   - `pane.tsx`:
     - the Pane hook passes `focused = e.props.isFocused || keysInPane`
     - one matcherless `ui.message` hook dispatches the posts. `press` gets `e.surface`; `toggle` goes to `toggleExpanded`; `clear` runs today's clear path; `hide`/`reopen` go to `paneMessage`; `engaged` sets focus.
     - the AbovePrompt hook uses `bandAbovePrompt` with `bandModel` on terminal and desktop, and today's band elsewhere
+    - a `ui.scroll` hook on `{ component: 'Pane', requestId: PANE }`. When `e.contentRows > e.bodyRows`, the plain drawer is showing, so it returns `next(e)`. Otherwise it sets `scrollOffset` to `clamp(stored + e.by, 0, max(0, total - bodyRows))` and returns `{}` without `next`. Never read `e.offset`: the engine clamps it to 0 because the drawn tree fits.
   - Switch the harness presses to the helper.
 - [ ] **Step 4:**
   - `bun run mods:test`, `bun run mods:build human-todos`, `claude plugin test plugins/human-todos` and `claude plugin validate plugins/human-todos` pass.

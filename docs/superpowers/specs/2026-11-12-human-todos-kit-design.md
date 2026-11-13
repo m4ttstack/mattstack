@@ -82,6 +82,15 @@ and none of the kit's interaction applies to it.
   returns without calling `next` keeps the engine from moving the window, and
   the mod scrolls its own rows (the types' example:
   `on("ui.scroll", { requestId }, ($, e) => (scrollOwnRows(e.by), {}))`).
+- The scroll check (2026-11-13, Task 1) settled both:
+  - With the engine scrolling, the Pane hook is asked again with each new
+    `e.props.scroll`, but the hints drawn from it jitter: the engine moves the
+    rows first and the redraw catches up a moment later.
+  - With the mod owning scrolling, the window moves smoothly and anything
+    drawn at its edges holds still. The Client draws only the rows in view,
+    so the tree always fits and the engine clamps `e.offset` to 0. The hook
+    must keep its own offset and add `e.by`, not read `e.offset`.
+    `ui.scroll` still fires when the tree fits.
 - All the kit's engine scan rules apply (kit README, "Rules"):
   - `register` must be a top-level `export function`
   - only one matcherless `on(event)` per event
@@ -217,14 +226,27 @@ the kit's `ReopenBand` on terminal and desktop, today's band on the others.
   atom, cleared on `prompt.edit`, `prompt.submit` and `ui.focus`). Opening the
   pane when Claude adds an item still doesn't take focus from the prompt:
   human-todos keeps its own `openPane` rather than the kit's `showPane`.
-- Scroll hints: the engine scrolls the Client with the pane, so "↑/↓ N more"
-  works as today when the Pane hook sees the current `e.props.scroll`. The
-  hook passes `offset` and `bodyRows` to the Client, which draws the hints at
-  the window's first and last rows. The plan's first task checks live that
-  the hook is asked again on a wheel scroll. If it isn't, the mod owns
-  scrolling instead: a `ui.scroll` hook keeps the offset in an atom and
-  returns without `next`, and the Client draws only its window. If neither
-  works, the hints go and the "end of the list" line stays.
+- Scrolling (decided by the Task 1 check: the mod owns it):
+  - A `ui.scroll` hook on the pane keeps the offset in an atom. It adds
+    `e.by`, clamps the result to the list, and returns `{}` without `next`.
+  - If `e.contentRows > e.bodyRows`, the drawn tree overflows, which means
+    the plain drawer is showing it. The hook then calls `next(e)`, so VS Code
+    and mobile keep the engine's scrolling and today's hints.
+  - The Pane hook passes the offset and `bodyRows` to the Client. The Client
+    draws only the rows in view and clamps the offset again when the list
+    shrinks, for example after Clear finished.
+  - The brand bar stays pinned and only the body scrolls (my call).
+  - "↑ N more" and "↓ N more" sit on the window's first and last rows and
+    count items above and below, as today.
+  - Scroll bar (Matt's ask, tuned live):
+    - a one-cell track at the right edge, with one blank column on each side
+    - track background `#383838`; the thumb, also a background colour,
+      `#707070`
+    - thumb height `max(1, round(bodyRows² / total))`, placed in proportion
+      to the offset
+    - shown only when the list overflows
+  - The scroll bar is a kit widget, so other mods can reuse it (my call).
+    Its colours live in the kit theme next to the button fills.
 
 ### Band and transcript row
 
@@ -287,8 +309,6 @@ the kit's `ReopenBand` on terminal and desktop, today's band on the others.
 
 ## Left to the builder
 
-- How the Client learns its scroll offset (or doesn't), per the Task 1 live
-  check.
 - How the band words the count ("1 to-do" / "2 to-dos").
 - Exact row spacing, as long as the look matches gate-form's density.
 
