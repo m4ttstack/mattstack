@@ -91,7 +91,7 @@ describe("planBlocks", () => {
     );
   });
 
-  test("an optional account nobody connected reads off with no next callout; a required one still needs you", () => {
+  test("on Just me an optional account nobody connected reads off, with no next callout and no place in the ready count", () => {
     const connect = (integration: Integration) => ({ type: "connect" as const, label: "Connect", integration, fields: [] });
     const p = plan([
       {
@@ -105,7 +105,7 @@ describe("planBlocks", () => {
       },
     ]);
     expect(renderPlain(planBlocks(p, "status"))).toBe(
-      "Accounts (1 of 3 ready)\n" +
+      "Accounts (1 of 2 ready)\n" +
         "[ok] GitHub  Connected as octo\n" +
         "[off] GitLab  No GitLab account connected yet\n" +
         "[needs you] Slack  No Slack account connected yet\n" +
@@ -113,6 +113,38 @@ describe("planBlocks", () => {
         "\n" +
         "[ok] Install can run\n" +
         "[ok] Finish can run\n",
+    );
+  });
+
+  test("on Just me a group of only unconnected optional accounts says so instead of a fraction", () => {
+    const p = plan([
+      {
+        id: "accounts",
+        title: "Accounts",
+        rows: [
+          row({ id: "account.github", kind: "account", title: "GitHub", required: false, status: "missing", detail: "No GitHub account connected yet" }),
+          row({ id: "account.gitlab", kind: "account", title: "GitLab", required: false, status: "missing", detail: "No GitLab account connected yet" }),
+        ],
+      },
+    ]);
+    expect(renderPlain(planBlocks(p, "status"))).toStartWith(
+      "Accounts (all optional)\n[off] GitHub  No GitHub account connected yet\n[off] GitLab  No GitLab account connected yet\n",
+    );
+  });
+
+  test("on a team Mac an unconnected optional account still needs you, with its next callout and its place in the count", () => {
+    const p = plan(
+      [
+        {
+          id: "accounts",
+          title: "Accounts",
+          rows: [row({ id: "account.slack-app", kind: "account", title: "Slack app", required: false, status: "missing", detail: "The team has no Slack app yet", action: { type: "connect", label: "Connect", integration: "slack", fields: [] } })],
+        },
+      ],
+      { team: { slug: "acme", name: "Acme", mode: "join" } },
+    );
+    expect(renderPlain(planBlocks(p, "status"))).toStartWith(
+      "Accounts (0 of 1 ready)\n[needs you] Slack app  The team has no Slack app yet\n  next: rt setup slack connect\n",
     );
   });
 

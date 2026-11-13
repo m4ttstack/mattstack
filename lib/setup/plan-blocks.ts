@@ -5,7 +5,7 @@
  */
 import * as out from "../ui/out.ts";
 import type { Block, RenderStatus } from "../ui/protocol.ts";
-import type { Plan, Row, RowStatus } from "./contract.ts";
+import { isSolo, type OrgRef, type Plan, type Row, type RowStatus } from "./contract.ts";
 
 const ROW_STATUS: Record<Exclude<RowStatus, "missing">, RenderStatus> = {
   ready: "done",
@@ -27,9 +27,9 @@ function isOptionalAccount(r: Row): boolean {
   return r.kind === "account" && !r.required && !r.finishGated;
 }
 
-/** The checklist's status: an optional account nobody connected is off, not waiting on the person. */
-function checklistStatus(r: Row): RenderStatus {
-  return r.status === "missing" && isOptionalAccount(r) ? "off" : rowStatus(r);
+/** What `rt setup status` and `rt verify` draw: on Just me an optional account nobody connected is off; a team Mac keeps needs-you. */
+export function checklistStatus(r: Row, team: Pick<OrgRef, "slug" | "mode">): RenderStatus {
+  return r.status === "missing" && isOptionalAccount(r) && isSolo(team) ? "off" : rowStatus(r);
 }
 
 /** The connect verb for a missing account row; only connect and oauth actions have one. */
@@ -44,8 +44,7 @@ export function rowTitles(plan: Plan, ids: readonly string[]): string[] {
   return ids.map((id) => byId.get(id) ?? id);
 }
 
-function rowBlocks(r: Row, mode: "plan" | "status"): Block[] {
-  const status = checklistStatus(r);
+function rowBlocks(r: Row, status: RenderStatus, mode: "plan" | "status"): Block[] {
   const blocks: Block[] = [out.line(status, r.title, r.detail)];
   if (r.action?.type === "choose" && r.action.footnote) blocks.push(out.callout("note", r.action.footnote));
   const verb = mode === "status" && status !== "off" ? accountConnectVerb(r) : null;
@@ -53,12 +52,19 @@ function rowBlocks(r: Row, mode: "plan" | "status"): Block[] {
   return blocks;
 }
 
+/** An off row is left out of the count, so a group of nothing but off rows names that instead of a fraction. */
+function readyCount(drawn: readonly { r: Row; status: RenderStatus }[]): string {
+  const counted = drawn.filter((d) => d.status !== "off");
+  if (counted.length === 0) return "all optional";
+  return `${counted.filter((d) => d.r.status === "ready").length} of ${counted.length} ready`;
+}
+
 export function planBlocks(plan: Plan, mode: "plan" | "status"): Block[] {
   const sections = plan.groups
     .filter((g) => g.rows.length > 0)
     .map((g) => {
-      const ready = g.rows.filter((r) => r.status === "ready").length;
-      return out.section(g.title, `${ready} of ${g.rows.length} ready`, ...g.rows.flatMap((r) => rowBlocks(r, mode)));
+      const drawn = g.rows.map((r) => ({ r, status: checklistStatus(r, plan.team) }));
+      return out.section(g.title, readyCount(drawn), ...drawn.flatMap(({ r, status }) => rowBlocks(r, status, mode)));
     });
   const install = plan.canInstall ? out.summary("done", "Install can run") : out.summary("needs-you", "Install is waiting on", rowTitles(plan, plan.requiredMissing));
   const finish =

@@ -62,7 +62,7 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
 
   test("setup status on Just me: an unconnected optional forge reads off, with no needs-you line and no next callout", async () => {
     const res = await run(["setup", "status"]);
-    expect(res.stdout).toContain("[off] GitHub");
+    expect(res.stdout).toContain("Accounts (all optional)\n[off] GitHub");
     expect(res.stdout).toContain("[off] GitLab");
     expect(res.stdout).not.toMatch(/\[needs you\] Git(Hub|Lab)/);
     expect(res.stdout).not.toMatch(/next: rt setup git(hub|lab) connect/);
