@@ -387,8 +387,10 @@ import type {
 A GitHub pull request has no single pipeline, so `Pipeline.id` is
 `github:run:<n>` for the lowest Actions run id among the checks on the head
 commit (`github:checks:<pr url>` when no check belongs to a run). It stays the
-same while that commit's runs fail one after another, and changes on a new
-push.
+same while that commit's runs fail one after another, and a `github:run:` id
+changes on a new push. The `github:checks:` fallback carries no commit, so it
+stays the same across pushes whose checks belong to no run; compare
+`Pipeline.sha` to tell those commits apart.
 
 It can move for the same head commit: a run's checks appear only when its
 jobs start, so a run created earlier than the ones already visible, with a

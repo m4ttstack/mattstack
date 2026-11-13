@@ -87,7 +87,7 @@ export interface PipelineJob {
 }
 
 export interface Pipeline {
-  /** Scoped provider ID, e.g. "gitlab:pipeline:12345". On GitHub, `github:run:<n>` where n is the lowest workflow run id on the head commit, whatever each run's status, so it stays the same for that commit and changes on a new push. It can also move to a lower run's id when that run's checks appear late. */
+  /** Scoped provider ID, e.g. "gitlab:pipeline:12345". On GitHub, `github:run:<n>` where n is the lowest workflow run id on the head commit, whatever each run's status, so it stays the same for that commit and changes on a new push; `github:checks:<pr url>` when no check belongs to a run, which does not change on a new push. It can also move to a lower run's id when that run's checks appear late. */
   id: string;
   /** Normalized status. */
   status: string;
