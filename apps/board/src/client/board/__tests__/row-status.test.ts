@@ -1717,7 +1717,7 @@ describe('rowStatus: social lanes', () => {
       ).toEqual(base);
   });
 
-  test('a live peer review is a working line with the view verb', () => {
+  test('a live peer review is a quiet cloud line with the view verb', () => {
     const [line] = candidateLines(
       own({
         peerReviews: [
@@ -1735,11 +1735,41 @@ describe('rowStatus: social lanes', () => {
       ME
     );
     expect(line).toMatchObject({
-      tone: 'work',
-      word: 'mira is reviewing…',
-      spin: true,
+      tone: 'quiet',
+      word: 'mira is reviewing',
+      spin: 'cloud',
+      rankAs: 'work',
     });
     expect(line!.verbs[0]).toEqual({ kind: 'view-peer', label: 'view ↗' });
+  });
+
+  test("a live peer review on my MR outranks another peer's finished one", () => {
+    const s = rowStatus(
+      own({
+        peerReviews: [
+          {
+            mrUrl: 'u',
+            iid: 1,
+            reviewer: 'nia',
+            status: 'done',
+            outcome: 'comment',
+            updatedAt: NOW,
+          },
+          {
+            mrUrl: 'u',
+            iid: 1,
+            reviewer: 'mira',
+            status: 'reviewing',
+            updatedAt: NOW,
+          },
+        ],
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(s.line).toMatchObject({ word: 'mira is reviewing', spin: 'cloud' });
+    expect(s.more.map(l => l.word)).toContain('nia commented');
   });
 
   test('a peer review my own ask started is left to the ask band', () => {
