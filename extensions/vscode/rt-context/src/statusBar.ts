@@ -6,11 +6,13 @@ import { fetchTicket, type LinearTicket } from './linear';
 import { fetchMRInfo } from './gitlab';
 import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache } from './cache';
-import { fetchBranchFromDaemon } from './daemonClient';
+import { daemonQuery } from './daemonClient';
+import { readDaemonCacheEntry } from './daemonCache';
+import { createUpdateGate, settleStaleFetch } from './staleFetch';
 import { getSecret } from './secrets';
 import type { CachedBranchData, GitExtensionExports } from './types';
 import { getGitApi, findWorkspaceRepo, getRepoRootName, getGitDir, readBranchFromHead } from './git';
-import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityToStore, type Forge } from './forge';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote, repoIdentityToStore, type Forge } from './forge';
 import { resolveRepoForge, type RepoForge } from './repoForge';
 
 // ── Module state ──
@@ -23,7 +25,7 @@ let currentMrUrl: string | null = null;
 let currentWorktreePath: string | null = null;
 let currentForge: Forge | null = null;
 let publishedForgeContext: string | undefined;
-let updateSeq = 0;
+const updates = createUpdateGate();
 let updateTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Cached values that are stable for the lifetime of a workspace session.
@@ -128,7 +130,7 @@ export function waitForGitAndStart(context: vscode.ExtensionContext) {
 
 export function scheduleUpdate(context: vscode.ExtensionContext, delayMs = 300) {
   if (updateTimer) clearTimeout(updateTimer);
-  updateTimer = setTimeout(() => updateStatusBar(context), delayMs);
+  updateTimer = setTimeout(() => updates.run((updateId) => updateStatusBar(context, updateId)), delayMs);
 }
 
 export function clearUpdateTimer() {
@@ -137,8 +139,7 @@ export function clearUpdateTimer() {
 
 // ── Status bar rendering ──
 
-async function updateStatusBar(context: vscode.ExtensionContext) {
-  const updateId = ++updateSeq;
+async function updateStatusBar(context: vscode.ExtensionContext, updateId: number) {
   // Use cached worktree name — it's stable for the lifetime of the workspace session.
   // getRepoRootName() spawns a git subprocess on every call; avoid it after first run.
   if (!cachedWorktreeName) {
@@ -203,7 +204,7 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
       if (!fresh) return;
       branchCache.set(branch, fresh);
       const changed = fresh.mrUrl !== cached.mrUrl || fresh.linearId !== cached.linearId;
-      if (repoForge.forge === 'github' && changed && updateId === updateSeq) {
+      if (repoForge.forge === 'github' && changed && updates.isLatest(updateId)) {
         renderFinalState(worktreeName, branch, fresh, linearIdFromBranch);
       }
     }).catch(() => {});
@@ -239,24 +240,14 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
   showStatusBarItems();
 
   // ── Fetch and render ──
-  let fresh: CachedBranchData | null = null;
-  try {
-    const FETCH_TIMEOUT_MS = 15_000;
-    fresh = await Promise.race([
-      fetchBranchData(context, branch, repoForge),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), FETCH_TIMEOUT_MS)),
-    ]);
-
-    if (fresh) {
-      branchCache.set(branch, fresh);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    vscode.window.showErrorMessage(`RT Context: Failed to refresh — ${msg}`);
-  } finally {
-    const effectiveData = fresh ?? cached ?? null;
-    renderFinalState(worktreeName, branch, effectiveData, linearIdFromBranch);
-  }
+  await settleStaleFetch({
+    fetch: () => fetchBranchData(context, branch, repoForge),
+    timeoutMs: 15_000,
+    store: (fresh) => branchCache.set(branch, fresh),
+    render: (data) => updates.paint(updateId, () => renderFinalState(worktreeName, branch, data, linearIdFromBranch)),
+    fallback: cached ?? null,
+    onError: (msg) => { vscode.window.showErrorMessage(`RT Context: Failed to refresh — ${msg}`); },
+  });
 }
 
 /** Render the status bar in its final, clickable state from the given data. */
@@ -304,12 +295,9 @@ export async function fetchBranchData(
 ): Promise<CachedBranchData | null> {
   // ── Daemon-first path (HTTP REST API) ──
   try {
-    const response = await fetchBranchFromDaemon(branch);
-    if (response?.ok && response.data) {
-      const entries = response.data;
-      const entry = entries[branch] ?? Object.values(entries)[0];
-      if (entry) return branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, undefined, branchCache.get(branch));
-    }
+    const repoIdentity = repoForge.remoteUrl ? repoIdentityOfRemote(repoForge.remoteUrl) : null;
+    const entry = await readDaemonCacheEntry(daemonQuery, branch, repoIdentity);
+    if (entry) return branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, undefined, branchCache.get(branch));
   } catch {
     // Daemon not available — fall through to direct fetch
   }
