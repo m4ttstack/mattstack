@@ -144,15 +144,18 @@ is atoms, Client state is `surface.setState`.
 shell, and the rest. A mod author never builds span or line arrays by hand.
 
 ```tsx
-export default kitClient<State>((props, ui) => (
-  <Panel width={ui.width}>
-    <BrandBar title="mattstack my mod" onHide={ui.hide} />
-    <SelectList choices={choices} cursor={ui.state.cursor} onPick={pick} />
-    <ButtonRow>
-      <Button tone="brand" onPress={save}>Save</Button>
-    </ButtonRow>
-  </Panel>
-))
+export default kitClient<Props, State>(
+  (props, ui) => (
+    <Panel width={ui.width}>
+      <BrandBar title="mattstack my mod" onHide={ui.hide} />
+      <SelectList choices={choices} cursor={ui.state.cursor} onPick={pick} />
+      <ButtonRow>
+        <Button tone="brand" onPress={save}>Save</Button>
+      </ButtonRow>
+    </Panel>
+  ),
+  { initial: props => ({ cursor: 0 }) },
+)
 ```
 
 Underneath, the components keep the spike's line model, which is what gives the
@@ -182,9 +185,45 @@ as lines), the child returns a marker node that `Panel` recognises. No kit
 factory is needed, and a mod's source still writes no pragma and declares nothing
 named `h`.
 
-Not probed: whether the engine accepts a marker node's shape (an unknown prop or
-tag on a known element). Task 6 settles that against the real elements before
-relying on it.
+**Markers, probed 2026-11-12 on 2.1.322 (Task 6), in a Client module.** A
+component's `<Box key="kit:3" />` reaches its parent as the same object (a
+`WeakSet` check holds), with `type: 'Box'` and `props.key` readable; a child
+array is flattened into the parent's `children`; a plain object a component
+returns comes back unchanged. So the kit takes the marker path:
+
+- Each kit component (`kitComponent(tag, toLines)`) returns a `Box` keyed
+  `kit:<n>` and leaves its props in a per-render table. `<Panel>` finds its kit
+  children by that key and calls each one's `toLines(props, ctx)`, with `ctx`
+  carrying the Panel's width and focus. It then draws the lines with
+  `renderLines`. The markers are dropped and are never drawn.
+- Handlers are closures on the components (`onPress`, `onPick`, `onHide`,
+  `onSelect`, `onScroll`). `ctx.bind` turns each one into a string action key
+  (`kit:<n>:<name>`), which stays stable while the tree keeps its shape. The
+  pointer acts on that key.
+- `kitClient(body, { initial, focused, isActive, engaged })` sets up the render,
+  seeds `surface.state` on the first frame and attaches the pointer on that same
+  frame. It reads its own copy of the state because the engine shows the seeded
+  state only from the next frame. `ui.state` is a getter for the current state,
+  pointer writes included, so a handler that runs after a release reads it
+  unpressed. `ui` is `{ width, focused, state, setState, post, hide, onKey }`.
+  The plan's `act(a)` and action type `A` were dropped: with closure handlers,
+  nothing dispatches mod actions.
+- Kit components draw only inside a `kitClient` body (they need its
+  `surface.elements` and table); one `Panel` per Client, since the pointer hits
+  its lines. `<Lines lines onAction>` draws lines a mod already builds (how
+  gate-form's line-based `view.ts` is drawn); `<Row>` and `<Span>` set pieces
+  side by side on one line (the reopen band).
+
+If a later engine copied or refused marker nodes, `Panel` would find no kit
+children. The fallback is a kit factory: the build sets `jsxFactory` to a
+kit-exported `kitH` (and `kitFragment`), which keeps kit components unexpanded
+for `Panel` and passes every other tag to the engine's `h`. Mod source would
+still write no pragma and declare nothing named `h`.
+
+Bun tests use JSX under a stand-in `h` that mirrors the engine's eager calls
+(`packages/mod-kit/test/jsx-preload.ts`). `mods:test` passes
+`--tsconfig-override=./packages/mod-kit/tsconfig.json`, because bun's runtime
+reads JSX settings from the cwd's tsconfig and the root one has none.
 
 ## The kit (my calls)
 
@@ -202,6 +241,7 @@ hand in gate-form:
 | Hideable pane: `showPane($, pane, title)`, `paneMessage($, e, pane, waiting)` (handles `{ type: 'hide' }` and `{ type: 'reopen', formId }`), `isPlaced($, pane)`, `bandAbovePrompt($, e, rest, waiting, pane)` (a Client with the brand Open button, falling back to the engine `Button` on surfaces without Client), `registerPaneRedraw(on)` (`ui.close` redraw), and `bandClient` in `patterns/band-client.tsx` | `register.tsx`, `band.tsx` | The engine's own `×` cannot be hidden; it behaves like Hide. A Client's `module` must be a string literal, so `bandAbovePrompt` writes `module="./band.tsx"` itself; a mod using the pattern has a `band.tsx` (`export { bandClient as default } from '@mattstack/mod-kit'`) listed in its `mod.json` clients. The mod reads its own state into a plain `Waiting` (`{ formId, title }`) and passes it in; it owns its atoms and its single `ui.message` hook, which calls `isEngaged`, `paneMessage` and its own handlers. |
 | Transcript summary: `registerTranscriptSummary(on, { plugin, label, summary })`, a `UserMessage` hook that rewrites a plugin's message text to one line, leaving the stored message whole | `register.tsx` | Rewrite the text and pass to `next`; returning a custom tree was not drawn. Unverified on screen; see open risks. |
 | Page shell: `padToHeight` and `fitToRows(drawn, rows, withoutContext, pad?)` (pad pages to the tallest page so buttons keep their row, drop context first on overflow), `navRow({ back, next?, aside? }, width)` (the Back / Next / Review / Submit row with a side button such as the press-again confirm), `reviewList(items, width)` (entries clickable when they carry an action) | `form/view.ts` | Generic enough for any paged surface. The mod builds the buttons and items; the kit lays them out. |
+| Components (`src/components/`): `kitClient`, `<Panel width?>`, `<BrandBar title onHide?>`, `<SelectList choices cursor multi? cursorIsChoice? isPicked? writeIn? onPick? maxShown?>`, `<InputField value placeholder? width? cursor?>`, `<TabStrip tabs current from? onSelect? onScroll?>`, `<ButtonRow right?>` with `<Button tone? disabled? onPress?>` children, `<Rail color? dim? bold?>`, `<PageShell rows head? context? foot? padTo?>`, `<Lines lines onAction?>`, `<Row>` and `<Span>`; `kitComponent` and `drawKit` for new components and bun tests | new | Each component's `toLines` calls the widget's line builder. gate-form's `form.tsx` and `bandClient` are drawn with them. |
 
 Form-specific logic (gate questions, `gate_answer` shapes, Next semantics where
 a single choice's cursor counts only when recommended, moved or answered) stays
