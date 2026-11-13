@@ -54,6 +54,21 @@ writes only its own content and every mod looks and behaves the same.
     the bundler turns top-level `const` into `var`, which the validator reports
     as `?` (it still works at run time).
   - `import()` anywhere stops the module loading.
+  - Found building the patterns (Task 5), each an error that stops the module
+    loading:
+    - A helper that receives `on` cannot return a value: `const x = helper(on)`
+      is refused ("the value of helper(on) is kept"). A registrar returns void.
+    - Two `on('<event>')` registrations without a matcher in one module are
+      refused, and nothing can tell apart the hooks that would share `ui.message`
+      (a Client post's `data` is not matchable). The mod owns the one hook and
+      calls kit functions from it.
+    - `$` may be passed only to a function declared at the top of the file, never
+      to a function value reached through a property or parameter, so the kit
+      takes no `$`-taking callbacks from a mod. The mod reads its own state and
+      passes plain data in.
+    - `read`, `update` and `$.state.*` need a reference with literal plugin and
+      key, or an `atom(...)` const in the same file, so kit code never touches
+      state and kit helpers never take atoms.
 - `claude plugin test` fails on a mod with no `*.test.ts(x)`.
 - `scripts/__tests__/no-plugin-ci-jobs.test.ts` requires a `plugin-<name>` CI job
   for every folder under `plugins/`.
@@ -100,9 +115,10 @@ packages/mod-kit/            @mattstack/mod-kit (private workspace package)
   src/widgets/               brandBar, selectList, inputField, textCursor, tabStrip,
                              buttons (tones + disabled), scroll chips
   src/interact/              Client pointer controller (hover, press-on-release,
-                             drag-off cancel, click-to-focus), focus stand-in
-  src/patterns/              hideable pane + reopen band, transcript summary line,
-                             page shell (fixed height, nav row, review page)
+                             drag-off cancel, click-to-focus), focus-post check
+  src/patterns/              hideable pane helpers + reopen band Client, transcript
+                             summary line, page shell (fixed height, nav row,
+                             review list)
   README.md
 mods/<name>/                 a mod's source package
   src/register.tsx           hooks module entry
@@ -143,7 +159,7 @@ Underneath, the components keep the spike's line model, which is what gives the
 exact clack layout, hover keys per row, and press-on-release hit testing: a root
 component (`<Panel>` above) lays its children out as lines, then draws them with
 the kit renderer and wires the pointer controller. The hook-side patterns
-(`registerHideablePane(on, ...)`, the transcript summary) stay functions; they
+(`showPane`, `paneMessage`, `registerTranscriptSummary`) stay functions; they
 draw nothing of their own.
 
 **`h` runs function components at once (eager), probed 2026-11-12 on mod API
@@ -181,20 +197,23 @@ hand in gate-form:
 | Text model: spans and lines carrying click actions, wrap, hanging indent, hit testing, hover keys that include the row | `kit/text.ts` | |
 | Render: lines to `Text`, hover/pressed/unfocused styling | `kit/render.tsx` | |
 | Widgets: `brandBar` (optional Hide), `selectList` (single, multi, 2-row options, write-in "Something else" with a filled input, windowing), `inputField`, `textCursor`, `tabStrip` (sticky window, one-tab scroll chips at fixed width), `buttonRow` / `buttonSpan` (five tones plus disabled) | `kit/widgets.ts` | |
-| Pointer controller for a Client: hover, press on down and act on release over the same control, drag-off cancel, first click on a dimmed surface only focuses, posts an "engaged" message | `form.tsx`, `band.tsx` | Today duplicated; becomes one helper. |
-| Focus stand-in: a per-mod atom set by the Client's "engaged" post, cleared by `prompt.edit`, `prompt.submit` and `ui.focus`; combined with the pane's `isFocused` | `register.tsx` | Claude Code has no Client focus signal. A `$.state` ref must be spelled with literals in the module that uses it, so the mod declares the atom (`atom({ plugin: '<name>', key: 'focus' } as const, false)`) and hands it to the kit; the kit never builds a ref. |
-| Hideable pane: open/show, a Hide control in the brand bar, a reopen band above the prompt (a Client with the brand Open button, falling back to the engine `Button` on surfaces without Client), `ui.close` redraw | `register.tsx`, `band.tsx` | The engine's own `×` cannot be hidden; it behaves like Hide. A Client's `module` must be a string literal, so the kit writes `module="./band.tsx"` itself; a mod using the pattern has a `band.tsx` (re-exporting the kit's band body) listed in its `mod.json` clients. Any state the pattern keeps is an atom the mod declares and passes in. |
-| Transcript summary: a `UserMessage` hook that rewrites a plugin's message text to one line, leaving the stored message whole | `register.tsx` | Rewrite the text and pass to `next`; returning a custom tree was not drawn. Unverified on screen; see open risks. |
-| Page shell: pad pages to the tallest page so buttons keep their row, drop context first on overflow, the Back (disabled on page 1) / Next / Review / Submit row, the press-again confirm button, a review list whose entries are clickable | `form/view.ts` | Generic enough for any paged surface. |
+| Pointer controller for a Client: `attachPointer(surface, lines, { focused, onAction, onEngage?, isActive? })` returns the `look` for `renderLines`: hover, press on down and act on release over the same control, drag-off cancel, first click on a dimmed surface only engages | `form.tsx`, `band.tsx` | The module seeds `surface.state` first; until it exists no listener is set, so a press cannot overwrite the module's own state. |
+| Focus stand-in: a per-mod atom set by the Client's "engaged" post, cleared by `prompt.edit`, `prompt.submit` and `ui.focus`; combined with the pane's `isFocused` | `register.tsx` | Claude Code has no Client focus signal. The kit ships only `isEngaged(e)`; the mod declares the atom (`atom({ plugin: '<name>', key: 'keysInForm' } as const, false)`) and owns the set, the three clearing hooks and the read, because kit code cannot touch state. |
+| Hideable pane: `showPane($, pane, title)`, `paneMessage($, e, pane, waiting)` (handles `{ type: 'hide' }` and `{ type: 'reopen', formId }`), `isPlaced($, pane)`, `bandAbovePrompt($, e, rest, waiting, pane)` (a Client with the brand Open button, falling back to the engine `Button` on surfaces without Client), `registerPaneRedraw(on)` (`ui.close` redraw), and `bandClient` in `patterns/band-client.tsx` | `register.tsx`, `band.tsx` | The engine's own `×` cannot be hidden; it behaves like Hide. A Client's `module` must be a string literal, so `bandAbovePrompt` writes `module="./band.tsx"` itself; a mod using the pattern has a `band.tsx` (`export { bandClient as default } from '@mattstack/mod-kit'`) listed in its `mod.json` clients. The mod reads its own state into a plain `Waiting` (`{ formId, title }`) and passes it in; it owns its atoms and its single `ui.message` hook, which calls `isEngaged`, `paneMessage` and its own handlers. |
+| Transcript summary: `registerTranscriptSummary(on, { plugin, label, summary })`, a `UserMessage` hook that rewrites a plugin's message text to one line, leaving the stored message whole | `register.tsx` | Rewrite the text and pass to `next`; returning a custom tree was not drawn. Unverified on screen; see open risks. |
+| Page shell: `padToHeight` and `fitToRows(drawn, rows, withoutContext, pad?)` (pad pages to the tallest page so buttons keep their row, drop context first on overflow), `navRow({ back, next?, aside? }, width)` (the Back / Next / Review / Submit row with a side button such as the press-again confirm), `reviewList(items, width)` (entries clickable when they carry an action) | `form/view.ts` | Generic enough for any paged surface. The mod builds the buttons and items; the kit lays them out. |
 
 Form-specific logic (gate questions, `gate_answer` shapes, Next semantics where
 a single choice's cursor counts only when recommended, moved or answered) stays
 in `mods/gate-form/`.
 
-How a mod registers a kit pattern is left to the builder, with one rule: hook
-helpers take `on` (for example `registerHideablePane(on, { ... })`) or are
-called inside the mod's own hooks; they are inlined at build, so the `$` rule
-holds.
+A mod uses the hook-side kit in two ways, both forced by the scan rules above:
+`register*(on, plain data)` functions that return void and register an event no
+other hook of the mod uses (`registerPaneRedraw`, `registerTranscriptSummary`),
+and top-level `async function name($, ...plain data)` helpers the mod's own hooks
+call (`showPane`, `paneMessage`, `bandAbovePrompt`, `isPlaced`). They are inlined
+at build, so the `$` rule holds. Kit code takes no atoms, no `$`-taking callbacks
+and keeps no state.
 
 ## The build (my calls)
 
@@ -222,8 +241,8 @@ CI:
 - Test layout (my call): bun tests are `*.test.ts(x)` under a package's or mod's `src/`; tests that need the Claude Code harness (`claude-code/testing`) live in `mods/<name>/harness/`, are copied into the built `hooks/`, and run only through `claude plugin test`. Bun tests that use JSX get a stand-in `h`/`Fragment` from a test preload, since the engine's are not there.
 - Tests (my call): the pure kit pieces (text, theme, widgets, page-shell layout)
   get plain bun unit tests in `packages/mod-kit`, run in CI. The pieces that
-  need `claude-code` or the `claude-code/testing` harness (pointer controller,
-  focus stand-in, hideable pane, transcript summary, render) are tested through
+  need `claude-code` or the `claude-code/testing` harness (hideable pane,
+  transcript summary, focus stand-in, render) are tested through
   `claude plugin test` in gate-form's harness tests, the first mod that uses
   them; the `kit-gallery` mod adds harness tests of the pointer's press-release
   cycle.
