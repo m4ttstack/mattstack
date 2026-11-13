@@ -20,6 +20,7 @@ import {
   type ResourceOptions,
 } from '@gitbeaker/requester-utils';
 import { throwIfGitLabRateLimited, withGitLabRateLimit } from './gitlabRateLimit.ts';
+import { fetchSameOrigin } from './sameOriginFetch.ts';
 
 const MAX_502_ATTEMPTS = 10;
 
@@ -81,11 +82,10 @@ export async function glanceRequestHandler(endpoint: string, options: Record<str
   const send = async (): Promise<FormattedResponse> => {
     let lastStatus: number | undefined;
     for (let i = 0; i < MAX_502_ATTEMPTS; i += 1) {
-      const request = new Request(url, { ...opts, method, mode });
-      const fetchArgs: [Request, ...unknown[]] = [request];
-      if (agent) fetchArgs.push({ dispatcher: agent });
+      const init = { ...opts, method, mode, ...(agent ? { dispatcher: agent } : {}) } as RequestInit;
+      const request = new Request(url, init);
       await rateLimit();
-      const response = await (fetch as (...args: unknown[]) => Promise<Response>)(...fetchArgs).catch((e: Error) => {
+      const response = await fetchSameOrigin(url, init).catch((e: Error) => {
         if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new GitbeakerTimeoutError('Query timeout was reached');
         throw e;
       });
