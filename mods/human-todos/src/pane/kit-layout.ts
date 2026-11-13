@@ -148,7 +148,8 @@ export function revealOffset(layout: KitLayout, stops: KeyStop[], index: number,
   if (!range) return top
   const { first, last } = range
   if (first < top) return Math.max(0, first)
-  if (last > top + layout.windowRows - 1) return Math.min(most, Math.max(first, last - layout.windowRows + 1))
+  // An item taller than the window shows its top.
+  if (last > top + layout.windowRows - 1) return Math.min(most, Math.min(first, last - layout.windowRows + 1))
   return top
 }
 

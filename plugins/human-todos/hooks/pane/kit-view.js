@@ -965,7 +965,7 @@ function revealOffset(layout, stops, index, offset) {
   if (first < top)
     return Math.max(0, first);
   if (last > top + layout.windowRows - 1)
-    return Math.min(most, Math.max(first, last - layout.windowRows + 1));
+    return Math.min(most, Math.min(first, last - layout.windowRows + 1));
   return top;
 }
 function markFirst(line) {

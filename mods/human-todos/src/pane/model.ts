@@ -157,11 +157,6 @@ export function endRows(model: PaneModel): PaneRow[] {
   return model.hasFinished ? [{ kind: 'blank' }, end] : [end]
 }
 
-// The items a window from row `top` to row `bottom` leaves out, counted for the "↑ N more" and "↓ N more" hints.
-export function outOfView(spans: { first: number; last: number }[], top: number, bottom: number): { above: number; below: number } {
-  return { above: spans.filter(s => s.first < top).length, below: spans.filter(s => s.last > bottom).length }
-}
-
 export function bandModel(list: Todo[]): { waiting: number; title: string } | undefined {
   const waiting = list.filter(t => t.status === 'open' || t.status === 'confirming').length
   if (waiting === 0) return undefined

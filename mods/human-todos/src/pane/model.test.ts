@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { Todo } from '../../types'
-import { bandModel, endRows, messageOf, outOfView, paneModel } from './model'
+import { bandModel, endRows, messageOf, paneModel } from './model'
 import type { PaneRow, Tone } from './model'
 
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'task', title: 'Do it', status: 'open', ...over })
@@ -19,16 +19,16 @@ test('an open run item clips the script to two rows, then offers Show all, the c
     text('To staging', 'dim', true),
     text('$ one', 'script', true),
     text('two', 'script', true),
-    { kind: 'buttons', lead: { text: '… +3 more', tone: 'dim' }, buttons: [{ id: 'more', label: 'Show all', tone: 'neutral', todoId: '1' }] },
+    { kind: 'buttons', lead: { text: '… +3 more', tone: 'dim' }, buttons: [{ id: 'more', label: 'Show all', tone: 'quiet', todoId: '1' }] },
     text('in /tmp', 'dim', true),
     BLANK,
     {
       kind: 'buttons',
       buttons: [
         { id: 'run', label: 'Run', tone: 'primary', todoId: '1' },
-        { id: 'copy', label: 'Copy', tone: 'neutral', todoId: '1' },
-        { id: 'done', label: 'Done', tone: 'secondary', todoId: '1' },
-        { id: 'skip', label: 'Skip', tone: 'secondary', todoId: '1' },
+        { id: 'copy', label: 'Copy', tone: 'quiet', todoId: '1' },
+        { id: 'done', label: 'Done', tone: 'quiet', todoId: '1' },
+        { id: 'skip', label: 'Skip', tone: 'quiet', todoId: '1' },
       ],
     },
     BLANK,
@@ -40,25 +40,41 @@ test('an expanded item shows every script row and Show less', () => {
 
   expect(rows.filter(r => r.kind === 'text' && r.tone === 'script')).toHaveLength(5)
   const more = rows.find(r => r.kind === 'buttons' && r.buttons[0]?.id === 'more')
-  expect(more).toEqual({ kind: 'buttons', buttons: [{ id: 'more', label: 'Show less', tone: 'neutral', todoId: '1' }] })
+  expect(more).toEqual({ kind: 'buttons', buttons: [{ id: 'more', label: 'Show less', tone: 'quiet', todoId: '1' }] })
 })
 
-test('a confirming item shows the whole script and the confirm prompt, with no more button', () => {
+test('a confirming item shows the whole script, then its buttons, then the confirm prompt under them', () => {
   const { rows } = build([todo({ kind: 'run', script: script5, status: 'confirming' })], [], 60)
 
   expect(rows.filter(r => r.kind === 'text' && r.tone === 'script')).toHaveLength(5)
   expect(rows.some(r => r.kind === 'buttons' && r.buttons.some(b => b.id === 'more'))).toBe(false)
-  expect(rows).toContainEqual(text('Are you sure you want to run this script?', 'plain', true))
-  expect(rows.at(-2)).toEqual({
-    kind: 'buttons',
-    buttons: [
-      { id: 'confirm', label: 'Confirm', tone: 'primary', todoId: '1' },
-      { id: 'cancel', label: 'Cancel', tone: 'neutral', todoId: '1' },
-    ],
-  })
+  expect(rows.slice(-3)).toEqual([
+    {
+      kind: 'buttons',
+      buttons: [
+        { id: 'confirm', label: 'Confirm', tone: 'primary', todoId: '1' },
+        { id: 'cancel', label: 'Cancel', tone: 'quiet', todoId: '1' },
+      ],
+    },
+    text('Are you sure you want to run this script?', 'plain', true),
+    BLANK,
+  ])
 })
 
-test('a note shows under the detail, link and image rows are cyan, and a long title wraps at word breaks', () => {
+test("an item's first button is its only filled one: the main action, or Stop while it runs", () => {
+  const tones = (over: Partial<Todo>) => {
+    const row = build([todo(over)]).rows.filter(r => r.kind === 'buttons').at(-1) as { buttons: { id: string; tone: string }[] }
+    return row.buttons.map(b => `${b.id}:${b.tone}`)
+  }
+  expect(tones({ kind: 'task' })).toEqual(['done:secondary', 'skip:quiet'])
+  expect(tones({ kind: 'terminal', script: 'sudo ls' })).toEqual(['copy:neutral', 'done:quiet', 'skip:quiet'])
+  expect(tones({ kind: 'link', url: 'https://example.com' })).toEqual(['open:primary', 'done:quiet', 'skip:quiet'])
+  expect(tones({ kind: 'image', paths: ['/a.png'] })).toEqual(['open:primary', 'done:quiet', 'skip:quiet'])
+  expect(tones({ kind: 'run', script: 'ls', status: 'running', runner: 'local' })).toEqual(['openLog:quiet', 'stop:caution'])
+  expect(tones({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', isStopping: true })).toEqual(['show:quiet', 'forceStop:caution'])
+})
+
+test("a note shows under the detail, link and image rows are cyan, and a long title wraps at word breaks with its later rows hung under the first row's text", () => {
   const { rows } = build([
     todo({ id: '1', title: 'Store the token for the replay workspace before the pilot runs', detail: 'D', note: 'Stopped' }),
     todo({ id: '2', kind: 'link', url: 'https://example.com' }),
@@ -67,7 +83,7 @@ test('a note shows under the detail, link and image rows are cyan, and a long ti
 
   expect(rows.slice(0, 4)).toEqual([
     text('○ Store the token for the replay', 'title'),
-    text('workspace before the pilot runs', 'title'),
+    text('workspace before the pilot runs', 'title', true),
     text('D', 'dim', true),
     text('Stopped', 'warning', true),
   ])
@@ -88,17 +104,17 @@ test('a running item starts with the spin frame, caps its tail by runner, and le
     kind: 'buttons',
     lead: { text: '⠋ Running', tone: 'warning', spin: true, pad: true },
     buttons: [
-      { id: 'show', label: 'Show', tone: 'primary', todoId: '1' },
+      { id: 'show', label: 'Show', tone: 'quiet', todoId: '1' },
       { id: 'stop', label: 'Stop', tone: 'caution', todoId: '1' },
     ],
   })
-  expect(local.at(-2)).toMatchObject({ buttons: [{ id: 'openLog', tone: 'neutral' }, { id: 'stop' }] })
+  expect(local.at(-2)).toMatchObject({ buttons: [{ id: 'openLog', tone: 'quiet' }, { id: 'stop', tone: 'caution' }] })
 })
 
 test('only the first row of a wrapped running title carries spin', () => {
   const { rows } = build([todo({ title: 'Store the token for the replay workspace before the pilot runs', status: 'running', runner: 'herdr' })])
 
-  expect(rows.slice(0, 2)).toEqual([spinning('⠋ Store the token for the replay'), text('workspace before the pilot runs', 'title')])
+  expect(rows.slice(0, 2)).toEqual([spinning('⠋ Store the token for the replay'), text('workspace before the pilot runs', 'title', true)])
 })
 
 test('a running item with no tail has no tail padding, and a stopping one reads Stopping with Force stop', () => {
@@ -110,7 +126,7 @@ test('a running item with no tail has no tail padding, and a stopping one reads 
       kind: 'buttons',
       lead: { text: '⠋ Stopping…', tone: 'error', spin: true, pad: true },
       buttons: [
-        { id: 'show', label: 'Show', tone: 'primary', todoId: '1' },
+        { id: 'show', label: 'Show', tone: 'quiet', todoId: '1' },
         { id: 'forceStop', label: 'Force stop', tone: 'caution', todoId: '1' },
       ],
     },
@@ -135,7 +151,7 @@ test('finished items show only the last 8, with marks and exit codes, then a Cle
   expect(marks.at(-2)).toEqual({ kind: 'finished', mark: '✗', tone: 'error', title: 'Zero' })
   expect(marks.at(-1)).toEqual({ kind: 'finished', mark: '–', tone: 'inactive', title: 'Passed over' })
   expect(marks[0]).toEqual({ kind: 'finished', mark: '✓', tone: 'success', title: 'F5' })
-  expect(rows.slice(-2)).toEqual([BLANK, { kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] }])
+  expect(rows.slice(-2)).toEqual([BLANK, { kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'quiet' }] }])
 })
 
 test('with nothing to do, the notice, a blank, the finished rows, a blank and Clear finished', () => {
@@ -146,7 +162,7 @@ test('with nothing to do, the notice, a blank, the finished rows, a blank and Cl
     BLANK,
     { kind: 'finished', mark: '✓', tone: 'success', title: 'Fine' },
     BLANK,
-    { kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] },
+    { kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'quiet' }] },
   ])
   expect(spans).toEqual([{ first: 2, last: 2 }])
 })
@@ -199,15 +215,4 @@ test('messageOf gives each button the one message both drawers act on', () => {
   expect(messageOf({ id: 'run', label: 'Run', tone: 'primary', todoId: '3' })).toEqual({ type: 'press', id: '3', button: 'run' })
   expect(messageOf({ id: 'more', label: 'Show all', tone: 'neutral', todoId: '3' })).toEqual({ type: 'toggle', id: '3' })
   expect(messageOf({ id: 'clear', label: 'Clear finished', tone: 'neutral' })).toEqual({ type: 'clear' })
-})
-
-test('outOfView counts the items that start above the window and end below it', () => {
-  const spans = [
-    { first: 0, last: 2 },
-    { first: 4, last: 6 },
-    { first: 8, last: 8 },
-  ]
-  expect(outOfView(spans, 0, 8)).toEqual({ above: 0, below: 0 })
-  expect(outOfView(spans, 1, 5)).toEqual({ above: 1, below: 2 })
-  expect(outOfView(spans, 5, 7)).toEqual({ above: 2, below: 1 })
 })
