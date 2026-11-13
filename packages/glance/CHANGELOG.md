@@ -15,6 +15,10 @@
   fails: point it at the name GitLab answers on. `restRequest` with
   `io.redirect: 'manual'` is unchanged. GitHub was already safe and is
   unchanged: fetch drops Octokit's `Authorization` header on such a redirect.
+- A GitLab avatar URL carries `private_token` only when it is on the GitLab
+  host's own origin. It was appended to every avatar URL, so a user with no
+  upload got a gravatar URL that sent the token to gravatar.com when rendered.
+  Uploads on the host, relative paths included, still get it.
 
 ## 0.33.0
 
