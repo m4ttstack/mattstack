@@ -13,23 +13,18 @@ from the shell.
 
 When the result says `contextDropped: true`, first write one line,
 `gate-1-context: dropped`, into the saved verdict report (when there is
-one), before presenting or waiting: a resumed pane has no other way to
+one), before waiting: a resumed pane has no other way to
 know those pane cards never showed their drafts. The record then passes
 `contextDropped: true`.
 
-- **form:** `### Present the in-pane gate form`, holding `code-changes`
-  back from the chunks. Then one last call: `code-changes`, only when some
-  thread answered `fix:` (otherwise submit its sentinel `skip` unasked),
-  plus a pane-only `next` question of **Continue** / `iterate` /
-  `hold`. That `next` never reaches the registry, and `iterate` / `hold` are
-  never extra options on a thread or code-changes question.
-  - **Continue:** ONE `gate_answer {id, answers, runDb?, stage?}` after
-    that last call, carrying every thread answer plus `code-changes`. A
-    replacement reply typed in the free-text field rides as `note`.
-  - `iterate` or `hold`: answer nothing. `hold` leaves the gate
-    open for another surface.
-- **wait:** as gate-protocol draws it; an answer from the board or
-  console carries no `next`: it is the `answered off the pane` edge.
+respond-plan is answered on the board only: its `paneAction` is always
+`wait`, so this pane never presents a form for it. Wait as gate-protocol
+draws it (the doorbell, then reconcile); the board's answer routes as
+`respond-plan next answer?` draws.
+
+A `next` of `iterate` or `hold` records nothing: `iterate` redrafts with
+their note, `hold` holds. Only a hand-back or a future surface can send
+one: the daemon refuses an answer key the gate did not ask.
 
 Neither `gate_answer` nor `gate_reconcile` records this review gate:
 `gate_record {..., gateId: <id>}` does. Never fold threads into one

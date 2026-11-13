@@ -10,4 +10,5 @@ inline verdict in place of the dispatch, say). Open gate-protocol's
 `## Off-script gate` at site `self-review` (scope
 `off-script:self-review:<n>`), `context` quoting the rule, under the run.
 Route: `action: handback` is hand back whatever `next` says; otherwise
-`next: iterate` is iterate here, `hold` is hold, `proceed` is take.
+`hold` is hold, an `action` write-in or `next: iterate` is iterate here
+with their words, and a take is take.

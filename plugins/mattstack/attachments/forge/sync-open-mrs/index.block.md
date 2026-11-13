@@ -114,7 +114,7 @@ flowchart TB
     gate_sweep --> sweep_answer
     sweep_answer -->|proceed with branches| all_selected
     sweep_answer -->|proceed with none selected| say_nothing_selected
-    sweep_answer -->|iterate| plan_sweep
+    sweep_answer -->|iterate or a write-in| plan_sweep
     sweep_answer -->|hold| held_end_turn
     say_nothing_selected --> run_started_here
     all_selected -->|yes: all four conditions hold| branch_sync_sweep
@@ -166,7 +166,7 @@ flowchart TB
     stop_shell_push --> gate_off_script
     gate_off_script --> off_script_answer
     off_script_answer -->|take| make_recorded_move
-    off_script_answer -->|iterate: the human fixed it, retry| off_script_rounds_spent
+    off_script_answer -->|iterate or a write-in: the human fixed it, retry| off_script_rounds_spent
     off_script_answer -->|hand back: they stay push failed| watch_ci_asked
     off_script_answer -->|hold| held_end_turn
     off_script_rounds_spent -->|no| queue_mechanical_failures

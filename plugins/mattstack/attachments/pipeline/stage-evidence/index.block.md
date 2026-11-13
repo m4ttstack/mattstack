@@ -103,7 +103,7 @@ flowchart TB
     gate_evidence --> evidence_answer
     evidence_answer -->|proceed: intake and source recorded| ticket_shows_before
     evidence_answer -->|iterate: re-ask with their note| gate_evidence
-    evidence_answer -->|iterate, a role was waiting or unclaimed| run_budget_gate_iterates
+    evidence_answer -->|check again, or iterate, a role was waiting or unclaimed| run_budget_gate_iterates
     run_budget_gate_iterates --> gate_iterates_spent
     gate_iterates_spent -->|no: re-check| dev_endpoints
     gate_iterates_spent -->|yes: hand back, the roles named| run_stage_fail

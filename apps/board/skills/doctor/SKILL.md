@@ -701,7 +701,7 @@ digraph gate_protocol {
 }
 ```
 
-<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-46 -->
+<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-34 -->
 ### Build the gate's questions and context
 
 Open before anything that depends on the answer. A question is `{"id",
@@ -719,31 +719,19 @@ not your own.
 - **Options** are `{value, label}` objects when values are not
   human-readable; a recommended pick's `label` ends ` (Recommended)`, its
   `value` bare. In a site table headed `Options (recommended first)`, mark
-  the option the table writes; a row with none, such as the stage-end
-  `next`, marks none.
-- **`next` values** are exactly `proceed`, `iterate`, `go-back`, `hold`,
-  and `abandon`, `done`, `handback` or `goon` where the site's table offers
-  them; the tools read `proceed` and `iterate`. A site lists `next` by
-  value; send each as `{value, label, description}` from this table,
-  under the question label `Happy with this, or should something
-  change?`. A site's `(recommended)` after a value makes that label end
-  ` (Recommended)`, and an option the site writes in bold keeps the
-  site's label and takes no description:
-
-  | Value | Label | Description |
-  |---|---|---|
-  | `proceed` | Looks good, continue | Move on to the next step |
-  | `iterate` | Change something | Say what to change, then redo this step |
-  | `go-back` | Redo an earlier step | Return to a step that needs redoing |
-  | `hold` | Pause | Stop until you resume this run |
-  | `abandon` | Abandon | End this run for good |
+  the option the table writes; a row with none marks none.
+- **The questions are the site's table, and only those.** A gate asks no
+  navigation question: an answer with no `next` reads as `proceed`, and a
+  write-in is the way to ask for a change (`Act on a write-in`). The
+  daemon refuses an answer key the gate did not ask, so a `next` (`hold`,
+  `iterate`, `go-back`, `abandon`) reaches a site only through a hand-back
+  or a future surface; the site's `Read next` lines still route it.
+- **A gate with no question to show opens nothing.** Print its one
+  sentence of context and take the site's `proceed` edge.
 - **Write-ins** go only on a decision question whose free text you can act
-  on, never on `next` or a review-post, respond, doctor or pane-attention
-  question.
-- **At most 4 options per question**, or the whole gate goes to the wait.
-  Navigation (`iterate`, `go-back`, `hold`, Abandon) is its own `next`
-  question; a longer list splits into `<id>-1`, `<id>-2`, ... read as one
-  union.
+  on, never on a review-post, respond, doctor or pane-attention question.
+- **At most 4 options per question**, or the whole gate goes to the wait;
+  a longer list splits into `<id>-1`, `<id>-2`, ... read as one union.
 
 <!-- part: block:gate-protocol/trigger-site-opened source=mattstack:gate-protocol path=attachments/gate-protocol/trigger-site-opened.block.md lines=6-10 -->
 ### Trigger: a site opened its gate with gate_open
@@ -842,10 +830,11 @@ any other `next` (`hold`, `go-back`, Abandon) was picked on purpose, and the
 site takes it with the write-in as its note. With no tool result, apply the
 rule yourself.
 
-<!-- part: block:gate-protocol/act-write-in source=mattstack:gate-protocol path=attachments/gate-protocol/act-write-in.block.md lines=5-11 -->
+<!-- part: block:gate-protocol/act-write-in source=mattstack:gate-protocol path=attachments/gate-protocol/act-write-in.block.md lines=5-12 -->
 ### Act on a write-in
 
-Handle the gate like `iterate`: skip the site's own branch (a `proceed`
+A site that names its own write-in edge takes that edge. Otherwise,
+handle the gate like `iterate`: skip the site's own branch (a `proceed`
 beside it is the form's preselection), do what the write-in asks, reading
 the whole answer set, then open a NEW gate at the same site so the human
 sees the result first. One too unclear to act on goes straight to that new
@@ -887,10 +876,10 @@ line asking for the move.
 
 | Question | Options |
 |---|---|
-| `action` | **Take the proposed move** (its value spells the whole move) / **Hand back** |
-| `next` | `proceed` (recommended) / `iterate` / `hold` |
+| `action` (write-in) | **Take the proposed move** (its value spells the whole move) / **Hand back** |
 
-Take: make exactly that move once, then continue from the node it led to.
+An `action` write-in (the human fixed the cause) is the site's `iterate`
+edge, its budget charged. Take: make exactly that move once, then continue from the node it led to.
 Hand back: follow the site's own hand-back edge where its graph draws one;
 otherwise, under a run, `run_stage {action: fail}` with the why as reason;
 with no run, end the verb quoting it.

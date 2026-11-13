@@ -7,10 +7,9 @@ label: Dirty tree
 # Gate clarify: dirty tree
 
 Scope `clarify`. One sentence listing the uncommitted paths (the result's
-`paths`; when absent, quote `refusal`), then two questions, each its own question:
+`paths`; when absent, quote `refusal`), then the question:
 
 - `tree`: **I committed them, retry** / **Abort**
-- `next`: `proceed` / `hold`
 
 Selection `{"tree":"retry|abort","next":"proceed|hold"}`. Read `next` first: `hold` ends the
 turn with nothing moved. Never stash and

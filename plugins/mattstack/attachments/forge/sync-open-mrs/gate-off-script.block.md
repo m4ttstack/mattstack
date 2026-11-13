@@ -8,17 +8,15 @@ label: Off-script gate
 
 Scope `off-script:<run.current_stage>:<n>`, `n` counting from 1 per
 off-script round in this sweep. One gate for the whole batch: the context
-sentence quotes each mechanical refusal with its branch. The questions,
-each its own question:
+sentence quotes each mechanical refusal with its branch. The question:
 
-- `action`: **Take the proposed move** (the value spells the move in full,
-  one move per branch) / **Hand back**
-- `next`: `proceed` (recommended) / `iterate` / `hold`
+- `action` (write-in): **Take the proposed move** (the value spells the
+  move in full, one move per branch) / **Hand back**
 
 Selection `{"action":"take: <the move in full>|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Read `next` first: `hold` ends the turn with no move made; `iterate`
- means the human fixed the cause and wants those pushes retried, and
-it ignores `action`; only `proceed` applies `action`, where **Hand back**
+Read `next` first: `hold` ends the turn with no move made; `iterate`,
+or a write-in saying so, means the human fixed the cause and wants those
+pushes retried, and it ignores `action`; only `proceed` applies `action`, where **Hand back**
 leaves them push failed. The proposed move is the same plain-git
 force-with-lease push, once per listed branch; retrying the refused tool is
 `iterate`, never **Take**.

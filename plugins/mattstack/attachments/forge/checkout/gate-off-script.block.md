@@ -8,18 +8,16 @@ label: Off-script gate
 
 Scope `off-script:<run.current_stage>:<n>`, `n` counting from 1 per
 off-script round in this run; with no run, the site is `checkout` (scope `off-script:checkout:<n>`). The
-context sentence quotes the `worktree_provision` error. The
-questions, each its own question:
+context sentence quotes the `worktree_provision` error. The question:
 
-- `action`: **Take the proposed move** (the value spells the move in full)
-  / **Hand back**
-- `next`: `proceed` (recommended) / `iterate` / `hold`
+- `action` (write-in): **Take the proposed move** (the value spells the
+  move in full) / **Hand back**
 
 Selection `{"action":"take: <the move in full>|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
-Read `next` first: `hold` ends the turn with no move made; `iterate`
- means the human fixed the cause (started the daemon, registered the
-repo) and wants `worktree_provision` retried, and it ignores `action`; only
-`proceed` applies `action` (take or hand back). The proposed
+Read `next` first: `hold` ends the turn with no move made; `iterate`,
+or a write-in saying so, means the human fixed the cause (started the
+daemon, registered the repo) and wants `worktree_provision` retried, and
+it ignores `action`; only `proceed` applies `action` (take or hand back). The proposed
 move is one plain-git worktree for the branch at a path the value names;
 retrying the refused tool is `iterate`, never **Take**. A plain-git
 worktree is a move only the human's **Take** can authorize; never make one

@@ -18,8 +18,6 @@ form: the printed tier and why.
 |---|---|---|
 | `tier` (write-in) | the printed tier, its label ending ` (Recommended)`, then the other two; a write-in names one of the three, and any other is iterated | always |
 | the domain's own | as the domain policy words them | the domain declares them |
-| `next` | `proceed` / `iterate` / `go-back` / `hold` | always |
-| `to` | one option per earlier stage, split `to-1`, ... over 4 | `go-back` answered and more than one earlier stage row |
 
 Write `approach` = the tier the gate recorded, `evidence-plan` = the
 EVIDENCE value and `failing-test` = the FAILING TEST line (`none` on any

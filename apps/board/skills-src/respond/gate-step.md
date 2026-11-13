@@ -116,8 +116,8 @@ or neither?`; a multi-select with the gate's labels and descriptions,
   `.pane.context`, when present, as one pane line before the first form
   call. The `pane` is already fitted to the pane budget: render it as it
   stands. A Gate 2 prose
-  line reads `<file> FIX · <sha>: <text>` or `<file> REPLY: <text>`. Leave
-  Gate 2's pane-only `next` question out.
+  line reads `<file> FIX · <sha>: <text>` or `<file> REPLY: <text>`. Never
+  ask a `next` question an older file still carries.
 - **Another surface won.** A JSON line printed by `gate answer`, or a
   doorbell while a form still sits open, means another surface answered
   first: proceed on the winning answer, never the one you meant to submit.

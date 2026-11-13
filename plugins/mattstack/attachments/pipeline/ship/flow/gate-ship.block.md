@@ -21,7 +21,6 @@ says so, and Abort aborts that rebase first.
 | `dirty` (write-in) | **Commit the changes (Recommended)** / **Stash them** / **Abort** | the tree is dirty |
 | `open_as` (write-in) | **Push and open as draft (Recommended)** / **Push and open ready** | always |
 | the domain's own | as the domain rules word them (a ticket mismatch, an MR already open) | the domain declares them |
-| `next` | `proceed` / `iterate` / `hold` | always |
 
 Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
 `iterate` and `hold` clear `shipTarget` first, so

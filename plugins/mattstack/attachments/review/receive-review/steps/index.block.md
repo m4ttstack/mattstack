@@ -59,7 +59,7 @@ flowchart TB
     write_run_line_plan
     hand_back_verdict_table
     gate_plan_carry
-    plan_next_answer{respond-plan pane next answer?}
+    plan_next_answer{respond-plan next answer?}
     redraft_plan_replies
     gate_record_plan[/"gate_record {runDb, stage, scope: respond-plan, shape: respond-plan, gateId | answers + decidedBy, contextDropped?}"/]
     rewrite_report_rows
@@ -228,9 +228,9 @@ flowchart TB
     write_run_line_plan --> hand_back_verdict_table
     hand_back_verdict_table -->|"caller hands {plan} back: answers + decidedBy"| gate_record_plan
     gate_plan_carry --> plan_next_answer
-    plan_next_answer -->|continue, or answered off the pane: gateId| gate_record_plan
-    plan_next_answer -->|iterate here: answer nothing, record nothing| redraft_plan_replies
-    plan_next_answer -->|hold: answer nothing, the gate stays open| run_hold
+    plan_next_answer -->|"proceed, or no next, the board answered: gateId"| gate_record_plan
+    plan_next_answer -->|iterate: record nothing| redraft_plan_replies
+    plan_next_answer -->|hold: record nothing| run_hold
     redraft_plan_replies -->|a new gate| build_plan_open
     gate_record_plan -->|its rows| rewrite_report_rows
     rewrite_report_rows --> code_changes_answer
@@ -283,9 +283,9 @@ flowchart TB
     write_run_line_post --> hand_back_offered
     hand_back_offered -->|"caller hands {post} back: answers + decidedBy"| gate_record_post
     gate_post_carry --> post_next_answer
-    post_next_answer -->|proceed, in the pane or off it: gateId| gate_record_post
-    post_next_answer -->|"hold: answer the gate (next: hold), record nothing"| decide_nothing
-    post_next_answer -->|"iterate: answer the gate (next: iterate), record nothing"| apply_post_note
+    post_next_answer -->|"proceed, or no next, the board answered: gateId"| gate_record_post
+    post_next_answer -->|hold: record nothing| decide_nothing
+    post_next_answer -->|iterate: record nothing| apply_post_note
     decide_nothing --> run_hold
     apply_post_note -->|a new gate| build_post_open
     gate_record_post --> post_forge
