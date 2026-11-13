@@ -262,6 +262,15 @@ describe("checkGithubForgePath fix round 1", () => {
   });
 });
 
+describe("checkGithubForgePath on the repo's own path", () => {
+  test("refuses a repo path that is not exactly owner/repo, so the route and under-repo rules count from the right place", () => {
+    for (const project of ["o/r/copilot", "o", "o/r/x/y", "/r", "o/", "o//r", ""]) {
+      expect(checkGithubForgePath(":repo/cloud-agent/configuration", project), project).toEqual({ ok: false, error: "gitlab_get reads a GitHub repo only by its owner/repo path" });
+    }
+    expect(checkGithubForgePath("repos/o/other/pulls", "o")).toMatchObject({ ok: false });
+  });
+});
+
 describe("checkGithubForgePath on empty segments", () => {
   const multiSegment = [...GITHUB_REFUSED_SEGMENTS, GITHUB_REFUSED_BLOBS].filter((entry) => entry.includes("/"));
 

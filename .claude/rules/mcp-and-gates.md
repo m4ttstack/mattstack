@@ -86,7 +86,9 @@ file path or the repo's own name is not refused. A GitHub path with an
 empty segment anywhere but a single trailing slash (`//`, raw or decoded
 from `%2F`) is refused, since GitHub may collapse it and join a slash entry
 such as `actions/oidc` that the check saw apart; that also pins which
-segment the route rule reads. Those lists are
+segment the route rule reads. The repo's own path, read from its origin
+URL, must be exactly `<owner>/<repo>`, since every GitHub rule counts
+segments from it. Those lists are
 widened, never narrowed, without a design review.
 `skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code
 in process: it checks the id against `ID_RE` first, reads only under

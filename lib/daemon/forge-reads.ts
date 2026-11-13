@@ -187,6 +187,8 @@ const entryAt = (segments: string[], entry: string): number => {
 };
 
 export function checkGithubForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
+  // projectPath comes from the origin URL, and every rule below counts segments from it.
+  if (!/^[^/]+\/[^/]+$/.test(projectPath)) return { ok: false, error: "gitlab_get reads a GitHub repo only by its owner/repo path" };
   const repoRoot = `repos/${projectPath}`;
   const plain = plainApiPath(path, (rest) => rest.replace(/^:repo(?=\/|$)/, () => repoRoot));
   if (!plain.ok) return plain;
