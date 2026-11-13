@@ -35,6 +35,8 @@ export interface CloneState {
   httpsUrl: string | null;
   /** The entries rt did not write. */
   ownHelpers?: string[];
+  /** For `own-helper`: the helper key that comes after rt's pair (`rtWrote`), or would once rt writes it. Never its value. */
+  helperAfter?: { key: string; rtWrote: boolean };
   /** `url.<base>.insteadOf <value>`, redacted. */
   insteadOfRule?: string;
 }
@@ -50,16 +52,80 @@ export function realCloneDeps(auth: OriginAuth = createOriginAuth()): CloneDeps 
   return { auth, rtLink, rtLinkExists: () => existsSync(rtLink) };
 }
 
-/** Throws when git cannot read the config: an unread config must never pass as "no helper". */
-export async function helperEntries(root: string, host: string): Promise<string[]> {
-  const res = await runGit(root, ["config", "--local", "--get-all", "-z", `credential.https://${host}.helper`]);
-  if (res.exitCode === 1) return [];
-  if (res.exitCode !== 0) throw new Error("git could not read this clone's credential config");
-  return res.stdout.split("\0").slice(0, -1);
+export interface HelperOrder {
+  /** The values of rt's own key, `credential.https://<host>.helper`, in order. */
+  own: string[];
+  /** rt's pair is there and no helper for the host comes after it. */
+  wired: boolean;
+  /** The first helper key for the host that comes after rt's pair, or would once rt writes it; printable. */
+  after: string | null;
 }
 
-export function rtWired(entries: string[], rtLink: string): boolean {
-  return entries.length === 2 && entries[0] === "" && entries[1] === rtCredentialHelper(rtLink);
+interface ConfigEntry {
+  scope: "local" | "worktree";
+  key: string;
+  /** Null for a key with no `=`. */
+  value: string | null;
+}
+
+/** git's urlmatch, widened: a key rt cannot parse counts as one for the host, so a doubt never reads as "no helper". */
+function keyAppliesTo(key: string, host: string): boolean {
+  if (key === "credential.helper") return true;
+  const sub = /^credential\.(.*)\.helper$/s.exec(key)?.[1];
+  if (sub === undefined) return false;
+  const m = /^(?:([^:/]*):\/\/)?(?:[^@/]*@)?([^/:?#]*)/.exec(sub);
+  const scheme = m?.[1]?.toLowerCase();
+  if (scheme !== undefined && scheme !== "https") return false;
+  const pattern = (m?.[2] ?? "").toLowerCase();
+  if (pattern === "") return true;
+  const glob = pattern.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^.]*");
+  return new RegExp(`^${glob}$`).test(host.toLowerCase());
+}
+
+/**
+ * Every `credential.*` entry the clone's own config sets (local and worktree
+ * scope, includes followed), in the order git reads them. Global and system
+ * entries always come first, so rt's empty value clears them. Throws when git
+ * cannot read the config: an unread config must never pass as "no helper".
+ */
+async function clonesCredentialEntries(root: string): Promise<ConfigEntry[]> {
+  const res = await runGit(root, ["config", "--show-scope", "--get-regexp", "-z", "^credential\\."]);
+  if (res.exitCode === 1) return [];
+  if (res.exitCode !== 0) throw new Error("git could not read this clone's credential config");
+  const fields = res.stdout.split("\0");
+  const entries: ConfigEntry[] = [];
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const scope = fields[i]!;
+    if (scope !== "local" && scope !== "worktree") continue;
+    const item = fields[i + 1]!;
+    const nl = item.indexOf("\n");
+    entries.push(nl < 0 ? { scope, key: item, value: null } : { scope, key: item.slice(0, nl), value: item.slice(nl + 1) });
+  }
+  return entries;
+}
+
+/**
+ * Where rt's pair sits among the helpers git would run for https://<host>.
+ * git's `approve` hands the token to every helper after the empty value, so
+ * rt's pair must come last. Unwritten, the pair would land after the last key
+ * of the clone's `[credential "https://<host>"]` section, or at the end of
+ * the clone's config when it has none.
+ */
+export async function readHelperOrder(root: string, host: string, rtLink: string): Promise<HelperOrder> {
+  const entries = await clonesCredentialEntries(root);
+  const rtKey = `credential.https://${host}.helper`;
+  const own = entries.filter((e) => e.key === rtKey).map((e) => e.value ?? "\0");
+  const isPair = own.length === 2 && own[0] === "" && own[1] === rtCredentialHelper(rtLink);
+  const sectionPrefix = `credential.https://${host}.`;
+  let pairAt: number | null = null;
+  if (isPair) pairAt = entries.findIndex((e) => e.key === rtKey);
+  else if (own.length === 0) {
+    const section = entries.findLastIndex((e) => e.scope === "local" && e.key.startsWith(sectionPrefix));
+    pairAt = section >= 0 ? section : entries.findLastIndex((e) => e.scope === "local");
+  }
+  const next = pairAt === null ? undefined : entries.slice(pairAt + 1).find((e) => e.key !== rtKey && keyAppliesTo(e.key, host));
+  const after = next ? printable(next.key) : null;
+  return { own, wired: isPair && after === null, after };
 }
 
 async function readInsteadOfRules(root: string): Promise<string> {
@@ -147,13 +213,17 @@ export async function classifyClone(root: string, deps: CloneDeps): Promise<Clon
   const skipped = (cause: CopiedCause): CloneState => ({ state: "skipped", cause, ...base, reason: skipCopy(cause, host, forge) });
 
   if ((transport === "https" || transport === "ssh") && host !== null) {
-    const entries = await helperEntries(root, host);
-    const wired = rtWired(entries, deps.rtLink);
-    if (wired && transport === "https") {
+    const order = await readHelperOrder(root, host, deps.rtLink);
+    if (order.wired && transport === "https") {
       return { state: "done", cause: "wired", ...base, reason: forge ? `already uses rt's ${forgeName(forge)} token` : "already uses rt's token" };
     }
-    if (entries.length > 0 && !wired) {
-      return { state: "skipped", cause: "own-helper", ...base, reason: `has its own credential helper for ${host}`, ownHelpers: entries };
+    if (order.after !== null) {
+      const rtWrote = order.own.length > 0;
+      const reason = rtWrote ? "another credential helper comes after rt's" : `has its own credential helper for ${host}`;
+      return { state: "skipped", cause: "own-helper", ...base, reason, helperAfter: { key: order.after, rtWrote } };
+    }
+    if (order.own.length > 0 && !order.wired) {
+      return { state: "skipped", cause: "own-helper", ...base, reason: `has its own credential helper for ${host}`, ownHelpers: order.own };
     }
   }
 

@@ -17,7 +17,7 @@ import type { Block } from "../../lib/ui/protocol.ts";
 import { warn } from "../../lib/ui/warn.ts";
 import { runGit, type GitResult } from "../../lib/worktree/git-async.ts";
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
-import { classifyClone, helperEntries, realCloneDeps, type CloneCause, type CloneDeps, type CloneState } from "./clone-state.ts";
+import { classifyClone, readHelperOrder, realCloneDeps, type CloneCause, type CloneDeps, type CloneState } from "./clone-state.ts";
 import { forgeName, sshToHttps } from "./origin-auth.ts";
 import { failUsage, failWith, printable, refusalNote, refuseWith } from "./shared.ts";
 
@@ -149,11 +149,24 @@ function connectNext(s: CloneState): out.CellInput {
   return [out.cmd("rt setup gitlab connect"), " or ", out.cmd("rt setup github connect")];
 }
 
+/** The undo for rt's pair; it names the clone, so a paste from another folder cannot change a different one. */
+function helperUndoCommand(root: string, key: string): string {
+  return `git -C ${shellQuote(root)} config --unset-all ${key}`;
+}
+
+/** `undo` is set when rt's pair is already in the clone, ahead of `after`. */
+function helperAfterRefusal(label: string, hint: string, after: string, undo: string | null): out.FailureInput {
+  if (undo !== null) return { title: label, hint, why: `git hands rt's token to ${after} as well`, next: ["Remove rt's helper with ", out.cmd(undo)] };
+  return { title: label, hint, why: `rt's helper would come before ${after}, and git would hand it rt's token` };
+}
+
 /** The refusal for every cause but the ready ones; never repeats a helper value or a raw URL. */
-function causeRefusal(s: CloneState, label: string, key: string | null): out.FailureInput {
+function causeRefusal(s: CloneState, label: string, key: string | null, root: string): out.FailureInput {
   const base = { title: label, hint: s.reason };
   switch (s.cause as Exclude<CloneCause, "wired" | "ready" | "ssh-ready">) {
-    case "own-helper": return { ...base, why: `rt did not make ${key ?? "it"}, so rt left it alone` };
+    case "own-helper":
+      if (s.helperAfter !== undefined) return helperAfterRefusal(label, s.reason, s.helperAfter.key, s.helperAfter.rtWrote && key !== null ? helperUndoCommand(root, key) : null);
+      return { ...base, why: `rt did not make ${key ?? "it"}, so rt left it alone` };
     case "insteadof-maps-back": return { ...base, why: "git would send the https URL back to SSH" };
     case "unconfirmed-host": return { ...base, next: out.cmd(`rt setup gitlab connect --host ${shellQuote(s.host ?? "")}`) };
     case "no-token": return { ...base, next: connectNext(s) };
@@ -207,7 +220,7 @@ async function setUp(path: string | undefined, o: SetUpOpts, deps: AuthDeps): Pr
     return;
   }
   if ((s.cause !== "ready" && s.cause !== "ssh-ready") || key === null || s.host === null || s.forge === null) {
-    refuse(o.json, s.cause, causeRefusal(s, label, key));
+    refuse(o.json, s.cause, causeRefusal(s, label, key, root));
   }
 
   const host = s.host;
@@ -228,7 +241,7 @@ async function setUp(path: string | undefined, o: SetUpOpts, deps: AuthDeps): Pr
       } else if (pushes.length > 0 && !(pushes.length === 1 && pushes[0] === to)) {
         pushPlan = "leave";
       }
-      needHelper = (await helperEntries(root, host)).length === 0;
+      needHelper = (await readHelperOrder(root, host, deps.rtLink)).own.length === 0;
     }
   } catch {
     unreadable();
@@ -263,7 +276,6 @@ async function setUp(path: string | undefined, o: SetUpOpts, deps: AuthDeps): Pr
     out.print(...plan);
   }
 
-  // The undo names the clone, so a paste from another folder cannot change a different one.
   const inClone = `git -C ${shellQuote(root)}`;
   const undo: string[] = [];
   let withheld = false;
@@ -287,7 +299,7 @@ async function setUp(path: string | undefined, o: SetUpOpts, deps: AuthDeps): Pr
   }
 
   if (needHelper) {
-    const helperUndo = `${inClone} config --unset-all ${key}`;
+    const helperUndo = helperUndoCommand(root, key);
     const first = await git(root, ["config", "--local", "--add", key, ""]);
     const second = first.exitCode === 0 ? await git(root, ["config", "--local", "--add", key, rtCredentialHelper(deps.rtLink)]) : first;
     if (second.exitCode !== 0) {
@@ -300,6 +312,27 @@ async function setUp(path: string | undefined, o: SetUpOpts, deps: AuthDeps): Pr
       }
       if (cleaned) failWith(o.json, "helper-write-failed", { title: "Could not add rt's credential helper", why: "Nothing changed in this clone", details });
       failWith(o.json, "helper-write-failed", { title: "Could not add rt's credential helper", next: out.cmd(helperUndo), details }, { fields: { undo: [helperUndo] } });
+    }
+    // git may put the pair in an earlier section for the host, ahead of a helper the check above could not place.
+    let after: string | null;
+    try {
+      after = (await readHelperOrder(root, host, deps.rtLink)).after;
+    } catch {
+      after = "a credential helper";
+    }
+    if (after !== null) {
+      const taken = (await git(root, ["config", "--local", "--unset-all", key])).exitCode === 0;
+      if (!taken) {
+        undo.push(helperUndo);
+        failPartway("helper-write-failed", "Added rt's helper ahead of another one, and could not take it back", undefined);
+      }
+      const refusal = helperAfterRefusal(label, `has its own credential helper for ${host}`, after, null);
+      if (o.json) {
+        out.json({ ok: false, error: "own-helper", ...(undo.length > 0 ? { undo } : {}) });
+        process.exit(1);
+      }
+      const switched = switching ? [out.callout("note", "Origin already uses https")] : [];
+      refuseWith(false, "own-helper", ...refusalNote(refusal), ...switched, ...undoBlocks(undo, withheld));
     }
     undo.push(helperUndo);
   }

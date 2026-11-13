@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { spawnSync } from "child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { setSshHostResolver } from "../../../lib/enrich.ts";
@@ -500,6 +501,84 @@ describe("rt git auth --https", () => {
     io.clear();
     expect(await run([again, "--yes", "--json"], h)).toBe(1);
     expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "helper-write-failed", undo: [helperUndo(again)] });
+  });
+});
+
+/** A fake rt that answers `git credential get` with the token, and a clone helper that logs what git hands it. */
+function credentialFakes(): { otherHelper: string; otherLog: () => string } {
+  writeFileSync(link, `#!/bin/sh\ncat >/dev/null\nif [ "$3" = get ]; then printf 'username=oauth2\\npassword=${TOKEN}\\n'; fi\n`);
+  chmodSync(link, 0o755);
+  const log = join(root, "other-helper.log");
+  const script = join(root, "other-helper.sh");
+  writeFileSync(script, `#!/bin/sh\necho "$1 $(cat | tr '\\n' ' ')" >> '${log}'\n`);
+  chmodSync(script, 0o755);
+  return { otherHelper: script, otherLog: () => (existsSync(log) ? readFileSync(log, "utf8") : "") };
+}
+
+/** Real `git credential fill` then `approve`, as a fetch does, with no system or global helper. */
+function fillThenApprove(repo: string): string {
+  const empty = join(root, "empty.gitconfig");
+  writeFileSync(empty, "");
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: empty, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" };
+  const fill = spawnSync("git", ["credential", "fill"], { cwd: repo, env, encoding: "utf8", input: "protocol=https\nhost=gitlab.com\n\n" });
+  spawnSync("git", ["credential", "approve"], { cwd: repo, env, encoding: "utf8", input: `${fill.stdout}\n` });
+  return fill.stdout;
+}
+
+describe("rt git auth and the clone's other helpers", () => {
+  test("a local helper before where rt writes: rt's pair clears it, and approve never hands it the token", async () => {
+    const { otherHelper, otherLog } = credentialFakes();
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    git(repo, "config", "--local", "credential.helper", otherHelper);
+    expect(await run([repo, "--yes"], harness())).toBeNull();
+    expect(fillThenApprove(repo)).toContain("LEAKCHECK");
+    expect(otherLog()).not.toContain("LEAKCHECK");
+  });
+
+  test("a username section first and a local helper after: refused own-helper, nothing written, the helper never sees the token", async () => {
+    const { otherHelper, otherLog } = credentialFakes();
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    git(repo, "config", "--local", "credential.https://gitlab.com.username", "me");
+    git(repo, "config", "--local", "credential.helper", otherHelper);
+    const before = config(repo);
+    const h = harness();
+    expect(await run([repo, "--yes"], h)).toBe(1);
+    expect(config(repo)).toBe(before);
+    expect(io.stderr()).toContain("has its own credential helper for gitlab.com");
+    expect(io.stderr()).toContain("credential.helper");
+    expect(io.stderr()).not.toContain(otherHelper);
+    io.clear();
+    expect(await run([repo, "--yes", "--json"], h)).toBe(1);
+    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "own-helper" });
+    fillThenApprove(repo);
+    expect(otherLog()).not.toContain("LEAKCHECK");
+  });
+
+  test("a helper after a section rt cannot see from its keys: written, checked, taken back and refused", async () => {
+    const { otherHelper, otherLog } = credentialFakes();
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    writeFileSync(join(repo, ".git", "config"), `${config(repo)}[credential "https://gitlab.com"]\n[credential]\n\thelper = ${otherHelper}\n`);
+    expect(await run([repo, "--yes"], harness())).toBe(1);
+    expect(helpers(repo)).toEqual([]);
+    expect(io.stderr()).toContain("has its own credential helper for gitlab.com");
+    expect(io.stderr()).not.toContain(otherHelper);
+    fillThenApprove(repo);
+    expect(otherLog()).not.toContain("LEAKCHECK");
+  });
+
+  test("a helper added after rt wired the clone: refused own-helper, names how to remove rt's helper", async () => {
+    const { otherHelper } = credentialFakes();
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    expect(await run([repo, "--yes"], harness())).toBeNull();
+    git(repo, "config", "credential.helper", otherHelper);
+    const before = config(repo);
+    io.clear();
+    expect(await run([repo], harness())).toBe(1);
+    expect(config(repo)).toBe(before);
+    expect(io.stderr()).toContain("another credential helper comes after rt's");
+    expect(io.stderr()).toContain(helperUndo(repo));
+    expect(io.stderr()).not.toContain("already uses");
+    expect(io.stderr()).not.toContain(otherHelper);
   });
 });
 

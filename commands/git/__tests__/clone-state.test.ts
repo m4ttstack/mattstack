@@ -5,7 +5,7 @@ import { join } from "path";
 import { setSshHostResolver } from "../../../lib/enrich.ts";
 import { rtCredentialHelper } from "../../../lib/setup/steps/repos.ts";
 import type { ForgeTokenLookup } from "../../../lib/team/forge-token.ts";
-import { classifyClone, helperEntries, insteadOfMapsBack, rtWired, type CloneDeps } from "../clone-state.ts";
+import { classifyClone, insteadOfMapsBack, readHelperOrder, type CloneDeps } from "../clone-state.ts";
 import { createOriginAuth } from "../origin-auth.ts";
 import { git, makeRepo } from "./helpers.ts";
 
@@ -42,30 +42,106 @@ afterEach(() => {
 });
 
 describe("helpers", () => {
-  test("helperEntries reads local entries and is empty when unset", async () => {
+  test("readHelperOrder reads rt's own key and is empty when unset", async () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");
-    expect(await helperEntries(repo, "gitlab.com")).toEqual([]);
+    expect(await readHelperOrder(repo, "gitlab.com", link)).toEqual({ own: [], wired: false, after: null });
     addHelpers(repo, "gitlab.com", ["", "!h"]);
-    expect(await helperEntries(repo, "gitlab.com")).toEqual(["", "!h"]);
+    expect(await readHelperOrder(repo, "gitlab.com", link)).toEqual({ own: ["", "!h"], wired: false, after: null });
   });
 
-  test("rtWired wants exactly the empty value then rt's helper", () => {
-    expect(rtWired(["", rtCredentialHelper(link)], link)).toBe(true);
-    expect(rtWired([rtCredentialHelper(link)], link)).toBe(false);
-    expect(rtWired(["", rtCredentialHelper(link), "!x"], link)).toBe(false);
-    expect(rtWired([], link)).toBe(false);
+  test("readHelperOrder wants exactly the empty value then rt's helper, last", async () => {
+    const wired = repoWith("https://gitlab.com/acme/x.git", "a");
+    addHelpers(wired, "gitlab.com", ["", rtCredentialHelper(link)]);
+    expect((await readHelperOrder(wired, "gitlab.com", link)).wired).toBe(true);
+    const lone = repoWith("https://gitlab.com/acme/x.git", "b");
+    addHelpers(lone, "gitlab.com", [rtCredentialHelper(link)]);
+    expect((await readHelperOrder(lone, "gitlab.com", link)).wired).toBe(false);
+    const extra = repoWith("https://gitlab.com/acme/x.git", "c");
+    addHelpers(extra, "gitlab.com", ["", rtCredentialHelper(link), "!x"]);
+    expect((await readHelperOrder(extra, "gitlab.com", link)).wired).toBe(false);
   });
 
-  test("helperEntries keeps a value holding a newline as one entry", async () => {
+  test("readHelperOrder keeps a value holding a newline as one entry", async () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");
     addHelpers(repo, "gitlab.com", ["", "!f() {\n echo hi; }; f"]);
-    expect(await helperEntries(repo, "gitlab.com")).toEqual(["", "!f() {\n echo hi; }; f"]);
+    expect((await readHelperOrder(repo, "gitlab.com", link)).own).toEqual(["", "!f() {\n echo hi; }; f"]);
   });
 
-  test("helperEntries throws when git cannot read the config, never reads as unset", async () => {
+  test("readHelperOrder throws when git cannot read the config, never reads as unset", async () => {
     const repo = repoWith(null);
     writeFileSync(join(repo, ".git", "config"), "[core\nbroken = = =\n");
-    await expect(helperEntries(repo, "gitlab.com")).rejects.toThrow("git could not read this clone's credential config");
+    await expect(readHelperOrder(repo, "gitlab.com", link)).rejects.toThrow("git could not read this clone's credential config");
+  });
+
+  test("readHelperOrder names a generic helper after rt's pair in the same file", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    git(repo, "config", "--local", "credential.helper", "!secret-x");
+    expect(await readHelperOrder(repo, "gitlab.com", link)).toEqual({ own: ["", rtCredentialHelper(link)], wired: false, after: "credential.helper" });
+  });
+
+  test("readHelperOrder counts any spelling of a key for the host after rt's pair, and skips other hosts and http", async () => {
+    const cases: Array<[string, string | null]> = [
+      ["credential.https://GitLab.com/acme.helper", "credential.https://GitLab.com/acme.helper"],
+      ["credential.HTTPS://me@gitlab.com:443/.helper", "credential.HTTPS://me@gitlab.com:443/.helper"],
+      ["credential.https://*.com.helper", "credential.https://*.com.helper"],
+      ["credential.gitlab.com.helper", "credential.gitlab.com.helper"],
+      ["credential.http://gitlab.com.helper", null],
+      ["credential.https://github.com.helper", null],
+    ];
+    let i = 0;
+    for (const [key, after] of cases) {
+      const repo = repoWith("https://gitlab.com/acme/x.git", `s${i++}`);
+      addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+      git(repo, "config", "--local", "--add", key, "!x");
+      const order = await readHelperOrder(repo, "gitlab.com", link);
+      expect([key, order.after]).toEqual([key, after]);
+      expect([key, order.wired]).toEqual([key, after === null]);
+    }
+  });
+
+  test("readHelperOrder redacts credentials in the key it names", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    git(repo, "config", "--local", `credential.https://oauth2:${TOKEN}@gitlab.com.helper`, "!x");
+    const order = await readHelperOrder(repo, "gitlab.com", link);
+    expect(order.after).not.toBeNull();
+    expect(order.after).not.toContain("LEAKCHECK");
+  });
+
+  test("readHelperOrder sees a helper an include in the clone's config brings in after rt's pair", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    writeFileSync(join(repo, ".git", "extra.config"), "[credential]\n\thelper = !x\n");
+    git(repo, "config", "--local", "include.path", "extra.config");
+    expect((await readHelperOrder(repo, "gitlab.com", link)).after).toBe("credential.helper");
+  });
+
+  test("readHelperOrder predicts where rt's pair would land: after a section for the host that comes first", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    git(repo, "config", "--local", "credential.https://gitlab.com.username", "me");
+    git(repo, "config", "--local", "credential.helper", "!x");
+    expect(await readHelperOrder(repo, "gitlab.com", link)).toEqual({ own: [], wired: false, after: "credential.helper" });
+    const plain = repoWith("https://gitlab.com/acme/x.git", "plain");
+    git(plain, "config", "--local", "credential.helper", "!x");
+    expect((await readHelperOrder(plain, "gitlab.com", link)).after).toBeNull();
+  });
+
+  test("readHelperOrder ignores a helper set for one command only", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    const prior = { count: process.env.GIT_CONFIG_COUNT, key: process.env.GIT_CONFIG_KEY_0, value: process.env.GIT_CONFIG_VALUE_0 };
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "credential.helper";
+    process.env.GIT_CONFIG_VALUE_0 = "!x";
+    try {
+      expect((await readHelperOrder(repo, "gitlab.com", link)).wired).toBe(true);
+    } finally {
+      for (const [name, v] of [["GIT_CONFIG_COUNT", prior.count], ["GIT_CONFIG_KEY_0", prior.key], ["GIT_CONFIG_VALUE_0", prior.value]] as const) {
+        if (v === undefined) delete process.env[name];
+        else process.env[name] = v;
+      }
+    }
   });
 
   test("insteadOfMapsBack returns empty when git rewrites the URL but no rule is named", async () => {
@@ -112,6 +188,39 @@ describe("classifyClone", () => {
     const s = await classifyClone(repo, deps());
     expect([s.state, s.cause, s.transport, s.host]).toEqual(["skipped", "own-helper", "ssh", "gitlab.com"]);
     expect(s.ownHelpers).toEqual(["", "!my-helper"]);
+  });
+
+  test("https, rt's pair with a username section first and a local helper after: skipped/own-helper, never done", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    git(repo, "config", "--local", "credential.https://gitlab.com.username", "me");
+    git(repo, "config", "--local", "credential.helper", "!secret-x");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    const s = await classifyClone(repo, deps());
+    expect([s.state, s.cause]).toEqual(["skipped", "own-helper"]);
+    expect(s.helperAfter).toEqual({ key: "credential.helper", rtWrote: true });
+    expect(s.reason).toBe("another credential helper comes after rt's");
+    expect(JSON.stringify(s)).not.toContain("secret-x");
+  });
+
+  test("https, a helper added to the clone after rt wired it: skipped/own-helper", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    expect((await classifyClone(repo, deps())).state).toBe("done");
+    git(repo, "config", "credential.helper", "!secret-x");
+    const s = await classifyClone(repo, deps());
+    expect([s.state, s.cause]).toEqual(["skipped", "own-helper"]);
+    expect(s.next).toBeUndefined();
+  });
+
+  test("https, not wired, where rt's pair would land before a local helper: skipped/own-helper, not pending", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    git(repo, "config", "--local", "credential.https://gitlab.com.username", "me");
+    git(repo, "config", "--local", "credential.helper", "!secret-x");
+    const s = await classifyClone(repo, deps());
+    expect([s.state, s.cause]).toEqual(["skipped", "own-helper"]);
+    expect(s.reason).toBe("has its own credential helper for gitlab.com");
+    expect(s.next).toBeUndefined();
+    expect(JSON.stringify(s)).not.toContain("secret-x");
   });
 
   test("ssh whose https URL an insteadOf rule maps back: skipped/insteadof-maps-back naming the rule", async () => {
