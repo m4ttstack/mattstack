@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GitHubProvider } from "@mattstack/glance";
 import {
-  FORGE_GET_MAX_BYTES, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, forgeGet, type RestProvider,
+  FORGE_GET_MAX_BYTES, GITHUB_REFUSED_BLOBS, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_ROUTES, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, forgeGet, type RestProvider,
 } from "../forge-reads.ts";
 import { createMRHandlers } from "../handlers/mr.ts";
 import { fakeStore } from "./fake-cache-store.ts";
@@ -28,6 +28,7 @@ function restFake(responses: Response[]): { provider: RestProvider; paths: strin
 const PROJECT = "o/r";
 const check = (path: unknown) => checkGithubForgePath(path, PROJECT);
 const get = (provider: RestProvider, input: Parameters<typeof forgeGet>[2]) => forgeGet(provider, PROJECT, input, "github");
+const emptySegment = { ok: false as const, error: '"path" must not contain an empty segment (//)' };
 const credentialRefusal = (seg: string) => ({ ok: false as const, error: `"path" names ${seg}, which can return credentials; gitlab_get refuses it` });
 
 describe("checkGithubForgePath", () => {
@@ -39,6 +40,7 @@ describe("checkGithubForgePath", () => {
       "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables",
       "security-advisories",
     ]);
+    expect([...GITHUB_REFUSED_ROUTES]).toEqual(["copilot"]);
   });
 
   test("refuses secret scanning alerts, organization secrets and variables, and security advisories", () => {
@@ -115,7 +117,6 @@ describe("checkGithubForgePath", () => {
     expect(check("repos/O/R/pulls")).toEqual({ ok: true, path: "/repos/O/R/pulls" });
     expect(check("repos/o/r")).toEqual({ ok: true, path: "/repos/o/r" });
     expect(check(":repo/pulls/")).toEqual({ ok: true, path: "/repos/o/r/pulls/" });
-    expect(check(":repo//pulls")).toEqual({ ok: true, path: "/repos/o/r//pulls" });
     expect(check(":repo/contents/docs%2Fa%20b.md")).toEqual({ ok: true, path: "/repos/o/r/contents/docs%2Fa%20b.md" });
   });
 });
@@ -258,6 +259,113 @@ describe("checkGithubForgePath fix round 1", () => {
     expect(checkGithubForgePath("repos/secrets/app/pulls", "secrets/app")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is secrets" });
     expect(checkGithubForgePath(":repo", "acme/hooks.io")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is hooks.io" });
     expect(checkGithubForgePath(":repo/oidc/x", "acme/actions")).toEqual(credentialRefusal("actions/oidc"));
+  });
+});
+
+describe("checkGithubForgePath on the repo's own path", () => {
+  test("refuses a repo path that is not exactly owner/repo, so the route and under-repo rules count from the right place", () => {
+    for (const project of ["o/r/copilot", "o", "o/r/x/y", "/r", "o/", "o//r", ""]) {
+      expect(checkGithubForgePath(":repo/cloud-agent/configuration", project), project).toEqual({ ok: false, error: "gitlab_get reads a GitHub repo only by its owner/repo path" });
+    }
+    expect(checkGithubForgePath("repos/o/other/pulls", "o")).toMatchObject({ ok: false });
+  });
+});
+
+describe("checkGithubForgePath on empty segments", () => {
+  const multiSegment = [...GITHUB_REFUSED_SEGMENTS, GITHUB_REFUSED_BLOBS].filter((entry) => entry.includes("/"));
+
+  test("refuses the OIDC customization read split by an empty segment", () => {
+    expect(check(":repo/actions//oidc/customization/sub")).toEqual(emptySegment);
+  });
+
+  test("refuses every multi-segment entry split by a raw or decoded empty segment", () => {
+    expect(multiSegment).toEqual(["actions/oidc", "git/blobs"]);
+    for (const entry of multiSegment) {
+      const [first, second] = entry.split("/");
+      for (const path of [`:repo/${first}//${second}/x`, `:repo/${first}%2F%2F${second}/x`, `:repo/${first}/%2F${second}/x`, `:repo/${first}%2F/${second}`]) {
+        expect(check(path), path).toEqual(emptySegment);
+      }
+    }
+  });
+
+  test("refuses an empty segment anywhere inside the path, including right after the repo", () => {
+    for (const path of [":repo//pulls", ":repo//copilot/cloud-agent/configuration", ":repo/%2Fcopilot/cloud-agent", ":repo/pulls//1", ":repo/pulls///"]) {
+      expect(check(path), path).toEqual(emptySegment);
+    }
+  });
+
+  test("a normal path and one trailing slash behave as before", () => {
+    expect(check(":repo/pulls")).toEqual({ ok: true, path: "/repos/o/r/pulls" });
+    expect(check(":repo/pulls/")).toEqual({ ok: true, path: "/repos/o/r/pulls/" });
+    expect(check(":repo/")).toEqual({ ok: true, path: "/repos/o/r/" });
+    expect(check("/:repo/pulls/12/commits")).toEqual({ ok: true, path: "/repos/o/r/pulls/12/commits" });
+  });
+
+  test("an empty segment never reaches GitHub", async () => {
+    const { provider, paths } = restFake([]);
+    for (const path of [":repo/actions//oidc/customization/sub", ":repo/git%2F%2Fblobs/abc", ":repo//pulls"]) {
+      expect(await get(provider, { path }), path).toEqual(emptySegment);
+    }
+    expect(paths).toEqual([]);
+  });
+});
+
+describe("checkGithubForgePath on copilot routes", () => {
+  const refused = credentialRefusal("copilot");
+
+  test("refuses the cloud agent configuration, the code review settings and anything under the repo's copilot route", () => {
+    for (const path of [
+      ":repo/copilot/cloud-agent/configuration", "repos/o/r/copilot/cloud-agent/configuration", ":repo/copilot/code-review/settings",
+      ":repo/copilot", ":repo/copilot/", ":repo/copilot/a/b/c/d", ":repo/copilot.json/x",
+    ]) {
+      expect(check(path), path).toEqual(refused);
+    }
+  });
+
+  test("refuses the copilot route hidden by case, a trailing slash, encoded letters or an encoded slash", () => {
+    for (const path of [
+      ":repo/COPILOT/cloud-agent/configuration", ":repo/CoPilot/Cloud-Agent/Configuration/", ":repo/copilot/cloud-agent/configuration/",
+      ":repo/%63opilot/cloud-agent/configuration", ":repo/%43%4F%50%49%4C%4F%54/cloud-agent/configuration",
+      ":repo/copilot%2Fcloud-agent%2Fconfiguration", "repos%2Fo%2Fr%2Fcopilot/cloud-agent/configuration",
+      "repos/%6F/%72/copilot/cloud-agent/configuration", "REPOS/O/R/COPILOT/code-review/settings",
+    ]) {
+      expect(check(path), path).toEqual(refused);
+    }
+  });
+
+  test("a query string or double encoding on the copilot route is refused before any segment is read", () => {
+    expect(check(":repo/copilot/cloud-agent/configuration?x=1")).toEqual({ ok: false, error: '"path" must be a plain API path; pass query values in "query"' });
+    expect(check(":repo/%2563opilot/cloud-agent/configuration")).toEqual({ ok: false, error: '"path" must not be percent-encoded more than once' });
+    expect(check(":repo/copilot%252Fcloud-agent")).toEqual({ ok: false, error: '"path" must not be percent-encoded more than once' });
+  });
+
+  test("refuses the copilot route of a repo that is itself named copilot", () => {
+    expect(checkGithubForgePath(":repo/copilot/cloud-agent/configuration", "o/copilot")).toEqual(refused);
+  });
+
+  test("copilot anywhere but the route segment after the repo is not refused", () => {
+    for (const path of [
+      ":repo/rules/branches/copilot/fix-1", ":repo/rules/branches/copilot%2Ffix-1", ":repo/branches/copilot/fix-1",
+      ":repo/branches/copilot%2Ffix-1", ":repo/compare/main...copilot/x", ":repo/commits/copilot%2Fx/status",
+      ":repo/git/ref/heads/copilot/fix-1", ":repo/contents/docs/copilot.md", ":repo/contents/copilot/x", ":repo/pulls/copilot",
+    ]) {
+      expect(check(path), path).toEqual({ ok: true, path: `/${path.replace(":repo", "repos/o/r")}` });
+    }
+    for (const project of ["o/copilot", "o/copilot.vim", "copilot/r"]) {
+      expect(checkGithubForgePath(":repo/pulls", project), project).toEqual({ ok: true, path: `/repos/${project}/pulls` });
+      expect(checkGithubForgePath(":repo/rules/branches/copilot/fix-1", project), project).toMatchObject({ ok: true });
+    }
+  });
+
+  test("a copilot route never reaches GitHub, with or without a query, and a copilot branch read does", async () => {
+    const { provider, paths } = restFake([new Response("{}", { status: 200 })]);
+    for (const path of [":repo/copilot/cloud-agent/configuration", ":repo/Copilot/", ":repo/%63opilot/code-review", ":repo/copilot?x=1"]) {
+      expect(await get(provider, { path }), path).toMatchObject({ ok: false });
+    }
+    expect(await get(provider, { path: ":repo/copilot/cloud-agent/configuration", query: { page: "1" } })).toEqual(refused);
+    expect(paths).toEqual([]);
+    expect(await get(provider, { path: ":repo/rules/branches/copilot/fix-1" })).toMatchObject({ ok: true });
+    expect(paths).toEqual(["/repos/o/r/rules/branches/copilot/fix-1"]);
   });
 });
 
