@@ -122,6 +122,9 @@ const ORIGIN_STRING_KEYS: ReadonlySet<string> = new Set(["paneId", "tabId", "run
     decide something, and a decision with no material is the bare form RT-177
     was opened for. */
 const EXEMPT_CONTEXT_KINDS: ReadonlySet<string> = new Set(["milestone", "pane-attention"]);
+// The board's sheet edits each draft in place; a pane form cannot, so these
+// are answered on the board only, whoever raised them.
+const BOARD_ONLY_KINDS: ReadonlySet<string> = new Set(["review-post", "respond-plan", "respond-post"]);
 
 const MISSING_CONTEXT_ERROR =
   "context is required for a human-owned gate: pass --context with the material the reader can decide from alone " +
@@ -788,19 +791,20 @@ export function createGateHandlers(
     const resolved = await resolveSubject({ subject: explicitSubject, sessionId });
     if (!resolved.ok) return { ok: false as const, error: resolved.error };
 
-    const presentation = gatePresentation({ paneId, sessionId, questions });
+    const kind = typeof payload?.kind === "string" && payload.kind.trim() ? payload.kind.trim() : "question";
+    const boardOnly = BOARD_ONLY_KINDS.has(kind);
+    const presentation = boardOnly ? "wait" : gatePresentation({ paneId, sessionId, questions });
     // Only when a form was otherwise POSSIBLE: a pane-less ask waits for its
     // own reason, and an advisory there would teach the wrong lesson. The
     // gate still opens either way -- an over-cap wait gate is legitimate
     // (remote cards render any option count) -- the caller just learns WHY
     // the in-pane form never appeared, which no skill prose reached.
-    const overCap = paneId && sessionId
+    const overCap = paneId && sessionId && !boardOnly
       ? questions.filter((q) => q.options.length > GATE_FORM_OPTION_CAP)
       : [];
 
     const context = typeof payload?.context === "string" ? payload.context : undefined;
 
-    const kind = typeof payload?.kind === "string" && payload.kind.trim() ? payload.kind.trim() : "question";
     const ownerIsHuman = deriveOwner(resolved.runId ? { runId: resolved.runId } : undefined, runSpawnedBy) === "human";
     if (ownerIsHuman && !EXEMPT_CONTEXT_KINDS.has(kind) && !context?.trim()) {
       return { ok: false as const, error: MISSING_CONTEXT_ERROR };
