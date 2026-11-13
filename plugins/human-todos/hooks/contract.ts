@@ -50,7 +50,7 @@ export function registerContract(on: On): void {
           paths: {
             type: 'array',
             items: { type: 'string' },
-            description: 'For kind image: one absolute path per image; Open opens them all in the default image app',
+            description: 'For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp, svg); Open opens them all in the default image app',
           },
           cwd: { type: 'string', description: 'For kind run: directory to run in; defaults to the session cwd' },
         },

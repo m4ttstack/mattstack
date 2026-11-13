@@ -13,7 +13,11 @@ test('checkKind names what each kind is missing', () => {
   expect(checkKind({ kind: 'image', title: 'x' })).toBe('kind image needs paths: one absolute path per image.')
   expect(checkKind({ kind: 'image', title: 'x', paths: [] })).toBe('kind image needs paths: one absolute path per image.')
   expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', 'b.png'] })).toBe('kind image needs absolute paths; b.png is not one.')
-  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', '/b.png'] })).toBeUndefined()
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', '/b.JPG'] })).toBeUndefined()
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', '/Applications/Calculator.app'] })).toBe(
+    'kind image opens image files only (png, jpg, jpeg, gif, webp, heic, heif, tif, tiff, bmp, svg); /Applications/Calculator.app is not one.',
+  )
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/x/.png'] })).toMatch(/is not one\.$/)
   expect(checkKind({ kind: 'bogus' as TodoKind, title: 'x' })).toBe('kind bogus is not one of task, run, terminal, link, image.')
 })
 

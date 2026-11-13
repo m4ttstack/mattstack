@@ -20,6 +20,8 @@ export function checkKind(input: AddInput): string | undefined {
     if (paths.length === 0) return 'kind image needs paths: one absolute path per image.'
     const relative = paths.find(p => typeof p !== 'string' || !p.startsWith('/'))
     if (relative !== undefined) return `kind image needs absolute paths; ${String(relative)} is not one.`
+    const other = paths.find(p => !isImageName(p))
+    if (other !== undefined) return `kind image opens image files only (${IMAGE_EXTENSIONS.join(', ')}); ${other} is not one.`
   }
   return undefined
 }
@@ -121,6 +123,14 @@ export function describe(list: readonly Todo[]): string {
       return `#${t.id} [${t.status}] ${t.title}${script}${images}`
     })
     .join('\n')
+}
+
+export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'tif', 'tiff', 'bmp', 'svg'] as const
+
+export function isImageName(path: string): boolean {
+  const name = fileName(path)
+  const dot = name.lastIndexOf('.')
+  return dot > 0 && (IMAGE_EXTENSIONS as readonly string[]).includes(name.slice(dot + 1).toLowerCase())
 }
 
 export function fileName(path: string): string {
