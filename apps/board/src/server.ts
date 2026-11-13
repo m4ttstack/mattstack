@@ -1487,11 +1487,12 @@ function refreshOwnerTeamsInBackground(mrs: BoardMR[]): void {
 let reReviewRequesting = false;
 let reReviewSnapshot: BoardMR[] | null = null;
 
-/** GitHub only: GitLab's own latch resolve is the whole ask there. One pass
-    at a time, once per fresh snapshot: /data.json serves the cached one on
-    every client poll, and a mismatched login is re-read on each pass. */
+/** GitHub only: GitLab's own latch resolve is the whole ask there. Writer
+    only, since a read-only board sharing the state root would send the same
+    ask again. One pass at a time, once per fresh snapshot: /data.json serves
+    the cached one on every client poll. */
 function sendReReviewRequestsInBackground(mrs: BoardMR[]): void {
-  if (config.forge.kind !== 'github' || reReviewRequesting) return;
+  if (config.forge.kind !== 'github' || !writer || reReviewRequesting) return;
   if (mrs === reReviewSnapshot) return;
   const self = forgeSelf.get();
   if (!self) return;

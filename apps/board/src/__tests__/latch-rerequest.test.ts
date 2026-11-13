@@ -6,9 +6,12 @@ import { repoIdentityField } from '../config.ts';
 import type { BoardMR } from '../data.ts';
 import type { ReviewerRequest } from '../latch/discussions.ts';
 import {
+  createReRequestHolds,
   LATCH_REREQUEST_NS,
   planReRequests,
+  REREQUEST_HOLD_MS,
   sendReReviewRequests,
+  type ReRequestDeps,
 } from '../latch/rerequest.ts';
 import { listKvValues, setKvValue } from '../state/kv-blob.ts';
 import { removeTempDbs, tempDb } from './latch-temp-db.ts';
@@ -92,13 +95,22 @@ describe('planReRequests', () => {
 
 type Answer = { ok: boolean; data?: unknown; error?: string };
 
-function fakeDaemon(opts: { login?: string; action?: Answer } = {}) {
+function fakeDaemon(
+  opts: {
+    login?: string;
+    action?: Answer;
+    actionFor?: Record<number, Answer>;
+  } = {}
+) {
   const calls: Array<{ verb: string; payload: Record<string, unknown> }> = [];
   const command = (async (verb: string, payload: Record<string, unknown>) => {
     calls.push({ verb, payload });
     if (verb === 'forge:self')
       return { ok: true, data: { username: opts.login ?? 'Ellie-Dev' } };
-    if (verb === 'mr:action') return opts.action ?? { ok: true };
+    if (verb === 'mr:action')
+      return (
+        opts.actionFor?.[payload.iid as number] ?? opts.action ?? { ok: true }
+      );
     return { ok: false, error: `unexpected verb ${verb}` };
   }) as never;
   const actions = () => calls.filter(c => c.verb === 'mr:action');
@@ -125,7 +137,8 @@ function run(
   mrs: BoardMR[],
   daemon: ReturnType<typeof fakeDaemon>,
   db: Database,
-  forge: 'github' | 'gitlab' = 'github'
+  forge: 'github' | 'gitlab' = 'github',
+  extra: Partial<ReRequestDeps> = {}
 ) {
   const lines: string[] = [];
   const done = sendReReviewRequests(mrs, {
@@ -134,6 +147,8 @@ function run(
     command: daemon.command,
     db,
     log: line => lines.push(line),
+    holds: createReRequestHolds(),
+    ...extra,
   });
   return done.then(() => lines);
 }
@@ -233,7 +248,7 @@ describe('sendReReviewRequests', () => {
     expect(keys(db)).toEqual([`${URL_A}|d1`]);
   });
 
-  test('a refused call writes nothing, logs one line, and retries next time', async () => {
+  test('a refused call writes nothing, logs one line, and holds its retry for an hour', async () => {
     const db = tempDb();
     const daemon = fakeDaemon({
       action: {
@@ -249,14 +264,69 @@ describe('sendReReviewRequests', () => {
         [{ username: 'ivasco', reviewState: 'COMMENTED' }]
       ),
     ];
-    const lines = await run(mrs, daemon, db);
+    let now = 1_000;
+    const extra = { holds: createReRequestHolds(), now: () => now };
+    const lines = await run(mrs, daemon, db, 'github', extra);
     expect(keys(db)).toEqual([]);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(URL_A);
     expect(lines[0]).toContain('ivasco');
     expect(lines[0]).toContain('422 not a collaborator');
-    await run(mrs, daemon, db);
+
+    now = 1_000 + REREQUEST_HOLD_MS - 1;
+    expect(await run(mrs, daemon, db, 'github', extra)).toEqual([]);
+    expect(daemon.actions()).toHaveLength(1);
+
+    now = 1_000 + REREQUEST_HOLD_MS;
+    await run(mrs, daemon, db, 'github', extra);
     expect(daemon.actions()).toHaveLength(2);
+    expect(keys(db)).toEqual([]);
+  });
+
+  test("a refusal on one PR does not hold another PR's send", async () => {
+    const db = tempDb();
+    const daemon = fakeDaemon({
+      actionFor: { 5: { ok: false, error: 'Error: 422 not a collaborator' } },
+    });
+    const reviewers = [{ username: 'ivasco', reviewState: 'COMMENTED' }];
+    const extra = { holds: createReRequestHolds(), now: () => 1_000 };
+    await run(
+      [
+        pr(URL_A, 5, [req('ivasco', 'd1', true)], reviewers),
+        pr(URL_B, 6, [req('ivasco', 'd2', true)], reviewers),
+      ],
+      daemon,
+      db,
+      'github',
+      extra
+    );
+    expect(daemon.actions().map(c => c.payload.iid)).toEqual([5, 6]);
+    expect(keys(db)).toEqual([`${URL_B}|d2`]);
+  });
+
+  test('a key another pass wrote during the identity check is not sent again', async () => {
+    const db = tempDb();
+    const daemon = fakeDaemon();
+    await run(
+      [
+        pr(
+          URL_A,
+          5,
+          [req('ivasco', 'd1', true)],
+          [{ username: 'ivasco', reviewState: 'COMMENTED' }]
+        ),
+      ],
+      daemon,
+      db,
+      'github',
+      {
+        verify: async () => {
+          setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: 1 }, db);
+          return true;
+        },
+      }
+    );
+    expect(daemon.actions()).toEqual([]);
   });
 
   test('an unanswered call writes the key, so it is never sent twice', async () => {
@@ -357,6 +427,31 @@ describe('sendReReviewRequests', () => {
     expect(lines).toEqual([
       `latch: skipped ${REPO}, the daemon signs in as ivasco but this team records ellie-dev`,
     ]);
+  });
+
+  test('a failed identity check holds that repo for an hour, with no call or log', async () => {
+    const db = tempDb();
+    const daemon = fakeDaemon({ login: 'ivasco' });
+    const mrs = [
+      pr(
+        URL_A,
+        5,
+        [req('ivasco', 'd1', true)],
+        [{ username: 'ivasco', reviewState: 'COMMENTED' }]
+      ),
+    ];
+    let now = 1_000;
+    const extra = { holds: createReRequestHolds(), now: () => now };
+    expect(await run(mrs, daemon, db, 'github', extra)).toHaveLength(1);
+    expect(daemon.calls).toHaveLength(1);
+
+    now = 1_000 + REREQUEST_HOLD_MS - 1;
+    expect(await run(mrs, daemon, db, 'github', extra)).toEqual([]);
+    expect(daemon.calls).toHaveLength(1);
+
+    now = 1_000 + REREQUEST_HOLD_MS;
+    await run(mrs, daemon, db, 'github', extra);
+    expect(daemon.calls.map(c => c.verb)).toEqual(['forge:self', 'forge:self']);
   });
 
   test('a GitLab board never runs the step', async () => {
