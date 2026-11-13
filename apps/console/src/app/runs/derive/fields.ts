@@ -68,7 +68,7 @@ export function storyFields(fields: RunFieldRow[]): RunFieldRow[] {
 
 const LABELS: Readonly<Record<string, string>> = {
   ci: 'CI',
-  mr: 'MR',
+  mr: 'MR or PR',
   shiptarget: 'Ship target',
 };
 

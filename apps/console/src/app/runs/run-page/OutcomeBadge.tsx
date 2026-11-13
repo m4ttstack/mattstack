@@ -5,6 +5,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { IconName } from '@mattstack/app-kit/icons';
 import type { RunOutcome } from '@mattstack/rt-client';
 
+import { forgeOf, mrRefText } from '../../forgeNoun';
 import { postedLabel } from '../derive/record';
 
 interface Pill {
@@ -57,53 +58,54 @@ const REVIEW_POSTS: {
   match: RegExp;
   color: MantineColor;
   icon: IconName;
-  label: (iid: number) => string;
+  label: (ref: string) => string;
 }[] = [
   {
     match: /^request/i,
     color: 'warn',
     icon: 'messageSquareDiff',
-    label: iid => `Requested changes on !${iid}`,
+    label: ref => `Requested changes on ${ref}`,
   },
   {
     match: /^approv/i,
     color: 'ok',
     icon: 'circleCheck',
-    label: iid => `Approved !${iid}`,
+    label: ref => `Approved ${ref}`,
   },
   {
     match: /^comment/i,
     color: 'accent',
     icon: 'messageSquare',
-    label: iid => `Commented on !${iid}`,
+    label: ref => `Commented on ${ref}`,
   },
 ];
 
 /** What a review posted on the MR: "Requested changes on !412", "Approved
     !406", "Commented on !399"; a disposition it does not know reads as it
     was posted. */
-function reviewedPill({
-  iid,
-  posted,
-}: NonNullable<RunOutcome['reviewed']>): Pill {
+function reviewedPill(
+  { iid, url, posted }: NonNullable<RunOutcome['reviewed']>,
+  repo: string | undefined
+): Pill {
+  const ref = mrRefText(forgeOf(url, repo), iid);
   const post = posted ? REVIEW_POSTS.find(p => p.match.test(posted)) : null;
   return {
     layer: 'primary',
     id: 'reviewed',
     layers: { icon: 'i', label: 'l' },
     ...(post
-      ? { color: post.color, icon: post.icon, label: post.label(iid) }
+      ? { color: post.color, icon: post.icon, label: post.label(ref) }
       : {
           color: 'accent',
           icon: 'messageSquare',
           label: posted
-            ? `Reviewed !${iid} · ${postedLabel(posted)}`
-            : `Reviewed !${iid}`,
+            ? `Reviewed ${ref} · ${postedLabel(posted)}`
+            : `Reviewed ${ref}`,
         }),
   };
 }
 
-function primaryPill(outcome: RunOutcome): Pill | null {
+function primaryPill(outcome: RunOutcome, repo?: string): Pill | null {
   const base = { layer: 'primary' } as const;
   if (outcome.status === 'abandoned') {
     return {
@@ -124,16 +126,17 @@ function primaryPill(outcome: RunOutcome): Pill | null {
     };
   }
   if (outcome.status !== 'done') return null;
-  if (outcome.reviewed) return reviewedPill(outcome.reviewed);
+  if (outcome.reviewed) return reviewedPill(outcome.reviewed, repo);
   const mr = outcome.mr;
   if (!mr || mr.state === 'unknown') return null;
+  const forge = forgeOf(mr.url, repo);
   if (mr.state === 'merged') {
     return {
       ...base,
       id: 'merged',
       color: 'ok',
       icon: 'gitMerge',
-      label: `merged !${mr.iid}`,
+      label: `merged ${mrRefText(forge, mr.iid)}`,
     };
   }
   return {
@@ -141,7 +144,7 @@ function primaryPill(outcome: RunOutcome): Pill | null {
     id: mr.state === 'opened' ? 'open' : 'closed',
     color: mr.state === 'opened' ? 'accent' : 'gray',
     icon: 'gitMerge',
-    label: `!${mr.iid} ${mr.state === 'opened' ? 'open' : 'closed'}`,
+    label: `${mrRefText(forge, mr.iid)} ${mr.state === 'opened' ? 'open' : 'closed'}`,
   };
 }
 
@@ -167,8 +170,15 @@ function badge({ id, layer, color, icon, label, layers }: Pill): ReactNode {
 /** How a finished run ended: the MR it merged and its CI, a review it posted,
     or abandoned and failed. A run still running, one with no MR, and an MR in
     an `unknown` state draw nothing, since the forge has not answered yet. */
-export function OutcomeBadge({ outcome }: { outcome: RunOutcome }) {
-  const primary = primaryPill(outcome);
+export function OutcomeBadge({
+  outcome,
+  repo,
+}: {
+  outcome: RunOutcome;
+  /** The run's repo identity: names the forge when the outcome has no url. */
+  repo?: string;
+}) {
+  const primary = primaryPill(outcome, repo);
   if (!primary) return null;
   const ci = MR_PILLS.has(primary.id) ? ciPill(outcome.ci) : null;
   return (

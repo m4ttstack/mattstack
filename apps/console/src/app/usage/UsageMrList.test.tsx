@@ -4,7 +4,7 @@ import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { UsageBilling, UsageTotals } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
-const { CostCell } = await import('./UsageMrList');
+const { CostCell, UsageMrList } = await import('./UsageMrList');
 
 const totals = (cost: number): UsageTotals => ({
   input: 0,
@@ -73,5 +73,35 @@ describe('CostCell', () => {
       plan: null,
       unknown: null,
     });
+  });
+});
+
+describe('UsageMrList', () => {
+  const table = (forge?: 'github' | 'gitlab' | null) => {
+    const { container } = renderWithProviders(
+      <UsageMrList
+        rows={[]}
+        enrichment={() => undefined}
+        order={{ sort: 'cost', dir: 'desc' }}
+        onSort={() => {}}
+        resetKey=""
+        showRepo
+        forge={forge}
+      />
+    );
+    const t = container.querySelector('[role="table"]')!;
+    return [
+      t.getAttribute('aria-label'),
+      t.querySelector('[role="columnheader"]')?.textContent,
+    ];
+  };
+
+  it('names both forges over a list that may mix them', () => {
+    expect(table()).toEqual(['MRs and PRs', 'MR or PR']);
+  });
+
+  it('names the forge of a list narrowed to one repo', () => {
+    expect(table('github')).toEqual(['PRs', 'PR']);
+    expect(table('gitlab')).toEqual(['MRs', 'MR']);
   });
 });
