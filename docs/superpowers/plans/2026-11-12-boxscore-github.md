@@ -200,7 +200,7 @@
 **Files:**
 - Modify: `apps/boxscore/src/shared/forge.ts`, `apps/boxscore/src/shared/types.ts`
 - Modify: `apps/boxscore/src/server/metrics/evidence.ts` (`EvidenceContext`, `mrUrl`)
-- Modify: `apps/boxscore/src/server/leaderboard.ts` (both responses), `apps/boxscore/src/server/fixture/index.ts`, `apps/boxscore/src/server/fixture/design-evidence.ts`
+- Modify: `apps/boxscore/src/server/leaderboard.ts` (both responses, `ColdCacheError`), `apps/boxscore/src/server/routes.ts` (cold response), `apps/boxscore/src/server/fixture/index.ts`, `apps/boxscore/src/server/fixture/design-evidence.ts`
 - Test: `apps/boxscore/test/forge.test.ts`, `apps/boxscore/test/evidence.test.ts`, `apps/boxscore/test/leaderboard.test.ts`, `apps/boxscore/test/fixture.test.ts` (add cases)
 
 **Interfaces:**
@@ -216,11 +216,11 @@
   - `forge.test.ts`: `changeRef('github', 12) === '#12'`, `changeRef(undefined, 12) === '!12'`.
   - `evidence.test.ts`: on GitHub, PR-keyed cells read `#<iid>`; on GitLab, `!<iid>` as today.
   - `leaderboard.test.ts`: a cold GitHub team's `ColdCacheError` response carries `forge: 'github'`; `getUserDetail` on GitHub passes `forge` into the evidence (its merged rows link to `/pull/`).
-  - `fixture.test.ts`: with `BOXSCORE_FIXTURE_FORGE=github`, `fixtureLeaderboard(false).forge === 'github'`, `fixtureColdCache().forge === 'github'`, `baseUrl === 'https://github.com'`, every evidence `href` that pointed at a merge request matches the GitHub pull shape, and the reviewer evidence includes `dependabot[bot]` marked as a bot; without it, the fixture output is unchanged (`forge === 'gitlab'`, links as today, no `[bot]` name).
+  - `fixture.test.ts`: with `BOXSCORE_FIXTURE_FORGE=github`, `fixtureLeaderboard(false).forge === 'github'`, `fixtureColdCache().forge === 'github'`, `baseUrl === 'https://github.com'`, every evidence `href` that pointed at a merge request matches the GitHub pull shape; without it, the fixture output is unchanged (`forge === 'gitlab'`, links as today).
 
 - [ ] **Step 2: Run** the four files. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** `mrUrl` in `evidence.ts` calls `changeUrl(ctx.forge, baseUrl, ...)` and every `` `!${m.iid}` `` cell calls `changeRef(ctx.forge, m.iid)`; any other server-built change-request `href` does the same (`rg -n "merge_requests|'!'|\`!\\$" src/server`). `getUserDetail` passes `forge: env.forge` into `buildUserEvidence`'s ctx. The leaderboard, detail and cold-cache responses set `forge: env.forge ?? 'gitlab'` (the cold response is built where `ColdCacheError` is answered). The fixture reads `fixtureForge()` for `forge`, `baseUrl`, its evidence links and refs, and on GitHub adds one `dependabot[bot]` reviewer row with its bot flag.
+- [ ] **Step 3: Implement.** `mrUrl` in `evidence.ts` calls `changeUrl(ctx.forge, baseUrl, ...)` and every `` `!${m.iid}` `` cell calls `changeRef(ctx.forge, m.iid)`; any other server-built change-request `href` does the same (`rg -n "merge_requests|'!'|\`!\\$" src/server`). `getUserDetail` passes `forge: env.forge` into `buildUserEvidence`'s ctx. The leaderboard, detail and cold-cache responses set `forge: env.forge ?? 'gitlab'` (the cold response is built where `ColdCacheError` is answered). The fixture reads `fixtureForge()` for `forge`, `baseUrl`, its evidence links and refs. `ColdCacheError` (`server/leaderboard.ts`) gains `forge` the way it carries `scope`, and `server/routes.ts` copies it into the `ColdCacheResponse`.
 
 - [ ] **Step 4: Run** the four files. Expected: PASS.
 
@@ -240,7 +240,7 @@
 - [ ] **Step 1: Write the failing tests.**
   - `parseChangeUrl('https://github.com/o/r/pull/12', 'github')` gives `{ projectPath: 'o/r', iid: 12 }`; with `/files`, `?x=1` and `#c` suffixes too; `https://github.com/o/r/issues/12` gives null; a GitLab MR URL with `'github'` gives null.
   - `linear-resolve.test.ts`: `credits a GitHub PR attachment`: an issue with attachment `{ url: 'https://github.com/O/R/pull/5', sourceType: 'github' }`, a source MR `o/r#5` by `ada`, projects `['o/r']`, forge github; the issue is credited to `ada`. And `takes the attachment whatever its sourceType` (sourceType `null`). And `a gitlab team ignores GitHub attachments`.
-  - `bots.test.ts`: `dependabot[bot]` and `github-actions[bot]` are bots; `ada` and a GitLab `project_5_bot` still behave as today; `BUILTIN_BOT_PATTERN_LABELS` includes `*[bot]`.
+  - `bots.test.ts`: `scanSuspectedBots` lists `dependabot[bot]` from a stored note on a GitHub store; `dependabot[bot]` and `github-actions[bot]` are bots; `ada` and a GitLab `project_5_bot` still behave as today; `BUILTIN_BOT_PATTERN_LABELS` includes `*[bot]`.
 
 - [ ] **Step 2: Run** the three files. Expected: FAIL.
 
@@ -280,7 +280,7 @@
 
 - [ ] **Step 4: Run** `bun run boxscore:test`. Expected: PASS, no existing test edited.
 
-- [ ] **Step 5: Render and look.** Start the fixture server twice (`BOXSCORE_FIXTURE=design` and `BOXSCORE_FIXTURE=design BOXSCORE_FIXTURE_FORGE=github`, under an isolated HOME, per `scripts/parity/run.md`), open the leaderboard and one person's detail in Fast Browser, and screenshot both forges in light and dark. Check: GitHub copy reads PR/GitHub everywhere, links go to `github.com/.../pull/N`, `[bot]` names render as bots, nothing overflows; GitLab screens match today. Write down anything that reads wrong and fix it before committing.
+- [ ] **Step 5: Render and look.** Start the fixture server twice (`BOXSCORE_FIXTURE=design` and `BOXSCORE_FIXTURE=design BOXSCORE_FIXTURE_FORGE=github`, under an isolated HOME, per `scripts/parity/run.md`), open the leaderboard and one person's detail in Fast Browser, and screenshot both forges in light and dark. Check: GitHub copy reads PR/GitHub everywhere, links go to `github.com/.../pull/N`, no `[bot]` name appears in any reviewer evidence, nothing overflows; GitLab screens match today. Write down anything that reads wrong and fix it before committing.
 
 - [ ] **Step 6: Commit** `boxscore: forge-aware copy (BOXSCR-5)`.
 

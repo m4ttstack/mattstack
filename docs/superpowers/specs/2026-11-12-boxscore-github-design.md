@@ -309,7 +309,7 @@ GitLab wording stays byte for byte what it is today. Copy follows the
 
 `BOXSCORE_FIXTURE_FORGE=github` (with `BOXSCORE_FIXTURE=design`) makes the
 fixture responses carry `forge: 'github'`, `baseUrl: 'https://github.com'`,
-GitHub links and `[bot]` names among the bots. The UI change is rendered
+GitHub links and GitHub copy. Boxscore's UI shows no bot list (bots surface only through the CLI's suspected-bot scan), so bot exclusion is proven by tests, not the fixture. The UI change is rendered
 in Fast Browser against that fixture in both colour schemes, and against the
 GitLab fixture to confirm it is unchanged.
 
