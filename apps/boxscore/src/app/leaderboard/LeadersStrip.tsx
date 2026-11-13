@@ -6,6 +6,7 @@ import {
   type MetricGroup,
 } from '../../shared/metrics';
 import type { LeaderboardResponse } from '../../shared/types';
+import { useForgeText } from '../forge/forge';
 import { userDelta } from '../model/delta';
 import { HEADLINE, hueVar } from '../model/groups';
 import { initials } from '../model/labels';
@@ -33,6 +34,7 @@ function LeaderTile({
   trend: boolean;
   last: boolean;
 }) {
+  const t = useForgeText();
   const key = HEADLINE[group];
   const d = descriptor(key);
   const leader = leaderOf(data.users, key);
@@ -55,7 +57,7 @@ function LeaderTile({
       <div className={classes.tileHead}>
         <GroupTag group={group} variant="tile" />
         <span className={classes.tileMetric} data-parity="Metric">
-          {d.label}
+          {t(d.label)}
         </span>
       </div>
       <div className={classes.valueRow}>

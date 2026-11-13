@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Progress } from '@mattstack/app-kit/core';
 import { useGrow } from '@mattstack/app-kit/hooks';
 import { formatNumber } from '../../../shared/metrics';
+import { useForgeText } from '../../forge/forge';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import panels from './panels.module.css';
@@ -84,6 +85,7 @@ function Balance({
 }
 
 export function ReciprocityEvidence({ ev }: EvidenceProps) {
+  const t = useForgeText();
   const [all, setAll] = useState(false);
   const given = ev.facts?.given ?? 0;
   const reviewers = ev.rows.map(r => ({
@@ -147,7 +149,7 @@ export function ReciprocityEvidence({ ev }: EvidenceProps) {
             className={`${classes.t} ${classes.num} ${panels.revValue}`}
             data-parity="n"
           >
-            {`${formatNumber(r.count)} ${r.count === 1 ? 'MR' : 'MRs'}`}
+            {t(`${formatNumber(r.count)} ${r.count === 1 ? 'MR' : 'MRs'}`)}
           </span>
         </div>
       ))}

@@ -1,3 +1,4 @@
+import { forgeText, type Forge } from '../shared/forge.js';
 import type {
   LeaderboardResponse,
   LeaderboardWarning,
@@ -7,7 +8,13 @@ import type {
   UserDetailResponse,
 } from '../shared/types.js';
 import { getCurrentUser } from './config/current-user.js';
-import { ConfigError, readSettings, type Env } from './config/index.js';
+import { readGitHubToken } from './config/github-token.js';
+import {
+  ConfigError,
+  readSettings,
+  type BoxscoreSettings,
+  type Env,
+} from './config/index.js';
 import { readSecrets } from './config/secrets.js';
 import { readTeamMembership } from './config/team.js';
 import { resolveViewer } from './config/viewer.js';
@@ -15,7 +22,7 @@ import { buildUserEvidence } from './metrics/evidence.js';
 import { computeSnapshot, type Snapshot } from './metrics/snapshot.js';
 import { buildResponse, type BuildContext } from './metrics/trend.js';
 import { runRefresh } from './refresh/index.js';
-import { makeProvider } from './source/index.js';
+import { makeProvider, sourceFor, storedLoginCanon } from './source/index.js';
 import { ForgeHostChangedError, getStore } from './store/index.js';
 import type { FetchResult } from './store/model.js';
 import {
@@ -40,7 +47,8 @@ export class ColdCacheError extends Error {
 
   constructor(
     message: string,
-    readonly scope: Scope
+    readonly scope: Scope,
+    readonly forge?: Forge
   ) {
     super(message);
   }
@@ -89,6 +97,7 @@ function gitlabNotConnected(declaredHost: string): string {
 /** Assembles the fetchers' connection envelope from settings + daemon secrets (spec 5.4). */
 async function resolveEnv(): Promise<Env> {
   const s = readSettings();
+  if (s.forge === 'github') return resolveGitHubEnv(s);
   if (!s.baseUrl) throw new ConfigError(gitlabNotConnected(s.declaredHost));
   const secrets = await readSecrets();
   if (secrets.warning) console.warn(`[config] ${secrets.warning}`);
@@ -104,12 +113,37 @@ async function resolveEnv(): Promise<Env> {
   };
 }
 
+/** readSecrets() supplies linearApiKey only; its gitlabToken must never reach GitHub. */
+async function resolveGitHubEnv(s: BoxscoreSettings): Promise<Env> {
+  if (!s.baseUrl) {
+    throw new ConfigError(
+      `GitHub is not connected: boxscore reads GitHub only on github.com, and the team names ${s.declaredHost}.`
+    );
+  }
+  resolveScope();
+  const github = await readGitHubToken(s.projects);
+  if (github.token === null) {
+    throw new ConfigError(`GitHub token is not available: ${github.reason}`);
+  }
+  const secrets = await readSecrets();
+  if (secrets.warning) console.warn(`[config] ${secrets.warning}`);
+  return {
+    forge: 'github',
+    baseUrl: s.baseUrl,
+    token: github.token,
+    linearApiKey: secrets.linearApiKey,
+  };
+}
+
 /** Settings-driven, projects-only (spec 5.4; groupPath scoping was retired with config.ts). */
 function resolveScope(): Scope {
-  const projects = readSettings().projects;
+  const { projects, forge } = readSettings();
   if (projects.length === 0) {
     throw new ConfigError(
-      'boxscore.projects is empty: add at least one "group/project" (rt settings).'
+      forgeText(
+        'boxscore.projects is empty: add at least one "group/project" (rt settings).',
+        forge
+      )
     );
   }
   return { type: 'projects', projectPaths: projects };
@@ -149,7 +183,10 @@ async function buildLeaderboard(
   const store = getStore();
   if (store.adoptForgeHost(env.baseUrl)) {
     console.warn(
-      `[store] the confirmed GitLab host is now ${env.baseUrl}; cleared the previous host's MRs, pipelines, events, scan watermarks and Linear credit`
+      forgeText(
+        `[store] the confirmed GitLab host is now ${env.baseUrl}; cleared the previous host's MRs, pipelines, events, scan watermarks and Linear credit`,
+        env.forge
+      )
     );
   }
   const pw = priorWindow(opts.window);
@@ -160,7 +197,12 @@ async function buildLeaderboard(
   const warnings: LeaderboardWarning[] = [];
 
   // Resolved before the refresh so an unknown viewAs 404s without fetching anything.
-  const who = await getCurrentUser(env.baseUrl, env.token);
+  const who = await getCurrentUser(
+    env.baseUrl,
+    env.token,
+    undefined,
+    env.forge
+  );
   const { viewer, previewing } = applyViewAs(
     resolveViewer({
       currentUser: who?.username ?? null,
@@ -175,11 +217,13 @@ async function buildLeaderboard(
     // Spec 7.3: the refresh covers the base window (90 days, 180 with trend), so switching
     // presets never refetches; only a range the base cannot cover is fetched as itself.
     const base = baseWindow(opts.trend, new Date());
+    const provider = makeProvider(env);
     const refreshed = await runRefresh({
       store,
-      provider: makeProvider(env),
+      provider,
       settings,
       env,
+      source: sourceFor(env, provider, settings),
       window: covers(base, read) ? base : read,
       signal: opts.signal,
       onProgress: withWindow('current', opts.onProgress),
@@ -199,14 +243,18 @@ async function buildLeaderboard(
   ) {
     throw new ColdCacheError(
       `no data back to ${read.start} for ${settings.projects.join(', ')}`,
-      scope
+      scope,
+      env.forge
     );
   }
 
   if (!who && !previewing) {
     warnings.push({
       code: 'user_lookup_failed',
-      message: 'GitLab /user lookup failed; no row is highlighted as you',
+      message: forgeText(
+        'GitLab /user lookup failed; no row is highlighted as you',
+        env.forge
+      ),
     });
   }
 
@@ -219,9 +267,14 @@ async function buildLeaderboard(
         : [viewer.username];
 
   const rosterUsernames = settings.roster.map(r => r.username);
-  const current = buildFetchResult(store, opts.window, rosterUsernames);
+  const canon = storedLoginCanon(env, settings);
+  const current = buildFetchResult(store, opts.window, rosterUsernames, canon);
   const priorSnapshot: Snapshot | null = opts.trend
-    ? snapshotFor(buildFetchResult(store, pw, rosterUsernames), pw, compared)
+    ? snapshotFor(
+        buildFetchResult(store, pw, rosterUsernames, canon),
+        pw,
+        compared
+      )
     : null;
 
   opts.onProgress?.({
@@ -242,7 +295,7 @@ async function buildLeaderboard(
     generatedAt: new Date().toISOString(),
     // No refresh ran on this request: everything served came from data already in the store.
     fromCache: !opts.refresh,
-    identities: storedIdentities(store, rosterUsernames),
+    identities: storedIdentities(store, rosterUsernames, canon),
     warnings,
   };
 
@@ -257,6 +310,7 @@ async function buildLeaderboard(
         viewer
       ),
       previewing,
+      forge: env.forge ?? 'gitlab',
     },
     current,
     env,
@@ -280,7 +334,9 @@ export async function getUserDetail(
   const { response, current, env } = await buildLeaderboard(opts);
   if (!canSeeUser(response.viewer, opts.user)) {
     throw new ViewerForbiddenError(
-      response.viewer.username === null ? LOCKED_MESSAGE : SELF_ONLY_MESSAGE
+      response.viewer.username === null
+        ? forgeText(LOCKED_MESSAGE, env.forge)
+        : SELF_ONLY_MESSAGE
     );
   }
   const want = opts.user.toLowerCase();
@@ -298,6 +354,7 @@ export async function getUserDetail(
   const evidence = buildUserEvidence(current, userRow.username, {
     window: opts.window,
     baseUrl: env.baseUrl,
+    forge: env.forge,
     ...evidenceOpts,
   });
 
@@ -306,6 +363,7 @@ export async function getUserDetail(
     priorWindow: response.priorWindow,
     hasTrend: response.hasTrend,
     baseUrl: response.baseUrl,
+    forge: response.forge,
     currentUser: response.currentUser,
     viewer: response.viewer,
     previewing: response.previewing,

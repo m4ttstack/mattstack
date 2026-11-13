@@ -1,3 +1,4 @@
+import { forgeText } from '../shared/forge.js';
 import {
   formatValue as fmt,
   metricRank,
@@ -46,13 +47,17 @@ export function standingsLines(res: LeaderboardResponse): string[] {
         return self ? label : `${metricRank(u.metrics, d)}.${label}`;
       })
       .join('  ');
-    out.push(`  ${d.label.padEnd(16)} ${line || '(no data)'}`);
+    out.push(
+      `  ${forgeText(d.label, res.forge).padEnd(16)} ${line || '(no data)'}`
+    );
   }
 
   if (!self) {
     out.push('\nLEADERS:');
     for (const d of METRICS)
-      out.push(`  ${d.label.padEnd(16)} ${res.leaders[d.key] ?? '...'}`);
+      out.push(
+        `  ${forgeText(d.label, res.forge).padEnd(16)} ${res.leaders[d.key] ?? '...'}`
+      );
   }
 
   if (res.warnings.length) {
@@ -90,7 +95,11 @@ export function standingsOutcome(
   validate: boolean
 ): CliOutcome {
   if (isLocked(res))
-    return { stdout: [], stderr: [LOCKED_MESSAGE], exitCode: 1 };
+    return {
+      stdout: [],
+      stderr: [forgeText(LOCKED_MESSAGE, res.forge)],
+      exitCode: 1,
+    };
   const stdout = standingsLines(res);
   if (!validate) return { stdout, stderr: [], exitCode: 0 };
   if (res.viewer.role === 'self')

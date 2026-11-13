@@ -366,6 +366,123 @@ describe('buildFetchResult: roster scope', () => {
   });
 });
 
+describe('buildFetchResult: login canon', () => {
+  const CANON_OPTS = {
+    users: ['alice', 'bob'],
+    sizeBand: { tooSmall: 10, tooLarge: 400 },
+    doneStates: [] as string[],
+    extraBotPatterns: [] as string[],
+    excludeFilePatterns: [] as string[],
+    ignoredMrs: [] as string[],
+  };
+
+  function seedUppercase() {
+    const s = getStore();
+    s.upsertIndexRows([row({ iid: 1, authorUsername: 'ALICE' })]);
+    s.upsertMrMetrics([
+      metrics({
+        projectPath: 'acme/app',
+        iid: 1,
+        approvedByUsernames: ['Bob'],
+        notes: [
+          {
+            authorUsername: 'Bob',
+            createdAt: '2026-07-09T02:00:00.000Z',
+            system: false,
+            inline: true,
+          },
+          {
+            authorUsername: null,
+            createdAt: '2026-07-09T03:00:00.000Z',
+            system: false,
+            inline: false,
+          },
+        ],
+      }),
+    ]);
+    s.upsertPipelines([
+      {
+        id: 'github:run:1',
+        projectPath: 'acme/app',
+        username: 'ALICE',
+        status: 'success',
+        createdAt: '2026-07-09T01:00:00.000Z',
+      },
+    ]);
+    s.upsertPushEvents([
+      {
+        username: 'ALICE',
+        createdAt: '2026-07-09T01:00:00.000Z',
+        repositoryId: 'github:acme/app',
+      },
+    ]);
+    s.upsertLinearIssues([
+      {
+        id: 'L1',
+        identifier: 'ENG-1',
+        title: 't',
+        url: 'https://linear.app/x/issue/ENG-1',
+        creditedUser: 'ALICE',
+        linkedMrs: [{ iid: 1, projectPath: 'acme/app', via: 'attachment' }],
+        closedAt: '2026-07-09T12:00:00.000Z',
+        stateType: 'completed',
+        stateName: 'Done',
+      },
+    ]);
+    return s;
+  }
+
+  it('maps every stored login through the canon, so a roster spelling that differs in case still matches', () => {
+    const s = seedUppercase();
+    const canon = (login: string) =>
+      ({ alice: 'alice', bob: 'bob' })[login.toLowerCase()] ?? login;
+    const fetched = buildFetchResult(s, W_7D, ['alice', 'bob'], canon);
+
+    const m = fetched.mrs[0]!;
+    expect(m.authorUsername).toBe('alice');
+    expect(m.approvedByUsernames).toEqual(['bob']);
+    expect(m.notes.map(n => n.authorUsername)).toEqual(['bob', null]);
+    expect(fetched.pipelines.map(p => p.username)).toEqual(['alice']);
+    expect(fetched.pushEvents.map(e => e.username)).toEqual(['alice']);
+    expect(fetched.linearIssues.map(i => i.creditedUser)).toEqual(['alice']);
+
+    const snap = computeSnapshot(fetched, { window: W_7D, ...CANON_OPTS });
+    expect(snap.byUser.alice!.mrsMerged).toBe(1);
+    expect(snap.byUser.alice!.codingDays).toBe(1);
+    expect(snap.byUser.bob!.mrsReviewed).toBe(1);
+  });
+
+  it('with a canon, one commit stored under two spellings counts once', () => {
+    const s = getStore();
+    const at = '2026-07-09T01:00:00.000Z';
+    s.upsertPushEvents([
+      { username: 'ALICE', createdAt: at, repositoryId: 'github:acme/app' },
+      { username: 'alice', createdAt: at, repositoryId: 'github:acme/app' },
+      { username: 'Alice', createdAt: at, repositoryId: 'github:acme/other' },
+    ]);
+    const canon = (login: string) =>
+      login.toLowerCase() === 'alice' ? 'alice' : login;
+    const fetched = buildFetchResult(s, W_7D, ['alice'], canon);
+    expect(fetched.pushEvents).toEqual([
+      { username: 'alice', createdAt: at },
+      { username: 'alice', createdAt: at },
+    ]);
+  });
+
+  it('without a canon, stored logins match the roster exactly (GitLab)', () => {
+    const s = seedUppercase();
+    const fetched = buildFetchResult(s, W_7D, ['alice', 'bob']);
+
+    const m = fetched.mrs[0]!;
+    expect(m.authorUsername).toBe('ALICE');
+    expect(m.approvedByUsernames).toEqual(['Bob']);
+    expect(m.notes.map(n => n.authorUsername)).toEqual(['Bob', null]);
+    expect(fetched.pipelines).toEqual([]);
+    expect(fetched.pushEvents).toEqual([]);
+    expect(fetched.linearIssues.map(i => i.creditedUser)).toEqual(['ALICE']);
+  });
+});
+
 describe('buildFetchResult: approvalsAvailable', () => {
   it('is the constant true even when every joined metrics row has no approvers, since it is a tier capability flag, not a window content check', () => {
     const s = getStore();
@@ -412,6 +529,38 @@ describe('storedIdentities', () => {
       alice: { username: 'alice', name: 'Alice', resolved: true, userId: 7 },
       bob: { username: 'bob', name: null, resolved: false },
     });
+  });
+
+  const identity = (username: string, name: string) => ({
+    username,
+    name,
+    resolved: true,
+    userId: 7,
+    fetchedAt: '2026-07-01T00:00:00.000Z',
+  });
+  const lowerCanon = (login: string) =>
+    ['alice', 'bob'].includes(login.toLowerCase())
+      ? login.toLowerCase()
+      : login;
+
+  it('with a canon, an identity stored under another case keys onto the roster spelling', () => {
+    const s = getStore();
+    s.upsertIdentities([identity('ALICE', 'Alice'), identity('Carol', 'C')]);
+    expect(storedIdentities(s, ['alice', 'bob'], lowerCanon)).toEqual({
+      alice: { username: 'alice', name: 'Alice', resolved: true, userId: 7 },
+    });
+  });
+
+  it('with a canon, the row stored under the roster spelling wins', () => {
+    const s = getStore();
+    s.upsertIdentities([identity('ALICE', 'old'), identity('alice', 'new')]);
+    expect(storedIdentities(s, ['alice'], lowerCanon).alice!.name).toBe('new');
+  });
+
+  it('without a canon, an identity stored under another case is absent (GitLab)', () => {
+    const s = getStore();
+    s.upsertIdentities([identity('ALICE', 'Alice')]);
+    expect(storedIdentities(s, ['alice'])).toEqual({});
   });
 });
 

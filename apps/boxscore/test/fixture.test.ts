@@ -268,3 +268,68 @@ describe('viewer scenarios', () => {
     delete process.env.BOXSCORE_FIXTURE;
   });
 });
+
+describe('design fixture forge', () => {
+  const GITHUB_PULL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/;
+
+  afterEach(() => {
+    delete process.env.BOXSCORE_FIXTURE_FORGE;
+  });
+
+  it('serves github links, refs and base url when asked', async () => {
+    process.env.BOXSCORE_FIXTURE_FORGE = 'github';
+    const { fixtureColdCache, fixtureDetail, fixtureLeaderboard } =
+      await import('../src/server/fixture');
+    const board = fixtureLeaderboard(false);
+    expect(board.forge).toBe('github');
+    expect(board.baseUrl).toBe('https://github.com');
+    expect(fixtureColdCache().forge).toBe('github');
+
+    const detail = fixtureDetail('srivera', false) as UserDetailResponse;
+    expect(detail.forge).toBe('github');
+    expect(detail.baseUrl).toBe('https://github.com');
+    const hrefs: string[] = [];
+    for (const m of Object.values(detail.evidence))
+      for (const r of m.rows) {
+        if (r.href && !r.href.includes('linear')) hrefs.push(r.href);
+        hrefs.push(...(r.mrHrefs ?? []));
+        expect(r.cells[0]).not.toMatch(/^!\d/);
+      }
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const h of hrefs) expect(h).toMatch(GITHUB_PULL);
+    expect(detail.evidence.mrsMerged!.rows[0]!.cells[0]).toMatch(/^#\d+$/);
+  });
+
+  it('says PR and GitHub in every github evidence string and the refresh label', async () => {
+    process.env.BOXSCORE_FIXTURE_FORGE = 'github';
+    const { fixtureDetail, fixtureRefresh } =
+      await import('../src/server/fixture');
+    const gitlabWords = /\bMRs?\b|GitLab/;
+    const detail = fixtureDetail('srivera', false) as UserDetailResponse;
+    for (const ev of Object.values(detail.evidence)) {
+      const strings = [
+        ...ev.columns,
+        ev.summary ?? '',
+        ...ev.rows.flatMap(r => r.cells),
+      ];
+      for (const s of strings) expect(s).not.toMatch(gitlabWords);
+    }
+    const refresh: RefreshStatusResponse = fixtureRefresh();
+    expect(refresh.progress!.label).not.toMatch(gitlabWords);
+  });
+
+  it('is unchanged on gitlab', async () => {
+    const { fixtureColdCache, fixtureDetail, fixtureLeaderboard } =
+      await import('../src/server/fixture');
+    const board = fixtureLeaderboard(false);
+    expect(board.forge).toBe('gitlab');
+    expect(board.baseUrl).toBe('https://gitlab.example.com');
+    expect(fixtureColdCache().forge).toBeUndefined();
+
+    const detail = fixtureDetail('srivera', false) as UserDetailResponse;
+    expect(detail.forge).toBe('gitlab');
+    const first = detail.evidence.mrsMerged!.rows[0]!;
+    expect(first.cells[0]).toMatch(/^!\d+$/);
+    expect(first.href).toMatch(/\/-\/merge_requests\/\d+$/);
+  });
+});

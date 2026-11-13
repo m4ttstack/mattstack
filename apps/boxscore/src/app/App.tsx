@@ -9,6 +9,7 @@ import { useLocation } from 'wouter';
 import { MattstackShell, NotFoundPage } from '@mattstack/app-kit/app';
 import { Alert, PageShell, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
+import { forgeText } from '../shared/forge';
 import type {
   ColdCacheResponse,
   LeaderboardResponse,
@@ -18,6 +19,7 @@ import { LockedPage } from './access/LockedPage';
 import { NotAvailablePage } from './access/NotAvailablePage';
 import { isColdCache, isNotFound, type RangeSelection } from './api';
 import { DetailPage, FIRST_STAT } from './detail/DetailPage';
+import { ForgeContext } from './forge/forge';
 import { useLeaderboard } from './hooks/useLeaderboard';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useRefreshClock } from './hooks/useRefreshClock';
@@ -201,6 +203,7 @@ function AppShell() {
       : null;
 
   const firstLoad = !data && cold !== null;
+  const forge = data?.forge ?? cold?.forge ?? 'gitlab';
   const shownWindow = data?.window ?? cold?.window ?? null;
   const shownScope = data?.scope ?? cold?.scope ?? null;
 
@@ -350,52 +353,56 @@ function AppShell() {
     : locked || foreign
       ? ['boxscore', 'Not available']
       : isPerson
-        ? ['boxscore', personName!, descriptor(stat).label]
+        ? ['boxscore', personName!, forgeText(descriptor(stat).label, forge)]
         : [
             'boxscore',
             route.name === 'not-found' ? 'Not found' : 'Leaderboard',
           ];
 
   return (
-    <MattstackShell name="boxscore" rail={false} app="boxscore">
-      <MattstackShell.Header
-        actions={
-          <>
-            <TopbarActions
-              scope={shownScope ? scopeLabel(shownScope) : null}
-              freshness={freshness}
-              action={refreshJob.refreshing ? 'cancel' : 'refresh'}
-              onAction={
-                refreshJob.refreshing
-                  ? cancelRefresh
-                  : () => void refreshJob.start(selection)
-              }
-            />
-            <SettingsLink />
-          </>
-        }
-      >
-        <TopbarCrumbs crumbs={crumbs} />
-      </MattstackShell.Header>
-      <PageShell>
-        <PageShell.Main>
-          <PageShell.Content contentContainerProps={{ maw: 1680, my: 0, p: 0 }}>
-            <div className={classes.content}>
-              {data?.previewing && own !== null && (
-                <PreviewBanner
-                  username={own}
-                  name={data.users.find(u => u.username === own)?.name ?? own}
-                />
-              )}
-              <PreviewContext.Provider
-                value={data?.previewing ? (viewAs ?? null) : null}
-              >
-                {page}
-              </PreviewContext.Provider>
-            </div>
-          </PageShell.Content>
-        </PageShell.Main>
-      </PageShell>
-    </MattstackShell>
+    <ForgeContext.Provider value={forge}>
+      <MattstackShell name="boxscore" rail={false} app="boxscore">
+        <MattstackShell.Header
+          actions={
+            <>
+              <TopbarActions
+                scope={shownScope ? scopeLabel(shownScope) : null}
+                freshness={freshness}
+                action={refreshJob.refreshing ? 'cancel' : 'refresh'}
+                onAction={
+                  refreshJob.refreshing
+                    ? cancelRefresh
+                    : () => void refreshJob.start(selection)
+                }
+              />
+              <SettingsLink />
+            </>
+          }
+        >
+          <TopbarCrumbs crumbs={crumbs} />
+        </MattstackShell.Header>
+        <PageShell>
+          <PageShell.Main>
+            <PageShell.Content
+              contentContainerProps={{ maw: 1680, my: 0, p: 0 }}
+            >
+              <div className={classes.content}>
+                {data?.previewing && own !== null && (
+                  <PreviewBanner
+                    username={own}
+                    name={data.users.find(u => u.username === own)?.name ?? own}
+                  />
+                )}
+                <PreviewContext.Provider
+                  value={data?.previewing ? (viewAs ?? null) : null}
+                >
+                  {page}
+                </PreviewContext.Provider>
+              </div>
+            </PageShell.Content>
+          </PageShell.Main>
+        </PageShell>
+      </MattstackShell>
+    </ForgeContext.Provider>
   );
 }

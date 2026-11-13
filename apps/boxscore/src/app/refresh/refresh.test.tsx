@@ -1,14 +1,28 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { Router } from 'wouter';
+import { memoryLocation } from 'wouter/memory-location';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
-import type { RefreshProgress } from '../../shared/types';
+import type { ColdCacheResponse, RefreshProgress } from '../../shared/types';
 
 import '../icons';
 
+import { App } from '../App';
 import { RefreshStatus } from './RefreshStatus';
 import { SkeletonStandings } from './SkeletonStandings';
+
+const { useLeaderboard, useUserDetail, useRefreshJob, useRefreshClock } =
+  vi.hoisted(() => ({
+    useLeaderboard: vi.fn(),
+    useUserDetail: vi.fn(),
+    useRefreshJob: vi.fn(),
+    useRefreshClock: vi.fn(),
+  }));
+vi.mock('../hooks/useLeaderboard', () => ({ useLeaderboard, useUserDetail }));
+vi.mock('../hooks/useRefreshJob', () => ({ useRefreshJob }));
+vi.mock('../hooks/useRefreshClock', () => ({ useRefreshClock }));
 
 const PROGRESS: RefreshProgress = {
   phase: 'mrs-detail',
@@ -170,5 +184,44 @@ describe('RefreshStatus', () => {
     expect(container.querySelectorAll('[data-state="waiting"]')).toHaveLength(
       7
     );
+  });
+});
+
+describe('RefreshStatus on a cold github board', () => {
+  const COLD_GITHUB: ColdCacheResponse = {
+    cached: false,
+    window: {
+      start: '2026-08-30T00:00:00.000Z',
+      end: '2026-09-29T00:00:00.000Z',
+      key: '30d',
+    },
+    scope: { type: 'projects', projectPaths: ['acme/web-app'] },
+    forge: 'github',
+  };
+
+  it('says PR and GitHub from the first refresh, stall copy included', () => {
+    useLeaderboard.mockReturnValue({
+      data: COLD_GITHUB,
+      error: null,
+      isFetching: false,
+    });
+    useRefreshJob.mockReturnValue({
+      jobId: 'j1',
+      refreshing: true,
+      progress: { ...PROGRESS, label: 'Fetching PR details' },
+      start: vi.fn(),
+      cancel: vi.fn(),
+    });
+    useRefreshClock.mockReturnValue({ elapsedMs: 40_000, idleMs: 40_000 });
+    const location = memoryLocation({ path: '/', record: true });
+    renderWithProviders(
+      <Router hook={location.hook}>
+        <App />
+      </Router>
+    );
+    const status = screen.getByRole('region', { name: 'Refresh progress' });
+    expect(status.textContent).not.toMatch(/\bMRs?\b|GitLab/);
+    expect(status).toHaveTextContent('still waiting on GitHub');
+    expect(within(status).getByText('PR details')).toBeInTheDocument();
   });
 });
