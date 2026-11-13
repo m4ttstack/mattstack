@@ -164,6 +164,9 @@ function hostOf(baseUrl: string): string {
 
 const FORGE_HOST_KEY = 'forge_host';
 
+/** store_meta keys tying a configured project path to the id its GitLab push events carry. */
+const PROJECT_ID_PREFIX = 'project_id:';
+
 /** Thrown once the confirmed host is no longer the one a refresh or request started with. */
 export class ForgeHostChangedError extends Error {
   constructor(baseUrl: string) {
@@ -346,6 +349,30 @@ function buildStore() {
         )
         .all(...keys) as IndexRowRecord[];
       return rows.map(toIndexRow);
+    },
+
+    /**
+     * Push events carry a project id, not a path. Ids stay recorded after a project leaves
+     * boxscore.projects, so a read can still tell that project's pushes apart.
+     */
+    recordProjectIds(
+      entries: readonly { projectPath: string; id: string }[]
+    ): void {
+      const tx = db.transaction(() => {
+        for (const e of entries)
+          stmtSetMeta.run(`${PROJECT_ID_PREFIX}${e.projectPath}`, e.id);
+      });
+      tx();
+    },
+
+    /** Every recorded project id, keyed by project path. */
+    projectIds(): Map<string, string> {
+      const rows = db
+        .query('SELECT key, value FROM store_meta WHERE key GLOB ?')
+        .all(`${PROJECT_ID_PREFIX}*`) as { key: string; value: string }[];
+      return new Map(
+        rows.map(r => [r.key.slice(PROJECT_ID_PREFIX.length), r.value])
+      );
     },
 
     /** The incremental watermark: when the project's last successful index scan started. */
@@ -642,6 +669,7 @@ const FORGE_WRITES = [
   'upsertPushEvents',
   'upsertIdentities',
   'upsertLinearIssues',
+  'recordProjectIds',
 ] as const;
 
 /**

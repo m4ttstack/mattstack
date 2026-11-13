@@ -185,7 +185,10 @@ export async function runRefresh(
   const rosterSet = new Set(rosterUsernames);
   const canon = storedLoginCanon(env, settings);
   const toRoster = canon ?? ((login: string) => login);
-  const indexRows = store.indexRowsUpdatedWithin(window.start, window.end);
+  const configured = new Set(settings.projects);
+  const indexRows = store
+    .indexRowsUpdatedWithin(window.start, window.end)
+    .filter(r => configured.has(r.projectPath));
   const eligibleRows = indexRows.filter(
     r =>
       (r.authorUsername != null && rosterSet.has(toRoster(r.authorUsername))) ||
@@ -305,6 +308,7 @@ export async function runRefresh(
         const ref = await fetchProjectRef(gitlab, projectPath, { signal });
         if (ref) {
           scopedProjectIds.add(ref.id);
+          store.recordProjectIds([{ projectPath, id: ref.id }]);
         } else {
           warnings.push({
             code: 'project_id_failed',
@@ -375,7 +379,8 @@ export async function runRefresh(
     store,
     window,
     rosterUsernames,
-    canon
+    canon,
+    settings.projects
   ).mrs.filter(
     m =>
       eligibleKeySet.has(mrKey(m.projectPath, m.iid)) &&

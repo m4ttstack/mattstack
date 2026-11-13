@@ -268,10 +268,16 @@ async function buildLeaderboard(
 
   const rosterUsernames = settings.roster.map(r => r.username);
   const canon = storedLoginCanon(env, settings);
-  const current = buildFetchResult(store, opts.window, rosterUsernames, canon);
+  const current = buildFetchResult(
+    store,
+    opts.window,
+    rosterUsernames,
+    canon,
+    settings.projects
+  );
   const priorSnapshot: Snapshot | null = opts.trend
     ? snapshotFor(
-        buildFetchResult(store, pw, rosterUsernames, canon),
+        buildFetchResult(store, pw, rosterUsernames, canon, settings.projects),
         pw,
         compared
       )
