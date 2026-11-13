@@ -360,6 +360,7 @@ describe("lintScriptText", () => {
     const hits = lintScriptText("gh pr view 3\ngh api repos/x\ngh auth status\n", "s.sh", SCRIPT_RULES);
     expect(hits.map((h) => [h.line, h.tool])).toEqual([[1, null], [2, null]]);
     expect(formatHit(hits[0]!)).toContain("no MCP tool covers it yet");
+    expect(formatHit(hits[0]!)).toContain("the mr_* tools cover GitHub PRs, but a script cannot call them");
   });
   test("the kept-on-Bash list still wins", () => {
     expect(lintScriptText("rt gate wait abc\n", "s.sh", SCRIPT_RULES)).toEqual([]);
