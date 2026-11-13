@@ -73,9 +73,9 @@ test('every pipeline id is the glance 0.33 stable GitHub id', () => {
       lowest ? `github:run:${lowest}` : `github:checks:${row.webUrl}`
     );
   }
-  expect(ids.some(({ pipeline }) => pipeline.id.startsWith('github:run:'))).toBe(
-    true
-  );
+  expect(
+    ids.some(({ pipeline }) => pipeline.id.startsWith('github:run:'))
+  ).toBe(true);
   expect(
     ids.some(({ pipeline }) => pipeline.id.startsWith('github:checks:'))
   ).toBe(true);
