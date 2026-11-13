@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GitHubProvider } from "@mattstack/glance";
 import {
-  FORGE_GET_MAX_BYTES, GITHUB_REFUSED_BLOBS, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_ROUTES, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, forgeGet, type RestProvider,
+  FORGE_GET_MAX_BYTES, GITHUB_REFUSED_BLOBS, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_ROUTES, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, dotSkeleton, foldsToSeparator, forgeGet, wordSkeleton, type RestProvider,
 } from "../forge-reads.ts";
 import { createMRHandlers } from "../handlers/mr.ts";
 import { fakeStore } from "./fake-cache-store.ts";
@@ -456,5 +456,31 @@ describe("checkGithubForgePath C1 controls", () => {
     for (const path of [":repo/hooks%C2%85", ":repo/actions/secrets%C2%85", ":repo/contents/a%C2%85b", ":repo/pulls%C2%9F"]) {
       expect(check(path), path).toEqual(plain);
     }
+  });
+});
+
+describe("wordSkeleton and foldsToSeparator", () => {
+  test("wordSkeleton folds blanks, invisibles, marks and compatibility forms", () => {
+    for (const s of ["secrets ", "sec\u200Brets", "\uFF53\uFF45\uFF43\uFF52\uFF45\uFF54\uFF53", "secrets\u0301", "s\u034Fecrets", "\u017Fecrets", "SECRETS", "secrets\u3164"]) {
+      expect(wordSkeleton(s), JSON.stringify(s)).toBe("secrets");
+    }
+    expect(wordSkeleton("\u212Aeys")).toBe("keys");
+    expect(wordSkeleton("good first issue")).toBe("goodfirstissue");
+    expect(wordSkeleton("secrets .json")).toBe("secrets.json");
+    expect(wordSkeleton("actions\uFF0Foidc")).toBe("actions/oidc");
+    expect(wordSkeleton("actions\uFF3Coidc")).toBe("actions\\oidc");
+    expect(wordSkeleton("\u200B")).toBe("");
+    expect(wordSkeleton(" ")).toBe("");
+    expect(wordSkeleton("\u0455ecrets")).not.toBe("secrets");
+  });
+
+  test("dotSkeleton keeps case but folds dots", () => {
+    for (const s of [".. ", "\uFF0E\uFF0E", "..\uFEFF", "..\u200B"]) expect(dotSkeleton(s), JSON.stringify(s)).toBe("..");
+    expect(dotSkeleton("\u2025\uFF0Fhooks")).toBe("../hooks");
+  });
+
+  test("foldsToSeparator is true only when a code point folds to ; % ? # or a backslash", () => {
+    for (const s of ["x\uFF1B", "\u037E", "a\uFF05b", "a\uFF1Fb", "a\uFF03b", "..\uFF3Chooks", "\uFE68"]) expect(foldsToSeparator(s), JSON.stringify(s)).toBe(true);
+    for (const s of ["docs/C#.md", "what?.md", "a;b", "caf\u00E9", "a\uFF0Fb"]) expect(foldsToSeparator(s), JSON.stringify(s)).toBe(false);
   });
 });

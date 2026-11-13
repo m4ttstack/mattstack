@@ -155,6 +155,25 @@ function plainApiPath(path: unknown, expand: (rest: string) => string): PlainPat
 /** GitLab routes an optional format suffix (variables.json) to the same endpoint, so a suffixed word counts as the word. */
 const namesWord = (segment: string | undefined, word: string): boolean => segment === word || (segment?.startsWith(`${word}.`) ?? false);
 
+const SKELETON_STRIP = /[\p{White_Space}\p{Cf}\p{M}\p{Default_Ignorable_Code_Point}]/gu;
+
+/** GitHub names an endpoint by its letters, so compatibility forms, marks, blanks and invisibles must not hide a word. */
+export function wordSkeleton(segment: string): string {
+  return dotSkeleton(segment).toUpperCase().toLowerCase();
+}
+
+export function dotSkeleton(segment: string): string {
+  return segment.normalize("NFKD").replace(SKELETON_STRIP, "");
+}
+
+/** Per code point: NFKD of the whole string would also fold a legitimate trailing mark into a neighbour. */
+export function foldsToSeparator(decoded: string): boolean {
+  return [...decoded].some((ch) => {
+    const folded = ch.normalize("NFKD");
+    return folded !== ch && /[;%?#\\]/.test(folded);
+  });
+}
+
 export function checkForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
   const plain = plainApiPath(path, (rest) => rest.replace(/^api\/v4\//, ""));
   if (!plain.ok) return plain;
