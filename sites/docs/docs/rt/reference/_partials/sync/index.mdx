@@ -6,7 +6,7 @@ When git fails over HTTPS and rt holds a token for that host, rt tries once more
 
 - rt never asks for a password when it can sign in with its own token.
 - rt sends its token only to github.com, gitlab.com and your configured GitLab host, and never over `http://`.
-- An SSH failure names the key that failed. When switching the clone to HTTPS would work, it offers `rt git auth --https`.
+- An SSH failure says whether no key is loaded or the forge refused yours. When switching the clone to HTTPS would work, it offers `rt git auth --https`.
 - The stack check hands rt's token to `glab` and `gh` for the host it checks, pinned to origin's repo. For any other host, those tools use their own login.
 
 `rt sync all`, `rt git rebase` and `rt git reset` sign in the same way.

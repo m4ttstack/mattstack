@@ -14,11 +14,11 @@ rt git auth ~/Documents/GitHub/widgets
 rt git auth --https
 ```
 
-rt asks before it changes anything. At a terminal it shows the plan and waits for a yes. With no terminal, pass `--yes`, or rt refuses and prints the command to run. rt changes only the clone you name, never your global git config.
+rt asks before it changes anything. At a terminal it shows the plan and waits for a yes. With no terminal, pass `--yes`, or rt refuses and prints the command to run (`--json` returns the `needs-consent` code instead). rt changes only the clone you name, never your global git config.
 
 **What it writes.** Two local config values for `credential.https://<host>.helper`: an empty value, then rt's helper. The empty value makes git skip its other helpers, like the keychain, for that host in this clone. rt's token is never written to config, a URL or a log.
 
-**`--https`.** Switches an SSH origin to HTTPS, and a push URL that pointed at the same repo, then writes the two values. Without it, rt leaves an SSH clone alone and names the command that would switch it.
+**`--https`.** Switches an SSH origin to HTTPS, and a push URL that pointed at the same repo, then writes the two values if they are not there yet. Without it, rt leaves an SSH clone alone and names the command that would switch it.
 
 **`--check`.** Lists every registered clone and changes nothing:
 
