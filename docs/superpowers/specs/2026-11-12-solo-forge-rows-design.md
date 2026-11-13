@@ -85,8 +85,7 @@ through `rt:ui-copy`):
 
 - GitHub: "Works without this. Connect GitHub to open PRs from rt."
 - GitLab: "Works without this. Connect GitLab to open MRs from rt. On your own
-  GitLab server, connect from a terminal with rt setup gitlab connect --host
-  <host>."
+  GitLab server, run rt setup gitlab connect --host <host> in a terminal."
 
 The GitLab row is the existing `genericRow` path: Connect with a token field;
 Create token links to gitlab.com, or to the confirmed host when there is one.

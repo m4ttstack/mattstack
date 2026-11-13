@@ -20,7 +20,7 @@
 - Stage named files only. Commit after each task with the `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer.
 - Exact copy (use verbatim):
   - `SOLO_GITHUB_NOTE` = `Works without this. Connect GitHub to open PRs from rt.`
-  - `SOLO_GITLAB_NOTE` = `Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, connect from a terminal with rt setup gitlab connect --host <host>.`
+  - `SOLO_GITLAB_NOTE` = `Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, run rt setup gitlab connect --host <host> in a terminal.`
   - connect screen GitHub subtext = `Optional. Lets mattstack open PRs`
   - connect screen GitLab subtext = `Optional. Lets mattstack open MRs`
   - connect screen GitLab hint (detail while no token) = `On your own GitLab server? Connect from a terminal with rt setup gitlab connect --host <host>`

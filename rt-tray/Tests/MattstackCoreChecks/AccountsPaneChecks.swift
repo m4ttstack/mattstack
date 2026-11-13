@@ -25,7 +25,7 @@ private func soloForgePlan() -> Plan {
                          recheck: .onChange)
     let gitlab = PlanRow(id: "account.gitlab", kind: .account, title: "GitLab",
                          why: "Lets rt open MRs, check pipelines, and read project metadata on GitLab.", required: false,
-                         optionalNote: "Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, connect from a terminal with rt setup gitlab connect --host <host>.",
+                         optionalNote: "Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, run rt setup gitlab connect --host <host> in a terminal.",
                          status: .missing, detail: "No GitLab account connected yet",
                          action: RowAction(type: .connect, label: "Connect", integration: "gitlab",
                                            fields: [ActionField(name: "token", label: "GitLab token", secret: true, hint: "api")]),

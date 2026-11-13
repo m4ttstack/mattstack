@@ -484,7 +484,7 @@ async function accountRowForSafe(p: Probes, entry: DeclaredEntry, team: TeamSnap
 
 export const SOLO_GITHUB_NOTE = "Works without this. Connect GitHub to open PRs from rt.";
 export const SOLO_GITLAB_NOTE =
-  "Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, connect from a terminal with rt setup gitlab connect --host <host>.";
+  "Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, run rt setup gitlab connect --host <host> in a terminal.";
 
 export const SLACK_APP_MISSING = "The team has no Slack app yet";
 export const SLACK_APP_ACTION: Action = {
