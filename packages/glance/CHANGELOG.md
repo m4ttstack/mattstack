@@ -1,5 +1,18 @@
 # @mattstack/glance
 
+## 0.33.2
+
+### Patch Changes
+
+- `GitHubProvider.createFileComment(projectPath, mrIid, body)` posts a
+  file-level review thread on the PR's first changed file (REST
+  `subject_type: 'file'`, at the head commit), so a caller gets a resolvable
+  thread with no line anchor. It reads the head sha and one page of files,
+  then posts once through `forgeWrite`, and returns
+  `{discussionId: 'gh-review-thread-<id>', noteId, path}`, the ids
+  `fetchMRDiscussions` already serves for that thread. A PR with no changed
+  files gets null and nothing is posted. GitHub only; GitLab is unchanged.
+
 ## 0.33.1
 
 ### Patch Changes
