@@ -157,7 +157,7 @@ describe("reposRegister", () => {
   test("a register of a done, off or skipped clone prints no note", async () => {
     for (const state of ["done", "off", "skipped"] as const) {
       const repoPath = makeTempRepo();
-      const deps = { ...testDeps(), cloneState: async () => cloneState({ state, next: undefined }) };
+      const deps = { ...testDeps(), cloneState: async () => cloneState({ state, next: "rt git auth /x" }) };
       const { lines } = await human(() => reposRegister([repoPath], {}, deps));
       expect(lines).toHaveLength(1);
     }
