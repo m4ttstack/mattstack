@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import { Modal } from '@mattstack/tui-kit';
-import { mrRef, onGitHub } from '../../mr-ref.ts';
+import { mrRef } from '../../mr-ref.ts';
 import type { BoardMRWithReview, DraftInfo } from '../types.ts';
 import { cleanTitle } from './format.ts';
 
@@ -30,22 +30,37 @@ function DraftModal({
   // second sends. Any failure disarms so a retry restates intent.
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState<'post' | 'dismiss' | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<'failed' | 'unanswered' | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
   const act = async (action: 'post' | 'dismiss') => {
     setBusy(action);
-    setFailed(false);
+    setFailed(null);
+    setRefusal(null);
     try {
       const res = await fetch('/drafts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ mrUrl: mr.webUrl, kind: draft.kind, action }),
       });
-      if (!res.ok) throw new Error(String(res.status));
+      if (!res.ok) {
+        setBusy(null);
+        setArmed(false);
+        setFailed(res.status === 504 ? 'unanswered' : 'failed');
+        if (res.status !== 504) {
+          const body = (await res.json().catch(() => null)) as {
+            reason?: unknown;
+          } | null;
+          if (typeof body?.reason === 'string' && body.reason) {
+            setRefusal(body.reason);
+          }
+        }
+        return;
+      }
       onResolved(action === 'post' ? 'posted' : 'dismissed');
     } catch {
       setBusy(null);
       setArmed(false);
-      setFailed(true);
+      setFailed('failed');
     }
   };
   return (
@@ -63,8 +78,16 @@ function DraftModal({
       <pre className="tui-draft-body">{draft.body}</pre>
       <div className="tui-draft-actions">
         {failed && (
-          <span className="tui-draft-error">
-            action failed — nothing was sent, try again
+          <span
+            className={
+              failed === 'unanswered' ? 'tui-draft-note' : 'tui-draft-error'
+            }
+          >
+            {failed === 'unanswered'
+              ? 'no answer; the note may have posted, check the PR'
+              : refusal
+                ? `couldn't post: ${refusal}`
+                : 'action failed; nothing was sent, try again'}
           </span>
         )}
         {local ? (
@@ -94,7 +117,7 @@ function DraftModal({
               >
                 {busy === 'dismiss' ? 'dismissing…' : 'dismiss'}
               </button>
-              {onGitHub(mr) ? null : canPost ? (
+              {canPost ? (
                 <button
                   className="tui-draft-act tui-draft-act-post"
                   disabled={busy !== null}

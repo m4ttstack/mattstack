@@ -95,6 +95,25 @@ test('respond and doctor gates are read-only on someone else\'s MR and on an "al
   }
 });
 
+test('a GitHub gate is read-only in PR words', () => {
+  const pr = 'https://github.com/acme/webapp/pull/88';
+  const ghGate = { ...gate('respond-plan'), subject: `mr:${pr}` };
+  const ghMine = {
+    ...mine,
+    webUrl: pr,
+    provider: 'github',
+  } as BoardMRWithReview;
+  expect(gateReadOnlyReason(ghGate, ghMine, null)).toBe(
+    'Set your seat in board settings to answer gates on your own PRs.'
+  );
+  expect(gateReadOnlyReason(ghGate, undefined, 'rmarlow')).toBe(
+    "Only the PR's author can answer this. You're viewing it read-only."
+  );
+  expect(gateReadOnlyReason(gate('respond-plan'), undefined, 'rmarlow')).toBe(
+    "Only the MR's author can answer this. You're viewing it read-only."
+  );
+});
+
 test("a review or stage gate stays answerable on someone else's MR", () => {
   expect(gateReadOnlyReason(gate('review-post'), theirs, 'rmarlow')).toBeNull();
   expect(gateReadOnlyReason(gate('ship'), theirs, 'rmarlow')).toBeNull();

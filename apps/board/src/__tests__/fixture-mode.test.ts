@@ -81,8 +81,10 @@ test('fixture mode serves canned endpoints and refuses POSTs', async () => {
   const data = (await (await fetch(`${board.origin}/data.json`)).json()) as {
     mrs: unknown[];
     fetchedAt: number;
+    seatUnverified: boolean;
   };
   expect(data.fetchedAt).toBe(1755600000000);
+  expect(data.seatUnverified).toBe(false);
   expect(data.mrs.length).toBe(1);
   const disc = await fetch(
     `${board.origin}/discussions?repo=x&iid=1&author=matt`

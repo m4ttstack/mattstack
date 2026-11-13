@@ -1,7 +1,9 @@
 /** A GitHub team's board: it boots the real board, lists the team's PRs with
-    their gates from the daemon store, and refuses the GitLab-only writes
-    with one sentence before anything reaches the daemon or a forge. The
-    env keeps a GitLab token set, so no refusal here leans on a missing one. */
+    their gates from the daemon store, and sends its own PRs' writes through
+    daemon verbs. The env keeps a GitLab token set, yet a GitHub team never
+    reads it, so no write here may lean on one. The board is alice through
+    the team record while the memory identity says zed, so a GitHub team
+    never answers with the memory one. */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -107,7 +109,10 @@ writeFileSync(
       forge: { provider: 'github', host: 'github.test' },
     },
     'board.projects': ['o/r'],
-    'mattstack.roster': [{ username: 'alice' }, { username: 'bob' }],
+    'mattstack.roster': [
+      { username: 'alice', teams: ['web'] },
+      { username: 'bob', teams: ['web'] },
+    ],
     'mattstack.directory': {
       teams: {
         web: { slack: { channels: [{ name: 'code-review', kind: 'review' }] } },
@@ -135,18 +140,42 @@ writeFileSync(
   JSON.stringify({ 'board.cwds': { review: home } })
 );
 
+const teamRecordDir = join(home, '.mattstack', 'rt', 'teams');
+mkdirSync(teamRecordDir, { recursive: true });
+writeFileSync(
+  join(teamRecordDir, 'testteam.json'),
+  JSON.stringify({ forgeUsername: 'alice' })
+);
+
 const dbPath = join(home, 'state.db');
 const db = openStateDb(dbPath);
 writeMemory(
   {
     ...readMemory(db),
-    identity: { username: 'alice', fetchedAt: Date.now() },
+    identity: { username: 'zed', fetchedAt: Date.now() },
   },
   db
 );
 
-const prs = [fakePr(7, ALICE), fakePr(20, BOB)];
-const daemonSeen: string[] = [];
+const prs = [
+  fakePr(7, ALICE),
+  fakePr(8, ALICE),
+  fakePr(9, ALICE),
+  fakePr(10, ALICE),
+  fakePr(11, ALICE),
+  fakePr(20, BOB),
+];
+const writes: Array<{ cmd: string; body: Record<string, unknown> }> = [];
+
+const MERGE_ANSWERS: Record<number, unknown> = {
+  7: { ok: true },
+  8: { ok: true, data: { queued: { position: 2, state: 'QUEUED' } } },
+  9: {
+    ok: false,
+    error: 'Error: mergePullRequest failed: 405 Pull Request is not mergeable',
+  },
+  10: { ok: false, error: 'rt daemon unreachable at /x (timed out)' },
+};
 const rtDir = join(home, '.mattstack', 'rt');
 mkdirSync(rtDir, { recursive: true });
 let daemon: ReturnType<typeof Bun.serve> | undefined;
@@ -157,7 +186,6 @@ beforeAll(() => {
       const cmd = new URL(req.url).pathname.slice(1);
       const body =
         req.method === 'POST' ? await req.json().catch(() => null) : null;
-      daemonSeen.push(cmd);
       if (cmd === 'project-mrs:read') {
         const byId: Record<string, unknown> = {};
         for (const pr of prs)
@@ -180,6 +208,31 @@ beforeAll(() => {
           data: { gates: prefix === 'mr:' ? [reviewGate] : [], cursor: 0 },
         });
       }
+      if (cmd === 'mr:action' || cmd === 'mr:comment') {
+        const write = (body ?? {}) as Record<string, unknown>;
+        writes.push({ cmd, body: write });
+        if (cmd === 'mr:comment' && write.iid === 11)
+          return Response.json({
+            ok: false,
+            error: 'Error: createComment failed: 422 x',
+          });
+        if (cmd === 'mr:comment')
+          return Response.json({
+            ok: true,
+            data: {
+              noteId: 555,
+              discussionId: null,
+              resolvable: false,
+              url: 'u',
+              mrUrl: 'm',
+            },
+          });
+        if (write.action === 'merge')
+          return Response.json(MERGE_ANSWERS[write.iid as number]);
+        return Response.json({ ok: true });
+      }
+      if (cmd === 'mr:get')
+        return Response.json({ ok: true, data: { mr: { state: 'opened' } } });
       return Response.json({ ok: false, error: 'not implemented' });
     },
   });
@@ -206,11 +259,13 @@ afterAll(() => {
 const base = () => `http://127.0.0.1:${server.port}`;
 
 async function post(path: string, body: unknown): Promise<Response> {
-  return fetch(`${base()}${path}`, {
+  const res = await fetch(`${base()}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
+  expect(await res.clone().text()).not.toContain('gitlab token not configured');
+  return res;
 }
 
 const held = (iid: number) =>
@@ -221,19 +276,6 @@ const held = (iid: number) =>
     1000,
     db
   );
-
-const READS = new Set([
-  'project-mrs:read',
-  'gate:list',
-  'events:head',
-  'discussions:read',
-  'chat:slack-avatars',
-  'reconciler:status',
-  'runs:list',
-  'runs:get',
-  'secrets:read',
-]);
-const isRead = (cmd: string) => READS.has(cmd);
 
 type Row = {
   webUrl: string;
@@ -248,6 +290,13 @@ describe('a GitHub team', () => {
     expect(await res.text()).toBe('ok');
   });
 
+  test('/data.json names the board forge', async () => {
+    const data = (await (await fetch(`${base()}/data.json`)).json()) as {
+      forge?: string;
+    };
+    expect(data.forge).toBe('github');
+  });
+
   test('/data.json lists the GitHub PRs with their gate', async () => {
     let rows: Row[] = [];
     const deadline = Date.now() + 10_000;
@@ -259,7 +308,9 @@ describe('a GitHub team', () => {
       if (rows.find(r => r.webUrl === prUrl(20))?.gates.length) break;
       await Bun.sleep(200);
     }
-    expect(rows.map(r => r.webUrl).sort()).toEqual([prUrl(20), prUrl(7)]);
+    expect(rows.map(r => r.webUrl).sort()).toEqual(
+      [prUrl(7), prUrl(8), prUrl(9), prUrl(10), prUrl(11), prUrl(20)].sort()
+    );
     expect(rows.every(r => r.provider === 'github')).toBe(true);
     expect(
       rows.find(r => r.webUrl === prUrl(20))?.gates.map(g => g.gateId)
@@ -267,20 +318,183 @@ describe('a GitHub team', () => {
     expect(rows.find(r => r.webUrl === prUrl(7))?.gates).toEqual([]);
   }, 15_000);
 
-  test('merge, draft and held-draft post refuse a GitHub PR', async () => {
-    held(7);
-    const daemonBefore = daemonSeen.length;
-    const responses = await Promise.all([
-      post('/mr/action', { mrUrl: prUrl(7), iid: 7, action: 'merge' }),
-      post('/draft', { mrUrl: prUrl(7), iid: 7, draft: true }),
-      post('/drafts', { mrUrl: prUrl(7), kind: 'ci-note', action: 'post' }),
-    ]);
-    for (const res of responses) {
-      expect(res.status).toBe(400);
-      expect(await res.text()).toBe('Not available on GitHub yet');
+  async function postRead(path: string, body: unknown) {
+    const res = await post(path, body);
+    return { status: res.status, text: await res.text() };
+  }
+  const merge = (iid: number) =>
+    postRead('/mr/action', { mrUrl: prUrl(iid), iid, action: 'merge' });
+  const writesSince = (from: number) => writes.slice(from);
+
+  test('merge on an own PR goes through mr:action', async () => {
+    const from = writes.length;
+    const res = await merge(7);
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.text)).toEqual({ ok: true });
+    const [sent] = writesSince(from);
+    expect(sent?.cmd).toBe('mr:action');
+    expect(sent?.body).toMatchObject({ iid: 7, action: 'merge', args: [] });
+    expect(typeof sent?.body.repoName).toBe('string');
+    expect(sent?.body.repoName).not.toBe('');
+  }, 15_000);
+
+  test('a queued merge answers mergeQueued', async () => {
+    const res = await merge(8);
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.text)).toEqual({
+      ok: true,
+      mergeQueued: { position: 2, state: 'QUEUED' },
+    });
+  }, 15_000);
+
+  test('a refused merge answers 409 with the forge reason', async () => {
+    const res = await merge(9);
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.text)).toEqual({
+      reason: '405 Pull Request is not mergeable',
+    });
+  }, 15_000);
+
+  test('an unanswered merge answers 504', async () => {
+    const res = await merge(10);
+    expect(res.status).toBe(504);
+    expect(JSON.parse(res.text)).toEqual({
+      reason: 'the merge may still land',
+    });
+  }, 15_000);
+
+  test('auto-merge arm and cancel reach mr:action', async () => {
+    for (const action of ['setAutoMerge', 'cancelAutoMerge']) {
+      const from = writes.length;
+      const res = await postRead('/mr/action', {
+        mrUrl: prUrl(7),
+        iid: 7,
+        action,
+      });
+      expect(res.status).toBe(200);
+      expect(writesSince(from)).toEqual([
+        {
+          cmd: 'mr:action',
+          body: expect.objectContaining({ iid: 7, action }),
+        },
+      ]);
     }
-    expect(daemonSeen.slice(daemonBefore).filter(c => !isRead(c))).toEqual([]);
-    expect(readDrafts(db).find(d => d.mrUrl === prUrl(7))?.status).toBe('held');
+  }, 15_000);
+
+  test('the draft toggle sends toggleDraft', async () => {
+    const from = writes.length;
+    const res = await postRead('/draft', {
+      mrUrl: prUrl(7),
+      iid: 7,
+      draft: true,
+    });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.text)).toEqual({ ok: true, draft: true });
+    expect(writesSince(from)).toEqual([
+      {
+        cmd: 'mr:action',
+        body: expect.objectContaining({
+          iid: 7,
+          action: 'toggleDraft',
+          args: [true],
+        }),
+      },
+    ]);
+  }, 15_000);
+
+  test('/data.json names the team username as the board user', async () => {
+    const data = (await (await fetch(`${base()}/data.json`)).json()) as {
+      tokenUser: string | null;
+      seatUnverified: boolean;
+    };
+    expect(data.tokenUser).toBe('alice');
+    expect(data.seatUnverified).toBe(false);
+  }, 15_000);
+
+  test('a held draft posts through mr:comment', async () => {
+    held(7);
+    const from = writes.length;
+    const res = await postRead('/drafts', {
+      mrUrl: prUrl(7),
+      kind: 'ci-note',
+      action: 'post',
+    });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.text)).toEqual({
+      ok: true,
+      posted: true,
+      noteId: 555,
+    });
+    expect(writesSince(from)).toEqual([
+      {
+        cmd: 'mr:comment',
+        body: expect.objectContaining({
+          iid: 7,
+          body: 'the cache key changed',
+          resolvable: false,
+        }),
+      },
+    ]);
+    const draft = readDrafts(db).find(d => d.mrUrl === prUrl(7));
+    expect(draft?.status).toBe('posted');
+    expect(draft?.postedNoteId).toBe(555);
+  }, 15_000);
+
+  test('a note that posted still answers 200 when recording it fails', async () => {
+    held(8);
+    db.run(
+      `CREATE TRIGGER no_posted BEFORE UPDATE ON drafts
+       WHEN json_extract(NEW.draft, '$.status') = 'posted'
+       BEGIN SELECT RAISE(ABORT, 'disk gone'); END`
+    );
+    try {
+      const res = await postRead('/drafts', {
+        mrUrl: prUrl(8),
+        kind: 'ci-note',
+        action: 'post',
+      });
+      expect(res.status).toBe(200);
+      expect(JSON.parse(res.text)).toEqual({
+        ok: true,
+        posted: true,
+        noteId: 555,
+      });
+      expect(server.output()).toContain('could not record the draft');
+    } finally {
+      db.run('DROP TRIGGER no_posted');
+    }
+  }, 15_000);
+
+  test('a refused note post answers 409 and the draft stays held', async () => {
+    held(11);
+    const res = await postRead('/drafts', {
+      mrUrl: prUrl(11),
+      kind: 'ci-note',
+      action: 'post',
+    });
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.text)).toEqual({ reason: '422 x' });
+    expect(readDrafts(db).find(d => d.mrUrl === prUrl(11))?.status).toBe(
+      'held'
+    );
+  }, 15_000);
+
+  test("another author's PR is refused before any write", async () => {
+    const from = writes.length;
+    const res = await merge(20);
+    expect(res.status).toBe(403);
+    expect(res.text).toBe('not your PR');
+    expect(writesSince(from)).toEqual([]);
+  }, 15_000);
+
+  test('a PR not on the board is refused in PR words', async () => {
+    const res = await postRead('/mr/action', {
+      mrUrl: prUrl(999),
+      iid: 999,
+      action: 'merge',
+    });
+    expect(res.status).toBe(400);
+    expect(res.text).toBe(`unknown PR "${prUrl(999)}"`);
   }, 15_000);
 
   test('dismissing a held draft still works on a GitHub team', async () => {

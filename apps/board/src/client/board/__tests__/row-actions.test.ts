@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { SEAT_HINT, SEAT_UNVERIFIED_HINT } from '../format.ts';
 import { bulkActions, rowActions } from '../row-actions.ts';
 import {
   actionEnvOf,
@@ -552,6 +553,19 @@ test('a latch already resolved waits greyed out instead of asking twice', () => 
   expect(item?.blocked).toBe('asked in the MR thread');
 });
 
+test('a GitHub latch already resolved waits in the PR thread', () => {
+  const asked = {
+    ...ownIdle,
+    webUrl: 'https://github.com/acme/webapp/pull/9',
+    provider: 'github',
+    reviewerLatches: [{ reviewer: 'jo', discussionId: 'd9', requested: true }],
+  } as typeof ownIdle;
+  const item = rowActions(asked, actionEnvOf(ownEnv, asked)).find(
+    a => a.key === 'latch-jo'
+  );
+  expect(item?.blocked).toBe('asked in the PR thread');
+});
+
 test('a reviewer the switchboard reaches keeps the switchboard ask, not the latch', () => {
   const both = {
     ...failedLanes,
@@ -895,6 +909,47 @@ test('a seatless board says where author actions went, and nothing more', () => 
   expect(
     keys(brokenAndMergeable(), { ...ownEnv, self: null, local: false })
   ).not.toContain('seat-hint');
+});
+
+test('an unverified seat gets the login hint, and no author action', () => {
+  const env = { ...ownEnv, self: null, seatUnverified: true };
+  const actions = rowActions(
+    brokenAndMergeable(),
+    actionEnvOf(env, brokenAndMergeable())
+  );
+  const hint = actions.find(a => a.key === 'seat-hint');
+  expect(hint?.blocked).toBe(SEAT_UNVERIFIED_HINT);
+  expect(hint?.blocked).toBe('run rt setup to add your GitHub login');
+  expect(hint?.bulk).toBeUndefined();
+  const offered = actions.map(a => a.key);
+  for (const k of [...AUTHOR_ONLY, 'mark-draft', 'unmark-draft'])
+    expect(offered).not.toContain(k);
+  expect(keys(brokenAndMergeable(), { ...env, local: false })).not.toContain(
+    'seat-hint'
+  );
+});
+
+test('an unset seat keeps its own hint when the flag is off', () => {
+  const actions = rowActions(
+    brokenAndMergeable(),
+    actionEnvOf({ ...ownEnv, self: null }, brokenAndMergeable())
+  );
+  expect(actions.find(a => a.key === 'seat-hint')?.blocked).toBe(SEAT_HINT);
+});
+
+test('a GitHub row says PR in its seat hint and its stand-down label', () => {
+  const gh = mrx(910, {
+    webUrl: 'https://github.com/acme/webapp/pull/910',
+    provider: 'github',
+  });
+  const seatless = rowActions(gh, actionEnvOf({ ...ownEnv, self: null }, gh));
+  expect(seatless.find(a => a.key === 'seat-hint')?.blocked).toBe(
+    'set your seat in board settings to act on your own PRs'
+  );
+  const own = rowActions(gh, actionEnvOf(ownEnv, gh));
+  expect(own.find(a => a.key === 'stand-down')?.label).toBe(
+    'auto-doctor: ignore this PR'
+  );
 });
 
 const REPO = 'gitlab.example.com/acme/webapp';
@@ -1312,16 +1367,27 @@ const FORGE_WRITES = [
   'refresh-mr',
 ];
 
-test('a GitHub own MR keeps only open in github in its forge section', () => {
-  const rows = rowActions(ghOwnIdle, actionEnvOf(ownEnv, ghOwnIdle));
-  expect(
-    rows.filter(a => a.section === 'gitlab').map(a => `${a.key}:${a.label}`)
-  ).toEqual(['open-gitlab:open in github']);
-  const all = rows.map(a => a.key);
-  for (const key of FORGE_WRITES) expect(all).not.toContain(key);
+test('a GitHub own MR holds every forge write a GitLab own row does', () => {
+  const forgeKeys = (m: typeof ghOwnIdle) =>
+    rowActions(m, actionEnvOf(ownEnv, m))
+      .filter(a => a.section === 'gitlab')
+      .map(a => a.key);
+  const glOwnIdle = {
+    ...ghOwnIdle,
+    webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/7',
+    provider: 'gitlab',
+  } as typeof ghOwnIdle;
+  const gh = forgeKeys(ghOwnIdle);
+  for (const key of FORGE_WRITES) {
+    if (forgeKeys(glOwnIdle).includes(key)) expect(gh).toContain(key);
+  }
+  const refresh = rowActions(ghOwnIdle, actionEnvOf(ownEnv, ghOwnIdle)).find(
+    a => a.key === 'refresh-mr'
+  );
+  expect(refresh?.label).toBe('refresh from github');
 });
 
-test('auto-merge never leads the menu on a GitHub MR', () => {
+test('auto-merge leads the menu on a GitHub MR as on GitLab', () => {
   const ready = mrx(8, {
     webUrl: 'https://github.com/acme/webapp/pull/8',
     provider: 'github',
@@ -1329,16 +1395,10 @@ test('auto-merge never leads the menu on a GitHub MR', () => {
     blockers: { any: false, pipelineRunning: true },
     autoMergeButton: { visible: true, isActive: false },
   });
-  expect(sections(ready, ownEnv)).not.toContain('top:setAutoMerge');
-  const onGitLab = mrx(8, {
-    reviews: ready.reviews,
-    blockers: ready.blockers,
-    autoMergeButton: ready.autoMergeButton,
-  });
-  expect(sections(onGitLab, ownEnv)).toContain('top:setAutoMerge');
+  expect(sections(ready, ownEnv)).toContain('top:setAutoMerge');
 });
 
-test('bulk actions over GitHub rows offer no merge, auto-merge or draft entry', () => {
+test('bulk actions over GitHub rows offer merge and auto-merge', () => {
   const other = mrx(9, {
     webUrl: 'https://github.com/acme/webapp/pull/9',
     provider: 'github',
@@ -1351,8 +1411,8 @@ test('bulk actions over GitHub rows offer no merge, auto-merge or draft entry', 
     [ghOwnIdle, other],
     actionEnvOf(ownEnv, ghOwnIdle)
   ).map(e => e.key);
-  for (const key of FORGE_WRITES) expect(entries).not.toContain(key);
-  expect(entries.length).toBeGreaterThan(0);
+  expect(entries).toContain('merge');
+  expect(entries).toContain('setAutoMerge');
 });
 
 test('a GitHub teammate row offers no respond ask; review asks stay', () => {

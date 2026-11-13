@@ -137,3 +137,28 @@ test('the My MRs chip says My PRs when your own rows are on GitHub', async () =>
   expect(showLabel('mine', null)).toBe('My MRs');
   expect(showLabel('mine', null, true)).toBe('My PRs');
 });
+
+test('a GitHub board says PRs in each chip tip', async () => {
+  await React.act(async () => {
+    root.render(
+      <ShowChips
+        show={{
+          offered: ['authorTurn', 'myDrafts', 'mine'],
+          off: [],
+          counts: COUNTS,
+          channel: null,
+          toggle: () => {},
+          forge: 'github',
+        }}
+      />
+    );
+  });
+  const tips = [...container.querySelectorAll('.tui-show-chip')].map(c =>
+    c.getAttribute('aria-description')
+  );
+  expect(tips).toEqual([
+    'PRs waiting on the author to act. Configure this behavior in settings.',
+    'Show or hide your own draft PRs. Other users’ drafts are never shown.',
+    'Show or hide your own PRs, to see only your teammates’ work.',
+  ]);
+});

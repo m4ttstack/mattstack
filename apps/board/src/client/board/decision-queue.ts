@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { domainForKind } from '@mattstack/gate-kit';
 import type { GateRow } from '../../gates/store.ts';
-import { mrRef } from '../../mr-ref.ts';
+import { mrNoun, mrNouns, mrRef } from '../../mr-ref.ts';
 import { isOwnMr } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import type { TriageGateState } from './DecisionQueueModal.tsx';
@@ -12,16 +12,16 @@ import { ago, cleanTitle } from './format.ts';
     answer it: a respond or doctor gate is its MR author's decision, and the
     server refuses anyone else's answer. */
 export function gateReadOnlyReason(
-  gate: Pick<GateRow, 'kind'>,
+  gate: Pick<GateRow, 'kind'> & Partial<Pick<GateRow, 'subject'>>,
   mr: BoardMRWithReview | undefined,
   self: string | null
 ): string | null {
   const lane = domainForKind(gate.kind);
   if (lane !== 'respond' && lane !== 'doctor') return null;
   if (self === null)
-    return 'Set your seat in board settings to answer gates on your own MRs.';
+    return `Set your seat in board settings to answer gates on your own ${mrNouns(mr, gate.subject)}.`;
   if (mr && isOwnMr(mr, self)) return null;
-  return `Only ${mr ? `${mrRef(mr)}'s` : "the MR's"} author can answer this. You're viewing it read-only.`;
+  return `Only ${mr ? `${mrRef(mr)}'s` : `the ${mrNoun(mr, gate.subject)}'s`} author can answer this. You're viewing it read-only.`;
 }
 
 export interface QueueEntry {

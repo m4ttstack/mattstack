@@ -1,14 +1,8 @@
-import type { BoardMR } from '../../data.ts';
-import { mrRef, onGitHub, type MrLinkTarget } from '../../mr-ref.ts';
+import { forgeNoun, mrRef, onGitHub, type MrLinkTarget } from '../../mr-ref.ts';
 import { extractTicketId, ticketUrl } from '../../ticket.ts';
 import { GitHubLogo, GitLabLogo, LinearLogo } from './icons.tsx';
 
-export { mrRef, onGitHub, type MrLinkTarget };
-
-/** "pull request" on GitHub, "merge request" on GitLab. */
-export function forgeNoun(mr?: BoardMR, subject?: string): string {
-  return onGitHub(mr, subject) ? 'pull request' : 'merge request';
-}
+export { forgeNoun, mrRef, onGitHub, type MrLinkTarget };
 
 /** The MR's two external homes as logo links: its forge page, and the
     Linear ticket its branch or title names (absent when it names none). */

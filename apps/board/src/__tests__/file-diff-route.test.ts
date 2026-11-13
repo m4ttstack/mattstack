@@ -141,6 +141,37 @@ describe('GET /review/file-diff', () => {
     });
   });
 
+  test('a GitHub board says PR in each refusal', async () => {
+    const gh = { forge: 'github' as const };
+    const missing = await route({ ok: true, data: diffData(null) }, gh).get(
+      url()
+    );
+    expect(await missing.json()).toEqual({
+      error: "This file is not in the PR's diff.",
+    });
+    const long = await route(
+      { ok: true, data: { ...diffData(null), truncated: true } },
+      gh
+    ).get(url());
+    expect(await long.json()).toEqual({
+      error: "This PR's diff is too long to search here.",
+    });
+    const gone = await route(
+      { ok: true, data: diffData(null) },
+      { ...gh, findMr: async () => null }
+    ).get(url());
+    expect(await gone.json()).toEqual({
+      error: 'This PR is not on the board.',
+    });
+    const repoless = await route(
+      { ok: true, data: diffData(null) },
+      { ...gh, repoFor: () => null }
+    ).get(url());
+    expect(await repoless.json()).toEqual({
+      error: 'The board cannot tell which repo this PR is in.',
+    });
+  });
+
   test('a missing token reads as a short error', async () => {
     const res = await route({
       ok: false,

@@ -32,6 +32,7 @@ export function mrx(
 
 export interface MenuEnv {
   self: string | null;
+  seatUnverified?: boolean;
   local?: boolean;
   slackEnabled?: boolean;
   triageEnabled?: boolean;
@@ -136,6 +137,7 @@ export function actionEnvOf(env: MenuEnv, mr: BoardMR): ActionEnv {
     doctorTier: env.doctorTier,
     ownerSlackRepos: env.ownerSlackRepos ?? [],
     self: env.self,
+    seatUnverified: env.seatUnverified,
     roster: env.roster ?? [],
     peers: env.peers,
     teams: env.teams,

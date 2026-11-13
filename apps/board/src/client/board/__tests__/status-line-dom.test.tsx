@@ -331,6 +331,42 @@ test('the +N more list on a GitHub row names the PR #<n>', async () => {
   ).toBeNull();
 });
 
+test('the +N more source names the PR on GitHub and the MR on GitLab', async () => {
+  const sources = async (mr: BoardMRWithReview) => {
+    await React.act(async () => {
+      root.render(
+        <StatusLine
+          mr={mr}
+          status={{
+            line: { tone: 'warn', word: 'post which findings?', verbs: [] },
+            more: [
+              { tone: 'work', word: 'needs review', source: 'MR', verbs: [] },
+            ],
+            bar: 'warn',
+          }}
+          ctx={ctx()}
+        />
+      );
+    });
+    const more =
+      container.querySelector<HTMLButtonElement>('.tui-status-more')!;
+    await React.act(async () => more.click());
+    const text = [...document.querySelectorAll('.tui-status-more-source')].map(
+      el => el.textContent
+    );
+    await React.act(async () => more.click());
+    return text;
+  };
+  expect(await sources(MR)).toEqual(['MR']);
+  expect(
+    await sources({
+      ...MR,
+      webUrl: 'https://github.com/acme/webapp/pull/1418',
+      provider: 'github',
+    } as unknown as BoardMRWithReview)
+  ).toEqual(['PR']);
+});
+
 test('a long detail renders its first clause and keeps the whole message as the tooltip', async () => {
   const full =
     'rebased acme-2214 onto origin/main (pat); resolved Overview.test.tsx conflict (kept both sides)';

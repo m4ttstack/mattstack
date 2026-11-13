@@ -1,3 +1,4 @@
+import { mrNoun, mrNouns, type ForgeKind } from '../../mr-ref.ts';
 import type { Lane } from './row-actions.ts';
 
 const NOUN: Record<Lane, [one: string, many: string]> = {
@@ -13,7 +14,8 @@ export function redoCopy(
   lane: Lane,
   count: number,
   prior = count,
-  who?: { name: string; round: number }
+  who?: { name: string; round: number },
+  forge: ForgeKind = 'gitlab'
 ): { title: string; body: [string, string]; confirmLabel: string } {
   const [one, many] = NOUN[lane];
   if (who)
@@ -30,7 +32,7 @@ export function redoCopy(
       title: `Redo ${one}?`,
       body: [
         `This will start a new ${one} from scratch.`,
-        `This MR already had a ${one}. Are you sure?`,
+        `This ${mrNoun(forge)} already had a ${one}. Are you sure?`,
       ],
       confirmLabel: `Redo ${one}`,
     };
@@ -40,8 +42,8 @@ export function redoCopy(
     body: [
       `This will start ${count} new ${many} from scratch.`,
       prior >= count
-        ? `Each of these MRs already had a ${one}. Are you sure?`
-        : `${prior} of these MRs already had a ${one}. Are you sure?`,
+        ? `Each of these ${mrNouns(forge)} already had a ${one}. Are you sure?`
+        : `${prior} of these ${mrNouns(forge)} already had a ${one}. Are you sure?`,
     ],
     confirmLabel: `${verb} ${count} ${many}`,
   };

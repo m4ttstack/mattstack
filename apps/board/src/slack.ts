@@ -77,11 +77,17 @@ export function buildThreadPermalink(
 }
 
 const MR_URL_RE = /https:\/\/[^\s<>|]+\/-\/merge_requests\/\d+/g;
+const PR_URL_RE = /https:\/\/[^\s<>|/]+\/[^\s<>|/]+\/[^\s<>|/]+\/pull\/\d+/g;
 
-/** Distinct GitLab MR URLs referenced in a message. More than one means a
-    single message is asking for review of several MRs at once. */
+/** Distinct MR or PR URLs referenced in a message. More than one means a
+    single message is asking for review of several at once. */
 export function extractMrUrls(text: string): string[] {
-  return [...new Set(text.match(MR_URL_RE) ?? [])];
+  return [
+    ...new Set([
+      ...(text.match(MR_URL_RE) ?? []),
+      ...(text.match(PR_URL_RE) ?? []),
+    ]),
+  ];
 }
 
 /**

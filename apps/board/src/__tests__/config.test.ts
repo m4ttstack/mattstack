@@ -28,6 +28,26 @@ describe('parseConfig', () => {
     expect(cfg.forge).toEqual({ kind: 'github', host: 'https://github.com' });
   });
 
+  test('a github board defaults its title and Slack header to PRs', () => {
+    const { gitlabHost: _gl, ...rest } = base;
+    const cfg = parseConfig(
+      JSON.stringify({
+        ...rest,
+        forge: { provider: 'github', host: 'github.com' },
+      })
+    );
+    expect(cfg.title).toBe('PRs ready for review');
+    expect(cfg.slack.multiHeader).toBe("{count} PR's ready for review :pray:");
+    const set = parseConfig(
+      JSON.stringify({
+        ...rest,
+        forge: { provider: 'github', host: 'github.com' },
+        slack: { multiItem: '* {url}' },
+      })
+    );
+    expect(set.slack.multiHeader).toBe("{count} PR's ready for review :pray:");
+  });
+
   test('with neither gitlabHost nor forge it throws the gitlabHost message', () => {
     const { gitlabHost: _gl, ...rest } = base;
     expect(() => parseConfig(JSON.stringify(rest))).toThrow(

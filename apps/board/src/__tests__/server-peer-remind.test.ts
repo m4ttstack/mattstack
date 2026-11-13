@@ -34,6 +34,7 @@ function harness(
     dm?: DmResult;
     /** Holds `mr()` open until `release` is called. */
     slowMr?: boolean;
+    forge?: 'gitlab' | 'github';
   } = {}
 ) {
   const db = openStateDb(
@@ -74,6 +75,7 @@ function harness(
     markReminded: (mrUrl, reviewer, at) =>
       markPeerReviewReminded(mrUrl, reviewer, at, db),
     now: () => clock,
+    ...(opts.forge ? { forge: () => opts.forge! } : {}),
   });
   const park = (
     reviewer = 'mira-fixture',
@@ -196,8 +198,31 @@ test('an MR that is not on the board is refused with a 404', async () => {
     },
     h.db
   );
-  expect((await h.remind(other, 'mira-fixture')).status).toBe(404);
+  expect(await h.remind(other, 'mira-fixture')).toEqual({
+    status: 404,
+    message: 'that MR is not on the board',
+  });
   expect(h.sent).toHaveLength(0);
+});
+
+test('a GitHub board refuses a PR that is not on the board in PR words', async () => {
+  const h = harness({ forge: 'github' });
+  const other = 'https://github.example.com/o/r/pull/99';
+  writePeerReview(
+    {
+      mrUrl: other,
+      iid: 99,
+      reviewer: 'mira-fixture',
+      status: 'parked',
+      updatedAt: Date.now(),
+      receivedAt: Date.now(),
+    },
+    h.db
+  );
+  expect(await h.remind(other, 'mira-fixture')).toEqual({
+    status: 404,
+    message: 'that PR is not on the board',
+  });
 });
 
 test('a daemon timeout records the reminder, since Slack may have it, and still reports a 502', async () => {

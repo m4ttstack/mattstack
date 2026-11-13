@@ -1,5 +1,5 @@
 import { Button, ConfirmDialog } from '@mattstack/tui-kit';
-import { mrRef, type MrLinkTarget } from '../../mr-ref.ts';
+import { mrNoun, mrRef, type MrLinkTarget } from '../../mr-ref.ts';
 import type { ActiveRun } from '../types.ts';
 import { runParent } from './run-guard.ts';
 
@@ -52,7 +52,8 @@ export function RunActiveConfirmDialog({
     >
       {where && <p>{where}</p>}
       <p>
-        Ring worker tells the worker what this MR needs, and no doctor starts.
+        Ring worker tells the worker what this {mrNoun(pending?.mr)} needs, and
+        no doctor starts.
       </p>
       <Button
         variant="outline"

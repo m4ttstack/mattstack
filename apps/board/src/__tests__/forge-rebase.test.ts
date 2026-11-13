@@ -265,7 +265,7 @@ describe('forgeRebase on GitHub', () => {
     });
     expect(await forgeRebase(h.deps)).toEqual({
       kind: 'failed',
-      reason: 'could not read the MR before rebasing',
+      reason: 'could not read the PR before rebasing',
       conflicts: false,
     });
     expect(h.rebases()).toBe(0);
