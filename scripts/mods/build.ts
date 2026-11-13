@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, watch } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-import { buildMod } from './build-lib'
+import { buildMod, treeSignature } from './build-lib'
 
 const root = resolve(import.meta.dir, '../..')
 const MODS = join(root, 'mods')
@@ -38,21 +38,41 @@ async function watchMod(args: string[]): Promise<void> {
   const into = args[args.indexOf('--into') + 1]
   if (args.indexOf('--into') === -1 || !into) throw new Error('watch needs --into <dir>')
   const out = join(resolve(into), name)
+  const watched = [join(MODS, name), KIT_SRC]
+  let built = ''
+  let running = false
+  let again = false
   const rebuild = async () => {
+    if (running) {
+      again = true
+      return
+    }
+    running = true
     try {
-      await buildMod(join(MODS, name), out, { validate: false })
-      console.log(`built ${out}`)
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : error)
+      do {
+        again = false
+        const signature = treeSignature(watched)
+        if (signature === built) continue
+        built = signature
+        try {
+          await buildMod(join(MODS, name), out, { validate: false })
+          console.log(`built ${out}`)
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : error)
+        }
+      } while (again)
+    } finally {
+      running = false
     }
   }
   await rebuild()
   let timer: ReturnType<typeof setTimeout> | undefined
+  // A build copies types/ out of the source folder, and macOS reports that as a change in the watched tree.
   const schedule = () => {
     clearTimeout(timer)
     timer = setTimeout(rebuild, 100)
   }
-  for (const dir of [join(MODS, name), KIT_SRC]) watch(dir, { recursive: true }, schedule)
+  for (const dir of watched) watch(dir, { recursive: true }, schedule)
   console.log(`watching mods/${name} and packages/mod-kit/src`)
 }
 

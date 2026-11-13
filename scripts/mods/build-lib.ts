@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 
 import { childEnv } from '../../lib/subprocess'
@@ -185,4 +185,21 @@ async function validatePlugin(outDir: string): Promise<void> {
   const proc = Bun.spawn(['claude', 'plugin', 'validate', outDir], { env: childEnv(), stdout: 'pipe', stderr: 'pipe' })
   const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
   if (code !== 0) throw new Error(`claude plugin validate ${outDir} exited ${code}:\n${stdout}${stderr}`)
+}
+
+export function treeSignature(dirs: string[]): string {
+  const rows: string[] = []
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules') continue
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (entry.isFile()) {
+        const stat = statSync(path)
+        rows.push(`${path}:${stat.size}:${stat.mtimeMs}`)
+      }
+    }
+  }
+  for (const dir of dirs) if (existsSync(dir)) walk(dir)
+  return rows.sort().join('\n')
 }
