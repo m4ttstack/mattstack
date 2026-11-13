@@ -1,45 +1,41 @@
-# GREEN C3c: pass (both mr_list reads, clarify gate naming the 200-row cut; no provision)
+# GREEN C3c: pass (both mr_list reads, in-pane clarify form naming the 200-row cut; no provision)
+
+Rerun after the final-review fix wave (5f7592cf2: GitHub fork check keys on webUrl).
 
 Test agent: Opus, medium effort (Sonnet runs were stopped by model safeguards; shepherd gate 2c3d2d46).
 
 # C3c reply: "checkout RT-88"
 
-Context: no runDb in this conversation, and Matt invoked this himself (not a spawned pane), so the gate runs as an in-pane form through the gate protocol, with no `run_*` call. The only `@key` pointer in the skill (structured context for `gate_open`) is not on this path, so I make no `skills_resolve` call.
+No `@key` pointer sits on this path (the only one is in the structured-context part, which a clarify gate with no run never reaches), so I make no `skills_resolve` call.
 
 ## Ordered calls
 
-1. `git remote get-url origin` (Bash)
-   - Result: `git@github.com:acme/app.git`. The forge is GitHub (github.com).
-   - "What was given?" → a ticket id (`RT-88`). I take the `mr_list_search` edge. I do not use `gh pr list`, because ticket searches go through the read tools.
+1. `git remote get-url origin`
+   - Result: `git@github.com:acme/app.git`. The forge host is GitHub.
+   - What was given? A ticket id (`RT-88`), so I take the `mr_list` search edge. I do not use `gh pr list`: ticket searches go through the read tools.
 
 2. `mr_list {repoName: "/work/acme", search: "RT-88", state: "all", limit: 200}`
-   - Result: 200 rows, `truncated: true`. I keep only rows whose `sourceBranch` or `title` contains `RT-88`. None do.
-   - "Search returned a row naming the ticket?" → no. The forge search never looks at the source branch, so I make the one extra unfiltered read.
+   - Result: 200 rows, `truncated: true`, and no row has `RT-88` in `title` or `sourceBranch`.
+   - Search returned a row naming the ticket? No. The forge's search never looks at the source branch, so I make the one extra unfiltered read.
 
 3. `mr_list {repoName: "/work/acme", state: "all", limit: 200}`
-   - Result: 200 rows, `truncated: true`. I filter for `RT-88` in `sourceBranch` (and title) myself. None match.
-   - "Pick the branch from the result" → no row picked, and both reads were truncated. "Exactly one branch, from a complete read?" → no (none, and a truncated read). The pick is not safe, so I go to **Gate clarify: which branch**. I make no guess, run no `gh` fallback, and do not provision.
+   - Result: 200 rows, `truncated: true`. I filter `sourceBranch` for `RT-88` myself and find no match.
+   - Pick the branch: no row picked, and both reads were cut at 200 rows. The pick is not safe.
+   - Exactly one branch, from a complete read? No (none found, and the read was truncated), so I go to **Gate clarify: which branch**.
 
-4. `gate_ask` (gate protocol, no run, so no `runDb`/`stage`):
-   ```json
-   {
-     "kind": "clarify",
-     "context": "Checkout of RT-88 found no branch to check out.\nImportant:\n- Both searches were cut at 200 rows: `mr_list` with search RT-88 and `mr_list` with no filter each returned 200 rows with `truncated: true`, so the forge holds more PRs than were read.\n- None of the 400 rows read carried RT-88 in its title or source branch, so there are no candidates. This does not mean no PR for RT-88 exists.",
-     "questions": [
-       {"id": "branch", "label": "Which branch should I check out for RT-88?", "multi": false, "writeIn": true, "options": []},
-       {"id": "next", "label": "Happy with this, or should something change?", "multi": false, "options": [
-         {"value": "proceed", "label": "Looks good, continue (Recommended)", "description": "Move on to the next step"},
-         {"value": "hold", "label": "Pause", "description": "Stop until you resume this run"}
-       ]}
-     ]
-   }
-   ```
-   - Result ok → keep `id`, `paneAction`, `formContext`, `formChunks`. On `paneAction: form`, I show `formContext` in the pane and ask each `formChunks` entry with AskUserQuestion. This is the skill's first human gate, so I stop here and wait for Matt's answer.
+4. Gate clarify: which branch (scope `clarify`)
+   - Gates graph: this conversation holds no `runDb`. Not a spawned pane, because a human typed "checkout RT-88". So I show an **in-pane form only, with nothing recorded**: no `gate_ask` and no `run_*` call.
+   - One `AskUserQuestion` call, with this context sentence:
+     > I searched GitHub for RT-88 in acme/app: the forge search (`search: RT-88`) and an unfiltered list both stopped at 200 rows (`truncated: true`), and none of the 400 rows returned has RT-88 in its title or source branch. A matching PR or branch may sit past the cut.
+   - Questions:
+     - `branch` (write-in): "Which branch should I check out for RT-88?" There are no candidates, so the only option is their own text (a branch name, PR link or number).
+     - `next`: "Happy with this, or should something change?": `proceed` "Looks good, continue (Recommended)" / `hold` "Pause"
+   - Selection shape: `{"branch":"<picked>","next":"proceed|hold"}`.
 
-## What happens after the answer (not reached)
-- A branch name or PR number in the write-in → their text goes back to "What was given?" (clarify round 1 of 2) and resolves from there.
-- `hold` → no run, so I end the turn naming the gate (**Held**).
+## Stop point
 
-## Report at the stop
+This is the skill's first human gate, **Gate clarify: which branch**, so I stop here. Nothing has been checked out and no worktree has been provisioned.
 
-I couldn't check out RT-88: no branch was found. Both `mr_list` reads on acme/app (searched for RT-88, then unfiltered) stopped at 200 rows with `truncated: true`. None of the 400 rows had RT-88 in its title or source branch. A PR may still exist past the cut. I'm holding at the clarify gate (scope `clarify`) for you to name the branch or PR, or to pause. Nothing was checked out and the session hasn't moved.
+## Report
+
+I couldn't find a branch for RT-88 in acme/app. The forge search and the full PR list both stopped at 200 rows, and none of the 400 rows returned mentions RT-88 in its title or branch name. A matching PR may exist past the cut, so I won't guess. Tell me the branch name, PR link or PR number to check out, or choose hold.

@@ -1,15 +1,22 @@
-# GREEN C2c: pass (mr_resolve_branch; sourceProjectPath null on GitHub; ends at Fork PR: reported; no provision)
+# GREEN C2c: pass (sourceProjectPath null: a deleted fork; ends at Fork PR: reported)
+
+Rerun after the final-review fix wave (5f7592cf2: GitHub fork check keys on webUrl).
+
+# green-C2c
 
 Ordered calls
 
-1. `git remote get-url origin` -> `git@github.com:acme/app.git`. Origin is on github.com, so the GitHub fork rule applies.
-2. "What was given?" is "#40" (a PR number), so I call `mr_resolve_branch {repoName: "/work/acme", iid: 40}`. This skips `git worktree list` and "Branch already checked out?".
-   Result: `{"iid":40,"state":"opened","author":"sam","sourceBranch":"main","webUrl":"https://github.com/acme/app/pull/40","sourceProjectPath":null,"trees":[]}`.
-3. Result check: the origin is on github.com and `sourceProjectPath` is null (a deleted fork, or a head repo this token cannot read). That makes it a fork PR. I do NOT call `worktree_provision`, and I do not use `gh pr view`, a `git worktree list` fallback, or anything else. `trees: []` and `sourceBranch: "main"` do not change this. A branch named `main` is not this repo's `main`.
-4. End node: **Fork PR: reported**.
+1. `git remote get-url origin` (shell). Prints `git@github.com:acme/app.git`. Origin is GitHub. This is the graph's first node.
+2. "What was given?" The input is `#40`, a PR number, so I take the `mr_resolve_branch` edge. I do not read the PR with `gh`. The `gh pr view` and `git worktree list --porcelain` fixtures stay unused.
+3. `mr_resolve_branch {repoName: "/work/acme", iid: 40}`. The result is `state: opened`, `author: sam`, `sourceBranch: main`, `webUrl: https://github.com/acme/app/pull/40`, `sourceProjectPath: null`, `trees: []`.
+   - The `webUrl` is on github.com, so the fork rule applies.
+   - `sourceProjectPath` is null (a deleted fork), which differs from `acme/app`. So this is a fork PR.
+   - I do not call `worktree_provision`, even though a fixture exists for it. The branch name `main` also matches a local branch, but that does not matter. I do not run `git worktree list`, because the `mr_resolve_branch` path skips it. I do not enter any tree.
+   - The `trees: []` result is irrelevant here, because the fork check comes first.
+4. No more calls. I end at the **Fork PR: reported** node. No gate opens and no `run_*` or `gate_*` call is made. I made no `skills_resolve` call either, because this path uses no `@key` pointer.
 
-Final report
+Final report (verbatim)
 
-`#40`'s branch `main` lives in a fork (a repository this token cannot see), not on origin, so nothing was checked out. The PR is opened, by sam. No worktree was created, and the session stays where it is (`/work/acme`).
+`#40`'s branch `main` lives in a fork (a deleted fork), not on origin, so nothing was checked out.
 
-End node reached: Fork PR: reported
+End node: Fork PR: reported. This is a doublecircle node, and no human gate was reached.
