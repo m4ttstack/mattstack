@@ -118,11 +118,11 @@ export function parseChangeUrl(
 /**
  * Qualifying merged MRs for credit/closedAt: merged, non-revert (a revert's title proves
  * nothing about who finished the ticket), and attachment-graded when the issue has any
- * MR-shaped gitlab attachment -- an attachment is a deliberate link, so it outranks a
+ * MR-shaped attachment (GitLab MR or GitHub PR) -- an attachment is a deliberate link, so it outranks a
  * same-ticket text mention that only happened to land in a merged MR's title or
  * description. `hadMrAttachment` stays true for an attachment that parsed as an MR URL but
  * resolved to no known MR, so a ticket implemented before the data horizon qualifies
- * nothing rather than falling back to text links. Gitlab attachments that are not MR URLs
+ * nothing rather than falling back to text links. Attachments that are not MR/PR URLs
  * (issues, commits) leave the fallback open.
  */
 function qualifyingMrs(
@@ -313,7 +313,7 @@ export async function resolveLinearTickets(
   const issues: NormLinearIssue[] = [];
 
   /**
-   * Resolve one issue's attached GitLab MR links: source MRs first, then the store's
+   * Resolve one issue's attached MR or PR links: source MRs first, then the store's
    * index for MRs outside this refresh's scan. A URL that resolves to neither is
    * dropped -- it names an MR this refresh has no evidence of. `hadMrAttachment`
    * still reports it, so the grade decision can tell "no MR attachments" from
@@ -324,12 +324,20 @@ export async function resolveLinearTickets(
   ): { candidates: LinkCandidate[]; hadMrAttachment: boolean } => {
     const nodes = raw.attachments?.nodes ?? [];
     // Linear's sourceType for a GitHub PR is not guaranteed, so GitHub teams trust the URL alone.
+    // An unconfigured project keeps its own spelling: it matches no known MR, like a GitLab MR outside the data.
     const parsed =
       forge?.kind === 'github'
         ? nodes.flatMap(n => {
             const p = parseChangeUrl(n.url, 'github');
-            const project = p && configuredProject(p.projectPath);
-            return p && project ? [{ projectPath: project, iid: p.iid }] : [];
+            return p
+              ? [
+                  {
+                    projectPath:
+                      configuredProject(p.projectPath) ?? p.projectPath,
+                    iid: p.iid,
+                  },
+                ]
+              : [];
           })
         : nodes
             .filter(n => n.sourceType === 'gitlab')

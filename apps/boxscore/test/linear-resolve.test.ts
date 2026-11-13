@@ -598,9 +598,9 @@ describe('GitHub attachment credit', () => {
     ).toBe('bob');
   });
 
-  it('drops an attachment outside the configured projects', async () => {
+  it('credits nobody for an attachment outside the configured projects, with no text fallback', async () => {
     expect(
       await creditFor('github', { kind: 'github', projects: ['x/y'] })
-    ).toBe('bob');
+    ).toBeNull();
   });
 });
