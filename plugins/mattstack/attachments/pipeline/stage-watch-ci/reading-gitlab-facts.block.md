@@ -8,3 +8,7 @@ At any step, read it with `gitlab_get {mrUrl: <mr>, path}` (`path` from the API 
 `:id` for this project: `projects/:id/jobs/<jobId>`), part of the step, not
 off-script.
 Quote a GitLab error as written; a refused credential path is final.
+
+On GitHub a fact no read tool returns is unreadable: a classification
+takes UNCLEAR, and any other step takes its off-script gate, quoting what
+was missing.

@@ -55,7 +55,7 @@ digraph doctor_watch {
     "budget.spent (doctor)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="false: call again"];
     "budget.spent (doctor)?" -> "doctor escalation: budget extension (watch)" [label="true"];
     "Waiting results in a row = 2 (doctor)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}" [label="no: call again"];
-    "Waiting results in a row = 2 (doctor)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, no pipeline ran for the sha"];
+    "Waiting results in a row = 2 (doctor)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, no pipeline seen for the sha after two watches"];
     "Fixed the ci_watch call once already?" -> "Fix what the ci_watch error names" [label="no"];
     "Fixed the ci_watch call once already?" -> "doctor off-script escalation: ci_watch refused" [label="yes"];
     "Fix what the ci_watch error names" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>, freshWindow?, extendMinutes?, budgetMinutes?}";
@@ -105,12 +105,13 @@ digraph doctor_watch {
 What this graph cannot show:
 
 - **The watched sha.** `ci_watch` takes the sha to watch: after a rebase,
-  the new head the rebase poll read; after a retry, the sha of the
-  pipeline `mr_pipeline` or `ci_watch` returned for that job; after a
-  resumed retry budget or watch budget, the sha in the answered value; on
-  a running or pending pipeline, or a red one whose `pipeline.jobs` came
-  back empty, the head sha `mr_view` read; after a push, `git rev-parse
-HEAD` in the domain skill's worktree root.
+  the new head the rebase poll read or, on GitHub, the `sha` `mr_rebase`
+  returned; after a retry, the sha of the pipeline `mr_pipeline` or
+  `ci_watch` returned for that job; after a resumed retry budget or watch
+  budget, the sha in the answered value; on a running or pending
+  pipeline, or a red one whose `pipeline.jobs` came back empty, the head
+  sha `mr_view` read; after a push, `git rev-parse HEAD` in the domain
+  skill's worktree root.
 - **The watch budget.** `budget.spent (doctor)?` reads the `budget` field
   of a `running` result: `ci_watch` measures it from the pipeline's own
   start against the `ci.watch.budgetMinutes` setting, so there are no
@@ -121,17 +122,18 @@ HEAD` in the domain skill's worktree root.
   carries a non-null `budget`, then that result's `budget.minutes` as
   `budgetMinutes` on every later call for the sha. `Waiting results in a row = 2 (doctor)?` counts consecutive `waiting`
   results (their `budget` is null); any other state resets it, and so does
-  a new watched sha or a job retry.
+  a new watched sha or a job retry. The second in a row writes `error`
+  with `no pipeline seen for <sha> after two watches`.
 
 ### Fix what the ci_watch error names
 
 `ci_watch` refused its input. Correct what the error names (`sha` 7 to 40
-hex characters, `mrUrl` the MR's https URL, `priorPipelineId` the number
-`N` of a `gitlab:pipeline:N` id, `underBoardLease: true` only in board
-mode, since it needs a fresh board doctor lease) and watch again, once. An
-error that names no input has nothing to correct: watch again unchanged,
-once, and the off-script escalation follows. An error is never a reason to
-poll with the forge CLI or a script.
+hex characters, `mrUrl` the MR's https URL, `priorPipelineId`, on GitLab
+only, the number `N` of a `gitlab:pipeline:N` id, `underBoardLease: true`
+only in board mode, since it needs a fresh board doctor lease) and watch
+again, once. An error that names no input has nothing to correct: watch
+again unchanged, once, and the off-script escalation follows. An error is
+never a reason to poll with the forge CLI or a script.
 
 ### doctor escalation: budget extension (watch)
 

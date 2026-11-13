@@ -19,9 +19,14 @@ label: Graph notes
   arguments. An unprovable `waiting` (a merge train with no prior id, an
   unread commit) gets neither: `waiting-results` counts it.
 - **The sha guard.** `ci_watch` counts only a pipeline for `sha` and
-  returns `superseded` when the head moves past it. On GitHub, `headRefOid`
-  must equal the watched sha, "no checks reported" is pending, and
-  `gh run rerun` takes the run id in the failed check's link.
+  returns `superseded` when the head moves past it.
+- **The GitHub retry wait.** GitHub reruns a job only once its workflow run
+  has finished, and `ci_watch` returns `failed` while other jobs still run.
+  Take the wait edge only when the `mr_retry` error plainly says the job's
+  workflow run is still in progress; any other refusal takes the
+  tool-error edge. When some jobs retried and others were refused as
+  still in progress, the wait edge wins, and only the refused jobs are
+  retried after it.
 - **The new attempt.** A fix push in an own run starts the next attempt of
   `watch-ci` with `run_resolve` (`next: iterate`, `to` left out), never
   `run_stage` start: `attempt` is the attempt now running (`run_enter`'s

@@ -244,7 +244,8 @@ filter drops a comment whose author reads as a bot, so a reply posted by
 a bot-named account is missing from the filtered read. Only the filtered
 rows are ever adjudicated. A marker read that errors is a fetch error:
 it takes the fetch read's fix-once path and its off-script gate, quoting
-the error, and nothing is adjudicated until both reads succeed. Rows dropped this way count
+the error, and nothing is adjudicated until both reads succeed or that
+gate's take supplies the threads. Rows dropped this way count
 as no thread for `Unresolved human threads = 0?`.
 
 With `--person <username>`, keep only that person's feedback:

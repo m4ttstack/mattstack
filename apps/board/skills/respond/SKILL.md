@@ -1,14 +1,14 @@
 ---
 name: board:respond
 description: >-
-  Thin, domain-agnostic wrapper the mr-board launches to process review feedback
-  on your OWN MR in a fresh herdr pane. Emits lifecycle status through the
-  board's status CLI, then delegates the actual work to the skill named by --skill.
+  Domain-agnostic wrapper the mr-board launches in a fresh herdr pane to
+  process review feedback on your OWN MR. Emits lifecycle status through the
+  board's status CLI and delegates the work to the skill --skill names.
   Invoked as "/board:respond <mrUrl> --state <path> --status-bin
-  <path> [--report <path>] [--skill <name>] [--person <username>]". When no --skill is given, the domain skill is
-  resolved from the respond slot binding in the pack's bindings file
-  (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK). Not for
-  manual use.
+  <path> [--report <path>] [--skill <name>] [--person <username>]". With no
+  --skill, the pack's respond slot binding
+  (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK) names
+  it. Not for manual use.
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/open-gate.sh:*)
 metadata:

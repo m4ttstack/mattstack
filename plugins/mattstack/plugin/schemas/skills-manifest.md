@@ -24,7 +24,6 @@ block props:
   },
   "bindings": {
     "mattstack:work/sub-agent-tiering": { "tiering": "mattstack:model-tiering" },
-    "mattstack:stage-watch-ci/forge": { "forge": "mattstack:ci-forge-gitlab" },
     "mattstack:stage-ship/domain-fast-checks": { "rules": "widgets:ship-lint" }
   }
 }
