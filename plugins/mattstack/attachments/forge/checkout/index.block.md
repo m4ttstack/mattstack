@@ -99,7 +99,7 @@ flowchart TB
     stop_hand_rolled_worktree --> gate_off_script
     gate_off_script --> off_script_answer
     off_script_answer -->|take| make_recorded_move
-    off_script_answer -->|iterate: the human fixed it, retry| off_script_rounds_spent
+    off_script_answer -->|iterate or a write-in: the human fixed it, retry| off_script_rounds_spent
     off_script_answer -->|hand back| provision_refused
     off_script_answer -->|hold| held_end_turn
     off_script_rounds_spent -->|no| worktree_provision

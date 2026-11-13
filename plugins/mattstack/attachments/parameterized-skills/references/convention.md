@@ -451,14 +451,13 @@ from `snapshot`. Gates that fire once per pass (`plan`, `close`,
 `mark-ready`) keep the bare name; after a redirect they fire again and the
 latest answer stands.
 
-Standing options on every gate form but `clarify` (defined below): *Iterate
-here* (the human's free text is the change request) and *Hold*; *Go back to
-<stage>* when `snapshot` shows an earlier stage row.
+A gate form carries only its own decision questions: no Iterate, Hold or
+Go back options. A write-in is the change request.
 
-`iterate` at a stage gate means: act on the human's note inside the
-stage, then gate the same scope again (the upsert keeps the latest
-answer). Redirect is only for Go back. On a form with more than one
-question, `iterate` and `hold` are the last question's options.
+`iterate` at a stage gate (a write-in, or an `iterate` from another
+surface) means: act on the human's note inside the stage, then gate the
+same scope again (the upsert keeps the latest answer). Redirect is only
+for a `go-back` answer.
 
 `-` is the cleared sentinel for any field this contract writes (`hold`, a
 redirected stage's produces): `run_field_set {runDb, key, value: "-",
@@ -485,15 +484,13 @@ closes nothing, and fires no gate beyond its own: only a verb whose
 workType, stage, outcome}` (`done`, `failed` or `abandoned`, with
 `reason`). `run_close` refuses an inherited run.
 
-Selections record the standing options with the pattern work's failure and
-close gates use: `next` is the gate's own enum and always includes
-`iterate` and `hold`, plus `go-back` with `to` wherever the form offers Go
-back; `note` carries their free text or null. A gate's own answer keys
+Forms ask no navigation question. A selection records `next` only when an
+answer carries one (`iterate`, `hold`, or `go-back` with `to`, from another
+surface); `note` carries their free text or null. A gate's own answer keys
 stand beside them.
 
-A `clarify` form carries its candidates, optionally their text, and Hold;
-it offers no `iterate` (the free-text candidate plays that role) and no
-Go back, and its selection keeps its single key. Hold on any form: one
+A `clarify` form carries its candidates and optionally their text, and
+its selection keeps its single key. A `hold` answer from any surface: one
 sentence, end the turn; under a run, `run_hold {runDb, stage, reason:
 "<their words>", decidedBy: <the answer's by>}` records the hold (at a
 `work` stage gate, `run_resolve {next: "hold"}` does the same); outside a

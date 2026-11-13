@@ -341,6 +341,36 @@ describe("gate:ask", () => {
 // RT-179: only the session-owns-the-run path stamped origin.worktree, so a
 // gate opened on any other run: subject was invisible to the hook's
 // per-worktree match.
+describe("gate:ask review and respond post gates are board-only", () => {
+  for (const kind of ["review-post", "respond-plan", "respond-post"]) {
+    test(`${kind} with a formable pane still presents wait, with no nudge`, async () => {
+      const { handlers, store } = harness({
+        resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }),
+      });
+      const res = await handlers["gate:ask"]({
+        questions: twoOptionQuestion(), kind,
+        subject: "mr:https://x/1", sessionId: "sess-1", paneId: "w1:p1",
+        context: "why this decision",
+      });
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.data.presentation).toBe("wait");
+      const row = store.get(res.data.id)!;
+      expect(row.nudge ?? null).toBeNull();
+      expect(row.origin?.paneId).toBe("w1:p1");
+    });
+  }
+
+  test("another kind on the same pane still presents a form", async () => {
+    const { handlers } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }) });
+    const res = await handlers["gate:ask"]({
+      questions: twoOptionQuestion(), kind: "plan",
+      subject: "mr:https://x/1", sessionId: "sess-1", paneId: "w1:p1", context: "why",
+    });
+    expect(res.ok && res.data.presentation).toBe("form");
+  });
+});
+
 describe("gate:ask stamps origin.worktree whenever the runId is known", () => {
   test("a run subject the session does not own gets its worktree from the runWorktree dep", async () => {
     const { handlers, store } = harness({
@@ -472,7 +502,8 @@ describe("gate:ask form-cap advisory (RT-202)", () => {
     expect(res.data.presentation).toBe("wait");
     expect(res.data.formCapExceeded).toEqual([{ question: "q1", options: 5 }]);
     expect(res.data.formCapAdvisory).toContain("4 options");
-    expect(res.data.formCapAdvisory).toContain("next");
+    expect(res.data.formCapAdvisory).toContain("<id>-1");
+    expect(res.data.formCapAdvisory).not.toContain("next question");
   });
 
   test("with no pane a form was never possible, so no advisory rides the wait", async () => {
