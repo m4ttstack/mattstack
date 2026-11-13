@@ -18,6 +18,9 @@
   a provider does not hold. A consumer that must not act again should compare
   `Pipeline.sha` too. The README's "GitHub `Pipeline.id`" section has the
   detail.
+- `fetchSameOrigin` and `mayFollowRedirect` are exported from the package
+  entry, so callers outside glance that send a token follow redirects under
+  glance's one rule. No behaviour change inside glance.
 - The live conformance harness records an outcome for `enqueuePullRequest`
   and `fetchMergeQueueStatus` on both forges (GLANCE-58).
 

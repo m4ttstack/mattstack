@@ -501,6 +501,11 @@ is never retried, so a `baseURL` on a host name that redirects to another name
 must use the name GitLab answers on. `restRequest` with
 `io.redirect: 'manual'` still returns the 3xx instead.
 
+`fetchSameOrigin(input, init?)` is that same fetch, exported so other code
+sending a token uses one implementation: it follows a redirect only under the
+rule above and throws `CrossOriginRedirectError` for any other hop.
+`mayFollowRedirect(from, to)` is the rule on its own, returning a boolean.
+
 | Property | Description |
 |---|---|
 | `fromHost` | The host the refused hop was sent to |
