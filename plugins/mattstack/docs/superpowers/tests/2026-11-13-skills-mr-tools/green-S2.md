@@ -1,4 +1,4 @@
-# GREEN S2: pass (same calls and plan as RED S2, minus the git remote get-url read)
+# GREEN S2: pass (same calls and plan as RED S2, minus the git remote get-url read; it also made an upfront skills_resolve, which the skill allows)
 
 Ordered calls (stopping at the sweep gate)
 

@@ -16,13 +16,15 @@ is. An MR or PR whose `state` is merged or closed takes the same checkout,
 and the report names the state. The forge's error goes to the clarify
 gate's sentence, quoted.
 
-The fork rule applies only to a GitHub result: one where the origin URL
-`git_remote_origin` read is on github.com. On GitHub, the PR's branch is
-this repo's only when `sourceProjectPath` equals the `<owner>/<repo>` in
-its `webUrl`. When `sourceProjectPath` differs, is null (a deleted fork) or
+The fork rule applies only to a GitHub result: one whose `webUrl` is on
+github.com (a GitLab `webUrl` never is, and an SSH-alias origin still
+gives a github.com `webUrl`). On GitHub, the PR's branch is this repo's
+only when `sourceProjectPath` equals the `<owner>/<repo>` in its
+`webUrl`. When `sourceProjectPath` differs, is null (a deleted fork) or
 is absent (the token cannot read the head repo), the result is a fork PR:
 never call `worktree_provision`, and end at **Fork PR: reported** with one
 sentence: `#<n>`'s branch `<sourceBranch>` lives in a fork
-(`<sourceProjectPath>`, or "a repository this token cannot see"), not on
-origin, so nothing was checked out. A GitLab result has no
-`sourceProjectPath` and is never a fork.
+(`<sourceProjectPath>`; "a deleted fork" when it is null; "a repository
+this token cannot see" when it is absent), not on origin, so nothing was
+checked out. A GitLab result has no `sourceProjectPath` and is never a
+fork.

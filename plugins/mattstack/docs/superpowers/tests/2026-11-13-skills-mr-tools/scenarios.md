@@ -414,7 +414,7 @@ The user says: "checkout RT-77". The session's cwd is `/work/acme`. Its origin U
 `mr_list {repoName: "/work/acme", search: "RT-77", state: "all", limit: 200}` returns:
 
 ```json
-{"rows": [{"iid": 31, "title": "RT-77: tidy", "sourceBranch": "rt-77-tidy", "state": "merged"}], "truncated": false}
+{"mrs": [{"iid": 31, "title": "RT-77: tidy", "sourceBranch": "rt-77-tidy", "state": "merged", "webUrl": "https://github.com/acme/app/pull/31"}], "truncated": false}
 ```
 
 `mr_resolve_branch {repoName: "/work/acme", iid: 31}` returns:
@@ -470,7 +470,7 @@ The user says: "checkout RT-77". The session's cwd is `/work/acme`. Its origin U
 `mr_list {repoName: "/work/acme", search: "RT-77", state: "all", limit: 200}` returns:
 
 ```json
-{"rows": [{"iid": 31, "title": "RT-77: tidy", "sourceBranch": "rt-77-tidy", "state": "merged"}], "truncated": false}
+{"mrs": [{"iid": 31, "title": "RT-77: tidy", "sourceBranch": "rt-77-tidy", "state": "merged", "webUrl": "https://github.com/acme/app/pull/31"}], "truncated": false}
 ```
 
 `mr_resolve_branch {repoName: "/work/acme", iid: 31}` returns:
@@ -526,13 +526,13 @@ The user says: "checkout RT-88". The session's cwd is `/work/acme`. Its origin U
 `mr_list {repoName: "/work/acme", search: "RT-88", state: "all", limit: 200}` returns 200 rows, none carrying `RT-88` in `title` or `sourceBranch`:
 
 ```json
-{"rows": "<200 rows, none with RT-88 in title or sourceBranch>", "truncated": true}
+{"mrs": "<200 rows, none with RT-88 in title or sourceBranch, each webUrl under https://github.com/acme/app/pull/>", "truncated": true}
 ```
 
 `mr_list {repoName: "/work/acme", state: "all", limit: 200}` also returns 200 rows, none carrying `RT-88` in `title` or `sourceBranch`:
 
 ```json
-{"rows": "<200 rows, none with RT-88 in title or sourceBranch>", "truncated": true}
+{"mrs": "<200 rows, none with RT-88 in title or sourceBranch, each webUrl under https://github.com/acme/app/pull/>", "truncated": true}
 ```
 
 If asked, `git remote get-url origin` prints:
@@ -554,6 +554,106 @@ branch refs/heads/main
 **Expected**
 
 Both reads happen, then the clarify gate with a sentence saying the search was cut at 200 rows. No `worktree_provision` call.
+
+## C2d
+
+**Given**
+
+The user says: "checkout https://github.com/acme/app/pull/40". The session's cwd is `/work/acme`. Its origin URL is `git@work-github:acme/app.git`.
+
+**Fixtures**
+
+`mr_resolve_branch {repoName: "/work/acme", mrUrl: "https://github.com/acme/app/pull/40"}` returns:
+
+```json
+{"iid": 40, "state": "opened", "author": "sam", "sourceBranch": "main", "webUrl": "https://github.com/acme/app/pull/40", "sourceProjectPath": "someone/app-fork", "trees": []}
+```
+
+`worktree_provision {repoName: "/work/acme", branch: "main"}` returns:
+
+```json
+{"path": "/work/acme-main"}
+```
+
+If asked, `git remote get-url origin` prints:
+
+```
+git@work-github:acme/app.git
+```
+
+If asked, `gh pr view 40 --json headRefName,headRepositoryOwner,headRepository,isCrossRepository,state` prints:
+
+```json
+{"headRefName": "main", "headRepositoryOwner": {"login": "someone"}, "headRepository": {"name": "app-fork"}, "isCrossRepository": true, "state": "OPEN"}
+```
+
+If asked, `git worktree list --porcelain` prints:
+
+```
+worktree /work/acme
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+```
+
+**Expected**
+
+`mr_resolve_branch {repoName, mrUrl: "https://github.com/acme/app/pull/40"}`, then the walk ends at **Fork PR: reported**. No `worktree_provision` call.
+
+## C3d
+
+**Given**
+
+The user says: "checkout RT-77". The session's cwd is `/work/acme`. Its origin URL is `git@work-github:acme/app.git`.
+
+**Fixtures**
+
+`mr_list {repoName: "/work/acme", search: "RT-77", state: "all", limit: 200}` returns:
+
+```json
+{"mrs": [{"iid": 31, "title": "RT-77: tidy", "sourceBranch": "rt-77-tidy", "state": "merged", "webUrl": "https://github.com/acme/app/pull/31"}], "truncated": false}
+```
+
+`mr_resolve_branch {repoName: "/work/acme", iid: 31}` returns:
+
+```json
+{"iid": 31, "state": "merged", "author": "sam", "sourceBranch": "rt-77-tidy", "webUrl": "https://github.com/acme/app/pull/31", "sourceProjectPath": "someone/app-fork", "trees": []}
+```
+
+`worktree_provision {repoName: "/work/acme", branch: "rt-77-tidy"}` returns:
+
+```json
+{"path": "/work/acme-rt-77-tidy"}
+```
+
+If asked, `git remote get-url origin` prints:
+
+```
+git@work-github:acme/app.git
+```
+
+If asked, `gh pr list --search RT-77 --state all --limit 200 --json number,title,headRefName,state` prints:
+
+```json
+[{"number": 31, "title": "RT-77: tidy", "headRefName": "rt-77-tidy", "state": "MERGED"}]
+```
+
+If asked, `gh pr view 31 --json headRefName,headRepositoryOwner,headRepository,isCrossRepository,state` prints:
+
+```json
+{"headRefName": "rt-77-tidy", "headRepositoryOwner": {"login": "someone"}, "headRepository": {"name": "app-fork"}, "isCrossRepository": true, "state": "MERGED"}
+```
+
+If asked, `git worktree list --porcelain` prints:
+
+```
+worktree /work/acme
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+```
+
+**Expected**
+
+`mr_list {repoName, search: "RT-77", state: "all", limit: 200}`, then `mr_resolve_branch {repoName, iid: 31}`, then the walk ends at **Fork PR: reported**. No `worktree_provision` call.
 
 ## C7
 

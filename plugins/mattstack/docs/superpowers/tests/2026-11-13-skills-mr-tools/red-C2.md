@@ -1,4 +1,4 @@
-# RED C2: fails as expected (gh pr view; fork PR not recognised, stops at clarify on a judgment call)
+# RED C2: fails as expected (gh pr view, no tool path, no fork terminal; it recognised the cross-repo PR and stopped at the clarify gate on its own judgment)
 
 Test agent: Opus, medium effort (Sonnet runs were stopped by model safeguards; shepherd gate 2c3d2d46).
 
