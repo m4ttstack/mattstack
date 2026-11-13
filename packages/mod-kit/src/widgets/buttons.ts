@@ -1,3 +1,4 @@
+import { cellWidth, cutCells } from '../draw/cells'
 import { sp, widthOf, type Line, type Span, type Style } from '../draw/text'
 import { FILL } from '../draw/theme'
 
@@ -18,10 +19,10 @@ export function buttonSpan<A>(button: Button<A>, pad = ROOMY.pad): Span<A> {
 }
 
 const widthWith = (left: Button<unknown>[], right: Button<unknown> | undefined, { indent, pad, gap }: Spacing) =>
-  indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0)
+  indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0)
 
 // A label cut to `room` cells, ending in an ellipsis.
-const cut = (label: string, room: number) => (label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`)
+const cut = (label: string, room: number) => (cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`)
 
 // Buttons for mouse users: `left` from the indent, `right` against the far edge.
 // A pane too narrow for the roomy layout tightens the padding and gaps, then cuts the right button's label.
@@ -32,6 +33,6 @@ export function buttonRow<A>(left: Button<A>[], right: Button<A> | undefined, wi
   if (!right) return line
   const room = width - widthOf(line) - space.gap - 2 * space.pad
   const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad)
-  line.push(sp(' '.repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end)
+  line.push(sp(' '.repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end)
   return line
 }

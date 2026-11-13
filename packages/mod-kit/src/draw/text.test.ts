@@ -1,6 +1,34 @@
 import { describe, expect, test } from 'bun:test'
 
-import { hang, hitAt, hoverKeyAt, sp, type Line } from './text'
+import { hang, hitAt, hoverKeyAt, sp, widthOf, wrap, type Line } from './text'
+
+describe('wide text', () => {
+  test('hitAt counts a wide span as two columns', () => {
+    const line: Line<string> = [sp('🚀'), sp('x', { action: 'go' })]
+    expect(hitAt(line, 1)).toBeUndefined()
+    expect(hitAt(line, 2)).toBe('go')
+    expect(hitAt(line, 3)).toBeUndefined()
+  })
+
+  test('hoverKeyAt finds a span after CJK text by cells', () => {
+    const line: Line<string> = [sp('日本'), sp('go', { action: 'go' })]
+    expect(hoverKeyAt([line], 0, 2)).toBeUndefined()
+    expect(hoverKeyAt([line], 0, 4)).toBe('0:"go"')
+  })
+
+  test('widthOf sums cells', () => {
+    expect(widthOf([sp('🚀'), sp('日本'), sp('ab')])).toBe(8)
+  })
+
+  test('wrap breaks by cells', () => {
+    expect(wrap('日本 日本 日本', 9)).toEqual(['日本 日本', '日本'])
+  })
+
+  test('hang keeps every row within the width in cells', () => {
+    const rows = hang([sp('> ')], [sp('  ')], '🚀🚀 🚀🚀 🚀🚀', 12)
+    for (const row of rows) expect(widthOf(row)).toBeLessThanOrEqual(12)
+  })
+})
 
 describe('hang', () => {
   test('keeps the first-row prefix and indents wrapped rows with rest', () => {

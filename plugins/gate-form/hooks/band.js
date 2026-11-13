@@ -1,3 +1,70 @@
+// packages/mod-kit/src/draw/cells.ts
+var segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+var PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
+var EMOJI = /\p{Emoji_Presentation}|️|⃣/u;
+var ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u;
+var WIDE_RANGES = [
+  [4352, 4447],
+  [11904, 12350],
+  [12353, 13311],
+  [13312, 19903],
+  [19968, 40959],
+  [40960, 42191],
+  [43360, 43391],
+  [44032, 55203],
+  [63744, 64255],
+  [65072, 65135],
+  [65280, 65376],
+  [65504, 65510],
+  [131072, 262141]
+];
+function graphemeWidth(grapheme) {
+  if (EMOJI.test(grapheme))
+    return 2;
+  const first = grapheme.codePointAt(0) ?? 0;
+  if (ZERO_WIDTH.test(grapheme))
+    return 0;
+  return WIDE_RANGES.some(([lo, hi]) => first >= lo && first <= hi) ? 2 : 1;
+}
+var graphemes = (text) => Array.from(segmenter.segment(text), (part) => part.segment);
+function cellWidth(text) {
+  if (PRINTABLE_ASCII.test(text))
+    return text.length;
+  return graphemes(text).reduce((n, grapheme) => n + graphemeWidth(grapheme), 0);
+}
+function cutCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return text.slice(0, Math.max(0, cells));
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text)) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out += grapheme;
+  }
+  return out;
+}
+function tailCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return cells <= 0 ? "" : text.slice(-cells);
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text).reverse()) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out = grapheme + out;
+  }
+  return out;
+}
+function padCells(text, cells) {
+  return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
+}
+function firstGrapheme(text) {
+  return segmenter.segment(text)[Symbol.iterator]().next().value?.segment ?? "";
+}
+
 // packages/mod-kit/src/draw/text.ts
 function sp(t, style = {}) {
   return { t, ...style };
@@ -8,12 +75,12 @@ function withAction(lines, action) {
   return lines;
 }
 function widthOf(spans) {
-  return spans.reduce((n, span) => n + span.t.length, 0);
+  return spans.reduce((n, span) => n + cellWidth(span.t), 0);
 }
 function spanAt(line, x) {
   let from = 0;
   for (const span of line) {
-    const to = from + span.t.length;
+    const to = from + cellWidth(span.t);
     if (span.action !== undefined && x >= from && x < to)
       return span;
     from = to;
@@ -46,7 +113,7 @@ function wrap(text, width) {
     let row = "";
     for (const word of raw.split(" ")) {
       const next = row === "" ? word : `${row} ${word}`;
-      if (next.length > width && row !== "") {
+      if (cellWidth(next) > width && row !== "") {
         out.push(row);
         row = word;
       } else
@@ -360,8 +427,8 @@ function buttonSpan(button, pad = ROOMY.pad) {
   const edge = " ".repeat(pad);
   return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
 }
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
-var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
 function buttonRow(left, right, width) {
   const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
   const line = [sp(" ".repeat(space.indent))];
@@ -371,7 +438,7 @@ function buttonRow(left, right, width) {
     return line;
   const room = width - widthOf(line) - space.gap - 2 * space.pad;
   const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
   return line;
 }
 

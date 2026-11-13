@@ -305,10 +305,22 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `sp(text, style?)`: a span.
 - `wrap(text, width)`: wraps text to lines of strings.
 - `hang(first, rest, text, width, style?)`: wraps with a hanging indent.
-- `widthOf(spans)`: display width of a line.
+- `widthOf(spans)`: display width of a line, in terminal cells.
 - `withAction(lines, action)`: attaches an action to every line.
 
 Types: `Line`, `Style`.
+
+### `cellWidth`, `cutCells` and `padCells`
+
+Every width in the kit counts terminal cells, not characters: an emoji or a
+CJK character takes two, a combining mark none. `wrap`, `hang`, `hitAt`, hover
+keys and the widgets all measure this way, so a mod that cuts or pads its own
+text should too.
+
+- `cellWidth(text)`: the cells `text` takes.
+- `cutCells(text, cells)`: the longest start of `text` that fits. It never
+  splits a grapheme and never leaves half a wide character in.
+- `padCells(text, cells)`: `text` padded with spaces to `cells`.
 
 ### `hitAt`, `hoverKeyAt`, `lineHoverKey` and `spanHoverKey`
 

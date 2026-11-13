@@ -1,5 +1,6 @@
 export { hang, hitAt, hoverKeyAt, lineHoverKey, sp, spanHoverKey, widthOf, withAction, wrap } from './draw/text'
 export type { Line, Style } from './draw/text'
+export { cellWidth, cutCells, padCells } from './draw/cells'
 export { ACCENT, BRAND, DIM, DONE, FILL, GRAY, ICON, PLACEHOLDER, SYMBOL, WARN, hovered, muted, pressed, rail } from './draw/theme'
 export { renderLines } from './draw/render'
 export type { Look } from './draw/render'

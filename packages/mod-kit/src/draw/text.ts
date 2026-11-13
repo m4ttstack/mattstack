@@ -1,4 +1,6 @@
-export type Style = { color?: string; bg?: string; dim?: boolean; bold?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean }
+import { cellWidth } from './cells'
+
+export type Style ={ color?: string; bg?: string; dim?: boolean; bold?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean }
 
 // A span or a whole line can carry the action a click on it performs, so a pointer handler only has to look up what it hit.
 export type Span<A> = Style & { t: string; action?: A; isLabel?: true }
@@ -14,13 +16,13 @@ export function withAction<A>(lines: Line<A>[], action: A): Line<A>[] {
 }
 
 export function widthOf(spans: Span<unknown>[]): number {
-  return spans.reduce((n, span) => n + span.t.length, 0)
+  return spans.reduce((n, span) => n + cellWidth(span.t), 0)
 }
 
 function spanAt<A>(line: Line<A>, x: number): Span<A> | undefined {
   let from = 0
   for (const span of line) {
-    const to = from + span.t.length
+    const to = from + cellWidth(span.t)
     if (span.action !== undefined && x >= from && x < to) return span
     from = to
   }
@@ -57,7 +59,7 @@ export function wrap(text: string, width: number): string[] {
     let row = ''
     for (const word of raw.split(' ')) {
       const next = row === '' ? word : `${row} ${word}`
-      if (next.length > width && row !== '') {
+      if (cellWidth(next) > width && row !== '') {
         out.push(row)
         row = word
       } else row = next
