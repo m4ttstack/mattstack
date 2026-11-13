@@ -156,6 +156,21 @@ to 8 and the list windows around the cursor ("N more"). `writeIn` is the text of
 the "Something else" row. `cursorIsChoice` draws the single-select cursor as
 chosen.
 
+### `Menu`
+
+`<Menu rows state onChange? onPick? label? indent? isSelected?>` (props type `MenuProps`). One quiet
+button, `More actions ▾` unless `label` says otherwise. Open, its rows hang
+under it with `├` and `└`. A row with `rows` shows `▸` and opens its sub-list
+to the right, or under the row when the width is too narrow for both. Rows are
+`{ id, label, rows? }` (`MenuRow`), and only a row without `rows` is picked,
+by its `id`. The menu holds no state: the Client keeps `state`
+(`{ open, selected, sub? }`, `MenuState`) and takes each change through
+`onChange`. `indent` is the column the button starts at, so the rows hang under
+a button drawn inside a row. For the keyboard, pass each key through
+`menuKey(state, rows, key)`: Enter opens it, the arrows move, right or Enter
+opens a sub-list, left leaves it, Enter picks and Escape closes. It returns
+`{ state, picked? }` (`MenuMove`), or undefined for a key it leaves alone.
+
 ### `InputField`
 
 `<InputField value placeholder? width? cursor?>`. A filled text field. `cursor`
@@ -298,7 +313,7 @@ of spans; a span may carry an action.
 
 Types: `Drawn`, `NavSpec`, `ReviewItem`.
 
-### `brandBar`, `buttonRow`, `buttonSpan`, `selectList`, `inputField`, `tabStrip`, `textCursor`
+### `brandBar`, `buttonRow`, `buttonSpan`, `selectList`, `inputField`, `tabStrip`, `textCursor`, `menu`
 
 The line builders under the components. A component's `toLines` calls the
 matching builder. Reach for them when you build lines by hand for `<Lines>`.
@@ -308,6 +323,7 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `selectList(spec)` with `SelectSpec` and `Choice`
 - `inputField(value, placeholder, width, showCursor)` and `textCursor(value, placeholder, showCursor)`
 - `tabStrip(spec)` with `Tab` and `TabStripSpec`, and `revealTab`
+- `menu(spec)` with `MenuSpec` and `MenuHit` (a click: `toggle`, or a row's `path`), `menuHit(state, rows, hit)` for a click and `menuKey` for a key, and `MORE_ACTIONS`, the button's label
 - `scrollBar(rows, total, offset)`: a scroll bar for a window of `rows` over `total`, one three-cell line per row (a blank, the track or thumb, a blank). Blank lines when the list fits. Colours in `SCROLL`.
 
 ## Draw layer
