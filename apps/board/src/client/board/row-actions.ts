@@ -64,6 +64,7 @@ export type ActionGlyph =
   | { kind: 'slack' }
   | { kind: 'flock' }
   | { kind: 'rt' }
+  | { kind: 'shredder' }
   | { kind: 'emoji'; glyph: string };
 
 export type LaunchFlow =
@@ -518,12 +519,12 @@ export function rowActions(
       );
     }
   if (env.local && hasDroppableReviewGate(mrx))
-    sessions.push(
+    agent.push(
       item(
-        'sessions',
+        'agent',
         'drop-review',
         'discard review',
-        DISMISS,
+        { kind: 'shredder' },
         { kind: 'drop-review' },
         { confirm: 'really discard?' }
       )

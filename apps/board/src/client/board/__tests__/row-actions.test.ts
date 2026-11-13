@@ -1528,7 +1528,7 @@ test('discard review shows only while a review gate waits, and confirms first', 
     );
   };
   expect(drop([gate({})])).toMatchObject({
-    section: 'sessions',
+    section: 'agent',
     label: 'discard review',
     request: { kind: 'drop-review' },
     confirm: 'really discard?',
