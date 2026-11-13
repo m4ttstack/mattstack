@@ -148,119 +148,12 @@ function muted(span) {
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
 }
-// packages/mod-kit/src/draw/render.tsx
-function isControl(span, line, row, key) {
-  if (span.action !== undefined)
-    return spanHoverKey(span, row) === key;
-  return span.isLabel === true && lineHoverKey(line) === key;
-}
-function styleOf(span, line, row, look) {
-  if (!look.focused)
-    return muted(span);
-  if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
-    return pressed(span);
-  if (look.hover !== undefined && isControl(span, line, row, look.hover))
-    return hovered(span);
-  return span;
-}
-function renderLines(lines, elements, look) {
-  const { Box, Text } = elements;
-  return /* @__PURE__ */ h(Box, {
-    flexDirection: "column"
-  }, lines.map((line, n) => /* @__PURE__ */ h(Text, {
-    key: `l${n}`,
-    wrap: "truncate-end"
-  }, line.map((span, m) => {
-    const style = styleOf(span, line, n, look);
-    return /* @__PURE__ */ h(Text, {
-      key: `s${m}`,
-      ...style.color && { color: style.color },
-      ...style.bg && { backgroundColor: style.bg },
-      ...style.dim && { dimColor: true },
-      ...style.bold && { bold: true },
-      ...style.italic && { italic: true },
-      ...style.underline && { underline: true },
-      ...style.inverse && { inverse: true }
-    }, span.t);
-  }))));
-}
-// packages/mod-kit/src/interact/pointer.ts
-function attachPointer(surface, lines, opts) {
-  const s = surface.state;
-  const hover = s?.hover;
-  const held = s?.pressed;
-  const look = { focused: opts.focused, hover, pressed: held === hover ? held : undefined };
-  if (s === undefined)
-    return { look };
-  const isActive = opts.isActive ?? (() => true);
-  surface.onPointer((ev) => {
-    const key = hoverKeyAt(lines, ev.y, ev.x);
-    if (ev.type === "down") {
-      opts.onEngage?.();
-      if (!opts.focused || ev.button !== "left" || !key || !isActive())
-        return;
-      return surface.setState({ ...s, pressed: key, hover: key });
-    }
-    if (ev.type === "up") {
-      if (s.pressed === undefined)
-        return;
-      surface.setState({ ...s, pressed: undefined });
-      const action = key === s.pressed ? hitAt(lines[ev.y], ev.x) : undefined;
-      if (action !== undefined)
-        opts.onAction(action);
-      return;
-    }
-    const next = ev.type === "leave" ? undefined : key;
-    if (next !== s.hover && isActive())
-      surface.setState({ ...s, hover: next });
-  });
-  return { look };
-}
 // packages/mod-kit/src/interact/focus.ts
 function isEngaged(e) {
   return e.data?.type === "engaged";
 }
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
-var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width) {
-  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
-  return line;
-}
-
-// packages/mod-kit/src/patterns/band-client.tsx
-var DEFAULT_BAND_LABEL = "mattstack waiting";
-function bandClient(props, surface) {
-  if (surface.state === undefined)
-    surface.setState({});
-  const lines = [
-    [
-      sp(`${BRAND.glyph} ${props.label}  `, { color: BRAND.pink, bold: true }),
-      sp(props.title),
-      sp("  "),
-      buttonSpan({ label: "Open", action: "open", tone: "brand" })
-    ]
-  ];
-  const { look } = attachPointer(surface, lines, { focused: true, onAction: () => surface.post({ type: "reopen", formId: props.formId }) });
-  return renderLines(lines, surface.elements, look);
-}
 // packages/mod-kit/src/patterns/hideable-pane.tsx
+var DEFAULT_BAND_LABEL = "mattstack waiting";
 async function showPane($, pane, title) {
   await $.ui.open({ id: pane.id, title, focus: true });
   $.ui.invalidate("ui.render");

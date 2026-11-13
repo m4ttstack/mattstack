@@ -14,14 +14,19 @@ type Options<A> = {
   isActive?: () => boolean
 }
 
+// A control held down draws pressed only while the pointer is still over it.
+export function lookOf(state: PointerState | undefined, focused: boolean): Look {
+  const hover = state?.hover
+  const held = state?.pressed
+  return { focused, hover, pressed: held === hover ? held : undefined }
+}
+
 // A press acts on release, over the control it started on, as a native button does; releasing elsewhere cancels it.
 // The click that brings an unfocused surface back only engages it, as a window's first click does.
 // The state must be seeded before the first call: until `surface.state` exists no listener is set, so a module cannot lose its own state to a press.
 export function attachPointer<S extends PointerState, A>(surface: ClientSurface<S>, lines: Line<A>[], opts: Options<A>): { look: Look } {
   const s = surface.state
-  const hover = s?.hover
-  const held = s?.pressed
-  const look: Look = { focused: opts.focused, hover, pressed: held === hover ? held : undefined }
+  const look = lookOf(s, opts.focused)
   if (s === undefined) return { look }
 
   const isActive = opts.isActive ?? (() => true)

@@ -1,13 +1,14 @@
 import type { EngineInterface, On, RenderElement } from 'claude-code'
 
 import { BRAND } from '../draw/theme'
-import { DEFAULT_BAND_LABEL } from './band-client'
 
 export type HideablePane = {
   id: string
   // The band's lead-in, after the mark: "mattstack <label>".
   label?: string
 }
+
+const DEFAULT_BAND_LABEL = 'mattstack waiting'
 
 // What the pane is waiting on while it is closed, as the mod reads it from its own state.
 export type Waiting = { formId: string; title: string }

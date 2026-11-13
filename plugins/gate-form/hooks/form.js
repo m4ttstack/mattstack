@@ -145,42 +145,6 @@ function muted(span) {
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
 }
-// packages/mod-kit/src/draw/render.tsx
-function isControl(span, line, row, key) {
-  if (span.action !== undefined)
-    return spanHoverKey(span, row) === key;
-  return span.isLabel === true && lineHoverKey(line) === key;
-}
-function styleOf(span, line, row, look) {
-  if (!look.focused)
-    return muted(span);
-  if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
-    return pressed(span);
-  if (look.hover !== undefined && isControl(span, line, row, look.hover))
-    return hovered(span);
-  return span;
-}
-function renderLines(lines, elements, look) {
-  const { Box, Text } = elements;
-  return /* @__PURE__ */ h(Box, {
-    flexDirection: "column"
-  }, lines.map((line, n) => /* @__PURE__ */ h(Text, {
-    key: `l${n}`,
-    wrap: "truncate-end"
-  }, line.map((span, m) => {
-    const style = styleOf(span, line, n, look);
-    return /* @__PURE__ */ h(Text, {
-      key: `s${m}`,
-      ...style.color && { color: style.color },
-      ...style.bg && { backgroundColor: style.bg },
-      ...style.dim && { dimColor: true },
-      ...style.bold && { bold: true },
-      ...style.italic && { italic: true },
-      ...style.underline && { underline: true },
-      ...style.inverse && { inverse: true }
-    }, span.t);
-  }))));
-}
 // packages/mod-kit/src/widgets/brand-bar.ts
 var fit = (text, room) => text.length <= room ? text.padEnd(room) : `${text.slice(0, Math.max(0, room - 1))}…`;
 function brandBar(label, width, hide) {
@@ -317,12 +281,127 @@ function textCursor(value, placeholder, showCursor) {
     return [sp(placeholder.slice(0, 1), { inverse: true }), sp(placeholder.slice(1), DIM)];
   return [sp(value), sp(" ", { inverse: true })];
 }
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
+var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
+var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width) {
+  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
+  return line;
+}
+
+// packages/mod-kit/src/components/core.tsx
+var current;
+function rendering(tag) {
+  if (!current)
+    throw new Error(`kit: <${tag}> draws only inside kitClient`);
+  return current;
+}
+function drawKit(frame, draw) {
+  const outer = current;
+  const render = { ...frame, entries: new Map, next: 0, handlers: new Map };
+  current = render;
+  try {
+    const tree = draw();
+    return { tree, lines: render.lines ?? [], handlers: render.handlers };
+  } finally {
+    current = outer;
+  }
+}
+function kitComponent(tag, toLines) {
+  const component = (props) => {
+    const render = rendering(tag);
+    const key = `kit:${render.next++}`;
+    render.entries.set(key, { component: kit, props });
+    const { Box } = render.elements;
+    return /* @__PURE__ */ h(Box, {
+      key
+    });
+  };
+  const kit = Object.assign(component, { toLines });
+  return kit;
+}
+function textOf(children) {
+  if (Array.isArray(children))
+    return children.map(textOf).join("");
+  if (typeof children === "string" || typeof children === "number")
+    return String(children);
+  return "";
+}
+function ctxFor(render, owner, view) {
+  const ctx = {
+    ...view,
+    bind: (name, run) => {
+      const key = `${owner}:${name}`;
+      render.handlers.set(key, run);
+      return key;
+    },
+    parts: (nodes) => partsOf(render, nodes, view),
+    layout: (nodes) => ctx.parts(nodes).flatMap((part) => ("text" in part) ? [[sp(part.text)]] : part.component.toLines(part.props, part.ctx))
+  };
+  return ctx;
+}
+function partsOf(render, nodes, view) {
+  const out = [];
+  const walk = (node) => {
+    if (node === null || node === undefined || typeof node === "boolean")
+      return;
+    if (Array.isArray(node))
+      return node.forEach(walk);
+    if (typeof node === "string" || typeof node === "number") {
+      out.push({ text: String(node) });
+      return;
+    }
+    const el = node;
+    const key = el.props?.key;
+    const entry = typeof key === "string" ? render.entries.get(key) : undefined;
+    if (entry && typeof key === "string") {
+      out.push({ component: entry.component, props: entry.props, ctx: ctxFor(render, key, view) });
+      return;
+    }
+    const inner = el.children ?? el.props?.children;
+    if (inner === undefined)
+      throw new Error(`kit: a Panel lays out kit components and text, not a ${String(el.type)} element`);
+    walk(inner);
+  };
+  walk(nodes);
+  return out;
+}
+
+// packages/mod-kit/src/components/buttons.tsx
+function buttonOf(props, ctx) {
+  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
+}
+var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
+var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
+  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
+  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
+});
+
 // packages/mod-kit/src/interact/pointer.ts
+function lookOf(state, focused) {
+  const hover = state?.hover;
+  const held = state?.pressed;
+  return { focused, hover, pressed: held === hover ? held : undefined };
+}
 function attachPointer(surface, lines, opts) {
   const s = surface.state;
-  const hover = s?.hover;
-  const held = s?.pressed;
-  const look = { focused: opts.focused, hover, pressed: held === hover ? held : undefined };
+  const look = lookOf(s, opts.focused);
   if (s === undefined)
     return { look };
   const isActive = opts.isActive ?? (() => true);
@@ -349,28 +428,118 @@ function attachPointer(surface, lines, opts) {
   });
   return { look };
 }
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
+
+// packages/mod-kit/src/components/client.tsx
+function kitClient(body, options = {}) {
+  return function KitClient(props, surface) {
+    const seed = surface.state ?? options.initial?.(props) ?? {};
+    if (surface.state === undefined)
+      surface.setState(seed);
+    let latest = seed;
+    const setState = (next) => {
+      latest = next;
+      surface.setState(next);
+    };
+    const focused = options.focused ? options.focused(props) : props?.focused !== false;
+    const engage = options.engaged && (() => surface.post(options.engaged(props)));
+    const ui = {
+      width: surface.columns || 80,
+      focused,
+      get state() {
+        return latest;
+      },
+      setState,
+      post: (message) => surface.post(message),
+      hide: () => surface.post({ type: "hide" }),
+      onKey: (fn) => void surface.onKey((event) => {
+        engage?.();
+        fn(event);
+      })
+    };
+    const { tree, lines, handlers } = drawKit({ elements: surface.elements, look: lookOf(latest, focused), width: ui.width, focused }, () => body(props, ui));
+    const local = {
+      get state() {
+        return latest;
+      },
+      setState,
+      onPointer: (fn) => surface.onPointer(fn)
+    };
+    attachPointer(local, lines, {
+      focused,
+      onAction: (key) => handlers.get(key)?.(),
+      ...engage && { onEngage: engage },
+      ...options.isActive && { isActive: () => options.isActive(latest) }
+    });
+    return tree;
+  };
 }
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
-var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width) {
-  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
-  return line;
+
+// packages/mod-kit/src/components/lines.tsx
+function keyed(lines, key) {
+  return lines.map((line) => {
+    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
+    if (line.action !== undefined)
+      out.action = key(line.action);
+    return out;
+  });
+}
+var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
+var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
+var Row = kitComponent("Row", (props, ctx) => [
+  ctx.parts(props.children).flatMap((part) => {
+    if ("text" in part)
+      return [sp(part.text)];
+    if (part.component === Button)
+      return [buttonSpan(buttonOf(part.props, part.ctx))];
+    return part.component.toLines(part.props, part.ctx)[0] ?? [];
+  })
+]);
+
+// packages/mod-kit/src/draw/render.tsx
+function isControl(span, line, row, key) {
+  if (span.action !== undefined)
+    return spanHoverKey(span, row) === key;
+  return span.isLabel === true && lineHoverKey(line) === key;
+}
+function styleOf(span, line, row, look) {
+  if (!look.focused)
+    return muted(span);
+  if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
+    return pressed(span);
+  if (look.hover !== undefined && isControl(span, line, row, look.hover))
+    return hovered(span);
+  return span;
+}
+function renderLines(lines, elements, look) {
+  const { Box, Text } = elements;
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, lines.map((line, n) => /* @__PURE__ */ h(Text, {
+    key: `l${n}`,
+    wrap: "truncate-end"
+  }, line.map((span, m) => {
+    const style = styleOf(span, line, n, look);
+    return /* @__PURE__ */ h(Text, {
+      key: `s${m}`,
+      ...style.color && { color: style.color },
+      ...style.bg && { backgroundColor: style.bg },
+      ...style.dim && { dimColor: true },
+      ...style.bold && { bold: true },
+      ...style.italic && { italic: true },
+      ...style.underline && { underline: true },
+      ...style.inverse && { inverse: true }
+    }, span.t);
+  }))));
+}
+
+// packages/mod-kit/src/components/panel.tsx
+function Panel(props) {
+  const render = rendering("Panel");
+  if (render.lines)
+    throw new Error("kit: a Client draws one Panel");
+  const lines = ctxFor(render, "panel", { width: props.width ?? render.width, focused: render.focused }).layout(props.children);
+  render.lines = lines;
+  return renderLines(lines, render.elements, render.look);
 }
 // packages/mod-kit/src/patterns/page-shell.ts
 function padToHeight(page, height, filler) {
@@ -727,34 +896,28 @@ function visibleLines(form, s, view, rows) {
 }
 
 // mods/gate-form/src/form.tsx
-function GateForm(props, surface) {
+var form_default = kitClient((props, ui) => {
   const { form } = props;
-  const focused = props.focused !== false;
-  if (surface.state === undefined)
-    surface.setState(initial(form));
-  const s = surface.state ?? initial(form);
-  const width = Math.max(30, props.cols || surface.columns || 80);
-  const lines = visibleLines(form, s, { width, focused }, props.rows);
+  const width = Math.max(30, props.cols || ui.width);
   const apply = (effect) => {
     if (!effect)
       return;
     if (effect.post !== undefined)
-      surface.post(effect.post);
-    surface.setState(effect.state.page === s.page ? effect.state : withTabInView(form, effect.state, width));
+      ui.post(effect.post);
+    ui.setState(effect.state.page === ui.state.page ? effect.state : withTabInView(form, effect.state, width));
   };
-  const engage = () => surface.post({ type: "engaged", formId: form.id });
-  surface.onKey((ev) => {
-    engage();
-    apply(keyEffect(ev, form, s));
-  });
-  const { look } = attachPointer(surface, lines, {
-    focused,
-    isActive: () => s.phase === "active",
-    onEngage: engage,
-    onAction: (action) => apply(perform(action, form, { ...s, pressed: undefined }))
-  });
-  return renderLines(lines, surface.elements, look);
-}
+  ui.onKey((ev) => apply(keyEffect(ev, form, ui.state)));
+  return /* @__PURE__ */ h(Panel, {
+    width
+  }, /* @__PURE__ */ h(Lines, {
+    lines: visibleLines(form, ui.state, { width, focused: ui.focused }, props.rows),
+    onAction: (action) => apply(perform(action, form, ui.state))
+  }));
+}, {
+  initial: (props) => initial(props.form),
+  isActive: (s) => s.phase === "active",
+  engaged: (props) => ({ type: "engaged", formId: props.form.id })
+});
 export {
-  GateForm as default
+  form_default as default
 };
