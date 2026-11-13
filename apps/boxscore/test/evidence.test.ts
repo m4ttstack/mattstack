@@ -10,7 +10,7 @@ import type {
   FetchResult,
   NormLinearIssue,
 } from '../src/server/store/model.js';
-import { FETCH, fetchedWithMergedMrs, USERS, WINDOW } from './fixtures.js';
+import { FETCH, fetchedWithMergedMrs, li, USERS, WINDOW } from './fixtures.js';
 
 const SIZE_BAND = { tooSmall: 10, tooLarge: 400 };
 const CTX: EvidenceContext = {
@@ -184,6 +184,31 @@ describe('issuesCompleted shows the closed date and non-mention links only', () 
     expect(row.cells[4]).toContain('!100');
     expect(row.mrHrefs).toHaveLength(1);
     expect(row.mrHrefs![0]).toMatch(/\/-\/merge_requests\/100$/);
+  });
+});
+
+describe('github issue evidence', () => {
+  it('links a done issue to its pull requests and names them #iid', () => {
+    const fetched: FetchResult = {
+      ...FETCH,
+      linearIssues: [
+        {
+          ...li('ENG-10', 'alice'),
+          linkedMrs: [
+            { iid: 100, projectPath: 'org/app', via: 'closing' },
+            { iid: 200, projectPath: 'org/app', via: 'mention' },
+          ],
+        },
+      ],
+    };
+    const ev = buildUserEvidence(fetched, 'alice', {
+      ...CTX,
+      forge: 'github',
+      baseUrl: 'https://github.com',
+    });
+    const row = ev.issuesCompleted!.rows.find(r => r.cells[0] === 'ENG-10')!;
+    expect(row.cells[4]).toBe('#100');
+    expect(row.mrHrefs).toEqual(['https://github.com/org/app/pull/100']);
   });
 });
 

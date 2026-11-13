@@ -208,7 +208,7 @@ describe('getLeaderboard: forge on the response', () => {
       cacheOnly: true,
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ColdCacheError);
-    expect((err as InstanceType<typeof ColdCacheError>).forge).toBeUndefined();
+    expect(err).toMatchObject({ forge: undefined });
   });
 });
 
@@ -768,7 +768,7 @@ describe('getLeaderboard: on github', () => {
       cacheOnly: true,
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ColdCacheError);
-    expect((err as InstanceType<typeof ColdCacheError>).forge).toBe('github');
+    expect(err).toMatchObject({ forge: 'github' });
   });
 
   it('a github detail carries forge and links its merged rows to pull requests', async () => {
