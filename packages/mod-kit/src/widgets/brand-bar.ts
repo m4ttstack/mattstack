@@ -11,6 +11,6 @@ export function brandBar<A = never>(label: string, width: number, hide?: A): Lin
   const look = { bg: BRAND.pink, color: BRAND.plum, bold: true }
   const text = `  ${BRAND.glyph}  ${label}`
   if (hide === undefined) return [sp(fit(text, width), look)]
-  const button = ` ${ICON.minimize} Hide `
-  return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { bg: BRAND.pinkDeep, color: BRAND.plum, action: hide }), sp(' ', look)]
+  const button = ` Hide ${ICON.collapse} `
+  return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(' ', look)]
 }

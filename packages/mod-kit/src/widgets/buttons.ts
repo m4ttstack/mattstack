@@ -7,7 +7,7 @@ import { FILL, QUIET } from '../draw/theme'
 export type ButtonTone = 'primary' | 'secondary' | 'neutral' | 'caution' | 'brand' | 'quiet'
 export type Button<A> = { label: string; action: A; tone?: ButtonTone; disabled?: boolean }
 
-const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, quiet: true } }
+const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } }
 
 type Spacing = { indent: number; pad: number; gap: number }
 const ROOMY: Spacing = { indent: 3, pad: 2, gap: 2 }

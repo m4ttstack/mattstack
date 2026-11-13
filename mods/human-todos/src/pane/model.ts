@@ -112,8 +112,9 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
       rows.push({ kind: 'buttons', lead, buttons: buttonsOf(todo) })
     } else {
       blank()
-      if (isConfirming) lines('Are you sure you want to run this script?', width, 'plain', true)
+      // Confirm lands on the row Run was on, so the prompt goes under the buttons rather than pushing them down.
       rows.push({ kind: 'buttons', buttons: buttonsOf(todo) })
+      if (isConfirming) lines('Are you sure you want to run this script?', width, 'plain', true)
     }
     spans.push({ first, last: rows.length - 1 })
     blank()

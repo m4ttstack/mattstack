@@ -24,6 +24,7 @@ export const ICON = {
   missing: '\u{EA6C}', // warning
   back: '\u{EAB5}', // chevron_left
   next: '\u{EAB6}', // chevron_right
+  collapse: '\u{EAB4}', // chevron_down
   chat: '\u{EAC7}', // comment_discussion
   single: '\u{F043E}', // md-radiobox_marked
   multi: '\u{F0138}', // md-checkbox_multiple_marked
@@ -83,16 +84,18 @@ const PRESS_FILL: Record<string, string> = {
   [FILL.current.bg]: '#3394a2',
 }
 
-// A quiet button: a dim label with no fill at rest, a soft fill and a white label under the pointer.
-export const QUIET = { label: PLACEHOLDER.color as string, hover: FILL.chip.bg, press: '#333333', muted: '#555555' }
+// A quiet button: a light label on a faint fill at rest (never the disabled grey), a brighter fill and a white label under the pointer.
+export const QUIET = { label: '#e0e0e0', rest: '#363636', hover: '#4a4a4a', press: '#404040', muted: '#666666' }
 
 export function hovered<S extends Style>(span: S): S {
   if (span.quiet) return { ...span, bg: QUIET.hover, color: 'white' }
+  if (span.chip) return { ...span, bg: span.chip }
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: '#404040', dim: false }
 }
 
 export function pressed<S extends Style>(span: S): S {
   if (span.quiet) return { ...span, bg: QUIET.press, color: 'white' }
+  if (span.chip) return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip }
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: '#353535', dim: false }
 }
 
