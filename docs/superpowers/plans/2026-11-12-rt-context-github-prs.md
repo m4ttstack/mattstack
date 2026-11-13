@@ -28,6 +28,7 @@
 3. An ssh alias remote (`git@work-github:o/r.git`) or no remote at all: forge null, so the extension behaves exactly as on main (no guard, GitLab words). Test in Task 1.
 4. A GitHub repo whose daemon entry has an `mr` with no `webUrl`: rejected, since its PR-title ticket id may belong to another repo. Test in Task 1.
 5. A local cache entry written before this change by a GitLab window for the same branch name: a miss on the GitHub window, still shown on the GitLab window. Test in Task 1 (`ownBranchData`); wiring in Tasks 2 and 3.
+6. A quick branch switch on GitHub while the old branch's background fetch is still waiting on Linear: the late result must not repaint the status bar with the old branch. No unit test reaches it (vscode-bound); the Task 2 Step 4 guard is checked in task review.
 
 ---
 
@@ -139,7 +140,7 @@ git commit -m "rt-context: add forge rules and PR ownership guard"
   - `repoForge.ts`: `export interface RepoForge { remoteUrl: string | null; forge: Forge | null }` and `resolveRepoForge(repo: GitRepository | null): RepoForge` (`forgeOfRemote(getRemoteUrl(repo), confirmedForgeHost())`; `{ remoteUrl: null, forge: null }` for no repo).
   - `statusBar.ts`: `fetchBranchData(context, branch, repoForge: RepoForge): Promise<CachedBranchData | null>` (new third parameter) and `getCurrentForge(): Forge | null`.
 
-- [ ] **Step 1: Write the failing manifest test** in `src/__tests__/manifest.test.ts`: read `../../package.json`, assert `contributes.menus.commandPalette` contains `{ command: 'rtContext.setGitlabToken', when: "rtContext.forge != 'github'" }`.
+- [ ] **Step 1: Write the failing manifest test** in `src/__tests__/manifest.test.ts`: read `package.json` with `readFileSync(join(import.meta.dir, '..', '..', 'package.json'), 'utf8')` and `JSON.parse` (a JSON import breaks tsc: `rootDir` is `src`), assert `contributes.menus.commandPalette` contains `{ command: 'rtContext.setGitlabToken', when: "rtContext.forge != 'github'" }`.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -152,8 +153,8 @@ Expected: FAIL, `menus` undefined.
   - In `updateStatusBar`, after the repo is found, `const repoForge = resolveRepoForge(repo)`; store `repoForge.forge` in a module `currentForge`; `vscode.commands.executeCommand('setContext', 'rtContext.forge', repoForge.forge ?? 'none')`. The no-repo branch sets `currentForge = null` and the context key to `none`.
   - `const cached = ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl) ?? undefined` replaces the raw read.
   - `fetchBranchData` maps the daemon entry with `branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl)`; null falls through to `fetchBranchDataDirect`.
-  - `fetchBranchDataDirect(context, branch, repoForge)`: when `repoForge.forge === 'github'`, skip the GitLab token read and `fetchMRInfo` entirely; otherwise unchanged (it may keep resolving the remote from the repo as today, or use `repoForge.remoteUrl`, same value).
-  - Fresh-cache path: when `repoForge.forge === 'github'` and the background result's `mrUrl` or `linearId` differs from `cached`'s, call `renderFinalState` with the fresh data. GitLab keeps cache-only.
+  - `fetchBranchDataDirect(context, branch, repoForge)`: when `repoForge.forge === 'github'`, skip the GitLab token read and `fetchMRInfo` entirely; otherwise unchanged except that it uses `repoForge.remoteUrl` instead of a second `findWorkspaceRepo` lookup (same value).
+  - Fresh-cache path: when `repoForge.forge === 'github'` and the background result's `mrUrl` or `linearId` differs from `cached`'s, call `renderFinalState` with the fresh data, but only while `branch` is still the branch the status bar shows: keep a module-level `renderedBranch` set by every render (or an update counter bumped per `updateStatusBar`) and skip the repaint when it no longer matches. A late result from a branch already switched away from must never repaint. GitLab keeps cache-only.
   - Tooltip: `` `${forgeWords(currentForge).short}: ${mrUrl}` `` replaces `` `MR: ${mrUrl}` ``.
 - [ ] **Step 5: Wire `extension.ts`**: the action label is `` `$(git-merge) Open ${w.site} ${w.title}` `` with `w = forgeWords(getCurrentForge())`, which reads `Open GitLab Merge Request` on GitLab exactly as today.
 - [ ] **Step 6: README**: replace the "GitLab MR fallback" section with a short section saying the PR or MR link comes from the rt daemon; on GitHub the daemon reads PRs once GitHub is connected (`rt setup github connect --use-gh`), and a new branch's link appears after the daemon's next refresh; on GitLab the extension can also look the MR up itself with the GitLab token. Note the GitLab token command shows only on GitLab and other hosts.
@@ -187,11 +188,11 @@ git commit -m "rt-context: GitHub PR links and forge words in the status bar"
   - `buildBranchItem` and the step-8 `existing` read go through `ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl)`.
   - The direct batch: when the forge is `github`, skip `getSecret(context, 'gitlabToken')` and `fetchMRInfoBatch`; otherwise unchanged.
   - Copy: button tooltip `` `Open ${w.site} ${w.long}` ``; detail `` `$(git-pull-request) ${w.short}` ``.
-- [ ] **Step 3: `worktreePicker.ts`**: resolve `repoForge` once from `getGitApi()`/`findWorkspaceRepo` (as `branchSwitcher` does); `buildPickItem` reads through `ownBranchData`; its `fetchBranchData` calls pass `repoForge`; same tooltip and detail copy as Step 2.
+- [ ] **Step 3: `worktreePicker.ts`**: `showAllWorktrees` already resolves `repo` and returns early without one; right after that guard, `const repoForge = resolveRepoForge(repo)` (no second lookup); `buildPickItem` reads through `ownBranchData`; its `fetchBranchData` calls pass `repoForge`; same tooltip and detail copy as Step 2.
 - [ ] **Step 4: Verify**
 
-Run: `cd extensions/vscode/rt-context && bun test src/__tests__ && bunx tsc --noEmit -p . && grep -rnE "GitLab merge request|\) MR\b|MR: " src --include=*.ts | grep -v __tests__`
-Expected: tests pass, tsc clean, grep prints nothing (every label goes through `forgeWords`).
+Run: `cd extensions/vscode/rt-context && bun test src/__tests__ && bunx tsc --noEmit -p . && grep -rnE "GitLab merge request|GitLab Merge Request|\) MR\b|MR: " src '--include=*.ts' | grep -v __tests__`
+Expected: tests pass, tsc clean, grep prints nothing (every label goes through `forgeWords`). The quotes on `'--include=*.ts'` matter: unquoted, zsh fails the glob before grep runs and the check passes vacuously. On main this grep lists 5 lines (worktreePicker.ts:128, :168, branchSwitcher.ts:84, :115, statusBar.ts:402) plus extension.ts:47.
 
 - [ ] **Step 5: Commit**
 
