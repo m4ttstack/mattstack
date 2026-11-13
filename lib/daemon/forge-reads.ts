@@ -202,14 +202,15 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   if (lower !== root && !lower.startsWith(`${root}/`)) {
     return { ok: false, error: `"path" must sit under this repo on GitHub; start it with :repo/ (${repoRoot}/)` };
   }
+  // GitHub may collapse "//", which would join a slash entry such as actions/oidc the checks below saw apart.
+  if (segments.slice(0, -1).includes("")) return { ok: false, error: '"path" must not contain an empty segment (//)' };
   const rootParts = repoRoot.split("/");
   const hits = [...GITHUB_REFUSED_SEGMENTS, GITHUB_REFUSED_BLOBS].map((entry) => ({ entry, at: entryAt(segments, entry), length: entry.split("/").length }));
   const inName = hits.find((h) => h.at >= 0 && h.at + h.length <= rootParts.length);
   if (inName) return { ok: false, error: `gitlab_get cannot read a GitHub repo whose owner or name is ${rootParts.slice(inName.at, inName.at + inName.length).join("/")}` };
   const refused = hits.find((h) => h.at >= 0 && h.entry !== GITHUB_REFUSED_BLOBS);
   if (refused) return { ok: false, error: `"path" names ${refused.entry}, which can return credentials; gitlab_get refuses it` };
-  // GitHub may collapse an empty segment, so the route is the first non-empty one after the repo.
-  const route = segments.slice(rootParts.length).find((s) => s !== "");
+  const route = segments[rootParts.length];
   const refusedRoute = GITHUB_REFUSED_ROUTES.find((word) => namesWord(route, word));
   if (refusedRoute) return { ok: false, error: `"path" names ${refusedRoute}, which can return credentials; gitlab_get refuses it` };
   if (hits.some((h) => h.at >= 0)) {

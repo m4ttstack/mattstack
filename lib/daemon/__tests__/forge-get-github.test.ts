@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { GitHubProvider } from "@mattstack/glance";
 import {
-  FORGE_GET_MAX_BYTES, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_ROUTES, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, forgeGet, type RestProvider,
+  FORGE_GET_MAX_BYTES, GITHUB_REFUSED_BLOBS, GITHUB_REFUSED_QUERY_KEYS, GITHUB_REFUSED_ROUTES, GITHUB_REFUSED_SEGMENTS, checkGithubForgePath, forgeGet, type RestProvider,
 } from "../forge-reads.ts";
 import { createMRHandlers } from "../handlers/mr.ts";
 import { fakeStore } from "./fake-cache-store.ts";
@@ -28,6 +28,7 @@ function restFake(responses: Response[]): { provider: RestProvider; paths: strin
 const PROJECT = "o/r";
 const check = (path: unknown) => checkGithubForgePath(path, PROJECT);
 const get = (provider: RestProvider, input: Parameters<typeof forgeGet>[2]) => forgeGet(provider, PROJECT, input, "github");
+const emptySegment = { ok: false as const, error: '"path" must not contain an empty segment (//)' };
 const credentialRefusal = (seg: string) => ({ ok: false as const, error: `"path" names ${seg}, which can return credentials; gitlab_get refuses it` });
 
 describe("checkGithubForgePath", () => {
@@ -116,7 +117,6 @@ describe("checkGithubForgePath", () => {
     expect(check("repos/O/R/pulls")).toEqual({ ok: true, path: "/repos/O/R/pulls" });
     expect(check("repos/o/r")).toEqual({ ok: true, path: "/repos/o/r" });
     expect(check(":repo/pulls/")).toEqual({ ok: true, path: "/repos/o/r/pulls/" });
-    expect(check(":repo//pulls")).toEqual({ ok: true, path: "/repos/o/r//pulls" });
     expect(check(":repo/contents/docs%2Fa%20b.md")).toEqual({ ok: true, path: "/repos/o/r/contents/docs%2Fa%20b.md" });
   });
 });
@@ -262,13 +262,52 @@ describe("checkGithubForgePath fix round 1", () => {
   });
 });
 
+describe("checkGithubForgePath on empty segments", () => {
+  const multiSegment = [...GITHUB_REFUSED_SEGMENTS, GITHUB_REFUSED_BLOBS].filter((entry) => entry.includes("/"));
+
+  test("refuses the OIDC customization read split by an empty segment", () => {
+    expect(check(":repo/actions//oidc/customization/sub")).toEqual(emptySegment);
+  });
+
+  test("refuses every multi-segment entry split by a raw or decoded empty segment", () => {
+    expect(multiSegment).toEqual(["actions/oidc", "git/blobs"]);
+    for (const entry of multiSegment) {
+      const [first, second] = entry.split("/");
+      for (const path of [`:repo/${first}//${second}/x`, `:repo/${first}%2F%2F${second}/x`, `:repo/${first}/%2F${second}/x`, `:repo/${first}%2F/${second}`]) {
+        expect(check(path), path).toEqual(emptySegment);
+      }
+    }
+  });
+
+  test("refuses an empty segment anywhere inside the path, including right after the repo", () => {
+    for (const path of [":repo//pulls", ":repo//copilot/cloud-agent/configuration", ":repo/%2Fcopilot/cloud-agent", ":repo/pulls//1", ":repo/pulls///"]) {
+      expect(check(path), path).toEqual(emptySegment);
+    }
+  });
+
+  test("a normal path and one trailing slash behave as before", () => {
+    expect(check(":repo/pulls")).toEqual({ ok: true, path: "/repos/o/r/pulls" });
+    expect(check(":repo/pulls/")).toEqual({ ok: true, path: "/repos/o/r/pulls/" });
+    expect(check(":repo/")).toEqual({ ok: true, path: "/repos/o/r/" });
+    expect(check("/:repo/pulls/12/commits")).toEqual({ ok: true, path: "/repos/o/r/pulls/12/commits" });
+  });
+
+  test("an empty segment never reaches GitHub", async () => {
+    const { provider, paths } = restFake([]);
+    for (const path of [":repo/actions//oidc/customization/sub", ":repo/git%2F%2Fblobs/abc", ":repo//pulls"]) {
+      expect(await get(provider, { path }), path).toEqual(emptySegment);
+    }
+    expect(paths).toEqual([]);
+  });
+});
+
 describe("checkGithubForgePath on copilot routes", () => {
   const refused = credentialRefusal("copilot");
 
   test("refuses the cloud agent configuration, the code review settings and anything under the repo's copilot route", () => {
     for (const path of [
       ":repo/copilot/cloud-agent/configuration", "repos/o/r/copilot/cloud-agent/configuration", ":repo/copilot/code-review/settings",
-      ":repo/copilot", ":repo/copilot/", ":repo/copilot/a/b/c/d", ":repo/copilot.json/x", ":repo//copilot/cloud-agent/configuration",
+      ":repo/copilot", ":repo/copilot/", ":repo/copilot/a/b/c/d", ":repo/copilot.json/x",
     ]) {
       expect(check(path), path).toEqual(refused);
     }
