@@ -114,14 +114,14 @@ export const CHAT_NOTIFICATION_CATEGORY = "chat_mention";
 export const NOTIFICATION_TYPES = [
   { key: "pipeline_failed",   label: "Pipeline failed",     description: "When a running pipeline fails" },
   { key: "pipeline_passed",   label: "Pipeline passed",     description: "When a running pipeline succeeds" },
-  { key: "mr_approved",       label: "MR approved",         description: "When your MR gets fully approved" },
-  { key: "mr_merged",         label: "MR merged",           description: "When your MR is merged" },
-  { key: "mr_closed",         label: "MR closed",           description: "When your MR is closed without merging" },
-  { key: "mr_ready",          label: "MR ready to merge",   description: "When all blockers are cleared" },
-  { key: "merge_conflicts",   label: "Merge conflicts",     description: "When merge conflicts appear on your MR" },
-  { key: "needs_rebase",      label: "Needs rebase",        description: "When GitLab requires a rebase before your MR can merge" },
+  { key: "mr_approved",       label: "MR or PR approved",   description: "When your MR or PR gets fully approved" },
+  { key: "mr_merged",         label: "MR or PR merged",     description: "When your MR or PR is merged" },
+  { key: "mr_closed",         label: "MR or PR closed",     description: "When your MR or PR is closed without merging" },
+  { key: "mr_ready",          label: "Ready to merge",      description: "When all blockers are cleared" },
+  { key: "merge_conflicts",   label: "Merge conflicts",     description: "When merge conflicts appear on your MR or PR" },
+  { key: "needs_rebase",      label: "Needs rebase",        description: "When your MR or PR needs a rebase before it can merge" },
   { key: "merge_error",       label: "Merge error",         description: "When auto-merge or merge train fails" },
-  { key: "new_comment",       label: "New comment",         description: "When someone comments on an MR you're tracking" },
+  { key: "new_comment",       label: "New comment",         description: "When someone comments on an MR or PR you're tracking" },
   { key: "stale_port",        label: "Stale processes",     description: "When a dev server has been running 6h+" },
   { key: "runaway_process",   label: "Runaway processes",   description: "When a process is pegged at high CPU for 5+ minutes" },
   { key: "evidence_batch_ready", label: "Evidence batch ready", description: "All evidence requests for a branch settled; captures await review" },
@@ -294,12 +294,15 @@ function isSelfAuthored(entry: CacheEntry, self: number | null | SelfIds): boole
   return authorId !== null && authorId === selfId;
 }
 
-/** A bare number is the GitLab id; an entry is GitHub when its author id carries the `github:` prefix. */
+/** An entry is GitHub when its author id carries the `github:` prefix. */
+function onGitHub(entry: CacheEntry): boolean {
+  return String(entry.mr?.author?.id ?? "").startsWith("github:");
+}
+
+/** A bare number is the GitLab id. */
 function selfIdFor(entry: CacheEntry, self: number | null | SelfIds): number | null {
-  if (self === null || typeof self === "number") {
-    return String(entry.mr?.author?.id ?? "").startsWith("github:") ? null : self;
-  }
-  return String(entry.mr?.author?.id ?? "").startsWith("github:") ? self.github : self.gitlab;
+  if (self === null || typeof self === "number") return onGitHub(entry) ? null : self;
+  return onGitHub(entry) ? self.github : self.gitlab;
 }
 
 /**
@@ -795,6 +798,7 @@ function detectBranchTransitions(
     const displayBranch = branchOf(branch);
     const branchShort = displayBranch.length > 40 ? displayBranch.slice(0, 39) + "…" : displayBranch;
     const mrUrl = entry.mr?.webUrl ?? undefined;
+    const noun = onGitHub(entry) ? "PR" : "MR";
 
     // MR merged (opened → merged) — check BEFORE skipping merged MRs
     if (was.mrState === "opened" && now.mrState === "merged") {
@@ -802,7 +806,7 @@ function detectBranchTransitions(
       if (!fired.has(key)) {
         fired.add(key);
         log.info(`MR merged on ${branch} [was=${was.mrState} now=${now.mrState}]`);
-        if (isEnabled(prefs, "mr_merged")) notify("MR Merged 🎉", branchShort, mrUrl, "mr_merged");
+        if (isEnabled(prefs, "mr_merged")) notify(`${noun} Merged 🎉`, branchShort, mrUrl, "mr_merged");
       } else {
         log.debug(`suppressed duplicate MR merged on ${branch}`);
       }
@@ -814,7 +818,7 @@ function detectBranchTransitions(
       if (!fired.has(key)) {
         fired.add(key);
         log.info(`MR closed on ${branch} [was=${was.mrState} now=${now.mrState}]`);
-        if (isEnabled(prefs, "mr_closed")) notify("MR Closed", branchShort, mrUrl, "mr_closed");
+        if (isEnabled(prefs, "mr_closed")) notify(`${noun} Closed`, branchShort, mrUrl, "mr_closed");
       } else {
         log.debug(`suppressed duplicate MR closed on ${branch}`);
       }
@@ -866,7 +870,7 @@ function detectBranchTransitions(
         if (verdict === "notify") {
           fired.add(key);
           log.info(`MR approved on ${branch} [was=${was.approved} now=${now.approved}]`);
-          if (isEnabled(prefs, "mr_approved")) notify("MR Approved 👍", branchShort, mrUrl, "mr_approved");
+          if (isEnabled(prefs, "mr_approved")) notify(`${noun} Approved 👍`, branchShort, mrUrl, "mr_approved");
         } else {
           log.debug(`suppressed mr_approved on ${branch} (${verdict})`);
         }

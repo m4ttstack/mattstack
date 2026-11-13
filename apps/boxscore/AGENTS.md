@@ -58,6 +58,10 @@ boxscore.*`, `rt settings get mattstack.roster`), edited in console's
 - **GitLab transport is `@mattstack/glance`, not this repo.** Field-name or
   pagination bugs get fixed there; boxscore surfaces the failure in the response
   `warnings`.
+- **GitHub transport is glance's `GitHubProvider`, picked by `env.forge`.**
+  The forge seam is `sourceFor` (`src/server/source/forge-source.ts`):
+  `src/server/source/github.ts` maps GitHub onto the same stored shapes, so
+  the metric math never branches on forge.
 - **Metric math is pure** (`src/server/metrics/`), tested offline against a
   normalized model. Add a failing test in `test/` before changing a computation;
   `bun run validate` asserts ranking integrity and flags all-zero/uniform

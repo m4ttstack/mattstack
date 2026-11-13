@@ -72,15 +72,6 @@ export async function isDaemonRunning(): Promise<boolean> {
   return response?.ok === true;
 }
 
-/**
- * Fetch a single branch's cached data from the daemon.
- */
-export async function fetchBranchFromDaemon(
-  branch: string,
-): Promise<DaemonResponse | null> {
-  return daemonQuery(`/api/cache/${encodeURIComponent(branch)}`);
-}
-
 // ── WebSocket Client ──
 
 type EventHandler = (event: DaemonEvent) => void;

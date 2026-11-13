@@ -406,6 +406,58 @@ describe('timelineSub', () => {
     });
     expect(timelineSub(review, [], [], NOW).text).toBe('reviewed !412 · 23m');
   });
+
+  it('names a GitHub PR with its own marker', () => {
+    const base = {
+      status: 'done',
+      started_at: TODAY(11, 42),
+      ended_at: TODAY(14, 12),
+    };
+    const pr = 'https://github.com/acme/web/pull/405';
+    expect(
+      timelineSub(
+        run({
+          ...base,
+          outcome: {
+            status: 'done',
+            mr: { iid: 405, state: 'merged', url: pr },
+          },
+        }),
+        [],
+        [],
+        NOW
+      ).text
+    ).toBe('merged #405 · 2h 30m');
+    expect(
+      timelineSub(
+        run({
+          ...base,
+          repo: 'remote:github.com%2Facme%2Fweb',
+          outcome: {
+            status: 'done',
+            mr: { iid: 405, state: 'opened', url: null },
+          },
+        }),
+        [],
+        [],
+        NOW
+      ).text
+    ).toBe('#405 open · 2h 30m');
+    expect(
+      timelineSub(
+        run({
+          ...base,
+          outcome: {
+            status: 'done',
+            reviewed: { iid: 412, url: pr, posted: null },
+          },
+        }),
+        [],
+        [],
+        NOW
+      ).text
+    ).toBe('reviewed #412 · 2h 30m');
+  });
 });
 
 describe('dayDecisions', () => {

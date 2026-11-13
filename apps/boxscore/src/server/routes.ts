@@ -9,6 +9,7 @@ import {
   fixtureDetail,
   fixtureLeaderboard,
   fixtureMode,
+  fixtureNoProjectsError,
   fixtureRefresh,
   fixtureScenario,
 } from './fixture/index.js';
@@ -71,6 +72,8 @@ const leaderboard = new Hono()
     if (fixtureMode()) {
       if (fixtureScenario() === 'cold-stalled')
         return c.json(fixtureColdCache(), 200);
+      if (fixtureScenario() === 'no-projects')
+        return c.json({ error: fixtureNoProjectsError() }, 400);
       try {
         return c.json(
           fixtureLeaderboard(boolQuery(c, 'trend'), c.req.query('viewAs'))
@@ -103,6 +106,7 @@ const leaderboard = new Hono()
           cached: false,
           window,
           scope: err.scope,
+          forge: err.forge,
         };
         return c.json(cold, 200);
       }
@@ -118,6 +122,8 @@ const leaderboard = new Hono()
     const user = c.req.query('user');
     if (!user) return c.json({ error: 'user query param is required' }, 400);
     if (fixtureMode()) {
+      if (fixtureScenario() === 'no-projects')
+        return c.json({ error: fixtureNoProjectsError() }, 400);
       let detail: ReturnType<typeof fixtureDetail>;
       try {
         detail = fixtureDetail(

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import type { EvidenceRow } from '../../../shared/types';
+import { useForgeText } from '../../forge/forge';
 import { dayLabel } from '../../model/labels';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
@@ -92,6 +93,7 @@ export function MergedMrsEvidence({
   ev,
   initialSort = 'newest',
 }: EvidenceProps & { initialSort?: MergedSort }) {
+  const t = useForgeText();
   const [sort, setSort] = useState(initialSort);
   const [all, setAll] = useState(false);
   const sorted = useMemo(() => [...ev.rows].sort(ORDER[sort]), [ev.rows, sort]);
@@ -102,12 +104,12 @@ export function MergedMrsEvidence({
     <>
       <div className={panels.sortTabs} data-parity="Sort Tabs">
         <span className={`${classes.t} ${classes.barTitle}`} data-parity="t">
-          Merged MRs
+          {t('Merged MRs')}
         </span>
         <span className={panels.spacer} />
         <div
           role="tablist"
-          aria-label="Sort merged MRs"
+          aria-label={t('Sort merged MRs')}
           className={panels.tabs}
         >
           {SORTS.map(s => {

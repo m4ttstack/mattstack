@@ -6,10 +6,14 @@ import { fetchTicket, type LinearTicket } from './linear';
 import { fetchMRInfo } from './gitlab';
 import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache } from './cache';
-import { fetchBranchFromDaemon } from './daemonClient';
+import { daemonQuery } from './daemonClient';
+import { readDaemonCacheEntry } from './daemonCache';
+import { createUpdateGate, settleStaleFetch } from './staleFetch';
 import { getSecret } from './secrets';
 import type { CachedBranchData, GitExtensionExports } from './types';
-import { getGitApi, findWorkspaceRepo, getRemoteUrl, getRepoRootName, getGitDir, readBranchFromHead } from './git';
+import { getGitApi, findWorkspaceRepo, getRepoRootName, getGitDir, readBranchFromHead } from './git';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote, repoIdentityToStore, type Forge } from './forge';
+import { resolveRepoForge, type RepoForge } from './repoForge';
 
 // ── Module state ──
 
@@ -19,6 +23,9 @@ let branchSwitcherItem: vscode.StatusBarItem;
 let currentTicketUrl: string | null = null;
 let currentMrUrl: string | null = null;
 let currentWorktreePath: string | null = null;
+let currentForge: Forge | null = null;
+let publishedForgeContext: string | undefined;
+const updates = createUpdateGate();
 let updateTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Cached values that are stable for the lifetime of a workspace session.
@@ -31,6 +38,15 @@ let cachedWorktreeName: string | undefined;
 export function getCurrentTicketUrl(): string | null { return currentTicketUrl; }
 export function getCurrentMrUrl(): string | null { return currentMrUrl; }
 export function getCurrentWorktreePath(): string | null { return currentWorktreePath; }
+export function getCurrentForge(): Forge | null { return currentForge; }
+
+function setForge(forge: Forge | null) {
+  currentForge = forge;
+  const value = forge ?? 'none';
+  if (value === publishedForgeContext) return;
+  publishedForgeContext = value;
+  void vscode.commands.executeCommand('setContext', 'rtContext.forge', value);
+}
 
 // ── Initialization ──
 
@@ -114,7 +130,7 @@ export function waitForGitAndStart(context: vscode.ExtensionContext) {
 
 export function scheduleUpdate(context: vscode.ExtensionContext, delayMs = 300) {
   if (updateTimer) clearTimeout(updateTimer);
-  updateTimer = setTimeout(() => updateStatusBar(context), delayMs);
+  updateTimer = setTimeout(() => updates.run((updateId) => updateStatusBar(context, updateId)), delayMs);
 }
 
 export function clearUpdateTimer() {
@@ -123,7 +139,7 @@ export function clearUpdateTimer() {
 
 // ── Status bar rendering ──
 
-async function updateStatusBar(context: vscode.ExtensionContext) {
+async function updateStatusBar(context: vscode.ExtensionContext, updateId: number) {
   // Use cached worktree name — it's stable for the lifetime of the workspace session.
   // getRepoRootName() spawns a git subprocess on every call; avoid it after first run.
   if (!cachedWorktreeName) {
@@ -141,6 +157,7 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
     statusBarItem.tooltip = `Worktree: ${worktreeName}\nNo git repository found`;
     statusBarItem.command = 'rtContext.openTicket';
     branchSwitcherItem.text = '$(git-branch)';
+    setForge(null);
     currentTicketUrl = null;
     currentMrUrl = null;
     showStatusBarItems();
@@ -148,6 +165,8 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
   }
 
   const repo = (await findWorkspaceRepo(gitApi)) ?? gitApi.repositories[0]!;
+  const repoForge = resolveRepoForge(repo);
+  setForge(repoForge.forge);
 
   // Read branch directly from .git/HEAD — VS Code's git API (repo.state.HEAD) updates
   // asynchronously after a checkout and can lag by hundreds of milliseconds, causing
@@ -169,7 +188,7 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
   branchSwitcherItem.text = `$(git-branch) ${branch}`;
 
   const linearIdFromBranch = extractLinearId(branch);
-  const cached = branchCache.get(branch);
+  const cached = ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl) ?? undefined;
 
   // Check if cache is fresh enough to render immediately (skip spinner)
   const config = vscode.workspace.getConfiguration('rtContext');
@@ -180,9 +199,14 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
     // Render from cache immediately — no spinner, clickable right away
     renderFinalState(worktreeName, branch, cached, linearIdFromBranch);
 
-    // Silent background refresh (fire and forget, updates cache for next time)
-    fetchBranchData(context, branch).then((fresh) => {
-      if (fresh) branchCache.set(branch, fresh);
+    // A late result for a branch already switched away from must not repaint.
+    fetchBranchData(context, branch, repoForge).then((fresh) => {
+      if (!fresh) return;
+      branchCache.set(branch, fresh);
+      const changed = fresh.mrUrl !== cached.mrUrl || fresh.linearId !== cached.linearId;
+      if (repoForge.forge === 'github' && changed && updates.isLatest(updateId)) {
+        renderFinalState(worktreeName, branch, fresh, linearIdFromBranch);
+      }
     }).catch(() => {});
     return;
   }
@@ -216,24 +240,14 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
   showStatusBarItems();
 
   // ── Fetch and render ──
-  let fresh: CachedBranchData | null = null;
-  try {
-    const FETCH_TIMEOUT_MS = 15_000;
-    fresh = await Promise.race([
-      fetchBranchData(context, branch),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), FETCH_TIMEOUT_MS)),
-    ]);
-
-    if (fresh) {
-      branchCache.set(branch, fresh);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    vscode.window.showErrorMessage(`RT Context: Failed to refresh — ${msg}`);
-  } finally {
-    const effectiveData = fresh ?? cached ?? null;
-    renderFinalState(worktreeName, branch, effectiveData, linearIdFromBranch);
-  }
+  await settleStaleFetch({
+    fetch: () => fetchBranchData(context, branch, repoForge),
+    timeoutMs: 15_000,
+    store: (fresh) => branchCache.set(branch, fresh),
+    render: (data) => updates.paint(updateId, () => renderFinalState(worktreeName, branch, data, linearIdFromBranch)),
+    fallback: cached ?? null,
+    onError: (msg) => { vscode.window.showErrorMessage(`RT Context: Failed to refresh — ${msg}`); },
+  });
 }
 
 /** Render the status bar in its final, clickable state from the given data. */
@@ -277,28 +291,30 @@ function renderFinalState(
 export async function fetchBranchData(
   context: vscode.ExtensionContext,
   branch: string,
+  repoForge: RepoForge,
 ): Promise<CachedBranchData | null> {
   // ── Daemon-first path (HTTP REST API) ──
   try {
-    const response = await fetchBranchFromDaemon(branch);
-    if (response?.ok && response.data) {
-      const entries = response.data;
-      const entry = entries[branch] ?? Object.values(entries)[0];
-      if (entry) {
-        return {
-          ticket: entry.ticket ?? null,
-          mrUrl: entry.mr?.webUrl ?? null,
-          linearId: entry.linearId || null,
-          fetchedAt: entry.fetchedAt ?? Date.now(),
-        };
-      }
-    }
+    const repoIdentity = repoForge.remoteUrl ? repoIdentityOfRemote(repoForge.remoteUrl) : null;
+    const entry = await readDaemonCacheEntry(daemonQuery, branch, repoIdentity);
+    if (entry) return branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, undefined, branchCache.get(branch));
   } catch {
     // Daemon not available — fall through to direct fetch
   }
 
   // ── Direct API fallback (daemon not running) ──
-  return fetchBranchDataDirect(context, branch);
+  const direct = await fetchBranchDataDirect(context, branch, repoForge);
+  if (!direct || repoForge.forge !== 'github') return direct;
+
+  // On GitHub the fallback cannot look a PR up, so keep the own one already cached.
+  const prior = ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl);
+  if (!prior) return direct;
+  return {
+    ...direct,
+    ticket: direct.ticket ?? prior.ticket,
+    mrUrl: prior.mrUrl,
+    linearId: prior.linearId,
+  };
 }
 
 /**
@@ -308,6 +324,7 @@ export async function fetchBranchData(
 async function fetchBranchDataDirect(
   context: vscode.ExtensionContext,
   branch: string,
+  repoForge: RepoForge,
 ): Promise<CachedBranchData | null> {
   let linearId = extractLinearId(branch);
   let mrUrl: string | null = null;
@@ -316,28 +333,22 @@ async function fetchBranchDataDirect(
   // Skip MR lookup for default/trunk branches — they never have an associated MR
   // and the query can hang or return huge result sets
   const DEFAULT_BRANCHES = new Set(['master', 'main', 'develop', 'development', 'staging', 'production']);
-  const shouldLookupMR = !DEFAULT_BRANCHES.has(branch);
+  const shouldLookupMR = !DEFAULT_BRANCHES.has(branch) && repoForge.forge !== 'github';
 
   // Fetch MR info
   if (shouldLookupMR) {
     const gitlabToken = await getSecret(context, 'gitlabToken');
     if (gitlabToken) {
-      const gitApi = getGitApi();
-      const repo = gitApi?.repositories.length
-        ? (await findWorkspaceRepo(gitApi)) ?? gitApi.repositories[0]!
-        : null;
-      if (repo) {
-        const remoteUrl = getRemoteUrl(repo);
-        if (remoteUrl) {
-          try {
-            const mrInfo = await fetchMRInfo(gitlabToken, remoteUrl, branch, confirmedHostForLookup(remoteUrl));
-            if (mrInfo) {
-              mrUrl = mrInfo.webUrl;
-              mrLinearId = mrInfo.linearId;
-            }
-          } catch {
-            // MR lookup failed
+      const { remoteUrl } = repoForge;
+      if (remoteUrl) {
+        try {
+          const mrInfo = await fetchMRInfo(gitlabToken, remoteUrl, branch, confirmedHostForLookup(remoteUrl));
+          if (mrInfo) {
+            mrUrl = mrInfo.webUrl;
+            mrLinearId = mrInfo.linearId;
           }
+        } catch {
+          // MR lookup failed
         }
       }
     }
@@ -361,11 +372,13 @@ async function fetchBranchDataDirect(
     }
   }
 
+  const repoIdentity = repoIdentityToStore(repoForge.forge, undefined, repoForge.remoteUrl);
   return {
     ticket,
     mrUrl,
     linearId: mrLinearId,
     fetchedAt: Date.now(),
+    ...(repoIdentity ? { repoIdentity } : {}),
   };
 }
 
@@ -399,7 +412,7 @@ function renderTicket(
     `Ticket: ${ticket.identifier} — ${ticket.title}`,
   ];
   if (ticket.stateName) tooltipLines.push(`Status: ${ticket.stateName}`);
-  if (mrUrl) tooltipLines.push(`MR: ${mrUrl}`);
+  if (mrUrl) tooltipLines.push(`${forgeWords(currentForge).short}: ${mrUrl}`);
   tooltipLines.push('', 'Click for options');
   statusBarItem.tooltip = tooltipLines.join('\n');
 

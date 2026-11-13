@@ -8,6 +8,8 @@ import type {
   UsageTotals,
 } from '@mattstack/rt-client';
 
+import { eitherNoun, mixedNouns } from '../forgeNoun';
+import type { Forge } from '../forgeNoun';
 import {
   compact,
   hasKnownBilling,
@@ -183,6 +185,7 @@ export function UsageMrList({
   onSort,
   resetKey,
   showRepo,
+  forge = null,
 }: {
   rows: UsageMrRow[];
   enrichment: EnrichmentOf;
@@ -190,6 +193,8 @@ export function UsageMrList({
   onSort: (sort: MrSort) => void;
   resetKey: string;
   showRepo: boolean;
+  /** The forge of the one repo the list is narrowed to. */
+  forge?: Forge | null;
 }) {
   const kinds = KIND_ORDER.filter(k => rows.some(r => r.costByKind[k] > 0));
   const { ref, height } = useElementSize<HTMLDivElement>();
@@ -204,12 +209,12 @@ export function UsageMrList({
           HEAD_HEIGHT + Math.min(rows.length, MIN_ROWS_SHOWN) * ROW_HEIGHT,
       }}
       role="table"
-      aria-label="MRs"
+      aria-label={mixedNouns(forge)}
       aria-rowcount={rows.length + 1}
     >
       <div className={classes.frame}>
         <div role="row" aria-rowindex={1} className={classes.head}>
-          <div role="columnheader">MR</div>
+          <div role="columnheader">{eitherNoun(forge)}</div>
           <div role="columnheader" aria-label="Cost by kind">
             <KindLegend kinds={kinds} />
           </div>

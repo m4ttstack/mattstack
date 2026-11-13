@@ -1,18 +1,18 @@
-import { isRevertTitle } from '../../shared/reverts.js';
+import type { Forge } from '../../shared/forge.js';
 import type {
   LeaderboardWarning,
   RefreshProgress,
 } from '../../shared/types.js';
 import { getStore, mrKey } from '../store/index.js';
-import type {
-  LinkedMr,
-  LinkVia,
-  MrState,
-  NormLinearIssue,
-  NormMr,
-} from '../store/model.js';
+import type { LinkedMr, NormLinearIssue, NormMr } from '../store/model.js';
 import { mapLimit } from '../util/concurrency.js';
 import { linearRequest } from './client.js';
+import {
+  closedAtOf,
+  creditedUserOf,
+  qualifyingMrs,
+  type LinkCandidate,
+} from './credit.js';
 import { mapIssue } from './map.js';
 import type { RawIssue } from './raw-types.js';
 import { mrTicketHaystack, textRefGrade } from './ticket.js';
@@ -57,34 +57,6 @@ const CHUNK_SIZE = 25;
 
 const LINEAR_CONCURRENCY = 6;
 
-/** One linked MR's identity plus the fields the qualifying/credit rules need. */
-interface LinkCandidate {
-  iid: number;
-  projectPath: string;
-  authorUsername: string | null;
-  state: MrState;
-  mergedAt: string | null;
-  title: string;
-  via: LinkVia;
-}
-
-/**
- * Among MRs tied on `timeOf`, the lower (projectPath, iid) pair wins: an arbitrary but
- * deterministic order, independent of scan order.
- */
-function earliestMr<T extends { projectPath: string; iid: number }>(
-  mrs: readonly T[],
-  timeOf: (m: T) => string
-): T {
-  return mrs.reduce((best, m) => {
-    const delta = Date.parse(timeOf(m)) - Date.parse(timeOf(best));
-    if (delta !== 0) return delta < 0 ? m : best;
-    if (m.projectPath !== best.projectPath)
-      return m.projectPath < best.projectPath ? m : best;
-    return m.iid < best.iid ? m : best;
-  });
-}
-
 /**
  * Extract a GitLab merge request's project path and iid from its URL, e.g.
  * "https://gitlab.example.com/org/app/-/merge_requests/12345" -> { projectPath: "org/app", iid: 12345 }.
@@ -100,56 +72,18 @@ export function parseMrUrl(
 }
 
 /**
- * Qualifying merged MRs for credit/closedAt: merged, non-revert (a revert's title proves
- * nothing about who finished the ticket), and attachment-graded when the issue has any
- * MR-shaped gitlab attachment -- an attachment is a deliberate link, so it outranks a
- * same-ticket text mention that only happened to land in a merged MR's title or
- * description. `hadMrAttachment` stays true for an attachment that parsed as an MR URL but
- * resolved to no known MR, so a ticket implemented before the data horizon qualifies
- * nothing rather than falling back to text links. Gitlab attachments that are not MR URLs
- * (issues, commits) leave the fallback open.
+ * The change's project path and number from a forge URL: a GitLab MR URL on a GitLab
+ * team, a github.com pull request URL on a GitHub team. Anything else is null.
  */
-function qualifyingMrs(
-  candidates: readonly LinkCandidate[],
-  hadMrAttachment: boolean
-): LinkCandidate[] {
-  const grade: LinkVia =
-    hadMrAttachment || candidates.some(c => c.via === 'attachment')
-      ? 'attachment'
-      : 'closing';
-  return candidates.filter(
-    c =>
-      c.via === grade &&
-      c.state === 'merged' &&
-      c.mergedAt !== null &&
-      !isRevertTitle(c.title)
+export function parseChangeUrl(
+  url: string,
+  forge: Forge
+): { projectPath: string; iid: number } | null {
+  if (forge === 'gitlab') return parseMrUrl(url);
+  const m = url.match(
+    /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)(?:[/?#]|$)/
   );
-}
-
-/** Credit the earliest-merged qualifying MR's author, preferring a roster author. */
-function creditedUserOf(
-  qualifying: readonly LinkCandidate[],
-  roster: ReadonlySet<string>
-): string | null {
-  const withAuthor = qualifying.filter(
-    (c): c is LinkCandidate & { authorUsername: string } =>
-      c.authorUsername !== null
-  );
-  if (withAuthor.length === 0) return null;
-  const rosterMatches = withAuthor.filter(c => roster.has(c.authorUsername));
-  const pool = rosterMatches.length > 0 ? rosterMatches : withAuthor;
-  return earliestMr(pool, m => m.mergedAt!).authorUsername;
-}
-
-/** Latest mergedAt among qualifying merged MRs, or null when none qualify. */
-function closedAtOf(qualifying: readonly LinkCandidate[]): string | null {
-  return qualifying.reduce<string | null>(
-    (latest, c) =>
-      latest === null || Date.parse(c.mergedAt!) > Date.parse(latest)
-        ? c.mergedAt!
-        : latest,
-    null
-  );
+  return m ? { projectPath: m[1]!, iid: Number(m[2]) } : null;
 }
 
 /**
@@ -228,9 +162,18 @@ export async function resolveLinearTickets(
   warnings: LeaderboardWarning[],
   roster: readonly string[] | ReadonlySet<string>,
   signal?: AbortSignal,
-  onProgress?: (p: Omit<RefreshProgress, 'window'>) => void
+  onProgress?: (p: Omit<RefreshProgress, 'window'>) => void,
+  forge?: { kind: Forge; projects: readonly string[] },
+  /** Maps a stored PR author to the roster's spelling; absent (GitLab) compares exactly. */
+  canon?: (login: string) => string
 ): Promise<NormLinearIssue[]> {
   if (!apiKey || sourceMrs.length === 0) return [];
+
+  const projectByLower = new Map(
+    (forge?.projects ?? []).map(p => [p.toLowerCase(), p])
+  );
+  const configuredProject = (path: string): string | undefined =>
+    projectByLower.get(path.toLowerCase());
 
   const rosterSet = roster instanceof Set ? roster : new Set(roster);
 
@@ -290,7 +233,7 @@ export async function resolveLinearTickets(
   const issues: NormLinearIssue[] = [];
 
   /**
-   * Resolve one issue's attached GitLab MR links: source MRs first, then the store's
+   * Resolve one issue's attached MR or PR links: source MRs first, then the store's
    * index for MRs outside this refresh's scan. A URL that resolves to neither is
    * dropped -- it names an MR this refresh has no evidence of. `hadMrAttachment`
    * still reports it, so the grade decision can tell "no MR attachments" from
@@ -299,11 +242,29 @@ export async function resolveLinearTickets(
   const resolveAttachments = (
     raw: RawIssue
   ): { candidates: LinkCandidate[]; hadMrAttachment: boolean } => {
-    const parsed = (raw.attachments?.nodes ?? [])
-      .filter(n => n.sourceType === 'gitlab')
-      .map(n => parseMrUrl(n.url))
-      .filter((p): p is { projectPath: string; iid: number } => p !== null);
-    if (parsed.length === 0) return { candidates: [], hadMrAttachment: false };
+    const nodes = raw.attachments?.nodes ?? [];
+    // Linear's sourceType for a GitHub PR is not guaranteed, so GitHub teams trust the URL alone.
+    // A PR in an unconfigured project still counts as an attachment but is never looked up:
+    // mr_index can keep rows from a project since removed from boxscore.projects.
+    let parsed: { projectPath: string; iid: number }[];
+    if (forge?.kind === 'github') {
+      const prs = nodes.flatMap(n => {
+        const p = parseChangeUrl(n.url, 'github');
+        return p ? [p] : [];
+      });
+      if (prs.length === 0) return { candidates: [], hadMrAttachment: false };
+      parsed = prs.flatMap(p => {
+        const projectPath = configuredProject(p.projectPath);
+        return projectPath ? [{ projectPath, iid: p.iid }] : [];
+      });
+    } else {
+      parsed = nodes
+        .filter(n => n.sourceType === 'gitlab')
+        .map(n => parseMrUrl(n.url))
+        .filter((p): p is { projectPath: string; iid: number } => p !== null);
+      if (parsed.length === 0)
+        return { candidates: [], hadMrAttachment: false };
+    }
 
     const result: LinkCandidate[] = [];
     const indexKeys: string[] = [];
@@ -358,7 +319,7 @@ export async function resolveLinearTickets(
       const linkCandidates = [...byKey.values()];
 
       const qualifying = qualifyingMrs(linkCandidates, hadMrAttachment);
-      const creditedUser = creditedUserOf(qualifying, rosterSet);
+      const creditedUser = creditedUserOf(qualifying, rosterSet, canon);
       const closedAt = closedAtOf(qualifying);
       const linkedMrs: LinkedMr[] = linkCandidates.map(
         ({ iid, projectPath, via }) => ({ iid, projectPath, via })

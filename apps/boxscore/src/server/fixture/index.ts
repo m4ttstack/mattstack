@@ -3,6 +3,15 @@
  * design boards were drawn with, so the UI can be checked against the boards.
  * Pure TypeScript with no runtime-specific imports: component tests import it.
  */
+import {
+  changeRef,
+  changeUrl,
+  forgeEvidenceText,
+  forgeText,
+  GITHUB_BASE_URL,
+  type Forge,
+} from '../../shared/forge.js';
+import { EMPTY_PROJECTS_HINT } from '../../shared/setup-hints.js';
 import type {
   ColdCacheResponse,
   EvidenceRow,
@@ -45,13 +54,19 @@ import {
 } from './design-evidence.js';
 
 export type FixtureScenario =
-  'warm' | 'refreshing' | 'cold-stalled' | 'self-view' | 'locked';
+  | 'warm'
+  | 'refreshing'
+  | 'cold-stalled'
+  | 'self-view'
+  | 'locked'
+  | 'no-projects';
 
 const SCENARIOS: FixtureScenario[] = [
   'refreshing',
   'cold-stalled',
   'self-view',
   'locked',
+  'no-projects',
 ];
 
 export function fixtureMode(): 'design' | null {
@@ -63,6 +78,18 @@ export function fixtureScenario(): FixtureScenario {
     FixtureScenario | undefined;
   return s && SCENARIOS.includes(s) ? s : 'warm';
 }
+
+export function fixtureForge(): Forge {
+  return process.env.BOXSCORE_FIXTURE_FORGE === 'github' ? 'github' : 'gitlab';
+}
+
+/** The setup error a team with no boxscore.projects gets, in the fixture forge's words. */
+export function fixtureNoProjectsError(): string {
+  return forgeText(EMPTY_PROJECTS_HINT, fixtureForge());
+}
+
+const fixtureBaseUrl = (): string =>
+  fixtureForge() === 'github' ? GITHUB_BASE_URL : BASE_URL;
 
 export function fixtureViewer(): Viewer {
   const s = fixtureScenario();
@@ -147,7 +174,8 @@ export function fixtureLeaderboard(
       window: { ...WINDOW },
       priorWindow: trend ? { ...PRIOR_WINDOW } : null,
       hasTrend: trend,
-      baseUrl: BASE_URL,
+      baseUrl: fixtureBaseUrl(),
+      forge: fixtureForge(),
       currentUser,
       viewer,
       previewing,
@@ -179,6 +207,7 @@ export function fixtureDetail(
     priorWindow: board.priorWindow,
     hasTrend: board.hasTrend,
     baseUrl: board.baseUrl,
+    forge: board.forge,
     currentUser: board.currentUser,
     viewer: board.viewer,
     previewing: board.previewing,
@@ -191,7 +220,13 @@ export function fixtureDetail(
 }
 
 export function fixtureColdCache(): ColdCacheResponse {
-  return { cached: false, window: { ...WINDOW }, scope: SCOPE };
+  return {
+    cached: false,
+    window: { ...WINDOW },
+    scope: SCOPE,
+    // Absent means GitLab, which keeps the GitLab cold body as it was.
+    forge: fixtureForge() === 'github' ? 'github' : undefined,
+  };
 }
 
 export function fixtureRefresh(): RefreshStatusResponse {
@@ -200,7 +235,7 @@ export function fixtureRefresh(): RefreshStatusResponse {
     status: 'running',
     progress: {
       phase: 'mrs-detail',
-      label: 'MR details',
+      label: forgeText('MR details', fixtureForge()),
       done: 142,
       total: 310,
       window: 'current',
@@ -210,7 +245,8 @@ export function fixtureRefresh(): RefreshStatusResponse {
 }
 
 const mrUrl = (iid: number): string =>
-  `${BASE_URL}/${PROJECT_PATH}/-/merge_requests/${iid}`;
+  changeUrl(fixtureForge(), fixtureBaseUrl(), PROJECT_PATH, iid);
+const ref = (iid: number): string => changeRef(fixtureForge(), iid);
 const hrs = (n: number): string => `${round(n, 1)}h`;
 
 function distFacts(samples: number[]): Record<string, number> {
@@ -236,7 +272,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
   const mergedCols = ['MR', 'Title', 'Added', 'Deleted', 'Merged'];
   const mergedRows: EvidenceRow[] = MERGED_MRS.map(
     ([iid, title, a, d, day]) => ({
-      cells: [`!${iid}`, title, `+${a}`, `−${d}`, day],
+      cells: [ref(iid), title, `+${a}`, `−${d}`, day],
       href: mrUrl(iid),
     })
   );
@@ -267,7 +303,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
   out.sizeHealthPct = {
     columns: ['MR', 'Title', 'Changed', 'In band?'],
     rows: MERGED_MRS.map(m => ({
-      cells: [`!${m[0]}`, m[1], String(changed(m)), inBand(m) ? '✓' : '✗'],
+      cells: [ref(m[0]), m[1], String(changed(m)), inBand(m) ? '✓' : '✗'],
       href: mrUrl(m[0]),
       muted: !inBand(m),
     })),
@@ -284,7 +320,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
   const revert: MetricEvidence = {
     columns: ['MR', 'Title', 'Merged', 'Reverted by', 'Lived'],
     rows: MERGED_MRS.map(([iid, title, , , day]) => ({
-      cells: [`!${iid}`, title, day, '—', '—'],
+      cells: [ref(iid), title, day, '—', '—'],
       href: mrUrl(iid),
       muted: true,
     })),
@@ -297,7 +333,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
   out.mrsReviewed = {
     columns: ['MR', 'Author', 'Title', 'Comments', 'Inline'],
     rows: REVIEWS.map(([iid, author, title, comments, inline]) => ({
-      cells: [`!${iid}`, author, title, String(comments), String(inline)],
+      cells: [ref(iid), author, title, String(comments), String(inline)],
       href: mrUrl(iid),
     })),
     summary: `${REVIEWS.length} teammates' MRs reviewed`,
@@ -309,7 +345,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
   out.reviewDepth = {
     columns: ['MR', 'Title', 'Inline comments'],
     rows: REVIEWS.map(([iid, , title, , inline]) => ({
-      cells: [`!${iid}`, title, String(inline)],
+      cells: [ref(iid), title, String(inline)],
       href: mrUrl(iid),
     })),
     summary: `mean ${round(mean(REVIEWS.map(r => r[4])), 2)} inline comments per reviewed MR`,
@@ -324,7 +360,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
   out.responseLatencyHours = {
     columns: ['MR', 'Title', 'Response'],
     rows: responded.map(([iid, , title, , , h]) => ({
-      cells: [`!${iid}`, title, hrs(h!)],
+      cells: [ref(iid), title, hrs(h!)],
       href: mrUrl(iid),
     })),
     summary: distSummary(responses, 'first response'),
@@ -339,7 +375,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
   out.reviewLatencyHours = {
     columns: ['MR', 'Title', 'Wait'],
     rows: waited.map(([iid, title, h]) => ({
-      cells: [`!${iid}`, title, hrs(h)],
+      cells: [ref(iid), title, hrs(h)],
       href: mrUrl(iid),
     })),
     summary: distSummary(waits, 'first review'),
@@ -417,7 +453,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
           title ?? first[1],
           state,
           first[4],
-          mrs.map(iid => `!${iid}`).join(', '),
+          mrs.map(iid => ref(iid)).join(', '),
         ],
         href: `${LINEAR_URL}/${id}`,
         mrHrefs: mrs.map(mrUrl),
@@ -431,7 +467,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
     },
   };
 
-  return out;
+  return forgeEvidenceText(out, fixtureForge());
 }
 
 /**

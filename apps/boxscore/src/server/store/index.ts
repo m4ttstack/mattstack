@@ -164,6 +164,13 @@ function hostOf(baseUrl: string): string {
 
 const FORGE_HOST_KEY = 'forge_host';
 
+/**
+ * store_meta keys tying a configured project path to the id its GitLab push events carry,
+ * scoped to the recorded host so another host's ids never apply.
+ */
+const projectIdPrefix = (host: string | undefined): string =>
+  `project_id:${host ?? ''}|`;
+
 /** Thrown once the confirmed host is no longer the one a refresh or request started with. */
 export class ForgeHostChangedError extends Error {
   constructor(baseUrl: string) {
@@ -186,6 +193,48 @@ function buildStore() {
   const accepts = (baseUrl: string): boolean => {
     const recorded = recordedHost();
     return recorded === undefined || recorded === hostOf(baseUrl);
+  };
+
+  const selectIdentities = (
+    usernames: readonly string[],
+    collate: string
+  ): StoredIdentity[] => {
+    if (usernames.length === 0) return [];
+    const rows = db
+      .query(
+        `SELECT * FROM identities WHERE username${collate} IN ${placeholders(usernames.length)}`
+      )
+      .all(...usernames) as {
+      username: string;
+      name: string | null;
+      resolved: number;
+      user_id: number | null;
+      fetched_at: string;
+    }[];
+    return rows.map(r => ({
+      username: r.username,
+      name: r.name,
+      resolved: r.resolved === 1,
+      userId: r.user_id,
+      fetchedAt: r.fetched_at,
+    }));
+  };
+
+  const freshMetricsKeys = (
+    keys: readonly string[],
+    mergedOnly: boolean
+  ): Set<string> => {
+    if (keys.length === 0) return new Set();
+    const rows = db
+      .query(
+        `SELECT mi.key as key FROM mr_index mi
+         JOIN mr_metrics mm ON mm.key = mi.key
+         WHERE mi.key IN ${placeholders(keys.length)}${mergedOnly ? " AND mi.state = 'merged'" : ''}
+           AND mm.metrics_updated_at IS NOT NULL
+           AND mm.metrics_updated_at >= mi.updated_at`
+      )
+      .all(...keys) as { key: string }[];
+    return new Set(rows.map(r => r.key));
   };
 
   const stmtUpsertIndex = db.query(
@@ -306,6 +355,30 @@ function buildStore() {
       return rows.map(toIndexRow);
     },
 
+    /**
+     * Push events carry a project id, not a path. Ids stay recorded after a project leaves
+     * boxscore.projects, so a read can still tell that project's pushes apart.
+     */
+    recordProjectIds(
+      entries: readonly { projectPath: string; id: string }[]
+    ): void {
+      const prefix = projectIdPrefix(recordedHost());
+      const tx = db.transaction(() => {
+        for (const e of entries)
+          stmtSetMeta.run(`${prefix}${e.projectPath}`, e.id);
+      });
+      tx();
+    },
+
+    /** Every project id recorded on the current host, keyed by project path. */
+    projectIds(): Map<string, string> {
+      const prefix = projectIdPrefix(recordedHost());
+      const rows = db
+        .query('SELECT key, value FROM store_meta WHERE key GLOB ?')
+        .all(`${prefix}*`) as { key: string; value: string }[];
+      return new Map(rows.map(r => [r.key.slice(prefix.length), r.value]));
+    },
+
     /** The incremental watermark: when the project's last successful index scan started. */
     lastScan(projectPath: string): string | null {
       const row = stmtLastScan.get(projectPath) as { last_scan: string } | null;
@@ -346,17 +419,12 @@ function buildStore() {
      * fetched; a null stamp counts as stale for the same reason.
      */
     freshMergedMetricsKeys(keys: readonly string[]): Set<string> {
-      if (keys.length === 0) return new Set();
-      const rows = db
-        .query(
-          `SELECT mi.key as key FROM mr_index mi
-           JOIN mr_metrics mm ON mm.key = mi.key
-           WHERE mi.key IN ${placeholders(keys.length)} AND mi.state = 'merged'
-             AND mm.metrics_updated_at IS NOT NULL
-             AND mm.metrics_updated_at >= mi.updated_at`
-        )
-        .all(...keys) as { key: string }[];
-      return new Set(rows.map(r => r.key));
+      return freshMetricsKeys(keys, true);
+    },
+
+    /** Like freshMergedMetricsKeys, whatever the row's state. */
+    freshMetricsKeysAnyState(keys: readonly string[]): Set<string> {
+      return freshMetricsKeys(keys, false);
     },
 
     metricsByKeys(keys: readonly string[]): StoredMetrics[] {
@@ -514,25 +582,12 @@ function buildStore() {
       tx(rows);
     },
     identities(usernames: readonly string[]): StoredIdentity[] {
-      if (usernames.length === 0) return [];
-      const rows = db
-        .query(
-          `SELECT * FROM identities WHERE username IN ${placeholders(usernames.length)}`
-        )
-        .all(...usernames) as {
-        username: string;
-        name: string | null;
-        resolved: number;
-        user_id: number | null;
-        fetched_at: string;
-      }[];
-      return rows.map(r => ({
-        username: r.username,
-        name: r.name,
-        resolved: r.resolved === 1,
-        userId: r.user_id,
-        fetchedAt: r.fetched_at,
-      }));
+      return selectIdentities(usernames, '');
+    },
+
+    /** Like identities, but a stored username matches whatever its case. */
+    identitiesIgnoringCase(usernames: readonly string[]): StoredIdentity[] {
+      return selectIdentities(usernames, ' COLLATE NOCASE');
     },
 
     counts(): {
@@ -618,6 +673,7 @@ const FORGE_WRITES = [
   'upsertPushEvents',
   'upsertIdentities',
   'upsertLinearIssues',
+  'recordProjectIds',
 ] as const;
 
 /**

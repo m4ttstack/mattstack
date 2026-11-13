@@ -52,7 +52,7 @@ import { createRealProbes } from "./setup/probes.ts";
 import { runAccountsSweep, type IntegrationTarget } from "./credential-health/sweep.ts";
 import { INTEGRATIONS, type ValidateCtx } from "./setup/integrations.ts";
 import type { Integration } from "./setup/contract.ts";
-import { isValidHostname } from "./setup/host-validate.ts";
+import { confirmedGitlabHost } from "./setup/gitlab-host.ts";
 import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "./setup/team-settings.ts";
 import { createRealAgeKeySeam } from "./home/age-key.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
@@ -184,12 +184,11 @@ import { migrateLegacyRtDir, migrateLegacyPluginsDir, LEGACY_RT_LABEL, RT_DIR_LA
  * receive the accounts-sweep token; a team's declared host is surfaced as
  * `declaredHost` for the row's own detail text, never fetched against.
  */
-function credentialHealthCtxFor(id: Integration, team: TeamSnapshot, overrides: UserIntegrationOverrides): ValidateCtx {
+export function credentialHealthCtxFor(id: Integration, team: TeamSnapshot, overrides: UserIntegrationOverrides): ValidateCtx {
   const base = { team: { slug: team.slug, remote: team.remote }, linearTeamKey: team.integrations.linear?.teamKey ?? null };
   if (id === "gitlab") {
     const declaredHost = team.integrations.forge?.provider === "gitlab" ? team.integrations.forge.host : null;
-    const host = overrides.forgeHost && isValidHostname(overrides.forgeHost) ? overrides.forgeHost : null;
-    return { ...base, host, declaredHost };
+    return { ...base, host: confirmedGitlabHost(overrides), declaredHost };
   }
   return { ...base, host: null };
 }

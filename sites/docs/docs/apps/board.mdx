@@ -10,7 +10,9 @@ import BoardIcon from "@site/src/components/BoardIcon";
 
 ## What it is
 
-board is one page of your team's open GitLab merge requests that are ready for review, so you can drop a single link in Slack instead of pasting MR URLs. Each row shows a status dot, the title, the author, the branch, one review-state phrase, the diff size, the age and a Linear ticket link when the branch or title carries a ticket id. Merge conflicts and red CI show as their own flag chips, so the phrase always says where the MR sits in review.
+board is one page of your team's open merge requests (MRs), or pull requests (PRs) on a GitHub team, that are ready for review, so you can drop a single link in Slack instead of pasting their URLs. Each row shows a status dot, the title, the author, the branch, one review-state phrase, the diff size, the age and a Linear ticket link when the branch or title carries a ticket id. Merge conflicts and red CI show as their own flag chips, so the phrase always says where the MR sits in review.
+
+On a GitHub team the board says PR and `#12` where this page says MR and `!12`, and its forge flyout and links name GitHub. Code owners tabs, asking the author's agent to respond, and the re-review thread work on GitLab only.
 
 The row and its status line name people in full. Menu items, dialogs, the inbox and the ask band use first names, with a last initial when two people share one.
 
@@ -22,7 +24,7 @@ Open board from the mattstack window, or at `https://board.mattstack`. It is a t
 
 ## What you do in it
 
-**Open or act on an MR.** A click on a row opens the MR in GitLab. Right-click it for [the row menu](#the-row-menu).
+**Open or act on an MR.** A click on a row opens the MR in GitLab, or the PR in GitHub. Right-click it for [the row menu](#the-row-menu).
 
 **Hand an MR to an agent.** The row menu can start a Claude Code agent in a herdr pane to review someone else's MR, to respond to review on your own, or to fix merge conflicts and red CI. The row shows a live badge while the agent works.
 
@@ -36,7 +38,7 @@ Open board from the mattstack window, or at `https://board.mattstack`. It is a t
 
 Most actions depend on three facts about the board you are looking at and the MR you clicked:
 
-- **A local board.** Anything that starts an agent or writes to GitLab or Slack works only on a board opened from this Mac, at its `localhost` or `.mattstack` address. A board opened through a public address shows the same rows, but its menu starts no agents and writes nothing to GitLab or Slack; in their place it shows one greyed row: **agent actions**, "need a local board".
+- **A local board.** Anything that starts an agent or writes to the forge or Slack works only on a board opened from this Mac, at its `localhost` or `.mattstack` address. A board opened through a public address shows the same rows, but its menu starts no agents and writes nothing to the forge or Slack; in their place it shows one greyed row: **agent actions**, "need a local board".
 - **Your seat.** The seat is the member the board belongs to, set by `board.defaultMember`. A board set to everyone has no seat, owns no MR, and shows a greyed **author actions** row: "set your seat in board settings to act on your own MRs".
 - **Your MR or someone else's.** Respond, doctor, merge, rebase, draft, auto-merge, posting to Slack and asking for reviews are offered only on MRs your seat authored. Asking the author's agent to respond is offered on everyone else's. Reviewing is offered on any MR, but on your own it waits in **all agent actions**.
 
@@ -46,7 +48,7 @@ Right-click a row to open its menu. It is titled with the MR's number, and reads
 
 1. **post to slack**, on your own MR while it still has somewhere to post.
 2. **agent actions**: the agent launches that fit this MR right now.
-3. Four flyouts: **all agent actions**, **gitlab**, **slack** and **more**, plus **flock** on your own MR when Flock is installed (see [flock](#flock)). A flyout with only one item shows that item in place instead, except **all agent actions**, which stays a flyout.
+3. Four flyouts: **all agent actions**, **gitlab** (**github** on a GitHub team), **slack** and **more**, plus **flock** on your own MR when Flock is installed (see [flock](#flock)). A flyout with only one item shows that item in place instead, except **all agent actions**, which stays a flyout.
 
 <Screenshot name="board/row-menu" alt="The right-click menu of an MR, with agent actions and the all agent actions, gitlab, slack and more flyouts" />
 
@@ -57,7 +59,7 @@ A few behaviors hold across the menu:
 - Hold <kbd>Option</kbd> over an agent launch that takes a note and its hint reads "+ note". <kbd>Option</kbd>-click it to type an extra instruction for the agent (up to 2000 characters) before it starts.
 - **merge** asks twice: the first click changes its label to "really merge?" and the second merges.
 - The Slack reactions keep the menu open, so you can set several.
-- GitLab and Slack actions act as you. The board uses your GitLab token and your Slack user token, so a merge, a post or a reaction shows under your name.
+- Forge and Slack actions act as you. The board writes to GitLab with your GitLab token, to GitHub through rt with your GitHub sign-in, and to Slack with your Slack user token, so a merge, a post or a reaction shows under your name.
 - The board itself refuses author actions on someone else's MR.
 
 ### Slack reactions
@@ -101,7 +103,7 @@ Every item here needs a local board. Each row links to what that agent does. The
 | <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target, and a doctor skill is set up for the tab you are on. |
 | <BoardIcon name="agentCloud" /> | request review from… | Opens a list of people to ask for a review, on your team and others. See [Picking who to ask](#picking-who-to-ask). | Your own MR, when there is someone left to ask. Otherwise it sits greyed in **all agent actions**. |
 | <BoardIcon name="agentCloud" /> | ask dev2's agent for a follow-up review | Asks a teammate whose review left comments to review again. Reads **retry dev2's agent review** when their agent's last review hit an error. See [Asks between boards](#asks-between-boards). | Your own MR, one item per such teammate. |
-| <BoardIcon name="agentCloud" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
+| <BoardIcon name="agentCloud" /> | ask dev1's agent to respond | Asks the author's agent to answer your review (GitLab only). See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
 
 The asks to a teammate's agent sit last, below a divider.
 
@@ -144,13 +146,13 @@ The review's sheet reads top to bottom:
 
 - **Summary comment** comes first, as it will post on the MR. The agent drafts a summary line for each result, and the card shows the one for the result you picked. A finding with no line in the diff joins the summary as its own part, which you can remove.
 - The findings follow, grouped by severity, each group with **all** and **none**. A finding you tick opens into three parts: **The Code** (the file and line, with the diff around it), **Agent Finding** and **Comment**, the text that posts.
-- **view full diff**, or a click on the code, opens the whole file's diff, centred on the finding you came from. Every finding on that file sits pinned at its line, and a link opens the file on GitLab.
+- **view full diff**, or a click on the code, opens the whole file's diff, centred on the finding you came from. Every finding on that file sits pinned at its line, and a link opens the file on GitLab or GitHub.
 - A comment is always editable. **Preview** shows it as it will read on the MR. An edited comment is marked **edited**, and **reset to draft** brings back the agent's text.
 - The rail holds the result, a note box and the submit button, which names the result.
 
 It then posts the findings you chose as inline comments, with your edits, and the summary, and approves the MR if you chose approve. It never changes code. **view agent review** opens its full report.
 
-With Slack connected, the board marks the MR's Slack post as looking while the review runs, then commented or approved. After a comment result, with `board.reReview` on, the board also adds a thread asking the author to resolve it once everything is addressed. The board takes another pass when they do.
+With Slack connected, the board marks the MR's Slack post as looking while the review runs, then commented or approved. After a comment result on GitLab, with `board.reReview` on, the board also adds a thread asking the author to resolve it once everything is addressed. The board takes another pass when they do.
 
 #### Follow-up review
 
@@ -221,6 +223,8 @@ Everything but **open in gitlab** needs a local board, and everything but **open
 | <BoardIcon name="out" /> | open in gitlab | Opens the MR in GitLab in a new tab. |
 | <BoardIcon name="refresh" /> | refresh from gitlab | Reads this one MR from GitLab again, for a change the board's regular sync missed, such as a new approval. |
 
+On a GitHub team this flyout is **github**, and its last two items read **open in github** and **refresh from github**. Auto-merge is GitHub's, and mark as draft uses GitHub's draft state. In a repo with a merge queue, a merge joins the queue instead of landing at once.
+
 For rebasing your branch in a local checkout instead, see **rebase locally** under [agent actions](#agent-actions).
 
 ### slack
@@ -237,7 +241,7 @@ The [Slack reactions](#slack-reactions) sit above these items. Everything here b
 
 On your own MR, **post to slack** posts the MR to your team's review channel under your name. That channel is your team's first channel of kind `review` in the [team directory](/start/teams#team-directory); a team can pick another kind with the `reviewKind` key of the `board.slack` setting. When your team has none, the board refuses: "Add a review channel for your team to the team directory". If a post with the MR's link is already there, it posts nothing and links the row to that post instead. Once posted, the item is greyed "posted".
 
-In a repo whose `board.codeowners` setting turns on `slack.fromSectionName`, code owners sections can ask for review in Slack too. Each section names its channel as the last `#channel` in the section's name. A click first checks the MR's approvals:
+On GitLab, in a repo whose `board.codeowners` setting turns on `slack.fromSectionName`, code owners sections can ask for review in Slack too. Each section names its channel as the last `#channel` in the section's name. A click first checks the MR's approvals:
 
 - When only your team's own code owners still have to approve, or nobody does, it posts straight to the team channel.
 - When other teams' code owners still have to approve, it opens the post to slack dialog.
@@ -276,7 +280,7 @@ On your own MR, when Flock is installed on this Mac, the **flock** flyout opens 
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="note" /> | add a note / edit note | Opens a note on the row, up to 2000 characters. It is saved on this Mac only and never sent to GitLab, Slack or an agent. Save it empty to delete it. |
+| <BoardIcon name="note" /> | add a note / edit note | Opens a note on the row, up to 2000 characters. It is saved on this Mac only and never sent to the forge, Slack or an agent. Save it empty to delete it. |
 | <BoardIcon name="dismiss" /> | auto-doctor: ignore this MR | Stops auto-doctor, the board's automatic doctor runs, on your MR, or on the whole stack ("ignore this stack") when other MRs sit on it. A doctor already running on them is told to stop, and its pane is not resumed. The row then carries an "auto-doctor off" flag. Greyed "auto-doctor is off" when auto-doctor is turned off for the board. |
 | <BoardIcon name="dismiss" /> | re-enable auto-doctor | Lets auto-doctor act on the MR again. It starts nothing by itself. |
 
@@ -287,7 +291,7 @@ Checking a row swaps the tabs for a selection bar. To open the bulk menu, check 
 The bulk menu is titled "N selected". It offers only what every checked MR's own menu offers:
 
 - **agent actions**: review, follow-up review, redo, call doctor and request review from….
-- **gitlab**: rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
+- **gitlab** (**github** on a GitHub team): rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
 - **slack**: the three Slack reactions.
 
 An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, follow-up reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".
@@ -298,7 +302,7 @@ The board runs the action on four MRs at a time, then shows one summary, for exa
 
 A row with review comments shows a count, such as "3 threads". It counts review threads and MR comments together. It reads "2 threads waiting" when threads wait on you, and "author replied" when the author answered yours. Click it to open the comments drawer for that MR.
 
-The drawer lists the MR's review threads, each with its status: **awaiting author**, **author replied** or **resolved**. Below them, **MR comments** holds the Overview comments that are not threads. Each comment links to its place in GitLab.
+The drawer lists the MR's review threads, each with its status: **awaiting author**, **author replied** or **resolved**. Below them, **MR comments** holds the Overview comments that are not threads. Each comment links to its place in GitLab or GitHub.
 
 The drawer and the count leave out what is not feedback:
 
@@ -402,7 +406,7 @@ Pick a person, and the ask's dialog opens before anything is sent. With several 
 
 ### Asking for a re-review through the MR
 
-A reviewer's board whose review left comments adds a thread to the MR, for the author to resolve once everything is addressed (see [Review](#review)). When the relay has heard nothing from that reviewer's board but their thread is still open, **ask dev2's agent for a follow-up review** resolves the thread instead of sending an ask. Their board picks it up on its next pass. Until then the item is greyed "asked in the MR thread".
+This works on GitLab only. A reviewer's board whose review left comments adds a thread to the MR, for the author to resolve once everything is addressed (see [Review](#review)). When the relay has heard nothing from that reviewer's board but their thread is still open, **ask dev2's agent for a follow-up review** resolves the thread instead of sending an ask. Their board picks it up on its next pass. Until then the item is greyed "asked in the MR thread".
 
 ### The inbox
 
@@ -504,7 +508,7 @@ An MR is waiting on its author when the next move is theirs, not a reviewer's. T
 | `threads` | Unanswered comments | A reviewer's thread waits for the author. |
 | `changesRequested` | Changes requested | A reviewer requested changes. |
 | `conflicts` | Merge conflicts | The branch conflicts with its target. |
-| `rebase` | Needs a rebase | GitLab needs the branch rebased before it can merge. |
+| `rebase` | Needs a rebase | The forge needs the branch rebased before it can merge. |
 | `ciFailing` | CI failing | The pipeline is failing. |
 | `readyToMerge` | Approved, ready to merge | The MR is approved and nothing blocks it, so merging is the author's move. |
 
@@ -534,10 +538,10 @@ These are registry keys, so you can read them with `rt settings get <key>`. The 
 
 | Key | Meaning |
 | --- | --- |
-| `board.gitlabHost` | GitLab host the board polls for MRs, shared by the whole team. |
-| `board.projects` | GitLab projects the board tracks, shared by the whole team. |
+| `board.gitlabHost` | GitLab host the board polls for MRs, on a GitLab team; shared by the whole team. |
+| `board.projects` | GitLab projects or GitHub repos the board tracks, shared by the whole team. |
 | `board.title` | Display title shown in the board's UI. |
-| `board.tabs` | The board's tabs; one tab can show the approval queue for a named codeowners section. That tab watches your team's code owners channel from the team directory, unless it names another. |
+| `board.tabs` | The board's tabs; on GitLab, one tab can show the approval queue for a named codeowners section. That tab watches your team's code owners channel from the team directory, unless it names another. |
 | `board.ticketPrefixes` | Ticket prefixes that keep the authors tab to your team's tickets and link MR titles to Linear. Unset, it uses your team's Linear key from the team directory. |
 | `board.defaultMember` | Which member this developer's local board opens as. |
 | `board.hiddenMembers` | Usernames you hide from the authors tab's roster. |

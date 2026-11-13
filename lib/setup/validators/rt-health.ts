@@ -389,7 +389,7 @@ async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
     id: "tool.daemon",
     kind: "tool" as const,
     title: "Daemon",
-    why: "The daemon watches your repos and backs MRs and notifications.",
+    why: "The daemon watches your repos and backs MRs, PRs and notifications.",
     required: true,
     recheck: "on-activate" as const,
   };

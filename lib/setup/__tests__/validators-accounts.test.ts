@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { accountRows, teamDeclaresIntegration, type SecretPresence } from "../validators/accounts.ts";
+import { accountRows, SOLO_GITHUB_NOTE, SOLO_GITLAB_NOTE, teamDeclaresIntegration, type SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
@@ -861,13 +861,59 @@ describe("accountRows, catch-path does not apply cached health (Fix 3)", () => {
 });
 
 describe("accountRows on solo", () => {
-  test("one optional github row, nothing else", async () => {
-    const exec: ExecScript = (argv) => (argv[0] === "gh" && argv[1] === "auth" ? { code: 1, stdout: "", stderr: "not logged in" } : ok());
-    const rows = await accountRows(fakeProbes({ exec }), baseTeam({ slug: "" }), [], fakeSecrets(), { v: 1, at: "", mode: "solo" }, {}, true);
-    expect(rows.map((r) => r.id)).toEqual(["account.github"]);
-    expect(rows[0]!.required).toBe(false);
-    expect(rows[0]!.optionalNote).toBe("Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.");
-    expect(rows[0]!.status).toBe("missing");
+  const SOLO = { v: 1, at: "", mode: "solo" } as const;
+  const ghDown: ExecScript = (argv) => (argv[0] === "gh" && argv[1] === "auth" ? { code: 1, stdout: "", stderr: "not logged in" } : ok());
+  const soloRows = (overrides: Record<string, string>, secrets = fakeSecrets(), fetch?: NonNullable<Parameters<typeof fakeProbes>[0]>["fetch"]) =>
+    accountRows(fakeProbes({ exec: ghDown, ...(fetch ? { fetch } : {}) }), baseTeam({ slug: "" }), [], secrets, SOLO, overrides, true);
+
+  test("an optional GitHub row, then an optional GitLab row, nothing else", async () => {
+    const rows = await soloRows({});
+    expect(rows.map((r) => r.id)).toEqual(["account.github", "account.gitlab"]);
+    expect(rows.map((r) => r.required)).toEqual([false, false]);
+    expect(rows[0]!.optionalNote).toBe(SOLO_GITHUB_NOTE);
+    expect(rows[1]!.optionalNote).toBe(SOLO_GITLAB_NOTE);
+    expect(rows.map((r) => r.status)).toEqual(["missing", "missing"]);
+  });
+
+  test("the solo GitLab row connects with a token and links to gitlab.com", async () => {
+    const gitlab = (await soloRows({}))[1]!;
+    expect(gitlab.action).toMatchObject({ type: "connect", integration: "gitlab" });
+    expect((gitlab.action as { create: { url: string } }).create.url.startsWith("https://gitlab.com/")).toBe(true);
+  });
+
+  test("a leftover github.com host does not reach the solo GitLab row", async () => {
+    const gitlab = (await soloRows({ forgeHost: "github.com" }))[1]!;
+    expect((gitlab.action as { create: { url: string } }).create.url.startsWith("https://gitlab.com/")).toBe(true);
+  });
+
+  test("a confirmed self-hosted host does reach it", async () => {
+    const gitlab = (await soloRows({ forgeHost: "gitlab.example.com" }))[1]!;
+    expect((gitlab.action as { create: { url: string } }).create.url.startsWith("https://gitlab.example.com/")).toBe(true);
+  });
+
+  test("a stored GitLab token reads ready on solo", async () => {
+    const fetch = async () => ({ status: 200, body: JSON.stringify({ username: "me" }), headers: {} });
+    const gitlab = (await soloRows({}, fakeSecrets({ "rt.gitlabToken": "tok123" }), fetch))[1]!;
+    expect(gitlab.status).toBe("ready");
+  });
+
+  test("a leftover github.com host never receives a stored GitLab token on solo", async () => {
+    const p = fakeProbes({ exec: ghDown, fetch: async () => ({ status: 200, body: JSON.stringify({ username: "me" }), headers: {} }) });
+    const rows = await accountRows(p, baseTeam({ slug: "" }), [], fakeSecrets({ "rt.gitlabToken": "tok123" }), SOLO, { forgeHost: "github.com" }, true);
+    expect(rows[1]!.status).toBe("ready");
+    expect(p.calls.fetch.some((url) => url.startsWith("https://gitlab.com/"))).toBe(true);
+    expect(p.calls.fetch.filter((url) => url.includes("github.com"))).toEqual([]);
+  });
+});
+
+describe("accountRows on a team Mac with a leftover github.com host", () => {
+  test("a stored GitLab token is checked against gitlab.com, never github.com", async () => {
+    const team = baseTeam({ integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } });
+    const p = fakeProbes({ fetch: async () => ({ status: 200, body: JSON.stringify({ username: "me" }), headers: {} }) });
+    const r = await pickRow(accountRows(p, team, [], fakeSecrets({ "rt.gitlabToken": "tok123" }), null, { forgeHost: "github.com" }), "account.gitlab");
+    expect(r.status).toBe("ready");
+    expect(p.calls.fetch.some((url) => url.startsWith("https://gitlab.com/"))).toBe(true);
+    expect(p.calls.fetch.filter((url) => url.includes("github.com"))).toEqual([]);
   });
 });
 

@@ -7,6 +7,7 @@ export interface CachedBranchData {
   mrUrl: string | null;
   linearId: string | null;
   fetchedAt: number;
+  repoIdentity?: string;
 }
 
 export interface BranchListSnapshot {

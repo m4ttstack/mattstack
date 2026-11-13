@@ -423,7 +423,7 @@ const DISPOSE_WORDS: Record<string, string> = {
   "kind-golden": "it is the copy rt builds new worktrees from",
   dirty: "it has changes that are not committed",
   unpushed: "it has commits that are not merged or pushed",
-  attended: "someone is working on its merge request right now",
+  attended: "someone is working on its MR or PR right now",
   grace: "it was claimed moments ago",
   "no-trash": "rt could not keep a copy to bring it back from",
   busy: "another rt operation is using it, try again in a moment",

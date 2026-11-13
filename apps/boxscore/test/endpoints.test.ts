@@ -27,6 +27,8 @@ const { getStore, __resetStore } = await import('../src/server/store/index.js');
 const { __setCurrentUser, __resetCurrentUser } =
   await import('../src/server/config/current-user.js');
 const { __setTeamReader } = await import('../src/server/config/team.js');
+const { __setGitHubTokenDeps } =
+  await import('../src/server/config/github-token.js');
 
 const WINDOW: TimeWindow = {
   start: '2026-05-01T00:00:00.000Z',
@@ -117,6 +119,29 @@ describe('refresh endpoints', () => {
     expect(body.cached).toBe(false);
     expect(body.window).toMatchObject({ start: '2019-01-01T00:00:00.000Z' });
     expect(body.scope).toEqual({ type: 'projects', projectPaths: PROJECTS });
+  });
+
+  it('GET /api/leaderboard?cacheOnly=1 on a cold github team carries forge github', async () => {
+    const github: Record<string, unknown> = {
+      ...SETTINGS,
+      'mattstack.integrations': {
+        forge: { host: 'github.com', provider: 'github' },
+      },
+    };
+    __setSettingReader(<T>(k: string) => github[k] as T | undefined);
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    try {
+      const res = await app.request(
+        '/api/leaderboard?range=custom&start=2019-01-01T00:00:00.000Z&end=2019-01-08T00:00:00.000Z&cacheOnly=1'
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.cached).toBe(false);
+      expect(body.forge).toBe('github');
+    } finally {
+      __setGitHubTokenDeps(null);
+      __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
+    }
   });
 
   // The trend flag must not bypass the cold-store check: a probe still needs to know the

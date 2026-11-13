@@ -18,7 +18,7 @@ import { readingState } from "../herd-watchdog-adapters.ts";
 import { findTreeByPath, loadRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { writePromptFile } from "../../agent-argv/index.ts";
 import { fillSpawnSlots } from "../../herd-brief.ts";
-import { herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
+import { herdNameOf, herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
 import type { GatesStore } from "../gates-store.ts";
 import type { RunningRunScan } from "../../runs/store.ts";
 import type { createGateHandlers } from "./gate.ts";
@@ -627,6 +627,22 @@ export function createHerdHandlers(deps: HerdDeps) {
       const rows = all ? store.list() : store.list({ status: "active" });
       const names = deps.identityNames(rows.map((h) => h.shepherdHandle));
       return { ok: true, data: { herds: rows.map((h) => ({ ...h, shepherdName: names.get(h.shepherdHandle) ?? h.shepherdHandle, jobs: store.jobs(h.id).length })) } };
+    },
+
+    "herd:roster": async (_raw?: unknown): Promise<CommandResult<"herd:roster">> => {
+      const rows = store.list().map((h) => ({ herd: h, jobs: store.jobs(h.id) }));
+      const names = deps.identityNames(rows.flatMap(({ herd, jobs }) => [herd.shepherdHandle, ...jobs.map((j) => j.handle)]));
+      const nameOf = (handle: string) => names.get(handle) ?? handle;
+      return {
+        ok: true,
+        data: {
+          herds: rows.map(({ herd, jobs }) => ({
+            id: herd.id, name: herdNameOf(herd.id), room: herd.room, status: herd.status,
+            shepherdHandle: herd.shepherdHandle, shepherdName: nameOf(herd.shepherdHandle),
+            workers: jobs.map((j) => ({ job: j.name, handle: j.handle, name: nameOf(j.handle) })),
+          })),
+        },
+      };
     },
 
     "herd:close": async (raw: unknown): Promise<CommandResult<"herd:close">> => {

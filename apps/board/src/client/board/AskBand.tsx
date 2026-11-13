@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 
-import { Button, Popover, Spinner } from '@mattstack/tui-kit';
+import { Button, Popover } from '@mattstack/tui-kit';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import {
   askBandModel,
@@ -14,6 +14,7 @@ import {
   type AskBand,
 } from './ask-band.ts';
 import { AskGlyph } from './ask-glyph.tsx';
+import { CloudSpinner } from './icons.tsx';
 import { usePeople } from './people.ts';
 
 const ACTION: Record<AskAction, string> = {
@@ -152,15 +153,15 @@ export function AskBand({
             onClick={e => e.stopPropagation()}
           >
             <span className="tui-ask-where">
-              <AskGlyph name="cloud" />
+              {band.icon === 'loader' ? (
+                <CloudSpinner />
+              ) : (
+                <AskGlyph name="cloud" />
+              )}
               {band.who}
             </span>
             <span className="tui-ask-state">
-              {band.icon === 'loader' ? (
-                <Spinner size="xs" />
-              ) : (
-                <AskGlyph name={band.icon} />
-              )}
+              {band.icon !== 'loader' && <AskGlyph name={band.icon} />}
               <span className="tui-ask-label" title={band.label}>
                 {band.label}
               </span>

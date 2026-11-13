@@ -1,3 +1,4 @@
+import { forgeText } from '../../shared/forge.js';
 import { isRevertTitle } from '../../shared/reverts.js';
 import type {
   LeaderboardWarning,
@@ -11,14 +12,16 @@ import {
   resolveLinearTickets,
 } from '../linear/fetch.js';
 import {
-  fetchMetrics,
-  fetchPipelinesFor,
   fetchProjectRef,
   fetchPushesFor,
-  resolveIdentity,
-  scanProject,
+  gitlabSource,
+  storedLoginCanon,
 } from '../source/index.js';
-import type { GitProvider, SourceProvider } from '../source/index.js';
+import type {
+  ForgeSource,
+  GitProvider,
+  SourceProvider,
+} from '../source/index.js';
 import {
   ForgeHostChangedError,
   guardForgeWrites,
@@ -28,8 +31,13 @@ import type {
   Store,
   StoredIdentity,
   StoredMetricsWrite,
+  StoredPushEvent,
 } from '../store/index.js';
-import { buildFetchResult, storedIdentities } from '../store/query.js';
+import {
+  buildFetchResult,
+  inProjects,
+  storedIdentities,
+} from '../store/query.js';
 import { mapLimit } from '../util/concurrency.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -45,6 +53,8 @@ export interface RefreshRunOptions {
   window: TimeWindow;
   signal?: AbortSignal;
   onProgress?: (p: Omit<RefreshProgress, 'window'>) => void;
+  /** Absent means GitLab, read through `provider`. */
+  source?: ForgeSource;
 }
 
 const isAbort = (err: unknown): boolean =>
@@ -80,7 +90,10 @@ export async function runRefresh(
   const warnings: LeaderboardWarning[] = [];
   // GitProvider declares these methods optional (GitHub doesn't implement all of them);
   // a real GitLabProvider satisfies SourceProvider's required surface structurally.
-  const source = provider as unknown as SourceProvider;
+  const gitlab = provider as unknown as SourceProvider;
+  const source = opts.source ?? gitlabSource(gitlab);
+  const drainSourceWarnings = () => warnings.push(...source.takeWarnings());
+  const t = (text: string) => forgeText(text, env.forge);
 
   // The full roster (visible + hidden): hiding a user must not stop their data refreshing (spec 7.3).
   const rosterUsernames = settings.roster.map(r => r.username);
@@ -108,7 +121,7 @@ export async function runRefresh(
     async username => {
       signal?.throwIfAborted();
       try {
-        const identity = await resolveIdentity(source, username, { signal });
+        const identity = await source.resolveIdentity(username, { signal });
         resolved.push(identity);
         if (!identity.resolved) {
           warnings.push({
@@ -153,7 +166,7 @@ export async function runRefresh(
       signal?.throwIfAborted();
       const updatedAfter = scanFrom(store, projectPath, window.start);
       try {
-        const rows = await scanProject(source, projectPath, updatedAfter, {
+        const rows = await source.scanProject(projectPath, updatedAfter, {
           signal,
         });
         store.upsertIndexRows(rows);
@@ -162,7 +175,7 @@ export async function runRefresh(
         if (isAbort(err)) throw err;
         warnings.push({
           code: 'mr_fetch_failed',
-          message: `MRs for ${projectPath}: ${(err as Error).message}`,
+          message: `${t('MRs')} for ${projectPath}: ${(err as Error).message}`,
         });
       }
     },
@@ -171,47 +184,57 @@ export async function runRefresh(
   );
 
   // Step 3: metrics for the eligible set (roster-authored in window, or a revert by anyone),
-  // skipping rows already merged with stored metrics.
+  // skipping rows whose stored snapshot the source says is still current.
   signal?.throwIfAborted();
   const rosterSet = new Set(rosterUsernames);
-  const indexRows = store.indexRowsUpdatedWithin(window.start, window.end);
+  const canon = storedLoginCanon(env, settings);
+  const toRoster = canon ?? ((login: string) => login);
+  const configured = inProjects(settings.projects);
+  const indexRows = store
+    .indexRowsUpdatedWithin(window.start, window.end)
+    .filter(r => configured(r.projectPath));
   const eligibleRows = indexRows.filter(
     r =>
-      (r.authorUsername != null && rosterSet.has(r.authorUsername)) ||
+      (r.authorUsername != null && rosterSet.has(toRoster(r.authorUsername))) ||
       isRevertTitle(r.title)
   );
   const eligibleKeys = eligibleRows.map(r => mrKey(r.projectPath, r.iid));
-  const doneKeys = store.freshMergedMetricsKeys(eligibleKeys);
+  const doneKeys =
+    source.reusesFreshSnapshots === 'any'
+      ? store.freshMetricsKeysAnyState(eligibleKeys)
+      : store.freshMergedMetricsKeys(eligibleKeys);
   const toFetch = eligibleRows.filter(
     r => !doneKeys.has(mrKey(r.projectPath, r.iid))
   );
 
   report({
     phase: 'mrs-detail',
-    label: 'Fetching MR details',
+    label: t('Fetching MR details'),
     done: 0,
     total: toFetch.length,
   });
   let detailFailures = 0;
   let lastDetailError = '';
   const pending: StoredMetricsWrite[] = [];
+  const pendingCommits: StoredPushEvent[] = [];
   const flush = () => {
     if (pending.length > 0) store.upsertMrMetrics(pending.splice(0));
+    if (pendingCommits.length > 0)
+      store.upsertPushEvents(pendingCommits.splice(0));
   };
   try {
     await mapLimit(
       toFetch,
-      CONCURRENCY,
+      source.detailConcurrency,
       async row => {
         signal?.throwIfAborted();
         try {
-          const detail = await fetchMetrics(source, row.projectPath, row.iid, {
-            signal,
-          });
+          const detail = await source.fetchDetail(row, { signal });
           if (detail) {
             // Stamp the snapshot with the MR's updatedAt so a later refresh can tell a
             // settled merged MR from one whose review activity moved on after this fetch.
-            pending.push({ ...detail, updatedAt: row.updatedAt });
+            pending.push({ ...detail.metrics, updatedAt: row.updatedAt });
+            pendingCommits.push(...detail.commits);
             if (pending.length >= PERSIST_BATCH) flush();
           }
         } catch (err) {
@@ -223,7 +246,7 @@ export async function runRefresh(
       (done, total) =>
         report({
           phase: 'mrs-detail',
-          label: 'Fetching MR details',
+          label: t('Fetching MR details'),
           done,
           total,
         })
@@ -231,11 +254,12 @@ export async function runRefresh(
   } finally {
     // Runs on cancellation too: a stalled request must not discard metrics already fetched.
     flush();
+    drainSourceWarnings();
   }
   if (detailFailures > 0) {
     warnings.push({
       code: 'mr_detail_partial',
-      message: `Detail fetch failed for ${detailFailures}/${toFetch.length} MRs (e.g. ${lastDetailError}); those count with zeroed diff/notes.`,
+      message: `Detail fetch failed for ${detailFailures}/${toFetch.length} ${t('MRs')} (e.g. ${lastDetailError}); ${t('those count with zeroed diff/notes.')}`,
     });
   }
 
@@ -256,8 +280,7 @@ export async function runRefresh(
     async ({ projectPath, username }) => {
       signal?.throwIfAborted();
       try {
-        const rows = await fetchPipelinesFor(
-          source,
+        const rows = await source.fetchPipelines(
           projectPath,
           username,
           window,
@@ -275,73 +298,77 @@ export async function runRefresh(
     (done, total) =>
       report({ phase: 'pipelines', label: 'Fetching pipelines', done, total })
   );
+  drainSourceWarnings();
 
-  // Resolve the configured projects to their scoped ids so a push event to a repo outside
-  // this roster's projects (a side project, a fork) never enters the store: coding-days and
-  // streak metrics must only count activity here, not everywhere a roster member pushes.
-  signal?.throwIfAborted();
-  const scopedProjectIds = new Set<string>();
-  await mapLimit(settings.projects, CONCURRENCY, async projectPath => {
+  if (source.readsPushEvents) {
+    // Resolve the configured projects to their scoped ids so a push event to a repo outside
+    // this roster's projects (a side project, a fork) never enters the store: coding-days and
+    // streak metrics must only count activity here, not everywhere a roster member pushes.
     signal?.throwIfAborted();
-    try {
-      const ref = await fetchProjectRef(source, projectPath, { signal });
-      if (ref) {
-        scopedProjectIds.add(ref.id);
-      } else {
-        warnings.push({
-          code: 'project_id_failed',
-          message: `Project id for ${projectPath}: not found`,
-        });
-      }
-    } catch (err) {
-      if (isAbort(err)) throw err;
-      warnings.push({
-        code: 'project_id_failed',
-        message: `Project id for ${projectPath}: ${(err as Error).message}`,
-      });
-    }
-  });
-
-  signal?.throwIfAborted();
-  const currentIdentities = storedIdentities(store, rosterUsernames);
-  report({
-    phase: 'pushes',
-    label: 'Fetching push events',
-    done: 0,
-    total: rosterUsernames.length,
-  });
-  await mapLimit(
-    rosterUsernames,
-    CONCURRENCY,
-    async username => {
+    const scopedProjectIds = new Set<string>();
+    await mapLimit(settings.projects, CONCURRENCY, async projectPath => {
       signal?.throwIfAborted();
-      const identity = currentIdentities[username];
-      if (!identity?.resolved || identity.userId == null) return;
       try {
-        // fetchUserEvents requires glance's scoped id form; resolveIdentity only carries
-        // the raw GitLab numeric id, so the scope prefix is built here.
-        const rows = await fetchPushesFor(
-          source,
-          `gitlab:user:${identity.userId}`,
-          username,
-          window,
-          { signal }
-        );
-        const scoped = rows.filter(
-          r => r.repositoryId != null && scopedProjectIds.has(r.repositoryId)
-        );
-        if (scoped.length > 0) store.upsertPushEvents(scoped);
+        const ref = await fetchProjectRef(gitlab, projectPath, { signal });
+        if (ref) {
+          scopedProjectIds.add(ref.id);
+          store.recordProjectIds([{ projectPath, id: ref.id }]);
+        } else {
+          warnings.push({
+            code: 'project_id_failed',
+            message: `Project id for ${projectPath}: not found`,
+          });
+        }
       } catch (err) {
         if (isAbort(err)) throw err;
         warnings.push({
-          code: 'events_fetch_failed',
-          message: `Events for ${username}: ${(err as Error).message}`,
+          code: 'project_id_failed',
+          message: `Project id for ${projectPath}: ${(err as Error).message}`,
         });
       }
-    },
-    (done, total) =>
-      report({ phase: 'pushes', label: 'Fetching push events', done, total })
-  );
+    });
+
+    signal?.throwIfAborted();
+    const currentIdentities = storedIdentities(store, rosterUsernames);
+    report({
+      phase: 'pushes',
+      label: 'Fetching push events',
+      done: 0,
+      total: rosterUsernames.length,
+    });
+    await mapLimit(
+      rosterUsernames,
+      CONCURRENCY,
+      async username => {
+        signal?.throwIfAborted();
+        const identity = currentIdentities[username];
+        if (!identity?.resolved || identity.userId == null) return;
+        try {
+          // fetchUserEvents requires glance's scoped id form; resolveIdentity only carries
+          // the raw GitLab numeric id, so the scope prefix is built here.
+          const rows = await fetchPushesFor(
+            gitlab,
+            `gitlab:user:${identity.userId}`,
+            username,
+            window,
+            { signal }
+          );
+          const scoped = rows.filter(
+            r => r.repositoryId != null && scopedProjectIds.has(r.repositoryId)
+          );
+          if (scoped.length > 0) store.upsertPushEvents(scoped);
+        } catch (err) {
+          if (isAbort(err)) throw err;
+          warnings.push({
+            code: 'events_fetch_failed',
+            message: `Events for ${username}: ${(err as Error).message}`,
+          });
+        }
+      },
+      (done, total) =>
+        report({ phase: 'pushes', label: 'Fetching push events', done, total })
+    );
+  }
 
   // Step 5: Linear discovery over the same eligible set used for metrics.
   signal?.throwIfAborted();
@@ -355,7 +382,8 @@ export async function runRefresh(
   const ticketSources = buildFetchResult(
     store,
     window,
-    rosterUsernames
+    rosterUsernames,
+    canon
   ).mrs.filter(
     m =>
       eligibleKeySet.has(mrKey(m.projectPath, m.iid)) &&
@@ -367,11 +395,14 @@ export async function runRefresh(
     warnings,
     rosterUsernames,
     signal,
-    report
+    report,
+    { kind: env.forge ?? 'gitlab', projects: settings.projects },
+    canon
   );
   // resolveLinearTickets returns [] when Linear is unconfigured or there are no source MRs;
   // upsertLinearIssues([]) is a no-op transaction, so this never clobbers previously stored issues.
   store.upsertLinearIssues(linearIssues);
 
+  drainSourceWarnings();
   return warnings;
 }

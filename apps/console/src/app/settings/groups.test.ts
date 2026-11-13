@@ -34,6 +34,13 @@ describe('GROUPS', () => {
       ]);
   });
 
+  it('names MRs and PRs, since rt and the board work on both forges', () => {
+    expect(GROUPS.find(g => g.id === 'mrs')?.label).toBe('MRs and PRs');
+    expect(GROUPS.find(g => g.id === 'board')?.blurb).toBe(
+      'The MR and PR board.'
+    );
+  });
+
   it('puts the team directory in the Suite group', () => {
     expect(GROUPS.find(g => g.match('mattstack.directory'))?.id).toBe('suite');
   });
