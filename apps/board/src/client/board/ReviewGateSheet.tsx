@@ -440,7 +440,7 @@ function ReviewGateSheet({
   gate: GateRow;
   mr?: BoardMRWithReview;
   /** Closes the MR's review gates without posting, after a confirm. */
-  onDropReview?: (mr: BoardMRWithReview) => void;
+  onDropReview?: (mr: BoardMRWithReview) => Promise<unknown>;
   /** Types a question about a finding into the review pane. */
   onAskQuestion?: AskQuestion;
   /** The reconciler reports the gate's pane gone: no question can reach it,
@@ -456,6 +456,7 @@ function ReviewGateSheet({
   self?: string | null;
 }) {
   const [confirmDrop, setConfirmDrop] = useState(false);
+  const [dropping, setDropping] = useState(false);
   const data = useMemo(() => readReviewGate(gate), [gate]);
   const { questions, groups } = useMemo(
     () => collapseChunks(data?.rest ?? []),
@@ -824,26 +825,24 @@ function ReviewGateSheet({
       variant="review"
       ariaLabel="review gate"
       actions={
-        <>
-          <Button
-            type="button"
-            variant="light"
-            intent="accent"
-            size="sm"
-            disabled={
-              parked
-                ? !(gate.domain && mr)
-                : !form.originFocusable || form.focusBusy
-            }
-            onClick={() =>
-              parked
-                ? gate.domain && mr && onFocusPane(mr, gate.domain)
-                : void form.focusGate()
-            }
-          >
-            focus pane
-          </Button>
-        </>
+        <Button
+          type="button"
+          variant="light"
+          intent="accent"
+          size="sm"
+          disabled={
+            parked
+              ? !(gate.domain && mr)
+              : !form.originFocusable || form.focusBusy
+          }
+          onClick={() =>
+            parked
+              ? gate.domain && mr && onFocusPane(mr, gate.domain)
+              : void form.focusGate()
+          }
+        >
+          focus pane
+        </Button>
       }
       trailActions={
         onDropReview &&
@@ -855,6 +854,7 @@ function ReviewGateSheet({
             size="sm"
             className="tui-gate-sheet-drop"
             title="close this review without posting anything"
+            disabled={dropping}
             onClick={() => setConfirmDrop(true)}
           >
             <Shredder size={14} aria-hidden />
@@ -1222,7 +1222,9 @@ function ReviewGateSheet({
           cancelLabel="Keep it"
           onConfirm={() => {
             setConfirmDrop(false);
-            onDropReview(mr);
+            if (dropping) return;
+            setDropping(true);
+            void onDropReview(mr).finally(() => setDropping(false));
           }}
           onCancel={() => setConfirmDrop(false)}
         >

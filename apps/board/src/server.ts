@@ -4408,13 +4408,29 @@ const httpServer = Bun.serve({
         const result = await dropReview(mrUrl, {
           rows: () => gateCache.rows(),
           gateClose,
-          reviewTabId: url => readReviewStates().get(url)?.tabId || undefined,
+          reviewLane: url => {
+            const lane = readReviewStates().get(url);
+            return lane && { ...lane, tabId: lane.tabId || undefined };
+          },
           closeTab: tabId => closeTab(tabId),
-          dismissReview: url => {
-            dismissByHandle(reviewFilePath(url), Date.now());
+          settleReview: url => {
+            // The stamp must come last and share the write's clock: any
+            // later write outranks a dismissal.
+            const handle = reviewFilePath(url);
+            const now = Date.now();
+            writeReviewState(
+              handle,
+              { status: 'done', message: 'review discarded', tabId: '' },
+              now
+            );
+            dismissByHandle(handle, now);
           },
           logError: message => console.error(message),
         });
+        if (result.closed === 0 && result.failed > 0)
+          return new Response('the daemon refused to close the review gate', {
+            status: 502,
+          });
         if (result.closed === 0)
           return new Response('no open or parked review gate on this MR', {
             status: 404,

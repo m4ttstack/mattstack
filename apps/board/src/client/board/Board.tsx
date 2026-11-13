@@ -2419,7 +2419,7 @@ export function Board() {
               canNext={queue.canNext}
               onFocusPane={handleFocusPane}
               onDropReview={mr =>
-                void handleDropReview(mr).then(ok => ok && retireActiveGate())
+                handleDropReview(mr).then(ok => ok && retireActiveGate())
               }
               onAnswered={retireActiveGate}
               onContinue={retireActiveGate}

@@ -1,27 +1,45 @@
 import type { GateRow, RtResponse } from '@mattstack/rt-client';
 import { domainForKind } from './sweep.ts';
 
+/** The slice of the review lane a drop reads to tell the current run's
+    gates from an older run's. */
+export interface DropReviewLane {
+  gateId?: string;
+  runStartedAt?: number;
+  tabId?: string;
+}
+
 export interface DropReviewIo {
   rows(): GateRow[];
   gateClose(payload: {
     id: string;
     reason: 'abandoned';
   }): Promise<RtResponse<unknown>>;
-  reviewTabId(mrUrl: string): string | undefined;
+  reviewLane(mrUrl: string): DropReviewLane | undefined;
   closeTab(tabId: string): Promise<void>;
-  dismissReview(mrUrl: string): void;
+  /** Ends the lane's run quietly: the wrapper writes no status when its
+      gate closes, so a lane left reviewing reads as interrupted. */
+  settleReview(mrUrl: string): void;
   logError(message: string): void;
 }
 
-/** The operator's "drop review": closes every open or parked review gate on
-    the MR as abandoned, so it leaves the decision queue without posting.
-    A parked gate's pane is already gone; an open one's pane is still
-    waiting on the gate, so its tab closes too. */
+function ofCurrentRun(row: GateRow, lane: DropReviewLane | undefined) {
+  if (!lane) return false;
+  if (lane.gateId === row.id) return true;
+  return lane.runStartedAt !== undefined && row.openedAt >= lane.runStartedAt;
+}
+
+/** The operator's "discard review": closes every open or parked review gate
+    on the MR as abandoned, so it leaves the decision queue without posting.
+    Only a gate from the lane's current run settles the lane, and only its
+    open gate closes the pane: an older run's gate can sit beside a newer
+    run that is still working. */
 export async function dropReview(
   mrUrl: string,
   io: DropReviewIo
-): Promise<{ closed: number }> {
+): Promise<{ closed: number; failed: number }> {
   const subject = `mr:${mrUrl}`;
+  const lane = io.reviewLane(mrUrl);
   const targets = io
     .rows()
     .filter(
@@ -31,29 +49,41 @@ export async function dropReview(
         (row.status === 'open' || row.status === 'parked')
     );
   let closed = 0;
-  let closedOpen = false;
+  let failed = 0;
+  let currentClosed = false;
+  let currentOpenClosed = false;
   for (const row of targets) {
     try {
       const res = await io.gateClose({ id: row.id, reason: 'abandoned' });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        failed++;
+        io.logError(
+          `discard review: gateClose(${row.id}) refused for ${mrUrl}: ${res.error}`
+        );
+        continue;
+      }
       closed++;
-      if (row.status === 'open') closedOpen = true;
+      if (ofCurrentRun(row, lane)) {
+        currentClosed = true;
+        if (row.status === 'open') currentOpenClosed = true;
+      }
     } catch (err) {
+      failed++;
       io.logError(
-        `drop review: gateClose(${row.id}) failed for ${mrUrl}: ${err instanceof Error ? err.message : err}`
+        `discard review: gateClose(${row.id}) failed for ${mrUrl}: ${err instanceof Error ? err.message : err}`
       );
     }
   }
-  if (closed === 0) return { closed };
-  const tabId = closedOpen ? io.reviewTabId(mrUrl) : undefined;
+  if (!currentClosed) return { closed, failed };
+  const tabId = currentOpenClosed ? lane?.tabId : undefined;
   if (tabId)
     await io
       .closeTab(tabId)
       .catch(err =>
         io.logError(
-          `drop review: closeTab(${tabId}) failed for ${mrUrl}: ${err instanceof Error ? err.message : err}`
+          `discard review: closeTab(${tabId}) failed for ${mrUrl}: ${err instanceof Error ? err.message : err}`
         )
       );
-  io.dismissReview(mrUrl);
-  return { closed };
+  io.settleReview(mrUrl);
+  return { closed, failed };
 }

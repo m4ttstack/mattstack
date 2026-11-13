@@ -97,7 +97,7 @@ function DecisionQueueModal({
   canNext?: boolean;
   onFocusPane: (mr: BoardMRWithReview, domain: GateDomain) => void;
   /** Closes the MR's review gates without posting. */
-  onDropReview?: (mr: BoardMRWithReview) => void;
+  onDropReview?: (mr: BoardMRWithReview) => Promise<unknown>;
   onAnswered: () => void;
   onContinue: () => void;
   /** Fires when the CAS-loss face flips on or off, so the host can hold the

@@ -157,7 +157,7 @@ function Face({
             onNext={noop}
             onBack={noop}
             onFocusPane={noop}
-            onDropReview={noop}
+            onDropReview={async () => {}}
             onAnswered={noop}
             onContinue={noop}
             self="renee"

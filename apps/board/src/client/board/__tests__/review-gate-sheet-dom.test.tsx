@@ -219,6 +219,7 @@ function Host({
   onContinue = () => {},
   noMr = false,
   mr = MR,
+  onDropReview,
 }: {
   gate?: GateRow;
   queueIndex?: number;
@@ -226,6 +227,7 @@ function Host({
   onContinue?: () => void;
   noMr?: boolean;
   mr?: BoardMRWithReview;
+  onDropReview?: (mr: BoardMRWithReview) => Promise<unknown>;
 }) {
   const form = useGateForm(gate);
   return (
@@ -243,6 +245,7 @@ function Host({
       onClose={() => sheetCloses++}
       onContinue={onContinue}
       onFocusPane={() => {}}
+      onDropReview={onDropReview}
     />
   );
 }
@@ -294,6 +297,7 @@ async function render(
     onContinue?: () => void;
     noMr?: boolean;
     mr?: BoardMRWithReview;
+    onDropReview?: (mr: BoardMRWithReview) => Promise<unknown>;
   }
 ) {
   await React.act(async () => {
@@ -337,6 +341,40 @@ function seedDraft(
     JSON.stringify({ selections: {}, notes: {}, item: null, ...draft })
   );
 }
+
+function bodyButton(text: string): HTMLButtonElement | undefined {
+  return [...document.body.querySelectorAll('button')].find(
+    b => b.textContent?.trim() === text
+  ) as HTMLButtonElement | undefined;
+}
+
+test('discard review asks first; Keep it backs out, Discard review drops once', async () => {
+  const dropped: number[] = [];
+  let finish = () => {};
+  await render(undefined, {
+    onDropReview: mr => {
+      dropped.push(mr.iid);
+      return new Promise<void>(resolve => (finish = resolve));
+    },
+  });
+
+  await click(buttonByText('discard review'));
+  await click(bodyButton('Keep it')!);
+  expect(dropped).toEqual([]);
+
+  await click(buttonByText('discard review'));
+  await click(bodyButton('Discard review')!);
+  expect(dropped).toEqual([MR.iid]);
+  expect(buttonByText('discard review').disabled).toBe(true);
+
+  await React.act(async () => finish());
+  expect(buttonByText('discard review').disabled).toBe(false);
+});
+
+test('without a drop handler the sheet offers no discard', async () => {
+  await render();
+  expect(bodyButton('discard review')).toBeUndefined();
+});
 
 test('collapses findings-1/findings-2 into one six-row list with a full tally', async () => {
   await render();
