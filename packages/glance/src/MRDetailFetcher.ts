@@ -16,6 +16,7 @@ import type {
 import { type ForgeLogger, noopLogger } from "./logger.ts";
 import { type OnRequestHook, safeEmit } from "./instrumentation.ts";
 import { throwIfGitLabRateLimited, withGitLabRateLimit } from "./gitlabRateLimit.ts";
+import { fetchSameOrigin } from "./sameOriginFetch.ts";
 
 // ---------------------------------------------------------------------------
 // Raw REST response shapes
@@ -78,7 +79,7 @@ export class MRDetailFetcher {
       const url = `${this.baseURL}${path}?per_page=100&page=${page}`;
       const res = await withGitLabRateLimit(`GET ${path}`, 'read', async () => {
         const started = performance.now();
-        const attempt = await fetch(url, {
+        const attempt = await fetchSameOrigin(url, {
           headers: { "PRIVATE-TOKEN": this.token },
         });
         safeEmit(this.onRequest, {
