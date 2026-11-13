@@ -6,6 +6,7 @@ import type { CacheStatsResponse, ColdCacheResponse } from '../shared/types.js';
 import { ConfigError, readSettings } from './config/index.js';
 import {
   fixtureColdCache,
+  fixtureNoProjectsError,
   fixtureDetail,
   fixtureLeaderboard,
   fixtureMode,
@@ -71,6 +72,8 @@ const leaderboard = new Hono()
     if (fixtureMode()) {
       if (fixtureScenario() === 'cold-stalled')
         return c.json(fixtureColdCache(), 200);
+      if (fixtureScenario() === 'no-projects')
+        return c.json({ error: fixtureNoProjectsError() }, 400);
       try {
         return c.json(
           fixtureLeaderboard(boolQuery(c, 'trend'), c.req.query('viewAs'))
