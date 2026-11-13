@@ -1749,12 +1749,14 @@ button.tui-status-more-verb:active {
   font-family: var(--font-sans);
   font-weight: 400;
 }
+.tui-cd-open-row {
+  padding: 0 1rem 0.7rem;
+  border-bottom: 1px solid var(--border-soft);
+}
 .tui-cd-open {
   color: var(--text-accent-small);
   font-size: 0.76rem;
   text-decoration: none;
-  padding: 0.3rem 1rem 0.7rem;
-  border-bottom: 1px solid var(--border-soft);
 }
 .tui-cd-open:hover {
   text-decoration: underline;
