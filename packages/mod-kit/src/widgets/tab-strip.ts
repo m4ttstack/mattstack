@@ -25,9 +25,12 @@ function fillWindow(seed: number, first: 'left' | 'right', count: number, room: 
   return { lo, hi }
 }
 
-function tabText(tab: Tab<unknown> | undefined): string {
+// A label wider than the strip's room is cut with an ellipsis, so the seed tab always fits and the right mark stays at the edge.
+function tabText(tab: Tab<unknown> | undefined, room: number): string {
   if (!tab) return ''
-  return tab.mark ? `${tab.mark} ${tab.label}` : tab.label
+  const text = tab.mark ? `${tab.mark} ${tab.label}` : tab.label
+  const limit = Math.max(1, room - 2)
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`
 }
 
 // Each scroll mark takes a fixed width, so the tabs never shift as the counts change.
@@ -45,8 +48,9 @@ function scrollMark<A>(side: 'left' | 'right', hidden: number, action: A): Span<
 }
 
 function windowFiller(tabs: Tab<unknown>[], width: number) {
-  const cost = (k: number) => tabText(tabs[k]).length + 2
-  return (seed: number, first: 'left' | 'right') => fillWindow(Math.max(0, Math.min(tabs.length - 1, seed)), first, tabs.length, width - STRIP_CHROME, cost)
+  const room = width - STRIP_CHROME
+  const cost = (k: number) => tabText(tabs[k], room).length + 2
+  return (seed: number, first: 'left' | 'right') => fillWindow(Math.max(0, Math.min(tabs.length - 1, seed)), first, tabs.length, room, cost)
 }
 
 // Where the strip should start so the current tab shows: where it already is while that holds,
@@ -71,7 +75,7 @@ export function tabStrip<A>(spec: TabStripSpec<A>): Line<A> {
     const tab = tabs[k]
     if (!tab) continue
     const look = k === current ? FILL.current : tab.isDone ? DONE : DIM
-    line.push(sp(` ${tabText(tab)} `, { ...look, action: tab.action }))
+    line.push(sp(` ${tabText(tab, spec.width - STRIP_CHROME)} `, { ...look, action: tab.action }))
   }
   const after = tabs.length - 1 - hi
   line.push(sp(' '.repeat(Math.max(1, spec.width - widthOf(line) - MARK_WIDTH))), scrollMark('right', after, spec.scrollTo(lo + 1)))

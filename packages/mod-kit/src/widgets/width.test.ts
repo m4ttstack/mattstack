@@ -14,6 +14,22 @@ describe('narrow panes', () => {
     expect(widthOf(brandBar('Questions', WIDTH, 'hide'))).toBe(WIDTH)
   })
 
+  test('brandBar with the real label cuts the label and keeps Hide whole', () => {
+    const line = brandBar('mattstack decision gate', WIDTH, 'hide')
+    expect(widthOf(line)).toBe(WIDTH)
+    expect(line.find(span => span.action === 'hide')?.t).toBe(` ${ICON.minimize} Hide `)
+    expect(widthOf(brandBar('mattstack decision gate', 20))).toBe(20)
+  })
+
+  test('tabStrip with a label wider than the room fits and keeps the right mark at the edge', () => {
+    const tabs: Tab<number>[] = [{ label: 'Feature flag strategy', isDone: false, action: 0 }, ...Array.from({ length: 3 }, (_, k) => ({ label: `Q${k}`, isDone: false, action: k + 1 }))]
+    for (const current of [0, 2]) {
+      const line = tabStrip({ tabs, current, width: WIDTH, from: 0, scrollTo: n => n })
+      expect(widthOf(line)).toBe(WIDTH)
+      expect(line.at(-1)?.t.length).toBe(5)
+    }
+  })
+
   test('tabStrip with 10 tabs fits', () => {
     const tabs: Tab<number>[] = Array.from({ length: 10 }, (_, k) => ({ label: `Q${k}`, isDone: false, action: k }))
     for (const current of [0, 5, 9]) expect(widthOf(tabStrip({ tabs, current, width: WIDTH, from: 0, scrollTo: n => n }))).toBeLessThanOrEqual(WIDTH)
