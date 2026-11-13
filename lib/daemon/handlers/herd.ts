@@ -152,7 +152,7 @@ const refPane = (bare: string | undefined, hidden: boolean): string | undefined 
     presentation (default "wait") rather than call gatePresentation, which
     assumes shape gate:open has not yet validated; gate:open's own question
     check runs right after and is what actually refuses them. */
-const herdOrigin = (paneRef: string | undefined, session: string, questions: GateQuestion[]): { paneId: string; presentation: "form" | "wait" } | undefined =>
+const herdOrigin = (paneRef: string | undefined, session: string, questions: GateQuestion[]): { paneId: string; presentation: "form" | "wait" | "kit" } | undefined =>
   paneRef
     ? { paneId: paneRef, presentation: Array.isArray(questions) && questions.every(isValidQuestion) ? gatePresentation({ paneId: paneRef, sessionId: session, questions }) : "wait" }
     : undefined;

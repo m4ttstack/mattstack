@@ -511,6 +511,11 @@ describe("GATE_SUBSCRIPTION_PHRASE", () => {
       .toBe("[gate] g is now open (form, owner herd:h-1); re-read the gate registry.");
   });
 
+  test("names a kit gate as shown in the kit form", () => {
+    expect(GATE_SUBSCRIPTION_PHRASE({ id: "g", status: "open", origin: { presentation: "kit" }, owner: "herd:h-1" } as any))
+      .toBe("[gate] g is now open (shown in the kit form, owner herd:h-1); re-read the gate registry.");
+  });
+
   test("falls back to wait and human when origin/owner are absent", () => {
     expect(GATE_SUBSCRIPTION_PHRASE({ id: "g", status: "answered", origin: null, owner: null } as any))
       .toBe("[gate] g is now answered (wait, owner human); re-read the gate registry.");

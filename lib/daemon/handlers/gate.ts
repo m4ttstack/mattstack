@@ -137,14 +137,19 @@ const MISSING_CONTEXT_ERROR =
     a passthrough worktree survives when subject resolution produced none. */
 const CEREMONY_ORIGIN_KEYS: ReadonlySet<string> = new Set(["presentation", "paneId", "runId"]);
 const ORIGIN_FIELD_CAP_BYTES = 1024;
+const KIT_FROM_CALLER_ERROR = 'presentation "kit" is set by gate:ask only';
 
 /** Returns an error message on an invalid origin, null when it validates.
     Each string field is capped like a label: the row and the gate/opened
     payload carry origin verbatim to every surface. */
-function invalidOrigin(v: unknown): string | null {
+function invalidOrigin(v: unknown, fromAsk: boolean): string | null {
   if (!isPlainObject(v)) return "origin must be an object of string fields with presentation form|wait";
   for (const [key, val] of Object.entries(v)) {
     if (key === "presentation") {
+      if (val === "kit") {
+        if (!fromAsk) return KIT_FROM_CALLER_ERROR;
+        continue;
+      }
       if (val !== "form" && val !== "wait") {
         return "origin must be an object of string fields with presentation form|wait";
       }
@@ -466,7 +471,7 @@ export function createGateHandlers(
   };
 
   /** `internal` is true only for the daemon's own opens, the one path that may name a gate's id or open a `slack-open` gate. */
-  const openGate = async (rawPayload: unknown, internal: boolean) => {
+  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false) => {
     const payload = rawPayload as Commands["gate:open"]["payload"] | undefined;
     const subject = typeof payload?.subject === "string" ? payload.subject.trim() : "";
     const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
@@ -504,18 +509,20 @@ export function createGateHandlers(
       return { ok: false as const, error: "context must be a string" };
     }
     if (payload?.origin !== undefined) {
-      const originError = invalidOrigin(payload.origin);
+      const originError = invalidOrigin(payload.origin, fromAsk);
       if (originError) return { ok: false as const, error: originError };
       // A form-presentation gate answered from another surface is
       // completed by doorbell-then-Escape; without a nudge session and an
       // injectable pane it opens as a gate no surface can ever unblock
       // (SKILLS-60), so refuse it here instead of blocking a pane forever.
-      if (payload.origin.presentation === "form") {
+      // A kit gate rides the same doorbell, so it needs both too.
+      const presented = payload.origin.presentation;
+      if (presented === "form" || presented === "kit") {
         if (!payload.origin.paneId && !payload.pane) {
-          return { ok: false as const, error: 'presentation "form" requires an injectable pane: set origin.paneId or the top-level pane' };
+          return { ok: false as const, error: `presentation "${presented}" requires an injectable pane: set origin.paneId or the top-level pane` };
         }
         if (payload.nudge === undefined) {
-          return { ok: false as const, error: 'presentation "form" requires a nudge session: the doorbell the Escape follows has no target without it' };
+          return { ok: false as const, error: `presentation "${presented}" requires a nudge session: the doorbell the Escape follows has no target without it` };
         }
       }
     }
@@ -793,13 +800,13 @@ export function createGateHandlers(
 
     const kind = typeof payload?.kind === "string" && payload.kind.trim() ? payload.kind.trim() : "question";
     const boardOnly = BOARD_ONLY_KINDS.has(kind);
-    const presentation = boardOnly ? "wait" : gatePresentation({ paneId, sessionId, questions });
+    const presentation = boardOnly ? "wait" : gatePresentation({ paneId, sessionId, questions, kit: payload?.kitForm === true });
     // Only when a form was otherwise POSSIBLE: a pane-less ask waits for its
     // own reason, and an advisory there would teach the wrong lesson. The
     // gate still opens either way -- an over-cap wait gate is legitimate
     // (remote cards render any option count) -- the caller just learns WHY
     // the in-pane form never appeared, which no skill prose reached.
-    const overCap = paneId && sessionId && !boardOnly
+    const overCap = paneId && sessionId && !boardOnly && presentation !== "kit"
       ? questions.filter((q) => q.options.length > GATE_FORM_OPTION_CAP)
       : [];
 
@@ -821,7 +828,7 @@ export function createGateHandlers(
     if (runWorktree) derivedOrigin.worktree = runWorktree;
     const origin: GateOrigin = { ...passthroughOrigin, ...derivedOrigin } as GateOrigin;
 
-    const opened = await handlers["gate:open"]({
+    const opened = await openGate({
       subject: resolved.subject,
       kind,
       questions,
@@ -829,14 +836,14 @@ export function createGateHandlers(
       ...(typeof payload?.agent === "string" && payload.agent.trim() ? { agent: payload.agent } : {}),
       ...(context !== undefined ? { context } : {}),
       ...(paneId ? { pane: paneId } : {}),
-      ...(presentation === "form" && sessionId ? { nudge: { session: sessionId } } : {}),
+      ...((presentation === "form" || presentation === "kit") && sessionId ? { nudge: { session: sessionId } } : {}),
       origin,
-    });
+    }, false, true);
     if (!opened.ok) return opened;
     return {
       ok: true as const,
       data: {
-        id: opened.data.id, presentation, subject: resolved.subject, supersededId: opened.data.supersededId,
+        id: opened.data.id, presentation, boardOnly, subject: resolved.subject, supersededId: opened.data.supersededId,
         ...(overCap.length > 0 ? {
           formCapExceeded: overCap.map((q) => ({ question: q.id, options: q.options.length })),
           formCapAdvisory: FORM_CAP_ADVISORY,
@@ -875,7 +882,9 @@ export function createGateHandlers(
     );
     const allowOn = (match: "session" | "subject" | "pane" | "worktree", gate: GateRow): CommandResult<"gate:fork-check"> =>
       ({ ok: true as const, data: { allow: true, match, gateId: gate.id } });
-    const askable = (g: GateRow): boolean => g.kind !== "pane-attention";
+    // A kit gate is drawn by the gate-form mod, so it never licenses an
+    // AskUserQuestion under any rule.
+    const askable = (g: GateRow): boolean => g.kind !== "pane-attention" && g.origin?.presentation !== "kit";
 
     if (launchSubject) {
       const hit = store.list({ subjectPrefix: launchSubject }).gates
