@@ -12,6 +12,7 @@ import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { pruneBlocks, reposPrune, reposRegister, type RegisterDeps } from "../repos.ts";
+import type { CloneState } from "../git/clone-state.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { repoDataDir } from "../../lib/rt-paths.ts";
 
@@ -136,6 +137,66 @@ describe("reposRegister", () => {
     const { at, ...body } = JSON.parse(deps.lines[0]!);
     expect(typeof at).toBe("string");
     expect(body).toEqual({ contract: 1, registered: [{ name, path: repoPath, tracking: null }] });
+  });
+
+  function cloneState(over: Partial<CloneState>): CloneState {
+    return { state: "pending", cause: "ready", transport: "https", host: "gitlab.com", forge: null, reason: "rt can sign this clone in to gitlab.com.", next: "rt git auth /x", originUrl: "https://gitlab.com/g/r.git", httpsUrl: null, ...over };
+  }
+
+  test("a human register of a pending clone prints one note naming rt git auth <path>", async () => {
+    const repoPath = makeTempRepo();
+    const deps = { ...testDeps(), cloneState: async (p: string) => cloneState({ next: `rt git auth ${p}` }) };
+
+    const { lines } = await human(() => reposRegister([repoPath], {}, deps));
+
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain("rt can sign this clone in to gitlab.com.");
+    expect(lines[2]).toContain(`rt git auth ${repoPath}`);
+  });
+
+  test("a register of a done, off or skipped clone prints no note", async () => {
+    for (const state of ["done", "off", "skipped"] as const) {
+      const repoPath = makeTempRepo();
+      const deps = { ...testDeps(), cloneState: async () => cloneState({ state, next: undefined }) };
+      const { lines } = await human(() => reposRegister([repoPath], {}, deps));
+      expect(lines).toHaveLength(1);
+    }
+  });
+
+  test("a cloneState that throws prints nothing for that path", async () => {
+    const repoPath = makeTempRepo();
+    const deps = { ...testDeps(), cloneState: async (): Promise<CloneState> => { throw new Error("boom"); } };
+
+    const { lines, stderr, code } = await human(() => reposRegister([repoPath], {}, deps));
+
+    expect(code).toBeUndefined();
+    expect(lines).toHaveLength(1);
+    expect(stderr).toBe("");
+  });
+
+  test("--json output is unchanged and carries no note", async () => {
+    const repoPath = makeTempRepo();
+    let called = false;
+    const deps = { ...testDeps(), cloneState: async () => { called = true; return cloneState({}); } };
+
+    const { stderr } = await human(() => reposRegister([repoPath, "--json"], {}, deps));
+
+    expect(called).toBe(false);
+    expect(stderr).toBe("");
+    expect(deps.lines).toHaveLength(1);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(body).toEqual({ contract: 1, registered: [{ name: basename(repoPath), path: repoPath, tracking: null }] });
+  });
+
+  test("register writes nothing to the clone's git config", async () => {
+    const repoPath = makeTempRepo();
+    execSync("git remote add origin https://gitlab.com/g/r.git", { cwd: repoPath, stdio: "pipe" });
+    const before = execSync("cat .git/config", { cwd: repoPath }).toString();
+    const deps = { ...testDeps(), cloneState: async () => cloneState({}) };
+
+    await human(() => reposRegister([repoPath], {}, deps));
+
+    expect(execSync("cat .git/config", { cwd: repoPath }).toString()).toBe(before);
   });
 
   test("a repo whose move cannot be applied exits 2 instead of reporting it registered", async () => {
