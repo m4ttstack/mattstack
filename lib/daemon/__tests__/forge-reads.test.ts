@@ -433,7 +433,7 @@ describe("forgeGet", () => {
 
 describe("checkForgePath C1 controls", () => {
   test("refuses a C1 control character, raw or decoded", () => {
-    const plain = { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
+    const plain = { ok: false as const, error: '"path" must be a plain API path; pass query values in "query"' };
     for (const path of ["projects/:id/issues%C2%85", "projects/:id/issues%C2%9F", "projects/:id/issues\u0085"]) {
       expect(checkForgePath(path, "grp/proj"), path).toEqual(plain);
     }
