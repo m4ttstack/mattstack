@@ -335,6 +335,16 @@ describe('a GitHub team end to end', () => {
       expect(ada.pipelines.value).toBe(2);
       const bob = res.users.find(u => u.username === 'Bob')!.metrics;
       expect(bob.mrsReviewed.value).toBe(2);
+      expect(res.users.find(u => u.username === 'ADA')!.resolved).toBe(true);
+      expect(res.users.find(u => u.username === 'Bob')!.resolved).toBe(true);
+
+      const detail = await getUserDetail({
+        window,
+        refresh: false,
+        trend: false,
+        user: 'ADA',
+      });
+      expect(detail.evidence.mrsMerged!.rows).toHaveLength(2);
     } finally {
       __setRosterReader(() => [{ username: 'ada' }, { username: 'bob' }]);
     }

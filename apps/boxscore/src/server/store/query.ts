@@ -113,22 +113,30 @@ export function buildFetchResult(
   return { mrs, pipelines, pushEvents, linearIssues, approvalsAvailable };
 }
 
-/** Identities for a roster, keyed by username. Usernames never stored are simply absent. */
+/**
+ * Identities for a roster, keyed by username. Usernames never stored are simply absent.
+ * With `canon`, a row stored under another case keys onto the roster spelling it maps to;
+ * a row stored under that exact spelling wins.
+ */
 export function storedIdentities(
   store: Store,
-  roster: readonly string[]
+  roster: readonly string[],
+  canon?: LoginCanon
 ): Record<string, UserIdentity> {
   const out: Record<string, UserIdentity> = {};
-  for (const r of store.identities(roster)) {
-    out[r.username] =
+  const rosterSet = new Set(roster);
+  const exact = new Set<string>();
+  const rows = canon
+    ? store.identitiesIgnoringCase(roster)
+    : store.identities(roster);
+  for (const r of rows) {
+    const username = canon ? canon(r.username) : r.username;
+    if (canon && (!rosterSet.has(username) || exact.has(username))) continue;
+    if (username === r.username) exact.add(username);
+    out[username] =
       r.userId == null
-        ? { username: r.username, name: r.name, resolved: r.resolved }
-        : {
-            username: r.username,
-            name: r.name,
-            resolved: r.resolved,
-            userId: r.userId,
-          };
+        ? { username, name: r.name, resolved: r.resolved }
+        : { username, name: r.name, resolved: r.resolved, userId: r.userId };
   }
   return out;
 }

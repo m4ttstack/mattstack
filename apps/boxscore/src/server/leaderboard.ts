@@ -295,7 +295,7 @@ async function buildLeaderboard(
     generatedAt: new Date().toISOString(),
     // No refresh ran on this request: everything served came from data already in the store.
     fromCache: !opts.refresh,
-    identities: storedIdentities(store, rosterUsernames),
+    identities: storedIdentities(store, rosterUsernames, canon),
     warnings,
   };
 

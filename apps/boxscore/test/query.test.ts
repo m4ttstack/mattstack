@@ -513,6 +513,38 @@ describe('storedIdentities', () => {
       bob: { username: 'bob', name: null, resolved: false },
     });
   });
+
+  const identity = (username: string, name: string) => ({
+    username,
+    name,
+    resolved: true,
+    userId: 7,
+    fetchedAt: '2026-07-01T00:00:00.000Z',
+  });
+  const lowerCanon = (login: string) =>
+    ['alice', 'bob'].includes(login.toLowerCase())
+      ? login.toLowerCase()
+      : login;
+
+  it('with a canon, an identity stored under another case keys onto the roster spelling', () => {
+    const s = getStore();
+    s.upsertIdentities([identity('ALICE', 'Alice'), identity('Carol', 'C')]);
+    expect(storedIdentities(s, ['alice', 'bob'], lowerCanon)).toEqual({
+      alice: { username: 'alice', name: 'Alice', resolved: true, userId: 7 },
+    });
+  });
+
+  it('with a canon, the row stored under the roster spelling wins', () => {
+    const s = getStore();
+    s.upsertIdentities([identity('ALICE', 'old'), identity('alice', 'new')]);
+    expect(storedIdentities(s, ['alice'], lowerCanon).alice!.name).toBe('new');
+  });
+
+  it('without a canon, an identity stored under another case is absent (GitLab)', () => {
+    const s = getStore();
+    s.upsertIdentities([identity('ALICE', 'Alice')]);
+    expect(storedIdentities(s, ['alice'])).toEqual({});
+  });
 });
 
 describe('hasDataFor', () => {

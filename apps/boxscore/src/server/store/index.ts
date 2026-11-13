@@ -188,6 +188,31 @@ function buildStore() {
     return recorded === undefined || recorded === hostOf(baseUrl);
   };
 
+  const selectIdentities = (
+    usernames: readonly string[],
+    collate: string
+  ): StoredIdentity[] => {
+    if (usernames.length === 0) return [];
+    const rows = db
+      .query(
+        `SELECT * FROM identities WHERE username${collate} IN ${placeholders(usernames.length)}`
+      )
+      .all(...usernames) as {
+      username: string;
+      name: string | null;
+      resolved: number;
+      user_id: number | null;
+      fetched_at: string;
+    }[];
+    return rows.map(r => ({
+      username: r.username,
+      name: r.name,
+      resolved: r.resolved === 1,
+      userId: r.user_id,
+      fetchedAt: r.fetched_at,
+    }));
+  };
+
   const freshMetricsKeys = (
     keys: readonly string[],
     mergedOnly: boolean
@@ -526,25 +551,12 @@ function buildStore() {
       tx(rows);
     },
     identities(usernames: readonly string[]): StoredIdentity[] {
-      if (usernames.length === 0) return [];
-      const rows = db
-        .query(
-          `SELECT * FROM identities WHERE username IN ${placeholders(usernames.length)}`
-        )
-        .all(...usernames) as {
-        username: string;
-        name: string | null;
-        resolved: number;
-        user_id: number | null;
-        fetched_at: string;
-      }[];
-      return rows.map(r => ({
-        username: r.username,
-        name: r.name,
-        resolved: r.resolved === 1,
-        userId: r.user_id,
-        fetchedAt: r.fetched_at,
-      }));
+      return selectIdentities(usernames, '');
+    },
+
+    /** Like identities, but a stored username matches whatever its case. */
+    identitiesIgnoringCase(usernames: readonly string[]): StoredIdentity[] {
+      return selectIdentities(usernames, ' COLLATE NOCASE');
     },
 
     counts(): {
