@@ -6,8 +6,10 @@
 import {
   changeRef,
   changeUrl,
-  type Forge,
+  forgeEvidenceText,
+  forgeText,
   GITHUB_BASE_URL,
+  type Forge,
 } from '../../shared/forge.js';
 import type {
   ColdCacheResponse,
@@ -221,7 +223,7 @@ export function fixtureRefresh(): RefreshStatusResponse {
     status: 'running',
     progress: {
       phase: 'mrs-detail',
-      label: 'MR details',
+      label: forgeText('MR details', fixtureForge()),
       done: 142,
       total: 310,
       window: 'current',
@@ -453,7 +455,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
     },
   };
 
-  return out;
+  return forgeEvidenceText(out, fixtureForge());
 }
 
 /**

@@ -1,3 +1,4 @@
+import { forgeText } from '../../shared/forge.js';
 import { isRevertTitle } from '../../shared/reverts.js';
 import type {
   LeaderboardWarning,
@@ -87,6 +88,7 @@ export async function runRefresh(
   const gitlab = provider as unknown as SourceProvider;
   const source = opts.source ?? gitlabSource(gitlab);
   const drainSourceWarnings = () => warnings.push(...source.takeWarnings());
+  const t = (text: string) => forgeText(text, env.forge);
 
   // The full roster (visible + hidden): hiding a user must not stop their data refreshing (spec 7.3).
   const rosterUsernames = settings.roster.map(r => r.username);
@@ -168,7 +170,7 @@ export async function runRefresh(
         if (isAbort(err)) throw err;
         warnings.push({
           code: 'mr_fetch_failed',
-          message: `MRs for ${projectPath}: ${(err as Error).message}`,
+          message: `${t('MRs')} for ${projectPath}: ${(err as Error).message}`,
         });
       }
     },
@@ -194,7 +196,7 @@ export async function runRefresh(
 
   report({
     phase: 'mrs-detail',
-    label: 'Fetching MR details',
+    label: t('Fetching MR details'),
     done: 0,
     total: toFetch.length,
   });
@@ -231,7 +233,7 @@ export async function runRefresh(
       (done, total) =>
         report({
           phase: 'mrs-detail',
-          label: 'Fetching MR details',
+          label: t('Fetching MR details'),
           done,
           total,
         })
@@ -244,7 +246,7 @@ export async function runRefresh(
   if (detailFailures > 0) {
     warnings.push({
       code: 'mr_detail_partial',
-      message: `Detail fetch failed for ${detailFailures}/${toFetch.length} MRs (e.g. ${lastDetailError}); those count with zeroed diff/notes.`,
+      message: `Detail fetch failed for ${detailFailures}/${toFetch.length} ${t('MRs')} (e.g. ${lastDetailError}); those count with zeroed diff/notes.`,
     });
   }
 

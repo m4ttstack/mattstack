@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { useGrow } from '@mattstack/app-kit/hooks';
 import { formatNumber } from '../../../shared/metrics';
+import { useForgeText } from '../../forge/forge';
 import { mergeDays, type MergeDay } from '../../model/evidence-shapes';
 import { dayLabel } from '../../model/labels';
 import { BandChart } from './BandChart';
@@ -50,6 +51,7 @@ function axisDays(days: MergeDay[]): MergeDay[] {
 }
 
 export function StreakEvidence({ ev, window }: EvidenceProps) {
+  const t = useForgeText();
   const [all, setAll] = useState(false);
   const days = useMemo(
     () => mergeDays(ev, window.start, window.end),
@@ -147,7 +149,9 @@ export function StreakEvidence({ ev, window }: EvidenceProps) {
               {dayLabel(d.date)}
             </span>
             <span className={`${classes.t} ${panels.rowTitle}`} data-parity="n">
-              {`${formatNumber(d.count)} ${d.count === 1 ? 'MR' : 'MRs'} merged`}
+              {t(
+                `${formatNumber(d.count)} ${d.count === 1 ? 'MR' : 'MRs'} merged`
+              )}
             </span>
           </div>
         ))}

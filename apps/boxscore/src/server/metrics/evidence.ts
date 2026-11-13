@@ -4,7 +4,12 @@
  * and the output is render-agnostic (columns + rows + summary) so the UI renders every stat
  * with one component.
  */
-import { changeRef, changeUrl, type Forge } from '../../shared/forge.js';
+import {
+  changeRef,
+  changeUrl,
+  forgeEvidenceText,
+  type Forge,
+} from '../../shared/forge.js';
 import type {
   EvidenceRow,
   MetricEvidence,
@@ -355,7 +360,7 @@ export function buildUserEvidence(
     }
   }
 
-  return out;
+  return forgeEvidenceText(out, ctx.forge);
 }
 
 function distFacts(samples: number[]): Record<string, number> {

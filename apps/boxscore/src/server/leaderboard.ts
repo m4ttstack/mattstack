@@ -1,4 +1,4 @@
-import type { Forge } from '../shared/forge.js';
+import { forgeText, type Forge } from '../shared/forge.js';
 import type {
   LeaderboardResponse,
   LeaderboardWarning,
@@ -126,7 +126,8 @@ async function resolveGitHubEnv(s: BoxscoreSettings): Promise<Env> {
     throw new ConfigError(`GitHub token is not available: ${github.reason}`);
   }
   const secrets = await readSecrets();
-  if (secrets.warning) console.warn(`[config] ${secrets.warning}`);
+  if (secrets.warning)
+    console.warn(`[config] ${forgeText(secrets.warning, 'github')}`);
   return {
     forge: 'github',
     baseUrl: s.baseUrl,
@@ -180,7 +181,10 @@ async function buildLeaderboard(
   const store = getStore();
   if (store.adoptForgeHost(env.baseUrl)) {
     console.warn(
-      `[store] the confirmed GitLab host is now ${env.baseUrl}; cleared the previous host's MRs, pipelines, events, scan watermarks and Linear credit`
+      forgeText(
+        `[store] the confirmed GitLab host is now ${env.baseUrl}; cleared the previous host's MRs, pipelines, events, scan watermarks and Linear credit`,
+        env.forge
+      )
     );
   }
   const pw = priorWindow(opts.window);
@@ -245,7 +249,10 @@ async function buildLeaderboard(
   if (!who && !previewing) {
     warnings.push({
       code: 'user_lookup_failed',
-      message: 'GitLab /user lookup failed; no row is highlighted as you',
+      message: forgeText(
+        'GitLab /user lookup failed; no row is highlighted as you',
+        env.forge
+      ),
     });
   }
 
@@ -320,7 +327,9 @@ export async function getUserDetail(
   const { response, current, env } = await buildLeaderboard(opts);
   if (!canSeeUser(response.viewer, opts.user)) {
     throw new ViewerForbiddenError(
-      response.viewer.username === null ? LOCKED_MESSAGE : SELF_ONLY_MESSAGE
+      response.viewer.username === null
+        ? forgeText(LOCKED_MESSAGE, env.forge)
+        : SELF_ONLY_MESSAGE
     );
   }
   const want = opts.user.toLowerCase();

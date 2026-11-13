@@ -300,6 +300,24 @@ describe('design fixture forge', () => {
     expect(detail.evidence.mrsMerged!.rows[0]!.cells[0]).toMatch(/^#\d+$/);
   });
 
+  it('says PR and GitHub in every github evidence string and the refresh label', async () => {
+    process.env.BOXSCORE_FIXTURE_FORGE = 'github';
+    const { fixtureDetail, fixtureRefresh } =
+      await import('../src/server/fixture');
+    const gitlabWords = /\bMRs?\b|GitLab/;
+    const detail = fixtureDetail('srivera', false) as UserDetailResponse;
+    for (const ev of Object.values(detail.evidence)) {
+      const strings = [
+        ...ev.columns,
+        ev.summary ?? '',
+        ...ev.rows.flatMap(r => r.cells),
+      ];
+      for (const s of strings) expect(s).not.toMatch(gitlabWords);
+    }
+    const refresh: RefreshStatusResponse = fixtureRefresh();
+    expect(refresh.progress!.label).not.toMatch(gitlabWords);
+  });
+
   it('is unchanged on gitlab', async () => {
     const { fixtureColdCache, fixtureDetail, fixtureLeaderboard } =
       await import('../src/server/fixture');

@@ -7,6 +7,7 @@ import { memoryLocation } from 'wouter/memory-location';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fixtureLeaderboard } from '../../server/fixture/index';
 import { GROUP_ORDER, GROUPS } from '../../shared/metrics';
+import type { LeaderboardResponse } from '../../shared/types';
 import { OVERVIEW, statsInGroup } from '../model/groups';
 import { descriptor } from '../model/standings';
 import rowHover from '../ui/row-hover.module.css';
@@ -247,5 +248,49 @@ describe('StandingsTable keyboard access', () => {
     button.focus();
     await user.keyboard('{Enter}');
     expect(onSort).toHaveBeenCalledWith('issuesCompleted');
+  });
+});
+
+describe('LeaderboardPage forge copy', () => {
+  const textNodes = (root: HTMLElement): string[] => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const out: string[] = [];
+    while (walker.nextNode()) out.push(walker.currentNode.textContent ?? '');
+    return out;
+  };
+
+  function renderFor(data: LeaderboardResponse) {
+    return renderWithProviders(
+      <LeaderboardPage
+        data={data}
+        view="table"
+        trend={false}
+        sort="mrsMerged"
+        onSort={vi.fn()}
+        onSelectStat={vi.fn()}
+      />
+    );
+  }
+
+  it('says PRs merged and never MR or GitLab on a github board', () => {
+    const { container } = renderFor({
+      ...fixtureLeaderboard(false),
+      forge: 'github',
+    });
+    expect(headerLabels()).toContain('PRs merged');
+    for (const t of textNodes(container))
+      expect(t).not.toMatch(/\bMRs?\b|GitLab/);
+  });
+
+  it('keeps MRs merged on a gitlab board', () => {
+    renderFor(fixtureLeaderboard(false));
+    expect(headerLabels()).toContain('MRs merged');
+  });
+
+  it('names the github sort in the subtitle', () => {
+    const data = { ...fixtureLeaderboard(false), forge: 'github' as const };
+    expect(leaderboardSubtitle(data, 'mrsMerged', false)).toContain(
+      'sorted by PRs merged'
+    );
   });
 });
