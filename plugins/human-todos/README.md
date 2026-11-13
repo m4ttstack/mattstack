@@ -29,6 +29,9 @@ Claude adds steps with the `add` tool, reads them with `list` and removes one it
 | `run` | A command you can run from the pane | Run, Copy, Done, Skip |
 | `terminal` | A command that needs your own terminal (sudo, a login) | Copy, Done, Skip |
 | `link` | A web page to open | Open, Done, Skip |
+| `image` | Screenshots or other images to look at | Open, Done, Skip |
+
+An `image` step lists its file names. Open shows every image in your default image app in one go.
 
 Claude hears about Done, Skip, a finished run (its exit code and the last 30 lines of output) and Stop. Copy, Open, Show, Open log, Run and Cancel send nothing.
 

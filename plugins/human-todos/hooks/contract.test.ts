@@ -15,7 +15,7 @@ test('session.start registers three tools that are not deferred', async ($, on) 
   expect(registered.every(t => t.isDeferred === false)).toBe(true)
   const add = registered[0]!.inputSchema as { required: string[]; properties: { kind: { enum: string[] } } }
   expect(add.required).toEqual(['kind', 'title'])
-  expect(add.properties.kind.enum).toEqual(['task', 'run', 'terminal', 'link'])
+  expect(add.properties.kind.enum).toEqual(['task', 'run', 'terminal', 'link', 'image'])
 })
 
 test('add refuses a kind missing its field and adds nothing', async ($, on) => {
@@ -49,6 +49,15 @@ test('add, list and withdraw work the list', async ($, on) => {
   expect((await $.tool.call({ tool: WITHDRAW, id: 3 as unknown as string })).result).toBe('Withdrew #3.')
 })
 
+test('add keeps an image item\'s paths and lists them', async ($, on) => {
+  world(on)
+  await startSession($)
+
+  const added = await $.tool.call({ tool: ADD, kind: 'image', title: 'Look at the header', paths: ['/shots/light.png', '/shots/dark.png'] })
+  expect(added.result).toMatch(/^Added #1 /)
+  expect((await $.tool.call({ tool: LIST })).result).toBe('#1 [open] Look at the header\n    images: /shots/light.png, /shots/dark.png')
+})
+
 test('the three tools are allowed without a prompt; other tools pass through', async ($, on) => {
   world(on)
   on('tool.check', () => ({ decision: 'ask' }))
@@ -74,16 +83,16 @@ test('the system prompt gains one guidance section naming the registered add too
 
 test('the add description names every kind and forbids asking for "done"', () => {
   const text = addDescription('Human Todos')
-  for (const kind of ['task', 'run', 'terminal', 'link']) expect(text).toContain(kind)
+  for (const kind of ['task', 'run', 'terminal', 'link', 'image']) expect(text).toContain(kind)
   expect(text).toContain('never ask them to type "done"')
 })
 
-test('add refuses a kind that is not one of the four', async ($, on) => {
+test('add refuses a kind that is not one of the five', async ($, on) => {
   world(on)
   await startSession($)
 
   const refused = await $.tool.call({ tool: ADD, kind: 'bogus', title: 'x' })
-  expect(refused).toMatchObject({ deny: 'kind bogus is not one of task, run, terminal, link.' })
+  expect(refused).toMatchObject({ deny: 'kind bogus is not one of task, run, terminal, link, image.' })
   expect((await $.tool.call({ tool: LIST })).result).toBe('No to-dos.')
 })
 
