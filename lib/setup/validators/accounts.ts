@@ -32,6 +32,7 @@ import { ghSessionToken } from "../../team/forge-token.ts";
 import { roleFor } from "../../team/roles.ts";
 import { boardEnvHas, boardPeering } from "../../team/board-token.ts";
 import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
+import { soloForgeOverrides } from "../solo-forge.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
@@ -481,7 +482,9 @@ async function accountRowForSafe(p: Probes, entry: DeclaredEntry, team: TeamSnap
   }
 }
 
-const SOLO_FORGE_NOTE = "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.";
+export const SOLO_GITHUB_NOTE = "Works without this. Connect GitHub to open PRs from rt.";
+export const SOLO_GITLAB_NOTE =
+  "Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, connect from a terminal with rt setup gitlab connect --host <host>.";
 
 export const SLACK_APP_MISSING = "The team has no Slack app yet";
 export const SLACK_APP_ACTION: Action = {
@@ -514,17 +517,21 @@ export async function accountRows(
   overrides: UserIntegrationOverrides = {},
   solo = false,
 ): Promise<Row[]> {
-  const declared =
-    solo && !team.integrations.forge && reqs.length === 0
-      ? [{ id: "github" as Integration, required: false, optionalNote: SOLO_FORGE_NOTE }]
-      : declaredIntegrations(team, reqs);
+  const soloForge = solo && !team.integrations.forge && reqs.length === 0;
+  const declared = soloForge
+    ? [
+        { id: "github" as Integration, required: false, optionalNote: SOLO_GITHUB_NOTE },
+        { id: "gitlab" as Integration, required: false, optionalNote: SOLO_GITLAB_NOTE },
+      ]
+    : declaredIntegrations(team, reqs);
+  const rowOverrides = solo ? soloForgeOverrides(overrides, true) : overrides;
   const wantsSlack = declared.some((e) => e.id === "slack");
   const slackAppNeeded = wantsSlack && !team.integrations.slack?.clientId;
   const slackAppRequired = intent?.mode === "create";
 
   let slackRead: Promise<SlackRead> | undefined;
   const slack = () => (slackRead ??= readSlack(p, secrets, team, overrides));
-  const idRows = await Promise.all(declared.map((entry) => accountRowForSafe(p, entry, team, secrets, intent, overrides, slack)));
+  const idRows = await Promise.all(declared.map((entry) => accountRowForSafe(p, entry, team, secrets, intent, rowOverrides, slack)));
   const support = team.slug ? await slackSupportRowFor(p, slack, team) : null;
 
   const rows: Row[] = [];
