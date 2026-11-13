@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { extractLinearId } from './branchParser';
 import { fetchTicketsBatch, fetchMyTodoTickets } from './linear';
 import { fetchMRInfoBatch } from './gitlab';
-import { branchDataFromDaemonEntry, forgeWords, ownBranchData } from './forge';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote } from './forge';
 import { resolveRepoForge } from './repoForge';
 import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache, branchListCache } from './cache';
@@ -229,16 +229,8 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
         for (const branch of localBranchNames) {
           const entry = allEntries[branch];
           if (entry) {
-            const data = branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, now);
-            if (data) {
-              hitCount++;
-              branchCache.set(branch, data);
-            } else if (repoForge.forge === 'github') {
-              const existing = branchCache.get(branch);
-              if (existing && !ownBranchData(existing, repoForge.forge, repoForge.remoteUrl)) {
-                branchCache.delete(branch);
-              }
-            }
+            hitCount++;
+            branchCache.set(branch, branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, now));
           }
         }
         daemonHit = hitCount > 0;
@@ -282,6 +274,7 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
       getSecret(context, 'linearApiKey'),
     ]);
     const remoteUrl = repoForge.remoteUrl;
+    const ownIdentity = repoForge.forge === 'github' && remoteUrl ? repoIdentityOfRemote(remoteUrl) : null;
 
     // 5. Batch MR lookup — single API call for all local non-default branches
     let mrResults = new Map<string, { webUrl: string | null; linearId: string | null }>();
@@ -323,11 +316,13 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
       const freshTicket = linearId ? ticketMap.get(linearId) ?? null : null;
       const ticket = freshTicket ?? (isFreshCache ? existing?.ticket ?? null : null);
 
+      const repoIdentity = existing?.repoIdentity ?? ownIdentity;
       branchCache.set(branch, {
         ticket,
         mrUrl: mrInfo?.webUrl ?? existing?.mrUrl ?? null,
         linearId: mrInfo?.linearId ?? existing?.linearId ?? null,
         fetchedAt: freshTicket ? now : (isFreshCache ? existing!.fetchedAt : now),
+        ...(repoIdentity ? { repoIdentity } : {}),
       });
     }
 

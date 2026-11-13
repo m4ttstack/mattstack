@@ -1,5 +1,5 @@
-import { mayOfferGitLabTokenToHost } from '@mattstack/rt-client';
-import { parseRemoteUrl } from './branchParser';
+import { identityFromRemote, mayOfferGitLabTokenToHost, normalizeRemote, serializeIdentity } from '@mattstack/rt-client';
+import { extractLinearId } from './branchParser';
 import type { LinearTicket } from './linear';
 import type { CachedBranchData } from './types';
 
@@ -17,26 +17,47 @@ export interface DaemonCacheEntry {
   mr?: { webUrl?: string | null; provider?: string } | null;
   linearId?: string | null;
   fetchedAt?: number;
+  repoName?: string;
 }
 
 const GITHUB_WORDS: ForgeWords = { site: 'GitHub', short: 'PR', long: 'pull request', title: 'Pull Request' };
 const GITLAB_WORDS: ForgeWords = { site: 'GitLab', short: 'MR', long: 'merge request', title: 'Merge Request' };
 
+const SSH_SCHEME_RE = /^(?:git\+)?ssh:\/\/|^git:\/\//i;
+
+/** Lowercased host (ssh port dropped) and path of a remote, or null when it names neither. */
+function hostAndPathOfRemote(remoteUrl: string): { host: string; path: string } | null {
+  const normalized = normalizeRemote(remoteUrl);
+  if (normalized === null) return null;
+  const slash = normalized.indexOf('/');
+  let authority = normalized.slice(0, slash);
+  if (SSH_SCHEME_RE.test(remoteUrl.trim())) authority = authority.replace(/:\d+$/, '');
+  try {
+    return { host: new URL(`https://${authority}`).host.toLowerCase(), path: normalized.slice(slash + 1) };
+  } catch {
+    return null;
+  }
+}
+
 export function forgeOfRemote(remoteUrl: string | null, confirmedHost: unknown): Forge | null {
   if (remoteUrl === null) return null;
-  const remote = parseRemoteUrl(remoteUrl);
-  if (!remote) return null;
-  const host = new URL(remote.host).host.toLowerCase();
-  if (host === 'github.com') return 'github';
-  return mayOfferGitLabTokenToHost(host, confirmedHost) ? 'gitlab' : null;
+  const parsed = hostAndPathOfRemote(remoteUrl);
+  if (!parsed) return null;
+  if (parsed.host === 'github.com') return 'github';
+  return mayOfferGitLabTokenToHost(parsed.host, confirmedHost) ? 'gitlab' : null;
 }
 
 export function forgeWords(forge: Forge | null): ForgeWords {
   return forge === 'github' ? GITHUB_WORDS : GITLAB_WORDS;
 }
 
+export function repoIdentityOfRemote(remoteUrl: string): string | null {
+  const identity = identityFromRemote(remoteUrl);
+  return identity === null ? null : serializeIdentity(identity);
+}
+
 export function prBelongsToRemote(webUrl: string, remoteUrl: string): boolean {
-  const remote = parseRemoteUrl(remoteUrl);
+  const remote = hostAndPathOfRemote(remoteUrl);
   if (!remote) return false;
   let url: URL;
   try {
@@ -44,27 +65,47 @@ export function prBelongsToRemote(webUrl: string, remoteUrl: string): boolean {
   } catch {
     return false;
   }
-  const prefix = `${remote.host}/${remote.projectPath}/`.toLowerCase();
-  return `${url.origin}${url.pathname}`.toLowerCase().startsWith(prefix);
+  const prefix = `${remote.host}/${remote.path}/`.toLowerCase();
+  return `${url.host}${url.pathname}`.toLowerCase().startsWith(prefix);
 }
 
-function mayShowPr(webUrl: string | null | undefined, remoteUrl: string | null): boolean {
-  return !!webUrl && remoteUrl !== null && prBelongsToRemote(webUrl, remoteUrl);
+/** Identity decides when the entry carries one; the PR URL text decides only for an entry written without one. */
+function belongsToRemote(
+  identity: string | null | undefined,
+  webUrl: string | null | undefined,
+  remoteUrl: string | null,
+): boolean {
+  if (remoteUrl === null) return false;
+  if (identity) return identity === repoIdentityOfRemote(remoteUrl);
+  return !!webUrl && prBelongsToRemote(webUrl, remoteUrl);
 }
 
 export function branchDataFromDaemonEntry(
   entry: DaemonCacheEntry,
   forge: Forge | null,
   remoteUrl: string | null,
+  branch: string,
   now: number = Date.now(),
-): CachedBranchData | null {
+): CachedBranchData {
   const mr = entry.mr ?? null;
-  if (forge === 'github' && mr !== null && !mayShowPr(mr.webUrl, remoteUrl)) return null;
+  const fetchedAt = entry.fetchedAt ?? now;
+  if (forge === 'github' && mr !== null && !belongsToRemote(entry.repoName, mr.webUrl, remoteUrl)) {
+    const ticket = entry.ticket ?? null;
+    const named = extractLinearId(branch);
+    return {
+      ticket: ticket !== null && named !== null && ticket.identifier === named ? ticket : null,
+      mrUrl: null,
+      linearId: null,
+      fetchedAt,
+      ...(entry.repoName ? { repoIdentity: entry.repoName } : {}),
+    };
+  }
   return {
     ticket: entry.ticket ?? null,
     mrUrl: mr?.webUrl ?? null,
     linearId: entry.linearId || null,
-    fetchedAt: entry.fetchedAt ?? now,
+    fetchedAt,
+    ...(forge === 'github' && entry.repoName ? { repoIdentity: entry.repoName } : {}),
   };
 }
 
@@ -74,6 +115,6 @@ export function ownBranchData(
   remoteUrl: string | null,
 ): CachedBranchData | null {
   if (!data) return null;
-  if (forge === 'github' && data.mrUrl && !mayShowPr(data.mrUrl, remoteUrl)) return null;
+  if (forge === 'github' && data.mrUrl && !belongsToRemote(data.repoIdentity, data.mrUrl, remoteUrl)) return null;
   return data;
 }

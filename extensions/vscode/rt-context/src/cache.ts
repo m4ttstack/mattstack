@@ -28,11 +28,6 @@ export class PersistedCache {
     this.persist();
   }
 
-  delete(key: string) {
-    this.map.delete(key);
-    this.persist();
-  }
-
   clear() {
     this.map.clear();
     this.persist();

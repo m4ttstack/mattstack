@@ -10,7 +10,7 @@ import { fetchBranchFromDaemon } from './daemonClient';
 import { getSecret } from './secrets';
 import type { CachedBranchData, GitExtensionExports } from './types';
 import { getGitApi, findWorkspaceRepo, getRepoRootName, getGitDir, readBranchFromHead } from './git';
-import { branchDataFromDaemonEntry, forgeWords, ownBranchData, type Forge } from './forge';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote, type Forge } from './forge';
 import { resolveRepoForge, type RepoForge } from './repoForge';
 
 // ── Module state ──
@@ -22,6 +22,7 @@ let currentTicketUrl: string | null = null;
 let currentMrUrl: string | null = null;
 let currentWorktreePath: string | null = null;
 let currentForge: Forge | null = null;
+let publishedForgeContext: string | undefined;
 let updateSeq = 0;
 let updateTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -39,7 +40,10 @@ export function getCurrentForge(): Forge | null { return currentForge; }
 
 function setForge(forge: Forge | null) {
   currentForge = forge;
-  void vscode.commands.executeCommand('setContext', 'rtContext.forge', forge ?? 'none');
+  const value = forge ?? 'none';
+  if (value === publishedForgeContext) return;
+  publishedForgeContext = value;
+  void vscode.commands.executeCommand('setContext', 'rtContext.forge', value);
 }
 
 // ── Initialization ──
@@ -304,17 +308,25 @@ export async function fetchBranchData(
     if (response?.ok && response.data) {
       const entries = response.data;
       const entry = entries[branch] ?? Object.values(entries)[0];
-      if (entry) {
-        const mapped = branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl);
-        if (mapped) return mapped;
-      }
+      if (entry) return branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch);
     }
   } catch {
     // Daemon not available — fall through to direct fetch
   }
 
   // ── Direct API fallback (daemon not running) ──
-  return fetchBranchDataDirect(context, branch, repoForge);
+  const direct = await fetchBranchDataDirect(context, branch, repoForge);
+  if (!direct || repoForge.forge !== 'github') return direct;
+
+  // On GitHub the fallback cannot look a PR up, so keep the own one already cached.
+  const prior = ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl);
+  if (!prior) return direct;
+  return {
+    ...direct,
+    ticket: direct.ticket ?? prior.ticket,
+    mrUrl: prior.mrUrl,
+    linearId: prior.linearId,
+  };
 }
 
 /**
@@ -372,11 +384,13 @@ async function fetchBranchDataDirect(
     }
   }
 
+  const repoIdentity = repoForge.forge === 'github' && repoForge.remoteUrl ? repoIdentityOfRemote(repoForge.remoteUrl) : null;
   return {
     ticket,
     mrUrl,
     linearId: mrLinearId,
     fetchedAt: Date.now(),
+    ...(repoIdentity ? { repoIdentity } : {}),
   };
 }
 

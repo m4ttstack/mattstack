@@ -1,9 +1,35 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { mkdtempSync, realpathSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import type { LinearTicket } from '../linear';
 import type { CachedBranchData } from '../types';
-import { branchDataFromDaemonEntry, forgeOfRemote, forgeWords, ownBranchData, prBelongsToRemote } from '../forge';
+import {
+  branchDataFromDaemonEntry,
+  forgeOfRemote,
+  forgeWords,
+  ownBranchData,
+  prBelongsToRemote,
+  repoIdentityOfRemote,
+} from '../forge';
+
+const origHome = process.env.HOME;
+let home: string;
+
+beforeEach(() => {
+  home = realpathSync(mkdtempSync(join(tmpdir(), 'rt-ext-forge-')));
+  process.env.HOME = home;
+});
+
+afterEach(() => {
+  process.env.HOME = origHome;
+  rmSync(home, { recursive: true, force: true });
+});
 
 const REMOTE = 'git@github.com:o/r.git';
+const OWN_ID = 'remote:github.com%2Fo%2Fr';
+const FOREIGN_ID = 'remote:github.com%2Fo%2Fother';
+const BRANCH = 'feature/rt-1';
 const TICKET = { identifier: 'RT-1' } as unknown as LinearTicket;
 const OWN_PR = 'https://github.com/o/r/pull/7';
 const FOREIGN_PR = 'https://github.com/o/other/pull/3';
@@ -14,9 +40,18 @@ describe('forgeOfRemote', () => {
     expect(forgeOfRemote('git@github.com:o/r.git', null)).toBe('github');
     expect(forgeOfRemote('https://github.com/o/r', null)).toBe('github');
   });
+  test('github.com over ssh://, git+ssh://, a .git https remote, a mixed-case host and a trailing slash is github', () => {
+    expect(forgeOfRemote('ssh://git@github.com/o/r.git', null)).toBe('github');
+    expect(forgeOfRemote('ssh://git@github.com:22/o/r.git', null)).toBe('github');
+    expect(forgeOfRemote('git+ssh://git@github.com/o/r', null)).toBe('github');
+    expect(forgeOfRemote('https://github.com/o/r.git', null)).toBe('github');
+    expect(forgeOfRemote('https://GitHub.com/o/r', null)).toBe('github');
+    expect(forgeOfRemote('https://github.com/o/r/', null)).toBe('github');
+  });
   test('gitlab.com and the confirmed host are gitlab', () => {
     expect(forgeOfRemote('git@gitlab.com:g/p.git', null)).toBe('gitlab');
     expect(forgeOfRemote('https://gitlab.corp.example/g/p.git', 'gitlab.corp.example')).toBe('gitlab');
+    expect(forgeOfRemote('ssh://git@gitlab.com/g/p.git', null)).toBe('gitlab');
   });
   test('an unconfirmed host, an ssh alias, garbage and no remote are null', () => {
     expect(forgeOfRemote('https://gitlab.corp.example/g/p.git', null)).toBeNull();
@@ -36,10 +71,41 @@ describe('forgeWords', () => {
   });
 });
 
+describe('repoIdentityOfRemote', () => {
+  test('every spelling of one repo gives the key the daemon stores it under', () => {
+    for (const remote of [
+      'git@github.com:o/r.git',
+      'https://github.com/o/r',
+      'https://github.com/o/r.git',
+      'https://GitHub.com/o/r/',
+      'ssh://git@github.com/o/r.git',
+      'git+ssh://git@github.com/o/r',
+    ]) {
+      expect(repoIdentityOfRemote(remote)).toBe(OWN_ID);
+    }
+  });
+  test('a remote that yields no identity is null', () => {
+    expect(repoIdentityOfRemote('/tmp/local/path')).toBeNull();
+    expect(repoIdentityOfRemote('')).toBeNull();
+  });
+});
+
 describe('prBelongsToRemote', () => {
   test('own repo, any case', () => {
     expect(prBelongsToRemote(OWN_PR, REMOTE)).toBe(true);
     expect(prBelongsToRemote('https://github.com/m4ttstack/mattstack/pull/7', 'git@github.com:M4ttstack/Mattstack.git')).toBe(true);
+  });
+  test('any remote spelling of the repo', () => {
+    for (const remote of [
+      'https://github.com/o/r.git',
+      'https://GitHub.com/o/r',
+      'https://github.com/o/r/',
+      'ssh://git@github.com/o/r.git',
+      'ssh://git@github.com:22/o/r.git',
+      'git+ssh://git@github.com/o/r',
+    ]) {
+      expect(prBelongsToRemote(OWN_PR, remote)).toBe(true);
+    }
   });
   test('another repo, a prefix repo, another host, garbage', () => {
     expect(prBelongsToRemote('https://github.com/o/r2/pull/7', REMOTE)).toBe(false);
@@ -50,41 +116,82 @@ describe('prBelongsToRemote', () => {
 });
 
 describe('branchDataFromDaemonEntry', () => {
-  test('github, own PR maps across', () => {
-    const entry = { ticket: TICKET, mr: { webUrl: OWN_PR, provider: 'github' }, linearId: 'RT-1', fetchedAt: 5 };
-    expect(branchDataFromDaemonEntry(entry, 'github', REMOTE)).toEqual({
+  const ENTRY_OWN = { ticket: TICKET, mr: { webUrl: OWN_PR, provider: 'github' }, linearId: 'RT-9', fetchedAt: 5 };
+
+  test('github, own PR (no identity, URL rule) maps across', () => {
+    expect(branchDataFromDaemonEntry(ENTRY_OWN, 'github', REMOTE, BRANCH)).toEqual({
       ticket: TICKET,
       mrUrl: OWN_PR,
-      linearId: 'RT-1',
+      linearId: 'RT-9',
       fetchedAt: 5,
     });
   });
-  test('github, another repo PR or a GitLab MR is rejected', () => {
-    expect(branchDataFromDaemonEntry({ ticket: TICKET, mr: { webUrl: FOREIGN_PR, provider: 'github' } }, 'github', REMOTE)).toBeNull();
-    expect(branchDataFromDaemonEntry({ ticket: TICKET, mr: { webUrl: GITLAB_MR, provider: 'gitlab' } }, 'github', REMOTE)).toBeNull();
+  test('github, own identity maps across and is recorded', () => {
+    const data = branchDataFromDaemonEntry({ ...ENTRY_OWN, repoName: OWN_ID }, 'github', REMOTE, BRANCH);
+    expect(data).toEqual({ ticket: TICKET, mrUrl: OWN_PR, linearId: 'RT-9', fetchedAt: 5, repoIdentity: OWN_ID });
   });
-  test('github, an mr with no webUrl is rejected', () => {
-    expect(branchDataFromDaemonEntry({ mr: { provider: 'github' } }, 'github', REMOTE)).toBeNull();
+  test('github, a renamed repo keeps its own PR by identity although the URL names the new path', () => {
+    const renamed = { ...ENTRY_OWN, mr: { webUrl: 'https://github.com/o/renamed/pull/7', provider: 'github' }, repoName: OWN_ID };
+    expect(branchDataFromDaemonEntry(renamed, 'github', REMOTE, BRANCH)?.mrUrl).toBe('https://github.com/o/renamed/pull/7');
+  });
+  test('github, a trailing-slash remote still owns its identity', () => {
+    const entry = { ...ENTRY_OWN, repoName: OWN_ID };
+    expect(branchDataFromDaemonEntry(entry, 'github', 'https://github.com/o/r/', BRANCH)?.mrUrl).toBe(OWN_PR);
+  });
+  test('github, an own-identity mr with no webUrl is kept', () => {
+    const data = branchDataFromDaemonEntry({ ticket: TICKET, mr: { provider: 'github' }, repoName: OWN_ID }, 'github', REMOTE, BRANCH, 3);
+    expect(data).toEqual({ ticket: TICKET, mrUrl: null, linearId: null, fetchedAt: 3, repoIdentity: OWN_ID });
+  });
+  test('github, a foreign identity is stripped even when the PR URL looks like ours', () => {
+    const data = branchDataFromDaemonEntry({ ...ENTRY_OWN, repoName: FOREIGN_ID }, 'github', REMOTE, BRANCH);
+    expect(data?.mrUrl).toBeNull();
+    expect(data?.linearId).toBeNull();
+  });
+  test('github, another repo PR or a GitLab MR with no identity is stripped to a hit', () => {
+    const foreign = branchDataFromDaemonEntry({ ticket: TICKET, mr: { webUrl: FOREIGN_PR, provider: 'github' }, linearId: 'RT-9', fetchedAt: 4 }, 'github', REMOTE, BRANCH);
+    expect(foreign).toEqual({ ticket: TICKET, mrUrl: null, linearId: null, fetchedAt: 4 });
+    const gitlab = branchDataFromDaemonEntry({ ticket: TICKET, mr: { webUrl: GITLAB_MR, provider: 'gitlab' } }, 'github', REMOTE, BRANCH, 8);
+    expect(gitlab).toEqual({ ticket: TICKET, mrUrl: null, linearId: null, fetchedAt: 8 });
+  });
+  test('github, a stripped entry keeps its ticket only when the branch itself names it', () => {
+    const other = { identifier: 'RT-2' } as unknown as LinearTicket;
+    const foreign = { mr: { webUrl: FOREIGN_PR, provider: 'github' }, repoName: FOREIGN_ID };
+    expect(branchDataFromDaemonEntry({ ...foreign, ticket: other }, 'github', REMOTE, BRANCH)?.ticket).toBeNull();
+    expect(branchDataFromDaemonEntry({ ...foreign, ticket: TICKET }, 'github', REMOTE, BRANCH)?.ticket).toBe(TICKET);
+    expect(branchDataFromDaemonEntry({ ...foreign, ticket: TICKET }, 'github', REMOTE, 'plain-branch')?.ticket).toBeNull();
+  });
+  test('github, an mr with no webUrl and no identity is stripped', () => {
+    expect(branchDataFromDaemonEntry({ mr: { provider: 'github' }, linearId: 'RT-9' }, 'github', REMOTE, BRANCH, 6)).toEqual({
+      ticket: null,
+      mrUrl: null,
+      linearId: null,
+      fetchedAt: 6,
+    });
   });
   test('github, no mr keeps the ticket with a null mrUrl', () => {
-    expect(branchDataFromDaemonEntry({ ticket: TICKET, mr: null, linearId: 'RT-2', fetchedAt: 1 }, 'github', REMOTE)).toEqual({
+    expect(branchDataFromDaemonEntry({ ticket: TICKET, mr: null, linearId: 'RT-2', fetchedAt: 1 }, 'github', REMOTE, BRANCH)).toEqual({
       ticket: TICKET,
       mrUrl: null,
       linearId: 'RT-2',
       fetchedAt: 1,
     });
   });
-  test('github with no remote and an mr is rejected', () => {
-    expect(branchDataFromDaemonEntry({ mr: { webUrl: OWN_PR, provider: 'github' } }, 'github', null)).toBeNull();
+  test('github with no remote and an mr is stripped', () => {
+    expect(branchDataFromDaemonEntry({ mr: { webUrl: OWN_PR, provider: 'github' }, repoName: OWN_ID }, 'github', null, BRANCH)?.mrUrl).toBeNull();
   });
-  test('gitlab and null forge map a foreign PR unchanged', () => {
-    const entry = { mr: { webUrl: FOREIGN_PR, provider: 'github' }, fetchedAt: 2 };
+  test('gitlab and null forge map a foreign PR unchanged and record no identity', () => {
+    const entry = { mr: { webUrl: FOREIGN_PR, provider: 'github' }, fetchedAt: 2, repoName: FOREIGN_ID };
     for (const forge of ['gitlab', null] as const) {
-      expect(branchDataFromDaemonEntry(entry, forge, 'git@gitlab.com:g/p.git')?.mrUrl).toBe(FOREIGN_PR);
+      expect(branchDataFromDaemonEntry(entry, forge, 'git@gitlab.com:g/p.git', BRANCH)).toEqual({
+        ticket: null,
+        mrUrl: FOREIGN_PR,
+        linearId: null,
+        fetchedAt: 2,
+      });
     }
   });
   test('an empty linearId is null and a missing fetchedAt is now', () => {
-    expect(branchDataFromDaemonEntry({ linearId: '' }, 'gitlab', null, 99)).toEqual({
+    expect(branchDataFromDaemonEntry({ linearId: '' }, 'gitlab', null, BRANCH, 99)).toEqual({
       ticket: null,
       mrUrl: null,
       linearId: null,
@@ -94,10 +201,21 @@ describe('branchDataFromDaemonEntry', () => {
 });
 
 describe('ownBranchData', () => {
-  const data = (mrUrl: string | null): CachedBranchData => ({ ticket: null, mrUrl, linearId: null, fetchedAt: 1 });
+  const data = (mrUrl: string | null, repoIdentity?: string): CachedBranchData => ({
+    ticket: null,
+    mrUrl,
+    linearId: null,
+    fetchedAt: 1,
+    ...(repoIdentity ? { repoIdentity } : {}),
+  });
   test('github drops a foreign mrUrl', () => {
     expect(ownBranchData(data(GITLAB_MR), 'github', REMOTE)).toBeNull();
     expect(ownBranchData(data(OWN_PR), 'github', null)).toBeNull();
+  });
+  test('github judges an entry with an identity by the identity, not the URL', () => {
+    const renamed = data('https://github.com/o/renamed/pull/7', OWN_ID);
+    expect(ownBranchData(renamed, 'github', REMOTE)).toBe(renamed);
+    expect(ownBranchData(data(OWN_PR, FOREIGN_ID), 'github', REMOTE)).toBeNull();
   });
   test('github returns own and absent mrUrl as the same object', () => {
     const own = data(OWN_PR);
