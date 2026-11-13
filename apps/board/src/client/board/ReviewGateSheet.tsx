@@ -14,7 +14,7 @@ import {
   type GateOption,
   type GateQuestion,
 } from '@mattstack/gate-kit';
-import { Button, Chip, Markdown } from '@mattstack/tui-kit';
+import { Button, Chip, ConfirmDialog, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { mrNoun } from '../../mr-ref.ts';
 import type { BoardMRWithReview } from '../types.ts';
@@ -434,10 +434,13 @@ function ReviewGateSheet({
   onClose,
   onContinue,
   onFocusPane,
+  onDropReview,
   self,
 }: {
   gate: GateRow;
   mr?: BoardMRWithReview;
+  /** Closes the MR's review gates without posting, after a confirm. */
+  onDropReview?: (mr: BoardMRWithReview) => void;
   /** Types a question about a finding into the review pane. */
   onAskQuestion?: AskQuestion;
   /** The reconciler reports the gate's pane gone: no question can reach it,
@@ -452,6 +455,7 @@ function ReviewGateSheet({
   /** The seat's username: the reviewer when the gate names none. */
   self?: string | null;
 }) {
+  const [confirmDrop, setConfirmDrop] = useState(false);
   const data = useMemo(() => readReviewGate(gate), [gate]);
   const { questions, groups } = useMemo(
     () => collapseChunks(data?.rest ?? []),
@@ -820,24 +824,37 @@ function ReviewGateSheet({
       variant="review"
       ariaLabel="review gate"
       actions={
-        <Button
-          type="button"
-          variant="light"
-          intent="accent"
-          size="sm"
-          disabled={
-            parked
-              ? !(gate.domain && mr)
-              : !form.originFocusable || form.focusBusy
-          }
-          onClick={() =>
-            parked
-              ? gate.domain && mr && onFocusPane(mr, gate.domain)
-              : void form.focusGate()
-          }
-        >
-          focus pane
-        </Button>
+        <>
+          {onDropReview && mr && (
+            <Button
+              type="button"
+              variant="subtle"
+              size="sm"
+              title="close this review without posting anything"
+              onClick={() => setConfirmDrop(true)}
+            >
+              drop review
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="light"
+            intent="accent"
+            size="sm"
+            disabled={
+              parked
+                ? !(gate.domain && mr)
+                : !form.originFocusable || form.focusBusy
+            }
+            onClick={() =>
+              parked
+                ? gate.domain && mr && onFocusPane(mr, gate.domain)
+                : void form.focusGate()
+            }
+          >
+            focus pane
+          </Button>
+        </>
       }
       queue={queue}
       tag={`review gate${mr ? ` ${mrRef(mr)}` : ''}`}
@@ -1191,6 +1208,24 @@ function ReviewGateSheet({
           )}
         </aside>
       </div>
+      {onDropReview && mr && (
+        <ConfirmDialog
+          open={confirmDrop}
+          title={`Drop the review of ${mrRef(mr)}?`}
+          confirmLabel="Drop review"
+          cancelLabel="Keep it"
+          onConfirm={() => {
+            setConfirmDrop(false);
+            onDropReview(mr);
+          }}
+          onCancel={() => setConfirmDrop(false)}
+        >
+          <p>
+            Nothing gets posted to the {mrNoun(mr)}, and the review leaves the
+            queue.
+          </p>
+        </ConfirmDialog>
+      )}
     </GateSheet>
   );
 }

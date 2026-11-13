@@ -69,6 +69,7 @@ function DecisionQueueModal({
   canBack = position > 1,
   canNext = position < states.length,
   onFocusPane,
+  onDropReview,
   onAnswered,
   onContinue,
   onLostChange,
@@ -95,6 +96,8 @@ function DecisionQueueModal({
   canBack?: boolean;
   canNext?: boolean;
   onFocusPane: (mr: BoardMRWithReview, domain: GateDomain) => void;
+  /** Closes the MR's review gates without posting. */
+  onDropReview?: (mr: BoardMRWithReview) => void;
   onAnswered: () => void;
   onContinue: () => void;
   /** Fires when the CAS-loss face flips on or off, so the host can hold the
@@ -260,6 +263,7 @@ function DecisionQueueModal({
         onClose={onClose}
         onContinue={onContinue}
         onFocusPane={onFocusPane}
+        onDropReview={onDropReview}
         self={self}
       />
     );

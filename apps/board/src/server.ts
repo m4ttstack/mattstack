@@ -187,6 +187,7 @@ import {
   isRowAnswerable,
 } from './gates/cache.ts';
 import { decisionBadge } from './gates/decision.ts';
+import { dropReview } from './gates/drop.ts';
 import {
   executeSweepAction,
   type ExecuteSweepActionIo,
@@ -4383,6 +4384,42 @@ const httpServer = Bun.serve({
         if (!dismissByHandle(handle, now))
           return new Response(`no ${lane} row at "${handle}"`, { status: 404 });
         return new Response(JSON.stringify({ ok: true, dismissedAt: now }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      case '/review/drop': {
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { mrUrl } = (body ?? {}) as { mrUrl?: unknown };
+        if (typeof mrUrl !== 'string' || !mrUrl)
+          return new Response('expected { mrUrl: string }', { status: 400 });
+        const result = await dropReview(mrUrl, {
+          rows: () => gateCache.rows(),
+          gateClose,
+          reviewTabId: url => readReviewStates().get(url)?.tabId || undefined,
+          closeTab: tabId => closeTab(tabId),
+          dismissReview: url => {
+            dismissByHandle(reviewFilePath(url), Date.now());
+          },
+          logError: message => console.error(message),
+        });
+        if (result.closed === 0)
+          return new Response('no open or parked review gate on this MR', {
+            status: 404,
+          });
+        return new Response(JSON.stringify({ ok: true, ...result }), {
           headers: { 'content-type': 'application/json' },
         });
       }
