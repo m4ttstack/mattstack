@@ -1,0 +1,9 @@
+{
+  "plugin": {
+    "name": "kit-gallery",
+    "version": "0.1.0",
+    "description": "A living catalog of the mod kit: every button tone, bar, list, field, tab strip, band and page shell, drawn with real kit code.",
+    "types": "./types/index.d.ts"
+  },
+  "clients": ["gallery.tsx"]
+}

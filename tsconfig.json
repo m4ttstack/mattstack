@@ -32,6 +32,7 @@
   "exclude": [
     "apps",
     "extensions",
+    "mods",
     "sites",
     "docs",
     "stories",
@@ -40,6 +41,7 @@
     "packages/app-icons",
     "packages/gate-kit",
     "packages/glance",
+    "packages/mod-kit",
     "packages/glance-react",
     "packages/server",
     "packages/tokens",

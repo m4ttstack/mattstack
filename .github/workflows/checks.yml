@@ -77,6 +77,25 @@ jobs:
       - name: Lockfile in sync
         run: bun install && git diff --exit-code -- bun.lock
 
+      # static has no Claude Code CLI, so the build skips manifest validation;
+      # the plugin jobs validate. A mod source edited without mods:build leaves
+      # plugins/ different from the committed output, and this step fails.
+      - name: Mods are built
+        run: |
+          bun run mods:build --no-validate
+          dirty="$(git status --porcelain -- plugins/)"
+          if [ -n "$dirty" ]; then
+            echo "$dirty"
+            echo "plugins/ differs from a fresh build: run bun run mods:build and commit the result"
+            exit 1
+          fi
+      - name: Mods typecheck
+        run: bun run mods:typecheck
+      - name: Mods test
+        run: bun run mods:test
+      - name: Mod kit README names exist
+        run: bun run mods:check-readme
+
       # A schema change that would invalidate stored settings needs a
       # storeVersion bump and a matching migrateFrom entry (a never-shipped
       # key may instead be acknowledged); the committed lock is the record.
@@ -463,6 +482,54 @@ jobs:
           claude plugin test plugins/human-todos
           claude plugin validate plugins/human-todos
 
+  # The gate form spike's tests and manifest check, run when plugins/gate-form,
+  # mods/gate-form/ or packages/mod-kit/ changes.
+  plugin-gate-form:
+    needs: scope
+    if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/gate-form,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: plugin.json version bumped
+        if: github.event_name == 'pull_request'
+        run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/gate-form
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.322
+      - name: Mod tests and manifest validation
+        run: |
+          claude plugin test plugins/gate-form
+          claude plugin validate plugins/gate-form
+
+  # The kit gallery mod's tests and manifest check, run when plugins/kit-gallery,
+  # mods/kit-gallery/ or packages/mod-kit/ changes.
+  plugin-kit-gallery:
+    needs: scope
+    if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/kit-gallery,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: plugin.json version bumped
+        if: github.event_name == 'pull_request'
+        run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/kit-gallery
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.322
+      - name: Mod tests and manifest validation
+        run: |
+          claude plugin test plugins/kit-gallery
+          claude plugin validate plugins/kit-gallery
+
   # Docusaurus fails the build on a broken link, but only a build catches it.
   website:
     needs: scope
@@ -482,7 +549,7 @@ jobs:
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, website]
+    needs: [scope, static, go, deck-macos, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, plugin-gate-form, plugin-kit-gallery, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -499,13 +566,15 @@ jobs:
           HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
           MATTSTACK: ${{ needs.plugin-mattstack.result }}
           HUMAN_TODOS: ${{ needs.plugin-human-todos.result }}
+          GATE_FORM: ${{ needs.plugin-gate-form.result }}
+          KIT_GALLERY: ${{ needs.plugin-kit-gallery.result }}
           WEBSITE: ${{ needs.website.result }}
           MODE: ${{ needs.scope.outputs.mode }}
           RUN_GO: ${{ needs.scope.outputs.go }}
           RUN_DECK: ${{ needs.scope.outputs.deck }}
           RUN_MACOS: ${{ needs.scope.outputs.macos }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS gate-form=$GATE_FORM kit-gallery=$KIT_GALLERY website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
@@ -517,6 +586,8 @@ jobs:
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
           [ "$MATTSTACK" = success ] || [ "$MATTSTACK" = skipped ] || { echo "plugin-mattstack did not succeed"; exit 1; }
           [ "$HUMAN_TODOS" = success ] || [ "$HUMAN_TODOS" = skipped ] || { echo "plugin-human-todos did not succeed"; exit 1; }
+          [ "$GATE_FORM" = success ] || [ "$GATE_FORM" = skipped ] || { echo "plugin-gate-form did not succeed"; exit 1; }
+          [ "$KIT_GALLERY" = success ] || [ "$KIT_GALLERY" = skipped ] || { echo "plugin-kit-gallery did not succeed"; exit 1; }
           [ "$WEBSITE" = success ] || [ "$WEBSITE" = skipped ] || { echo "website did not succeed"; exit 1; }
           [ "$UNIT" = success ] && exit 0
           [ "$UNIT" = skipped ] && [ "$MODE" = skip ] && exit 0

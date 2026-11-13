@@ -1,0 +1,8 @@
+{
+  "plugin": {
+    "name": "fixture-mod",
+    "version": "0.0.1",
+    "description": "Fixture for the mod build tests: two Clients, one of them written by a shared helper."
+  },
+  "clients": ["form.tsx", "band.tsx"]
+}

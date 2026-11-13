@@ -1,0 +1,9 @@
+{
+  "plugin": {
+    "name": "gate-form",
+    "version": "0.2.0",
+    "description": "Spike: a clack-styled question form in a pane, with no question or option caps, that takes mattstack gate questions.",
+    "types": "./types/index.d.ts"
+  },
+  "clients": ["form.tsx", "band.tsx"]
+}

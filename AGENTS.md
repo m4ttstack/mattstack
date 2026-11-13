@@ -158,6 +158,10 @@ The apps' packages under `packages/*` and `apps/*` are vitest or their own
 bun suites and are never in the unit dirs; run them with `bun run
 <app>:test` or `bun run check`.
 
+Mod and mod-kit tests are not in `test:all` either: `bun run mods:test`
+runs them, and `claude plugin test plugins/<name>` runs the harness tests on
+a built plugin. CI's `static` job runs the first, the plugin jobs the second.
+
 ### Merge with `mr_merge`
 
 `main` merges through a merge queue, and `mr_merge` puts a PR in it. A

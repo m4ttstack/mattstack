@@ -50,3 +50,6 @@ scripts/parity/*.js
 /.claude
 # Imported plugins keep their own style
 /plugins
+# Mod sources keep the mod style; the types snapshot is written by Claude Code
+/mods
+/packages/mod-kit
