@@ -94,6 +94,7 @@ Options:
 - `focused(props)`: defaults to the `focused` prop, true when absent.
 - `isActive(state)`: false while the surface takes no clicks (a form already sent).
 - `engaged(props)`: a message posted on every press and key. The hooks module uses it to learn the pointer or keyboard is in the Client.
+- `revealKeys`: keys that, outside keyboard mode, only enter it (see below). Leave it out and every key reaches `onKey`.
 
 `ui` is `{ width, focused, state, setState, post, hide, onKey, keyboard, keyPressing, pressFor, onReveal }`. `ui.state`
 is a getter for the current state, pointer writes included. `ui.hide()` posts
@@ -193,7 +194,7 @@ Panel.
 ### `ReopenBand`
 
 `<ReopenBand label title onOpen>`. The band's one row: the mark and label, the
-waiting title, and a brand Open button (props type `ReopenBandProps`). `bandClient` wraps it. The gallery
+waiting title, and a brand Show button (props type `ReopenBandProps`). `bandClient` wraps it. The gallery
 draws it directly.
 
 ### `kitComponent` and `drawKit`
@@ -318,7 +319,7 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `widthOf(spans)`: display width of a line, in terminal cells.
 - `withAction(lines, action)`: attaches an action to every line.
 
-Types: `Line`, `Style`.
+Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Hide does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
 
 ### `cellWidth`, `cutCells` and `padCells`
 
