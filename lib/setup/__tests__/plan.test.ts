@@ -170,7 +170,7 @@ describe("composePlan", () => {
     }
   });
 
-  test("solo intent, no teams -> no access rows, github optional, fast-browser finish-gated, no team rows, and the existing modes unchanged", async () => {
+  test("solo intent, no teams -> no access rows, github and gitlab optional, fast-browser finish-gated, no team rows, and the existing modes unchanged", async () => {
     const priorHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), "rt-plan-solo-"));
     closeStateDb();
@@ -184,7 +184,7 @@ describe("composePlan", () => {
       expect(plan.team).toEqual({ slug: "", name: "", mode: "none" });
       expect(plan.groups.find((g) => g.id === "access")!.rows).toEqual([]);
       const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
-      expect(accounts.map((r) => [r.id, r.required])).toEqual([["account.github", false]]);
+      expect(accounts.map((r) => [r.id, r.required])).toEqual([["account.github", false], ["account.gitlab", false]]);
       const tools = everyRow(plan).rows;
       expect(tools.find((r) => r.id === "tool.fast-browser")).toMatchObject({ required: false, finishGated: true, waivable: false, optionalNote: null });
       expect(tools.some((r) => r.id.startsWith("team."))).toBe(false);

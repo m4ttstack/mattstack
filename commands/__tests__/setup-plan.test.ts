@@ -155,7 +155,16 @@ describe("setupStatus", () => {
   test("human status omits the connect callouts entirely when nothing is missing", async () => {
     const cap = capturePlain();
     try {
-      await setupStatus([], {}, captureDeps());
+      const deps = captureDeps();
+      const gitlabReady: SetupDeps = {
+        ...deps,
+        probes: fakeProbes({
+          exec: readyExec,
+          fetch: async (url) => (url === "https://gitlab.com/api/v4/user" ? { status: 200, body: "{}", headers: {} } : { status: 0, body: "", headers: {} }),
+        }),
+        secrets: { async has(domain, key) { return domain === "rt" && key === "gitlabToken" ? "glpat-stored" : null; } },
+      };
+      await setupStatus([], {}, gitlabReady);
       expect(cap.stdout()).not.toContain("next: rt setup");
     } finally {
       cap.restore();

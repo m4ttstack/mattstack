@@ -10,6 +10,8 @@ struct ConnectScreenBody: View {
     let waiting: [String: String]
     let errors: [String: String]
     let continueReady: Bool
+    /// rt's note beside Continue; nil from an rt older than the field.
+    var continueNote: String? = nil
     let onAction: FormRowPerform
     let onBack: (() -> Void)?
     let onContinue: () -> Void
@@ -19,6 +21,7 @@ struct ConnectScreenBody: View {
     static let teamSubtitle = "One click each. Most open in your browser"
     static let soloHeading = "Just you. A few bits and bobs first:"
     static let soloSubtitle = "Add a team any time from Settings"
+    static let teamFooter = "Continue unlocks once each one is connected"
 
     static let insets = EdgeInsets(top: 32, leading: 48, bottom: 24, trailing: 48)
     static let footerInsets = EdgeInsets(top: 14, leading: 48, bottom: 22, trailing: 48)
@@ -29,7 +32,7 @@ struct ConnectScreenBody: View {
                              subtitle: teamFirst ? Self.teamSubtitle : Self.soloSubtitle, spacing: 18)
             FormCard(title: nil, rows: rows, waiting: waiting, errors: errors, style: .labelled, onAction: onAction)
         } footer: {
-            FastFooter(screen: FastSetupScreen.connect.rawValue, note: "Continue unlocks once each one is connected",
+            FastFooter(screen: FastSetupScreen.connect.rawValue, note: continueNote ?? Self.teamFooter,
                        secondary: onBack.map { ("Back", $0) }, primary: ("Continue", continueReady, onContinue),
                        insets: Self.footerInsets, quietSecondary: true)
         }

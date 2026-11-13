@@ -18,7 +18,6 @@ import { readCredentialHealth, type CredentialHealthRow } from "../../credential
 import { daysUntil } from "../../credential-health/sweep.ts";
 import { CREDENTIAL_STATUS_WORD } from "../../credential-health/status-word.ts";
 import { getStateDb } from "../../state/index.ts";
-import { isValidHostname } from "../host-validate.ts";
 import { integrationDef, type IntegrationDef, type ValidateCtx, type ValidateResult } from "../integrations.ts";
 import type { SetupIntent } from "../intent.ts";
 import type { Probes } from "../probes.ts";
@@ -32,6 +31,7 @@ import { ghSessionToken } from "../../team/forge-token.ts";
 import { roleFor } from "../../team/roles.ts";
 import { boardEnvHas, boardPeering } from "../../team/board-token.ts";
 import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
+import { confirmedGitlabHost } from "../gitlab-host.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
@@ -106,8 +106,7 @@ function ctxFor(id: Integration, team: TeamSnapshot, overrides: UserIntegrationO
   const base = { team: { slug: team.slug, remote: team.remote }, linearTeamKey: team.integrations.linear?.teamKey ?? null };
   if (id === "gitlab") {
     const declaredHost = team.integrations.forge?.provider === "gitlab" ? team.integrations.forge.host : null;
-    const host = overrides.forgeHost && isValidHostname(overrides.forgeHost) ? overrides.forgeHost : null;
-    return { ...base, host, declaredHost };
+    return { ...base, host: confirmedGitlabHost(overrides), declaredHost };
   }
   return { ...base, host: null };
 }
@@ -481,7 +480,9 @@ async function accountRowForSafe(p: Probes, entry: DeclaredEntry, team: TeamSnap
   }
 }
 
-const SOLO_FORGE_NOTE = "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.";
+export const SOLO_GITHUB_NOTE = "Works without this. Connect GitHub to open PRs from rt.";
+export const SOLO_GITLAB_NOTE =
+  "Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, run rt setup gitlab connect --host <host> in a terminal.";
 
 export const SLACK_APP_MISSING = "The team has no Slack app yet";
 export const SLACK_APP_ACTION: Action = {
@@ -514,10 +515,13 @@ export async function accountRows(
   overrides: UserIntegrationOverrides = {},
   solo = false,
 ): Promise<Row[]> {
-  const declared =
-    solo && !team.integrations.forge && reqs.length === 0
-      ? [{ id: "github" as Integration, required: false, optionalNote: SOLO_FORGE_NOTE }]
-      : declaredIntegrations(team, reqs);
+  const soloForge = solo && !team.integrations.forge && reqs.length === 0;
+  const declared = soloForge
+    ? [
+        { id: "github" as Integration, required: false, optionalNote: SOLO_GITHUB_NOTE },
+        { id: "gitlab" as Integration, required: false, optionalNote: SOLO_GITLAB_NOTE },
+      ]
+    : declaredIntegrations(team, reqs);
   const wantsSlack = declared.some((e) => e.id === "slack");
   const slackAppNeeded = wantsSlack && !team.integrations.slack?.clientId;
   const slackAppRequired = intent?.mode === "create";

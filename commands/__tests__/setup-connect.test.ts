@@ -1496,3 +1496,145 @@ describe("integration human output", () => {
     expect(cap.stdout()).not.toContain("gitlab:");
   });
 });
+
+describe("integrationConnect on a solo Mac", () => {
+  const GITLAB_TOKEN = "glpat-solo-secret";
+  const GITHUB_TOKEN = "github_pat_solo_secret";
+  const SOLO_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+  const githubUserOk: Probes["fetch"] = async (url) =>
+    url.includes("api.github.com/user") ? { status: 200, body: "{}", headers: {} } : { status: 0, body: "", headers: {} };
+  const selfHostedUserOk: Probes["fetch"] = async (url) =>
+    url.includes("gitlab.example.com/api/v4/user") ? { status: 200, body: "{}", headers: {} } : { status: 0, body: "", headers: {} };
+
+  type Written = [string, unknown, string];
+
+  function soloDeps(token: string, fetch: Probes["fetch"], extra: Partial<ConnectDeps> = {}) {
+    const unexpected: string[] = [];
+    const probes = Object.assign(
+      fakeProbes({
+        fetch,
+        daemon: async (cmd) => {
+          unexpected.push(`daemon ${cmd}`);
+          return null;
+        },
+        runRt: async (args) => {
+          unexpected.push(`runRt ${args.join(" ")}`);
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      }),
+      { unexpected },
+    );
+    const tokenWrites: [string, string, string][] = [];
+    const settingWrites: Written[] = [];
+    const deps = baseDeps({
+      probes,
+      teamSnapshot: () => SOLO_SNAPSHOT,
+      stdin: async () => ({ token }),
+      writer: {
+        storeReady: async () => true,
+        write: async (domain, key, value) => {
+          tokenWrites.push([domain, key, value]);
+        },
+      },
+      writeSetting: ((key: string, value: unknown, scope: string) => {
+        settingWrites.push([key, value, scope]);
+      }) as unknown as ConnectDeps["writeSetting"],
+      ...extra,
+    });
+    return { probes, deps, tokenWrites, settingWrites };
+  }
+
+  // Deck's per-app toggle is a PATCH to its loopback API through probes.fetch, so the fetch channel is checked as well as exec.
+  function expectTokenOnly(probes: ReturnType<typeof soloDeps>["probes"], deps: { lines: string[] }, token: string) {
+    expect(probes.calls.exec).toEqual([]);
+    expect(probes.unexpected).toEqual([]);
+    expect(probes.calls.tray).toEqual([]);
+    expect(probes.calls.removed).toEqual([]);
+    expect(probes.calls.renames).toEqual([]);
+    expect(probes.calls.symlinks).toEqual({});
+    for (const { url, init } of probes.calls.fetchInits) {
+      expect([undefined, "GET"]).toContain(init?.method);
+      expect(url).not.toMatch(/^https?:\/\/(127\.0\.0\.1|localhost)/);
+    }
+    expect(deps.lines.join("")).not.toContain(token);
+    expect(cap.stdout()).not.toContain(token);
+    expect(cap.stderr()).not.toContain(token);
+  }
+
+  for (const scenario of [
+    { id: "gitlab" as const, token: GITLAB_TOKEN, key: "gitlabToken", fetch: gitlabUserOk },
+    { id: "github" as const, token: GITHUB_TOKEN, key: "githubToken", fetch: githubUserOk },
+  ]) {
+    test(`connecting ${scenario.id} writes the token and nothing else`, async () => {
+      const { probes, deps, tokenWrites, settingWrites } = soloDeps(scenario.token, scenario.fetch);
+      await integrationConnect(scenario.id, ["--json"], deps);
+      expect((JSON.parse(deps.lines[0]!) as { status: string }).status).toBe("ready");
+      expect(tokenWrites).toEqual([["rt", scenario.key, scenario.token]]);
+      expect(probes.calls.writes).toEqual({});
+      expect(settingWrites).toEqual([]);
+      expectTokenOnly(probes, deps, scenario.token);
+    });
+
+    test(`connecting ${scenario.id} before the store exists stages one file and nothing else`, async () => {
+      const { probes, deps, tokenWrites, settingWrites } = soloDeps(scenario.token, scenario.fetch, { writer: { storeReady: async () => false, write: neverCalled("writer.write") } });
+      await integrationConnect(scenario.id, ["--json"], deps);
+      expect((JSON.parse(deps.lines[0]!) as { status: string }).status).toBe("ready");
+      const keys = Object.keys(probes.calls.writes);
+      expect(keys).toHaveLength(1);
+      expect(keys[0]!.endsWith("rt/setup-staging/rt.json")).toBe(true);
+      expect(tokenWrites).toEqual([]);
+      expect(settingWrites).toEqual([]);
+      expectTokenOnly(probes, deps, scenario.token);
+    });
+  }
+
+  test("--host on solo records only the user-scope host", async () => {
+    const { probes, deps, tokenWrites, settingWrites } = soloDeps(GITLAB_TOKEN, selfHostedUserOk);
+    await integrationConnect("gitlab", ["--json", "--host", "gitlab.example.com"], deps);
+    expect(settingWrites).toEqual([["rt.integrations", { forgeHost: "gitlab.example.com" }, "user"]]);
+    expect(tokenWrites).toEqual([["rt", "gitlabToken", GITLAB_TOKEN]]);
+    expect(probes.calls.writes).toEqual({});
+    expectTokenOnly(probes, deps, GITLAB_TOKEN);
+  });
+
+  test("--host github.com is refused before any fetch or write", async () => {
+    const { probes, deps, tokenWrites, settingWrites } = soloDeps(GITLAB_TOKEN, gitlabUserOk, { userIntegrationOverrides: () => ({ forgeHost: "gitlab.example.com" }) });
+    await expectExit(() => integrationConnect("gitlab", ["--json", "--host", "GitHub.com"], deps));
+    expect(deps.exitCodes).toEqual([2]);
+    expect((JSON.parse(deps.lines[0]!) as { error: { code: string } }).error.code).toBe("bad-host");
+    expect(probes.calls.fetch).toEqual([]);
+    expect(tokenWrites).toEqual([]);
+    expect(settingWrites).toEqual([]);
+  });
+
+  test("a leftover github.com host does not reach a solo GitLab connect", async () => {
+    const { probes, deps } = soloDeps(GITLAB_TOKEN, gitlabUserOk, { userIntegrationOverrides: () => ({ forgeHost: "github.com" }) });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect((JSON.parse(deps.lines[0]!) as { status: string }).status).toBe("ready");
+    expect(probes.calls.fetch.length).toBeGreaterThan(0);
+    for (const url of probes.calls.fetch) expect(url.startsWith("https://gitlab.com/")).toBe(true);
+  });
+
+  test("a confirmed self-hosted host still reaches a solo GitLab connect", async () => {
+    const { probes, deps, settingWrites } = soloDeps(GITLAB_TOKEN, selfHostedUserOk, { userIntegrationOverrides: () => ({ forgeHost: "gitlab.example.com" }) });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect((JSON.parse(deps.lines[0]!) as { status: string }).status).toBe("ready");
+    expect(probes.calls.fetch.length).toBeGreaterThan(0);
+    for (const url of probes.calls.fetch) expect(url.startsWith("https://gitlab.example.com/")).toBe(true);
+    expect(settingWrites).toEqual([]);
+  });
+
+  test("a leftover github.com host does not reach a team Mac's GitLab connect either", async () => {
+    const { probes, deps } = soloDeps(GITLAB_TOKEN, gitlabUserOk, {
+      userIntegrationOverrides: () => ({ forgeHost: "github.com" }),
+      teamSnapshot: () => ({ ...SOLO_SNAPSHOT, slug: "acme", integrations: { forge: { provider: "gitlab", host: "gitlab.com" } } }),
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect((JSON.parse(deps.lines[0]!) as { status: string }).status).toBe("ready");
+    expect(probes.calls.fetch.length).toBeGreaterThan(0);
+    for (const url of probes.calls.fetch) {
+      expect(url.startsWith("https://gitlab.com/")).toBe(true);
+      expect(url).not.toContain("github.com");
+    }
+  });
+});
