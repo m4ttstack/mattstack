@@ -143,6 +143,17 @@ test('a release with no move since the press acts on what was pressed, though th
   expect(m.actions).toEqual(['one'])
 })
 
+test('a still release does nothing when the redraw disabled the pressed control', () => {
+  let lines = LINES
+  const m = mount({ lines: () => lines })
+  m.send('down', ONE, 'left')
+  lines = [[sp('output')], [buttonSpan<Action>({ label: 'One', action: 'one', disabled: true }), sp(' '), buttonSpan<Action>({ label: 'Two', action: 'two' })]]
+  m.redraw()
+  m.send('up', ONE, 'left')
+  expect(m.actions).toEqual([])
+  expect(m.state()?.pressed).toBeUndefined()
+})
+
 test('after a redraw, dragging off onto another control and releasing still does nothing', () => {
   const m = shifting()
   m.send('down', ONE, 'left')

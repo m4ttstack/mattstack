@@ -222,6 +222,16 @@ function lookOf(state, focused) {
   const held = state?.pressed;
   return { focused, hover, pressed: held === hover ? held : undefined };
 }
+function drawnAction(lines, armed) {
+  for (const line of lines) {
+    if (line.action !== undefined && JSON.stringify(line.action) === armed)
+      return line.action;
+    const span = line.find((piece) => piece.action !== undefined && JSON.stringify(piece.action) === armed);
+    if (span)
+      return span.action;
+  }
+  return;
+}
 function attachPointer(surface, lines, opts) {
   const s = surface.state;
   const look = lookOf(s, opts.focused);
@@ -243,7 +253,7 @@ function attachPointer(surface, lines, opts) {
       surface.setState({ ...s, pressed: undefined, armed: undefined });
       const here = hitAt(lines[ev.y], ev.x);
       const isStill = s.hover === s.pressed && armed !== undefined;
-      const action = here !== undefined && JSON.stringify(here) === armed ? here : isStill ? JSON.parse(armed) : undefined;
+      const action = here !== undefined && JSON.stringify(here) === armed ? here : isStill ? drawnAction(lines, armed) : undefined;
       if (action !== undefined)
         opts.onAction(action);
       return;

@@ -22,6 +22,16 @@ export function lookOf(state: PointerState | undefined, focused: boolean): Look 
   return { focused, hover, pressed: held === hover ? held : undefined }
 }
 
+// A disabled control drops its action from the line, so an action no span or line carries is no longer pressable.
+function drawnAction<A>(lines: Line<A>[], armed: string): A | undefined {
+  for (const line of lines) {
+    if (line.action !== undefined && JSON.stringify(line.action) === armed) return line.action
+    const span = line.find(piece => piece.action !== undefined && JSON.stringify(piece.action) === armed)
+    if (span) return span.action
+  }
+  return undefined
+}
+
 // A press acts on release, over the control it started on, as a native button does; releasing elsewhere cancels it.
 // The click that brings an unfocused surface back only engages it, as a window's first click does.
 // The state must be seeded before the first call: until `surface.state` exists no listener is set, so a module cannot lose its own state to a press.
@@ -43,10 +53,10 @@ export function attachPointer<S extends PointerState, A>(surface: ClientSurface<
       const { armed } = s
       surface.setState({ ...s, pressed: undefined, armed: undefined })
       // Output can redraw the lines under a held press: a release over the same action acts where its control now is,
-      // and a release with no move since the press acts on what was pressed.
+      // and a release with no move since the press acts on what was pressed, while a control still carries it.
       const here = hitAt(lines[ev.y], ev.x)
       const isStill = s.hover === s.pressed && armed !== undefined
-      const action = here !== undefined && JSON.stringify(here) === armed ? here : isStill ? (JSON.parse(armed) as A) : undefined
+      const action = here !== undefined && JSON.stringify(here) === armed ? here : isStill ? drawnAction(lines, armed) : undefined
       if (action !== undefined) opts.onAction(action)
       return
     }
