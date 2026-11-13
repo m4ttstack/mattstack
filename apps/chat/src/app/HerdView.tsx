@@ -1,13 +1,23 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from 'react';
 import {
   ActionIcon,
   Badge,
   Box,
   Center,
   Group,
+  Menu,
   Stack,
   Text,
   Tooltip,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { ChatMessage } from '@mattstack/rt-client';
@@ -84,7 +94,40 @@ function Empty() {
   );
 }
 
-/** A conversation to filter by: the page bar's own badge, as a button. */
+/** A conversation pill: an optional round face, then its name. */
+const Pill = forwardRef<
+  HTMLButtonElement,
+  {
+    active?: boolean;
+    face?: string;
+    trailing?: ReactNode;
+    className?: string;
+    children: ReactNode;
+  } & Omit<ComponentPropsWithoutRef<'button'>, 'children'>
+>(function Pill(
+  { active = false, face, trailing, className, children, ...rest },
+  ref
+) {
+  return (
+    <UnstyledButton
+      ref={ref}
+      className={`${classes.pill} ${className ?? ''}`}
+      data-active={active || undefined}
+      data-with-face={face ? true : undefined}
+      {...rest}
+    >
+      {face && (
+        <span className={classes.face}>
+          <HandleAvatar handle={face} variant="inline" size={18} />
+        </span>
+      )}
+      {children}
+      {trailing}
+    </UnstyledButton>
+  );
+});
+
+/** A conversation to filter by. */
 function FilterBadge({
   active,
   onClick,
@@ -99,26 +142,15 @@ function FilterBadge({
   children: ReactNode;
 }) {
   return (
-    <Badge
-      component="button"
-      type="button"
-      variant="light"
-      color={active ? 'accent' : 'gray'}
-      radius="sm"
+    <Pill
+      active={active}
+      face={face}
       aria-pressed={active}
       onClick={onClick}
       data-testid={testId}
-      leftSection={
-        face ? (
-          <span style={{ display: 'inline-flex', marginInlineEnd: 2 }}>
-            <HandleAvatar handle={face} variant="inline" size={14} />
-          </span>
-        ) : undefined
-      }
-      style={{ cursor: 'pointer' }}
     >
       {children}
-    </Badge>
+    </Pill>
   );
 }
 
@@ -172,6 +204,67 @@ function HerdFilter({
   );
 }
 
+/** Where the composer's message goes: the herd room or one worker's DM,
+    picked from a menu on the same badge the filter row uses. */
+function HerdTo({
+  tag,
+  rooms,
+  target,
+  onPick,
+}: {
+  tag: HerdTag;
+  rooms: FleetRoom[];
+  target: string;
+  onPick: (room: string) => void;
+}) {
+  const own = rooms.find(r => r.kind !== 'dm');
+  const options = [
+    ...(own ? [{ room: own.room, label: 'Herd room', face: undefined }] : []),
+    ...rooms.flatMap(room => {
+      const worker = workerOf(room, tag);
+      return worker
+        ? [{ room: room.room, label: worker.name, face: worker.handle }]
+        : [];
+    }),
+  ];
+  const current = options.find(o => o.room === target);
+  return (
+    <Menu position="top-start" offset={6} withinPortal shadow="md" radius="sm">
+      <Menu.Target>
+        <Pill
+          className={classes.to}
+          face={current?.face}
+          data-testid="herd-to"
+          aria-label={`To ${current?.label ?? 'Herd room'}`}
+          trailing={
+            <Icon name="chevronDown" size={12} className={classes.chevron} />
+          }
+        >
+          {current?.label ?? 'Herd room'}
+        </Pill>
+      </Menu.Target>
+      <Menu.Dropdown data-testid="herd-to-menu">
+        {options.map(option => (
+          <Menu.Item
+            key={option.room}
+            data-testid={`herd-to-${option.face ?? 'room'}`}
+            leftSection={
+              option.face ? (
+                <HandleAvatar handle={option.face} variant="inline" size={16} />
+              ) : (
+                <Icon name="hash" size={14} />
+              )
+            }
+            onClick={() => onPick(option.room)}
+          >
+            {option.label}
+          </Menu.Item>
+        ))}
+      </Menu.Dropdown>
+    </Menu>
+  );
+}
+
 /** A herd as one timeline: its shepherd's DMs with each worker and the
     herd's own room. A reply goes to the newest conversation until a badge or
     a message picks another; `composer` draws the box for whichever that is. */
@@ -190,7 +283,8 @@ export function HerdView({
   onPick: (room: string | undefined) => void;
   composer: (
     room: string,
-    to: { handle: string; name: string } | undefined,
+    worker: { handle: string; name: string } | undefined,
+    to: ReactNode,
     onDraftChange: (hasDraft: boolean) => void
   ) => ReactNode;
 }) {
@@ -266,6 +360,7 @@ export function HerdView({
     return composer(
       target,
       worker && { handle: worker.handle, name: worker.name },
+      <HerdTo tag={tag} rooms={rooms} target={target} onPick={onPick} />,
       hasDraft => {
         draftOpen.current = hasDraft;
         if (hasDraft && picked === undefined) onPick(target);

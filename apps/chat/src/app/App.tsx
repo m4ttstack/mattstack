@@ -623,22 +623,22 @@ function ChatPage({
                   me={me.handle}
                   picked={herdPick}
                   onPick={onHerdPick}
-                  composer={(room, to, onDraftChange) => (
+                  composer={(room, worker, to, onDraftChange) => (
                     <Composer
                       ref={composerRef}
                       phone={isMobile}
                       humanHandle={me.handle}
                       room={room}
                       roomMembers={
-                        to
-                          ? [me.handle, herd.tag.shepherdHandle, to.handle]
+                        worker
+                          ? [me.handle, herd.tag.shepherdHandle, worker.handle]
                           : [me.handle]
                       }
                       buddies={buddies}
-                      isDm={to !== undefined}
+                      isDm={worker !== undefined}
                       daemonReachable={daemon.reachable}
                       onOpenDm={onOpenDm}
-                      replyTo={to}
+                      to={to}
                       onDraftChange={onDraftChange}
                     />
                   )}

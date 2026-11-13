@@ -4,13 +4,60 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 8px 20px;
+  padding: 8px 19px;
   background: var(--tk-card);
   border-bottom: 1px solid var(--tk-border);
 }
 
-/* The composer's To badge sits centred beside the textarea. */
+/* A conversation pill, as the herd boards in chat.pen draw it. */
+.pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--mantine-radius-xl);
+  background: var(--mantine-color-gray-light);
+  color: var(--tk-text-1);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pill[data-with-face] {
+  padding-left: 4px;
+}
+
+.pill[data-active] {
+  background: var(--mantine-color-accent-light);
+  color: var(--tk-text-accent);
+}
+
+@media (hover: hover) {
+  .pill:not([data-active]):hover {
+    background: var(--mantine-color-gray-light-hover);
+  }
+}
+
+.face {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.chevron {
+  flex: none;
+  color: var(--tk-text-3);
+}
+
+/* The composer's To pill sits centred beside the textarea. */
 .to {
   align-self: center;
-  flex: none;
 }
