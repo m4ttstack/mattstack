@@ -1,4 +1,5 @@
 import { forgeText, type Forge } from '../shared/forge.js';
+import { EMPTY_PROJECTS_HINT } from '../shared/setup-hints.js';
 import type {
   LeaderboardResponse,
   LeaderboardWarning,
@@ -139,12 +140,7 @@ async function resolveGitHubEnv(s: BoxscoreSettings): Promise<Env> {
 function resolveScope(): Scope {
   const { projects, forge } = readSettings();
   if (projects.length === 0) {
-    throw new ConfigError(
-      forgeText(
-        'boxscore.projects is empty: add at least one "group/project" (rt settings).',
-        forge
-      )
-    );
+    throw new ConfigError(forgeText(EMPTY_PROJECTS_HINT, forge));
   }
   return { type: 'projects', projectPaths: projects };
 }
@@ -268,10 +264,16 @@ async function buildLeaderboard(
 
   const rosterUsernames = settings.roster.map(r => r.username);
   const canon = storedLoginCanon(env, settings);
-  const current = buildFetchResult(store, opts.window, rosterUsernames, canon);
+  const current = buildFetchResult(
+    store,
+    opts.window,
+    rosterUsernames,
+    canon,
+    settings.projects
+  );
   const priorSnapshot: Snapshot | null = opts.trend
     ? snapshotFor(
-        buildFetchResult(store, pw, rosterUsernames, canon),
+        buildFetchResult(store, pw, rosterUsernames, canon, settings.projects),
         pw,
         compared
       )

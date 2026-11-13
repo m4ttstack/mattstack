@@ -15,6 +15,7 @@ import {
   changeUrl,
   forgeText,
   GITHUB_COPY,
+  pushWord,
 } from '../src/shared/forge.js';
 import { METRICS } from '../src/shared/metrics.js';
 import type { MetricKey, TimeWindow } from '../src/shared/types.js';
@@ -207,8 +208,18 @@ describe('GitHub copy says commit, not push', () => {
     expect(forgeText('Weekdays without a push', 'github')).toBe(
       'Weekdays without a commit'
     );
-    expect(forgeText('push', 'github')).toBe('commit');
-    expect(forgeText('pushes', 'github')).toBe('commits');
+  });
+
+  it('counts commits on github and pushes on gitlab', () => {
+    expect(pushWord('github', 1)).toBe('commit');
+    expect(pushWord('github', 28)).toBe('commits');
+    expect(pushWord('gitlab', 1)).toBe('push');
+    expect(pushWord(undefined, 28)).toBe('pushes');
+  });
+
+  it('keeps no one-word push key, which a refresh phase id would satisfy', () => {
+    expect(Object.keys(GITHUB_COPY)).not.toContain('push');
+    expect(Object.keys(GITHUB_COPY)).not.toContain('pushes');
   });
 
   it('says comments in the partial detail warning', () => {

@@ -263,6 +263,14 @@ See `gitlab-leaderboard-spec.md` for the exact definitions.
   review latency, reciprocity, and even the diff totals. On GitLab, non-merged rows are
   always re-fetched; on GitHub, any PR whose snapshot covers its `updatedAt` is skipped
   (see "What a refresh costs" under On GitHub).
+- **A project removed from `boxscore.projects` earns nothing,** on either forge: its MRs,
+  reviews, pipelines and coding days drop out, and so does a Linear ticket's credit through
+  one of its MRs, whether attached or only named in the text. Its rows stay in the store,
+  so adding it back brings its credit back on the next load. Project paths match ignoring
+  case. On GitLab, push events carry a project id, which each refresh records per
+  configured project; until every configured project has one, pushes stored before ids
+  were recorded still count, so a project removed before that can keep its older coding
+  days until they age out of the window.
 - **Trend storage** is limited to "current vs. one prior window." No long-run time series.
 - **Coding days** only count push events visible to your token.
 

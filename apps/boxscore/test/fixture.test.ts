@@ -50,6 +50,31 @@ describe('design fixture mode', () => {
     });
   });
 
+  it.each([
+    ['github', 'owner/repo'],
+    ['gitlab', 'group/project'],
+  ])(
+    'serves the no-projects setup hint naming %s paths',
+    async (forge, path) => {
+      process.env.BOXSCORE_FIXTURE_SCENARIO = 'no-projects';
+      process.env.BOXSCORE_FIXTURE_FORGE = forge;
+      try {
+        const { routes } = await import('../src/server/routes');
+        const res = await routes.request(
+          '/api/leaderboard?range=30d&cacheOnly=1'
+        );
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({
+          error: `boxscore.projects is empty: add at least one "${path}" (rt settings).`,
+        });
+        const detail = await routes.request('/api/detail?user=srivera');
+        expect(detail.status).toBe(400);
+      } finally {
+        delete process.env.BOXSCORE_FIXTURE_FORGE;
+      }
+    }
+  );
+
   it('answers the console link', async () => {
     const { routes } = await import('../src/server/routes');
     const res = await routes.request('/api/links');

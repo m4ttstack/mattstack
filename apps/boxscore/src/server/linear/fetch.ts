@@ -1,19 +1,18 @@
 import type { Forge } from '../../shared/forge.js';
-import { isRevertTitle } from '../../shared/reverts.js';
 import type {
   LeaderboardWarning,
   RefreshProgress,
 } from '../../shared/types.js';
 import { getStore, mrKey } from '../store/index.js';
-import type {
-  LinkedMr,
-  LinkVia,
-  MrState,
-  NormLinearIssue,
-  NormMr,
-} from '../store/model.js';
+import type { LinkedMr, NormLinearIssue, NormMr } from '../store/model.js';
 import { mapLimit } from '../util/concurrency.js';
 import { linearRequest } from './client.js';
+import {
+  closedAtOf,
+  creditedUserOf,
+  qualifyingMrs,
+  type LinkCandidate,
+} from './credit.js';
 import { mapIssue } from './map.js';
 import type { RawIssue } from './raw-types.js';
 import { mrTicketHaystack, textRefGrade } from './ticket.js';
@@ -58,34 +57,6 @@ const CHUNK_SIZE = 25;
 
 const LINEAR_CONCURRENCY = 6;
 
-/** One linked MR's identity plus the fields the qualifying/credit rules need. */
-interface LinkCandidate {
-  iid: number;
-  projectPath: string;
-  authorUsername: string | null;
-  state: MrState;
-  mergedAt: string | null;
-  title: string;
-  via: LinkVia;
-}
-
-/**
- * Among MRs tied on `timeOf`, the lower (projectPath, iid) pair wins: an arbitrary but
- * deterministic order, independent of scan order.
- */
-function earliestMr<T extends { projectPath: string; iid: number }>(
-  mrs: readonly T[],
-  timeOf: (m: T) => string
-): T {
-  return mrs.reduce((best, m) => {
-    const delta = Date.parse(timeOf(m)) - Date.parse(timeOf(best));
-    if (delta !== 0) return delta < 0 ? m : best;
-    if (m.projectPath !== best.projectPath)
-      return m.projectPath < best.projectPath ? m : best;
-    return m.iid < best.iid ? m : best;
-  });
-}
-
 /**
  * Extract a GitLab merge request's project path and iid from its URL, e.g.
  * "https://gitlab.example.com/org/app/-/merge_requests/12345" -> { projectPath: "org/app", iid: 12345 }.
@@ -113,62 +84,6 @@ export function parseChangeUrl(
     /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)(?:[/?#]|$)/
   );
   return m ? { projectPath: m[1]!, iid: Number(m[2]) } : null;
-}
-
-/**
- * Qualifying merged MRs for credit/closedAt: merged, non-revert (a revert's title proves
- * nothing about who finished the ticket), and attachment-graded when the issue has any
- * MR-shaped attachment (GitLab MR or GitHub PR) -- an attachment is a deliberate link, so it outranks a
- * same-ticket text mention that only happened to land in a merged MR's title or
- * description. `hadMrAttachment` stays true for an attachment that parsed as an MR URL but
- * resolved to no known MR, so a ticket implemented before the data horizon qualifies
- * nothing rather than falling back to text links. Attachments that are not MR/PR URLs
- * (issues, commits) leave the fallback open.
- */
-function qualifyingMrs(
-  candidates: readonly LinkCandidate[],
-  hadMrAttachment: boolean
-): LinkCandidate[] {
-  const grade: LinkVia =
-    hadMrAttachment || candidates.some(c => c.via === 'attachment')
-      ? 'attachment'
-      : 'closing';
-  return candidates.filter(
-    c =>
-      c.via === grade &&
-      c.state === 'merged' &&
-      c.mergedAt !== null &&
-      !isRevertTitle(c.title)
-  );
-}
-
-/** Credit the earliest-merged qualifying MR's author, preferring a roster author. */
-function creditedUserOf(
-  qualifying: readonly LinkCandidate[],
-  roster: ReadonlySet<string>,
-  canon?: (login: string) => string
-): string | null {
-  const withAuthor = qualifying
-    .filter(
-      (c): c is LinkCandidate & { authorUsername: string } =>
-        c.authorUsername !== null
-    )
-    .map(c => (canon ? { ...c, authorUsername: canon(c.authorUsername) } : c));
-  if (withAuthor.length === 0) return null;
-  const rosterMatches = withAuthor.filter(c => roster.has(c.authorUsername));
-  const pool = rosterMatches.length > 0 ? rosterMatches : withAuthor;
-  return earliestMr(pool, m => m.mergedAt!).authorUsername;
-}
-
-/** Latest mergedAt among qualifying merged MRs, or null when none qualify. */
-function closedAtOf(qualifying: readonly LinkCandidate[]): string | null {
-  return qualifying.reduce<string | null>(
-    (latest, c) =>
-      latest === null || Date.parse(c.mergedAt!) > Date.parse(latest)
-        ? c.mergedAt!
-        : latest,
-    null
-  );
 }
 
 /**

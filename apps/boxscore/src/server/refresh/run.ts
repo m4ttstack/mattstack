@@ -33,7 +33,11 @@ import type {
   StoredMetricsWrite,
   StoredPushEvent,
 } from '../store/index.js';
-import { buildFetchResult, storedIdentities } from '../store/query.js';
+import {
+  buildFetchResult,
+  inProjects,
+  storedIdentities,
+} from '../store/query.js';
 import { mapLimit } from '../util/concurrency.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -185,7 +189,10 @@ export async function runRefresh(
   const rosterSet = new Set(rosterUsernames);
   const canon = storedLoginCanon(env, settings);
   const toRoster = canon ?? ((login: string) => login);
-  const indexRows = store.indexRowsUpdatedWithin(window.start, window.end);
+  const configured = inProjects(settings.projects);
+  const indexRows = store
+    .indexRowsUpdatedWithin(window.start, window.end)
+    .filter(r => configured(r.projectPath));
   const eligibleRows = indexRows.filter(
     r =>
       (r.authorUsername != null && rosterSet.has(toRoster(r.authorUsername))) ||
@@ -305,6 +312,7 @@ export async function runRefresh(
         const ref = await fetchProjectRef(gitlab, projectPath, { signal });
         if (ref) {
           scopedProjectIds.add(ref.id);
+          store.recordProjectIds([{ projectPath, id: ref.id }]);
         } else {
           warnings.push({
             code: 'project_id_failed',
