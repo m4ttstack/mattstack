@@ -226,10 +226,22 @@ stands between a folding layer and `contents/../hooks`, which would be
 `GET .../hooks`. No layer is known to fold this way; refusing costs
 nothing.
 
-Separators from NFKD (my call, a widening). The decoded-path refusals
-of `;`, `%`, `?`, `#` and backslash also run on
-`decoded.normalize("NFKD")`, over the whole path, file path included.
-That refuses the compatibility forms of those characters: `;` from
+Separators from NFKD (my call, a widening). Over the whole decoded
+path, file path included, a character refuses when its own NFKD form
+differs from it and contains `;`, `%`, `?`, `#` or a backslash:
+
+```ts
+[...decoded].some((ch) => {
+  const folded = ch.normalize("NFKD");
+  return folded !== ch && /[;%?#\\]/.test(folded);
+})
+```
+
+The test is per character, never on the NFKD form of the whole path:
+NFKD leaves ASCII unchanged, so a whole-path test would also refuse the
+plain `#` and `?` that arrive as `%23` and `%3F`, which are read today
+(`:repo/contents/docs/C%23.md`). This refuses only the compatibility
+forms of those characters: `;` from
 U+037E (a canonical decomposition, so NFC yields it too), U+FE14,
 U+FE54 and U+FF1B; `%` from U+FE6A and U+FF05; `?` from U+2047 to
 U+2049, U+FE16, U+FE56 and U+FF1F; `#` from U+FE5F and U+FF03; `\` from
@@ -251,8 +263,8 @@ The test plan's exact errors follow it.
 1. `plainApiPath`: required, raw control (now `\p{Cc}`), `?`, `#`,
    `://`, backslash; decode; decoded control; double encoding; dot
    segments.
-2. Raw whitespace; braces; decoded backslash; `;` (as today); then the
-   `;`, `%`, `?`, `#` and backslash refusals on the NFKD form.
+2. Raw whitespace; braces; decoded backslash; `;` (as today); then a
+   character whose own NFKD form adds `;`, `%`, `?`, `#` or a backslash.
 3. Repo shape (rule 1).
 4. Prefix under this repo (as today).
 5. Plain repo segments (rule 2): raw segment 0 is exactly `repos`, and
@@ -368,7 +380,8 @@ Claim: a guarded word in segment 1 or 2 selects no endpoint.
 | An empty or blank segment inside a slash entry, `:repo/actions//oidc/customization/sub` (passes on main today), `:repo/actions/%20/oidc/...`, `:repo/actions/.%E2%80%8B/oidc/...` | Dropped, or refused as a dot part; refused either way |
 | A slash from NFKD, `:repo/actions%EF%BC%8Foidc/customization/sub`, `:repo/git%EF%BC%8Fblobs/x`, `:repo/copilot%EF%BC%8Fcloud-agent/configuration` | The window splits the skeleton on `/`; refused |
 | A climb folded inside one file-path segment, `:repo/contents/..%EF%BC%8Fhooks`, `:repo/contents/%E2%80%A5%EF%BC%8Fhooks` | The file-path dot check splits the skeleton; a `..` part refuses |
-| A separator from NFKD, fullwidth `\` `;` `%` `?` `#` anywhere | Refused on the NFKD form at step 2 |
+| A separator from NFKD, fullwidth `\` `;` `%` `?` `#` anywhere | Refused per character at step 2 |
+| Plain encoded `#` or `?`, `:repo/contents/docs/C%23.md`, `:repo/contents/what%3F.md` | ASCII is its own NFKD form; read, as today |
 | Fullwidth dots outside a file path, `:repo/%EF%BC%8E%EF%BC%8E/hooks` | A `..` part in the window; refused as a dot segment |
 | `copilot` elsewhere, `:repo/commits/copilot/fix`, repo `acme/copilot` | Not an anchored match; read |
 
@@ -539,7 +552,8 @@ instead of slicing.
   `:repo/actions%EF%BC%BCoidc/customization/sub`,
   `:repo/contents/x%EF%BC%9B/a` (fullwidth `;`), `:repo/pulls%CD%BE`
   (U+037E), `:repo/contents/a%EF%BC%85b`, `:repo/contents/a%EF%BC%9Fb`,
-  `:repo/contents/a%EF%BC%83b`.
+  `:repo/contents/a%EF%BC%83b`. Accepted beside them, as today:
+  `:repo/contents/docs/C%23.md` and `:repo/contents/what%3F.md`.
 - Repo segments (rule 2): `Repos/o/r/contents/hooks`, `repos/o%2Fr/pulls`, `repos/o/%72/pulls`,
   `repos/%4F/r/pulls`, and, on repo `kcme/r`, an owner spelled with the Kelvin sign U+212A
   in place of `k`.
