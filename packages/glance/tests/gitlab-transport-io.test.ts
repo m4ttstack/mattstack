@@ -99,11 +99,11 @@ describe('restRequest redirect option', () => {
     expect(c.seen).toEqual(['manual']);
   });
 
-  test('the default leaves fetch on its own redirect handling', async () => {
+  test('the default follows redirects in glance, so fetch is always asked for manual', async () => {
     const c = captureRedirect();
     await p().restRequest('GET', '/projects/1');
     await p().restRequest('GET', '/projects/1', undefined, 'op', { retry: true });
-    expect(c.seen).toEqual([undefined, undefined]);
+    expect(c.seen).toEqual(['manual', 'manual']);
   });
 });
 

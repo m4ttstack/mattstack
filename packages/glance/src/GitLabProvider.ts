@@ -69,6 +69,7 @@ import type { FetchEvents, GitLabEvent } from './EventsPoller.ts';
 import { safeEmit, instrumentGitbeaker, type OnRequestHook, type RequestInfo } from './instrumentation.ts';
 import { RetryableError, asRetryable, isTransientStatus, retryAfterMs, withRetry } from './retry.ts';
 import { glanceRequesterFn } from './gitbeakerRequester.ts';
+import { fetchSameOrigin } from './sameOriginFetch.ts';
 import { throwIfGitLabRateLimited, withGitLabRateLimit } from './gitlabRateLimit.ts';
 
 export interface RequestIO {
@@ -2058,7 +2059,7 @@ export class GitLabProvider implements GitProvider {
       const started = performance.now();
       let res: Response;
       try {
-        res = await fetch(url, { method: 'GET', headers, signal });
+        res = await fetchSameOrigin(url, { method: 'GET', headers, signal });
       } catch (err) {
         throw asRetryable(err, io.signal);
       }
@@ -2126,7 +2127,7 @@ export class GitLabProvider implements GitProvider {
       const started = performance.now();
       let res: Response;
       try {
-        res = await fetch(url, { method, headers, body: bodyStr, signal, ...(io?.redirect ? { redirect: io.redirect } : {}) });
+        res = await fetchSameOrigin(url, { method, headers, body: bodyStr, signal, ...(io?.redirect ? { redirect: io.redirect } : {}) });
       } catch (err) {
         throw io ? asRetryable(err, io.signal) : err;
       }
@@ -2927,7 +2928,7 @@ export class GitLabProvider implements GitProvider {
       const started = performance.now();
       let res: Response;
       try {
-        res = await fetch(url, {
+        res = await fetchSameOrigin(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
