@@ -2,7 +2,7 @@
     whose review waits at their own approval gate. Click-only; nothing is
     sent to the reviewer's board. */
 import type { BoardMR } from '../data.ts';
-import { mrRef } from '../mr-ref.ts';
+import { mrNoun, mrRef, type ForgeKind } from '../mr-ref.ts';
 import { canonicalUsername } from './envelope.ts';
 import { isFreshPeerReview } from './presence.ts';
 
@@ -36,6 +36,8 @@ export interface RemindDeps {
   sendDm(userId: string, text: string): Promise<DmResult>;
   markReminded(mrUrl: string, reviewer: string, at: number): void;
   now(): number;
+  /** The board's forge, which names an MR the board no longer lists; GitLab when absent. */
+  forge?(): ForgeKind;
 }
 
 /** `maybeSent`: the daemon timed out, so Slack may already have the DM. */
@@ -92,7 +94,11 @@ export function createReminder(deps: RemindDeps) {
     sending.add(key);
     try {
       const mr = await deps.mr(mrUrl);
-      if (!mr) return { status: 404, message: 'that MR is not on the board' };
+      if (!mr)
+        return {
+          status: 404,
+          message: `that ${mrNoun(deps.forge?.())} is not on the board`,
+        };
       const sent = await deps.sendDm(userId, remindText(mr));
       if (!sent.ok && !sent.maybeSent)
         return { status: 502, message: sent.message };

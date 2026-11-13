@@ -1,5 +1,6 @@
 import type { GitLabProvider, PullRequest } from '@mattstack/glance';
 import { rtCommand } from '@mattstack/rt-client';
+import { mrNoun } from './mr-ref.ts';
 
 export type ForgeKind = 'gitlab' | 'github';
 
@@ -36,7 +37,6 @@ export interface ForgeRebaseDeps {
 const DEFAULT_POLL_MS = 5_000;
 
 const CONFLICT_REASON = 'the branch has conflicts with its target';
-const NO_PRE_READ = 'could not read the MR before rebasing';
 
 export class CannotRebaseError extends Error {}
 
@@ -59,7 +59,11 @@ export async function forgeRebase(
   }
   if (deps.signal.aborted) return { kind: 'cancelled' };
   if (before === null)
-    return { kind: 'failed', reason: NO_PRE_READ, conflicts: false };
+    return {
+      kind: 'failed',
+      reason: `could not read the ${mrNoun(deps.forge)} before rebasing`,
+      conflicts: false,
+    };
 
   try {
     await deps.rebase();

@@ -1,4 +1,5 @@
 import { ConfirmDialog } from '@mattstack/tui-kit';
+import type { ForgeKind } from '../../mr-ref.ts';
 import { redoCopy } from './redo-copy.ts';
 import type { Lane } from './row-actions.ts';
 
@@ -16,12 +17,15 @@ export interface PendingRedo {
 export function RedoConfirmDialog({
   pending,
   onDone,
+  forge,
 }: {
   pending: PendingRedo | null;
   onDone: () => void;
+  /** The board's forge, which names MRs or PRs in the body. */
+  forge?: ForgeKind;
 }) {
   const copy = pending
-    ? redoCopy(pending.lane, pending.count, pending.prior, pending.who)
+    ? redoCopy(pending.lane, pending.count, pending.prior, pending.who, forge)
     : null;
   return (
     <ConfirmDialog

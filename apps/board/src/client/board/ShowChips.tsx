@@ -1,4 +1,5 @@
 import { Tooltip } from '@mattstack/tui-kit';
+import { mrNouns, type ForgeKind } from '../../mr-ref.ts';
 import { ALL_TURN, type TurnConfig } from '../../turn.ts';
 import type { ShowItem } from '../../view.ts';
 import { showLabel, type ShowMenuModel } from './Controls.tsx';
@@ -7,7 +8,11 @@ import { showLabel, type ShowMenuModel } from './Controls.tsx';
 const TIP_DELAY_MS = 1000;
 
 /** What each chip covers, in a person's words, in one short line. */
-export function showTip(item: ShowItem, turn: TurnConfig): string {
+export function showTip(
+  item: ShowItem,
+  turn: TurnConfig,
+  forge: ForgeKind = 'gitlab'
+): string {
   switch (item) {
     case 'posted':
       return 'Posted to the team Slack channel.';
@@ -16,11 +21,11 @@ export function showTip(item: ShowItem, turn: TurnConfig): string {
     case 'authorTurn':
       return turn.author.length === 0
         ? 'Nothing counts as the author’s move yet. Configure this behavior in settings.'
-        : 'MRs waiting on the author to act. Configure this behavior in settings.';
+        : `${mrNouns(forge)} waiting on the author to act. Configure this behavior in settings.`;
     case 'myDrafts':
-      return 'Show or hide your own draft MRs. Other users’ drafts are never shown.';
+      return `Show or hide your own draft ${mrNouns(forge)}. Other users’ drafts are never shown.`;
     case 'mine':
-      return 'Show or hide your own MRs, to see only your teammates’ work.';
+      return `Show or hide your own ${mrNouns(forge)}, to see only your teammates’ work.`;
   }
 }
 
@@ -38,7 +43,7 @@ export function ShowChips({ show }: { show: ShowMenuModel }) {
       >
         {show.offered.map(item => {
           const on = !show.off.includes(item);
-          const tip = showTip(item, turn);
+          const tip = showTip(item, turn, show.forge);
           return (
             <Tooltip key={item} tip={tip} delay={TIP_DELAY_MS}>
               <label
