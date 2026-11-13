@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
-import { SESSION, children, exits, hangs, herdrFake, startSession, world } from './test-world'
+import { SESSION, children, exits, hangs, herdrFake, press, startSession, world } from './test-world'
 import type { Child } from './test-world'
 
 type On = Parameters<typeof world>[0]
@@ -11,6 +11,7 @@ type Result = { exitCode: number; stdout: string; stderr: string }
 const PID_PREFIX = 'print -u2 "__human_todo_pid__$$"; '
 
 const SURFACES = ['terminal', 'desktop'] as const
+const PLAIN_SURFACES = ['vscode', 'mobile'] as const
 
 const PANE = {
   plugin: 'human-todos',
@@ -96,7 +97,19 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0
 }
 
 // A session start settles a confirming item back to open, so a test reaches confirming the way a person does.
-const confirming = async (pane: { press: (q: { key: string }) => Promise<unknown> }, id = '1') => pane.press({ key: `run-${id}` })
+const confirming = async (pane: Parameters<typeof press>[0], id = '1') => press(pane, id, 'run')
+
+const mountPlain = ($: Engine) => $.ui.mount({ ...PANE, surface: 'vscode' })
+
+// What the plain drawer shows for the same pane: the terminal draws a Client, so its look is read where the engine draws it.
+async function plain<T>($: Engine, read: (ui: Awaited<ReturnType<typeof mountPlain>>) => Promise<T>): Promise<T> {
+  const ui = await mountPlain($)
+  try {
+    return await read(ui)
+  } finally {
+    await ui.unmount()
+  }
+}
 
 const logs = (events: string[]) => events.filter(e => e.startsWith('log: ')).map(e => e.slice(5))
 const toasts = (events: string[]) => events.filter(e => e.startsWith('toast: ')).map(e => e.slice(7))
@@ -106,7 +119,7 @@ test('Run asks first: the item is confirming, nothing starts and the agent hears
   const { sent, ran, events } = await seeded($, on, [todo({})])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await pane.press({ key: 'run-1' })
+  await press(pane, '1', 'run')
 
   expect(await state($)).toMatch(/^#1 \[confirming\]/)
   expect(ran).toEqual([])
@@ -118,9 +131,9 @@ test('Run asks first: the item is confirming, nothing starts and the agent hears
 test('a confirming item draws Confirm (primary) and Cancel, and the band counts it', async ($, on) => {
   await seeded($, on, [todo({ id: '1' }), todo({ id: '2' })])
   const first = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await first.press({ key: 'run-2' })
+  await press(first, '2', 'run')
   await first.unmount()
-  for (const surface of SURFACES) {
+  for (const surface of PLAIN_SURFACES) {
     const pane = await $.ui.mount({ ...PANE, surface })
     expect(await buttons(pane)).toEqual(['close', 'run-1', 'copy-1', 'done-1', 'skip-1', 'confirm-2', 'cancel-2'])
     expect((await pane.find({ key: 'confirm-2' }))?.props.variant).toBe('primary')
@@ -128,7 +141,7 @@ test('a confirming item draws Confirm (primary) and Cancel, and the band counts 
     expect((await pane.find({ key: 'cancel-2' }))?.props.variant).toBeUndefined()
     await pane.unmount()
   }
-  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
   expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 2 Human Todos')
   await band.unmount()
 })
@@ -138,7 +151,7 @@ test('Cancel returns a confirming item to open and tells the agent nothing', asy
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await confirming(pane)
-  await pane.press({ key: 'cancel-1' })
+  await press(pane, '1', 'cancel')
 
   expect(await state($)).toMatch(/^#1 \[open\]/)
   expect(sent).toEqual([])
@@ -152,7 +165,7 @@ test('Confirm on the local runner runs the script and reports exit 0 with its ou
   await $.command.run({ command: 'todos-runner', args: 'local' })
 
   await confirming(pane)
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
 
   expect(spawned.map(s => s.argv)).toEqual([['/bin/zsh', '-lc', 'print -u2 "__human_todo_pid__$$"; ls -la']])
   expect(await state($)).toMatch(/^#1 \[done\]/)
@@ -175,7 +188,7 @@ test('a script that exits non-zero fails the item and reports the exit code and 
   await $.command.run({ command: 'todos-runner', args: 'local' })
 
   await confirming(pane)
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
 
   expect(await state($)).toMatch(/^#1 \[failed\]/)
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 3.\n```\na\nboom\n```'])
@@ -193,7 +206,7 @@ test('Confirm shows the item running at once and the report follows when the run
   await $.command.run({ command: 'todos-runner', args: 'local' })
   await confirming(pane)
 
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
 
   expect(await state($)).toMatch(/^#1 \[running\]/)
   expect(sent).toEqual([])
@@ -210,10 +223,10 @@ test('a runner that cannot start puts the item back to open with a note and a to
   await $.command.run({ command: 'todos-runner', args: 'local' })
 
   await confirming(pane)
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
 
   expect(await state($)).toMatch(/^#1 \[open\]/)
-  expect(await texts(pane)).toContain('Could not start')
+  expect(await plain($, texts)).toContain('Could not start')
   expect(toasts(events)).toEqual(['Could not start #1'])
   expect(sent).toEqual([])
   await $.tool.call({ tool: WITHDRAW, id: '1' })
@@ -225,8 +238,8 @@ test('Done and Skip mark the item and tell the agent', async ($, on) => {
   const { sent } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2', kind: 'task', title: 'U', script: undefined })])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await pane.press({ key: 'done-1' })
-  await pane.press({ key: 'skip-2' })
+  await press(pane, '1', 'done')
+  await press(pane, '2', 'skip')
 
   expect(await state($)).toBe('#1 [done] T\n    script: ls -la\n#2 [skipped] U')
   expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done.', '[Human Todos] #2 "U": the user skipped it.'])
@@ -247,12 +260,12 @@ test('Stop shows a toast, marks the item stopping, then asks the runner to stop'
   const { events } = await seeded($, on, [herdrItem()], { run })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
 
   expect(events).toEqual(['toast: Stopping #1'])
   expect(fake.ran('herdr pane send-keys')).toEqual(["herdr pane send-keys 'pane1' ctrl+c"])
-  expect(await texts(pane)).toContain('⠋ Stopping… ')
-  expect(await buttons(pane)).toEqual(['close', 'show-1', 'forceStop-1'])
+  expect(await plain($, texts)).toContain('⠋ Stopping… ')
+  expect(await plain($, buttons)).toEqual(['close', 'show-1', 'forceStop-1'])
   await pane.unmount()
 })
 
@@ -261,7 +274,7 @@ test('Force stop on a herdr item sends ctrl+c to the tab again', async ($, on) =
   const { events } = await seeded($, on, [herdrItem({ isStopping: true })], { run })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await pane.press({ key: 'forceStop-1' })
+  await press(pane, '1', 'forceStop')
 
   expect(events).toEqual(['toast: Force stopping #1'])
   expect(fake.ran('herdr pane send-keys')).toEqual(["herdr pane send-keys 'pane1' ctrl+c"])
@@ -273,7 +286,7 @@ test('Force stop does nothing for an item that is not stopping', async ($, on) =
   const { events } = await seeded($, on, [herdrItem()], { run })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await pane.press({ key: 'forceStop-1' }).catch(() => undefined)
+  await press(pane, '1', 'forceStop').catch(() => undefined)
 
   expect(events).toEqual([])
   expect(fake.ran('herdr pane send-keys')).toEqual([])
@@ -285,7 +298,7 @@ test('Show goes to the runner the item ran under', async ($, on) => {
   await seeded($, on, [herdrItem()], { run })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await pane.press({ key: 'show-1' })
+  await press(pane, '1', 'show')
 
   expect(fake.ran('herdr tab focus')).toEqual(["herdr tab focus 'tab1'"])
   await pane.unmount()
@@ -298,9 +311,9 @@ test('Open runs open for http(s) links only', async ($, on) => {
   ])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await pane.press({ key: 'open-1' })
+  await press(pane, '1', 'open')
   expect(ran).toEqual([['open', 'https://example.com/a']])
-  await pane.press({ key: 'open-2' })
+  await press(pane, '2', 'open')
   expect(ran).toHaveLength(1)
   expect(toasts(events)).toEqual(['Only http and https links open from here'])
   await pane.unmount()
@@ -325,10 +338,10 @@ test('Open on an image item opens every image in one open call, and tells the pe
   )
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await pane.press({ key: 'open-1' })
+  await press(pane, '1', 'open')
   expect(ran).toEqual([['open', '/shots/light.png', '/real/dark.png']])
   expect(toasts(events)).toEqual([])
-  await pane.press({ key: 'open-2' })
+  await press(pane, '2', 'open')
   expect(toasts(events)).toEqual(['Could not open the images for #2'])
   expect(await state($)).toContain('#1 [open]')
   await pane.unmount()
@@ -353,7 +366,7 @@ test('Open opens nothing unless every path lands on an image file', async ($, on
   )
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  for (const id of ['1', '2', '3']) await pane.press({ key: `open-${id}` })
+  for (const id of ['1', '2', '3']) await press(pane, id, 'open')
   expect(ran.filter(argv => argv[0] === 'open')).toEqual([])
   expect(toasts(events)).toEqual([
     'Could not open #1: app.png is not an image file',
@@ -367,7 +380,7 @@ test('Copy puts the script on the clipboard of the surface that was pressed', as
   const { copied } = await seeded($, on, [todo({ script: 'sudo ls' })])
   for (const surface of SURFACES) {
     const pane = await $.ui.mount({ ...PANE, surface })
-    await pane.press({ key: 'copy-1' })
+    await press(pane, '1', 'copy')
     await pane.unmount()
   }
 
@@ -382,10 +395,10 @@ test('Open log opens the log file the run writes', async ($, on) => {
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.command.run({ command: 'todos-runner', args: 'local' })
   await confirming(pane)
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
 
-  expect(await buttons(pane)).toEqual(['close', 'openLog-1', 'stop-1'])
-  await pane.press({ key: 'openLog-1' })
+  expect(await plain($, buttons)).toEqual(['close', 'openLog-1', 'stop-1'])
+  await press(pane, '1', 'openLog')
 
   const [log] = [...written.keys()]
   expect(log).toMatch(/^\/home\/u\/Library\/Caches\/human-todos\/sess-1-1-[a-z0-9]+\.log$/)
@@ -419,7 +432,7 @@ test('withdrawing, clearing and /clear hand each item that ran to its runner, an
   expect(closed()).toEqual(["herdr tab close 'tabA'"])
   expect(removed()).toEqual([])
 
-  await pane.press({ key: 'clear' })
+  await pane.post({ type: 'clear' })
   expect(closed()).toEqual(["herdr tab close 'tabA'", "herdr tab close 'tabC'"])
   expect(removed()).toEqual(['/log/2'])
 
@@ -469,7 +482,7 @@ for (const { name, setup, pin, started } of CHOICES) {
     const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
     await confirming(pane)
-    await pane.press({ key: 'confirm-1' })
+    await press(pane, '1', 'confirm')
 
     expect(fake.ran('herdr pane run').length === 1).toBe(started === 'herdr')
     expect(spawned.some(s => s.argv.at(-1)?.includes('ls -la'))).toBe(started === 'local')
@@ -501,20 +514,20 @@ test('the spinner advances every 100 ms while an item runs and rests when none d
   await $.command.run({ command: 'todos-runner', args: 'local' })
 
   await confirming(pane)
-  await pane.press({ key: 'confirm-1' })
-  expect(await texts(pane)).toContain('⠋ T')
+  await press(pane, '1', 'confirm')
+  expect(await plain($, texts)).toContain('⠋ T')
   await clock.sleeping(1)
   await clock.advance(400)
-  expect(await texts(pane)).toContain('⠼ T')
+  expect(await plain($, texts)).toContain('⠼ T')
   await clock.advance(50)
   expect(await state($)).toMatch(/^#1 \[done\]/)
 
   await clock.advance(1000)
   await confirming(pane, '2')
-  await pane.press({ key: 'confirm-2' })
+  await press(pane, '2', 'confirm')
   await clock.sleeping(2)
   await clock.advance(100)
-  expect(await texts(pane)).toContain('⠴ T')
+  expect(await plain($, texts)).toContain('⠴ T')
   await pane.unmount()
 })
 
@@ -524,11 +537,11 @@ test('a second Confirm during a slow herdr probe starts the run once', async ($,
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await confirming(pane)
 
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
   expect(await state($)).toMatch(/^#1 \[running\]/)
-  expect(await texts(pane)).toContain('⠋ Running ')
+  expect(await plain($, texts)).toContain('⠋ Running ')
   await clock.sleeping()
-  await pane.press({ key: 'confirm-1' }).catch(() => undefined)
+  await press(pane, '1', 'confirm').catch(() => undefined)
   await clock.advance(1000)
 
   expect(fake.ran('herdr pane run')).toHaveLength(1)
@@ -541,7 +554,7 @@ test('a probe that fails to run falls back to the local runner', async ($, on) =
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await confirming(pane)
 
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
 
   expect(spawned).toHaveLength(1)
   expect(await state($)).toMatch(/^#1 \[done\]/)
@@ -555,7 +568,7 @@ test('a run starts clean: the last run\'s exit code, output and note are gone', 
   await $.command.run({ command: 'todos-runner', args: 'local' })
   await confirming(pane)
 
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
 
   const [item] = (store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
   expect(item).toMatchObject({ status: 'running', runner: 'local' })
@@ -570,7 +583,7 @@ test('a refused message to the agent is told to the person, not dropped', async 
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   fail.submit = true
 
-  await pane.press({ key: 'done-1' })
+  await press(pane, '1', 'done')
 
   expect(sent).toEqual([])
   expect(toasts(events)).toEqual(['Could not tell the agent about #1'])
@@ -589,8 +602,8 @@ test('with the pane closed and nothing drawn, a finished run is still reported',
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await $.command.run({ command: 'todos-runner', args: 'local' })
   await confirming(pane)
-  await pane.press({ key: 'confirm-1' })
-  await pane.press({ key: 'close' })
+  await press(pane, '1', 'confirm')
+  await pane.post({ type: 'hide' })
   await pane.unmount()
 
   await clock.sleeping()
@@ -604,15 +617,15 @@ test('Stop during the herdr probe cancels the run: the item is open again and no
   const { clock } = await seeded($, on, [todo({})], { env: { HERDR_SOCKET_PATH: '/s' }, probeHold: 1000, run: argv => fake.run(argv.at(-1) ?? '') ?? {} })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await confirming(pane)
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
   expect(await state($)).toMatch(/^#1 \[running\]/)
   await clock.sleeping()
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.advance(1000)
 
   expect(await state($)).toMatch(/^#1 \[open\]/)
-  expect(await texts(pane)).toContain('Stopped')
+  expect(await plain($, texts)).toContain('Stopped')
   expect(fake.ran('herdr pane run')).toEqual([])
   expect(fake.ran('herdr workspace create')).toEqual([])
   await pane.unmount()
@@ -622,13 +635,16 @@ test('two Confirm presses in the same tick start the run once', async ($, on) =>
   const { clock, spawned } = await seeded($, on, [todo({})], { script: () => exits([]), run: () => ({}) })
   await $.command.run({ command: 'todos-runner', args: 'local' })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // A Client's posts in one tick reach the plugin as its last one, so the second press comes from another drawing.
+  const other = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await confirming(pane)
 
-  await Promise.all([pane.press({ key: 'confirm-1' }), pane.press({ key: 'confirm-1' })])
+  await Promise.all([press(pane, '1', 'confirm'), press(other, '1', 'confirm')])
   await clock.settle()
 
   expect(spawned).toHaveLength(1)
   await pane.unmount()
+  await other.unmount()
 })
 
 test('a herdr run that cannot be typed closes its tab and clears the item\'s pane and tab', async ($, on) => {
@@ -638,7 +654,7 @@ test('a herdr run that cannot be typed closes its tab and clears the item\'s pan
   await $.command.run({ command: 'todos-runner', args: 'herdr' })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await confirming(pane)
-  await pane.press({ key: 'confirm-1' })
+  await press(pane, '1', 'confirm')
 
   const saved = (store.get(`list:${SESSION}`) as { todos: Todo[] }).todos[0]
   expect(saved).toMatchObject({ status: 'open', note: 'Could not start' })

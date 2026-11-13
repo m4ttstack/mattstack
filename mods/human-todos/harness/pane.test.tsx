@@ -4,7 +4,7 @@ import type { Engine } from 'claude-code/testing'
 import type { Todo } from '../types'
 import { SESSION, startSession, world } from './test-world'
 
-const SURFACES = ['terminal', 'desktop'] as const
+const SURFACES = ['vscode', 'mobile'] as const
 
 const PANE = {
   plugin: 'human-todos',
@@ -86,7 +86,7 @@ test('a run item with a cwd draws it dimmed under the script, open or confirming
     todo({ id: '2', kind: 'run', script: 'ls', status: 'confirming', cwd: '/work/lib' }),
     todo({ id: '3', kind: 'run', script: 'ls' }),
   ])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   const rows = await texts(pane)
 
   expect(rows.indexOf('in /work/app')).toBe(rows.indexOf('$ make') + 1)
@@ -104,7 +104,7 @@ test('every kind draws the buttons the spec lists, each keyed button-id', async 
     todo({ id: '4', kind: 'run', script: 'ls' }),
     todo({ id: '5', kind: 'image', paths: ['/shots/light.png', '/shots/dark.png'] }),
   ])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
 
   expect(await buttons(pane)).toEqual([
     'close',
@@ -135,7 +135,7 @@ test('every kind draws the buttons the spec lists, each keyed button-id', async 
 
 test('pressing a button hands the press to the actions and leaves the pane drawn', async ($, on) => {
   await seeded($, on, [todo({ kind: 'run', script: 'ls' })])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
 
   await pane.press({ key: 'done-1' })
   expect(await pane.find({ key: 'close' })).toBeDefined()
@@ -145,7 +145,7 @@ test('pressing a button hands the press to the actions and leaves the pane drawn
 
 test('a note draws under the detail', async ($, on) => {
   await seeded($, on, [todo({ detail: 'Detail', note: 'Stopped' })])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
 
   const rows = await texts(pane)
   expect(rows.indexOf('Stopped')).toBe(rows.indexOf('Detail') + 1)
@@ -158,7 +158,7 @@ test('a running item draws the live tail, a spinner frame and its own buttons', 
     todo({ id: '1', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1', liveTail: ['a', 'b', 'c', 'd'] }),
     todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1', isStopping: true }),
   ])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   const rows = await texts(pane)
 
   expect(rows).toContain('⠋ Do it')
@@ -177,7 +177,7 @@ test('finished items draw a mark and a dimmed title, then Clear finished removes
     todo({ id: '4', title: 'Zero', status: 'failed', exitCode: 0 }),
     todo({ id: '5', title: 'Still open' }),
   ])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
 
   expect((await pane.find({ type: 'Text', text: '✓ ' }))?.props.color).toBe('success')
   expect((await pane.find({ type: 'Text', text: '✗ ' }))?.props.color).toBe('error')
@@ -197,7 +197,7 @@ test('finished items draw a mark and a dimmed title, then Clear finished removes
 
 test('the band counts open and confirming items and yields to an open pane', async ($, on) => {
   const { opened } = await seeded($, on, [todo({ id: '1' })])
-  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
 
   expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 1 Human Todo')
   expect((await band.find({ key: 'open-pane' }))?.text).toBe('Open')
@@ -205,7 +205,7 @@ test('the band counts open and confirming items and yields to an open pane', asy
   await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '1' })
   await $.tool.call({ tool: 'mcp__human-todos__add', kind: 'task', title: 'a' })
   await $.tool.call({ tool: 'mcp__human-todos__add', kind: 'run', title: 'b', script: 'ls' })
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   await pane.press({ key: 'close' })
   await pane.unmount()
   expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 2 Human Todos')
@@ -218,7 +218,7 @@ test('the band counts open and confirming items and yields to an open pane', asy
 
 test('a band with only finished or running items draws nothing', async ($, on) => {
   await seeded($, on, [todo({ id: '1', status: 'done' }), todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1' })])
-  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
 
   expect(await band.find({ key: 'open-pane' })).toBeUndefined()
   await band.unmount()
@@ -265,12 +265,12 @@ test('the band follows where the engine has the pane: shown while it is undrawn,
   setPlaced(false)
   await $.command.run({ command: 'todos', args: '' })
 
-  const covered = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const covered = await $.ui.mount({ ...BAND, surface: 'vscode' })
   expect((await covered.find({ key: 'open-pane' }))?.text).toBe('Open')
   await covered.unmount()
 
   setPlaced(true)
-  const placed = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const placed = await $.ui.mount({ ...BAND, surface: 'vscode' })
   expect(await placed.find({ key: 'open-pane' })).toBeUndefined()
   await placed.unmount()
 })
@@ -278,7 +278,7 @@ test('the band follows where the engine has the pane: shown while it is undrawn,
 test('a confirming item shows its whole script, so Confirm never runs what was clipped', async ($, on) => {
   const script = 'one\ntwo\nthree\nfour'
   await seeded($, on, [todo({ kind: 'run', script })])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   await pane.press({ key: 'run-1' })
 
   const rows = await texts(pane)
@@ -292,9 +292,9 @@ test('drawing after the session id changed writes nothing and shows the loaded l
   const { setSession } = await seeded($, on, [todo({ id: '1', title: 'Old' })])
   setSession('sess-2')
 
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   expect(await texts(pane)).toContain('○ Old')
-  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
   expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 1 Human Todo')
   const message = await $.ui.mount({ ...MESSAGE('[Human Todos] x'), surface: 'terminal' })
   await message.unmount()
@@ -304,7 +304,7 @@ test('drawing after the session id changed writes nothing and shows the loaded l
 
 test('with nothing left to do, a blank row separates the notice from the finished list', async ($, on) => {
   await seeded($, on, [todo({ id: '1', title: 'Fine', status: 'done' })])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
 
   const rows = await texts(pane)
   const notice = rows.indexOf('Nothing for you right now.')
@@ -318,42 +318,27 @@ const hintTexts = async (ui: Parameters<typeof texts>[0]) => (await texts(ui)).m
 
 test('a list that fits the pane draws no end line and no hints', async ($, on) => {
   await seeded($, on, three)
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   expect(await texts(pane)).not.toContain(END)
   expect(await hintTexts(pane)).toEqual([])
   await pane.unmount()
 })
 
-test('a list taller than the pane ends with the end line and pins hints counting the to-dos out of view', async ($, on) => {
-  await seeded($, on, three)
-  const at = (offset: number) => ({ ...PANE.props, scroll: { offset, bodyRows: 8 } })
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal', props: at(0) })
-  expect(await texts(pane)).toContain(END)
-  expect(await hintTexts(pane)).toEqual(['↓ 2 more'])
-  const below = await pane.find({ key: 'more-below' })
-  expect(below?.props.position).toBe('absolute')
-  expect(below?.props.top).toBe(7)
-
-  await pane.redraw(at(6))
-  expect(await hintTexts(pane)).toEqual(['↑ 1 more'])
-  expect((await pane.find({ key: 'more-above' }))?.props.top).toBe(6)
-
-  await pane.redraw(at(9))
-  expect(await hintTexts(pane)).toEqual(['↑ 2 more'])
-  await pane.unmount()
-})
-
-test('off the terminal an overflowing list keeps its end line but draws no hints', async ($, on) => {
-  await seeded($, on, three)
-  const pane = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, scroll: { offset: 0, bodyRows: 8 } } })
-  expect(await texts(pane)).toContain(END)
-  expect(await hintTexts(pane)).toEqual([])
-  await pane.unmount()
+test('an overflowing list on the plain drawer keeps its end line, after a blank once items finished, and draws no hints', async ($, on) => {
+  await seeded($, on, [...three, todo({ id: '4', title: 'Old', status: 'done' })])
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ ...PANE, surface, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 8 } } })
+    const rows = await texts(pane)
+    expect(rows).toContain(END)
+    expect(rows[rows.indexOf(END) - 1]).toBe(' ')
+    expect(await hintTexts(pane)).toEqual([])
+    await pane.unmount()
+  }
 })
 
 test('a long title wraps at word breaks, one row per Text', async ($, on) => {
   await seeded($, on, [todo({ title: 'Store the token for the replay workspace before the pilot runs' })])
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   const rows = await texts(pane)
   const first = rows.findIndex(r => r.startsWith('○ Store'))
   expect(rows.slice(first, first + 2)).toEqual(['○ Store the token for the replay', 'workspace before the pilot runs'])

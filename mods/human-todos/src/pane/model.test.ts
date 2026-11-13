@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { Todo } from '../../types'
-import { bandModel, paneModel } from './model'
+import { bandModel, endRows, outOfView, paneModel } from './model'
 import type { PaneRow, Tone } from './model'
 
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'task', title: 'Do it', status: 'open', ...over })
@@ -187,4 +187,21 @@ test('bandModel counts open and confirming items and has nothing when none wait'
   expect(bandModel([todo({})])).toEqual({ waiting: 1, title: '1 to-do' })
   expect(bandModel([todo({ status: 'done' }), todo({ id: '2', status: 'running' })])).toBeUndefined()
   expect(bandModel([])).toBeUndefined()
+})
+
+test('endRows close an overflowing list: a blank first only after the finished list', () => {
+  const end = text("You've reached the end of the list.", 'dim')
+  expect(endRows(build([todo({})]))).toEqual([end])
+  expect(endRows(build([todo({}), todo({ id: '2', status: 'done' })]))).toEqual([BLANK, end])
+})
+
+test('outOfView counts the items that start above the window and end below it', () => {
+  const spans = [
+    { first: 0, last: 2 },
+    { first: 4, last: 6 },
+    { first: 8, last: 8 },
+  ]
+  expect(outOfView(spans, 0, 8)).toEqual({ above: 0, below: 0 })
+  expect(outOfView(spans, 1, 5)).toEqual({ above: 1, below: 2 })
+  expect(outOfView(spans, 5, 7)).toEqual({ above: 2, below: 1 })
 })

@@ -9,6 +9,6 @@
     "license": "MIT",
     "types": "./types/index.d.ts"
   },
-  "clients": [],
+  "clients": ["pane/kit-view.tsx", "band.tsx"],
   "files": ["LICENSE", "README.md", "docs"]
 }

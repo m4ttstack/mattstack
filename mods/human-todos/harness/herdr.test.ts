@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
-import { SESSION, herdrFake, startSession, words, world } from './test-world'
+import { SESSION, herdrFake, press, startSession, words, world } from './test-world'
 
 type On = Parameters<typeof world>[0]
 
@@ -41,8 +41,8 @@ async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; 
   const pane = await $.ui.mount(PANE)
   const run1 = async (id: string) => {
     const polls = w.clock.ticks(1000)
-    await pane.press({ key: `run-${id}` })
-    await pane.press({ key: `confirm-${id}` })
+    await press(pane, id, 'run')
+    await press(pane, id, 'confirm')
     while (w.clock.ticks(1000) === polls && item(id)?.status === 'running') await w.clock.settle()
   }
   const items = () => (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
@@ -166,7 +166,7 @@ test('a rerun reuses its tab and ignores the marker of the run before', async ($
   const tab = item('1')?.paneId ?? ''
   const first = item('1')?.token
   fake.print(tab, 'first run')
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.advance(1000)
   expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped' })
 
@@ -272,7 +272,7 @@ test('Stop sends ctrl+c to the tab, and the marker that follows reports stopped'
   await run1('1')
   fake.print(item('1')?.paneId ?? '', 'running')
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
 
   expect(toasts).toEqual(['Stopping #1'])
   expect(fake.ran('herdr pane send-keys')).toEqual([`herdr pane send-keys '${item('1')?.paneId}' ctrl+c`])
@@ -290,7 +290,7 @@ test('a Stop that herdr refuses puts the button back and says so', async ($, on)
   if (!live) throw new Error('no pane')
   live.isAlive = false
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
 
   expect(toasts).toEqual(['Stopping #1', 'Could not stop #1'])
   expect(item('1')).toMatchObject({ status: 'running', isStopping: false })
@@ -304,7 +304,7 @@ test('Show focuses the workspace and the tab, then the pane through rt when rt e
   await run1('1')
   const ws = [...fake.workspaces][0]
 
-  await pane.press({ key: 'show-1' })
+  await press(pane, '1', 'show')
 
   expect(fake.calls.slice(-4)).toEqual([
     `herdr workspace focus '${ws}'`,
@@ -318,7 +318,7 @@ test('Show without rt still focuses the tab and never calls rt', async ($, on) =
   const { run1, fake, pane, toasts } = await seeded($, on, [todo({})], { hasRt: false })
   await run1('1')
 
-  await pane.press({ key: 'show-1' })
+  await press(pane, '1', 'show')
 
   expect(fake.ran('herdr tab focus')).toHaveLength(1)
   expect(fake.ran('rt ')).toEqual([])
@@ -331,7 +331,7 @@ test('Show on a tab herdr cannot focus says so', async ($, on) => {
   const real = fake.run
   fake.run = c => (c.startsWith('herdr tab focus') ? { exitCode: 1, stdout: '', stderr: '' } : real(c))
 
-  await pane.press({ key: 'show-1' })
+  await press(pane, '1', 'show')
 
   expect(toasts).toEqual(['Could not bring that tab forward'])
 })
@@ -401,7 +401,7 @@ test('clearing a finished item closes its tab too', async ($, on) => {
   fake.finish(item('1')?.paneId ?? '', 0)
   await clock.advance(1000)
 
-  await pane.press({ key: 'clear' })
+  await pane.post({ type: 'clear' })
 
   expect(fake.ran('herdr tab close')).toEqual([`herdr tab close '${tab}'`])
 })
@@ -432,14 +432,17 @@ test('a script that cannot be typed puts the item back and no poller runs', asyn
 
 test('two runs started together share one workspace', async ($, on) => {
   const { fake, pane, clock } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2' })])
-  await pane.press({ key: 'run-1' })
-  await pane.press({ key: 'run-2' })
+  await press(pane, '1', 'run')
+  await press(pane, '2', 'run')
+  // A Client's posts in one tick reach the plugin as its last one, so the second press comes from another drawing.
+  const other = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
-  await Promise.all([pane.press({ key: 'confirm-1' }), pane.press({ key: 'confirm-2' })])
+  await Promise.all([press(pane, '1', 'confirm'), press(other, '2', 'confirm')])
   await clock.settle()
 
   expect(fake.ran('herdr workspace create')).toHaveLength(1)
   expect(fake.ran('herdr tab create')).toHaveLength(1)
+  await other.unmount()
 })
 
 test('a session that starts with a running herdr item watches it again', async ($, on) => {
@@ -520,7 +523,7 @@ test('a resumed herdr item can still be stopped', async ($, on) => {
   await startSession($)
   const pane = await $.ui.mount(PANE)
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await w.clock.advance(1000)
 
   const [item] = (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos

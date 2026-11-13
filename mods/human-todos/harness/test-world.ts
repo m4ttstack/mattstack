@@ -120,6 +120,11 @@ export function world(on: On, { entries = {}, now = 1_000_000, prefix = 'mcp__hu
 
 export const startSession = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
+type Posting = { post: (data: { type: 'press'; id: string; button: string }) => Promise<void> }
+
+// Presses an item's button the way the kit drawer does: its Client posts the press to the plugin.
+export const press = (pane: Posting, id: string, button: string) => pane.post({ type: 'press', id, button })
+
 export type Piece = { stream: 'stdout' | 'stderr'; text: string }
 export type Exit = { code: number | null; signal: string | null }
 export type Child = AsyncGenerator<Piece, Exit>

@@ -1003,6 +1003,279 @@ function registerActions(on) {
   });
 }
 
+// mods/human-todos/src/pane.tsx
+import { atom as atom2, read as read2, update as update2 } from "claude-code";
+
+// packages/mod-kit/src/draw/cells.ts
+var segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+var PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
+var EMOJI = /\p{Emoji_Presentation}|\u20E3/u;
+var EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}\uFE0F/u;
+var ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u;
+var WIDE_RANGES = [
+  [4352, 4447],
+  [11904, 12350],
+  [12353, 13311],
+  [13312, 19903],
+  [19968, 40959],
+  [40960, 42191],
+  [43360, 43391],
+  [44032, 55203],
+  [63744, 64255],
+  [65072, 65135],
+  [65280, 65376],
+  [65504, 65510],
+  [131072, 262141]
+];
+function graphemeWidth(grapheme) {
+  if (EMOJI.test(grapheme) || EMOJI_BASE_WITH_VS16.test(grapheme))
+    return 2;
+  const first = grapheme.codePointAt(0) ?? 0;
+  if (ZERO_WIDTH.test(grapheme))
+    return 0;
+  return WIDE_RANGES.some(([lo, hi]) => first >= lo && first <= hi) ? 2 : 1;
+}
+var graphemes = (text) => Array.from(segmenter.segment(text), (part) => part.segment);
+function cellWidth(text) {
+  if (PRINTABLE_ASCII.test(text))
+    return text.length;
+  return graphemes(text).reduce((n, grapheme) => n + graphemeWidth(grapheme), 0);
+}
+function cutCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return text.slice(0, Math.max(0, cells));
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text)) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out += grapheme;
+  }
+  return out;
+}
+function padCells(text, cells) {
+  return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
+}
+function firstGrapheme(text) {
+  return segmenter.segment(text)[Symbol.iterator]().next().value?.segment ?? "";
+}
+
+// packages/mod-kit/src/draw/text.ts
+function sp(t, style = {}) {
+  return { t, ...style };
+}
+function widthOf(spans) {
+  return spans.reduce((n, span) => n + cellWidth(span.t), 0);
+}
+function spanAt(line, x) {
+  let from = 0;
+  for (const span of line) {
+    const to = from + cellWidth(span.t);
+    if (span.action !== undefined && x >= from && x < to)
+      return span;
+    from = to;
+  }
+  return;
+}
+function hitAt(line, x) {
+  if (!line)
+    return;
+  return spanAt(line, x)?.action ?? line.action;
+}
+var actionKey = (action) => JSON.stringify(action);
+function spanHoverKey(span, row) {
+  return span.action === undefined ? undefined : `${row}:${actionKey(span.action)}`;
+}
+function lineHoverKey(line) {
+  return line.action === undefined ? undefined : actionKey(line.action);
+}
+function hoverKeyAt(lines, row, x) {
+  const line = lines[row];
+  if (!line)
+    return;
+  const span = spanAt(line, x);
+  return span ? spanHoverKey(span, row) : lineHoverKey(line);
+}
+function wrap(text, width) {
+  const out = [];
+  for (const raw of text.split(`
+`)) {
+    let row = "";
+    for (const word of raw.split(" ")) {
+      const next = row === "" ? word : `${row} ${word}`;
+      if (cellWidth(next) > width && row !== "") {
+        out.push(row);
+        row = word;
+      } else
+        row = next;
+      while (cellWidth(row) > width) {
+        const piece = cutCells(row, width) || firstGrapheme(row);
+        if (piece === row)
+          break;
+        out.push(piece);
+        row = row.slice(piece.length);
+      }
+    }
+    out.push(row);
+  }
+  return out;
+}
+// packages/mod-kit/src/draw/theme.ts
+var ICON = {
+  layers: "",
+  done: "",
+  todo: "",
+  missing: "",
+  back: "",
+  next: "",
+  chat: "",
+  single: "\uDB81\uDC3E",
+  multi: "\uDB80\uDD38",
+  text: "\uDB81\uDE0E",
+  review: "",
+  edit: "",
+  info: "",
+  minimize: ""
+};
+var BRAND = { pink: "#FF6B9D", pinkDeep: "#e9578b", plum: "#161224", glyph: ICON.layers };
+var FILL = {
+  primary: { bg: "#2f9e5b", color: "black" },
+  secondary: { bg: "#2b4a6b", color: "white" },
+  neutral: { bg: "#4a4a4a", color: "white" },
+  caution: { bg: "#b8902e", color: "black" },
+  chip: { bg: "#3a3a3a", color: "white" },
+  current: { bg: "#3aa8b8", color: "black" },
+  disabled: { bg: "#262626", color: "#5c5c5c" },
+  field: { bg: "#2c2c2c", color: "white" },
+  brand: { bg: BRAND.pink, color: BRAND.plum }
+};
+var SCROLL = { track: "#383838", thumb: "#707070" };
+var HOVER_FILL = {
+  [BRAND.pink]: "#ff94b9",
+  [BRAND.pinkDeep]: "#f57ba6",
+  [FILL.primary.bg]: "#45c275",
+  [FILL.secondary.bg]: "#3b6896",
+  [FILL.neutral.bg]: "#666666",
+  [FILL.caution.bg]: "#d6aa45",
+  [FILL.chip.bg]: "#555555",
+  [FILL.current.bg]: "#5fcfdc"
+};
+var PRESS_FILL = {
+  [BRAND.pink]: "#ea5d8c",
+  [BRAND.pinkDeep]: "#d84a7d",
+  [FILL.primary.bg]: "#288a4f",
+  [FILL.secondary.bg]: "#26425f",
+  [FILL.neutral.bg]: "#424242",
+  [FILL.caution.bg]: "#a58127",
+  [FILL.chip.bg]: "#333333",
+  [FILL.current.bg]: "#3394a2"
+};
+function hovered(span) {
+  return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
+}
+function pressed(span) {
+  return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
+}
+var ACCENT = { color: "cyan" };
+var GRAY = { color: "gray" };
+var DONE = { color: "green" };
+var WARN = { color: "yellow" };
+var DIM = { dim: true };
+var MUTED = { cyan: "#3d6f78", green: "#4d7a4d", yellow: "#857640", red: "#8a4a4a", gray: "#4a4a4a", [BRAND.pink]: "#7a3d58" };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#6e3a52", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#5e2f45", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#24313f", color: "#8a8a8a" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#262626", color: "#8a8a8a" }, [SCROLL.track]: { bg: "#2a2a2a" }, [SCROLL.thumb]: { bg: "#4a4a4a" } };
+function muted(span) {
+  if (span.bg)
+    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#3a3a3a", color: "#8a8a8a" }, dim: false };
+  if (span.color)
+    return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
+  return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
+}
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
+var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
+}
+// packages/mod-kit/src/widgets/scroll-bar.ts
+function scrollBar(rows, total, offset) {
+  if (total <= rows)
+    return Array.from({ length: rows }, () => [sp("   ")]);
+  const size = Math.max(1, Math.round(rows * rows / total));
+  const at = Math.min(Math.max(0, offset), total - rows);
+  const top = Math.round(at / (total - rows) * (rows - size));
+  return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
+}
+// packages/mod-kit/src/interact/focus.ts
+function isEngaged(e) {
+  return e.data?.type === "engaged";
+}
+// packages/mod-kit/src/patterns/hideable-pane.tsx
+var DEFAULT_BAND_LABEL = "mattstack waiting";
+async function showPane($, pane, title) {
+  await $.ui.open({ id: pane.id, title, focus: true });
+  $.ui.invalidate("ui.render");
+}
+async function paneMessage($, e, pane, waiting) {
+  const message = e.data;
+  if (message?.type === "reopen" && waiting && waiting.formId === message.formId)
+    await showPane($, pane, waiting.title);
+  if (message?.type === "hide" && e.requestId === pane.id)
+    await $.ui.close({ id: pane.id });
+}
+function registerPaneRedraw(on) {
+  on("ui.close", async ($, e, next) => {
+    const closed = await next(e);
+    $.ui.invalidate("ui.render");
+    return closed;
+  });
+}
+async function bandAbovePrompt($, e, rest, waiting, pane) {
+  const label = pane.label ?? DEFAULT_BAND_LABEL;
+  const els = $.ui.resolve(e);
+  const { Box, Text, Button } = els;
+  const Client = "Client" in els ? els.Client : undefined;
+  const band = Client ? /* @__PURE__ */ h(Client, {
+    key: `band-${waiting.formId}`,
+    module: "./band.js",
+    props: { formId: waiting.formId, title: waiting.title, label }
+  }) : /* @__PURE__ */ h(Box, {
+    flexDirection: "row",
+    gap: 2
+  }, /* @__PURE__ */ h(Text, {
+    color: BRAND.pink
+  }, `${BRAND.glyph} ${label} `), /* @__PURE__ */ h(Text, {
+    wrap: "truncate-end"
+  }, waiting.title), /* @__PURE__ */ h(Button, {
+    key: `open-${pane.id}`,
+    label: "Open",
+    onPress: () => showPane($, pane, waiting.title)
+  }));
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, band, rest);
+}
+async function isPlaced($, pane) {
+  return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
+}
 // mods/human-todos/src/pane/model.ts
 var SCRIPT_ROWS = 2;
 var FINISHED_SHOWN = 8;
@@ -1124,6 +1397,13 @@ function paneModel(input) {
   }
   return { rows, spans, hasFinished: finished.length > 0 };
 }
+function endRows(model) {
+  const end = { kind: "text", text: "You've reached the end of the list.", tone: "dim", indent: false };
+  return model.hasFinished ? [{ kind: "blank" }, end] : [end];
+}
+function outOfView(spans, top, bottom) {
+  return { above: spans.filter((s) => s.first < top).length, below: spans.filter((s) => s.last > bottom).length };
+}
 function bandModel(list) {
   const waiting = list.filter((t) => t.status === "open" || t.status === "confirming").length;
   if (waiting === 0)
@@ -1131,9 +1411,139 @@ function bandModel(list) {
   return { waiting, title: `${waiting} ${waiting === 1 ? "to-do" : "to-dos"}` };
 }
 
+// mods/human-todos/src/pane/act.ts
+async function pressTodo($, todoId, button, surface) {
+  const todo = (await peekTodos($)).find((t) => t.id === todoId);
+  if (!todo)
+    return;
+  try {
+    await press($, todo, button, surface);
+  } catch {
+    $.ui.toast(`Could not ${LABELS[button].toLowerCase()} #${todo.id}`);
+  }
+}
+async function clearFinished($) {
+  const gone = await removeTodos($, (t) => !isActionable(t));
+  cleanup($, gone).catch(() => $.ui.toast("Could not tidy up after the cleared items"));
+}
+
+// mods/human-todos/src/pane/kit-layout.ts
+var GUTTER = 2;
+var INDENT = 2;
+var BAR = 3;
+var BAR_ROWS = 2;
+var modelWidth = (width) => Math.max(1, width - GUTTER - BAR - INDENT);
+var STYLE = {
+  title: { bold: true },
+  dim: DIM,
+  warning: WARN,
+  script: ACCENT,
+  link: ACCENT,
+  success: DONE,
+  error: { color: "red" },
+  inactive: GRAY,
+  plain: {}
+};
+function messageOf(button) {
+  if (button.id === "clear")
+    return { type: "clear" };
+  if (button.id === "more")
+    return { type: "toggle", id: button.todoId ?? "" };
+  return { type: "press", id: button.todoId ?? "", button: button.id };
+}
+var fit = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
+function buttonLines(row, room) {
+  const indent = sp(" ".repeat(row.flush ? 0 : INDENT));
+  const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
+  const gap = row.lead ? 1 : 0;
+  const avail = Math.max(1, room - widthOf([indent, ...lead]));
+  let rest = row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) }));
+  const draw = (buttons) => buttonRow(buttons, undefined, avail, gap);
+  const out = [];
+  while (rest.length > 0) {
+    let n = rest.length;
+    while (n > 1 && widthOf(draw(rest.slice(0, n))) > avail)
+      n--;
+    out.push([indent, ...out.length === 0 ? lead : [sp(" ".repeat(widthOf(lead)))], ...draw(rest.slice(0, n))]);
+    rest = rest.slice(n);
+  }
+  return out;
+}
+function rowLines(row, room) {
+  switch (row.kind) {
+    case "blank":
+      return [[]];
+    case "text": {
+      const indent = row.indent ? INDENT : 0;
+      const cells = Math.max(1, room - indent);
+      const pieces = cellWidth(row.text) > cells ? wrap(row.text, cells) : [row.text];
+      return pieces.map((piece) => [sp(" ".repeat(indent)), sp(piece, STYLE[row.tone])]);
+    }
+    case "finished": {
+      const mark = `${row.mark} `;
+      const exit = row.exit === undefined ? "" : ` (exit ${row.exit})`;
+      const title = fit(row.title, room - cellWidth(mark) - cellWidth(exit));
+      return [[sp(mark, STYLE[row.tone]), sp(title, DIM), ...exit ? [sp(exit, DIM)] : []]];
+    }
+    case "buttons":
+      return buttonLines(row, room);
+  }
+}
+function kitLayout(model, width, bodyRows) {
+  const room = Math.max(1, width - GUTTER - BAR);
+  const windowRows = Math.max(1, bodyRows - BAR_ROWS);
+  const starts = [];
+  const lines = [];
+  for (const row of model.rows) {
+    starts.push(lines.length);
+    lines.push(...rowLines(row, room));
+  }
+  const spans = model.spans.map((s) => ({ first: starts[s.first] ?? 0, last: (starts[s.last + 1] ?? lines.length) - 1 }));
+  if (lines.length > windowRows)
+    for (const row of endRows(model))
+      lines.push(...rowLines(row, room));
+  return { lines, spans, windowRows };
+}
+function maxOffset(layout) {
+  return Math.max(0, layout.lines.length - layout.windowRows);
+}
+function clip(line, cells) {
+  const out = [];
+  let used = 0;
+  for (const span of line) {
+    const w = cellWidth(span.t);
+    if (used + w <= cells) {
+      out.push(span);
+      used += w;
+      continue;
+    }
+    const t = cutCells(span.t, cells - used);
+    if (t !== "")
+      out.push({ ...span, t });
+    used += cellWidth(t);
+    break;
+  }
+  out.push(sp(" ".repeat(Math.max(0, cells - used))));
+  return out;
+}
+var hint = (text) => [sp(` ${text} `, FILL.chip)];
+function kitWindow(layout, width, offset) {
+  const { lines, spans, windowRows } = layout;
+  const top = Math.min(Math.max(0, offset), maxOffset(layout));
+  const shown = lines.slice(top, top + windowRows);
+  if (lines.length > windowRows) {
+    const { above, below } = outOfView(spans, top, top + windowRows - 1);
+    if (above > 0)
+      shown[0] = hint(`↑ ${above} more`);
+    if (below > 0)
+      shown[shown.length - 1] = hint(`↓ ${below} more`);
+  }
+  const bar = scrollBar(windowRows, lines.length, top);
+  return shown.map((line, n) => [...clip([sp(" ".repeat(GUTTER)), ...line], width - BAR), ...bar[n] ?? []]);
+}
+
 // mods/human-todos/src/pane/plain-view.tsx
 var HEADER_ROWS = 3;
-var END_OF_LIST = "You've reached the end of the list.";
 var TEXT_PROPS = {
   title: { bold: true },
   dim: { dimColor: true },
@@ -1152,53 +1562,30 @@ async function closePane($, paneId) {
   await $.ui.close({ id: paneId });
   $.ui.invalidate("ui.render");
 }
-async function clearFinished($) {
-  const gone = await removeTodos($, (t) => !isActionable(t));
-  cleanup($, gone).catch(() => $.ui.toast("Could not tidy up after the cleared items"));
-}
-async function pressTodo($, button, surface) {
-  const todo = (await peekTodos($)).find((t) => t.id === button.todoId);
-  if (!todo || button.id === "more" || button.id === "clear")
-    return;
-  try {
-    await press($, todo, button.id, surface);
-  } catch {
-    $.ui.toast(`Could not ${LABELS[button.id].toLowerCase()} #${todo.id}`);
-  }
-}
 function drawPlainPane($, e, model, scroll, paneId) {
   const { Box, Text, Button } = $.ui.resolve(e);
-  const columns = paneColumns(e);
   const rows = [];
   const blank = (key) => rows.push(/* @__PURE__ */ h(Text, {
     key
   }, " "));
   const button = (b) => {
     const key = b.id === "clear" ? "clear" : b.id === "more" ? `more-${b.todoId}` : `${b.id}-${b.todoId}`;
+    const onPress = (surface) => {
+      if (b.id === "clear")
+        return clearFinished($);
+      if (b.id === "more")
+        return b.todoId ? toggleExpanded($, b.todoId) : undefined;
+      return b.todoId ? pressTodo($, b.todoId, b.id, surface) : undefined;
+    };
     return /* @__PURE__ */ h(Button, {
       key,
       plain: b.id === "more" ? true : undefined,
       variant: b.tone === "primary" ? "primary" : undefined,
       label: b.label,
-      onPress: (p) => b.id === "more" && b.todoId ? toggleExpanded($, b.todoId) : b.id === "clear" ? clearFinished($) : void pressTodo($, b, p.surface)
+      onPress: (p) => void onPress(p.surface)
     });
   };
-  blank("pad-top");
-  rows.push(/* @__PURE__ */ h(Box, {
-    key: "header",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  }, /* @__PURE__ */ h(Text, {
-    bold: true
-  }, TITLE), /* @__PURE__ */ h(Button, {
-    key: "close",
-    role: "dismiss",
-    label: "Close",
-    onPress: () => closePane($, paneId)
-  })));
-  blank("pad-header");
-  model.rows.forEach((row, i) => {
-    const key = `row-${i}`;
+  const draw = (row, key) => {
     switch (row.kind) {
       case "blank":
         return blank(key);
@@ -1236,69 +1623,111 @@ function drawPlainPane($, e, model, scroll, paneId) {
         }, row.lead.pad ? `${row.lead.text} ` : row.lead.text), row.buttons.map(button)));
       }
     }
-  });
+  };
+  blank("pad-top");
+  rows.push(/* @__PURE__ */ h(Box, {
+    key: "header",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  }, /* @__PURE__ */ h(Text, {
+    bold: true
+  }, TITLE), /* @__PURE__ */ h(Button, {
+    key: "close",
+    role: "dismiss",
+    label: "Close",
+    onPress: () => closePane($, paneId)
+  })));
+  blank("pad-header");
+  model.rows.forEach((row, i) => draw(row, `row-${i}`));
   const overflows = HEADER_ROWS + model.rows.length + 1 > scroll.bodyRows;
-  if (overflows) {
-    if (model.hasFinished)
-      blank("pad-end");
-    rows.push(/* @__PURE__ */ h(Text, {
-      key: "end",
-      dimColor: true
-    }, END_OF_LIST));
-  }
+  if (overflows)
+    endRows(model).forEach((row, i) => draw(row, `end-${i}`));
   blank("pad-bottom");
-  const hints = [];
-  if (overflows && e.surface === "terminal") {
-    const bottom = scroll.offset + scroll.bodyRows - 1;
-    const spans = model.spans.map((s) => ({ first: s.first + HEADER_ROWS, last: s.last + HEADER_ROWS }));
-    const above = spans.filter((s) => s.first < scroll.offset).length;
-    const below = spans.filter((s) => s.last > bottom).length;
-    const hint = (key, top, text) => /* @__PURE__ */ h(Box, {
-      key,
-      position: "absolute",
-      top,
-      left: 0,
-      right: 0
-    }, /* @__PURE__ */ h(Text, {
-      color: "suggestion",
-      wrap: "truncate-end"
-    }, `  ${text}`.padEnd(columns)));
-    if (above > 0)
-      hints.push(hint("more-above", scroll.offset, `↑ ${above} more`));
-    if (below > 0)
-      hints.push(hint("more-below", bottom, `↓ ${below} more`));
-  }
   return /* @__PURE__ */ h(Box, {
     flexDirection: "column",
     paddingX: 2
-  }, rows, hints);
+  }, rows);
 }
 
 // mods/human-todos/src/pane.tsx
 var PANE = "human-todos";
 var SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+var TODO_PANE = { id: PANE, label: "Human Todos waiting" };
+var keysAtom = atom2({ plugin: "human-todos", key: "keysInPane" }, false);
+var scrollAtom = atom2({ plugin: "human-todos", key: "scrollOffset" }, 0);
+var kitColumns;
 async function openPane($) {
   await $.ui.open({ id: PANE, title: TITLE });
   $.ui.invalidate("ui.render");
 }
+function modelOf(pane, width) {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width });
+}
+async function waitingBand($) {
+  const band = bandModel(await peekTodos($));
+  return band && { formId: PANE, title: band.title };
+}
+async function setKeysInPane($, value) {
+  if (await read2($, keysAtom) !== value)
+    await update2($, keysAtom, () => value);
+}
+async function act($, message, surface) {
+  if (message.type === "press")
+    return pressTodo($, message.id, message.button, surface);
+  if (message.type === "toggle")
+    return toggleExpanded($, message.id);
+  if (message.type === "clear")
+    return clearFinished($);
+}
+async function scrollKit($, by, bodyRows, columns) {
+  const most = maxOffset(kitLayout(modelOf(await readPane2($), modelWidth(columns)), columns, bodyRows));
+  const from = Math.min(await read2($, scrollAtom), most);
+  const to = Math.min(Math.max(0, from + by), most);
+  if (to !== await read2($, scrollAtom))
+    await update2($, scrollAtom, () => to);
+}
 function registerPane(on) {
-  on("ui.close", async ($, e, next) => {
-    const closed = await next(e);
-    $.ui.invalidate("ui.render");
-    return closed;
-  });
+  registerPaneRedraw(on);
   on("command.run", { command: "todos" }, async ($) => {
     await openPane($);
     return { text: `${TITLE} pane opened.` };
   });
+  on("prompt.edit", async ($, e, next) => {
+    await setKeysInPane($, false);
+    return next(e);
+  });
+  on("prompt.submit", async ($, e, next) => {
+    await setKeysInPane($, false);
+    return next(e);
+  });
+  on("ui.focus", async ($, e, next) => {
+    await setKeysInPane($, false);
+    return next(e);
+  });
+  on("ui.message", async ($, e, next) => {
+    if (isEngaged(e))
+      await setKeysInPane($, true);
+    await paneMessage($, e, TODO_PANE, await waitingBand($));
+    if (e.requestId === PANE)
+      act($, e.data, e.surface).catch(() => $.ui.toast(`Could not update ${TITLE}`));
+    return next(e);
+  });
+  on("ui.scroll", { component: "Pane", requestId: "human-todos" }, async ($, e, next) => {
+    if (e.contentRows > e.bodyRows || kitColumns === undefined)
+      return next(e);
+    await scrollKit($, e.by, e.bodyRows, kitColumns);
+    return {};
+  });
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     if (e.props.hasSurvey)
       return next(e);
-    if ((await $.ui.panes()).some((p) => p.id === PANE && p.isPlaced))
+    if (await isPlaced($, TODO_PANE))
       return next(e);
     const band = bandModel(await peekTodos($));
     if (!band)
       return next(e);
+    if (e.surface === "terminal" || e.surface === "desktop")
+      return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE);
     const { waiting } = band;
     const { Box, Text, Button } = $.ui.resolve(e);
     return /* @__PURE__ */ h(Box, {
@@ -1331,10 +1760,26 @@ function registerPane(on) {
     }, summary, extra > 0 ? `  (+${extra} ${extra === 1 ? "line" : "lines"}, ctrl+o)` : ""));
   });
   on("ui.render", { component: "Pane", requestId: "human-todos" }, async ($, e) => {
-    const { list, openIds, spin: frameNo } = await readPane2($);
-    const inner = Math.max(22, paneColumns(e) - 4);
-    const model = paneModel({ list, expanded: openIds, spin: SPIN[frameNo % SPIN.length] ?? "", width: inner - 2 });
-    return drawPlainPane($, e, model, e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
+    const pane = await readPane2($);
+    if (e.surface !== "terminal" && e.surface !== "desktop") {
+      const inner = Math.max(22, paneColumns(e) - 4);
+      return drawPlainPane($, e, modelOf(pane, inner - 2), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
+    }
+    const { Client } = $.ui.resolve(e);
+    const width = paneColumns(e);
+    kitColumns = width;
+    const props = {
+      model: modelOf(pane, modelWidth(width)),
+      focused: e.props.isFocused || await read2($, keysAtom),
+      width,
+      offset: await read2($, scrollAtom),
+      bodyRows: e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
+    };
+    return /* @__PURE__ */ h(Client, {
+      key: "human-todos-pane",
+      module: "./pane/kit-view.js",
+      props
+    });
   });
 }
 // mods/human-todos/src/contract.ts
