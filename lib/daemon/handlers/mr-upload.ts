@@ -18,6 +18,11 @@
  * goes up with the PR's description through `gh pr edit --attach`. The daemon is the only process
  * that holds the GitHub token, and gh gets it only as GH_TOKEN in its
  * environment, never in argv.
+ *
+ * mr:attach-upload uploads images for a comment written later: gh posts them
+ * in a holder comment (`gh pr comment --attach`), the daemon reads each URL
+ * back from the holder and deletes it through glance. It never fetches an
+ * asset URL, since a fresh one can answer 404 for a while.
  */
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync, type BigIntStats } from "fs";
@@ -61,10 +66,16 @@ export interface MrUploadSeams {
   ghBinary?: () => string | null;
   githubToken?: () => Promise<string | null>;
   githubContext?: (repoName: string, repoPath: string) => Promise<{ projectPath: string; readBody: (iid: number) => Promise<string> }>;
+  attachContext?: (repoName: string, repoPath: string) => Promise<{ projectPath: string; provider: AttachProvider }>;
   ghTimeoutMs?: number;
   readBackTimeoutMs?: number;
   stagingRoot?: () => string;
 }
+
+export type AttachProvider = {
+  restRequest(method: string, path: string, body?: unknown, op?: string): Promise<Response>;
+  deleteComment(projectPath: string, mrIid: number, note: { id: number; kind: "general" }): Promise<void>;
+};
 
 export const MR_UPLOAD_GITHUB_REFUSAL = "unsupported: GitHub uploads a file only as part of a PR write; use evidence_attach, which uploads images into the PR description";
 
@@ -85,6 +96,58 @@ const STAGING_PREFIX = "rt-gh-attach-";
 const DESCRIBE_GITHUB_ONLY = "unsupported: describe-with-attachments needs a GitHub repo";
 const BODY_CHANGED = "the PR body changed after the write, so the image URLs were not recorded";
 const UPLOAD_REJECTED = /attaching files requires write access|gh auth login|HTTP 401/;
+
+/** The version check (10 s), gh (60 s), the read-back (20 s) and glance's delete (15 s) total 105 s, inside the board's 120 s call. */
+export const GH_ATTACH_UPLOAD_TIMEOUT_MS = 60_000;
+const MAX_ATTACH_UPLOADS = 10;
+const ATTACH_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+const ATTACH_GITHUB_ONLY = "unsupported: mr:attach-upload needs a GitHub repo";
+const HOLDER_LINE = "Uploading images for a review thread. rt deletes this comment once they are up.";
+const COMMENT_ID = /#issuecomment-(\d+)\b/g;
+
+type AttachPayload = { iid: number; files: DescribeAttachment[] };
+
+function parseAttachPayload(payload: unknown): { ok: true; p: AttachPayload } | { ok: false; error: string } {
+  const p = payload as { iid?: unknown; files?: unknown } | undefined;
+  if (typeof p?.iid !== "number" || !Number.isInteger(p.iid) || p.iid <= 0) return { ok: false, error: "iid must be a positive integer" };
+  const list = p.files;
+  if (!Array.isArray(list) || list.length < 1 || list.length > MAX_ATTACH_UPLOADS) {
+    return { ok: false, error: `files must be an array of 1 to ${MAX_ATTACH_UPLOADS} {path, name}` };
+  }
+  const seen = new Set<string>();
+  const files: DescribeAttachment[] = [];
+  for (const entry of list as Array<{ path?: unknown; name?: unknown } | null>) {
+    const path = entry?.path;
+    const name = entry?.name;
+    if (typeof path !== "string" || !isAbsolute(path)) return { ok: false, error: `file path must be an absolute path: ${JSON.stringify(path)}` };
+    if (typeof name !== "string" || !ATTACHMENT_NAME.test(name)) {
+      return { ok: false, error: `file name ${JSON.stringify(name)} must be a plain file name: a letter or digit, then letters, digits, dots, underscores or dashes, at most 128 characters` };
+    }
+    const folded = name.toLowerCase();
+    if (seen.has(folded)) return { ok: false, error: `file names must be unique ignoring case: ${name}` };
+    seen.add(folded);
+    const ext = extname(name).toLowerCase();
+    if (!ATTACH_IMAGE_EXTENSIONS.includes(ext)) return { ok: false, error: `attachment ${name} must be an image: ${ATTACH_IMAGE_EXTENSIONS.join(", ")}` };
+    if (ext !== extname(path).toLowerCase()) return { ok: false, error: `attachment ${name} must keep the extension of ${path}` };
+    files.push({ path, name });
+  }
+  return { ok: true, p: { iid: p.iid, files } };
+}
+
+function holderCommentId(stdout: string): number | null {
+  const last = [...stdout.matchAll(COMMENT_ID)].at(-1)?.[1];
+  const id = last === undefined ? NaN : Number(last);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hostedUrl(body: string, name: string): string | null {
+  const m = new RegExp(`!\\[${escapeRegExp(name)}\\]\\((https://[^)\\s]+)\\)`).exec(body);
+  return m ? m[1]! : null;
+}
 
 type DescribePayload = { iid: number; description: string; attachments: DescribeAttachment[]; runId?: string };
 
@@ -309,6 +372,7 @@ export function createMrUploadHandlers(
 ): {
   "mr:upload": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:upload">>;
   "mr:describe-with-attachments": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:describe-with-attachments">>;
+  "mr:attach-upload": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:attach-upload">>;
 } & HandlerMap {
   const repoContextFn = seams.repoContext ?? ((repoName: string, repoPath?: string) => getGitLabContext("upload", repoName, repoPath));
   const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
@@ -327,6 +391,11 @@ export function createMrUploadHandlers(
       projectPath,
       readBody: (iid: number) => readPrBody(provider, projectPath, iid),
     };
+  });
+  const attachContextFn = seams.attachContext ?? (async (repoName: string, repoPath: string) => {
+    const repoCtx = await getRepoContext(repoName, repoPath);
+    if (repoCtx.forge !== "github") throw new Error(ATTACH_GITHUB_ONLY);
+    return { projectPath: repoCtx.projectPath, provider: repoCtx.provider as AttachProvider };
   });
   const ghTimeoutMsOpt = seams.ghTimeoutMs;
   const readBackTimeoutMsOpt = seams.readBackTimeoutMs;
@@ -379,6 +448,22 @@ export function createMrUploadHandlers(
     const ticket = ticketCopyAnyRun(checked.realpath, checked.filename, checked.bytes, runRecordsFn(), seams.ticketFiles ?? {}, warn);
     if (ticket) return { ok: false, error: ticket };
     return { ok: true, checked };
+  }
+
+  async function readyGh(signal?: AbortSignal): Promise<{ ok: true; gh: string; PATH: string; HOME: string } | { ok: false; error: string }> {
+    const gh = ghBinaryFn();
+    if (!gh) return { ok: false, error: "gh is not installed; attaching images on GitHub needs gh 2.99 or newer (run: brew install gh)" };
+    const PATH = process.env.PATH ?? "";
+    const HOME = process.env.HOME ?? homedir();
+    const versionRun = await runCapture([gh, "--version"], { env: { PATH, HOME }, timeoutMs: GH_VERSION_TIMEOUT_MS, signal });
+    if (versionRun.timedOut) return { ok: false, error: `gh --version did not finish in ${GH_VERSION_TIMEOUT_MS / 1000}s and was stopped` };
+    const versionLine = versionRun.stdout.split("\n")[0]!.trim();
+    const version = parseGhVersion(versionLine);
+    if (!version || !versionAtLeast(version, GH_MIN_VERSION)) {
+      const named = version ? version.join(".") : versionLine.slice(0, 80) || "unknown";
+      return { ok: false, error: `gh ${named} cannot attach images; it needs gh 2.99 or newer (run: brew upgrade gh)` };
+    }
+    return { ok: true, gh, PATH, HOME };
   }
 
   return {
@@ -442,18 +527,9 @@ export function createMrUploadHandlers(
       if (!repoPath) return { ok: false, error: "repo-unknown" };
       if (!(await isGitHubFn(repoPath))) return { ok: false, error: DESCRIBE_GITHUB_ONLY };
 
-      const gh = ghBinaryFn();
-      if (!gh) return { ok: false, error: "gh is not installed; attaching images on GitHub needs gh 2.99 or newer (run: brew install gh)" };
-      const PATH = process.env.PATH ?? "";
-      const HOME = process.env.HOME ?? homedir();
-      const versionRun = await runCapture([gh, "--version"], { env: { PATH, HOME }, timeoutMs: GH_VERSION_TIMEOUT_MS, signal });
-      if (versionRun.timedOut) return { ok: false, error: `gh --version did not finish in ${GH_VERSION_TIMEOUT_MS / 1000}s and was stopped` };
-      const versionLine = versionRun.stdout.split("\n")[0]!.trim();
-      const version = parseGhVersion(versionLine);
-      if (!version || !versionAtLeast(version, GH_MIN_VERSION)) {
-        const named = version ? version.join(".") : versionLine.slice(0, 80) || "unknown";
-        return { ok: false, error: `gh ${named} cannot attach images; it needs gh 2.99 or newer (run: brew upgrade gh)` };
-      }
+      const ready = await readyGh(signal);
+      if (!ready.ok) return { ok: false, error: ready.error };
+      const { gh, PATH, HOME } = ready;
 
       const token = await githubTokenFn();
       if (!token) return { ok: false, error: "missing GitHub token (run: rt setup github connect)" };
@@ -575,7 +651,123 @@ export function createMrUploadHandlers(
         removeStaging(made, root);
       }
     },
+
+    "mr:attach-upload": async (payload, signal) => {
+      const decoded = decodeRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      const parsed = parseAttachPayload(payload);
+      if (!parsed.ok) return { ok: false, error: parsed.error };
+      const { iid, files } = parsed.p;
+      const repoName = decoded.repo;
+      const repoPath = ctx.repoIndex()[repoName];
+      if (!repoPath) return { ok: false, error: "repo-unknown" };
+      if (!(await isGitHubFn(repoPath))) return { ok: false, error: ATTACH_GITHUB_ONLY };
+
+      const checked: Array<DescribeAttachment & { bytes: Uint8Array }> = [];
+      for (const f of files) {
+        const result = checkAttachment(repoName, repoPath, f.path, undefined);
+        if (!result.ok) return { ok: false, error: result.error };
+        const { bytes, mime, realpath } = result.checked;
+        // The guard types a file by its resolved name, so a .gif link to an .mp4 would be staged as a .gif holding video bytes.
+        if (extname(f.name).toLowerCase() !== extname(realpath).toLowerCase()) return { ok: false, error: `attachment ${f.name} must keep the extension of ${realpath}` };
+        if (!mime.startsWith("image/")) return { ok: false, error: `attachment ${f.name} must be an image: ${ATTACH_IMAGE_EXTENSIONS.join(", ")}` };
+        if (bytes.length > GITHUB_IMAGE_MAX_BYTES) return { ok: false, error: `file is ${(bytes.length / (1024 * 1024)).toFixed(1)} MB; the upload cap is 10 MB for an image on GitHub` };
+        checked.push({ ...f, bytes });
+      }
+
+      const ready = await readyGh(signal);
+      if (!ready.ok) return { ok: false, error: ready.error };
+      const { gh, PATH, HOME } = ready;
+      const token = await githubTokenFn();
+      if (!token) return { ok: false, error: "missing GitHub token (run: rt setup github connect)" };
+
+      let github: Awaited<ReturnType<typeof attachContextFn>>;
+      try {
+        github = await attachContextFn(repoName, repoPath);
+      } catch (err) {
+        return { ok: false, error: errorMessage(err) };
+      }
+
+      const root = stagingRootFn();
+      let made: string;
+      try {
+        made = mkdtempSync(join(root, STAGING_PREFIX));
+      } catch (err) {
+        return { ok: false, error: `could not make a staging folder: ${(err as NodeJS.ErrnoException).code ?? "unknown error"}` };
+      }
+      try {
+        // gh matches a body reference to an --attach file by absolute path, so every path below uses this one resolved spelling (/private/var, never /var).
+        const dir = realpathSync(made);
+        const scrub = (text: string): string => {
+          for (const spelling of new Set([dir, made])) text = text.split(`${spelling}/`).join("").split(spelling).join("");
+          return text.split(token).join("[token]");
+        };
+        const staged = checked.map((c) => join(dir, c.name));
+        const bodyFile = join(dir, "body.md");
+        const body = [HOLDER_LINE, "", ...checked.map((c) => `![${c.name}](./${c.name})`), ""].join("\n");
+        try {
+          // wx: gh uploads exactly the bytes that passed the checks, never a file something else put at that name.
+          checked.forEach((c, i) => writeFileSync(staged[i]!, c.bytes, { flag: "wx", mode: 0o600 }));
+          writeFileSync(bodyFile, body, { flag: "wx", mode: 0o600 });
+        } catch (err) {
+          return { ok: false, error: `could not stage the attachments: ${scrub(errorMessage(err))}` };
+        }
+
+        const timeoutMs = ghTimeoutMsOpt ?? GH_ATTACH_UPLOAD_TIMEOUT_MS;
+        const run = await runCapture(
+          [gh, "pr", "comment", String(iid), "--repo", `github.com/${github.projectPath}`, "--body-file", bodyFile, ...checked.flatMap((c, i) => ["--attach", `${staged[i]!}#${c.name}`])],
+          { cwd: dir, env: { PATH, HOME, GH_TOKEN: token, GH_PROMPT_DISABLED: "1" }, stderr: "pipe", timeoutMs, signal },
+        );
+        const exitedClean = run.exitCode === 0 && !run.timedOut;
+        const ghError = run.timedOut
+          ? `gh pr comment did not finish in ${timeoutMs / 1000}s and was stopped`
+          : scrub(run.stderr).trim().slice(0, GH_ERROR_MAX_CHARS) || `gh pr comment exited with code ${run.exitCode}`;
+        const commentId = holderCommentId(run.stdout);
+        if (commentId === null) {
+          return { ok: false, error: exitedClean ? "gh pr comment printed no comment URL, so the image URLs could not be read" : ghError };
+        }
+
+        try {
+          if (!exitedClean) return { ok: false, error: ghError };
+          const readBackMs = readBackTimeoutMsOpt ?? READ_BACK_TIMEOUT_MS;
+          let posted: string;
+          try {
+            posted = await withDeadline(readHolder(github, commentId), readBackMs, `reading comment ${commentId} did not finish in ${readBackMs / 1000}s`);
+          } catch (err) {
+            return { ok: false, error: `could not read the holder comment back: ${errorMessage(err)}` };
+          }
+          const urls: Record<string, string> = {};
+          const missing: string[] = [];
+          for (const c of checked) {
+            const hosted = hostedUrl(posted, c.name);
+            if (hosted === null) missing.push(c.name);
+            else urls[c.name] = hosted;
+          }
+          if (missing.length > 0) return { ok: false, error: `the holder comment came back without an upload URL for ${missing.join(", ")}` };
+          return { ok: true, data: { urls } };
+        } finally {
+          try {
+            await github.provider.deleteComment(github.projectPath, iid, { id: commentId, kind: "general" });
+          } catch (err) {
+            ctx.log.warn({ err, iid, commentId }, "mr:attach-upload: the holder comment could not be deleted and stays on the PR");
+          }
+        }
+      } finally {
+        removeStaging(made, root);
+      }
+    },
   };
+}
+
+async function readHolder(github: { projectPath: string; provider: AttachProvider }, commentId: number): Promise<string> {
+  const res = await github.provider.restRequest("GET", `/repos/${github.projectPath}/issues/comments/${commentId}`, undefined, "mr:attach-upload");
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`GitHub answered ${res.status}`);
+  }
+  const json = (await res.json()) as { body?: unknown };
+  if (typeof json.body !== "string") throw new Error("GitHub's answer carried no comment body");
+  return json.body;
 }
 
 /** Races a read against a deadline; the timer is cleared either way so it never holds the process open. */

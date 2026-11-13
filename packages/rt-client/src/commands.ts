@@ -1291,6 +1291,14 @@ export interface Commands {
     payload: { repoName: string; iid: number; description: string; attachments: DescribeAttachment[]; runId?: string };
     data: DescribeWithAttachmentsResult;
   };
+  /** Uploads 1 to 10 images to a GitHub PR for a later comment to embed.
+      gh posts them in a holder comment, which is read back for each URL and
+      then deleted. Each file goes through mr:upload's checks first. `urls`
+      is keyed by each file's `name`. */
+  "mr:attach-upload": {
+    payload: { repoName: string; iid: number; files: DescribeAttachment[] };
+    data: { urls: Record<string, string> };
+  };
 
   "mr:fetch-job-detail": { payload: { repoName: string; iid: number; jobId: number; pipelineId?: number }; data: MrJobDetail };
   "mr:fetch-job-trace": { payload: { repoName: string; iid: number; jobId: number }; data: string };
@@ -1599,6 +1607,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:update",
   "mr:upload",
   "mr:describe-with-attachments",
+  "mr:attach-upload",
   "mr:fetch-job-detail",
   "mr:fetch-job-trace",
   "mr:commit-parents",
