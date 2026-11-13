@@ -51,8 +51,8 @@ out and written.
 - A table of actions reads as a table of contents: each row is one short
   plain sentence ("Launches an agentic review.") that links to a section, and
   the section says what happens for the reader. Leave internal mechanism out
-  of both: no "gate", no tool names, and say "the MR" rather than assuming a
-  forge, except in a menu named after one.
+  of both: no "gate", no tool names, and say "the MR or PR" rather than
+  assuming a forge, except in a menu named after one.
 - Name a feature by what it is, not how it looks: the section is
   "Background work", and the text can say its mark is a mauve ring.
 - The page never describes itself or how it was made: no "this page covers",
