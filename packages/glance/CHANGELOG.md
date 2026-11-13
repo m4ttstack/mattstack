@@ -1,6 +1,6 @@
 # @mattstack/glance
 
-## 0.33.2
+## 0.33.3
 
 ### Patch Changes
 
@@ -12,6 +12,47 @@
   `{discussionId: 'gh-review-thread-<id>', noteId, path}`, the ids
   `fetchMRDiscussions` already serves for that thread. A PR with no changed
   files gets null and nothing is posted. GitHub only; GitLab is unchanged.
+
+## 0.33.2
+
+### Patch Changes
+
+- GitLab `fetchPullRequests({ iids })` works on gitlab.com again
+  (GLANCE-57). gitlab.com scored the dashboard fragment inside a
+  `mergeRequests(iids:)` connection at 739, over its cap of 250, so every
+  by-iid read failed. It now sends one single-MR query (the one
+  `fetchSingleMR` sends) per distinct iid, at most 4 in flight, and returns the same
+  results, newest first as before. A read of N iids is now N GitLab requests
+  instead of one; an empty `iids` list sends nothing.
+- A GitLab dashboard group (`createDashboard({ mrIid: [...] })`) sends at
+  most 20 GitLab requests in any 60 s window, however many MRs it watches
+  (`GITLAB_GROUP_REQUESTS_PER_MINUTE`, exported). Each fetch reads the MRs a
+  push event named first, then the ones read longest ago, and gives the rest
+  half the room when they have waited longer, so a push storm cannot starve
+  them. A batch counts until it settles. Each MR is read with its own
+  request, so one that fails reaches `onWarning` (`request-failed`) while the
+  rest arrive, and one that keeps failing takes its turn instead of blocking
+  the others.
+  While the push cable is up or connecting, polls leave 5 of the 20 for push
+  (`GITLAB_GROUP_PUSH_RESERVE`); a push that finds the window full is read
+  as soon as it frees. Worst-case staleness for N MRs is
+  `ceil(N / 20) x 71 s` with the cable down and `ceil(N / 15) x 93 s` with
+  it up (142 s and 186 s for 30 MRs). Groups that fit the budget (3 MRs with
+  the cable down, 5 with it up) read every MR on every poll as before, and
+  GitHub groups are unchanged.
+  `WatcherSubscribeCallbacks.onEvent` takes an optional iid, which GitLab's
+  `subscribePullRequestEvents` now passes.
+- GitHub `Pipeline.id` can still move for a head commit, each time a lower
+  run's checks appear after a higher run's (GLANCE-59). That is accepted:
+  keeping the first id seen would need state per commit across reads, which
+  a provider does not hold. A consumer that must not act again should compare
+  `Pipeline.sha` too. The README's "GitHub `Pipeline.id`" section has the
+  detail.
+- `fetchSameOrigin` and `mayFollowRedirect` are exported from the package
+  entry, so callers outside glance that send a token follow redirects under
+  glance's one rule. No behaviour change inside glance.
+- The live conformance harness records an outcome for `enqueuePullRequest`
+  and `fetchMergeQueueStatus` on both forges (GLANCE-58).
 
 ## 0.33.1
 

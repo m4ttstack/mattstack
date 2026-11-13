@@ -1022,6 +1022,21 @@ export function Board() {
     [addToast, load]
   );
 
+  const handleDropReview = useCallback(
+    (mr: BoardMR): Promise<boolean> => {
+      if (!mr.webUrl) return Promise.resolve(false);
+      return postAction('/review/drop', { mrUrl: mr.webUrl }).then(result => {
+        if (!result.ok) {
+          addToast(`could not drop the review (${result.status})`);
+          return false;
+        }
+        load();
+        return true;
+      });
+    },
+    [addToast, load]
+  );
+
   const handleAskDismiss = useCallback(
     (mr: BoardMRWithReview) => {
       const req = bandDismissRequest(mr, seatRef.current);
@@ -1323,9 +1338,16 @@ export function Board() {
         ),
       dismiss: handleDismissLane,
       standDown: handleStandDown,
+      dropReview: handleDropReview,
       postSlack: handlePostSlack,
     }),
-    [handleCopy, handleDismissLane, handleStandDown, handlePostSlack]
+    [
+      handleCopy,
+      handleDismissLane,
+      handleStandDown,
+      handleDropReview,
+      handlePostSlack,
+    ]
   );
   const handleAskRetry = useCallback(
     (mr: BoardMRWithReview) => {
@@ -2413,6 +2435,9 @@ export function Board() {
               canBack={queue.canBack}
               canNext={queue.canNext}
               onFocusPane={handleFocusPane}
+              onDropReview={mr =>
+                handleDropReview(mr).then(ok => ok && retireActiveGate())
+              }
               onAnswered={retireActiveGate}
               onContinue={retireActiveGate}
               onLostChange={lost => queue.hold(lost ? activeGateId : null)}

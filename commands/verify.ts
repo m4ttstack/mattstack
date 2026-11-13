@@ -22,7 +22,7 @@ import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { listOrgs } from "../lib/settings/stores.ts";
 import { composePlan, realSecretPresence, type PlanInputs } from "../lib/setup/plan.ts";
-import { rowStatus } from "../lib/setup/plan-blocks.ts";
+import { checklistStatus } from "../lib/setup/plan-blocks.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 import type { Action, Plan, Row } from "../lib/setup/contract.ts";
@@ -125,10 +125,10 @@ export function verifyPayload(results: CheckResult[], plan: Plan) {
 }
 
 /** Coral only for a required check that ran and found something wrong; a row verify spares never draws it. */
-function checkStatus(r: Row, c: CheckResult): RenderStatus {
+function checkStatus(r: Row, c: CheckResult, team: Plan["team"]): RenderStatus {
   if (c.status === "pass") return "done";
   if (c.status === "skip") return "skipped";
-  const own = rowStatus(r);
+  const own = checklistStatus(r, team);
   if (c.status === "fail") return own;
   return own === "failed" ? "warn" : own;
 }
@@ -177,10 +177,10 @@ export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
       undefined,
       ...g.rows.flatMap((r) => {
         const c = rowToCheck(r, opts);
-        const status = checkStatus(r, c);
+        const status = checkStatus(r, c, plan.team);
         drawn.push(status);
         const blocks: Block[] = [out.line(status, r.title, r.detail)];
-        const verb = c.status === "pass" || c.status === "skip" ? null : nextVerb(r);
+        const verb = c.status === "pass" || c.status === "skip" || status === "off" ? null : nextVerb(r);
         if (verb) blocks.push(out.callout("next", out.cmd(verb)));
         return blocks;
       }),

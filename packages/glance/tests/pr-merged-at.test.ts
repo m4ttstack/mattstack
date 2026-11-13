@@ -50,11 +50,7 @@ describe('GitLab PullRequest.mergedAt', () => {
   test('maps mergedAt from the fragment', async () => {
     const p = new GitLabProvider('https://gitlab.example', 't');
     (p as any).runQuery = async () => ({
-      project: {
-        mergeRequests: {
-          nodes: [gitlabNode({ mergedAt: '2026-08-02T10:00:00Z' })],
-        },
-      },
+      project: { mergeRequest: gitlabNode({ mergedAt: '2026-08-02T10:00:00Z' }) },
     });
     const [pr] = await p.fetchPullRequests({ projectPath: 'g/p', iids: [7], state: 'merged' });
     expect(pr!.mergedAt).toBe('2026-08-02T10:00:00Z');
@@ -63,7 +59,7 @@ describe('GitLab PullRequest.mergedAt', () => {
   test('an open MR has a null mergedAt', async () => {
     const p = new GitLabProvider('https://gitlab.example', 't');
     (p as any).runQuery = async () => ({
-      project: { mergeRequests: { nodes: [gitlabNode({ state: 'opened', mergedAt: null })] } },
+      project: { mergeRequest: gitlabNode({ state: 'opened', mergedAt: null }) },
     });
     const [pr] = await p.fetchPullRequests({ projectPath: 'g/p', iids: [7], state: 'opened' });
     expect(pr!.mergedAt).toBeNull();

@@ -60,6 +60,32 @@ let accountsPaneChecks: [Check] = [
                           .rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"token\":\"t\"}".utf8)))
         }
     },
+    Check("on Just me an unconnected optional account draws a quiet grey ring; a required missing account keeps the warning") { c in
+        let solo = soloForgePlan()
+        let gitlab = solo.groups[0].rows[1]
+        c.expect(solo.team.isSolo, "rt's isSolo: mode none and an empty slug")
+        c.expectEqual(StatusGlyph.symbol(for: gitlab, team: solo.team), "circle")
+        c.expectEqual(StatusGlyph.tint(for: gitlab, team: solo.team), .grey)
+        c.expectEqual(StatusGlyph.multicolor(for: gitlab, team: solo.team), false)
+        let slack = planWithSlack(.missing).groups[0].rows[1]
+        c.expectEqual(StatusGlyph.symbol(for: slack, team: solo.team), "exclamationmark.triangle.fill")
+        c.expectEqual(StatusGlyph.multicolor(for: slack, team: solo.team), true)
+        var gated = gitlab
+        gated.finishGated = true
+        c.expectEqual(StatusGlyph.symbol(for: gated, team: solo.team), "exclamationmark.triangle.fill", "a row that holds Finish still needs you")
+        var ready = gitlab
+        ready.status = .ready
+        c.expectEqual(StatusGlyph.symbol(for: ready, team: solo.team), "checkmark.circle.fill")
+    },
+    Check("on a team Mac an unconnected optional account keeps the warning, as on main") { c in
+        let team = planWithSlack(.missing).team
+        c.expect(!team.isSolo)
+        let slackApp = PlanRow(id: "account.slack-app", kind: .account, title: "Slack app", why: "w", required: false, status: .missing,
+                               detail: "The team has no Slack app yet", recheck: .onChange)
+        c.expectEqual(StatusGlyph.symbol(for: slackApp, team: team), "exclamationmark.triangle.fill")
+        c.expectEqual(StatusGlyph.multicolor(for: slackApp, team: team), true)
+        c.expectEqual(StatusGlyph.symbol(for: slackApp, team: nil), "exclamationmark.triangle.fill", "no plan read yet is not solo")
+    },
     Check("only Permissions runs the 1 s readiness tick; Accounts refreshes on appear and after each action") { c in
         c.expectEqual(SettingsPane.allCases.filter(\.watchesReadiness), [.permissions])
     },

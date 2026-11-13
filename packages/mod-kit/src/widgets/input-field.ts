@@ -1,3 +1,4 @@
+import { cellWidth, cutCells, firstGrapheme, tailCells } from '../draw/cells'
 import { sp, widthOf, type Span } from '../draw/text'
 import { FILL, PLACEHOLDER } from '../draw/theme'
 
@@ -10,9 +11,10 @@ export function inputField(value: string, placeholder: string, width: number, sh
     sp(' '.repeat(Math.max(0, width - 1 - widthOf(spans))), FILL.field),
   ]
   if (value === '') {
-    const hint = placeholder.slice(0, room)
-    return box([sp(hint.slice(0, 1) || ' ', showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(1), PLACEHOLDER)])
+    const hint = cutCells(placeholder, room)
+    const head = firstGrapheme(hint)
+    return box([sp(head || ' ', showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)])
   }
-  const shown = value.length >= room ? value.slice(value.length - room + 1) : value
+  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value
   return box([sp(shown, { color: FILL.field.color }), ...(showCursor ? [sp(' ', { color: FILL.field.color, inverse: true })] : [])])
 }

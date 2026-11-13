@@ -1,0 +1,388 @@
+import { expect, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
+
+import type { Todo } from '../types'
+import { SESSION, startSession, world } from './test-world'
+
+const SURFACES = ['vscode', 'mobile'] as const
+
+const PANE = {
+  plugin: 'human-todos',
+  component: 'Pane',
+  requestId: 'human-todos',
+  props: { title: 'Human Todos', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+} as const
+
+const BAND = {
+  plugin: 'human-todos',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 } },
+} as const
+
+const MESSAGE = (text: string, over: Record<string, unknown> = {}) =>
+  ({
+    plugin: 'human-todos',
+    component: 'UserMessage',
+    props: { text, origin: { kind: 'plugin', name: 'human-todos' }, isExpanded: false, ...over },
+  }) as const
+
+const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'task', title: 'Do it', status: 'open', ...over })
+
+async function seeded($: Engine, on: Parameters<typeof world>[0], list: Todo[]) {
+  const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
+  await startSession($)
+  return w
+}
+
+const texts = async (ui: { findAll: (q: { type: string }) => Promise<{ text: string }[]> }) => (await ui.findAll({ type: 'Text' })).map(t => t.text)
+const buttons = async (ui: { findAll: (q: { type: string }) => Promise<{ key: string | undefined }[]> }) =>
+  (await ui.findAll({ type: 'Button' })).map(b => b.key)
+
+test('the header shows the title and Close, which closes the pane and lets the band return', async ($, on) => {
+  await seeded($, on, [todo({})])
+  for (const surface of SURFACES) {
+    await $.command.run({ command: 'todos', args: '' })
+    const pane = await $.ui.mount({ ...PANE, surface })
+    expect((await texts(pane)).find(row => row.trim() !== '')).toBe('Human Todos')
+    const band = await $.ui.mount({ ...BAND, surface })
+    expect(await band.find({ key: 'open-pane' })).toBeUndefined()
+
+    await pane.press({ key: 'close' })
+    expect(await band.find({ key: 'open-pane' })).toBeDefined()
+    await pane.unmount()
+    await band.unmount()
+  }
+})
+
+test('an open run item draws title, detail, a clipped script and its buttons in order', async ($, on) => {
+  await seeded($, on, [todo({ kind: 'run', title: 'Deploy', detail: 'To staging', script: 'one\ntwo\nthree\nfour' })])
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ ...PANE, surface })
+    const rows = await texts(pane)
+
+    expect(rows).toContain('○ Deploy')
+    expect(rows).toContain('To staging')
+    expect(rows).toContain('$ one')
+    expect(rows).toContain('two')
+    expect(rows).not.toContain('three')
+    expect(rows).toContain('… +2 more')
+    expect(await buttons(pane)).toEqual(['close', 'more-1', 'run-1', 'copy-1', 'done-1', 'skip-1'])
+    expect((await pane.find({ key: 'more-1' }))?.text).toBe('Show all')
+
+    await pane.press({ key: 'more-1' })
+    expect(await texts(pane)).toContain('four')
+    expect(await texts(pane)).not.toContain('… +2 more')
+    expect((await pane.find({ key: 'more-1' }))?.text).toBe('Show less')
+
+    await pane.press({ key: 'more-1' })
+    expect((await pane.find({ key: 'more-1' }))?.text).toBe('Show all')
+    await pane.unmount()
+  }
+})
+
+test('a run item with a cwd draws it dimmed under the script, open or confirming', async ($, on) => {
+  await seeded($, on, [
+    todo({ id: '1', kind: 'run', script: 'make', cwd: '/work/app' }),
+    todo({ id: '2', kind: 'run', script: 'ls', status: 'confirming', cwd: '/work/lib' }),
+    todo({ id: '3', kind: 'run', script: 'ls' }),
+  ])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  const rows = await texts(pane)
+
+  expect(rows.indexOf('in /work/app')).toBe(rows.indexOf('$ make') + 1)
+  expect(rows.indexOf('in /work/lib')).toBe(rows.indexOf('$ ls') + 1)
+  expect(rows.filter(row => row.startsWith('in '))).toHaveLength(2)
+  expect((await pane.find({ type: 'Text', text: 'in /work/app' }))?.props.dimColor).toBe(true)
+  await pane.unmount()
+})
+
+test('every kind draws the buttons the spec lists, each keyed button-id', async ($, on) => {
+  await seeded($, on, [
+    todo({ id: '1', kind: 'task' }),
+    todo({ id: '2', kind: 'terminal', script: 'sudo ls' }),
+    todo({ id: '3', kind: 'link', url: 'https://example.com' }),
+    todo({ id: '4', kind: 'run', script: 'ls' }),
+    todo({ id: '5', kind: 'image', paths: ['/shots/light.png', '/shots/dark.png'] }),
+  ])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+
+  expect(await buttons(pane)).toEqual([
+    'close',
+    'done-1',
+    'skip-1',
+    'copy-2',
+    'done-2',
+    'skip-2',
+    'open-3',
+    'done-3',
+    'skip-3',
+    'run-4',
+    'copy-4',
+    'done-4',
+    'skip-4',
+    'open-5',
+    'done-5',
+    'skip-5',
+  ])
+  expect((await pane.find({ key: 'open-3' }))?.props.variant).toBe('primary')
+  expect((await pane.find({ key: 'run-4' }))?.props.variant).toBe('primary')
+  expect(await texts(pane)).toContain('https://example.com')
+  expect((await pane.find({ key: 'open-5' }))?.props.label).toBe('Open')
+  expect(await texts(pane)).toContain('light.png, dark.png')
+  expect((await texts(pane)).some(row => row.includes('/shots/'))).toBe(false)
+  await pane.unmount()
+})
+
+test('pressing a button hands the press to the actions and leaves the pane drawn', async ($, on) => {
+  await seeded($, on, [todo({ kind: 'run', script: 'ls' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+
+  await pane.press({ key: 'done-1' })
+  expect(await pane.find({ key: 'close' })).toBeDefined()
+  expect((await $.tool.call({ tool: 'mcp__human-todos__list' })).result).toBe('#1 [done] Do it\n    script: ls')
+  await pane.unmount()
+})
+
+test('a note draws under the detail', async ($, on) => {
+  await seeded($, on, [todo({ detail: 'Detail', note: 'Stopped' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+
+  const rows = await texts(pane)
+  expect(rows.indexOf('Stopped')).toBe(rows.indexOf('Detail') + 1)
+  expect((await pane.find({ type: 'Text', text: 'Stopped' }))?.props.color).toBe('warning')
+  await pane.unmount()
+})
+
+test('a running item draws the live tail, a spinner frame and its own buttons', async ($, on) => {
+  await seeded($, on, [
+    todo({ id: '1', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 't', paneId: 'p1', liveTail: ['a', 'b', 'c', 'd'] }),
+    todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 't', paneId: 'p1', isStopping: true }),
+  ])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  const rows = await texts(pane)
+
+  expect(rows).toContain('⠋ Do it')
+  expect(rows).not.toContain('a')
+  expect(rows).toEqual(expect.arrayContaining(['b', 'c', 'd', '⠋ Running ', '⠋ Stopping… ']))
+  expect(await buttons(pane)).toEqual(['close', 'show-1', 'stop-1', 'show-2', 'forceStop-2'])
+  expect((await pane.find({ key: 'forceStop-2' }))?.text).toBe('Force stop')
+  // The plain drawer keeps its own look: Show stays the primary button while the run goes, as Run, Open and Confirm are.
+  expect((await pane.find({ key: 'show-1' }))?.props.variant).toBe('primary')
+  expect((await pane.find({ key: 'stop-1' }))?.props.variant).toBeUndefined()
+  await pane.unmount()
+})
+
+test('finished items draw a mark and a dimmed title, then Clear finished removes them', async ($, on) => {
+  await seeded($, on, [
+    todo({ id: '1', title: 'Fine', status: 'done' }),
+    todo({ id: '2', title: 'Broke', status: 'failed', exitCode: 2 }),
+    todo({ id: '3', title: 'Passed over', status: 'skipped' }),
+    todo({ id: '4', title: 'Zero', status: 'failed', exitCode: 0 }),
+    todo({ id: '5', title: 'Still open' }),
+  ])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+
+  expect((await pane.find({ type: 'Text', text: '✓ ' }))?.props.color).toBe('success')
+  expect((await pane.find({ type: 'Text', text: '✗ ' }))?.props.color).toBe('error')
+  expect((await pane.find({ type: 'Text', text: '– ' }))?.props.color).toBe('inactive')
+  expect((await pane.find({ type: 'Text', text: 'Fine' }))?.props.dimColor).toBe(true)
+  const rows = await texts(pane)
+  expect(rows).toContain(' (exit 2)')
+  expect(rows.filter(r => r.includes('(exit'))).toHaveLength(1)
+  expect(rows[rows.indexOf('Zero') + 1]).toBe(' ')
+  expect(await buttons(pane)).toContain('clear')
+
+  await pane.press({ key: 'clear' })
+  expect((await $.tool.call({ tool: 'mcp__human-todos__list' })).result).toBe('#5 [open] Still open')
+  expect(await pane.find({ key: 'clear' })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('the band counts open and confirming items and yields to an open pane', async ($, on) => {
+  const { opened } = await seeded($, on, [todo({ id: '1' })])
+  const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
+
+  expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 1 Human Todo')
+  expect((await band.find({ key: 'open-pane' }))?.text).toBe('Open')
+
+  await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '1' })
+  await $.tool.call({ tool: 'mcp__human-todos__add', kind: 'task', title: 'a' })
+  await $.tool.call({ tool: 'mcp__human-todos__add', kind: 'run', title: 'b', script: 'ls' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  await pane.press({ key: 'close' })
+  await pane.unmount()
+  expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 2 Human Todos')
+
+  await band.press({ key: 'open-pane' })
+  expect(opened.length).toBeGreaterThan(0)
+  expect(await band.find({ key: 'open-pane' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('a band with only finished or running items draws nothing', async ($, on) => {
+  await seeded($, on, [todo({ id: '1', status: 'done' }), todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 't', paneId: 'p1' })])
+  const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
+
+  expect(await band.find({ key: 'open-pane' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('a plugin row from this plugin draws one compact line; expanded and other rows pass', async ($, on) => {
+  await seeded($, on, [])
+  const row = await $.ui.mount({
+    ...MESSAGE('[Human Todos] The user marked #1 done.\nsecond\nthird'),
+    surface: 'terminal',
+  })
+  expect(await texts(row)).toEqual(['Human Todos ', 'The user marked #1 done.  (+2 lines, ctrl+o)'])
+  expect((await row.find({ type: 'Text', text: 'Human Todos ' }))?.props.color).toBe('suggestion')
+  await row.unmount()
+
+  const one = await $.ui.mount({ ...MESSAGE('[Human Todos] The user skipped #2.'), surface: 'terminal' })
+  expect(await texts(one)).toEqual(['Human Todos ', 'The user skipped #2.'])
+  await one.unmount()
+
+  const fenced = await $.ui.mount({ ...MESSAGE('[Human Todos] Ran #3: exit 0.\n```\nout\n```'), surface: 'terminal' })
+  expect(await texts(fenced)).toEqual(['Human Todos ', 'Ran #3: exit 0.  (+1 line, ctrl+o)'])
+  await fenced.unmount()
+
+  const expanded = await $.ui.mount({ ...MESSAGE('[Human Todos] x\ny', { isExpanded: true }), surface: 'terminal' })
+  expect(await expanded.find({ type: 'Text', text: 'Human Todos ' })).toBeUndefined()
+  await expanded.unmount()
+
+  const other = await $.ui.mount({ ...MESSAGE('[Human Todos] x\ny', { origin: { kind: 'plugin', name: 'other' } }), surface: 'terminal' })
+  expect(await other.find({ type: 'Text', text: 'Human Todos ' })).toBeUndefined()
+  await other.unmount()
+})
+
+test('/todos opens the pane', async ($, on) => {
+  const { opened } = world(on)
+  await startSession($)
+
+  const ran = await $.command.run({ command: 'todos', args: '' })
+  expect(opened).toEqual(['human-todos'])
+  expect(JSON.stringify(ran)).toContain('Human Todos')
+})
+
+test('the band follows where the engine has the pane: shown while it is undrawn, hidden once placed', async ($, on) => {
+  const { setPlaced } = await seeded($, on, [todo({})])
+  setPlaced(false)
+  await $.command.run({ command: 'todos', args: '' })
+
+  const covered = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect((await covered.find({ key: 'open-pane' }))?.text).toBe('Open')
+  await covered.unmount()
+
+  setPlaced(true)
+  const placed = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect(await placed.find({ key: 'open-pane' })).toBeUndefined()
+  await placed.unmount()
+})
+
+test('a confirming item shows its whole script, so Confirm never runs what was clipped', async ($, on) => {
+  const script = 'one\ntwo\nthree\nfour'
+  await seeded($, on, [todo({ kind: 'run', script })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  await pane.press({ key: 'run-1' })
+
+  const rows = await texts(pane)
+  for (const row of ['$ one', 'two', 'three', 'four']) expect(rows).toContain(row)
+  expect(rows.some(row => row.includes('more'))).toBe(false)
+  expect(await buttons(pane)).toEqual(['close', 'confirm-1', 'cancel-1'])
+  await pane.unmount()
+})
+
+test('drawing after the session id changed writes nothing and shows the loaded list', async ($, on) => {
+  const { setSession } = await seeded($, on, [todo({ id: '1', title: 'Old' })])
+  setSession('sess-2')
+
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  expect(await texts(pane)).toContain('○ Old')
+  const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect((await band.find({ type: 'Text', text: /Human Todo/ }))?.text).toBe('○ 1 Human Todo')
+  const message = await $.ui.mount({ ...MESSAGE('[Human Todos] x'), surface: 'terminal' })
+  await message.unmount()
+  await pane.unmount()
+  await band.unmount()
+})
+
+test('with nothing left to do, a blank row separates the notice from the finished list', async ($, on) => {
+  await seeded($, on, [todo({ id: '1', title: 'Fine', status: 'done' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+
+  const rows = await texts(pane)
+  const notice = rows.indexOf('Nothing for you right now.')
+  expect(rows.slice(notice, notice + 3)).toEqual(['Nothing for you right now.', ' ', '✓ '])
+  await pane.unmount()
+})
+
+const three = [todo({ id: '1', title: 'One' }), todo({ id: '2', title: 'Two' }), todo({ id: '3', title: 'Three' })]
+const END = "You've reached the end of the list."
+const hintTexts = async (ui: Parameters<typeof texts>[0]) => (await texts(ui)).map(t => t.trim()).filter(t => /^[↑↓] \d+ more$/.test(t))
+
+test('a list that fits the pane draws no end line and no hints', async ($, on) => {
+  await seeded($, on, three)
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  expect(await texts(pane)).not.toContain(END)
+  expect(await hintTexts(pane)).toEqual([])
+  await pane.unmount()
+})
+
+test('an overflowing list on the plain drawer keeps its end line, after a blank once items finished, and draws no hints', async ($, on) => {
+  await seeded($, on, [...three, todo({ id: '4', title: 'Old', status: 'done' })])
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ ...PANE, surface, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 8 } } })
+    const rows = await texts(pane)
+    expect(rows).toContain(END)
+    expect(rows[rows.indexOf(END) - 1]).toBe(' ')
+    expect(await hintTexts(pane)).toEqual([])
+    await pane.unmount()
+  }
+})
+
+type Drawn = { type?: string; key?: string; props?: Record<string, unknown>; children?: unknown[] }
+// The drawn elements in document order, each with the elements it sits in.
+function walk(node: unknown, parents: Drawn[] = [], out: { node: Drawn; parents: Drawn[] }[] = []) {
+  if (typeof node !== 'object' || node === null) return out
+  const el = node as Drawn
+  out.push({ node: el, parents })
+  for (const child of el.children ?? []) walk(child, [...parents, el], out)
+  return out
+}
+const shownText = (el: Drawn): string => (el.children ?? []).map(c => (typeof c === 'string' ? c : shownText(c as Drawn))).join('')
+
+test('the plain drawer puts the confirm prompt under the Confirm and Cancel buttons', async ($, on) => {
+  await seeded($, on, [todo({ kind: 'run', script: 'ls' })])
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ ...PANE, surface })
+    await pane.press({ key: 'run-1' })
+    const els = walk(await pane.drawn())
+    const confirm = els.findIndex(e => e.node.key === 'confirm-1' || e.node.props?.label === 'Confirm')
+    const prompt = els.findIndex(e => e.node.type === 'Text' && shownText(e.node).startsWith('Are you sure'))
+    expect(confirm, surface).toBeGreaterThan(-1)
+    expect(prompt, surface).toBeGreaterThan(confirm)
+    await pane.press({ key: 'cancel-1' })
+    await pane.unmount()
+  }
+})
+
+test('the plain drawer hangs the later rows of a long title under the first row’s text', async ($, on) => {
+  await seeded($, on, [todo({ title: 'Store the token for the replay workspace before the pilot runs' })])
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ ...PANE, surface })
+    const els = walk(await pane.drawn())
+    const later = els.find(e => e.node.type === 'Text' && shownText(e.node) === 'workspace before the pilot runs')
+    const first = els.find(e => e.node.type === 'Text' && shownText(e.node) === '○ Store the token for the replay')
+    expect(later?.parents.at(-1)?.props?.marginLeft, surface).toBe(2)
+    expect(first?.parents.some(p => p.props?.marginLeft === 2), surface).toBe(false)
+    await pane.unmount()
+  }
+})
+
+test('a long title wraps at word breaks, one row per Text', async ($, on) => {
+  await seeded($, on, [todo({ title: 'Store the token for the replay workspace before the pilot runs' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  const rows = await texts(pane)
+  const first = rows.findIndex(r => r.startsWith('○ Store'))
+  expect(rows.slice(first, first + 2)).toEqual(['○ Store the token for the replay', 'workspace before the pilot runs'])
+  await pane.unmount()
+})

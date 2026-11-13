@@ -188,6 +188,29 @@ group.updateIids(prev => prev.filter(id => id !== 43));
 | `onStatusChange(cb)` | `(cb: (status: WatcherStatus) => void) => void` | Monitor connection health |
 | `dispose()` | `() => void` | Stop all subscriptions and clean up |
 
+On GitLab a group reads one request per MR, so a group sends at most
+`GITLAB_GROUP_REQUESTS_PER_MINUTE` (20) GitLab requests in any 60 s window,
+polls and push refreshes together, however many MRs it watches. A batch
+counts until its last request settles. Each MR is read with its own request,
+so one that fails is reported through `onWarning` (`request-failed`,
+`detail`) while the rest arrive; it is read first on the next fetch, and from
+its second failure in a row it takes its turn with the others. A fetch fails
+only when every read in it does. Each fetch reads first the MRs a push event named, then
+the ones read longest ago, as many as the window has room for; when the rest
+have waited longer than the oldest named MR they get half the room, so a push
+storm cannot starve them. While the push cable is up or connecting, polls
+leave `GITLAB_GROUP_PUSH_RESERVE` (5) of the 20 for push, so an MR a push
+event names is read within the 150 ms debounce. If the window is full (for
+example right after an outage, when polls had no push to leave room for), it
+is read as soon as the window frees, within 60 s. Worst-case staleness for a
+group of N MRs: `ceil(N / 20) x 71 s` with the push cable down (10 s polls)
+and `ceil(N / 15) x 93 s` with it up (30 s polls); 30 MRs is at most 142 s
+and 186 s. A group that fits the budget (3 MRs with the cable down, 5 with it
+up) reads every MR on every poll as before; with poll jitter a 3 MR group can
+rarely leave one MR to the next poll. GitHub reads a group in one request per
+poll and is not budgeted. `fetchPullRequests({ iids })` itself is not
+budgeted; it keeps at most 4 requests in flight.
+
 ### `getMRDashboardProps`
 
 Lower-level helper that transforms a raw `PullRequest` into render-ready `MRDashboardProps`. Useful when you already have the MR data from `fetchPullRequests()` or `fetchSingleMR()`:
@@ -382,6 +405,25 @@ import type {
 } from '@mattstack/glance';
 ```
 
+### GitHub `Pipeline.id`
+
+A GitHub pull request has no single pipeline, so `Pipeline.id` is
+`github:run:<n>` for the lowest Actions run id among the checks on the head
+commit (`github:checks:<pr url>` when no check belongs to a run). It stays the
+same while that commit's runs fail one after another, and a `github:run:` id
+changes on a new push. The `github:checks:` fallback carries no commit, so it
+stays the same across pushes whose checks belong to no run; compare
+`Pipeline.sha` to tell those commits apart.
+
+It can move for the same head commit: a run's checks appear only when its
+jobs start, so a run created earlier than the ones already visible, with a
+lower id, can show up on a later read, and each such run moves the id down. This is accepted behaviour. Keeping the
+first id seen would mean holding per-commit state across reads, and a provider
+instance lives only as long as its caller. A consumer that keys work on the id
+(the board's auto-doctor keys its red-pipeline pass on it) can act once more
+for that commit each time; one that must not should compare `Pipeline.sha` as
+well.
+
 ### Utility Exports
 
 | Export | Description |
@@ -481,6 +523,11 @@ because fetch keeps the `PRIVATE-TOKEN` header on a cross-origin redirect. It
 is never retried, so a `baseURL` on a host name that redirects to another name
 must use the name GitLab answers on. `restRequest` with
 `io.redirect: 'manual'` still returns the 3xx instead.
+
+`fetchSameOrigin(input, init?)` is that same fetch, exported so other code
+sending a token uses one implementation: it follows a redirect only under the
+rule above and throws `CrossOriginRedirectError` for any other hop.
+`mayFollowRedirect(from, to)` is the rule on its own, returning a boolean.
 
 | Property | Description |
 |---|---|

@@ -979,3 +979,92 @@ describe('runRefresh: the confirmed host changes while it runs', () => {
     expect(store.lastScan('g/p')).not.toBeNull();
   });
 });
+
+describe('runRefresh: a project removed from boxscore.projects', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const removedRow = (title: string) =>
+    toIndexRow(
+      indexRow({
+        iid: 9,
+        projectPath: 'g/old',
+        title,
+        state: 'merged',
+        mergedAt: '2026-05-07T00:00:00.000Z',
+      }),
+      '2026-05-07T00:00:00.000Z'
+    );
+
+  it('records the id each configured project resolves to', async () => {
+    const store = getStore();
+    const { provider } = makeFakeProvider();
+
+    await runRefresh({
+      store,
+      provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+    });
+
+    expect(store.projectIds().get('g/p')).toBe('gitlab:g/p');
+  });
+
+  it("fetches no detail for a removed project's stored PRs", async () => {
+    const store = getStore();
+    store.upsertIndexRows([removedRow('old change')]);
+    const { provider, calls } = makeFakeProvider();
+
+    await runRefresh({
+      store,
+      provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+    });
+
+    expect(calls.filter(c => c.method === 'fetchMergeRequestMetrics')).toEqual(
+      []
+    );
+  });
+
+  it("looks up no ticket named only in a removed project's PR", async () => {
+    const store = getStore();
+    store.upsertIndexRows([removedRow('ACME-77: old change')]);
+    const { provider } = makeFakeProvider();
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      asked.push(String(init?.body ?? ''));
+      return Response.json({ data: {} });
+    });
+
+    await runRefresh({
+      store,
+      provider,
+      settings: settings(),
+      env: { ...ENV, linearApiKey: 'key' },
+      window: WINDOW,
+    });
+
+    expect(asked.filter(b => b.includes('ACME-77'))).toEqual([]);
+  });
+
+  it('fetches detail for a project configured in another case than GitLab stores it', async () => {
+    const store = getStore();
+    const { provider, calls } = makeFakeProvider({
+      fetchMergeRequestIndex: async () => [indexRow({ projectPath: 'g/p' })],
+    });
+
+    await runRefresh({
+      store,
+      provider,
+      settings: settings({ projects: ['G/P'] }),
+      env: ENV,
+      window: WINDOW,
+    });
+
+    expect(
+      calls.filter(c => c.method === 'fetchMergeRequestMetrics')
+    ).toHaveLength(1);
+  });
+});

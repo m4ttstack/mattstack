@@ -350,6 +350,17 @@
         "typescript": "catalog:",
       },
     },
+    "mods/human-todos": {
+      "name": "@mattstack/mod-human-todos",
+      "version": "0.0.0",
+      "dependencies": {
+        "@mattstack/mod-kit": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "catalog:",
+      },
+    },
     "mods/kit-gallery": {
       "name": "@mattstack/mod-kit-gallery",
       "version": "0.0.0",
@@ -405,7 +416,7 @@
     },
     "packages/glance": {
       "name": "@mattstack/glance",
-      "version": "0.33.2",
+      "version": "0.33.3",
       "dependencies": {
         "@gitbeaker/requester-utils": "^43.8.0",
         "@gitbeaker/rest": "^43.8.0",
@@ -1120,6 +1131,8 @@
     "@mattstack/mantine-tokyo": ["@mattstack/mantine-tokyo@workspace:packages/tokyo"],
 
     "@mattstack/mod-gate-form": ["@mattstack/mod-gate-form@workspace:mods/gate-form"],
+
+    "@mattstack/mod-human-todos": ["@mattstack/mod-human-todos@workspace:mods/human-todos"],
 
     "@mattstack/mod-kit": ["@mattstack/mod-kit@workspace:packages/mod-kit"],
 

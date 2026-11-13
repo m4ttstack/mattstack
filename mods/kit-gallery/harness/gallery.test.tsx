@@ -139,7 +139,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.pointer({ type: 'up', ...tab, button: 'left' })
 
     const rows = await rowsOf(ui, key)
-    const button = `\u{EABA} Hide`
+    const button = `Hide \u{EAB4}`
     const hide = { y: rows.findIndex(r => r.includes(button)), x: 0 }
     expect(hide.y).toBeGreaterThan(-1)
     hide.x = rows[hide.y]!.indexOf(button) + 2

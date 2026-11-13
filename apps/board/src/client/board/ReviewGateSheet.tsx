@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChartColumn, ListChecks, ScanSearch } from 'lucide-react';
+import { ChartColumn, ListChecks, ScanSearch, Shredder } from 'lucide-react';
 
 import {
   collapseChunks,
@@ -14,7 +14,7 @@ import {
   type GateOption,
   type GateQuestion,
 } from '@mattstack/gate-kit';
-import { Button, Chip, Markdown } from '@mattstack/tui-kit';
+import { Button, Chip, ConfirmDialog, Markdown } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { mrNoun } from '../../mr-ref.ts';
 import type { BoardMRWithReview } from '../types.ts';
@@ -434,10 +434,13 @@ function ReviewGateSheet({
   onClose,
   onContinue,
   onFocusPane,
+  onDropReview,
   self,
 }: {
   gate: GateRow;
   mr?: BoardMRWithReview;
+  /** Closes the MR's review gates without posting, after a confirm. */
+  onDropReview?: (mr: BoardMRWithReview) => Promise<unknown>;
   /** Types a question about a finding into the review pane. */
   onAskQuestion?: AskQuestion;
   /** The reconciler reports the gate's pane gone: no question can reach it,
@@ -452,6 +455,8 @@ function ReviewGateSheet({
   /** The seat's username: the reviewer when the gate names none. */
   self?: string | null;
 }) {
+  const [confirmDrop, setConfirmDrop] = useState(false);
+  const [dropping, setDropping] = useState(false);
   const data = useMemo(() => readReviewGate(gate), [gate]);
   const { questions, groups } = useMemo(
     () => collapseChunks(data?.rest ?? []),
@@ -839,6 +844,24 @@ function ReviewGateSheet({
           focus pane
         </Button>
       }
+      trailActions={
+        onDropReview &&
+        mr && (
+          <Button
+            type="button"
+            variant="subtle"
+            intent="muted"
+            size="sm"
+            className="tui-gate-sheet-drop"
+            title="close this review without posting anything"
+            disabled={dropping}
+            onClick={() => setConfirmDrop(true)}
+          >
+            <Shredder size={14} aria-hidden />
+            discard review
+          </Button>
+        )
+      }
       queue={queue}
       tag={`review gate${mr ? ` ${mrRef(mr)}` : ''}`}
       onClose={onClose}
@@ -1191,6 +1214,26 @@ function ReviewGateSheet({
           )}
         </aside>
       </div>
+      {onDropReview && mr && (
+        <ConfirmDialog
+          open={confirmDrop}
+          title={`Discard the review of ${mrRef(mr)}?`}
+          confirmLabel="Discard review"
+          cancelLabel="Keep it"
+          onConfirm={() => {
+            setConfirmDrop(false);
+            if (dropping) return;
+            setDropping(true);
+            void onDropReview(mr).finally(() => setDropping(false));
+          }}
+          onCancel={() => setConfirmDrop(false)}
+        >
+          <p>
+            Nothing gets posted to the {mrNoun(mr)}, and the review leaves the
+            queue.
+          </p>
+        </ConfirmDialog>
+      )}
     </GateSheet>
   );
 }
