@@ -8,7 +8,7 @@ import { hasUrlCredentials, holdsCredentialToken } from "../../lib/team/redact.t
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { isAuthFailure } from "../../lib/worktree/fetch-auth.ts";
 import type { CloneDeps } from "./clone-state.ts";
-import { createOriginAuth, forgeName, helperEnv, type Forge, type OriginAuth } from "./origin-auth.ts";
+import { createOriginAuth, forgeName, helperEnv, type Forge, type OriginAuth, type OriginAuthVerdict } from "./origin-auth.ts";
 
 /**
  * The one exit for a git verb that cannot go on. Under --json the envelope
@@ -219,21 +219,19 @@ function plainOutcome(env: NodeJS.ProcessEnv): RemoteOutcome {
 }
 
 /**
- * One retry through rt's helper after an HTTPS auth failure, when origin's
- * fetch or push URL passes the checks; `fail` builds what is thrown for git's
+ * One retry through rt's helper after an HTTPS auth failure, when `v` (origin's
+ * fetch or push URL) passes the checks; `fail` builds what is thrown for git's
  * plain output, `refused` for a forge that turned rt's token down too.
  */
 async function retryWithRtToken(
-  cwd: string,
-  push: boolean,
+  v: OriginAuthVerdict,
   firstOutput: string,
   base: NodeJS.ProcessEnv,
-  deps: { auth: OriginAuth; helper?: string },
+  deps: { helper?: string },
   attempt: (env: NodeJS.ProcessEnv) => Promise<{ ok: true } | { ok: false; output: string }>,
   fail: (output: string) => Error,
   refused: (host: string, forge: Forge, output: string) => Error,
 ): Promise<RemoteOutcome> {
-  const v = await deps.auth.forOrigin(cwd, push);
   if (!v.ok) throw fail(firstOutput);
   const env = helperEnv(v.host, base, deps.helper);
   const retry = await attempt(env);
@@ -256,7 +254,7 @@ export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDep
   const plain = (output: string) => new FetchFailed({ title: "Could not fetch from origin", details: redactCredentials(output) });
 
   if (isAuthFailure(first.output)) {
-    return retryWithRtToken(cwd, false, first.output, deps.env, deps, (env) => deps.run(cwd, env), plain, (host, forge, output) =>
+    return retryWithRtToken(await deps.auth.forOrigin(cwd, false), first.output, deps.env, deps, (env) => deps.run(cwd, env), plain, (host, forge, output) =>
       new FetchFailed(tokenRefusedFailure(subject, host, forge, output)),
     );
   }
@@ -307,10 +305,10 @@ export class PushFailed extends Error {
 
 /**
  * `git <args>` under the env the fetch succeeded with. A push that fails on
- * HTTPS auth after a fetch that needed no token retries once through rt's
- * helper, checked against the push URL; after a fetch that already used it,
- * the forge has turned the token down and there is nothing left to try. The
- * fetch already found any ssh-agent with a key, so an SSH refusal only says why.
+ * HTTPS auth retries once through rt's helper, checked against the push URL,
+ * unless the fetch already got in with it on that same host: the helper was
+ * then already offered, and the forge turned the token down. The fetch already
+ * found any ssh-agent with a key, so an SSH refusal only says why.
  */
 export async function pushOrigin(cwd: string, branch: string, args: string[], from: RemoteOutcome, deps: PushDeps = defaultPushDeps()): Promise<RemoteOutcome> {
   const subject = `push ${branch}`;
@@ -320,8 +318,9 @@ export async function pushOrigin(cwd: string, branch: string, args: string[], fr
   const refused = (host: string, forge: Forge, output: string) => new PushFailed(tokenRefusedFailure(subject, host, forge, output));
 
   if (isAuthFailure(first.output)) {
-    if (from.usedRtToken && from.host && from.forge) throw refused(from.host, from.forge, first.output);
-    return retryWithRtToken(cwd, true, first.output, from.env, deps, (env) => deps.run(cwd, args, env), plain, refused);
+    const v = await deps.auth.forOrigin(cwd, true);
+    if (from.usedRtToken && from.host && from.forge && v.host === from.host) throw refused(from.host, from.forge, first.output);
+    return retryWithRtToken(v, first.output, from.env, deps, (env) => deps.run(cwd, args, env), plain, refused);
   }
 
   if (!looksLikeSshAuthFailure(first.output)) throw plain(first.output);

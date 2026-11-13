@@ -28,6 +28,7 @@ import { shellQuote } from "../lib/herdr-launch.ts";
 import { conflictFilesBlock, rebaseOnto, type RebaseResult } from "./git/rebase.ts";
 import { resetToOrigin, type ResetResult } from "./git/reset.ts";
 import { syncLog } from "../lib/sync-log.ts";
+import { redactCredentials } from "../packages/rt-client/src/redact.ts";
 import {
   STACK_REFUSAL_EXIT,
   checkStackMembership,
@@ -143,7 +144,19 @@ export interface SyncBranchOptions {
  */
 export async function syncBranch(cwd: string, opts: SyncBranchOptions): Promise<SyncSummary> {
   const auth = opts.originAuth ?? createOriginAuth();
-  const undo = await auth.guardPrompts(cwd, { push: true });
+  let undo: () => void;
+  try {
+    undo = await auth.guardPrompts(cwd, { push: true });
+  } catch (err) {
+    return {
+      branch: getCurrentBranch(cwd) ?? "HEAD",
+      worktree: cwd,
+      resetResult: null,
+      rebaseResult: null,
+      pushed: false,
+      ...asError({ title: "rt could not check how git signs in to origin", details: redactCredentials(errText(err)) }),
+    };
+  }
   const token: { forge?: Forge } = {};
   try {
     const summary = await syncOne(cwd, opts, auth, token);
@@ -356,7 +369,7 @@ async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, t
     } catch (err) {
       syncLog.cmd(pushArgs, cwd, 1, "", String(err));
       // The summary must still count this branch as failed, never as synced.
-      pushFailure = err instanceof PushFailed ? err.failure : { title: `Could not push ${branch}`, details: errText(err) };
+      pushFailure = err instanceof PushFailed ? err.failure : { title: `Could not push ${branch}`, details: redactCredentials(errText(err)) };
     }
   }
 
@@ -422,11 +435,20 @@ export function syncAllBlocks(summaries: SyncSummary[]): Block[] {
 export function syncAllNote(summaries: SyncSummary[]): Block[] {
   const byForge = new Map<Forge, string[]>();
   for (const s of summaries) {
-    if (!s.usedRtToken || !s.tokenForge) continue;
+    if (!s.usedRtToken || !s.tokenForge || s.error || s.refusal) continue;
     byForge.set(s.tokenForge, [...(byForge.get(s.tokenForge) ?? []), s.branch]);
   }
-  if (byForge.size === 0) return [];
-  return [...[...byForge].map(([forge, branches]) => tokenNoteLine(forge, branches)), TOKEN_NOTE_NEXT];
+  const groups = [...byForge];
+  if (groups.length === 0) return [];
+  if (groups.length === 1) return tokenNoteBlocks(...groups[0]!);
+  return [...groups.map(([forge, branches]) => tokenNoteLine(forge, branches)), TOKEN_NOTE_NEXT];
+}
+
+/** Test seams for the two sync verbs; production passes none. */
+export interface SyncCommandDeps {
+  syncBranch?: typeof syncBranch;
+  runEscalationFlow?: typeof import("../lib/rebase-escalation.ts").runEscalationFlow;
+  isTTY?: boolean;
 }
 
 /** 1 when any branch failed or was refused, so a caller checking the code never reads a partial sync as a whole one. */
@@ -437,7 +459,9 @@ export function syncAllExitCode(summaries: SyncSummary[]): number {
 async function syncAll(
   repoIdentity: string,
   opts: { dryRun?: boolean; repoRoot?: string },
+  deps: SyncCommandDeps = {},
 ): Promise<number> {
+  const sync = deps.syncBranch ?? syncBranch;
   const { daemonQuery, isDaemonRunning } = await import("../lib/daemon-client.ts");
   const running = await isDaemonRunning();
 
@@ -502,7 +526,7 @@ async function syncAll(
     }
 
     const summary: SyncSummary = identity
-      ? await syncBranch(wt.path, { dryRun: opts.dryRun, quiet: false, onConflict: "abort", stackRunners, originAuth })
+      ? await sync(wt.path, { dryRun: opts.dryRun, quiet: false, onConflict: "abort", stackRunners, originAuth })
       : { branch: wt.branch, worktree: wt.path, resetResult: null, rebaseResult: null, pushed: false, ...asError({ title: "rt could not tell which repo this worktree belongs to" }) };
     summaries.push(summary);
 
@@ -520,6 +544,7 @@ async function syncAll(
 export async function syncAllCommand(
   args: string[],
   ctx: CommandContext,
+  deps: SyncCommandDeps = {},
 ): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const repoName = ctx.identity!.repoName;
@@ -528,7 +553,7 @@ export async function syncAllCommand(
   let code: number;
   // Exit only after the finally: in Bun, process.exit() inside a try skips it.
   try {
-    code = await syncAll(ctx.identity!.identity, { dryRun, repoRoot: ctx.identity!.repoRoot });
+    code = await syncAll(ctx.identity!.identity, { dryRun, repoRoot: ctx.identity!.repoRoot }, deps);
   } finally {
     syncLog.end();
   }
@@ -569,15 +594,17 @@ export function reportSync(summary: SyncSummary, json: boolean): number {
 export async function syncCommand(
   args: string[],
   ctx: CommandContext,
+  deps: SyncCommandDeps = {},
 ): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const cwd = ctx.identity!.repoRoot;
   const dataDir = ctx.identity!.dataDir;
   const repoName = ctx.identity!.repoName;
 
-  const { resolveEscalationMode, runEscalationFlow } = await import("../lib/rebase-escalation.ts");
-  const isTTY = Boolean(process.stdout.isTTY && process.stdin.isTTY);
-  const mode = resolveEscalationMode(args, isTTY);
+  const escalation = await import("../lib/rebase-escalation.ts");
+  const runEscalationFlow = deps.runEscalationFlow ?? escalation.runEscalationFlow;
+  const isTTY = deps.isTTY ?? Boolean(process.stdout.isTTY && process.stdin.isTTY);
+  const mode = escalation.resolveEscalationMode(args, isTTY);
 
   // Under --json stdout is the bundle or the refusal and nothing else: every
   // note this verb prints moves to stderr with this.
@@ -593,7 +620,7 @@ export async function syncCommand(
   // the try/finally below has fully completed.
   let escalationExit: number | null = null;
   try {
-    summary = await syncBranch(cwd, {
+    summary = await (deps.syncBranch ?? syncBranch)(cwd, {
       dryRun,
       quiet: mode === "json" && !args.includes("--progress"),
       onConflict: mode === "off" ? "abort" : "pause",

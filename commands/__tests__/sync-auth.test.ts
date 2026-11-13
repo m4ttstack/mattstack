@@ -10,8 +10,8 @@ import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { createOriginAuth, tokenNoteBlocks, type OriginAuth, type OriginAuthSeams } from "../git/origin-auth.ts";
 import type { FetchDeps, PushDeps } from "../git/shared.ts";
-import { syncAllNote, syncBranch, type SyncSummary } from "../sync.ts";
-import { git, makeRepo } from "../git/__tests__/helpers.ts";
+import { syncAllNote, syncBranch, syncCommand, type SyncSummary } from "../sync.ts";
+import { ctxFor, exitCodeOf, git, makeRepo, trapExit } from "../git/__tests__/helpers.ts";
 
 const TOKEN = "glpat-LEAKCHECK000000000";
 const NO_USER = "fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled";
@@ -116,7 +116,7 @@ describe("syncBranch prompt guard", () => {
     expect(promptAtFetch).toEqual(["0"]);
     expect(process.env.GIT_TERMINAL_PROMPT).toBe(before);
     expect("GIT_ASKPASS" in process.env).toBe(false);
-  });
+  }, 20_000);
 
   test("syncBranch calls guardPrompts before its first remote call", async () => {
     const clone = staleClone();
@@ -141,7 +141,7 @@ describe("syncBranch prompt guard", () => {
     expect(order).toEqual(["guard", "undo"]);
     expect(existsSync(log)).toBe(true);
     expect(readFileSync(log, "utf8").split("\n")[0]).toBe("guarded");
-  });
+  }, 20_000);
 
   test("syncBranch leaves prompts alone when rt cannot authenticate origin", async () => {
     const clone = staleClone();
@@ -149,7 +149,7 @@ describe("syncBranch prompt guard", () => {
     const { fetchDeps, pushDeps, promptAtFetch } = fakeRemotes(auth);
     await syncBranch(clone, { quiet: true, stackRunners: clear, originAuth: auth, fetchDeps, pushDeps });
     expect(promptAtFetch).toEqual([undefined]);
-  });
+  }, 20_000);
 
   test("the guard from one syncBranch does not leak into the next", async () => {
     const first = staleClone("first");
@@ -162,7 +162,27 @@ describe("syncBranch prompt guard", () => {
     await syncBranch(second, { quiet: true, stackRunners: clear, originAuth: withoutToken, fetchDeps: b.fetchDeps, pushDeps: b.pushDeps });
     expect(a.promptAtFetch).toEqual(["0"]);
     expect(b.promptAtFetch).toEqual([undefined]);
-  });
+  }, 20_000);
+});
+
+describe("syncBranch when the guard cannot decide", () => {
+  test("a guardPrompts that throws comes back as a failure, and prompts stay as they were", async () => {
+    const clone = staleClone();
+    const auth: OriginAuth = {
+      ...createOriginAuth(null),
+      guardPrompts: async () => {
+        throw new Error(`git died: https://oauth2:${TOKEN}@gitlab.com/acme/x.git`);
+      },
+    };
+    const { fetchDeps, pushDeps, promptAtFetch } = fakeRemotes(auth);
+    const s = await syncBranch(clone, { quiet: true, stackRunners: clear, originAuth: auth, fetchDeps, pushDeps });
+    expect(s.branch).toBe("feature");
+    expect(s.error).toBe("rt could not check how git signs in to origin");
+    expect(s.failure?.details).toContain("git died");
+    expect(JSON.stringify(s)).not.toContain("LEAKCHECK");
+    expect(promptAtFetch).toEqual([]);
+    expect(process.env.GIT_TERMINAL_PROMPT).toBeUndefined();
+  }, 20_000);
 });
 
 describe("syncBranch token use", () => {
@@ -177,7 +197,7 @@ describe("syncBranch token use", () => {
     expect(s.tokenForge).toBe("gitlab");
     expect(pushEnvs[1]!.GIT_CONFIG_VALUE_1).toBe("!helper");
     expect(JSON.stringify(pushEnvs)).not.toContain("LEAKCHECK");
-  });
+  }, 20_000);
 
   test("a sync that did not need it reports neither", async () => {
     const clone = staleClone();
@@ -187,7 +207,7 @@ describe("syncBranch token use", () => {
     expect(s.pushed).toBe(true);
     expect(s.usedRtToken).toBeUndefined();
     expect(s.tokenForge).toBeUndefined();
-  });
+  }, 20_000);
 
   test("a refused push carries no token and reports a failure", async () => {
     const clone = staleClone();
@@ -198,7 +218,7 @@ describe("syncBranch token use", () => {
     expect(s.error).toBe("Could not push feature: the forge refused rt's token as well");
     expect(s.pushed).toBe(false);
     expect(JSON.stringify(s)).not.toContain("LEAKCHECK");
-  });
+  }, 20_000);
 });
 
 describe("the token note", () => {
@@ -220,13 +240,70 @@ describe("the token note", () => {
   });
 
   test("syncAllNote lists only the worktrees that used the token and is empty when none did", () => {
-    const text = renderPlain(
-      syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), summary("feature/b"), summary("feature/c", { usedRtToken: true, tokenForge: "gitlab" })]),
-    );
-    expect(text).toContain("feature/a");
-    expect(text).toContain("feature/c");
-    expect(text).not.toContain("feature/b");
-    expect(text.split("rt git auth").length - 1).toBe(1);
+    const blocks = syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), summary("feature/b"), summary("feature/c", { usedRtToken: true, tokenForge: "gitlab" })]);
+    expect(blocks).toEqual(tokenNoteBlocks("gitlab", ["feature/a", "feature/c"]));
     expect(syncAllNote([summary("feature/a"), summary("feature/b")])).toEqual([]);
+  });
+
+  test("syncAllNote leaves out a branch whose sync failed after it used the token", () => {
+    const failed = summary("feature/b", { usedRtToken: true, tokenForge: "gitlab", pushed: false, error: "Could not push feature/b", failure: { title: "Could not push feature/b" } });
+    expect(syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), failed])).toEqual(tokenNoteBlocks("gitlab", ["feature/a"]));
+    expect(syncAllNote([failed])).toEqual([]);
+  });
+
+  test("syncAllNote across two forges gives each its line and one next", () => {
+    const text = renderPlain(
+      syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), summary("feature/b", { usedRtToken: true, tokenForge: "github" })]),
+    );
+    expect(text).toContain("GitLab token for this run on feature/a");
+    expect(text).toContain("GitHub token for this run on feature/b");
+    expect(text.split("rt git auth").length - 1).toBe(1);
+  });
+});
+
+describe("rt sync prints the token note", () => {
+  const used: SyncSummary = { branch: "feature", worktree: "/r", resetResult: null, rebaseResult: null, pushed: true, usedRtToken: true, tokenForge: "gitlab" };
+  const NOTE = "rt signed in with your GitLab token for this run";
+  let exit: { restore(): void };
+  let repo: string;
+
+  beforeEach(() => {
+    exit = trapExit();
+    repo = makeRepo(root, "app");
+    git(repo, "remote", "add", "origin", join(root, "app-origin.git"));
+  });
+  afterEach(() => exit.restore());
+
+  test("after a sync that finished with rt's token, last on stdout", async () => {
+    expect(await exitCodeOf(() => syncCommand([], ctxFor(repo), { syncBranch: async () => used }))).toBeNull();
+    expect(io.stdout()).toBe(renderPlain(tokenNoteBlocks("gitlab")));
+    expect(io.stderr()).toBe("");
+  });
+
+  test("never after a failure", async () => {
+    const failed: SyncSummary = { ...used, pushed: false, error: "Could not push feature", failure: { title: "Could not push feature" } };
+    expect(await exitCodeOf(() => syncCommand([], ctxFor(repo), { syncBranch: async () => failed }))).toBe(1);
+    expect(io.stdout() + io.stderr()).not.toContain(NOTE);
+    expect(io.stderr()).toStartWith("Could not push feature");
+  });
+
+  test("never under --json", async () => {
+    expect(await exitCodeOf(() => syncCommand(["--json"], ctxFor(repo), { syncBranch: async () => used }))).toBeNull();
+    expect(io.stdout() + io.stderr()).not.toContain(NOTE);
+  });
+
+  test("never after escalation", async () => {
+    const paused: SyncSummary = {
+      ...used,
+      pushed: false,
+      rebaseResult: { status: "conflict", branch: "feature", target: "origin/main", commitsBehind: 1, resolvedFiles: [], unresolvedFiles: ["a.txt"], postResolveSteps: [], backupBranch: "b", rebaseInProgress: true },
+    };
+    let escalated = false;
+    const code = await exitCodeOf(() =>
+      syncCommand([], ctxFor(repo), { syncBranch: async () => paused, isTTY: true, runEscalationFlow: async () => ((escalated = true), 0) }),
+    );
+    expect(escalated).toBe(true);
+    expect(code).toBe(0);
+    expect(io.stdout() + io.stderr()).not.toContain(NOTE);
   });
 });

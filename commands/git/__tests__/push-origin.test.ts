@@ -62,7 +62,34 @@ describe("pushOrigin", () => {
     expect(f.why).toContain("gitlab.com");
     expect(f.next).toEqual(["Connect GitLab again with ", out.cmd("rt setup gitlab connect")]);
     expect(envs.length).toBe(1);
-    expect(forOrigin).toEqual([]);
+    expect(forOrigin).toEqual([true]);
+  });
+
+  test("a push to another host than the token fetch's retries once with rt's helper for the push host", async () => {
+    const pushHost: OriginAuthVerdict = { ok: true, url: "https://gitlab.acme.internal/acme/x.git", host: "gitlab.acme.internal", forge: "gitlab" };
+    const from = tokenFetch();
+    const { d, envs } = deps([{ ok: false, output: NO_USER }, { ok: true }], { verdict: pushHost });
+    const o = await pushOrigin("/r", "feat", ARGS, from, d);
+    expect([o.usedRtToken, o.forge, o.host]).toEqual([true, "gitlab", "gitlab.acme.internal"]);
+    expect(envs.length).toBe(2);
+    expect(envs[1]!.GIT_CONFIG_KEY_2).toBe("credential.https://gitlab.acme.internal.helper");
+    expect(envs[1]!.GIT_CONFIG_VALUE_3).toBe("!helper");
+    expect(envs[1]!.GIT_CONFIG_COUNT).toBe("4");
+  });
+
+  test("a push to another host the forge also refuses names the push host", async () => {
+    const pushHost: OriginAuthVerdict = { ok: true, url: "https://gitlab.acme.internal/acme/x.git", host: "gitlab.acme.internal", forge: "gitlab" };
+    const { d } = deps([{ ok: false, output: NO_USER }, { ok: false, output: REFUSED }], { verdict: pushHost });
+    const f = await failureOf(pushOrigin("/r", "feat", ARGS, tokenFetch(), d));
+    expect(f.title).toBe("Could not push feat: the forge refused rt's token as well");
+    expect(f.why).toContain("gitlab.acme.internal");
+  });
+
+  test("a push to another host with no usable token keeps the plain failure", async () => {
+    const pushHost: OriginAuthVerdict = { ok: false, reason: "unconfirmed", url: "https://gitlab.example.test/acme/x.git", host: "gitlab.example.test", forge: "gitlab" };
+    const { d, envs } = deps([{ ok: false, output: NO_USER }], { verdict: pushHost });
+    expect(await failureOf(pushOrigin("/r", "feat", ARGS, tokenFetch(), d))).toEqual({ title: "Could not push feat", details: NO_USER });
+    expect(envs.length).toBe(1);
   });
 
   test("a push that fails on auth after a plain fetch retries once when the push URL passes", async () => {
