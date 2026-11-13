@@ -5,6 +5,7 @@ import { extractLinearId } from './branchParser';
 import { branchCache } from './cache';
 import { fetchBranchData, openLinearUrl } from './statusBar';
 import { listWorktrees, getGitApi, findWorkspaceRepo, getRemoteUrl } from './git';
+import { resolveRepoForge } from './repoForge';
 
 const WORKSPACE_PREF_KEY = 'rtContext.preferredWorkspaceFile';
 
@@ -99,6 +100,7 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
     return;
   }
 
+  const repoForge = resolveRepoForge(repo);
   const cwd = repo.rootUri.fsPath;
   const worktrees = await listWorktrees(cwd);
 
@@ -199,7 +201,7 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
   Promise.all(
     allWorktreesToFetch.map(async (wt) => {
       if (!wt.branch) return;
-      const fresh = await fetchBranchData(context, wt.branch);
+      const fresh = await fetchBranchData(context, wt.branch, repoForge);
       if (fresh) branchCache.set(wt.branch, fresh);
     }),
   ).then(() => {

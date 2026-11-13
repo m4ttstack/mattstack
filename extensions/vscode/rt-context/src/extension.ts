@@ -9,12 +9,14 @@ import {
   clearUpdateTimer,
   getCurrentTicketUrl,
   getCurrentMrUrl,
+  getCurrentForge,
   getCurrentWorktreePath,
   openLinearUrl,
 } from './statusBar';
 import { connectWebSocket, disconnectWebSocket, onDaemonEvent } from './daemonClient';
 import { showBranchSwitcher } from './branchSwitcher';
 import { showAllWorktrees } from './worktreePicker';
+import { forgeWords } from './forge';
 
 export function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration('rtContext');
@@ -34,6 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
       const ticketUrl = getCurrentTicketUrl();
       const mrUrl = getCurrentMrUrl();
       const worktreePath = getCurrentWorktreePath();
+      const w = forgeWords(getCurrentForge());
 
       if (ticketUrl) {
         items.push({
@@ -44,7 +47,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (mrUrl) {
         items.push({
-          label: '$(git-merge) Open GitLab Merge Request',
+          label: `$(git-merge) Open ${w.site} ${w.title}`,
           action: () => vscode.env.openExternal(vscode.Uri.parse(mrUrl)),
         });
       }
