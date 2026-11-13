@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isWriteIn, unwrapGateAnswerValue, validateGateAnswers } from "../src/gate-answers.ts";
+import { RUN_CONTROL_NEXT, isRunControl, isWriteIn, unwrapGateAnswerValue, validateGateAnswers } from "../src/gate-answers.ts";
 import type { GateQuestion } from "../src/commands.ts";
 
 const single: GateQuestion = { id: "verdict", label: "v", multi: false, options: ["yes", { value: "no", label: "No" }] };
@@ -113,5 +113,49 @@ describe("write-ins", () => {
   test("a writeIn question still takes an ordinary pick", () => {
     expect(validateGateAnswers([open], { approach: "x" })).toBeNull();
     expect(validateGateAnswers([open], { approach: "nope" })).toBe('answer for "approach" is not one of its options: "nope"');
+  });
+});
+
+describe("reserved run-control answers", () => {
+  const tier: GateQuestion = { id: "tier", label: "t", multi: false, options: ["light", "full"] };
+  const ownNext: GateQuestion = { id: "next", label: "n", multi: false, options: ["ship", "wait"] };
+
+  test("next: hold skips the missing-answers check on a gate with no next question", () => {
+    expect(validateGateAnswers([single, multi], { next: "hold" })).toBeNull();
+  });
+  test("a wrapped hold with a note is accepted", () => {
+    expect(validateGateAnswers([single], { next: { value: "hold", note: "lunch" } })).toBeNull();
+  });
+  test("go-back with a stage is accepted", () => {
+    expect(validateGateAnswers([single], { next: "go-back", to: "plan" })).toBeNull();
+  });
+  test("to alone is refused", () => {
+    expect(validateGateAnswers([single], { to: "plan" })).toBe("to is allowed only with next: go-back");
+  });
+  test("to beside hold is refused", () => {
+    expect(validateGateAnswers([single], { next: "hold", to: "plan" })).toBe("to is allowed only with next: go-back");
+  });
+  test("an unknown next value is refused", () => {
+    expect(validateGateAnswers([single], { next: "abandon" })).toBe("next must be hold or go-back");
+  });
+  test("what is answered beside a run control is still checked", () => {
+    expect(validateGateAnswers([tier], { next: "hold", tier: "heavy" })).toBe('answer for "tier" is not one of its options: "heavy"');
+    expect(validateGateAnswers([tier], { next: "hold", tier: "light" })).toBeNull();
+    expect(validateGateAnswers([tier], { next: "hold", extra: "x" })).toBe("unknown question id: extra");
+  });
+  test("a gate that asks its own next question keeps option membership", () => {
+    expect(validateGateAnswers([ownNext], { next: "hold" })).toBe('answer for "next" is not one of its options: "hold"');
+    expect(validateGateAnswers([ownNext], { next: "ship" })).toBeNull();
+    expect(validateGateAnswers([ownNext, tier], { next: "ship" })).toBe("missing answer(s) for: tier");
+  });
+  test("RUN_CONTROL_NEXT names the two reserved values", () => {
+    expect([...RUN_CONTROL_NEXT]).toEqual(["hold", "go-back"]);
+  });
+  test("isRunControl is true only for a reserved next on a gate without its own next question", () => {
+    expect(isRunControl([single], { next: "hold" })).toBe(true);
+    expect(isRunControl([single], { next: { value: "go-back", note: "x" }, to: "plan" })).toBe(true);
+    expect(isRunControl([single], { next: "abandon" })).toBe(false);
+    expect(isRunControl([single], { verdict: "yes" })).toBe(false);
+    expect(isRunControl([ownNext], { next: "hold" })).toBe(false);
   });
 });
