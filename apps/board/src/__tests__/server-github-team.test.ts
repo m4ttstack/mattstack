@@ -3,17 +3,18 @@
     daemon verbs. The env keeps a GitLab token set, yet a GitHub team never
     reads it, so no write here may lean on one. The board is alice through
     the team record while the memory identity says zed, so a GitHub team
-    never answers with the memory one. Three agent-status events wait in
-    the fake journal from boot: two finished reviews of bob's PRs, where the
-    daemon's first forge:self answers another login and the second answers
-    alice, and a finished respond on alice's PR with a re-review pick. */
+    never answers with the memory one. Agent-status events wait in the fake
+    journal from boot, each on a PR with its own re-review pick or review:
+    a drafting respond, an errored respond, a finished respond and a
+    finished review while the daemon's forge:self answers another login,
+    then a finished review and a finished respond once it answers alice. */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import { readDrafts, writeDraft } from '../draft-state.ts';
-import { writeRespondState } from '../respond-state.ts';
+import { readRespondStates, writeRespondState } from '../respond-state.ts';
 import { mintHandle } from '../state/agent-states.ts';
 import { openStateDb } from '../state/db.ts';
 import { setKvValue } from '../state/kv-blob.ts';
@@ -190,35 +191,43 @@ const statusEvent = (id: number, payload: Record<string, unknown>) => ({
   payload: { ...payload, appRoot: home },
   emittedAt: Date.now(),
 });
+const respondEvent = (id: number, iid: number, status: string) =>
+  statusEvent(id, { mrUrl: prUrl(iid), iid, kind: 'respond', status });
 const journal = [
-  statusEvent(1, {
+  respondEvent(1, 9, 'drafting'),
+  respondEvent(2, 10, 'error'),
+  respondEvent(3, 8, 'done'),
+  statusEvent(4, {
     mrUrl: prUrl(22),
     iid: 22,
     kind: 'review',
     status: 'done',
     outcome: 'comment',
   }),
-  statusEvent(2, {
+  statusEvent(5, {
     mrUrl: prUrl(21),
     iid: 21,
     kind: 'review',
     status: 'done',
     outcome: 'comment',
   }),
-  statusEvent(3, { mrUrl: prUrl(7), iid: 7, kind: 'respond', status: 'done' }),
+  respondEvent(6, 7, 'done'),
 ];
 setKvValue('agent-status', 'cursor', 0, db);
-writeRespondState(
-  mintHandle('respond', prUrl(7), home),
-  {
-    mrUrl: prUrl(7),
-    iid: 7,
-    status: 'done',
-    pendingReReview: ['gh-review-thread-1'],
-  },
-  1000,
-  db
-);
+for (const iid of [7, 8, 9, 10])
+  writeRespondState(
+    mintHandle('respond', prUrl(iid), home),
+    {
+      mrUrl: prUrl(iid),
+      iid,
+      status: 'implementing',
+      pendingReReview: [`gh-review-thread-${iid}`],
+    },
+    1000,
+    db
+  );
+const pendingPick = (iid: number) =>
+  readRespondStates(db).get(prUrl(iid))?.pendingReReview ?? [];
 
 const MERGE_ANSWERS: Record<number, unknown> = {
   7: { ok: true },
@@ -309,7 +318,7 @@ beforeAll(() => {
         if (cmd === 'forge:self')
           return Response.json({
             ok: true,
-            data: { username: forgeSelfAnswers++ === 0 ? 'ivasco' : 'Alice' },
+            data: { username: forgeSelfAnswers++ < 2 ? 'ivasco' : 'Alice' },
           });
         if (cmd === 'mr:attach-upload') {
           const files = call.files as Array<{ name: string }>;
@@ -634,6 +643,7 @@ describe('the re-review latch on a GitHub team', () => {
     expect(order).toEqual([
       'forge:self',
       'forge:self',
+      'forge:self',
       'mr:attach-upload 21',
       'mr:comment-file 21',
     ]);
@@ -647,15 +657,32 @@ describe('the re-review latch on a GitHub team', () => {
     });
   }, 30_000);
 
-  test('another login on the daemon sends no write and logs both logins once', async () => {
+  test('another login on the daemon sends no write and logs both logins once per step', async () => {
     await settled(() => latchCalls.some(c => c.cmd === 'mr:comment-file'));
     expect(latchCalls.filter(c => c.body.iid === 22)).toEqual([]);
     const lines = server
       .output()
       .split('\n')
       .filter(l => l.includes('ivasco'));
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain('alice');
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line).toContain('alice');
+  }, 30_000);
+
+  test('a finished respond under another login clears the pick with no write', async () => {
+    await settled(() => latchCalls.some(c => c.cmd === 'discussions:resolve'));
+    expect(latchCalls.filter(c => c.body.iid === 8)).toEqual([]);
+    expect(pendingPick(8)).toEqual([]);
+  }, 30_000);
+
+  test('an errored respond clears the pick and a drafting one keeps it, with no login check', async () => {
+    await settled(() => latchCalls.some(c => c.cmd === 'discussions:resolve'));
+    expect(
+      latchCalls.filter(c => c.body.iid === 9 || c.body.iid === 10)
+    ).toEqual([]);
+    expect(pendingPick(10)).toEqual([]);
+    expect(pendingPick(9)).toEqual(['gh-review-thread-9']);
+    // The three checks are respond 8, review 22 and review 21.
+    expect(latchCalls.filter(c => c.cmd === 'forge:self')).toHaveLength(3);
   }, 30_000);
 
   test('a finished respond with a re-review pick resolves the latch thread', async () => {
@@ -665,11 +692,12 @@ describe('the re-review latch on a GitHub team', () => {
         cmd: 'discussions:resolve',
         body: expect.objectContaining({
           iid: 7,
-          discussionId: 'gh-review-thread-1',
+          discussionId: 'gh-review-thread-7',
           resolved: true,
         }),
       },
     ]);
-    expect(latchCalls.filter(c => c.cmd === 'forge:self')).toHaveLength(2);
+    expect(latchCalls.filter(c => c.cmd === 'forge:self')).toHaveLength(3);
+    expect(pendingPick(7)).toEqual([]);
   }, 30_000);
 });

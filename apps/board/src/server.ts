@@ -5989,34 +5989,38 @@ async function handleAgentSignal(
         iid: signal.iid,
         rtRepo: (rtRepo && repoIdentityField(rtRepo)) || '',
       };
-      if (
-        pending?.length &&
-        (config.forge.kind !== 'github' ||
+      if (pending?.length) {
+        const clearPick = () => {
+          const current = readRespondStates().get(signal.mrUrl);
+          if (current)
+            writeRespondState(respondFilePath(signal.mrUrl), {
+              status: current.status,
+              pendingReReview: [],
+            });
+        };
+        // An unverified login clears the pick the way a failed resolve does.
+        const unverified =
+          config.forge.kind === 'github' &&
+          signal.status === 'done' &&
           (await githubLatchSelf(
             're-review settle',
             signal.mrUrl,
             signal.iid,
             target.rtRepo
-          )) !== null)
-      ) {
+          )) === null;
         let resolvedAny = false;
-        await settleReReview(
-          signal.status,
-          pending,
-          async id => {
-            await latchGw.resolveDiscussion(target, id);
-            resolvedAny = true;
-          },
-          () => {
-            const current = readRespondStates().get(signal.mrUrl);
-            if (current)
-              writeRespondState(respondFilePath(signal.mrUrl), {
-                status: current.status,
-                pendingReReview: [],
-              });
-          },
-          msg => console.error(msg)
-        );
+        if (unverified) clearPick();
+        else
+          await settleReReview(
+            signal.status,
+            pending,
+            async id => {
+              await latchGw.resolveDiscussion(target, id);
+              resolvedAny = true;
+            },
+            clearPick,
+            msg => console.error(msg)
+          );
         // The row offers a re-review only while a latch is open: refresh it
         // now rather than after the snapshot TTL.
         if (resolvedAny) {
