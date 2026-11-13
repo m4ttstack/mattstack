@@ -213,6 +213,19 @@ is used in exactly these places:
 
 The stored tab and its label stay as the team typed them.
 
+**What a GitHub tag means.** GitHub's rules come from its own code owner
+review requests, not from matching CODEOWNERS globs, and the daemon's GitHub
+sweeps are sticky (`sticky: forge === "github"` in `project-sync.ts`): a PR
+tagged once stays tagged until it merges or closes, even after the owner
+reviews. Two differences from GitLab follow, accepted here *(my call: matching
+globs against changed files would be new glance and daemon work and more
+requests)*:
+
+- A draft joins its owner tabs when it is marked ready, since GitHub
+  requests no code owners on a draft.
+- An owner GitHub never requested (someone without write access, say) does
+  not tag the PR.
+
 ### Known owners
 
 The known-sections read keeps GitHub's `knownSections` and
@@ -414,6 +427,19 @@ cost a call on every arm to save one on a rare PR.)*
 - **Re-review settle** (`server.ts`). The `gitlabToken` condition becomes
   "this board can write its forge": a GitLab token on GitLab, a resolvable
   rt repo on GitHub. The resolve goes through the board's gateway.
+- **The token must be the recorded user.** `findLatches` only sees threads
+  whose root author is `self`, so if the daemon's GitHub token belonged to
+  someone other than the team record's username, the board would never see
+  the thread it just posted. It would post a fresh banner thread, and a
+  fresh upload batch, on a later tick, over and over. So before any GitHub
+  latch write (the pass, the done signal, the settle and the re-request
+  step), the board checks the daemon's existing `forge:self {repoName}`
+  against `self`, compared case-insensitively. A match is remembered in the
+  board's kv store for 24 hours, keyed by repo identity. A mismatch, or no
+  answer, skips every latch write for that repo, logs one line naming both
+  logins, and audits `identity-mismatch` once per run *(my call: it follows
+  the ruling that an unverified identity owns nothing)*. GitLab keeps its
+  token-derived identity, which cannot mismatch.
 
 ### The GitHub re-request (author's board)
 
@@ -458,6 +484,7 @@ already queued or running when the author's board starts.
 | Each ask | 1 `requested_reviewers` POST, plus `mr:action`'s usual read-back |
 | Latch pass reads | `discussions:read` per in-scope PR per triage run: served from the daemon's store on a granted repo, refetched at most every 2 minutes otherwise; only PRs with a finished review or a live latch |
 | Owner rules | 1 GraphQL query per own PR change |
+| Identity check | 1 `forge:self` (one `GET /user`) per repo per 24 hours; the kv entry is shared by the triage pass and the server through the state db |
 
 A reviewer running 3 review cycles in an hour costs about 100 requests that
 hour, and a typical hour far less. GitHub allows 5,000 per hour. No poll or
@@ -556,6 +583,9 @@ All fixtures, no live forge, isolated HOME.
   false, latch: true` with a username, and `latch: false` without one; the
   log lines; the latch pass runs on a GitHub team with the recorded
   username and no GitLab token.
+- **Identity.** A matching `forge:self` is cached for 24 hours; a mismatch
+  or no answer skips every GitHub latch write for that repo and audits
+  `identity-mismatch` once per run.
 - **Re-request.** `reviewerRequests` per phase. `sendReReviewRequests`
   sends once per cycle, skips an `UNREVIEWED` reviewer, forgets on re-arm
   and on spend, does not re-send after a stuck reply clears the request,
