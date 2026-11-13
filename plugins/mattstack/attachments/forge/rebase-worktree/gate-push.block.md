@@ -7,13 +7,10 @@ label: Push gate
 # Gate push
 
 Scope `push`. The sentence is the line from **Report the move**; nothing
-else before the form. The questions, each its own question (never fold one list
-into another: a question over 4 options sends the whole gate to the wait
-queue):
+else before the form. The question:
 
 - `push`: **Push with force-with-lease now** / **Leave it unpushed**
   (recommended when the branch has an open MR others may have pulled)
-- `next`: `proceed` / `iterate` / `hold`
 
 Selection `{"push":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Read `next` first: `hold` ends the turn with nothing pushed; `iterate`
@@ -29,4 +26,4 @@ its text; the rebase stands unpushed.
 | Thought | Reality |
 |---------|---------|
 | "Push with force-with-lease now is the natural next action, so I'll mark it Recommended" | Only **Leave it unpushed** carries a recommended label, and only conditionally (an open MR others may have pulled). Keep that qualifier on that option; never move it to the push option. |
-| "Restating the finding and explaining each option makes the ask clearer" | A gate's form is one sentence of context, then the bare option labels the gate text names, nothing more -- no restated heading, no per-option description beyond the shared `next` table's, no conditional aside on when `hold` applies. |
+| "Restating the finding and explaining each option makes the ask clearer" | A gate's form is one sentence of context, then the bare option labels the gate text names, nothing more -- no restated heading, no per-option description. |
