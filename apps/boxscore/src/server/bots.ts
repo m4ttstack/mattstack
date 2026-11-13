@@ -19,12 +19,13 @@ export async function scanSuspectedBots(
     ...compileBotPatterns(extraPatterns),
   ];
 
+  const settings = readSettings();
   const store = getStore();
+  if (settings.baseUrl) store.adoptForgeHost(settings.baseUrl);
   const indexRows = store.allIndexRows();
   const keys = indexRows.map(r => mrKey(r.projectPath, r.iid));
   const metricsRows = store.metricsByKeys(keys);
 
-  const settings = readSettings();
   const knownUsers = new Set(
     [...settings.orgRoster, ...settings.roster].map(r => r.username)
   );

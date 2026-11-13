@@ -1502,11 +1502,12 @@ async function runDashboardFlows(
   await check(
     report,
     fixture,
-    'U10 mr-board/rt: a live reviewer\'s raw reviewState maps into the display set, and displayState agrees when present',
+    'U10 mr-board/rt: a live reviewer who approved maps to "approved", and displayState agrees when present',
     async () => {
       const s = requireFixture(state, setupError);
       let pr = await provider.fetchSingleMR(projectPath, s.draftPr.iid, null);
       assert(pr !== null, `fetchSingleMR lost PR ${s.draftPr.iid}`);
+      let approvedBy: string | null = null;
       if (pr.reviewers.length > 0 && fixture.approver) {
         // The assigned reviewer approves, and the dashboard must then carry
         // that reviewer with the raw state the display mapping starts from.
@@ -1522,32 +1523,30 @@ async function runDashboardFlows(
           },
           { timeoutMs: 60_000, intervalMs: 2_000 }
         );
+        approvedBy = reviewer;
       }
       if (pr.reviewers.length === 0) {
         throw new Inconclusive(
           `PR ${s.draftPr.iid} has no assigned reviewers, so no live reviewState exists to map: ${s.reviewerReason || 'the reviewer was requested but the forge reports none'}`
         );
       }
-      const displayStates = new Set<ReviewDisplayState>([
-        'approved',
-        'commented',
-        'changes_requested',
-        'reviewing',
-        'awaiting_review'
-      ]);
-      for (const reviewer of pr.reviewers) {
-        const mapped = getReviewDisplayState(reviewer.reviewState);
-        assert(
-          displayStates.has(mapped),
-          `reviewer ${reviewer.username} raw state ${JSON.stringify(reviewer.reviewState)} mapped to "${mapped}"`
+      if (approvedBy === null) {
+        throw new Inconclusive(
+          `PR ${s.draftPr.iid} has reviewers but no second identity approved it, so no reviewer has a known expected state`
         );
-        if (reviewer.displayState !== undefined) {
-          assert(
-            reviewer.displayState === mapped,
-            `reviewer ${reviewer.username}: provider-supplied displayState "${reviewer.displayState}" ` +
-              `disagrees with getReviewDisplayState -> "${mapped}"`
-          );
-        }
+      }
+      const approver = pr.reviewers.find(r => r.username === approvedBy);
+      assert(approver !== undefined, `${approvedBy} approved PR ${s.draftPr.iid} but is not among its reviewers`);
+      const mapped = getReviewDisplayState(approver.reviewState);
+      assert(
+        mapped === 'approved',
+        `reviewer ${approvedBy} approved, but raw state ${JSON.stringify(approver.reviewState)} mapped to "${mapped}", expected "approved"`
+      );
+      if (approver.displayState !== undefined) {
+        assert(
+          approver.displayState === 'approved',
+          `reviewer ${approvedBy}: provider-supplied displayState "${approver.displayState}", expected "approved"`
+        );
       }
     }
   );

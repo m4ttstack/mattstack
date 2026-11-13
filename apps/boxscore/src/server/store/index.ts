@@ -1,6 +1,6 @@
 import { getDb, resetDb } from './db.js';
 import type { LinkVia } from './model.js';
-import { TABLES } from './schema.js';
+import { FORGE_TABLES, TABLES } from './schema.js';
 
 export type MrState = 'merged' | 'opened' | 'closed' | 'locked';
 
@@ -153,8 +153,40 @@ function toIndexRow(r: IndexRowRecord): IndexRow {
   };
 }
 
+/** "https://GitLab.example.com/" and "gitlab.example.com" are one host. */
+function hostOf(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host.toLowerCase();
+  } catch {
+    return baseUrl.trim().toLowerCase();
+  }
+}
+
+const FORGE_HOST_KEY = 'forge_host';
+
+/** Thrown once the confirmed host is no longer the one a refresh or request started with. */
+export class ForgeHostChangedError extends Error {
+  constructor(baseUrl: string) {
+    super(
+      `the confirmed GitLab host changed while this ran; dropped its results from ${baseUrl}`
+    );
+    this.name = 'ForgeHostChangedError';
+  }
+}
+
 function buildStore() {
   const db = getDb();
+
+  const stmtGetMeta = db.query('SELECT value FROM store_meta WHERE key = ?');
+  const stmtSetMeta = db.query(
+    'INSERT OR REPLACE INTO store_meta (key, value) VALUES (?, ?)'
+  );
+  const recordedHost = (): string | undefined =>
+    (stmtGetMeta.get(FORGE_HOST_KEY) as { value: string } | null)?.value;
+  const accepts = (baseUrl: string): boolean => {
+    const recorded = recordedHost();
+    return recorded === undefined || recorded === hostOf(baseUrl);
+  };
 
   const stmtUpsertIndex = db.query(
     `INSERT OR REPLACE INTO mr_index
@@ -519,6 +551,47 @@ function buildStore() {
       };
     },
 
+    /**
+     * Ties the forge rows to the GitLab host they were read from. A store with no recorded
+     * host (one from before this was tracked) adopts `baseUrl`'s host and keeps its rows; a
+     * different recorded host clears every forge table, so no row or watermark from it
+     * shows for the new one. Returns whether it cleared.
+     */
+    adoptForgeHost(baseUrl: string): boolean {
+      const host = hostOf(baseUrl);
+      const tx = db.transaction((): boolean => {
+        const recorded = recordedHost();
+        if (recorded === host) return false;
+        if (recorded !== undefined) {
+          for (const table of FORGE_TABLES) db.exec(`DELETE FROM ${table}`);
+        }
+        stmtSetMeta.run(FORGE_HOST_KEY, host);
+        return recorded !== undefined;
+      });
+      // Runs on every request: the usual same-host case must not wait on another
+      // process's write lock. The locked transaction re-reads before it changes anything.
+      if (recordedHost() === host) return false;
+      return tx.immediate();
+    },
+
+    /** True when `baseUrl`'s host is the recorded one, or when none is recorded yet. */
+    acceptsForgeHost(baseUrl: string): boolean {
+      return accepts(baseUrl);
+    },
+
+    /**
+     * Runs `write` only while `baseUrl` is still the accepted host, holding SQLite's write
+     * lock from the check through the write: another process (the server and
+     * `cli.ts --refresh` share the file) cannot switch hosts in between.
+     */
+    writeAsForgeHost(baseUrl: string, write: () => void): void {
+      const tx = db.transaction(() => {
+        if (!accepts(baseUrl)) throw new ForgeHostChangedError(baseUrl);
+        write();
+      });
+      tx.immediate();
+    },
+
     clear(): void {
       const tx = db.transaction(() => {
         for (const table of TABLES) db.exec(`DELETE FROM ${table}`);
@@ -535,6 +608,32 @@ function buildStore() {
       resetDb();
     },
   };
+}
+
+const FORGE_WRITES = [
+  'upsertIndexRows',
+  'recordScan',
+  'upsertMrMetrics',
+  'upsertPipelines',
+  'upsertPushEvents',
+  'upsertIdentities',
+  'upsertLinearIssues',
+] as const;
+
+/**
+ * A view of `store` whose forge writes refuse once `baseUrl` stops being the confirmed host,
+ * so a refresh that outlives a host change cannot write the old host's rows after the
+ * clear.
+ */
+export function guardForgeWrites(store: Store, baseUrl: string): Store {
+  const guarded = { ...store };
+  for (const name of FORGE_WRITES) {
+    const write = store[name] as (...args: unknown[]) => void;
+    (guarded as Record<string, unknown>)[name] = (...args: unknown[]) => {
+      store.writeAsForgeHost(baseUrl, () => write(...args));
+    };
+  }
+  return guarded;
 }
 
 let store: ReturnType<typeof buildStore> | null = null;

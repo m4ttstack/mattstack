@@ -1,10 +1,10 @@
-// scripts/gen-mcp-tools.ts: stdin = `rt mcp tools --json`, stdout = reference.md
+// scripts/gen-mcp-tools.ts: stdin = the checkout's `bun cli.ts mcp tools --json`, stdout = reference.md
 const input = JSON.parse(await Bun.stdin.text()) as { tools: Array<{ name: string; description: string; inputSchema: unknown }> };
 const out: string[] = [
   "# mattstack MCP tools",
   "",
-  "Generated from `rt mcp tools --json`; do not edit by hand. Regenerate with:",
-  "`rt mcp tools --json | bun scripts/gen-mcp-tools.ts > attachments/mcp-tools/reference.md`",
+  "Generated from the checkout's `bun cli.ts mcp tools --json`; do not edit by hand. Regenerate from the repo root with:",
+  "`bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts > plugins/mattstack/attachments/mcp-tools/reference.md`",
   "",
   "Every tool below is on the mattstack MCP server, which is allowed whole in every mattstack install. Before a skill tells an agent to run a shell command, check whether a tool here covers it.",
   "",

@@ -469,3 +469,74 @@ describe('getLeaderboard: which host the GitLab token goes to', () => {
     }
   });
 });
+
+describe('getLeaderboard: the store follows the confirmed host', () => {
+  const confirm = (host: string) => {
+    const values: Record<string, unknown> = {
+      ...SETTINGS,
+      'rt.integrations': { forgeHost: host },
+    };
+    __setSettingReader(<T>(k: string) => values[k] as T | undefined);
+  };
+
+  afterEach(() => {
+    __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
+  });
+
+  it("after a host change, the old host's rows and watermark are gone before anything is read", async () => {
+    fakeProvider();
+    const window = resolvePreset('30d', new Date());
+    confirm('gl.example');
+    await getLeaderboard({ window, refresh: true, trend: false });
+    getStore().upsertIndexRows([
+      {
+        projectPath: PROJECT,
+        iid: 1,
+        title: 'old host MR',
+        state: 'merged',
+        createdAt: window.start,
+        updatedAt: window.end,
+        mergedAt: window.end,
+        authorUsername: 'alice',
+        sourceBranch: 'b',
+        labels: [],
+        scannedAt: window.end,
+      },
+    ]);
+
+    confirm('gl.other.example');
+    await getLeaderboard({ window, refresh: false, trend: false });
+
+    expect(getStore().counts().mrIndex).toBe(0);
+    expect(getStore().lastScan(PROJECT)).toBeNull();
+  });
+
+  it('a scan on the new host starts from its own window, not the old watermark', async () => {
+    const { scans } = fakeProvider();
+    const now = new Date();
+    const window = resolvePreset('30d', now);
+    const base = baseWindow(false, now);
+    confirm('gl.example');
+    await getLeaderboard({ window, refresh: true, trend: false });
+    await getLeaderboard({ window, refresh: true, trend: false });
+
+    confirm('gl.other.example');
+    await getLeaderboard({ window, refresh: true, trend: false });
+
+    expect(scans).toHaveLength(3);
+    expect(scans[0]!.updatedAfter).toBe(base.start);
+    expect(scans[1]!.updatedAfter).not.toBe(base.start);
+    expect(scans[2]!.updatedAfter).toBe(base.start);
+  });
+
+  it('the same host keeps its rows from one request to the next', async () => {
+    fakeProvider();
+    const window = resolvePreset('30d', new Date());
+    confirm('gl.example');
+    await getLeaderboard({ window, refresh: true, trend: false });
+
+    await getLeaderboard({ window, refresh: false, trend: false });
+
+    expect(getStore().lastScan(PROJECT)).not.toBeNull();
+  });
+});

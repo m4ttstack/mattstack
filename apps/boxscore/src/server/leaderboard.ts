@@ -16,7 +16,7 @@ import { computeSnapshot, type Snapshot } from './metrics/snapshot.js';
 import { buildResponse, type BuildContext } from './metrics/trend.js';
 import { runRefresh } from './refresh/index.js';
 import { makeProvider } from './source/index.js';
-import { getStore } from './store/index.js';
+import { ForgeHostChangedError, getStore } from './store/index.js';
 import type { FetchResult } from './store/model.js';
 import {
   buildFetchResult,
@@ -147,6 +147,11 @@ async function buildLeaderboard(
   const settings = readSettings();
   const scope = resolveScope();
   const store = getStore();
+  if (store.adoptForgeHost(env.baseUrl)) {
+    console.warn(
+      `[store] the confirmed GitLab host is now ${env.baseUrl}; cleared the previous host's MRs, pipelines, events, scan watermarks and Linear credit`
+    );
+  }
   const pw = priorWindow(opts.window);
   // Everything this request reads: the window, plus its prior when deltas are wanted.
   const read: TimeWindow = opts.trend
@@ -180,6 +185,11 @@ async function buildLeaderboard(
       onProgress: withWindow('current', opts.onProgress),
     });
     warnings.push(...refreshed);
+  }
+
+  // Another request may have switched the store to a new host during the awaits above.
+  if (!store.acceptsForgeHost(env.baseUrl)) {
+    throw new ForgeHostChangedError(env.baseUrl);
   }
 
   if (

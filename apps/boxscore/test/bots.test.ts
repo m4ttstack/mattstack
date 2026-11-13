@@ -55,3 +55,18 @@ describe('scanSuspectedBots', () => {
     expect(flagged).toEqual(['release_bot']);
   });
 });
+
+describe('scanSuspectedBots after a host change', () => {
+  it("flags nobody from the previous host's rows", async () => {
+    __setSettingReader(<T>(key: string) =>
+      key === 'rt.integrations'
+        ? ({ forgeHost: 'gl.other.example' } as T)
+        : undefined
+    );
+    __setRosterReader(() => []);
+    getStore().adoptForgeHost('https://gl.example');
+    getStore().upsertIndexRows([row(1, 'release_bot')]);
+
+    expect(await scanSuspectedBots([])).toEqual([]);
+  });
+});

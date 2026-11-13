@@ -4,19 +4,19 @@
   "mattstackSha": {},
   "targets": {
     "skills/shepherdr": {
-      "mattstack": "0.32.60"
+      "mattstack": "0.32.61"
     },
     "skills/wrap-up": {
-      "mattstack": "0.32.60"
+      "mattstack": "0.32.61"
     },
     "skills/writing-style-conversational": {
-      "mattstack": "0.32.60"
+      "mattstack": "0.32.61"
     },
     "skills/writing-style-sparse": {
-      "mattstack": "0.32.60"
+      "mattstack": "0.32.61"
     },
     "skills/writing-style-structured": {
-      "mattstack": "0.32.60"
+      "mattstack": "0.32.61"
     }
   }
 }
