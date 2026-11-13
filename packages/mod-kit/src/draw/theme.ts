@@ -14,6 +14,8 @@ export const SYMBOL = {
   boxActive: '◻',
   boxOn: '◼',
   boxOff: '◻',
+  // The left edge of the button the keyboard selected.
+  selectEdge: '▎',
 }
 
 // Nerd Font icons: codicons, plus Material Design for the question kinds, which draw larger (names from the font's cmap). A font without them draws empty boxes.
@@ -97,6 +99,17 @@ export function pressed<S extends Style>(span: S): S {
   if (span.quiet) return { ...span, bg: QUIET.press, color: 'white' }
   if (span.chip) return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip }
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: '#353535', dim: false }
+}
+
+// The button the keyboard selected: its hover look, with a pink bar in its left edge cell so the cell count stays.
+// The bar's piece is no longer quiet, so a pointer over it keeps the bar pink instead of turning it white.
+export function keySelected<A>(span: Span<A>): Span<A>[] {
+  const lit = hovered(span)
+  if (!lit.t.startsWith(' ')) return [lit]
+  return [
+    { ...lit, t: SYMBOL.selectEdge, color: BRAND.pink, bold: false, quiet: false },
+    { ...lit, t: lit.t.slice(1) },
+  ]
 }
 
 export const ACCENT: Style = { color: 'cyan' }

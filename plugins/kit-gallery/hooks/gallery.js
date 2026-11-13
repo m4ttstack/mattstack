@@ -149,7 +149,8 @@ var SYMBOL = {
   radioOff: "○",
   boxActive: "◻",
   boxOn: "◼",
-  boxOff: "◻"
+  boxOff: "◻",
+  selectEdge: "▎"
 };
 var ICON = {
   layers: "",

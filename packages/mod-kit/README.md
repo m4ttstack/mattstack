@@ -125,7 +125,8 @@ button.
 ### `Button` and `ButtonRow`
 
 `<Button tone? disabled? onPress?>label</Button>`. Tones: `primary`,
-`secondary`, `neutral`, `caution`, `brand`. Alone it is a row of one button.
+`secondary`, `neutral`, `caution`, `brand`, and `quiet` (a faint fill that
+brightens under the pointer). Alone it is a row of one button.
 
 `<ButtonRow right?>`: children are the left buttons. `right` is one button
 pushed to the right edge.
@@ -348,10 +349,12 @@ call. `kitClient` does all of this.
 
 ### Theme
 
-`BRAND`, `FILL`, `SCROLL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
+`BRAND`, `FILL`, `QUIET`, `SCROLL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
 `WARN`, `DIM` are the palette and glyph tables. `rail(style)` is the left rail
 spans. `hovered(span)`, `pressed(span)` and `muted(span)` give the state
-shades. Icons are Nerd Font codepoints.
+shades. `keySelected(span)` marks the button the keyboard selected: its hover
+look with a pink `SYMBOL.selectEdge` in its left edge cell, as two spans of the
+same width. Icons are Nerd Font codepoints.
 
 ## Checks
 

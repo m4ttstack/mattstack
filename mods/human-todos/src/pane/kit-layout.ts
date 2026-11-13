@@ -1,4 +1,4 @@
-import { ACCENT, BRAND, DIM, DONE, GRAY, SYMBOL, WARN, buttonRow, cellWidth, cutCells, hovered, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
+import { ACCENT, BRAND, DIM, DONE, GRAY, SYMBOL, WARN, buttonRow, cellWidth, cutCells, keySelected, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
 import type { Line, Style } from '@mattstack/mod-kit'
 
 import { endRows, messageOf } from './model'
@@ -164,13 +164,13 @@ function markFirst(line: L): L {
 }
 
 // The rows in view from `offset`, clamped to the list as it is now, each ending in its scroll bar cell.
-// The button the keys selected draws as if the pointer were over it, and its item carries the pink rail in the gutter.
+// The button the keys selected takes the kit's selected look, and its item carries the pink rail in the gutter.
 export function kitWindow(layout: KitLayout, width: number, offset: number, focus: KitFocus = {}): L[] {
   const { lines: all, windowRows } = layout
   const chosen = focus.selected && JSON.stringify(focus.selected)
   const { range } = focus
   const lines = all.map((line, n) => {
-    const lit = chosen ? line.map(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span)) : line
+    const lit = chosen ? line.flatMap(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? keySelected(span) : [span])) : line
     return range && n === range.first ? markFirst(lit) : lit
   })
   const top = Math.min(Math.max(0, offset), maxOffset(layout))

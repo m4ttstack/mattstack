@@ -126,7 +126,8 @@ var SYMBOL = {
   radioOff: "○",
   boxActive: "◻",
   boxOn: "◼",
-  boxOff: "◻"
+  boxOff: "◻",
+  selectEdge: "▎"
 };
 var ICON = {
   layers: "",
@@ -192,6 +193,15 @@ function pressed(span) {
   if (span.chip)
     return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
+}
+function keySelected(span) {
+  const lit = hovered(span);
+  if (!lit.t.startsWith(" "))
+    return [lit];
+  return [
+    { ...lit, t: SYMBOL.selectEdge, color: BRAND.pink, bold: false, quiet: false },
+    { ...lit, t: lit.t.slice(1) }
+  ];
 }
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
@@ -930,7 +940,7 @@ function kitWindow(layout, width, offset, focus = {}) {
   const chosen = focus.selected && JSON.stringify(focus.selected);
   const { range } = focus;
   const lines = all.map((line, n) => {
-    const lit = chosen ? line.map((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span) : line;
+    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? keySelected(span) : [span]) : line;
     return range && n === range.first ? markFirst(lit) : lit;
   });
   const top = Math.min(Math.max(0, offset), maxOffset(layout));
