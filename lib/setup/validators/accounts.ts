@@ -18,7 +18,6 @@ import { readCredentialHealth, type CredentialHealthRow } from "../../credential
 import { daysUntil } from "../../credential-health/sweep.ts";
 import { CREDENTIAL_STATUS_WORD } from "../../credential-health/status-word.ts";
 import { getStateDb } from "../../state/index.ts";
-import { isValidHostname } from "../host-validate.ts";
 import { integrationDef, type IntegrationDef, type ValidateCtx, type ValidateResult } from "../integrations.ts";
 import type { SetupIntent } from "../intent.ts";
 import type { Probes } from "../probes.ts";
@@ -32,7 +31,7 @@ import { ghSessionToken } from "../../team/forge-token.ts";
 import { roleFor } from "../../team/roles.ts";
 import { boardEnvHas, boardPeering } from "../../team/board-token.ts";
 import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
-import { soloForgeOverrides } from "../solo-forge.ts";
+import { confirmedGitlabHost } from "../gitlab-host.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
 export interface SecretPresence {
@@ -107,8 +106,7 @@ function ctxFor(id: Integration, team: TeamSnapshot, overrides: UserIntegrationO
   const base = { team: { slug: team.slug, remote: team.remote }, linearTeamKey: team.integrations.linear?.teamKey ?? null };
   if (id === "gitlab") {
     const declaredHost = team.integrations.forge?.provider === "gitlab" ? team.integrations.forge.host : null;
-    const host = overrides.forgeHost && isValidHostname(overrides.forgeHost) ? overrides.forgeHost : null;
-    return { ...base, host, declaredHost };
+    return { ...base, host: confirmedGitlabHost(overrides), declaredHost };
   }
   return { ...base, host: null };
 }
@@ -524,14 +522,13 @@ export async function accountRows(
         { id: "gitlab" as Integration, required: false, optionalNote: SOLO_GITLAB_NOTE },
       ]
     : declaredIntegrations(team, reqs);
-  const rowOverrides = solo ? soloForgeOverrides(overrides, true) : overrides;
   const wantsSlack = declared.some((e) => e.id === "slack");
   const slackAppNeeded = wantsSlack && !team.integrations.slack?.clientId;
   const slackAppRequired = intent?.mode === "create";
 
   let slackRead: Promise<SlackRead> | undefined;
   const slack = () => (slackRead ??= readSlack(p, secrets, team, overrides));
-  const idRows = await Promise.all(declared.map((entry) => accountRowForSafe(p, entry, team, secrets, intent, rowOverrides, slack)));
+  const idRows = await Promise.all(declared.map((entry) => accountRowForSafe(p, entry, team, secrets, intent, overrides, slack)));
   const support = team.slug ? await slackSupportRowFor(p, slack, team) : null;
 
   const rows: Row[] = [];

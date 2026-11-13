@@ -33,7 +33,7 @@ import { createUpdateLock, lockHeldByLiveRun, updateLockPath, type UpdateLock } 
 import { readSetupState, updateSetupState } from "../lib/setup/state.ts";
 import { notifyEnabled } from "../lib/notifier.ts";
 import { HERDR_NOT_INSTALLED, startHerdr, type HerdrStartResult } from "../lib/herdr/start.ts";
-import { envelope, isSolo, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type PlacementMode, type StepId } from "../lib/setup/contract.ts";
+import { envelope, STEP_IDS, WAIVABLE_ROW_IDS, type ConnectField, type Integration, type PlacementMode, type StepId } from "../lib/setup/contract.ts";
 import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/setup/emit.ts";
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -44,7 +44,7 @@ import { processFlavor } from "../lib/flavor.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname } from "../lib/setup/host-validate.ts";
-import { soloForgeOverrides } from "../lib/setup/solo-forge.ts";
+import { confirmedGitlabHost } from "../lib/setup/gitlab-host.ts";
 import { CONNECT_WAIT_MS, endLogin, FINISH_IN_BROWSER, readLogin, startLogin, waitForSignIn, type LoginSeams } from "../lib/setup/cli-login.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
 import { clearIntent, HOME_REPO_PATTERN, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
@@ -1367,8 +1367,7 @@ function ctxFor(id: Integration, team: TeamSnapshot, overrides: UserIntegrationO
   const base = { team: { slug: team.slug, remote: team.remote }, linearTeamKey: team.integrations.linear?.teamKey ?? null };
   if (id === "gitlab") {
     const declaredHost = team.integrations.forge?.provider === "gitlab" ? team.integrations.forge.host : null;
-    const host = overrides.forgeHost && isValidHostname(overrides.forgeHost) ? overrides.forgeHost : null;
-    return { ...base, host, declaredHost };
+    return { ...base, host: confirmedGitlabHost(overrides), declaredHost };
   }
   return { ...base, host: null };
 }
@@ -1690,8 +1689,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     throw new UserActionableError("bad-host", `--host takes a bare hostname such as gitlab.example.com, not ${hostFlag}`);
   }
   const overrides = overridesFor(deps);
-  const solo = hostFlag === undefined && snapshotFor(deps).slug === "" && isSolo(orgRefFromIntent(readIntent(deps.probes), cloneSlugs(deps.probes)));
-  const confirmedOverrides: UserIntegrationOverrides = hostFlag === undefined ? soloForgeOverrides(overrides, solo) : { ...overrides, forgeHost: hostFlag };
+  const confirmedOverrides: UserIntegrationOverrides = hostFlag === undefined ? overrides : { ...overrides, forgeHost: hostFlag };
   const ctx = ctxFor(id, snapshotFor(deps), confirmedOverrides);
 
   let value: string;

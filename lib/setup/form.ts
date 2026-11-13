@@ -12,7 +12,7 @@ import { readTeamLocal, type TeamLocalRecord } from "../team/team-local.ts";
 import { warn } from "../ui/warn.ts";
 import { applyEventsPath } from "./apply-run.ts";
 import { readLogin, FINISH_IN_BROWSER, type LoginSession, type LoginTool } from "./cli-login.ts";
-import { applyStepAction, isSolo, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
+import { applyStepAction, REPO_PLACE_ROW_PREFIX, type Action, type Plan, type Row } from "./contract.ts";
 import { fancyUrlsState, type FancyUrls } from "./fancy-urls.ts";
 import { createCapableGitHubToken, GITHUB_OAUTH_CLIENT_ID, readGitHubSignIn, readStoredGitHubToken, type GitHubSignIn } from "./github-signin.ts";
 import { homeOrigin, isRestorableOrigin } from "./home-remote.ts";
@@ -28,7 +28,7 @@ import { checkRepoRoot, detectCandidate, readStagedRepoRoot } from "./repo-root.
 import { readPackRequirements, type ToolRequirement } from "./requirements.ts";
 import { STEP_PHASES } from "./run-phases.ts";
 import { CLI_SESSION_INTEGRATIONS, signInTools } from "./sign-in-tools.ts";
-import { soloForgeOverrides } from "./solo-forge.ts";
+import { confirmedGitlabHost } from "./gitlab-host.ts";
 import { installHasRun, isSetupFinished, markSetupFinished, readSetupState, type HomeBackupChoice, type SetupRun, type SetupState } from "./state.ts";
 import { probeUserSettingsReader, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot } from "./team-settings.ts";
 import { TITLES, tokenCreateLink, tokenField, type ForgeRole } from "./token-create.ts";
@@ -571,7 +571,7 @@ function forgeRow(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow 
   return forgeAccountRow({ id: "forge", forge, account, role, subtext: FORM_COPY.invite.tokenSubtext(forge.provider), connected, confirmedHost: i.confirmedHost });
 }
 
-/** Just me connects either forge, neither required: GitHub as today, GitLab beside it with its own host. */
+/** Just me connects either forge, neither required: GitLab keeps its own host. */
 function soloForgeRows(i: ConnectInputs, rows: ReadonlyMap<string, Row>): ConnectRow[] {
   const c = FORM_COPY.connect;
   const github = rows.get("account.github");
@@ -579,7 +579,8 @@ function soloForgeRows(i: ConnectInputs, rows: ReadonlyMap<string, Row>): Connec
   const ghLogin = (github?.status === "ready" ? GH_LOGIN.exec(github.detail)?.[1] : undefined) ?? i.forgeLogin;
   const asLogin = (login: string | null) => (login === null ? c.connected : FORM_COPY.invite.connectedAs(login));
   const githubRow = forgeAccountRow({ id: "forge", forge: { provider: "github", host: "github.com" }, account: github, role: "member", subtext: c.soloForge, connected: asLogin(ghLogin), confirmedHost: i.confirmedHost });
-  const gitlabRow = forgeAccountRow({ id: "forge.gitlab", forge: { provider: "gitlab", host: i.confirmedHost ?? "gitlab.com" }, account: gitlab, role: "member", subtext: c.soloGitlab, connected: asLogin(i.forgeLogin), confirmedHost: i.confirmedHost });
+  const gitlabHost = confirmedGitlabHost({ forgeHost: i.confirmedHost ?? undefined });
+  const gitlabRow = forgeAccountRow({ id: "forge.gitlab", forge: { provider: "gitlab", host: gitlabHost ?? "gitlab.com" }, account: gitlab, role: "member", subtext: c.soloGitlab, connected: c.connected, confirmedHost: gitlabHost });
   return [
     { ...githubRow, optional: true },
     { ...gitlabRow, optional: true, ...(gitlab?.status === "missing" ? { detail: c.soloGitlabHint } : {}) },
@@ -1210,7 +1211,7 @@ async function connectSection(p: Probes, plan: Plan, orgs: string[], path: FormP
     signIn: signInTools(readPackRequirements(p, slug)),
     prepare: readPrepare(p, "accounts", undefined, () => p.now()),
     logins: liveLogins(p),
-    confirmedHost: soloForgeOverrides(readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }), isSolo(plan.team)).forgeHost ?? null,
+    confirmedHost: readUserIntegrationOverrides({ read: probeUserSettingsReader(p) }).forgeHost ?? null,
   });
 }
 

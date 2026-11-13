@@ -1614,12 +1614,17 @@ describe("integrationConnect on a solo Mac", () => {
     expect(settingWrites).toEqual([]);
   });
 
-  test("a team Mac keeps today's host reading", async () => {
+  test("a leftover github.com host does not reach a team Mac's GitLab connect either", async () => {
     const { probes, deps } = soloDeps(GITLAB_TOKEN, gitlabUserOk, {
       userIntegrationOverrides: () => ({ forgeHost: "github.com" }),
       teamSnapshot: () => ({ ...SOLO_SNAPSHOT, slug: "acme", integrations: { forge: { provider: "gitlab", host: "gitlab.com" } } }),
     });
     await integrationConnect("gitlab", ["--json"], deps);
-    expect(probes.calls.fetch[0]!.startsWith("https://github.com/")).toBe(true);
+    expect((JSON.parse(deps.lines[0]!) as { status: string }).status).toBe("ready");
+    expect(probes.calls.fetch.length).toBeGreaterThan(0);
+    for (const url of probes.calls.fetch) {
+      expect(url.startsWith("https://gitlab.com/")).toBe(true);
+      expect(url).not.toContain("github.com");
+    }
   });
 });
