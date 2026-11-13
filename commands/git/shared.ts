@@ -280,17 +280,33 @@ export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDep
   }
 
   if (!looksLikeSshAuthFailure(first.output)) throw plain(first.output);
-  const viable = switchViableFor(cwd, deps.auth, deps.switchViable);
-  const found = await deps.findAgent(deps.env.SSH_AUTH_SOCK);
-  if (found?.preferred) throw new FetchFailed(refusedKeyFailure(subject, first.output, await viable()));
-  if (found) {
-    const env = { ...deps.env, SSH_AUTH_SOCK: found.socket };
-    const retry = await deps.run(cwd, env);
-    if (retry.ok) return plainOutcome(env);
-    if (looksLikeSshAuthFailure(retry.output)) throw new FetchFailed(refusedKeyFailure(subject, retry.output, await viable()));
-    throw plain(retry.output);
-  }
-  throw new FetchFailed(noKeyFailure(subject, first.output, await viable()));
+  const env = await retryThroughAgent(subject, first.output, deps.env, deps.findAgent, (e) => deps.run(cwd, e), switchViableFor(cwd, deps.auth, deps.switchViable), plain, (f) => new FetchFailed(f));
+  return plainOutcome(env);
+}
+
+/**
+ * After an SSH auth failure: one retry through the ssh-agent that holds a
+ * key when it is not `base`'s own, returning the env that got in. `plain`
+ * builds what is thrown for git's own output, `wrap` for the SSH failures.
+ */
+async function retryThroughAgent(
+  subject: string,
+  firstOutput: string,
+  base: NodeJS.ProcessEnv,
+  findAgent: FetchDeps["findAgent"],
+  attempt: (env: NodeJS.ProcessEnv) => Promise<{ ok: true } | { ok: false; output: string }>,
+  viable: () => Promise<boolean>,
+  plain: (output: string) => Error,
+  wrap: (failure: out.FailureInput) => Error,
+): Promise<NodeJS.ProcessEnv> {
+  const found = await findAgent(base.SSH_AUTH_SOCK);
+  if (found?.preferred) throw wrap(refusedKeyFailure(subject, firstOutput, await viable()));
+  if (!found) throw wrap(noKeyFailure(subject, firstOutput, await viable()));
+  const env = { ...base, SSH_AUTH_SOCK: found.socket };
+  const retry = await attempt(env);
+  if (retry.ok) return env;
+  if (looksLikeSshAuthFailure(retry.output)) throw wrap(refusedKeyFailure(subject, retry.output, await viable()));
+  throw plain(retry.output);
 }
 
 export interface PushDeps {
@@ -327,8 +343,9 @@ export class PushFailed extends Error {
  * `git <args>` under the env the fetch succeeded with. A push that fails on
  * HTTPS auth retries once through rt's helper, checked against the push URL,
  * unless the fetch already got in with it on that same host: the helper was
- * then already offered, and the forge turned the token down. The fetch already
- * found any ssh-agent with a key, so an SSH refusal only says why.
+ * then already offered, and the forge turned the token down. An SSH refusal
+ * retries once through another ssh-agent that holds a key, as the fetch does:
+ * a fetch over HTTPS never looked for one.
  */
 export async function pushOrigin(cwd: string, branch: string, args: string[], from: RemoteOutcome, deps: PushDeps = defaultPushDeps()): Promise<RemoteOutcome> {
   const subject = `push ${branch}`;
@@ -344,9 +361,8 @@ export async function pushOrigin(cwd: string, branch: string, args: string[], fr
   }
 
   if (!looksLikeSshAuthFailure(first.output)) throw plain(first.output);
-  const viable = await switchViableFor(cwd, deps.auth, deps.switchViable)();
-  const found = await deps.findAgent(from.env.SSH_AUTH_SOCK);
-  throw new PushFailed(found ? refusedKeyFailure(subject, first.output, viable) : noKeyFailure(subject, first.output, viable));
+  const env = await retryThroughAgent(subject, first.output, from.env, deps.findAgent, (e) => deps.run(cwd, args, e), switchViableFor(cwd, deps.auth, deps.switchViable), plain, (f) => new PushFailed(f));
+  return { ...from, env };
 }
 
 const GUARD_FAILED_TITLE = "rt could not check how git signs in to origin";

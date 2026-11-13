@@ -155,11 +155,38 @@ describe("pushOrigin", () => {
     expect(f.details).toBe(DENIED);
   });
 
+  test("an SSH push refusal with a key in another agent retries once through that agent and succeeds", async () => {
+    const from = plainFetch();
+    const { d, envs, argv } = deps([{ ok: false, output: DENIED }, { ok: true }], { found: { socket: "/other.agent", preferred: false } });
+    const outcome = await pushOrigin("/r", "feat", ARGS, from, d);
+    expect(envs.map((e) => e.SSH_AUTH_SOCK)).toEqual(["/herdr.sock.agent", "/other.agent"]);
+    expect(argv).toEqual([ARGS, ARGS]);
+    expect(outcome.env.SSH_AUTH_SOCK).toBe("/other.agent");
+    expect(outcome.usedRtToken).toBe(false);
+  });
+
+  test("an SSH push the other agent's key is also refused on says the forge refused your SSH key, with the retry's words", async () => {
+    const again = "git@gitlab.com: Permission denied (publickey).";
+    const { d, envs } = deps([{ ok: false, output: DENIED }, { ok: false, output: again }], { found: { socket: "/other.agent", preferred: false } });
+    const f = await failureOf(pushOrigin("/r", "feat", ARGS, plainFetch(), d));
+    expect(envs.length).toBe(2);
+    expect(f.title).toBe("Could not push feat: the forge refused your SSH key");
+    expect(f.details).toBe(again);
+  });
+
+  test("an SSH push retry through another agent that fails for another reason keeps the plain failure, redacted", async () => {
+    const echoed = `fatal: unable to access 'https://oauth2:${TOKEN}@gitlab.com/acme/x.git/': The requested URL returned error: 500`;
+    const { d } = deps([{ ok: false, output: DENIED }, { ok: false, output: echoed }], { found: { socket: "/other.agent", preferred: false } });
+    const f = await failureOf(pushOrigin("/r", "feat", ARGS, plainFetch(), d));
+    expect(f.title).toBe("Could not push feat");
+    expect(JSON.stringify(f)).not.toContain("LEAKCHECK");
+  });
+
   test("the SSH push failures name rt git auth --https only when the switch could go ahead", async () => {
     const noKey = await failureOf(pushOrigin("/r", "feat", ARGS, plainFetch(), deps([{ ok: false, output: DENIED }], { viable: true }).d));
     expect(noKey.next).toEqual(["Load your key with ", out.cmd("ssh-add"), ", or let rt sign in over HTTPS with ", out.cmd("rt git auth --https")]);
     const refused = await failureOf(
-      pushOrigin("/r", "feat", ARGS, plainFetch(), deps([{ ok: false, output: DENIED }], { viable: true, found: { socket: "/k", preferred: false } }).d),
+      pushOrigin("/r", "feat", ARGS, plainFetch(), deps([{ ok: false, output: DENIED }, { ok: false, output: DENIED }], { viable: true, found: { socket: "/k", preferred: false } }).d),
     );
     expect(refused.next).toEqual(["Let rt sign in over HTTPS with ", out.cmd("rt git auth --https")]);
   });
