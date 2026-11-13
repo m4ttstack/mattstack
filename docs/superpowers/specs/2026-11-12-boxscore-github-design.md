@@ -238,13 +238,31 @@ Per repo per refresh:
 - Per-PR metrics: 6 to 8 requests per PR needing detail (1 GraphQL, 3 REST
   discussions, 1 files page and 1 GraphQL thread index only when inline
   comments exist, 1 files page, 1 commits page; more pages past 100 of any
-  list). A warm refresh fetches only PRs updated since the last scan and not
-  yet settled; the first refresh of a window fetches every roster PR in it.
+  list).
+- Not counted above: glance's PR read adds 1 rulesets request per repo and
+  base branch of an open PR awaiting review, and 1 per further 100 status
+  contexts on a PR's head commit.
 - Actions runs: 1 request per roster user (plus 1 per further 100 runs).
 
 Per refresh, not per repo: identities, 1 request per roster user per day.
 
 Not run on GitHub: the per-project id read and the per-user events read.
+
+The first refresh of a window reads detail for every roster PR in it. A warm
+refresh reads detail only for PRs whose `updatedAt` moved past their stored
+snapshot, whatever their state (open, closed or merged): GitHub bumps
+`updatedAt` on new commits, comments, reviews and labels, which is everything
+the metrics read. With nothing changed, a repo costs 1 index request plus 1
+Actions runs request per roster user per refresh; each changed PR adds its 6
+to 8. Per hour is that times the refreshes in the hour. GitLab keeps its
+merged-only rule: a non-merged MR is re-read every refresh. The choice is the
+`ForgeSource.reusesFreshSnapshots` capability (`'any'` on GitHub, `'merged'`
+on GitLab), so the metric math stays forge-blind.
+
+PR detail runs 2 PRs at a time on GitHub (`ForgeSource.detailConcurrency`,
+`GITHUB_DETAIL_CONCURRENCY`), about 300 to 600 REST requests a minute, to
+stay under GitHub's secondary rate limit. GitLab stays at 6. The total
+requests are the same; a first refresh of a large window is slower.
 
 ### 5. Links
 
@@ -300,10 +318,15 @@ from the response's `forge`:
   and warning texts in `refresh/run.ts` ("Fetching MR details", "MRs for
   ...").
 
-The words come from one helper keyed on forge (noun singular and plural,
-forge name, activity noun), so a string never hard-codes either forge. The
-GitLab wording stays byte for byte what it is today. Copy follows the
-`rt:ui-copy` skill.
+Call sites keep the GitLab wording as written and pass it through
+`forgeText(text, forge)` (`shared/forge.ts`; the app's `useForgeText` hook
+wraps it). On GitHub, `forgeText` returns the whole-string rewrite from the
+`GITHUB_COPY` table when one exists, and otherwise applies a short word
+rewrite (MR to PR, merge request to pull request, GitLab to GitHub, a day with
+a push to a day with a commit). Absent or `gitlab` returns the text
+unchanged, so the GitLab wording stays byte for byte what it is today. A
+drift guard test fails when a `GITHUB_COPY` key no longer appears as a string
+in the app source. Copy follows the `rt:ui-copy` skill.
 
 ### 9. Fixture and UI validation
 

@@ -152,15 +152,27 @@ Refresh is manual, so per hour is per refresh times the clicks in that hour. Git
 | Actions runs, per repo   | 1 per roster user, plus 1 per further 100 runs                                                                                                                                                      |
 | Identities, per refresh  | 1 per roster user per day                                                                                                                                                                           |
 
-A warm refresh fetches only PRs updated since the last scan and not yet settled; the first
-refresh of a window fetches every roster PR in it. The per-project id read and the per-user
-events read do not run on GitHub.
+Not in the table: glance's PR read adds 1 rulesets request per repo and base branch of an
+open PR awaiting review, and 1 per further 100 status contexts on a PR's head commit.
+
+The first refresh of a window reads detail for every roster PR in it. A warm refresh reads
+detail only for PRs whose `updatedAt` moved past their stored snapshot, whether open,
+closed or merged, since GitHub bumps `updatedAt` on every commit, comment, review and label.
+With nothing changed, a repo costs 1 index request plus 1 Actions runs request per roster
+user per refresh; each PR that changed adds its 6 to 8. Per hour, multiply by the refreshes
+in that hour. The per-project id read and the per-user events read do not run on GitHub.
+
+PR detail runs 2 PRs at a time on GitHub (6 on GitLab), about 300 to 600 REST requests a
+minute, to stay under GitHub's secondary rate limit. The total is the same; a first refresh
+of a large window is slower.
 
 ### Limits on GitHub
 
 - **github.com only.** A GitHub Enterprise host answers a setup error naming the host.
 - **Coding days are commit author dates on the team's PRs,** not pushes: a commit that never
   reaches a PR in a configured repo does not count.
+- **A commit needs a GitHub login to count.** A commit whose author email is not linked to a
+  GitHub account has no login, so it adds no coding day.
 - **250 commits per PR.** GitHub lists no more, and a PR at the cap adds a warning.
 - **1000 Actions runs per person per repo per window.** GitHub stops a filtered run list
   there, and a capped count adds a warning.
@@ -248,8 +260,9 @@ See `gitlab-leaderboard-spec.md` for the exact definitions.
   activity (a note, an approval) moved the MR after the snapshot, it is re-fetched. This
   matters because reviews land right before merge: a snapshot taken while the MR was still
   open would otherwise freeze that review out, undercounting MRs reviewed, review depth,
-  review latency, reciprocity, and even the diff totals. Non-merged rows are always
-  re-fetched.
+  review latency, reciprocity, and even the diff totals. On GitLab, non-merged rows are
+  always re-fetched; on GitHub, any PR whose snapshot covers its `updatedAt` is skipped
+  (see "What a refresh costs" under On GitHub).
 - **Trend storage** is limited to "current vs. one prior window." No long-run time series.
 - **Coding days** only count push events visible to your token.
 
