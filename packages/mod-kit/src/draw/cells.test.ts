@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { cellWidth, cutCells, firstGrapheme, padCells, tailCells } from './cells'
+import { hitAt, sp } from './text'
 
 describe('cellWidth', () => {
   test('counts ASCII as one cell each', () => {
@@ -12,6 +13,19 @@ describe('cellWidth', () => {
     expect(cellWidth('日本')).toBe(4)
     expect(cellWidth('ｱ')).toBe(1)
     expect(cellWidth('Ａ')).toBe(2)
+  })
+
+  // The angle brackets U+2329 and U+232A are East Asian Wide on their own, outside the CJK blocks.
+  test('counts the wide angle brackets as two cells, so a cut and a hit test past them land right', () => {
+    const open = String.fromCodePoint(0x2329)
+    const close = String.fromCodePoint(0x232a)
+    expect(cellWidth(open)).toBe(2)
+    expect(cellWidth(`${open}x${close}`)).toBe(5)
+    expect(cutCells(`${open}x`, 1)).toBe('')
+    expect(cutCells(`${open}x`, 2)).toBe(open)
+    const line = [sp(open), sp('ok', { action: 'ok' })]
+    expect(hitAt(line, 1)).toBeUndefined()
+    expect(hitAt(line, 2)).toBe('ok')
   })
 
   test('counts an emoji, a ZWJ family, a flag and a keycap as two cells', () => {

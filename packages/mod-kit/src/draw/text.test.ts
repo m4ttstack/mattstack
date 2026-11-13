@@ -42,6 +42,18 @@ describe('wide text', () => {
     expect(wrap('🚀🚀', 1)).toEqual(['🚀', '🚀'])
   })
 
+  // Each break used to measure the whole rest of the word again, so a long one took time in its length squared.
+  test('wrap breaks a very long word in one pass over it, every row within the width', () => {
+    const word = '日'.repeat(100_000)
+    const started = performance.now()
+    const rows = wrap(`ab ${word} cd`, 40)
+    expect(performance.now() - started).toBeLessThan(2000)
+    expect(rows[0]).toBe('ab')
+    expect(rows.slice(1, -1).every(r => r === '日'.repeat(20))).toBe(true)
+    expect(rows.length).toBe(1 + 100_000 / 20 + 1)
+    expect(rows.at(-1)).toBe('cd')
+  })
+
   test('hang keeps every row within the width in cells', () => {
     const rows = hang([sp('> ')], [sp('  ')], '🚀🚀 🚀🚀 🚀🚀', 12)
     for (const row of rows) expect(widthOf(row)).toBeLessThanOrEqual(12)

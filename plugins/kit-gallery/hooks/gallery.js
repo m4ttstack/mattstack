@@ -6,6 +6,7 @@ var EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}\uFE0F/u;
 var ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u;
 var WIDE_RANGES = [
   [4352, 4447],
+  [9001, 9002],
   [11904, 12350],
   [12353, 13311],
   [13312, 19903],
@@ -57,6 +58,23 @@ function tailCells(text, cells) {
       break;
     out = grapheme + out;
   }
+  return out;
+}
+function chunkCells(text, cells) {
+  const out = [];
+  let piece = "";
+  let used = 0;
+  for (const grapheme of graphemes(text)) {
+    const w = graphemeWidth(grapheme);
+    if (used + w > cells && piece !== "") {
+      out.push(piece);
+      piece = "";
+      used = 0;
+    }
+    piece += grapheme;
+    used += w;
+  }
+  out.push(piece);
   return out;
 }
 function padCells(text, cells) {
@@ -119,12 +137,10 @@ function wrap(text, width) {
         row = word;
       } else
         row = next;
-      while (cellWidth(row) > width) {
-        const piece = cutCells(row, width) || firstGrapheme(row);
-        if (piece === row)
-          break;
-        out.push(piece);
-        row = row.slice(piece.length);
+      if (cellWidth(row) > width) {
+        const pieces = chunkCells(row, width);
+        out.push(...pieces.slice(0, -1));
+        row = pieces.at(-1) ?? "";
       }
     }
     out.push(row);

@@ -10,6 +10,7 @@ const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u
 // East Asian Wide and Fullwidth blocks (the emoji blocks are caught by EMOJI).
 const WIDE_RANGES: [number, number][] = [
   [0x1100, 0x115f],
+  [0x2329, 0x232a],
   [0x2e80, 0x303e],
   [0x3041, 0x33ff],
   [0x3400, 0x4dbf],
@@ -61,6 +62,25 @@ export function tailCells(text: string, cells: number): string {
     if (used > cells) break
     out = grapheme + out
   }
+  return out
+}
+
+// `text` cut into pieces of at most `cells` cells in one pass over its graphemes; a grapheme wider than `cells` is a piece on its own.
+export function chunkCells(text: string, cells: number): string[] {
+  const out: string[] = []
+  let piece = ''
+  let used = 0
+  for (const grapheme of graphemes(text)) {
+    const w = graphemeWidth(grapheme)
+    if (used + w > cells && piece !== '') {
+      out.push(piece)
+      piece = ''
+      used = 0
+    }
+    piece += grapheme
+    used += w
+  }
+  out.push(piece)
   return out
 }
 

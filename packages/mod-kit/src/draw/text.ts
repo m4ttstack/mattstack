@@ -1,4 +1,4 @@
-import { cellWidth, cutCells, firstGrapheme } from './cells'
+import { cellWidth, chunkCells } from './cells'
 
 // `quiet` marks a button drawn without a fill at rest, so the pointer states give it a fill of its own; it draws nothing itself.
 // `chip` is the fill a control drawn flat on a coloured bar takes under the pointer; it draws nothing itself.
@@ -67,11 +67,10 @@ export function wrap(text: string, width: number): string[] {
         row = word
       } else row = next
       // Only a lone word can still be too wide; it breaks at the row edge, and a grapheme wider than the row keeps a row to itself.
-      while (cellWidth(row) > width) {
-        const piece = cutCells(row, width) || firstGrapheme(row)
-        if (piece === row) break
-        out.push(piece)
-        row = row.slice(piece.length)
+      if (cellWidth(row) > width) {
+        const pieces = chunkCells(row, width)
+        out.push(...pieces.slice(0, -1))
+        row = pieces.at(-1) ?? ''
       }
     }
     out.push(row)
