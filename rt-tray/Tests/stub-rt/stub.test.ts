@@ -637,6 +637,10 @@ test("the solo plan's accounts are the optional GitHub and GitLab rows real rt p
     ["account.github", false, SOLO_GITHUB_NOTE],
     ["account.gitlab", false, SOLO_GITLAB_NOTE],
   ]);
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  expect((await run("solo", ["setup", "gitlab", "connect", "--json"], JSON.stringify({ token: "glpat-x" }), dir)).code).toBe(0);
+  const after = (await run("solo", ["setup", "plan", "--json"], "", dir)).lines[0].groups.find((g: { id: string }) => g.id === "accounts").rows;
+  expect(after.find((r: { id: string }) => r.id === "account.gitlab")).toMatchObject({ status: "ready", detail: "Connected as janedoe", action: null });
 });
 
 test("the restore scenario runs straight after the restore", async () => {

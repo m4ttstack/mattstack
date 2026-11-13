@@ -237,9 +237,11 @@ function plan(): unknown {
   ];
   if (scenario === "solo") {
     const soloForge = (forge: "github" | "gitlab", note: string) =>
-      row(`account.${forge}`, "account", TITLES[forge], integrationDef(forge).why(null), false, connected(forge) ? "ready" : "missing", null,
-        { type: "connect", label: "Connect", integration: forge, fields: [tokenField(forge, "member")], alternatives: [] },
-        undefined, note);
+      connected(forge)
+        ? row(`account.${forge}`, "account", TITLES[forge], integrationDef(forge).why(null), false, "ready", "Connected as janedoe", null, undefined, note)
+        : row(`account.${forge}`, "account", TITLES[forge], integrationDef(forge).why(null), false, "missing", null,
+            { type: "connect", label: "Connect", integration: forge, fields: [tokenField(forge, "member")], alternatives: [] },
+            undefined, note);
     accounts.splice(0, accounts.length,
       soloForge("github", SOLO_GITHUB_NOTE),
       soloForge("gitlab", SOLO_GITLAB_NOTE));

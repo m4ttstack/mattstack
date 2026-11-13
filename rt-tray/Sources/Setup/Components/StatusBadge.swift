@@ -6,6 +6,7 @@ struct StatusBadge: View {
     let isChecking: Bool
     var id: String? = nil
     private var status: RowStatus { isChecking ? .checking : row.status }
+    private var spoken: String { !isChecking && StatusGlyph.isOff(row) ? "off" : status.rawValue }
     var body: some View {
         let symbol = isChecking ? StatusGlyph.symbol(for: .checking) : StatusGlyph.symbol(for: row)
         let badge = Group {
@@ -18,8 +19,8 @@ struct StatusBadge: View {
             }
         }
         .frame(width: 20, height: 20)
-        .accessibilityLabel(Text(status.rawValue))
-        .accessibilityValue(Text(status.rawValue))
+        .accessibilityLabel(Text(spoken))
+        .accessibilityValue(Text(spoken))
         if let id {
             badge.accessibilityIdentifier(id)
         } else {
