@@ -328,3 +328,59 @@ export async function pushOrigin(cwd: string, branch: string, args: string[], fr
   const found = await deps.findAgent(from.env.SSH_AUTH_SOCK);
   throw new PushFailed(found ? refusedKeyFailure(subject, first.output, viable) : noKeyFailure(subject, first.output, viable));
 }
+
+const GUARD_FAILED_TITLE = "rt could not check how git signs in to origin";
+
+/** `guardPrompts` threw: what a caller maps to its own failure shape. */
+export class PromptGuardFailed extends Error {
+  readonly failure: out.FailureInput;
+  constructor(err: unknown) {
+    super(GUARD_FAILED_TITLE);
+    this.failure = { title: GUARD_FAILED_TITLE, details: redactCredentials(errText(err)) };
+  }
+}
+
+/**
+ * Runs `fn` with origin's prompt guard set and always undoes it after.
+ * Throws PromptGuardFailed, before `fn` starts, when the guard cannot decide.
+ * The guard lives in process.env, so callers run one at a time.
+ */
+export async function withPromptGuard<T>(auth: OriginAuth, cwd: string, opts: { push: boolean }, fn: () => Promise<T>): Promise<T> {
+  let undo: () => void;
+  try {
+    undo = await auth.guardPrompts(cwd, opts);
+  } catch (err) {
+    throw new PromptGuardFailed(err);
+  }
+  try {
+    return await fn();
+  } finally {
+    undo();
+  }
+}
+
+/** The forge whose token a run needed, set by `fetchNotingToken`. */
+export interface TokenUse {
+  forge?: Forge;
+}
+
+export interface TokenNoted {
+  usedRtToken?: boolean;
+  tokenForge?: Forge;
+}
+
+/** Marks the result of `run` with the forge its token use recorded, when it recorded one. */
+export async function withTokenNote<R extends object>(run: (token: TokenUse) => Promise<R>): Promise<R & TokenNoted> {
+  const token: TokenUse = {};
+  const result = await run(token);
+  return token.forge ? { ...result, usedRtToken: true, tokenForge: token.forge } : result;
+}
+
+export function noteTokenUse(token: TokenUse, outcome: RemoteOutcome): RemoteOutcome {
+  if (outcome.usedRtToken && outcome.forge) token.forge = outcome.forge;
+  return outcome;
+}
+
+export async function fetchNotingToken(cwd: string, deps: FetchDeps, token: TokenUse): Promise<RemoteOutcome> {
+  return noteTokenUse(token, await fetchOrigin(cwd, deps));
+}

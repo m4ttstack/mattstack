@@ -32,11 +32,10 @@ import {
 } from "../../lib/sync-config.ts";
 import { deriveRepoIdentity } from "../../lib/settings/identity.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
-import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
-import { asError, asRefusal, defaultFetchDeps, drawFailure, errText, fetchFailureOf, fetchOrigin, NOT_ON_A_BRANCH, plural, uncommittedChanges, type FetchDeps } from "./shared.ts";
+import { asError, asRefusal, defaultFetchDeps, drawFailure, errText, fetchFailureOf, fetchNotingToken, NOT_ON_A_BRANCH, plural, PromptGuardFailed, uncommittedChanges, withPromptGuard, withTokenNote, type FetchDeps, type TokenUse } from "./shared.ts";
 import { createOriginAuth, tokenNoteBlocks, type Forge, type OriginAuth } from "./origin-auth.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -164,12 +163,10 @@ function commitsBehind(target: string, cwd: string): number {
  * Programmatic rebase API. Used by both the CLI handler and rt sync.
  */
 export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
-  const token: { forge?: Forge } = {};
-  const result = await rebaseOntoInner(opts, token);
-  return token.forge ? { ...result, usedRtToken: true, tokenForge: token.forge } : result;
+  return withTokenNote((token) => rebaseOntoInner(opts, token));
 }
 
-async function rebaseOntoInner(opts: RebaseOptions, token: { forge?: Forge }): Promise<RebaseResult> {
+async function rebaseOntoInner(opts: RebaseOptions, token: TokenUse): Promise<RebaseResult> {
   const { cwd, dryRun, quiet } = opts;
   const branch = getCurrentBranch(cwd);
 
@@ -207,11 +204,10 @@ async function rebaseOntoInner(opts: RebaseOptions, token: { forge?: Forge }): P
     const { withSpinner } = await import("../../lib/rt-render.ts");
     try {
       const fetchDeps = opts.fetchDeps ?? defaultFetchDeps(opts.originAuth);
-      const fetched = await withSpinner("Fetching from origin…", () => fetchOrigin(cwd, fetchDeps), {
+      await withSpinner("Fetching from origin…", () => fetchNotingToken(cwd, fetchDeps, token), {
         doneLabel: "Fetched from origin",
         failSilently: true,
       });
-      if (fetched.usedRtToken && fetched.forge) token.forge = fetched.forge;
     } catch (err) {
       return {
         status: "error",
@@ -551,26 +547,23 @@ async function runRebaseWithEscalation(
   if (mode === "json") out.payloadOnStdout();
 
   const auth = __testSeams.originAuth ?? createOriginAuth();
-  let undo: () => void;
-  try {
-    undo = await auth.guardPrompts(cwd, { push: false });
-  } catch (err) {
-    drawFailure({ title: "rt could not check how git signs in to origin", details: redactCredentials(errText(err)) });
-    process.exit(1);
-  }
   let result: RebaseResult;
   try {
-    result = await rebaseOnto({
-      cwd,
-      target,
-      dryRun,
-      quiet: mode === "json",
-      onConflict: mode === "off" ? "abort" : "pause",
-      originAuth: auth,
-      fetchDeps: __testSeams.fetchDeps,
-    });
-  } finally {
-    undo();
+    result = await withPromptGuard(auth, cwd, { push: false }, () =>
+      rebaseOnto({
+        cwd,
+        target,
+        dryRun,
+        quiet: mode === "json",
+        onConflict: mode === "off" ? "abort" : "pause",
+        originAuth: auth,
+        fetchDeps: __testSeams.fetchDeps,
+      }),
+    );
+  } catch (err) {
+    if (!(err instanceof PromptGuardFailed)) throw err;
+    drawFailure(err.failure);
+    process.exit(1);
   }
 
   if (result.status === "error") {

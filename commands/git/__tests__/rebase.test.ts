@@ -8,10 +8,8 @@ import { __testSeams, ontoCommand, rebaseOnto } from "../rebase.ts";
 import * as out from "../../../lib/ui/out.ts";
 import { renderPlain } from "../../../lib/ui/out-plain.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import type { ForgeTokenLookup } from "../../../lib/team/forge-token.ts";
-import { createOriginAuth, tokenNoteBlocks, type OriginAuth, type OriginAuthSeams } from "../origin-auth.ts";
-import type { FetchDeps } from "../shared.ts";
-import { ctxFor, exitCodeOf, git, makeRepo, trapExit } from "./helpers.ts";
+import { createOriginAuth, tokenNoteBlocks, type OriginAuth } from "../origin-auth.ts";
+import { ctxFor, exitCodeOf, fakeFetch, git, makeRepo, NO_USER, TOKEN, tokenSeams, trapExit } from "./helpers.ts";
 
 
 let tmpRoot: string;
@@ -127,20 +125,6 @@ describe("rebaseOnto auto-resolve", () => {
   });
 });
 
-const TOKEN = "glpat-LEAKCHECK000000000";
-const NO_USER = "fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled";
-const tokenSeams: OriginAuthSeams = { confirmedHost: () => null, lookup: async (): Promise<ForgeTokenLookup> => ({ kind: "token", token: TOKEN }) };
-
-function fakeFetch(auth: OriginAuth, results: ({ ok: true } | { ok: false; output: string })[]): FetchDeps {
-  return {
-    run: async () => results.shift() ?? { ok: true },
-    findAgent: async () => undefined,
-    env: process.env,
-    auth,
-    helper: "!helper",
-    switchViable: async () => false,
-  };
-}
 
 function originRepo(): string {
   const repo = makeRepo(tmpRoot);
@@ -216,9 +200,37 @@ describe("rebase and the forge token", () => {
 
     io.restore();
     io = captureOut({ console: true });
-    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: "fatal: unable to access: Could not resolve host" }]);
-    expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBe(1);
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "a.txt"), "main change\n");
+    git(repo, "commit", "-qam", "main edit");
+    git(repo, "checkout", "-q", "feature");
+    writeFileSync(join(repo, "a.txt"), "feature change\n");
+    git(repo, "commit", "-qam", "feature edit");
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => ontoCommand(["main", "--no-agent"], ctxFor(repo)))).toBe(1);
+    expect(io.stderr()).toStartWith("The rebase stopped on conflicts");
     expect(io.stderr() + io.stdout()).not.toContain("GitLab token");
+  }, 20_000);
+
+  test("ontoCommand undoes the guard when the run fails", async () => {
+    const repo = originRepo();
+    git(repo, "checkout", "-q", "--detach");
+    const order: string[] = [];
+    __testSeams.originAuth = { ...createOriginAuth(null), guardPrompts: async () => (order.push("guard"), () => order.push("undo")) };
+    __testSeams.fetchDeps = fakeFetch(createOriginAuth(null), []);
+    expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBe(1);
+    expect(order).toEqual(["guard", "undo"]);
+  }, 20_000);
+
+  test("a guardPrompts that throws draws a failure without the token and exits 1", async () => {
+    const repo = originRepo();
+    let fetched = false;
+    __testSeams.originAuth = { ...createOriginAuth(null), guardPrompts: async () => { throw new Error(`git died: https://oauth2:${TOKEN}@gitlab.com/acme/x.git`); } };
+    __testSeams.fetchDeps = { ...fakeFetch(createOriginAuth(null), []), run: async () => (fetched = true, { ok: true }) };
+    expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBe(1);
+    expect(io.stderr()).toStartWith("rt could not check how git signs in to origin");
+    expect(io.stderr() + io.stdout()).not.toContain("LEAKCHECK");
+    expect(fetched).toBe(false);
   }, 20_000);
 
   test("the command calls guardPrompts before the fetch and undoes it before exiting", async () => {

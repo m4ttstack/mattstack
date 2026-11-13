@@ -47,16 +47,21 @@ import {
   drawFailure,
   errText,
   fetchFailureOf,
-  fetchOrigin,
+  fetchNotingToken,
+  noteTokenUse,
   NOT_ON_A_BRANCH,
   plural,
+  PromptGuardFailed,
   PushFailed,
   pushOrigin,
   refusalNote,
   uncommittedChanges,
+  withPromptGuard,
+  withTokenNote,
   type FetchDeps,
   type PushDeps,
   type RemoteOutcome,
+  type TokenUse,
 } from "./git/shared.ts";
 import { createOriginAuth, TOKEN_NOTE_NEXT, tokenNoteBlocks, tokenNoteLine, type Forge, type OriginAuth } from "./git/origin-auth.ts";
 
@@ -144,33 +149,22 @@ export interface SyncBranchOptions {
  */
 export async function syncBranch(cwd: string, opts: SyncBranchOptions): Promise<SyncSummary> {
   const auth = opts.originAuth ?? createOriginAuth();
-  let undo: () => void;
   try {
-    undo = await auth.guardPrompts(cwd, { push: true });
+    return await withPromptGuard(auth, cwd, { push: true }, () => withTokenNote((token) => syncOne(cwd, opts, auth, token)));
   } catch (err) {
+    if (!(err instanceof PromptGuardFailed)) throw err;
     return {
       branch: getCurrentBranch(cwd) ?? "HEAD",
       worktree: cwd,
       resetResult: null,
       rebaseResult: null,
       pushed: false,
-      ...asError({ title: "rt could not check how git signs in to origin", details: redactCredentials(errText(err)) }),
+      ...asError(err.failure),
     };
-  }
-  const token: { forge?: Forge } = {};
-  try {
-    const summary = await syncOne(cwd, opts, auth, token);
-    return token.forge ? { ...summary, usedRtToken: true, tokenForge: token.forge } : summary;
-  } finally {
-    undo();
   }
 }
 
-async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, token: { forge?: Forge }): Promise<SyncSummary> {
-  const noteToken = (o: RemoteOutcome): RemoteOutcome => {
-    if (o.usedRtToken && o.forge) token.forge = o.forge;
-    return o;
-  };
+async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, token: TokenUse): Promise<SyncSummary> {
   // Guard: a rebase in progress comes first. getCurrentBranch returns null
   // during a rebase, which would read as a detached HEAD further down.
   try {
@@ -259,13 +253,13 @@ async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, t
   let fetched: RemoteOutcome = { env: process.env, usedRtToken: false, forge: null, host: null };
   if (opts.quiet) {
     try {
-      fetched = noteToken(await fetchOrigin(cwd, fetchDeps));
+      fetched = await fetchNotingToken(cwd, fetchDeps, token);
     } catch (err) {
       return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: false, ...asError(fetchFailureOf(err)) };
     }
   } else {
     try {
-      await steps.run("Fetching from origin…", async () => { fetched = noteToken(await fetchOrigin(cwd, fetchDeps)); }, {
+      await steps.run("Fetching from origin…", async () => { fetched = await fetchNotingToken(cwd, fetchDeps, token); }, {
         done: "Fetched from origin",
         failSilently: true,
       });
@@ -357,7 +351,7 @@ async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, t
   if (needsPush && !opts.dryRun) {
     const pushArgs = ["push", "--force-with-lease", "origin", branch];
     const pushDeps = opts.pushDeps ?? defaultPushDeps(auth);
-    const push = async () => { noteToken(await pushOrigin(cwd, branch, pushArgs, fetched, pushDeps)); };
+    const push = async () => { noteTokenUse(token, await pushOrigin(cwd, branch, pushArgs, fetched, pushDeps)); };
     try {
       if (opts.quiet) {
         await push();
