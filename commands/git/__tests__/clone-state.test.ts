@@ -5,7 +5,7 @@ import { join } from "path";
 import { setSshHostResolver } from "../../../lib/enrich.ts";
 import { rtCredentialHelper } from "../../../lib/setup/steps/repos.ts";
 import type { ForgeTokenLookup } from "../../../lib/team/forge-token.ts";
-import { classifyClone, insteadOfMapsBack, readHelperOrder, type CloneDeps } from "../clone-state.ts";
+import { classifyClone, commonDirFrom, insteadOfMapsBack, readHelperOrder, type CloneDeps } from "../clone-state.ts";
 import { createOriginAuth } from "../origin-auth.ts";
 import { git, makeRepo } from "./helpers.ts";
 
@@ -212,6 +212,13 @@ describe("helpers in another worktree's own config", () => {
     const order = await readHelperOrder(repo, "gitlab.com", link);
     expect(order.after).toBe("credential.helper");
     expect(JSON.stringify(order)).not.toContain("secret-gone");
+  });
+
+  test("commonDirFrom takes exactly one absolute path and throws on anything else", () => {
+    expect(commonDirFrom("/work/x/.git\n")).toBe("/work/x/.git");
+    for (const bad of ["--path-format=absolute\n.git\n", ".git\n", "", "\n", "/a/.git\n/b/.git\n"]) {
+      expect(() => commonDirFrom(bad)).toThrow();
+    }
   });
 
   test("a config.worktree git cannot parse throws, never reads as no helper", async () => {

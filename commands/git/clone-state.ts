@@ -6,7 +6,7 @@
 
 import { existsSync, readdirSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import { linkPath } from "../../lib/deps/resolve.ts";
 import { shellQuote } from "../../lib/herdr-launch.ts";
 import { rtCredentialHelper } from "../../lib/setup/steps/repos.ts";
@@ -106,11 +106,22 @@ async function clonesCredentialEntries(root: string): Promise<ConfigEntry[]> {
   return entries;
 }
 
+/**
+ * The shared git dir from `rev-parse --path-format=absolute --git-common-dir`.
+ * A git older than 2.31 can echo the flag it does not know and still exit 0,
+ * so anything but one absolute path throws rather than skip the read.
+ */
+export function commonDirFrom(stdout: string): string {
+  const lines = stdout.replace(/\n$/, "").split("\n");
+  if (lines.length !== 1 || !isAbsolute(lines[0]!)) throw new Error("git could not find this clone's git dir");
+  return lines[0]!;
+}
+
 /** The `config.worktree` files under the shared git dir: the main worktree's and each linked one's. */
 async function worktreeConfigFiles(root: string): Promise<string[]> {
   const common = await runGit(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (common.exitCode !== 0) throw new Error("git could not find this clone's git dir");
-  const dir = common.stdout.trim();
+  const dir = commonDirFrom(common.stdout);
   let linked: string[] = [];
   try {
     linked = readdirSync(join(dir, "worktrees"));
