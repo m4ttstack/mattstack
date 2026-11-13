@@ -324,6 +324,12 @@ export function fixtureBuddies(now = Date.now()): Buddy[] {
 }
 
 const HERD_ID = 'docs-sweep-20261113-091500';
+/** Minutes since each herd DM's newest post, matching `fixtureMessages`. */
+const HERD_DM_AGO: Record<string, number> = {
+  'sid|ida': 4,
+  'sid|meg': 30,
+  'sid|elsa': 6,
+};
 /** sid shepherds ida, meg and elsa; their DMs and the herd room fold into
     one sidebar row under `CHAT_FIXTURES=1`. */
 export const FIXTURE_HERD_ROOM = `herd-${HERD_ID}`;
@@ -374,6 +380,9 @@ export function fixtureRooms(): (RoomSummary & {
       kind: 'dm' as const,
       participants: { a, b: c, aName: nameOf(a), bName: nameOf(c) },
       ...(lastMessage ? { lastMessage } : {}),
+      ...(HERD_DM_AGO[`${a}|${c}`] === undefined
+        ? {}
+        : { lastPostedAt: Date.now() - HERD_DM_AGO[`${a}|${c}`]! * M }),
     };
   });
   const herdRoom = {
@@ -664,7 +673,7 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         'Herd up: three lanes on the docs sweep. Briefs are in your panes.'
       ),
       herd(
-        902,
+        904,
         room,
         'meg',
         40,
@@ -675,51 +684,51 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
   if (room === DM_ROOM['sid|ida']) {
     return named([
       herd(
-        911,
+        902,
         room,
         'sid',
         90,
         'Inventory first, then fix surface by surface.'
       ),
       herd(
-        912,
+        907,
         room,
         'ida',
         12,
         'Inventory done: 214 fixes across 13 surfaces, 2 asks. The asks are with you.'
       ),
       herd(
-        913,
+        908,
         room,
         'sid',
         8,
         'Fix the watch hints with the forge noun. Leave the registry for a follow-up.'
       ),
-      herd(914, room, 'ida', 4, 'Inventory done, fixing now'),
+      herd(910, room, 'ida', 4, 'Inventory done, fixing now'),
     ]);
   }
   if (room === DM_ROOM['sid|meg']) {
     return named([
       herd(
-        921,
+        903,
         room,
         'sid',
         88,
         'Take the sidebar rename. Keep old slugs as redirects.'
       ),
-      herd(922, room, 'meg', 30, 'PR 212 merged to main'),
+      herd(905, room, 'meg', 30, 'PR 212 merged to main'),
     ]);
   }
   if (room === DM_ROOM['sid|elsa']) {
     return named([
       herd(
-        931,
+        906,
         room,
         'elsa',
         20,
         'Screenshots are refreshed for the apps tab.'
       ),
-      herd(932, room, 'sid', 6, 'Rebase on main before the next push'),
+      herd(909, room, 'sid', 6, 'Rebase on main before the next push'),
     ]);
   }
 
