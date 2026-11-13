@@ -65,8 +65,10 @@ export function kitClient<P, S extends PointerState = PointerState>(body: (props
       hide: () => surface.post({ type: 'hide' }),
       onKey: fn =>
         void surface.onKey(event => {
-          engage?.()
+          // While a key's press shows, a key does nothing, not even engage: the engine can let a later post stand for
+          // earlier ones from the same tick, and the press's own post must not be lost.
           if (latest.keyPress) return
+          engage?.()
           if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
             setState({ ...latest, keyboard: true })
             reveal?.()

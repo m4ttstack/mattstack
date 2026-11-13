@@ -474,6 +474,27 @@ describe('kitClient', () => {
     expect(m.posts).toHaveLength(1)
   })
 
+  test('a key during the press posts nothing, so the press post is never overwritten by an engaged one', () => {
+    const Engaging = kitClient<{ focused?: boolean }, S>(
+      (_props, ui) => {
+        ui.onKey(ev => {
+          if (ev.key !== 'return') return false
+          ui.pressFor(() => ui.post({ type: 'pressed' }))
+          return true
+        })
+        return <Panel />
+      },
+      { initial: () => ({ count: 0 }), engaged: () => ({ type: 'engaged' }) },
+    )
+    const m = mount(Engaging, {})
+    m.type({ key: 'return' })
+    expect(m.posts).toEqual([{ type: 'engaged' }])
+    m.type({ key: 'down' })
+    m.type({ key: 'return' })
+    m.advance(150)
+    expect(m.posts).toEqual([{ type: 'engaged' }, { type: 'pressed' }])
+  })
+
   test('a reveal key while the surface is unfocused reaches the module instead', () => {
     reveals = 0
     const m = mount(Keys, { focused: false })
