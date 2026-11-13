@@ -23,11 +23,13 @@
 import assert from 'node:assert/strict';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
+import { createServer } from 'node:http';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = pathToFileURL(resolve(here, '../dist/index.js')).href;
 const {
   ActionCableClient,
+  CrossOriginRedirectError,
   GitHubProvider,
   GitLabProvider,
   ReadBackFailedError,
@@ -308,6 +310,78 @@ await check('GitLabProvider.restRequest rejects a path that still carries /api/v
     assert.deepEqual(urls, [], 'the rejected path must never reach fetch');
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+/** A local server on port 0; resolves to it once listening. */
+function listen(handler) {
+  return new Promise(done => {
+    const server = createServer(handler);
+    server.listen(0, '127.0.0.1', () => done(server));
+  });
+}
+
+/**
+ * Node's own fetch (undici) under the redirect checks: `host` redirects
+ * everything not under /moved, to `other` or to itself, and `other` records
+ * whether each request it got carried the token.
+ */
+async function redirectServers(token) {
+  const otherSeen = [];
+  const other = await listen((req, res) => {
+    otherSeen.push(Object.values(req.headers).join('\n').includes(token));
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end('{"login":"ada","id":1,"name":"Ada","avatar_url":null}');
+  });
+  const otherBase = `http://127.0.0.1:${other.address().port}`;
+  let target = 'other';
+  const host = await listen((req, res) => {
+    if (req.url.startsWith('/moved')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"id":5,"path_with_namespace":"g/p"}');
+    }
+    res.writeHead(302, { location: target === 'other' ? `${otherBase}${req.url}` : `/moved${req.url}` });
+    res.end();
+  });
+  return {
+    base: `http://127.0.0.1:${host.address().port}`,
+    otherSeen,
+    sameOrigin: () => (target = 'self'),
+    close: () => (host.close(), other.close())
+  };
+}
+
+await check('a GitLab redirect to another origin is refused before the token goes there (GLANCE-53)', async () => {
+  const s = await redirectServers('glpat-smoke');
+  try {
+    const p = new GitLabProvider(s.base, 'glpat-smoke');
+    await assert.rejects(() => p.restRequest('GET', '/projects/1'), CrossOriginRedirectError);
+    await assert.rejects(() => p.fetchUser('ada'), CrossOriginRedirectError);
+    assert.deepEqual(s.otherSeen, []);
+  } finally {
+    s.close();
+  }
+});
+
+await check('a GitLab redirect within its own origin is still followed', async () => {
+  const s = await redirectServers('glpat-smoke');
+  try {
+    s.sameOrigin();
+    const project = await new GitLabProvider(s.base, 'glpat-smoke').fetchProject('g/p');
+    assert.deepEqual(project, { id: 'gitlab:5', fullPath: 'g/p' });
+  } finally {
+    s.close();
+  }
+});
+
+await check('a GitHub redirect to another origin arrives without the token', async () => {
+  const s = await redirectServers('ghp_smoke');
+  try {
+    const user = await new GitHubProvider(s.base, 'ghp_smoke').fetchUser('ada');
+    assert.equal(user.username, 'ada');
+    assert.deepEqual(s.otherSeen, [false]);
+  } finally {
+    s.close();
   }
 });
 

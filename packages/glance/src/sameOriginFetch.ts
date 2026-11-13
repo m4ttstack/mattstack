@@ -1,6 +1,6 @@
 /**
  * fetch, except that a redirect is followed only while it stays on the origin
- * the request started on.
+ * the request started on (or upgrades it from http to https).
  *
  * On a cross-origin redirect fetch drops `Authorization` but keeps every
  * custom header, GitLab's `PRIVATE-TOKEN` included, so the default `follow`
@@ -15,10 +15,21 @@ const MAX_REDIRECTS = 20;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const BODY_HEADERS = ['content-encoding', 'content-language', 'content-location', 'content-type'];
 
+/**
+ * True when a hop may carry the token: the same origin, or an http to https
+ * upgrade on the same host and default ports. The upgrade adds no exposure,
+ * since the first hop already sent the token to that host in the clear, and
+ * refusing it would break a GitLab `baseURL` configured as `http://`.
+ */
+export function mayFollowRedirect(from: URL, to: URL): boolean {
+  if (to.origin === from.origin) return true;
+  return from.protocol === 'http:' && to.protocol === 'https:' && to.hostname === from.hostname && from.port === '' && to.port === '';
+}
+
 export async function fetchSameOrigin(input: string | URL, init: RequestInit = {}): Promise<Response> {
   if (init.redirect === 'manual' || init.redirect === 'error') return fetch(input, init);
 
-  const start = new URL(input);
+  let from = new URL(input);
   let url: string | URL = input;
   let hopInit: RequestInit = { ...init, redirect: 'manual' };
   for (let follows = 0; ; follows += 1) {
@@ -26,9 +37,10 @@ export async function fetchSameOrigin(input: string | URL, init: RequestInit = {
     const location = REDIRECT_STATUSES.has(res.status) ? res.headers.get('location') : null;
     if (location === null) return res;
 
-    const next = new URL(location, url);
     await res.body?.cancel();
-    if (next.origin !== start.origin) throw new CrossOriginRedirectError(start, next, res.status);
+    const next = new URL(location, url);
+    if (!mayFollowRedirect(from, next)) throw new CrossOriginRedirectError(from, next, res.status);
+    from = next;
     if (follows === MAX_REDIRECTS) throw new TypeError('redirect count exceeded');
 
     const method = (hopInit.method ?? 'GET').toUpperCase();

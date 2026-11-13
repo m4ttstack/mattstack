@@ -266,8 +266,8 @@ export class WriteOutcomeUnknownError extends Error {
  * A forge host answered with a redirect to another origin, and glance refused
  * to follow it. GitLab's `PRIVATE-TOKEN` is a custom header, which fetch keeps
  * on a cross-origin redirect, so following would hand the token to the other
- * origin. The message names both hosts and never the token or the full URL,
- * since a redirect target can carry signed query parameters.
+ * origin. The message names both origins and never the token, a path or a
+ * query, since a redirect target can carry signed query parameters.
  */
 export class CrossOriginRedirectError extends Error {
   /** Host (with port, when not the default) the request was sent to. */
@@ -278,7 +278,7 @@ export class CrossOriginRedirectError extends Error {
   readonly status: number;
 
   constructor(from: URL, to: URL, status: number) {
-    super(`${from.host} answered ${status} redirecting to ${to.host}; not following a redirect to another host with the token`);
+    super(`${from.origin} answered ${status} redirecting to ${to.origin}; not following a redirect to another origin with the token`);
     this.name = 'CrossOriginRedirectError';
     this.fromHost = from.host;
     this.toHost = to.host;

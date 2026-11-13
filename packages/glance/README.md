@@ -473,15 +473,17 @@ limited and, when GitHub said, when the limit resets. A caller that retries on
 
 Every `GitLabProvider` request, and `NoteMutator` and `MRDetailFetcher`,
 follows a redirect only while it stays on the GitLab host's origin (scheme,
-host and port). A hop to another origin throws `CrossOriginRedirectError`
-before any request goes there, because fetch keeps the `PRIVATE-TOKEN` header
-on a cross-origin redirect. It is never retried. `restRequest` with
+host and port), or moves from `http://` to `https://` on the same host. A hop
+anywhere else throws `CrossOriginRedirectError` before any request goes there,
+because fetch keeps the `PRIVATE-TOKEN` header on a cross-origin redirect. It
+is never retried, so a `baseURL` on a host name that redirects to another name
+must use the name GitLab answers on. `restRequest` with
 `io.redirect: 'manual'` still returns the 3xx instead.
 
 | Property | Description |
 |---|---|
-| `fromHost` | The host the request was sent to |
-| `toHost` | The host the redirect pointed at |
+| `fromHost` | The host the refused hop was sent to |
+| `toHost` | The host the redirect pointed at (empty for a non-network URL) |
 | `status` | The redirect status |
 
 GitHub needs no check: Octokit sends the token as `Authorization`, which fetch

@@ -3,7 +3,7 @@
  * with fetch's own method and body rules for the hops it does follow.
  */
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
-import { fetchSameOrigin } from '../src/sameOriginFetch.ts';
+import { fetchSameOrigin, mayFollowRedirect } from '../src/sameOriginFetch.ts';
 import { CrossOriginRedirectError } from '../src/errors.ts';
 
 interface Hit {
@@ -24,9 +24,22 @@ const server = Bun.serve({
     return route(url);
   },
 });
-afterAll(() => server.stop(true));
+const elsewhereHits: string[] = [];
+const elsewhere = Bun.serve({
+  hostname: '127.0.0.1',
+  port: 0,
+  fetch(req) {
+    elsewhereHits.push(new URL(req.url).pathname);
+    return new Response('elsewhere');
+  },
+});
+afterAll(() => {
+  server.stop(true);
+  elsewhere.stop(true);
+});
 beforeEach(() => {
   hits.length = 0;
+  elsewhereHits.length = 0;
 });
 
 const BASE = `http://127.0.0.1:${server.port}`;
@@ -77,15 +90,28 @@ describe('fetchSameOrigin', () => {
   });
 
   test('a hop to another origin is refused before any request goes there', async () => {
-    route = () => new Response(null, { status: 302, headers: { location: 'http://127.0.0.2:1/x' } });
+    route = () => new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${elsewhere.port}/x` } });
     const err = await fetchSameOrigin(`${BASE}/start`, post).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CrossOriginRedirectError);
     expect((err as CrossOriginRedirectError).status).toBe(302);
+    expect((err as CrossOriginRedirectError).message).toContain(`http://127.0.0.1:${elsewhere.port}`);
+    expect(elsewhereHits).toEqual([]);
   });
 
-  test('a scheme change on the same host is another origin', async () => {
-    route = () => new Response(null, { status: 301, headers: { location: `https://127.0.0.1:${server.port}/x` } });
-    await expect(fetchSameOrigin(`${BASE}/start`)).rejects.toBeInstanceOf(CrossOriginRedirectError);
+  test('a Location that does not parse throws a TypeError, as fetch does', async () => {
+    route = () => new Response('body', { status: 302, headers: { location: 'http://[bad' } });
+    await expect(fetchSameOrigin(`${BASE}/start`)).rejects.toBeInstanceOf(TypeError);
+  });
+
+  test('the caller signal still bounds the hops after a redirect', async () => {
+    route = (url) =>
+      url.pathname === '/end'
+        ? (Bun.sleep(2_000).then(() => new Response('late')) as unknown as Response)
+        : new Response(null, { status: 302, headers: { location: '/end' } });
+    const started = performance.now();
+    await expect(fetchSameOrigin(`${BASE}/start`, { signal: AbortSignal.timeout(150) })).rejects.toThrow();
+    expect(performance.now() - started).toBeLessThan(1_500);
+    expect(hits.map((h) => h.path)).toEqual(['/start', '/end']);
   });
 
   test("redirect 'manual' is passed straight through", async () => {
@@ -93,5 +119,21 @@ describe('fetchSameOrigin', () => {
     const res = await fetchSameOrigin(`${BASE}/start`, { redirect: 'manual' });
     expect(res.status).toBe(302);
     expect(hits).toHaveLength(1);
+  });
+});
+
+describe('mayFollowRedirect', () => {
+  const u = (s: string) => new URL(s);
+  test.each([
+    ['the same origin', 'https://gl.example/a', 'https://gl.example/b', true],
+    ['an http to https upgrade on the same host', 'http://gl.example/a', 'https://gl.example/a', true],
+    ['an upgrade that also changes the port', 'http://gl.example/a', 'https://gl.example:8443/a', false],
+    ['an https to http downgrade', 'https://gl.example/a', 'http://gl.example/a', false],
+    ['another port', 'https://gl.example/a', 'https://gl.example:8443/a', false],
+    ['another host', 'https://gl.example/a', 'https://other.example/a', false],
+    ['a subdomain', 'https://gl.example/a', 'https://cdn.gl.example/a', false],
+    ['an upgrade to another host', 'http://gl.example/a', 'https://other.example/a', false],
+  ] as const)('%s', (_name, from, to, allowed) => {
+    expect(mayFollowRedirect(u(from), u(to))).toBe(allowed);
   });
 });

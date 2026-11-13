@@ -18,6 +18,11 @@ interface Seen {
   carriedToken: boolean;
 }
 
+interface HostHit {
+  method: string;
+  path: string;
+}
+
 const otherSeen: Seen[] = [];
 const other = Bun.serve({
   hostname: '127.0.0.1',
@@ -35,13 +40,13 @@ const other = Bun.serve({
 
 type Route = (req: Request, url: URL) => Response | Promise<Response>;
 let route: Route = () => new Response('unset', { status: 500 });
-const hostSeen: Seen[] = [];
+const hostSeen: HostHit[] = [];
 const host = Bun.serve({
   hostname: '127.0.0.1',
   port: 0,
   fetch(req) {
     const url = new URL(req.url);
-    hostSeen.push({ method: req.method, path: url.pathname, carriedToken: true });
+    hostSeen.push({ method: req.method, path: url.pathname });
     return route(req, url);
   },
 });
@@ -133,6 +138,14 @@ describe('a GitLab host redirecting within its own origin', () => {
     route = sameOrigin(() => Response.json({ ok: true }));
     const res = await provider().restRequest('GET', '/projects/1');
     expect(await res.json()).toEqual({ ok: true });
+  });
+
+  test('GraphQL follows it', async () => {
+    route = sameOrigin(() =>
+      Response.json({ data: { project: { mergeRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } } } }),
+    );
+    expect(await provider().fetchPullRequests({ projectPath: 'g/p', state: 'opened' })).toEqual([]);
+    expect(hostSeen.map((s) => `${s.method} ${s.path}`)).toEqual(['POST /api/graphql', 'GET /moved/api/graphql']);
   });
 
   test('MRDetailFetcher follows it', async () => {
