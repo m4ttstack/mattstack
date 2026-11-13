@@ -1,9 +1,5 @@
 import type { ClientSurface } from 'claude-code'
-
-import { renderLines } from './kit/render'
-import { hitAt, hoverKeyAt, sp, type Line } from './kit/text'
-import { BRAND } from './kit/theme'
-import { buttonSpan } from './kit/widgets'
+import { BRAND, buttonSpan, hitAt, hoverKeyAt, renderLines, sp, type Line } from '@mattstack/mod-kit'
 
 type Props = { formId: string; title: string }
 type State = { hover?: string; pressed?: string }

@@ -67,7 +67,7 @@
   },
   "scripts": {
     "test": "bun test ./lib ./commands ./packages/rt-client ./packages/settings-kit ./packages/git-core ./scripts ./rt-tray/Tests/stub-rt ./rt-tray/vm/run/helpers",
-    "mods:test": "bun test --preload ./packages/mod-kit/test/jsx-preload.ts ./packages/mod-kit/src",
+    "mods:test": "bun test --preload ./packages/mod-kit/test/jsx-preload.ts ./packages/mod-kit/src ./mods/*/src",
     "mods:typecheck": "bunx tsc -p packages/mod-kit",
     "mods:build": "bun scripts/mods/build.ts build",
     "mods:watch": "bun scripts/mods/build.ts watch",

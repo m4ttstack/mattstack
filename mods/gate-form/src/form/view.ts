@@ -1,7 +1,6 @@
+import { ACCENT, BRAND, DIM, DONE, GRAY, ICON, SYMBOL, WARN, brandBar, buttonRow, hang, rail, revealTab, selectList, sp, tabStrip, textCursor, withAction, type Button, type Line, type Tab } from '@mattstack/mod-kit'
+
 import type { Form, FormQuestion } from '../../types'
-import { hang, sp, withAction, type Line } from '../kit/text'
-import { ACCENT, BRAND, DIM, DONE, GRAY, ICON, SYMBOL, WARN, rail } from '../kit/theme'
-import { brandBar, buttonRow, revealTab, selectList, tabStrip, textCursor, type Button, type Tab } from '../kit/widgets'
 import type { Action } from './input'
 import { choicesOf, cursorIsChoice, isPicked, unansweredCount, WRITE_IN, type State } from './state'
 
@@ -27,10 +26,10 @@ function contextText(context: string): string {
 
 function answerSummary(q: FormQuestion, s: State, i: number): string {
   const choices = choicesOf(q)
-  if (choices.length === 0) return s.text[i] === '' ? '(blank)' : s.text[i]
-  const label = (v: string) => (v === WRITE_IN ? `“${s.text[i]}”` : (choices.find(o => o.value === v)?.label ?? v))
-  if (!q.multi) return label(choices[s.cursor[i]]?.value ?? '')
-  const values = [...s.picked[i], ...(s.text[i].trim() !== '' ? [WRITE_IN] : [])]
+  if (choices.length === 0) return s.text[i]! === '' ? '(blank)' : s.text[i]!
+  const label = (v: string) => (v === WRITE_IN ? `“${s.text[i]!}”` : (choices.find(o => o.value === v)?.label ?? v))
+  if (!q.multi) return label(choices[s.cursor[i]!]?.value ?? '')
+  const values = [...s.picked[i]!, ...(s.text[i]!.trim() !== '' ? [WRITE_IN] : [])]
   return values.length === 0 ? 'none' : values.map(label).join(', ')
 }
 
@@ -44,17 +43,17 @@ function questionPage(q: FormQuestion, s: State, i: number, view: View): L[] {
   lines.push([sp(SYMBOL.bar, ACCENT)])
   const choices = choicesOf(q)
   if (choices.length === 0) {
-    lines.push([...bar, ...textCursor(s.text[i], 'Type your answer', view.focused)])
+    lines.push([...bar, ...textCursor(s.text[i]!, 'Type your answer', view.focused)])
     return lines
   }
   lines.push(
     ...selectList<Action>({
       choices: choices.map(c => ({ label: c.label, description: c.description, isWriteIn: c.value === WRITE_IN })),
-      cursor: s.cursor[i],
+      cursor: s.cursor[i]!,
       multi: q.multi,
       isPicked: idx => isPicked(q, s, i, idx),
       cursorIsChoice: !q.multi && cursorIsChoice(q, s, i),
-      writeIn: s.text[i],
+      writeIn: s.text[i]!,
       width: view.width,
       focused: view.focused,
       actionFor: idx => ({ type: 'option', idx }),
@@ -96,7 +95,7 @@ function tabList(form: Form, s: State): Tab<Action>[] {
   const list: Tab<Action>[] = form.questions.map((q, i) => ({
     label: q.header,
     mark: s.answered[i] ? ICON.done : ICON.todo,
-    isDone: s.answered[i],
+    isDone: s.answered[i] === true,
     action: { type: 'page', page: i },
   }))
   list.push({ label: 'Submit', isDone: false, action: { type: 'page', page: n } })

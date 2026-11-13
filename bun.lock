@@ -339,6 +339,17 @@
         "typescript": "^5.9.3",
       },
     },
+    "mods/gate-form": {
+      "name": "@mattstack/mod-gate-form",
+      "version": "0.0.0",
+      "dependencies": {
+        "@mattstack/mod-kit": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "catalog:",
+      },
+    },
     "packages/app-icons": {
       "name": "@mattstack/app-icons",
       "version": "0.1.0",
@@ -1096,6 +1107,8 @@
     "@mattstack/glance-react": ["@mattstack/glance-react@workspace:packages/glance-react"],
 
     "@mattstack/mantine-tokyo": ["@mattstack/mantine-tokyo@workspace:packages/tokyo"],
+
+    "@mattstack/mod-gate-form": ["@mattstack/mod-gate-form@workspace:mods/gate-form"],
 
     "@mattstack/mod-kit": ["@mattstack/mod-kit@workspace:packages/mod-kit"],
 

@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, On } from 'claude-code'
+import { BRAND } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
 import { DEMO } from './gate/demo'
 import { toForm } from './gate/parse'
 import { agentReply, summaryOf, toastReply, type Outcome } from './gate/reply'
-import { BRAND } from './kit/theme'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
 
 const PANE = 'gate-form'
@@ -48,7 +48,8 @@ async function settle($: EngineInterface, formId: string, outcome: Outcome): Pro
     .catch(warn)
 }
 
-export const register: Register = on => {
+// A function declaration, not a const arrow: a bundler keeps it one, and the engine's source check requires it.
+export function register(on: On): void {
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false })
     await $.command.register({ name: 'gate-form-demo', description: 'Open the gate form with a demo gate' })

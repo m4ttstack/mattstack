@@ -1,8 +1,7 @@
 import type { ClientSurface } from 'claude-code'
+import { hitAt, hoverKeyAt, renderLines } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
-import { renderLines } from './kit/render'
-import { hitAt, hoverKeyAt } from './kit/text'
 import { keyEffect, perform, type Effect } from './form/input'
 import { initial, type State } from './form/state'
 import { visibleLines, withTabInView } from './form/view'
