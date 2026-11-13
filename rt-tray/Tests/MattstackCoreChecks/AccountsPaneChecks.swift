@@ -60,9 +60,9 @@ let accountsPaneChecks: [Check] = [
                           .rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: Data("{\"token\":\"t\"}".utf8)))
         }
     },
-    Check("an unconnected optional account draws a quiet dash; a required missing account keeps the warning") { c in
+    Check("an unconnected optional account draws a quiet grey ring; a required missing account keeps the warning") { c in
         let gitlab = soloForgePlan().groups[0].rows[1]
-        c.expectEqual(StatusGlyph.symbol(for: gitlab), "minus.circle")
+        c.expectEqual(StatusGlyph.symbol(for: gitlab), "circle")
         c.expectEqual(StatusGlyph.tint(for: gitlab), .grey)
         c.expectEqual(StatusGlyph.multicolor(for: gitlab), false)
         let slack = planWithSlack(.missing).groups[0].rows[1]

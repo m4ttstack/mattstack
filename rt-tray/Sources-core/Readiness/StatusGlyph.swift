@@ -34,7 +34,7 @@ public enum StatusGlyph {
         row.kind == .account && !row.required && !row.finishGated && row.status == .missing
     }
     public static func symbol(for row: PlanRow) -> String {
-        isOff(row) ? "minus.circle" : symbol(for: row.status)
+        isOff(row) ? "circle" : symbol(for: row.status)
     }
     public static func tint(for row: PlanRow) -> GlyphTint {
         isOff(row) ? .grey : tint(for: row.status)
