@@ -11,8 +11,8 @@ import { deriveRepoIdentity, serializeIdentity } from "../../lib/settings/identi
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { pruneBlocks, reposPrune, reposRegister, type RegisterDeps } from "../repos.ts";
-import type { CloneState } from "../git/clone-state.ts";
+import { pruneBlocks, realRegisterDeps, reposPrune, reposRegister, type RegisterDeps } from "../repos.ts";
+import type { CloneDeps, CloneState } from "../git/clone-state.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { repoDataDir } from "../../lib/rt-paths.ts";
 
@@ -186,6 +186,30 @@ describe("reposRegister", () => {
     expect(deps.lines).toHaveLength(1);
     const { at, ...body } = JSON.parse(deps.lines[0]!);
     expect(body).toEqual({ contract: 1, registered: [{ name: basename(repoPath), path: repoPath, tracking: null }] });
+  });
+
+  test("one register run builds the clone deps once, lazily, and reuses them for every path", async () => {
+    const paths = [makeTempRepo(), makeTempRepo()];
+    let loads = 0;
+    let built = 0;
+    const seen: CloneDeps[] = [];
+    const fakeDeps = (): CloneDeps => ({ auth: {} as CloneDeps["auth"], rtLink: "/rt", rtLinkExists: () => true });
+    const real = realRegisterDeps(async () => {
+      loads++;
+      return {
+        realCloneDeps: () => (built++, fakeDeps()),
+        classifyClone: async (_path: string, d: CloneDeps) => (seen.push(d), cloneState({ state: "done" })),
+      };
+    });
+    expect(loads).toBe(0);
+    const deps = { ...testDeps(), cloneState: real.cloneState };
+
+    await human(() => reposRegister(paths, {}, deps));
+
+    expect(seen).toHaveLength(2);
+    expect(built).toBe(1);
+    expect(loads).toBe(1);
+    expect(seen[0]).toBe(seen[1]!);
   });
 
   test("register writes nothing to the clone's git config", async () => {

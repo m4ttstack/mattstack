@@ -30,7 +30,7 @@ import { repoLabel, repoLabelFull, repoLabelQualified } from "../lib/repo-label.
 import { daemonQuery } from "../lib/daemon-client.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
-import type { CloneState } from "./git/clone-state.ts";
+import type { CloneDeps, CloneState } from "./git/clone-state.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import type { RepoStatusRow } from "../packages/rt-client/src/commands.ts";
 
@@ -41,13 +41,18 @@ export interface RegisterDeps {
   cloneState?: (path: string) => Promise<CloneState>;
 }
 
-export function realRegisterDeps(): RegisterDeps {
+type CloneStateModule = Pick<typeof import("./git/clone-state.ts"), "classifyClone" | "realCloneDeps">;
+
+/** One `CloneDeps` per run, built on first use, so the token is read once across every path. */
+export function realRegisterDeps(load: () => Promise<CloneStateModule> = () => import("./git/clone-state.ts")): RegisterDeps {
+  let shared: Promise<{ mod: CloneStateModule; deps: CloneDeps }> | null = null;
   return {
     print: (s) => out.payload(`${s}\n`),
     // Dynamic so prune and locate, which share these deps, never load the token modules.
     cloneState: async (path) => {
-      const { classifyClone, realCloneDeps } = await import("./git/clone-state.ts");
-      return classifyClone(path, realCloneDeps());
+      shared ??= load().then((mod) => ({ mod, deps: mod.realCloneDeps() }));
+      const { mod, deps } = await shared;
+      return mod.classifyClone(path, deps);
     },
   };
 }
