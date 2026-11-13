@@ -469,6 +469,28 @@ not throw. It resolves with `sourceBranchNotDeleted` saying the read was rate
 limited and, when GitHub said, when the limit resets. A caller that retries on
 `RateLimitedError` would otherwise re-issue a merge that already landed.
 
+### `CrossOriginRedirectError`
+
+Every `GitLabProvider` request, and `NoteMutator` and `MRDetailFetcher`,
+follows a redirect only while it stays on the GitLab host's origin (scheme,
+host and port), or moves from `http://` to `https://` on the same host with
+both on their default ports (`http://gl.example:8080` to `https://gl.example`
+is refused). A hop
+anywhere else throws `CrossOriginRedirectError` before any request goes there,
+because fetch keeps the `PRIVATE-TOKEN` header on a cross-origin redirect. It
+is never retried, so a `baseURL` on a host name that redirects to another name
+must use the name GitLab answers on. `restRequest` with
+`io.redirect: 'manual'` still returns the 3xx instead.
+
+| Property | Description |
+|---|---|
+| `fromHost` | The host the refused hop was sent to |
+| `toHost` | The host the redirect pointed at (empty for a non-network URL) |
+| `status` | The redirect status |
+
+GitHub needs no check: Octokit sends the token as `Authorization`, which fetch
+drops on a cross-origin redirect.
+
 ### `WriteOutcomeUnknownError`
 
 The `GitHubProvider` comment writes (`createComment`, `createInlineComment`,

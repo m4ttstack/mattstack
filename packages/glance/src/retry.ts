@@ -9,6 +9,8 @@
  * stalls / transient server faults get another go. Caller cancellation never retries.
  */
 
+import { CrossOriginRedirectError } from './errors.ts';
+
 /** Wraps an error worth another attempt. Anything else thrown by a runner is final. */
 export class RetryableError extends Error {
   override readonly name = 'RetryableError';
@@ -54,12 +56,14 @@ export function retryAfterMs(res: Response): number | undefined {
 
 /**
  * Classify a fetch or body-read rejection. Caller cancellation comes back as-is so it
- * propagates untouched; everything else (this attempt's deadline, a dropped socket)
+ * propagates untouched, and so does a refused cross-origin redirect, which a resend would only
+ * draw again; everything else (this attempt's deadline, a dropped socket)
  * becomes retryable. Callers `throw` the result, which keeps TypeScript's narrowing honest.
  */
 export function asRetryable(err: unknown, callerSignal?: AbortSignal): Error {
   const e = err as Error;
   if (e?.name === 'AbortError' || callerSignal?.aborted) return e;
+  if (e instanceof CrossOriginRedirectError) return e;
   return new RetryableError(e);
 }
 

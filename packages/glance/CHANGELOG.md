@@ -1,5 +1,26 @@
 # @mattstack/glance
 
+## 0.33.1
+
+### Patch Changes
+
+- GitLab requests no longer carry the token to another origin on a redirect
+  (GLANCE-53). fetch keeps the `PRIVATE-TOKEN` header on a cross-origin
+  redirect, so gitbeaker, `restRequest`, the REST reads, GraphQL,
+  `NoteMutator` and `MRDetailFetcher` now follow a redirect only within the
+  host's origin, or from `http://` to `https://` on the same host with both
+  on their default ports, and throw
+  the new `CrossOriginRedirectError` (exported; it names both origins, never
+  the token) otherwise, without a retry. A same-origin redirect is followed
+  as before. A `baseURL` on a host name that redirects to another name now
+  fails: point it at the name GitLab answers on. `restRequest` with
+  `io.redirect: 'manual'` is unchanged. GitHub was already safe and is
+  unchanged: fetch drops Octokit's `Authorization` header on such a redirect.
+- A GitLab avatar URL carries `private_token` only when it is on the GitLab
+  host's own origin. It was appended to every avatar URL, so a user with no
+  upload got a gravatar URL that sent the token to gravatar.com when rendered.
+  Uploads on the host, relative paths included, still get it.
+
 ## 0.33.0
 
 ### Minor Changes

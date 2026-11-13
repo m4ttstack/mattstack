@@ -29,7 +29,7 @@ describe('GitLabProvider.fetchUser', () => {
       id: 'gitlab:user:42',
       username: 'ada',
       name: 'Ada Lovelace',
-      avatarUrl: 'https://cdn.example.com/a.png?private_token=tok',
+      avatarUrl: 'https://cdn.example.com/a.png',
     });
   });
 

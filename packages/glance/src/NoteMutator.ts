@@ -19,6 +19,7 @@
 
 import { throwIfGitLabRateLimited, withGitLabRateLimit } from './gitlabRateLimit.ts';
 import { type OnRequestHook, safeEmit } from './instrumentation.ts';
+import { fetchSameOrigin } from './sameOriginFetch.ts';
 
 /** GitLab omits `type` on a general note; every CreatedNote producer must still return `null`, not `undefined`. */
 function normalizeNoteType(note: CreatedNote): CreatedNote {
@@ -132,7 +133,7 @@ export class NoteMutator {
     return withGitLabRateLimit(`${method} ${path}`, method === 'GET' ? 'read' : 'write', async () => {
       const timeoutMs = budgetEnd !== undefined ? Math.max(1, budgetEnd - Date.now()) : init.timeoutMs;
       const started = performance.now();
-      const res = await fetch(`${this.baseURL}${path}`, {
+      const res = await fetchSameOrigin(`${this.baseURL}${path}`, {
         method,
         headers: init.headers,
         ...(init.body !== undefined ? { body: init.body } : {}),
