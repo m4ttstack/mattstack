@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { Todo } from '../../types'
-import { bandModel, endRows, messageOf, paneModel } from './model'
+import { bandModel, cleanLine, endRows, messageOf, paneModel } from './model'
 import type { PaneRow, Tone } from './model'
 
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'task', title: 'Do it', status: 'open', ...over })
@@ -109,6 +109,28 @@ test('a running item starts with the spin frame, caps its tail by runner, and le
     ],
   })
   expect(local.at(-2)).toMatchObject({ buttons: [{ id: 'openLog', tone: 'quiet' }, { id: 'stop', tone: 'caution' }] })
+})
+
+test('cleanLine drops colour and title escapes, keeps what a carriage return drew last, and expands tabs to 8-cell stops', () => {
+  const ESC = String.fromCharCode(27)
+  const BEL = String.fromCharCode(7)
+  const CR = String.fromCharCode(13)
+  expect(cleanLine(`${ESC}[1;32mok${ESC}[0m done`)).toBe('ok done')
+  expect(cleanLine(`${ESC}]0;my title${BEL}build`)).toBe('build')
+  expect(cleanLine(`${ESC}]8;;https://x.y${ESC}\\link${ESC}]8;;${ESC}\\`)).toBe('link')
+  expect(cleanLine(`${ESC}[2K${ESC}[1G 50%${CR} 100%`)).toBe(' 100%')
+  expect(cleanLine(`a${CR}`)).toBe('a')
+  expect(cleanLine('a\tb')).toBe('a       b')
+  expect(cleanLine('abcdefgh\tz')).toBe('abcdefgh        z')
+  expect(cleanLine('日本\tx')).toBe('日本    x')
+  expect(cleanLine(`bell${BEL} and${String.fromCharCode(8)}`)).toBe('bell and')
+})
+
+test("a running item's tail rows are cleaned lines", () => {
+  const ESC = String.fromCharCode(27)
+  const { rows } = build([todo({ kind: 'run', script: 'ls', status: 'running', runner: 'local', liveTail: [`${ESC}[31mred${ESC}[0m`, 'a\tb'] })])
+  const tail = rows.filter(r => r.kind === 'text' && r.tone === 'dim').map(r => (r as { text: string }).text)
+  expect(tail).toEqual(['red', 'a       b'])
 })
 
 test('only the first row of a wrapped running title carries spin', () => {

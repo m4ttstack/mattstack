@@ -724,6 +724,17 @@ var TONES = {
   stop: "caution",
   forceStop: "caution"
 };
+var ESCAPES = new RegExp("\\x1b\\[[0-?]*[ -/]*[@-~]|\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)?|\\x1b[@-_]", "g");
+var CONTROLS = new RegExp("[\\x00-\\x08\\x0b-\\x1f\\x7f]", "g");
+var TAB_STOP = 8;
+function cleanLine(line) {
+  const text = line.replace(ESCAPES, "").replace(/\r+$/, "");
+  const [first = "", ...rest] = text.slice(text.lastIndexOf("\r") + 1).replace(CONTROLS, "").split("\t");
+  let out = first;
+  for (const piece of rest)
+    out += " ".repeat(TAB_STOP - cellWidth(out) % TAB_STOP) + piece;
+  return out;
+}
 function markFor(todo) {
   if (todo.status === "failed")
     return { mark: "✗", tone: "error" };
@@ -760,7 +771,7 @@ function paneModel(input) {
     const isOpen = expanded.includes(todo.id) || isConfirming;
     const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS);
     const hidden = script.length - SCRIPT_ROWS;
-    const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR);
+    const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR).map(cleanLine);
     const isRunning = todo.status === "running";
     wrapWords(todo.title, inner - 2).forEach((line, n) => rows.push(n === 0 ? { kind: "text", text: `${isRunning ? `${spin} ` : "○ "}${line}`, tone: "title", indent: false, ...isRunning && { spin: true } } : { kind: "text", text: line, tone: "title", indent: true }));
     if (todo.detail)

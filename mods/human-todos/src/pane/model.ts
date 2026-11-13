@@ -1,3 +1,4 @@
+import { cellWidth } from '@mattstack/mod-kit'
 import type { ButtonTone } from '@mattstack/mod-kit'
 
 import type { Todo } from '../../types'
@@ -45,6 +46,21 @@ const TONES: Record<ButtonId, ButtonTone> = {
   forceStop: 'caution',
 }
 
+// CSI sequences (colours, cursor moves), OSC sequences (titles, links) ended by BEL or ESC \, then any other two-byte escape.
+const ESCAPES = new RegExp('\\x1b\\[[0-?]*[ -/]*[@-~]|\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)?|\\x1b[@-_]', 'g')
+const CONTROLS = new RegExp('[\\x00-\\x08\\x0b-\\x1f\\x7f]', 'g')
+const TAB_STOP = 8
+
+// A line of a run's output as a terminal would show it: escapes dropped, only what the last carriage return drew, tabs to 8-cell stops.
+// The pane measures in cells, and an escape or a tab would measure wrong.
+export function cleanLine(line: string): string {
+  const text = line.replace(ESCAPES, '').replace(/\r+$/, '')
+  const [first = '', ...rest] = text.slice(text.lastIndexOf('\r') + 1).replace(CONTROLS, '').split('\t')
+  let out = first
+  for (const piece of rest) out += ' '.repeat(TAB_STOP - (cellWidth(out) % TAB_STOP)) + piece
+  return out
+}
+
 function markFor(todo: Todo): { mark: string; tone: Tone } {
   if (todo.status === 'failed') return { mark: '✗', tone: 'error' }
   if (todo.status === 'skipped') return { mark: '–', tone: 'inactive' }
@@ -83,7 +99,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
     const isOpen = expanded.includes(todo.id) || isConfirming
     const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS)
     const hidden = script.length - SCRIPT_ROWS
-    const tail = (todo.liveTail ?? []).slice(todo.runner === 'local' ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR)
+    const tail = (todo.liveTail ?? []).slice(todo.runner === 'local' ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR).map(cleanLine)
 
     const isRunning = todo.status === 'running'
     // The mark takes two cells, so later title rows hang at the indent and line up under the first row's text.
