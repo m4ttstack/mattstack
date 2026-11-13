@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { LoginSession } from "../cli-login.ts";
 import { finalizePlan, row, type Action, type OrgRef, type Plan, type Row } from "../contract.ts";
 import { applyExpectations } from "../expectations.ts";
-import { allAnswered, composeForm, connectRows, extraRows, formOwnedIds, runFixes, type ConnectInputs, type FormRow } from "../form.ts";
+import { allAnswered, composeForm, connectRows, continueNote, extraRows, formOwnedIds, runFixes, type ConnectInputs, type FormRow } from "../form.ts";
 import type { PrepareRecord } from "../prepare.ts";
 import type { ToolRequirement } from "../requirements.ts";
 import { tokenCreateLink, tokenField } from "../token-create.ts";
@@ -548,7 +548,14 @@ describe("composeForm", () => {
     expect(pick(list, "claude").action).toEqual({ type: "install", label: "Install", tool: "claude", via: "vendor" });
     expect(pick(list, "fast-browser").action).toMatchObject({ label: "Get Chrome" });
     expect(form.continueReady).toBe(false);
+    expect(form.continueNote).toBe("Anything marked Optional can wait");
     expect(elapsed).toBeLessThan(5000);
+  });
+
+  test("the connect footer says every row only where every row is required", () => {
+    expect(continueNote("solo")).toBe("Anything marked Optional can wait");
+    expect(continueNote(null)).toBe("Anything marked Optional can wait");
+    for (const path of ["join", "create", "restore"] as const) expect(continueNote(path)).toBe("Continue unlocks once each one is connected");
   });
 
   test("composeForm on solo ignores a leftover github.com host for GitLab", async () => {

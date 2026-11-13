@@ -93,6 +93,8 @@ export interface SetupForm {
   /** The tools screen's head: set when tools is the stage or the section asked for. */
   tools?: { heading: string; allDone: boolean };
   continueReady: boolean;
+  /** The connect footer's note beside Continue. */
+  continueNote: string;
   startReady: boolean;
   /** The this-mac footer's button and the note beside it. */
   start: { label: string; note: string };
@@ -160,6 +162,7 @@ export const FORM_COPY = {
     linear: { title: "Linear", label: "Create token", subtext: "So mattstack can read and write Linear tickets" },
     fastBrowser: { title: "Fast Browser", label: "Add to Chrome", subtext: "Lets agents drive your real Chrome", waiting: "Waiting for Chrome…", done: "Added", getChrome: "Get Chrome" },
     footer: "Continue unlocks once each one is connected",
+    soloFooter: "Anything marked Optional can wait",
     continue: "Continue",
   },
   restore: {
@@ -1044,6 +1047,12 @@ function joinedClone(p: Probes, clones: Clone[]): { clone: Clone; approval: Appr
   return joined.find((j) => j.approval.kind === "waiting") ?? joined[0];
 }
 
+/** Just me draws rows a member may skip, so its note never asks for every row. */
+export function continueNote(path: FormPath | null): string {
+  const c = FORM_COPY.connect;
+  return (path ?? "solo") === "solo" ? c.soloFooter : c.footer;
+}
+
 /** Every row answered, or optional. */
 export function allAnswered(rows: FormRow[] | undefined): boolean {
   return rows !== undefined && rows.every((r) => r.optional || r.state === "done");
@@ -1346,6 +1355,7 @@ export async function composeForm(p: Probes, opts: FormOptions): Promise<SetupFo
     stage: null,
     sections,
     continueReady: allAnswered(sections.connect),
+    continueNote: continueNote(path),
     startReady: allAnswered(sections.thisMac),
     start: startButton(
       path,
