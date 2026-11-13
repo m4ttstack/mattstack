@@ -69,11 +69,19 @@ This is a security change: it decides how a credential reaches git.
 - No change to how rt-made clones are wired, or to the pool and daemon fetch
   path beyond reusing its helpers.
 - GitLab behaviour otherwise does not change.
+- Known gap, unchanged: after a paused conflict, the escalation push in
+  `lib/rebase-escalation.ts` (`runEscalationFlow`) runs its own push without
+  the fetch's env, so it gets neither the ssh-agent env (as today) nor rt's
+  helper. It is outside the write fence; the report names it as a follow-up.
 
 ## Anti-goals (a failure even if it works)
 
-- A token in git config, a URL, argv, an env var (on any path this design
-  adds), a log line, an error message or a `--json` envelope.
+- A token in git config, a URL, argv, a log line, an error message or a
+  `--json` envelope.
+- A token in an env var on any git path this design adds. The one allowed
+  exception is section 6: glab and gh take the token only as their own
+  `GITLAB_TOKEN` / `GH_TOKEN` (the ticket names `forgeAuthEnv()` for this),
+  and only after the same host gate.
 - The token offered to any host other than github.com, gitlab.com or the host
   the person confirmed (`rt.integrations.forgeHost`), including after an HTTP
   redirect, over cleartext http, or to a submodule or push URL on another host.
@@ -145,6 +153,25 @@ The fetch change lives in `fetchOrigin` (`commands/git/shared.ts`), which
 retry, the failure copy and the note below (decided through herd_ask). The
 push retry is `rt sync`'s alone, since only it pushes.
 
+**No prompt first (my call).** At a terminal, git asks for a username
+(`/dev/tty`, or an askpass program such as an editor terminal's
+`GIT_ASKPASS`) rather than failing, so a retry that waits for a failure
+would never run. So each of the three verbs decides once, before its first
+remote git call (that includes `getRemoteDefaultBranch`'s `ls-remote` in
+`lib/git-ops.ts`, which inherits `process.env`), whether rt can authenticate
+origin: the section 1 checks pass for origin's fetch URL (and, for
+`rt sync`, its push URL). When they pass, the verb sets
+`GIT_TERMINAL_PROMPT=0` and `GIT_ASKPASS=` (empty, which also stops git
+falling through to `core.askPass` and `SSH_ASKPASS`) in its own
+`process.env` for the rest of the run, so every git it starts runs
+unprompted, as `runGitOrigin` already does. A remote call that then fails on
+authentication gets rt's retry (fetch, push) or degrades as today
+(`ls-remote` falls back to the local symref). The effect on a person: when rt
+holds a token for a confirmed host, these verbs use their own helpers first
+and rt's token second, and never stop to ask for a password. When rt holds no
+token, or the host is not confirmed, nothing changes, prompt included. SSH is
+unaffected (ssh's own passphrase prompt does not read these variables).
+
 `fetchOrigin`: when the fetch fails and the output
 is an HTTPS auth failure (`isAuthFailure` from `lib/worktree/fetch-auth.ts`),
 build the helper env (section 1) and retry once. On success it returns that
@@ -162,12 +189,14 @@ URL, or read-only credentials), retry once the same way, checking the push URL
 `fetchOrigin` reports whether the retry was used beside the env it returns,
 so each caller knows to print the note. After a run that needed the fallback
 and finished, a non-quiet `rt sync`, `rt git rebase` or `rt git reset` prints
-one note after its last progress line:
-`info  rt used its <forge> token for this sync` with
-`next  To use it for every git on this clone, run rt git auth`. A quiet
-(`--json`) sync prints nothing extra; a failed sync prints no note after its
-failure (`compactFailure` and `branch_sync` read the last stderr lines).
-Copy goes through rt:ui-copy.
+one note after its last progress line, built from existing blocks (no new
+status): a callout saying rt used its <forge> token because git had no other
+way in, and a `next` callout "To use it for every git on this clone, run"
+`rt git auth`. Under `rt sync all` it prints once, after the summary, naming
+the worktrees that needed it. A quiet (`--json`) run prints nothing extra; a
+failed run prints no note after its failure (`compactFailure` and
+`branch_sync` read the last stderr lines). Copy goes through rt:ui-copy and
+says "this run", not "this sync", since three verbs print it.
 
 The ssh-agent retry and the HTTPS retry are independent: the first runs only
 on an SSH auth failure, the second only on an HTTPS auth failure.
@@ -181,6 +210,10 @@ a failure that names the SSH key:
   origin: no SSH key is loaded";
 - an agent holds a key and origin still refused (today a raw failure): "Could
   not fetch from origin: the forge refused your SSH key".
+
+The push titles take the same shape: "Could not push <branch>: no SSH key is
+loaded", "Could not push <branch>: the forge refused your SSH key", and, for
+HTTPS, "Could not push <branch>: the forge refused rt's token as well".
 
 `next` lists `ssh-add` (only in the first case) and then
 `rt git auth --https`, the second only when origin's SSH URL maps to an HTTPS
@@ -203,13 +236,17 @@ person, never under `--json`.
 
 **Plain form, HTTPS origin.** Runs the section 1 checks. If rt is already the
 clone's sole effective helper for that host, prints `done  <repo> already
-uses rt's <forge> token` and exits 0. Otherwise it shows what it will write
-(the key, and that it replaces the clone's own helpers for that one host in
-this clone only), asks y/n at a terminal (`confirm` from `lib/rt-render.ts`),
-and on yes writes the two config values with `git -C <root> config --add`.
-Without a terminal it refuses unless `--yes`. The done line names the
-`git config --unset-all credential.https://<host>.helper` command that
-undoes it. Refusals, each with why: not a git repo; no origin; origin is
+uses rt's <forge> token` and exits 0. If the clone's own `.git/config`
+already holds `credential.https://<host>.helper` entries rt did not write, rt
+refuses and names them: rt did not make them, so rt leaves them alone, and an
+undo could not restore them exactly. Otherwise it shows what it will write
+(the key, and that for that one host in this clone it takes the place of the
+helpers git would otherwise use, such as the keychain), asks y/n at a
+terminal (`confirm` from `lib/rt-render.ts`), and on yes writes the two config
+values with `git -C <root> config --add`. Without a terminal it refuses
+unless `--yes`. The done line names the
+`git config --unset-all credential.https://<host>.helper` command that undoes
+it exactly. Refusals, each with why: not a git repo; no origin; origin is
 `http://`; host not confirmed (next: `rt setup gitlab connect --host <host>`);
 rt holds no token for the host (next: connect the forge); no rt link at
 `linkPath(home, "rt")` (the app is not installed); origin is SSH (next:
@@ -218,14 +255,18 @@ rt holds no token for the host (next: connect the forge); no rt link at
 **`--https`, SSH origin.** Maps origin's SSH URL to HTTPS
 (`git@host:path(.git)` and `ssh://[user@]host[:port]/path(.git)` become
 `https://host/path.git`; an SSH host alias the forge detection cannot map is
-refused, saying so). Runs the section 1 checks against the HTTPS URL. The
-confirm shows the old and new URL. On yes: `git remote set-url origin <https>`;
-if `remote.origin.pushurl` is set and is the SSH form of the same repo, it is
-rewritten too, and a pushurl naming anything else is left alone and the done
-line says so; then the helper is written as in the plain form. After the
-rewrite, if `git remote get-url origin` is not the HTTPS URL (an `insteadOf`
-in the user's config maps it back), rt says so and names the rule; it does not
-touch global config. `--https` on an HTTPS origin behaves as the plain form.
+refused, saying so). Runs the section 1 checks against the HTTPS URL, and the
+plain form's helper-entry refusal. Before writing anything it checks
+`git ls-remote --get-url <https URL>` (which applies `insteadOf` and makes no
+network call): if a rule in the user's config maps the HTTPS URL back to SSH,
+rt refuses, names the rule, and writes nothing; it never touches global
+config. The confirm shows the old and new URL. On yes:
+`git remote set-url origin <https>`; if `remote.origin.pushurl` is set and is
+the SSH form of the same repo, it is rewritten too, and a pushurl naming
+anything else is left alone and the done line says so; then the helper is
+written as in the plain form. The done line names both undo commands:
+`git remote set-url origin <old URL>` and the helper's `--unset-all`.
+`--https` on an HTTPS origin behaves as the plain form.
 
 **`--check`.** Reads the repo index (`loadRepoIndexEntries`, `lib/repo-index.ts`)
 and, for each registered checkout that exists, origin's URL and local
@@ -260,15 +301,23 @@ a GitLab token, glab runs with `forgeAuthEnv("gitlab", host, token)`; else
 with `glabEnv(host)` as today (glab's own login). For a GitHub origin: only
 when the host is github.com and rt holds a GitHub token (stored, staged or the
 gh session, as `forgeTokenLookupForGit` reads), gh runs with
-`forgeAuthEnv("github", host, token)` (`GH_TOKEN`); else as today. A token
+`forgeAuthEnv("github", host, token)` (`GH_TOKEN`); else as today. Whenever
+a token goes along, glab and gh run with `cwd` set to the checkout, and glab
+also gets `GITLAB_HOST=<host>` even for gitlab.com, so the CLI's host is the
+one the gate checked, never one it works out for itself. `forgeAuthEnv`
+itself does not change (other callers rely on it). A token
 lookup that throws falls back to the CLI's own login. The token is read once
 per sync, not per listing. Failure text from glab or gh passes through
 `redactCredentials` before it reaches a refusal hint.
 
 ### 7. Docs
 
-The sites/docs page that covers `rt sync` gets a short "How rt sync signs in"
-section, and the rt CLI reference gains `rt git auth` (rt:docs).
+The reference pages under `sites/docs/docs/rt/reference/` are generated by
+`scripts/gen-docs.ts`, which pulls hand-written prose from `_partials`. So the
+prose goes in new partials: `_partials/sync/index.mdx` gets a short "How rt
+sync signs in" section, and `_partials/git/auth.mdx` explains `rt git auth`;
+then the generator is re-run so the `rt git auth` page exists and both pages
+carry their partials (rt:docs).
 
 ## Constraints
 
