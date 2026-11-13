@@ -1508,3 +1508,35 @@ test('bulk rebase targets only the MRs needing one', () => {
   expect(entry?.label).toBe('rebase');
   expect(entry?.targets.map(t => t.iid)).toEqual([411, 413]);
 });
+
+test('discard review shows only while a review gate waits, and confirms first', () => {
+  const gate = (over: Record<string, unknown>) => ({
+    gateId: 'g1',
+    subject: 'mr:x',
+    kind: 'review-post',
+    label: 'review',
+    status: 'open',
+    openedAt: 1,
+    questions: [],
+    domain: 'review',
+    ...over,
+  });
+  const drop = (gates: unknown[]) => {
+    const mr = mrx(1418, { gates });
+    return rowActions(mr, actionEnvOf(ownEnv, mr)).find(
+      a => a.key === 'drop-review'
+    );
+  };
+  expect(drop([gate({})])).toMatchObject({
+    section: 'agent',
+    label: 'discard review',
+    request: { kind: 'drop-review' },
+    confirm: 'really discard?',
+  });
+  expect(drop([gate({ status: 'parked' })])).toBeDefined();
+  expect(drop([gate({ status: 'answered' })])).toBeUndefined();
+  expect(
+    drop([gate({ kind: 'respond-post', domain: 'respond' })])
+  ).toBeUndefined();
+  expect(drop([])).toBeUndefined();
+});

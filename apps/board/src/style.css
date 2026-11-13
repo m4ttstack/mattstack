@@ -4293,6 +4293,9 @@ a.tui-id-card-ref:focus-visible {
   letter-spacing: 0.04em;
   color: var(--text-2);
 }
+.tui-gate-sheet-drop {
+  gap: 6px;
+}
 .tui-gate-sheet-close {
   display: inline-flex;
   align-items: center;

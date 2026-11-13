@@ -417,6 +417,7 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     viewReport: (m, lane) => calls.push(`view ${lane} !${m.iid}`),
     dismiss: (m, lane) => calls.push(`dismiss ${lane} !${m.iid}`),
     standDown: (m, on) => calls.push(`stand-down ${on} !${m.iid}`),
+    dropReview: m => calls.push(`drop review !${m.iid}`),
     postSlack: m => calls.push(`post !${m.iid}`),
     slackPosts: m => calls.push(`slack posts !${m.iid}`),
   };
@@ -438,6 +439,7 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     h
   );
   dispatchRowAction({ kind: 'stand-down', on: true }, mr(7), {}, deps, h);
+  dispatchRowAction({ kind: 'drop-review' }, mr(7), {}, deps, h);
   dispatchRowAction({ kind: 'slack-posts' }, mr(7), {}, deps, h);
   await dispatchRowAction(
     { kind: 'ask', ask: 'review' },
@@ -451,6 +453,7 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     'open https://x.example',
     'view respond !7',
     'stand-down true !7',
+    'drop review !7',
     'slack posts !7',
   ]);
   expect(events).toContain(

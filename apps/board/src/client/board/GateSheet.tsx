@@ -35,6 +35,7 @@ function GateSheet({
   variant,
   ariaLabel,
   actions,
+  trailActions,
   queue,
   tag,
   onClose,
@@ -43,6 +44,8 @@ function GateSheet({
   variant: 'review' | 'respond' | 'stage' | 'pane' | 'answered' | 'triage';
   ariaLabel: string;
   actions?: ReactNode;
+  /** Rare gate-level actions, kept out of the lead beside the tag. */
+  trailActions?: ReactNode;
   queue?: GateSheetQueue;
   tag?: string;
   onClose: () => void;
@@ -170,6 +173,7 @@ function GateSheet({
           <span />
         )}
         <span className="tui-gate-sheet-trail">
+          {trailActions}
           {tag && <span className="tui-gate-sheet-tag">{tag}</span>}
           <button
             type="button"

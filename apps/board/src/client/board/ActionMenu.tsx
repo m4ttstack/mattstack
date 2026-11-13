@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { Shredder } from 'lucide-react';
 
 import { ContextMenu } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
@@ -61,6 +62,8 @@ function glyphNode(g: ActionGlyph, blocked = false): React.ReactNode {
       return <SlackLogo mono={blocked} />;
     case 'rt':
       return <RtMark />;
+    case 'shredder':
+      return <Shredder size={13} aria-hidden />;
     case 'flock':
       return (
         <img
