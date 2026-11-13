@@ -11,6 +11,7 @@ import type {
 import { fetchPipelinesFor } from './activity.js';
 import { githubSource, type GitHubSourceProvider } from './github.js';
 import { resolveIdentity } from './identities.js';
+import { loginCanon } from './logins.js';
 import { fetchMetrics, scanProject } from './mrs.js';
 import type { GitProvider, SourceIO, SourceProvider } from './provider.js';
 
@@ -69,6 +70,23 @@ export function gitlabSource(provider: SourceProvider): ForgeSource {
   };
 }
 
+const knownLoginsOf = (settings: BoxscoreSettings): string[] =>
+  [...settings.roster, ...settings.orgRoster].map(r => r.username);
+
+/**
+ * How stored logins read against the current roster: on GitHub, through the roster's
+ * spelling, so a login stored before its owner joined (or under another case) still
+ * matches. Undefined on GitLab, whose usernames match exactly.
+ */
+export function storedLoginCanon(
+  env: Env,
+  settings: BoxscoreSettings
+): ((login: string) => string) | undefined {
+  if (env.forge !== 'github') return undefined;
+  const canon = loginCanon(knownLoginsOf(settings));
+  return login => canon(login) ?? login;
+}
+
 export function sourceFor(
   env: Env,
   provider: GitProvider,
@@ -77,11 +95,8 @@ export function sourceFor(
   if (env.forge !== 'github') {
     return gitlabSource(provider as unknown as SourceProvider);
   }
-  const knownLogins = [...settings.roster, ...settings.orgRoster].map(
-    r => r.username
-  );
   // makeProvider builds a GitHubProvider for this forge; GitProvider types its reads optional.
   return githubSource(provider as unknown as GitHubSourceProvider, {
-    knownLogins,
+    knownLogins: knownLoginsOf(settings),
   });
 }

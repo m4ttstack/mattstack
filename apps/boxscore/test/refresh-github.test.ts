@@ -24,6 +24,7 @@ const { getStore, mrKey, __resetStore } =
 const { runRefresh } = await import('../src/server/refresh/run.js');
 const { githubSource, sourceFor } =
   await import('../src/server/source/index.js');
+const { toIndexRow } = await import('../src/server/source/mrs.js');
 
 beforeEach(() => getStore().clear());
 afterAll(() => {
@@ -548,6 +549,56 @@ describe('warm refresh re-reads only PRs whose updatedAt moved', () => {
     await run();
     await run();
     expect(fetched).toEqual([4, 4]);
+  });
+});
+
+describe('detail eligibility reads stored authors through the current roster', () => {
+  const storedRow = (projectPath: string) =>
+    toIndexRow(
+      indexRow({ iid: 7, projectPath, authorUsername: 'ADA' }),
+      '2026-05-06T00:00:00Z'
+    );
+
+  it('github reads a PR whose stored author differs in case from the roster', async () => {
+    getStore().upsertIndexRows([storedRow('o/r')]);
+    const fetched: number[] = [];
+    const provider = makeGitHubProvider({ index: [] });
+    const read = provider.fetchSingleMR.bind(provider);
+    provider.fetchSingleMR = async (projectPath, iid, me, onWarning) => {
+      fetched.push(iid);
+      return read(projectPath, iid, me, onWarning);
+    };
+
+    await runRefresh({
+      store: getStore(),
+      provider: makeGitLabSpy().provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+      source: sourceFor(ENV, provider as unknown as GitProvider, settings()),
+    });
+
+    expect(fetched).toEqual([7]);
+  });
+
+  it('gitlab keeps exact author matching for detail eligibility', async () => {
+    getStore().upsertIndexRows([storedRow('g/p')]);
+    const { provider, calls } = makeGitLabSpy();
+
+    await runRefresh({
+      store: getStore(),
+      provider,
+      settings: settings({
+        forge: undefined,
+        projects: ['g/p'],
+        baseUrl: 'https://gl.example',
+        declaredHost: 'gl.example',
+      }),
+      env: { baseUrl: 'https://gl.example', token: 'tkn' },
+      window: WINDOW,
+    });
+
+    expect(calls).not.toContain('fetchMergeRequestMetrics');
   });
 });
 

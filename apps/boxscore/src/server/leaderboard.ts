@@ -22,7 +22,7 @@ import { buildUserEvidence } from './metrics/evidence.js';
 import { computeSnapshot, type Snapshot } from './metrics/snapshot.js';
 import { buildResponse, type BuildContext } from './metrics/trend.js';
 import { runRefresh } from './refresh/index.js';
-import { makeProvider, sourceFor } from './source/index.js';
+import { makeProvider, sourceFor, storedLoginCanon } from './source/index.js';
 import { ForgeHostChangedError, getStore } from './store/index.js';
 import type { FetchResult } from './store/model.js';
 import {
@@ -267,9 +267,14 @@ async function buildLeaderboard(
         : [viewer.username];
 
   const rosterUsernames = settings.roster.map(r => r.username);
-  const current = buildFetchResult(store, opts.window, rosterUsernames);
+  const canon = storedLoginCanon(env, settings);
+  const current = buildFetchResult(store, opts.window, rosterUsernames, canon);
   const priorSnapshot: Snapshot | null = opts.trend
-    ? snapshotFor(buildFetchResult(store, pw, rosterUsernames), pw, compared)
+    ? snapshotFor(
+        buildFetchResult(store, pw, rosterUsernames, canon),
+        pw,
+        compared
+      )
     : null;
 
   opts.onProgress?.({

@@ -15,6 +15,7 @@ import {
   fetchProjectRef,
   fetchPushesFor,
   gitlabSource,
+  storedLoginCanon,
 } from '../source/index.js';
 import type {
   ForgeSource,
@@ -182,10 +183,12 @@ export async function runRefresh(
   // skipping rows whose stored snapshot the source says is still current.
   signal?.throwIfAborted();
   const rosterSet = new Set(rosterUsernames);
+  const canon = storedLoginCanon(env, settings);
+  const toRoster = canon ?? ((login: string) => login);
   const indexRows = store.indexRowsUpdatedWithin(window.start, window.end);
   const eligibleRows = indexRows.filter(
     r =>
-      (r.authorUsername != null && rosterSet.has(r.authorUsername)) ||
+      (r.authorUsername != null && rosterSet.has(toRoster(r.authorUsername))) ||
       isRevertTitle(r.title)
   );
   const eligibleKeys = eligibleRows.map(r => mrKey(r.projectPath, r.iid));
@@ -371,7 +374,8 @@ export async function runRefresh(
   const ticketSources = buildFetchResult(
     store,
     window,
-    rosterUsernames
+    rosterUsernames,
+    canon
   ).mrs.filter(
     m =>
       eligibleKeySet.has(mrKey(m.projectPath, m.iid)) &&

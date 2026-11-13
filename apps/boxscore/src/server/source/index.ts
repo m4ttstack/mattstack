@@ -5,7 +5,7 @@ export {
   toStoredPipeline,
   toStoredPushEvent,
 } from './activity.js';
-export { gitlabSource, sourceFor } from './forge-source.js';
+export { gitlabSource, sourceFor, storedLoginCanon } from './forge-source.js';
 export type { ForgeDetail, ForgeSource } from './forge-source.js';
 export { githubSource } from './github.js';
 export type { GitHubSourceProvider } from './github.js';
