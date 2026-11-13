@@ -7,7 +7,13 @@ import type {
   UserDetailResponse,
 } from '../shared/types.js';
 import { getCurrentUser } from './config/current-user.js';
-import { ConfigError, readSettings, type Env } from './config/index.js';
+import { readGitHubToken } from './config/github-token.js';
+import {
+  ConfigError,
+  readSettings,
+  type BoxscoreSettings,
+  type Env,
+} from './config/index.js';
 import { readSecrets } from './config/secrets.js';
 import { readTeamMembership } from './config/team.js';
 import { resolveViewer } from './config/viewer.js';
@@ -89,6 +95,7 @@ function gitlabNotConnected(declaredHost: string): string {
 /** Assembles the fetchers' connection envelope from settings + daemon secrets (spec 5.4). */
 async function resolveEnv(): Promise<Env> {
   const s = readSettings();
+  if (s.forge === 'github') return resolveGitHubEnv(s);
   if (!s.baseUrl) throw new ConfigError(gitlabNotConnected(s.declaredHost));
   const secrets = await readSecrets();
   if (secrets.warning) console.warn(`[config] ${secrets.warning}`);
@@ -100,6 +107,28 @@ async function resolveEnv(): Promise<Env> {
   return {
     baseUrl: s.baseUrl,
     token: secrets.gitlabToken,
+    linearApiKey: secrets.linearApiKey,
+  };
+}
+
+/** readSecrets() supplies linearApiKey only; its gitlabToken must never reach GitHub. */
+async function resolveGitHubEnv(s: BoxscoreSettings): Promise<Env> {
+  if (!s.baseUrl) {
+    throw new ConfigError(
+      `GitHub is not connected: boxscore reads GitHub only on github.com, and the team names ${s.declaredHost}.`
+    );
+  }
+  resolveScope();
+  const github = await readGitHubToken(s.projects);
+  if (github.token === null) {
+    throw new ConfigError(`GitHub token is not available: ${github.reason}`);
+  }
+  const secrets = await readSecrets();
+  if (secrets.warning) console.warn(`[config] ${secrets.warning}`);
+  return {
+    forge: 'github',
+    baseUrl: s.baseUrl,
+    token: github.token,
     linearApiKey: secrets.linearApiKey,
   };
 }
@@ -160,7 +189,12 @@ async function buildLeaderboard(
   const warnings: LeaderboardWarning[] = [];
 
   // Resolved before the refresh so an unknown viewAs 404s without fetching anything.
-  const who = await getCurrentUser(env.baseUrl, env.token);
+  const who = await getCurrentUser(
+    env.baseUrl,
+    env.token,
+    undefined,
+    env.forge
+  );
   const { viewer, previewing } = applyViewAs(
     resolveViewer({
       currentUser: who?.username ?? null,

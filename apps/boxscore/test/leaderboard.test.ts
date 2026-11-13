@@ -41,6 +41,8 @@ const { __setProviderFactory } = await import('../src/server/source/index.js');
 const { __setCurrentUser, __resetCurrentUser } =
   await import('../src/server/config/current-user.js');
 const { __setTeamReader } = await import('../src/server/config/team.js');
+const { __setGitHubTokenDeps, githubRepoName } =
+  await import('../src/server/config/github-token.js');
 const { ViewerForbiddenError, UnknownViewAsError, LOCKED_MESSAGE } =
   await import('../src/server/viewer-scope.js');
 
@@ -538,5 +540,89 @@ describe('getLeaderboard: the store follows the confirmed host', () => {
     await getLeaderboard({ window, refresh: false, trend: false });
 
     expect(getStore().lastScan(PROJECT)).not.toBeNull();
+  });
+});
+
+describe('getLeaderboard: on github', () => {
+  const REFUSAL =
+    'repo acme/app is not tracked by rt ... rt daemon track acme/app live branches';
+
+  function onGitHub(host = 'github.com'): void {
+    const github: Record<string, unknown> = {
+      ...SETTINGS,
+      'mattstack.integrations': { forge: { host, provider: 'github' } },
+    };
+    __setSettingReader(<T>(k: string) => github[k] as T | undefined);
+  }
+
+  afterEach(() => {
+    __setGitHubTokenDeps(null);
+    __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
+    process.env.GITLAB_TOKEN = 'test-token';
+  });
+
+  it("an untracked team answers ConfigError with the daemon's refusal", async () => {
+    onGitHub();
+    const asked: string[] = [];
+    __setGitHubTokenDeps({
+      env: {},
+      async forgeToken(repoName) {
+        asked.push(repoName);
+        return { ok: false, error: REFUSAL };
+      },
+    });
+    let built = 0;
+    __setProviderFactory(() => {
+      built++;
+      throw new Error('the provider must not be built');
+    });
+
+    const run = getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: true,
+      trend: false,
+    });
+
+    await expect(run).rejects.toBeInstanceOf(ConfigError);
+    await expect(run).rejects.toThrow(REFUSAL);
+    expect(asked).toEqual([githubRepoName(PROJECT)]);
+    expect(built).toBe(0);
+  });
+
+  it('the gitlab token never reaches github', async () => {
+    onGitHub();
+    process.env.GITLAB_TOKEN = 'gl-secret';
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    const { provider } = fakeProvider();
+    const envs: { token: string; forge?: string; baseUrl: string }[] = [];
+    __setProviderFactory(env => {
+      envs.push(env);
+      return provider as unknown as GitProvider;
+    });
+
+    await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: true,
+      trend: false,
+    });
+
+    expect(envs).toHaveLength(1);
+    expect(envs[0]!.token).toBe('gh-tkn');
+    expect(envs[0]!.forge).toBe('github');
+    expect(envs[0]!.baseUrl).toBe('https://github.com');
+  });
+
+  it('a github enterprise host answers a ConfigError naming the host', async () => {
+    onGitHub('ghe.example');
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+
+    const run = getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+    });
+
+    await expect(run).rejects.toBeInstanceOf(ConfigError);
+    await expect(run).rejects.toThrow('ghe.example');
   });
 });
