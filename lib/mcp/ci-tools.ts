@@ -23,6 +23,7 @@ import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
 import { isGithubPrUrl, readPipelineSubject, tailTrace } from "./mr-read-tools.ts";
 import { checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, PR_URL_NOTE, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
+import { changeMarker, changeNoun } from "../repo-label.ts";
 
 export interface CiLeaseToolDeps {
   leaseOpts: () => CiLeaseOpts;
@@ -432,7 +433,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (!first.ok) return err(first.error);
         firstRaw = first.mr;
         mrUrl = first.mr.webUrl ?? null;
-        if (!mrUrl) return err(`GitLab returned MR !${target.iid} with no web URL`);
+        if (!mrUrl) return err(`the forge returned ${changeNoun(target.identity)} ${changeMarker(target.identity)}${target.iid} with no web URL`);
         github = parseMrUrl(mrUrl) === null;
         if (github && intervalInput !== undefined && intervalInput < GITHUB_INTERVAL_MIN) return err(intervalRangeError(GITHUB_INTERVAL_MIN, true));
         const interval = intervalInput ?? (github ? GITHUB_INTERVAL_DEFAULT : 30);
@@ -443,6 +444,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           const priorPipelineId = typeof input.priorPipelineId === "number" ? input.priorPipelineId : watched?.priorPipelineId ?? undefined;
           const retried = watched && (watched.lastResult === "failed" || watched.lastResult === "canceled") ? watched.pipelineId : null;
           const r = await watchPipeline({
+            forge: github ? "github" : "gitlab",
             sha, maxWaitSeconds: maxWait, intervalSeconds: interval, budgetMinutes,
             ...(extendMinutes !== undefined && { extendMinutes }),
             ...(priorPipelineId !== undefined && { priorPipelineId }),
