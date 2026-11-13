@@ -7,6 +7,8 @@ import type { PaneButton, PaneModel, PaneRow, Tone } from './model'
 
 // pad-top, the header and pad-header sit above the model's rows.
 const HEADER_ROWS = 3
+// The engine's Button has one emphasis, so the plain drawer marks these as today, whatever quiet tone the kit drawer gives them.
+const PRIMARY = new Set<string>(['run', 'open', 'confirm', 'show'])
 
 const TEXT_PROPS: Record<Tone, Record<string, unknown>> = {
   title: { bold: true },
@@ -41,7 +43,7 @@ export function drawPlainPane($: EngineInterface, e: RenderInput<'Pane'>, model:
       <Button
         key={key}
         plain={b.id === 'more' ? true : undefined}
-        variant={b.tone === 'primary' ? 'primary' : undefined}
+        variant={PRIMARY.has(b.id) ? 'primary' : undefined}
         label={b.label}
         onPress={p => void act($, messageOf(b), p.surface)}
       />

@@ -1665,6 +1665,7 @@ function kitWindow(layout, width, offset, focus = {}) {
 
 // mods/human-todos/src/pane/plain-view.tsx
 var HEADER_ROWS = 3;
+var PRIMARY = new Set(["run", "open", "confirm", "show"]);
 var TEXT_PROPS = {
   title: { bold: true },
   dim: { dimColor: true },
@@ -1694,7 +1695,7 @@ function drawPlainPane($, e, model, scroll, paneId) {
     return /* @__PURE__ */ h(Button, {
       key,
       plain: b.id === "more" ? true : undefined,
-      variant: b.tone === "primary" ? "primary" : undefined,
+      variant: PRIMARY.has(b.id) ? "primary" : undefined,
       label: b.label,
       onPress: (p) => void act($, messageOf(b), p.surface)
     });

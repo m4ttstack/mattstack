@@ -166,6 +166,9 @@ test('a running item draws the live tail, a spinner frame and its own buttons', 
   expect(rows).toEqual(expect.arrayContaining(['b', 'c', 'd', '⠋ Running ', '⠋ Stopping… ']))
   expect(await buttons(pane)).toEqual(['close', 'show-1', 'stop-1', 'show-2', 'forceStop-2'])
   expect((await pane.find({ key: 'forceStop-2' }))?.text).toBe('Force stop')
+  // The plain drawer keeps its own look: Show stays the primary button while the run goes, as Run, Open and Confirm are.
+  expect((await pane.find({ key: 'show-1' }))?.props.variant).toBe('primary')
+  expect((await pane.find({ key: 'stop-1' }))?.props.variant).toBeUndefined()
   await pane.unmount()
 })
 
