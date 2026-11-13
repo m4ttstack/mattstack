@@ -8,8 +8,10 @@
 
 import type { Probes } from "./setup/probes.ts";
 import { forgeFromRemote } from "./setup/team-settings.ts";
-import { forgeArgv, glabEnv } from "./team/forge.ts";
+import { forgeArgv, forgeAuthEnv, glabEnv } from "./team/forge.ts";
+import { mayOfferGitLabToken, tokenOrNull, type ForgeTokenLookup } from "./team/forge-token.ts";
 import { bundledToolExec } from "./deps/resolve.ts";
+import { redactCredentials } from "../packages/rt-client/src/redact.ts";
 
 export interface StackMembership {
   name: string;
@@ -170,7 +172,7 @@ type ForgeListing = { ok: true; mrs: ForgeMr[] } | { ok: false; error: string };
 const CLI_TIMEOUT_MS = 30_000;
 
 function failure(prefix: string, r: { code: number; stdout: string; stderr: string }): ForgeListing {
-  const detail = (r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`).split("\n")[0];
+  const detail = redactCredentials((r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`).split("\n")[0]!);
   return { ok: false, error: `${prefix}: ${detail}` };
 }
 
@@ -198,38 +200,85 @@ function complete(listing: ForgeListing, query: string): ForgeListing {
   return { ok: false, error: `${query} returned ${LISTING_LIMIT} rows, the most rt asks for, so the listing may be incomplete` };
 }
 
-async function listGithub(p: Probes, filter: string): Promise<ForgeListing> {
-  const r = await p.exec([...forgeArgv(p, "gh"), "pr", "list", "--state", "open", filter, "--limit", String(LISTING_LIMIT), "--json", "number,headRefName,baseRefName,url"], { timeoutMs: CLI_TIMEOUT_MS });
+/** How a forge CLI runs for this check: its own login, or rt's token for the gated host. */
+interface CliOpts {
+  env?: Record<string, string>;
+  cwd?: string;
+}
+
+async function listGithub(p: Probes, cli: CliOpts, filter: string): Promise<ForgeListing> {
+  const r = await p.exec([...forgeArgv(p, "gh"), "pr", "list", "--state", "open", filter, "--limit", String(LISTING_LIMIT), "--json", "number,headRefName,baseRefName,url"], { ...cli, timeoutMs: CLI_TIMEOUT_MS });
   if (r.code !== 0) return failure("gh pr list failed", r);
   return complete(parseListing<{ number: number; headRefName: string; baseRefName: string; url: string }>(r.stdout, (row) => ({
     iid: row.number, source: row.headRefName, target: row.baseRefName, url: row.url,
   })), `gh pr list ${filter}`);
 }
 
-async function listGitlab(p: Probes, host: string, filter: string): Promise<ForgeListing> {
-  const r = await p.exec([...forgeArgv(p, "glab"), "mr", "list", filter, "--output", "json", "--per-page", String(LISTING_LIMIT)], { env: glabEnv(host), timeoutMs: CLI_TIMEOUT_MS });
+async function listGitlab(p: Probes, cli: CliOpts, filter: string): Promise<ForgeListing> {
+  const r = await p.exec([...forgeArgv(p, "glab"), "mr", "list", filter, "--output", "json", "--per-page", String(LISTING_LIMIT)], { ...cli, timeoutMs: CLI_TIMEOUT_MS });
   if (r.code !== 0) return failure("glab mr list failed", r);
   return complete(parseListing<{ iid: number; source_branch: string; target_branch: string; web_url: string }>(r.stdout, (row) => ({
     iid: row.iid, source: row.source_branch, target: row.target_branch, url: row.web_url,
   })), `glab mr list ${filter}`);
 }
 
+export interface StackGuardAuth {
+  confirmedHost(): string | null;
+  tokenFor(remote: string): Promise<ForgeTokenLookup>;
+}
+
+async function heldToken(auth: StackGuardAuth, remote: string): Promise<string | null> {
+  try {
+    return tokenOrNull(await auth.tokenFor(remote));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decided once per check, so both listings share one token read. With a
+ * token, glab is told GITLAB_HOST even for gitlab.com so the host it talks
+ * to is the one the gate checked, never one it works out for itself.
+ */
+async function cliOpts(
+  forge: { host: string; provider: "github" | "gitlab" },
+  remote: string,
+  cwd: string,
+  auth: StackGuardAuth | undefined,
+): Promise<CliOpts> {
+  const asToday: CliOpts = forge.provider === "gitlab" ? withEnv(glabEnv(forge.host)) : {};
+  if (!auth || /^http:\/\//i.test(remote)) return asToday;
+  const gated = forge.provider === "gitlab"
+    ? mayOfferGitLabToken(remote, auth.confirmedHost())
+    : forge.host === "github.com";
+  if (!gated) return asToday;
+  const token = await heldToken(auth, remote);
+  if (!token) return asToday;
+  const env = forgeAuthEnv(forge.provider, forge.host, token) ?? {};
+  return { env: forge.provider === "gitlab" ? { ...env, GITLAB_HOST: forge.host } : env, cwd };
+}
+
+function withEnv(env: Record<string, string> | undefined): CliOpts {
+  return env ? { env } : {};
+}
+
 // Filtered by branch on the forge's side, so how many other MRs are open never
 // decides whether this branch's own MR or its dependents are seen. The `=`
 // form keeps a dash-leading branch name from parsing as a flag.
-async function listBranchMrs(p: Probes, remote: string, branch: string): Promise<ForgeListing> {
+async function listBranchMrs(p: Probes, remote: string, branch: string, cwd: string, auth: StackGuardAuth | undefined): Promise<ForgeListing> {
   const forge = forgeFromRemote(remote);
   if (!forge) return { ok: false, error: `origin ${remote} is not a GitHub or GitLab remote` };
+  const cli = await cliOpts(forge, remote, cwd, auth);
   const [own, dependents] = forge.provider === "github"
-    ? [await listGithub(p, `--head=${branch}`), await listGithub(p, `--base=${branch}`)]
-    : [await listGitlab(p, forge.host, `--source-branch=${branch}`), await listGitlab(p, forge.host, `--target-branch=${branch}`)];
+    ? [await listGithub(p, cli, `--head=${branch}`), await listGithub(p, cli, `--base=${branch}`)]
+    : [await listGitlab(p, cli, `--source-branch=${branch}`), await listGitlab(p, cli, `--target-branch=${branch}`)];
   if (!own.ok) return own;
   if (!dependents.ok) return dependents;
   return { ok: true, mrs: [...own.mrs, ...dependents.mrs] };
 }
 
-/** Real runners over the machine's gitq and forge CLIs. */
-export function createStackGuardRunners(p: Probes): StackGuardRunners {
+/** Real runners over the machine's gitq and forge CLIs. Without `auth`, glab and gh use their own login. */
+export function createStackGuardRunners(p: Probes, auth?: StackGuardAuth): StackGuardRunners {
   return {
     async gitqStacks(cwd) {
       const r = await p.exec([...(bundledToolExec(p, "gitq") ?? ["gitq"]), "stacks", "--json", "-C", cwd], { timeoutMs: CLI_TIMEOUT_MS });
@@ -238,7 +287,7 @@ export function createStackGuardRunners(p: Probes): StackGuardRunners {
     async forgeOpenMrs(cwd, branch) {
       const remote = await p.exec(["git", "remote", "get-url", "origin"], { cwd, timeoutMs: CLI_TIMEOUT_MS });
       if (remote.code !== 0) return failure("no origin remote", remote);
-      return listBranchMrs(p, remote.stdout.trim(), branch);
+      return listBranchMrs(p, remote.stdout.trim(), branch, cwd, auth);
     },
   };
 }

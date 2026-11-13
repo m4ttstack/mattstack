@@ -236,7 +236,7 @@ async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, t
 
   // Stack guard: a stack member rebased alone onto the default branch lands
   // on master and strands its chain, so this runs before the first ref move.
-  const stackRunners = opts.stackRunners ?? createStackGuardRunners((await import("../lib/setup/probes.ts")).createRealProbes());
+  const stackRunners = opts.stackRunners ?? createStackGuardRunners((await import("../lib/setup/probes.ts")).createRealProbes(), auth);
   const stack = await checkStackMembership({ cwd, branch, defaultBranch: defaultBranch ? defaultBranchName : null, runners: stackRunners });
   syncLog.phase("stack-guard", { verdict: stack.verdict, ...(stack.verdict === "clear" ? {} : { kind: stack.refusal.kind, source: stack.refusal.source }) });
   if (stack.verdict === "refuse" || (stack.verdict === "unverified" && opts.strictStackCheck)) {
@@ -499,8 +499,8 @@ async function syncAll(
 
   const { createRealProbes } = await import("../lib/setup/probes.ts");
   const { getRepoIdentity } = await import("../lib/repo.ts");
-  const stackRunners = createStackGuardRunners(createRealProbes());
   const originAuth = createOriginAuth();
+  const stackRunners = createStackGuardRunners(createRealProbes(), originAuth);
   const summaries: SyncSummary[] = [];
 
   for (const [i, wt] of syncable.entries()) {
