@@ -4,6 +4,8 @@ import MattstackCore
 struct RowView: View {
     let row: PlanRow
     let isChecking: Bool
+    /// The plan's team: an optional account reads off only on Just me.
+    var team: TeamInfo? = nil
     var rowID: String? = nil       // Settings → Permissions passes its own ids
     var actionID: String? = nil
     var statusID: String? = nil
@@ -29,7 +31,7 @@ struct RowView: View {
                     .accessibilityIdentifier(actionID ?? AXID.checklistRowAction(row.id))
             }
             // Last, so every row's status lines up in one column whether or not it has a button.
-            StatusBadge(row: row, isChecking: isChecking, id: statusID ?? AXID.checklistRowStatus(row.id)).padding(.top, 1)
+            StatusBadge(row: row, isChecking: isChecking, team: team, id: statusID ?? AXID.checklistRowStatus(row.id)).padding(.top, 1)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
