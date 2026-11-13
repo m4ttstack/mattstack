@@ -77,6 +77,9 @@ export interface Candidate {
   source?: CandidateSource;
   detail?: string;
   spin?: boolean | 'cloud';
+  /** Ranks the line as this tone instead of its own: a peer's live review
+      of the author's MR leads the row while reading quiet. */
+  rankAs?: Tone;
   /** The lane's launch ran the generic skill because no pack was chosen. */
   noPack?: true;
   /** A finished run's note: a repair the MR needs outranks it. */
@@ -906,25 +909,19 @@ function peerLines(
   for (const p of mr.peerReviews ?? []) {
     const live = p.status === 'queued' || p.status === 'reviewing';
     if (live && !isFreshPeerReview(p, now)) continue;
-    if (!mine) {
-      if (live)
-        out.push({
-          tone: 'quiet',
-          word: `${people.full(p.reviewer)} is reviewing`,
-          spin: 'cloud',
-          verbs: [{ kind: 'view-peer', label: 'view ↗' }],
-        });
-      continue;
-    }
     if (live) {
-      if (p.reviewer === askInFlight) continue;
+      if (mine && p.reviewer === askInFlight) continue;
       out.push({
-        tone: 'work',
-        word: `${people.full(p.reviewer)} is reviewing…`,
-        spin: true,
+        tone: 'quiet',
+        word: `${people.full(p.reviewer)} is reviewing`,
+        spin: 'cloud',
+        ...(mine ? { rankAs: 'work' as const } : {}),
         verbs: [{ kind: 'view-peer', label: 'view ↗' }],
       });
-    } else if (p.status === 'done') {
+      continue;
+    }
+    if (!mine) continue;
+    if (p.status === 'done') {
       out.push({
         tone: 'go',
         word: `${people.full(p.reviewer)} ${verdictWord(p.outcome, 'reviewed')}`,
@@ -1212,7 +1209,7 @@ export function rowStatus(
   const lines = candidateLines(mr, now, draftResolved, self, people);
   const repairs = lines.some(l => l.repair);
   const rank = (l: Candidate): number =>
-    repairs && l.settled ? TONE_RANK.clear + 1 : TONE_RANK[l.tone];
+    repairs && l.settled ? TONE_RANK.clear + 1 : TONE_RANK[l.rankAs ?? l.tone];
   const ranked = lines
     .map((line, index) => ({ line, index }))
     .sort((a, b) => rank(a.line) - rank(b.line) || a.index - b.index);
