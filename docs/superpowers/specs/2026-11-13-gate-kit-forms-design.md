@@ -314,8 +314,10 @@ Claude Code prompt (an `AbovePrompt` band, not the sidebar pane), as Matt asked:
 
 - **When.** The hooked `gate_ask` or `gate_open` call carried the mod's
   `kitForm: true`, and the result came back `presentation: wait` for a
-  board-only kind. The tool adds `boardOnly: true` to the result so the mod
-  doesn't need its own copy of the kind list. My call.
+  board-only kind. The daemon's `gate:ask` (and `gate:open`) always returns
+  `boardOnly`, straight from `BOARD_ONLY_KINDS`, and the gate tools pass it
+  through whatever the flag says. So there's one copy of the list, and the
+  board and console can read it too (Darla's suggestion).
 - **The button** opens the gate on the board with `$.process.run(['open',
   <url>])`. The URL is the board's local address plus `?gate=<id>`, a deep link
   the board already handles (`apps/board/src/client/board/Board.tsx`).
