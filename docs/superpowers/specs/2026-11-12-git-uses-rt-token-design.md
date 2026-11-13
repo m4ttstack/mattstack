@@ -159,8 +159,9 @@ push retry is `rt sync`'s alone, since only it pushes.
 would never run. So each of the three verbs decides once, before its first
 remote git call (that includes `getRemoteDefaultBranch`'s `ls-remote` in
 `lib/git-ops.ts`, which inherits `process.env`), whether rt can authenticate
-origin: the section 1 checks pass for origin's fetch URL (and, for
-`rt sync`, its push URL). When they pass, the verb sets
+origin: the section 1 checks pass for origin's fetch URL, or (for `rt sync`)
+for its push URL; either is enough, so a clone that fetches over HTTPS and
+pushes over SSH still fetches unprompted. When they pass, the verb sets
 `GIT_TERMINAL_PROMPT=0` and `GIT_ASKPASS=` (empty, which also stops git
 falling through to `core.askPass` and `SSH_ASKPASS`) in its own
 `process.env` for the rest of the run, so every git it starts runs
@@ -171,6 +172,10 @@ holds a token for a confirmed host, these verbs use their own helpers first
 and rt's token second, and never stop to ask for a password. When rt holds no
 token, or the host is not confirmed, nothing changes, prompt included. SSH is
 unaffected (ssh's own passphrase prompt does not read these variables).
+The up-front decision reads the token once (the same lookup the helper
+does); `rt sync` reuses that read for its stack check (section 6), so a sync
+reads it once. Tests that drive this through a seam restore any
+`process.env` value they change.
 
 `fetchOrigin`: when the fetch fails and the output
 is an HTTPS auth failure (`isAuthFailure` from `lib/worktree/fetch-auth.ts`),
@@ -249,8 +254,9 @@ unless `--yes`. The done line names the
 it exactly. Refusals, each with why: not a git repo; no origin; origin is
 `http://`; host not confirmed (next: `rt setup gitlab connect --host <host>`);
 rt holds no token for the host (next: connect the forge); no rt link at
-`linkPath(home, "rt")` (the app is not installed); origin is SSH (next:
-`rt git auth --https`).
+`linkPath(home, "rt")` (the app is not installed); origin is SSH (next: `rt git auth --https`, named only when `--https`
+could go ahead: the HTTPS URL passes the section 1 checks and no `insteadOf`
+rule maps it back).
 
 **`--https`, SSH origin.** Maps origin's SSH URL to HTTPS
 (`git@host:path(.git)` and `ssh://[user@]host[:port]/path(.git)` become
@@ -277,7 +283,14 @@ credential config. No network, no write, no prompt. Each repo gets one row:
 | HTTPS, rt is the sole helper for the host | `done` | none |
 | HTTPS, rt not wired, token held, host confirmed | `pending` "uses its own git credentials" | `rt git auth <path>` |
 | SSH, token held for the mapped HTTPS host | `off` "uses SSH" | `rt git auth --https <path>` |
+| HTTPS with helper entries rt did not write for that host | `skipped` "has its own credential helper for <host>" | none |
+| SSH where an `insteadOf` rule maps the HTTPS URL back to SSH | `skipped` naming the rule | none |
 | no token, unconfirmed host, http, no origin, not a forge | `skipped` with the reason | none |
+
+Rows are chosen with the same local tests the plain form and `--https` use
+before writing (the helper-entry test, and `git ls-remote --get-url` for the
+`insteadOf` test), so `--check` and the register note never name a command
+that would refuse. Rows are tested in table order; the first that matches wins.
 
 `--json` emits `{ ok: true, repos: [{ path, label, state, transport, host, next? }] }`;
 the token presence is a state, never a value. Exit 0 whatever the states.
