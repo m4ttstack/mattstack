@@ -36,12 +36,12 @@ const ruleOne = { ok: false as const, error: "gitlab_get cannot read this GitHub
 
 describe("checkGithubForgePath", () => {
   test("the refused segments are the spec's list, verbatim", () => {
-    expect(GITHUB_REFUSED_SEGMENTS).toHaveLength(21);
+    expect(GITHUB_REFUSED_SEGMENTS).toHaveLength(22);
     expect([...GITHUB_REFUSED_SEGMENTS]).toEqual([
       "secrets", "variables", "hooks", "keys", "deploy_keys", "installations", "tokens", "runners", "registration-token",
       "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
       "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables",
-      "security-advisories",
+      "security-advisories", "variant-analyses",
     ]);
     expect([...GITHUB_REFUSED_ROUTES]).toEqual(["copilot"]);
   });
@@ -602,6 +602,8 @@ describe("forgeGet through a real GitHubProvider", () => {
     ["invitations", githubWordRefusal("invitations")],
     ["autolinks", githubWordRefusal("autolinks")],
     ["autolinks/1", githubWordRefusal("autolinks")],
+    ["code-scanning/codeql/variant-analyses/1", githubWordRefusal("variant-analyses")],
+    ["code-scanning/codeql/variant-analyses/1/repos/acme/app", githubWordRefusal("variant-analyses")],
     ["copilot/cloud-agent/configuration", githubRouteRefusal("copilot")],
     ["copilot/code-review/settings", githubRouteRefusal("copilot")],
   ];

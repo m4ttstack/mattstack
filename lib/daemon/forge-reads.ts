@@ -188,6 +188,7 @@ export const GITHUB_REFUSED_SEGMENTS: readonly string[] = [
   "secrets", "variables", "hooks", "keys", "deploy_keys", "installations", "tokens", "runners", "registration-token",
   "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
   "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables", "security-advisories",
+  "variant-analyses",
 ];
 /** Refused only as the first part of the skeleton window after the repo: the same word is a branch prefix and a repo name. */
 export const GITHUB_REFUSED_ROUTES: readonly string[] = ["copilot"];

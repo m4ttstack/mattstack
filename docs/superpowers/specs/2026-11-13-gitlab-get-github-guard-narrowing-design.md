@@ -428,6 +428,7 @@ not change the outcome for that family; the narrowing touches only
 | `secret-scanning` | alerts carry the secret, locations, custom patterns | Refused by word, unchanged |
 | `security-advisories`, `private-vulnerability-reporting` | unpublished advisory content | Refused by word, unchanged |
 | `invitations`, `autolinks` | none known; listed by the first review | Refused by word, unchanged |
+| `variant-analyses` | a CodeQL variant analysis repo task carries `artifact_url`, which may be a signed download of query results over a private target repo | Refused by word, added after the final branch review (a widening) |
 | `installation` | none (installation metadata; `access_tokens_url` is a URL, not a token) | Readable, unchanged (`installations`, plural, is the listed word) |
 | `import` | none; `vcs_url` userinfo is blanked by redaction | Readable, unchanged |
 | `git` | none; `blobs` refused for size | Unchanged. `ref/{ref}` and `matching-refs/{ref}` take a ref with slashes and keep the strict match |
@@ -441,7 +442,7 @@ not change the outcome for that family; the narrowing touches only
 | `labels` | none | Readable; `labels/{name}` keeps the strict match on the skeleton, so `good first issue` is read |
 | `attestations` | none | Readable, unchanged |
 | `deployments` | none by design; `payload` is free-form JSON the deployer sets | Readable, unchanged |
-| `code-scanning`, `code-quality`, `code-security-configuration`, `dependency-graph`, `vulnerability-alerts`, `automated-security-fixes` | none (findings, settings, SBOM) | Readable, unchanged |
+| `code-scanning` (except `codeql/variant-analyses`), `code-quality`, `code-security-configuration`, `dependency-graph`, `vulnerability-alerts`, `automated-security-fixes` | none (findings, settings, SBOM) | Readable, unchanged |
 | `pages`, `traffic`, `stats`, `activity`, `events`, `notifications`, `subscription`, `subscribers`, `stargazers`, `forks`, `contributors`, `collaborators`, `teams`, `topics`, `tags`, `languages`, `license`, `community`, `codeowners`, `properties`, `interaction-limits`, `immutable-releases`, `hash-algorithm`, `stacks` | none | Readable, unchanged |
 | `issues`, `pulls`, `comments`, `milestones`, `assignees`, `issue-types`, `check-runs`, `check-suites` | none | Readable, unchanged |
 
@@ -505,6 +506,8 @@ family table, one or more per refused family:
   `secret-scanning/scan-history`
 - `security-advisories`, `private-vulnerability-reporting`,
   `invitations`, `autolinks`, `autolinks/1`
+- `code-scanning/codeql/variant-analyses/1`,
+  `code-scanning/codeql/variant-analyses/1/repos/acme/app`
 - `copilot/cloud-agent/configuration`, `copilot/code-review/settings`
   (from PR #1130, route-anchored)
 
