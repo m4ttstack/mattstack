@@ -4,7 +4,7 @@ import { Row, Span } from './lines'
 
 export type ReopenBandProps = { label: string; title: string; onOpen: () => void }
 
-// The one row of the band above the prompt while a pane is put away: the mattstack mark and label, what waits, and the brand Open button.
+// The one row of the band above the prompt while a pane is put away: the mattstack mark and label, what waits, and the brand Show button.
 export function ReopenBand(props: ReopenBandProps) {
   return (
     <Row>
@@ -14,7 +14,7 @@ export function ReopenBand(props: ReopenBandProps) {
       <Span>{props.title}</Span>
       <Span>{'  '}</Span>
       <Button tone="brand" onPress={props.onOpen}>
-        Open
+        Show
       </Button>
     </Row>
   )
