@@ -13,6 +13,10 @@ describe('loginCanon', () => {
     expect(canon('eve')).toBe('eve');
   });
 
+  it('keeps the first spelling when two known logins differ only in case', () => {
+    expect(loginCanon(['Ada', 'ada'])('ADA')).toBe('Ada');
+  });
+
   it('keeps null', () => {
     expect(canon(null)).toBeNull();
   });

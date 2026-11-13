@@ -420,6 +420,23 @@ describe('sourceFor', () => {
     expect(rows.map(r => r.authorUsername)).toEqual(['eve']);
   });
 
+  it('github takes the team roster spelling over the org roster spelling', async () => {
+    const provider = makeGitHubProvider({
+      index: [indexRow({ authorUsername: 'ADA' })],
+    }) as unknown as GitProvider;
+    const source = sourceFor(
+      ENV,
+      provider,
+      settings({
+        roster: [{ username: 'Ada' }],
+        orgRoster: [{ username: 'ada' }],
+      })
+    );
+
+    const rows = await source.scanProject('o/r', WINDOW.start, {});
+    expect(rows.map(r => r.authorUsername)).toEqual(['Ada']);
+  });
+
   it('gitlab or an absent forge reads push events', () => {
     const { provider } = makeGitLabSpy();
     const gitlabEnv: Env = { baseUrl: 'https://gl.example', token: 'tkn' };
