@@ -464,6 +464,16 @@ var Rail = kitComponent("Rail", (props, ctx) => {
     return [[sp(SYMBOL.bar, bar)]];
   return hang(rail(bar), rail(bar), text, ctx.width, { ...props.dim && DIM, ...props.bold && { bold: true } });
 });
+// packages/mod-kit/src/components/reopen-band.tsx
+function ReopenBand(props) {
+  return /* @__PURE__ */ h(Row, null, /* @__PURE__ */ h(Span, {
+    color: BRAND.pink,
+    bold: true
+  }, `${BRAND.glyph} ${props.label}  `), /* @__PURE__ */ h(Span, null, props.title), /* @__PURE__ */ h(Span, null, "  "), /* @__PURE__ */ h(Button, {
+    tone: "brand",
+    onPress: props.onOpen
+  }, "Open"));
+}
 // packages/mod-kit/src/widgets/select-list.ts
 function selectList(spec) {
   const max = spec.maxShown ?? 8;
@@ -815,12 +825,11 @@ function tabsPage(ui) {
       ...liveTabs(ui, "scrolled")
     }),
     ...heading("Reopen band: what waits above the prompt once a pane is put away"),
-    /* @__PURE__ */ h(Row, null, /* @__PURE__ */ h(Span, {
-      color: BRAND.pink,
-      bold: true
-    }, `${BRAND.glyph} mattstack waiting  `), /* @__PURE__ */ h(Span, null, "Kit gallery"), "  ", /* @__PURE__ */ h(Button, {
-      tone: "brand"
-    }, "Open"))
+    /* @__PURE__ */ h(ReopenBand, {
+      label: "mattstack waiting",
+      title: "Kit gallery",
+      onOpen: () => {}
+    })
   ];
 }
 function shellPage(ui) {

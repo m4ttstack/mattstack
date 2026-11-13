@@ -1,6 +1,5 @@
 import {
   ACCENT,
-  BRAND,
   BrandBar,
   Button,
   ButtonRow,
@@ -11,6 +10,7 @@ import {
   PageShell,
   Panel,
   Rail,
+  ReopenBand,
   Row,
   SelectList,
   Span,
@@ -213,14 +213,7 @@ function tabsPage(ui: Ui) {
     ...heading('TabStrip, scrolled: chips on both sides'),
     <TabStrip tabs={NAMED} {...liveTabs(ui, 'scrolled')} />,
     ...heading('Reopen band: what waits above the prompt once a pane is put away'),
-    <Row>
-      <Span color={BRAND.pink} bold>
-        {`${BRAND.glyph} mattstack waiting  `}
-      </Span>
-      <Span>Kit gallery</Span>
-      {'  '}
-      <Button tone="brand">Open</Button>
-    </Row>,
+    <ReopenBand label="mattstack waiting" title="Kit gallery" onOpen={() => {}} />,
   ]
 }
 

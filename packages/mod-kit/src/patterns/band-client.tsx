@@ -1,8 +1,6 @@
-import { BRAND } from '../draw/theme'
-import { Button } from '../components/buttons'
 import { kitClient } from '../components/client'
-import { Row, Span } from '../components/lines'
 import { Panel } from '../components/panel'
+import { ReopenBand } from '../components/reopen-band'
 
 type BandProps = { formId: string; title: string; label: string }
 
@@ -11,16 +9,7 @@ type BandProps = { formId: string; title: string; label: string }
 export const bandClient = kitClient<BandProps>(
   (props, ui) => (
     <Panel>
-      <Row>
-        <Span color={BRAND.pink} bold>
-          {`${BRAND.glyph} ${props.label}  `}
-        </Span>
-        <Span>{props.title}</Span>
-        <Span>{'  '}</Span>
-        <Button tone="brand" onPress={() => ui.post({ type: 'reopen', formId: props.formId })}>
-          Open
-        </Button>
-      </Row>
+      <ReopenBand label={props.label} title={props.title} onOpen={() => ui.post({ type: 'reopen', formId: props.formId })} />
     </Panel>
   ),
   { focused: () => true },

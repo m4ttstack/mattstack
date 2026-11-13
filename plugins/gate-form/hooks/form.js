@@ -281,28 +281,40 @@ function textCursor(value, placeholder, showCursor) {
     return [sp(placeholder.slice(0, 1), { inverse: true }), sp(placeholder.slice(1), DIM)];
   return [sp(value), sp(" ", { inverse: true })];
 }
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
+// packages/mod-kit/src/interact/pointer.ts
+function lookOf(state, focused) {
+  const hover = state?.hover;
+  const held = state?.pressed;
+  return { focused, hover, pressed: held === hover ? held : undefined };
 }
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
-var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width) {
-  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
-  return line;
+function attachPointer(surface, lines, opts) {
+  const s = surface.state;
+  const look = lookOf(s, opts.focused);
+  if (s === undefined)
+    return { look };
+  const isActive = opts.isActive ?? (() => true);
+  surface.onPointer((ev) => {
+    const key = hoverKeyAt(lines, ev.y, ev.x);
+    if (ev.type === "down") {
+      opts.onEngage?.();
+      if (!opts.focused || ev.button !== "left" || !key || !isActive())
+        return;
+      return surface.setState({ ...s, pressed: key, hover: key });
+    }
+    if (ev.type === "up") {
+      if (s.pressed === undefined)
+        return;
+      surface.setState({ ...s, pressed: undefined });
+      const action = key === s.pressed ? hitAt(lines[ev.y], ev.x) : undefined;
+      if (action !== undefined)
+        opts.onAction(action);
+      return;
+    }
+    const next = ev.type === "leave" ? undefined : key;
+    if (next !== s.hover && isActive())
+      surface.setState({ ...s, hover: next });
+  });
+  return { look };
 }
 
 // packages/mod-kit/src/components/core.tsx
@@ -383,52 +395,6 @@ function partsOf(render, nodes, view) {
   return out;
 }
 
-// packages/mod-kit/src/components/buttons.tsx
-function buttonOf(props, ctx) {
-  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
-}
-var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
-var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
-  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
-  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
-});
-
-// packages/mod-kit/src/interact/pointer.ts
-function lookOf(state, focused) {
-  const hover = state?.hover;
-  const held = state?.pressed;
-  return { focused, hover, pressed: held === hover ? held : undefined };
-}
-function attachPointer(surface, lines, opts) {
-  const s = surface.state;
-  const look = lookOf(s, opts.focused);
-  if (s === undefined)
-    return { look };
-  const isActive = opts.isActive ?? (() => true);
-  surface.onPointer((ev) => {
-    const key = hoverKeyAt(lines, ev.y, ev.x);
-    if (ev.type === "down") {
-      opts.onEngage?.();
-      if (!opts.focused || ev.button !== "left" || !key || !isActive())
-        return;
-      return surface.setState({ ...s, pressed: key, hover: key });
-    }
-    if (ev.type === "up") {
-      if (s.pressed === undefined)
-        return;
-      surface.setState({ ...s, pressed: undefined });
-      const action = key === s.pressed ? hitAt(lines[ev.y], ev.x) : undefined;
-      if (action !== undefined)
-        opts.onAction(action);
-      return;
-    }
-    const next = ev.type === "leave" ? undefined : key;
-    if (next !== s.hover && isActive())
-      surface.setState({ ...s, hover: next });
-  });
-  return { look };
-}
-
 // packages/mod-kit/src/components/client.tsx
 function kitClient(body, options = {}) {
   return function KitClient(props, surface) {
@@ -473,27 +439,6 @@ function kitClient(body, options = {}) {
     return tree;
   };
 }
-
-// packages/mod-kit/src/components/lines.tsx
-function keyed(lines, key) {
-  return lines.map((line) => {
-    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
-    if (line.action !== undefined)
-      out.action = key(line.action);
-    return out;
-  });
-}
-var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
-var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
-var Row = kitComponent("Row", (props, ctx) => [
-  ctx.parts(props.children).flatMap((part) => {
-    if ("text" in part)
-      return [sp(part.text)];
-    if (part.component === Button)
-      return [buttonSpan(buttonOf(part.props, part.ctx))];
-    return part.component.toLines(part.props, part.ctx)[0] ?? [];
-  })
-]);
 
 // packages/mod-kit/src/draw/render.tsx
 function isControl(span, line, row, key) {
@@ -541,6 +486,61 @@ function Panel(props) {
   render.lines = lines;
   return renderLines(lines, render.elements, render.look);
 }
+
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
+var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
+var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width) {
+  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
+  return line;
+}
+
+// packages/mod-kit/src/components/buttons.tsx
+function buttonOf(props, ctx) {
+  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
+}
+var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
+var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
+  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
+  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
+});
+
+// packages/mod-kit/src/components/lines.tsx
+function keyed(lines, key) {
+  return lines.map((line) => {
+    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
+    if (line.action !== undefined)
+      out.action = key(line.action);
+    return out;
+  });
+}
+var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
+var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
+var Row = kitComponent("Row", (props, ctx) => [
+  ctx.parts(props.children).flatMap((part) => {
+    if ("text" in part)
+      return [sp(part.text)];
+    if (part.component === Button)
+      return [buttonSpan(buttonOf(part.props, part.ctx))];
+    return part.component.toLines(part.props, part.ctx)[0] ?? [];
+  })
+]);
 // packages/mod-kit/src/patterns/page-shell.ts
 function padToHeight(page, height, filler) {
   const padding = Array.from({ length: Math.max(0, height - page.length) }, () => [...filler]);
