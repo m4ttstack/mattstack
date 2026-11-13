@@ -75,11 +75,11 @@ describe('readDaemonCacheEntry: a daemon that takes a repo identity', () => {
     expect(entry).toEqual(legacy);
   });
 
-  test("a scoped miss never takes another repo's entry from the unscoped read, whatever the forge", async () => {
+  test("a scoped miss hands the unscoped entry back as it came, so a dropped entry never sends the caller to a forge lookup", async () => {
     const daemon = fakeDaemon(true, ENTRY_B);
     const entry = await readDaemonCacheEntry(daemon.query, BRANCH, 'remote:gitlab.com%2Fg%2Fc');
     expect(daemon.paths).toHaveLength(2);
-    expect(entry).toBeNull();
+    expect(entry).toEqual(ENTRY_B);
   });
 });
 

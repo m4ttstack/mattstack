@@ -1,4 +1,3 @@
-import { parseIdentity } from '@mattstack/rt-client';
 import type { DaemonResponse } from './daemonClient';
 import type { DaemonCacheEntry } from './forge';
 
@@ -14,11 +13,11 @@ async function readOnce(query: DaemonQuery, path: string, branch: string): Promi
 }
 
 /**
- * An older daemon ignores `repoIdentity` and may hand back another repo's
- * entry, so on GitHub the caller's identity check still decides. A scoped
- * miss asks again unscoped, because a row written with no repo is keyed by
- * the bare branch and only that read finds it; that read keeps only an entry
- * naming no other repo, since GitLab runs no identity check of its own.
+ * An older daemon ignores `repoIdentity`, and a scoped miss asks again
+ * unscoped because a row written with no repo is keyed by the bare branch.
+ * Either read can hand back another repo's entry; the caller's forge check
+ * decides, never this read. Dropping an entry here would send the caller to
+ * its direct fetch, which looks the MR up on GitLab.
  */
 export async function readDaemonCacheEntry(
   query: DaemonQuery,
@@ -30,12 +29,5 @@ export async function readDaemonCacheEntry(
     const scoped = await readOnce(query, `${path}?repoIdentity=${encodeURIComponent(repoIdentity)}`, branch);
     if (scoped.entry || !scoped.reachable) return scoped.entry;
   }
-  const { entry } = await readOnce(query, path, branch);
-  if (!repoIdentity || !entry) return entry;
-  return namesOtherRepo(entry, repoIdentity) ? null : entry;
-}
-
-function namesOtherRepo(entry: DaemonCacheEntry, repoIdentity: string): boolean {
-  const named = entry.repoName;
-  return !!named && parseIdentity(named) !== null && named !== repoIdentity;
+  return (await readOnce(query, path, branch)).entry;
 }
