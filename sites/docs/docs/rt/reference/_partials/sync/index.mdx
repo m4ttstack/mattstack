@@ -2,7 +2,7 @@
 
 Nothing to set up. `rt sync` fetches and pushes with git's own credentials first, so a clone that already works keeps working.
 
-When git fails over HTTPS and rt holds a token for that host, rt tries once more through its own credential helper. The retry covers this run only, and rt writes nothing to your git config. After a clean run, a note says rt's token was used and suggests `rt git auth` to make it permanent.
+When git fails over HTTPS and rt holds a token for that host, rt tries once more through its own credential helper. The retry covers this run only, and rt writes nothing to your git config. After a clean run, a note says rt's token was used, and suggests `rt git auth` to make it permanent when that would go ahead on the clone. A `git -c credential.helper=...` above rt (an alias or a hook) turns the retry off, since that helper would see the token.
 
 - rt never asks for a password when it can sign in with its own token.
 - rt sends its token only to github.com, gitlab.com and your configured GitLab host, and never over `http://`.

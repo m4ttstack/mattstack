@@ -16,7 +16,7 @@ rt git auth --https
 
 rt asks before it changes anything. At a terminal it shows the plan and waits for a yes. With no terminal, pass `--yes`, or rt refuses and prints the command to run (`--json` returns the `needs-consent` code instead). rt changes only the clone you name, never your global git config.
 
-**What it writes.** Two local config values for `credential.https://<host>.helper`: an empty value, then rt's helper. The empty value makes git skip its other helpers, like the keychain, for that host in this clone. rt's token is never written to config, a URL or a log.
+**What it writes.** Two local config values for `credential.https://<host>.helper`: an empty value, then rt's helper. The empty value makes git skip its other helpers, like the keychain, for that host in this clone. git hands a token to every helper after the empty value, so rt's pair must be the last helper for the host: when a helper in the clone's own config comes after it, or would, rt refuses and changes nothing. rt's token is never written to config, a URL or a log.
 
 **`--https`.** Switches an SSH origin to HTTPS, and a push URL that pointed at the same repo, then writes the two values if they are not there yet. Without it, rt leaves an SSH clone alone and names the command that would switch it.
 
@@ -27,7 +27,7 @@ rt asks before it changes anything. At a terminal it shows the plan and waits fo
 | `done` | The clone already uses rt's token |
 | `pending` | HTTPS clone on its own git credentials. Run `rt git auth` |
 | `off` | SSH clone. Run `rt git auth --https` |
-| `skipped` | rt left it alone, and the row says why, such as its own credential helper or a host rt has no token for |
+| `skipped` | rt left it alone, and the row says why, such as its own credential helper, a helper that comes after rt's, or a host rt has no token for |
 
 With `--json`, a clone rt could not read has `"transport": null` and `"host": null`.
 
