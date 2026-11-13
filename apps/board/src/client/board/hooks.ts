@@ -292,6 +292,9 @@ export function useLaunchAction(opts: {
   started: string;
   /** What the row claims on the click; a sync is not a queued doctor. */
   claims?: 'queued' | 'syncing';
+  /** The action's own drawer shows its progress and result, so only a
+      failure toasts. */
+  drawerShowsProgress?: boolean;
   doneMessage?: LaunchFlowDeps['doneMessage'];
   stoppedMessage?: LaunchFlowDeps['stoppedMessage'];
   failureMessage?: LaunchFlowDeps['failureMessage'];
@@ -313,6 +316,7 @@ export function useLaunchAction(opts: {
     reload,
     started,
     claims,
+    drawerShowsProgress,
     doneMessage,
     stoppedMessage,
     failureMessage,
@@ -342,7 +346,11 @@ export function useLaunchAction(opts: {
             : () => {},
         rollback: axis && url ? () => optimistic.rollback(axis, url) : () => {},
         addToast: quiet ? () => {} : addToast,
-        startToast: quiet ? () => SILENT_TOAST : startToast,
+        startToast: quiet
+          ? () => SILENT_TOAST
+          : drawerShowsProgress
+            ? () => ({ ...SILENT_TOAST, fail: addToast })
+            : startToast,
         reload: quiet ? () => {} : reload,
         verbing,
         noun,
@@ -364,6 +372,7 @@ export function useLaunchAction(opts: {
       startToast,
       reload,
       claims,
+      drawerShowsProgress,
       doneMessage,
       stoppedMessage,
       failureMessage,
