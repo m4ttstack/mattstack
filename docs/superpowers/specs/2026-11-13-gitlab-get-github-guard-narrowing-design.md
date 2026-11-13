@@ -21,7 +21,7 @@ for a file path.
 narrowed, without a design review, because every tool on the mattstack
 MCP server runs on every estate machine with no permission check. This
 document is that review. It narrows the GitHub match in two places and
-widens it in three, and it proves the narrowing opens no route that can
+widens it in five, and it proves the narrowing opens no route that can
 return a credential.
 
 ## Decisions taken
@@ -110,7 +110,9 @@ order, with these changes:
    GitHub allows for owner and repo names. That rules out `%` escapes and
    any non-ASCII letter that lowercases to ASCII (the Kelvin sign U+212A
    lowercases to `k`, so today's case-insensitive prefix check would
-   accept `repos/Kcme/r` for `kcme/r`). Segment 0 is the literal `repos`.
+   accept `repos/Kcme/r` for `kcme/r`). Raw segment 0 must be exactly
+   `repos`, lowercase: the prefix check ignores case, and the proof below
+   relies on the first four raw segments being literal bytes.
    So the raw bytes GitHub routes as owner and name are the bytes
    checked, and raw and decoded segments line up one to one through
    index 3.
@@ -156,7 +158,8 @@ control. This also applies on GitLab, since `plainApiPath` is shared; it
 only refuses more.
 
 Dot lookalikes in a file path (my call, a widening). A file-path segment
-that, after trimming `\p{White_Space}` and NFKC normalization, equals
+that, after trimming `[\p{White_Space}\p{Cf}]` (the class rule 4 uses)
+and NFKC normalization, equals
 `.` or `..` refuses with the dot-segment error. For example
 `contents/..%20/hooks`, or fullwidth full stops `%EF%BC%8E%EF%BC%8E`. No
 layer is known to treat these as dot segments; refusing them costs
@@ -180,7 +183,8 @@ The test plan's exact errors follow it.
 2. Raw whitespace; braces; decoded backslash; `;` (as today).
 3. Repo shape (rule 1).
 4. Prefix under this repo (as today).
-5. Plain repo segments (rule 2).
+5. Plain repo segments (rule 2): raw segment 0 is exactly `repos`, and
+   segments 1 and 2 match `^[A-Za-z0-9._-]+$`.
 6. File path start (rule 3), then dot lookalikes in the file path.
 7. Whitespace and invisible characters outside the file path (rule 4).
 8. Word matching over the window (rule 5), guarded words before
@@ -429,8 +433,9 @@ instead of slicing.
   `:repo/contents/%2e%2e/hooks`, `:repo/contents/%252e%252e/hooks`,
   `:repo/contents/x;/../hooks`, `:repo/contents/{x}`,
   `:repo/contents/a%5Cb`, `:repo/contents/a b`,
-  `:repo/contents/..%20/hooks`, `:repo/contents/%EF%BC%8E%EF%BC%8E/hooks`.
-- Repo segments (rule 2): `repos/o%2Fr/pulls`, `repos/o/%72/pulls`,
+  `:repo/contents/..%20/hooks`, `:repo/contents/%EF%BC%8E%EF%BC%8E/hooks`,
+  `:repo/contents/..%EF%BB%BF/hooks`, `:repo/contents/..%E2%80%8B/hooks`.
+- Repo segments (rule 2): `Repos/o/r/contents/hooks`, `repos/o%2Fr/pulls`, `repos/o/%72/pulls`,
   `repos/%4F/r/pulls`, and, on repo `kcme/r`, an owner spelled with the Kelvin sign U+212A
   in place of `k`.
   Rule 1: a provider configured with a three-segment `projectPath`.
@@ -463,7 +468,9 @@ control case, since `CONTROL` is shared.
   in `GITHUB_REFUSED_SEGMENTS` is refused in any route segment after the
   repo, or as a segment's dot-suffixed prefix; the owner and name are
   never matched, and a file path after a literal `:repo/contents/` is
-  not matched", plus the whitespace and repo-segment widenings. Keep
+  not matched", plus the widenings: repo shape and plain repo segments,
+  decoded whitespace and Cf outside a file path, C1 controls on both
+  forges, and dot lookalikes in a file path. Keep
   "widened, never narrowed, without a design review" and name this
   spec as the review.
 - The `gitlab_get` description in `lib/mcp/forge-read-tools.ts` gains
@@ -485,7 +492,8 @@ control case, since `CONTROL` is shared.
   them; see its cost note.
 - Non-goal: protecting repo content. Files the token can clone were
   never behind this guard.
-- Non-goal: GitLab. Its arm and its texts do not change.
+- Non-goal: GitLab's word list and texts. They do not change; GitLab
+  picks up only the shared C1 control widening.
 - Anti-goal: any GitHub route that returns a secret value, a deploy key,
   a webhook config or secret, an Actions, Dependabot, Codespaces, agent
   or environment secret or variable, a token, OIDC customization or
@@ -502,6 +510,9 @@ control case, since `CONTROL` is shared.
 
 ## Left open
 
+- **Fullwidth dots outside a file path.** `:repo/%EF%BC%8E%EF%BC%8E/...`
+  passes today and still would; no layer is known to read it as `..`.
+  The non-ASCII widening below would close it.
 - **Non-ASCII outside a file path.** Refusing any non-ASCII character in
   route segments would close homoglyph questions without relying on
   GitHub routing by bytes. It was not put to Matt; it would refuse label
