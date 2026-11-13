@@ -336,6 +336,45 @@ test('an overflowing list on the plain drawer keeps its end line, after a blank 
   }
 })
 
+type Drawn = { type?: string; key?: string; props?: Record<string, unknown>; children?: unknown[] }
+// The drawn elements in document order, each with the elements it sits in.
+function walk(node: unknown, parents: Drawn[] = [], out: { node: Drawn; parents: Drawn[] }[] = []) {
+  if (typeof node !== 'object' || node === null) return out
+  const el = node as Drawn
+  out.push({ node: el, parents })
+  for (const child of el.children ?? []) walk(child, [...parents, el], out)
+  return out
+}
+const shownText = (el: Drawn): string => (el.children ?? []).map(c => (typeof c === 'string' ? c : shownText(c as Drawn))).join('')
+
+test('the plain drawer puts the confirm prompt under the Confirm and Cancel buttons', async ($, on) => {
+  await seeded($, on, [todo({ kind: 'run', script: 'ls' })])
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ ...PANE, surface })
+    await pane.press({ key: 'run-1' })
+    const els = walk(await pane.drawn())
+    const confirm = els.findIndex(e => e.node.key === 'confirm-1' || e.node.props?.label === 'Confirm')
+    const prompt = els.findIndex(e => e.node.type === 'Text' && shownText(e.node).startsWith('Are you sure'))
+    expect(confirm, surface).toBeGreaterThan(-1)
+    expect(prompt, surface).toBeGreaterThan(confirm)
+    await pane.press({ key: 'cancel-1' })
+    await pane.unmount()
+  }
+})
+
+test('the plain drawer hangs the later rows of a long title under the first row’s text', async ($, on) => {
+  await seeded($, on, [todo({ title: 'Store the token for the replay workspace before the pilot runs' })])
+  for (const surface of SURFACES) {
+    const pane = await $.ui.mount({ ...PANE, surface })
+    const els = walk(await pane.drawn())
+    const later = els.find(e => e.node.type === 'Text' && shownText(e.node) === 'workspace before the pilot runs')
+    const first = els.find(e => e.node.type === 'Text' && shownText(e.node) === '○ Store the token for the replay')
+    expect(later?.parents.at(-1)?.props?.marginLeft, surface).toBe(2)
+    expect(first?.parents.some(p => p.props?.marginLeft === 2), surface).toBe(false)
+    await pane.unmount()
+  }
+})
+
 test('a long title wraps at word breaks, one row per Text', async ($, on) => {
   await seeded($, on, [todo({ title: 'Store the token for the replay workspace before the pilot runs' })])
   const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })

@@ -142,7 +142,7 @@ for (const surface of SURFACES) {
     await pane.unmount()
   })
 
-  test(`Hide closes the pane and the band's Open brings it back (${surface})`, async ($, on) => {
+  test(`Hide closes the pane and the band's Show brings it back (${surface})`, async ($, on) => {
     const { opened } = await seeded($, on, [todo({})])
     await $.command.run({ command: 'todos', args: '' })
     const band = await $.ui.mount({ ...BAND, surface })
@@ -155,7 +155,7 @@ for (const surface of SURFACES) {
     expect(shownBand[0]).toContain('1 to-do')
 
     const before = opened.length
-    await click(band, 'Open')
+    await click(band, 'Show')
     expect(opened.slice(before)).toEqual(['human-todos'])
     expect(await band.find({ type: 'Client' })).toBeUndefined()
     await pane.unmount()
@@ -254,7 +254,7 @@ for (const release of ['still', 'follows'] as const) test(`a press on Stop holds
 
 const many = (n: number, over: Partial<Todo> = {}) => Array.from({ length: n }, (_, k) => todo({ id: String(k + 1), kind: 'task', title: `Item ${k + 1}`, script: undefined, ...over }))
 
-test('the mod scrolls the kit drawer: the brand bar stays, the window moves, hints and the thumb follow', async ($, on) => {
+test('the mod scrolls the kit drawer: the brand bar stays, the window moves, the thumb follows, no hint rows', async ($, on) => {
   const beneath: number[] = []
   on('ui.scroll', (_, e) => {
     beneath.push(e.by)
@@ -273,11 +273,13 @@ test('the mod scrolls the kit drawer: the brand bar stays, the window moves, hin
   expect(rows).toHaveLength(20)
   expect(rows[0]).toContain('Human Todos')
   expect(rows[0]).toContain('Hide')
-  // Body row 0 is model row 5 under the ↑ hint; rows 6 and 8 follow it: Item 2's buttons, then Item 3's title.
-  expect(rows[2]?.trim().startsWith('↑ 2 more')).toBe(true)
+  // The first body row is model row 5, the blank under Item 2's title; rows 6 and 8 follow: Item 2's buttons, then Item 3's title.
+  // The scroll bar shows the place, so no row is given over to an "N more" hint.
+  expect(rows[2]?.trim()).toBe('')
   expect(rows[3]).toContain('Done')
   expect(rows[5]).toContain('○ Item 3')
-  expect(rows[19]?.trim().startsWith('↓ 24 more')).toBe(true)
+  expect(rows[19]).toContain('Done')
+  expect(rows.some(r => /[↑↓] \d+ more/.test(r))).toBe(false)
   expect((await propsOf(pane)).offset).toBe(5)
   const thumb = await thumbRows(pane)
   expect(thumb.length).toBeGreaterThan(0)
@@ -353,5 +355,142 @@ test('the plain drawer keeps the engine scroll: the move passes beneath and the 
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await propsOf(pane)).offset).toBe(0)
   expect((await rowsOf(pane))[2]).toContain('○ Item 1')
+  await pane.unmount()
+})
+
+// Keyboard: the rows carrying the pink rail, and the label of the button with the pink edge.
+const EDGE = '▎'
+const railRows = (rows: string[]) => rows.flatMap((r, n) => (r.startsWith('│') ? [n] : []))
+const edged = (rows: string[]) => {
+  const row = rows.find(r => r.includes(EDGE))
+  return row?.slice(row.indexOf(EDGE) + 1).trim().split(/\s{2,}/)[0]
+}
+const titleAbove = (rows: string[]) => rows[railRows(rows)[0] ?? -1]?.replace(/^│\s*/, '').trim()
+
+// The fill a word's span is drawn with in the Client's tree.
+async function fillOf(ui: Drawing, word: string): Promise<unknown> {
+  const { key } = await clientOf(ui)
+  let fill: unknown
+  const walk = (node: unknown) => {
+    if (typeof node !== 'object' || node === null || fill !== undefined) return
+    const n = node as Node
+    if (typeof n.children?.[0] === 'string' && (n.children[0] as string).trim() === word) fill = n.props?.backgroundColor
+    for (const child of n.children ?? []) walk(child)
+  }
+  walk(await ui.drawn({ in: key }))
+  return fill
+}
+
+test('keyboard: no marks until a key; the first key only reveals the first item on its filled button, then keys move', async ($, on) => {
+  await seeded($, on, [todo({ id: '1', kind: 'run', title: 'Deploy', script: 'make' }), ...many(2).map(t => ({ ...t, id: String(Number(t.id) + 1) }))])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(railRows(await rowsOf(pane))).toEqual([])
+  expect(edged(await rowsOf(pane))).toBeUndefined()
+
+  await pane.key({ key: 'down' })
+  let rows = await rowsOf(pane)
+  expect(titleAbove(rows)).toBe('○ Deploy')
+  expect(edged(rows)).toBe('Run')
+
+  await pane.key({ key: 'right' })
+  expect(edged(await rowsOf(pane))).toBe('Copy')
+  await pane.key({ key: 'left' })
+  await pane.key({ key: 'left' })
+  expect(edged(await rowsOf(pane))).toBe('Run')
+
+  await pane.key({ key: 'down' })
+  rows = await rowsOf(pane)
+  expect(titleAbove(rows)).toBe('○ Item 1')
+  expect(edged(rows)).toBe('Done')
+  await pane.key({ key: 'tab' })
+  expect(titleAbove(await rowsOf(pane))).toBe('○ Item 2')
+  await pane.key({ key: 'tab' })
+  expect(titleAbove(await rowsOf(pane))).toBe('○ Item 2')
+  await pane.key({ key: 'tab', shift: true })
+  await pane.key({ key: 'up' })
+  await pane.key({ key: 'up' })
+  expect(titleAbove(await rowsOf(pane))).toBe('○ Deploy')
+  await pane.unmount()
+})
+
+test('keyboard: the rail covers every row of the selected item, and Clear finished has only its edge', async ($, on) => {
+  await seeded($, on, [todo({ id: '1', kind: 'task', title: 'One', detail: 'Its detail' }), todo({ id: '2', title: 'Old', status: 'done' })])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.key({ key: 'down' })
+  let rows = await rowsOf(pane)
+  const rail = railRows(rows)
+  expect(rows[rail[0]!]).toContain('○ One')
+  expect(rows.slice(rail[0], rail.at(-1)! + 1).join('\n')).toContain('Its detail')
+  expect(rows[rail.at(-1)!]).toContain('Skip')
+  expect(rail).toEqual(Array.from({ length: rail.length }, (_, n) => rail[0]! + n))
+
+  await pane.key({ key: 'down' })
+  rows = await rowsOf(pane)
+  expect(edged(rows)).toBe('Clear finished')
+  expect(railRows(rows)).toEqual([])
+  await pane.unmount()
+})
+
+test('keyboard: a pointer move hides the marks, a click moves the selection, and the next key reveals it there', async ($, on) => {
+  await seeded($, on, many(3))
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.key({ key: 'down' })
+  expect(railRows(await rowsOf(pane)).length).toBeGreaterThan(0)
+  await pane.pointer({ type: 'move', x: 0, y: 0 })
+  expect(railRows(await rowsOf(pane))).toEqual([])
+  expect(edged(await rowsOf(pane))).toBeUndefined()
+
+  const rows = await rowsOf(pane)
+  const skip = { y: rows.findIndex((r, n) => n > rows.findIndex(x => x.includes('Item 2')) && r.includes('Skip')), x: 0 }
+  skip.x = rows[skip.y]!.indexOf('Skip') + 1
+  await pane.pointer({ type: 'down', ...skip, button: 'left' })
+  await pane.pointer({ type: 'up', ...skip, button: 'left' })
+  expect(await state($)).toContain('#2 [skipped]')
+  expect(railRows(await rowsOf(pane))).toEqual([])
+
+  // Item 2 has gone, so the selection falls to the next item on its filled button.
+  await pane.key({ key: 'right' })
+  const after = await rowsOf(pane)
+  expect(titleAbove(after)).toBe('○ Item 3')
+  expect(edged(after)).toBe('Done')
+  await pane.unmount()
+})
+
+test('keyboard: Enter draws the button pressed for a moment, ignores keys meanwhile, then acts as a click', async ($, on) => {
+  await seeded($, on, many(3))
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const resting = await fillOf(pane, 'Done')
+  await pane.key({ key: 'return' })
+  expect(await state($)).not.toContain('[done]')
+  expect(edged(await rowsOf(pane))).toBe('Done')
+
+  await pane.key({ key: 'return' })
+  expect(await fillOf(pane, 'Done')).not.toBe(resting)
+  await pane.key({ key: 'down' })
+  await pane.key({ key: 'return' })
+  expect(await state($)).not.toContain('[done]')
+  await pane.advance(160)
+  expect(await state($)).toMatch(/#1 \[done\]/)
+  expect(await state($)).not.toMatch(/#2 \[done\]/)
+
+  // Item 1 went, so the selection falls to Item 2 on its filled button; the next Enter acts on it.
+  const rows = await rowsOf(pane)
+  expect(titleAbove(rows)).toBe('○ Item 2')
+  expect(edged(rows)).toBe('Done')
+  await pane.key({ key: 'return' })
+  await pane.advance(160)
+  expect(await state($)).toMatch(/#2 \[done\]/)
+  await pane.unmount()
+})
+
+test('keyboard: moving the selection past the window scrolls it into view', async ($, on) => {
+  await seeded($, on, many(12))
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.key({ key: 'down' })
+  for (let n = 0; n < 8; n++) await pane.key({ key: 'down' })
+  const rows = await rowsOf(pane)
+  expect((await propsOf(pane)).offset).toBeGreaterThan(0)
+  expect(titleAbove(rows)).toBe('○ Item 9')
+  expect(edged(rows)).toBe('Done')
   await pane.unmount()
 })
