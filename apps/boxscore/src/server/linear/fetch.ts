@@ -145,12 +145,15 @@ function qualifyingMrs(
 /** Credit the earliest-merged qualifying MR's author, preferring a roster author. */
 function creditedUserOf(
   qualifying: readonly LinkCandidate[],
-  roster: ReadonlySet<string>
+  roster: ReadonlySet<string>,
+  canon?: (login: string) => string
 ): string | null {
-  const withAuthor = qualifying.filter(
-    (c): c is LinkCandidate & { authorUsername: string } =>
-      c.authorUsername !== null
-  );
+  const withAuthor = qualifying
+    .filter(
+      (c): c is LinkCandidate & { authorUsername: string } =>
+        c.authorUsername !== null
+    )
+    .map(c => (canon ? { ...c, authorUsername: canon(c.authorUsername) } : c));
   if (withAuthor.length === 0) return null;
   const rosterMatches = withAuthor.filter(c => roster.has(c.authorUsername));
   const pool = rosterMatches.length > 0 ? rosterMatches : withAuthor;
@@ -245,7 +248,9 @@ export async function resolveLinearTickets(
   roster: readonly string[] | ReadonlySet<string>,
   signal?: AbortSignal,
   onProgress?: (p: Omit<RefreshProgress, 'window'>) => void,
-  forge?: { kind: Forge; projects: readonly string[] }
+  forge?: { kind: Forge; projects: readonly string[] },
+  /** Maps a stored PR author to the roster's spelling; absent (GitLab) compares exactly. */
+  canon?: (login: string) => string
 ): Promise<NormLinearIssue[]> {
   if (!apiKey || sourceMrs.length === 0) return [];
 
@@ -399,7 +404,7 @@ export async function resolveLinearTickets(
       const linkCandidates = [...byKey.values()];
 
       const qualifying = qualifyingMrs(linkCandidates, hadMrAttachment);
-      const creditedUser = creditedUserOf(qualifying, rosterSet);
+      const creditedUser = creditedUserOf(qualifying, rosterSet, canon);
       const closedAt = closedAtOf(qualifying);
       const linkedMrs: LinkedMr[] = linkCandidates.map(
         ({ iid, projectPath, via }) => ({ iid, projectPath, via })

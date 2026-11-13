@@ -207,8 +207,8 @@ spelling when it matches a roster or org-roster username ignoring case,
 and leaves any other login as GitHub returned it.
 Reads apply the same mapping against the current roster, so a login stored
 before its owner joined the roster, or under another case, still matches:
-the board query and the metrics step's eligibility check both compare
-through it. GitLab compares stored usernames exactly.
+the board query, the metrics step's eligibility check and Linear credit all
+compare through it. GitLab compares stored usernames exactly.
 
 **Pipelines:** per (repo, roster user),
 `restRequest('GET', '/repos/<o>/<r>/actions/runs?actor=<login>&created=<start>..<end>&per_page=100&page=K')`,

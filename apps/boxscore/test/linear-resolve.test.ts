@@ -604,6 +604,73 @@ describe('GitHub attachment credit', () => {
     ).toBeNull();
   });
 
+  describe('a ticket attached to a stored roster PR under another case and a non-roster PR', () => {
+    const stored = (iid: number, author: string, mergedAt: string) => ({
+      projectPath: 'o/r',
+      iid,
+      title: `change ${iid}`,
+      state: 'merged' as const,
+      createdAt: '2026-05-01T00:00:00.000Z',
+      updatedAt: mergedAt,
+      mergedAt,
+      authorUsername: author,
+      sourceBranch: null,
+      labels: [],
+      scannedAt: '2026-05-21T00:00:00.000Z',
+    });
+
+    const creditWith = async (
+      forge: { kind: 'github' | 'gitlab'; projects: readonly string[] },
+      urls: string[],
+      canon?: (login: string) => string
+    ) => {
+      getStore().upsertIndexRows([
+        stored(10, 'zed', '2026-05-02T00:00:00.000Z'),
+        stored(11, 'ADA', '2026-05-03T00:00:00.000Z'),
+      ]);
+      stubLinear(ids =>
+        okData(ids, id => ({
+          ...rawFor(id),
+          attachments: {
+            nodes: urls.map(url => ({ url, sourceType: forge.kind })),
+          },
+        }))
+      );
+      const issues = await resolveLinearTickets(
+        'key',
+        [mentioner],
+        [],
+        ['ada', 'bob'],
+        undefined,
+        undefined,
+        forge,
+        canon
+      );
+      return issues.find(i => i.identifier === 'ACME-1')!.creditedUser;
+    };
+
+    it('github credits the roster author through the canon', async () => {
+      const canon = (login: string) =>
+        login.toLowerCase() === 'ada' ? 'ada' : login;
+      expect(
+        await creditWith(
+          github,
+          ['https://github.com/o/r/pull/10', 'https://github.com/o/r/pull/11'],
+          canon
+        )
+      ).toBe('ada');
+    });
+
+    it('gitlab matches the stored spelling exactly, so the earlier non-roster MR wins', async () => {
+      expect(
+        await creditWith({ kind: 'gitlab', projects: ['o/r'] }, [
+          'https://gitlab.example/o/r/-/merge_requests/10',
+          'https://gitlab.example/o/r/-/merge_requests/11',
+        ])
+      ).toBe('zed');
+    });
+  });
+
   it('credits nobody for an unconfigured project even when its spelling matches the stored rows', async () => {
     expect(
       await creditFor(
