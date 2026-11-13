@@ -1202,6 +1202,15 @@ export interface Commands {
     data: { discussionId: string; noteId: number; verified: true };
   };
 
+  /** One file-level review thread on a GitHub pull request, on its first
+      changed file. A pull request with no changed files gets no thread and
+      answers `fallback: 'no-files'`. Refused as
+      `unsupported: mr:comment-file needs a GitHub repo` on GitLab. */
+  "mr:comment-file": {
+    payload: { repoName: string; iid: number; body: string };
+    data: { discussionId: string; noteId: number; path: string } | { fallback: "no-files" };
+  };
+
   /** Top-level MR note. `resolvable` (default true) opens a discussion a
       human can resolve; false posts a plain note and `discussionId` is null.
       `resolvable` in the reply is what the forge reports, so a GitHub pull
@@ -1599,6 +1608,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "discussions:reply",
   "discussions:diffs",
   "mr:comment-inline",
+  "mr:comment-file",
   "mr:comment",
   "mr:note-update",
   "mr:review-submit",

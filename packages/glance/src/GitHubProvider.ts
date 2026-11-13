@@ -2666,6 +2666,62 @@ export class GitHubProvider implements GitProvider {
     };
   }
 
+  /**
+   * GitHub wraps a file-level comment in a submitted COMMENTED review, and
+   * a pull request with no changed files has no file to hold one.
+   */
+  async createFileComment(
+    projectPath: string,
+    mrIid: number,
+    body: string
+  ): Promise<{ discussionId: string; noteId: number; path: string } | null> {
+    const { owner, repo } = this.splitOwnerRepo(projectPath);
+    const readSignal = AbortSignal.timeout(this.writeTimeoutMs);
+    const timedOut = (what: string) => (err: unknown) => {
+      if (readSignal.aborted) {
+        throw new Error(`createFileComment timed out reading the pull request's ${what}; nothing was posted`, {
+          cause: err
+        });
+      }
+      throw err;
+    };
+    // The retry plugin would wait 1, 4 and 9 s after an abort, past the caller's budget.
+    const request = { signal: readSignal, retries: 0 };
+    const pr = await this.forgeRead('createFileComment', () =>
+      this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+        owner,
+        repo,
+        pull_number: mrIid,
+        request
+      })
+    ).catch(timedOut('head commit'));
+    const files = await this.forgeRead('createFileComment', () =>
+      this.octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/files', {
+        owner,
+        repo,
+        pull_number: mrIid,
+        per_page: 1,
+        request
+      })
+    ).catch(timedOut('changed files'));
+    const path = files.data[0]?.filename;
+    if (!path) return null;
+    const { data } = await forgeWrite('createFileComment', this.writeTimeoutMs, (signal) =>
+      this.octokit.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/comments', {
+        owner,
+        repo,
+        pull_number: mrIid,
+        body,
+        commit_id: pr.data.head.sha,
+        path,
+        subject_type: 'file',
+        request: { retries: 0, signal }
+      })
+    );
+    const noteId = Number(data.id);
+    return { discussionId: `gh-review-thread-${noteId}`, noteId, path };
+  }
+
   async replyToDiscussion(
     projectPath: string,
     mrIid: number,
