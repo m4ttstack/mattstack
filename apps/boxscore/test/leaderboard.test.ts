@@ -9,6 +9,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 
 import type {
@@ -30,6 +31,15 @@ import {
   resolvePreset,
 } from '../src/server/util/window.js';
 
+// A passthrough spy, so one test can hand the real lookup a recording fetch.
+vi.mock('../src/server/config/current-user.js', async importOriginal => {
+  const real =
+    await importOriginal<
+      typeof import('../src/server/config/current-user.js')
+    >();
+  return { ...real, getCurrentUser: vi.fn(real.getCurrentUser) };
+});
+
 const dir = mkdtempSync(join(tmpdir(), 'boxscore-leaderboard-'));
 process.env.BOXSCORE_DB = join(dir, 'test.sqlite');
 
@@ -38,7 +48,7 @@ const { getLeaderboard, getUserDetail, ColdCacheError } =
 const { ConfigError } = await import('../src/server/config/index.js');
 const { getStore, __resetStore } = await import('../src/server/store/index.js');
 const { __setProviderFactory } = await import('../src/server/source/index.js');
-const { __setCurrentUser, __resetCurrentUser } =
+const { __setCurrentUser, __resetCurrentUser, getCurrentUser } =
   await import('../src/server/config/current-user.js');
 const { __setTeamReader } = await import('../src/server/config/team.js');
 const { __setGitHubTokenDeps, githubRepoName } =
@@ -614,7 +624,14 @@ describe('getLeaderboard: on github', () => {
 
   it('a github enterprise host answers a ConfigError naming the host', async () => {
     onGitHub('ghe.example');
-    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    const asked: string[] = [];
+    __setGitHubTokenDeps({
+      env: {},
+      async forgeToken(repoName) {
+        asked.push(repoName);
+        return { ok: true, data: { token: 'gh-tkn' } };
+      },
+    });
 
     const run = getLeaderboard({
       window: resolvePreset('30d', new Date()),
@@ -624,5 +641,82 @@ describe('getLeaderboard: on github', () => {
 
     await expect(run).rejects.toBeInstanceOf(ConfigError);
     await expect(run).rejects.toThrow('ghe.example');
+    expect(asked).toEqual([]);
+  });
+
+  it('no projects answers the boxscore.projects error before any token read', async () => {
+    onGitHub();
+    const github: Record<string, unknown> = {
+      ...SETTINGS,
+      'mattstack.integrations': {
+        forge: { host: 'github.com', provider: 'github' },
+      },
+      'boxscore.projects': [],
+    };
+    __setSettingReader(<T>(k: string) => github[k] as T | undefined);
+    const asked: string[] = [];
+    __setGitHubTokenDeps({
+      env: {},
+      async forgeToken(repoName) {
+        asked.push(repoName);
+        return { ok: true, data: { token: 'gh-tkn' } };
+      },
+    });
+
+    const run = getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+    });
+
+    await expect(run).rejects.toBeInstanceOf(ConfigError);
+    await expect(run).rejects.toThrow('boxscore.projects is empty');
+    expect(asked).toEqual([]);
+  });
+
+  it('the current user is read from api.github.com with the GitHub token', async () => {
+    onGitHub();
+    __resetCurrentUser();
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    fakeProvider();
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const recording = (async (
+      url: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      seen.push({
+        url: String(url),
+        headers: init?.headers as Record<string, string>,
+      });
+      return new Response(JSON.stringify({ login: 'alice', name: null }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+    const lookup = vi.mocked(getCurrentUser);
+    const real = lookup.getMockImplementation()!;
+    lookup.mockImplementationOnce((baseUrl, token, _fetch, forge) =>
+      real(baseUrl, token, recording, forge)
+    );
+
+    try {
+      await getLeaderboard({
+        window: resolvePreset('30d', new Date()),
+        refresh: false,
+        trend: false,
+      });
+    } finally {
+      __resetCurrentUser();
+    }
+
+    expect(lookup).toHaveBeenLastCalledWith(
+      'https://github.com',
+      'gh-tkn',
+      undefined,
+      'github'
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toBe('https://api.github.com/user');
+    expect(seen[0]!.headers.Authorization).toBe('Bearer gh-tkn');
+    expect(seen[0]!.headers['PRIVATE-TOKEN']).toBeUndefined();
   });
 });

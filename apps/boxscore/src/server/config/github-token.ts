@@ -18,7 +18,6 @@ export type GitHubTokenResult =
 
 let injected: GitHubTokenDeps | null = null;
 
-/** Test seam, like __setSettingReader. */
 export function __setGitHubTokenDeps(d: GitHubTokenDeps | null): void {
   injected = d;
 }
