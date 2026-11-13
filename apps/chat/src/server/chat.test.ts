@@ -24,6 +24,7 @@ vi.mock('@mattstack/rt-client', () => ({
   paneList: vi.fn(),
   daemonHealth: vi.fn(),
   getSetting: vi.fn(() => ({ value: 'matt' })),
+  herdRoster: vi.fn(),
 }));
 const rt = await import('@mattstack/rt-client');
 const { routes } = await import('./routes');
@@ -1734,4 +1735,130 @@ test('slack-people names the support agent for the form, from settings', async (
     headers: LOCAL,
   });
   expect((await res.json()).persona).toBe('Maude');
+});
+
+const HERD = {
+  id: 'sweep-20261113-091500',
+  name: 'sweep',
+  room: 'herd-sweep-20261113-091500',
+  status: 'active' as const,
+  shepherdHandle: 'sid',
+  shepherdName: 'sid',
+  workers: [
+    { job: 'ida-lane', handle: 'ida', name: 'ida' },
+    { job: 'meg-lane', handle: 'meg', name: 'meg' },
+  ],
+};
+const dm = (room: string, a: string, b: string) => ({
+  room,
+  memberCount: 3,
+  unread: 0,
+  mentions: 0,
+  kind: 'dm' as const,
+  participants: { a, b, aName: a, bName: b },
+});
+const herdListing = [
+  { room: HERD.room, memberCount: 3, unread: 0, mentions: 0 },
+  dm('dm-ida', 'sid', 'ida'),
+  dm('dm-meg', 'meg', 'sid'),
+  dm('dm-other', 'sid', 'kai'),
+];
+const msg = (id: number, room: string, handle: string) => ({
+  id,
+  room,
+  handle,
+  body: `m${id}`,
+  postedAt: id,
+  mentions: [],
+});
+
+test("rooms tags a herd's own room and its shepherd-worker DMs, nothing else", async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: { rooms: herdListing },
+  });
+  vi.mocked(rt.herdRoster).mockResolvedValueOnce({
+    ok: true,
+    data: { herds: [HERD] },
+  });
+
+  const res = await routes.request('/api/chat/rooms?handle=matt');
+  const rooms: { room: string; herd?: { id: string } }[] = (await res.json())
+    .rooms;
+  const tagged = rooms.filter(r => r.herd).map(r => r.room);
+  expect(tagged).toEqual([HERD.room, 'dm-ida', 'dm-meg']);
+  expect(rooms.find(r => r.room === 'dm-ida')?.herd).toMatchObject({
+    id: HERD.id,
+    shepherdHandle: 'sid',
+  });
+});
+
+test('a daemon without herd:roster leaves every room untagged', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: { rooms: herdListing },
+  });
+  vi.mocked(rt.herdRoster).mockResolvedValueOnce({
+    ok: false,
+    error: 'unknown command',
+  });
+
+  const res = await routes.request('/api/chat/rooms?handle=matt');
+  expect(res.status).toBe(200);
+  const rooms: { herd?: unknown }[] = (await res.json()).rooms;
+  expect(rooms.some(r => r.herd)).toBe(false);
+});
+
+test("the herd feed merges the herd's DMs and room, newest last", async () => {
+  vi.mocked(rt.herdRoster).mockResolvedValueOnce({
+    ok: true,
+    data: { herds: [HERD] },
+  });
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: { rooms: herdListing },
+  });
+  const byRoom: Record<string, ReturnType<typeof msg>[]> = {
+    [HERD.room]: [msg(1, HERD.room, 'sid')],
+    'dm-ida': [msg(3, 'dm-ida', 'ida')],
+    'dm-meg': [msg(2, 'dm-meg', 'meg')],
+    'dm-other': [msg(4, 'dm-other', 'kai')],
+  };
+  vi.mocked(rt.chatMessages).mockImplementation((async (a: {
+    room: string;
+  }) => ({ ok: true, data: { messages: byRoom[a.room] ?? [] } })) as never);
+
+  const res = await routes.request(`/api/chat/herd/${HERD.id}?limit=10`);
+  expect(res.status).toBe(200);
+  const ids = (await res.json()).messages.map((m: { id: number }) => m.id);
+  expect(ids).toEqual([1, 2, 3]);
+});
+
+test('the herd feed narrows to one room when asked', async () => {
+  vi.mocked(rt.herdRoster).mockResolvedValueOnce({
+    ok: true,
+    data: { herds: [HERD] },
+  });
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: { rooms: herdListing },
+  });
+  vi.mocked(rt.chatMessages).mockResolvedValue({
+    ok: true,
+    data: { messages: [msg(3, 'dm-ida', 'ida')] },
+  });
+
+  const res = await routes.request(`/api/chat/herd/${HERD.id}?room=dm-ida`);
+  expect(res.status).toBe(200);
+  expect(vi.mocked(rt.chatMessages).mock.calls.map(c => c[0].room)).toEqual([
+    'dm-ida',
+  ]);
+});
+
+test('an unknown herd is a 404', async () => {
+  vi.mocked(rt.herdRoster).mockResolvedValueOnce({
+    ok: true,
+    data: { herds: [] },
+  });
+  expect((await routes.request('/api/chat/herd/nope')).status).toBe(404);
 });

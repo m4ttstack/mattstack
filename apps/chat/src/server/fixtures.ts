@@ -26,6 +26,7 @@ import type {
   BuddyStatus,
   ChatMessage,
   ChatPane,
+  HerdRosterRow,
   PaneFocusResult,
   PresenceRow,
   RoomSummary,
@@ -236,6 +237,9 @@ const DMS: ReadonlyArray<readonly [string, string, number]> = [
   ['edie', 'stan', 14],
   ['kai', 'remy', 102],
   ['kai', 'remy.m2p4', 2],
+  ['sid', 'ida', 2],
+  ['sid', 'meg', 0],
+  ['sid', 'elsa', 1],
 ];
 /** The DM room name is a real hashed pair-key shape, never rendered. */
 const DM_ROOM: Record<string, string> = {
@@ -244,6 +248,9 @@ const DM_ROOM: Record<string, string> = {
   'edie|stan': 'dm-5b9e02771ac4',
   'kai|remy': 'dm-e41f7a3c68bd',
   'kai|remy.m2p4': 'dm-2c9b7e41d0a5',
+  'sid|ida': 'dm-7d20c4b9e1f3',
+  'sid|meg': 'dm-0a6e93f5c27b',
+  'sid|elsa': 'dm-b84f1d6a3e09',
 };
 /** design/build.py's LAST table: the newest message per pair, which the tree's
     DM second line falls back to. `jay|max` has none on purpose -- jay's pane
@@ -269,6 +276,21 @@ const DM_LAST: Record<string, { handle: string; name: string; body: string }> =
       handle: 'remy.m2p4',
       name: 'remy',
       body: 'picked up the chat identity lane',
+    },
+    'sid|ida': {
+      handle: 'ida',
+      name: 'ida',
+      body: 'Inventory done, fixing now',
+    },
+    'sid|meg': {
+      handle: 'meg',
+      name: 'meg',
+      body: 'PR 212 merged to main',
+    },
+    'sid|elsa': {
+      handle: 'sid',
+      name: 'sid',
+      body: 'Rebase on main before the next push',
     },
   };
 const dmPartners = new Set(DMS.flatMap(([a, c]) => [a, c]));
@@ -301,6 +323,29 @@ export function fixtureBuddies(now = Date.now()): Buddy[] {
   });
 }
 
+const HERD_ID = 'docs-sweep-20261113-091500';
+/** sid shepherds ida, meg and elsa; their DMs and the herd room fold into
+    one sidebar row under `CHAT_FIXTURES=1`. */
+export const FIXTURE_HERD_ROOM = `herd-${HERD_ID}`;
+
+export function fixtureHerds(): HerdRosterRow[] {
+  return [
+    {
+      id: HERD_ID,
+      name: 'docs-sweep',
+      room: FIXTURE_HERD_ROOM,
+      status: 'active',
+      shepherdHandle: 'sid',
+      shepherdName: nameOf('sid'),
+      workers: ['ida', 'meg', 'elsa'].map(h => ({
+        job: `${h}-lane`,
+        handle: h,
+        name: nameOf(h),
+      })),
+    },
+  ];
+}
+
 /** `max ↔ stan`, this cast's busiest DM. */
 export const FIXTURE_DM = DM_ROOM['max|stan']!;
 
@@ -331,7 +376,13 @@ export function fixtureRooms(): (RoomSummary & {
       ...(lastMessage ? { lastMessage } : {}),
     };
   });
-  return [...repoRooms, ...dmRooms];
+  const herdRoom = {
+    room: FIXTURE_HERD_ROOM,
+    memberCount: 4,
+    unread: 0,
+    mentions: 0,
+  };
+  return [...repoRooms, herdRoom, ...dmRooms];
 }
 
 /** One open Slack support chat, in the max and stan DM, so the composer
@@ -586,6 +637,89 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         postedAt: now - 2 * M,
         mentions: [],
       },
+    ]);
+  }
+
+  const herd = (
+    id: number,
+    r: string,
+    handle: string,
+    minutesAgo: number,
+    body: string
+  ) => ({
+    id,
+    room: r,
+    handle,
+    body,
+    postedAt: now - minutesAgo * M,
+    mentions: [] as string[],
+  });
+  if (room === FIXTURE_HERD_ROOM) {
+    return named([
+      herd(
+        901,
+        room,
+        'sid',
+        95,
+        'Herd up: three lanes on the docs sweep. Briefs are in your panes.'
+      ),
+      herd(
+        902,
+        room,
+        'meg',
+        40,
+        'Heads up: my lane touches `sites/docs/sidebars.ts`, so rebase before you push.'
+      ),
+    ]);
+  }
+  if (room === DM_ROOM['sid|ida']) {
+    return named([
+      herd(
+        911,
+        room,
+        'sid',
+        90,
+        'Inventory first, then fix surface by surface.'
+      ),
+      herd(
+        912,
+        room,
+        'ida',
+        12,
+        'Inventory done: 214 fixes across 13 surfaces, 2 asks. The asks are with you.'
+      ),
+      herd(
+        913,
+        room,
+        'sid',
+        8,
+        'Fix the watch hints with the forge noun. Leave the registry for a follow-up.'
+      ),
+      herd(914, room, 'ida', 4, 'Inventory done, fixing now'),
+    ]);
+  }
+  if (room === DM_ROOM['sid|meg']) {
+    return named([
+      herd(
+        921,
+        room,
+        'sid',
+        88,
+        'Take the sidebar rename. Keep old slugs as redirects.'
+      ),
+      herd(922, room, 'meg', 30, 'PR 212 merged to main'),
+    ]);
+  }
+  if (room === DM_ROOM['sid|elsa']) {
+    return named([
+      herd(
+        931,
+        room,
+        'elsa',
+        20,
+        'Screenshots are refreshed for the apps tab.'
+      ),
+      herd(932, room, 'sid', 6, 'Rebase on main before the next push'),
     ]);
   }
 
