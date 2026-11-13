@@ -402,13 +402,39 @@ function lookOf(state, focused) {
   const held = state?.pressed;
   return { focused, hover, pressed: held === hover ? held : undefined };
 }
-function drawnAction(lines, armed) {
+var labelOf = (text) => text.split(SYMBOL.selectEdge).join("").trim();
+function runOf(line, n) {
+  const armed = JSON.stringify(line[n].action);
+  const carries = (m) => line[m]?.action !== undefined && JSON.stringify(line[m].action) === armed;
+  let first = n;
+  let last = n;
+  while (carries(first - 1))
+    first--;
+  while (carries(last + 1))
+    last++;
+  return { armed, label: labelOf(line.slice(first, last + 1).map((s) => s.t).join("")) };
+}
+function controlAt(line, x) {
+  if (!line)
+    return;
+  let from = 0;
+  for (let n = 0;n < line.length; n++) {
+    const to = from + cellWidth(line[n].t);
+    if (line[n].action !== undefined && x >= from && x < to)
+      return runOf(line, n);
+    from = to;
+  }
+  return line.action === undefined ? undefined : { armed: JSON.stringify(line.action), label: labelOf(line.map((s) => s.t).join("")) };
+}
+function drawnAction(lines, held) {
   for (const line of lines) {
-    if (line.action !== undefined && JSON.stringify(line.action) === armed)
+    if (line.action !== undefined && JSON.stringify(line.action) === held.armed && labelOf(line.map((s) => s.t).join("")) === held.label)
       return line.action;
-    const span = line.find((piece) => piece.action !== undefined && JSON.stringify(piece.action) === armed);
-    if (span)
-      return span.action;
+    for (let n = 0;n < line.length; n++) {
+      const run = line[n].action === undefined ? undefined : runOf(line, n);
+      if (run && run.armed === held.armed && run.label === held.label)
+        return line[n].action;
+    }
   }
   return;
 }
@@ -424,16 +450,20 @@ function attachPointer(surface, lines, opts) {
       opts.onEngage?.();
       if (!opts.focused || ev.button !== "left" || !key || !isActive())
         return;
-      return surface.setState({ ...s, pressed: key, hover: key, armed: JSON.stringify(hitAt(lines[ev.y], ev.x)) });
+      const held = controlAt(lines[ev.y], ev.x);
+      return surface.setState({ ...s, pressed: key, hover: key, armed: held?.armed, label: held?.label, pressAt: `${ev.x},${ev.y}` });
     }
     if (ev.type === "up") {
       if (s.pressed === undefined)
         return;
-      const { armed } = s;
-      surface.setState({ ...s, pressed: undefined, armed: undefined });
-      const here = hitAt(lines[ev.y], ev.x);
-      const isStill = s.hover === s.pressed && armed !== undefined;
-      const action = here !== undefined && JSON.stringify(here) === armed ? here : isStill ? drawnAction(lines, armed) : undefined;
+      const { armed, label, pressAt } = s;
+      surface.setState({ ...s, pressed: undefined, armed: undefined, label: undefined, pressAt: undefined });
+      if (armed === undefined || label === undefined)
+        return;
+      const here = controlAt(lines[ev.y], ev.x);
+      const isSame = here !== undefined && here.armed === armed && here.label === label;
+      const isStill = s.hover === s.pressed && pressAt === `${ev.x},${ev.y}`;
+      const action = isSame ? hitAt(lines[ev.y], ev.x) : isStill ? drawnAction(lines, { armed, label }) : undefined;
       if (action !== undefined)
         opts.onAction(action);
       return;

@@ -154,6 +154,39 @@ test('a still release does nothing when the redraw disabled the pressed control'
   expect(m.state()?.pressed).toBeUndefined()
 })
 
+// A terminal that reports no motion sends a drag as a press, then a release somewhere else, with no move between.
+test('a release at another cell with no move between cancels, as a drag off does', () => {
+  const m = mount()
+  m.send('down', ONE, 'left')
+  m.send('up', TWO, 'left')
+  expect(m.actions).toEqual([])
+  m.send('down', ONE, 'left')
+  m.send('up', 30, 'left')
+  expect(m.actions).toEqual([])
+})
+
+// A component's handler key names its place in the tree, so a redraw that changes the tree can give another control that key.
+test('a still release does nothing when the pressed action now belongs to a different control', () => {
+  let lines = LINES
+  const m = mount({ lines: () => lines })
+  m.send('down', ONE, 'left')
+  lines = [[sp('output')], [buttonSpan<Action>({ label: 'Clear finished', action: 'one' })]]
+  m.redraw()
+  m.send('up', ONE, 'left')
+  expect(m.actions).toEqual([])
+})
+
+test("a release on the pressed control's own place acts though its keyboard edge came off in the redraw", () => {
+  const edged = [[{ ...buttonSpan<Action>({ label: 'One', action: 'one' }), t: '▎' }, { ...buttonSpan<Action>({ label: 'One', action: 'one' }), t: ' One  ' }, sp(' '), buttonSpan<Action>({ label: 'Two', action: 'two' })]]
+  let lines: Line<Action>[] = edged
+  const m = mount({ lines: () => lines })
+  m.send('down', 0, 'left')
+  lines = LINES
+  m.redraw()
+  m.send('up', 0, 'left')
+  expect(m.actions).toEqual(['one'])
+})
+
 test('after a redraw, dragging off onto another control and releasing still does nothing', () => {
   const m = shifting()
   m.send('down', ONE, 'left')
