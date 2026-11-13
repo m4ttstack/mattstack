@@ -9,6 +9,7 @@
 
 import { runListReadConformance, runMetricsReadConformance, runReadConformance } from './conformance.ts';
 import { buildFixtures } from './fixture.ts';
+import { installGitLabPacer } from './gitlabPacer.ts';
 import { Reporter } from './report.ts';
 
 const { fixtures, missing } = await buildFixtures();
@@ -27,4 +28,5 @@ for (const fixture of fixtures) {
 }
 
 console.log(`\n${report.render()}`);
+console.log(installGitLabPacer().summary());
 process.exit(report.exitCode);

@@ -153,23 +153,27 @@ export class PartialCreateError extends ReadBackFailedError {
 }
 
 /**
- * GitHub refused a read because a rate limit is exhausted, and waiting it out
- * is longer than a poll can afford.
+ * A forge refused a request because a rate limit is exhausted, and waiting it
+ * out is longer than the caller can afford.
  *
  * Raised instead of letting the throttling plugin sleep until the window
  * resets, which stalled a daemon poll for up to an hour. `kind` separates the
  * hourly quota (`primary`) from the burst limit (`secondary`): they reset on
  * different clocks, so a caller deciding when to retry needs to know which.
+ * GitLab's per-minute limit is a burst limit, so GitLab raises `secondary`
+ * once its wait passes `GITLAB_READ_RATE_LIMIT_DEADLINE_S` or
+ * `GITLAB_WRITE_RATE_LIMIT_DEADLINE_S`.
  */
 export class RateLimitedError extends Error {
   readonly kind: 'primary' | 'secondary';
 
-  /** ISO time the limit lifts, when GitHub said; null when it did not. */
+  /** ISO time the limit lifts, when the forge said; null when it did not. */
   readonly resetAt: string | null;
 
   /**
    * How long to wait before retrying: GitHub's `Retry-After` when sent, 60s
-   * for a secondary limit with quota left and no header; otherwise null.
+   * for a secondary limit with quota left and no header; GitLab's reset plus
+   * a margin; otherwise null.
    */
   readonly retryAfterMs: number | null;
 

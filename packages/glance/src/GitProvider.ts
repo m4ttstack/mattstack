@@ -879,6 +879,9 @@ export interface GitProvider {
    * instead of surfacing it once, at the one call site that needs to change.
    *
    * A non-2xx resolves rather than throwing, so callers branch on `res.ok`.
+   * The exception is a rate limit: GitLab waits out a 429 (up to 30s for a
+   * GET, 65s for a write) and then throws `RateLimitedError`, and GitHub
+   * throws it for a rate-limited GET.
    *
    * GitHub's Response is rebuilt from its HTTP client rather than returned
    * from `fetch`, so `res.url` is always empty there. Status, statusText,

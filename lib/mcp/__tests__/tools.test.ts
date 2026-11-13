@@ -8,7 +8,7 @@ import { mcpTools, mrToolDeps } from "../tools.ts";
 import { normalizeGateQuestions } from "../../../packages/rt-client/src/gate-options.ts";
 import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
-import { REPO_TARGET_PROPS, REPO_TARGET_RULE } from "../shared.ts";
+import { MR_WRITE_TIMEOUT_MS, REPO_TARGET_PROPS, REPO_TARGET_RULE } from "../shared.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 
 const NAMES = ["gate_answer","gate_ask","gate_open","gate_reconcile","gate_record","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_enter","run_next","run_resolve","run_hold","run_close","run_budget","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_posted_since","mr_resolve_branch","respond_post_execute","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","branch_sync_sweep","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","herd_respawn","herd_gate_answer","herd_gate_park","herd_diagnose","herd_nudge","herd_lanes","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","chat_slack_close","chat_slack_status","chat_slack_ticket","chat_slack_request","chat_slack_resume","whoami","skills_resolve","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","ci_triage","pipeline_jobs","project_labels","pipeline_list","gitlab_get","branch_stack","evidence_record","evidence_attach","dev_endpoints"];
@@ -445,7 +445,7 @@ describe("mcpTools", () => {
       const tool = mcpTools().find((t) => t.name === "mr_comment")!;
       const res = await tool.handler({ repoName: "remote:x", iid: 7, body: "hi" }, {} as NodeJS.ProcessEnv);
       expect(res).toEqual({ ok: true, body: COMMENT_DATA });
-      expect(calls).toEqual([{ cmd: "mr:comment", payload: { repoName: "remote:x", iid: 7, body: "hi" }, timeoutMs: 30_000 }]);
+      expect(calls).toEqual([{ cmd: "mr:comment", payload: { repoName: "remote:x", iid: 7, body: "hi" }, timeoutMs: MR_WRITE_TIMEOUT_MS }]);
     });
 
     test("mr_comment forwards resolvable:false", async () => {
@@ -498,7 +498,7 @@ describe("mcpTools", () => {
       const tool = mcpTools().find((t) => t.name === "mr_create")!;
       const res = await tool.handler({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T" }, {} as NodeJS.ProcessEnv);
       expect(res).toEqual({ ok: true, body: { iid: 12, url: "u" } });
-      expect(calls).toEqual([{ cmd: "mr:create", payload: { repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T" }, timeoutMs: 30_000 }]);
+      expect(calls).toEqual([{ cmd: "mr:create", payload: { repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T" }, timeoutMs: MR_WRITE_TIMEOUT_MS }]);
     });
 
     test("mr_create refuses a string draft before calling the daemon", async () => {
@@ -559,7 +559,7 @@ describe("mcpTools", () => {
         expect(res).toEqual({ ok: true, body: { iid: 12, url: "u", existing: false } });
         expect(calls.map((c) => c.cmd)).toEqual(["mr:live-by-branch", "mr:create"]);
         expect(calls[1]!.payload).toEqual({ repoName: "remote:x", sourceBranch: "feat", targetBranch: "main", title: "T" });
-        expect(calls[1]!.timeoutMs).toBe(30_000);
+        expect(calls[1]!.timeoutMs).toBe(MR_WRITE_TIMEOUT_MS);
       });
 
       test("a create that loses a race to an existing MR reads again and returns it", async () => {
@@ -765,7 +765,7 @@ describe("mcpTools", () => {
         const tool = mcpTools().find((t) => t.name === c.tool)!;
         const res = await tool.handler({ ...T, ...c.input }, {} as NodeJS.ProcessEnv);
         expect(res).toEqual({ ok: true, body: c.body });
-        expect(calls).toEqual([{ cmd: "mr:action", payload: { ...T, action: c.action, args: c.args }, timeoutMs: 30_000 }]);
+        expect(calls).toEqual([{ cmd: "mr:action", payload: { ...T, action: c.action, args: c.args }, timeoutMs: MR_WRITE_TIMEOUT_MS }]);
       });
     }
 
@@ -1001,7 +1001,7 @@ describe("mcpTools", () => {
       const tool = mcpTools().find((t) => t.name === "mr_resolve_thread")!;
       const res = await tool.handler({ ...T, discussionId: "d1" }, {} as NodeJS.ProcessEnv);
       expect(res).toEqual({ ok: true, body: { discussionId: "d1", resolved: true } });
-      expect(calls).toEqual([{ cmd: "discussions:resolve", payload: { ...T, discussionId: "d1", resolved: true }, timeoutMs: 30_000 }]);
+      expect(calls).toEqual([{ cmd: "discussions:resolve", payload: { ...T, discussionId: "d1", resolved: true }, timeoutMs: MR_WRITE_TIMEOUT_MS }]);
     });
 
     test("mr_resolve_thread resolved:false unresolves", async () => {
@@ -1075,7 +1075,7 @@ describe("mcpTools", () => {
       const tool = mcpTools().find((t) => t.name === "mr_approve")!;
       const res = await tool.handler({ repoName: "app", iid: 7 }, {} as NodeJS.ProcessEnv);
       expect(res).toEqual({ ok: true, body: { approved: true } });
-      expect(calls).toEqual([{ cmd: "mr:action", payload: { repoName: APP, iid: 7, action: "approve", args: [] }, timeoutMs: 30_000 }]);
+      expect(calls).toEqual([{ cmd: "mr:action", payload: { repoName: APP, iid: 7, action: "approve", args: [] }, timeoutMs: MR_WRITE_TIMEOUT_MS }]);
     });
 
     test("mrUrl alone targets a registered repo and supplies iid", async () => {
@@ -1317,7 +1317,7 @@ describe("mcpTools", () => {
       const tool = mcpTools().find((t) => t.name === "mr_update")!;
       const res = await tool.handler({ ...T, title: "T", addLabels: ["a"], squash: false }, {} as NodeJS.ProcessEnv);
       expect(res).toEqual({ ok: true, body: { iid: 7, url: "u", applied: ["title"] } });
-      expect(calls).toEqual([{ cmd: "mr:update", payload: { ...T, title: "T", addLabels: ["a"], squash: false }, timeoutMs: 30_000 }]);
+      expect(calls).toEqual([{ cmd: "mr:update", payload: { ...T, title: "T", addLabels: ["a"], squash: false }, timeoutMs: MR_WRITE_TIMEOUT_MS }]);
     });
 
     test("refuses no field, only empty label arrays, a string squash, and non-array labels before calling the daemon", async () => {

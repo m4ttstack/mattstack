@@ -88,11 +88,12 @@ export function checkStringArray(input: Record<string, unknown>, name: string): 
 
 export const HERD_ENV_ERROR = "HERD_ID and HERD_JOB are not set; this verb runs inside a herd worker pane";
 
-/** Matches lib/daemon-client.ts's DISCUSSIONS_TIMEOUT_MS: a GitLab write is
-    slower than rtCommand's 15s default, and a client-side abort here would
-    still leave the daemon writing, so a retry would duplicate the write.
-    Shared by every mr write tool for that reason. */
-export const MR_WRITE_TIMEOUT_MS = 30_000;
+/** Matches lib/daemon-client.ts's DISCUSSIONS_TIMEOUT_MS: a client-side
+    abort here would still leave the daemon writing, so a retry would
+    duplicate the write. glance waits out a GitLab 429 on a write for up to
+    GITLAB_WRITE_RATE_LIMIT_DEADLINE_S (65s) before sending it, so this must
+    outlast that wait plus the write. Shared by every mr write tool. */
+export const MR_WRITE_TIMEOUT_MS = 90_000;
 
 export const REPO_NAME_RULE = "Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.";
 

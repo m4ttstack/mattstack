@@ -376,8 +376,9 @@ export interface DaemonMRActions {
 // MR actions hit GitLab through the daemon, so the IPC call must wait out the
 // underlying API round-trip. 2s (the default IPC timeout) is too short — a
 // real-world merge regularly takes 3–10s and the client would throw
-// "daemon unavailable" even though the merge succeeded on the server.
-const MR_ACTION_TIMEOUT_MS = 30_000;
+// "daemon unavailable" even though the merge succeeded on the server. glance
+// also waits out a GitLab 429 on a write for up to 65s before sending it.
+export const MR_ACTION_TIMEOUT_MS = 90_000;
 
 export function mrActions(repoName: string, iid: number): DaemonMRActions {
   const fire = async (action: string, args: any[] = []): Promise<void> => {
@@ -423,9 +424,9 @@ export interface DiscussionsSnapshot {
   fetchedAt:   number;
 }
 
-// Discussion fetches hit GitLab REST; allow the same 30s window as mr:action
-// so slow/busy instances don't surface spurious timeouts.
-const DISCUSSIONS_TIMEOUT_MS = 30_000;
+// Discussion fetches and writes hit GitLab REST; allow the same window as
+// mr:action so a rate-limited write is not abandoned mid-wait and retried.
+export const DISCUSSIONS_TIMEOUT_MS = 90_000;
 
 /**
  * Read the discussions (comment threads) for an MR. The daemon serves from its

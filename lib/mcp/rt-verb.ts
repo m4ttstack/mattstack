@@ -7,7 +7,8 @@ import { rtSelfArgv } from "../rt-self.ts";
 import { execWithTimeout, type ExecResult } from "../setup/probes.ts";
 import { checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots } from "./temp-root-guard.ts";
 
-export const RT_VERB_TIMEOUT_MS = 30_000;
+/** Outlasts glance's 65s wait on a rate-limited GitLab write, which an rt verb may trigger. */
+export const RT_VERB_TIMEOUT_MS = 90_000;
 const TAIL_BYTES = 400;
 const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
 

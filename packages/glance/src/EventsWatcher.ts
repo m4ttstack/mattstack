@@ -68,8 +68,8 @@ function classifyError(err: unknown): NonNullable<WatchEventsStatus['cause']> {
  *
  * Sources, in order: a RateLimitedError's own `retryAfterMs`; Octokit's
  * `err.response.headers` (a plain object); gitbeaker's
- * `err.cause.response.headers` (a `Headers` instance). A GitbeakerRetryError
- * carries neither, so a GitLab 429 usually falls back to exponential backoff.
+ * `err.cause.response.headers` (a `Headers` instance). A GitLab 429 arrives
+ * as a RateLimitedError once glance's own wait for it runs out.
  */
 function retryAfterMs(err: unknown): number | null {
   if (err instanceof RateLimitedError) {
