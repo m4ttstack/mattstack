@@ -126,7 +126,10 @@ describe("rt sync all and rt's token", () => {
       const branch = cwd.endsWith("feature-a") ? "feature-a" : "feature-b";
       return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: true, ...(branch === "feature-a" ? { usedRtToken: true, tokenForge: "gitlab" as const } : {}) };
     };
-    expect(await exitCodeOf(() => syncAllCommand([], ctxFor(repo), { syncBranch }))).toBeNull();
+    const asked: string[] = [];
+    const authPending = async (cwd: string) => (asked.push(cwd), true);
+    expect(await exitCodeOf(() => syncAllCommand([], ctxFor(repo), { syncBranch, authPending }))).toBeNull();
+    expect(asked.map((p) => p.endsWith("feature-a"))).toEqual([true]);
     expect(auths.length).toBe(2);
     expect(auths[0]).toBeDefined();
     expect(auths[1]).toBe(auths[0]);
@@ -136,5 +139,13 @@ describe("rt sync all and rt's token", () => {
     expect(noteAt).toBeGreaterThan(summaryAt);
     expect(io.stdout()).not.toContain("on feature-b");
     expect(io.stdout().trimEnd()).toEndWith("next: To use it for every git on this clone, run rt git auth");
+  }, 20_000);
+
+  test("the note leaves out rt git auth when no listed worktree is pending", async () => {
+    const { repo } = repoWithTwoFeatureTrees();
+    const syncBranch = async (cwd: string): Promise<SyncSummary> => ({ branch: cwd.endsWith("feature-a") ? "feature-a" : "feature-b", worktree: cwd, resetResult: null, rebaseResult: null, pushed: true, usedRtToken: true, tokenForge: "gitlab" });
+    expect(await exitCodeOf(() => syncAllCommand([], ctxFor(repo), { syncBranch, authPending: async () => false }))).toBeNull();
+    expect(io.stdout()).toContain("rt signed in with your GitLab token for this run on feature-a and feature-b");
+    expect(io.stdout()).not.toContain("rt git auth");
   }, 20_000);
 });

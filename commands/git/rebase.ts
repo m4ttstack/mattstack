@@ -35,7 +35,7 @@ import type { CommandContext } from "../../lib/command-tree.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
-import { asError, asRefusal, defaultFetchDeps, drawFailure, errText, fetchFailureOf, fetchNotingToken, NOT_ON_A_BRANCH, plural, PromptGuardFailed, uncommittedChanges, withPromptGuard, withTokenNote, type FetchDeps, type TokenUse } from "./shared.ts";
+import { asError, asRefusal, defaultAuthPending, defaultFetchDeps, drawFailure, errText, fetchFailureOf, fetchNotingToken, NOT_ON_A_BRANCH, plural, PromptGuardFailed, uncommittedChanges, withPromptGuard, withTokenNote, type FetchDeps, type TokenUse } from "./shared.ts";
 import { createOriginAuth, tokenNoteBlocks, type Forge, type OriginAuth } from "./origin-auth.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ export interface RebaseOptions {
 }
 
 /** Tests set these; the command handler reads them. */
-export const __testSeams: { originAuth?: OriginAuth; fetchDeps?: FetchDeps } = {};
+export const __testSeams: { originAuth?: OriginAuth; fetchDeps?: FetchDeps; authPending?: (cwd: string) => Promise<boolean> } = {};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -588,7 +588,10 @@ async function runRebaseWithEscalation(
     process.exit(exitCode);
   }
 
-  if (mode !== "json" && result.usedRtToken && result.tokenForge) out.print(...tokenNoteBlocks(result.tokenForge));
+  if (mode !== "json" && result.usedRtToken && result.tokenForge) {
+    const pending = await (__testSeams.authPending ?? ((c: string) => defaultAuthPending(c, auth)))(cwd);
+    out.print(...tokenNoteBlocks(result.tokenForge, undefined, pending));
+  }
 }
 
 /**

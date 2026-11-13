@@ -10,7 +10,7 @@ import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { createOriginAuth, tokenNoteBlocks, type OriginAuth, type OriginAuthSeams } from "../git/origin-auth.ts";
 import type { FetchDeps, PushDeps } from "../git/shared.ts";
-import { syncAllNote, syncBranch, syncCommand, type SyncSummary } from "../sync.ts";
+import { syncAllNote, tokenNoteUsers, syncBranch, syncCommand, type SyncSummary } from "../sync.ts";
 import { ctxFor, exitCodeOf, git, makeRepo, trapExit } from "../git/__tests__/helpers.ts";
 
 const TOKEN = "glpat-LEAKCHECK000000000";
@@ -225,7 +225,7 @@ describe("the token note", () => {
   const summary = (branch: string, over: Partial<SyncSummary> = {}): SyncSummary => ({ branch, worktree: `/tmp/${branch}`, resetResult: null, rebaseResult: null, pushed: true, ...over });
 
   test("tokenNoteBlocks names the forge, says this run and points at rt git auth", () => {
-    const text = renderPlain(tokenNoteBlocks("gitlab"));
+    const text = renderPlain(tokenNoteBlocks("gitlab", undefined, true));
     expect(text).toContain("GitLab");
     expect(text).toContain("this run");
     expect(text).toContain("rt git auth");
@@ -233,27 +233,41 @@ describe("the token note", () => {
   });
 
   test("tokenNoteBlocks under sync all names the worktrees", () => {
-    const text = renderPlain(tokenNoteBlocks("github", ["feature/a", "feature/b"]));
+    const text = renderPlain(tokenNoteBlocks("github", ["feature/a", "feature/b"], true));
     expect(text).toContain("GitHub");
     expect(text).toContain("feature/a");
     expect(text).toContain("feature/b");
   });
 
   test("syncAllNote lists only the worktrees that used the token and is empty when none did", () => {
-    const blocks = syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), summary("feature/b"), summary("feature/c", { usedRtToken: true, tokenForge: "gitlab" })]);
-    expect(blocks).toEqual(tokenNoteBlocks("gitlab", ["feature/a", "feature/c"]));
-    expect(syncAllNote([summary("feature/a"), summary("feature/b")])).toEqual([]);
+    const blocks = syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), summary("feature/b"), summary("feature/c", { usedRtToken: true, tokenForge: "gitlab" })], true);
+    expect(blocks).toEqual(tokenNoteBlocks("gitlab", ["feature/a", "feature/c"], true));
+    expect(syncAllNote([summary("feature/a"), summary("feature/b")], true)).toEqual([]);
   });
 
   test("syncAllNote leaves out a branch whose sync failed after it used the token", () => {
     const failed = summary("feature/b", { usedRtToken: true, tokenForge: "gitlab", pushed: false, error: "Could not push feature/b", failure: { title: "Could not push feature/b" } });
-    expect(syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), failed])).toEqual(tokenNoteBlocks("gitlab", ["feature/a"]));
-    expect(syncAllNote([failed])).toEqual([]);
+    expect(syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), failed], true)).toEqual(tokenNoteBlocks("gitlab", ["feature/a"], true));
+    expect(syncAllNote([failed], true)).toEqual([]);
+  });
+
+  test("the token note keeps its line but drops the rt git auth row when that would refuse", () => {
+    const text = renderPlain(tokenNoteBlocks("gitlab", undefined, false));
+    expect(text).toContain("rt signed in with your GitLab token for this run");
+    expect(text).not.toContain("rt git auth");
+    const all = renderPlain(syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), summary("feature/b", { usedRtToken: true, tokenForge: "github" })], false));
+    expect(all).toContain("feature/a");
+    expect(all).not.toContain("rt git auth");
+  });
+
+  test("tokenNoteUsers lists the worktrees the note names", () => {
+    const failed = summary("feature/b", { usedRtToken: true, tokenForge: "gitlab", error: "x" });
+    expect(tokenNoteUsers([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), failed, summary("feature/c")]).map((s) => s.worktree)).toEqual(["/tmp/feature/a"]);
   });
 
   test("syncAllNote across two forges gives each its line and one next", () => {
     const text = renderPlain(
-      syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), summary("feature/b", { usedRtToken: true, tokenForge: "github" })]),
+      syncAllNote([summary("feature/a", { usedRtToken: true, tokenForge: "gitlab" }), summary("feature/b", { usedRtToken: true, tokenForge: "github" })], true),
     );
     expect(text).toContain("GitLab token for this run on feature/a");
     expect(text).toContain("GitHub token for this run on feature/b");
@@ -274,10 +288,25 @@ describe("rt sync prints the token note", () => {
   });
   afterEach(() => exit.restore());
 
-  test("after a sync that finished with rt's token, last on stdout", async () => {
-    expect(await exitCodeOf(() => syncCommand([], ctxFor(repo), { syncBranch: async () => used }))).toBeNull();
-    expect(io.stdout()).toBe(renderPlain(tokenNoteBlocks("gitlab")));
+  test("after a sync that finished with rt's token, last on stdout, naming rt git auth when it would go ahead", async () => {
+    const asked: string[] = [];
+    const authPending = async (cwd: string) => (asked.push(cwd), true);
+    expect(await exitCodeOf(() => syncCommand([], ctxFor(repo), { syncBranch: async () => used, authPending }))).toBeNull();
+    expect(io.stdout()).toBe(renderPlain(tokenNoteBlocks("gitlab", undefined, true)));
     expect(io.stderr()).toBe("");
+    expect(asked).toEqual([repo]);
+  });
+
+  test("the note leaves out rt git auth when the clone is not pending", async () => {
+    expect(await exitCodeOf(() => syncCommand([], ctxFor(repo), { syncBranch: async () => used, authPending: async () => false }))).toBeNull();
+    expect(io.stdout()).toBe(renderPlain(tokenNoteBlocks("gitlab", undefined, false)));
+    expect(io.stdout()).not.toContain("rt git auth");
+  });
+
+  test("by default the note asks the clone itself: a local origin is not pending, so no rt git auth row", async () => {
+    expect(await exitCodeOf(() => syncCommand([], ctxFor(repo), { syncBranch: async () => used }))).toBeNull();
+    expect(io.stdout()).toContain(NOTE);
+    expect(io.stdout()).not.toContain("rt git auth");
   });
 
   test("never after a failure", async () => {

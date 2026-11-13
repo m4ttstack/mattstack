@@ -55,6 +55,7 @@ import {
   PushFailed,
   pushOrigin,
   refusalNote,
+  defaultAuthPending,
   uncommittedChanges,
   withPromptGuard,
   withTokenNote,
@@ -425,17 +426,23 @@ export function syncAllBlocks(summaries: SyncSummary[]): Block[] {
   ];
 }
 
-/** Under `rt sync all`, once after the summary: the branches whose worktrees needed rt's token, by forge. */
-export function syncAllNote(summaries: SyncSummary[]): Block[] {
+/** The summaries `syncAllNote` names: branches that finished with rt's token. */
+export function tokenNoteUsers(summaries: SyncSummary[]): SyncSummary[] {
+  return summaries.filter((s) => s.usedRtToken && s.tokenForge && !s.error && !s.refusal);
+}
+
+/**
+ * Under `rt sync all`, once after the summary: the branches whose worktrees
+ * needed rt's token, by forge. `withNext` when `rt git auth` would go ahead
+ * on at least one of them.
+ */
+export function syncAllNote(summaries: SyncSummary[], withNext: boolean): Block[] {
   const byForge = new Map<Forge, string[]>();
-  for (const s of summaries) {
-    if (!s.usedRtToken || !s.tokenForge || s.error || s.refusal) continue;
-    byForge.set(s.tokenForge, [...(byForge.get(s.tokenForge) ?? []), s.branch]);
-  }
+  for (const s of tokenNoteUsers(summaries)) byForge.set(s.tokenForge!, [...(byForge.get(s.tokenForge!) ?? []), s.branch]);
   const groups = [...byForge];
   if (groups.length === 0) return [];
-  if (groups.length === 1) return tokenNoteBlocks(...groups[0]!);
-  return [...groups.map(([forge, branches]) => tokenNoteLine(forge, branches)), TOKEN_NOTE_NEXT];
+  if (groups.length === 1) return tokenNoteBlocks(groups[0]![0], groups[0]![1], withNext);
+  return [...groups.map(([forge, branches]) => tokenNoteLine(forge, branches)), ...(withNext ? [TOKEN_NOTE_NEXT] : [])];
 }
 
 /** Test seams for the two sync verbs; production passes none. */
@@ -443,6 +450,8 @@ export interface SyncCommandDeps {
   syncBranch?: typeof syncBranch;
   runEscalationFlow?: typeof import("../lib/rebase-escalation.ts").runEscalationFlow;
   isTTY?: boolean;
+  /** Whether `rt git auth` would go ahead on a worktree; defaults to `defaultAuthPending`. */
+  authPending?: (cwd: string) => Promise<boolean>;
 }
 
 /** 1 when any branch failed or was refused, so a caller checking the code never reads a partial sync as a whole one. */
@@ -528,7 +537,15 @@ async function syncAll(
     if (ending.length > 0) out.note(...ending);
   }
 
-  out.print(...syncAllBlocks(summaries), ...syncAllNote(summaries));
+  const pending = deps.authPending ?? ((cwd: string) => defaultAuthPending(cwd, originAuth));
+  let withNext = false;
+  for (const s of tokenNoteUsers(summaries)) {
+    if (await pending(s.worktree)) {
+      withNext = true;
+      break;
+    }
+  }
+  out.print(...syncAllBlocks(summaries), ...syncAllNote(summaries, withNext));
   return syncAllExitCode(summaries);
 }
 
@@ -613,8 +630,10 @@ export async function syncCommand(
   // syncLog.end() unrun and the SESSION block unterminated. Exit only after
   // the try/finally below has fully completed.
   let escalationExit: number | null = null;
+  const originAuth = createOriginAuth();
   try {
     summary = await (deps.syncBranch ?? syncBranch)(cwd, {
+      originAuth,
       dryRun,
       quiet: mode === "json" && !args.includes("--progress"),
       onConflict: mode === "off" ? "abort" : "pause",
@@ -644,5 +663,8 @@ export async function syncCommand(
 
   const code = reportSync(summary, mode === "json");
   if (code !== 0) process.exit(code);
-  if (mode !== "json" && summary.usedRtToken && summary.tokenForge) out.print(...tokenNoteBlocks(summary.tokenForge));
+  if (mode !== "json" && summary.usedRtToken && summary.tokenForge) {
+    const pending = await (deps.authPending ?? ((c: string) => defaultAuthPending(c, originAuth)))(cwd);
+    out.print(...tokenNoteBlocks(summary.tokenForge, undefined, pending));
+  }
 }

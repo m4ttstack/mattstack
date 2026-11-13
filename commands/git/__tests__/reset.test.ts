@@ -320,6 +320,7 @@ describe("reset and the forge token", () => {
     io.restore();
     delete __testSeams.originAuth;
     delete __testSeams.fetchDeps;
+    delete __testSeams.authPending;
     for (const k of KEYS) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
@@ -359,7 +360,7 @@ describe("reset and the forge token", () => {
     __testSeams.originAuth = createOriginAuth(null);
     __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
     expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBeNull();
-    expect(io.stderr() + io.stdout()).toContain(renderPlain(tokenNoteBlocks("gitlab")).split("\n")[0]!);
+    expect(io.stderr() + io.stdout()).toContain(renderPlain(tokenNoteBlocks("gitlab", undefined, false)).split("\n")[0]!);
     expect(io.stderr() + io.stdout()).not.toContain("LEAKCHECK");
 
     io.restore();
@@ -369,6 +370,26 @@ describe("reset and the forge token", () => {
     expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBe(1);
     expect(io.stderr()).toStartWith("not-on-origin is not on origin yet");
     expect(io.stderr() + io.stdout()).not.toContain("GitLab token");
+  }, 20_000);
+
+  test("the token note names rt git auth only when the clone is pending", async () => {
+    const local = inSync();
+    sh(`git update-ref refs/remotes/origin/feature HEAD`, local);
+    const auth = createOriginAuth(tokenSeams);
+    __testSeams.originAuth = createOriginAuth(null);
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBeNull();
+    expect(io.stdout() + io.stderr()).toContain("GitLab token");
+    expect(io.stdout() + io.stderr()).not.toContain("rt git auth");
+
+    io.restore();
+    io = captureOut({ console: true });
+    const asked: string[] = [];
+    __testSeams.authPending = async (cwd) => (asked.push(cwd), true);
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBeNull();
+    expect(io.stdout() + io.stderr()).toContain("rt git auth");
+    expect(asked).toEqual([local]);
   }, 20_000);
 
   test("originCommand undoes the guard when the run fails", async () => {

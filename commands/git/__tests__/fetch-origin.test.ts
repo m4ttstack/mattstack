@@ -5,7 +5,7 @@ import { join } from "path";
 import type { ForgeTokenLookup } from "../../../lib/team/forge-token.ts";
 import type { CloneDeps } from "../clone-state.ts";
 import { createOriginAuth, type OriginAuthVerdict } from "../origin-auth.ts";
-import { fetchFailureOf, fetchOrigin, httpsSwitchViable, type FetchDeps } from "../shared.ts";
+import { authWouldGoAhead, fetchFailureOf, fetchOrigin, httpsSwitchViable, type FetchDeps } from "../shared.ts";
 import * as out from "../../../lib/ui/out.ts";
 import { git, makeRepo } from "./helpers.ts";
 
@@ -240,5 +240,41 @@ describe("httpsSwitchViable", () => {
     git(repo, "remote", "add", "origin", "git@gitlab.com:acme/x.git");
     writeFileSync(join(repo, ".git", "config"), "[core\nbroken = = =\n");
     expect(await httpsSwitchViable(repo, cloneDeps())).toBe(false);
+  });
+});
+
+describe("authWouldGoAhead", () => {
+  let root: string;
+  let link: string;
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "rt auth pending ")));
+    link = join(root, "rt-link");
+    writeFileSync(link, "#!/bin/sh\n");
+  });
+
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function cloneDeps(): CloneDeps {
+    const auth = createOriginAuth({ confirmedHost: () => "gitlab.acme.internal", lookup: async () => ({ kind: "token", token: TOKEN }) });
+    return { auth, rtLink: link, rtLinkExists: () => true };
+  }
+
+  test("is true only for a pending clone", async () => {
+    const repo = makeRepo(root);
+    git(repo, "remote", "add", "origin", "https://gitlab.com/acme/x.git");
+    expect(await authWouldGoAhead(repo, cloneDeps())).toBe(true);
+    git(repo, "config", "--local", "--add", "credential.https://gitlab.com.helper", "osxkeychain");
+    expect(await authWouldGoAhead(repo, cloneDeps())).toBe(false);
+  });
+
+  test("is false for an ssh clone and when git cannot read the clone's config", async () => {
+    const ssh = makeRepo(root, "ssh");
+    git(ssh, "remote", "add", "origin", "git@gitlab.com:acme/x.git");
+    expect(await authWouldGoAhead(ssh, cloneDeps())).toBe(false);
+    const broken = makeRepo(root, "broken");
+    git(broken, "remote", "add", "origin", "https://gitlab.com/acme/x.git");
+    writeFileSync(join(broken, ".git", "config"), "[core\nbroken = = =\n");
+    expect(await authWouldGoAhead(broken, cloneDeps())).toBe(false);
   });
 });

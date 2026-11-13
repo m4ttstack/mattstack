@@ -168,6 +168,26 @@ export async function httpsSwitchViable(cwd: string, deps: CloneDeps): Promise<b
   }
 }
 
+/** `classifyClone(cwd, deps).state === "pending"`: `rt git auth` would go ahead. A check that cannot run reads as no. */
+export async function authWouldGoAhead(cwd: string, deps: CloneDeps): Promise<boolean> {
+  try {
+    const { classifyClone } = await import("./clone-state.ts");
+    return (await classifyClone(cwd, deps)).state === "pending";
+  } catch {
+    return false;
+  }
+}
+
+/** `authWouldGoAhead` with the real rt link, reusing `auth`'s token read. */
+export async function defaultAuthPending(cwd: string, auth: OriginAuth): Promise<boolean> {
+  try {
+    const { realCloneDeps } = await import("./clone-state.ts");
+    return await authWouldGoAhead(cwd, realCloneDeps(auth));
+  } catch {
+    return false;
+  }
+}
+
 async function defaultSwitchViable(cwd: string, auth: OriginAuth): Promise<boolean> {
   const { realCloneDeps } = await import("./clone-state.ts");
   return httpsSwitchViable(cwd, realCloneDeps(auth));

@@ -24,7 +24,7 @@ import { syncLog } from "../../lib/sync-log.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
-import { asError, asRefusal, defaultFetchDeps, drawFailure, errText, fetchFailureOf, fetchNotingToken, NOT_ON_A_BRANCH, plural, PromptGuardFailed, uncommittedChanges, withPromptGuard, withTokenNote, type FetchDeps, type TokenUse } from "./shared.ts";
+import { asError, asRefusal, defaultAuthPending, defaultFetchDeps, drawFailure, errText, fetchFailureOf, fetchNotingToken, NOT_ON_A_BRANCH, plural, PromptGuardFailed, uncommittedChanges, withPromptGuard, withTokenNote, type FetchDeps, type TokenUse } from "./shared.ts";
 import { createOriginAuth, tokenNoteBlocks, type Forge, type OriginAuth } from "./origin-auth.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ export interface ResetOptions {
 }
 
 /** Tests set these; the command handler reads them. */
-export const __testSeams: { originAuth?: OriginAuth; fetchDeps?: FetchDeps } = {};
+export const __testSeams: { originAuth?: OriginAuth; fetchDeps?: FetchDeps; authPending?: (cwd: string) => Promise<boolean> } = {};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -389,7 +389,10 @@ export async function originCommand(
     drawFailure(result.failure ?? { title: result.error ?? "The reset failed" }, result.refused);
     process.exit(1);
   }
-  if (result.usedRtToken && result.tokenForge) out.print(...tokenNoteBlocks(result.tokenForge));
+  if (result.usedRtToken && result.tokenForge) {
+    const pending = await (__testSeams.authPending ?? ((c: string) => defaultAuthPending(c, auth)))(cwd);
+    out.print(...tokenNoteBlocks(result.tokenForge, undefined, pending));
+  }
 }
 
 /** rt git reset soft: unstage everything */

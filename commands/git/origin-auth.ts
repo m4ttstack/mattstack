@@ -172,7 +172,11 @@ export function tokenNoteLine(forge: Forge, worktrees: string[] = []): Block {
 
 export const TOKEN_NOTE_NEXT: Block = out.callout("next", ["To use it for every git on this clone, run ", out.cmd("rt git auth")]);
 
-/** Printed after a run that finished only because rt's helper got git in; `worktrees` names them under `rt sync all`. */
-export function tokenNoteBlocks(forge: Forge, worktrees?: string[]): Block[] {
-  return [tokenNoteLine(forge, worktrees), TOKEN_NOTE_NEXT];
+/**
+ * Printed after a run that finished only because rt's helper got git in;
+ * `worktrees` names them under `rt sync all`. `withNext` is whether
+ * `rt git auth` would go ahead, so the note never names a command that refuses.
+ */
+export function tokenNoteBlocks(forge: Forge, worktrees: string[] | undefined, withNext: boolean): Block[] {
+  return [tokenNoteLine(forge, worktrees), ...(withNext ? [TOKEN_NOTE_NEXT] : [])];
 }
