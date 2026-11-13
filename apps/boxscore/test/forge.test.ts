@@ -144,3 +144,38 @@ describe('GITHUB_COPY entries read from their source copy', () => {
     );
   });
 });
+
+describe('GitHub review copy says comment, not note', () => {
+  it('rewrites the reviewed panel definition', () => {
+    expect(forgeText(definitionOf('mrsReviewed'), 'github')).toBe(
+      "Distinct teammates' PRs you reviewed, by comment or approval, in the window."
+    );
+    expect(forgeText(definitionOf('mrsReviewed'), 'gitlab')).toBe(
+      definitionOf('mrsReviewed')
+    );
+  });
+
+  it('rewrites the reviewed metric description', () => {
+    expect(forgeText(descriptor('mrsReviewed').description, 'github')).toBe(
+      "Distinct teammates' PRs the user reviewed (comment or approval) in the window."
+    );
+  });
+
+  it('leaves no note wording in any github copy string', () => {
+    const strings = [
+      ...(Object.keys(PANEL_COPY) as MetricKey[]).flatMap(k => [
+        PANEL_COPY[k].source,
+        definitionOf(k, {
+          count: 3,
+          p50: 1,
+          p90: 2,
+          bandLow: 10,
+          bandHigh: 400,
+        }),
+      ]),
+      ...METRICS.map(d => d.description),
+    ];
+    for (const s of strings)
+      expect(forgeText(s, 'github')).not.toMatch(/\bnotes?\b/i);
+  });
+});

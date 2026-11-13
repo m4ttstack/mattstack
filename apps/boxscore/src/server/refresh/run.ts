@@ -246,7 +246,7 @@ export async function runRefresh(
   if (detailFailures > 0) {
     warnings.push({
       code: 'mr_detail_partial',
-      message: `Detail fetch failed for ${detailFailures}/${toFetch.length} ${t('MRs')} (e.g. ${lastDetailError}); those count with zeroed diff/notes.`,
+      message: `Detail fetch failed for ${detailFailures}/${toFetch.length} ${t('MRs')} (e.g. ${lastDetailError}); ${t('those count with zeroed diff/notes.')}`,
     });
   }
 
