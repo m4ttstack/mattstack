@@ -36,7 +36,7 @@ import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
 import { DIRECT_PATH, isMine, waitingCount } from './direct';
 import { DirectView } from './DirectView';
-import type { FleetRoom } from './FleetTree';
+import { confirmArchiveHerd, type FleetRoom } from './FleetTree';
 import { groupHerds, herdPath, type HerdGroup } from './herds';
 import { HerdBar, HerdView } from './HerdView';
 import type { Me } from './human';
@@ -567,7 +567,10 @@ function ChatPage({
         {herdOpen ? (
           <PageShell.Header>
             {herd ? (
-              <HerdBar group={herd} />
+              <HerdBar
+                group={herd}
+                onArchive={() => confirmArchiveHerd(herd, onCloseRoom)}
+              />
             ) : roomsLoaded ? null : (
               <TitleSkeleton />
             )}

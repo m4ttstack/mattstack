@@ -1,0 +1,16 @@
+/* The filter row under the herd's title, on the card like the timeline. */
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: var(--tk-card);
+  border-bottom: 1px solid var(--tk-border);
+}
+
+/* The composer's To badge sits centred beside the textarea. */
+.to {
+  align-self: center;
+  flex: none;
+}

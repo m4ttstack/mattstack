@@ -513,13 +513,7 @@ function HerdRow({
     </Box>
   );
   if (!onClose) return row;
-  const archive = () =>
-    modals.confirm({
-      title: `Archive ${herdTitle(tag.shepherdName)}?`,
-      message: `${group.rooms.length} ${group.rooms.length === 1 ? 'conversation' : 'conversations'} will be hidden until someone sends a new message.`,
-      labels: { confirm: 'Archive', cancel: 'Cancel' },
-      onConfirm: () => group.rooms.forEach(room => onClose(room.room)),
-    });
+  const archive = () => confirmArchiveHerd(group, onClose);
   return (
     <Menu
       onChange={setMenuOpened}
@@ -547,6 +541,20 @@ function HerdRow({
 
 export function herdTitle(shepherdName: string): string {
   return `${shepherdName}'s herd`;
+}
+
+/** Archives every room in a herd once the human confirms. */
+export function confirmArchiveHerd(
+  group: HerdGroup,
+  onClose: (room: string) => void
+): void {
+  const n = group.rooms.length;
+  modals.confirm({
+    title: `Archive ${herdTitle(group.tag.shepherdName)}?`,
+    message: `${n} ${n === 1 ? 'conversation' : 'conversations'} will be hidden until someone sends a new message.`,
+    labels: { confirm: 'Archive', cancel: 'Cancel' },
+    onConfirm: () => group.rooms.forEach(room => onClose(room.room)),
+  });
 }
 
 /**

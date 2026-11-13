@@ -703,7 +703,7 @@ export function Transcript({
         // A white card only rises off something darker than itself.
         background: bare
           ? undefined
-          : feed
+          : feed && !feed.timeline
             ? 'color-mix(in srgb, var(--tk-bg) 50%, var(--tk-card))'
             : 'var(--tk-card)',
       }}
@@ -813,8 +813,6 @@ export function Transcript({
                           return (
                             <div
                               key={message.id}
-                              className={prose.timelineRow}
-                              data-picked={target === message.room || undefined}
                               onClick={event => pickBlock(event, message.room)}
                             >
                               {row}

@@ -1,18 +1,34 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Box, Center, Group, Stack, Text } from '@mattstack/app-kit/core';
+import {
+  ActionIcon,
+  Badge,
+  Box,
+  Center,
+  Group,
+  Stack,
+  Text,
+  Tooltip,
+} from '@mattstack/app-kit/core';
+import { Icon } from '@mattstack/app-kit/icons';
 import type { ChatMessage } from '@mattstack/rt-client';
 
 import type { HerdTag } from '../server/herds';
 import { HandleAvatar } from './AgentName';
-import { Chip } from './Chip';
 import type { FleetRoom } from './FleetTree';
 import { herdTitle } from './FleetTree';
+import classes from './herd.module.css';
 import { workerOf, type HerdGroup } from './herds';
 import { isMsgTopic } from './relay-socket';
 import { PAGE_SIZE, Transcript, type TranscriptFeed } from './Transcript';
 
-/** The herd's title row, inside `PageShell.Header` like a room's `PageBar`. */
-export function HerdBar({ group }: { group: HerdGroup }) {
+/** The herd's title row, laid out as a room's `PageBar` is. */
+export function HerdBar({
+  group,
+  onArchive,
+}: {
+  group: HerdGroup;
+  onArchive?: () => void;
+}) {
   const workers = group.tag.workers.length;
   return (
     <Group
@@ -32,9 +48,28 @@ export function HerdBar({ group }: { group: HerdGroup }) {
       >
         {herdTitle(group.tag.shepherdName)}
       </Text>
-      <Chip testId="herd-bar-workers">
+      <Badge
+        variant="light"
+        color="gray"
+        radius="sm"
+        data-testid="herd-bar-workers"
+      >
         {workers} {workers === 1 ? 'worker' : 'workers'}
-      </Chip>
+      </Badge>
+      {onArchive && (
+        <Tooltip label="Archive herd">
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size={28}
+            aria-label="Archive herd"
+            onClick={onArchive}
+            style={{ marginLeft: 'auto', flex: 'none' }}
+          >
+            <Icon name="archive" size={16} />
+          </ActionIcon>
+        </Tooltip>
+      )}
     </Group>
   );
 }
@@ -49,7 +84,45 @@ function Empty() {
   );
 }
 
-/** One chip per conversation in the herd, and one to show them all. */
+/** A conversation to filter by: the page bar's own badge, as a button. */
+function FilterBadge({
+  active,
+  onClick,
+  testId,
+  face,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  testId: string;
+  face?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Badge
+      component="button"
+      type="button"
+      variant="light"
+      color={active ? 'accent' : 'gray'}
+      radius="sm"
+      aria-pressed={active}
+      onClick={onClick}
+      data-testid={testId}
+      leftSection={
+        face ? (
+          <span style={{ display: 'inline-flex', marginInlineEnd: 2 }}>
+            <HandleAvatar handle={face} variant="inline" size={14} />
+          </span>
+        ) : undefined
+      }
+      style={{ cursor: 'pointer' }}
+    >
+      {children}
+    </Badge>
+  );
+}
+
+/** One badge per conversation in the herd, and one to show them all. */
 function HerdFilter({
   tag,
   rooms,
@@ -67,49 +140,40 @@ function HerdFilter({
     return worker ? [{ room: room.room, worker }] : [];
   });
   return (
-    <Group
-      gap={6}
-      wrap="wrap"
-      px="lg"
-      py={8}
-      data-testid="herd-filter"
-      style={{ borderBottom: '1px solid var(--tk-border)' }}
-    >
-      <Chip
-        tone={filter === undefined ? 'accent' : 'muted'}
+    <div className={classes.filterBar} data-testid="herd-filter">
+      <FilterBadge
+        active={filter === undefined}
         onClick={() => onFilter(undefined)}
         testId="herd-filter-all"
       >
         All
-      </Chip>
+      </FilterBadge>
       {own && (
-        <Chip
-          tone={filter === own.room ? 'accent' : 'muted'}
+        <FilterBadge
+          active={filter === own.room}
           onClick={() => onFilter(own.room)}
           testId="herd-filter-room"
         >
           Herd room
-        </Chip>
+        </FilterBadge>
       )}
       {dms.map(({ room, worker }) => (
-        <Chip
+        <FilterBadge
           key={room}
-          tone={filter === room ? 'accent' : 'muted'}
+          active={filter === room}
           onClick={() => onFilter(room)}
           testId={`herd-filter-${worker.handle}`}
-          leftSection={
-            <HandleAvatar handle={worker.handle} variant="inline" size={14} />
-          }
+          face={worker.handle}
         >
           {worker.name}
-        </Chip>
+        </FilterBadge>
       ))}
-    </Group>
+    </div>
   );
 }
 
 /** A herd as one timeline: its shepherd's DMs with each worker and the
-    herd's own room. A reply goes to the newest conversation until a chip or
+    herd's own room. A reply goes to the newest conversation until a badge or
     a message picks another; `composer` draws the box for whichever that is. */
 export function HerdView({
   tag,
@@ -173,8 +237,8 @@ export function HerdView({
         return filter ? room === filter : known.has(room);
       },
       target: list =>
-        filter ??
         picked ??
+        filter ??
         list.findLast(m => m.handle !== me)?.room ??
         list.at(-1)?.room,
       onPick: room => {

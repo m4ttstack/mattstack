@@ -308,19 +308,3 @@
   font-weight: 500;
   color: var(--tk-text-1);
 }
-
-/* A herd timeline: each message picks its conversation, so the rows answer
-   the pointer without becoming cards. */
-.timelineRow {
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .timelineRow:hover {
-    background-color: color-mix(in srgb, var(--tk-text-1) 3%, transparent);
-  }
-}
-
-.timelineRow[data-picked] {
-  background-color: color-mix(in srgb, var(--tk-app-hue) 7%, transparent);
-}
