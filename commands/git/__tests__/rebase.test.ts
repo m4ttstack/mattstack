@@ -4,7 +4,13 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { rebaseOnto } from "../rebase.ts";
+import { __testSeams, ontoCommand, rebaseOnto } from "../rebase.ts";
+import * as out from "../../../lib/ui/out.ts";
+import { renderPlain } from "../../../lib/ui/out-plain.ts";
+import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
+import { createOriginAuth, tokenNoteBlocks, type OriginAuth } from "../origin-auth.ts";
+import { ctxFor, exitCodeOf, fakeFetch, git, makeRepo, NO_USER, TOKEN, tokenSeams, trapExit } from "./helpers.ts";
+
 
 let tmpRoot: string;
 let savedSyncLogPath: string | undefined;
@@ -117,4 +123,152 @@ describe("rebaseOnto auto-resolve", () => {
     expect(result.resolvedFiles).toEqual([hostile]);
     expect(rebaseDirExists(repo)).toBe(false);
   });
+});
+
+
+function originRepo(): string {
+  const repo = makeRepo(tmpRoot);
+  const origin = join(tmpRoot, "origin.git");
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin], { stdio: "pipe" });
+  git(repo, "remote", "add", "origin", origin);
+  git(repo, "push", "-q", "origin", "main");
+  git(repo, "checkout", "-qb", "feature");
+  writeFileSync(join(repo, "f.txt"), "feature\n");
+  git(repo, "add", "f.txt");
+  git(repo, "commit", "-qm", "feature file");
+  git(repo, "fetch", "-q", "origin");
+  return repo;
+}
+
+describe("rebase and the forge token", () => {
+  let io: CapturedOut;
+  let exit: { restore(): void };
+  const saved: Record<string, string | undefined> = {};
+  const KEYS = ["GIT_TERMINAL_PROMPT", "GIT_ASKPASS"] as const;
+
+  beforeEach(() => {
+    for (const k of KEYS) saved[k] = process.env[k];
+    io = captureOut({ console: true });
+    out.__test__.reset();
+    out.__test__.setHuman(() => false);
+    exit = trapExit();
+  });
+  afterEach(() => {
+    exit.restore();
+    io.restore();
+    delete __testSeams.originAuth;
+    delete __testSeams.fetchDeps;
+    delete __testSeams.authPending;
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  test("rebaseOnto reports usedRtToken when its fetch needed rt's helper", async () => {
+    const repo = originRepo();
+    git(repo, "remote", "set-url", "origin", "https://gitlab.com/acme/x.git");
+    const auth = createOriginAuth(tokenSeams);
+    const result = await rebaseOnto({ cwd: repo, target: "main", quiet: true, fetchDeps: fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]), originAuth: auth });
+    expect(result.status).not.toBe("error");
+    expect(result.usedRtToken).toBe(true);
+    expect(result.tokenForge).toBe("gitlab");
+    expect(JSON.stringify(result)).not.toContain("LEAKCHECK");
+  }, 20_000);
+
+  test("rebaseOnto with skipFetch never reports usedRtToken", async () => {
+    const repo = originRepo();
+    const result = await rebaseOnto({ cwd: repo, target: "main", quiet: true, skipFetch: true });
+    expect(result.usedRtToken).toBeUndefined();
+    expect(result.tokenForge).toBeUndefined();
+  }, 20_000);
+
+  test("ontoCommand prints the token note after a finished rebase, not under --json, not after a failure", async () => {
+    const auth = createOriginAuth(tokenSeams);
+    const repo = originRepo();
+    git(repo, "remote", "set-url", "origin", "https://gitlab.com/acme/x.git");
+    __testSeams.originAuth = createOriginAuth(null);
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBeNull();
+    expect(io.stderr() + io.stdout()).toContain(renderPlain(tokenNoteBlocks("gitlab", undefined, false)).split("\n")[0]!);
+    expect(io.stderr() + io.stdout()).not.toContain("LEAKCHECK");
+
+    io.restore();
+    io = captureOut({ console: true });
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => ontoCommand(["main", "--json"], ctxFor(repo)))).toBeNull();
+    expect(io.stderr() + io.stdout()).not.toContain("GitLab token");
+
+    io.restore();
+    io = captureOut({ console: true });
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "a.txt"), "main change\n");
+    git(repo, "commit", "-qam", "main edit");
+    git(repo, "checkout", "-q", "feature");
+    writeFileSync(join(repo, "a.txt"), "feature change\n");
+    git(repo, "commit", "-qam", "feature edit");
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => ontoCommand(["main", "--no-agent"], ctxFor(repo)))).toBe(1);
+    expect(io.stderr()).toStartWith("The rebase stopped on conflicts");
+    expect(io.stderr() + io.stdout()).not.toContain("GitLab token");
+  }, 20_000);
+
+  test("the token note names rt git auth only when the clone is pending", async () => {
+    const auth = createOriginAuth(tokenSeams);
+    const repo = originRepo();
+    git(repo, "remote", "set-url", "origin", "https://gitlab.com/acme/x.git");
+    __testSeams.originAuth = createOriginAuth(null);
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBeNull();
+    expect(io.stdout() + io.stderr()).toContain("GitLab token");
+    expect(io.stdout() + io.stderr()).not.toContain("rt git auth");
+
+    io.restore();
+    io = captureOut({ console: true });
+    const asked: string[] = [];
+    __testSeams.authPending = async (cwd) => (asked.push(cwd), true);
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBeNull();
+    expect(io.stdout() + io.stderr()).toContain("rt git auth");
+    expect(asked).toEqual([repo]);
+  }, 20_000);
+
+  test("ontoCommand undoes the guard when the run fails", async () => {
+    const repo = originRepo();
+    git(repo, "checkout", "-q", "--detach");
+    const order: string[] = [];
+    __testSeams.originAuth = { ...createOriginAuth(null), guardPrompts: async () => (order.push("guard"), () => order.push("undo")) };
+    __testSeams.fetchDeps = fakeFetch(createOriginAuth(null), []);
+    expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBe(1);
+    expect(order).toEqual(["guard", "undo"]);
+  }, 20_000);
+
+  test("a guardPrompts that throws draws a failure without the token and exits 1", async () => {
+    const repo = originRepo();
+    let fetched = false;
+    __testSeams.originAuth = { ...createOriginAuth(null), guardPrompts: async () => { throw new Error(`git died: https://oauth2:${TOKEN}@gitlab.com/acme/x.git`); } };
+    __testSeams.fetchDeps = { ...fakeFetch(createOriginAuth(null), []), run: async () => (fetched = true, { ok: true }) };
+    expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBe(1);
+    expect(io.stderr()).toStartWith("rt could not check how git signs in to origin");
+    expect(io.stderr() + io.stdout()).not.toContain("LEAKCHECK");
+    expect(fetched).toBe(false);
+  }, 20_000);
+
+  test("the command calls guardPrompts before the fetch and undoes it before exiting", async () => {
+    const repo = originRepo();
+    const order: string[] = [];
+    const auth: OriginAuth = {
+      ...createOriginAuth(null),
+      guardPrompts: async (_cwd, o) => {
+        order.push(`guard push=${o?.push}`);
+        return () => order.push("undo");
+      },
+    };
+    const deps = fakeFetch(auth, []);
+    deps.run = async () => (order.push("fetch"), { ok: true });
+    __testSeams.originAuth = auth;
+    __testSeams.fetchDeps = deps;
+    await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)));
+    expect(order).toEqual(["guard push=false", "fetch", "undo"]);
+  }, 20_000);
 });
