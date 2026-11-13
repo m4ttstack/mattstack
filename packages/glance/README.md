@@ -191,8 +191,11 @@ group.updateIids(prev => prev.filter(id => id !== 43));
 On GitLab a group reads one request per MR, so a group sends at most
 `GITLAB_GROUP_REQUESTS_PER_MINUTE` (20) GitLab requests in any 60 s window,
 polls and push refreshes together, however many MRs it watches. A batch
-counts until its last request settles, and a failed batch does not count as
-a read of its MRs. Each fetch reads first the MRs a push event named, then
+counts until its last request settles. Each MR is read with its own request,
+so one that fails is reported through `onWarning` (`request-failed`,
+`detail`) while the rest arrive; it is read first on the next fetch, and from
+its second failure in a row it takes its turn with the others. A fetch fails
+only when every read in it does. Each fetch reads first the MRs a push event named, then
 the ones read longest ago, as many as the window has room for; when the rest
 have waited longer than the oldest named MR they get half the room, so a push
 storm cannot starve them. While the push cable is up or connecting, polls

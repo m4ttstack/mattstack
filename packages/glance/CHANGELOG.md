@@ -16,7 +16,10 @@
   (`GITLAB_GROUP_REQUESTS_PER_MINUTE`, exported). Each fetch reads the MRs a
   push event named first, then the ones read longest ago, and gives the rest
   half the room when they have waited longer, so a push storm cannot starve
-  them. A batch counts until it settles, and a failed batch is not a read.
+  them. A batch counts until it settles. Each MR is read with its own
+  request, so one that fails reaches `onWarning` (`request-failed`) while the
+  rest arrive, and one that keeps failing takes its turn instead of blocking
+  the others.
   While the push cable is up or connecting, polls leave 5 of the 20 for push
   (`GITLAB_GROUP_PUSH_RESERVE`); a push that finds the window full is read
   as soon as it frees. Worst-case staleness for N MRs is

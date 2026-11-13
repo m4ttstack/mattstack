@@ -69,8 +69,11 @@ interface Fetch {
 interface ProviderBehaviour {
   /** Batches to reject before answering normally. */
   failBatches?: number;
-  /** For the first batch only, the time each wave of 4 in-flight requests takes, as a forge slow for a moment would answer. */
-  firstBatchWaveMs?: number;
+  /** iids whose every read is refused. */
+  failIids?: number[];
+  /** How many of the first calls take `slowMs`, as a forge slow for a moment would answer. */
+  slowCalls?: number;
+  slowMs?: number;
 }
 
 function recordingProvider(providerName: 'gitlab' | 'github', behaviour: ProviderBehaviour = {}) {
@@ -90,15 +93,15 @@ function recordingProvider(providerName: 'gitlab' | 'github', behaviour: Provide
     async fetchPullRequests(options?: FetchPullRequestsOptions) {
       const iids = options?.iids ?? [];
       rec.fetches.push({ at: Date.now(), iids: [...iids] });
-      const waveMs = rec.fetches.length === 1 ? (behaviour.firstBatchWaveMs ?? 0) : 0;
-      for (let i = 0; i < iids.length; i += 4) {
-        for (const _ of iids.slice(i, i + 4)) rec.requests.push(Date.now());
-        if (waveMs > 0) await new Promise((resolve) => setTimeout(resolve, waveMs));
+      for (const _ of iids) rec.requests.push(Date.now());
+      if (rec.fetches.length <= (behaviour.slowCalls ?? 0)) {
+        await new Promise((resolve) => setTimeout(resolve, behaviour.slowMs));
       }
       if (failures > 0) {
         failures--;
-        throw new Error('forge refused the batch');
+        throw new Error('forge refused the read');
       }
+      if (iids.some((iid) => behaviour.failIids?.includes(iid))) throw new Error('forge refused the read');
       return iids.map(stubPR);
     },
     watchMR() {
@@ -111,6 +114,17 @@ function recordingProvider(providerName: 'gitlab' | 'github', behaviour: Provide
     },
   } as unknown as GitProvider;
   return rec;
+}
+
+/** Calls sent at the same instant, merged back into the group fetch that sent them. */
+function batchesOf(fetches: Fetch[]): Fetch[] {
+  const out: Fetch[] = [];
+  for (const f of fetches) {
+    const last = out.at(-1);
+    if (last && last.at === f.at) last.iids.push(...f.iids);
+    else out.push({ at: f.at, iids: [...f.iids] });
+  }
+  return out;
 }
 
 /** First time each iid came back from a fetch that did not fail. */
@@ -217,7 +231,7 @@ describe('GitLab dashboard group poll budget', () => {
     await advance(1000);
     group.dispose();
 
-    const next = rec.fetches.slice(before);
+    const next = batchesOf(rec.fetches.slice(before));
     expect(next.length).toBe(1);
     expect(next[0]!.iids[0]).toBe(17);
     expect(next[0]!.at - at).toBeLessThan(1000);
@@ -236,8 +250,9 @@ describe('GitLab dashboard group poll budget', () => {
     group.dispose();
     (Math.random as unknown as { mockRestore(): void }).mockRestore();
 
-    expect(rec.fetches.length).toBe(31);
-    for (const f of rec.fetches) expect(f.iids).toEqual([1, 2, 3]);
+    const batches = batchesOf(rec.fetches);
+    expect(batches.length).toBe(31);
+    for (const f of batches) expect(f.iids).toEqual([1, 2, 3]);
   });
 
   test('GitHub reads all 30 iids on every poll, unbudgeted', async () => {
@@ -259,7 +274,7 @@ describe('GitLab dashboard group poll budget', () => {
 
 describe('GitLab dashboard group budget under failure, flaps, storms and restarts', () => {
   test('a failed batch does not count as a read: its iids go first once the window frees', async () => {
-    const rec = recordingProvider('gitlab', { failBatches: 1 });
+    const rec = recordingProvider('gitlab', { failBatches: 15 });
     const start = Date.now();
     const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(40), userId: null });
     group.subscribe(() => {});
@@ -269,9 +284,10 @@ describe('GitLab dashboard group budget under failure, flaps, storms and restart
     await advance(3 * 60_000);
     group.dispose();
 
-    const failedBatch = rec.fetches[0]!.iids;
+    const failedBatch = batchesOf(rec.fetches)[0]!.iids;
+    expect(failedBatch.length).toBe(15);
     for (const iid of failedBatch) {
-      expect(firstRead(rec, iid, 1)! - start).toBeLessThanOrEqual(72_000);
+      expect(firstRead(rec, iid, 15)! - start).toBeLessThanOrEqual(72_000);
     }
   });
 
@@ -374,11 +390,11 @@ describe('GitLab dashboard group budget under failure, flaps, storms and restart
 
     const resubscribed = rec.subs.slice(subsBefore).flat();
     expect(resubscribed.length).toBeGreaterThan(0);
-    expect(new Set(resubscribed)).toEqual(new Set(rec.fetches[0]!.iids));
+    expect(new Set(resubscribed)).toEqual(new Set(batchesOf(rec.fetches)[0]!.iids));
   });
 
   test('a slow forge never sees more than 20 requests in any minute', async () => {
-    const rec = recordingProvider('gitlab', { firstBatchWaveMs: 16_000 });
+    const rec = recordingProvider('gitlab', { slowCalls: 15, slowMs: 16_000 });
     const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(30), userId: null });
     group.subscribe(() => {});
     await flush();
@@ -393,6 +409,31 @@ describe('GitLab dashboard group budget under failure, flaps, storms and restart
     expect(maxInAnyMinute(rec.requests)).toBeLessThanOrEqual(20);
   });
 
+  test('an iid every read of which fails neither blocks the rest nor hogs the budget', async () => {
+    const rec = recordingProvider('gitlab', { failIids: [2] });
+    const start = Date.now();
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(30), userId: null });
+    const warned: number[] = [];
+    group.onWarning((iid) => warned.push(iid));
+    let delivered = new Set<number>();
+    group.subscribe((mrs) => (delivered = new Set(mrs.keys())));
+    await flush();
+    rec.cable?.onDisconnected();
+
+    await advance(10 * 60_000);
+    group.dispose();
+
+    const end = Date.now();
+    for (const iid of range(30).filter((i) => i !== 2)) {
+      expect(delivered.has(iid)).toBe(true);
+      expect(longestGap(rec.fetches, iid, start, end)).toBeLessThanOrEqual(142_000);
+    }
+    expect(delivered.has(2)).toBe(false);
+    expect(warned).toContain(2);
+    expect(rec.fetches.filter((f) => f.iids.includes(2)).length).toBeLessThanOrEqual(12);
+    expect(maxInAnyMinute(requestTimes(rec.fetches))).toBeLessThanOrEqual(20);
+  });
+
   test('duplicate iids in the initial list are read once', async () => {
     const rec = recordingProvider('gitlab');
     const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: [1, 2, 2, 3, 3, 3], userId: null });
@@ -400,7 +441,7 @@ describe('GitLab dashboard group budget under failure, flaps, storms and restart
     await flush();
     group.dispose();
 
-    expect(rec.fetches[0]!.iids).toEqual([1, 2, 3]);
+    expect(batchesOf(rec.fetches)[0]!.iids).toEqual([1, 2, 3]);
   });
 });
 

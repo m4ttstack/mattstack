@@ -684,6 +684,30 @@ export const GITLAB_GROUP_PUSH_RESERVE = 5;
 
 const GROUP_BUDGET_WINDOW_MS = 60_000;
 
+/** Per-iid reads a GitLab group keeps in flight, as `fetchPullRequests({ iids })` does. */
+const GROUP_READS_IN_FLIGHT = 4;
+
+async function settleInFlight<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        results[i] = { status: 'fulfilled', value: await fn(items[i]!) };
+      } catch (reason) {
+        results[i] = { status: 'rejected', reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /** One group fetch: the PRs that came back, and every iid it asked for. */
 interface GroupFetch {
   prs: Map<number, PullRequest>;
@@ -748,6 +772,20 @@ function createDashboardGroup(
     }, Math.max(0, delay));
   };
 
+  /** Consecutive failed reads per iid. */
+  const failures = new Map<number, number>();
+
+  /**
+   * A first failure leaves the iid unread, so it goes first next time; from
+   * the second in a row it counts as read, so an iid that keeps failing
+   * rotates with the rest instead of taking a slot every fetch.
+   */
+  const noteFailure = (iid: number) => {
+    const count = (failures.get(iid) ?? 0) + 1;
+    failures.set(iid, count);
+    if (count >= 2) refreshedAt.set(iid, Date.now());
+  };
+
   const byOldestRead = (a: number, b: number) => (refreshedAt.get(a) ?? 0) - (refreshedAt.get(b) ?? 0);
 
   /**
@@ -803,18 +841,32 @@ function createDashboardGroup(
     const generation = watcherGeneration;
     const { iids, named, batch } = pickIids();
     if (iids.length === 0) return null;
-    let result: Awaited<ReturnType<typeof fetchDashboardBatch>>;
+    let prs = new Map<number, PullRequest>();
+    let degraded = new Map<number, FetchPullRequestsWarning>();
+    let read = iids;
     try {
-      result = await fetchDashboardBatch(provider, projectPath, iids);
+      if (budgeted) {
+        ({ prs, degraded, read } = await readEachIid(iids));
+      } else {
+        ({ prs, degraded } = await fetchDashboardBatch(provider, projectPath, iids));
+      }
     } catch (err) {
       for (const iid of named) pushed.add(iid);
+      for (const iid of iids) noteFailure(iid);
       throw err;
     } finally {
       if (batch) batch.settledAt = Date.now();
     }
+    for (const iid of iids) {
+      if (read.includes(iid)) {
+        failures.delete(iid);
+      } else {
+        if (named.includes(iid)) pushed.add(iid);
+        noteFailure(iid);
+      }
+    }
     // A restart or dispose drops this result unread, so its push marks stand.
     if (generation !== watcherGeneration) for (const iid of named) pushed.add(iid);
-    const { prs, degraded } = result;
     for (const [iid, warning] of degraded) {
       if (!warningListener) break;
       try {
@@ -826,7 +878,41 @@ function createDashboardGroup(
         // rather than cause.
       }
     }
-    return { prs, iids };
+    return { prs, iids: read };
+  };
+
+  /**
+   * GitLab reads one request per iid either way, so each iid gets its own
+   * call: one that keeps failing then cannot sink the others in its batch.
+   * Only a fetch in which every read fails rejects.
+   */
+  const readEachIid = async (iids: number[]) => {
+    const settled = await settleInFlight(iids, GROUP_READS_IN_FLIGHT, (iid) =>
+      fetchDashboardBatch(provider, projectPath, [iid])
+    );
+    const prs = new Map<number, PullRequest>();
+    const degraded = new Map<number, FetchPullRequestsWarning>();
+    const read: number[] = [];
+    let firstError: unknown = null;
+    settled.forEach((outcome, i) => {
+      const iid = iids[i]!;
+      if (outcome.status === 'fulfilled') {
+        read.push(iid);
+        for (const [k, v] of outcome.value.prs) prs.set(k, v);
+        for (const [k, v] of outcome.value.degraded) degraded.set(k, v);
+        return;
+      }
+      firstError ??= outcome.reason;
+      const message = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+      degraded.set(iid, {
+        kind: 'request-failed',
+        source: 'detail',
+        message: `reading !${iid} failed: ${message}`,
+        target: warningTarget(projectPath, iid),
+      });
+    });
+    if (read.length === 0) throw firstError;
+    return { prs, degraded, read };
   };
 
   /** Start (or restart) the watcher for the current IID set. */
@@ -956,11 +1042,12 @@ function createDashboardGroup(
       for (const iid of state.keys()) {
         if (!newSet.has(iid)) state.delete(iid);
       }
-      for (const iid of [...refreshedAt.keys(), ...pushed, ...knownPrs.keys()]) {
+      for (const iid of [...refreshedAt.keys(), ...pushed, ...knownPrs.keys(), ...failures.keys()]) {
         if (newSet.has(iid)) continue;
         refreshedAt.delete(iid);
         pushed.delete(iid);
         knownPrs.delete(iid);
+        failures.delete(iid);
       }
 
       // Build actions for any new IIDs
