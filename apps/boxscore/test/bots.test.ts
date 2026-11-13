@@ -141,3 +141,80 @@ describe('GitHub bots', () => {
     expect(BUILTIN_BOT_PATTERN_LABELS).toContain('*[bot]');
   });
 });
+
+describe('one bot under two spellings', () => {
+  const onGitHub = () => {
+    __setSettingReader(<T>(key: string) =>
+      key === 'mattstack.integrations'
+        ? ({ forge: { provider: 'github', host: 'github.com' } } as T)
+        : key === 'boxscore.projects'
+          ? (['o/r'] as T)
+          : undefined
+    );
+    __setRosterReader(() => [{ username: 'ada' }]);
+    getStore().adoptForgeHost('https://github.com');
+  };
+
+  it('lists a GitHub bot once when its spellings differ only in case', async () => {
+    onGitHub();
+    getStore().upsertIndexRows([
+      { ...row(1, 'Dependabot[bot]'), projectPath: 'o/r' },
+      { ...row(2, 'dependabot[bot]'), projectPath: 'o/r' },
+    ]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['Dependabot[bot]']);
+  });
+
+  it('lists a GitHub bot once with and without its [bot] suffix', async () => {
+    onGitHub();
+    getStore().upsertIndexRows([
+      { ...row(1, 'deploy_bot'), projectPath: 'o/r' },
+      { ...row(2, 'deploy_bot[bot]'), projectPath: 'o/r' },
+    ]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['deploy_bot']);
+  });
+
+  it('lists the [bot] spelling when the bare one, seen first, matches no pattern', async () => {
+    onGitHub();
+    getStore().upsertIndexRows([
+      { ...row(1, 'dependabot'), projectPath: 'o/r' },
+      { ...row(2, 'dependabot[bot]'), projectPath: 'o/r' },
+    ]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['dependabot[bot]']);
+  });
+
+  it('keeps GitLab spellings apart, as before', async () => {
+    __setSettingReader(() => undefined);
+    __setRosterReader(() => []);
+    getStore().upsertIndexRows([row(1, 'Release_bot'), row(2, 'release_bot')]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['Release_bot', 'release_bot']);
+  });
+});
+
+describe('scanSuspectedBots and a removed project', () => {
+  it('lists no bot seen only in a project no longer configured', async () => {
+    __setSettingReader(<T>(key: string) =>
+      key === 'boxscore.projects' ? (['acme/widgets'] as T) : undefined
+    );
+    __setRosterReader(() => []);
+    getStore().upsertIndexRows([
+      row(1, 'release_bot'),
+      { ...row(2, 'old_bot'), projectPath: 'acme/old' },
+    ]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['release_bot']);
+  });
+
+  it('reads a project configured in another case than the forge stores it', async () => {
+    __setSettingReader(<T>(key: string) =>
+      key === 'boxscore.projects' ? (['Acme/Widgets'] as T) : undefined
+    );
+    __setRosterReader(() => []);
+    getStore().upsertIndexRows([row(1, 'release_bot')]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['release_bot']);
+  });
+});
