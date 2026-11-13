@@ -363,6 +363,21 @@ test('a shrink writes the clamped offset back, so a list that grows again is not
   await pane.unmount()
 })
 
+test("a reveal from one surface is not cut back to another surface's smaller window", async ($, on) => {
+  await seeded($, on, many(30))
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal', props: paneAt({ bodyRows: 20 }) })
+  // The desktop draws last, with a taller window, so its furthest offset is smaller than the terminal's.
+  const desktop = await $.ui.mount({ ...PANE, surface: 'desktop', props: paneAt({ bodyRows: 60 }) })
+
+  await terminal.post({ type: 'scrollTo', offset: 100 })
+  expect((await propsOf(terminal)).offset).toBe(100)
+  await scrollBy($, 1)
+  expect((await propsOf(terminal)).offset).toBe(101)
+  expect((await propsOf(desktop)).offset).toBe((await propsOf(desktop)).view.total - (await propsOf(desktop)).view.windowRows)
+  await terminal.unmount()
+  await desktop.unmount()
+})
+
 test('the plain drawer keeps the engine scroll: the move passes beneath and the kit window stays put', async ($, on) => {
   const beneath: number[] = []
   on('ui.scroll', (_, e) => {

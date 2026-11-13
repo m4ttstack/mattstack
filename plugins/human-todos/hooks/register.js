@@ -1897,7 +1897,7 @@ var SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
 var TODO_PANE = { id: PANE, label: "Human Todos waiting" };
 var keysAtom = atom2({ plugin: "human-todos", key: "keysInPane" }, false);
 var scrollAtom = atom2({ plugin: "human-todos", key: "scrollOffset" }, 0);
-var kitSize;
+var kitSizes = new Map;
 async function openPane($) {
   await $.ui.open({ id: PANE, title: TITLE });
   $.ui.invalidate("ui.render");
@@ -1913,16 +1913,18 @@ async function setKeysInPane($, value) {
   if (await read2($, keysAtom) !== value)
     await update2($, keysAtom, () => value);
 }
-async function scrollKit($, to, bodyRows, columns) {
-  const most = maxOffset(kitLayout(modelOf(await readPane2($), modelWidth(columns)), columns, bodyRows));
+async function scrollKit($, to) {
+  if (kitSizes.size === 0)
+    return;
+  const pane = await readPane2($);
+  const most = Math.max(...[...kitSizes.values()].map(({ columns, bodyRows }) => maxOffset(kitLayout(modelOf(pane, modelWidth(columns)), columns, bodyRows))));
   const from = Math.min(await read2($, scrollAtom), most);
   const next = Math.min(Math.max(0, to(from)), most);
   if (next !== await read2($, scrollAtom))
     await update2($, scrollAtom, () => next);
 }
 async function clampScroll($) {
-  if (kitSize)
-    await scrollKit($, (from) => from, kitSize.bodyRows, kitSize.columns);
+  await scrollKit($, (from) => from);
 }
 function registerPane(on) {
   registerPaneRedraw(on);
@@ -1947,18 +1949,18 @@ function registerPane(on) {
       await setKeysInPane($, true);
     await paneMessage($, e, TODO_PANE, await waitingBand($));
     const reveal = e.data;
-    if (e.requestId === PANE && reveal.type === "scrollTo" && typeof reveal.offset === "number" && kitSize) {
+    if (e.requestId === PANE && reveal.type === "scrollTo" && typeof reveal.offset === "number") {
       const offset = reveal.offset;
-      await scrollKit($, () => offset, kitSize.bodyRows, kitSize.columns);
+      await scrollKit($, () => offset);
     }
     if (e.requestId === PANE)
       act($, e.data, e.surface);
     return next(e);
   });
   on("ui.scroll", { component: "Pane", requestId: "human-todos" }, async ($, e, next) => {
-    if (e.contentRows > e.bodyRows || kitSize === undefined)
+    if (e.contentRows > e.bodyRows || kitSizes.size === 0)
       return next(e);
-    await scrollKit($, (from) => from + e.by, e.bodyRows, kitSize.columns);
+    await scrollKit($, (from) => from + e.by);
     return {};
   });
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
@@ -2011,7 +2013,7 @@ function registerPane(on) {
     const { Client } = $.ui.resolve(e);
     const width = paneColumns(e);
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
-    kitSize = { columns: width, bodyRows };
+    kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),

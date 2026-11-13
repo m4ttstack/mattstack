@@ -21,8 +21,10 @@ const keysAtom = atom({ plugin: 'human-todos', key: 'keysInPane' } as const, fal
 // The kit drawer's first row in view: the mod scrolls it, since the Client draws only the rows that fit.
 const scrollAtom = atom({ plugin: 'human-todos', key: 'scrollOffset' } as const, 0)
 
-// ui.scroll carries no width, and a shrink none of either, so both lay the list out at the size the kit drawer last drew.
-let kitSize: { columns: number; bodyRows: number } | undefined
+// The sizes the kit drawer is drawn at, by surface: ui.scroll carries no width, and a shrink neither size.
+// Every surface shares the one stored offset and clamps it to its own window when it draws, so the stored one may go as far as
+// the surface that can go furthest; clamping to whichever drew last would cut a bigger surface back to a smaller one.
+const kitSizes = new Map<string, { columns: number; bodyRows: number }>()
 
 export async function openPane($: EngineInterface): Promise<void> {
   await $.ui.open({ id: PANE, title: TITLE })
@@ -43,8 +45,10 @@ async function setKeysInPane($: EngineInterface, value: boolean): Promise<void> 
 }
 
 // `to` is the wanted offset from the stored one, clamped first to the list as it is now.
-async function scrollKit($: EngineInterface, to: (from: number) => number, bodyRows: number, columns: number): Promise<void> {
-  const most = maxOffset(kitLayout(modelOf(await readPane($), modelWidth(columns)), columns, bodyRows))
+async function scrollKit($: EngineInterface, to: (from: number) => number): Promise<void> {
+  if (kitSizes.size === 0) return
+  const pane = await readPane($)
+  const most = Math.max(...[...kitSizes.values()].map(({ columns, bodyRows }) => maxOffset(kitLayout(modelOf(pane, modelWidth(columns)), columns, bodyRows))))
   const from = Math.min(await read($, scrollAtom), most)
   const next = Math.min(Math.max(0, to(from)), most)
   if (next !== (await read($, scrollAtom))) await update($, scrollAtom, () => next)
@@ -52,7 +56,7 @@ async function scrollKit($: EngineInterface, to: (from: number) => number, bodyR
 
 // The Client clamps only what it draws, so after the list shrinks the stored offset is clamped too, or a regrown list reopens at the old depth.
 export async function clampScroll($: EngineInterface): Promise<void> {
-  if (kitSize) await scrollKit($, from => from, kitSize.bodyRows, kitSize.columns)
+  await scrollKit($, from => from)
 }
 
 export function registerPane(on: On): void {
@@ -81,9 +85,9 @@ export function registerPane(on: On): void {
     await paneMessage($, e, TODO_PANE, await waitingBand($))
     // The keys moved the selection out of view: the Client asks for the offset that shows it.
     const reveal = e.data as { type?: unknown; offset?: unknown }
-    if (e.requestId === PANE && reveal.type === 'scrollTo' && typeof reveal.offset === 'number' && kitSize) {
+    if (e.requestId === PANE && reveal.type === 'scrollTo' && typeof reveal.offset === 'number') {
       const offset = reveal.offset
-      await scrollKit($, () => offset, kitSize.bodyRows, kitSize.columns)
+      await scrollKit($, () => offset)
     }
     // Not awaited, as a Button's onPress is not: a run's start can wait on a slow probe, and the post must not hold it.
     if (e.requestId === PANE) void act($, e.data as PaneMessage, e.surface)
@@ -92,8 +96,8 @@ export function registerPane(on: On): void {
 
   // A tree taller than its window is the plain drawer's, which the engine scrolls; the kit drawer only ever draws what fits.
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    if (e.contentRows > e.bodyRows || kitSize === undefined) return next(e)
-    await scrollKit($, from => from + e.by, e.bodyRows, kitSize.columns)
+    if (e.contentRows > e.bodyRows || kitSizes.size === 0) return next(e)
+    await scrollKit($, from => from + e.by)
     return {}
   })
 
@@ -141,7 +145,7 @@ export function registerPane(on: On): void {
     const { Client } = $.ui.resolve(e)
     const width = paneColumns(e)
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
-    kitSize = { columns: width, bodyRows }
+    kitSizes.set(e.surface, { columns: width, bodyRows })
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
