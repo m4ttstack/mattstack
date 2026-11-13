@@ -552,7 +552,19 @@ function Panel(props) {
   render.lines = lines;
   return renderLines(lines, render.elements, render.look);
 }
+// packages/mod-kit/src/widgets/brand-bar.ts
+var fit = (text, room) => padCells(cellWidth(text) <= room ? text : `${cutCells(text, Math.max(0, room - 1))}…`, room);
+function brandBar(label, width, hide) {
+  const look = { bg: BRAND.pink, color: BRAND.plum, bold: true };
+  const text = `  ${BRAND.glyph}  ${label}`;
+  if (hide === undefined)
+    return [sp(fit(text, width), look)];
+  const button = ` Hide ${ICON.collapse} `;
+  return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
+}
 
+// packages/mod-kit/src/components/brand-bar.tsx
+var BrandBar = kitComponent("BrandBar", (props, ctx) => [brandBar(props.title, ctx.width, props.onHide && ctx.bind("hide", props.onHide))]);
 // packages/mod-kit/src/components/buttons.tsx
 function buttonOf(props, ctx) {
   return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
@@ -583,19 +595,6 @@ var Row = kitComponent("Row", (props, ctx) => [
     return part.component.toLines(part.props, part.ctx)[0] ?? [];
   })
 ]);
-// packages/mod-kit/src/widgets/brand-bar.ts
-var fit = (text, room) => padCells(cellWidth(text) <= room ? text : `${cutCells(text, Math.max(0, room - 1))}…`, room);
-function brandBar(label, width, hide) {
-  const look = { bg: BRAND.pink, color: BRAND.plum, bold: true };
-  const text = `  ${BRAND.glyph}  ${label}`;
-  if (hide === undefined)
-    return [sp(fit(text, width), look)];
-  const button = ` Hide ${ICON.collapse} `;
-  return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
-}
-
-// packages/mod-kit/src/components/brand-bar.tsx
-var BrandBar = kitComponent("BrandBar", (props, ctx) => [brandBar(props.title, ctx.width, props.onHide && ctx.bind("hide", props.onHide))]);
 // mods/human-todos/src/items.ts
 var PLUGIN = "human-todos";
 var TITLE = "Human Todos";

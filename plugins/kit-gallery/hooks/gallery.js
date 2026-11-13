@@ -655,15 +655,16 @@ var Rail = kitComponent("Rail", (props, ctx) => {
   return hang(rail(bar), rail(bar), text, ctx.width, { ...props.dim && DIM, ...props.bold && { bold: true } });
 });
 // packages/mod-kit/src/components/reopen-band.tsx
-function ReopenBand(props) {
-  return /* @__PURE__ */ h(Row, null, /* @__PURE__ */ h(Span, {
-    color: BRAND.pink,
-    bold: true
-  }, `${BRAND.glyph} ${props.label}  `), /* @__PURE__ */ h(Span, null, props.title), /* @__PURE__ */ h(Span, null, "  "), /* @__PURE__ */ h(Button, {
-    tone: "brand",
-    onPress: props.onOpen
-  }, "Show"));
-}
+var GAP = "  ";
+var ReopenBand = kitComponent("ReopenBand", (props, ctx) => {
+  const button = buttonSpan({ label: "Show", tone: "brand", action: ctx.bind("press", props.onOpen) });
+  const head = `${BRAND.glyph} ${props.label}`;
+  const words = `${head}${GAP}${props.title}`;
+  const room = Math.max(0, ctx.width - cellWidth(button.t) - GAP.length);
+  const shown = cellWidth(words) <= room ? words : room > 0 ? `${cutCells(words, room - 1)}…` : "";
+  const cut = Math.min(head.length + GAP.length, shown.length);
+  return [[sp(shown.slice(0, cut), { color: BRAND.pink, bold: true }), sp(shown.slice(cut)), sp(GAP), button]];
+});
 // packages/mod-kit/src/widgets/select-list.ts
 function selectList(spec) {
   const max = spec.maxShown ?? 8;

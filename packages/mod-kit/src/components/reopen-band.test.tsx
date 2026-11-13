@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { ClientElements } from 'claude-code'
 
+import { cellWidth } from '../draw/cells'
 import { BRAND } from '../draw/theme'
 import { bandClient } from '../patterns/band-client'
 import { drawKit } from './core'
@@ -20,6 +21,24 @@ describe('ReopenBand', () => {
     ))
     expect(lines.map(textOf)).toEqual([`${BRAND.glyph} mattstack waiting  Kit gallery    Show  `])
     expect(lines[0]!.find(span => span.t === '  Show  ')?.bg).toBe(BRAND.pink)
+  })
+
+  test('in a narrow band the Show button stays whole and the words before it give way, the title first', () => {
+    const at = (width: number) =>
+      drawKit({ elements: ELEMENTS, look: { focused: true }, width, focused: true }, () => (
+        <Panel width={width}>
+          <ReopenBand label="Human Todos waiting" title="1 to-do" onOpen={() => {}} />
+        </Panel>
+      )).lines[0]!
+    for (const width of [30, 24, 12]) {
+      const line = at(width)
+      expect(cellWidth(textOf(line)), `${width}`).toBeLessThanOrEqual(width)
+      expect(line.at(-1)).toMatchObject({ t: '  Show  ', bg: BRAND.pink })
+      expect(line.at(-1)?.action).toBeDefined()
+    }
+    expect(textOf(at(60))).toBe(`${BRAND.glyph} Human Todos waiting  1 to-do    Show  `)
+    expect(textOf(at(30))).toBe(`${BRAND.glyph} Human Todos waiti…    Show  `)
+    expect(textOf(at(12))).toBe(`${BRAND.glyph}…    Show  `)
   })
 
   test('the Show button runs onOpen', () => {

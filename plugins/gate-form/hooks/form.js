@@ -702,37 +702,6 @@ function buttonRow(left, right, width, indent) {
   line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
   return line;
 }
-
-// packages/mod-kit/src/components/buttons.tsx
-function buttonOf(props, ctx) {
-  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
-}
-var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
-var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
-  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
-  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
-});
-
-// packages/mod-kit/src/components/lines.tsx
-function keyed(lines, key) {
-  return lines.map((line) => {
-    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
-    if (line.action !== undefined)
-      out.action = key(line.action);
-    return out;
-  });
-}
-var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
-var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
-var Row = kitComponent("Row", (props, ctx) => [
-  ctx.parts(props.children).flatMap((part) => {
-    if ("text" in part)
-      return [sp(part.text)];
-    if (part.component === Button)
-      return [buttonSpan(buttonOf(part.props, part.ctx))];
-    return part.component.toLines(part.props, part.ctx)[0] ?? [];
-  })
-]);
 // packages/mod-kit/src/patterns/page-shell.ts
 function padToHeight(page, height, filler) {
   const padding = Array.from({ length: Math.max(0, height - page.length) }, () => [...filler]);
@@ -764,6 +733,36 @@ function reviewList(items, width) {
     return [[sp(SYMBOL.bar, GRAY)], ...entry];
   });
 }
+// packages/mod-kit/src/components/buttons.tsx
+function buttonOf(props, ctx) {
+  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
+}
+var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
+var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
+  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
+  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
+});
+
+// packages/mod-kit/src/components/lines.tsx
+function keyed(lines, key) {
+  return lines.map((line) => {
+    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
+    if (line.action !== undefined)
+      out.action = key(line.action);
+    return out;
+  });
+}
+var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
+var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
+var Row = kitComponent("Row", (props, ctx) => [
+  ctx.parts(props.children).flatMap((part) => {
+    if ("text" in part)
+      return [sp(part.text)];
+    if (part.component === Button)
+      return [buttonSpan(buttonOf(part.props, part.ctx))];
+    return part.component.toLines(part.props, part.ctx)[0] ?? [];
+  })
+]);
 // mods/gate-form/src/form/state.ts
 var WRITE_IN = "__other__";
 var isRecommended = (o) => /\(recommended\)\s*$/i.test(o.label);

@@ -544,47 +544,17 @@ function Panel(props) {
   return renderLines(lines, render.elements, render.look);
 }
 
-// packages/mod-kit/src/components/buttons.tsx
-function buttonOf(props, ctx) {
-  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
-}
-var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
-var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
-  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
-  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
-});
-
-// packages/mod-kit/src/components/lines.tsx
-function keyed(lines, key) {
-  return lines.map((line) => {
-    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
-    if (line.action !== undefined)
-      out.action = key(line.action);
-    return out;
-  });
-}
-var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
-var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
-var Row = kitComponent("Row", (props, ctx) => [
-  ctx.parts(props.children).flatMap((part) => {
-    if ("text" in part)
-      return [sp(part.text)];
-    if (part.component === Button)
-      return [buttonSpan(buttonOf(part.props, part.ctx))];
-    return part.component.toLines(part.props, part.ctx)[0] ?? [];
-  })
-]);
-
 // packages/mod-kit/src/components/reopen-band.tsx
-function ReopenBand(props) {
-  return /* @__PURE__ */ h(Row, null, /* @__PURE__ */ h(Span, {
-    color: BRAND.pink,
-    bold: true
-  }, `${BRAND.glyph} ${props.label}  `), /* @__PURE__ */ h(Span, null, props.title), /* @__PURE__ */ h(Span, null, "  "), /* @__PURE__ */ h(Button, {
-    tone: "brand",
-    onPress: props.onOpen
-  }, "Show"));
-}
+var GAP = "  ";
+var ReopenBand = kitComponent("ReopenBand", (props, ctx) => {
+  const button = buttonSpan({ label: "Show", tone: "brand", action: ctx.bind("press", props.onOpen) });
+  const head = `${BRAND.glyph} ${props.label}`;
+  const words = `${head}${GAP}${props.title}`;
+  const room = Math.max(0, ctx.width - cellWidth(button.t) - GAP.length);
+  const shown = cellWidth(words) <= room ? words : room > 0 ? `${cutCells(words, room - 1)}…` : "";
+  const cut = Math.min(head.length + GAP.length, shown.length);
+  return [[sp(shown.slice(0, cut), { color: BRAND.pink, bold: true }), sp(shown.slice(cut)), sp(GAP), button]];
+});
 
 // packages/mod-kit/src/patterns/band-client.tsx
 var bandClient = kitClient((props, ui) => /* @__PURE__ */ h(Panel, null, /* @__PURE__ */ h(ReopenBand, {
