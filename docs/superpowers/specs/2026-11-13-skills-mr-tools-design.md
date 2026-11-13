@@ -31,8 +31,13 @@ moved the review, respond, ship, evidence and watch-ci skills.
 
 ## Anti-goals
 
-- Any change to a GitLab walk. Every GitLab edge, call and argument stays
-  as it is today.
+- Any change to what a GitLab walk does. Every GitLab tool call and its
+  arguments stay, and GitLab reaches the same tools, gates and terminals
+  in the same order. The only GitLab-side graph changes allowed are: the
+  forge diamonds that no longer decide anything are deleted (checkout's
+  `mr_forge_host` and `ticket_forge_host`, sync-open-mrs's `forge_host`),
+  the origin read that fed sync-open-mrs's diamond (`git_remote_url`) goes,
+  and the STOP and error edges are relabelled forge-neutral.
 - A behaviour change on GitHub that is not listed under "Behaviour changes"
   below.
 
@@ -113,13 +118,18 @@ Evidence uploads through `gh --attach` already go through
   "an MR or PR link, !iid, #number, or number"); `mr_forge_host`,
   `gh_pr_view` and its edge go. The ticket edge goes straight to
   `mr_list_search`; `ticket_forge_host` and `gh_pr_list_search` go.
-- The two STOP nodes become forge-neutral: "STOP: forge reads go through
-  the read tools", reached from `what_given` by "tempted to use the GitLab
-  CLI or gh", and the ticket-search one likewise. Each returns to the tool
-  it guards.
-- `mr_resolve_result` gains the edge "on GitHub, the PR's branch lives in a
-  fork" to a new terminal `fork_pr` **Fork PR: reported**. GitLab returns
-  no `sourceProjectPath`, so the edge never fires there.
+- The two STOP nodes become forge-neutral: "STOP: MR and PR reads go
+  through the read tools", reached from `what_given` by "tempted to read
+  the MR or PR with the GitLab CLI or gh", and "STOP: ticket searches go
+  through the read tools", reached by "tempted to search with the GitLab
+  CLI or gh". The two labels differ so the edges read apart. Each returns
+  to the tool it guards.
+- `mr_resolve_result` gains the edge "a GitHub PR whose branch lives in a
+  fork" to a new terminal `fork_pr` **Fork PR: reported**. A result is a
+  GitHub one when the origin URL `git_remote_origin` read is on
+  github.com (the same host as the result's `webUrl`); only then do the
+  fork rules below apply. GitLab results carry no `sourceProjectPath`, and
+  that absence never means a fork on GitLab.
 - A new diamond after a pick, "A GitHub PR row picked?", sits on
   `one_branch` yes and on the clarify gate's candidate answer: yes goes to
   `mr_resolve_branch {repoName, iid}` (then `mr_resolve_result` as above);
@@ -150,8 +160,12 @@ Evidence uploads through `gh --attach` already go through
 - The table header's first column reads "MR or PR ref".
 - `allowed-tools`: drop `Bash(gh pr list:*)` and `Bash(git worktree
   list:*)`.
-- `tests/graph-roster.jsonc`: its description stops saying sync-open-mrs
-  names it.
+- Text that still names sync-open-mrs as its caller is updated: the index
+  description ("The discovery step of sync-open-mrs" goes; it is a
+  listing verb a person runs), the Emit block's "contract a caller
+  downstream reads" line, `tests/graph-roster.jsonc`'s description, and
+  `plugins/mattstack/README.md`'s map-open-mrs and sync-open-mrs rows
+  (sync-open-mrs maps with `mr_map` on both forges).
 
 ### sync-open-mrs (`attachments/forge/sync-open-mrs/`)
 
@@ -166,9 +180,10 @@ Evidence uploads through `gh --attach` already go through
   `mr-map-result` and `report-branch-buckets` say "the forge's error".
   The intro says the sweep covers the open MRs or PRs `mr_map` returns.
 - The report's noun follows the rows' `ref` marker (`#` is GitHub).
-- `allowed-tools`: drop `Bash(gh pr list:*)`, `Bash(git -C * status:*)`
-  and `Bash(git -C * remote get-url:*)`; keep `Bash(git -C * log:*)`
-  (`record-branch-bucket` still reads a log).
+- `allowed-tools`: drop `Bash(gh pr list:*)`, `Bash(git worktree
+  list:*)`, `Bash(git -C * status:*)` and `Bash(git -C * remote
+  get-url:*)`, none of which the skill runs any more; keep `Bash(git -C *
+  log:*)` (`record-branch-bucket` still reads a log).
 
 ### rebase-worktree
 
@@ -200,8 +215,9 @@ Evidence uploads through `gh --attach` already go through
 - Plugin version one past main's at PR time (merge main first if it
   moved). `pack/requires.json` `minEngine` rises to that version, since
   the skill text now relies on `mr_map`, `mr_resolve_branch` and `mr_list`
-  answering on GitHub (`mr_map` on GitHub landed in 0.32.61, above today's
-  floor of 0.32.60).
+  answering on GitHub (`mr_map` took GitHub targets in #1115, after
+  today's floor of 0.32.60). The floor follows the convention of #1100:
+  the PR's own version.
 - No live forge calls in tests; scenarios use fixture tool results.
 - No em or en dashes.
 
@@ -219,8 +235,11 @@ skill with fixture tool results:
 4. map-open-mrs on GitHub: one `mr_map` call; table from its rows.
 5. sync-open-mrs on GitHub: `mr_map`; dirty from the row; no porcelain read.
 6. Job template on a GitHub origin: `mr_create` with `draft: false`.
-7. GitLab regression: checkout of a GitLab MR link walks exactly today's
-   path.
+7. GitLab regression, checkout: a GitLab MR link walks today's calls in
+   today's order, and a GitLab result is never treated as a fork.
+8. GitLab regression, sync-open-mrs: `mr_map {repoName, author: me}` then
+   the same plan, gates and sweep as today.
+9. GitLab regression, map-open-mrs: one `mr_map` call and the same table.
 
 Then: the strict skills check, certify on each folder, the MCP tools
 reference test, `bun run docs:check`, `bun run typecheck`, `bun run
