@@ -213,7 +213,7 @@ function refusedKeyFailure(output: string, viable: boolean): FetchFailed {
 export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDeps()): Promise<RemoteOutcome> {
   const first = await deps.run(cwd, deps.env);
   if (first.ok) return { env: deps.env, usedRtToken: false, forge: null, host: null };
-  const plain = (output: string) => new FetchFailed({ title: "Could not fetch from origin", details: output });
+  const plain = (output: string) => new FetchFailed({ title: "Could not fetch from origin", details: redactCredentials(output) });
 
   if (isAuthFailure(first.output)) {
     const v = await deps.auth.forOrigin(cwd, false);

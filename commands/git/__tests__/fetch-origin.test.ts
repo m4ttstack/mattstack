@@ -164,6 +164,23 @@ describe("fetchOrigin", () => {
     expect(await failureOf(fetchOrigin("/r", d))).toEqual({ title: "Could not fetch from origin", details: "fatal: Could not resolve host" });
   });
 
+  test("a token run's non-auth failure carries no token", async () => {
+    const echoed = `fatal: unable to access 'https://oauth2:${TOKEN}@gitlab.com/acme/x.git/': The requested URL returned error: 500`;
+    const { d } = deps([{ ok: false, output: NO_USER }, { ok: false, output: echoed }]);
+    const f = await failureOf(fetchOrigin("/r", d));
+    expect(f.title).toBe("Could not fetch from origin");
+    expect(f.details).toContain("returned error: 500");
+    expect(JSON.stringify(f)).not.toContain("LEAKCHECK");
+  });
+
+  test("a first-run failure that echoes a credentialed URL carries no token", async () => {
+    const echoed = `fatal: unable to access 'https://user:${TOKEN}@gitlab.com/acme/x.git/': Could not resolve host`;
+    const { d } = deps([{ ok: false, output: echoed }]);
+    const f = await failureOf(fetchOrigin("/r", d));
+    expect(f.details).toContain("Could not resolve host");
+    expect(JSON.stringify(f)).not.toContain("LEAKCHECK");
+  });
+
   test("an https auth failure with no usable token keeps git's plain failure and does not retry", async () => {
     const { d, runs } = deps([{ ok: false, output: NO_USER }], undefined, { verdict: NO_TOKEN });
     expect(await failureOf(fetchOrigin("/r", d))).toEqual({ title: "Could not fetch from origin", details: NO_USER });
