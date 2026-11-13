@@ -1122,6 +1122,20 @@ function wrap(text, width) {
   return out;
 }
 // packages/mod-kit/src/draw/theme.ts
+var SYMBOL = {
+  start: "┌",
+  bar: "│",
+  end: "└",
+  active: "◆",
+  submit: "◇",
+  cancel: "■",
+  warn: "▲",
+  radioOn: "●",
+  radioOff: "○",
+  boxActive: "◻",
+  boxOn: "◼",
+  boxOff: "◻"
+};
 var ICON = {
   layers: "",
   done: "",
@@ -1172,7 +1186,7 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#666666" };
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#808080" };
 function hovered(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
@@ -1192,16 +1206,16 @@ var GRAY = { color: "gray" };
 var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
-var MUTED = { cyan: "#3d6f78", green: "#4d7a4d", yellow: "#857640", red: "#8a4a4a", gray: "#4a4a4a", [BRAND.pink]: "#7a3d58" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#6e3a52", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#5e2f45", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#24313f", color: "#8a8a8a" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#262626", color: "#8a8a8a" }, [SCROLL.track]: { bg: "#2a2a2a" }, [SCROLL.thumb]: { bg: "#4a4a4a" } };
+var MUTED = { cyan: "#4f8a95", green: "#5f965f", yellow: "#a08f4e", red: "#a85c5c", gray: "#5c5c5c", [BRAND.pink]: "#94496b" };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#86465f", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#733a55", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#2b3b4c", color: "#a0a0a0" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#2c2c2c", color: "#a0a0a0" }, [SCROLL.track]: { bg: "#303030" }, [SCROLL.thumb]: { bg: "#585858" } };
 function muted(span) {
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
-    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#3a3a3a", color: "#8a8a8a" }, dim: false };
+    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#424242", color: "#a0a0a0" }, dim: false };
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
-  return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
+  return { ...span, color: span.dim ? "#6a6a6a" : "#a0a0a0", dim: false };
 }
 // packages/mod-kit/src/widgets/buttons.ts
 var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
@@ -1422,9 +1436,6 @@ function endRows(model) {
   const end = { kind: "text", text: "You've reached the end of the list.", tone: "dim", indent: false };
   return model.hasFinished ? [{ kind: "blank" }, end] : [end];
 }
-function outOfView(spans, top, bottom) {
-  return { above: spans.filter((s) => s.first < top).length, below: spans.filter((s) => s.last > bottom).length };
-}
 function bandModel(list) {
   const waiting = list.filter((t) => t.status === "open" || t.status === "confirming").length;
   if (waiting === 0)
@@ -1553,7 +1564,7 @@ function clip(line, cells) {
   out.push(sp(" ".repeat(Math.max(0, cells - used))));
   return out;
 }
-var hint = (text) => [sp(` ${text} `, FILL.chip)];
+var RAIL = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(GUTTER - 1))];
 function keyStops(model) {
   const stops = [];
   for (const row of model.rows) {
@@ -1586,29 +1597,36 @@ function revealOffset(layout, stops, index, offset) {
   const top = Math.min(Math.max(0, offset), most);
   if (!range)
     return top;
-  const first = range.first === 0 ? 0 : range.first - 1;
-  const last = range.last >= layout.lines.length - 1 ? range.last : range.last + 1;
+  const { first, last } = range;
   if (first < top)
     return Math.max(0, first);
   if (last > top + layout.windowRows - 1)
     return Math.min(most, Math.max(first, last - layout.windowRows + 1));
   return top;
 }
-function kitWindow(layout, width, offset, selected) {
-  const { lines: all, spans, windowRows } = layout;
-  const chosen = selected && JSON.stringify(selected);
-  const lines = chosen ? all.map((line) => line.map((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span)) : all;
+function markFirst(line) {
+  const at = line.findIndex((span) => span.t.startsWith("○ "));
+  if (at < 0)
+    return line;
+  const span = line[at];
+  return [...line.slice(0, at), { ...span, t: "○", color: BRAND.pink }, { ...span, t: span.t.slice(1) }, ...line.slice(at + 1)];
+}
+function kitWindow(layout, width, offset, focus = {}) {
+  const { lines: all, windowRows } = layout;
+  const chosen = focus.selected && JSON.stringify(focus.selected);
+  const { range } = focus;
+  const lines = all.map((line, n) => {
+    const lit = chosen ? line.map((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span) : line;
+    return range && n === range.first ? markFirst(lit) : lit;
+  });
   const top = Math.min(Math.max(0, offset), maxOffset(layout));
   const shown = lines.slice(top, top + windowRows);
-  if (lines.length > windowRows) {
-    const { above, below } = outOfView(spans, top, top + windowRows - 1);
-    if (above > 0)
-      shown[0] = hint(`↑ ${above} more`);
-    if (below > 0)
-      shown[shown.length - 1] = hint(`↓ ${below} more`);
-  }
   const bar = scrollBar(windowRows, lines.length, top);
-  return shown.map((line, n) => [...clip([sp(" ".repeat(GUTTER)), ...line], width - BAR), ...bar[n] ?? []]);
+  const gutter = (n) => {
+    const at = top + n;
+    return range && at >= range.first && at <= range.last ? RAIL : [sp(" ".repeat(GUTTER))];
+  };
+  return shown.map((line, n) => [...clip([...gutter(n), ...line], width - BAR), ...bar[n] ?? []]);
 }
 
 // mods/human-todos/src/pane/plain-view.tsx

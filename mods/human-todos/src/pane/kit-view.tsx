@@ -2,7 +2,7 @@ import { BrandBar, Lines, Panel, kitClient, sp } from '@mattstack/mod-kit'
 import type { PointerState } from '@mattstack/mod-kit'
 
 import { TITLE } from '../items'
-import { keyStops, kitLayout, kitWindow, revealOffset } from './kit-layout'
+import { keyStops, kitLayout, kitWindow, revealOffset, stopLines } from './kit-layout'
 import type { KeyStop } from './kit-layout'
 import { messageOf } from './model'
 import type { PaneMessage, PaneModel } from './model'
@@ -61,7 +61,7 @@ export default kitClient<Props, State>(
         <BrandBar title={TITLE} onHide={ui.hide} />
         <Lines lines={[[sp(' ')]]} />
         <Lines
-          lines={kitWindow(layout, props.width, props.offset, ui.focused && current ? messageOf(current) : undefined)}
+          lines={kitWindow(layout, props.width, props.offset, ui.focused && current ? { selected: messageOf(current), range: stopLines(layout, stops, here.at) } : {})}
           onAction={(message: PaneMessage) => ui.post(message)}
         />
       </Panel>

@@ -1,7 +1,7 @@
-import { ACCENT, DIM, DONE, FILL, GRAY, WARN, buttonRow, cellWidth, cutCells, hovered, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
+import { ACCENT, BRAND, DIM, DONE, GRAY, SYMBOL, WARN, buttonRow, cellWidth, cutCells, hovered, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
 import type { Line, Style } from '@mattstack/mod-kit'
 
-import { endRows, messageOf, outOfView } from './model'
+import { endRows, messageOf } from './model'
 import type { PaneButton, PaneMessage, PaneModel, PaneRow, Tone } from './model'
 
 type L = Line<PaneMessage>
@@ -110,7 +110,8 @@ function clip(line: L, cells: number): L {
   return out
 }
 
-const hint = (text: string): L => [sp(` ${text} `, FILL.chip)]
+// The focused item's rail fills the gutter exactly, so rows keep their place as the selection moves.
+const RAIL: L = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(' '.repeat(GUTTER - 1))]
 
 // What the keys move between: each actionable item's buttons in order, then Clear finished.
 export type KeyStop = { key: string; buttons: PaneButton[] }
@@ -130,7 +131,7 @@ export function keyStops(model: PaneModel): KeyStop[] {
 }
 
 // The lines a stop covers: an item's whole span (actionable items come first among the spans), or the line holding its button.
-function stopLines(layout: KitLayout, stops: KeyStop[], index: number): Span | undefined {
+export function stopLines(layout: KitLayout, stops: KeyStop[], index: number): Span | undefined {
   const stop = stops[index]
   if (!stop) return undefined
   if (stop.buttons[0]?.todoId !== undefined) return layout.spans[stops.slice(0, index).filter(s => s.buttons[0]?.todoId !== undefined).length]
@@ -139,32 +140,45 @@ function stopLines(layout: KitLayout, stops: KeyStop[], index: number): Span | u
   return at < 0 ? undefined : { first: at, last: at }
 }
 
-// The offset that shows a stop whole, below an "↑ N more" hint and above a "↓ N more" one; the offset itself while it shows already.
+// The offset that shows a stop whole, moving the window as little as it can; the offset itself while the stop shows already.
 export function revealOffset(layout: KitLayout, stops: KeyStop[], index: number, offset: number): number {
   const range = stopLines(layout, stops, index)
   const most = maxOffset(layout)
   const top = Math.min(Math.max(0, offset), most)
   if (!range) return top
-  const first = range.first === 0 ? 0 : range.first - 1
-  const last = range.last >= layout.lines.length - 1 ? range.last : range.last + 1
+  const { first, last } = range
   if (first < top) return Math.max(0, first)
   if (last > top + layout.windowRows - 1) return Math.min(most, Math.max(first, last - layout.windowRows + 1))
   return top
 }
 
+// What a focused pane marks: the button the keys selected, and the lines of the item it belongs to.
+export type KitFocus = { selected?: PaneMessage; range?: Span }
+
+// The item's mark turns pink on its first line, as gate-form marks its current question.
+function markFirst(line: L): L {
+  const at = line.findIndex(span => span.t.startsWith('○ '))
+  if (at < 0) return line
+  const span = line[at]!
+  return [...line.slice(0, at), { ...span, t: '○', color: BRAND.pink }, { ...span, t: span.t.slice(1) }, ...line.slice(at + 1)]
+}
+
 // The rows in view from `offset`, clamped to the list as it is now, each ending in its scroll bar cell.
-// The button the keys selected draws as if the pointer were over it.
-export function kitWindow(layout: KitLayout, width: number, offset: number, selected?: PaneMessage): L[] {
-  const { lines: all, spans, windowRows } = layout
-  const chosen = selected && JSON.stringify(selected)
-  const lines = chosen ? all.map(line => line.map(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span))) : all
+// The button the keys selected draws as if the pointer were over it, and its item carries the pink rail in the gutter.
+export function kitWindow(layout: KitLayout, width: number, offset: number, focus: KitFocus = {}): L[] {
+  const { lines: all, windowRows } = layout
+  const chosen = focus.selected && JSON.stringify(focus.selected)
+  const { range } = focus
+  const lines = all.map((line, n) => {
+    const lit = chosen ? line.map(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span)) : line
+    return range && n === range.first ? markFirst(lit) : lit
+  })
   const top = Math.min(Math.max(0, offset), maxOffset(layout))
   const shown = lines.slice(top, top + windowRows)
-  if (lines.length > windowRows) {
-    const { above, below } = outOfView(spans, top, top + windowRows - 1)
-    if (above > 0) shown[0] = hint(`↑ ${above} more`)
-    if (below > 0) shown[shown.length - 1] = hint(`↓ ${below} more`)
-  }
   const bar = scrollBar<PaneMessage>(windowRows, lines.length, top)
-  return shown.map((line, n) => [...clip([sp(' '.repeat(GUTTER)), ...line], width - BAR), ...(bar[n] ?? [])])
+  const gutter = (n: number): L => {
+    const at = top + n
+    return range && at >= range.first && at <= range.last ? RAIL : [sp(' '.repeat(GUTTER))]
+  }
+  return shown.map((line, n) => [...clip([...gutter(n), ...line], width - BAR), ...(bar[n] ?? [])])
 }

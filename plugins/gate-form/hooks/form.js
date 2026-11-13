@@ -201,7 +201,7 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#666666" };
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#808080" };
 function hovered(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
@@ -222,16 +222,16 @@ var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var rail = (style) => [sp(SYMBOL.bar, style), sp("  ")];
-var MUTED = { cyan: "#3d6f78", green: "#4d7a4d", yellow: "#857640", red: "#8a4a4a", gray: "#4a4a4a", [BRAND.pink]: "#7a3d58" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#6e3a52", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#5e2f45", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#24313f", color: "#8a8a8a" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#262626", color: "#8a8a8a" }, [SCROLL.track]: { bg: "#2a2a2a" }, [SCROLL.thumb]: { bg: "#4a4a4a" } };
+var MUTED = { cyan: "#4f8a95", green: "#5f965f", yellow: "#a08f4e", red: "#a85c5c", gray: "#5c5c5c", [BRAND.pink]: "#94496b" };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#86465f", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#733a55", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#2b3b4c", color: "#a0a0a0" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#2c2c2c", color: "#a0a0a0" }, [SCROLL.track]: { bg: "#303030" }, [SCROLL.thumb]: { bg: "#585858" } };
 function muted(span) {
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
-    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#3a3a3a", color: "#8a8a8a" }, dim: false };
+    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#424242", color: "#a0a0a0" }, dim: false };
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
-  return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
+  return { ...span, color: span.dim ? "#6a6a6a" : "#a0a0a0", dim: false };
 }
 // packages/mod-kit/src/widgets/brand-bar.ts
 var fit = (text, room) => padCells(cellWidth(text) <= room ? text : `${cutCells(text, Math.max(0, room - 1))}…`, room);
