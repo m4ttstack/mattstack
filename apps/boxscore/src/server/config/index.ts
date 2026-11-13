@@ -29,7 +29,7 @@ export interface Env {
 }
 
 export interface BoxscoreSettings {
-  forge: Forge;
+  forge?: Forge;
   projects: string[];
   roster: RosterEntry[];
   /** Everyone in the org, whatever their team: who counts as a known person rather than a bot. */

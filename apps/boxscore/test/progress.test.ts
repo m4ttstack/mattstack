@@ -27,7 +27,6 @@ afterAll(() => {
 const ENV: Env = { baseUrl: 'https://gl.example', token: 'tkn' };
 
 const SETTINGS: BoxscoreSettings = {
-  forge: 'gitlab',
   projects: ['org/app'],
   roster: [{ username: 'alice' }],
   orgRoster: [{ username: 'alice' }],

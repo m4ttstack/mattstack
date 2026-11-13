@@ -148,7 +148,6 @@ function settings(over: Partial<BoxscoreSettings> = {}): BoxscoreSettings {
   const hiddenMembers = over.hiddenMembers ?? [];
   const hidden = new Set(hiddenMembers);
   return {
-    forge: 'gitlab',
     projects: ['g/p'],
     roster,
     orgRoster: roster,
