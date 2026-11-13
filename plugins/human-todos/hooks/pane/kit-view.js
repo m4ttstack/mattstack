@@ -982,8 +982,9 @@ var kit_view_default = kitClient((props, ui) => {
   ui.onKey((ev) => {
     if (!ui.focused || stops.length === 0)
       return;
-    if (ev.key === "up" || ev.key === "down") {
-      const at = Math.min(Math.max(0, here.at + (ev.key === "up" ? -1 : 1)), stops.length - 1);
+    const step = ev.key === "up" || ev.key === "tab" && ev.shift ? -1 : ev.key === "down" || ev.key === "tab" ? 1 : 0;
+    if (step !== 0) {
+      const at = Math.min(Math.max(0, here.at + step), stops.length - 1);
       if (at !== here.at)
         select(at, mainOf(stops[at]));
       return;
