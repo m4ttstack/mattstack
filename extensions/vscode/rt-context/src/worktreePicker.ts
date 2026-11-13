@@ -4,7 +4,7 @@ import { existsSync, promises as fs } from 'fs';
 import { extractLinearId } from './branchParser';
 import { branchCache } from './cache';
 import { fetchBranchData, openLinearUrl } from './statusBar';
-import { listWorktrees, getGitApi, findWorkspaceRepo, getRemoteUrl } from './git';
+import { listWorktrees, getGitApi, findWorkspaceRepo } from './git';
 import { resolveRepoForge } from './repoForge';
 import { forgeWords, ownBranchData } from './forge';
 

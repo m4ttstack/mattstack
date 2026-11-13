@@ -233,11 +233,11 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
             if (data) {
               hitCount++;
               branchCache.set(branch, data);
-            } else if (
-              repoForge.forge === 'github' &&
-              !ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl)
-            ) {
-              branchCache.delete(branch);
+            } else if (repoForge.forge === 'github') {
+              const existing = branchCache.get(branch);
+              if (existing && !ownBranchData(existing, repoForge.forge, repoForge.remoteUrl)) {
+                branchCache.delete(branch);
+              }
             }
           }
         }
