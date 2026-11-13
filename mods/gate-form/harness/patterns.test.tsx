@@ -77,7 +77,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await band.unmount()
   })
 
-  test(`the band's kit components draw one row, and a click on its Open button reopens the pane (${surface})`, async ($, on) => {
+  test(`the band's kit components draw one row, and a click on its Show button reopens the pane (${surface})`, async ($, on) => {
     const panes = stubPanes(on)
     await runDemo($)
     panes.clear()
@@ -85,9 +85,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const client = (await band.find({ type: 'Client' }))!
     const { title, label } = client.props.props as { title: string; label: string }
     const rows = await rowsOf(band, client.key!)
-    expect(rows).toEqual([`\u{EBD2} ${label}  ${title}    Open  `])
+    expect(rows).toEqual([`\u{EBD2} ${label}  ${title}    Show  `])
 
-    const open = cellOf(rows, 'Open')
+    const open = cellOf(rows, 'Show')
     await band.pointer({ type: 'down', ...open, button: 'left' })
     await band.pointer({ type: 'up', ...open, button: 'left' })
     expect([...panes.keys()]).toEqual(['gate-form'])
