@@ -78,7 +78,7 @@ Evidence uploads through `gh --attach` already go through
 | 3 | `gh pr view <ref>`: branch name only; then `git worktree list` and `worktree_provision` | `mr_resolve_branch`: `sourceBranch`, `state` (`opened`, `merged`, `closed`), `author`, `trees` on that branch, and on GitHub `sourceProjectPath` | Skips `git worktree list` as GitLab does. A merged or closed PR takes the same checkout and the report names the state, as on GitLab. Errors quote GitHub's text (for example `GitHub has no pull request #N in owner/repo, or the token cannot read it`) |
 | 3 | Fork PR: the fork's branch name goes to `worktree_provision`, which finds no such branch on origin and silently makes a NEW branch from the default branch | Fork PR: `sourceProjectPath` is not this repo (or null for a deleted fork, or absent when the token cannot see the head repo), and `trees` is empty | Behaviour change B1 |
 | 4 | `gh pr list --search <id>`: open PRs only, gh's default 30 rows, no cut signal | `mr_list` with `search`, `state: all`, `limit: 200`; `truncated` when more exist; GitHub search matches title, body and comments | Behaviour change B2. The skill keeps only rows whose `sourceBranch` or `title` carries the id, so comment-only matches drop out |
-| 5 | `gh pr create`: ready PR (not draft); errors when a PR for the branch exists | `mr_create`: `draft` defaults to true, so the GitHub node passes `draft: false`; without `ifExists` an existing PR comes back as GitHub's 422 error | Ready PRs as today (CodeRabbit skips drafts by default). Title and description are required inputs; the worker writes them, as the brief already asks |
+| 5 | `gh pr create`: ready PR (not draft); errors when a PR for the branch exists | `mr_create`: `draft` defaults to true, so the GitHub node passes `draft: false`; without `ifExists` an existing PR comes back as GitHub's 422 error | Ready PRs as today (CodeRabbit skips drafts by default). `title` is required and the node passes `description` too; the worker writes both |
 
 ## Behaviour changes (labelled, agreed through herd_ask gate f1d1097e)
 
@@ -239,7 +239,8 @@ skill with fixture tool results:
    today's order, and a GitLab result is never treated as a fork.
 8. GitLab regression, sync-open-mrs: `mr_map {repoName, author: me}` then
    the same plan, gates and sweep as today.
-9. GitLab regression, map-open-mrs: one `mr_map` call and the same table.
+9. GitLab regression, map-open-mrs: one `mr_map` call and the same table
+   (bar the planned "MR or PR ref" header).
 
 Then: the strict skills check, certify on each folder, the MCP tools
 reference test, `bun run docs:check`, `bun run typecheck`, `bun run
