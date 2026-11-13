@@ -215,8 +215,8 @@ function ctxFor(render, owner, view) {
       render.handlers.set(key, run);
       return key;
     },
-    parts: (nodes) => partsOf(render, nodes, view),
-    layout: (nodes) => ctx.parts(nodes).flatMap((part) => ("text" in part) ? [[sp(part.text)]] : part.component.toLines(part.props, part.ctx))
+    parts: (nodes, over) => partsOf(render, nodes, { ...view, ...over }),
+    layout: (nodes, over) => ctx.parts(nodes, over).flatMap((part) => ("text" in part) ? [[sp(part.text)]] : part.component.toLines(part.props, part.ctx))
   };
   return ctx;
 }

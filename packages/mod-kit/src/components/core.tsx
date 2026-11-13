@@ -11,10 +11,12 @@ export type KitCtx = {
   focused: boolean
   // A key for `run`, unique to this component and stable while the tree keeps its shape.
   bind: (name: string, run: () => void) => string
-  // The kit components and text among `nodes`, each kit one with a ctx of its own.
-  parts: (nodes: unknown) => Part[]
-  layout: (nodes: unknown) => KitLine[]
+  // The kit components and text among `nodes`, each kit one with a ctx of its own; `view` overrides this ctx's width or focus for them.
+  parts: (nodes: unknown, view?: Partial<View>) => Part[]
+  layout: (nodes: unknown, view?: Partial<View>) => KitLine[]
 }
+
+type View = { width: number; focused: boolean }
 
 export type Part = { text: string } | { component: KitComponent<any>; props: any; ctx: KitCtx }
 
@@ -69,7 +71,7 @@ export function textOf(children: unknown): string {
   return ''
 }
 
-export function ctxFor(render: Render, owner: string, view: { width: number; focused: boolean }): KitCtx {
+export function ctxFor(render: Render, owner: string, view: View): KitCtx {
   const ctx: KitCtx = {
     ...view,
     bind: (name, run) => {
@@ -77,8 +79,8 @@ export function ctxFor(render: Render, owner: string, view: { width: number; foc
       render.handlers.set(key, run)
       return key
     },
-    parts: nodes => partsOf(render, nodes, view),
-    layout: nodes => ctx.parts(nodes).flatMap(part => ('text' in part ? [[sp(part.text)]] : part.component.toLines(part.props, part.ctx))),
+    parts: (nodes, over) => partsOf(render, nodes, { ...view, ...over }),
+    layout: (nodes, over) => ctx.parts(nodes, over).flatMap(part => ('text' in part ? [[sp(part.text)]] : part.component.toLines(part.props, part.ctx))),
   }
   return ctx
 }
@@ -86,7 +88,7 @@ export function ctxFor(render: Render, owner: string, view: { width: number; foc
 type Node = { type?: unknown; props?: { key?: unknown; children?: unknown }; children?: unknown }
 
 // A node that is no marker but has children (a fragment, a Box) is walked through; a leaf engine element cannot become lines.
-function partsOf(render: Render, nodes: unknown, view: { width: number; focused: boolean }): Part[] {
+function partsOf(render: Render, nodes: unknown, view: View): Part[] {
   const out: Part[] = []
   const walk = (node: unknown): void => {
     if (node === null || node === undefined || typeof node === 'boolean') return

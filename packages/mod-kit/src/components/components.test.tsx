@@ -3,7 +3,7 @@ import type { ClientElements, ClientKeyEvent, ClientPointerEvent, ClientSurface,
 
 import { renderLines } from '../draw/render'
 import { hoverKeyAt, sp, widthOf, type Line } from '../draw/text'
-import { ACCENT, BRAND, FILL, SYMBOL } from '../draw/theme'
+import { ACCENT, BRAND, FILL, SYMBOL, muted } from '../draw/theme'
 import type { PointerState } from '../interact/pointer'
 import { brandBar } from '../widgets/brand-bar'
 import { buttonRow, buttonSpan } from '../widgets/buttons'
@@ -19,6 +19,7 @@ import { Panel } from './panel'
 import { Rail } from './rail'
 import { SelectList } from './select-list'
 import { TabStrip } from './tab-strip'
+import { Unfocused } from './unfocused'
 
 const ELEMENTS = { Box: 'Box', Text: 'Text' } as unknown as ClientElements
 const draw = (tree: () => unknown, frame: { focused?: boolean } = {}) => drawKit({ elements: ELEMENTS, look: { focused: frame.focused ?? true }, width: 40, focused: frame.focused ?? true }, tree)
@@ -122,6 +123,38 @@ describe('controls', () => {
     press(handlers, lines[0], 'Question 1')
     press(handlers, lines[0], '›')
     expect(got).toEqual(['tab 1', 'from 1'])
+  })
+})
+
+describe('Unfocused', () => {
+  test('draws its children muted and unclickable beside focused ones', () => {
+    const { lines, tree } = draw(() => (
+      <Panel width={40}>
+        <Button tone="brand">Live</Button>
+        <Unfocused>
+          <Button tone="brand">Dim</Button>
+          <SelectList choices={[{ label: 'One' }, { label: 'Two' }]} cursor={0} />
+        </Unfocused>
+      </Panel>
+    ))
+    const live = lines[0]!.find(s => s.t.includes('Live'))!
+    const dim = lines[1]!.find(s => s.t.includes('Dim'))!
+    expect(live.bg).toBe(BRAND.pink)
+    expect(live.action).toBeDefined()
+    expect(dim.bg).toBe(muted({ bg: BRAND.pink }).bg!)
+    expect(lines.slice(1).every(line => line.action === undefined && line.every(s => s.action === undefined && s.isLabel === undefined))).toBe(true)
+    expect(tree).toEqual(renderLines(lines, ELEMENTS, { focused: true }))
+  })
+
+  test('its children lay out as unfocused: an input field shows no cursor', () => {
+    const { lines } = draw(() => (
+      <Panel width={40}>
+        <Unfocused>
+          <InputField value="" placeholder="Type" width={20} />
+        </Unfocused>
+      </Panel>
+    ))
+    expect(lines[0]!.some(s => s.inverse)).toBe(false)
   })
 })
 
