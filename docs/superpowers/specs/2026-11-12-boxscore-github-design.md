@@ -120,7 +120,14 @@ On GitLab nothing in `readSettings()` changes.
   project is refused, the `ConfigError` carries the first refusal's own text
   (it names `rt daemon track <repo> live branches`). `readSecrets()` is still
   called, for `linearApiKey` only; its `gitlabToken` is ignored on GitHub.
-  Under vitest the daemon call is a seam, like `readSecrets`'s `deps`.
+  The daemon call passes a `sockPath` resolved from HOME at call time, as
+  `config/secrets.ts` does, and under vitest it is a seam, like
+  `readSecrets`'s `deps`.
+
+`forge` is optional on `Env` and on both response types; absent means
+GitLab. Existing typed literals in tests (`test/refresh.test.ts`,
+`test/progress.test.ts`, `src/app/App.test.tsx`, `test/builders.ts`) keep
+compiling unchanged.
 
 `makeProvider(env)` (`server/source/provider.ts`) builds
 `new GitHubProvider(env.baseUrl, env.token)` when `env.forge === 'github'`,
@@ -168,11 +175,22 @@ Per step:
 - `labels` come from the index row already stored (the index read carries
   them).
 - `restRequest('GET', '/repos/<o>/<r>/pulls/<n>/commits?per_page=100&page=K')`,
-  paged: each commit whose `author.login` is a roster username becomes a
-  `StoredPushEvent { username, createdAt: commit.author.date, repositoryId:
-  'github:<owner>/<repo>' }`. A commit with `author: null` is skipped.
-  GitHub returns at most 250 commits per PR; a PR at that cap adds a
-  warning.
+  paged. For each list item `c` in the response array: the GitHub user is
+  `c.author?.login` (the top-level `author`, GitHub's linked account) and
+  the author date is `c.commit.author.date` (the git commit's author
+  block). An item whose `c.author?.login` matches a roster username
+  (case-insensitive, stored with the roster's spelling) becomes a
+  `StoredPushEvent { username, createdAt: c.commit.author.date,
+  repositoryId: 'github:<owner>/<repo>' }`. An item with `c.author: null`
+  is skipped. Test fixtures use this exact nesting, copied from GitHub's
+  documented response. GitHub returns at most 250 commits per PR; a PR at
+  that cap adds a warning.
+
+`fetchSingleMR` returns `null` when its GraphQL fill fails and reports the
+failure only through its optional `onWarning` callback. The adapter passes
+`onWarning`, and a `null` result or a `fill` warning counts as that PR's
+detail failure (thrown inside the per-PR try, so it lands in
+`mr_detail_partial` with its message), never a silent skip.
 
 The commit events are written with the metrics in the same batch flush. The
 store's push-event key (username, timestamp, repository) makes a re-fetch
@@ -182,16 +200,32 @@ stored.
 The metrics step's eligible set is unchanged (roster-authored in window, or a
 revert by anyone).
 
+GitHub logins are case-insensitive, and the metrics compare usernames
+exactly. So the GitHub adapter rewrites every login it stores (PR author,
+note authors, approvers, commit authors, run actors) to the roster's
+spelling when it matches a roster or org-roster username ignoring case,
+and leaves any other login as GitHub returned it.
+
 **Pipelines:** per (repo, roster user),
 `restRequest('GET', '/repos/<o>/<r>/actions/runs?actor=<login>&created=<start>..<end>&per_page=100&page=K')`,
 paged. Each run becomes `StoredPipeline { id: 'github:run:<id>', projectPath,
 username: <login>, status, createdAt: run.created_at }`. Status: conclusion
 `success` gives `success`, `failure` gives `failed`, `cancelled` gives
-`canceled`, any other conclusion passes through lowercased, and a run with no
-conclusion yet takes its `status` lowercased.
+`canceled`, any other conclusion (`timed_out`, `startup_failure`, `skipped`,
+`neutral`, `action_required`) passes through lowercased and counts as
+"other", as the approved answer says, and a run with no conclusion yet
+takes its `status` lowercased. `created=` bounds are sent as
+`YYYY-MM-DDTHH:MM:SSZ` (no milliseconds). GitHub stops a filtered run list
+at 1000 results; a (repo, user) pair whose `total_count` exceeds 1000 adds a
+`pipeline_fetch_failed`-coded warning saying the count is capped.
 
 A `restRequest` response that is not ok raises an error naming the path and
 status, caught by the step's existing per-item warning handling.
+
+Cancel works between requests on GitHub, not mid-request: glance's GitHub
+`restRequest`, `fetchSingleMR` and `fetchMRDiscussions` take no signal. The
+adapter checks the signal before each call, as `runRefresh` already does
+per item.
 
 ### 4. Reads and cost (approved)
 
@@ -229,8 +263,13 @@ fixture responses carry `forge` too.
 - `parseMrUrl` becomes forge-aware: on GitHub it parses
   `https://github.com/<owner>/<repo>/pull/<n>` (with an optional trailing
   path, query or hash) to `{ projectPath: '<owner>/<repo>', iid: n }`.
-- The attachment filter takes attachments whose `sourceType` is the team's
-  forge (`'gitlab'` or `'github'`).
+- On GitLab the attachment filter stays `sourceType === 'gitlab'`. On GitHub
+  it takes every attachment whose URL parses as a github.com PR, whatever
+  its `sourceType`: Linear's value for GitHub PR attachments is unverified
+  here (no live sample), and the URL shape is the evidence that matters.
+- The parsed `<owner>/<repo>` is matched to a configured project
+  case-insensitively and replaced by the configured spelling, so `mrKey`
+  lookups hit.
 - The rest of the grading is unchanged.
 
 `resolveLinearTickets` gets the forge through its existing arguments or
@@ -254,8 +293,12 @@ from the response's `forge`:
   evidence summary, `server/metrics/evidence.ts:270-281`).
 - Pipelines on GitHub: "Actions runs" where the copy names the source.
 - Server-built evidence summaries and table headings in `evidence.ts`.
-- `app/lib/progress.ts`, `app/access/LockedPage.tsx`, the refresh status, and
-  the setup hints in `leaderboard.ts`.
+- `app/lib/progress.ts`, `app/access/LockedPage.tsx` and its server copy in
+  `server/viewer-scope.ts`, `app/refresh/RefreshStatus.tsx`,
+  `app/leaderboard/StandingsTable.tsx`, the `app/detail/evidence/*`
+  components, the setup hints in `leaderboard.ts`, and the progress labels
+  and warning texts in `refresh/run.ts` ("Fetching MR details", "MRs for
+  ...").
 
 The words come from one helper keyed on forge (noun singular and plural,
 forge name, activity noun), so a string never hard-codes either forge. The
@@ -274,8 +317,9 @@ GitLab fixture to confirm it is unchanged.
 
 `apps/boxscore/README.md` gains a GitHub section: setup (track one project
 with rt, or set `GITHUB_TOKEN`), what each metric reads on GitHub, and the
-limits (coding days are commit dates on PRs, 250 commits per PR, github.com
-only).
+limits (coding days are commit dates on PRs, 250 commits per PR, 1000 Actions
+runs per person per repo per window, github.com only, and commits
+force-pushed off an open PR stay counted because the store never deletes).
 
 ## Calls made (mine, for review)
 
@@ -313,8 +357,9 @@ only).
 - A GitHub refresh sends no request to a GitLab host, and the GitLab token
   never appears in a GitHub request (test with a recording fake).
 - On GitLab, the requests a refresh makes and the response's copy are
-  unchanged (existing tests stay green unmodified, plus a test pinning
-  `forge: 'gitlab'`).
+  unchanged (existing tests stay green unmodified, which `forge` being
+  optional allows, plus a test pinning that a GitLab team's response
+  carries `forge: 'gitlab'`).
 - Evidence links point at `github.com/<owner>/<repo>/pull/<n>` on GitHub.
 - `dependabot[bot]` is excluded from review metrics and shows as a bot.
 - A Linear issue with a GitHub PR attachment is credited to the PR's author.
