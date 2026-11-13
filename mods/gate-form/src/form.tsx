@@ -1,5 +1,5 @@
 import type { ClientSurface } from 'claude-code'
-import { hitAt, hoverKeyAt, renderLines } from '@mattstack/mod-kit'
+import { attachPointer, renderLines } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
 import { keyEffect, perform, type Effect } from './form/input'
@@ -28,25 +28,13 @@ export default function GateForm(props: Props, surface: ClientSurface<State>) {
     engage()
     apply(keyEffect(ev, form, s))
   })
-  // A press acts on release, over the control it started on, as a native button does; releasing elsewhere cancels it.
-  surface.onPointer(ev => {
-    const key = hoverKeyAt(lines, ev.y, ev.x)
-    if (ev.type === 'down') {
-      engage()
-      // The click that brings a dimmed form back only focuses it, as a window's first click does.
-      if (!focused || ev.button !== 'left' || !key || s.phase !== 'active') return
-      return surface.setState({ ...s, pressed: key, hover: key })
-    }
-    if (ev.type === 'up') {
-      if (s.pressed === undefined) return
-      const released = { ...s, pressed: undefined }
-      const action = key === s.pressed ? hitAt(lines[ev.y], ev.x) : undefined
-      return apply((action && perform(action, form, released)) || { state: released })
-    }
-    const hover = ev.type === 'leave' ? undefined : key
-    if (hover !== s.hover && s.phase === 'active') surface.setState({ ...s, hover })
+
+  const { look } = attachPointer(surface, lines, {
+    focused,
+    isActive: () => s.phase === 'active',
+    onEngage: engage,
+    onAction: action => apply(perform(action, form, { ...s, pressed: undefined })),
   })
 
-  // A held control shows pressed only while the pointer is still over it.
-  return renderLines(lines, surface.elements, { focused, hover: s.hover, pressed: s.pressed === s.hover ? s.pressed : undefined })
+  return renderLines(lines, surface.elements, look)
 }

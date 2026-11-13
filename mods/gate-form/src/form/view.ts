@@ -1,4 +1,4 @@
-import { ACCENT, BRAND, DIM, DONE, GRAY, ICON, SYMBOL, WARN, brandBar, buttonRow, hang, rail, revealTab, selectList, sp, tabStrip, textCursor, withAction, type Button, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, SYMBOL, WARN, brandBar, fitToRows, hang, navRow as navButtons, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -64,17 +64,15 @@ function questionPage(q: FormQuestion, s: State, i: number, view: View): L[] {
 
 // Each entry is clickable while the form is open, so the review list is also how you go back to change or finish an answer.
 function reviewList(form: Form, s: State, view: View): L[] {
-  const bar = rail<Action>(GRAY)
   const isOpen = s.phase === 'active'
-  return form.questions.flatMap((q, i) => {
-    const isDone = s.answered[i]
-    const symbol = isDone ? sp(ICON.done, DONE) : sp(ICON.missing, WARN)
-    const entry = [
-      ...hang([symbol, sp('  ')], bar, q.label, view.width, isOpen ? { isLabel: true } : {}),
-      ...(isDone ? hang(bar, bar, answerSummary(q, s, i), view.width, DIM) : [[...bar, sp('not answered', WARN)]]),
-    ]
-    return [[sp(SYMBOL.bar, GRAY)], ...(isOpen ? withAction<Action>(entry, { type: 'page', page: i }) : entry)]
-  })
+  return reviewItems<Action>(
+    form.questions.map((q, i) => ({
+      label: q.label,
+      summary: s.answered[i] ? answerSummary(q, s, i) : undefined,
+      ...(isOpen && { action: { type: 'page', page: i } as const }),
+    })),
+    view.width,
+  )
 }
 
 function reviewPage(form: Form, s: State, view: View): L[] {
@@ -114,15 +112,18 @@ export function withTabInView(form: Form, s: State, width: number): State {
 function navRow(form: Form, s: State, view: View): L {
   const n = form.questions.length
   const page = s.page
-  const left: Button<Action>[] = []
-  left.push({ label: `${ICON.back} Back`, action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 })
-  if (page < n - 1) left.push({ label: `Next ${ICON.next}`, action: { type: 'advance' }, tone: 'secondary' })
-  if (page === n - 1) left.push({ label: `Review ${ICON.next}`, action: { type: 'advance' }, tone: 'secondary' })
-  if (page === n) left.push({ label: unansweredCount(s) === 0 ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand' })
-  const chat: Button<Action> = s.chatArmed
+  const back: Button<Action> = { label: `${ICON.back} Back`, action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 }
+  const forward = (label: string): Button<Action> => ({ label, action: { type: 'advance' }, tone: 'secondary' })
+  const next =
+    page < n - 1
+      ? forward(`Next ${ICON.next}`)
+      : page === n - 1
+        ? forward(`Review ${ICON.next}`)
+        : { label: unansweredCount(s) === 0 ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand' } satisfies Button<Action>
+  const aside: Button<Action> = s.chatArmed
     ? { label: `${ICON.chat} Press again to chat`, action: { type: 'chat' }, tone: 'caution' }
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }
-  return buttonRow(left, chat, view.width)
+  return navButtons({ back, next, aside }, view.width)
 }
 
 // The review page has none: its Back and Submit buttons say it.
@@ -133,10 +134,8 @@ function hint(form: Form, s: State, view: View): string | undefined {
   return choicesOf(q).length === 0 ? '←→ pages' : '←→ pages  ↑↓ move'
 }
 
-type Drawn = { head: L[]; page: L[]; foot: L[] }
-
-function draw(form: Form, s: State, view: View, withContext: boolean): Drawn {
-  const head: L[] = [brandBar<Action>('mattstack decision gate', view.width, { type: 'minimize' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
+function draw(form: Form, s: State, view: View, withContext: boolean): Drawn<Action> {
+  const head: L[] = [brandBar<Action>('mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
   if (s.phase !== 'active') return { head, page: closedPage(form, s, view), foot: [] }
   if (withContext && form.context) {
     const first = [sp<Action>(SYMBOL.bar, GRAY), sp('  '), sp(ICON.info, ACCENT), sp(' ')]
@@ -168,15 +167,8 @@ function tallestQuestion(form: Form, s: State, view: View): number {
   return tallest
 }
 
-// What fits in `rows`: the head, then the end of the body. When the body overflows, the form context gives up its room first.
 // Every page is padded to the tallest question's height, room allowing, so the buttons keep their row as you page.
 export function visibleLines(form: Form, s: State, view: View, rows: number): L[] {
-  const roomUnder = (head: L[]) => Math.max(6, rows - head.length)
-  const full = draw(form, s, view, true)
-  const { head, page, foot } = full.page.length + full.foot.length > roomUnder(full.head) ? draw(form, s, view, false) : full
-  const room = roomUnder(head)
-  const height = s.phase === 'active' ? Math.min(tallestQuestion(form, s, view), room - foot.length) : 0
-  const padding: L[] = Array.from({ length: Math.max(0, height - page.length) }, () => [sp(SYMBOL.bar, ACCENT)])
-  const body = [...page, ...padding, ...foot]
-  return [...head, ...body.slice(Math.max(0, body.length - room))]
+  const pad = s.phase === 'active' ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
+  return fitToRows(draw(form, s, view, true), rows, () => draw(form, s, view, false), pad)
 }

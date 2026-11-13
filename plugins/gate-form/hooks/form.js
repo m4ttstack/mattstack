@@ -191,29 +191,6 @@ function brandBar(label, width, hide) {
   const button = ` ${ICON.minimize} Hide `;
   return [sp(fit(text, width - button.length - 1), look), sp(button, { bg: BRAND.pinkDeep, color: BRAND.plum, action: hide }), sp(" ", look)];
 }
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
-var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width) {
-  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
-  return line;
-}
 // packages/mod-kit/src/widgets/input-field.ts
 function inputField(value, placeholder, width, showCursor) {
   const room = width - 2;
@@ -229,6 +206,7 @@ function inputField(value, placeholder, width, showCursor) {
   const shown = value.length >= room ? value.slice(value.length - room + 1) : value;
   return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
 }
+
 // packages/mod-kit/src/widgets/select-list.ts
 function selectList(spec) {
   const max = spec.maxShown ?? 8;
@@ -338,6 +316,92 @@ function textCursor(value, placeholder, showCursor) {
   if (value === "")
     return [sp(placeholder.slice(0, 1), { inverse: true }), sp(placeholder.slice(1), DIM)];
   return [sp(value), sp(" ", { inverse: true })];
+}
+// packages/mod-kit/src/interact/pointer.ts
+function attachPointer(surface, lines, opts) {
+  const s = surface.state;
+  const hover = s?.hover;
+  const held = s?.pressed;
+  const look = { focused: opts.focused, hover, pressed: held === hover ? held : undefined };
+  if (s === undefined)
+    return { look };
+  const isActive = opts.isActive ?? (() => true);
+  surface.onPointer((ev) => {
+    const key = hoverKeyAt(lines, ev.y, ev.x);
+    if (ev.type === "down") {
+      opts.onEngage?.();
+      if (!opts.focused || ev.button !== "left" || !key || !isActive())
+        return;
+      return surface.setState({ ...s, pressed: key, hover: key });
+    }
+    if (ev.type === "up") {
+      if (s.pressed === undefined)
+        return;
+      surface.setState({ ...s, pressed: undefined });
+      const action = key === s.pressed ? hitAt(lines[ev.y], ev.x) : undefined;
+      if (action !== undefined)
+        opts.onAction(action);
+      return;
+    }
+    const next = ev.type === "leave" ? undefined : key;
+    if (next !== s.hover && isActive())
+      surface.setState({ ...s, hover: next });
+  });
+  return { look };
+}
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
+var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
+var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width) {
+  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
+  return line;
+}
+// packages/mod-kit/src/patterns/page-shell.ts
+function padToHeight(page, height, filler) {
+  const padding = Array.from({ length: Math.max(0, height - page.length) }, () => [...filler]);
+  return [...page, ...padding];
+}
+function fitToRows(drawn, rows, withoutContext, pad) {
+  const roomUnder = (head) => Math.max(6, rows - head.length);
+  const { head, page, foot } = drawn.page.length + drawn.foot.length > roomUnder(drawn.head) ? withoutContext() : drawn;
+  const room = roomUnder(head);
+  const padded = pad ? padToHeight(page, Math.min(pad.height, room - foot.length), pad.filler) : page;
+  const body = [...padded, ...foot];
+  return [...head, ...body.slice(Math.max(0, body.length - room))];
+}
+function navRow(spec, width) {
+  return buttonRow(spec.next ? [spec.back, spec.next] : [spec.back], spec.aside, width);
+}
+function reviewList(items, width) {
+  const bar = rail(GRAY);
+  return items.flatMap((item) => {
+    const isDone = item.summary !== undefined;
+    const symbol = isDone ? sp(ICON.done, DONE) : sp(ICON.missing, WARN);
+    const entry = [
+      ...hang([symbol, sp("  ")], bar, item.label, width, item.action !== undefined ? { isLabel: true } : {}),
+      ...isDone ? hang(bar, bar, item.summary, width, DIM) : [[...bar, sp("not answered", WARN)]]
+    ];
+    if (item.action !== undefined)
+      for (const line of entry)
+        line.action = item.action;
+    return [[sp(SYMBOL.bar, GRAY)], ...entry];
+  });
 }
 // mods/gate-form/src/form/state.ts
 var WRITE_IN = "__other__";
@@ -466,8 +530,8 @@ function chat(form, s) {
   return { state: { ...disarm(s), phase: "chat" }, post: { type: "chat", formId: form.id, draft: answersOf(form, s) } };
 }
 function perform(action, form, armed) {
-  if (action.type === "minimize")
-    return { state: armed, post: { type: "minimize", formId: form.id } };
+  if (action.type === "hide")
+    return { state: armed, post: { type: "hide", formId: form.id } };
   if (armed.phase !== "active")
     return;
   if (action.type === "chat")
@@ -573,30 +637,25 @@ function questionPage(q, s, i, view) {
   }));
   return lines;
 }
-function reviewList(form, s, view) {
-  const bar = rail(GRAY);
+function reviewList2(form, s, view) {
   const isOpen = s.phase === "active";
-  return form.questions.flatMap((q, i) => {
-    const isDone = s.answered[i];
-    const symbol = isDone ? sp(ICON.done, DONE) : sp(ICON.missing, WARN);
-    const entry = [
-      ...hang([symbol, sp("  ")], bar, q.label, view.width, isOpen ? { isLabel: true } : {}),
-      ...isDone ? hang(bar, bar, answerSummary(q, s, i), view.width, DIM) : [[...bar, sp("not answered", WARN)]]
-    ];
-    return [[sp(SYMBOL.bar, GRAY)], ...isOpen ? withAction(entry, { type: "page", page: i }) : entry];
-  });
+  return reviewList(form.questions.map((q, i) => ({
+    label: q.label,
+    summary: s.answered[i] ? answerSummary(q, s, i) : undefined,
+    ...isOpen && { action: { type: "page", page: i } }
+  })), view.width);
 }
 function reviewPage(form, s, view) {
   const missing = unansweredCount(s);
   const bar = rail(ACCENT);
-  const lines = [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, DONE), sp("  Submit your answers?", { bold: true })]];
+  const lines = [...reviewList2(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, DONE), sp("  Submit your answers?", { bold: true })]];
   if (missing > 0)
     lines.push([...bar, sp(`${missing} not answered; left out if you submit now`, WARN)]);
   return lines;
 }
 function closedPage(form, s, view) {
   const end = s.phase === "submitted" ? [sp(SYMBOL.end, GRAY), sp("  Answers sent.")] : [sp(SYMBOL.end, GRAY), sp("  Set aside to chat about it.", WARN)];
-  return [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], end];
+  return [...reviewList2(form, s, view), [sp(SYMBOL.bar, GRAY)], end];
 }
 function tabList(form, s) {
   const n = form.questions.length;
@@ -615,19 +674,14 @@ function tabs(form, s, view) {
 function withTabInView(form, s, width) {
   return { ...s, tabsFrom: revealTab(tabList(form, s), s.page, width, s.tabsFrom) };
 }
-function navRow(form, s, view) {
+function navRow2(form, s, view) {
   const n = form.questions.length;
   const page = s.page;
-  const left = [];
-  left.push({ label: `${ICON.back} Back`, action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === 0 });
-  if (page < n - 1)
-    left.push({ label: `Next ${ICON.next}`, action: { type: "advance" }, tone: "secondary" });
-  if (page === n - 1)
-    left.push({ label: `Review ${ICON.next}`, action: { type: "advance" }, tone: "secondary" });
-  if (page === n)
-    left.push({ label: unansweredCount(s) === 0 ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand" });
-  const chat = s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
-  return buttonRow(left, chat, view.width);
+  const back = { label: `${ICON.back} Back`, action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === 0 };
+  const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
+  const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : { label: unansweredCount(s) === 0 ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand" };
+  const aside = s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
+  return navRow({ back, next, aside }, view.width);
 }
 function hint(form, s, view) {
   if (!view.focused)
@@ -638,7 +692,7 @@ function hint(form, s, view) {
   return choicesOf(q).length === 0 ? "←→ pages" : "←→ pages  ↑↓ move";
 }
 function draw(form, s, view, withContext) {
-  const head = [brandBar("mattstack decision gate", view.width, { type: "minimize" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
+  const head = [brandBar("mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
   if (s.phase !== "active")
     return { head, page: closedPage(form, s, view), foot: [] };
   if (withContext && form.context) {
@@ -653,7 +707,7 @@ function draw(form, s, view, withContext) {
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
   const keys = hint(form, s, view);
   const hintLines = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)];
-  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], [sp(" ")], navRow(form, s, view)];
+  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], [sp(" ")], navRow2(form, s, view)];
   return { head, page, foot };
 }
 function tallestQuestion(form, s, view) {
@@ -668,14 +722,8 @@ function tallestQuestion(form, s, view) {
   return tallest;
 }
 function visibleLines(form, s, view, rows) {
-  const roomUnder = (head) => Math.max(6, rows - head.length);
-  const full = draw(form, s, view, true);
-  const { head, page, foot } = full.page.length + full.foot.length > roomUnder(full.head) ? draw(form, s, view, false) : full;
-  const room = roomUnder(head);
-  const height = s.phase === "active" ? Math.min(tallestQuestion(form, s, view), room - foot.length) : 0;
-  const padding = Array.from({ length: Math.max(0, height - page.length) }, () => [sp(SYMBOL.bar, ACCENT)]);
-  const body = [...page, ...padding, ...foot];
-  return [...head, ...body.slice(Math.max(0, body.length - room))];
+  const pad = s.phase === "active" ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
+  return fitToRows(draw(form, s, view, true), rows, () => draw(form, s, view, false), pad);
 }
 
 // mods/gate-form/src/form.tsx
@@ -699,26 +747,13 @@ function GateForm(props, surface) {
     engage();
     apply(keyEffect(ev, form, s));
   });
-  surface.onPointer((ev) => {
-    const key = hoverKeyAt(lines, ev.y, ev.x);
-    if (ev.type === "down") {
-      engage();
-      if (!focused || ev.button !== "left" || !key || s.phase !== "active")
-        return;
-      return surface.setState({ ...s, pressed: key, hover: key });
-    }
-    if (ev.type === "up") {
-      if (s.pressed === undefined)
-        return;
-      const released = { ...s, pressed: undefined };
-      const action = key === s.pressed ? hitAt(lines[ev.y], ev.x) : undefined;
-      return apply(action && perform(action, form, released) || { state: released });
-    }
-    const hover = ev.type === "leave" ? undefined : key;
-    if (hover !== s.hover && s.phase === "active")
-      surface.setState({ ...s, hover });
+  const { look } = attachPointer(surface, lines, {
+    focused,
+    isActive: () => s.phase === "active",
+    onEngage: engage,
+    onAction: (action) => apply(perform(action, form, { ...s, pressed: undefined }))
   });
-  return renderLines(lines, surface.elements, { focused, hover: s.hover, pressed: s.pressed === s.hover ? s.pressed : undefined });
+  return renderLines(lines, surface.elements, look);
 }
 export {
   GateForm as default

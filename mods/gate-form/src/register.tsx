@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
-import { BRAND } from '@mattstack/mod-kit'
+import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, registerPaneRedraw, registerTranscriptSummary, showPane, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
 import { DEMO } from './gate/demo'
@@ -15,21 +15,18 @@ const formAtom = atom({ plugin: 'gate-form', key: 'form' } as const, null as For
 // The engine reports the pane's focus but not its Client's, so a click or key in the form sets this and typing in the prompt clears it.
 const keysAtom = atom({ plugin: 'gate-form', key: 'keysInForm' } as const, false)
 
-type FormMessage =
-  | { type: 'engaged'; formId: string }
-  | { type: 'minimize'; formId: string }
-  | { type: 'reopen'; formId: string }
-  | { type: 'answer'; formId: string; answers?: Record<string, unknown> }
-  | { type: 'chat'; formId: string; draft?: Record<string, unknown> }
+type FormMessage = { type: 'answer'; formId: string; answers?: Record<string, unknown> } | { type: 'chat'; formId: string; draft?: Record<string, unknown> }
+
+// A form closed before it was answered waits above the prompt, with a way back to it.
+async function waitingForm($: EngineInterface): Promise<Waiting | undefined> {
+  const form = await read($, formAtom)
+  return form && form.status === 'open' ? { formId: form.id, title: form.title } : undefined
+}
+
+const GATE_PANE: HideablePane = { id: PANE, label: 'mattstack gate waiting' }
 
 async function setKeysInForm($: EngineInterface, value: boolean): Promise<void> {
   if ((await read($, keysAtom)) !== value) await update($, keysAtom, () => value)
-}
-
-async function show($: EngineInterface, form: Form): Promise<void> {
-  await update($, formAtom, () => form)
-  await $.ui.open({ id: PANE, title: form.title, focus: true })
-  $.ui.invalidate('ui.render')
 }
 
 // Answers reach the agent as its next input: a tool call can't wait for a person past its 10s budget.
@@ -50,6 +47,9 @@ async function settle($: EngineInterface, formId: string, outcome: Outcome): Pro
 
 // A function declaration, not a const arrow: a bundler keeps it one, and the engine's source check requires it.
 export function register(on: On): void {
+  registerPaneRedraw(on)
+  registerTranscriptSummary(on, { plugin: 'gate-form', label: 'mattstack gate', summary: summaryOf })
+
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false })
     await $.command.register({ name: 'gate-form-demo', description: 'Open the gate form with a demo gate' })
@@ -59,7 +59,8 @@ export function register(on: On): void {
   on('command.run', { command: 'gate-form-demo' }, async $ => {
     const form = toForm(DEMO.title, DEMO.context, DEMO.questions, 'toast')
     if (typeof form === 'string') return { text: form }
-    await show($, form)
+    await update($, formAtom, () => form)
+    await showPane($, GATE_PANE, form.title)
     return { text: 'Demo gate form opened.' }
   })
 
@@ -67,26 +68,11 @@ export function register(on: On): void {
     const args = e as unknown as { title?: unknown; context?: unknown; questions?: unknown }
     const form = toForm(args.title, args.context, args.questions, 'agent')
     if (typeof form === 'string') return { deny: form }
-    await show($, form)
+    await update($, formAtom, () => form)
+    await showPane($, GATE_PANE, form.title)
     return {
       result: `Form ${form.id} is open in the pane with ${form.questions.length} questions. End your turn now: the user's answers arrive as your next input, as JSON keyed by question id.`,
     }
-  })
-
-  on('ui.message', async ($, e, next) => {
-    const message = e.data as FormMessage
-    // The band's Open, from the Client drawn above the prompt.
-    if (message.type === 'reopen') {
-      const form = await read($, formAtom)
-      if (form && form.id === message.formId && form.status === 'open') await show($, form)
-      return next(e)
-    }
-    if (e.requestId !== PANE) return next(e)
-    if (message.type === 'engaged') await setKeysInForm($, true)
-    if (message.type === 'minimize') await $.ui.close({ id: PANE })
-    if (message.type === 'answer') await settle($, message.formId, { status: 'answered', answers: message.answers ?? {} })
-    if (message.type === 'chat') await settle($, message.formId, { status: 'chat', draft: message.draft ?? {} })
-    return next(e)
   })
 
   on('prompt.edit', async ($, e, next) => {
@@ -102,47 +88,22 @@ export function register(on: On): void {
     return next(e)
   })
 
-  // The answers reach the agent in full; the transcript row shows one summary line, the answers themselves stay in the pane.
-  // The row's text is rewritten, as UserMessage's contract allows (the stored message is untouched), rather than redrawn;
-  // isExpanded can't gate it, since a short plugin message under its speaker label is drawn expanded too.
-  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    const origin = e.props.origin as { kind: string; name?: string }
-    if (origin.kind !== 'plugin' || origin.name !== 'gate-form') return next(e)
-    return next({ ...e, props: { ...e.props, text: `${BRAND.glyph} mattstack gate  ${summaryOf(e.props.text)}` } })
+  on('ui.message', async ($, e, next) => {
+    if (isEngaged(e)) await setKeysInForm($, true)
+    await paneMessage($, e, GATE_PANE, await waitingForm($))
+    if (e.requestId !== PANE) return next(e)
+    const message = e.data as FormMessage
+    if (message.type === 'answer') await settle($, message.formId, { status: 'answered', answers: message.answers ?? {} })
+    if (message.type === 'chat') await settle($, message.formId, { status: 'chat', draft: message.draft ?? {} })
+    return next(e)
   })
 
-  // The band reads the engine's pane list, which no atom write tracks, so a close redraws it.
-  on('ui.close', async ($, e, next) => {
-    const closed = await next(e)
-    $.ui.invalidate('ui.render')
-    return closed
-  })
-
-  // A form closed before it was answered waits above the prompt, with a way back to it. Other plugins' bands draw under it.
+  // Other plugins' bands draw under this one.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
-    const form = await read($, formAtom)
-    if (!form || form.status !== 'open' || (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced)) return next(e)
-    const els = $.ui.resolve(e)
-    const { Box, Text, Button } = els
-    const Client = 'Client' in els ? els.Client : undefined
-    const rest = await next(e)
-    // A surface without Client gets the engine's own Button.
-    const band = Client ? (
-      <Client key={`band-${form.id}`} module="./band.tsx" props={{ formId: form.id, title: form.title }} />
-    ) : (
-      <Box flexDirection="row" gap={2}>
-        <Text color={BRAND.pink}>{`${BRAND.glyph} mattstack gate waiting `}</Text>
-        <Text wrap="truncate-end">{form.title}</Text>
-        <Button key="open-gate-form" label="Open" onPress={() => show($, form)} />
-      </Box>
-    )
-    return (
-      <Box flexDirection="column">
-        {band}
-        {rest}
-      </Box>
-    )
+    const waiting = await waitingForm($)
+    if (!waiting || (await isPlaced($, GATE_PANE))) return next(e)
+    return bandAbovePrompt($, e, await next(e), waiting, GATE_PANE)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
