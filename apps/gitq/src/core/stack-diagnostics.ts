@@ -299,7 +299,7 @@ function classifyNode(
     return {
       branch: node.branch,
       situation: 'drift-parent-merged',
-      statusLine: 'MR target drifted — parent was merged',
+      statusLine: 'MR or PR target drifted: parent was merged',
       badge: { label: 'Needs sync', variant: 'merge' },
       primaryAction: { id: 'sync-stack', label: 'Sync Stack', variant: 'primary' },
       secondaryActions: [],
@@ -391,9 +391,9 @@ function classifyNode(
     return {
       branch: node.branch,
       situation: 'drift',
-      statusLine: 'MR target doesn\'t match stack parent',
+      statusLine: 'MR or PR target doesn\'t match stack parent',
       badge: { label: 'Drift', variant: 'negative' },
-      primaryAction: { id: 'retarget-mr', label: 'Fix MR target', variant: 'primary' },
+      primaryAction: { id: 'retarget-mr', label: 'Fix the target', variant: 'primary' },
       secondaryActions: [],
       blocked,
       removal: hasChildren
@@ -498,7 +498,7 @@ function classifyEdge(
       return {
         source, target,
         color: 'var(--color-negative-high-contrast)', dashed: false, dimmed: false,
-        badge: { icon: 'alert-triangle', label: 'Drift', message: 'MR target doesn\'t match the stack parent.', variant: 'negative' },
+        badge: { icon: 'alert-triangle', label: 'Drift', message: 'The MR or PR target doesn\'t match the stack parent.', variant: 'negative' },
       };
 
     case 'behind-parent':

@@ -31,7 +31,7 @@ export function buildPushPlan(
     const base = { branch: node.branch, localHead, remoteHead };
 
     if (node.status === 'merged') return { ...base, action: 'skip' as const, detail: 'merged' };
-    if (node.mrIid === null) return { ...base, action: 'skip' as const, detail: 'no MR; use gitq publish' };
+    if (node.mrIid === null) return { ...base, action: 'skip' as const, detail: 'no MR or PR; use gitq publish' };
     if (localHead !== null && localHead === remoteHead) return { ...base, action: 'current' as const };
     return { ...base, action: 'push' as const };
   });

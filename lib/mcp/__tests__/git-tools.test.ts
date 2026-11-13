@@ -1389,6 +1389,16 @@ describe("branch_sync_sweep", () => {
     expect(noTrees.error).toContain("daemon down");
     expect(ran).toBe(false);
   });
+  test("a failed listing names the forge's changes", async () => {
+    const failing = (identity: string) => deps({
+      resolveRepo: async () => ({ ok: true, identity }),
+      authoredOpenMrs: async () => ({ ok: false, error: "not logged in" }),
+    });
+    const gh = await branchSyncSweep("app", failing("remote:github.com%2Fo%2Fr"), undefined, async () => outcome("synced", "x"));
+    const gl = await branchSyncSweep("app", failing("remote:gitlab.com%2Fo%2Fr"), undefined, async () => outcome("synced", "x"));
+    expect(gh.error).toBe("could not list your open PRs: not logged in");
+    expect(gl.error).toBe("could not list your open MRs: not logged in");
+  });
   test("an unknown repo is refused before anything is listed", async () => {
     let listed = false;
     const r = await branchSyncSweep("nope", deps({ authoredOpenMrs: async () => { listed = true; return { ok: true, mrs: [], complete: true }; } }));

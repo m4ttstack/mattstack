@@ -72,7 +72,7 @@ enum ChecklistRowSnapshot {
 
     private static let tools: [PlanRow] = [
         PlanRow(id: "tool.daemon", kind: .tool, title: "Daemon",
-                why: "The daemon watches your repos and backs MRs and notifications.", required: false,
+                why: "The daemon watches your repos and backs MRs, PRs and notifications.", required: false,
                 status: .missing, detail: "not registered yet", action: step("Register services", "services.register"),
                 recheck: .onActivate, waitsForInstall: true),
         extensionRow(extensionID),

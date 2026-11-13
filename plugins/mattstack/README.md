@@ -11,7 +11,7 @@ mattstack is one piece of a small estate of tools. [rt](https://github.com/m4tts
 is the developer CLI (daemon, tray app, plugin system) that some of these
 skills shell out to. [gitq](https://github.com/m4ttstack/mattstack/tree/main/apps/gitq) is a
 deterministic stacked-branch engine for git. [board](https://github.com/m4ttstack/mattstack/tree/main/apps/board)
-is a one-page view of a team's open GitLab MRs. [glance](https://github.com/m4ttstack/mattstack/tree/main/packages/glance)
+is a one-page view of a team's open MRs or PRs, on GitLab or GitHub. [glance](https://github.com/m4ttstack/mattstack/tree/main/packages/glance)
 is one client for GitHub and GitLab behind a single set of types.
 [deck](https://github.com/m4ttstack/mattstack/tree/main/apps/deck) gives a local app a name, keeps it
 running, and gives it a real address. [fast-browser](https://github.com/m4ttstack/fast-browser)

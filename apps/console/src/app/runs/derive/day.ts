@@ -7,6 +7,7 @@ import type {
 
 import { runIdOfGate } from '../../../shared/gate-run';
 import { countsForConsoleBadge, isMine } from '../../../shared/gate-waiting';
+import { forgeOf, mrRefText } from '../../forgeNoun';
 import { answeredBy, myGateSpans } from './answers';
 import { formatClock } from './clock';
 import { formatDuration } from './duration';
@@ -348,12 +349,13 @@ function currentStageStart(run: RunSummary): number | null {
 function ending(run: RunSummary): string {
   if (run.status === 'abandoned' || run.status === 'failed') return run.status;
   const reviewed = run.outcome?.reviewed;
-  if (reviewed) return `reviewed !${reviewed.iid}`;
+  if (reviewed)
+    return `reviewed ${mrRefText(forgeOf(reviewed.url, run.repo), reviewed.iid)}`;
   const mr = run.outcome?.mr;
-  if (mr?.state === 'merged') return `merged !${mr.iid}`;
-  if (mr && mr.state !== 'unknown')
-    return `!${mr.iid} ${mr.state === 'opened' ? 'open' : mr.state}`;
-  return run.status;
+  if (!mr || mr.state === 'unknown') return run.status;
+  const ref = mrRefText(forgeOf(mr.url, run.repo), mr.iid);
+  if (mr.state === 'merged') return `merged ${ref}`;
+  return `${ref} ${mr.state === 'opened' ? 'open' : mr.state}`;
 }
 
 /** A row's second line: the stage a live run is in and for how long (or

@@ -1,4 +1,5 @@
 import { leaseOwner, type CiLease } from "../../packages/rt-client/src/index.ts";
+import { forgeChangeNoun } from "../repo-label.ts";
 
 export interface WatchJob { id: string; name: string; stage: string; status: string; allowFailure: boolean; webUrl: string | null }
 export interface WatchPipeline { id: string; status: string; sha: string | null; ref: string | null; mergeRequestEventType: string | null; webUrl: string | null; createdAt: string | null; jobs: WatchJob[] }
@@ -25,7 +26,7 @@ export interface WatchDeps {
 
 export interface WatchAttend { waitingSince: number | null; noPipelineMs: number; lastFailedPipelineId: number | null; freshMinutes: number }
 
-export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSeconds: number; budgetMinutes: number; extendMinutes?: number; priorPipelineId?: number; attend?: WatchAttend; signal?: AbortSignal }
+export interface WatchInput { forge?: "github" | "gitlab"; sha: string; maxWaitSeconds: number; intervalSeconds: number; budgetMinutes: number; extendMinutes?: number; priorPipelineId?: number; attend?: WatchAttend; signal?: AbortSignal }
 
 export type WatchState =
   | "success" | "success_with_warnings" | "failed" | "canceled" | "skipped" | "manual"
@@ -111,6 +112,7 @@ function stripJobs(p: WatchPipeline | null): WatchResult["pipeline"] {
 export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise<WatchResult | { error: string }> {
   const start = deps.now();
   const deadline = start + input.maxWaitSeconds * 1_000;
+  const noun = forgeChangeNoun(input.forge);
   // Cache key is the pipeline id, not the sha: two different pipelines under
   // watch across polls (a stale one, then the real one) must not share it.
   const parents = new Map<string, string[]>();
@@ -233,13 +235,13 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
   }
 
   function standDown(lc: Extract<LeaseCheck, { ok: false; reason?: "none" | "lost" }>): string {
-    if (lc.reason === "none") return "no lease held for this MR; call ci_lease_claim first";
-    return lc.holder ? "another owner attends this MR now; stand down" : "this MR's lease is gone; stand down";
+    if (lc.reason === "none") return `no lease held for this ${noun}; call ci_lease_claim first`;
+    return lc.holder ? `another owner attends this ${noun} now; stand down` : `this ${noun}'s lease is gone; stand down`;
   }
 
   function leaseEnd(lc: Extract<LeaseCheck, { ok: false }>, mr: WatchMr | null): WatchResult {
     if (lc.reason === "stood_down") {
-      return result("stood_down", mr, lc.holder ? "another owner attends this MR now; stand down" : "the board doctor's lease is gone; stand down", { holder: lc.holder, lease: null });
+      return result("stood_down", mr, lc.holder ? `another owner attends this ${noun} now; stand down` : "the board doctor's lease is gone; stand down", { holder: lc.holder, lease: null });
     }
     if (lc.reason === "unavailable") {
       return result("lease_unavailable", mr, `the CI lease could not be claimed or kept (${lc.error}); stop watching and report it`, { error: lc.error, lease: null });
@@ -270,7 +272,7 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       const remaining = deadline - deps.now();
       if (readFailures >= READ_TRIES || remaining <= 0) {
         observe();
-        return result(last.state, last.mr, again(`reading the MR failed (${read.error})`));
+        return result(last.state, last.mr, again(`reading the ${noun} failed (${read.error})`));
       }
       // Without a sleep here a caller told to call again would poll a down forge back to back.
       await deps.sleep(Math.min(pollInterval(2 ** (readFailures - 1)), remaining), input.signal);
@@ -290,10 +292,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       if (mr.sha !== null) mismatchSince ??= deps.now();
       if (mr.sha !== null && mismatchSince !== null && deps.now() - mismatchSince >= HEAD_LAG_GRACE_MS) {
         observe();
-        return result("superseded", mr, `the MR head is not at the pushed sha (head: ${mr.sha})`);
+        return result("superseded", mr, `the ${noun} head is not at the pushed sha (head: ${mr.sha})`);
       }
       waitingKind = mr.sha === null;
-      last = { state: "waiting", mr, hint: "the MR head has not reached the pushed sha yet; call again" };
+      last = { state: "waiting", mr, hint: `the ${noun} head has not reached the pushed sha yet; call again` };
     } else {
       mismatchSince = null;
       if (firstSeenPipelineId === undefined) firstSeenPipelineId = idNumber(mr.pipeline?.id);
@@ -369,7 +371,7 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
         observe();
         const minutes = Math.round(attend.noPipelineMs / MINUTE_MS);
         const hint = mr.sha === null
-          ? `GitLab reported no head commit for the MR for ${minutes} minutes; check the push reached the remote, then report it`
+          ? `${input.forge === "github" ? "GitHub" : "GitLab"} reported no head commit for the ${noun} for ${minutes} minutes; check the push reached the remote, then report it`
           : `no pipeline started for the pushed sha in ${minutes} minutes; stop watching and report it`;
         return result("no_pipeline", mr, hint, { pushed: mr.sha !== null, remoteSha: mr.sha });
       }

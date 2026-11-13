@@ -6,8 +6,10 @@ import { describe, expect, it } from 'vitest';
 
 const { OutcomeBadge } = await import('./OutcomeBadge');
 
-function badges(outcome: RunOutcome) {
-  const { container } = renderWithProviders(<OutcomeBadge outcome={outcome} />);
+function badges(outcome: RunOutcome, repo?: string) {
+  const { container } = renderWithProviders(
+    <OutcomeBadge outcome={outcome} repo={repo} />
+  );
   return {
     container,
     list: [...container.querySelectorAll<HTMLElement>('[data-outcome]')].map(
@@ -103,6 +105,31 @@ describe('OutcomeBadge', () => {
       badges({ status: 'done', mr: { iid: 7, state: 'closed', url: null } })
         .list
     ).toEqual([['closed', '!7 closed']]);
+  });
+
+  it('names a GitHub PR by its url, else by the repo', () => {
+    const pr = 'https://github.com/o/r/pull/7';
+    expect(
+      badges({ status: 'done', mr: { iid: 7, state: 'merged', url: pr } }).list
+    ).toEqual([['merged', 'merged #7']]);
+    expect(
+      badges(
+        { status: 'done', mr: { iid: 7, state: 'opened', url: null } },
+        'remote:github.com%2Fo%2Fr'
+      ).list
+    ).toEqual([['open', '#7 open']]);
+    expect(
+      badges({
+        status: 'done',
+        reviewed: { iid: 8, url: pr, posted: 'approve' },
+      }).list
+    ).toEqual([['reviewed', 'Approved #8']]);
+    expect(
+      badges({
+        status: 'done',
+        reviewed: { iid: 8, url: pr, posted: null },
+      }).list
+    ).toEqual([['reviewed', 'Reviewed #8']]);
   });
 
   it('renders nothing for an MR whose state is unknown', () => {

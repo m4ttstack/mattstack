@@ -88,8 +88,11 @@ describe('usage format', () => {
     expect(mrParts(KEY)).toEqual({
       repoKey: 'remote:github.com%2Facme%2Fwidgets',
       repo: 'acme/widgets',
-      number: '!123',
+      number: '#123',
     });
+    expect(mrParts('remote:gitlab.example.com%2Facme%2Fweb!9').number).toBe(
+      '!9'
+    );
   });
 
   it('encodes a key once for its link', () => {

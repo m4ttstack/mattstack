@@ -59,9 +59,15 @@ const gate = (over: Partial<GateRow>): GateRow =>
     ...over,
   }) as GateRow;
 
-const merged = (id: string, start: number, end: number): RunSummary =>
+const merged = (
+  id: string,
+  start: number,
+  end: number,
+  repo = 'remote:acme%2Fweb'
+): RunSummary =>
   run({
     id,
+    repo,
     status: 'done',
     started_at: start,
     ended_at: end,
@@ -248,6 +254,27 @@ describe('rows', () => {
       )
     ).toBe('review pipeline · reviewed !412 · request changes');
     expect(
+      rowSub(merged('g', TODAY(8), TODAY(9), 'remote:github.com%2Facme%2Fweb'))
+    ).toBe('work pipeline · #1 merged');
+    expect(
+      rowSub(
+        run({
+          work_type: 'review',
+          pipeline: 'review',
+          status: 'done',
+          ended_at: TODAY(9),
+          outcome: {
+            status: 'done',
+            reviewed: {
+              iid: 412,
+              url: 'https://github.com/acme/web/pull/412',
+              posted: null,
+            },
+          },
+        })
+      )
+    ).toBe('review pipeline · reviewed #412');
+    expect(
       rowSub(
         run({ attention: { needs: true, reason: 'stale', evidence: 'quiet' } })
       )
@@ -314,7 +341,28 @@ describe('lanes', () => {
   });
 
   it('names the MR a lane is working toward', () => {
-    expect(laneMrLine(run({}), 'work')).toBe('no MR yet');
+    expect(laneMrLine(run({}), 'work')).toBe('no MR or PR yet');
+    expect(
+      laneMrLine(
+        run({ repo: 'remote:gitlab.example.com%2Facme%2Fweb' }),
+        'work'
+      )
+    ).toBe('no MR yet');
+    expect(
+      laneMrLine(run({ repo: 'remote:github.com%2Facme%2Fweb' }), 'work')
+    ).toBe('no PR yet');
+    expect(
+      laneMrLine(
+        run({
+          repo: 'remote:github.com%2Facme%2Fweb',
+          outcome: {
+            status: 'running',
+            reviewed: { iid: 9, url: null, posted: null },
+          },
+        }),
+        'review'
+      )
+    ).toBe('reviewing #9');
     expect(
       laneMrLine(
         run({
