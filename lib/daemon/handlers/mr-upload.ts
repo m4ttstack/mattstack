@@ -134,10 +134,17 @@ function parseAttachPayload(payload: unknown): { ok: true; p: AttachPayload } | 
   return { ok: true, p: { iid: p.iid, files } };
 }
 
-/** Only a URL for this PR counts: the delete endpoint is repo-scoped, so any other id could be someone else's comment. */
+/** A URL for this PR names the holder outright. The delete endpoint is repo-scoped, so any other id could be someone else's comment until its read-back shows this call's marker. */
 function holderCommentId(stdout: string, projectPath: string, iid: number): number | null {
   const own = new RegExp(`^https://github\\.com/${escapeRegExp(projectPath)}/pull/${iid}#issuecomment-(\\d+)[ \\t\\r]*$`, "gim");
   const last = [...stdout.matchAll(own)].at(-1)?.[1];
+  const id = last === undefined ? NaN : Number(last);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/** Any comment id gh printed, for a PR whose canonical path differs from the one rt holds (a renamed or transferred repo). Unpinned, so only a read-back carrying this call's marker may act on it. */
+function anyCommentId(stdout: string): number | null {
+  const last = [...stdout.matchAll(/#issuecomment-(\d+)/g)].at(-1)?.[1];
   const id = last === undefined ? NaN : Number(last);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
@@ -726,7 +733,8 @@ export function createMrUploadHandlers(
         const ghError = run.timedOut
           ? `gh pr comment did not finish in ${timeoutMs / 1000}s and was stopped`
           : scrub(run.stderr).trim().slice(0, GH_ERROR_MAX_CHARS) || `gh pr comment exited with code ${run.exitCode}`;
-        const commentId = holderCommentId(run.stdout, github.projectPath, iid);
+        const pinnedId = holderCommentId(run.stdout, github.projectPath, iid);
+        const commentId = pinnedId ?? anyCommentId(run.stdout);
         if (commentId === null) {
           return { ok: false, error: exitedClean ? "gh pr comment printed no comment URL for this PR, so the image URLs could not be read" : ghError };
         }
@@ -738,6 +746,10 @@ export function createMrUploadHandlers(
           posted = await withDeadline(readHolder(github, commentId), readBackMs, `reading comment ${commentId} did not finish in ${readBackMs / 1000}s`);
         } catch (err) {
           readError = errorMessage(err);
+        }
+        if (posted === undefined && pinnedId === null) {
+          ctx.log.warn({ iid, commentId }, "mr:attach-upload: the comment gh named under another path could not be read back, so it was not deleted");
+          return { ok: false, error: `could not read comment ${commentId} back to check it is this upload's holder, so it was left alone: ${readError}` };
         }
         if (posted !== undefined && !posted.includes(marker)) {
           ctx.log.warn({ iid, commentId }, "mr:attach-upload: the comment gh named is not this upload's holder, so it was not deleted");

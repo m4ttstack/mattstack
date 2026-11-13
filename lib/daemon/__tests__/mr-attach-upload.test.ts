@@ -278,20 +278,64 @@ describe("mr:attach-upload", () => {
     expect(h.deletes).toEqual([]);
   });
 
+  test("a comment URL that names no comment id fails with no read and no delete", async () => {
+    const { files } = twoFiles();
+    const h = harness({ gh: { stdout: "https://github.com/acme/web/pull/42" }, provider: BOTH });
+    const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    expect(res).toEqual({ ok: false, error: "gh pr comment printed no comment URL for this PR, so the image URLs could not be read" });
+    expect(h.reads).toEqual([]);
+    expect(h.deletes).toEqual([]);
+  });
+
   for (const [label, stdout] of [
+    ["the renamed repo's canonical path", "https://github.com/acme-co/web-app/pull/42#issuecomment-999"],
     ["another PR", "https://github.com/acme/web/pull/43#issuecomment-999"],
-    ["another repo", "https://github.com/acme/other/pull/42#issuecomment-999"],
     ["a URL inside other text", "see https://github.com/acme/web/pull/42#issuecomment-999 there"],
   ] as const) {
-    test(`a comment URL for ${label} yields no id: no read, no delete, and the verb fails`, async () => {
+    test(`a comment URL for ${label} is read back and, carrying this call's marker, deleted`, async () => {
       const { files } = twoFiles();
       const h = harness({ gh: { stdout }, provider: BOTH });
       const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
-      expect(res).toEqual({ ok: false, error: "gh pr comment printed no comment URL for this PR, so the image URLs could not be read" });
-      expect(h.reads).toEqual([]);
-      expect(h.deletes).toEqual([]);
+      expect(res).toEqual({ ok: true, data: { urls: { "latch-42-armed.gif": url(1), "latch-42-queued.gif": url(2) } } });
+      expect(h.reads).toEqual(["GET /repos/acme/web/issues/comments/999"]);
+      expect(h.deletes).toEqual([{ projectPath: "acme/web", iid: 42, note: { id: 999, kind: "general" } }]);
     });
   }
+
+  test("the last comment id gh printed under another path is the one read back", async () => {
+    const { files } = twoFiles();
+    const stdout = "https://github.com/acme-co/web-app/pull/42#issuecomment-111\nhttps://github.com/acme-co/web-app/pull/42#issuecomment-999";
+    const h = harness({ gh: { stdout }, provider: BOTH });
+    await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    expect(h.reads).toEqual(["GET /repos/acme/web/issues/comments/999"]);
+  });
+
+  test("a comment under another path without this call's marker is not deleted", async () => {
+    const { files } = twoFiles();
+    const h = harness({ gh: { stdout: "https://github.com/acme-co/web-app/pull/42#issuecomment-999" }, provider: { ...BOTH, dropMarker: true } });
+    const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    expect(res).toEqual({ ok: false, error: "comment 999 is not this upload's holder comment, so it was left alone" });
+    expect(h.deletes).toEqual([]);
+  });
+
+  test("a comment under another path whose read-back fails is not deleted", async () => {
+    const { files } = twoFiles();
+    const h = harness({ gh: { stdout: "https://github.com/acme-co/web-app/pull/42#issuecomment-999" }, provider: { ...BOTH, readStatus: 404 } });
+    const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    expect(res).toEqual({ ok: false, error: "could not read comment 999 back to check it is this upload's holder, so it was left alone: GitHub answered 404" });
+    expect(h.deletes).toEqual([]);
+    expect(h.warns.length).toBe(1);
+    expect(JSON.stringify(h.warns)).not.toContain(TOKEN);
+  });
+
+  test("gh that failed after posting under another path has its marked holder deleted and still fails", async () => {
+    const { files } = twoFiles();
+    const h = harness({ gh: { exit: 1, stderr: "could not finish", stdout: "https://github.com/acme-co/web-app/pull/42#issuecomment-999" }, provider: BOTH });
+    const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("could not finish");
+    expect(h.deletes).toEqual([{ projectPath: "acme/web", iid: 42, note: { id: 999, kind: "general" } }]);
+  });
 
   test("the PR URL matches its repo path ignoring case", async () => {
     const { files } = twoFiles();
