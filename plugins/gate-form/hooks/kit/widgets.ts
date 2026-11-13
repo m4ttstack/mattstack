@@ -1,4 +1,4 @@
-import { ACCENT, BRAND, DIM, DONE, FILL, GRAY, ICON, SYMBOL, rail } from './theme'
+import { ACCENT, BRAND, DIM, DONE, FILL, GRAY, ICON, PLACEHOLDER, SYMBOL, rail } from './theme'
 import { hang, sp, widthOf, withAction, type Line, type Span, type Style } from './text'
 
 // The mattstack header every kit surface opens with: a full-width pink bar, plum lettering.
@@ -13,13 +13,20 @@ export function textCursor(value: string, placeholder: string, showCursor: boole
   return [sp(value), sp(' ', { inverse: true })]
 }
 
-// An underlined field `width` cells wide that scrolls to keep the end of the text in view.
+// A filled box `width` cells wide, a cell of padding each side, that scrolls to keep the end of the text in view.
 export function inputField(value: string, placeholder: string, width: number, showCursor: boolean): Span<never>[] {
+  const room = width - 2
+  const box = (spans: Span<never>[]): Span<never>[] => [
+    sp(' ', FILL.field),
+    ...spans.map(span => ({ ...span, bg: FILL.field.bg })),
+    sp(' '.repeat(Math.max(0, width - 1 - widthOf(spans))), FILL.field),
+  ]
   if (value === '') {
-    return [sp(placeholder.slice(0, 1), showCursor ? { inverse: true } : DIM), sp(placeholder.slice(1).padEnd(width - 1), { dim: true, underline: true })]
+    const hint = placeholder.slice(0, room)
+    return box([sp(hint.slice(0, 1) || ' ', showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(1), PLACEHOLDER)])
   }
-  const shown = value.length >= width ? value.slice(value.length - width + 1) : value
-  return [sp(shown, { underline: true }), sp(' ', { inverse: showCursor }), sp(' '.repeat(Math.max(0, width - shown.length - 1)), { underline: true })]
+  const shown = value.length >= room ? value.slice(value.length - room + 1) : value
+  return box([sp(shown, { color: FILL.field.color }), ...(showCursor ? [sp(' ', { color: FILL.field.color, inverse: true })] : [])])
 }
 
 export type Choice = { label: string; description?: string; isWriteIn?: boolean }
@@ -29,6 +36,8 @@ export type SelectSpec<A> = {
   cursor: number
   multi: boolean
   isPicked: (idx: number) => boolean
+  // A single choice draws its cursor as the chosen ● only when resting there counts as choosing it.
+  cursorIsChoice: boolean
   writeIn: string
   width: number
   focused: boolean
@@ -36,7 +45,7 @@ export type SelectSpec<A> = {
   maxShown?: number
 }
 
-// Clack's select and multiselect: a window of choices around the cursor, the focused one in full and the rest on one line each.
+// Clack's select and multiselect: a window of choices around the cursor, the focused one in full and the rest cut to a row each for label and description.
 export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
   const max = spec.maxShown ?? 8
   const total = spec.choices.length
@@ -44,8 +53,10 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
   const shown = spec.choices.slice(start, start + max)
   const bar = sp<A>(SYMBOL.bar, ACCENT)
   const lines: Line<A>[] = []
+  // Every choice takes at least two rows, its description's row left blank when it has none, so every list keeps one rhythm.
+  const padded = (rows: Line<A>[]) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, (): Line<A> => [bar])]
   if (start > 0) lines.push([bar, sp(`  ↑ ${start} more`, DIM)])
-  shown.forEach((choice, n) => lines.push(...withAction(choiceRows(choice, start + n, spec), spec.actionFor(start + n))))
+  shown.forEach((choice, n) => lines.push(...withAction(padded(choiceRows(choice, start + n, spec)), spec.actionFor(start + n))))
   const below = total - start - shown.length
   if (below > 0) lines.push([bar, sp(`  ↓ ${below} more`, DIM)])
   return lines
@@ -53,7 +64,7 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
 
 function choiceMark(spec: SelectSpec<unknown>, idx: number): Span<never> {
   const isAt = idx === spec.cursor
-  if (!spec.multi) return isAt ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, DIM)
+  if (!spec.multi) return isAt ? (spec.cursorIsChoice ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, ACCENT)) : sp(SYMBOL.radioOff, DIM)
   if (spec.isPicked(idx)) return sp(SYMBOL.boxOn, DONE)
   return isAt ? sp(SYMBOL.boxActive, ACCENT) : sp(SYMBOL.boxOff, DIM)
 }
@@ -68,14 +79,16 @@ function choiceRows<A>(choice: Choice, idx: number, spec: SelectSpec<A>): Line<A
   return [...hang(lead, under, choice.label, spec.width, { bold: true, isLabel: true }), ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
 }
 
+const WRITE_IN_WIDTH = 48
+
+// The label stays put; the row under it is the description until the choice is focused, then the line you type on,
+// with the description as its placeholder. Typed text shows in that row once you move off.
 function writeInRows<A>(choice: Choice, isAt: boolean, lead: Span<A>[], under: Span<A>[], spec: SelectSpec<A>): Line<A>[] {
-  const pen = sp(`${ICON.edit} `, ACCENT)
+  const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...(isAt && { bold: true }) })]
   const typed = spec.writeIn
-  if (!isAt) return [[...lead, pen, typed === '' ? sp(choice.label, { italic: true, dim: true, isLabel: true }) : sp(`“${typed}”`, { isLabel: true })]]
-  return [
-    [...lead, pen, ...inputField(typed, 'Start typing', Math.max(12, spec.width - 10), spec.focused)],
-    [...under, sp('  your own words; enter to use them', DIM)],
-  ]
+  if (isAt) return [label, [...under, ...inputField(typed, choice.description ?? '', Math.min(WRITE_IN_WIDTH, spec.width - 8), spec.focused)]]
+  if (typed !== '') return [label, [...under, sp(`“${typed}”`)]]
+  return [label, ...(choice.description ? [[...under, sp(choice.description, DIM)]] : [])]
 }
 
 export type Tab<A> = { label: string; mark?: string; isDone: boolean; action: A }

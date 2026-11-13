@@ -62,6 +62,7 @@ export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect 
   if (armed.phase !== 'active') return undefined
   if (ev.ctrl && (ev.key === 'x' || ev.key === 'c')) return chat(form, armed)
   const s = disarm(armed)
-  if (ev.key === 'tab') return { state: goTo(form, s, s.page + (ev.shift ? -1 : 1)) }
+  // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
+  if (ev.key === 'tab') return { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) }
   return s.page === form.questions.length ? reviewKey(ev, form, s) : questionKey(ev, form, s)
 }

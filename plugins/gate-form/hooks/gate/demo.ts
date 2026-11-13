@@ -31,7 +31,14 @@ export const DEMO = {
       ],
     },
     { id: 'note', label: 'Anything the fixer should know?' },
-    { id: 'notify', label: 'Post a reply on each fixed thread?', options: ['yes', 'no'] },
+    {
+      id: 'notify',
+      label: 'Post a reply on each fixed thread?',
+      options: [
+        { value: 'yes', label: 'Yes', description: 'a short note on each thread naming the fix' },
+        { value: 'no', label: 'No', description: 'resolve the threads without a reply' },
+      ],
+    },
     {
       id: 'checks',
       header: 'checks',

@@ -3,7 +3,7 @@ import { hang, sp, withAction, type Line } from '../kit/text'
 import { ACCENT, DIM, DONE, GRAY, ICON, SYMBOL, WARN, rail } from '../kit/theme'
 import { brandBar, buttonRow, revealTab, selectList, tabStrip, textCursor, type Button, type Tab } from '../kit/widgets'
 import type { Action } from './input'
-import { choicesOf, isPicked, unansweredCount, WRITE_IN, type State } from './state'
+import { choicesOf, cursorIsChoice, isPicked, unansweredCount, WRITE_IN, type State } from './state'
 
 export type View = { width: number; focused: boolean }
 
@@ -41,6 +41,7 @@ function questionPage(q: FormQuestion, s: State, i: number, view: View): L[] {
   const lines: L[] = hang([sp(kindIcon(q), ACCENT), sp('  ')], bar, q.label, view.width, { bold: true })
   if (q.multi) lines.push([...bar, sp('pick any number', DIM)])
   if (q.context) lines.push(...hang(bar, bar, q.context, view.width, DIM))
+  lines.push([sp(SYMBOL.bar, ACCENT)])
   const choices = choicesOf(q)
   if (choices.length === 0) {
     lines.push([...bar, ...textCursor(s.text[i], 'Type your answer', view.focused)])
@@ -52,6 +53,7 @@ function questionPage(q: FormQuestion, s: State, i: number, view: View): L[] {
       cursor: s.cursor[i],
       multi: q.multi,
       isPicked: idx => isPicked(q, s, i, idx),
+      cursorIsChoice: !q.multi && cursorIsChoice(q, s, i),
       writeIn: s.text[i],
       width: view.width,
       focused: view.focused,
@@ -79,8 +81,8 @@ function reviewList(form: Form, s: State, view: View): L[] {
 function reviewPage(form: Form, s: State, view: View): L[] {
   const missing = unansweredCount(s)
   const bar = rail<Action>(ACCENT)
-  const lines: L[] = [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, ACCENT), sp('  Send your answers?', { bold: true })]]
-  if (missing > 0) lines.push([...bar, sp(`${missing} not answered; left out if you send now`, WARN)])
+  const lines: L[] = [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, ACCENT), sp('  Submit your answers?', { bold: true })]]
+  if (missing > 0) lines.push([...bar, sp(`${missing} not answered; left out if you submit now`, WARN)])
   return lines
 }
 
@@ -117,7 +119,7 @@ function navRow(form: Form, s: State, view: View): L {
   left.push({ label: `${ICON.back} Back`, action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 })
   if (page < n - 1) left.push({ label: `Next ${ICON.next}`, action: { type: 'advance' }, tone: 'secondary' })
   if (page === n - 1) left.push({ label: `Review ${ICON.next}`, action: { type: 'advance' }, tone: 'secondary' })
-  if (page === n) left.push({ label: `${ICON.send} ${unansweredCount(s) === 0 ? 'Submit' : 'Submit anyway'}`, action: { type: 'send' }, tone: 'primary' })
+  if (page === n) left.push({ label: unansweredCount(s) === 0 ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'primary' })
   const chat: Button<Action> = s.chatArmed
     ? { label: `${ICON.chat} Press again to chat`, action: { type: 'chat' }, tone: 'caution' }
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }

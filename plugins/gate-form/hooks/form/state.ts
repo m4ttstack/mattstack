@@ -10,6 +10,8 @@ export type State = {
   picked: string[][]
   text: string[]
   answered: boolean[]
+  // The cursor was moved by the person, so where it rests is their choice.
+  moved: boolean[]
   phase: Phase
   hover?: string
   pressed?: string
@@ -24,7 +26,7 @@ const markAnswered = (s: State, i: number) => replaceAt(s.answered, i, true)
 // Every question with options ends in a write-in row.
 export function choicesOf(q: FormQuestion): FormOption[] {
   if (q.options.length === 0) return q.options
-  return [...q.options, { value: WRITE_IN, label: 'Write your own answer' }]
+  return [...q.options, { value: WRITE_IN, label: 'Something else', description: 'Write in your answer' }]
 }
 
 export function initial(form: Form): State {
@@ -34,6 +36,7 @@ export function initial(form: Form): State {
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ''),
     answered: form.questions.map(() => false),
+    moved: form.questions.map(() => false),
     phase: 'active',
     tabsFrom: 0,
   }
@@ -78,12 +81,17 @@ export function goTo(form: Form, s: State, page: number): State {
 }
 
 // A single choice draws its cursor as the chosen ●, so Next takes that option as the answer.
+// Where a single choice's cursor rests is a choice once it is answered, moved there by the person, or the recommended option;
+// a cursor that merely starts on the first option is not.
+export function cursorIsChoice(q: FormQuestion, s: State, i: number): boolean {
+  const option = choicesOf(q)[s.cursor[i]]
+  if (!option || (option.value === WRITE_IN && s.text[i].trim() === '')) return false
+  return s.answered[i] || s.moved[i] || isRecommended(option)
+}
+
 function takesCursorAsAnswer(form: Form, s: State): boolean {
-  const i = s.page
-  const q = form.questions[i]
-  if (!q || q.multi || s.answered[i]) return false
-  const value = choicesOf(q)[s.cursor[i]]?.value
-  return value !== undefined && !(value === WRITE_IN && s.text[i].trim() === '')
+  const q = form.questions[s.page]
+  return q !== undefined && !q.multi && !s.answered[s.page] && cursorIsChoice(q, s, s.page)
 }
 
 // The Next (or Review) button: accepts a single choice's cursor, then moves on.
@@ -96,7 +104,7 @@ export function moveCursor(form: Form, s: State, by: number): State {
   const q = form.questions[s.page]
   const count = q ? choicesOf(q).length : 0
   if (count === 0) return s
-  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count) }
+  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count), moved: replaceAt(s.moved, s.page, true) }
 }
 
 function toggled(s: State, i: number, value: string): State {

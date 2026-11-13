@@ -4,7 +4,8 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Form } from '../types'
 import { DEMO } from './gate/demo'
 import { toForm } from './gate/parse'
-import { agentReply, toastReply, type Outcome } from './gate/reply'
+import { agentReply, summaryOf, toastReply, type Outcome } from './gate/reply'
+import { BRAND } from './kit/theme'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
 
 const PANE = 'gate-form'
@@ -35,7 +36,7 @@ async function settle($: EngineInterface, formId: string, outcome: Outcome): Pro
   if (!form || form.id !== formId || form.status !== 'open') return
   const status: Form['status'] = outcome.status === 'answered' ? 'answered' : 'cancelled'
   await update($, formAtom, f => (f && f.id === formId ? { ...f, status } : f))
-  if (form.replyTo === 'toast') return $.ui.toast(toastReply(outcome))
+  if (form.replyTo === 'toast') return $.ui.toast(toastReply(form, outcome))
   const warn = () => $.ui.toast(`Could not send the answers for ${formId} to Claude`)
   void $.prompt
     .submit({ text: agentReply(form, outcome) })
@@ -89,6 +90,22 @@ export const register: Register = on => {
   on('ui.focus', async ($, e, next) => {
     await setKeysInForm($, false)
     return next(e)
+  })
+
+  // The answers reach the agent in full; the transcript always shows one summary line, the answers themselves stay in the pane.
+  // isExpanded can't gate this: a short plugin message under its speaker label is drawn expanded too, so it would show in full.
+  on('ui.render', { component: 'UserMessage', props: { origin: { kind: 'plugin' } } }, async ($, e, next) => {
+    const origin = e.props.origin as { kind: string; name?: string }
+    if (origin.name !== 'gate-form') return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="row">
+        <Text color={BRAND.pink}>{`${BRAND.glyph} Decision gate `}</Text>
+        <Text dimColor wrap="truncate-end">
+          {summaryOf(e.props.text)}
+        </Text>
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

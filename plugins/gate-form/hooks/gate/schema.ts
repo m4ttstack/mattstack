@@ -1,5 +1,5 @@
 export const TOOL_DESCRIPTION =
-  "Ask the person questions in a form pane and wait for their answers. No limit on how many questions or options. Takes questions in mattstack gate_ask shape ({id, label, multi, writeIn, context, options}) and returns at once; the person's answers arrive as your next input, keyed by question id in gate_answer's shape: a value for a single pick, an array for multi, text for a question with no options, {writeIn} or {value, note} for typed Other text."
+  "Ask the person questions in a form pane and wait for their answers. No limit on how many questions or options. Takes questions in mattstack gate_ask shape ({id, label, multi, writeIn, context, options}); give every option a description, one short line on what picking it means. Returns at once; the person's answers arrive as your next input, keyed by question id in gate_answer's shape: a value for a single pick, an array for multi, text for a question with no options, {writeIn} or {value, note} for typed Other text."
 
 export const INPUT_SCHEMA = {
   type: 'object',
@@ -20,7 +20,7 @@ export const INPUT_SCHEMA = {
           context: { type: 'string' },
           options: {
             type: 'array',
-            description: 'Strings, or {value, label, description}. Leave out for a free-text question.',
+            description: 'Objects {value, label, description}, each with a one-line description of what picking it means (a bare string is accepted but draws a blank line under it). Leave out for a free-text question.',
             items: {
               anyOf: [
                 { type: 'string' },
