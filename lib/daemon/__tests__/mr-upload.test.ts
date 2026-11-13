@@ -545,4 +545,59 @@ describe("mr:upload", () => {
       expect((await h.handlers["mr:upload"]({ repoName: REPO, path: pngWith(repoPath, "again.png", "kept") })).ok).toBe(false);
     });
   });
+
+  describe("a redirect from the GitLab host", () => {
+    const TOKEN = "fake-token-for-redirect-test";
+    let other: ReturnType<typeof Bun.serve>;
+    let host: ReturnType<typeof Bun.serve>;
+    let otherHits: string[];
+    let status: number;
+    let location: (url: URL) => string;
+
+    beforeEach(() => {
+      otherHits = [];
+      other = Bun.serve({ port: 0, fetch(req) { otherHits.push(req.headers.get("private-token") === null ? "no token" : "token"); return Response.json(REPLY, { status: 201 }); } });
+      host = Bun.serve({
+        port: 0,
+        fetch(req) {
+          const url = new URL(req.url);
+          if (url.pathname.startsWith("/moved/")) return Response.json(REPLY, { status: 201 });
+          return new Response(null, { status, headers: { location: location(url) } });
+        },
+      });
+    });
+    afterEach(() => { other.stop(true); host.stop(true); });
+
+    function realFetchHarness() {
+      return harness({
+        repoPath,
+        fetchFn: undefined,
+        gitlabToken: async () => TOKEN,
+        repoContext: async () => ({ provider: { baseURL: `http://127.0.0.1:${host.port}` }, projectPath: "acme/app", projectId: 99 }),
+      });
+    }
+
+    for (const code of [302, 307, 308]) {
+      test(`a ${code} to another origin sends that origin nothing and fails naming both origins, never the token`, async () => {
+        status = code;
+        location = (url) => `http://127.0.0.1:${other.port}${url.pathname}`;
+        const res = await realFetchHarness().handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) });
+        expect(otherHits).toEqual([]);
+        expect(res.ok).toBe(false);
+        if (!res.ok) {
+          expect(res.error).toContain(`http://127.0.0.1:${host.port}`);
+          expect(res.error).toContain(`http://127.0.0.1:${other.port}`);
+          expect(res.error).not.toContain(TOKEN);
+        }
+      });
+    }
+
+    test("a redirect on the same origin is still followed", async () => {
+      status = 307;
+      location = (url) => `/moved${url.pathname}`;
+      const res = await realFetchHarness().handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) });
+      expect(res).toEqual({ ok: true, data: { url: `http://127.0.0.1:${host.port}/-/project/99/uploads/abc123/shot.png`, markdown: REPLY.markdown } });
+      expect(otherHits).toEqual([]);
+    });
+  });
 });

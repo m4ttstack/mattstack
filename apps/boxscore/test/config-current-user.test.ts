@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   __resetCurrentUser,
@@ -97,5 +100,55 @@ describe('getCurrentUser', () => {
     expect(seen[0]!.url).toBe('https://api.github.com/user');
     expect(seen[0]!.headers.Authorization).toBe('Bearer tkn');
     expect(seen[0]!.headers['PRIVATE-TOKEN']).toBeUndefined();
+  });
+});
+
+describe('getCurrentUser on a GitLab host that redirects', () => {
+  const TOKEN = 'fake-token-for-redirect-test';
+  let other: Server;
+  let host: Server;
+  let otherHits: string[];
+  let location: (path: string) => string;
+
+  const listen = (handler: Parameters<typeof createServer>[1]) =>
+    new Promise<Server>((resolve) => {
+      const s = createServer(handler);
+      s.listen(0, '127.0.0.1', () => resolve(s));
+    });
+  const origin = (s: Server) => `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+
+  beforeEach(async () => {
+    otherHits = [];
+    vi.stubEnv('VITEST', '');
+    other = await listen((req, res) => {
+      otherHits.push(req.headers['private-token'] === undefined ? 'no token' : 'token');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ username: 'elsewhere', name: null }));
+    });
+    host = await listen((req, res) => {
+      if (req.url?.startsWith('/moved/')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ username: 'ada', name: null }));
+        return;
+      }
+      res.writeHead(302, { location: location(req.url ?? '/') });
+      res.end();
+    });
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await Promise.all([other, host].map((s) => new Promise((r) => s.close(r))));
+  });
+
+  it('sends nothing to another origin and reads no user', async () => {
+    location = (path) => `${origin(other)}${path}`;
+    expect(await getCurrentUser(origin(host), TOKEN)).toBeNull();
+    expect(otherHits).toEqual([]);
+  });
+
+  it('still follows a redirect on the same origin', async () => {
+    location = (path) => `/moved${path}`;
+    expect(await getCurrentUser(origin(host), TOKEN)).toEqual({ username: 'ada', name: null });
+    expect(otherHits).toEqual([]);
   });
 });

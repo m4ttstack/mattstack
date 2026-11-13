@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -183,6 +183,58 @@ describe("createRealProbes().fetch", () => {
     } finally {
       server.stop(true);
     }
+  });
+});
+
+describe("createRealProbes().fetch with redirect: same-origin", () => {
+  const TOKEN = "fake-token-for-redirect-test";
+  let other: ReturnType<typeof Bun.serve>;
+  let host: ReturnType<typeof Bun.serve>;
+  let otherHits: string[];
+  let status: number;
+  let location: (url: URL) => string;
+
+  beforeEach(() => {
+    otherHits = [];
+    other = Bun.serve({ port: 0, fetch(req) { otherHits.push(req.headers.get("private-token") === null ? "no token" : "token"); return new Response("elsewhere"); } });
+    host = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname.startsWith("/moved/")) return new Response(`${req.method} ${url.pathname}`);
+        return new Response(null, { status, headers: { location: location(url) } });
+      },
+    });
+  });
+  afterEach(() => { other.stop(true); host.stop(true); });
+
+  for (const code of [302, 307]) {
+    test(`a ${code} to another origin sends it nothing and answers status 0 with an error naming both origins, never the token`, async () => {
+      status = code;
+      location = (url) => `http://127.0.0.1:${other.port}${url.pathname}`;
+      const res = await createRealProbes().fetch(`http://127.0.0.1:${host.port}/api/v4/user`, { headers: { "PRIVATE-TOKEN": TOKEN }, redirect: "same-origin" });
+      expect(otherHits).toEqual([]);
+      expect(res.status).toBe(0);
+      expect(res.error).toContain(`http://127.0.0.1:${host.port}`);
+      expect(res.error).toContain(`http://127.0.0.1:${other.port}`);
+      expect(res.error).not.toContain(TOKEN);
+    });
+  }
+
+  test("a redirect on the same origin is still followed", async () => {
+    status = 307;
+    location = (url) => `/moved${url.pathname}`;
+    const res = await createRealProbes().fetch(`http://127.0.0.1:${host.port}/api/v4/projects`, { method: "POST", headers: { "PRIVATE-TOKEN": TOKEN }, body: "{}", redirect: "same-origin" });
+    expect(res).toMatchObject({ status: 200, body: "POST /moved/api/v4/projects" });
+    expect(res.error).toBeUndefined();
+  });
+
+  test("without the option a cross-origin redirect is followed as before", async () => {
+    status = 302;
+    location = (url) => `http://127.0.0.1:${other.port}${url.pathname}`;
+    const res = await createRealProbes().fetch(`http://127.0.0.1:${host.port}/release.txt`);
+    expect(res).toMatchObject({ status: 200, body: "elsewhere" });
+    expect(otherHits).toEqual(["no token"]);
   });
 });
 
