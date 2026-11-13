@@ -157,6 +157,7 @@ var ICON = {
   missing: "",
   back: "",
   next: "",
+  collapse: "",
   chat: "",
   single: "\uDB81\uDC3E",
   multi: "\uDB80\uDD38",
@@ -200,15 +201,19 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: PLACEHOLDER.color, hover: FILL.chip.bg, press: "#333333", muted: "#555555" };
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#666666" };
 function hovered(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
+  if (span.chip)
+    return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressed(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.press, color: "white" };
+  if (span.chip)
+    return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
 }
 var ACCENT = { color: "cyan" };
@@ -448,7 +453,7 @@ function Panel(props) {
 }
 
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, quiet: true } };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 2 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {

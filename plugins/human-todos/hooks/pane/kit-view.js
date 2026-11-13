@@ -121,6 +121,7 @@ var ICON = {
   missing: "",
   back: "",
   next: "",
+  collapse: "",
   chat: "",
   single: "\uDB81\uDC3E",
   multi: "\uDB80\uDD38",
@@ -143,7 +144,6 @@ var FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
-var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -164,15 +164,19 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: PLACEHOLDER.color, hover: FILL.chip.bg, press: "#333333", muted: "#555555" };
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#666666" };
 function hovered(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
+  if (span.chip)
+    return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressed(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.press, color: "white" };
+  if (span.chip)
+    return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
 }
 var ACCENT = { color: "cyan" };
@@ -192,7 +196,7 @@ function muted(span) {
   return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
 }
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, quiet: true } };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 2 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
@@ -480,8 +484,8 @@ function brandBar(label, width, hide) {
   const text = `  ${BRAND.glyph}  ${label}`;
   if (hide === undefined)
     return [sp(fit(text, width), look)];
-  const button = ` ${ICON.minimize} Hide `;
-  return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { bg: BRAND.pinkDeep, color: BRAND.plum, action: hide }), sp(" ", look)];
+  const button = ` Hide ${ICON.collapse} `;
+  return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 
 // packages/mod-kit/src/components/brand-bar.tsx
@@ -694,7 +698,7 @@ function paneModel(input) {
     const hidden = script.length - SCRIPT_ROWS;
     const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR);
     const isRunning = todo.status === "running";
-    wrapWords(`${isRunning ? `${spin} ` : "○ "}${todo.title}`, inner).forEach((line, n) => rows.push({ kind: "text", text: line, tone: "title", indent: false, ...isRunning && n === 0 && { spin: true } }));
+    wrapWords(todo.title, inner - 2).forEach((line, n) => rows.push(n === 0 ? { kind: "text", text: `${isRunning ? `${spin} ` : "○ "}${line}`, tone: "title", indent: false, ...isRunning && { spin: true } } : { kind: "text", text: line, tone: "title", indent: true }));
     if (todo.detail)
       lines(todo.detail, width, "dim", true);
     if (!isRunning && todo.note)
@@ -726,9 +730,9 @@ function paneModel(input) {
       rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo) });
     } else {
       blank();
+      rows.push({ kind: "buttons", buttons: buttonsOf(todo) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
-      rows.push({ kind: "buttons", buttons: buttonsOf(todo) });
     }
     spans.push({ first, last: rows.length - 1 });
     blank();
@@ -864,8 +868,50 @@ function clip(line, cells) {
   return out;
 }
 var hint = (text) => [sp(` ${text} `, FILL.chip)];
-function kitWindow(layout, width, offset) {
-  const { lines, spans, windowRows } = layout;
+function keyStops(model) {
+  const stops = [];
+  for (const row of model.rows) {
+    if (row.kind !== "buttons")
+      continue;
+    for (const button of row.buttons) {
+      const key = button.todoId ?? button.id;
+      const stop = stops.find((s) => s.key === key);
+      if (stop)
+        stop.buttons.push(button);
+      else
+        stops.push({ key, buttons: [button] });
+    }
+  }
+  return stops;
+}
+function stopLines(layout, stops, index) {
+  const stop = stops[index];
+  if (!stop)
+    return;
+  if (stop.buttons[0]?.todoId !== undefined)
+    return layout.spans[stops.slice(0, index).filter((s) => s.buttons[0]?.todoId !== undefined).length];
+  const wanted = JSON.stringify(messageOf(stop.buttons[0]));
+  const at = layout.lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+  return at < 0 ? undefined : { first: at, last: at };
+}
+function revealOffset(layout, stops, index, offset) {
+  const range = stopLines(layout, stops, index);
+  const most = maxOffset(layout);
+  const top = Math.min(Math.max(0, offset), most);
+  if (!range)
+    return top;
+  const first = range.first === 0 ? 0 : range.first - 1;
+  const last = range.last >= layout.lines.length - 1 ? range.last : range.last + 1;
+  if (first < top)
+    return Math.max(0, first);
+  if (last > top + layout.windowRows - 1)
+    return Math.min(most, Math.max(first, last - layout.windowRows + 1));
+  return top;
+}
+function kitWindow(layout, width, offset, selected) {
+  const { lines: all, spans, windowRows } = layout;
+  const chosen = selected && JSON.stringify(selected);
+  const lines = chosen ? all.map((line) => line.map((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span)) : all;
   const top = Math.min(Math.max(0, offset), maxOffset(layout));
   const shown = lines.slice(top, top + windowRows);
   if (lines.length > windowRows) {
@@ -880,17 +926,64 @@ function kitWindow(layout, width, offset) {
 }
 
 // mods/human-todos/src/pane/kit-view.tsx
-var kit_view_default = kitClient((props, ui) => /* @__PURE__ */ h(Panel, {
-  width: props.width
-}, /* @__PURE__ */ h(BrandBar, {
-  title: TITLE,
-  onHide: ui.hide
-}), /* @__PURE__ */ h(Lines, {
-  lines: [[sp(" ")]]
-}), /* @__PURE__ */ h(Lines, {
-  lines: kitWindow(kitLayout(props.model, props.width, props.bodyRows), props.width, props.offset),
-  onAction: (message) => ui.post(message)
-})), { engaged: () => ({ type: "engaged" }) });
+function resolve(stops, sel) {
+  if (!sel)
+    return { at: 0, col: 0 };
+  const found = stops.findIndex((s) => s.key === sel.key);
+  const at = found >= 0 ? found : Math.min(sel.at, stops.length - 1);
+  const buttons = stops[at]?.buttons ?? [];
+  const col = found >= 0 ? buttons.findIndex((b) => b.id === sel.button) : -1;
+  return { at, col: col >= 0 ? col : Math.min(sel.col, buttons.length - 1) };
+}
+var mainOf = (stop) => Math.max(0, stop.buttons.findIndex((b) => b.tone !== "quiet"));
+var kit_view_default = kitClient((props, ui) => {
+  const layout = kitLayout(props.model, props.width, props.bodyRows);
+  const stops = keyStops(props.model);
+  const here = resolve(stops, ui.state.sel);
+  const current = stops[here.at]?.buttons[here.col];
+  const select = (at, col) => {
+    const stop = stops[at];
+    const button = stop?.buttons[col];
+    if (!stop || !button)
+      return;
+    ui.setState({ ...ui.state, sel: { key: stop.key, button: button.id, at, col } });
+    const offset = revealOffset(layout, stops, at, props.offset);
+    if (offset !== props.offset)
+      ui.post({ type: "scrollTo", offset });
+  };
+  ui.onKey((ev) => {
+    if (!ui.focused || stops.length === 0)
+      return;
+    if (ev.key === "up" || ev.key === "down") {
+      const at = Math.min(Math.max(0, here.at + (ev.key === "up" ? -1 : 1)), stops.length - 1);
+      if (at !== here.at)
+        select(at, mainOf(stops[at]));
+      return;
+    }
+    if (ev.key === "left" || ev.key === "right") {
+      const col = here.col + (ev.key === "left" ? -1 : 1);
+      if (col >= 0 && col < (stops[here.at]?.buttons.length ?? 0))
+        select(here.at, col);
+      return;
+    }
+    if ((ev.key === "return" || ev.key === "enter") && current)
+      ui.post(messageOf(current));
+  });
+  return /* @__PURE__ */ h(Panel, {
+    width: props.width
+  }, /* @__PURE__ */ h(BrandBar, {
+    title: TITLE,
+    onHide: ui.hide
+  }), /* @__PURE__ */ h(Lines, {
+    lines: [[sp(" ")]]
+  }), /* @__PURE__ */ h(Lines, {
+    lines: kitWindow(layout, props.width, props.offset, ui.focused && current ? messageOf(current) : undefined),
+    onAction: (message) => ui.post(message)
+  }));
+}, {
+  initial: () => ({}),
+  engaged: () => ({ type: "engaged" })
+});
 export {
   kit_view_default as default
 };

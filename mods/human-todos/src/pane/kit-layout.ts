@@ -1,8 +1,8 @@
-import { ACCENT, DIM, DONE, FILL, GRAY, WARN, buttonRow, cellWidth, cutCells, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, FILL, GRAY, WARN, buttonRow, cellWidth, cutCells, hovered, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
 import type { Line, Style } from '@mattstack/mod-kit'
 
 import { endRows, messageOf, outOfView } from './model'
-import type { PaneMessage, PaneModel, PaneRow, Tone } from './model'
+import type { PaneButton, PaneMessage, PaneModel, PaneRow, Tone } from './model'
 
 type L = Line<PaneMessage>
 type Span = { first: number; last: number }
@@ -112,9 +112,52 @@ function clip(line: L, cells: number): L {
 
 const hint = (text: string): L => [sp(` ${text} `, FILL.chip)]
 
+// What the keys move between: each actionable item's buttons in order, then Clear finished.
+export type KeyStop = { key: string; buttons: PaneButton[] }
+
+export function keyStops(model: PaneModel): KeyStop[] {
+  const stops: KeyStop[] = []
+  for (const row of model.rows) {
+    if (row.kind !== 'buttons') continue
+    for (const button of row.buttons) {
+      const key = button.todoId ?? button.id
+      const stop = stops.find(s => s.key === key)
+      if (stop) stop.buttons.push(button)
+      else stops.push({ key, buttons: [button] })
+    }
+  }
+  return stops
+}
+
+// The lines a stop covers: an item's whole span (actionable items come first among the spans), or the line holding its button.
+function stopLines(layout: KitLayout, stops: KeyStop[], index: number): Span | undefined {
+  const stop = stops[index]
+  if (!stop) return undefined
+  if (stop.buttons[0]?.todoId !== undefined) return layout.spans[stops.slice(0, index).filter(s => s.buttons[0]?.todoId !== undefined).length]
+  const wanted = JSON.stringify(messageOf(stop.buttons[0]!))
+  const at = layout.lines.findIndex(line => line.some(span => span.action !== undefined && JSON.stringify(span.action) === wanted))
+  return at < 0 ? undefined : { first: at, last: at }
+}
+
+// The offset that shows a stop whole, below an "↑ N more" hint and above a "↓ N more" one; the offset itself while it shows already.
+export function revealOffset(layout: KitLayout, stops: KeyStop[], index: number, offset: number): number {
+  const range = stopLines(layout, stops, index)
+  const most = maxOffset(layout)
+  const top = Math.min(Math.max(0, offset), most)
+  if (!range) return top
+  const first = range.first === 0 ? 0 : range.first - 1
+  const last = range.last >= layout.lines.length - 1 ? range.last : range.last + 1
+  if (first < top) return Math.max(0, first)
+  if (last > top + layout.windowRows - 1) return Math.min(most, Math.max(first, last - layout.windowRows + 1))
+  return top
+}
+
 // The rows in view from `offset`, clamped to the list as it is now, each ending in its scroll bar cell.
-export function kitWindow(layout: KitLayout, width: number, offset: number): L[] {
-  const { lines, spans, windowRows } = layout
+// The button the keys selected draws as if the pointer were over it.
+export function kitWindow(layout: KitLayout, width: number, offset: number, selected?: PaneMessage): L[] {
+  const { lines: all, spans, windowRows } = layout
+  const chosen = selected && JSON.stringify(selected)
+  const lines = chosen ? all.map(line => line.map(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span))) : all
   const top = Math.min(Math.max(0, offset), maxOffset(layout))
   const shown = lines.slice(top, top + windowRows)
   if (lines.length > windowRows) {

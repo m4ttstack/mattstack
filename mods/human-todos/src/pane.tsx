@@ -42,16 +42,17 @@ async function setKeysInPane($: EngineInterface, value: boolean): Promise<void> 
   if ((await read($, keysAtom)) !== value) await update($, keysAtom, () => value)
 }
 
-async function scrollKit($: EngineInterface, by: number, bodyRows: number, columns: number): Promise<void> {
+// `to` is the wanted offset from the stored one, clamped first to the list as it is now.
+async function scrollKit($: EngineInterface, to: (from: number) => number, bodyRows: number, columns: number): Promise<void> {
   const most = maxOffset(kitLayout(modelOf(await readPane($), modelWidth(columns)), columns, bodyRows))
   const from = Math.min(await read($, scrollAtom), most)
-  const to = Math.min(Math.max(0, from + by), most)
-  if (to !== (await read($, scrollAtom))) await update($, scrollAtom, () => to)
+  const next = Math.min(Math.max(0, to(from)), most)
+  if (next !== (await read($, scrollAtom))) await update($, scrollAtom, () => next)
 }
 
 // The Client clamps only what it draws, so after the list shrinks the stored offset is clamped too, or a regrown list reopens at the old depth.
 export async function clampScroll($: EngineInterface): Promise<void> {
-  if (kitSize) await scrollKit($, 0, kitSize.bodyRows, kitSize.columns)
+  if (kitSize) await scrollKit($, from => from, kitSize.bodyRows, kitSize.columns)
 }
 
 export function registerPane(on: On): void {
@@ -78,6 +79,12 @@ export function registerPane(on: On): void {
   on('ui.message', async ($, e, next) => {
     if (isEngaged(e)) await setKeysInPane($, true)
     await paneMessage($, e, TODO_PANE, await waitingBand($))
+    // The keys moved the selection out of view: the Client asks for the offset that shows it.
+    const reveal = e.data as { type?: unknown; offset?: unknown }
+    if (e.requestId === PANE && reveal.type === 'scrollTo' && typeof reveal.offset === 'number' && kitSize) {
+      const offset = reveal.offset
+      await scrollKit($, () => offset, kitSize.bodyRows, kitSize.columns)
+    }
     // Not awaited, as a Button's onPress is not: a run's start can wait on a slow probe, and the post must not hold it.
     if (e.requestId === PANE) void act($, e.data as PaneMessage, e.surface)
     return next(e)
@@ -86,7 +93,7 @@ export function registerPane(on: On): void {
   // A tree taller than its window is the plain drawer's, which the engine scrolls; the kit drawer only ever draws what fits.
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.contentRows > e.bodyRows || kitSize === undefined) return next(e)
-    await scrollKit($, e.by, e.bodyRows, kitSize.columns)
+    await scrollKit($, from => from + e.by, e.bodyRows, kitSize.columns)
     return {}
   })
 

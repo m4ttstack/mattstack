@@ -1129,6 +1129,7 @@ var ICON = {
   missing: "",
   back: "",
   next: "",
+  collapse: "",
   chat: "",
   single: "\uDB81\uDC3E",
   multi: "\uDB80\uDD38",
@@ -1151,7 +1152,6 @@ var FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
-var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -1172,15 +1172,19 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: PLACEHOLDER.color, hover: FILL.chip.bg, press: "#333333", muted: "#555555" };
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#666666" };
 function hovered(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
+  if (span.chip)
+    return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressed(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.press, color: "white" };
+  if (span.chip)
+    return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
 }
 var ACCENT = { color: "cyan" };
@@ -1200,7 +1204,7 @@ function muted(span) {
   return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
 }
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, quiet: true } };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 2 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
@@ -1351,7 +1355,7 @@ function paneModel(input) {
     const hidden = script.length - SCRIPT_ROWS;
     const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR);
     const isRunning = todo.status === "running";
-    wrapWords(`${isRunning ? `${spin} ` : "○ "}${todo.title}`, inner).forEach((line, n) => rows.push({ kind: "text", text: line, tone: "title", indent: false, ...isRunning && n === 0 && { spin: true } }));
+    wrapWords(todo.title, inner - 2).forEach((line, n) => rows.push(n === 0 ? { kind: "text", text: `${isRunning ? `${spin} ` : "○ "}${line}`, tone: "title", indent: false, ...isRunning && { spin: true } } : { kind: "text", text: line, tone: "title", indent: true }));
     if (todo.detail)
       lines(todo.detail, width, "dim", true);
     if (!isRunning && todo.note)
@@ -1383,9 +1387,9 @@ function paneModel(input) {
       rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo) });
     } else {
       blank();
+      rows.push({ kind: "buttons", buttons: buttonsOf(todo) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
-      rows.push({ kind: "buttons", buttons: buttonsOf(todo) });
     }
     spans.push({ first, last: rows.length - 1 });
     blank();
@@ -1550,8 +1554,50 @@ function clip(line, cells) {
   return out;
 }
 var hint = (text) => [sp(` ${text} `, FILL.chip)];
-function kitWindow(layout, width, offset) {
-  const { lines, spans, windowRows } = layout;
+function keyStops(model) {
+  const stops = [];
+  for (const row of model.rows) {
+    if (row.kind !== "buttons")
+      continue;
+    for (const button of row.buttons) {
+      const key = button.todoId ?? button.id;
+      const stop = stops.find((s) => s.key === key);
+      if (stop)
+        stop.buttons.push(button);
+      else
+        stops.push({ key, buttons: [button] });
+    }
+  }
+  return stops;
+}
+function stopLines(layout, stops, index) {
+  const stop = stops[index];
+  if (!stop)
+    return;
+  if (stop.buttons[0]?.todoId !== undefined)
+    return layout.spans[stops.slice(0, index).filter((s) => s.buttons[0]?.todoId !== undefined).length];
+  const wanted = JSON.stringify(messageOf(stop.buttons[0]));
+  const at = layout.lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+  return at < 0 ? undefined : { first: at, last: at };
+}
+function revealOffset(layout, stops, index, offset) {
+  const range = stopLines(layout, stops, index);
+  const most = maxOffset(layout);
+  const top = Math.min(Math.max(0, offset), most);
+  if (!range)
+    return top;
+  const first = range.first === 0 ? 0 : range.first - 1;
+  const last = range.last >= layout.lines.length - 1 ? range.last : range.last + 1;
+  if (first < top)
+    return Math.max(0, first);
+  if (last > top + layout.windowRows - 1)
+    return Math.min(most, Math.max(first, last - layout.windowRows + 1));
+  return top;
+}
+function kitWindow(layout, width, offset, selected) {
+  const { lines: all, spans, windowRows } = layout;
+  const chosen = selected && JSON.stringify(selected);
+  const lines = chosen ? all.map((line) => line.map((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? hovered(span) : span)) : all;
   const top = Math.min(Math.max(0, offset), maxOffset(layout));
   const shown = lines.slice(top, top + windowRows);
   if (lines.length > windowRows) {
@@ -1687,16 +1733,16 @@ async function setKeysInPane($, value) {
   if (await read2($, keysAtom) !== value)
     await update2($, keysAtom, () => value);
 }
-async function scrollKit($, by, bodyRows, columns) {
+async function scrollKit($, to, bodyRows, columns) {
   const most = maxOffset(kitLayout(modelOf(await readPane2($), modelWidth(columns)), columns, bodyRows));
   const from = Math.min(await read2($, scrollAtom), most);
-  const to = Math.min(Math.max(0, from + by), most);
-  if (to !== await read2($, scrollAtom))
-    await update2($, scrollAtom, () => to);
+  const next = Math.min(Math.max(0, to(from)), most);
+  if (next !== await read2($, scrollAtom))
+    await update2($, scrollAtom, () => next);
 }
 async function clampScroll($) {
   if (kitSize)
-    await scrollKit($, 0, kitSize.bodyRows, kitSize.columns);
+    await scrollKit($, (from) => from, kitSize.bodyRows, kitSize.columns);
 }
 function registerPane(on) {
   registerPaneRedraw(on);
@@ -1720,6 +1766,11 @@ function registerPane(on) {
     if (isEngaged(e))
       await setKeysInPane($, true);
     await paneMessage($, e, TODO_PANE, await waitingBand($));
+    const reveal = e.data;
+    if (e.requestId === PANE && reveal.type === "scrollTo" && typeof reveal.offset === "number" && kitSize) {
+      const offset = reveal.offset;
+      await scrollKit($, () => offset, kitSize.bodyRows, kitSize.columns);
+    }
     if (e.requestId === PANE)
       act($, e.data, e.surface);
     return next(e);
@@ -1727,7 +1778,7 @@ function registerPane(on) {
   on("ui.scroll", { component: "Pane", requestId: "human-todos" }, async ($, e, next) => {
     if (e.contentRows > e.bodyRows || kitSize === undefined)
       return next(e);
-    await scrollKit($, e.by, e.bodyRows, kitSize.columns);
+    await scrollKit($, (from) => from + e.by, e.bodyRows, kitSize.columns);
     return {};
   });
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
