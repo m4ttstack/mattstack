@@ -170,6 +170,8 @@ export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCo
 export function evaluateShepherd(herd: HerdRow, s: WatchdogSensors, cfg: WatchdogConfig): WedgeVerdict {
   if (herd.status !== "active") return HEALTHY;
   if (herd.shepherdPane !== null && s.paneState(herd.shepherdPane) === "working") return HEALTHY;
+  // The shepherd's own kit form leaves its pane idle, and a poke would land in it.
+  if (s.openKitGate(herd.shepherdSession)) return HEALTHY;
   const now = s.now();
 
   const gate = oldest(s.openHumanGates(herdPrefix(herd.id)).filter((g) => g.ageMs >= ms(cfg.shepherdFastMins)));

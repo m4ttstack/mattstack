@@ -1,3 +1,4 @@
+import { parsePaneRef } from "../../packages/rt-client/src/index.ts";
 import type { GatesStore } from "./gates-store.ts";
 
 /** The id of the open gate a kit form is drawn for in this Claude session's
@@ -7,4 +8,20 @@ export function openKitGateFor(store: Pick<GatesStore, "list">): (session: strin
   return (session) =>
     store.list({ open: true }).gates
       .find((g) => g.status === "open" && g.origin?.presentation === "kit" && g.nudge?.session === session)?.id ?? null;
+}
+
+/** The id of the open kit gate drawn in the pane at this ref (bare for the
+    visible server, `bg:`-prefixed for the bg one), or null. A gate records
+    its pane as `origin.paneId`, else the top-level `pane`. */
+export function openKitGateForPane(store: Pick<GatesStore, "list">): (paneRef: string) => string | null {
+  return (paneRef) => {
+    const target = parsePaneRef(paneRef);
+    return store.list({ open: true }).gates.find((g) => {
+      if (g.status !== "open" || g.origin?.presentation !== "kit") return false;
+      const recorded = g.origin.paneId || g.pane;
+      if (!recorded) return false;
+      const ref = parsePaneRef(recorded);
+      return ref.server === target.server && ref.paneId === target.paneId;
+    })?.id ?? null;
+  };
 }

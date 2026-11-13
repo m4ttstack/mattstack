@@ -15,6 +15,16 @@ export function herdrError(res: { ok: false; code: string; message: string }): {
   return { ok: false, error: `${res.code}: ${res.message}` };
 }
 
+let kitGateGuard: ((paneRef: string) => string | null) | null = null;
+
+/** Installs the daemon's lookup of an open kit gate by pane ref. A kit form is
+    drawn over an idle pane, so herdr's status cannot tell the injector that
+    typing would pick form options; this is the one place every injector
+    caller is stopped. Null removes it. */
+export function setKitGateGuard(guard: ((paneRef: string) => string | null) | null): void {
+  kitGateGuard = guard;
+}
+
 export type InjectDelivery = "accepted" | "queued" | "refused";
 export interface InjectResult { paneId: string; delivered: InjectDelivery; reason?: string }
 export interface InjectOptions { paneId: string; text: string; callerPane?: string; herdr?: typeof herdrRequest; promptWaitMs?: number; sockPath?: string }
@@ -140,6 +150,7 @@ export async function injectIntoPane(opts: InjectOptions): Promise<{ ok: true; d
   // never match even when they are the exact same pane.
   const targetRef = formatPaneRef(paneId, sockPath === bgSocketPath() ? "bg" : "visible");
   if (callerPane && callerPane === targetRef) return ok("refused", "that is this pane");
+  if (kitGateGuard?.(targetRef)) return ok("refused", "a kit form is open here");
   if (pastesAsText(text)) return ok("refused", `a slash command over ${PASTE_COMMAND_LIMIT} characters arrives as a paste and never runs; shorten it`);
 
   const probe = await herdr<{ agent: { agent: string; agent_status: string } }>("agent.get", { target: paneId }, { sockPath });

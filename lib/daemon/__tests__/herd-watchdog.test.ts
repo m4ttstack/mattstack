@@ -308,6 +308,18 @@ describe("evaluateShepherd", () => {
     expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
   });
 
+  test("a shepherd with an open kit gate is awaiting an answer: healthy however wedged it otherwise reads", () => {
+    const s = sensors({
+      ...shepherdIdle,
+      openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }],
+      unreadDmMentionsFor: () => 2,
+      openKitGate: (session) => session === "sess-s",
+    });
+    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "healthy" });
+    const other = sensors({ ...shepherdIdle, openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }], openKitGate: (session) => session === "sess-other" });
+    expect(evaluateShepherd(herd(), other, cfg)).toMatchObject({ kind: "wedged" });
+  });
+
   test("an open human gate younger than shepherdFastMins is healthy", () => {
     const s = sensors({ ...shepherdIdle, openHumanGates: () => [{ id: "g-9", ageMs: 3 * MIN }] });
     expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "healthy" });
@@ -765,6 +777,13 @@ describe("HerdWatchdog ladder", () => {
     await r.tick();
     expect(r.pokes).toHaveLength(0);
     expect(r.notes).toEqual(["watchdog: demo-1/@shepherd: human gate g-9 open 6m unanswered; strike 1, flagged 0m ago. Check on it."]);
+  });
+
+  test("a wedged-looking shepherd with an open kit gate is never poked and never escalated", async () => {
+    const r = rig({ jobs: [], sensors: { ...shepherdWedged(), unreadDmMentionsFor: () => 3, openKitGate: (session) => session === "sess-s" } });
+    for (const mins of [0, 5, 5, 5, 5]) await r.tick(mins);
+    expect(r.pokes).toEqual([]);
+    expect(r.notes).toEqual([]);
   });
 
   test("(f) a shepherd poked twice without effect = notifyHuman", async () => {
