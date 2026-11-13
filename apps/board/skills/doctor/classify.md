@@ -36,6 +36,10 @@ digraph doctor_classify_and_retry {
     "mr_retry {mrUrl, jobId}" [shape=plaintext];
     "mr_retry result?" [shape=diamond];
     "STOP: retries go through mr_retry" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Retry waits = 20 (doctor)?" [shape=diamond];
+    "One background Bash task: sleep 60 (retry wait)" [shape=plaintext];
+    "End the turn: waiting to retry" [shape=box];
+    "Trigger: the retry wait's sleep finished" [shape=ellipse];
     "Fixed the mr_retry call once already?" [shape=diamond];
     "Fix what the mr_retry error names" [shape=box];
     "<status-bin> doctor-status <state> fixing <message naming the retried job and retry-flake>" [shape=plaintext];
@@ -68,11 +72,14 @@ digraph doctor_classify_and_retry {
     "Fix what the mr_pipeline error names" -> "mr_pipeline {mrUrl}";
     "Failed jobs listed in pipeline.jobs (doctor)?" -> "mr_job_trace {mrUrl, jobId} per failed job" [label="yes: read each one's trace"];
     "Failed jobs listed in pipeline.jobs (doctor)?" -> "No job list: continue at Watch the pipeline on the head sha" [label="no: pipeline.jobs empty or no failed job in it"];
+    "Failed jobs listed in pipeline.jobs (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: every blocking failed row has no Actions log"];
     "Trace tails enough to classify (doctor)?" -> "Classify each failed job (doctor)" [label="yes"];
     "Trace tails enough to classify (doctor)?" -> "mr_job_trace {mrUrl, jobId} per failed job" [label="no"];
+    "Trace tails enough to classify (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: every blocking row without a tail has no Actions log"];
     "mr_job_trace {mrUrl, jobId} per failed job" -> "mr_job_trace result (doctor)?";
     "mr_job_trace result (doctor)?" -> "Classify each failed job (doctor)" [label="ok"];
     "mr_job_trace result (doctor)?" -> "Fixed the mr_job_trace call once already?" [label="tool error"];
+    "mr_job_trace result (doctor)?" -> "Classify each failed job (doctor)" [label="GitHub: no Actions log for the check"];
     "Fixed the mr_job_trace call once already?" -> "Fix what the mr_job_trace error names" [label="no"];
     "Fixed the mr_job_trace call once already?" -> "doctor off-script escalation: mr_job_trace refused" [label="yes"];
     "Fix what the mr_job_trace error names" -> "mr_job_trace {mrUrl, jobId} per failed job";
@@ -93,6 +100,12 @@ digraph doctor_classify_and_retry {
     "mr_retry {mrUrl, jobId}" -> "mr_retry result?";
     "mr_retry result?" -> "<status-bin> doctor-status <state> fixing <message naming the retried job and retry-flake>" [label="retried"];
     "mr_retry result?" -> "Fixed the mr_retry call once already?" [label="tool error"];
+    "mr_retry result?" -> "Retry waits = 20 (doctor)?" [label="GitHub: tool error, the job's run is still in progress"];
+    "Retry waits = 20 (doctor)?" -> "One background Bash task: sleep 60 (retry wait)" [label="no"];
+    "Retry waits = 20 (doctor)?" -> "Fixed the mr_retry call once already?" [label="yes: GitHub retry waits spent"];
+    "One background Bash task: sleep 60 (retry wait)" -> "End the turn: waiting to retry";
+    "End the turn: waiting to retry" -> "Trigger: the retry wait's sleep finished" [style=dashed];
+    "Trigger: the retry wait's sleep finished" -> "Lease mode (before the retry)?";
     "mr_retry result?" -> "STOP: retries go through mr_retry" [label="tempted to rerun the job with the forge CLI"];
     "STOP: retries go through mr_retry" -> "Fixed the mr_retry call once already?";
     "Fixed the mr_retry call once already?" -> "Fix what the mr_retry error names" [label="no"];
@@ -146,28 +159,38 @@ digraph doctor_classify_and_retry {
 ### Fix what the mr_pipeline error names
 
 `mr_pipeline` refused its input. Correct what the error names (`mrUrl` the
-MR's https URL, `jobId` the numeric part of a `gitlab:job:N` id when you
-passed one) and read again, once. An error that names no input has nothing
+MR's https URL, `jobId` the numeric part of a `gitlab:job:N` id, or of a
+`github:check:N` id on GitHub, when you passed one) and read again, once. An error that names no input has nothing
 to correct: read again unchanged, once, and the off-script escalation
 follows.
 
 ### Fix what the mr_job_trace error names
 
 `mr_job_trace` refused its input. Correct what the error names (`jobId`
-the numeric part of a `gitlab:job:N` id from this MR's pipeline, `mrUrl`
-the MR's https URL) and read again, once. An error that names no input has
-nothing to correct: read again unchanged, once, and the off-script
-escalation follows.
+the numeric part of a `gitlab:job:N` id from this MR's pipeline, or of a
+`github:check:N` id on GitHub, `mrUrl` the MR's https URL) and read again,
+once. An error that names no input has nothing to correct: read again
+unchanged, once, and the off-script escalation follows.
+
+An error saying the job has no Actions log never comes here: it takes
+`GitHub: no Actions log for the check` to `Classify each failed job
+(doctor)`, never the fix or the `mr_job_trace refused` escalation. For a
+check that is not an Actions job, `mr_job_trace` asks GitHub for an
+Actions job log that does not exist, so the error is most likely a Not
+Found. A Not Found error on a GitHub check with no Actions run (no
+`runId`, or a `webUrl` that is not an Actions job link,
+`/actions/runs/<run>/job/<job>`) counts as no Actions log.
 
 ### Fix what the mr_retry error names
 
 `mr_retry` refused its input. Correct what the error names (`jobId` the
-numeric part of a `gitlab:job:N` id; pass exactly one of `jobId` or
-`pipelineId`) and go back through the lease check before retrying again,
+numeric part of a `gitlab:job:N` id, or of a `github:check:N` id on
+GitHub; pass exactly one of `jobId` or `pipelineId`) and go back through the lease check before retrying again,
 once. An error that names no input (a 403 scope error, for example) has
 nothing to correct: retry again unchanged, once, and the off-script
-escalation follows. An error is never a reason to rerun the job with the
-forge CLI.
+escalation follows. On GitHub, an error that plainly says the job's run
+is still in progress comes here only once its retry waits are spent. An
+error is never a reason to rerun the job with the forge CLI.
 
 ### Classify each failed job (doctor)
 
@@ -176,6 +199,54 @@ tail; `mr_pipeline` lists `pipeline.jobs` (id, name, stage, status) with
 no trace, so each failed job it lists is read with `mr_job_trace`. A
 `ci_watch` tail too short to classify, or failed jobs the human reported
 without their traces, also go through `mr_job_trace`.
+
+On GitHub a failed check with no Actions log can be neither read nor
+retried. The signals:
+
+- in `mr_pipeline`'s `pipeline.jobs`, a `github:status:` id, or a
+  `github:check:` row whose `runId` is null (GitLab rows carry no `runId`,
+  so this never reads them);
+- in `ci_watch`'s `failedJobs`, `jobId` null.
+
+Such a row skips the trace read and is never retried as flaky.
+
+On GitHub, only blocking rows are classified. `mr_pipeline`'s
+`pipeline.jobs` rows carry `allowFailure`, true when the check is not
+required, so in a repo with no required checks no row has
+`allowFailure: false`. `ci_watch`'s `failedJobs` rows carry
+`allowFailure: false` on every row that blocks, so in a repo with no
+required checks every row comes back `allowFailure: false`. Either way a
+row is blocking when it has `allowFailure: false`, and every row is
+blocking when none has `allowFailure: false`, as the head's status and
+`ci_watch` count it.
+
+- a blocking no-log row classifies as `real, or no licensed fix`, with
+  the error naming the check and that it has no Actions log;
+- on GitHub, a red row that is not blocking (`allowFailure: true` while
+  some row has `allowFailure: false`) is not a blocking failure, with a
+  log or without one. It gets no trace call, is left out of the
+  classification and never takes `real, or no licensed fix`; the status
+  message the run writes next, whichever that is (`fixing`, `done` or
+  `error`), names it as an optional check that is also red.
+
+The blocking rule applies on GitHub only; on GitLab it leaves no failed
+job out of the classification.
+
+`mr_job_trace {mrUrl, jobId} per failed job` means per failed job with a
+log, and on GitHub per blocking failed job with a log: a no-log row, or a
+GitHub row that is not blocking, gets no trace call, so a mixed red
+traces only the blocking rows that have a log. On GitHub, `Trace tails
+enough to classify (doctor)?` asks about the blocking rows only. A
+GitHub red always has a blocking failed row, since only blocking checks
+(every check, when none is required) set the head's status and
+`ci_watch` returns `failed` on a blocking failure. A red where no
+blocking failed row has a log comes straight here on a `GitHub: every
+blocking ...` edge: those rows take `real, or no licensed fix`, which
+decides the run. A check another app reported keeps a numeric `jobId` in
+`failedJobs`, so a blocking one can still reach `mr_job_trace`; the
+error saying it has no Actions log, or a Not Found on a check with no
+Actions run, takes `GitHub: no Actions log for the check` to the same
+outcome as any blocking no-log row.
 After a successful `mr_pipeline` read, `pipeline.jobs` can be empty (the
 pipeline has no jobs yet), and then there is no job id to trace: `Failed jobs
 listed in pipeline.jobs (doctor)?` answers no, and the map watches the head
@@ -211,6 +282,27 @@ fix`.
 is larger than the jobs in `failedJobs`, the rest are unclassified, so the
 red is not flaky-only: take `real, or no licensed fix` and let the error
 name the count.
+
+### Retry waits = 20 (doctor)?
+
+GitHub reruns a job only once its workflow run has finished, so a retry
+can be refused while other jobs in the run still go. Only an `mr_retry`
+error that plainly says the job's run is still in progress takes the
+`GitHub:` edge here; any other refusal takes `tool error`. The count is
+the retry waits spent on the watched sha, and it resets with a new
+watched sha. Twenty waits of `sleep 60` span about 20 minutes; the
+twenty-first in-progress error goes to `Fixed the mr_retry call once
+already?`, the same fix-once and `mr_retry refused` escalation as any
+other refusal.
+
+### End the turn: waiting to retry
+
+The background `sleep 60` is running: end the turn here, in one line
+naming the wait (`waiting to retry job <id> on !<iid>, wait <n> of 20`).
+Run one sleep task at a time and never sleep in the foreground; a
+foreground sleep is refused. The task's finish wakes the pane at
+`Trigger: the retry wait's sleep finished`, which goes back through the
+lease check to the same retry.
 
 ### doctor escalation: budget extension (retry)
 
