@@ -1,5 +1,26 @@
 # @mattstack/glance
 
+## 0.33.2
+
+### Patch Changes
+
+- GitLab `fetchPullRequests({ iids })` works on gitlab.com again
+  (GLANCE-57). gitlab.com scored the dashboard fragment inside a
+  `mergeRequests(iids:)` connection at 739, over its cap of 250, so every
+  by-iid read failed. It now sends one single-MR query (the one
+  `fetchSingleMR` sends) per distinct iid, in parallel, and returns the same
+  results, newest first as before. A read of N iids is now N GitLab requests
+  instead of one, and that includes `createDashboardGroup`'s GitLab poll; an
+  empty `iids` list sends nothing.
+- GitHub `Pipeline.id` can still move once for a head commit, when a lower
+  run's checks appear after a higher run's (GLANCE-59). That is accepted:
+  keeping the first id seen would need state per commit across reads, which
+  a provider does not hold. A consumer that must not act twice should compare
+  `Pipeline.sha` too. The README's "GitHub `Pipeline.id`" section has the
+  detail.
+- The live conformance harness records an outcome for `enqueuePullRequest`
+  and `fetchMergeQueueStatus` on both forges (GLANCE-58).
+
 ## 0.33.1
 
 ### Patch Changes
