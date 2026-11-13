@@ -51,8 +51,11 @@ function markFor(todo: Todo): { mark: string; tone: Tone } {
   return { mark: '✓', tone: 'success' }
 }
 
+// Only an item's main button is filled, the rest stay quiet until the pointer is over them. A running item lists Show or Open log before Stop, so Stop is its main one.
 function buttonsOf(todo: Todo): PaneButton[] {
-  return buttonsFor(todo).map(id => ({ id, label: LABELS[id], tone: TONES[id], todoId: todo.id }))
+  const ids = buttonsFor(todo)
+  const main = ids.find(id => id === 'stop' || id === 'forceStop') ?? ids[0]
+  return ids.map(id => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : 'quiet', todoId: todo.id }))
 }
 
 // A title wraps at the full inner width; everything else at `width`, two columns narrower.
@@ -90,7 +93,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
     if (!isRunning && todo.note) lines(todo.note, width, 'warning', true)
     for (const row of shown) rows.push({ kind: 'text', text: row, tone: 'script', indent: true })
     if (hidden > 0 && !isConfirming) {
-      const more: PaneButton = { id: 'more', label: isOpen ? 'Show less' : 'Show all', tone: 'neutral', todoId: todo.id }
+      const more: PaneButton = { id: 'more', label: isOpen ? 'Show less' : 'Show all', tone: 'quiet', todoId: todo.id }
       rows.push({ kind: 'buttons', buttons: [more], ...(!isOpen && { lead: { text: `… +${hidden} more`, tone: 'dim' as const } }) })
     }
     if (todo.kind === 'run' && todo.cwd) rows.push({ kind: 'text', text: `in ${todo.cwd}`, tone: 'dim', indent: true })
@@ -129,7 +132,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
       })
     }
     blank()
-    rows.push({ kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] })
+    rows.push({ kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'quiet' }] })
   }
 
   return { rows, spans, hasFinished: finished.length > 0 }

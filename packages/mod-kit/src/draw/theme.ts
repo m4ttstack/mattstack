@@ -83,11 +83,16 @@ const PRESS_FILL: Record<string, string> = {
   [FILL.current.bg]: '#3394a2',
 }
 
+// A quiet button: a dim label with no fill at rest, a soft fill and a white label under the pointer.
+export const QUIET = { label: PLACEHOLDER.color as string, hover: FILL.chip.bg, press: '#333333', muted: '#555555' }
+
 export function hovered<S extends Style>(span: S): S {
+  if (span.quiet) return { ...span, bg: QUIET.hover, color: 'white' }
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: '#404040', dim: false }
 }
 
 export function pressed<S extends Style>(span: S): S {
+  if (span.quiet) return { ...span, bg: QUIET.press, color: 'white' }
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: '#353535', dim: false }
 }
 
@@ -105,6 +110,7 @@ const MUTED: Record<string, string> = { cyan: '#3d6f78', green: '#4d7a4d', yello
 const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#6e3a52', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#5e2f45', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#24313f', color: '#8a8a8a' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#262626', color: '#8a8a8a' }, [SCROLL.track]: { bg: '#2a2a2a' }, [SCROLL.thumb]: { bg: '#4a4a4a' } }
 
 export function muted<S extends Style>(span: S): S {
+  if (span.quiet) return { ...span, color: QUIET.muted, dim: false }
   if (span.bg) return { ...span, ...(MUTED_FILL[span.bg] ?? { bg: '#3a3a3a', color: '#8a8a8a' }), dim: false }
   if (span.color) return { ...span, color: MUTED[span.color] ?? span.color, dim: false }
   return { ...span, color: span.dim ? '#555555' : '#8a8a8a', dim: false }

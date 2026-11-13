@@ -143,6 +143,7 @@ var FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
+var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -163,10 +164,15 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
+var QUIET = { label: PLACEHOLDER.color, hover: FILL.chip.bg, press: "#333333", muted: "#555555" };
 function hovered(span) {
+  if (span.quiet)
+    return { ...span, bg: QUIET.hover, color: "white" };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressed(span) {
+  if (span.quiet)
+    return { ...span, bg: QUIET.press, color: "white" };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
 }
 var ACCENT = { color: "cyan" };
@@ -177,6 +183,8 @@ var DIM = { dim: true };
 var MUTED = { cyan: "#3d6f78", green: "#4d7a4d", yellow: "#857640", red: "#8a4a4a", gray: "#4a4a4a", [BRAND.pink]: "#7a3d58" };
 var MUTED_FILL = { [BRAND.pink]: { bg: "#6e3a52", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#5e2f45", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#24313f", color: "#8a8a8a" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#262626", color: "#8a8a8a" }, [SCROLL.track]: { bg: "#2a2a2a" }, [SCROLL.thumb]: { bg: "#4a4a4a" } };
 function muted(span) {
+  if (span.quiet)
+    return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
     return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#3a3a3a", color: "#8a8a8a" }, dim: false };
   if (span.color)
@@ -184,13 +192,13 @@ function muted(span) {
   return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
 }
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 2 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
   const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
 }
 var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
 var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
@@ -656,7 +664,9 @@ function markFor(todo) {
   return { mark: "✓", tone: "success" };
 }
 function buttonsOf(todo) {
-  return buttonsFor(todo).map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId: todo.id }));
+  const ids = buttonsFor(todo);
+  const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
+  return ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
 }
 function paneModel(input) {
   const { list, expanded, spin, width } = input;
@@ -692,7 +702,7 @@ function paneModel(input) {
     for (const row of shown)
       rows.push({ kind: "text", text: row, tone: "script", indent: true });
     if (hidden > 0 && !isConfirming) {
-      const more = { id: "more", label: isOpen ? "Show less" : "Show all", tone: "neutral", todoId: todo.id };
+      const more = { id: "more", label: isOpen ? "Show less" : "Show all", tone: "quiet", todoId: todo.id };
       rows.push({ kind: "buttons", buttons: [more], ...!isOpen && { lead: { text: `… +${hidden} more`, tone: "dim" } } });
     }
     if (todo.kind === "run" && todo.cwd)
@@ -736,7 +746,7 @@ function paneModel(input) {
       });
     }
     blank();
-    rows.push({ kind: "buttons", flush: true, buttons: [{ id: "clear", label: "Clear finished", tone: "neutral" }] });
+    rows.push({ kind: "buttons", flush: true, buttons: [{ id: "clear", label: "Clear finished", tone: "quiet" }] });
   }
   return { rows, spans, hasFinished: finished.length > 0 };
 }

@@ -1,12 +1,13 @@
 import { cellWidth, cutCells } from '../draw/cells'
 import { sp, widthOf, type Line, type Span, type Style } from '../draw/text'
-import { FILL } from '../draw/theme'
+import { FILL, QUIET } from '../draw/theme'
 
-// Every button is a filled block; its tone picks the fill. A disabled one keeps its place and shape but takes no clicks.
-export type ButtonTone = 'primary' | 'secondary' | 'neutral' | 'caution' | 'brand'
+// Every button is a block; its tone picks the fill. A disabled one keeps its place and shape but takes no clicks.
+// A `quiet` one has no fill until the pointer is over it, for the actions beside the one that matters.
+export type ButtonTone = 'primary' | 'secondary' | 'neutral' | 'caution' | 'brand' | 'quiet'
 export type Button<A> = { label: string; action: A; tone?: ButtonTone; disabled?: boolean }
 
-const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand }
+const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, quiet: true } }
 
 type Spacing = { indent: number; pad: number; gap: number }
 const ROOMY: Spacing = { indent: 3, pad: 2, gap: 2 }
@@ -15,7 +16,7 @@ const COMPACT: Spacing = { indent: 1, pad: 1, gap: 1 }
 export function buttonSpan<A>(button: Button<A>, pad = ROOMY.pad): Span<A> {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? 'secondary']
   const edge = ' '.repeat(pad)
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...(!button.disabled && { action: button.action }) })
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== 'quiet', ...(!button.disabled && { action: button.action }) })
 }
 
 const widthWith = (left: Button<unknown>[], right: Button<unknown> | undefined, { indent, pad, gap }: Spacing) =>
