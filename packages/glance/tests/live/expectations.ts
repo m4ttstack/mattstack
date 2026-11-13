@@ -75,7 +75,7 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   enqueuePullRequest: {
     support: 'supported',
     capability: 'canEnqueue',
-    note: 'Needs a branch with a merge queue, which the fixture repos do not have, so the conformance harness cannot exercise it.'
+    note: 'Needs a branch with a merge queue, which the fixture repos do not have, so the conformance harness exercises it only against the repo GLANCE_HARNESS_GITHUB_QUEUE_REPO names and records a skip without one.'
   },
   fetchMergeQueueStatus: { support: 'supported', capability: 'canEnqueue' },
   setAutoMerge: {

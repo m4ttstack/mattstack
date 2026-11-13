@@ -669,6 +669,51 @@ export async function fetchDashboardBatch(
   return { prs, degraded };
 }
 
+/**
+ * GitLab reads a group one request per iid and gitlab.com allows a Free-plan
+ * user 100 requests a minute, so a GitLab group's polls and push refreshes
+ * together send at most this many in any 60 s window, whatever its size.
+ */
+export const GITLAB_GROUP_REQUESTS_PER_MINUTE = 20;
+
+/**
+ * Held back from polls while the push cable is up, so an MR a push event
+ * names is read at once instead of waiting for the window to free.
+ */
+export const GITLAB_GROUP_PUSH_RESERVE = 5;
+
+const GROUP_BUDGET_WINDOW_MS = 60_000;
+
+/** Per-iid reads a GitLab group keeps in flight, as `fetchPullRequests({ iids })` does. */
+const GROUP_READS_IN_FLIGHT = 4;
+
+async function settleInFlight<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        results[i] = { status: 'fulfilled', value: await fn(items[i]!) };
+      } catch (reason) {
+        results[i] = { status: 'rejected', reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/** One group fetch: the PRs that came back, and every iid it asked for. */
+interface GroupFetch {
+  prs: Map<number, PullRequest>;
+  iids: number[];
+}
+
 function createDashboardGroup(
   provider: GitProvider,
   projectPath: string,
@@ -676,7 +721,7 @@ function createDashboardGroup(
   userId: number | null
 ): DashboardGroup {
   // Mutable state — updated by updateIids
-  let currentIids = [...initialIids];
+  let currentIids = [...new Set(initialIids)];
 
   // Pre-build actions for each MR — lazily extended by updateIids
   const actionsMap = new Map<number, MRDashboardActions>();
@@ -695,9 +740,88 @@ function createDashboardGroup(
   let connectionState: MRDashboardProps['connection'] = 'connecting';
   let _isInitialLoading = true;
 
+  const budgeted = provider.providerName === 'gitlab';
+  const hasPush = provider.subscribePullRequestEvents !== undefined;
   /**
-   * Batched fetch: uses fetchPullRequests with iids option for a single
-   * GraphQL call. Includes all states so merged/closed MRs are visible.
+   * Requests per batch, stamped when the batch settles: a batch in flight
+   * counts in every window, since its requests leave over its whole run.
+   */
+  const batches: Array<{ settledAt: number; requests: number }> = [];
+  const refreshedAt = new Map<number, number>();
+  const pushed = new Set<number>();
+  let cableDown = false;
+  let watcherGeneration = 0;
+  let drainTimer: ReturnType<typeof setTimeout> | null = null;
+  let refetch: (() => void) | null = null;
+  const knownPrs = new Map<number, PullRequest>();
+
+  const clearDrain = () => {
+    if (drainTimer) clearTimeout(drainTimer);
+    drainTimer = null;
+  };
+
+  /** Refetch once the oldest settled batch leaves the window, so a push-named iid is not left for the next poll. */
+  const scheduleDrain = (now: number) => {
+    if (drainTimer || pushed.size === 0) return;
+    const settled = batches.filter(b => b.settledAt !== Infinity).map(b => b.settledAt);
+    if (settled.length === 0) return;
+    const delay = Math.min(...settled) + GROUP_BUDGET_WINDOW_MS - now + 1;
+    drainTimer = setTimeout(() => {
+      drainTimer = null;
+      refetch?.();
+    }, Math.max(0, delay));
+  };
+
+  /** Consecutive failed reads per iid. */
+  const failures = new Map<number, number>();
+
+  /**
+   * A first failure leaves the iid unread, so it goes first next time; from
+   * the second in a row it counts as read, so an iid that keeps failing
+   * rotates with the rest instead of taking a slot every fetch.
+   */
+  const noteFailure = (iid: number) => {
+    const count = (failures.get(iid) ?? 0) + 1;
+    failures.set(iid, count);
+    if (count >= 2) refreshedAt.set(iid, Date.now());
+  };
+
+  const byOldestRead = (a: number, b: number) => (refreshedAt.get(a) ?? 0) - (refreshedAt.get(b) ?? 0);
+
+  /**
+   * The iids this fetch reads: all of them, or on GitLab what the budget
+   * allows. Push-named iids go first, oldest read first, but the rest get
+   * half the room whenever their oldest has waited longer, so a push storm
+   * cannot starve them and they cannot starve a push.
+   */
+  const pickIids = (): { iids: number[]; named: number[]; batch: { settledAt: number; requests: number } | null } => {
+    if (!budgeted) return { iids: currentIids, named: [], batch: null };
+    const now = Date.now();
+    for (let i = batches.length - 1; i >= 0; i--) {
+      if (batches[i]!.settledAt <= now - GROUP_BUDGET_WINDOW_MS) batches.splice(i, 1);
+    }
+    const room = GITLAB_GROUP_REQUESTS_PER_MINUTE - batches.reduce((n, b) => n + b.requests, 0);
+    const waiting = currentIids.filter(iid => !pushed.has(iid)).sort(byOldestRead);
+    const allNamed = currentIids.filter(iid => pushed.has(iid)).sort(byOldestRead);
+    // The rest are owed half the room when their oldest has waited longer than the oldest named.
+    const restOwed = waiting.length > 0 && allNamed.length > 0 && byOldestRead(waiting[0]!, allNamed[0]!) <= 0;
+    const restShare = restOwed ? Math.min(Math.ceil(room / 2), waiting.length) : 0;
+    const named = allNamed.slice(0, Math.max(0, room - restShare));
+    const reserve = hasPush && !cableDown ? GITLAB_GROUP_PUSH_RESERVE : 0;
+    const restSlots = Math.max(0, room - named.length - reserve, Math.min(restShare, room - named.length));
+    const iids = [...named, ...waiting.slice(0, restSlots)];
+    for (const iid of named) pushed.delete(iid);
+    scheduleDrain(now);
+    if (iids.length === 0) return { iids, named, batch: null };
+    const batch = { settledAt: Infinity, requests: iids.length };
+    batches.push(batch);
+    return { iids, named, batch };
+  };
+
+  /**
+   * Batched fetch through fetchPullRequests' iids option (one GitHub call;
+   * on GitLab, one call per iid). Includes all states so merged/closed MRs
+   * are visible.
    *
    * No try/catch here: `createRealtimeWatcher.runFetch` already wraps this
    * call and turns a rejection into `lastError`/`consecutiveErrors` on
@@ -713,12 +837,36 @@ function createDashboardGroup(
    * rather than excluding it) through `degraded`, forwarded to
    * `warningListener` below.
    */
-  const batchFetch = async (): Promise<Map<number, PullRequest> | null> => {
-    const { prs, degraded } = await fetchDashboardBatch(
-      provider,
-      projectPath,
-      currentIids
-    );
+  const batchFetch = async (): Promise<GroupFetch | null> => {
+    const generation = watcherGeneration;
+    const { iids, named, batch } = pickIids();
+    if (iids.length === 0) return null;
+    let prs = new Map<number, PullRequest>();
+    let degraded = new Map<number, FetchPullRequestsWarning>();
+    let read = iids;
+    try {
+      if (budgeted) {
+        ({ prs, degraded, read } = await readEachIid(iids));
+      } else {
+        ({ prs, degraded } = await fetchDashboardBatch(provider, projectPath, iids));
+      }
+    } catch (err) {
+      for (const iid of named) pushed.add(iid);
+      for (const iid of iids) noteFailure(iid);
+      throw err;
+    } finally {
+      if (batch) batch.settledAt = Date.now();
+    }
+    for (const iid of iids) {
+      if (read.includes(iid)) {
+        failures.delete(iid);
+      } else {
+        if (named.includes(iid)) pushed.add(iid);
+        noteFailure(iid);
+      }
+    }
+    // A restart or dispose drops this result unread, so its push marks stand.
+    if (generation !== watcherGeneration) for (const iid of named) pushed.add(iid);
     for (const [iid, warning] of degraded) {
       if (!warningListener) break;
       try {
@@ -730,7 +878,41 @@ function createDashboardGroup(
         // rather than cause.
       }
     }
-    return prs;
+    return { prs, iids: read };
+  };
+
+  /**
+   * GitLab reads one request per iid either way, so each iid gets its own
+   * call: one that keeps failing then cannot sink the others in its batch.
+   * Only a fetch in which every read fails rejects.
+   */
+  const readEachIid = async (iids: number[]) => {
+    const settled = await settleInFlight(iids, GROUP_READS_IN_FLIGHT, (iid) =>
+      fetchDashboardBatch(provider, projectPath, [iid])
+    );
+    const prs = new Map<number, PullRequest>();
+    const degraded = new Map<number, FetchPullRequestsWarning>();
+    const read: number[] = [];
+    let firstError: unknown = null;
+    settled.forEach((outcome, i) => {
+      const iid = iids[i]!;
+      if (outcome.status === 'fulfilled') {
+        read.push(iid);
+        for (const [k, v] of outcome.value.prs) prs.set(k, v);
+        for (const [k, v] of outcome.value.degraded) degraded.set(k, v);
+        return;
+      }
+      firstError ??= outcome.reason;
+      const message = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+      degraded.set(iid, {
+        kind: 'request-failed',
+        source: 'detail',
+        message: `reading !${iid} failed: ${message}`,
+        target: warningTarget(projectPath, iid),
+      });
+    });
+    if (read.length === 0) throw firstError;
+    return { prs, degraded, read };
   };
 
   /** Start (or restart) the watcher for the current IID set. */
@@ -738,6 +920,9 @@ function createDashboardGroup(
     // Tear down existing watcher
     disposeWatcher?.();
     disposeWatcher = null;
+    watcherGeneration++;
+    clearDrain();
+    refetch = null;
 
     if (!listener || currentIids.length === 0) return;
 
@@ -747,7 +932,6 @@ function createDashboardGroup(
     // covered MR and disposing the old subscription would unsubscribe it.
     // Only the first subscription reports connection changes; the added ones
     // ride the same cable and forward events only.
-    let fetchedPrs: PullRequest[] = [];
     let push: {
       callbacks: WatcherSubscribeCallbacks;
       subscribed: Set<number>;
@@ -756,20 +940,35 @@ function createDashboardGroup(
 
     const attachPush = (prs: PullRequest[], first: boolean) => {
       const p = push!;
+      const onEvent = (iid?: number) => {
+        if (iid !== undefined) pushed.add(iid);
+        p.callbacks.onEvent();
+      };
       const callbacks = first
-        ? p.callbacks
-        : { onEvent: p.callbacks.onEvent, onConnected: () => {}, onDisconnected: () => {} };
+        ? {
+            onEvent,
+            onConnected: () => {
+              cableDown = false;
+              p.callbacks.onConnected();
+            },
+            onDisconnected: () => {
+              cableDown = true;
+              p.callbacks.onDisconnected();
+            },
+          }
+        : { onEvent, onConnected: () => {}, onDisconnected: () => {} };
       p.disposers.push(provider.subscribePullRequestEvents!(projectPath, prs, callbacks));
       for (const pr of prs) p.subscribed.add(pr.iid);
     };
 
-    disposeWatcher = createRealtimeWatcher<Map<number, PullRequest>>({
+    disposeWatcher = createRealtimeWatcher<GroupFetch>({
       fetch: batchFetch,
 
       subscribe: provider.subscribePullRequestEvents
         ? (callbacks) => {
             push = { callbacks, subscribed: new Set(), disposers: [] };
-            attachPush(fetchedPrs, true);
+            refetch = () => callbacks.onEvent();
+            attachPush(currentIids.flatMap(iid => knownPrs.get(iid) ?? []), true);
             return () => {
               for (const dispose of push?.disposers ?? []) dispose();
               push = null;
@@ -777,9 +976,12 @@ function createDashboardGroup(
           }
         : undefined,
 
-      onUpdate: (freshMap) => {
+      onUpdate: ({ prs: freshMap, iids }) => {
         _isInitialLoading = false;
-        fetchedPrs = [...freshMap.values()];
+        const now = Date.now();
+        for (const iid of iids) refreshedAt.set(iid, now);
+        for (const [iid, pr] of freshMap) knownPrs.set(iid, pr);
+        const fetchedPrs = [...freshMap.values()];
         const uncovered = push ? fetchedPrs.filter(pr => !push!.subscribed.has(pr.iid)) : [];
         if (uncovered.length > 0) attachPush(uncovered, false);
         for (const [iid, pr] of freshMap) {
@@ -840,6 +1042,13 @@ function createDashboardGroup(
       for (const iid of state.keys()) {
         if (!newSet.has(iid)) state.delete(iid);
       }
+      for (const iid of [...refreshedAt.keys(), ...pushed, ...knownPrs.keys(), ...failures.keys()]) {
+        if (newSet.has(iid)) continue;
+        refreshedAt.delete(iid);
+        pushed.delete(iid);
+        knownPrs.delete(iid);
+        failures.delete(iid);
+      }
 
       // Build actions for any new IIDs
       for (const iid of dedupedNew) {
@@ -867,6 +1076,9 @@ function createDashboardGroup(
     dispose() {
       disposeWatcher?.();
       disposeWatcher = null;
+      watcherGeneration++;
+      clearDrain();
+      refetch = null;
       listener = null;
       statusListener = null;
       warningListener = null;
