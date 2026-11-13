@@ -303,8 +303,17 @@ describe('kitClient', () => {
     let pointer: ((e: ClientPointerEvent) => void) | undefined
     let key: ((e: ClientKeyEvent) => void) | undefined
     const posts: JsonValue[] = []
+    let timers: { ms: number; at: number; fn: () => void; live: boolean }[] = []
+    let now = 0
     const surface = {
       elements: ELEMENTS,
+      every: (ms: number, fn: () => void) => {
+        const timer = { ms, at: now + ms, fn, live: true }
+        timers.push(timer)
+        return () => {
+          timer.live = false
+        }
+      },
       get state() {
         return state
       },
@@ -333,7 +342,19 @@ describe('kitClient', () => {
       key?.(e)
       tree = render()
     }
-    return { send, type, posts, state: () => state, tree: () => tree, hasPointer: () => pointer !== undefined }
+    // Moves the frame clock on, firing each live timer as its time comes.
+    const advance = (ms: number) => {
+      now += ms
+      for (const timer of timers) {
+        while (timer.live && timer.at <= now) {
+          timer.at += timer.ms
+          timer.fn()
+        }
+      }
+      timers = timers.filter(t => t.live)
+      tree = render()
+    }
+    return { send, type, advance, posts, state: () => state, tree: () => tree, hasPointer: () => pointer !== undefined }
   }
 
   const Counter = kitClient<{ focused?: boolean }, S>(
@@ -371,6 +392,115 @@ describe('kitClient', () => {
     m.type({ key: 'a' })
     expect(m.state()?.count).toBe(10)
     expect(m.posts).toEqual([{ type: 'engaged' }])
+  })
+
+  // A module that handles the arrows and Enter: ↓ counts by 10, Enter presses through pressFor.
+  let reveals = 0
+  const Keys = kitClient<{ focused?: boolean }, S>(
+    (_props, ui) => {
+      ui.onReveal(() => (reveals += 1))
+      ui.onKey(ev => {
+        if (ev.key === 'down') {
+          ui.setState({ ...ui.state, count: ui.state.count + 10 })
+          return true
+        }
+        if (ev.key === 'return') {
+          ui.pressFor(() => ui.post({ type: 'pressed', pressing: ui.keyPressing }))
+          return true
+        }
+        return false
+      })
+      return (
+        <Panel>
+          <ButtonRow>
+            <Button onPress={() => ui.setState({ ...ui.state, count: ui.state.count + 1 })}>Add</Button>
+          </ButtonRow>
+        </Panel>
+      )
+    },
+    { initial: () => ({ count: 0 }), revealKeys: ['down', 'return'] },
+  )
+
+  test('a key the module handles turns on keyboard mode, and any pointer event turns it off', () => {
+    const m = mount(Counter, {})
+    m.type({ key: 'a' })
+    expect(m.state()?.keyboard).toBeUndefined()
+    const handled = kitClient<object, S>(
+      (_p, ui) => {
+        ui.onKey(() => true)
+        return <Panel />
+      },
+      { initial: () => ({ count: 0 }) },
+    )
+    const k = mount(handled, {})
+    k.type({ key: 'x' })
+    expect(k.state()?.keyboard).toBe(true)
+    k.send({ type: 'move', x: 0, y: 0 })
+    expect(k.state()?.keyboard).toBeUndefined()
+  })
+
+  test('outside keyboard mode a reveal key only enters it and calls onReveal; the next key acts', () => {
+    reveals = 0
+    const m = mount(Keys, {})
+    m.type({ key: 'down' })
+    expect(m.state()).toMatchObject({ count: 0, keyboard: true })
+    expect(reveals).toBe(1)
+    m.type({ key: 'down' })
+    expect(m.state()?.count).toBe(10)
+    expect(reveals).toBe(1)
+  })
+
+  test('Enter outside keyboard mode only reveals, so it never presses a selection not on screen', () => {
+    const m = mount(Keys, {})
+    m.type({ key: 'return' })
+    m.advance(500)
+    expect(m.posts).toEqual([])
+  })
+
+  test('pressFor shows the press for 150 ms, ignores keys meanwhile, then runs once', () => {
+    const m = mount(Keys, {})
+    m.type({ key: 'down' })
+    m.type({ key: 'return' })
+    expect(m.state()?.keyPress).toBe(true)
+    m.type({ key: 'return' })
+    m.type({ key: 'down' })
+    expect(m.state()?.count).toBe(0)
+    m.advance(149)
+    expect(m.posts).toEqual([])
+    m.advance(1)
+    expect(m.posts).toEqual([{ type: 'pressed', pressing: false }])
+    expect(m.state()?.keyPress).toBeUndefined()
+    m.advance(1000)
+    expect(m.posts).toHaveLength(1)
+  })
+
+  test('a key during the press posts nothing, so the press post is never overwritten by an engaged one', () => {
+    const Engaging = kitClient<{ focused?: boolean }, S>(
+      (_props, ui) => {
+        ui.onKey(ev => {
+          if (ev.key !== 'return') return false
+          ui.pressFor(() => ui.post({ type: 'pressed' }))
+          return true
+        })
+        return <Panel />
+      },
+      { initial: () => ({ count: 0 }), engaged: () => ({ type: 'engaged' }) },
+    )
+    const m = mount(Engaging, {})
+    m.type({ key: 'return' })
+    expect(m.posts).toEqual([{ type: 'engaged' }])
+    m.type({ key: 'down' })
+    m.type({ key: 'return' })
+    m.advance(150)
+    expect(m.posts).toEqual([{ type: 'engaged' }, { type: 'pressed' }])
+  })
+
+  test('a reveal key while the surface is unfocused reaches the module instead', () => {
+    reveals = 0
+    const m = mount(Keys, { focused: false })
+    m.type({ key: 'down' })
+    expect(reveals).toBe(0)
+    expect(m.state()?.count).toBe(10)
   })
 
   test('an unfocused surface draws muted and the first click only engages', () => {

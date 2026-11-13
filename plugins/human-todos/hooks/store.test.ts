@@ -39,7 +39,7 @@ test('session.start restores the saved list and settles unfinished items', async
   const list = [
     saved({ id: '1', status: 'confirming', kind: 'run', script: 'ls' }),
     saved({ id: '2', status: 'running', kind: 'run', script: 'ls', runner: 'local', liveTail: ['x'], isStopping: true }),
-    saved({ id: '3', status: 'running', kind: 'run', script: 'ls', runner: 'herdr', token: 'tok', paneId: 'p1' }),
+    saved({ id: '3', status: 'running', kind: 'run', script: 'ls', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'tok', paneId: 'p1' }),
     saved({ id: '4', status: 'done' }),
   ]
   const { store } = world(on, { entries: { 'list:sess-1': savedList(list, 5) } })
@@ -57,6 +57,39 @@ test('session.start restores the saved list and settles unfinished items', async
   expect(now[1]?.liveTail).toBeUndefined()
   expect(now[1]?.isStopping).toBeUndefined()
   expect(now[2]).toMatchObject({ status: 'running', runner: 'herdr', token: 'tok', paneId: 'p1' })
+})
+
+test('a herdr run saved with no server settles to open, since its tab is on the visible server the plugin leaves alone', async ($, on) => {
+  const list = [saved({ id: '1', status: 'running', kind: 'run', script: 'ls', runner: 'herdr', token: 'tok', paneId: 'p1', tabId: 't1' })]
+  world(on, { entries: { 'list:sess-1': savedList(list, 2) } })
+  await startSession($)
+
+  expect((await $.tool.call({ tool: LIST })).result).toMatch(/^#1 \[open\] t/)
+})
+
+test('a list saved by 0.1.3 loads in full: every field survives, a local run settles to open', async ($, on) => {
+  const open = saved({ id: '1', kind: 'link', title: 'Open the console', detail: 'Use the work account', url: 'https://example.com/console' })
+  const running = saved({ id: '2', kind: 'run', title: 'Sign in', script: 'gcloud auth login', cwd: '/work', status: 'running', runner: 'local', liveTail: ['a'], isStopping: true, logPath: '/log/2' })
+  const done = saved({ id: '3', kind: 'task', title: 'Approve the invite', status: 'done', note: 'Approved' })
+  const { store } = world(on, { entries: { 'list:sess-1': savedList([open, running, done], 4, 500_000) } })
+  await startSession($)
+
+  expect((await $.tool.call({ tool: LIST })).result).toBe(
+    [
+      '#1 [open] Open the console',
+      '#2 [open] Sign in\n    script: gcloud auth login',
+      '#3 [done] Approve the invite',
+    ].join('\n'),
+  )
+  await $.tool.call({ tool: ADD, kind: 'task', title: 'next' })
+
+  const now = (store.get('list:sess-1') as { todos: Todo[]; nextId: number }).todos
+  expect(now).toHaveLength(4)
+  expect(now[0]).toEqual(open)
+  expect(now[2]).toEqual(done)
+  const { liveTail: _tail, isStopping: _stopping, ...rest } = running
+  expect(now[1]).toEqual({ ...rest, status: 'open', note: 'Ended without an exit code.' })
+  expect(now[3]).toMatchObject({ id: '4', title: 'next' })
 })
 
 test('a session with no saved entry starts empty', async ($, on) => {

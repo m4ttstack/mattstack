@@ -3,6 +3,9 @@ import type { ClientKeyEvent, ClientSurface, JsonValue } from 'claude-code'
 import { attachPointer, lookOf, type PointerState } from '../interact/pointer'
 import { drawKit } from './core'
 
+// How long a key's activation shows its control pressed before it acts, as a click's press and release would.
+const KEY_PRESS_MS = 150
+
 export type KitUi<S> = {
   width: number
   focused: boolean
@@ -12,7 +15,16 @@ export type KitUi<S> = {
   post: (message: JsonValue) => void
   // Asks the hooks module to put the pane away ({ type: 'hide' }, which paneMessage handles).
   hide: () => void
-  onKey: (fn: (event: ClientKeyEvent) => void) => void
+  // A handler that returns true handled the key, which puts the surface in keyboard mode until the pointer moves.
+  onKey: (fn: (event: ClientKeyEvent) => boolean | void) => void
+  // Keyboard mode: the last thing the person did here was a key the module handled, so it shows where the keys are.
+  readonly keyboard: boolean
+  // A key's activation is showing its press; keys are ignored until it has acted.
+  readonly keyPressing: boolean
+  // Shows the press for a moment, then runs `run`: what a key that activates a control calls.
+  pressFor: (run: () => void, ms?: number) => void
+  // Runs when one of the `revealKeys` enters keyboard mode, so the module can bring its selection into view.
+  onReveal: (fn: () => void) => void
 }
 
 export type KitOptions<P, S> = {
@@ -23,6 +35,9 @@ export type KitOptions<P, S> = {
   isActive?: (state: S) => boolean
   // Posted on every press and key, so the hooks module can tell the pointer or keyboard is here.
   engaged?: (props: P) => JsonValue
+  // Keys that, outside keyboard mode, only enter it: the first press shows where the keys are and the next one acts,
+  // so no key moves or presses a selection the person cannot see yet.
+  revealKeys?: readonly string[]
 }
 
 // A Client module drawn with kit components: seeds the state, then wires the pointer over the lines its Panel laid out.
@@ -38,6 +53,7 @@ export function kitClient<P, S extends PointerState = PointerState>(body: (props
     }
     const focused = options.focused ? options.focused(props) : (props as { focused?: unknown } | null)?.focused !== false
     const engage = options.engaged && (() => surface.post(options.engaged!(props)))
+    let reveal: (() => void) | undefined
     const ui: KitUi<S> = {
       width: surface.columns || 80,
       focused,
@@ -49,9 +65,37 @@ export function kitClient<P, S extends PointerState = PointerState>(body: (props
       hide: () => surface.post({ type: 'hide' }),
       onKey: fn =>
         void surface.onKey(event => {
+          // While a key's press shows, a key does nothing, not even engage: the engine can let a later post stand for
+          // earlier ones from the same tick, and the press's own post must not be lost.
+          if (latest.keyPress) return
           engage?.()
-          fn(event)
+          if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
+            setState({ ...latest, keyboard: true })
+            reveal?.()
+            return
+          }
+          if (fn(event) === true && !latest.keyboard) setState({ ...latest, keyboard: true })
         }),
+      get keyboard() {
+        return latest.keyboard === true
+      },
+      get keyPressing() {
+        return latest.keyPress === true
+      },
+      onReveal: fn => {
+        reveal = fn
+      },
+      pressFor: (run, ms = KEY_PRESS_MS) => {
+        if (latest.keyPress) return
+        setState({ ...latest, keyPress: true })
+        // The timer outlives this frame, so it reads the surface's state as it is when it fires, and brings this frame's copy up to date
+        // before `run`, which reads and writes through this frame's ui.
+        const stop = surface.every(ms, () => {
+          stop()
+          setState({ ...(surface.state as S), keyPress: undefined })
+          run()
+        })
+      },
     }
     const { tree, lines, handlers } = drawKit({ elements: surface.elements, look: lookOf(latest, focused), width: ui.width, focused }, () => body(props, ui))
     const local = {
@@ -59,7 +103,12 @@ export function kitClient<P, S extends PointerState = PointerState>(body: (props
         return latest
       },
       setState,
-      onPointer: (fn: Parameters<ClientSurface<S>['onPointer']>[0]) => surface.onPointer(fn),
+      // Any pointer event leaves keyboard mode, after the pointer's own state change.
+      onPointer: (fn: Parameters<ClientSurface<S>['onPointer']>[0]) =>
+        surface.onPointer(event => {
+          fn(event)
+          if (latest.keyboard) setState({ ...latest, keyboard: undefined })
+        }),
     } as unknown as ClientSurface<S>
     attachPointer(local, lines, {
       focused,

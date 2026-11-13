@@ -5,21 +5,22 @@ draws it in the clack look (brand bar, lists, tabs, buttons, input fields), and
 wires hover, press, focus and the hide-and-reopen band. Private workspace
 package, API 2.1.322, dark terminals only.
 
-Two mods show it in use. Read them before writing a new one:
+Three mods show it in use. Read them before writing a new one:
 
-- `mods/gate-form/`: a paged question form. The full worked example.
+- `mods/human-todos/`: a pane of steps that scrolls its own rows and takes the keyboard. The richest example: a model shared with an engine-drawn drawer for vscode and mobile, a Client sent only the rows in view, `revealKeys` and `pressFor`, and the hideable pane with its band.
+- `mods/gate-form/`: a paged question form. The full worked example of a form.
 - `mods/kit-gallery/`: every piece in every state. Run `/kit-gallery` in a
   session that loaded it. The smallest complete mod.
 
 ## Start a new mod
 
 1. Make `mods/<name>/` with these files:
-   - `mod.json`: `{ "plugin": { "name", "version", "description", "types"? }, "clients": ["<client>.tsx", ...] }`. `clients` lists every Client module file in `src/`.
+   - `mod.json`: `{ "plugin": { "name", "version", "description", "types"? }, "clients": ["<client>.tsx", ...] }`. `clients` lists every Client module file in `src/`. `files` (optional) lists files or folders in the mod folder, such as `LICENSE`, `README.md` or `docs`, that the build copies to the plugin root.
    - `package.json`: copy gate-form's, with `"@mattstack/mod-kit": "workspace:*"`.
    - `tsconfig.json`: copy gate-form's.
    - `src/register.tsx`: the hooks module.
    - `types/index.d.ts`: only when the mod declares typed atoms. It augments `PluginState` under the mod's name; copy the shape from `mods/gate-form/types/index.d.ts`. The build copies `types/` into the plugin.
-   - `harness/*.test.tsx`: Claude Code harness tests.
+   - `harness/*.test.tsx`: Claude Code harness tests. The build copies all of `harness/`, helpers included, into `hooks/`.
 2. Run `bun install` at the repo root.
 3. Live reload: `bun run mods:watch <name> --into ~/.claude/dev-mods/<session>/`. It rebuilds into `<dir>/<name>/` whenever the mod or the kit changes. Each session has its own dev-mods folder.
 4. Build: `bun run mods:build [name]` (no name builds every mod; `--no-validate` skips `claude plugin validate`). Commit the output in `plugins/<name>/`. CI fails when a build would change it.
@@ -94,11 +95,20 @@ Options:
 - `focused(props)`: defaults to the `focused` prop, true when absent.
 - `isActive(state)`: false while the surface takes no clicks (a form already sent).
 - `engaged(props)`: a message posted on every press and key. The hooks module uses it to learn the pointer or keyboard is in the Client.
+- `revealKeys`: keys that, outside keyboard mode, only enter it (see below). Leave it out and every key reaches `onKey`.
 
-`ui` is `{ width, focused, state, setState, post, hide, onKey }`. `ui.state`
+`ui` is `{ width, focused, state, setState, post, hide, onKey, keyboard, keyPressing, pressFor, onReveal }`. `ui.state`
 is a getter for the current state, pointer writes included. `ui.hide()` posts
 `{ type: 'hide' }`, which `paneMessage` handles. `ui.onKey(fn)` registers a key
-handler that also reports engagement.
+handler that also reports engagement. A handler that returns `true` handled the
+key, and that puts the surface in keyboard mode (`ui.keyboard`) until any pointer
+event, so a mod can show its keyboard marks only then. `ui.pressFor(run, ms?)`
+is for a key that activates a control: it sets `ui.keyPressing` for about 150 ms
+(the module draws the control pressed meanwhile), ignores keys until then, and
+then calls `run`. With the `revealKeys` option, those keys pressed outside
+keyboard mode only enter it: the first one shows the selection and the next one
+acts, so no key moves or presses what the person cannot see. `ui.onReveal(fn)`
+runs at that moment, for bringing the selection into view.
 
 ```tsx
 export default kitClient<Props, { cursor: number } & PointerState>(
@@ -125,7 +135,8 @@ button.
 ### `Button` and `ButtonRow`
 
 `<Button tone? disabled? onPress?>label</Button>`. Tones: `primary`,
-`secondary`, `neutral`, `caution`, `brand`. Alone it is a row of one button.
+`secondary`, `neutral`, `caution`, `brand`, and `quiet` (a faint fill that
+brightens under the pointer). Alone it is a row of one button.
 
 `<ButtonRow right?>`: children are the left buttons. `right` is one button
 pushed to the right edge.
@@ -184,7 +195,7 @@ Panel.
 ### `ReopenBand`
 
 `<ReopenBand label title onOpen>`. The band's one row: the mark and label, the
-waiting title, and a brand Open button (props type `ReopenBandProps`). `bandClient` wraps it. The gallery
+waiting title, and a brand Show button (props type `ReopenBandProps`). `bandClient` wraps it. The gallery
 draws it directly.
 
 ### `kitComponent` and `drawKit`
@@ -293,10 +304,11 @@ The line builders under the components. A component's `toLines` calls the
 matching builder. Reach for them when you build lines by hand for `<Lines>`.
 
 - `brandBar(label, width, hide?)`
-- `buttonRow(left, right, width)` and `buttonSpan(button, pad?)`, with `Button` data `{ label, action, tone?, disabled? }` and `ButtonTone`
+- `buttonRow(left, right, width, indent?)` (`indent` replaces the row's own lead-in, in cells) and `buttonSpan(button, pad?)`, with `Button` data `{ label, action, tone?, disabled? }` and `ButtonTone`
 - `selectList(spec)` with `SelectSpec` and `Choice`
 - `inputField(value, placeholder, width, showCursor)` and `textCursor(value, placeholder, showCursor)`
 - `tabStrip(spec)` with `Tab` and `TabStripSpec`, and `revealTab`
+- `scrollBar(rows, total, offset)`: a scroll bar for a window of `rows` over `total`, one three-cell line per row (a blank, the track or thumb, a blank). Blank lines when the list fits. Colours in `SCROLL`.
 
 ## Draw layer
 
@@ -305,10 +317,23 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `sp(text, style?)`: a span.
 - `wrap(text, width)`: wraps text to lines of strings.
 - `hang(first, rest, text, width, style?)`: wraps with a hanging indent.
-- `widthOf(spans)`: display width of a line.
+- `widthOf(spans)`: display width of a line, in terminal cells.
 - `withAction(lines, action)`: attaches an action to every line.
 
-Types: `Line`, `Style`.
+Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Hide does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
+
+### `cellWidth`, `cutCells`, `padCells` and `chunkCells`
+
+Every width in the kit counts terminal cells, not characters: an emoji or a
+CJK character takes two, a combining mark none. `wrap`, `hang`, `hitAt`, hover
+keys and the widgets all measure this way, so a mod that cuts or pads its own
+text should too.
+
+- `cellWidth(text)`: the cells `text` takes.
+- `cutCells(text, cells)`: the longest start of `text` that fits. It never
+  splits a grapheme and never leaves half a wide character in.
+- `padCells(text, cells)`: `text` padded with spaces to `cells`.
+- `chunkCells(text, cells)`: `text` cut into pieces of at most `cells` cells, in one pass, never splitting a grapheme; one wider than `cells` is a piece of its own.
 
 ### `hitAt`, `hoverKeyAt`, `lineHoverKey` and `spanHoverKey`
 
@@ -335,10 +360,13 @@ call. `kitClient` does all of this.
 
 ### Theme
 
-`BRAND`, `FILL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
+`BRAND`, `FILL`, `QUIET`, `SCROLL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
 `WARN`, `DIM` are the palette and glyph tables. `rail(style)` is the left rail
 spans. `hovered(span)`, `pressed(span)` and `muted(span)` give the state
-shades. Icons are Nerd Font codepoints.
+shades. `keySelected(span)` marks the button the keyboard selected: its own
+look with a pink `SYMBOL.selectEdge` in its left edge cell, as two spans of the
+same width. The edge is a `mark`, a foreground the pointer states keep, so it
+takes the button's hover and press fills. Icons are Nerd Font codepoints.
 
 ## Checks
 
