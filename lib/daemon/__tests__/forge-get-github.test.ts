@@ -498,6 +498,19 @@ describe("forgeGet through a real GitHubProvider", () => {
     }
   });
 
+  test("a decoded ? or # splits the window, so a guarded word or route before it is refused", async () => {
+    const cases: Array<[string, string]> = [
+      [":repo/hooks%3F", "hooks"],
+      [":repo/hooks%23", "hooks"],
+      [":repo/keys%3Fx", "keys"],
+      [":repo/actions/secrets%23", "secrets"],
+      [":repo/actions/variables%23", "variables"],
+      [":repo/agents/variables%3F", "variables"],
+    ];
+    for (const [path, word] of cases) await refusedOnWire(path, githubWordRefusal(word));
+    await refusedOnWire(":repo/copilot%3F/cloud-agent/configuration", githubRouteRefusal("copilot"));
+  });
+
   test("git/blobs joined by a fullwidth slash is refused with the blobs text", async () => {
     await refusedOnWire(":repo/git%EF%BC%8Fblobs/abc", blobsError);
   });
@@ -515,6 +528,8 @@ describe("forgeGet through a real GitHubProvider", () => {
       [PROJECT, ":repo/labels/caf%C3%A9", "/repos/o/r/labels/caf%C3%A9"],
       [PROJECT, ":repo/contents/docs/C%23.md", "/repos/o/r/contents/docs/C%23.md"],
       [PROJECT, ":repo/contents/what%3F.md", "/repos/o/r/contents/what%3F.md"],
+      [PROJECT, ":repo/labels/C%23", "/repos/o/r/labels/C%23"],
+      [PROJECT, ":repo/labels/what%3F", "/repos/o/r/labels/what%3F"],
       [PROJECT, ":repo/commits/copilot/fix", "/repos/o/r/commits/copilot/fix"],
       [PROJECT, ":repo/git/ref/heads/copilot/x", "/repos/o/r/git/ref/heads/copilot/x"],
       ["acme/copilot", ":repo/pulls", "/repos/acme/copilot/pulls"],
@@ -691,9 +706,9 @@ describe("forgeGet through a real GitHubProvider", () => {
 });
 
 describe("matchingWindow", () => {
-  test("splits skeletons on slashes and backslashes and drops empty parts", () => {
-    const segments = ["repos", "o", "r", "actions\uFF0Foidc", " ", "\u200B", "x\\y", ""];
-    expect(matchingWindow(segments, 3, segments.length)).toEqual({ ok: true, parts: ["actions", "oidc", "x", "y"] });
+  test("splits skeletons on slashes, backslashes, ? and # and drops empty parts", () => {
+    const segments = ["repos", "o", "r", "actions\uFF0Foidc", " ", "\u200B", "x\\y", "hooks?", "keys#z", ""];
+    expect(matchingWindow(segments, 3, segments.length)).toEqual({ ok: true, parts: ["actions", "oidc", "x", "y", "hooks", "keys", "z"] });
   });
 
   test("refuses a part that is a dot or two after folding", () => {

@@ -201,9 +201,9 @@ export const githubWordRefusal = (word: string): string =>
 export const githubRouteRefusal = (word: string): string =>
   `gitlab_get refuses "path" because the route right after the repo reads as "${word}", ignoring case, spaces and invisible characters. That GitHub endpoint can return credentials. A branch, file or repo named ${word} is fine.`;
 
-/** NFKD can fold a slash or backslash into a segment, and a part that folds to a dot could split an entry. */
+/** NFKD can fold a slash or backslash into a segment, a layer that re-parses a decoded ? or # would end the route there, and a part that folds to a dot could split an entry. */
 export function matchingWindow(segments: string[], from: number, to: number): { ok: true; parts: string[] } | { ok: false; error: string } {
-  const parts = segments.slice(from, to).flatMap((s) => wordSkeleton(s).split(/[\/\\]/)).filter((p) => p !== "");
+  const parts = segments.slice(from, to).flatMap((s) => wordSkeleton(s).split(/[\/\\?#]/)).filter((p) => p !== "");
   if (parts.some((p) => p === "." || p === "..")) return { ok: false, error: '"path" must not contain dot segments' };
   return { ok: true, parts };
 }
