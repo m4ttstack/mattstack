@@ -32,30 +32,48 @@ export default kitClient<Props, State>(
     const here = resolve(stops, ui.state.sel)
     const current = stops[here.at]?.buttons[here.col]
 
-    const select = (at: number, col: number) => {
+    const mark = (at: number, col: number) => {
       const stop = stops[at]
       const button = stop?.buttons[col]
-      if (!stop || !button) return
+      if (!stop || !button) return false
       ui.setState({ ...ui.state, sel: { key: stop.key, button: button.id, at, col } })
+      return true
+    }
+    const select = (at: number, col: number) => {
+      if (!mark(at, col)) return
       const offset = revealOffset(layout, stops, at, props.offset)
       if (offset !== props.offset) ui.post({ type: 'scrollTo', offset })
     }
 
+    // A click moves the selection too, so the next key carries on from the button clicked.
+    const clicked = (message: PaneMessage) => {
+      const wanted = JSON.stringify(message)
+      stops.forEach((stop, at) => stop.buttons.forEach((button, col) => JSON.stringify(messageOf(button)) === wanted && mark(at, col)))
+      ui.post(message)
+    }
+
+    // True for a key handled here, which turns on keyboard mode and its marks.
     ui.onKey(ev => {
-      if (!ui.focused || stops.length === 0) return
+      if (!ui.focused || stops.length === 0) return false
       // Tab and Shift+Tab step between items as ↓ and ↑ do, stopping at the ends as gate-form's pages do.
       const step = ev.key === 'up' || (ev.key === 'tab' && ev.shift) ? -1 : ev.key === 'down' || ev.key === 'tab' ? 1 : 0
       if (step !== 0) {
         const at = Math.min(Math.max(0, here.at + step), stops.length - 1)
         if (at !== here.at) select(at, mainOf(stops[at]!))
-        return
+        return true
       }
       if (ev.key === 'left' || ev.key === 'right') {
         const col = here.col + (ev.key === 'left' ? -1 : 1)
         if (col >= 0 && col < (stops[here.at]?.buttons.length ?? 0)) select(here.at, col)
-        return
+        return true
       }
-      if ((ev.key === 'return' || ev.key === 'enter') && current) ui.post(messageOf(current))
+      if ((ev.key === 'return' || ev.key === 'enter') && current) {
+        // Enter shows the press for a moment, as a click would, then sends what a click sends.
+        const message = messageOf(current)
+        ui.pressFor(() => ui.post(message))
+        return true
+      }
+      return false
     })
 
     return (
@@ -63,8 +81,13 @@ export default kitClient<Props, State>(
         <BrandBar title={TITLE} onHide={ui.hide} />
         <Lines lines={[[sp(' ')]]} />
         <Lines
-          lines={kitWindow(layout, props.width, props.offset, ui.focused && current ? { selected: messageOf(current), range: stopLines(layout, stops, here.at) } : {})}
-          onAction={(message: PaneMessage) => ui.post(message)}
+          lines={kitWindow(
+            layout,
+            props.width,
+            props.offset,
+            ui.focused && current ? { selected: messageOf(current), range: stopLines(layout, stops, here.at), marked: ui.keyboard, pressing: ui.keyPressing } : {},
+          )}
+          onAction={clicked}
         />
       </Panel>
     )

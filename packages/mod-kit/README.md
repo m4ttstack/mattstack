@@ -352,9 +352,10 @@ call. `kitClient` does all of this.
 `BRAND`, `FILL`, `QUIET`, `SCROLL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
 `WARN`, `DIM` are the palette and glyph tables. `rail(style)` is the left rail
 spans. `hovered(span)`, `pressed(span)` and `muted(span)` give the state
-shades. `keySelected(span)` marks the button the keyboard selected: its hover
+shades. `keySelected(span)` marks the button the keyboard selected: its own
 look with a pink `SYMBOL.selectEdge` in its left edge cell, as two spans of the
-same width. Icons are Nerd Font codepoints.
+same width. The edge is a `mark`, a foreground the pointer states keep, so it
+takes the button's hover and press fills. Icons are Nerd Font codepoints.
 
 ## Checks
 

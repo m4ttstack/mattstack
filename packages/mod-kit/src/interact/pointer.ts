@@ -4,7 +4,8 @@ import { hitAt, hoverKeyAt, type Line } from '../draw/text'
 import type { Look } from '../draw/render'
 
 // `armed` is the held control's action as JSON, so a release still finds it after a redraw moved its row.
-export type PointerState = { hover?: string; pressed?: string; armed?: string }
+// `keyboard` and `keyPress` are kitClient's: the surface is in keyboard mode, and a key's activation is showing its press.
+export type PointerState = { hover?: string; pressed?: string; armed?: string; keyboard?: boolean; keyPress?: boolean }
 
 type Options<A> = {
   focused: boolean

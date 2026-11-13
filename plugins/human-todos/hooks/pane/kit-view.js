@@ -179,28 +179,35 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#808080" };
-function hovered(span) {
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
+function hoverOf(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
   if (span.chip)
     return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
-function pressed(span) {
+function pressOf(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.press, color: "white" };
   if (span.chip)
     return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
 }
+function hovered(span) {
+  const out = hoverOf(span);
+  return span.mark ? { ...out, color: span.mark } : out;
+}
+function pressed(span) {
+  const out = pressOf(span);
+  return span.mark ? { ...out, color: span.mark } : out;
+}
 function keySelected(span) {
-  const lit = hovered(span);
-  if (!lit.t.startsWith(" "))
-    return [lit];
+  if (!span.t.startsWith(" "))
+    return [span];
   return [
-    { ...lit, t: SYMBOL.selectEdge, color: BRAND.pink, bold: false, quiet: false },
-    { ...lit, t: lit.t.slice(1) }
+    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: span.t.slice(1) }
   ];
 }
 var ACCENT = { color: "cyan" };
@@ -208,16 +215,16 @@ var GRAY = { color: "gray" };
 var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
-var MUTED = { cyan: "#4f8a95", green: "#5f965f", yellow: "#a08f4e", red: "#a85c5c", gray: "#5c5c5c", [BRAND.pink]: "#94496b" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#86465f", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#733a55", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#2b3b4c", color: "#a0a0a0" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#2c2c2c", color: "#a0a0a0" }, [SCROLL.track]: { bg: "#303030" }, [SCROLL.thumb]: { bg: "#585858" } };
+var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
-    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#424242", color: "#a0a0a0" }, dim: false };
+    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#4a4a4a", color: "#b8b8b8" }, dim: false };
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
-  return { ...span, color: span.dim ? "#6a6a6a" : "#a0a0a0", dim: false };
+  return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
 }
 // packages/mod-kit/src/widgets/buttons.ts
 var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
@@ -380,6 +387,7 @@ function partsOf(render, nodes, view) {
 }
 
 // packages/mod-kit/src/components/client.tsx
+var KEY_PRESS_MS = 150;
 function kitClient(body, options = {}) {
   return function KitClient(props, surface) {
     const seed = surface.state ?? options.initial?.(props) ?? {};
@@ -403,8 +411,27 @@ function kitClient(body, options = {}) {
       hide: () => surface.post({ type: "hide" }),
       onKey: (fn) => void surface.onKey((event) => {
         engage?.();
-        fn(event);
-      })
+        if (latest.keyPress)
+          return;
+        if (fn(event) === true && !latest.keyboard)
+          setState({ ...latest, keyboard: true });
+      }),
+      get keyboard() {
+        return latest.keyboard === true;
+      },
+      get keyPressing() {
+        return latest.keyPress === true;
+      },
+      pressFor: (run, ms = KEY_PRESS_MS) => {
+        if (latest.keyPress)
+          return;
+        setState({ ...latest, keyPress: true });
+        const stop = surface.every(ms, () => {
+          stop();
+          surface.setState({ ...surface.state, keyPress: undefined });
+          run();
+        });
+      }
     };
     const { tree, lines, handlers } = drawKit({ elements: surface.elements, look: lookOf(latest, focused), width: ui.width, focused }, () => body(props, ui));
     const local = {
@@ -412,7 +439,11 @@ function kitClient(body, options = {}) {
         return latest;
       },
       setState,
-      onPointer: (fn) => surface.onPointer(fn)
+      onPointer: (fn) => surface.onPointer((event) => {
+        fn(event);
+        if (latest.keyboard)
+          setState({ ...latest, keyboard: undefined });
+      })
     };
     attachPointer(local, lines, {
       focused,
@@ -938,9 +969,13 @@ function markFirst(line) {
 function kitWindow(layout, width, offset, focus = {}) {
   const { lines: all, windowRows } = layout;
   const chosen = focus.selected && JSON.stringify(focus.selected);
-  const { range } = focus;
+  const range = focus.marked ? focus.range : undefined;
+  const look = (span) => {
+    const base = focus.pressing ? pressed(span) : span;
+    return focus.marked ? keySelected(base) : [base];
+  };
   const lines = all.map((line, n) => {
-    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? keySelected(span) : [span]) : line;
+    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? look(span) : [span]) : line;
     return range && n === range.first ? markFirst(lit) : lit;
   });
   const top = Math.min(Math.max(0, offset), maxOffset(layout));
@@ -969,34 +1004,48 @@ var kit_view_default = kitClient((props, ui) => {
   const stops = keyStops(props.model);
   const here = resolve(stops, ui.state.sel);
   const current = stops[here.at]?.buttons[here.col];
-  const select = (at, col) => {
+  const mark = (at, col) => {
     const stop = stops[at];
     const button = stop?.buttons[col];
     if (!stop || !button)
-      return;
+      return false;
     ui.setState({ ...ui.state, sel: { key: stop.key, button: button.id, at, col } });
+    return true;
+  };
+  const select = (at, col) => {
+    if (!mark(at, col))
+      return;
     const offset = revealOffset(layout, stops, at, props.offset);
     if (offset !== props.offset)
       ui.post({ type: "scrollTo", offset });
   };
+  const clicked = (message) => {
+    const wanted = JSON.stringify(message);
+    stops.forEach((stop, at) => stop.buttons.forEach((button, col) => JSON.stringify(messageOf(button)) === wanted && mark(at, col)));
+    ui.post(message);
+  };
   ui.onKey((ev) => {
     if (!ui.focused || stops.length === 0)
-      return;
+      return false;
     const step = ev.key === "up" || ev.key === "tab" && ev.shift ? -1 : ev.key === "down" || ev.key === "tab" ? 1 : 0;
     if (step !== 0) {
       const at = Math.min(Math.max(0, here.at + step), stops.length - 1);
       if (at !== here.at)
         select(at, mainOf(stops[at]));
-      return;
+      return true;
     }
     if (ev.key === "left" || ev.key === "right") {
       const col = here.col + (ev.key === "left" ? -1 : 1);
       if (col >= 0 && col < (stops[here.at]?.buttons.length ?? 0))
         select(here.at, col);
-      return;
+      return true;
     }
-    if ((ev.key === "return" || ev.key === "enter") && current)
-      ui.post(messageOf(current));
+    if ((ev.key === "return" || ev.key === "enter") && current) {
+      const message = messageOf(current);
+      ui.pressFor(() => ui.post(message));
+      return true;
+    }
+    return false;
   });
   return /* @__PURE__ */ h(Panel, {
     width: props.width
@@ -1006,8 +1055,8 @@ var kit_view_default = kitClient((props, ui) => {
   }), /* @__PURE__ */ h(Lines, {
     lines: [[sp(" ")]]
   }), /* @__PURE__ */ h(Lines, {
-    lines: kitWindow(layout, props.width, props.offset, ui.focused && current ? { selected: messageOf(current), range: stopLines(layout, stops, here.at) } : {}),
-    onAction: (message) => ui.post(message)
+    lines: kitWindow(layout, props.width, props.offset, ui.focused && current ? { selected: messageOf(current), range: stopLines(layout, stops, here.at), marked: ui.keyboard, pressing: ui.keyPressing } : {}),
+    onAction: clicked
   }));
 }, {
   initial: () => ({}),

@@ -1,4 +1,4 @@
-import { ACCENT, BRAND, DIM, DONE, GRAY, SYMBOL, WARN, buttonRow, cellWidth, cutCells, keySelected, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
+import { ACCENT, BRAND, DIM, DONE, GRAY, SYMBOL, WARN, buttonRow, cellWidth, cutCells, keySelected, pressed, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
 import type { Line, Style } from '@mattstack/mod-kit'
 
 import { endRows, messageOf } from './model'
@@ -153,7 +153,8 @@ export function revealOffset(layout: KitLayout, stops: KeyStop[], index: number,
 }
 
 // What a focused pane marks: the button the keys selected, and the lines of the item it belongs to.
-export type KitFocus = { selected?: PaneMessage; range?: Span }
+// `marked` is keyboard mode: the selected button's pink edge and its item's rail show only then. `pressing` draws the selected button pressed while a key activates it.
+export type KitFocus = { selected?: PaneMessage; range?: Span; marked?: boolean; pressing?: boolean }
 
 // The item's mark turns pink on its first line, as gate-form marks its current question.
 function markFirst(line: L): L {
@@ -168,9 +169,13 @@ function markFirst(line: L): L {
 export function kitWindow(layout: KitLayout, width: number, offset: number, focus: KitFocus = {}): L[] {
   const { lines: all, windowRows } = layout
   const chosen = focus.selected && JSON.stringify(focus.selected)
-  const { range } = focus
+  const range = focus.marked ? focus.range : undefined
+  const look = (span: L[number]): L => {
+    const base = focus.pressing ? pressed(span) : span
+    return focus.marked ? keySelected(base) : [base]
+  }
   const lines = all.map((line, n) => {
-    const lit = chosen ? line.flatMap(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? keySelected(span) : [span])) : line
+    const lit = chosen ? line.flatMap(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? look(span) : [span])) : line
     return range && n === range.first ? markFirst(lit) : lit
   })
   const top = Math.min(Math.max(0, offset), maxOffset(layout))

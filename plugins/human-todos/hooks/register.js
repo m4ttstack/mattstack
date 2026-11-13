@@ -1187,28 +1187,35 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#808080" };
-function hovered(span) {
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
+function hoverOf(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
   if (span.chip)
     return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
-function pressed(span) {
+function pressOf(span) {
   if (span.quiet)
     return { ...span, bg: QUIET.press, color: "white" };
   if (span.chip)
     return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
 }
+function hovered(span) {
+  const out = hoverOf(span);
+  return span.mark ? { ...out, color: span.mark } : out;
+}
+function pressed(span) {
+  const out = pressOf(span);
+  return span.mark ? { ...out, color: span.mark } : out;
+}
 function keySelected(span) {
-  const lit = hovered(span);
-  if (!lit.t.startsWith(" "))
-    return [lit];
+  if (!span.t.startsWith(" "))
+    return [span];
   return [
-    { ...lit, t: SYMBOL.selectEdge, color: BRAND.pink, bold: false, quiet: false },
-    { ...lit, t: lit.t.slice(1) }
+    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: span.t.slice(1) }
   ];
 }
 var ACCENT = { color: "cyan" };
@@ -1216,16 +1223,16 @@ var GRAY = { color: "gray" };
 var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
-var MUTED = { cyan: "#4f8a95", green: "#5f965f", yellow: "#a08f4e", red: "#a85c5c", gray: "#5c5c5c", [BRAND.pink]: "#94496b" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#86465f", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#733a55", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#2b3b4c", color: "#a0a0a0" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#2c2c2c", color: "#a0a0a0" }, [SCROLL.track]: { bg: "#303030" }, [SCROLL.thumb]: { bg: "#585858" } };
+var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
-    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#424242", color: "#a0a0a0" }, dim: false };
+    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#4a4a4a", color: "#b8b8b8" }, dim: false };
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
-  return { ...span, color: span.dim ? "#6a6a6a" : "#a0a0a0", dim: false };
+  return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
 }
 // packages/mod-kit/src/widgets/buttons.ts
 var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
@@ -1624,9 +1631,13 @@ function markFirst(line) {
 function kitWindow(layout, width, offset, focus = {}) {
   const { lines: all, windowRows } = layout;
   const chosen = focus.selected && JSON.stringify(focus.selected);
-  const { range } = focus;
+  const range = focus.marked ? focus.range : undefined;
+  const look = (span) => {
+    const base = focus.pressing ? pressed(span) : span;
+    return focus.marked ? keySelected(base) : [base];
+  };
   const lines = all.map((line, n) => {
-    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? keySelected(span) : [span]) : line;
+    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? look(span) : [span]) : line;
     return range && n === range.first ? markFirst(lit) : lit;
   });
   const top = Math.min(Math.max(0, offset), maxOffset(layout));

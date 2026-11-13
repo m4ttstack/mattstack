@@ -89,26 +89,36 @@ const PRESS_FILL: Record<string, string> = {
 // A quiet button: a light label on a faint fill at rest (never the disabled grey), a brighter fill and a white label under the pointer.
 export const QUIET = { label: '#e0e0e0', rest: '#363636', hover: '#4a4a4a', press: '#404040', muted: '#999999' }
 
-export function hovered<S extends Style>(span: S): S {
+function hoverOf<S extends Style>(span: S): S {
   if (span.quiet) return { ...span, bg: QUIET.hover, color: 'white' }
   if (span.chip) return { ...span, bg: span.chip }
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: '#404040', dim: false }
 }
 
-export function pressed<S extends Style>(span: S): S {
+function pressOf<S extends Style>(span: S): S {
   if (span.quiet) return { ...span, bg: QUIET.press, color: 'white' }
   if (span.chip) return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip }
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: '#353535', dim: false }
 }
 
-// The button the keyboard selected: its hover look, with a pink bar in its left edge cell so the cell count stays.
-// The bar's piece is no longer quiet, so a pointer over it keeps the bar pink instead of turning it white.
+// A span with a `mark` keeps that foreground under the pointer: only its fill follows.
+export function hovered<S extends Style>(span: S): S {
+  const out = hoverOf(span)
+  return span.mark ? { ...out, color: span.mark } : out
+}
+
+export function pressed<S extends Style>(span: S): S {
+  const out = pressOf(span)
+  return span.mark ? { ...out, color: span.mark } : out
+}
+
+// The button the keyboard selected: its own look, with a pink bar in its left edge cell so the cell count stays.
+// The bar is a mark, so under the pointer it takes the button's hover and press fills and stays pink.
 export function keySelected<A>(span: Span<A>): Span<A>[] {
-  const lit = hovered(span)
-  if (!lit.t.startsWith(' ')) return [lit]
+  if (!span.t.startsWith(' ')) return [span]
   return [
-    { ...lit, t: SYMBOL.selectEdge, color: BRAND.pink, bold: false, quiet: false },
-    { ...lit, t: lit.t.slice(1) },
+    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: span.t.slice(1) },
   ]
 }
 
