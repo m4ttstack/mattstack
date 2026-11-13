@@ -1003,12 +1003,9 @@ function registerActions(on) {
   });
 }
 
-// mods/human-todos/src/pane.tsx
-var PANE = "human-todos";
-var SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+// mods/human-todos/src/pane/model.ts
 var SCRIPT_ROWS = 2;
 var FINISHED_SHOWN = 8;
-var END_OF_LIST = "You've reached the end of the list.";
 var LABELS = {
   run: "Run",
   open: "Open",
@@ -1022,21 +1019,262 @@ var LABELS = {
   forceStop: "Force stop",
   openLog: "Open log"
 };
-var PRIMARY = ["run", "open", "confirm", "show"];
+var TONES = {
+  run: "primary",
+  open: "primary",
+  confirm: "primary",
+  show: "primary",
+  done: "secondary",
+  skip: "secondary",
+  cancel: "neutral",
+  copy: "neutral",
+  openLog: "neutral",
+  stop: "caution",
+  forceStop: "caution"
+};
+function markFor(todo) {
+  if (todo.status === "failed")
+    return { mark: "✗", tone: "error" };
+  if (todo.status === "skipped")
+    return { mark: "–", tone: "inactive" };
+  return { mark: "✓", tone: "success" };
+}
+function buttonsOf(todo) {
+  return buttonsFor(todo).map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId: todo.id }));
+}
+function paneModel(input) {
+  const { list, expanded, spin, width } = input;
+  const inner = width + 2;
+  const actionable = list.filter(isActionable);
+  const finished = list.filter((t) => !isActionable(t));
+  const rows = [];
+  const spans = [];
+  const blank = () => rows.push({ kind: "blank" });
+  const lines = (text, w, tone, indent) => {
+    for (const line of wrapWords(text, w))
+      rows.push({ kind: "text", text: line, tone, indent });
+  };
+  if (actionable.length === 0) {
+    rows.push({ kind: "text", text: "Nothing for you right now.", tone: "dim", indent: false });
+    if (finished.length > 0)
+      blank();
+  }
+  for (const todo of actionable) {
+    const first = rows.length;
+    const script = todo.script ? hardWrap(`$ ${todo.script}`, width) : [];
+    const isConfirming = todo.status === "confirming";
+    const isOpen = expanded.includes(todo.id) || isConfirming;
+    const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS);
+    const hidden = script.length - SCRIPT_ROWS;
+    const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR);
+    lines(`${todo.status === "running" ? `${spin} ` : "○ "}${todo.title}`, inner, "title", false);
+    if (todo.detail)
+      lines(todo.detail, width, "dim", true);
+    if (todo.status !== "running" && todo.note)
+      lines(todo.note, width, "warning", true);
+    for (const row of shown)
+      rows.push({ kind: "text", text: row, tone: "script", indent: true });
+    if (hidden > 0 && !isConfirming) {
+      const more = { id: "more", label: isOpen ? "Show less" : "Show all", tone: "neutral", todoId: todo.id };
+      rows.push({ kind: "buttons", buttons: [more], ...!isOpen && { lead: { text: `… +${hidden} more`, tone: "dim" } } });
+    }
+    if (todo.kind === "run" && todo.cwd)
+      rows.push({ kind: "text", text: `in ${todo.cwd}`, tone: "dim", indent: true });
+    if (todo.url)
+      lines(todo.url, width, "link", true);
+    if (todo.paths?.length)
+      lines(todo.paths.map(fileName).join(", "), width, "link", true);
+    if (todo.status === "running") {
+      blank();
+      for (const line of tail)
+        rows.push({ kind: "text", text: line, tone: "dim", indent: true });
+      if (tail.length > 0)
+        blank();
+      const lead = { text: `${spin} ${todo.isStopping ? "Stopping…" : "Running"}`, tone: todo.isStopping ? "error" : "warning" };
+      rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo) });
+    } else {
+      blank();
+      if (isConfirming)
+        lines("Are you sure you want to run this script?", width, "plain", true);
+      rows.push({ kind: "buttons", buttons: buttonsOf(todo) });
+    }
+    spans.push({ first, last: rows.length - 1 });
+    blank();
+  }
+  if (finished.length > 0) {
+    for (const todo of finished.slice(-FINISHED_SHOWN)) {
+      const { mark, tone } = markFor(todo);
+      spans.push({ first: rows.length, last: rows.length });
+      rows.push({
+        kind: "finished",
+        mark,
+        tone,
+        title: todo.title,
+        ...todo.exitCode !== undefined && todo.exitCode !== 0 && { exit: todo.exitCode }
+      });
+    }
+    blank();
+    rows.push({ kind: "buttons", buttons: [{ id: "clear", label: "Clear finished", tone: "neutral" }] });
+  }
+  return { rows, spans, hasFinished: finished.length > 0 };
+}
+function bandModel(list) {
+  const waiting = list.filter((t) => t.status === "open" || t.status === "confirming").length;
+  if (waiting === 0)
+    return;
+  return { waiting, title: `${waiting} ${waiting === 1 ? "to-do" : "to-dos"}` };
+}
+
+// mods/human-todos/src/pane/plain-view.tsx
+var HEADER_ROWS = 3;
+var END_OF_LIST = "You've reached the end of the list.";
+var TEXT_PROPS = {
+  title: { bold: true },
+  dim: { dimColor: true },
+  warning: { color: "warning" },
+  script: { color: "cyan" },
+  link: { color: "cyan" },
+  success: { color: "success" },
+  error: { color: "error" },
+  inactive: { color: "inactive" },
+  plain: {}
+};
+function paneColumns(e) {
+  return e.props.bodyColumns ?? 60;
+}
+async function closePane($) {
+  await $.ui.close({ id: PLUGIN });
+  $.ui.invalidate("ui.render");
+}
+async function clearFinished($) {
+  const gone = await removeTodos($, (t) => !isActionable(t));
+  cleanup($, gone).catch(() => $.ui.toast("Could not tidy up after the cleared items"));
+}
+async function pressTodo($, button, surface) {
+  const todo = (await peekTodos($)).find((t) => t.id === button.todoId);
+  if (!todo || button.id === "more" || button.id === "clear")
+    return;
+  try {
+    await press($, todo, button.id, surface);
+  } catch {
+    $.ui.toast(`Could not ${LABELS[button.id].toLowerCase()} #${todo.id}`);
+  }
+}
+function drawPlainPane($, e, model, scroll) {
+  const { Box, Text, Button } = $.ui.resolve(e);
+  const columns = paneColumns(e);
+  const rows = [];
+  const blank = (key) => rows.push(/* @__PURE__ */ h(Text, {
+    key
+  }, " "));
+  const button = (b) => {
+    const key = b.id === "clear" ? "clear" : b.id === "more" ? `more-${b.todoId}` : `${b.id}-${b.todoId}`;
+    return /* @__PURE__ */ h(Button, {
+      key,
+      plain: b.id === "more" ? true : undefined,
+      variant: b.tone === "primary" ? "primary" : undefined,
+      label: b.label,
+      onPress: (p) => b.id === "more" && b.todoId ? toggleExpanded($, b.todoId) : b.id === "clear" ? clearFinished($) : void pressTodo($, b, p.surface)
+    });
+  };
+  blank("pad-top");
+  rows.push(/* @__PURE__ */ h(Box, {
+    key: "header",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  }, /* @__PURE__ */ h(Text, {
+    bold: true
+  }, TITLE), /* @__PURE__ */ h(Button, {
+    key: "close",
+    role: "dismiss",
+    label: "Close",
+    onPress: () => closePane($)
+  })));
+  blank("pad-header");
+  model.rows.forEach((row, i) => {
+    const key = `row-${i}`;
+    switch (row.kind) {
+      case "blank":
+        return blank(key);
+      case "text": {
+        const text = /* @__PURE__ */ h(Text, {
+          key: `${key}-text`,
+          wrap: "truncate-end",
+          ...TEXT_PROPS[row.tone]
+        }, row.text);
+        return rows.push(row.indent ? /* @__PURE__ */ h(Box, {
+          key,
+          marginLeft: 2
+        }, text) : text);
+      }
+      case "finished":
+        return rows.push(/* @__PURE__ */ h(Box, {
+          key,
+          flexDirection: "row"
+        }, /* @__PURE__ */ h(Text, {
+          ...TEXT_PROPS[row.tone]
+        }, `${row.mark} `), /* @__PURE__ */ h(Text, {
+          dimColor: true,
+          wrap: "truncate-end"
+        }, row.title), row.exit !== undefined && /* @__PURE__ */ h(Text, {
+          dimColor: true
+        }, ` (exit ${row.exit})`)));
+      case "buttons": {
+        const isClear = row.buttons.some((b) => b.id === "clear");
+        return rows.push(/* @__PURE__ */ h(Box, {
+          key,
+          flexDirection: "row",
+          gap: isClear ? undefined : 1,
+          marginLeft: isClear ? undefined : 2
+        }, row.lead && /* @__PURE__ */ h(Text, {
+          ...TEXT_PROPS[row.lead.tone]
+        }, row.lead.tone === "dim" ? row.lead.text : `${row.lead.text} `), row.buttons.map(button)));
+      }
+    }
+  });
+  const overflows = HEADER_ROWS + model.rows.length + 1 > scroll.bodyRows;
+  if (overflows) {
+    if (model.hasFinished)
+      blank("pad-end");
+    rows.push(/* @__PURE__ */ h(Text, {
+      key: "end",
+      dimColor: true
+    }, END_OF_LIST));
+  }
+  blank("pad-bottom");
+  const hints = [];
+  if (overflows && e.surface === "terminal") {
+    const bottom = scroll.offset + scroll.bodyRows - 1;
+    const spans = model.spans.map((s) => ({ first: s.first + HEADER_ROWS, last: s.last + HEADER_ROWS }));
+    const above = spans.filter((s) => s.first < scroll.offset).length;
+    const below = spans.filter((s) => s.last > bottom).length;
+    const hint = (key, top, text) => /* @__PURE__ */ h(Box, {
+      key,
+      position: "absolute",
+      top,
+      left: 0,
+      right: 0
+    }, /* @__PURE__ */ h(Text, {
+      color: "suggestion",
+      wrap: "truncate-end"
+    }, `  ${text}`.padEnd(columns)));
+    if (above > 0)
+      hints.push(hint("more-above", scroll.offset, `↑ ${above} more`));
+    if (below > 0)
+      hints.push(hint("more-below", bottom, `↓ ${below} more`));
+  }
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column",
+    paddingX: 2
+  }, rows, hints);
+}
+
+// mods/human-todos/src/pane.tsx
+var PANE = "human-todos";
+var SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 async function openPane($) {
   await $.ui.open({ id: PANE, title: TITLE });
   $.ui.invalidate("ui.render");
-}
-async function closePane($) {
-  await $.ui.close({ id: PANE });
-  $.ui.invalidate("ui.render");
-}
-function markFor(todo) {
-  if (todo.status === "failed")
-    return { mark: "✗ ", color: "error" };
-  if (todo.status === "skipped")
-    return { mark: "– ", color: "inactive" };
-  return { mark: "✓ ", color: "success" };
 }
 function registerPane(on) {
   on("ui.close", async ($, e, next) => {
@@ -1053,9 +1291,10 @@ function registerPane(on) {
       return next(e);
     if ((await $.ui.panes()).some((p) => p.id === PANE && p.isPlaced))
       return next(e);
-    const waiting = (await peekTodos($)).filter((t) => t.status === "open" || t.status === "confirming").length;
-    if (waiting === 0)
+    const band = bandModel(await peekTodos($));
+    if (!band)
       return next(e);
+    const { waiting } = band;
     const { Box, Text, Button } = $.ui.resolve(e);
     return /* @__PURE__ */ h(Box, {
       flexDirection: "row",
@@ -1087,202 +1326,10 @@ function registerPane(on) {
     }, summary, extra > 0 ? `  (+${extra} ${extra === 1 ? "line" : "lines"}, ctrl+o)` : ""));
   });
   on("ui.render", { component: "Pane", requestId: "human-todos" }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e);
     const { list, openIds, spin: frameNo } = await readPane2($);
-    const actionable = list.filter(isActionable);
-    const finished = list.filter((t) => !isActionable(t));
-    const spin = SPIN[frameNo % SPIN.length];
-    const columns = e.props.bodyColumns ?? 60;
-    const inner = Math.max(22, columns - 4);
-    const width = inner - 2;
-    const rows = [];
-    const spans = [];
-    const blank = (key) => rows.push(/* @__PURE__ */ h(Text, {
-      key
-    }, " "));
-    const indented = (key, node) => rows.push(/* @__PURE__ */ h(Box, {
-      key,
-      marginLeft: 2
-    }, node));
-    const lines = (key, text, w, props, indent) => wrapWords(text, w).forEach((line, n) => {
-      const node = /* @__PURE__ */ h(Text, {
-        key: `${key}-${n}`,
-        wrap: "truncate-end",
-        ...props
-      }, line);
-      if (indent)
-        indented(`${key}-row-${n}`, node);
-      else
-        rows.push(node);
-    });
-    const buttonsRow = (todo) => buttonsFor(todo).map((id) => /* @__PURE__ */ h(Button, {
-      key: `${id}-${todo.id}`,
-      variant: PRIMARY.includes(id) ? "primary" : undefined,
-      label: LABELS[id],
-      onPress: (p) => {
-        press($, todo, id, p.surface).catch(() => $.ui.toast(`Could not ${LABELS[id].toLowerCase()} #${todo.id}`));
-      }
-    }));
-    blank("pad-top");
-    rows.push(/* @__PURE__ */ h(Box, {
-      key: "header",
-      flexDirection: "row",
-      justifyContent: "space-between"
-    }, /* @__PURE__ */ h(Text, {
-      bold: true
-    }, TITLE), /* @__PURE__ */ h(Button, {
-      key: "close",
-      role: "dismiss",
-      label: "Close",
-      onPress: () => closePane($)
-    })));
-    blank("pad-header");
-    if (actionable.length === 0) {
-      rows.push(/* @__PURE__ */ h(Text, {
-        key: "empty",
-        dimColor: true
-      }, "Nothing for you right now."));
-      if (finished.length > 0)
-        blank("pad-empty");
-    }
-    for (const todo of actionable) {
-      const first = rows.length;
-      const id = todo.id;
-      const script = todo.script ? hardWrap(`$ ${todo.script}`, width) : [];
-      const isConfirming = todo.status === "confirming";
-      const isOpen = openIds.includes(id) || isConfirming;
-      const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS);
-      const hidden = script.length - SCRIPT_ROWS;
-      const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR);
-      lines(`title-${id}`, `${todo.status === "running" ? `${spin} ` : "○ "}${todo.title}`, inner, { bold: true }, false);
-      if (todo.detail)
-        lines(`detail-${id}`, todo.detail, width, { dimColor: true }, true);
-      if (todo.status !== "running" && todo.note)
-        lines(`note-${id}`, todo.note, width, { color: "warning" }, true);
-      shown.forEach((row, n) => indented(`s-row-${id}-${n}`, /* @__PURE__ */ h(Text, {
-        key: `s-${id}-${n}`,
-        color: "cyan",
-        wrap: "truncate-end"
-      }, row)));
-      if (hidden > 0 && !isConfirming)
-        rows.push(/* @__PURE__ */ h(Box, {
-          key: `more-row-${id}`,
-          flexDirection: "row",
-          gap: 1,
-          marginLeft: 2
-        }, !isOpen && /* @__PURE__ */ h(Text, {
-          dimColor: true
-        }, `… +${hidden} more`), /* @__PURE__ */ h(Button, {
-          key: `more-${id}`,
-          plain: true,
-          label: isOpen ? "Show less" : "Show all",
-          onPress: () => toggleExpanded($, id)
-        })));
-      if (todo.kind === "run" && todo.cwd)
-        indented(`cwd-row-${id}`, /* @__PURE__ */ h(Text, {
-          key: `cwd-${id}`,
-          dimColor: true,
-          wrap: "truncate-end"
-        }, `in ${todo.cwd}`));
-      if (todo.url)
-        lines(`url-${id}`, todo.url, width, { color: "cyan" }, true);
-      if (todo.paths?.length)
-        lines(`images-${id}`, todo.paths.map(fileName).join(", "), width, { color: "cyan" }, true);
-      if (todo.status === "running") {
-        blank(`pad-tail-${id}`);
-        tail.forEach((line, n) => indented(`tail-row-${id}-${n}`, /* @__PURE__ */ h(Text, {
-          key: `tail-${id}-${n}`,
-          dimColor: true,
-          wrap: "truncate-end"
-        }, line)));
-        if (tail.length > 0)
-          blank(`pad-status-${id}`);
-        rows.push(/* @__PURE__ */ h(Box, {
-          key: `status-${id}`,
-          flexDirection: "row",
-          gap: 1,
-          marginLeft: 2
-        }, /* @__PURE__ */ h(Text, {
-          color: todo.isStopping ? "error" : "warning"
-        }, `${spin} ${todo.isStopping ? "Stopping…" : "Running"} `), buttonsRow(todo)));
-      } else {
-        blank(`pad-buttons-${id}`);
-        if (isConfirming)
-          lines(`confirm-${id}`, "Are you sure you want to run this script?", width, {}, true);
-        rows.push(/* @__PURE__ */ h(Box, {
-          key: `buttons-${id}`,
-          flexDirection: "row",
-          gap: 1,
-          marginLeft: 2
-        }, buttonsRow(todo)));
-      }
-      spans.push({ first, last: rows.length - 1 });
-      blank(`pad-item-${id}`);
-    }
-    if (finished.length > 0) {
-      for (const todo of finished.slice(-FINISHED_SHOWN)) {
-        const { mark, color } = markFor(todo);
-        spans.push({ first: rows.length, last: rows.length });
-        rows.push(/* @__PURE__ */ h(Box, {
-          key: `fin-${todo.id}`,
-          flexDirection: "row"
-        }, /* @__PURE__ */ h(Text, {
-          color
-        }, mark), /* @__PURE__ */ h(Text, {
-          dimColor: true,
-          wrap: "truncate-end"
-        }, todo.title), todo.exitCode !== undefined && todo.exitCode !== 0 && /* @__PURE__ */ h(Text, {
-          dimColor: true
-        }, ` (exit ${todo.exitCode})`)));
-      }
-      blank("pad-clear");
-      rows.push(/* @__PURE__ */ h(Box, {
-        key: "clear-row",
-        flexDirection: "row"
-      }, /* @__PURE__ */ h(Button, {
-        key: "clear",
-        label: "Clear finished",
-        onPress: async () => {
-          const gone = await removeTodos($, (t) => !isActionable(t));
-          cleanup($, gone).catch(() => $.ui.toast("Could not tidy up after the cleared items"));
-        }
-      })));
-    }
-    const scroll = e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY };
-    const overflows = rows.length + 1 > scroll.bodyRows;
-    if (overflows) {
-      if (finished.length > 0)
-        blank("pad-end");
-      rows.push(/* @__PURE__ */ h(Text, {
-        key: "end",
-        dimColor: true
-      }, END_OF_LIST));
-    }
-    blank("pad-bottom");
-    const hints = [];
-    if (overflows && e.surface === "terminal") {
-      const bottom = scroll.offset + scroll.bodyRows - 1;
-      const above = spans.filter((s) => s.first < scroll.offset).length;
-      const below = spans.filter((s) => s.last > bottom).length;
-      const hint = (key, top, text) => /* @__PURE__ */ h(Box, {
-        key,
-        position: "absolute",
-        top,
-        left: 0,
-        right: 0
-      }, /* @__PURE__ */ h(Text, {
-        color: "suggestion",
-        wrap: "truncate-end"
-      }, `  ${text}`.padEnd(columns)));
-      if (above > 0)
-        hints.push(hint("more-above", scroll.offset, `↑ ${above} more`));
-      if (below > 0)
-        hints.push(hint("more-below", bottom, `↓ ${below} more`));
-    }
-    return /* @__PURE__ */ h(Box, {
-      flexDirection: "column",
-      paddingX: 2
-    }, rows, hints);
+    const inner = Math.max(22, paneColumns(e) - 4);
+    const model = paneModel({ list, expanded: openIds, spin: SPIN[frameNo % SPIN.length] ?? "", width: inner - 2 });
+    return drawPlainPane($, e, model, e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY });
   });
 }
 // mods/human-todos/src/contract.ts
