@@ -430,6 +430,22 @@ describe("connectRows", () => {
     expect((gitlab.action as Extract<Action, { type: "connect" }>).create?.url.startsWith("https://gitlab.example.com/")).toBe(true);
   });
 
+  test("a solo GitLab row with a github.com confirmed host draws gitlab.com", () => {
+    const gitlab = pick(soloList(GITLAB_MISSING, { confirmedHost: "github.com" }), "forge.gitlab");
+    expect(gitlab.action).toMatchObject({ type: "connect", integration: "gitlab" });
+    expect((gitlab.action as Extract<Action, { type: "connect" }>).create?.url.startsWith("https://gitlab.com/")).toBe(true);
+  });
+
+  test("the solo GitLab row lowercases a confirmed host", () => {
+    const gitlab = pick(soloList(GITLAB_MISSING, { confirmedHost: "GitLab.Example.com" }), "forge.gitlab");
+    expect((gitlab.action as Extract<Action, { type: "connect" }>).create?.url.startsWith("https://gitlab.example.com/")).toBe(true);
+  });
+
+  test("a connected solo GitLab row never names the team forge's login", () => {
+    const gitlab = pick(soloList(r("account.gitlab", "ready", "GitLab token works", { required: false }), { forgeLogin: "octocat" }), "forge.gitlab");
+    expect(gitlab.detail).toBe("Connected");
+  });
+
   test("formOwnedIds on solo owns both forge accounts", () => {
     const owned = formOwnedIds(plan(soloForgeRows(GITLAB_MISSING), SOLO), { path: "solo", forge: null, signIn: [] });
     expect(owned.has("account.github")).toBe(true);
