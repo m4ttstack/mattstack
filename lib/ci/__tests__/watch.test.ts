@@ -667,3 +667,30 @@ describe("attend", () => {
     expect(r).toMatchObject({ state: "lease_unavailable", error: "lease lock busy", lease: null });
   });
 });
+
+describe("hints name the forge's change", () => {
+  const lease = (over: Partial<WatchDeps>) => fake([mr(SHA, pipe({}))], over).deps;
+
+  test("a GitHub watch says PR, a GitLab one MR", async () => {
+    const none: Partial<WatchDeps> = { leaseCheck: () => ({ ok: false, holder: null, reason: "none" }) };
+    const gh = await watchPipeline({ ...base, forge: "github" }, lease(none)) as { next: string };
+    const gl = await watchPipeline({ ...base, forge: "gitlab" }, lease(none)) as { next: string };
+    expect(gh.next).toBe("no lease held for this PR; call ci_lease_claim first");
+    expect(gl.next).toBe("no lease held for this MR; call ci_lease_claim first");
+  });
+
+  test("superseded on GitHub names the PR head", async () => {
+    const other = "c".repeat(40);
+    const { deps } = fake([mr(other, pipe({ sha: other }))]);
+    const r = await watchPipeline({ ...base, forge: "github" }, deps) as { next: string };
+    expect(r.next).toBe(`the PR head is not at the pushed sha (head: ${other})`);
+  });
+
+  test("no head commit names the forge that reported it", async () => {
+    const { deps } = fake([mr(null, null)]);
+    const attend = { waitingSince: null, noPipelineMs: 60_000, lastFailedPipelineId: null, freshMinutes: 75 };
+    const r = await watchPipeline({ ...base, forge: "github", attend }, deps) as { state: string; next: string };
+    expect(r.state).toBe("no_pipeline");
+    expect(r.next).toBe("GitHub reported no head commit for the PR for 1 minutes; check the push reached the remote, then report it");
+  });
+});

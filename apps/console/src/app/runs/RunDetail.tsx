@@ -21,6 +21,7 @@ import { RecordPage } from './run-page/RecordPage';
 import { RunLoadError } from './run-page/RunLoadError';
 import { RunPage, type RunPageData } from './run-page/RunPage';
 import classes from './RunDetail.module.css';
+import { ticketOf } from './runs-page/runLinks';
 import { runsHomeHref } from './runs-page/useRunsUrl';
 import { useRun, useRunChrome, useRunEvents } from './useRuns';
 
@@ -73,10 +74,7 @@ function useRunName(repo: string, runId: string) {
   const queryClient = useQueryClient();
   const { data } = useRunChrome(repo, runId);
   const run = (data as RunPageData | undefined)?.run;
-  if (run) {
-    const reviewed = run.outcome?.reviewed;
-    return run.ticket ?? (reviewed ? `!${reviewed.iid}` : null) ?? runId;
-  }
+  if (run) return ticketOf(run) ?? runId;
   const listed = queryClient
     .getQueriesData<{ runs: RunSummary[] }>({ queryKey: ['runs'] })
     .flatMap(([, list]) => list?.runs ?? [])

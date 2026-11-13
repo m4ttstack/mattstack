@@ -25,9 +25,18 @@ export function repoHost(serialized: string): string | null {
   return id?.kind === "remote" ? (id.id.split("/")[0] ?? null) : null;
 }
 
+/** What a forge calls a change: "PR" or "pull request" on GitHub, "MR" or "merge request" everywhere else. */
+export function forgeChangeNoun(forge: string | null | undefined): "PR" | "MR";
+export function forgeChangeNoun(forge: string | null | undefined, form: "long"): "pull request" | "merge request";
+export function forgeChangeNoun(forge: string | null | undefined, form: "short" | "long" = "short"): string {
+  const github = forge === "github";
+  if (form === "long") return github ? "pull request" : "merge request";
+  return github ? "PR" : "MR";
+}
+
 /** What the repo's forge calls a change: "PR" on GitHub, "MR" everywhere else. */
 export function changeNoun(serialized: string): "PR" | "MR" {
-  return repoHost(serialized) === "github.com" ? "PR" : "MR";
+  return forgeChangeNoun(repoHost(serialized) === "github.com" ? "github" : "gitlab");
 }
 
 /** The marker the forge prints before a change number: "#" on GitHub, "!" elsewhere. */

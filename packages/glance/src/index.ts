@@ -137,7 +137,8 @@ export {
   RateLimitedError,
   ForgeHttpError,
   EmptyDiscussionError,
-  WriteOutcomeUnknownError
+  WriteOutcomeUnknownError,
+  CrossOriginRedirectError
 } from './errors.ts';
 export type { CreateFollowUpStep, FailedCreateStep } from './errors.ts';
 export { GITLAB_READ_RATE_LIMIT_DEADLINE_S, GITLAB_WRITE_RATE_LIMIT_DEADLINE_S } from './gitlabRateLimit.ts';

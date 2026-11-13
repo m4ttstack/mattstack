@@ -1074,6 +1074,21 @@ describe('ForgeSync.publishStack — republish', () => {
     ]);
   });
 
+  test('on GitHub, a skipped node names its PR', async () => {
+    const stack = publishedStack();
+    const { provider } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main', state: 'merged' }),
+    ]);
+    const github = { ...provider, providerName: 'github' } as GitProvider;
+
+    const result = await ForgeSync.publishStack(github, stack, 'user/repo');
+
+    expect(result.skipped).toEqual([
+      { branch: 'feat/b', mrIid: 2, reason: 'mr-not-open', detail: 'PR #2 is merged' },
+    ]);
+  });
+
   test('skips a node whose MR the forge did not return, and says so', async () => {
     const stack = publishedStack();
 

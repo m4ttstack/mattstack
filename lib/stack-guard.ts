@@ -10,12 +10,21 @@ import type { Probes } from "./setup/probes.ts";
 import { forgeFromRemote } from "./setup/team-settings.ts";
 import { forgeArgv, glabEnv } from "./team/forge.ts";
 import { bundledToolExec } from "./deps/resolve.ts";
+import { forgeChangeNoun } from "./repo-label.ts";
 
 export interface StackMembership {
   name: string;
   root: string;
   parent: string;
   children: string[];
+}
+
+function onGitHubCom(url: string): boolean {
+  try {
+    return new URL(url).hostname === "github.com";
+  } catch {
+    return false;
+  }
 }
 
 export interface ForgeMr {
@@ -138,16 +147,17 @@ export async function checkStackMembership(opts: {
   }
   const forge = await opts.runners.forgeOpenMrs(opts.cwd, opts.branch);
   if (!forge.ok) {
-    return unavailable(opts.branch, `rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (${forge.error})`);
+    return unavailable(opts.branch, `rt could not list the open merge requests or pull requests, so it cannot tell whether this branch is in a stack (${forge.error})`);
   }
   const own = forge.mrs.filter((mr) => mr.source === opts.branch && mr.target !== opts.defaultBranch);
   const dependents = forge.mrs.filter((mr) => mr.target === opts.branch);
   if (own.length > 0 || dependents.length > 0) {
+    const noun = forgeChangeNoun(forge.mrs.some((mr) => onGitHubCom(mr.url)) ? "github" : "gitlab", "long");
     const detail = own.length > 0
-      ? `its open merge request targets ${own[0]!.target}`
+      ? `its open ${noun} targets ${own[0]!.target}`
       : dependents.length === 1
-        ? `the open merge request from ${dependents[0]!.source} targets it`
-        : `the open merge requests from ${dependents.map((mr) => mr.source).join(", ")} target it`;
+        ? `the open ${noun} from ${dependents[0]!.source} targets it`
+        : `the open ${noun}s from ${dependents.map((mr) => mr.source).join(", ")} target it`;
     return {
       verdict: "refuse",
       refusal: {

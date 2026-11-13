@@ -63,6 +63,28 @@ describe('runTitle', () => {
     expect(runTitle(run(), { mrIid: 412 })).toBe('feature run');
   });
 
+  it('names a GitHub PR with its own marker', () => {
+    expect(
+      runTitle(
+        run({ work_type: 'review', repo: 'remote:github.com%2Fo%2Fr' }),
+        {
+          mrIid: 412,
+        }
+      )
+    ).toBe('Review of #412');
+    expect(
+      runTitle(
+        run({
+          work_type: 'review',
+          outcome: {
+            reviewed: { iid: 406, url: 'https://github.com/o/r/pull/406' },
+          },
+        }),
+        {}
+      )
+    ).toBe('Review of #406');
+  });
+
   it('ignores the MR title for other kinds', () => {
     expect(runTitle(run(), { mrTitle: 'Fix cart' })).toBe('feature run');
   });
@@ -117,6 +139,19 @@ describe('enrichedRunTitle', () => {
         'https://gitlab.example.com/acme/web/-/merge_requests/415'
       )
     ).toBe('Review of !415');
+  });
+
+  it('reads a GitHub PR from the enrichment or the mr field', () => {
+    expect(
+      enrichedRunTitle(
+        review,
+        { mr: { iid: 7, webUrl: 'https://github.com/o/r/pull/7' } } as never,
+        null
+      )
+    ).toBe('Review of #7');
+    expect(
+      enrichedRunTitle(review, undefined, 'https://github.com/o/r/pull/8')
+    ).toBe('Review of #8');
   });
 
   it('prefers the ticket title', () => {
