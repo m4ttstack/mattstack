@@ -163,8 +163,8 @@ hand in gate-form:
 | Render: lines to `Text`, hover/pressed/unfocused styling | `kit/render.tsx` | |
 | Widgets: `brandBar` (optional Hide), `selectList` (single, multi, 2-row options, write-in "Something else" with a filled input, windowing), `inputField`, `textCursor`, `tabStrip` (sticky window, one-tab scroll chips at fixed width), `buttonRow` / `buttonSpan` (five tones plus disabled) | `kit/widgets.ts` | |
 | Pointer controller for a Client: hover, press on down and act on release over the same control, drag-off cancel, first click on a dimmed surface only focuses, posts an "engaged" message | `form.tsx`, `band.tsx` | Today duplicated; becomes one helper. |
-| Focus stand-in: a per-mod atom set by the Client's "engaged" post, cleared by `prompt.edit`, `prompt.submit` and `ui.focus`; combined with the pane's `isFocused` | `register.tsx` | Claude Code has no Client focus signal. |
-| Hideable pane: open/show, a Hide control in the brand bar, a reopen band above the prompt (a Client with the brand Open button, falling back to the engine `Button` on surfaces without Client), `ui.close` redraw | `register.tsx`, `band.tsx` | The engine's own `×` cannot be hidden; it behaves like Hide. |
+| Focus stand-in: a per-mod atom set by the Client's "engaged" post, cleared by `prompt.edit`, `prompt.submit` and `ui.focus`; combined with the pane's `isFocused` | `register.tsx` | Claude Code has no Client focus signal. A `$.state` ref must be spelled with literals in the module that uses it, so the mod declares the atom (`atom({ plugin: '<name>', key: 'focus' } as const, false)`) and hands it to the kit; the kit never builds a ref. |
+| Hideable pane: open/show, a Hide control in the brand bar, a reopen band above the prompt (a Client with the brand Open button, falling back to the engine `Button` on surfaces without Client), `ui.close` redraw | `register.tsx`, `band.tsx` | The engine's own `×` cannot be hidden; it behaves like Hide. A Client's `module` must be a string literal, so the kit writes `module="./band.tsx"` itself; a mod using the pattern has a `band.tsx` (re-exporting the kit's band body) listed in its `mod.json` clients. Any state the pattern keeps is an atom the mod declares and passes in. |
 | Transcript summary: a `UserMessage` hook that rewrites a plugin's message text to one line, leaving the stored message whole | `register.tsx` | Rewrite the text and pass to `next`; returning a custom tree was not drawn. Unverified on screen; see open risks. |
 | Page shell: pad pages to the tallest page so buttons keep their row, drop context first on overflow, the Back (disabled on page 1) / Next / Review / Submit row, the press-again confirm button, a review list whose entries are clickable | `form/view.ts` | Generic enough for any paged surface. |
 
@@ -200,6 +200,7 @@ CI:
   compiled-skill check).
 - Each `plugin-<name>` job runs `claude plugin test` and `claude plugin validate`
   on the built folder, as `plugin-gate-form` does now.
+- Test layout (my call): bun tests are `*.test.ts(x)` under a package's or mod's `src/`; tests that need the Claude Code harness (`claude-code/testing`) live in `mods/<name>/harness/`, are copied into the built `hooks/`, and run only through `claude plugin test`. Bun tests that use JSX get a stand-in `h`/`Fragment` from a test preload, since the engine's are not there.
 - Tests (my call): the pure kit pieces (text, theme, widgets, page-shell layout)
   get plain bun unit tests in `packages/mod-kit`, run in CI. The pieces that
   need `claude-code` or the `claude-code/testing` harness (pointer controller,
