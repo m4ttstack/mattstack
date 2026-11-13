@@ -18,6 +18,8 @@ export interface StackMembership {
   children: string[];
 }
 
+const GITHUB_PR_URL = /\/pull\/\d+/;
+
 export interface ForgeMr {
   iid: number;
   source: string;
@@ -138,16 +140,17 @@ export async function checkStackMembership(opts: {
   }
   const forge = await opts.runners.forgeOpenMrs(opts.cwd, opts.branch);
   if (!forge.ok) {
-    return unavailable(opts.branch, `rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (${forge.error})`);
+    return unavailable(opts.branch, `rt could not list the open merge requests or pull requests, so it cannot tell whether this branch is in a stack (${forge.error})`);
   }
   const own = forge.mrs.filter((mr) => mr.source === opts.branch && mr.target !== opts.defaultBranch);
   const dependents = forge.mrs.filter((mr) => mr.target === opts.branch);
   if (own.length > 0 || dependents.length > 0) {
+    const noun = forge.mrs.some((mr) => GITHUB_PR_URL.test(mr.url)) ? "pull request" : "merge request";
     const detail = own.length > 0
-      ? `its open merge request targets ${own[0]!.target}`
+      ? `its open ${noun} targets ${own[0]!.target}`
       : dependents.length === 1
-        ? `the open merge request from ${dependents[0]!.source} targets it`
-        : `the open merge requests from ${dependents.map((mr) => mr.source).join(", ")} target it`;
+        ? `the open ${noun} from ${dependents[0]!.source} targets it`
+        : `the open ${noun}s from ${dependents.map((mr) => mr.source).join(", ")} target it`;
     return {
       verdict: "refuse",
       refusal: {

@@ -268,7 +268,7 @@ describe("what a sync prints on the way", () => {
     expect(result.error).toBeUndefined();
     expect(io.lines().slice(0, 4)).toEqual([
       "[warning] rt could not check whether this branch is part of a stack  syncing anyway",
-      "  why: rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (forge: not logged in)",
+      "  why: rt could not list the open merge requests or pull requests, so it cannot tell whether this branch is in a stack (forge: not logged in)",
       "[ok] Fetched from origin",
       "[skipped] Would rebase feature onto origin/main  1 commit behind",
     ]);

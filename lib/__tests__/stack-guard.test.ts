@@ -449,11 +449,21 @@ describe("the hints a person reads", () => {
     expect(two.refusal.mrs?.map((mr) => mr.iid)).toEqual([8, 9]);
   });
 
+  test("a GitHub stack gitq does not track says pull request", async () => {
+    const forge = (mrs: { iid: number; source: string; target: string; url: string }[]) => runners({ forgeOpenMrs: async () => ({ ok: true, mrs }) });
+    const pr = (iid: number, source: string) => ({ iid, source, target: "feat-parent", url: `https://github.com/o/r/pull/${iid}` });
+    const own = await checkStackMembership({ cwd: "/repo", branch: "feat-child", defaultBranch: "master", runners: forge([pr(42, "feat-child")]) });
+    const two = await checkStackMembership({ cwd: "/repo", branch: "feat-parent", defaultBranch: "master", runners: forge([pr(8, "feat-child"), pr(9, "feat-other")]) });
+    if (own.verdict !== "refuse" || two.verdict !== "refuse") throw new Error("expected refusals");
+    expect(own.refusal.hint).toBe("feat-child is in a stack gitq does not track yet: its open pull request targets feat-parent");
+    expect(two.refusal.hint).toBe("feat-parent is in a stack gitq does not track yet: the open pull requests from feat-child, feat-other target it");
+  });
+
   test("the two checks that could not run", async () => {
     const noDefault = await checkStackMembership({ cwd: "/repo", branch: "feat", defaultBranch: null, runners: runners({}) });
     const forgeDown = await checkStackMembership({ cwd: "/repo", branch: "feat", defaultBranch: "master", runners: runners({ forgeOpenMrs: async () => ({ ok: false, error: "gh pr list failed: not logged in" }) }) });
     if (noDefault.verdict !== "unverified" || forgeDown.verdict !== "unverified") throw new Error("expected unverified");
     expect(noDefault.refusal.hint).toBe("rt could not find the default branch, so it cannot tell whether this branch is in a stack");
-    expect(forgeDown.refusal.hint).toBe("rt could not list the open merge requests, so it cannot tell whether this branch is in a stack (gh pr list failed: not logged in)");
+    expect(forgeDown.refusal.hint).toBe("rt could not list the open merge requests or pull requests, so it cannot tell whether this branch is in a stack (gh pr list failed: not logged in)");
   });
 });
