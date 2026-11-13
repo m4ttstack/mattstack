@@ -452,6 +452,23 @@ describe('buildFetchResult: login canon', () => {
     expect(snap.byUser.bob!.mrsReviewed).toBe(1);
   });
 
+  it('with a canon, one commit stored under two spellings counts once', () => {
+    const s = getStore();
+    const at = '2026-07-09T01:00:00.000Z';
+    s.upsertPushEvents([
+      { username: 'ALICE', createdAt: at, repositoryId: 'github:acme/app' },
+      { username: 'alice', createdAt: at, repositoryId: 'github:acme/app' },
+      { username: 'Alice', createdAt: at, repositoryId: 'github:acme/other' },
+    ]);
+    const canon = (login: string) =>
+      login.toLowerCase() === 'alice' ? 'alice' : login;
+    const fetched = buildFetchResult(s, W_7D, ['alice'], canon);
+    expect(fetched.pushEvents).toEqual([
+      { username: 'alice', createdAt: at },
+      { username: 'alice', createdAt: at },
+    ]);
+  });
+
   it('without a canon, stored logins match the roster exactly (GitLab)', () => {
     const s = seedUppercase();
     const fetched = buildFetchResult(s, W_7D, ['alice', 'bob']);

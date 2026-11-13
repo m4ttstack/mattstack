@@ -92,8 +92,18 @@ export function buildFetchResult(
   // push-event bound.
   const padStart = new Date(start - DAY_MS).toISOString();
   const padEnd = new Date(end + DAY_MS).toISOString();
+  // Push rows key on the stored spelling, so the canon can fold two rows for one commit
+  // onto a single user; those count once.
+  const seenPushes = new Set<string>();
   const pushEvents = store
     .pushEventsBetween(padStart, padEnd)
+    .filter(e => {
+      if (!canon) return true;
+      const key = `${canon(e.username)}:${e.createdAt}:${e.repositoryId ?? ''}`;
+      if (seenPushes.has(key)) return false;
+      seenPushes.add(key);
+      return true;
+    })
     .map(e => ({ username: toRoster(e.username), createdAt: e.createdAt }))
     .filter(e => rosterSet.has(e.username));
 

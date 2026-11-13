@@ -79,7 +79,7 @@ const knownLoginsOf = (settings: BoxscoreSettings): string[] =>
  * matches. Undefined on GitLab, whose usernames match exactly.
  */
 export function storedLoginCanon(
-  env: Env,
+  env: Pick<Env, 'forge'>,
   settings: BoxscoreSettings
 ): ((login: string) => string) | undefined {
   if (env.forge !== 'github') return undefined;

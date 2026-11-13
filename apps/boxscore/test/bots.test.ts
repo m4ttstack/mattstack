@@ -106,6 +106,30 @@ describe('GitHub bots', () => {
     expect(flagged).toEqual(['dependabot[bot]']);
   });
 
+  it('never flags a GitHub roster member stored under another case', async () => {
+    __setSettingReader(<T>(key: string) =>
+      key === 'mattstack.integrations'
+        ? ({ forge: { provider: 'github', host: 'github.com' } } as T)
+        : undefined
+    );
+    __setRosterReader(() => [{ username: 'deploy_bot' }]);
+    getStore().adoptForgeHost('https://github.com');
+    getStore().upsertIndexRows([
+      { ...row(1, 'Deploy_Bot'), projectPath: 'o/r' },
+      { ...row(2, 'release_bot'), projectPath: 'o/r' },
+    ]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['release_bot']);
+  });
+
+  it('gitlab still matches roster members exactly', async () => {
+    __setSettingReader(() => undefined);
+    __setRosterReader(() => [{ username: 'deploy_bot' }]);
+    getStore().upsertIndexRows([row(1, 'Deploy_Bot')]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['Deploy_Bot']);
+  });
+
   it('treats [bot] accounts as bots and people and GitLab bots as before', () => {
     expect(isBotUsername('dependabot[bot]')).toBe(true);
     expect(isBotUsername('github-actions[bot]')).toBe(true);
