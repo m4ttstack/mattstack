@@ -266,8 +266,9 @@ function HerdTo({
 }
 
 /** A herd as one timeline: its shepherd's DMs with each worker and the
-    herd's own room. A reply goes to the newest conversation until a badge or
-    a message picks another; `composer` draws the box for whichever that is. */
+    herd's own room. A reply goes to the newest conversation until a filter
+    or the composer's To picks another; `composer` draws the box for
+    whichever that is. */
 export function HerdView({
   tag,
   rooms,
@@ -293,10 +294,18 @@ export function HerdView({
   const url = filter ? `${base}/${encodeURIComponent(filter)}` : base;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadedUrl, setLoadedUrl] = useState<string>();
+  // A room joining the herd (a worker's first DM) reads the feed again; the
+  // listing's own polls leave it alone while the set is unchanged.
+  const roomSet = rooms
+    .map(r => r.room)
+    .sort()
+    .join('|');
+  const fetchedUrl = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
-    setMessages([]);
+    if (fetchedUrl.current !== url) setMessages([]);
+    fetchedUrl.current = url;
     fetch(`${url}?limit=${PAGE_SIZE}`)
       .then(res => {
         if (!res.ok) throw new Error(`${res.url}: ${res.status}`);
@@ -311,7 +320,7 @@ export function HerdView({
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url, roomSet]);
 
   // A draft belongs to who it was started for: a newer post must not
   // retarget it.
@@ -322,6 +331,8 @@ export function HerdView({
   const feed = useMemo<TranscriptFeed>(() => {
     const known = new Set(rooms.map(r => r.room));
     const byRoom = new Map(rooms.map(r => [r.room, r]));
+    // A herd with nothing posted yet still has somewhere to write.
+    const fallback = (rooms.find(r => r.kind !== 'dm') ?? rooms[0])?.room;
     return {
       url,
       faces: [tag.shepherdHandle, ...tag.workers.map(w => w.handle)],
@@ -334,7 +345,8 @@ export function HerdView({
         picked ??
         filter ??
         list.findLast(m => m.handle !== me)?.room ??
-        list.at(-1)?.room,
+        list.at(-1)?.room ??
+        fallback,
       onPick: room => {
         if (room === undefined && draftOpen.current) return;
         pick.current(room);
@@ -376,7 +388,8 @@ export function HerdView({
         filter={filter}
         onFilter={room => {
           setFilter(room);
-          onPick(room);
+          // A draft stays with who it was started for; only the To moves it.
+          if (!draftOpen.current) onPick(room);
         }}
       />
       <Box style={{ flex: 1, minHeight: 0, display: 'flex' }}>

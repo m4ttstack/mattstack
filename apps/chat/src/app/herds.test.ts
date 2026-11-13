@@ -48,6 +48,33 @@ test("a herd's group takes its newest post and that DM's last line", () => {
   expect(group!.lastMessage?.body).toBe('new');
 });
 
+test("a newer post in the herd's own room keeps the newest DM line", () => {
+  const own: FleetRoom = {
+    room: 'herd-x',
+    memberCount: 4,
+    unread: 0,
+    mentions: 0,
+    lastPostedAt: 10,
+    herd: TAG,
+  };
+  const rooms: FleetRoom[] = [
+    {
+      ...dm('d1', 'sid', 'ida', 5),
+      herd: TAG,
+      lastMessage: { handle: 'ida', body: 'old' },
+    },
+    own,
+    {
+      ...dm('d2', 'meg', 'sid', 9),
+      herd: TAG,
+      lastMessage: { handle: 'meg', body: 'new' },
+    },
+  ];
+  const [group] = groupHerds(rooms);
+  expect(group!.lastPostedAt).toBe(10);
+  expect(group!.lastMessage?.body).toBe('new');
+});
+
 test('workerOf names the far end of a shepherd DM, and nothing for the room', () => {
   expect(workerOf(dm('d1', 'meg', 'sid'), TAG)?.handle).toBe('meg');
   expect(

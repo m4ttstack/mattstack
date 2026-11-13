@@ -1864,3 +1864,21 @@ test('an unknown herd is a 404', async () => {
   });
   expect((await routes.request('/api/chat/herd/nope')).status).toBe(404);
 });
+
+test('a herd page with a DM that fails to read is a 502, first page included', async () => {
+  vi.mocked(rt.herdRoster).mockResolvedValueOnce({
+    ok: true,
+    data: { herds: [HERD] },
+  });
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: { rooms: herdListing },
+  });
+  vi.mocked(rt.chatMessages).mockImplementation((async (a: { room: string }) =>
+    a.room === 'dm-meg'
+      ? { ok: false, error: 'nope' }
+      : { ok: true, data: { messages: [msg(1, a.room, 'sid')] } }) as never);
+
+  const res = await routes.request(`/api/chat/herd/${HERD.id}`);
+  expect(res.status).toBe(502);
+});

@@ -19,18 +19,24 @@ export interface HerdGroup {
 /** The herds the listing tags, in first-seen order. */
 export function groupHerds(rooms: readonly FleetRoom[]): HerdGroup[] {
   const groups = new Map<string, HerdGroup>();
+  // The preview tracks the newest room that has a line, apart from the
+  // newest post: the herd's own room can be newest and carries none.
+  const previewAt = new Map<string, number>();
   for (const room of rooms) {
     if (!room.herd) continue;
-    let group = groups.get(room.herd.id);
+    const id = room.herd.id;
+    let group = groups.get(id);
     if (!group) {
       group = { tag: room.herd, rooms: [] };
-      groups.set(room.herd.id, group);
+      groups.set(id, group);
     }
     group.rooms.push(room);
     const at = room.lastPostedAt;
-    if (at !== undefined && (group.lastPostedAt ?? -1) < at) {
-      group.lastPostedAt = at;
-      if (room.lastMessage) group.lastMessage = room.lastMessage;
+    if (at === undefined) continue;
+    if ((group.lastPostedAt ?? -1) < at) group.lastPostedAt = at;
+    if (room.lastMessage && (previewAt.get(id) ?? -1) < at) {
+      previewAt.set(id, at);
+      group.lastMessage = room.lastMessage;
     }
   }
   return [...groups.values()];

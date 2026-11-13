@@ -806,11 +806,13 @@ export const chat = new Hono()
       p?.ok && p.data ? [p.data.messages] : []
     );
     // A herd that never posted in its own room may have none, so only a DM
-    // going missing counts as a failed read.
+    // going missing counts as a failed read. Any page missing a DM fails:
+    // its oldest id becomes the next cursor, which would skip the DM's
+    // newer posts for good.
     const failed = pages.some(
       (p, i) => names[i] !== herd.room && !(p?.ok && p.data)
     );
-    if (failed && (before !== undefined || lists.length === 0)) {
+    if (failed) {
       return c.json({ error: 'could not read every conversation' }, 502);
     }
     return c.json({ messages: newestAcross(lists, size) }, 200);
