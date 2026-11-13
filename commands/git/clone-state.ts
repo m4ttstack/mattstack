@@ -106,6 +106,34 @@ async function clonesCredentialEntries(root: string): Promise<ConfigEntry[]> {
 }
 
 /**
+ * The worktree-scope `credential.*` keys of every worktree of the clone, when
+ * `extensions.worktreeConfig` is on. rt writes its pair to the shared config,
+ * so in each worktree these come after it. Throws when a worktree cannot be
+ * listed or read: a missing worktree folder fails closed.
+ */
+async function otherWorktreeKeys(root: string): Promise<string[]> {
+  const ext = await runGit(root, ["config", "--bool", "extensions.worktreeConfig"]);
+  if (ext.exitCode === 1) return [];
+  if (ext.exitCode !== 0) throw new Error("git could not read this clone's credential config");
+  if (ext.stdout.trim() !== "true") return [];
+  const list = await runGit(root, ["worktree", "list", "--porcelain", "-z"]);
+  if (list.exitCode !== 0) throw new Error("git could not list this clone's worktrees");
+  const paths = list.stdout.split("\0").filter((f) => f.startsWith("worktree ")).map((f) => f.slice("worktree ".length));
+  const keys: string[] = [];
+  for (const path of paths) {
+    const res = await runGit(path, ["config", "--worktree", "--includes", "--get-regexp", "-z", "^credential\\."]);
+    if (res.exitCode === 1) continue;
+    if (res.exitCode !== 0) throw new Error("git could not read a worktree's credential config");
+    for (const item of res.stdout.split("\0")) {
+      if (item === "") continue;
+      const nl = item.indexOf("\n");
+      keys.push(nl < 0 ? item : item.slice(0, nl));
+    }
+  }
+  return keys;
+}
+
+/**
  * Where rt's pair sits among the helpers git would run for https://<host>.
  * git's `approve` hands the token to every helper after the empty value, so
  * rt's pair must come last. Unwritten, the pair would land after the last key
@@ -125,7 +153,10 @@ export async function readHelperOrder(root: string, host: string, rtLink: string
     pairAt = section >= 0 ? section : entries.findLastIndex((e) => e.scope === "local");
   }
   const next = pairAt === null ? undefined : entries.slice(pairAt + 1).find((e) => e.key !== rtKey && keyAppliesTo(e.key, host));
-  const after = next ? printable(next.key) : null;
+  // Any key here applies after the shared pair, rt's own key included.
+  const elsewhere = next ? undefined : (await otherWorktreeKeys(root)).find((key) => keyAppliesTo(key, host));
+  const afterKey = next?.key ?? elsewhere;
+  const after = afterKey !== undefined ? printable(afterKey) : null;
   return { own, wired: isPair && after === null, after };
 }
 

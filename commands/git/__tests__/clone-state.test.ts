@@ -156,6 +156,68 @@ describe("helpers", () => {
   });
 });
 
+/** A linked worktree of `repo` with per-worktree config switched on. */
+function linkedWorktree(repo: string, name = "linked"): string {
+  const linked = join(root, name);
+  git(repo, "worktree", "add", "-q", "-b", name, linked);
+  git(repo, "config", "extensions.worktreeConfig", "true");
+  return linked;
+}
+
+describe("helpers in another worktree's own config", () => {
+  test("a helper in a linked worktree's config.worktree counts as after rt's pair, from the main root", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    git(linked, "config", "--worktree", "credential.helper", "!secret-linked");
+    const order = await readHelperOrder(repo, "gitlab.com", link);
+    expect(order.after).toBe("credential.helper");
+    expect(JSON.stringify(order)).not.toContain("secret-linked");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    expect(await readHelperOrder(repo, "gitlab.com", link)).toEqual({ own: ["", rtCredentialHelper(link)], wired: false, after: "credential.helper" });
+  });
+
+  test("the main worktree's config.worktree counts from a linked worktree", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    git(repo, "config", "--worktree", "credential.https://gitlab.com.helper", "!secret-main");
+    expect((await readHelperOrder(linked, "gitlab.com", link)).after).toBe("credential.https://gitlab.com.helper");
+  });
+
+  test("a worktree helper for another host does not count", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    git(linked, "config", "--worktree", "credential.https://github.com.helper", "!other-host");
+    expect((await readHelperOrder(repo, "gitlab.com", link)).after).toBeNull();
+  });
+
+  test("with extensions.worktreeConfig off, git ignores config.worktree and so does rt", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    git(linked, "config", "--worktree", "credential.helper", "!secret-linked");
+    git(repo, "config", "--unset", "extensions.worktreeConfig");
+    expect((await readHelperOrder(repo, "gitlab.com", link)).after).toBeNull();
+  });
+
+  test("a worktree whose config cannot be read throws, never reads as no helper", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    rmSync(linked, { recursive: true, force: true });
+    await expect(readHelperOrder(repo, "gitlab.com", link)).rejects.toThrow();
+  });
+
+  test("a wired clone with a helper in another worktree is skipped as own-helper, never done", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    const linked = linkedWorktree(repo);
+    git(linked, "config", "--worktree", "credential.helper", "!secret-linked");
+    const s = await classifyClone(repo, deps());
+    expect(s.state).toBe("skipped");
+    expect(s.cause).toBe("own-helper");
+    expect(s.helperAfter).toEqual({ key: "credential.helper", rtWrote: true });
+    expect(JSON.stringify(s)).not.toContain("secret-linked");
+  });
+});
+
 describe("classifyClone", () => {
   test("https, rt wired: done/wired", async () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");

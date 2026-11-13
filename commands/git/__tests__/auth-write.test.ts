@@ -582,6 +582,59 @@ describe("rt git auth and the clone's other helpers", () => {
   });
 });
 
+/** A linked worktree of `repo` with per-worktree config switched on. */
+function linkedWorktree(repo: string): string {
+  const linked = join(root, "linked");
+  git(repo, "worktree", "add", "-q", "-b", "linked", linked);
+  git(repo, "config", "extensions.worktreeConfig", "true");
+  return linked;
+}
+
+describe("rt git auth and helpers in other worktrees", () => {
+  test("a helper in a linked worktree's config.worktree: refused own-helper from the main root, and the helper never sees the token", async () => {
+    const { otherHelper, otherLog } = credentialFakes();
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    git(linked, "config", "--worktree", "credential.helper", otherHelper);
+    const before = config(repo);
+    expect(await run([repo, "--yes"], harness())).toBe(1);
+    expect(config(repo)).toBe(before);
+    expect(io.stderr()).toContain("has its own credential helper for gitlab.com");
+    expect(io.stderr()).not.toContain(otherHelper);
+    fillThenApprove(linked);
+    expect(otherLog()).not.toContain("LEAKCHECK");
+  });
+
+  test("a worktree helper that appears while rt writes: the re-check takes rt's pair back", async () => {
+    const { otherHelper, otherLog } = credentialFakes();
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    let planted = false;
+    const plant: NonNullable<AuthDeps["git"]> = async (cwd, args) => {
+      const res = await runGit(cwd, args);
+      if (!planted && args[0] === "config" && args.includes("--add")) {
+        planted = true;
+        git(linked, "config", "--worktree", "credential.helper", otherHelper);
+      }
+      return res;
+    };
+    expect(await run([repo, "--yes"], harness({ git: plant }))).toBe(1);
+    expect(helpers(repo)).toEqual([]);
+    expect(io.stderr()).toContain("has its own credential helper for gitlab.com");
+    fillThenApprove(linked);
+    expect(otherLog()).not.toContain("LEAKCHECK");
+  });
+
+  test("a worktree rt cannot read: refused config-unreadable, nothing written", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    rmSync(linkedWorktree(repo), { recursive: true, force: true });
+    const before = config(repo);
+    expect(await run([repo, "--yes", "--json"], harness())).toBe(1);
+    expect(JSON.parse(io.stdout())).toMatchObject({ ok: false, error: "config-unreadable" });
+    expect(config(repo)).toBe(before);
+  });
+});
+
 describe("rt git auth leaks and scope", () => {
   test("no token value in config, remote URL, printed output or the envelope", async () => {
     const plainRepo = repoWith("https://gitlab.com/acme/x.git", "plain");
