@@ -844,7 +844,7 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
     return statePath;
   }
 
-  test("form presentation: origin, paneId, sessionId, and context reach the payload; result.presentation is the facility's", async () => {
+  test("origin, paneId and context reach the payload, the session never does, so the gate parks for the board; result.presentation is the facility's", async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gate-verbs-w4-'));
     const db = openStateDb(dbPathForRoot(dir), 'cli');
     const { io, calls } = fakeIo({
@@ -864,7 +864,6 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
       FORM_QUESTIONS,
       io,
       {
-        sessionId: 'sess-9',
         worktree: '/tmp/wt',
         context: 'tier counts',
       }
@@ -877,7 +876,7 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
       worktree: '/tmp/wt',
     });
     expect(payload.paneId).toBe('pane-3');
-    expect(payload.sessionId).toBe('sess-9');
+    expect(payload.sessionId).toBeUndefined();
     expect(payload.context).toBe('tier counts');
     rmSync(dir, { recursive: true, force: true });
   });
@@ -902,7 +901,6 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
       OVER_CAP_QUESTIONS,
       io,
       {
-        sessionId: 'sess-9',
         worktree: '/tmp/wt',
       }
     );
@@ -1199,19 +1197,18 @@ describe('presentation parity (BOARD-31)', () => {
     return { io, calls };
   }
 
-  test('unchanged: a question set with every option count at or under 4 yields form', async () => {
+  test('a board gate parks: with every option count at or under 4 it still yields wait, since no session rides the ask', async () => {
     const { io } = fakeIoWithRealPresentation('gate-1');
 
     const result = await gateOpen(
       statePath,
       'review-post',
       JSON.stringify(QUESTIONS),
-      io,
-      { sessionId: 'session-1' }
+      io
     );
 
     expect(JSON.stringify(result)).toBe(
-      '{"gateId":"gate-1","presentation":"form"}'
+      '{"gateId":"gate-1","presentation":"wait"}'
     );
   });
 
@@ -1231,7 +1228,7 @@ describe('presentation parity (BOARD-31)', () => {
       'review-post',
       fiveOptionQuestions,
       io,
-      { sessionId: 'session-1' }
+      {}
     );
 
     expect(JSON.stringify(result)).toBe(
@@ -1333,7 +1330,7 @@ describe('presentation parity (BOARD-31)', () => {
         'review-post',
         JSON.stringify(QUESTIONS),
         io,
-        { sessionId: 'session-1', context: oversized }
+        { context: oversized }
       );
 
       expect(calls.gateAsk[0]!.context).toBe(oversized);
