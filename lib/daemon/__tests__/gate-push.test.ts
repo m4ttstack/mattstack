@@ -290,6 +290,12 @@ describe("gate-push escape injection (W4)", () => {
     }
   });
 
+  test("a kit gate answered from the board rings the doorbell and never injects Escape", async () => {
+    const { push, store, events } = w4Harness();
+    await push.onAnswered(answeredFormGate(store, "board", { presentation: "kit", paneId: "pane-7" }));
+    expect(events).toEqual(["deliver"]);
+  });
+
   test("form with no origin.paneId falls back to the top-level pane for the Escape", async () => {
     const { push, store, events } = w4Harness();
     await push.onAnswered(answeredFormGate(store, "console", { presentation: "form" }));
