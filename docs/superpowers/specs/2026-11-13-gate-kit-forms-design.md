@@ -43,6 +43,7 @@ until Matt is happy with it.
 
 - Never bring back a question every gate has to answer. If the run controls
   ever cost a tap on a gate where nobody wants them, this has failed.
+- Never close a kit form by sending keypresses into the pane.
 - Never leave a pane stuck: a missing mod, a failed answer or a closed form must
   each leave the gate answerable some other way.
 
@@ -121,8 +122,8 @@ without the mod still has something to show.
   pane (`decidedBy` pane), with the same compare-and-swap a board or console
   answer uses. That rings the doorbell, and the agent re-enters through
   `gate_reconcile`. The agent never maps form picks back to option values.
-- An answer from another surface closes the form, because the mod owns the
-  form (RT-385).
+- An answer from another surface closes the form without any keypress. See
+  "Dismissing without keypresses" below.
 - A form the person closes without answering waits above the prompt with Show,
   like gate-form today. The gate stays open, and the agent never presents it
   again itself (as `present-pane-form` says today).
@@ -166,6 +167,33 @@ without the mod still has something to show.
   it.
 - The menu is a new kit widget, because the kit has no menu today. It goes
   in `@mattstack/mod-kit` so other mods can use it.
+
+### Dismissing without keypresses
+
+Today, when a gate is answered on another surface (the board, the console, a
+shepherd), the daemon rings the doorbell and then sends a Escape keypress
+into the pane (`lib/daemon/gate-escape.ts`, `gate-push.ts`) to close the
+AskUserQuestion form that blocks it. It reads the pane's screen to decide,
+and it falls back through session and worktree when the pane id is stale.
+Matt wants mattstack to be able to close a gate without sending keypresses.
+
+- The gate row records that the kit form is showing it, for example
+  `origin.presentation: "kit"`. The mod sets this when it takes the gate
+  over.
+- For a kit form gate, the daemon never sends Escape. The doorbell still
+  rings, so the agent re-enters through `gate_reconcile` as it does today.
+- The mod closes its own form. While the form is open, the mod keeps one
+  watcher per gate, for example `rt gate wait <id>` through
+  `$.process.spawn`, which streams and can outlive a hook call. When the
+  gate is answered or closed anywhere else, the watcher returns, and the mod
+  marks the form answered elsewhere and closes it.
+- A gate superseded by a newer one (`supersededId`) closes the same way.
+- If the watcher dies, the mod checks the gate once the next time the form
+  is drawn or focused (`rt gate list` or `gate_list`), so a stale form never
+  lets you submit an answer that's already been settled. The compare-and-swap
+  refuses that answer anyway.
+- With the setting off, Escape injection stays exactly as today for
+  AskUserQuestion forms.
 
 ### The daemon's answer check
 
