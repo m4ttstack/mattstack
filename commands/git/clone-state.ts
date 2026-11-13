@@ -79,7 +79,8 @@ function keyAppliesTo(key: string, host: string): boolean {
   const pattern = (m?.[2] ?? "").toLowerCase();
   if (pattern === "") return true;
   const glob = pattern.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^.]*");
-  return new RegExp(`^${glob}$`).test(host.toLowerCase());
+  // Ports are dropped on both sides: a key for another port of the host still counts, which fails closed.
+  return new RegExp(`^${glob}$`).test(host.toLowerCase().replace(/:\d*$/, ""));
 }
 
 /**

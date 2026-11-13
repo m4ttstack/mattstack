@@ -202,6 +202,18 @@ describe("classifyClone", () => {
     expect(JSON.stringify(s)).not.toContain("secret-x");
   });
 
+  test("https on a port: a port-qualified, path-scoped helper after rt's pair makes it own-helper, never done", async () => {
+    const host = "gitlab.acme.internal:8443";
+    const repo = repoWith(`https://${host}/grp/x.git`);
+    const d: CloneDeps = { ...deps(), auth: createOriginAuth({ confirmedHost: () => host, lookup: async () => ({ kind: "token", token: TOKEN }) }) };
+    addHelpers(repo, host, ["", rtCredentialHelper(link)]);
+    expect((await classifyClone(repo, d)).state).toBe("done");
+    git(repo, "config", "--local", "--add", `credential.https://${host}/grp.helper`, "!secret-x");
+    expect(await readHelperOrder(repo, host, link)).toEqual({ own: ["", rtCredentialHelper(link)], wired: false, after: `credential.https://${host}/grp.helper` });
+    const s = await classifyClone(repo, d);
+    expect([s.state, s.cause]).toEqual(["skipped", "own-helper"]);
+  });
+
   test("https, a helper added to the clone after rt wired it: skipped/own-helper", async () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");
     addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
