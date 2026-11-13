@@ -21,7 +21,8 @@ const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'run', title: 'T',
 const wrapperFor = (token: string, script: string) =>
   `zsh -c 'trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?' todo '${script.replace(/'/g, `'\\''`)}'`
 
-async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; session?: boolean } = {}) {
+// `gitDir` is what git answers for the session folder's shared git dir; left out, the folder is not in a git repo.
+async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; session?: boolean; gitDir?: string } = {}) {
   const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
   const fake = herdrFake({ hasRt: opts.hasRt ?? true })
   const toasts: string[] = []
@@ -30,8 +31,14 @@ async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; 
     toasts.push(e.text)
     return { value: undefined }
   })
+  const gitAsked: (string | undefined)[] = []
   on('process.run', (_, e) => {
     ran.push([...e.argv])
+    if (e.argv[0] === 'git') {
+      gitAsked.push(e.init?.cwd)
+      const answer = opts.gitDir ? { exitCode: 0, stdout: `${opts.gitDir}\n`, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' }
+      return { value: { ...answer, isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     const reply = fake.run(e.argv.at(-1) ?? '')
     if (!reply) return { deny: `unexpected command ${e.argv.join(' ')}` }
     return { value: { ...reply, isStdoutTruncated: false, isStderrTruncated: false } }
@@ -48,7 +55,7 @@ async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; 
   const items = () => (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
   const item = (id: string) => items().find(t => t.id === id)
   const tokenOf = (id: string) => item(id)?.token ?? ''
-  return { ...w, fake, pane, toasts, ran, run1, item, tokenOf }
+  return { ...w, fake, pane, toasts, ran, gitAsked, run1, item, tokenOf }
 }
 
 test('the first run creates a background workspace and names its tab; the second adds a tab to it', async ($, on) => {
@@ -112,12 +119,22 @@ test('a workspace is created only when herdr has none called "Human Todos"', asy
   expect(fake.ran('herdr workspace create')).toEqual(["herdr workspace create --cwd '/work' --label 'Human Todos' --no-focus"])
 })
 
-test("a tab's label names the session's repo, not the run's cwd, so tabs from several sessions stay apart", async ($, on) => {
-  const { run1, fake, item } = await seeded($, on, [todo({ id: '1', title: 'Deploy', cwd: '/elsewhere/other-repo' })])
+test("outside a git repo a tab's label names the session's folder, not the run's cwd, so tabs from several sessions stay apart", async ($, on) => {
+  const { run1, fake, item, gitAsked } = await seeded($, on, [todo({ id: '1', title: 'Deploy', cwd: '/elsewhere/other-repo' })])
 
   await run1('1')
 
+  expect(gitAsked).toEqual(['/work'])
   expect(fake.labels.get(item('1')?.tabId ?? '')).toBe('work #1 Deploy')
+})
+
+test("in a git worktree a tab's label names the repo the worktree belongs to, not the worktree's folder", async ($, on) => {
+  const { run1, fake, item, gitAsked } = await seeded($, on, [todo({ id: '1', title: 'Deploy' })], { gitDir: '/Users/me/src/mattstack/.git' })
+
+  await run1('1')
+
+  expect(gitAsked).toEqual(['/work'])
+  expect(fake.labels.get(item('1')?.tabId ?? '')).toBe('mattstack #1 Deploy')
 })
 
 test('a run uses the item\'s cwd for its tab', async ($, on) => {

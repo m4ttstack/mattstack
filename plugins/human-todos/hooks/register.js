@@ -172,8 +172,18 @@ async function sharedWorkspace($) {
     await setWorkspace($, found);
   return found;
 }
+async function repoName($) {
+  const cwd = (await $.session.cwd()).replace(/\/+$/, "");
+  try {
+    const ran = await $.process.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd, timeoutMs: HERDR_MS });
+    const common = ran.stdout.trim().replace(/\/+$/, "");
+    if (ran.exitCode === 0 && common.startsWith("/"))
+      return fileName(common.slice(0, common.lastIndexOf("/")));
+  } catch {}
+  return fileName(cwd);
+}
 async function tabLabel($, todo) {
-  const repo = fileName((await $.session.cwd()).replace(/\/+$/, ""));
+  const repo = await repoName($);
   return quote(`${repo ? `${repo} ` : ""}#${todo.id} ${todo.title}`.slice(0, LABEL_MAX));
 }
 async function paneFor($, todo, cwd) {

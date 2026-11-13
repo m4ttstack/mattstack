@@ -46,14 +46,29 @@ async function herdrJson($: EngineInterface, args: string): Promise<Made | null>
 async function sharedWorkspace($: EngineInterface): Promise<string | undefined> {
   const known = await getWorkspace($)
   if (known && (await herdrJson($, `workspace get ${quote(known)}`))) return known
+  // Two sessions placing their first runs at once can each create one; `find` then picks the first herdr lists, and both go on there.
   const found = (await herdrJson($, 'workspace list'))?.workspaces?.find(w => w.label === TITLE)?.workspace_id
   if (found) await setWorkspace($, found)
   return found
 }
 
+// The repo the session works in: a worktree's folder is not its repo's name, the folder holding the shared git dir is.
+// Outside git, or when git cannot answer, the session's folder.
+async function repoName($: EngineInterface): Promise<string> {
+  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
+  try {
+    const ran = await $.process.run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, timeoutMs: HERDR_MS })
+    const common = ran.stdout.trim().replace(/\/+$/, '')
+    if (ran.exitCode === 0 && common.startsWith('/')) return fileName(common.slice(0, common.lastIndexOf('/')))
+  } catch {
+    // no git to ask: the folder name stands
+  }
+  return fileName(cwd)
+}
+
 // Tabs from several sessions share the workspace, so each names the session's repo; a run's own cwd is not its session's.
 async function tabLabel($: EngineInterface, todo: Todo): Promise<string> {
-  const repo = fileName((await $.session.cwd()).replace(/\/+$/, ''))
+  const repo = await repoName($)
   return quote(`${repo ? `${repo} ` : ''}#${todo.id} ${todo.title}`.slice(0, LABEL_MAX))
 }
 
