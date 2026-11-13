@@ -768,8 +768,34 @@ describe("herd:list", () => {
   });
 });
 
+describe("herd:roster", () => {
+  test("names every herd's room, shepherd and worker handles, wrapped herds included", async () => {
+    const hx = harness();
+    const a = await hx.h["herd:start"](START);
+    const b = await hx.h["herd:start"]({ ...START, name: "other" });
+    if (!a.ok || !b.ok) throw new Error("start failed");
+    hx.store.upsertJob({ herd: a.data.herd, name: "job-a", worktree: "/w", handle: "job-a-h", status: "active" });
+    hx.store.upsertJob({ herd: a.data.herd, name: "job-b", worktree: "/w2", handle: "job-b-h", status: "done" });
+    hx.store.setHerdStatus(b.data.herd, "wrapped");
+    const res = await hx.h["herd:roster"]({});
+    if (!res.ok) throw new Error(res.error);
+    const byId = new Map(res.data.herds.map((h) => [h.id, h]));
+    expect(byId.get(a.data.herd)).toMatchObject({
+      name: START.name,
+      room: a.data.room,
+      status: "active",
+      shepherdHandle: a.data.handle,
+      workers: [
+        { job: "job-a", handle: "job-a-h" },
+        { job: "job-b", handle: "job-b-h" },
+      ],
+    });
+    expect(byId.get(b.data.herd)).toMatchObject({ name: "other", status: "wrapped", workers: [] });
+  });
+});
+
 describe("worker verbs", () => {
-  const Q = [{ id: "q1", label: "Which?", multi: false, options: ["a", "b"] }];
+  const Q =[{ id: "q1", label: "Which?", multi: false, options: ["a", "b"] }];
   async function withJob() {
     const hx = harness();
     const s = await hx.h["herd:start"](START);

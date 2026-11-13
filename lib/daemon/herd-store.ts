@@ -81,6 +81,11 @@ export function parseHerdSubject(subject: string): { herd: string; job: string }
   return m ? { herd: m[1]!, job: m[2]! } : null;
 }
 
+/** The name a herd was started under: its id less the stamp `mintHerdId` adds. */
+export function herdNameOf(id: string): string {
+  return id.replace(/-\d{8}-\d{6}$/, "");
+}
+
 export function mintHerdId(name: string, now: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
