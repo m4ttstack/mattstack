@@ -1597,7 +1597,8 @@
           "section": "@acme/api",
           "approved": false
         }
-      ]
+      ],
+      "gates": []
     },
     {
       "provider": "github",
@@ -2000,7 +2001,8 @@
         "permalink": null,
         "reactions": [],
         "posted": false
-      }
+      },
+      "gates": []
     },
     {
       "provider": "github",
@@ -2151,7 +2153,8 @@
         "permalink": null,
         "reactions": [],
         "posted": false
-      }
+      },
+      "gates": []
     }
   ],
   "forge": "github",

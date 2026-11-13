@@ -2,6 +2,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { expect, test } from 'bun:test';
 
+import { rowStatus } from '../client/board/row-status.ts';
+import type { BoardMRWithReview } from '../client/types.ts';
 import { parseConfig, type TabConfig } from '../config.ts';
 import { sectionStatus } from '../sections.ts';
 
@@ -157,4 +159,28 @@ test('every pipeline id is the glance 0.33 stable GitHub id', () => {
   expect(
     ids.some(({ pipeline }) => pipeline.id.startsWith('github:checks:'))
   ).toBe(true);
+});
+
+test('every row carries the keys of the plain reference row, with gates an array', () => {
+  const all = rows() as unknown as Array<Record<string, unknown>>;
+  const reference = Object.keys(all.find(row => row.iid === 4102)!);
+  for (const row of all) {
+    expect(
+      reference.filter(key => !(key in row)),
+      `PR ${row.iid} lacks keys`
+    ).toEqual([]);
+    expect(Array.isArray(row.gates)).toBe(true);
+  }
+});
+
+test('the client builds a row status for every row without throwing', () => {
+  for (const row of rows())
+    expect(() =>
+      rowStatus(
+        row as unknown as BoardMRWithReview,
+        1755603600000,
+        new Map(),
+        'mkeller'
+      )
+    ).not.toThrow();
 });
