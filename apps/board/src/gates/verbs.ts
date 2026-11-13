@@ -144,13 +144,15 @@ export interface GateOpenResult {
     map sweep.ts uses -- an unrecognized kind fails loudly rather than
     guessing a writer that would silently drop that domain's own fields on
     merge. The daemon's `gate:ask` picks form-vs-wait and any nudge; this CLI
-    only relays what it returns. */
+    only relays what it returns. It never sends the pane's session, so the
+    daemon always parks a board gate (presentation wait): the board is where
+    an MR gate is answered, and the pane waits on it in the background. */
 export async function gateOpen(
   statePath: string,
   kind: string,
   questionsJson: string,
   io: GateVerbIo,
-  extras: { context?: string; sessionId?: string; worktree?: string } = {}
+  extras: { context?: string; worktree?: string } = {}
 ): Promise<GateOpenResult> {
   const questions = JSON.parse(questionsJson) as GateQuestion[];
   const db = openDbForHandle(statePath);
@@ -176,7 +178,6 @@ export async function gateOpen(
     origin,
   };
   if (state.paneId) payload.paneId = state.paneId;
-  if (extras.sessionId) payload.sessionId = extras.sessionId;
   if (extras.context !== undefined) payload.context = extras.context;
 
   const res = await io.gateAsk(payload);
