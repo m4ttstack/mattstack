@@ -185,6 +185,32 @@ describe('buildMod', () => {
     }
   })
 
+  test('rejects a harness file that would replace a built module or hooks.json, and leaves the old output alone', async () => {
+    for (const name of ['register.js', 'hooks.json']) {
+      const src = join(scratch(), 'mod')
+      const out = join(scratch(), 'out')
+      cpSync(FIXTURE, src, { recursive: true })
+      await buildMod(src, out, { validate: false })
+      const before = readFileSync(join(out, 'hooks/register.js'), 'utf8')
+      writeFileSync(join(src, 'harness', name), 'export const replaced = true\n')
+      await expect(buildMod(src, out, { validate: false })).rejects.toThrow(new RegExp(`harness/${name.replace('.', '\\.')}`))
+      expect(readFileSync(join(out, 'hooks/register.js'), 'utf8')).toBe(before)
+    }
+  })
+
+  test('rejects a files entry that would land on the hooks, the plugin metadata or the .gitignore', async () => {
+    const manifest = JSON.parse(readFileSync(join(FIXTURE, 'mod.json'), 'utf8'))
+    for (const entry of ['hooks', 'hooks/register.js', '.claude-plugin', '.gitignore']) {
+      const src = join(scratch(), 'mod')
+      cpSync(FIXTURE, src, { recursive: true })
+      if (entry === '.gitignore') writeFileSync(join(src, entry), 'x\n')
+      else mkdirSync(join(src, entry.split('/')[0]!), { recursive: true })
+      if (entry.includes('/')) writeFileSync(join(src, entry), 'x\n')
+      writeFileSync(join(src, 'mod.json'), JSON.stringify({ ...manifest, files: [entry] }))
+      await expect(buildMod(src, join(scratch(), 'out'), { validate: false }), entry).rejects.toThrow(/would replace/)
+    }
+  })
+
   test('rejects a files entry that does not exist', async () => {
     const src = join(scratch(), 'mod')
     cpSync(FIXTURE, src, { recursive: true })

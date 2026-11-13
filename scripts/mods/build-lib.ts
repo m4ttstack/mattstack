@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 
 import { childEnv } from '../../lib/subprocess'
 
@@ -182,6 +182,8 @@ export async function buildMod(srcDir: string, outDir: string, opts: { validate:
     files.set(name, text)
   }
 
+  assertNoOverwrite(srcDir, [...files.keys()], rootFiles ?? [])
+
   rmSync(outDir, { recursive: true, force: true })
   mkdirSync(join(outDir, 'hooks'), { recursive: true })
   mkdirSync(join(outDir, '.claude-plugin'), { recursive: true })
@@ -199,6 +201,24 @@ export async function buildMod(srcDir: string, outDir: string, opts: { validate:
   for (const f of rootFiles ?? []) cpSync(join(srcDir, f), join(outDir, f), { recursive: true })
 
   if (opts.validate) await validatePlugin(outDir)
+}
+
+// The harness and the files entries are copied after the build's own output, unchecked, so one landing on a generated path
+// would replace a bundle without its client rewriting or import check. Checked before the old output is emptied.
+const GENERATED_ROOT = ['hooks', '.claude-plugin', '.gitignore']
+
+function assertNoOverwrite(srcDir: string, bundled: string[], rootFiles: string[]): void {
+  const generatedHooks = new Set([...bundled, 'hooks.json'])
+  const harness = join(srcDir, 'harness')
+  if (existsSync(harness)) {
+    for (const rel of readdirSync(harness, { recursive: true }) as string[]) {
+      if (generatedHooks.has(rel.split(sep).join('/'))) throw new Error(`harness/${rel} would replace the built hooks/${rel}`)
+    }
+  }
+  for (const f of rootFiles) {
+    const top = normalize(f).split(sep)[0] ?? ''
+    if (GENERATED_ROOT.includes(top)) throw new Error(`files entry ${f} would replace the plugin's generated ${top}`)
+  }
 }
 
 async function validatePlugin(outDir: string): Promise<void> {
