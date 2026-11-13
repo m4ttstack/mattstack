@@ -21,6 +21,7 @@ import {
 } from './conformance.ts';
 import { runConsumerFlows } from './consumerFlows.ts';
 import { runGitHubGapsConformance } from './githubGapsConformance.ts';
+import { runParityReadsConformance } from './parityReadsConformance.ts';
 import { ALL_METHODS } from './expectations.ts';
 import { buildFixtures } from './fixture.ts';
 import { installGitLabPacer } from './gitlabPacer.ts';
@@ -41,6 +42,7 @@ for (const fixture of fixtures) {
     await runReadConformance(fixture, report);
     await runMetricsReadConformance(fixture, report);
     await runListReadConformance(fixture, report);
+    await runParityReadsConformance(fixture, report);
     await runUnsupportedConformance(fixture, report);
     // Before the write cycle, so it labels a pull request that existed
     // before this run rather than one a later cycle opens and merges.

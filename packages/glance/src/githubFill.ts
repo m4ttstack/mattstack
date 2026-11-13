@@ -398,15 +398,13 @@ export function mapPipeline(
   const runIds: string[] = [];
   for (const j of jobs) if (j.runId && !runIds.includes(j.runId)) runIds.push(j.runId);
 
-  const failedRun = counted.find((j) => j.status === 'failed' && j.runId)?.runId;
-  const highest = runIds.reduce<string | null>(
-    (best, id) => (best === null || Number(id) > Number(best) ? id : best),
+  const lowest = runIds.reduce<string | null>(
+    (best, id) => (best === null || Number(id) < Number(best) ? id : best),
     null
   );
-  const runId = failedRun ?? highest;
 
   return {
-    id: runId ? `github:run:${runId}` : `github:checks:${prUrl}`,
+    id: lowest ? `github:run:${lowest}` : `github:checks:${prUrl}`,
     status,
     sha: headSha,
     ref: headRef,

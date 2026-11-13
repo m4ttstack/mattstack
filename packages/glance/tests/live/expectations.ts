@@ -123,9 +123,9 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     note: 'polls the repository events feed as an accelerator, not a replacement for a full poll: the feed carries no CI events, so pipelines invalidations never fire on GitHub.'
   },
   fetchMergeRequestIndex: {
-    support: 'absent',
+    support: 'supported',
     capability: 'canFetchMergeRequestIndex',
-    note: 'Not implemented on GitHub yet; the metric-grade reads landed GitLab-first for boxscore.'
+    note: 'projectPaths only; groupPath throws, since a GitHub organization is not a GitLab group.'
   },
   fetchMergeRequestMetrics: {
     support: 'absent',
@@ -159,7 +159,11 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchPullRequestSummaries: { support: 'supported', capability: 'canFetchPullRequestSummaries' },
   addPullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
   removePullRequestLabels: { support: 'supported', capability: 'canEditLabels' },
-  fetchPullRequestDiffs: { support: 'supported', capability: 'canFetchPullRequestDiffs' }
+  fetchPullRequestDiffs: { support: 'supported', capability: 'canFetchPullRequestDiffs' },
+  fetchApprovalRules: { support: 'supported', capability: 'canFetchApprovalRules' },
+  fetchCodeownerSections: { support: 'supported', capability: 'canFetchCodeownerSections' },
+  fetchDivergedCount: { support: 'supported', capability: 'canFetchDivergedCount' },
+  fetchDivergedCounts: { support: 'supported', capability: 'canFetchDivergedCount' }
 };
 
 export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
@@ -242,6 +246,13 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     support: 'absent',
     capability: 'canFetchPullRequestDiffs',
     note: 'The daemon reads the GitLab diffs through restRequest, so glance does not implement the read.'
+  },
+  fetchApprovalRules: { support: 'supported', capability: 'canFetchApprovalRules' },
+  fetchCodeownerSections: { support: 'supported', capability: 'canFetchCodeownerSections' },
+  fetchDivergedCount: { support: 'supported', capability: 'canFetchDivergedCount' },
+  fetchDivergedCounts: {
+    support: 'absent',
+    note: 'GitLab reads one MR at a time with fetchDivergedCount; the batched read is GitHub only.'
   }
 };
 

@@ -27,10 +27,12 @@ describe('metric-grade read capability flags', () => {
     }
   });
 
-  test('GitHub implements none of the reads', () => {
+  test('GitHub implements the index and none of the other reads', () => {
     const gh = new GitHubProvider('https://github.com', 't');
-    for (const flag of FLAGS) expect(gh.capabilities[flag], flag).toBe(false);
-    expect((gh as any).fetchMergeRequestIndex).toBeUndefined();
+    for (const flag of FLAGS) {
+      expect(gh.capabilities[flag], flag).toBe(flag === 'canFetchMergeRequestIndex');
+    }
+    expect(typeof gh.fetchMergeRequestIndex).toBe('function');
     expect((gh as any).fetchUserEvents).toBeUndefined();
   });
 });

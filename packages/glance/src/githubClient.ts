@@ -136,6 +136,16 @@ export function createGitHubClient(opts: {
     }
   });
 
+  // Octokit reads a fetch aborted by a caller's signal as a status 500
+  // RequestError, which the retry plugin then retries without checking the
+  // signal, holding the caller through the whole backoff ladder. The plugin
+  // sets each retry budget through `retryRequest`, so zeroing the budget for
+  // an aborted signal is the one place that stops the retry without touching
+  // any other request.
+  const setRetryBudget = octokit.retry.retryRequest;
+  octokit.retry.retryRequest = (error, retries, retryAfter) =>
+    setRetryBudget(error, error.request.request?.signal?.aborted ? 0 : retries, retryAfter);
+
   // The retry plugin defaults to retrying 5xx responses for every verb,
   // including POST/PUT/PATCH/DELETE. A write that reaches GitHub and then
   // drops the response on a 502 gets retried, which can create a duplicate

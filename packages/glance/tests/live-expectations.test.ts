@@ -54,6 +54,10 @@ describe('expectation tables', () => {
       'fetchProjectPipelines',
       'fetchUserEvents',
       'fetchPullRequestDiffs',
+      'fetchApprovalRules',
+      'fetchCodeownerSections',
+      'fetchDivergedCount',
+      'fetchDivergedCounts',
     ];
     for (const table of [GITHUB_EXPECTATIONS, GITLAB_EXPECTATIONS]) {
       for (const [method, exp] of Object.entries(table)) {
@@ -95,7 +99,7 @@ describe('expectation tables', () => {
   });
 
   test('expectationFor selects the right table', () => {
-    expect(expectationFor('github', 'fetchMergeRequestIndex').support).toBe('absent');
+    expect(expectationFor('github', 'fetchMergeRequestIndex').support).toBe('supported');
     expect(expectationFor('gitlab', 'fetchMergeRequestIndex').support).toBe('supported');
   });
 });
