@@ -1,8 +1,8 @@
 // packages/mod-kit/src/draw/cells.ts
 var segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 var PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
-var EMOJI = /\p{Emoji_Presentation}|⃣/u;
-var EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}️/u;
+var EMOJI = /\p{Emoji_Presentation}|\u20E3/u;
+var EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}\uFE0F/u;
 var ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u;
 var WIDE_RANGES = [
   [4352, 4447],

@@ -2,9 +2,9 @@
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 const PRINTABLE_ASCII = /^[\x20-\x7e]*$/
-const EMOJI = /\p{Emoji_Presentation}|⃣/u
+const EMOJI = /\p{Emoji_Presentation}|\u20E3/u
 // A variation selector 16 asks for emoji presentation only on a base that has one; after a plain letter it does nothing.
-const EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}️/u
+const EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}\uFE0F/u
 const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u
 
 // East Asian Wide and Fullwidth blocks (the emoji blocks are caught by EMOJI).
