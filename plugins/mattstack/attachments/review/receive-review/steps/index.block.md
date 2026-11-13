@@ -228,7 +228,7 @@ flowchart TB
     write_run_line_plan --> hand_back_verdict_table
     hand_back_verdict_table -->|"caller hands {plan} back: answers + decidedBy"| gate_record_plan
     gate_plan_carry --> plan_next_answer
-    plan_next_answer -->|"proceed, or no next, in the pane or off it: gateId"| gate_record_plan
+    plan_next_answer -->|"proceed, or no next, the board answered: gateId"| gate_record_plan
     plan_next_answer -->|iterate: record nothing| redraft_plan_replies
     plan_next_answer -->|hold: record nothing| run_hold
     redraft_plan_replies -->|a new gate| build_plan_open
@@ -283,7 +283,7 @@ flowchart TB
     write_run_line_post --> hand_back_offered
     hand_back_offered -->|"caller hands {post} back: answers + decidedBy"| gate_record_post
     gate_post_carry --> post_next_answer
-    post_next_answer -->|proceed, in the pane or off it: gateId| gate_record_post
+    post_next_answer -->|"proceed, or no next, the board answered: gateId"| gate_record_post
     post_next_answer -->|hold: record nothing| decide_nothing
     post_next_answer -->|iterate: record nothing| apply_post_note
     decide_nothing --> run_hold
