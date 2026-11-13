@@ -18,11 +18,12 @@ Two mods show it in use. Read them before writing a new one:
    - `package.json`: copy gate-form's, with `"@mattstack/mod-kit": "workspace:*"`.
    - `tsconfig.json`: copy gate-form's.
    - `src/register.tsx`: the hooks module.
+   - `types/index.d.ts`: only when the mod declares typed atoms. It augments `PluginState` under the mod's name; copy the shape from `mods/gate-form/types/index.d.ts`. The build copies `types/` into the plugin.
    - `harness/*.test.tsx`: Claude Code harness tests.
 2. Run `bun install` at the repo root.
 3. Live reload: `bun run mods:watch <name> --into ~/.claude/dev-mods/<session>/`. It rebuilds into `<dir>/<name>/` whenever the mod or the kit changes. Each session has its own dev-mods folder.
 4. Build: `bun run mods:build [name]` (no name builds every mod; `--no-validate` skips `claude plugin validate`). Commit the output in `plugins/<name>/`. CI fails when a build would change it.
-5. CI needs a `plugin-<name>` job in `.github/workflows/checks.yml`. Copy `plugin-gate-form`. `scripts/__tests__/no-plugin-ci-jobs.test.ts` fails for a plugin folder without one.
+5. CI needs a `plugin-<name>` job in `.github/workflows/checks.yml`. Copy `plugin-gate-form`. Then add the job to the `checks` job's `needs`, to its `env` (`NAME: ${{ needs.plugin-<name>.result }}`) and to its result lines (the echo and the `[ ... ] || { echo ...; exit 1; }` line). `scripts/__tests__/no-plugin-ci-jobs.test.ts` fails for a plugin folder without a job, and the gate test fails when `checks` does not need every job.
 6. Bump `plugin.version` in `mod.json` whenever the built output changes. A PR fails if it does not move.
 
 Tests:
@@ -341,6 +342,5 @@ shades. Icons are Nerd Font codepoints.
 
 ## Checks
 
-Run `bun --tsconfig-override=./packages/mod-kit/tsconfig.json --preload ./packages/mod-kit/test/jsx-preload.ts scripts/mods/check-readme.ts`
-after editing this file. It fails when a section heading, a JSX tag or a function call in inline code
+Run `bun run mods:check-readme` after editing this file. It fails when a section heading, a JSX tag or a function call in inline code
 names something `src/index.ts` does not export.
