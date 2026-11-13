@@ -72,24 +72,34 @@ at 256 KiB counted in bytes, never follows a redirect (the token header
 would travel with it), refuses a path percent-encoded more than once, and
 redacts every `token` / `*_token` value. On GitLab it refuses the paths
 that return credentials (`REFUSED_SEGMENTS`, also with a format suffix)
-and the query keys that carry credentials or impersonation. On GitHub the
-path must sit under the repo (`:repo/...`), and a word in
-`GITHUB_REFUSED_SEGMENTS` is refused in any path segment, or as a
-segment's dot-suffixed prefix, even inside a file path such as
-`contents/src/hooks/x.ts`; `git/blobs` is refused for size, and the query
-keys in `GITHUB_REFUSED_QUERY_KEYS` are refused too. The GitHub list also
-covers secret scanning alerts and security advisories. A word in
+and the query keys that carry credentials or impersonation, and both forges
+refuse a C1 control character, raw or decoded. On GitHub the
+path must sit under the repo (`:repo/...`), and the repo's own path, read
+from its origin URL, must be exactly `<owner>/<repo>`, since every GitHub
+rule counts segments from it. A plain `repos/<owner>/<name>` path must be
+spelled with no percent escapes. A word in `GITHUB_REFUSED_SEGMENTS` is
+refused in any route segment after the repo, or as a segment's dot-suffixed
+prefix. Words match on a skeleton (case, compatibility forms, whitespace,
+invisible characters and combining marks folded away) over a window that
+drops blank parts and refuses dot parts and dot lookalikes. The owner and
+name are never matched, so a repo named after a guarded word is readable,
+and a file path after a literal `:repo/contents/` is not matched, so
+`contents/src/hooks/x.ts` reads. A branch, tag, workflow or label named
+with a guarded word stays refused. `git/blobs` is refused for size, and the
+query keys in `GITHUB_REFUSED_QUERY_KEYS` are refused too. The GitHub list
+also covers secret scanning alerts and security advisories. A word in
 `GITHUB_REFUSED_ROUTES` (`copilot`, whose cloud agent MCP configuration can
 hold tokens) is refused only as the segment right after
 `repos/<owner>/<repo>`, split after decoding, so `copilot` in a branch, a
-file path or the repo's own name is not refused. A GitHub path with an
+file path or the repo's own name is not refused. NFKD separator lookalikes
+in a path count as a separator and are refused. A GitHub path with an
 empty segment anywhere but a single trailing slash (`//`, raw or decoded
 from `%2F`) is refused, since GitHub may collapse it and join a slash entry
 such as `actions/oidc` that the check saw apart; that also pins which
-segment the route rule reads. The repo's own path, read from its origin
-URL, must be exactly `<owner>/<repo>`, since every GitHub rule counts
-segments from it. Those lists are
-widened, never narrowed, without a design review.
+segment the route rule reads. Those lists are
+widened, never narrowed, without a design review;
+`docs/superpowers/specs/2026-11-13-gitlab-get-github-guard-narrowing-design.md`
+is the review for the narrowing above.
 `skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code
 in process: it checks the id against `ID_RE` first, reads only under
 `~/.claude/plugins/cache` and `~/.claude/skills`, and writes nothing. It

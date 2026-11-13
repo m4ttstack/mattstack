@@ -235,6 +235,7 @@ design review. This section is that review for the GitHub arm.
   `organization-secrets`, `organization-variables`,
   `security-advisories`. Log and artifact downloads answer
   with a redirect to a signed URL and so are refused by the redirect rule.
+- RT-554 narrows this list for file paths and repo names; see 2026-11-13-gitlab-get-github-guard-narrowing-design.md.
 - Refused query keys: `access_token`, `client_secret`, `token`.
 - The 256 KiB cap, the `token` / `*_token` redaction and the
   percent-encoding checks are shared with the GitLab arm.
