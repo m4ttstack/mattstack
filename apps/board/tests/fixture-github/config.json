@@ -31,5 +31,23 @@
   "title": "PRs ready for review",
   "slack": {
     "autoResolveIntervalMinutes": 0
-  }
+  },
+  "tabs": [
+    { "id": "team", "label": "Team", "source": { "kind": "authors" } },
+    {
+      "id": "web",
+      "label": "@acme/web",
+      "source": { "kind": "codeowners", "section": "@acme/web" }
+    },
+    {
+      "id": "ellie",
+      "label": "@ellie-dev",
+      "source": { "kind": "codeowners", "section": "@ellie-dev" }
+    },
+    {
+      "id": "payments",
+      "label": "@acme/payments",
+      "source": { "kind": "codeowners", "section": "@acme/payments" }
+    }
+  ]
 }
