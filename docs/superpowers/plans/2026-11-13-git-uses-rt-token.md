@@ -125,7 +125,7 @@ test("sshToHttps maps scp and ssh:// forms", async () => {
   expect(await sshToHttps("https://gitlab.com/a/b.git")).toBeNull();
 });
 test("sshToHttps maps an alias through ssh config and refuses one that is not a forge", async () => {
-  setSshHostResolver(async ({ host }) => (host === "github-work" ? "github.com" : null));
+  setSshHostResolver(async ({ alias }) => (alias === "github-work" ? "github.com" : null));
   expect(await sshToHttps("github-work:acme/x.git")).toBe("https://github.com/acme/x.git");
   expect(await sshToHttps("myhost:acme/x.git")).toBeNull();
 });
@@ -221,6 +221,7 @@ Temp repos via `makeRepo`; local config only (`git config --local`); fake seams 
 
 ```ts
 test("https, rt wired: done/wired", ...);                         // entries ["", rtCredentialHelper(link)]
+test("ssh with rt's pair for its mapped host is never done", ...);   // falls through to off/ssh-ready
 test("https, foreign helper entries: skipped/own-helper, names them and the host", ...);
 test("ssh, foreign entries for the mapped host: skipped/own-helper", ...);
 test("ssh whose https URL an insteadOf rule maps back: skipped/insteadof-maps-back naming the rule", ...);
@@ -243,7 +244,7 @@ Expected: FAIL
 
 - [ ] **Step 3: Implement**
 
-`classifyClone` reads `git remote get-url origin` (effective). For SSH it maps through `sshToHttps` (null gives `unmappable-ssh`) and checks the mapped URL. Order: `wired`; `own-helper` (non-empty entries that are not `rtWired`); `insteadof-maps-back` (SSH only); then the Task 1 verdict's failure causes (`no-origin`, `http-origin`, `not-https`, `not-a-forge`, `unconfirmed-host`, `no-token`, `token-unreadable`); then `no-rt-link`; then `ready` (HTTPS, `pending`) or `ssh-ready` (SSH, `off`). Every cause but the last three is `skipped`; `wired` is `done`. `helperEntries` runs `git -C root config --local --get-all credential.https://<host>.helper`. `insteadOfMapsBack` runs `git -C root ls-remote --get-url <https>`; when the echo differs it finds the rule with `git -C root config --get-regexp '^url\..*\.insteadof$'` and returns `url.<base>.insteadOf <value>`.
+`classifyClone` reads `git remote get-url origin` (effective). For SSH it maps through `sshToHttps` (null gives `unmappable-ssh`) and checks the mapped URL. Order: `wired` (HTTPS origins only, the spec's row 1; an SSH origin carrying rt's pair for its mapped host is not `done`); `own-helper` (HTTPS or SSH only: non-empty entries that are not `rtWired`); `insteadof-maps-back` (SSH only); then the Task 1 verdict's failure causes (`no-origin`, `http-origin`, `not-https`, `not-a-forge`, `unconfirmed-host`, `no-token`, `token-unreadable`); then `no-rt-link`; then `ready` (HTTPS, `pending`) or `ssh-ready` (SSH, `off`). Every cause but the last three is `skipped`; `wired` is `done`. `helperEntries` runs `git -C root config --local --get-all credential.https://<host>.helper`. `insteadOfMapsBack` runs `git -C root ls-remote --get-url <https>`; when the echo differs it finds the rule with `git -C root config --get-regexp '^url\..*\.insteadof$'` and returns `url.<base>.insteadOf <value>`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -267,7 +268,7 @@ git commit -m "add commands/git/clone-state.ts: classify a clone for rt's token 
 - Test: `commands/git/__tests__/fetch-origin.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1's `OriginAuth`, `helperEnv`, `forgeName`; Task 2's `classifyClone`, `realCloneDeps`; `isAuthFailure` (`lib/worktree/fetch-auth.ts`).
+- Consumes: Task 1's `OriginAuth`, `helperEnv`, `forgeName`; Task 2's `classifyClone`, `realCloneDeps`, `type CloneDeps` (a type-only import; the values load by dynamic `import()` inside `httpsSwitchViable` and the default `switchViable`, so every `rt git` verb does not pull in the setup and repo-index modules); `isAuthFailure` (`lib/worktree/fetch-auth.ts`).
 - Produces:
   ```ts
   export interface FetchDeps {
@@ -276,13 +277,13 @@ git commit -m "add commands/git/clone-state.ts: classify a clone for rt's token 
     env: NodeJS.ProcessEnv;
     auth: OriginAuth;
     helper?: string;                              // defaults to rtSelfHelper()
-    switchViable?: (cwd: string) => Promise<boolean>; // defaults to httpsSwitchViable
+    switchViable?: (cwd: string) => Promise<boolean>; // defaults to httpsSwitchViable(cwd, realCloneDeps(auth))
   }
   export function defaultFetchDeps(auth?: OriginAuth): FetchDeps;
   export interface RemoteOutcome { env: NodeJS.ProcessEnv; usedRtToken: boolean; forge: Forge | null; host: string | null }
   export function fetchOrigin(cwd: string, deps?: FetchDeps): Promise<RemoteOutcome>;
-  /** `classifyClone(cwd).state === "off"`: `rt git auth --https` would go ahead. */
-  export function httpsSwitchViable(cwd: string, auth: OriginAuth): Promise<boolean>;
+  /** `classifyClone(cwd, deps).state === "off"`: `rt git auth --https` would go ahead. Loads clone-state.ts by dynamic import. */
+  export function httpsSwitchViable(cwd: string, deps: CloneDeps): Promise<boolean>;
   export function tokenRefusedFailure(subject: string, host: string, forge: Forge, details: string): out.FailureInput;
   ```
   `subject` is `"fetch from origin"` or `` `push ${branch}` ``; the title is `` `Could not ${subject}: the forge refused rt's token as well` ``. Failures are thrown as `new FetchFailed(...)`, so `fetchFailureOf` unwraps them.
@@ -320,7 +321,7 @@ test("the SSH failures name rt git auth --https only when the switch could go ah
   // switchViable false: no-key keeps today's ssh-add row; refused-key has no next
 });
 test("a clean fetch reports usedRtToken false", ...);
-test("httpsSwitchViable is true only for an off clone", ...); // temp repo with ssh origin and fake seams; false once a foreign helper entry is added
+test("httpsSwitchViable is true only for an off clone", ...); // temp repo with ssh origin, fake seams, CloneDeps with rtLink a temp file that exists; false once a foreign helper entry is added, false when rtLinkExists is false
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -475,7 +476,7 @@ Expected: FAIL
 
 - [ ] **Step 3: Implement**
 
-`runRebaseWithEscalation` and `originCommand` take `__testSeams.originAuth ?? createOriginAuth()`, call `guardPrompts(cwd, { push: false })` before `rebaseOnto` / `resetToOrigin`, and undo it in a `finally` that runs before any `process.exit` (capture the code first, as `syncCommand` does). On a finished run (rebase `ok` or `up-to-date`; reset with no `error` and not cancelled) and not `--json`, print `tokenNoteBlocks(result.tokenForge)` when `result.usedRtToken && result.tokenForge`.
+`runRebaseWithEscalation` and `originCommand` take `__testSeams.originAuth ?? createOriginAuth()` and pass it, with `__testSeams.fetchDeps`, into `rebaseOnto` / `resetToOrigin`; call `guardPrompts(cwd, { push: false })` before `rebaseOnto` / `resetToOrigin`, and undo it in a `finally` that runs before any `process.exit` (capture the code first, as `syncCommand` does). On a finished run (rebase `ok` or `up-to-date`; reset with no `error` and not cancelled) and not `--json`, print `tokenNoteBlocks(result.tokenForge)` when `result.usedRtToken && result.tokenForge`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -654,7 +655,7 @@ test("--https switches origin and writes the helper after a yes", async () => {
 });
 test("--https rewrites a same-repo ssh pushurl and leaves a different one alone, saying so", ...);
 test("--https refuses an insteadOf rule that maps back, names it, writes nothing", ...);
-test("--https refuses an alias that is not a forge (unmappable-ssh) and maps one that is", ...); // setSshHostResolver
+test("--https refuses an alias that is not a forge (unmappable-ssh) and maps one that is", ...); // setSshHostResolver(async ({ alias }) => ...): SshTarget has alias, user, port; no host
 test("--https on an https origin behaves as the plain form", ...);
 test("--https names both undo commands", ...);              // "git remote set-url origin git@gitlab.com:acme/x.git" and --unset-all
 test("no token value in config, remote URL, printed output or the envelope", async () => {
