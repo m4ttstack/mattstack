@@ -1477,13 +1477,13 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   ci: {
-    description: "CI attendant lease and pipeline watch",
+    description: "CI attendant lease and CI watch",
     subcommands: {
       lease: {
-        description: "The one-attendant-per-MR CI lease",
+        description: "The CI lease: one attendant per MR or PR",
         subcommands: {
           claim: {
-            description: "Claim the MR's CI lease for this session",
+            description: "Claim the MR or PR's CI lease for this session",
             module: "./commands/ci.ts",
             fn: "ciLeaseClaim",
             omitBehavior: { exempt: "a free-text MR URL" },
@@ -1515,7 +1515,7 @@ export const TREE: Record<string, CommandNode> = {
             ],
           },
           show: {
-            description: "Show the MR's CI lease",
+            description: "Show the MR or PR's CI lease",
             module: "./commands/ci.ts",
             fn: "ciLeaseShow",
             omitBehavior: { exempt: "a free-text MR URL" },
@@ -1527,12 +1527,12 @@ export const TREE: Record<string, CommandNode> = {
         },
       },
       watch: {
-        description: "Watch the MR's pipeline for a pushed sha",
+        description: "Watch an MR or PR's CI for a pushed sha",
         module: "./commands/ci.ts",
         fn: "ciWatch",
         omitBehavior: { exempt: "a free-text MR URL" },
         args: [
-          { name: "MR", type: "text", placeholder: "https://host/group/project/-/merge_requests/1", hint: "MR URL" },
+          { name: "MR", type: "text", placeholder: "https://host/group/project/-/merge_requests/1", hint: "MR or PR URL" },
           { name: "Sha", flag: "--sha", type: "text", placeholder: "abc1234", hint: "The pushed commit" },
           { name: "Max wait", flag: "--max-wait", type: "text", placeholder: "300", hint: "Seconds, up to 1800" },
           { name: "Interval", flag: "--interval", type: "text", placeholder: "30", hint: "Seconds, 10 to 120" },

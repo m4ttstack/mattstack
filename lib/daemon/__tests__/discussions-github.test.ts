@@ -239,7 +239,7 @@ describe("thread handlers on GitHub", () => {
       const res = await h["mr:comment-inline"](payload({ line: 41 }));
       expect(res).toEqual({
         ok: false,
-        error: "line 41 of src/foo.ts is not in this MR's diff, so GitHub cannot anchor a comment there; lines in the diff near it: 14, 13, 12",
+        error: "line 41 of src/foo.ts is not in this PR's diff, so GitHub cannot anchor a comment there; lines in the diff near it: 14, 13, 12",
       });
       expect(s.anchors).toEqual([]);
       expect(s.deletes()).toBe(0);
@@ -251,7 +251,7 @@ describe("thread handlers on GitHub", () => {
       const res = await h["mr:comment-inline"](payload({ line: 42 }));
       expect(res).toEqual({
         ok: false,
-        error: "line 42 of src/foo.ts is not in this MR's diff, so GitHub cannot anchor a comment there; this file has no diff in this MR",
+        error: "line 42 of src/foo.ts is not in this PR's diff, so GitHub cannot anchor a comment there; this file has no diff in this PR",
       });
       expect(s.anchors).toEqual([]);
     });

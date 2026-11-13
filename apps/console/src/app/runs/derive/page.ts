@@ -7,6 +7,7 @@ import type {
 
 import { isMine, isWaiting } from '../../../shared/gate-waiting';
 import { waitingHandoff } from '../../../shared/handoff';
+import { forgeOf, mrNoun, mrRefText } from '../../forgeNoun';
 import { mrRef } from '../mrRef';
 import { repoPath } from '../repoLabel';
 import { countCommits, headSha } from './answers';
@@ -75,27 +76,29 @@ export interface MrFact {
     or respond run the MR it reviewed. */
 export function mrFact(
   handedOff: boolean,
-  run: Pick<RunSummary, 'outcome'>,
+  run: Pick<RunSummary, 'outcome'> & Partial<Pick<RunSummary, 'repo'>>,
   enrichmentMr: BranchEnrichment['mr'] | undefined,
   mrField: string | null
 ): MrFact {
   const reviewed = run.outcome?.reviewed ?? null;
   const mr = mrRef(enrichmentMr, mrField);
+  const forge = forgeOf(reviewed?.url, mr?.webUrl, run.repo);
+  const noun = mrNoun(forge);
   let value: string | null;
   if (handedOff) {
     value = reviewed
-      ? `!${reviewed.iid}`
+      ? mrRefText(forge, reviewed.iid)
       : mr?.iid
-        ? `!${mr.iid}`
+        ? mrRefText(forge, mr.iid)
         : (mr?.text ?? null);
   } else {
     value = mr
       ? (mr.text ??
-        `${mr.iid ? `!${mr.iid}` : 'MR'}${mr.state ? ` ${mr.state}` : ''}`)
+        `${mr.iid ? mrRefText(forge, mr.iid) : noun}${mr.state ? ` ${mr.state}` : ''}`)
       : null;
   }
   return {
-    label: handedOff ? 'Reviewed MR' : 'MR · CI',
+    label: handedOff ? `Reviewed ${noun}` : `${noun} · CI`,
     value,
     url: reviewed?.url ?? mr?.webUrl ?? null,
     sub:
@@ -139,7 +142,11 @@ export function runPageFacts(input: RunPageInput) {
     mine: answerable.find(isMine) ?? null,
     handoff: live && handedOff ? waitingHandoff(gates) : null,
     hero: {
-      ticket: ticket ?? (reviewed ? `!${reviewed.iid}` : null),
+      ticket:
+        ticket ??
+        (reviewed
+          ? mrRefText(forgeOf(reviewed.url, repo), reviewed.iid)
+          : null),
       ticketUrl: ticket ? url : (reviewed?.url ?? null),
       meta: `${run.pipeline} pipeline · started ${formatClock(run.started_at)} · ${formatDuration((run.ended_at ?? input.now) - run.started_at)}`,
     },

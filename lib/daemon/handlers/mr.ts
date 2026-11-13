@@ -48,6 +48,7 @@ import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrCreateFailedStep, MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
 import { createFileDiffReader, fileDiffContextOf, type FileDiffContext } from "../file-diff.ts";
+import { forgeChangeNoun } from "../../repo-label.ts";
 import { LIST_MAX_LIMIT, PIPELINE_MAX_LIMIT, forgeFailure, forgeGet, incompleteBranchRead, listLabels, listMrsLive, listPipelines, missingMrReason, type Forge, type SummariesProvider } from "../forge-reads.ts";
 
 type ActionName =
@@ -105,7 +106,7 @@ async function listMrsByTarget(
 ): Promise<{ ok: true; mrs: MrTargetSummary[] } | { ok: false; error: string }> {
   try {
     const { rows, truncated } = await provider.fetchPullRequestSummaries(projectPath, { state, targetBranch, limit: BY_TARGET_LIMIT });
-    if (truncated) return { ok: false, error: `more than ${BY_TARGET_LIMIT} MRs target ${targetBranch}; the listing stopped before the end` };
+    if (truncated) return { ok: false, error: `more than ${BY_TARGET_LIMIT} ${forgeChangeNoun(forge)}s target ${targetBranch}; the listing stopped before the end` };
     return { ok: true, mrs: rows };
   } catch (err) {
     return { ok: false, error: forgeFailure(err, forge) };

@@ -35,7 +35,7 @@ function fdaRow(reply: PermissionsReply | null, daemonTcc: { blocked: number; to
     id: "perm.fda",
     kind: "permission" as const,
     title: "Full Disk Access",
-    why: "Reads your repositories' git state so the daemon can show branch and MR status.",
+    why: "Reads your repositories' git state so the daemon can show branch, MR and PR status.",
     required: true,
     recheck: "on-activate" as const,
   };

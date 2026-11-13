@@ -355,7 +355,7 @@ A member's app that reads only up to layout 4 keeps working on the old packs. It
 
 The data branch holds the org's roster, settings, packs and secrets. Its README and the pointer's header both say so: never delete it or merge it into `main`. An org admin's next `rt team publish` from the data branch brings the README up to date.
 
-A forge maintainer can still delete the branch, or merge it into `main` through a merge request. rt checks for both, in setup and from the daemon:
+A forge maintainer can still delete the branch, or merge it into `main` through a merge request or pull request. rt checks for both, in setup and from the daemon:
 
 - **Org data branch** shows on every Mac. When the branch is gone from the forge and your copy still has it, the row reads "The org's data branch is gone from the forge, and your copy still has it". An org owner or admin pushes it back with `rt team restore-data-branch`.
 - **Org files on main** shows on an org owner's or admin's Mac. When `main` holds any org file besides the pointer, the row reads "Org data was merged into main. Revert that commit", with the steps to do it. A `main` holding only the pointer reads ready.

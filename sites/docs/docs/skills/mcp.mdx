@@ -143,7 +143,7 @@ Each git tool takes `tree`, the absolute path of a checkout or worktree of a rep
 | `git_push` | Push the current branch to its same-named upstream, or as `origin/<branch>` with `setUpstream: true`. Returns the pushed sha, and on GitLab the branch's open MR and its latest pipeline id from just before the push, so a CI watch can tell the new pipeline from the old. |
 | `git_pull` | Fast-forward the current branch from its upstream (`--ff-only`). |
 | `git_rebase` | Rebase onto a named branch or ref, fetching a remote-tracking ref first; `abort: true` aborts a rebase in progress. |
-| `branch_sync` | Bring the branch current in one call, the `rt sync` flow: fetch, reset to origin when GitLab rebased it, rebase onto the default branch, and push with a lease when the reset or rebase changed the branch. |
+| `branch_sync` | Bring the branch current in one call, the `rt sync` flow: fetch, reset to origin when the forge rebased it, rebase onto the default branch, and push with a lease when the reset or rebase changed the branch. |
 | `branch_sync_sweep` | Run `branch_sync` on each of your branches with an open MR and a local worktree, one at a time, or only on the branches you name. Takes `repoName`, not `tree`. A conflict leaves that branch's rebase paused and the sweep moves on. |
 
 What they refuse:
@@ -185,7 +185,7 @@ What they refuse:
 | `evidence_attach` | After the attach gate says proceed, upload each file the run's evidence allows, reusing an earlier upload of the same bytes, and write the evidence section into the MR description. |
 | `dev_endpoints` | Look up the dev-server endpoints rt claimed for a worktree and probe each until it answers or the wait runs out. |
 
-`evidence_record` takes images only from the target repo's checkout or worktrees, your Claude Code temp root, `~/.mattstack/evidence`, a run's evidence folder, `~/.fast-browser/screenshots` and the `rt.mcp.uploadRoots` folders. `evidence_attach` never writes a section that names a path in your home directory. On GitHub it uploads nothing and names each file as attached separately. It folds each case's screenshots behind a line that names the case and counts them, so reviewers scroll past them to the approvals and pipeline. Turn that off for a repo with `rt.evidence.foldScreenshots`:
+`evidence_record` takes images only from the target repo's checkout or worktrees, your Claude Code temp root, `~/.mattstack/evidence`, a run's evidence folder, `~/.fast-browser/screenshots` and the `rt.mcp.uploadRoots` folders. `evidence_attach` never writes a section that names a path in your home directory. On GitHub the images upload with the PR description write itself, since GitHub takes a file only as part of a PR write. It folds each case's screenshots behind a line that names the case and counts them, so reviewers scroll past them to the approvals and pipeline. Turn that off for a repo with `rt.evidence.foldScreenshots`:
 
 ```bash
 rt settings set rt.evidence.foldScreenshots false --scope user --repo <repo>

@@ -191,10 +191,20 @@ describe('recordStats', () => {
     });
     expect(stats.map(s => [s.id, s.value, s.label])).toEqual([
       ['duration', '2h 32m', 'start to merge'],
-      ['cost', '$41.20', 'of $162.61 on this MR'],
+      ['cost', '$41.20', 'of $162.61 on this PR'],
       ['took', '4 of 6', 'took the recommendation'],
       ['waiting', '25m', 'waiting on you'],
     ]);
+  });
+
+  it('names a GitLab MR by its key', () => {
+    const stat = recordStats({
+      run: run(),
+      gates: [],
+      now: at(200),
+      cost: { ...cost, mrKey: 'remote:gitlab.example.com%2Facme%2Fweb!7' },
+    }).find(s => s.id === 'cost');
+    expect(stat?.label).toBe('of $162.61 on this MR');
   });
 
   it('links the cost to its MR page', () => {

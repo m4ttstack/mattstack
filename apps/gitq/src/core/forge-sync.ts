@@ -2,6 +2,7 @@ import type { GitProvider, PullRequest, CreatePullRequestInput } from '@mattstac
 import { ReadBackFailedError } from '@mattstack/glance';
 import type { Stack, StackStore, PipelineStatus } from './types.ts';
 import { StackManager } from './stack-manager.ts';
+import { changeNoun, changeRef } from './forges.ts';
 import { GitShell } from './git-shell.ts';
 import { toErrorMessage } from './error-utils.ts';
 import {
@@ -299,7 +300,7 @@ export const ForgeSync = {
     const scope = projectScopeFromRemoteUrl(remoteUrl);
     if (!scope) {
       throw new Error(
-        `cannot read a project path from remote "${remoteUrl}"; import keeps only the MRs of the project the remote points at`,
+        `cannot read a project path from remote "${remoteUrl}"; import keeps only the ${changeNoun(provider.providerName)}s of the project the remote points at`,
       );
     }
 
@@ -487,7 +488,7 @@ export const ForgeSync = {
           branch: node.branch,
           mrIid: node.mrIid,
           reason: 'mr-unreadable',
-          detail: `MR !${node.mrIid} was not returned by the forge`,
+          detail: `${changeRef(provider.providerName, node.mrIid)} was not returned by the forge`,
         });
         continue;
       }
@@ -496,7 +497,7 @@ export const ForgeSync = {
           branch: node.branch,
           mrIid: node.mrIid,
           reason: 'mr-not-open',
-          detail: `MR !${node.mrIid} is ${pr.state}`,
+          detail: `${changeRef(provider.providerName, node.mrIid)} is ${pr.state}`,
         });
         continue;
       }
@@ -505,7 +506,7 @@ export const ForgeSync = {
           branch: node.branch,
           mrIid: node.mrIid,
           reason: 'source-branch-mismatch',
-          detail: `MR !${node.mrIid} is for ${pr.sourceBranch}, not ${node.branch}`,
+          detail: `${changeRef(provider.providerName, node.mrIid)} is for ${pr.sourceBranch}, not ${node.branch}`,
         });
         continue;
       }
@@ -561,7 +562,7 @@ export const ForgeSync = {
   async retargetMR(provider: GitProvider, stack: Stack, branch: string, projectPath: string): Promise<Stack> {
     const node = StackManager.findNode(stack, branch);
     if (!node) throw new Error(`Branch "${branch}" not found in stack`);
-    if (!node.mrIid) throw new Error(`Branch "${branch}" has no MR to retarget`);
+    if (!node.mrIid) throw new Error(`Branch "${branch}" has no ${changeNoun(provider.providerName)} to retarget`);
 
     await provider.updatePullRequest(projectPath, node.mrIid, {
       targetBranch: resolveLiveTarget(stack, node.parent),
@@ -693,7 +694,7 @@ function requireScope(scope: string | ProjectScope | null, operation: string): P
   const target = scope === null ? null : normalizeProjectScope(scope);
   if (!target) {
     throw new Error(
-      `${operation} needs the project scope of the repo it is syncing; without one, another project's MR on the same branch name can supply this stack's data`,
+      `${operation} needs the project scope of the repo it is syncing; without one, another project's MR or PR on the same branch name can supply this stack's data`,
     );
   }
   return target;

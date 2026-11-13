@@ -41,6 +41,7 @@ import { getDiscussionsFileStore } from "../discussions-file-store.ts";
 import { grants, loadRepoTracking } from "../../repo-tracking.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { checkAnchor } from "../diff-line-kind.ts";
+import { forgeChangeNoun } from "../../repo-label.ts";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { Commands, Discussion, ReviewSubmitComment } from "../../../packages/rt-client/src/commands.ts";
 
@@ -147,10 +148,11 @@ function writeRef(ctx: ThreadContext): string {
 /** Reads by project path, never `writeRef`: GitLab's fetchSingleMR queries GraphQL by full path and finds no MR for a numeric id. */
 async function readHeadSha(ctx: ThreadContext, iid: number): Promise<{ ok: true; sha: string } | { ok: false; reason: string }> {
   const { fetchSingleMR } = ctx.provider;
-  if (!fetchSingleMR) return { ok: false, reason: "the provider cannot read the MR" };
+  const noun = forgeChangeNoun(ctx.forge);
+  if (!fetchSingleMR) return { ok: false, reason: `the provider cannot read the ${noun}` };
   try {
     const mr = await fetchSingleMR.call(ctx.provider, ctx.projectPath, iid, null);
-    if (!mr) return { ok: false, reason: "no MR" };
+    if (!mr) return { ok: false, reason: `no ${noun}` };
     return mr.sha ? { ok: true, sha: mr.sha } : { ok: false, reason: "no head sha" };
   } catch (err) {
     return { ok: false, reason: String(err) };
@@ -394,6 +396,7 @@ export function createDiscussionHandlers(
       try {
         const repoCtx = await repoContextFn(repoName, repoPath);
         const forgeName = repoCtx.forge === "github" ? "GitHub" : "GitLab";
+        const noun = forgeChangeNoun(repoCtx.forge);
 
         if (position.oldLine === undefined) {
           let page: Awaited<ReturnType<typeof diffsFn>> | undefined;
@@ -408,8 +411,8 @@ export function createDiscussionHandlers(
           }
           if (page) {
             const anchor = checkAnchor(page, path, line);
-            const refusal = `line ${line} of ${path} is not in this MR's diff, so ${forgeName} cannot anchor a comment there`;
-            if (anchor.kind === "no-file") return { ok: false, error: `${refusal}; this file has no diff in this MR` };
+            const refusal = `line ${line} of ${path} is not in this ${noun}'s diff, so ${forgeName} cannot anchor a comment there`;
+            if (anchor.kind === "no-file") return { ok: false, error: `${refusal}; this file has no diff in this ${noun}` };
             if (anchor.kind === "outside") {
               const hint = anchor.nearest.length > 0
                 ? `; lines in the diff near it: ${anchor.nearest.join(", ")}`
@@ -623,7 +626,7 @@ export function createDiscussionHandlers(
         if (expectedHeadSha !== undefined) {
           const head = await readHeadSha(repoCtx, iid);
           if (signal?.aborted) return { ok: false, error: "request aborted before the review was posted" };
-          if (!head.ok) return { ok: false, error: `could not read the MR's head to check expectedHeadSha; nothing was posted (${head.reason})` };
+          if (!head.ok) return { ok: false, error: `could not read the ${forgeChangeNoun(repoCtx.forge)}'s head to check expectedHeadSha; nothing was posted (${head.reason})` };
           if (head.sha.toLowerCase() !== expectedHeadSha.toLowerCase()) {
             return { ok: true, data: { published: false, reason: "head-moved", expectedHeadSha, headSha: head.sha, mrUrl } };
           }

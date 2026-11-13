@@ -16,6 +16,8 @@ import { useSearch } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
 import { PAGE_ROW_HEIGHT } from '../chrome';
+import { eitherNoun, forgeOf, mixedNouns } from '../forgeNoun';
+import type { Forge } from '../forgeNoun';
 import { RetryAlert } from '../runs/RetryAlert';
 import {
   clockTime,
@@ -52,8 +54,8 @@ const MR_SORTS: MrSort[] = ['cost', 'date', 'output', 'cacheRead'];
 
 const CONTENT_FRAME = { maw: 1680, my: 0, px: 40, py: 28 };
 
-const VIEWS = [
-  { value: 'mrs', label: 'MRs' },
+const views = (forge: Forge | null) => [
+  { value: 'mrs', label: mixedNouns(forge) },
   { value: 'trends', label: 'Trends' },
 ];
 
@@ -185,6 +187,7 @@ function emptyHint(
 
 export function UsagePage() {
   const url = useUsageUrl();
+  const forge = forgeOf(url.repo);
   const mrs = useUsageMrs(url.range, url.repo);
   const onTrends = url.view === 'trends';
   const trends = useUsageTrends(url.range, url.repo, onTrends);
@@ -222,13 +225,13 @@ export function UsagePage() {
         {
           key: 'mrs',
           value: summary.mrCount,
-          label: 'MRs',
+          label: mixedNouns(forge),
           tone: 'accent',
         },
         {
           key: 'median',
           value: usd(summary.medianCost),
-          label: 'median MR',
+          label: `median ${eitherNoun(forge)}`,
           tone: 'gray',
         },
         {
@@ -247,7 +250,11 @@ export function UsagePage() {
       value: usd(averageWeek(trendCost, url.range, weeks)),
       label: 'average week',
     },
-    { key: 'mrs', value: summary?.mrCount ?? 0, label: 'MRs' },
+    {
+      key: 'mrs',
+      value: summary?.mrCount ?? 0,
+      label: mixedNouns(forge),
+    },
     changeStat(trendCost, url.range, earlier),
   ];
 
@@ -289,7 +296,7 @@ export function UsagePage() {
               <Text fz="lg" fw={500} lh="normal">
                 {url.view === 'trends'
                   ? 'weekly usage on this Mac'
-                  : 'every MR on this Mac'}
+                  : `every ${eitherNoun(forge)} on this Mac`}
               </Text>
               <Group gap={8} wrap="nowrap">
                 <SegmentedControl
@@ -300,7 +307,7 @@ export function UsagePage() {
                 />
                 <SegmentedControl
                   aria-label="View"
-                  data={VIEWS}
+                  data={views(forge)}
                   value={url.view}
                   onChange={v => url.set('view', v === 'mrs' ? null : v)}
                 />
@@ -361,6 +368,7 @@ export function UsagePage() {
                     onSort={url.sortBy}
                     resetKey={`${url.rangeValue} ${url.repo} ${sort} ${dir}`}
                     showRepo={url.repo === null}
+                    forge={forge}
                   />
                 </>
               )

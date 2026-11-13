@@ -6,6 +6,7 @@ import type {
   UsageTotals,
 } from '@mattstack/rt-client';
 
+import { forgeOf, mrRefText } from '../forgeNoun';
 import { repoPath } from '../runs/repoLabel';
 
 export const KIND_ORDER: UsageKind[] = [
@@ -52,7 +53,7 @@ export function mrParts(mrKey: string): {
   return {
     repoKey,
     repo: repoPath(repoKey),
-    number: `!${mrKey.slice(bang + 1)}`,
+    number: mrRefText(forgeOf(mrKey), mrKey.slice(bang + 1)),
   };
 }
 

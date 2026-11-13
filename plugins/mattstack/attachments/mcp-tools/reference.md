@@ -572,7 +572,7 @@ Release a previously claimed chat message by id. Requires a signed-in chat sessi
 ### mr_reply_thread
 
 <!-- mcp-lint: allow -->
-Reply to an existing MR discussion thread. On GitHub it replies only to review threads. Returns discussionId, noteId (the posted reply) and the thread's resolved state. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Reply to an existing MR discussion thread. On GitHub it replies only to review threads. Returns discussionId, noteId (the posted reply) and the thread's resolved state. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -584,11 +584,11 @@ Reply to an existing MR discussion thread. On GitHub it replies only to review t
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "discussionId": {
       "type": "string"
@@ -608,7 +608,7 @@ Reply to an existing MR discussion thread. On GitHub it replies only to review t
 ### mr_update_note
 
 <!-- mcp-lint: allow -->
-Replace the body of an existing MR note or thread comment by its noteId (from mr_threads, mr_comment, mr_comment_inline or mr_reply_thread). The forge only lets you edit notes you are allowed to edit, and its refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Replace the body of an existing MR note or thread comment by its noteId (from mr_threads, mr_comment, mr_comment_inline or mr_reply_thread). The forge only lets you edit notes you are allowed to edit, and its refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -620,11 +620,11 @@ Replace the body of an existing MR note or thread comment by its noteId (from mr
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "noteId": {
       "type": "number"
@@ -644,7 +644,7 @@ Replace the body of an existing MR note or thread comment by its noteId (from mr
 ### mr_comment_inline
 
 <!-- mcp-lint: allow -->
-Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: on GitLab the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -656,11 +656,11 @@ Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "body": {
       "type": "string"
@@ -690,7 +690,7 @@ Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-
 ### mr_comment
 
 <!-- mcp-lint: allow -->
-Post a NEW top-level note on an MR: a review's summary, or anything with no diff line to anchor to. resolvable (default true) opens a discussion a human can resolve; false posts a plain note, for a summary that carries nothing to resolve. On GitHub it posts a comment that cannot be resolved. Posts once and never retries. Returns noteId, discussionId (null for a plain note; gh-issue-comment-<id> on GitHub, which cannot be resolved or replied to), resolvable as the forge reports it, url (the note) and mrUrl. Use mr_comment_inline for a diff line and mr_reply_thread for an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Post a NEW top-level note on an MR: a review's summary, or anything with no diff line to anchor to. resolvable (default true) opens a discussion a human can resolve; false posts a plain note, for a summary that carries nothing to resolve. On GitHub it posts a comment that cannot be resolved. Posts once and never retries. Returns noteId, discussionId (null for a plain note; gh-issue-comment-<id> on GitHub, which cannot be resolved or replied to), resolvable as the forge reports it, url (the note) and mrUrl. Use mr_comment_inline for a diff line and mr_reply_thread for an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -702,11 +702,11 @@ Post a NEW top-level note on an MR: a review's summary, or anything with no diff
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "body": {
       "type": "string"
@@ -725,7 +725,7 @@ Post a NEW top-level note on an MR: a review's summary, or anything with no diff
 ### mr_review_submit
 
 <!-- mcp-lint: allow -->
-Post one whole review in one call, exactly as GitLab's "Submit your review" does (on GitHub it posts one review in one request): every entry in comments becomes an inline thread, every entry in replies lands in its existing thread (resolve: true resolves it; a reply with no body only resolves), summary posts as the review's summary note, and the caller is marked as having reviewed. outcome "approve" also approves. outcome "request_changes" posts the review as changes requested and never approves: on GitHub that is a changes-requested review, on GitLab the reviewer shows as having requested changes. A refused review posts nothing: published: false with reason "bad-anchors" lists the comments whose line is outside the diff (move those findings into summary and call again), and reason "pending-drafts" means the caller already has pending comments on the MR that a submit would publish (the caller submits or discards them first: pending drafts on GitLab, a pending review on GitHub). A review carries at most 100 comments and replies in total. With outcome "approve", published: true with approved: false means the review is up and only the approval was refused: never call this again for that review, use mr_approve. Pass expectedHeadSha, the sha you reviewed, and a moved head posts nothing and returns published: false with reason "head-moved" and headSha; re-read the diff before reviewing again. Returns counts, repliedTo, resolved, resolveErrors (the threads a reply could not resolve), replyErrors (GitHub only: the review is up but those replies did not post and their threads stay unresolved; post each with mr_reply_thread, never by calling this again), approved, approveError (when the approval was refused), reviewerState, summaryNoteId and mrUrl. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Post one whole review in one call, exactly as GitLab's "Submit your review" does (on GitHub it posts one review in one request): every entry in comments becomes an inline thread, every entry in replies lands in its existing thread (resolve: true resolves it; a reply with no body only resolves), summary posts as the review's summary note, and the caller is marked as having reviewed. outcome "approve" also approves. outcome "request_changes" posts the review as changes requested and never approves: on GitHub that is a changes-requested review, on GitLab the reviewer shows as having requested changes. A refused review posts nothing: published: false with reason "bad-anchors" lists the comments whose line is outside the diff (move those findings into summary and call again), and reason "pending-drafts" means the caller already has pending comments on the MR that a submit would publish (the caller submits or discards them first: pending drafts on GitLab, a pending review on GitHub). A review carries at most 100 comments and replies in total. With outcome "approve", published: true with approved: false means the review is up and only the approval was refused: never call this again for that review, use mr_approve. Pass expectedHeadSha, the sha you reviewed, and a moved head posts nothing and returns published: false with reason "head-moved" and headSha; re-read the diff before reviewing again. Returns counts, repliedTo, resolved, resolveErrors (the threads a reply could not resolve), replyErrors (GitHub only: the review is up but those replies did not post and their threads stay unresolved; post each with mr_reply_thread, never by calling this again), approved, approveError (when the approval was refused), reviewerState, summaryNoteId and mrUrl. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -737,11 +737,11 @@ Post one whole review in one call, exactly as GitLab's "Submit your review" does
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "outcome": {
       "type": "string",
@@ -821,7 +821,7 @@ Post one whole review in one call, exactly as GitLab's "Submit your review" does
 ### mr_create
 
 <!-- mcp-lint: allow -->
-Create a merge request (a pull request on GitHub) from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it (on GitLab; GitHub picks squash at merge time, so leave it out there). Creates once and never retries. Returns iid, url (null when the forge created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. On GitHub, a create whose labels, reviewers or assignees step failed still returns iid and url, plus failedSteps ({step, message} each) and incomplete, a sentence naming them: the PR exists, so add what is missing (labels with mr_update) rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. On GitHub only a PR whose branch lives in this repo counts: a fork's PR on a same-named branch, or one whose head repository the token cannot see, is not returned, and the create goes ahead. A lookup error is returned and nothing is created. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
+Create a merge request (a pull request on GitHub) from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it (on GitLab; GitHub picks squash at merge time, so leave it out there). Creates once and never retries. Returns iid, url (null when the forge created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. On GitHub, a create whose labels, reviewers or assignees step failed still returns iid and url, plus failedSteps ({step, message} each) and incomplete, a sentence naming them: the PR exists, so add what is missing (labels with mr_update) rather than creating again. ifExists "return" first looks for an open MR on sourceBranch: when one exists it creates nothing and returns {iid, url, existing: true, targetBranch, draft, title, applied: false}, where applied false means the title, description, labels and squash you passed were not applied, and that MR may target a different branch, so compare its targetBranch with the one you asked for; otherwise it creates and the result adds existing false. On GitHub only a PR whose branch lives in this repo counts: a fork's PR on a same-named branch, or one whose head repository the token cannot see, is not returned, and the create goes ahead. A lookup error is returned and nothing is created. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, MR here means a PR, and mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
 
 ```json
 {
@@ -833,7 +833,7 @@ Create a merge request (a pull request on GitHub) from an already-pushed sourceB
     },
     "mrUrl": {
       "type": "string",
-      "description": "An MR URL in the target project; names the repo, its iid is not used."
+      "description": "An MR or PR URL in the target project; names the repo, its iid is not used."
     },
     "sourceBranch": {
       "type": "string"
@@ -878,7 +878,7 @@ Create a merge request (a pull request on GitHub) from an already-pushed sourceB
 ### mr_update
 
 <!-- mcp-lint: allow -->
-Edit an open MR: title, description, addLabels, removeLabels (add and remove, never the whole set, so labels CI or teammates set survive) and squash (the MR's squash-on-merge flag on GitLab; GitHub picks squash at merge time). Pass at least one. A title change keeps the MR's draft state. Title and description are written first, then labels and squash in one call; a partial failure names what landed, and every field is idempotent, so retry with only the failed fields. Returns iid, url and applied (the fields that landed). Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Edit an open MR: title, description, addLabels, removeLabels (add and remove, never the whole set, so labels CI or teammates set survive) and squash (the MR's squash-on-merge flag on GitLab; GitHub picks squash at merge time). Pass at least one. A title change keeps the MR's draft state. Title and description are written first, then labels and squash in one call; a partial failure names what landed, and every field is idempotent, so retry with only the failed fields. Returns iid, url and applied (the fields that landed). Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -890,11 +890,11 @@ Edit an open MR: title, description, addLabels, removeLabels (add and remove, ne
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "title": {
       "type": "string"
@@ -937,7 +937,7 @@ GitLab only. On GitHub it refuses in every form and names evidence_attach, since
     },
     "mrUrl": {
       "type": "string",
-      "description": "An MR URL in the target project; names the repo, its iid is not used."
+      "description": "An MR or PR URL in the target project; names the repo, its iid is not used."
     },
     "path": {
       "type": "string",
@@ -962,7 +962,7 @@ GitLab only. On GitHub it refuses in every form and names evidence_attach, since
 ### mr_approve
 
 <!-- mcp-lint: allow -->
-Approve an MR as the token's user, or withdraw that approval with approved: false. Call it only once approving is decided (a review's Approve disposition, after its findings have posted). Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Approve an MR as the token's user, or withdraw that approval with approved: false. Call it only once approving is decided (a review's Approve disposition, after its findings have posted). Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -974,11 +974,11 @@ Approve an MR as the token's user, or withdraw that approval with approved: fals
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "approved": {
       "type": "boolean"
@@ -991,7 +991,7 @@ Approve an MR as the token's user, or withdraw that approval with approved: fals
 ### mr_resolve_thread
 
 <!-- mcp-lint: allow -->
-Resolve an MR discussion thread, or reopen it with resolved: false. Post any reply first with mr_reply_thread; resolving does not post. Returns {discussionId, resolved}. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Resolve an MR discussion thread, or reopen it with resolved: false. Post any reply first with mr_reply_thread; resolving does not post. Returns {discussionId, resolved}. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -1003,11 +1003,11 @@ Resolve an MR discussion thread, or reopen it with resolved: false. Post any rep
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "discussionId": {
       "type": "string"
@@ -1026,7 +1026,7 @@ Resolve an MR discussion thread, or reopen it with resolved: false. Post any rep
 ### mr_ready
 
 <!-- mcp-lint: allow -->
-Mark a draft MR ready for review, or back to draft with ready: false. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Mark a draft MR ready for review, or back to draft with ready: false. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -1038,11 +1038,11 @@ Mark a draft MR ready for review, or back to draft with ready: false. Name the t
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "ready": {
       "type": "boolean"
@@ -1055,7 +1055,7 @@ Mark a draft MR ready for review, or back to draft with ready: false. Name the t
 ### mr_retry
 
 <!-- mcp-lint: allow -->
-Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR; pass exactly one. The MR named by the target is the one whose state is refreshed afterward. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR; pass exactly one. The MR named by the target is the one whose state is refreshed afterward. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -1067,11 +1067,11 @@ Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR; pass exactly
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "jobId": {
       "type": "number"
@@ -1091,7 +1091,7 @@ Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR; pass exactly
 ### mr_rebase
 
 <!-- mcp-lint: allow -->
-Ask the forge to rebase the MR's source branch onto its target server-side (no checkout): GitLab accepts the request and rebases asynchronously, and GitHub updates the PR's branch by rebasing it. Without `wait` the reply only says the request was accepted, so re-read the MR before assuming the rebase finished or succeeded. With `wait: true` the tool reads the MR, asks for the rebase, then re-reads it every 5 seconds for up to `maxWaitSeconds` (1 to 600, default 90) and returns one of: {status: "rebased", sha, previousSha} when the source branch sha moved; {status: "failed", mergeError, conflicts, sha} when, with no rebase running, GitLab reports a merge error or conflicts; {status: "current", sha} when nothing moved and the branch is not behind its target; {status: "unchanged", sha} when nothing moved across two reads and GitLab does not say whether the branch was behind, so it may already have been current; {status: "pending", sha, rebaseInProgress, lastError?} when the budget ran out, so call again or look at the MR. On GitHub, which reports no rebase in progress, merge error or divergence, wait returns only {status: "rebased", sha, previousSha} once the head moved or {status: "pending", sha, lastError?} when the budget ran out; a PR GitHub will not rebase (already up to date, conflicts, a fork that does not allow edits) is a tool error from the request, not a status. A failed re-read counts as a poll and is reported as lastError only if the budget ends on it. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Ask the forge to rebase the MR's source branch onto its target server-side (no checkout): GitLab accepts the request and rebases asynchronously, and GitHub updates the PR's branch by rebasing it. Without `wait` the reply only says the request was accepted, so re-read the MR before assuming the rebase finished or succeeded. With `wait: true` the tool reads the MR, asks for the rebase, then re-reads it every 5 seconds for up to `maxWaitSeconds` (1 to 600, default 90) and returns one of: {status: "rebased", sha, previousSha} when the source branch sha moved; {status: "failed", mergeError, conflicts, sha} when, with no rebase running, GitLab reports a merge error or conflicts; {status: "current", sha} when nothing moved and the branch is not behind its target; {status: "unchanged", sha} when nothing moved across two reads and GitLab does not say whether the branch was behind, so it may already have been current; {status: "pending", sha, rebaseInProgress, lastError?} when the budget ran out, so call again or look at the MR. On GitHub, which reports no rebase in progress, merge error or divergence, wait returns only {status: "rebased", sha, previousSha} once the head moved or {status: "pending", sha, lastError?} when the budget ran out; a PR GitHub will not rebase (already up to date, conflicts, a fork that does not allow edits) is a tool error from the request, not a status. A failed re-read counts as a poll and is reported as lastError only if the budget ends on it. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -1103,11 +1103,11 @@ Ask the forge to rebase the MR's source branch onto its target server-side (no c
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "wait": {
       "type": "boolean",
@@ -1127,7 +1127,7 @@ Ask the forge to rebase the MR's source branch onto its target server-side (no c
 ### mr_merge
 
 <!-- mcp-lint: allow -->
-Merge an MR or PR on GitLab or GitHub. On GitHub it asks GitHub whether the PR goes through a merge queue and takes the right path: queued PRs return {queued: true, position, state} or {queued: true, alreadyQueued: true}, and landing is still to come. wait: true holds until the PR leaves the queue, up to maxWaitSeconds (default 1500, cap 1500), and returns {merged: true}, {dropped: true, reason, at} or {queued: true, timedOut: true}; call again with wait: true to keep waiting, which is also how to pick up a PR queued earlier. A dropped PR stays out, even after a push: every call returns {dropped: true, reason, at} until requeue: true is passed, which enters the queue again, so pass it only once the cause is fixed and the new head has been reviewed. A PR that has already merged returns {merged: true}. Chat messages reach you only between calls. A PR enters the queue only once it is ready (approved, required checks green); before that GitHub refuses and the error says why, so wait for green and call again. A queue applies its own merge settings and waits for checks, so squash, removeSourceBranch and whenPipelineSucceeds are refused there. Otherwise it merges now (the forge still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. The result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning the forge accepted the request but the outcome was not observed, so re-read the MR before assuming either way. On GitHub, a merge that landed but left its source branch adds sourceBranchNotDeleted (why), and a merge GitHub put in the queue itself returns {queued: true, position, state}, never merged. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Merge an MR or PR on GitLab or GitHub. On GitHub it asks GitHub whether the PR goes through a merge queue and takes the right path: queued PRs return {queued: true, position, state} or {queued: true, alreadyQueued: true}, and landing is still to come. wait: true holds until the PR leaves the queue, up to maxWaitSeconds (default 1500, cap 1500), and returns {merged: true}, {dropped: true, reason, at} or {queued: true, timedOut: true}; call again with wait: true to keep waiting, which is also how to pick up a PR queued earlier. A dropped PR stays out, even after a push: every call returns {dropped: true, reason, at} until requeue: true is passed, which enters the queue again, so pass it only once the cause is fixed and the new head has been reviewed. A PR that has already merged returns {merged: true}. Chat messages reach you only between calls. A PR enters the queue only once it is ready (approved, required checks green); before that GitHub refuses and the error says why, so wait for green and call again. A queue applies its own merge settings and waits for checks, so squash, removeSourceBranch and whenPipelineSucceeds are refused there. Otherwise it merges now (the forge still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. The result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning the forge accepted the request but the outcome was not observed, so re-read the MR before assuming either way. On GitHub, a merge that landed but left its source branch adds sourceBranchNotDeleted (why), and a merge GitHub put in the queue itself returns {queued: true, position, state}, never merged. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -1139,11 +1139,11 @@ Merge an MR or PR on GitLab or GitHub. On GitHub it asks GitHub whether the PR g
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "squash": {
       "type": "boolean"
@@ -1872,7 +1872,7 @@ List runs the daemon knows, newest first, optionally narrowed to one repo direct
 ### mr_view
 
 <!-- mcp-lint: allow -->
-One MR by iid, in full: opened, merged or closed. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+One MR by iid, in full: opened, merged or closed. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -1884,11 +1884,11 @@ One MR by iid, in full: opened, merged or closed. Read from the forge on every c
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     }
   },
   "additionalProperties": false
@@ -1898,7 +1898,7 @@ One MR by iid, in full: opened, merged or closed. Read from the forge on every c
 ### mr_list
 
 <!-- mcp-lint: allow -->
-A summary of each matching MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, detailedMergeStatus, mergedAt), most recently updated first. Filters: author (a username, or "me"), sourceBranch, targetBranch, state (default opened, which includes drafts), search (title and description, so a ticket id finds its MR). Returns {mrs, truncated}: at most limit rows (default 50, maximum 200), truncated true when the forge had more. With targetBranch the body also carries targetBranch and full (true when nothing was cut); use that to prove a branch has no stacked children. Use mr_view for one MR in full. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
+A summary of each matching MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, detailedMergeStatus, mergedAt), most recently updated first. Filters: author (a username, or "me"), sourceBranch, targetBranch, state (default opened, which includes drafts), search (title and description, so a ticket id finds its MR). Returns {mrs, truncated}: at most limit rows (default 50, maximum 200), truncated true when the forge had more. With targetBranch the body also carries targetBranch and full (true when nothing was cut); use that to prove a branch has no stacked children. Use mr_view for one MR in full. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, MR here means a PR, and mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
 
 ```json
 {
@@ -1910,7 +1910,7 @@ A summary of each matching MR of the target project (iid, title, state, draft, s
     },
     "mrUrl": {
       "type": "string",
-      "description": "An MR URL in the target project; names the repo, its iid is not used."
+      "description": "An MR or PR URL in the target project; names the repo, its iid is not used."
     },
     "author": {
       "type": "string",
@@ -1950,7 +1950,7 @@ A summary of each matching MR of the target project (iid, title, state, draft, s
 ### mr_for_branch
 
 <!-- mcp-lint: allow -->
-The open MR (or null) for each named source branch, by any author. A null means the forge has no open MR with that source branch. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
+The open MR (or null) for each named source branch, by any author. A null means the forge has no open MR with that source branch. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, MR here means a PR, and mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
 
 ```json
 {
@@ -1962,7 +1962,7 @@ The open MR (or null) for each named source branch, by any author. A null means 
     },
     "mrUrl": {
       "type": "string",
-      "description": "An MR URL in the target project; names the repo, its iid is not used."
+      "description": "An MR or PR URL in the target project; names the repo, its iid is not used."
     },
     "branches": {
       "type": "array",
@@ -1982,7 +1982,7 @@ The open MR (or null) for each named source branch, by any author. A null means 
 ### mr_threads
 
 <!-- mcp-lint: allow -->
-The MR's discussion threads, fetched from its forge on every call. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+The MR's discussion threads, fetched from its forge on every call. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -1994,11 +1994,11 @@ The MR's discussion threads, fetched from its forge on every call. Name the targ
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "refresh": {
       "type": "boolean",
@@ -2019,7 +2019,7 @@ The MR's discussion threads, fetched from its forge on every call. Name the targ
 ### mr_pipeline
 
 <!-- mcp-lint: allow -->
-The MR's head pipeline, carrying sha, ref and mergeRequestEventType ("merged_result", "detached", "merge_train" or null; for merged-results pipelines sha is the merge commit, not the source branch head), and, with jobId, that job's detail: a bridge job's downstream pipeline, or for any other job {type: "trace", traceVia: "mr_job_trace"}, since its log is read with mr_job_trace. For pipelines on a branch with no MR, or an MR's earlier pipelines, use pipeline_list. jobId is the numeric part of a job id like gitlab:job:123 (github:check:123 on GitHub). Take it from this MR's pipeline: the daemon does not check that the job belongs to this MR, so jobId may name any job in the MR's project. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+The MR's head pipeline, carrying sha, ref and mergeRequestEventType ("merged_result", "detached", "merge_train" or null; for merged-results pipelines sha is the merge commit, not the source branch head), and, with jobId, that job's detail: a bridge job's downstream pipeline, or for any other job {type: "trace", traceVia: "mr_job_trace"}, since its log is read with mr_job_trace. For pipelines on a branch with no MR, or an MR's earlier pipelines, use pipeline_list. jobId is the numeric part of a job id like gitlab:job:123 (github:check:123 on GitHub). Take it from this MR's pipeline: the daemon does not check that the job belongs to this MR, so jobId may name any job in the MR's project. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -2031,11 +2031,11 @@ The MR's head pipeline, carrying sha, ref and mergeRequestEventType ("merged_res
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "maxAgeMs": {
       "type": "number",
@@ -2052,7 +2052,7 @@ The MR's head pipeline, carrying sha, ref and mergeRequestEventType ("merged_res
 ### pipeline_jobs
 
 <!-- mcp-lint: allow -->
-The jobs of one pipeline and its same-project child pipelines: {state: "listed", pipeline, jobs, bridges}. A job row is {jobId, name, stage, status, allowFailure, blocking, pipelineId, attempt, webUrl}; only the latest run of each job is listed, attempt counts its runs. bridges lists every bridge with its downstream pipeline and a crossProject flag. pipelineId defaults to the MR's head pipeline; scope is one GitLab job scope (failed, success, running, pending, manual, canceled, skipped, created); name keeps jobs whose name contains it. Read a job's log with mr_job_trace. On GitHub the default lists the PR head's checks (stage "checks"; a commit status has jobId null, and a check outside a workflow run carries the head's first run id, or pipelineId null when the head has no workflow run) and pipelineId is a workflow run id; bridges is always empty. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+The jobs of one pipeline and its same-project child pipelines: {state: "listed", pipeline, jobs, bridges}. A job row is {jobId, name, stage, status, allowFailure, blocking, pipelineId, attempt, webUrl}; only the latest run of each job is listed, attempt counts its runs. bridges lists every bridge with its downstream pipeline and a crossProject flag. pipelineId defaults to the MR's head pipeline; scope is one GitLab job scope (failed, success, running, pending, manual, canceled, skipped, created); name keeps jobs whose name contains it. Read a job's log with mr_job_trace. On GitHub the default lists the PR head's checks (stage "checks"; a commit status has jobId null, and a check outside a workflow run carries the head's first run id, or pipelineId null when the head has no workflow run) and pipelineId is a workflow run id; bridges is always empty. Read from the forge on every call: any MR the token can see, whoever wrote it. A forge refusal comes back as its own text. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -2064,11 +2064,11 @@ The jobs of one pipeline and its same-project child pipelines: {state: "listed",
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "pipelineId": {
       "type": "number"
@@ -2098,7 +2098,7 @@ The jobs of one pipeline and its same-project child pipelines: {state: "listed",
 ### mr_job_trace
 
 <!-- mcp-lint: allow -->
-Part of one CI job's plain-text trace, ANSI escapes stripped, capped at 64 KiB. One mode per call: tailLines (the last N lines; the default, N=200), headLines (the first N), fromLine with lineCount (a range, 1-based, lineCount default 200), or grep with contextLines (lines containing the text, case-insensitive plain text, each prefixed with its line number, groups separated by --; contextLines default 2). Returns trace, truncated (true when the trace holds more than was returned, and always true for grep results, which never claim to be the whole trace) and totalLines, so a range can be chosen from a tail. jobId is the numeric part of a job id like gitlab:job:123 (github:check:123 on GitHub). Take it from this MR's pipeline: the daemon does not check that the job belongs to this MR, so jobId may name any job in the MR's project. On GitHub only GitHub Actions jobs have a trace; for a check another app reported, open its webUrl. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Part of one CI job's plain-text trace, ANSI escapes stripped, capped at 64 KiB. One mode per call: tailLines (the last N lines; the default, N=200), headLines (the first N), fromLine with lineCount (a range, 1-based, lineCount default 200), or grep with contextLines (lines containing the text, case-insensitive plain text, each prefixed with its line number, groups separated by --; contextLines default 2). Returns trace, truncated (true when the trace holds more than was returned, and always true for grep results, which never claim to be the whole trace) and totalLines, so a range can be chosen from a tail. jobId is the numeric part of a job id like gitlab:job:123 (github:check:123 on GitHub). Take it from this MR's pipeline: the daemon does not check that the job belongs to this MR, so jobId may name any job in the MR's project. On GitHub only GitHub Actions jobs have a trace; for a check another app reported, open its webUrl. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -2110,11 +2110,11 @@ Part of one CI job's plain-text trace, ANSI escapes stripped, capped at 64 KiB. 
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "jobId": {
       "type": "number"
@@ -2148,7 +2148,7 @@ Part of one CI job's plain-text trace, ANSI escapes stripped, capped at 64 KiB. 
 ### mr_posted_since
 
 <!-- mcp-lint: allow -->
-Whether this account (or `by`) already posted on the MR, on GitLab or GitHub: one live thread read, nothing posted, nothing judged beyond the match. `since` is epoch milliseconds or an ISO time; a note counts when it is at or after `since`. `by` defaults to "me", the token's own user. `threads` [{discussionId, body?}]: posted when the discussion holds a note whose body equals `body` (any author, any time; CRLF and trailing spaces ignored), or a note by `by` at or after `since`; each row is {discussionId, found, posted, noteId, via: "body" | "author" | null}, found false when the forge no longer returns the discussion. On GitHub a discussionId reads gh-review-thread-<id> (a diff comment thread), gh-issue-comment-<id> (a PR conversation comment) or gh-review-<id> (a review's summary). `items` [{id, body?, contains?, path?, line?}]: posted when a note by `by` at or after `since` has that `body` or contains that text, and, when `path` or `line` is given, sits at that new-side position (on GitHub only diff comments carry one, so `path` and `line` match only those); each row is {id, posted, noteId, discussionId}. Pass `threads`, `items` or both. Returns {by, since, threads, items, notes}, where `notes` is every non-system note by `by` at or after `since` (body cut at 2000 characters). System notes never match. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Whether this account (or `by`) already posted on the MR, on GitLab or GitHub: one live thread read, nothing posted, nothing judged beyond the match. `since` is epoch milliseconds or an ISO time; a note counts when it is at or after `since`. `by` defaults to "me", the token's own user. `threads` [{discussionId, body?}]: posted when the discussion holds a note whose body equals `body` (any author, any time; CRLF and trailing spaces ignored), or a note by `by` at or after `since`; each row is {discussionId, found, posted, noteId, via: "body" | "author" | null}, found false when the forge no longer returns the discussion. On GitHub a discussionId reads gh-review-thread-<id> (a diff comment thread), gh-issue-comment-<id> (a PR conversation comment) or gh-review-<id> (a review's summary). `items` [{id, body?, contains?, path?, line?}]: posted when a note by `by` at or after `since` has that `body` or contains that text, and, when `path` or `line` is given, sits at that new-side position (on GitHub only diff comments carry one, so `path` and `line` match only those); each row is {id, posted, noteId, discussionId}. Pass `threads`, `items` or both. Returns {by, since, threads, items, notes}, where `notes` is every non-system note by `by` at or after `since` (body cut at 2000 characters). System notes never match. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -2160,11 +2160,11 @@ Whether this account (or `by`) already posted on the MR, on GitLab or GitHub: on
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "since": {
       "type": [
@@ -2264,7 +2264,7 @@ Receive-review's post side in one call: it acts only on the respond-plan and res
 ### mr_resolve_branch
 
 <!-- mcp-lint: allow -->
-An MR to its branch and the registered trees on it, for checkout: one MR read and one worktree list, nothing provisioned. Works on opened, merged and closed MRs. Returns {iid, state, title, author (username), sourceBranch, targetBranch, webUrl, trees: [{name, path}]}, where trees holds the registered worktrees whose branch equals sourceBranch exactly: usually none or one, more only for a duplicate branch. Call worktree_provision to make a tree when trees is empty. On GitHub the result adds sourceProjectPath, the repository the PR's branch lives in (null when that fork was deleted), and trees lists only branches of this repo: a fork's PR, or one whose head repository the token cannot see (no sourceProjectPath), lists none, since a local branch of the same name is not its branch; that branch is not on this repo's origin either, so do not call worktree_provision for it. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+An MR to its branch and the registered trees on it, for checkout: one MR read and one worktree list, nothing provisioned. Works on opened, merged and closed MRs. Returns {iid, state, title, author (username), sourceBranch, targetBranch, webUrl, trees: [{name, path}]}, where trees holds the registered worktrees whose branch equals sourceBranch exactly: usually none or one, more only for a duplicate branch. Call worktree_provision to make a tree when trees is empty. On GitHub the result adds sourceProjectPath, the repository the PR's branch lives in (null when that fork was deleted), and trees lists only branches of this repo: a fork's PR, or one whose head repository the token cannot see (no sourceProjectPath), lists none, since a local branch of the same name is not its branch; that branch is not on this repo's origin either, so do not call worktree_provision for it. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -2276,11 +2276,11 @@ An MR to its branch and the registered trees on it, for checkout: one MR read an
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     }
   },
   "additionalProperties": false
@@ -2302,7 +2302,7 @@ A repo's open MRs joined to the local worktrees holding their branches, read liv
     },
     "mrUrl": {
       "type": "string",
-      "description": "An MR URL in the target project; names the repo, its iid is not used."
+      "description": "An MR or PR URL in the target project; names the repo, its iid is not used."
     },
     "repo": {
       "type": "string",
@@ -2320,7 +2320,7 @@ A repo's open MRs joined to the local worktrees holding their branches, read liv
 ### project_labels
 
 <!-- mcp-lint: allow -->
-The project's labels (name, description, color); search narrows by name. Use it to check a label's exact spelling before applying it. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
+The project's labels (name, description, color); search narrows by name. Use it to check a label's exact spelling before applying it. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, MR here means a PR, and mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
 
 ```json
 {
@@ -2332,7 +2332,7 @@ The project's labels (name, description, color); search narrows by name. Use it 
     },
     "mrUrl": {
       "type": "string",
-      "description": "An MR URL in the target project; names the repo, its iid is not used."
+      "description": "An MR or PR URL in the target project; names the repo, its iid is not used."
     },
     "search": {
       "type": "string"
@@ -2345,7 +2345,7 @@ The project's labels (name, description, color); search narrows by name. Use it 
 ### pipeline_list
 
 <!-- mcp-lint: allow -->
-Pipelines newest first, each with id, status, ref, sha, source, webUrl and createdAt: for a branch (ref), a commit (sha), or an MR (iid, which lists that MR's own pipelines, and on GitHub only the runs on the PR's current head; iid cannot be combined with ref or sha). Works for a branch with no MR. limit defaults to 20, maximum 100. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt). mrUrl only names the repo; its iid is not used, so mrUrl combines with ref or sha, and an MR's pipelines need iid. Given both repoName and mrUrl, they must agree. On GitHub, mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
+Pipelines newest first, each with id, status, ref, sha, source, webUrl and createdAt: for a branch (ref), a commit (sha), or an MR (iid, which lists that MR's own pipelines, and on GitHub only the runs on the PR's current head; iid cannot be combined with ref or sha). Works for a branch with no MR. limit defaults to 20, maximum 100. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt). mrUrl only names the repo; its iid is not used, so mrUrl combines with ref or sha, and an MR's pipelines need iid. Given both repoName and mrUrl, they must agree. On GitHub, MR here means a PR, and mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
 
 ```json
 {
@@ -2357,7 +2357,7 @@ Pipelines newest first, each with id, status, ref, sha, source, webUrl and creat
     },
     "mrUrl": {
       "type": "string",
-      "description": "An MR URL in the target project; names the repo, its iid is not used."
+      "description": "An MR or PR URL in the target project; names the repo, its iid is not used."
     },
     "ref": {
       "type": "string"
@@ -2379,7 +2379,7 @@ Pipelines newest first, each with id, status, ref, sha, source, webUrl and creat
 ### gitlab_get
 
 <!-- mcp-lint: allow -->
-One read-only GET against the repo's own forge REST API (GitLab or GitHub), for a fact no other tool returns (an MR's commits or changes, a job's artifacts listing, an issue, a merged MR search). path is relative to the API root; pass query values in query, never in path. On GitLab, :id stands for the target project, e.g. projects/:id/merge_requests/12/commits. On GitHub, the path must sit under the repo, and :repo stands for repos/<owner>/<repo>, e.g. :repo/pulls/12/commits. Returns {status, body, truncated, nextPage, totalPages} (totalPages is null on GitHub): body is parsed JSON, cut to text at 256 KiB (truncated: true), so page with page and perPage (maximum 100). The forge decides access and its refusal comes back as its own text. Refused: paths that can return credentials (on GitLab variables, triggers, deploy_tokens, access_tokens, runners, hooks, secure_files, integrations, services, pipeline_schedules, terraform, application; on GitHub secrets, variables, hooks, keys, tokens, runners, environments and similar), GitHub git/blobs paths, the query keys sudo, private_token, access_token, job_token and bearer_token on GitLab and access_token, client_secret and token on GitHub. Any token value in a returned body is redacted, and a redirect is never followed (a 3xx answer is refused, naming only the host it points to). Prefer the purpose-built tool when one covers the read. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
+One read-only GET against the repo's own forge REST API (GitLab or GitHub), for a fact no other tool returns (an MR's commits or changes, a job's artifacts listing, an issue, a merged MR search). path is relative to the API root; pass query values in query, never in path. On GitLab, :id stands for the target project, e.g. projects/:id/merge_requests/12/commits. On GitHub, the path must sit under the repo, and :repo stands for repos/<owner>/<repo>, e.g. :repo/pulls/12/commits. Returns {status, body, truncated, nextPage, totalPages} (totalPages is null on GitHub): body is parsed JSON, cut to text at 256 KiB (truncated: true), so page with page and perPage (maximum 100). The forge decides access and its refusal comes back as its own text. Refused: paths that can return credentials (on GitLab variables, triggers, deploy_tokens, access_tokens, runners, hooks, secure_files, integrations, services, pipeline_schedules, terraform, application; on GitHub secrets, variables, hooks, keys, tokens, runners, environments and similar), GitHub git/blobs paths, the query keys sudo, private_token, access_token, job_token and bearer_token on GitLab and access_token, client_secret and token on GitHub. Any token value in a returned body is redacted, and a redirect is never followed (a 3xx answer is refused, naming only the host it points to). Prefer the purpose-built tool when one covers the read. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (an MR's https URL in a project registered with rt; it only names the repo, and its iid is not used). Given both, they must agree. On GitHub, MR here means a PR, and mrUrl may be a PR's https://github.com/<owner>/<repo>/pull/<number> URL, which only names the repo; its repo must be registered with rt too.
 
 ```json
 {
@@ -2391,7 +2391,7 @@ One read-only GET against the repo's own forge REST API (GitLab or GitHub), for 
     },
     "mrUrl": {
       "type": "string",
-      "description": "An MR URL in the target project; names the repo, its iid is not used."
+      "description": "An MR or PR URL in the target project; names the repo, its iid is not used."
     },
     "path": {
       "type": "string",
@@ -2526,7 +2526,7 @@ Rebase the tree's current branch onto a named branch or ref; a remote-tracking r
 ### branch_sync
 
 <!-- mcp-lint: allow -->
-Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused; nothing was pushed, though newHead differs from oldHead when rt sync first reset a GitLab-rebased branch to origin), stacked-refused (the branch is in a stack; stackCheck carries rt sync's refusal and refusal names the tool to run), stack-unverified (the stack check could not run, so nothing ran; refusal says why and names no tool), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).
+Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because the forge rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. Returns {kind, branch, oldHead, newHead, pushed, refusal}, oldHead and newHead being the branch ref before and after. kind is synced (the branch moved; pushed says origin now has it), up-to-date (nothing moved or was pushed), dirty-tree (uncommitted or untracked changes, listed in paths; nothing ran), conflict (rt sync's bundle, the rebase left paused; nothing was pushed, though newHead differs from oldHead when rt sync first reset a GitLab-rebased branch to origin), stacked-refused (the branch is in a stack; stackCheck carries rt sync's refusal and refusal names the tool to run), stack-unverified (the stack check could not run, so nothing ran; refusal says why and names no tool), push-refused (the rebase landed locally but the push failed) or error (any other refusal or failure, its reason in refusal).
 
 ```json
 {
@@ -3672,7 +3672,7 @@ Resolve a compiled skill's @key pointers to absolute paths. Pass the id from the
 ### ci_lease_claim
 
 <!-- mcp-lint: allow -->
-Claim this MR's CI attendant lease for this session. Returns {claimed: true, lease, previousOwner?} or {claimed: false, holder}. Re-claiming a lease this session holds refreshes it. holder is the role (watch-ci default, or doctor); ttlSeconds 60 to 900, default 600. One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
+Claim this MR or PR's CI attendant lease for this session. Returns {claimed: true, lease, previousOwner?} or {claimed: false, holder}. Re-claiming a lease this session holds refreshes it. holder is the role (watch-ci default, or doctor); ttlSeconds 60 to 900, default 600. One CI attendant per MR or PR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
 
 ```json
 {
@@ -3691,7 +3691,7 @@ Claim this MR's CI attendant lease for this session. Returns {claimed: true, lea
     },
     "branch": {
       "type": "string",
-      "description": "The MR's source branch; pass it so the board's stack preflight sees this attendant."
+      "description": "The MR or PR's source branch; pass it so the board's stack preflight sees this attendant."
     },
     "ttlSeconds": {
       "type": "number"
@@ -3707,7 +3707,7 @@ Claim this MR's CI attendant lease for this session. Returns {claimed: true, lea
 ### ci_lease_heartbeat
 
 <!-- mcp-lint: allow -->
-Refresh this session's CI attendant lease on the MR. Returns {ok: true, lease}, or {ok: false, reason: "lost", holder} when another owner holds it now, or {ok: false, reason: "none"}. ci_watch heartbeats on every poll, so call this only between watches (during a long fix). One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
+Refresh this session's CI attendant lease on the MR or PR. Returns {ok: true, lease}, or {ok: false, reason: "lost", holder} when another owner holds it now, or {ok: false, reason: "none"}. ci_watch heartbeats on every poll, so call this only between watches (during a long fix). One CI attendant per MR or PR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
 
 ```json
 {
@@ -3728,7 +3728,7 @@ Refresh this session's CI attendant lease on the MR. Returns {ok: true, lease}, 
 ### ci_lease_release
 
 <!-- mcp-lint: allow -->
-Release this session's CI attendant lease on the MR. Returns {released: true}, or {released: false, reason} when the lease is absent or another owner's. One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
+Release this session's CI attendant lease on the MR or PR. Returns {released: true}, or {released: false, reason} when the lease is absent or another owner's. One CI attendant per MR or PR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
 
 ```json
 {
@@ -3749,7 +3749,7 @@ Release this session's CI attendant lease on the MR. Returns {released: true}, o
 ### ci_lease_read
 
 <!-- mcp-lint: allow -->
-Read the MR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale lease on disk or null>, mine: <true when the fresh lease is this session's>}. A lease with no owner field was written by the pack script and reads as owner legacy:<holder>. A stale lease of this session's own is revived by calling ci_lease_heartbeat, which checks ownership only, not freshness. One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
+Read the MR or PR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale lease on disk or null>, mine: <true when the fresh lease is this session's>}. A lease with no owner field was written by the pack script and reads as owner legacy:<holder>. A stale lease of this session's own is revived by calling ci_lease_heartbeat, which checks ownership only, not freshness. One CI attendant per MR or PR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
 
 ```json
 {
@@ -3770,7 +3770,7 @@ Read the MR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale
 ### ci_watch
 
 <!-- mcp-lint: allow -->
-Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1500) passes, polling every intervalSeconds (default 30, 10 to 120, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default 75), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most 2 times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (10 minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error); it never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. On GitHub the pipeline is every check on the PR head: required checks (from the target branch's rules and protection) decide blocking and the state, intervalSeconds defaults to 60 and runs 30 to 120, the budget runs from the head's first Actions run, or from when rt first saw a check when the head has no Actions run, pipeline.id is a string like github:run:N, a failed commit status has jobId null and no trace tail, and priorPipelineId is ignored. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Watch the MR or PR's pipeline (its checks on GitHub) for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1500) passes, polling every intervalSeconds (default 30, 10 to 120, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; failed also as soon as a blocking job fails while the pipeline still runs; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs listing every failed job, with a trace tail on the first five blocking ones (jobs in same-project downstream pipelines included; read any other job's log with mr_job_trace), blockingFailures, lease, budget and next. budget is {minutes, elapsedMinutes, spent}, measured from the watched pipeline's createdAt against the ci.watch.budgetMinutes setting (default 75), or null while no pipeline for sha exists; a pipeline still running once spent is true returns running at once, so stop watching it. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. With attend: true the call attends the MR itself: every poll heartbeats this session's lease or, when none is held, claims it (holder, with the MR's source branch); a lease that vanishes is re-claimed at most 2 times per commit, and the lease is kept alive between calls until ci_lease_release. The budget window, prior pipeline id and waiting clock persist per MR, so later calls need not pass budgetMinutes or priorPipelineId, and a pipeline that last failed and runs again opens a fresh window by itself. attend adds the states timeout (still running past the budget), no_pipeline (10 minutes of waiting with no pipeline for sha; pushed says whether the MR head is at sha, remoteSha is that head), stood_down (another owner attends; carries holder), lease_unavailable (the lease could not be claimed or kept; carries error); it never returns lease_lost. With underBoardLease and attend it still only reads the board doctor lease. On GitHub the pipeline is every check on the PR head: required checks (from the target branch's rules and protection) decide blocking and the state, intervalSeconds defaults to 60 and runs 30 to 120, the budget runs from the head's first Actions run, or from when rt first saw a check when the head has no Actions run, pipeline.id is a string like github:run:N, a failed commit status has jobId null and no trace tail, and priorPipelineId is ignored. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -3782,11 +3782,11 @@ Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSec
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "sha": {
       "type": "string",
@@ -3819,7 +3819,7 @@ Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSec
     },
     "attend": {
       "type": "boolean",
-      "description": "true: claim and keep this session's lease and persist the watch window for the MR."
+      "description": "true: claim and keep this session's lease and persist the watch window for the MR or PR."
     },
     "holder": {
       "type": "string",
@@ -3840,7 +3840,7 @@ Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSec
 ### ci_triage
 
 <!-- mcp-lint: allow -->
-Sort a pipeline's failed jobs, same-project child pipelines included, into REAL, INFRA or UNCLEAR by their log, and mark each blocking job yours, INHERITED (also failing on the target branch) or UNKNOWN. pipelineId defaults to the MR's head pipeline (on GitHub a workflow run id, defaulting to the PR head's checks). Returns state triaged with pipeline, base, blocking, nonBlocking, crossProject, summary and next. Patterns and base settings come from ci.triage.*; config adds one-off real-patterns, infra-patterns and noisy-jobs, and sets base-depth, base-ref and skip-base. base names the comparison branch and noBase turns the comparison off. It reports; retrying is the caller's decision. On GitHub base pipelines are base-branch commits, and a failed check with no readable log is listed under crossProject. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Sort a pipeline's failed jobs, same-project child pipelines included, into REAL, INFRA or UNCLEAR by their log, and mark each blocking job yours, INHERITED (also failing on the target branch) or UNKNOWN. pipelineId defaults to the MR's head pipeline (on GitHub a workflow run id, defaulting to the PR head's checks). Returns state triaged with pipeline, base, blocking, nonBlocking, crossProject, summary and next. Patterns and base settings come from ci.triage.*; config adds one-off real-patterns, infra-patterns and noisy-jobs, and sets base-depth, base-ref and skip-base. base names the comparison branch and noBase turns the comparison off. It reports; retrying is the caller's decision. On GitHub base pipelines are base-branch commits, and a failed check with no readable log is listed under crossProject. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -3852,11 +3852,11 @@ Sort a pipeline's failed jobs, same-project child pipelines included, into REAL,
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "pipelineId": {
       "type": "number",
@@ -4036,7 +4036,7 @@ Merge images, case labels or waivers, removals, a transcript or a ticket url int
 ### evidence_attach
 
 <!-- mcp-lint: allow -->
-Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section (each case folded behind a summary when rt.evidence.foldScreenshots is on for the repo); and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as "<file name> (attached separately)" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub the files go up with the description in one gh write through the daemon (gh 2.99 or newer), after the same checks; a token GitHub refuses for uploads still gets the description written, with the files named as attached separately and a line saying why. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?, uploadRefused?, readBackError?}. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Call only after the attach gate's proceed. Uploads each file the run's evidence record allows (each distinct annotated board and each waived capture, once) through mr_upload's guard with the run's id, reusing an earlier upload whose bytes and project match; renders the evidence section (each case folded behind a summary when rt.evidence.foldScreenshots is on for the repo); and replaces the section under heading in the MR description (inserted above before, or appended). A refused or twice-timed-out file blocks the description write unless linkRefused is true, which names it as "<file name> (attached separately)" instead, never its path; a file an earlier call linked that way is sent again: refused again, it stays linked, is listed in linked and does not block; timed out twice, it lands in timedOutTwice like any other file. The target is mrUrl, or repoName with iid, else the run's mr field (an iid passed alone must match that field's, or the call is refused); with repoName and no iid there is no MR yet, so the section (and description, spliced, when passed) comes back unwritten. On GitHub the files go up with the description in one gh write through the daemon (gh 2.99 or newer), after the same checks; a token GitHub refuses for uploads still gets the description written, with the files named as attached separately and a line saying why. A section that names a path in your home directory (a caption, label, waiver, ticket or appendix carrying one) is never written, and writeErrors says so. Returns {forge, mr, uploaded, refused (by bucket), timedOutTwice, linked, section, description?, descriptionWritten, notWritten?, writeErrors?, uploadRefused?, readBackError?}. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -4068,11 +4068,11 @@ Call only after the attach gate's proceed. Uploads each file the run's evidence 
     },
     "iid": {
       "type": "number",
-      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+      "description": "The MR's iid, or the PR's number on GitHub; omit when mrUrl is given, which supplies it."
     },
     "mrUrl": {
       "type": "string",
-      "description": "The MR's https URL; supplies both the repo and iid."
+      "description": "The MR or PR's https URL; supplies both the repo and iid."
     },
     "description": {
       "type": "string",

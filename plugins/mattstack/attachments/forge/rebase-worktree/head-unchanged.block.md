@@ -7,5 +7,5 @@ label: Head unchanged
 
 The old head here is the conflict result's `newHead`: the branch ref when
 the rebase paused, which differs from `oldHead` when rt sync first reset a
-GitLab-rebased branch to origin. HEAD still equal to it means the human
+branch the forge rebased (GitLab's rebase, GitHub's update branch) to origin. HEAD still equal to it means the human
 aborted in their pane, never "already current".

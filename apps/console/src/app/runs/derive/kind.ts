@@ -1,5 +1,6 @@
 import type { BranchEnrichment } from '@mattstack/rt-client';
 
+import { forgeOf, mrRefText } from '../../forgeNoun';
 import { mrIidOf } from '../mrRef';
 
 export type RunKind = 'work' | 'review' | 'respond' | 'utility';
@@ -28,7 +29,10 @@ export function runTitle(
     branch: string | null;
     work_type: string;
     id: string;
-    outcome?: { reviewed?: { iid: number } | null } | null;
+    repo?: string;
+    outcome?: {
+      reviewed?: { iid: number; url?: string | null } | null;
+    } | null;
   },
   enrichment: {
     ticketTitle?: string | null;
@@ -36,14 +40,19 @@ export function runTitle(
     /** The MR a review or respond run reads, before rt records it in the
         outcome. */
     mrIid?: number | string | null;
+    /** The MR's url, which names its forge. */
+    mrUrl?: string | null;
   }
 ): string {
   const kind = runKind(run.work_type);
   if (kind === 'review' || kind === 'respond') {
     if (present(enrichment.mrTitle)) return enrichment.mrTitle;
     if (present(enrichment.ticketTitle)) return enrichment.ticketTitle;
-    const iid = run.outcome?.reviewed?.iid ?? enrichment.mrIid;
-    return iid != null ? `Review of !${iid}` : `${run.work_type} run`;
+    const reviewed = run.outcome?.reviewed;
+    const iid = reviewed?.iid ?? enrichment.mrIid;
+    if (iid == null) return `${run.work_type} run`;
+    const forge = forgeOf(reviewed?.url, enrichment.mrUrl, run.repo);
+    return `Review of ${mrRefText(forge, iid)}`;
   }
   if (present(enrichment.ticketTitle)) return enrichment.ticketTitle;
   if (present(run.branch)) return run.branch;
@@ -60,5 +69,6 @@ export function enrichedRunTitle(
   return runTitle(run, {
     ticketTitle: enrichment?.ticket?.title,
     mrIid: enrichment?.mr?.iid ?? mrIidOf(mrField),
+    mrUrl: enrichment?.mr?.webUrl ?? mrField,
   });
 }

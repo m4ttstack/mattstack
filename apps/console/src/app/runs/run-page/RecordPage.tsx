@@ -142,6 +142,7 @@ export function RecordPage({
         meta={meta}
         title={parts.title}
         outcome={run.outcome}
+        repo={run.repo}
         stats={stats}
         abandoned={abandonReason(run, fields)}
         facts={parts.factRows}

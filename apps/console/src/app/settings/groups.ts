@@ -65,7 +65,7 @@ export const GROUPS: Group[] = [
   },
   {
     id: 'mrs',
-    label: 'Merge requests',
+    label: 'MRs and PRs',
     tier: 'rt',
     blurb: 'How rt lays out the MR and PR descriptions it writes.',
     match: prefix('rt.evidence.'),
@@ -107,7 +107,7 @@ export const GROUPS: Group[] = [
     id: 'board',
     label: 'Board',
     tier: 'apps',
-    blurb: 'The MR board.',
+    blurb: 'The MR and PR board.',
     match: prefix('board.'),
   },
   {

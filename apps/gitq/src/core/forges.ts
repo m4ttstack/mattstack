@@ -16,6 +16,16 @@ type GetSettingFn = typeof getSetting;
 export const FORGE_SLUGS = ['gitlab', 'github'] as const;
 export type ForgeSlug = (typeof FORGE_SLUGS)[number];
 
+/** What a forge calls a change: "PR" on GitHub, "MR" on GitLab or an unknown forge. */
+export function changeNoun(forge: string | null | undefined): 'PR' | 'MR' {
+  return forge === 'github' ? 'PR' : 'MR';
+}
+
+/** One change as its forge writes it: "PR #12" on GitHub, "MR !12" otherwise. */
+export function changeRef(forge: string | null | undefined, iid: number): string {
+  return forge === 'github' ? `PR #${iid}` : `MR !${iid}`;
+}
+
 /** A `gitq.forges` entry, keyed by remote host. */
 export interface ForgeOverride {
   provider: ForgeSlug;

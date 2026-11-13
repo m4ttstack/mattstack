@@ -7,6 +7,8 @@ Add a row when a page introduces a concept.
 | Concept | Approved | Avoid |
 | --- | --- | --- |
 | A GitLab merge request | MR ("merge request" on first use) | PR, pull request |
+| A GitHub pull request | PR ("pull request" on first use) | MR, merge request |
+| A merge request or pull request, where the page cannot know the forge | MR or PR ("merge request or pull request" on first use) | change, CR, review request |
 | The menu a right-click on a board row opens | row menu | context menu, right-click menu |
 | A Claude Code session board or flock starts in a herdr pane | agent | bot, worker, assistant |
 | The member a board belongs to (`board.defaultMember`) | seat | user, identity, owner |

@@ -687,8 +687,8 @@ export async function manageTracking(args: string[] = []): Promise<void> {
       const selected = await filterableMultiselect({
         message: `${repoArg} caches: space to toggle, enter to confirm`,
         options: [
-          { value: "branches",    label: "branches",    hint: "my branches: MR + Linear enrichment" },
-          { value: "project-mrs", label: "project-mrs", hint: "team-wide open-MR list (boards)" },
+          { value: "branches",    label: "branches",    hint: "my branches: MR or PR + Linear enrichment" },
+          { value: "project-mrs", label: "project-mrs", hint: "team-wide open MR and PR list (boards)" },
           { value: "discussions", label: "discussions", hint: "background thread freshness + comment notifications" },
         ],
         initialValues: current.mode === "off" ? ["branches"] : [...current.caches],

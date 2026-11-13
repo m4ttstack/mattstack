@@ -129,7 +129,7 @@ export function computeAttention(
     // what stage-implement produces, so requiring it keeps review-only and
     // watch-only pipelines out of the band.
     if (has(fields, "commits") && !has(fields, "mr")) {
-      return { needs: true, reason: "stranded", evidence: "finished with commits but no MR was ever opened" };
+      return { needs: true, reason: "stranded", evidence: "finished with commits but no MR or PR was ever opened" };
     }
   }
 

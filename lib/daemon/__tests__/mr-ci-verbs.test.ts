@@ -247,6 +247,16 @@ describe("mr:list-live", () => {
     answer = () => new ForgeHttpError("x", 502, "Bad Gateway", "boom");
     expect(await h["mr:list-live"]!({ repoName: GH, targetBranch: "feat" })).toEqual({ ok: false, error: "GitHub returned 502 Bad Gateway: boom" });
   });
+
+  test("on GitHub, a by-target listing past the cap says PRs", async () => {
+    const GH = "remote:github.com%2Facme%2Fapp";
+    const provider = { fetchPullRequestSummaries: async () => ({ rows: [], truncated: true }) };
+    const h = createMRHandlers({ ...fakeCtx(), repoIndex: () => ({ [GH]: "/tmp/ghapp" }) }, () => {}, {
+      getContext: async () => ({ forge: "github" as const, provider, projectPath: "acme/app" }),
+      writeback: () => { throw new Error("a live read must not write the project-MRs store"); },
+    });
+    expect(await h["mr:by-target"]!({ repoName: GH, targetBranch: "feat" })).toEqual({ ok: false, error: "more than 2000 PRs target feat; the listing stopped before the end" });
+  });
 });
 
 describe("mr:live-by-branch", () => {

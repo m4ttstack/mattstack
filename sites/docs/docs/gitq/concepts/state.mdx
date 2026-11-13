@@ -108,7 +108,7 @@ The agent skill writes these by running `<status-bin> job-status` (the gitq exec
 
 ## What gitq reads but never writes
 
-The GitLab token for `publish` and `import`: `GITLAB_TOKEN` from the environment first, then a grant-gated read from the rt daemon (`secrets:forge-token`, backed by rt's own encrypted store, not a plaintext file). gitq never writes either. See [Configuration](/gitq/reference/configuration).
+`publish` and `import` need the forge's token: `GITLAB_TOKEN` for a GitLab remote, `GITHUB_TOKEN` for a GitHub one. gitq reads it from the environment first. Without it, gitq asks the rt daemon (`secrets:forge-token`), which reads rt's own encrypted store, never a plaintext file. gitq never writes either. See [Configuration](/gitq/reference/configuration).
 
 ## Next
 

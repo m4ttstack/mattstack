@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { resolveForge, type ForgeOverrides } from '../src/core/forges.ts';
+import { changeNoun, changeRef, resolveForge, type ForgeOverrides } from '../src/core/forges.ts';
 import { hostFromRemoteUrl } from '../src/core/forge-helpers.ts';
 
 /** The two forms every remote comes in, so each host case can be run through both. */
@@ -120,5 +120,19 @@ describe('resolveForge', () => {
     const overrides: ForgeOverrides = { work: { provider: 'gitlab' } };
 
     expect(() => resolveForge('work', overrides)).toThrow(/baseUrl/);
+  });
+});
+
+describe('what each forge calls a change', () => {
+  test('GitHub names a PR with #, GitLab an MR with !', () => {
+    expect(changeNoun('github')).toBe('PR');
+    expect(changeNoun('gitlab')).toBe('MR');
+    expect(changeRef('github', 12)).toBe('PR #12');
+    expect(changeRef('gitlab', 12)).toBe('MR !12');
+  });
+
+  test('an unknown forge reads as GitLab, as gitq always has', () => {
+    expect(changeNoun(null)).toBe('MR');
+    expect(changeRef(undefined, 3)).toBe('MR !3');
   });
 });

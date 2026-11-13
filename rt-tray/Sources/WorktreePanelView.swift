@@ -222,7 +222,7 @@ struct WorktreePanelView: View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(headline).font(.system(size: 21, weight: .semibold)).foregroundStyle(WT.text)
-                Text("Their MR merged or closed, but something kept them from being cleaned up.")
+                Text("Their MR or PR merged or closed, but something kept them from being cleaned up.")
                     .font(.system(size: 13.5)).foregroundStyle(WT.textSecondary)
             }
             Spacer(minLength: 0)

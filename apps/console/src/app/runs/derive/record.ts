@@ -7,6 +7,7 @@ import type {
 } from '@mattstack/rt-client';
 
 import { isMine } from '../../../shared/gate-waiting';
+import { forgeOf, mrNoun } from '../../forgeNoun';
 import { usageMrHref, usd } from '../../usage/format';
 import { contextSchema } from './answers';
 import { formatClock } from './clock';
@@ -91,7 +92,7 @@ function costStat({ totals, mrKey, mrCost }: UsageRunData): RecordStat {
   return {
     id: 'cost',
     value,
-    label: `of ${usd(mrCost)} on this MR`,
+    label: `of ${usd(mrCost)} on this ${mrNoun(forgeOf(mrKey))}`,
     href: usageMrHref(mrKey),
   };
 }

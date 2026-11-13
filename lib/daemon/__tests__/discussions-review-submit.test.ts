@@ -369,6 +369,13 @@ describe("mr:review-submit", () => {
       });
     }
 
+    test("an unreadable head on GitHub names the PR", async () => {
+      const stub = stubProvider({ head: async () => null }, "https://github.com");
+      const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub, { refresh: async () => ({ discussions: [], fetchedAt: 1 }) }, "github"));
+      const res = await h["mr:review-submit"](PINNED);
+      expect(res).toEqual({ ok: false, error: "could not read the PR's head to check expectedHeadSha; nothing was posted (no PR)" });
+    });
+
     test("a provider without fetchSingleMR reads as an unreadable head", async () => {
       const stub = stubProvider();
       const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
