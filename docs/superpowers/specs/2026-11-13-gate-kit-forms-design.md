@@ -17,8 +17,9 @@ whole gate into a wait. Matt wants pane gates drawn with the mod kit's form
 #1138 removes the `next` question ("Happy with this, or should something
 change?") from every gate, because it cost an extra tap on every gate. The
 kit form brings its choices back as actions that are always there and never
-asked: Submit means continue, and Pause run, Go back to stage and Abandon run
-sit behind a More actions menu.
+asked: Submit means continue, and Pause run and Go back to stage sit behind a
+More actions menu. Abandon is left out (Matt's call); the CI and ship gates keep
+their own abandon option.
 
 The kit form also replaces the keypress hack: today the daemon closes a pane's
 AskUserQuestion form by sending Escape into it. The kit form closes itself.
@@ -31,8 +32,8 @@ until Matt is happy with it.
 - With the setting on, every pane gate opened through `gate_ask` or `gate_open`
   shows whole in the kit form, with no chunking and no 4 × 4 limit.
 - Submit means continue. The form never asks `next`.
-- More actions ▾ offers Pause run, Go back to stage ▸ and Abandon run, each only
-  where it applies.
+- More actions ▾ offers Pause run and Go back to stage ▸, each only where it
+  applies.
 - mattstack closes a kit form without sending any keypress.
 - With the setting off, without the mod, or where the mod can't draw, gates
   behave exactly as today.
@@ -166,7 +167,6 @@ When `kitForm: true` comes in and the setting is on:
     - `goBack`: the run's earlier stages (`earlier()` in
       `lib/runs/engine.ts`, the manifest stages before this one that have
       started), in run order.
-    - `abandon`: the gate belongs to a run. Open: see "Open questions".
     - When the gate's owner is `herd:*` (a shepherd's worker), `controls` is
       empty. Runs under a shepherd are redirected by the shepherd, not from
       the worker's pane. My call.
@@ -209,10 +209,9 @@ When `kitForm: true` comes in and the setting is on:
 ┃
 ┃ [ Submit ]  More actions ▾
 ┃              ├ Pause run
-┃              ├ Go back to stage ▸  plan
-┃              │                     provision
-┃              │                     implement
-┃              └ Abandon run
+┃              └ Go back to stage ▸  plan
+┃                                    provision
+┃                                    implement
 ```
 
 - **Submit** sends the site's own answers. It means continue, and it adds no
@@ -223,7 +222,7 @@ When `kitForm: true` comes in and the setting is on:
   after #1138.
 - **More actions ▾** is one quiet button beside Submit, worded as Matt picked:
   **More actions**, **Pause run**, **Go back to stage ▸** opening a list of
-  stage names, **Abandon run**.
+  stage names. No Abandon row (Matt's call).
   - Rows `controls` doesn't allow are left out.
   - With no rows, the button is left out.
 - **A run control sends only the reserved keys:**
@@ -232,10 +231,7 @@ When `kitForm: true` comes in and the setting is on:
   |---|---|
   | Pause run | `{next: "hold"}` |
   | Go back to stage ▸ `<stage>` | `{next: "go-back", to: "<stage>"}` |
-  | Abandon run | `{next: "abandon"}` |
 
-- **Abandon run** asks for a confirm under the buttons first. My call, using
-  the kit's confirm pattern.
 - **Keyboard.** More actions is a button like the others. Enter or a click
   opens the menu, the arrows move through it, Enter picks a row, and Escape
   closes it.
@@ -247,7 +243,7 @@ When `kitForm: true` comes in and the setting is on:
 - **The answer check.** `validateGateAnswers` and the shepherd's own
   `invalidAnswers` (`lib/mcp/herd-tools.ts`) accept reserved keys on every
   gate:
-  - `next`: one of `hold`, `go-back` or `abandon`, optionally wrapped as
+  - `next`: `hold` or `go-back`, optionally wrapped as
     `{value, note}`.
   - `to`: allowed only with `next: "go-back"`, checked by `run_resolve`.
   - An answer whose `next` is set may leave the gate's own questions
@@ -258,9 +254,8 @@ When `kitForm: true` comes in and the setting is on:
   and the skill hands it to `run_resolve`. A resumed run therefore asks the
   gate again instead of treating it as decided.
 - **Routing.** `gate-protocol` gains one shared rule: an answer with `next`
-  set goes to `run_resolve` (`hold`, `redirect` to `to`, or `abandon`), at
-  every site. #1138 keeps hold and go-back routing at the sites; abandon is
-  only routed at the failure and CI gates today. Open: see "Open questions".
+  set goes to `run_resolve` (`hold`, or `redirect` to `to`) at every site,
+  so every run gate that shows More actions handles both rows.
 - **Showing it.** The board and console answered views
   (`packages/gate-kit/src/summary.ts`) show a run control as its row label
   ("Paused the run"), not "(none)".
@@ -305,11 +300,10 @@ signals that read "blocked" need a kit case:
 
 ### Installing the mod
 
-**Open: see "Open questions".** One option is the human-todos pattern: list
-gate-form in `marketplace/marketplace.json` and add it to the mattstack
-plugin's `dependencies`. The other is to move the gate hook into mattstack's
-own mod (`plugins/mattstack/hooks/register.ts`), with gate-form staying the
-form's home.
+Matt picked the human-todos pattern: list gate-form in
+`marketplace/marketplace.json` and add it to the mattstack plugin's
+`dependencies`. It installs with mattstack, and the rt setting keeps it off
+until turned on. The gate hook lives in gate-form.
 
 ## Constraints
 
@@ -340,10 +334,4 @@ form's home.
 
 ## Open questions
 
-1. **Abandon run.** Today the skills route abandon only at the failure and CI
-   gates. Should the new shared rule in `gate-protocol` route it at every run
-   gate, or should More actions leave Abandon out except where a site already
-   routes it?
-2. **Installing.** Should gate-form follow the human-todos pattern (in the
-   marketplace, a mattstack dependency), or should the gate hook move into
-   mattstack's own mod?
+None.
