@@ -293,7 +293,7 @@ export const SCHEMAS = {
   "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional(), mrs: z.string().optional() }),
   "board.flockCommands": z.array(z.object({
     label: z.string().meta({ title: "Label", description: "What the menu row says." }),
-    command: z.string().meta({ title: "Command", description: "Shell command run in the MR's worktree." }),
+    command: z.string().meta({ title: "Command", description: "Shell command run in the MR or PR's worktree." }),
     icon: z
       .enum(["rt", "cd", "folder", "branch", "play", "pulse", "shell", "agent", "refresh", "file", "note"])
       .optional()

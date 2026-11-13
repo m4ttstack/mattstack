@@ -89,7 +89,7 @@ const ROWS: readonly SettingDef[] = [
     repoScoped: true,
     repoOnly: true,
     migrated: true,
-    description: "Per-repo MRs the daemon never tracks: {targetBranches?: glob[], authors?: username[]}. Target-branch globs are expanded to the repo's exact branch names and excluded on the GitLab request itself; authors are dropped after fetching. Absent means nothing is ignored.",
+    description: "Per-repo MRs and PRs the daemon never tracks: {targetBranches?: glob[], authors?: username[]}. Target-branch globs are expanded to the repo's exact branch names and excluded on the GitLab request itself (after fetching on GitHub); authors are dropped after fetching. Absent means nothing is ignored.",
   },
   {
     key: "rt.repoIdentityOverrides",
@@ -561,7 +561,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["team"],
     default: [],
     merge: "replace",
-    description: "GitLab usernames the board treats as bots, excluded from human MR attribution.",
+    description: "Usernames (GitLab) or logins (GitHub) the board treats as bots, excluded from human MR and PR attribution.",
   },
   {
     key: "board.ticketPrefixes",
@@ -569,7 +569,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["team"],
     defaultNote: "The active team's Linear key.",
     merge: "replace",
-    description: "Ticket key prefixes (e.g. RT, MAT) that keep the authors tab to the team's own tickets and link out to Linear from an MR title; rows on a codeowners tab pass regardless of prefix.",
+    description: "Ticket key prefixes (e.g. RT, MAT) that keep the authors tab to the team's own tickets and link out to Linear from an MR or PR title; rows on a codeowners tab pass regardless of prefix.",
   },
   {
     key: "board.slack",
@@ -585,7 +585,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["team"],
     default: "",
     merge: "replace",
-    description: "Default doctor skill for repairing a stuck MR; a repo's skills.jsonc doctor slot overrides it when present.",
+    description: "Default doctor skill for repairing a stuck MR or PR; a repo's skills.jsonc doctor slot overrides it when present.",
   },
   {
     key: "board.triage.doctorSkill",
@@ -593,7 +593,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["team"],
     default: "",
     merge: "replace",
-    description: "Doctor skill the board's own API-tier triage sweep runs on your MRs; deliberately never resolved through a repo's skills.jsonc manifest. A sibling flat key of board.triage, not a field inside it — the board reader assembles the two independently.",
+    description: "Doctor skill the board's own API-tier triage sweep runs on your MRs and PRs; deliberately never resolved through a repo's skills.jsonc manifest. A sibling flat key of board.triage, not a field inside it — the board reader assembles the two independently.",
   },
   {
     key: "board.tabs",
@@ -602,7 +602,7 @@ const ROWS: readonly SettingDef[] = [
     default: [{ id: "team", label: "Team", source: { kind: "authors" } }],
     merge: "replace",
     storeVersion: 2,
-    description: "Board tabs ({id, label, source, slackChannel?, reviewSkill?, pack?, dimEmpty?}), at least one, each id unique; pack picks which team pack's bindings a launch from that tab uses; dimEmpty fades roster members with nothing on that tab (absent: every tab but an authors one fades). source.kind 'authors' is the classic roster board; 'codeowners' lists any author's open MRs carrying a CODE_OWNER rule for the section, until merge/close. With nothing set, one Team tab of the roster's MRs.",
+    description: "Board tabs ({id, label, source, slackChannel?, reviewSkill?, pack?, dimEmpty?}), at least one, each id unique; pack picks which team pack's bindings a launch from that tab uses; dimEmpty fades roster members with nothing on that tab (absent: every tab but an authors one fades). source.kind 'authors' is the classic roster board; 'codeowners' (GitLab only) lists any author's open MRs carrying a CODE_OWNER rule for the section, until merge/close. With nothing set, one Team tab of the roster's MRs or PRs.",
   },
   {
     key: "board.turn",
@@ -610,7 +610,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["team", "user"],
     default: { author: ["threads", "changesRequested", "conflicts", "rebase", "ciFailing", "readyToMerge"], reviewer: ["assigned", "approvalReset", "repliedThreads"] },
     merge: "replace",
-    description: "What makes an open MR someone's turn. author: blockers that make it the author's move (the board's 'Waiting on author' Show item, Needs me respond/fix/merge). reviewer: what puts it in a reviewer's Needs me queue. An absent list means every signal (fallback lives in the board reader).",
+    description: "What makes an open MR or PR someone's turn. author: blockers that make it the author's move (the board's 'Waiting on author' Show item, Needs me respond/fix/merge). reviewer: what puts it in a reviewer's Needs me queue. An absent list means every signal (fallback lives in the board reader).",
   },
 
   // --- board (user) ----------------------------------------------------------
@@ -618,9 +618,9 @@ const ROWS: readonly SettingDef[] = [
     key: "board.staleAfterDays",
     type: "number",
     scopes: ["user"],
-    defaultNote: "Each project's MR sync window.",
+    defaultNote: "Each project's MR and PR sync window.",
     merge: "replace",
-    description: "Days of MR inactivity before the board flags it stale, for this developer. Absent = follow each project's rt MR sync window.",
+    description: "Days of MR or PR inactivity before the board flags it stale, for this developer. Absent = follow each project's rt sync window.",
   },
   {
     key: "board.gateGraceMinutes",
@@ -636,7 +636,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user"],
     default: { reviews: "reviews", responds: "responses", doctors: "doctors", mrs: "mrs" },
     merge: "deep",
-    description: "Herdr workspace names the board's review/respond/doctor panes launch into, and the one flock opens your MRs' tabs in when their repo has no pinned workspace, per developer.",
+    description: "Herdr workspace names the board's review/respond/doctor panes launch into, and the one flock opens your MRs' and PRs' tabs in when their repo has no pinned workspace, per developer.",
   },
   {
     key: "board.flockCommands",
@@ -644,7 +644,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user"],
     default: [],
     merge: "replace",
-    description: "Extra rows in the board's flock menu on your own MRs: each a label and a shell command run in the MR's worktree.",
+    description: "Extra rows in the board's flock menu on your own MRs and PRs: each a label and a shell command run in its worktree.",
   },
   {
     key: "board.defaultMember",
@@ -924,7 +924,7 @@ const ROWS: readonly SettingDef[] = [
     defaultNote: "Not set, so a chat a teammate asks for is refused.",
     merge: "replace",
     description:
-      "The repo (host/path, like gitlab.com/acme/support) whose folder the agent runs in when a teammate starts a Slack support chat by writing the trigger to you. Chats a pane requests use that pane's own repo.",
+      "The repo (host/path, like github.com/acme/support or gitlab.com/acme/support) whose folder the agent runs in when a teammate starts a Slack support chat by writing the trigger to you. Chats a pane requests use that pane's own repo.",
   },
 
   // --- agent (rt agent handoff) --------------------------------------------
@@ -1081,7 +1081,7 @@ const ROWS: readonly SettingDef[] = [
     key: "ci.triage.baseRef",
     type: "string",
     scopes: ["team", "org"],
-    defaultNote: "Falls back to the MR's target branch.",
+    defaultNote: "Falls back to the MR or PR's target branch.",
     merge: "replace",
     description: "The branch ci_triage compares a failing pipeline against. The org holds what every team shares and a team may set its own.",
   },
