@@ -6,6 +6,7 @@
  */
 
 import { accessSync, appendFileSync, chmodSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
+import { CrossOriginRedirectError, fetchSameOrigin } from "@mattstack/glance";
 import { homedir } from "os";
 import { join } from "path";
 import { wellKnownBinDirs } from "../bundled-tool.ts";
@@ -66,8 +67,13 @@ export interface Probes {
   mkdirExclusive(path: string): boolean;
   /** Blocks the thread: for short lock-retry waits on sync paths only. */
   sleepSync(ms: number): void;
-  /** Never throws: network failure yields status 0, body "", headers {}. Header names are lowercased. */
-  fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }): Promise<{ status: number; body: string; headers: Record<string, string> }>;
+  /**
+   * Never throws: network failure yields status 0, body "", headers {}. Header names are lowercased.
+   * `redirect: "same-origin"` follows a redirect only within the request's origin, for a request that
+   * carries a GitLab token: fetch keeps `PRIVATE-TOKEN` across origins. A redirect to another origin
+   * yields status 0 with `error` naming both origins.
+   */
+  fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number; redirect?: "same-origin" }): Promise<{ status: number; body: string; headers: Record<string, string>; error?: string }>;
   tray: TrayClient;
   daemon(cmd: string, payload?: Record<string, unknown>, timeoutMs?: number): Promise<DaemonResponse | null>;
   env: Record<string, string | undefined>;
@@ -385,19 +391,21 @@ export function createRealProbes(): Probes {
 
     async fetch(url, init) {
       try {
-        const response = await fetch(url, {
+        const request: RequestInit = {
           method: init?.method ?? "GET",
           headers: init?.headers,
           body: init?.body,
           signal: AbortSignal.timeout(init?.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS),
-        });
+        };
+        const response = await (init?.redirect === "same-origin" ? fetchSameOrigin(url, request) : fetch(url, request));
         const body = await response.text();
         const headers: Record<string, string> = {};
         response.headers.forEach((value, key) => {
           headers[key.toLowerCase()] = value;
         });
         return { status: response.status, body, headers };
-      } catch {
+      } catch (err) {
+        if (err instanceof CrossOriginRedirectError) return { status: 0, body: "", headers: {}, error: err.message };
         return { status: 0, body: "", headers: {} };
       }
     },

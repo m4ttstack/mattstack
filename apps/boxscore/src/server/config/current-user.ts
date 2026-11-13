@@ -1,3 +1,4 @@
+import { fetchSameOrigin } from '@mattstack/glance';
 import type { Forge } from '../../shared/forge.js';
 
 export interface CurrentUser {
@@ -61,10 +62,10 @@ export async function getCurrentUser(
     return cached;
   }
   if (!fetchImpl && process.env.VITEST) return null;
-  const f = fetchImpl ?? fetch;
-  if (forge === 'github') return readGitHubUser(f, baseUrl, token);
+  if (forge === 'github')
+    return readGitHubUser(fetchImpl ?? fetch, baseUrl, token);
   try {
-    const res = await f(`${baseUrl}/api/v4/user`, {
+    const res = await (fetchImpl ?? fetchSameOrigin)(`${baseUrl}/api/v4/user`, {
       headers: { 'PRIVATE-TOKEN': token },
     });
     if (!res.ok) return null;

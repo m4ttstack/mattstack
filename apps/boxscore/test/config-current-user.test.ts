@@ -1,6 +1,5 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -111,17 +110,20 @@ describe('getCurrentUser on a GitLab host that redirects', () => {
   let location: (path: string) => string;
 
   const listen = (handler: Parameters<typeof createServer>[1]) =>
-    new Promise<Server>((resolve) => {
+    new Promise<Server>(resolve => {
       const s = createServer(handler);
       s.listen(0, '127.0.0.1', () => resolve(s));
     });
-  const origin = (s: Server) => `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+  const origin = (s: Server) =>
+    `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
 
   beforeEach(async () => {
     otherHits = [];
     vi.stubEnv('VITEST', '');
     other = await listen((req, res) => {
-      otherHits.push(req.headers['private-token'] === undefined ? 'no token' : 'token');
+      otherHits.push(
+        req.headers['private-token'] === undefined ? 'no token' : 'token'
+      );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ username: 'elsewhere', name: null }));
     });
@@ -137,18 +139,21 @@ describe('getCurrentUser on a GitLab host that redirects', () => {
   });
   afterEach(async () => {
     vi.unstubAllEnvs();
-    await Promise.all([other, host].map((s) => new Promise((r) => s.close(r))));
+    await Promise.all([other, host].map(s => new Promise(r => s.close(r))));
   });
 
   it('sends nothing to another origin and reads no user', async () => {
-    location = (path) => `${origin(other)}${path}`;
+    location = path => `${origin(other)}${path}`;
     expect(await getCurrentUser(origin(host), TOKEN)).toBeNull();
     expect(otherHits).toEqual([]);
   });
 
   it('still follows a redirect on the same origin', async () => {
-    location = (path) => `/moved${path}`;
-    expect(await getCurrentUser(origin(host), TOKEN)).toEqual({ username: 'ada', name: null });
+    location = path => `/moved${path}`;
+    expect(await getCurrentUser(origin(host), TOKEN)).toEqual({
+      username: 'ada',
+      name: null,
+    });
     expect(otherHits).toEqual([]);
   });
 });

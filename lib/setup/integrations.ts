@@ -129,7 +129,7 @@ async function githubExpiry(p: Probes, token: string, ctx: ValidateCtx): Promise
 /** 403 here means the token's scopes can't read its own record, not that the token is invalid -- validate() already confirmed the token itself works, so this stays "couldn't determine" rather than "invalid". */
 async function gitlabExpiry(p: Probes, token: string, ctx: ValidateCtx): Promise<{ expiresAt: string | null } | null> {
   const host = stripTrailingSlash(ctx.host ?? "gitlab.com");
-  const res = await p.fetch(`https://${host}/api/v4/personal_access_tokens/self`, { headers: { "PRIVATE-TOKEN": token } });
+  const res = await p.fetch(`https://${host}/api/v4/personal_access_tokens/self`, { headers: { "PRIVATE-TOKEN": token }, redirect: "same-origin" });
   if (res.status !== 200) return null;
   const body = JSON.parse(res.body) as { expires_at?: string | null };
   return { expiresAt: body.expires_at ?? null };
@@ -187,13 +187,13 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
       const host = stripTrailingSlash(ctx.host ?? "gitlab.com");
       const headers = { "PRIVATE-TOKEN": token };
 
-      const userRes = await p.fetch(`https://${host}/api/v4/user`, { headers });
-      if (userRes.status === 0) return { status: "error", detail: unreachableDetail(host), scopesSeen: [] };
+      const userRes = await p.fetch(`https://${host}/api/v4/user`, { headers, redirect: "same-origin" });
+      if (userRes.status === 0) return { status: "error", detail: userRes.error ?? unreachableDetail(host), scopesSeen: [] };
       if (isCredentialRejection(userRes.status)) return { status: "invalid", detail: `GitLab answered HTTP ${userRes.status} to the account check`, scopesSeen: [] };
       if (userRes.status !== 200) return { status: "error", detail: `GitLab answered HTTP ${userRes.status} to the account check`, scopesSeen: [] };
 
       let scopesSeen: string[] = [];
-      const selfRes = await p.fetch(`https://${host}/api/v4/personal_access_tokens/self`, { headers });
+      const selfRes = await p.fetch(`https://${host}/api/v4/personal_access_tokens/self`, { headers, redirect: "same-origin" });
       if (selfRes.status === 200) {
         try {
           const parsed = JSON.parse(selfRes.body) as { scopes?: string[] };
@@ -205,8 +205,8 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
 
       const path = ctx.team.remote ? parseProjectPath(ctx.team.remote, host) : null;
       if (path) {
-        const projRes = await p.fetch(`https://${host}/api/v4/projects/${encodeURIComponent(path)}`, { headers });
-        if (projRes.status === 0) return { status: "error", detail: unreachableDetail(host), scopesSeen };
+        const projRes = await p.fetch(`https://${host}/api/v4/projects/${encodeURIComponent(path)}`, { headers, redirect: "same-origin" });
+        if (projRes.status === 0) return { status: "error", detail: projRes.error ?? unreachableDetail(host), scopesSeen };
         if (projRes.status === 404 || projRes.status === 403) return { status: "invalid", detail: `This token cannot see ${path}`, scopesSeen };
         if (projRes.status !== 200) return { status: "error", detail: `GitLab answered HTTP ${projRes.status} to the project lookup`, scopesSeen };
       }
