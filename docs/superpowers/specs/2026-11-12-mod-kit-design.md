@@ -146,11 +146,29 @@ the kit renderer and wires the pointer controller. The hook-side patterns
 (`registerHideablePane(on, ...)`, the transcript summary) stay functions; they
 draw nothing of their own.
 
-Whether Claude Code's global `h` accepts function components is not known. If
-it does not, the build points the mod's JSX at a kit factory under another name
-(the environment owns `h` and `Fragment`), which expands kit components and
-passes engine elements to the global `h`. The builder settles this first, with
-a probe like the bundle probe.
+**`h` runs function components at once (eager), probed 2026-11-12 on mod API
+2.1.322.** `h(Fn, props, ...children)` calls `Fn(props)` inside `h` and returns
+what `Fn` returned; the element it hands back has a string `type` (`'Text'`), never
+the function. The same holds in a hooks module's `ui.render` hook and in a Client
+module (`(props, surface)`), each probed under `claude plugin test` with
+`<Outer><Inner label="x" /></Outer>`:
+
+- `Outer` receives `children` already expanded: the child is an object whose
+  `type` is the string `'Text'`, not `Inner`.
+- `Inner` has run before `Outer` is entered, and `<Inner />` written alone is
+  already a `Text` element (one call during `h`).
+
+So the kit cannot have `Panel` walk a tree of unexpanded kit elements. A kit
+component runs when its tag is evaluated, before its parent, and has only its own
+props and its children's engine nodes. Kit components return engine nodes, and
+where a parent must tell one kit child from another (`Panel` laying children out
+as lines), the child returns a marker node that `Panel` recognises. No kit
+factory is needed, and a mod's source still writes no pragma and declares nothing
+named `h`.
+
+Not probed: whether the engine accepts a marker node's shape (an unknown prop or
+tag on a known element). Task 6 settles that against the real elements before
+relying on it.
 
 ## The kit (my calls)
 
