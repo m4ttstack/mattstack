@@ -95,10 +95,15 @@ Options:
 - `isActive(state)`: false while the surface takes no clicks (a form already sent).
 - `engaged(props)`: a message posted on every press and key. The hooks module uses it to learn the pointer or keyboard is in the Client.
 
-`ui` is `{ width, focused, state, setState, post, hide, onKey }`. `ui.state`
+`ui` is `{ width, focused, state, setState, post, hide, onKey, keyboard, keyPressing, pressFor }`. `ui.state`
 is a getter for the current state, pointer writes included. `ui.hide()` posts
 `{ type: 'hide' }`, which `paneMessage` handles. `ui.onKey(fn)` registers a key
-handler that also reports engagement.
+handler that also reports engagement. A handler that returns `true` handled the
+key, and that puts the surface in keyboard mode (`ui.keyboard`) until any pointer
+event, so a mod can show its keyboard marks only then. `ui.pressFor(run, ms?)`
+is for a key that activates a control: it sets `ui.keyPressing` for about 150 ms
+(the module draws the control pressed meanwhile), ignores keys until then, and
+then calls `run`.
 
 ```tsx
 export default kitClient<Props, { cursor: number } & PointerState>(
