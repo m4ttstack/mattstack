@@ -522,6 +522,7 @@ function kitClient(body, options = {}) {
     };
     const focused = options.focused ? options.focused(props) : props?.focused !== false;
     const engage = options.engaged && (() => surface.post(options.engaged(props)));
+    let reveal;
     const ui = {
       width: surface.columns || 80,
       focused,
@@ -535,6 +536,11 @@ function kitClient(body, options = {}) {
         engage?.();
         if (latest.keyPress)
           return;
+        if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
+          setState({ ...latest, keyboard: true });
+          reveal?.();
+          return;
+        }
         if (fn(event) === true && !latest.keyboard)
           setState({ ...latest, keyboard: true });
       }),
@@ -543,6 +549,9 @@ function kitClient(body, options = {}) {
       },
       get keyPressing() {
         return latest.keyPress === true;
+      },
+      onReveal: (fn) => {
+        reveal = fn;
       },
       pressFor: (run, ms = KEY_PRESS_MS) => {
         if (latest.keyPress)

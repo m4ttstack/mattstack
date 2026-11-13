@@ -14,7 +14,7 @@ type State = PointerState & { sel?: Selection }
 
 // The stop and button the selection lands on now: its own, else the nearest one left.
 function resolve(stops: KeyStop[], sel: Selection | undefined): { at: number; col: number } {
-  if (!sel) return { at: 0, col: 0 }
+  if (!sel) return { at: 0, col: stops[0] ? mainOf(stops[0]) : 0 }
   const found = stops.findIndex(s => s.key === sel.key)
   const at = found >= 0 ? found : Math.min(sel.at, stops.length - 1)
   const buttons = stops[at]?.buttons ?? []
@@ -51,6 +51,12 @@ export default kitClient<Props, State>(
       stops.forEach((stop, at) => stop.buttons.forEach((button, col) => JSON.stringify(messageOf(button)) === wanted && mark(at, col)))
       ui.post(message)
     }
+
+    // The first key out of keyboard mode only shows the selection, so it is brought into view then.
+    ui.onReveal(() => {
+      const offset = revealOffset(layout, stops, here.at, props.offset)
+      if (offset !== props.offset) ui.post({ type: 'scrollTo', offset })
+    })
 
     // True for a key handled here, which turns on keyboard mode and its marks.
     ui.onKey(ev => {
@@ -94,6 +100,7 @@ export default kitClient<Props, State>(
   },
   {
     initial: () => ({}),
+    revealKeys: ['up', 'down', 'left', 'right', 'tab', 'return', 'enter'],
     // The engine gives no focus signal for a Client, so each click and key tells the hooks module the pointer or keyboard is here.
     engaged: () => ({ type: 'engaged' }),
   },

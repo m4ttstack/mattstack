@@ -23,6 +23,8 @@ export type KitUi<S> = {
   readonly keyPressing: boolean
   // Shows the press for a moment, then runs `run`: what a key that activates a control calls.
   pressFor: (run: () => void, ms?: number) => void
+  // Runs when one of the `revealKeys` enters keyboard mode, so the module can bring its selection into view.
+  onReveal: (fn: () => void) => void
 }
 
 export type KitOptions<P, S> = {
@@ -33,6 +35,9 @@ export type KitOptions<P, S> = {
   isActive?: (state: S) => boolean
   // Posted on every press and key, so the hooks module can tell the pointer or keyboard is here.
   engaged?: (props: P) => JsonValue
+  // Keys that, outside keyboard mode, only enter it: the first press shows where the keys are and the next one acts,
+  // so no key moves or presses a selection the person cannot see yet.
+  revealKeys?: readonly string[]
 }
 
 // A Client module drawn with kit components: seeds the state, then wires the pointer over the lines its Panel laid out.
@@ -48,6 +53,7 @@ export function kitClient<P, S extends PointerState = PointerState>(body: (props
     }
     const focused = options.focused ? options.focused(props) : (props as { focused?: unknown } | null)?.focused !== false
     const engage = options.engaged && (() => surface.post(options.engaged!(props)))
+    let reveal: (() => void) | undefined
     const ui: KitUi<S> = {
       width: surface.columns || 80,
       focused,
@@ -61,6 +67,11 @@ export function kitClient<P, S extends PointerState = PointerState>(body: (props
         void surface.onKey(event => {
           engage?.()
           if (latest.keyPress) return
+          if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
+            setState({ ...latest, keyboard: true })
+            reveal?.()
+            return
+          }
           if (fn(event) === true && !latest.keyboard) setState({ ...latest, keyboard: true })
         }),
       get keyboard() {
@@ -68,6 +79,9 @@ export function kitClient<P, S extends PointerState = PointerState>(body: (props
       },
       get keyPressing() {
         return latest.keyPress === true
+      },
+      onReveal: fn => {
+        reveal = fn
       },
       pressFor: (run, ms = KEY_PRESS_MS) => {
         if (latest.keyPress) return

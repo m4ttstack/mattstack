@@ -400,6 +400,7 @@ function kitClient(body, options = {}) {
     };
     const focused = options.focused ? options.focused(props) : props?.focused !== false;
     const engage = options.engaged && (() => surface.post(options.engaged(props)));
+    let reveal;
     const ui = {
       width: surface.columns || 80,
       focused,
@@ -413,6 +414,11 @@ function kitClient(body, options = {}) {
         engage?.();
         if (latest.keyPress)
           return;
+        if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
+          setState({ ...latest, keyboard: true });
+          reveal?.();
+          return;
+        }
         if (fn(event) === true && !latest.keyboard)
           setState({ ...latest, keyboard: true });
       }),
@@ -421,6 +427,9 @@ function kitClient(body, options = {}) {
       },
       get keyPressing() {
         return latest.keyPress === true;
+      },
+      onReveal: (fn) => {
+        reveal = fn;
       },
       pressFor: (run, ms = KEY_PRESS_MS) => {
         if (latest.keyPress)
@@ -991,7 +1000,7 @@ function kitWindow(layout, width, offset, focus = {}) {
 // mods/human-todos/src/pane/kit-view.tsx
 function resolve(stops, sel) {
   if (!sel)
-    return { at: 0, col: 0 };
+    return { at: 0, col: stops[0] ? mainOf(stops[0]) : 0 };
   const found = stops.findIndex((s) => s.key === sel.key);
   const at = found >= 0 ? found : Math.min(sel.at, stops.length - 1);
   const buttons = stops[at]?.buttons ?? [];
@@ -1024,6 +1033,11 @@ var kit_view_default = kitClient((props, ui) => {
     stops.forEach((stop, at) => stop.buttons.forEach((button, col) => JSON.stringify(messageOf(button)) === wanted && mark(at, col)));
     ui.post(message);
   };
+  ui.onReveal(() => {
+    const offset = revealOffset(layout, stops, here.at, props.offset);
+    if (offset !== props.offset)
+      ui.post({ type: "scrollTo", offset });
+  });
   ui.onKey((ev) => {
     if (!ui.focused || stops.length === 0)
       return false;
@@ -1060,6 +1074,7 @@ var kit_view_default = kitClient((props, ui) => {
   }));
 }, {
   initial: () => ({}),
+  revealKeys: ["up", "down", "left", "right", "tab", "return", "enter"],
   engaged: () => ({ type: "engaged" })
 });
 export {
