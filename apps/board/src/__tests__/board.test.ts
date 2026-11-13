@@ -565,6 +565,54 @@ describe('buildBoard codeowner tabs by forge', () => {
     expect(out[0]!.codeownerSections).toEqual(['@Acme/Web']);
   });
 
+  test('case-duplicate GitHub tabs: the first tab keeps the rows', () => {
+    const gh: BoardConfig = {
+      ...config,
+      forge: { kind: 'github', host: 'https://github.com' },
+      projects: ['acme/widgets'],
+      rtRepos: { 'acme/widgets': 'github.com/acme/widgets' },
+      tabs: [
+        {
+          id: 'a',
+          label: 'A',
+          source: { kind: 'codeowners', section: '@Acme/Web' },
+        },
+        {
+          id: 'b',
+          label: 'B',
+          source: { kind: 'codeowners', section: '@acme/web' },
+        },
+      ],
+    };
+    const row = stranger(
+      'github:5',
+      'https://github.com/acme/widgets/pull/5',
+      'github'
+    );
+    const out = buildBoard([row], gh, now, new Map([[row.id, ['@acme/web']]]));
+    expect(out[0]!.codeownerSections).toEqual(['@Acme/Web']);
+  });
+
+  test('GitLab keeps a duplicate daemon tag as sent', () => {
+    const gl: BoardConfig = {
+      ...config,
+      tabs: [
+        {
+          id: 'w',
+          label: 'W',
+          source: { kind: 'codeowners', section: 'Web' },
+        },
+      ],
+    };
+    const row = stranger(
+      'gitlab:5',
+      'https://gitlab.com/org/repo-a/-/merge_requests/5',
+      'gitlab'
+    );
+    const out = buildBoard([row], gl, now, new Map([[row.id, ['Web', 'Web']]]));
+    expect(out[0]!.codeownerSections).toEqual(['Web', 'Web']);
+  });
+
   test('GitLab tab Web does not match tag web', () => {
     const gl: BoardConfig = {
       ...config,

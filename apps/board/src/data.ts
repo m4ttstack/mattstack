@@ -180,14 +180,14 @@ export function buildBoard(
   const projects = new Set(config.projects);
   const prefixes = new Set(config.ticketPrefixes);
   // Keyed so a GitHub tag (a lowercased owner) finds its tab's own spelling,
-  // which is what filterByTab and channelForMR compare against.
-  const tabSections = new Map(
-    config.tabs.flatMap(t =>
-      t.source.kind === 'codeowners'
-        ? [[sectionKey(config.forge.kind, t.source.section), t.source.section]]
-        : []
-    ) as [string, string][]
-  );
+  // which is what filterByTab and channelForMR compare against. The first tab
+  // for a key wins: tabs differing only by case are one owner.
+  const tabSections = new Map<string, string>();
+  for (const t of config.tabs) {
+    if (t.source.kind !== 'codeowners') continue;
+    const key = sectionKey(config.forge.kind, t.source.section);
+    if (!tabSections.has(key)) tabSections.set(key, t.source.section);
+  }
   const configBots = new Set(config.botUsernames.map(b => b.toLowerCase()));
   const out: BoardMR[] = [];
   for (const pr of prs) {
@@ -196,14 +196,10 @@ export function buildBoard(
     const isMember = members.has(pr.author.username);
     // Only tags matching a currently-configured tab count -- a tab removed
     // from config must not keep stale-tagged rows on the board.
-    const tagged = [
-      ...new Set(
-        (tags?.get(pr.id) ?? []).flatMap(s => {
-          const own = tabSections.get(sectionKey(config.forge.kind, s));
-          return own === undefined ? [] : [own];
-        })
-      ),
-    ];
+    const tagged = (tags?.get(pr.id) ?? []).flatMap(s => {
+      const own = tabSections.get(sectionKey(config.forge.kind, s));
+      return own === undefined ? [] : [own];
+    });
     // A tagged row is on the board regardless of author; per-tab display
     // filtering by section is Task 11's job, not buildBoard's.
     if (!isMember && tagged.length === 0) continue;
