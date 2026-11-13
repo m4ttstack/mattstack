@@ -147,11 +147,29 @@ export function isPluginTree(f: string): boolean {
   return /^plugins\/[^/]+\//.test(f);
 }
 
-export function pluginDirs(changed: string[]): string[] {
+// Mods build into plugins/<name> (scripts/mods/build.ts); their tests run in
+// static (mods:test) and in the plugin jobs, never in the unit shards.
+export function isModTree(f: string): boolean {
+  return f.startsWith("mods/") || f.startsWith("packages/mod-kit/");
+}
+
+const MOD_FIXTURE = "packages/mod-kit/test/fixture-mod/";
+const BUILD_TEST = "scripts/mods/__tests__/build-lib.test.ts";
+
+// A kit change can alter every built mod, so it names each plugin that has a
+// mods/<name>/.
+export function pluginDirs(changed: string[], root: string = ROOT): string[] {
   const out = new Set<string>();
   for (const f of changed) {
     const m = /^(plugins\/[^/]+)\//.exec(f);
     if (m) out.add(m[1]!);
+    const mod = /^mods\/([^/]+)\//.exec(f);
+    if (mod) out.add(`plugins/${mod[1]}`);
+    if (f.startsWith("packages/mod-kit/")) {
+      const dir = join(root, "mods");
+      if (!existsSync(dir)) continue;
+      for (const d of readdirSync(dir, { withFileTypes: true })) if (d.isDirectory()) out.add(`plugins/${d.name}`);
+    }
   }
   return [...out].sort();
 }
@@ -185,7 +203,7 @@ export const ALL_PLUGIN_TRIGGERS = [CHECKS_WORKFLOW, SCOPE_SCRIPT];
 
 export function prPluginDirs(changed: string[], root: string = ROOT): string[] {
   if (changed.some((f) => ALL_PLUGIN_TRIGGERS.includes(f))) return existingPluginDirs(root);
-  return [...new Set([...pluginDirs(changed), ...rtTriggeredPluginDirs(changed, root)])].sort();
+  return [...new Set([...pluginDirs(changed, root), ...rtTriggeredPluginDirs(changed, root)])].sort();
 }
 
 const WEBSITE_TRIGGERS = [
@@ -241,6 +259,7 @@ function e2eIgnores(f: string, reach?: ReadonlySet<string>): boolean {
     isProse(f) ||
     isAppsTree(f) ||
     isPluginTree(f) ||
+    isModTree(f) ||
     f.startsWith("rt-tray/") ||
     isGoSource(f) ||
     (f.startsWith(".github/") && f !== E2E_WORKFLOW)
@@ -316,7 +335,7 @@ export function existingPluginDirs(root: string = ROOT): string[] {
 // never counts: the guards job runs every one whenever the shards do not
 // run in full.
 function readBy(sources: Map<string, string>, f: string, opts: { fullPathOnly?: boolean; testsOnly?: boolean } = {}): string[] {
-  const fullOnly = opts.fullPathOnly || isPluginTree(f) || GENERIC_NAMES.has(basename(f));
+  const fullOnly = opts.fullPathOnly || isPluginTree(f) || isModTree(f) || GENERIC_NAMES.has(basename(f));
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = [new RegExp(`(["'\`]|\\}/|\\.\\./)${escape(f)}["'\`]`)];
   // The full path spelled as join() segments: "apps", "board", "server.ts".
@@ -396,6 +415,7 @@ function outsideShards(input: ScopeInput, f: string): boolean {
   return (
     isAppsTree(f) ||
     isPluginTree(f) ||
+    isModTree(f) ||
     isWebsiteTree(f) ||
     isOtherCiConfig(f) ||
     META_FILES.has(f) ||
@@ -433,6 +453,7 @@ export function decide(input: ScopeInput): Decision {
   let snapshots = 0;
   let read = 0;
   for (const f of input.changed) {
+    if (f.startsWith(MOD_FIXTURE)) extra.add(BUILD_TEST);
     const test = snapshotTest(f);
     if (test && input.sources.has(test)) {
       extra.add(test);

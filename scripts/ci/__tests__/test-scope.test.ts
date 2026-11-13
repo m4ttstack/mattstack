@@ -10,6 +10,7 @@ import {
   decide,
   e2eReach,
   existingPluginDirs,
+  isModTree,
   isPluginTree,
   jobsFor,
   macosOnlyTests,
@@ -344,6 +345,37 @@ describe("plugins", () => {
     expect(decide(pr(changed)).mode).toBe("changed");
     expect(pluginDirs(changed)).toEqual(["plugins/herdr-chat"]);
   });
+  test("a mod source maps to its built plugin and runs no unit shards", () => {
+    const changed = ["mods/gate-form/src/form.tsx"];
+    expect(pluginDirs(changed)).toEqual(["plugins/gate-form"]);
+    expect(decide(pr(changed)).mode).toBe("skip");
+  });
+  test("a kit change names every plugin built from a mod and runs no unit shards", () => {
+    const changed = ["packages/mod-kit/src/draw/theme.ts"];
+    expect(pluginDirs(changed)).toEqual(["plugins/gate-form", "plugins/kit-gallery"]);
+    expect(decide(pr(changed)).mode).toBe("skip");
+  });
+  test("a kit change names only plugins whose mod exists", () => {
+    const root = mkdtempSync(join(tmpdir(), "test-scope-mods-"));
+    try {
+      mkdirSync(join(root, "mods", "alpha"), { recursive: true });
+      expect(pluginDirs(["packages/mod-kit/src/index.ts"], root)).toEqual(["plugins/alpha"]);
+      expect(pluginDirs(["packages/mod-kit/src/index.ts"], join(root, "none"))).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  test("a change to the build test's fixture mod adds the build test to extra", () => {
+    const decision = decide(pr(["packages/mod-kit/test/fixture-mod/mod.json"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toEqual(["scripts/mods/__tests__/build-lib.test.ts"]);
+  });
+  test("isModTree covers the mods and the kit, nothing near them", () => {
+    expect(isModTree("mods/gate-form/mod.json")).toBe(true);
+    expect(isModTree("packages/mod-kit/README.md")).toBe(true);
+    expect(isModTree("scripts/mods/build.ts")).toBe(false);
+    expect(isModTree("packages/mod-kitchen/x.ts")).toBe(false);
+  });
   test("isPluginTree needs a plugin name segment", () => {
     expect(isPluginTree("plugins/herdr-chat/Cargo.toml")).toBe(true);
     expect(isPluginTree("plugins/README.md")).toBe(false);
@@ -481,7 +513,7 @@ describe("workflow wiring", () => {
   });
 
   describe("the checks gate on unit-macos", () => {
-    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_MACOS: "./a.test.ts" };
+    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", GATE_FORM: "success", KIT_GALLERY: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_MACOS: "./a.test.ts" };
     function gate(env: Record<string, string>): number {
       const script = jobs("checks.yml").checks!.steps!.find((step) => step.name === "Every gate passed")!.run!;
       return Bun.spawnSync(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", ...passing, ...env }, stdout: "pipe", stderr: "pipe" }).exitCode;
