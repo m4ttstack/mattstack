@@ -1,11 +1,12 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 
 import { childEnv } from '../../lib/subprocess'
 
 export type ModManifest = {
   plugin: Record<string, unknown> & { name: string; version: string }
   clients: string[]
+  files?: string[]
 }
 
 const CLIENT_MODULE = /\bmodule:\s*"\.\/([^"]+\.tsx)"/g
@@ -113,11 +114,19 @@ function readManifest(srcDir: string): ModManifest {
   const file = join(srcDir, 'mod.json')
   if (!existsSync(file)) throw new Error(`no mod.json in ${srcDir}`)
   const manifest = JSON.parse(readFileSync(file, 'utf8')) as Partial<ModManifest>
-  const { plugin, clients } = manifest
+  const { plugin, clients, files } = manifest
   if (!plugin || typeof plugin.name !== 'string' || typeof plugin.version !== 'string') throw new Error(`${file}: plugin needs a name and a version`)
   if (!Array.isArray(clients) || clients.some(c => typeof c !== 'string' || !c.endsWith('.tsx'))) throw new Error(`${file}: clients must list .tsx files`)
   for (const c of clients) if (!existsSync(join(srcDir, 'src', c))) throw new Error(`${file}: client ${c} is not in src/`)
-  return { plugin, clients }
+  if (files !== undefined) {
+    if (!Array.isArray(files) || files.some(f => typeof f !== 'string' || f === '')) throw new Error(`${file}: files must list paths`)
+    for (const f of files) {
+      const path = resolve(srcDir, f)
+      if (isAbsolute(f) || !path.startsWith(resolve(srcDir) + sep)) throw new Error(`${file}: files entry ${f} must stay inside the mod folder`)
+      if (!existsSync(path)) throw new Error(`${file}: files entry ${f} is not in the mod folder`)
+    }
+  }
+  return { plugin, clients, files }
 }
 
 // An output folder is emptied only when it is new, empty, or already this plugin's own output: a wrong path must not cost anything.
@@ -138,7 +147,7 @@ function assertEmptiable(srcDir: string, outDir: string, name: string): void {
 }
 
 export async function buildMod(srcDir: string, outDir: string, opts: { validate: boolean }): Promise<void> {
-  const { plugin, clients } = readManifest(srcDir)
+  const { plugin, clients, files: rootFiles } = readManifest(srcDir)
   assertEmptiable(srcDir, outDir, plugin.name)
 
   const root = join(srcDir, 'src')
@@ -173,6 +182,8 @@ export async function buildMod(srcDir: string, outDir: string, opts: { validate:
     files.set(name, text)
   }
 
+  assertNoOverwrite(srcDir, [...files.keys()], rootFiles ?? [])
+
   rmSync(outDir, { recursive: true, force: true })
   mkdirSync(join(outDir, 'hooks'), { recursive: true })
   mkdirSync(join(outDir, '.claude-plugin'), { recursive: true })
@@ -186,11 +197,28 @@ export async function buildMod(srcDir: string, outDir: string, opts: { validate:
 
   for (const dir of ['types', 'assets']) if (existsSync(join(srcDir, dir))) cpSync(join(srcDir, dir), join(outDir, dir), { recursive: true })
   const harness = join(srcDir, 'harness')
-  if (existsSync(harness)) {
-    for (const file of readdirSync(harness)) if (file.endsWith('.test.tsx')) cpSync(join(harness, file), join(outDir, 'hooks', file))
-  }
+  if (existsSync(harness)) cpSync(harness, join(outDir, 'hooks'), { recursive: true })
+  for (const f of rootFiles ?? []) cpSync(join(srcDir, f), join(outDir, f), { recursive: true })
 
   if (opts.validate) await validatePlugin(outDir)
+}
+
+// The harness and the files entries are copied after the build's own output, unchecked, so one landing on a generated path
+// would replace a bundle without its client rewriting or import check. Checked before the old output is emptied.
+const GENERATED_ROOT = ['hooks', '.claude-plugin', '.gitignore']
+
+function assertNoOverwrite(srcDir: string, bundled: string[], rootFiles: string[]): void {
+  const generatedHooks = new Set([...bundled, 'hooks.json'])
+  const harness = join(srcDir, 'harness')
+  if (existsSync(harness)) {
+    for (const rel of readdirSync(harness, { recursive: true }) as string[]) {
+      if (generatedHooks.has(rel.split(sep).join('/'))) throw new Error(`harness/${rel} would replace the built hooks/${rel}`)
+    }
+  }
+  for (const f of rootFiles) {
+    const top = normalize(f).split(sep)[0] ?? ''
+    if (GENERATED_ROOT.includes(top)) throw new Error(`files entry ${f} would replace the plugin's generated ${top}`)
+  }
 }
 
 async function validatePlugin(outDir: string): Promise<void> {

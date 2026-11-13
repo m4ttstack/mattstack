@@ -1,3 +1,4 @@
+import { cellWidth, cutCells } from '../draw/cells'
 import { sp, widthOf, type Line, type Span } from '../draw/text'
 import { DIM, DONE, FILL, GRAY, rail } from '../draw/theme'
 
@@ -30,7 +31,7 @@ function tabText(tab: Tab<unknown> | undefined, room: number): string {
   if (!tab) return ''
   const text = tab.mark ? `${tab.mark} ${tab.label}` : tab.label
   const limit = Math.max(1, room - 2)
-  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`
+  return cellWidth(text) <= limit ? text : `${cutCells(text, limit - 1)}…`
 }
 
 // Each scroll mark takes a fixed width, so the tabs never shift as the counts change.
@@ -49,7 +50,7 @@ function scrollMark<A>(side: 'left' | 'right', hidden: number, action: A): Span<
 
 function windowFiller(tabs: Tab<unknown>[], width: number) {
   const room = width - STRIP_CHROME
-  const cost = (k: number) => tabText(tabs[k], room).length + 2
+  const cost = (k: number) => cellWidth(tabText(tabs[k], room)) + 2
   return (seed: number, first: 'left' | 'right') => fillWindow(Math.max(0, Math.min(tabs.length - 1, seed)), first, tabs.length, room, cost)
 }
 

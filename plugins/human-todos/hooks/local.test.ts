@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
-import { SESSION, children, exits, hangs, pid, processTree, startSession, world } from './test-world'
+import { SESSION, children, exits, hangs, pid, press, processTree, startSession, world } from './test-world'
 import type { Child, Piece } from './test-world'
 
 type On = Parameters<typeof world>[0]
@@ -20,6 +20,14 @@ const PANE = {
 } as const
 
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'run', title: 'T', script: 'make', status: 'open', ...over })
+
+// The buttons the plain drawer shows for the same pane: the terminal draws a Client, so they are read where the engine draws them.
+async function plainKeys($: Engine): Promise<(string | undefined)[]> {
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  const keys = (await ui.findAll({ type: 'Button' })).map(b => b.key)
+  await ui.unmount()
+  return keys
+}
 const out = (text: string) => ({ stream: 'stdout' as const, text })
 const WALK = 'walk() { for c in $(pgrep -P "$1"); do walk "$c"; done; echo "$1"; }'
 const killing = (n: number, sig = 'TERM') => ['/bin/sh', '-c', `${WALK}; kill -${sig} $(walk ${n}) 2>/dev/null`]
@@ -60,8 +68,8 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run, 
   await $.command.run({ command: 'todos-runner', args: 'local' })
   const pane = await $.ui.mount(PANE)
   const run1 = async (id: string) => {
-    await pane.press({ key: `run-${id}` })
-    await pane.press({ key: `confirm-${id}` })
+    await press(pane, id, 'run')
+    await press(pane, id, 'confirm')
   }
   const items = () => (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
   const item = (id: string) => items().find(t => t.id === id)
@@ -184,7 +192,7 @@ test('Stop signals the script and its children, then reports the run as stopped'
   await run1('1')
   await clock.settle()
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.settle()
 
   expect(toasts).toEqual(['Stopping #1'])
@@ -210,7 +218,7 @@ test('Stop signals every process under the script, leaves first, not only its di
   await run1('1')
   await clock.settle()
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.settle()
 
   expect(ran).toEqual([killing(100)])
@@ -232,14 +240,14 @@ test('Force stop kills the whole tree of a script that ignored Stop, and the run
   await run1('1')
   await clock.settle()
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.settle()
 
   expect(tree.alive()).toEqual(TREE_PIDS)
   expect(item('1')).toMatchObject({ status: 'running', isStopping: true })
-  expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['close', 'openLog-1', 'forceStop-1'])
+  expect(await plainKeys($)).toEqual(['close', 'openLog-1', 'forceStop-1'])
 
-  await pane.press({ key: 'forceStop-1' })
+  await press(pane, '1', 'forceStop')
   await clock.settle()
 
   expect(toasts).toEqual(['Stopping #1', 'Force stopping #1'])
@@ -273,12 +281,12 @@ test('Stop before the pid is known asks to try again and brings the button back'
   await run1('1')
   await clock.settle()
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
 
   expect(toasts).toEqual(['Stopping #1', 'Still starting; try Stop again in a moment'])
   expect(ran).toEqual([])
   expect(item('1')).toMatchObject({ status: 'running', isStopping: false })
-  expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toContain('stop-1')
+  expect(await plainKeys($)).toContain('stop-1')
 })
 
 test('a kill that cannot run puts Stop back and does not report a stop', async ($, on) => {
@@ -292,7 +300,7 @@ test('a kill that cannot run puts Stop back and does not report a stop', async (
   await run1('1')
   await clock.settle()
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.settle()
 
   expect(toasts).toEqual(['Stopping #1', 'Could not stop #1'])
@@ -331,7 +339,7 @@ test('two runs at once each have their own child, token and log, and one finishi
   expect(writes.filter(w => w.path === item('2')?.logPath).at(-1)?.text).toBe('second output\n')
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nfirst output\n```'])
 
-  await pane.press({ key: 'stop-2' })
+  await press(pane, '2', 'stop')
   expect(ran).toEqual([killing(22)])
 })
 
@@ -431,7 +439,7 @@ test('a finished item\'s log is removed with rm -f when it is cleared', async ($
   await clock.settle()
   const log = item('1')?.logPath
 
-  await pane.press({ key: 'clear' })
+  await pane.post({ type: 'clear' })
 
   expect(ran).toEqual([['rm', '-f', '--', log]])
 })
@@ -441,7 +449,7 @@ test('Show does nothing for a local run', async ($, on) => {
   await run1('1')
   await clock.settle()
 
-  await pane.press({ key: 'show-1' }).catch(() => undefined)
+  await press(pane, '1', 'show').catch(() => undefined)
 
   expect(ran).toEqual([])
   expect(toasts).toEqual([])
@@ -457,13 +465,13 @@ test('a rerun removes the last run\'s log, so clearing leaves no log behind', as
   await run1('1')
   await clock.settle()
   const first = item('1')?.logPath
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.settle()
 
   await run1('1')
   await clock.settle()
   const second = item('1')?.logPath
-  await pane.press({ key: 'clear' })
+  await pane.post({ type: 'clear' })
 
   expect(first).not.toBe(second)
   expect(ran).toEqual([killing(4242), ['rm', '-f', '--', first], ['rm', '-f', '--', second]])
@@ -479,7 +487,7 @@ test('a pid split across pieces is read whole, never short', async ($, on) => {
   await run1('1')
   await clock.settle()
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.settle()
 
   expect(ran).toEqual([killing(1234)])
@@ -496,7 +504,7 @@ test('marker text a script prints later stays in its output and never replaces t
   await run1('1')
   await clock.settle()
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.settle()
 
   expect(ran).toEqual([killing(4242)])

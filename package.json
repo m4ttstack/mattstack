@@ -68,7 +68,7 @@
   "scripts": {
     "test": "bun test ./lib ./commands ./packages/rt-client ./packages/settings-kit ./packages/git-core ./scripts ./rt-tray/Tests/stub-rt ./rt-tray/vm/run/helpers",
     "mods:test": "bun test --tsconfig-override=./packages/mod-kit/tsconfig.json --preload ./packages/mod-kit/test/jsx-preload.ts ./packages/mod-kit/src ./mods/*/src",
-    "mods:typecheck": "bunx tsc -p packages/mod-kit && bunx tsc -p mods/gate-form && bunx tsc -p mods/kit-gallery",
+    "mods:typecheck": "bunx tsc -p packages/mod-kit && bunx tsc -p mods/gate-form && bunx tsc -p mods/kit-gallery && bunx tsc -p mods/human-todos",
     "mods:check-readme": "bun --tsconfig-override=./packages/mod-kit/tsconfig.json --preload ./packages/mod-kit/test/jsx-preload.ts scripts/mods/check-readme.ts",
     "mods:build": "bun scripts/mods/build.ts build",
     "mods:watch": "bun scripts/mods/build.ts watch",

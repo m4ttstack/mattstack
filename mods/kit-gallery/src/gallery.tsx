@@ -72,9 +72,11 @@ const WRITE_IN: Choice = { label: 'Something else', description: 'Say what you h
 const LONG: Choice[] = ['Rename', 'Extract', 'Inline', 'Move', 'Split', 'Merge', 'Delete', 'Rewrite', 'Document', 'Defer'].map(label => ({ label }))
 const TAB_NAMES = ['Overview', 'Install', 'Configure', 'Usage', 'Hooks', 'Commands', 'Settings', 'Tools', 'Panes', 'Themes', 'Testing', 'Release', 'Upgrade', 'Support', 'Billing', 'Audit', 'Export', 'Import', 'Sync', 'Search']
 
-const TONES: ButtonTone[] = ['primary', 'secondary', 'neutral', 'caution', 'brand']
+// The filled tones, each drawn beside its FILL swatch; quiet has no fill to show.
+type FilledTone = Exclude<ButtonTone, 'quiet'>
+const TONES: FilledTone[] = ['primary', 'secondary', 'neutral', 'caution', 'brand']
 
-function toneRow(ui: Ui, tone: ButtonTone) {
+function toneRow(ui: Ui, tone: FilledTone) {
   const fill = { ...FILL[tone], bold: true }
   return (
     <Row>

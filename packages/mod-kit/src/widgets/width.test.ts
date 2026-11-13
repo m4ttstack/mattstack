@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
 import { widthOf } from '../draw/text'
-import { ICON } from '../draw/theme'
+import { BRAND, ICON, hovered } from '../draw/theme'
 import { brandBar } from './brand-bar'
 import { buttonRow, type Button } from './buttons'
+import { inputField } from './input-field'
 import { tabStrip, type Tab } from './tab-strip'
 
 const WIDTH = 30
@@ -17,8 +18,32 @@ describe('narrow panes', () => {
   test('brandBar with the real label cuts the label and keeps Hide whole', () => {
     const line = brandBar('mattstack decision gate', WIDTH, 'hide')
     expect(widthOf(line)).toBe(WIDTH)
-    expect(line.find(span => span.action === 'hide')?.t).toBe(` ${ICON.minimize} Hide `)
+    const hide = line.find(span => span.action === 'hide')
+    expect(hide?.t).toBe(` Hide ${ICON.collapse} `)
+    // Flat on the bar at rest, the deeper pink only under the pointer.
+    expect(hide).toMatchObject({ bg: BRAND.pink, chip: BRAND.pinkDeep, bold: true })
+    expect(hovered(hide!).bg).toBe(BRAND.pinkDeep)
     expect(widthOf(brandBar('mattstack decision gate', 20))).toBe(20)
+  })
+
+  test('brandBar with emoji and CJK text fills the width in cells', () => {
+    expect(widthOf(brandBar('🚀 mattstack 日本語 gate', WIDTH, 'hide'))).toBe(WIDTH)
+    expect(widthOf(brandBar('🚀 mattstack 日本語 gate', WIDTH))).toBe(WIDTH)
+    expect(widthOf(brandBar('日本語日本語日本語日本語日本語日本語', WIDTH, 'hide'))).toBe(WIDTH)
+  })
+
+  test('tabStrip with an emoji label stays within the width', () => {
+    const tabs: Tab<number>[] = [{ label: '🚀 Feature flags', isDone: false, action: 0 }, { label: '日本語のタブ', isDone: false, action: 1 }, { label: 'Q2', isDone: false, action: 2 }]
+    for (const current of [0, 1, 2]) expect(widthOf(tabStrip({ tabs, current, width: WIDTH, from: 0, scrollTo: n => n }))).toBeLessThanOrEqual(WIDTH)
+  })
+
+  test('buttonRow with a wide label stays within the width', () => {
+    const left: Button<string>[] = [{ label: '🚀 Back', action: 'back' }, { label: '日本 Next', action: 'next' }]
+    expect(widthOf(buttonRow(left, { label: '🚀🚀🚀 Chat about this', action: 'chat' }, WIDTH))).toBeLessThanOrEqual(WIDTH)
+  })
+
+  test('inputField with wide text keeps the box at its width', () => {
+    for (const value of ['', '日本語日本語日本語日本語日本語', '🚀🚀🚀']) expect(widthOf(inputField(value, '🚀 placeholder 日本語 text here', 20, true))).toBe(20)
   })
 
   test('tabStrip with a label wider than the room fits and keeps the right mark at the edge', () => {
@@ -50,5 +75,13 @@ describe('narrow panes', () => {
   test('buttonRow keeps its roomy layout when there is room', () => {
     const line = buttonRow([{ label: 'Back', action: 'back' }], { label: 'Chat', action: 'chat' }, 60)
     expect(widthOf(line)).toBe(60)
+  })
+
+  test('buttonRow with an indent starts its first button there and counts it in the fit', () => {
+    const left: Button<string>[] = [{ label: 'Run', action: 'run' }, { label: 'Done', action: 'done' }]
+    expect(buttonRow(left, undefined, 60, 0)[0]?.t).toBe('')
+    expect(buttonRow(left, undefined, 60, 2)[0]?.t).toBe('  ')
+    expect(buttonRow(left, undefined, 60, 2)[1]?.t).toBe('  Run  ')
+    expect(buttonRow(left, undefined, 18, 2)[1]?.t).toBe(' Run ')
   })
 })

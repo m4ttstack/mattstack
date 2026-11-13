@@ -1,0 +1,53 @@
+export type TodoKind = 'task' | 'run' | 'terminal' | 'link' | 'image'
+
+export type TodoStatus = 'open' | 'confirming' | 'running' | 'done' | 'failed' | 'skipped'
+
+export type AddInput = {
+  kind: TodoKind
+  title: string
+  detail?: string
+  script?: string
+  url?: string
+  paths?: string[]
+  cwd?: string
+}
+
+export type Todo = {
+  id: string
+  kind: TodoKind
+  title: string
+  detail?: string
+  script?: string
+  url?: string
+  paths?: string[]
+  cwd?: string
+  status: TodoStatus
+  exitCode?: number
+  outputTail?: string
+  liveTail?: string[]
+  note?: string
+  isStopping?: boolean
+  runner?: 'herdr' | 'local'
+  paneId?: string
+  herdrSession?: string
+  tabId?: string
+  token?: string
+  logPath?: string
+}
+
+declare module 'claude-code' {
+  interface PluginState {
+    'human-todos': {
+      todos: Shaped<Todo[]>
+      nextId: number
+      expanded: string[]
+      loadedFor: string | null
+      isSaveFailed: boolean
+      frame: number
+      herdrWorkspace: { session: string; id: string } | null
+      runnerPref: 'auto' | 'herdr' | 'local'
+      keysInPane: boolean
+      scrollOffset: number
+    }
+  }
+}

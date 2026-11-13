@@ -1,8 +1,8 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
-import { SESSION, herdrFake, startSession, words, world } from './test-world'
+import { BG, OWN, SESSION, herdrFake, press, startSession, words, world } from './test-world'
 
 type On = Parameters<typeof world>[0]
 
@@ -21,17 +21,39 @@ const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'run', title: 'T',
 const wrapperFor = (token: string, script: string) =>
   `zsh -c 'trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?' todo '${script.replace(/'/g, `'\\''`)}'`
 
-async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; session?: boolean } = {}) {
+// `gitDir` is what git answers for the session folder's shared git dir; left out, the folder is not in a git repo.
+// `servers` are the herdr sessions running beside the visible one (mattstack's background server by default).
+async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; session?: boolean; gitDir?: string; servers?: Record<string, boolean> } = {}) {
   const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
-  const fake = herdrFake({ hasRt: opts.hasRt ?? true })
+  const fake = herdrFake({ hasRt: opts.hasRt ?? true, ...(opts.servers && { servers: opts.servers }) })
+  mock.env(on, { HOME: '/home/u' })
+  const written = new Map<string, string>()
+  on('fs.write', (_, e) => {
+    written.set(e.path, e.text)
+    return { value: undefined }
+  })
+  const opened: string[][] = []
   const toasts: string[] = []
   const ran: string[][] = []
   on('ui.toast', (_, e) => {
     toasts.push(e.text)
     return { value: undefined }
   })
+  // The git commands the plugin ran, each through the login shell as herdr's are.
+  const gitAsked: string[] = []
   on('process.run', (_, e) => {
     ran.push([...e.argv])
+    const command = e.argv.at(-1) ?? ''
+    if (e.argv[0] === '/bin/zsh' && e.argv[1] === '-lc' && command.includes('git rev-parse')) {
+      gitAsked.push(command)
+      const answer = opts.gitDir ? { exitCode: 0, stdout: `${opts.gitDir}\n`, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' }
+      return { value: { ...answer, isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (e.argv[0] === 'open') {
+      opened.push([...e.argv])
+      return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (e.argv[0] === 'rm') return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     const reply = fake.run(e.argv.at(-1) ?? '')
     if (!reply) return { deny: `unexpected command ${e.argv.join(' ')}` }
     return { value: { ...reply, isStdoutTruncated: false, isStderrTruncated: false } }
@@ -41,14 +63,14 @@ async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; 
   const pane = await $.ui.mount(PANE)
   const run1 = async (id: string) => {
     const polls = w.clock.ticks(1000)
-    await pane.press({ key: `run-${id}` })
-    await pane.press({ key: `confirm-${id}` })
+    await press(pane, id, 'run')
+    await press(pane, id, 'confirm')
     while (w.clock.ticks(1000) === polls && item(id)?.status === 'running') await w.clock.settle()
   }
   const items = () => (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
   const item = (id: string) => items().find(t => t.id === id)
   const tokenOf = (id: string) => item(id)?.token ?? ''
-  return { ...w, fake, pane, toasts, ran, run1, item, tokenOf }
+  return { ...w, fake, pane, toasts, ran, gitAsked, written, opened, run1, item, tokenOf }
 }
 
 test('the first run creates a background workspace and names its tab; the second adds a tab to it', async ($, on) => {
@@ -59,17 +81,75 @@ test('the first run creates a background workspace and names its tab; the second
 
   await run1('1')
   expect(fake.ran('herdr workspace create')).toEqual(["herdr workspace create --cwd '/work' --label 'Human Todos' --no-focus"])
-  expect(fake.ran('herdr tab rename')).toEqual([`herdr tab rename '${item('1')?.tabId}' '#1 Sign in'`])
+  expect(fake.ran('herdr tab rename')).toEqual([`herdr tab rename '${item('1')?.tabId}' 'work #1 Sign in'`])
   expect(item('1')).toMatchObject({ status: 'running', runner: 'herdr', paneId: expect.any(String), tabId: expect.any(String) })
 
   await run1('2')
   expect(fake.ran('herdr workspace create')).toHaveLength(1)
   const ws = [...fake.workspaces][0]
-  const label = `#2 ${'x'.repeat(60)}`.slice(0, 40)
+  const label = `work #2 ${'x'.repeat(60)}`.slice(0, 40)
   expect(fake.ran('herdr tab create')).toEqual([`herdr tab create --workspace '${ws}' --cwd '/work' --label '${label}' --no-focus`])
   expect(label).toHaveLength(40)
   expect(item('2')?.tabId).not.toBe(item('1')?.tabId)
   expect(item('2')?.paneId).not.toBe(item('1')?.paneId)
+})
+
+test('with no stored workspace, a run reuses the "Human Todos" workspace another session left, and creates none', async ($, on) => {
+  const { run1, fake, item } = await seeded($, on, [todo({ id: '1', title: 'Sign in' }), todo({ id: '2', title: 'Deploy' })])
+  fake.addWorkspace('mattstack')
+  const shared = fake.addWorkspace('Human Todos')
+
+  await run1('1')
+  await run1('2')
+
+  expect(fake.ran('herdr workspace create')).toEqual([])
+  expect(fake.ran('herdr tab create')).toEqual([
+    `herdr tab create --workspace '${shared}' --cwd '/work' --label 'work #1 Sign in' --no-focus`,
+    `herdr tab create --workspace '${shared}' --cwd '/work' --label 'work #2 Deploy' --no-focus`,
+  ])
+  expect(item('1')).toMatchObject({ status: 'running', runner: 'herdr' })
+  // The id found is stored, so the second run asks for it by id instead of listing again.
+  expect(fake.ran('herdr workspace list')).toHaveLength(1)
+})
+
+test('a stored workspace that is gone falls back to the "Human Todos" one herdr has', async ($, on) => {
+  const { run1, fake } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2' })])
+  await run1('1')
+  fake.workspaces.clear()
+  const shared = fake.addWorkspace('Human Todos')
+
+  await run1('2')
+
+  expect(fake.ran('herdr workspace create')).toHaveLength(1)
+  expect(fake.ran('herdr tab create')).toEqual([`herdr tab create --workspace '${shared}' --cwd '/work' --label 'work #2 T' --no-focus`])
+})
+
+test('a workspace is created only when herdr has none called "Human Todos"', async ($, on) => {
+  const { run1, fake } = await seeded($, on, [todo({ id: '1' })])
+  fake.addWorkspace('mattstack')
+  fake.addWorkspace('Human Todos (old)')
+
+  await run1('1')
+
+  expect(fake.ran('herdr workspace create')).toEqual(["herdr workspace create --cwd '/work' --label 'Human Todos' --no-focus"])
+})
+
+test("outside a git repo a tab's label names the session's folder, not the run's cwd, so tabs from several sessions stay apart", async ($, on) => {
+  const { run1, fake, item, gitAsked } = await seeded($, on, [todo({ id: '1', title: 'Deploy', cwd: '/elsewhere/other-repo' })])
+
+  await run1('1')
+
+  expect(gitAsked).toEqual(["cd '/work' && git rev-parse --path-format=absolute --git-common-dir"])
+  expect(fake.labels.get(item('1')?.tabId ?? '')).toBe('work #1 Deploy')
+})
+
+test("in a git worktree a tab's label names the repo the worktree belongs to, not the worktree's folder", async ($, on) => {
+  const { run1, fake, item, gitAsked } = await seeded($, on, [todo({ id: '1', title: 'Deploy' })], { gitDir: '/Users/me/src/mattstack/.git' })
+
+  await run1('1')
+
+  expect(gitAsked).toEqual(["cd '/work' && git rev-parse --path-format=absolute --git-common-dir"])
+  expect(fake.labels.get(item('1')?.tabId ?? '')).toBe('mattstack #1 Deploy')
 })
 
 test('a run uses the item\'s cwd for its tab', async ($, on) => {
@@ -166,7 +246,7 @@ test('a rerun reuses its tab and ignores the marker of the run before', async ($
   const tab = item('1')?.paneId ?? ''
   const first = item('1')?.token
   fake.print(tab, 'first run')
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await clock.advance(1000)
   expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped' })
 
@@ -272,7 +352,7 @@ test('Stop sends ctrl+c to the tab, and the marker that follows reports stopped'
   await run1('1')
   fake.print(item('1')?.paneId ?? '', 'running')
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
 
   expect(toasts).toEqual(['Stopping #1'])
   expect(fake.ran('herdr pane send-keys')).toEqual([`herdr pane send-keys '${item('1')?.paneId}' ctrl+c`])
@@ -290,7 +370,7 @@ test('a Stop that herdr refuses puts the button back and says so', async ($, on)
   if (!live) throw new Error('no pane')
   live.isAlive = false
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
 
   expect(toasts).toEqual(['Stopping #1', 'Could not stop #1'])
   expect(item('1')).toMatchObject({ status: 'running', isStopping: false })
@@ -299,41 +379,112 @@ test('a Stop that herdr refuses puts the button back and says so', async ($, on)
   expect(sent).toEqual([])
 })
 
-test('Show focuses the workspace and the tab, then the pane through rt when rt exists', async ($, on) => {
-  const { run1, fake, item, pane } = await seeded($, on, [todo({})])
+type Node = { children?: unknown[] }
+const shown = (node: unknown): string => (typeof node === 'string' ? node : ((node as Node).children ?? []).map(shown).join(''))
+
+test("a click on a running run's Show, on the kit drawer, writes the run's output to a log and opens it", async ($, on) => {
+  const { run1, fake, item, written, opened, toasts } = await seeded($, on, [todo({})])
   await run1('1')
-  const ws = [...fake.workspaces][0]
+  fake.print(item('1')!.paneId!, 'compiling', 'linked')
+  expect(item('1')).toMatchObject({ status: 'running', herdrSession: BG, paneId: expect.any(String) })
 
-  await pane.press({ key: 'show-1' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, isFocused: true } })
+  const key = (await pane.find({ type: 'Client' }))!.key!
+  const rows = (((await pane.drawn({ in: key })) as Node).children ?? []).map(shown)
+  const y = rows.findIndex(r => /\bShow\b/.test(r) && !r.includes('Show all'))
+  expect(y, rows.join('\n')).toBeGreaterThan(-1)
+  const x = rows[y]!.indexOf('Show') + 1
+  await pane.pointer({ type: 'down', x, y, button: 'left' })
+  await pane.pointer({ type: 'up', x, y, button: 'left' })
 
-  expect(fake.calls.slice(-4)).toEqual([
-    `herdr workspace focus '${ws}'`,
-    `herdr tab focus '${item('1')?.tabId}'`,
-    'command -v rt',
-    `rt pane focus '${item('1')?.paneId}'`,
-  ])
-})
-
-test('Show without rt still focuses the tab and never calls rt', async ($, on) => {
-  const { run1, fake, pane, toasts } = await seeded($, on, [todo({})], { hasRt: false })
-  await run1('1')
-
-  await pane.press({ key: 'show-1' })
-
-  expect(fake.ran('herdr tab focus')).toHaveLength(1)
-  expect(fake.ran('rt ')).toEqual([])
+  const log = '/home/u/Library/Caches/human-todos/sess-1-1-herdr.log'
   expect(toasts).toEqual([])
+  expect(written.get(log)).toContain('linked')
+  expect(opened).toEqual([['open', '-t', log]])
+  await pane.unmount()
 })
 
-test('Show on a tab herdr cannot focus says so', async ($, on) => {
-  const { run1, fake, pane, toasts } = await seeded($, on, [todo({})])
+test("Show writes what the run's pane shows to a log and opens it, and clearing the item removes the log", async ($, on) => {
+  const { run1, fake, item, pane, written, opened, ran, toasts } = await seeded($, on, [todo({})])
+  await run1('1')
+  fake.print(item('1')!.paneId!, 'compiling', 'linked')
+
+  await press(pane, '1', 'show')
+
+  const log = '/home/u/Library/Caches/human-todos/sess-1-1-herdr.log'
+  expect(written.get(log)).toContain('linked')
+  expect(opened).toEqual([['open', '-t', log]])
+  expect(item('1')?.logPath).toBe(log)
+  expect(fake.ran('herdr tab focus')).toEqual([])
+  expect(fake.ran('herdr workspace focus')).toEqual([])
+  expect(toasts).toEqual([])
+
+  await $.tool.call({ tool: WITHDRAW, id: '1' })
+  expect(ran).toContainEqual(['rm', '-f', '--', log])
+})
+
+test('Show on a pane herdr cannot read says so and opens nothing', async ($, on) => {
+  const { run1, fake, pane, toasts, opened } = await seeded($, on, [todo({})])
   await run1('1')
   const real = fake.run
-  fake.run = c => (c.startsWith('herdr tab focus') ? { exitCode: 1, stdout: '', stderr: '' } : real(c))
+  fake.run = c => (c.includes('herdr pane read') ? { exitCode: 1, stdout: '', stderr: '' } : real(c))
 
-  await pane.press({ key: 'show-1' })
+  await press(pane, '1', 'show')
 
-  expect(toasts).toEqual(['Could not bring that tab forward'])
+  expect(toasts).toEqual(['Could not show the output of #1: could not read the pane'])
+  expect(opened).toEqual([])
+})
+
+test("every command for a run names mattstack's background server and drops HERDR_SOCKET_PATH, and none goes to the visible one", async ($, on) => {
+  const { run1, fake, item, pane } = await seeded($, on, [todo({})])
+  await run1('1')
+  await press(pane, '1', 'show')
+  await press(pane, '1', 'stop')
+
+  expect(item('1')?.herdrSession).toBe(BG)
+  const aimed = fake.sent.filter(s => !s.command.startsWith('herdr session list'))
+  expect(aimed.length).toBeGreaterThan(5)
+  for (const s of aimed) expect(s, s.command).toMatchObject({ dropsSocket: true, session: BG })
+  expect(fake.sent.filter(s => s.command.startsWith('herdr session list')).every(s => s.dropsSocket)).toBe(true)
+  expect(fake.sent.some(s => s.session === 'default')).toBe(false)
+})
+
+test("with the background server down, the plugin starts its own detached, runs there, and never stops or deletes a server", async ($, on) => {
+  const { run1, fake, item } = await seeded($, on, [todo({})], { servers: {} })
+  await run1('1')
+
+  expect(fake.ran('nohup herdr --session')).toEqual([`nohup herdr --session '${OWN}' server >/dev/null 2>&1 </dev/null &!`])
+  expect(fake.sent.find(s => s.command.startsWith('nohup'))).toMatchObject({ dropsSocket: true, session: OWN })
+  expect(fake.servers.get(OWN)).toBe(true)
+  expect(item('1')).toMatchObject({ status: 'running', herdrSession: OWN })
+  expect(fake.sent.filter(s => s.command.startsWith('herdr pane run')).map(s => s.session)).toEqual([OWN])
+  expect(fake.calls.some(c => /herdr session (stop|delete)/.test(c))).toBe(false)
+})
+
+test('a run already on a server stays on it: Stop goes there even after the background server came up', async ($, on) => {
+  const { run1, fake, item, pane } = await seeded($, on, [todo({})], { servers: {} })
+  await run1('1')
+  fake.servers.set(BG, true)
+
+  await press(pane, '1', 'stop')
+
+  expect(item('1')?.herdrSession).toBe(OWN)
+  expect(fake.sent.filter(s => s.command.startsWith('herdr pane send-keys')).map(s => s.session)).toEqual([OWN])
+})
+
+test("the shared workspace's id is kept with its server: after a switch each server uses its own Human Todos workspace", async ($, on) => {
+  const { run1, fake } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2' }), todo({ id: '3' })])
+  await run1('1')
+  fake.servers.set(BG, false)
+  await run1('2')
+  fake.servers.set(BG, true)
+  await run1('3')
+
+  const creates = fake.sent.filter(s => s.command.startsWith('herdr workspace create'))
+  expect(creates.map(s => s.session)).toEqual([BG, OWN])
+  const tabs = fake.sent.filter(s => s.command.startsWith('herdr tab create'))
+  expect(tabs.map(s => s.session)).toEqual([BG])
+  expect(tabs[0]?.command).toContain(`--workspace '${[...fake.workspaces][0]}'`)
 })
 
 test('withdrawing a running item closes its tab, stops its poller and reports nothing', async ($, on) => {
@@ -401,7 +552,7 @@ test('clearing a finished item closes its tab too', async ($, on) => {
   fake.finish(item('1')?.paneId ?? '', 0)
   await clock.advance(1000)
 
-  await pane.press({ key: 'clear' })
+  await pane.post({ type: 'clear' })
 
   expect(fake.ran('herdr tab close')).toEqual([`herdr tab close '${tab}'`])
 })
@@ -432,14 +583,17 @@ test('a script that cannot be typed puts the item back and no poller runs', asyn
 
 test('two runs started together share one workspace', async ($, on) => {
   const { fake, pane, clock } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2' })])
-  await pane.press({ key: 'run-1' })
-  await pane.press({ key: 'run-2' })
+  await press(pane, '1', 'run')
+  await press(pane, '2', 'run')
+  // A Client's posts in one tick reach the plugin as its last one, so the second press comes from another drawing.
+  const other = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
-  await Promise.all([pane.press({ key: 'confirm-1' }), pane.press({ key: 'confirm-2' })])
+  await Promise.all([press(pane, '1', 'confirm'), press(other, '2', 'confirm')])
   await clock.settle()
 
   expect(fake.ran('herdr workspace create')).toHaveLength(1)
   expect(fake.ran('herdr tab create')).toHaveLength(1)
+  await other.unmount()
 })
 
 test('a session that starts with a running herdr item watches it again', async ($, on) => {
@@ -447,8 +601,8 @@ test('a session that starts with a running herdr item watches it again', async (
     entries: {
       [`list:${SESSION}`]: {
         todos: [
-          todo({ id: '1', status: 'running', runner: 'herdr', token: 'abc123', paneId: 'pane1', tabId: 'tab1' }),
-          todo({ id: '2', status: 'running', runner: 'herdr', token: 'def456', paneId: 'pane2', tabId: 'tab2' }),
+          todo({ id: '1', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'abc123', paneId: 'pane1', tabId: 'tab1' }),
+          todo({ id: '2', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'def456', paneId: 'pane2', tabId: 'tab2' }),
         ],
         nextId: 3,
         savedAt: 1_000_000,
@@ -477,7 +631,7 @@ test('an in-session /resume into a session with a running herdr item watches it 
   const w = world(on, {
     entries: {
       'list:sess-2': {
-        todos: [todo({ id: '1', status: 'running', runner: 'herdr', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
+        todos: [todo({ id: '1', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
         nextId: 2,
         savedAt: 1_000_000,
       },
@@ -504,7 +658,7 @@ test('a resumed herdr item can still be stopped', async ($, on) => {
   const w = world(on, {
     entries: {
       [`list:${SESSION}`]: {
-        todos: [todo({ id: '1', status: 'running', runner: 'herdr', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
+        todos: [todo({ id: '1', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
         nextId: 2,
         savedAt: 1_000_000,
       },
@@ -520,7 +674,7 @@ test('a resumed herdr item can still be stopped', async ($, on) => {
   await startSession($)
   const pane = await $.ui.mount(PANE)
 
-  await pane.press({ key: 'stop-1' })
+  await press(pane, '1', 'stop')
   await w.clock.advance(1000)
 
   const [item] = (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos

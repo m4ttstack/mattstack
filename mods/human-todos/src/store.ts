@@ -10,7 +10,8 @@ export const todos = atom({ plugin: 'human-todos', key: 'todos' } as const, [] a
 export const nextId = atom({ plugin: 'human-todos', key: 'nextId' } as const, 1)
 export const expanded = atom({ plugin: 'human-todos', key: 'expanded' } as const, [] as string[])
 export const frame = atom({ plugin: 'human-todos', key: 'frame' } as const, 0)
-export const workspace = atom({ plugin: 'human-todos', key: 'workspace' } as const, null as string | null)
+// The shared workspace's id goes with the herdr server it is on, so a switch between servers never reuses an id from the other.
+export const workspace = atom({ plugin: 'human-todos', key: 'herdrWorkspace' } as const, null as { session: string; id: string } | null)
 export const loadedFor = atom({ plugin: 'human-todos', key: 'loadedFor' } as const, null as string | null)
 export const isSaveFailed = atom({ plugin: 'human-todos', key: 'isSaveFailed' } as const, false)
 export const runnerPref = atom({ plugin: 'human-todos', key: 'runnerPref' } as const, 'auto' as 'auto' | 'herdr' | 'local')
@@ -106,10 +107,11 @@ function isFresh(entry: SavedList | undefined, now: number): boolean {
   return typeof entry?.savedAt === 'number' && now - entry.savedAt <= MAX_AGE_MS
 }
 
-// Only a herdr run with both its token and its pane can be watched again; any other running item has nothing behind it.
+// Only a herdr run with its token, its pane and its server can be watched again; any other running item has nothing behind it.
+// A run saved before runs went to a server of their own has no server, and its tab is on the visible one, which the plugin leaves alone.
 function resume(t: Todo): Todo {
   if (t.status === 'confirming') return { ...t, status: 'open' }
-  if (t.status === 'running' && !(t.runner === 'herdr' && t.token && t.paneId)) {
+  if (t.status === 'running' && !(t.runner === 'herdr' && t.token && t.paneId && t.herdrSession)) {
     const { liveTail: _tail, isStopping: _stopping, ...rest } = t
     return { ...rest, status: 'open', note: 'Ended without an exit code.' }
   }
@@ -172,12 +174,13 @@ export async function setRunnerPref($: EngineInterface, pref: 'auto' | 'herdr' |
   await update($, runnerPref, () => pref)
 }
 
-export function getWorkspace($: EngineInterface): Promise<string | null> {
-  return read($, workspace)
+export async function getWorkspace($: EngineInterface, session: string): Promise<string | null> {
+  const stored = await read($, workspace)
+  return stored?.session === session ? stored.id : null
 }
 
-export async function setWorkspace($: EngineInterface, id: string): Promise<void> {
-  await update($, workspace, () => id)
+export async function setWorkspace($: EngineInterface, session: string, id: string): Promise<void> {
+  await update($, workspace, () => ({ session, id }))
 }
 
 export async function toggleExpanded($: EngineInterface, id: string): Promise<void> {

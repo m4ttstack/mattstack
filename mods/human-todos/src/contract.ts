@@ -4,7 +4,7 @@ import type { AddInput } from '../types'
 import { resumeWatching } from './herdr'
 import { KINDS, TITLE, checkKind, describe } from './items'
 import { addTodo, leaveList, listTodos, removeTodos, resetList, restoreList } from './store'
-import { cleanup, openPane, release, syncSpinner } from './wiring'
+import { clampScroll, cleanup, openPane, release, syncSpinner } from './wiring'
 
 const PREFIX = 'mcp__human-todos__'
 
@@ -92,11 +92,13 @@ export function registerContract(on: On): void {
     if (e.reason === 'clear') {
       const dropped = await listTodos($)
       await resetList($)
+      await clampScroll($)
       await cleanup($, dropped).catch(() => $.ui.toast('Could not tidy up after the cleared items'))
     } else if (e.reason === 'resume' && e.resume?.id !== e.sessionId) {
       // Every run is marked gone before its first await, so none can touch the list once it is unloaded.
       const released = release($)
       await leaveList($)
+      await clampScroll($)
       await released.catch(() => $.ui.toast('Could not stop the runs of the session you left'))
     }
     return ended
@@ -132,6 +134,7 @@ export function registerContract(on: On): void {
     const id = String((e as unknown as { id: string | number }).id).replace(/^#/, '')
     const gone = await removeTodos($, t => t.id === id)
     if (gone.length === 0) return { result: `No to-do #${id}.` }
+    await clampScroll($)
     await cleanup($, gone).catch(() => $.ui.toast(`Could not tidy up after #${id}`))
     return { result: `Withdrew #${id}.` }
   })
