@@ -10,5 +10,5 @@ label: Resume offer
 `clarify`: one sentence naming each candidate's `spawnedBy`, `startedAt`
 and `currentStage`, then one **Resume** option per candidate (`Resume
 (Recommended)` when `ownSession` is true; a run another live pane owns is
-not yours) / **Start fresh**, and `hold` in `next`. Resume passes that
+not yours) / **Start fresh**. Resume passes that
 candidate's `runId`.
