@@ -3,7 +3,7 @@ import {
   getSetting,
   mayOfferGitLabTokenToHost,
 } from '@mattstack/rt-client';
-import { type Forge, GITHUB_BASE_URL } from '../../shared/forge.js';
+import { GITHUB_BASE_URL, type Forge } from '../../shared/forge.js';
 import type { RangePreset } from '../../shared/types.js';
 
 /** Politeness cap on concurrent GitLab requests; a code constant since the fold. */
