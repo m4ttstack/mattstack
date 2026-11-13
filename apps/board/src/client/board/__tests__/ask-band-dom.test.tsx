@@ -146,9 +146,12 @@ test('the open trail closes on an outside click (Escape is the kit popover own)'
   expect(trigger.getAttribute('aria-expanded')).toBe('false');
 });
 
-test('a running ask shows the spinner and offers dismiss', async () => {
+test('a running ask swaps the cloud glyph for the cloud spinner and offers dismiss', async () => {
   await render(mrWith({ display: 'launched', resolvedAt: NOW }), ctx());
-  expect(container.querySelector('[data-part="spinner"]')).not.toBeNull();
+  const where = container.querySelector('.tui-ask-where')!;
+  expect(where.querySelectorAll('svg')).toHaveLength(1);
+  expect(where.querySelector('.tui-cloud-spin')).not.toBeNull();
+  expect(container.querySelector('.tui-ask-state svg')).toBeNull();
   expect(buttons()).toEqual(['Dismiss']);
 });
 
