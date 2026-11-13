@@ -8,7 +8,7 @@
   (GLANCE-57). gitlab.com scored the dashboard fragment inside a
   `mergeRequests(iids:)` connection at 739, over its cap of 250, so every
   by-iid read failed. It now sends one single-MR query (the one
-  `fetchSingleMR` sends) per distinct iid, in parallel, and returns the same
+  `fetchSingleMR` sends) per distinct iid, at most 4 in flight, and returns the same
   results, newest first as before. A read of N iids is now N GitLab requests
   instead of one, and that includes `createDashboardGroup`'s GitLab poll; an
   empty `iids` list sends nothing.

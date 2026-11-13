@@ -579,6 +579,32 @@ interface MRDetailResponse {
   project: { mergeRequest: GQLMR | null } | null;
 }
 
+/**
+ * Per-iid reads in flight at once. withGitLabRateLimit only waits out a 429
+ * after the fact; this keeps a large batch from spending gitlab.com's 100
+ * requests a minute in one burst.
+ */
+const IID_READS_IN_FLIGHT = 4;
+
+async function mapInFlight<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failed = false;
+  const worker = async (): Promise<void> => {
+    while (!failed && next < items.length) {
+      const i = next++;
+      try {
+        results[i] = await fn(items[i]!);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 interface MRBatchResponse {
   project: { mergeRequests: { nodes: GQLMR[] } } | null;
 }
@@ -1133,10 +1159,8 @@ export class GitLabProvider implements GitProvider {
       const projectPath = requireProjectPath(options.projectPath, 'iids');
       const wanted = new Set<string>(states.length > 0 ? states : ['opened']);
       const iids = [...new Set(options.iids.map(String))];
-      const resps = await Promise.all(
-        iids.map((iid) =>
-          this.runQuery<MRDetailResponse>('fetchPullRequests.iids', MR_DETAIL_QUERY, { projectPath, iid }),
-        ),
+      const resps = await mapInFlight(iids, IID_READS_IN_FLIGHT, (iid) =>
+        this.runQuery<MRDetailResponse>('fetchPullRequests.iids', MR_DETAIL_QUERY, { projectPath, iid }),
       );
       return resps
         .map((resp) => resp.project?.mergeRequest)

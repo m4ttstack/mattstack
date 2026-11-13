@@ -111,6 +111,63 @@ describe('GitLab fetchPullRequests({ iids }) stays under the complexity cap', ()
     expect(prs.map((pr) => pr.iid)).toEqual([1]);
   });
 
+  // GitLab's MergeRequestState lists `locked` as its own filter value beside
+  // `opened`, and the old all-states path dropped it client-side, since
+  // MRState has no `locked`.
+  test('a locked MR is not returned for opened, nor for every MRState', async () => {
+    const { provider } = recordingProvider({ '1': gitlabNode(1), '2': gitlabNode(2, { state: 'locked' }) });
+
+    const opened = await provider.fetchPullRequests({ projectPath: 'g/p', iids: [1, 2] });
+    const all = await provider.fetchPullRequests({
+      projectPath: 'g/p',
+      iids: [1, 2],
+      state: ['opened', 'merged', 'closed'],
+    });
+
+    expect(opened.map((pr) => pr.iid)).toEqual([1]);
+    expect(all.map((pr) => pr.iid)).toEqual([1]);
+  });
+
+  test('keeps at most 4 single-MR queries in flight and still reads every iid', async () => {
+    const provider = new GitLabProvider('https://gitlab.example', 't');
+    let inFlight = 0;
+    let peak = 0;
+    const seen: string[] = [];
+    (provider as any).runQuery = async (_op: string, _query: string, vars: Record<string, unknown>) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      seen.push(String(vars.iid));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight--;
+      return { project: { mergeRequest: gitlabNode(Number(vars.iid)) } };
+    };
+    const iids = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+    const prs = await provider.fetchPullRequests({ projectPath: 'g/p', iids });
+
+    expect(peak).toBe(4);
+    expect(seen.sort()).toEqual(iids.map(String));
+    expect(prs.map((pr) => pr.iid)).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1]);
+  });
+
+  test('a failed read rejects the batch and starts no further reads', async () => {
+    const provider = new GitLabProvider('https://gitlab.example', 't');
+    const seen: string[] = [];
+    (provider as any).runQuery = async (_op: string, _query: string, vars: Record<string, unknown>) => {
+      seen.push(String(vars.iid));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (vars.iid === '1') throw new Error('boom');
+      return { project: { mergeRequest: gitlabNode(Number(vars.iid)) } };
+    };
+
+    await expect(
+      provider.fetchPullRequests({ projectPath: 'g/p', iids: [1, 2, 3, 4, 5, 6, 7, 8, 9] }),
+    ).rejects.toThrow('boom');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(seen.length).toBe(4);
+  });
+
   test('returns MRs newest first, the order the mergeRequests connection used', async () => {
     const { provider } = recordingProvider({ '1': gitlabNode(1), '3': gitlabNode(3), '2': gitlabNode(2) });
 
