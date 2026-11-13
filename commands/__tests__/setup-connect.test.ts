@@ -1509,7 +1509,21 @@ describe("integrationConnect on a solo Mac", () => {
   type Written = [string, unknown, string];
 
   function soloDeps(token: string, fetch: Probes["fetch"], extra: Partial<ConnectDeps> = {}) {
-    const probes = fakeProbes({ fetch });
+    const unexpected: string[] = [];
+    const probes = Object.assign(
+      fakeProbes({
+        fetch,
+        daemon: async (cmd) => {
+          unexpected.push(`daemon ${cmd}`);
+          return null;
+        },
+        runRt: async (args) => {
+          unexpected.push(`runRt ${args.join(" ")}`);
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      }),
+      { unexpected },
+    );
     const tokenWrites: [string, string, string][] = [];
     const settingWrites: Written[] = [];
     const deps = baseDeps({
@@ -1530,8 +1544,18 @@ describe("integrationConnect on a solo Mac", () => {
     return { probes, deps, tokenWrites, settingWrites };
   }
 
-  function expectTokenOnly(probes: ReturnType<typeof fakeProbes>, deps: { lines: string[] }, token: string) {
-    expect(probes.calls.exec.filter((argv) => argv[0] === "deck" || argv[0] === "git")).toEqual([]);
+  // Deck's per-app toggle is a PATCH to its loopback API through probes.fetch, so the fetch channel is checked as well as exec.
+  function expectTokenOnly(probes: ReturnType<typeof soloDeps>["probes"], deps: { lines: string[] }, token: string) {
+    expect(probes.calls.exec).toEqual([]);
+    expect(probes.unexpected).toEqual([]);
+    expect(probes.calls.tray).toEqual([]);
+    expect(probes.calls.removed).toEqual([]);
+    expect(probes.calls.renames).toEqual([]);
+    expect(probes.calls.symlinks).toEqual({});
+    for (const { url, init } of probes.calls.fetchInits) {
+      expect([undefined, "GET"]).toContain(init?.method);
+      expect(url).not.toMatch(/^https?:\/\/(127\.0\.0\.1|localhost)/);
+    }
     expect(deps.lines.join("")).not.toContain(token);
     expect(cap.stdout()).not.toContain(token);
     expect(cap.stderr()).not.toContain(token);
