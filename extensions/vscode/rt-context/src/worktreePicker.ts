@@ -6,6 +6,7 @@ import { branchCache } from './cache';
 import { fetchBranchData, openLinearUrl } from './statusBar';
 import { listWorktrees, getGitApi, findWorkspaceRepo, getRemoteUrl } from './git';
 import { resolveRepoForge } from './repoForge';
+import { forgeWords, ownBranchData } from './forge';
 
 const WORKSPACE_PREF_KEY = 'rtContext.preferredWorkspaceFile';
 
@@ -101,6 +102,7 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
   }
 
   const repoForge = resolveRepoForge(repo);
+  const w = forgeWords(repoForge.forge);
   const cwd = repo.rootUri.fsPath;
   const worktrees = await listWorktrees(cwd);
 
@@ -127,7 +129,7 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
 
   const openMrButton: vscode.QuickInputButton = {
     iconPath: new vscode.ThemeIcon('git-merge'),
-    tooltip: 'Open GitLab merge request',
+    tooltip: `Open ${w.site} ${w.long}`,
   };
 
   const currentWorktree = worktrees.find((wt) => wt.isCurrent);
@@ -141,7 +143,9 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
   // Build items from cache first (instant), then re-fetch in background
   function buildPickItem(wt: import('./types').WorktreeEntry): WorktreePickItem {
     const branch = wt.branch ?? '(detached)';
-    const cached = wt.branch ? branchCache.get(wt.branch) : null;
+    const cached = wt.branch
+      ? ownBranchData(branchCache.get(wt.branch), repoForge.forge, repoForge.remoteUrl)
+      : null;
     let linearId = wt.branch ? extractLinearId(wt.branch) : null;
     if (!linearId && cached?.linearId) linearId = cached.linearId;
 
@@ -167,7 +171,7 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
     const description = wt.isCurrent ? `$(git-branch) ${branch}  (current)` : `$(git-branch) ${branch}`;
     const detailParts: string[] = [];
     if (ticketLabel) detailParts.push(ticketLabel);
-    if (mrUrl) detailParts.push(`$(git-pull-request) MR`);
+    if (mrUrl) detailParts.push(`$(git-pull-request) ${w.short}`);
     const detail = detailParts.length ? detailParts.join('  │  ') : undefined;
     const buttons: vscode.QuickInputButton[] = [];
     if (ticketUrl) buttons.push(openTicketButton);
