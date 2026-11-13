@@ -234,6 +234,8 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   // Octokit expands {name} in a route, to nothing when unset, after these checks ran.
   if (/[{}]/.test(decoded)) return { ok: false, error: '"path" must not contain { or }' };
   if (decoded.includes("\\")) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
+  // A lone surrogate has no UTF-8 form, so the bytes GitHub routes on are not the ones checked here.
+  if (!rest.isWellFormed() || !decoded.isWellFormed()) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
   if (decoded.includes(";")) return { ok: false, error: '"path" must not contain ;' };
   if (foldsToSeparator(decoded)) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
   const lower = decoded.toLowerCase();

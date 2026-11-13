@@ -511,6 +511,11 @@ describe("forgeGet through a real GitHubProvider", () => {
     await refusedOnWire(":repo/copilot%3F/cloud-agent/configuration", githubRouteRefusal("copilot"));
   });
 
+  test("a lone surrogate is refused as a plain-path error, raw or percent-encoded", async () => {
+    for (const path of [":repo/hooks\uDC00", ":repo/pulls\uD800", ":repo/contents/a\uDFFFb"]) await refusedOnWire(path, plainError);
+    await refusedOnWire(":repo/hooks%ED%B0%80", '"path" has a malformed percent escape');
+  });
+
   test("git/blobs joined by a fullwidth slash is refused with the blobs text", async () => {
     await refusedOnWire(":repo/git%EF%BC%8Fblobs/abc", blobsError);
   });
