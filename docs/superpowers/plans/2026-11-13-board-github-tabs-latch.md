@@ -102,13 +102,13 @@ Run (from `apps/board`): `bun test src/__tests__/sections.test.ts src/__tests__/
 Expected: FAIL (`sectionKey` not exported; GitHub demand empty).
 
 - [ ] **Step 3: Implement**
-  - `buildBoard`: map each daemon tag through a `Map<sectionKey(forge, tabSection), tabSection>`; keep only mapped tags.
+  - `buildBoard`: map each daemon tag through a `Map<sectionKey(forge, tabSection), tabSection>`; keep only mapped tags. Two GitHub tabs differing only by case are one owner, so only the first keeps rows; that is accepted.
   - `boardDemand`: drop the `forge.kind === 'gitlab'` condition; send deduped `sectionKey`'d sections.
   - `aggregateSyncScope`: drop both `forge === 'github'` exclusions.
   - `Board.tsx`: pass `data.forge ?? 'gitlab'` to `sectionStatus`; compare `scopeUncoveredSections` by `sectionKey`; on GitHub the banner reads along the lines of `no CODEOWNERS owner "@x"`, and the suggestion is its own element, never joined with `·` (GitLab banner unchanged). Pass `forge` to `TabBar`.
   - Final words by rt:ui-copy.
 
-- [ ] **Step 4: Run the tests and see them pass**, plus `bun test src/__tests__/tab-picks.test.ts src/__tests__/fixture-github.test.ts` (fixture assertions on empty sections still hold until Task 12).
+- [ ] **Step 4: Run the tests and see them pass**, plus `bun test src/__tests__/tab-picks.test.ts src/__tests__/fixture-github.test.ts`. The fixture's `data.json` is served as is, so its empty sections hold until Task 12; if an assertion there reads `aggregateSyncScope` output instead, update it here.
 
 - [ ] **Step 5: Commit** `board: codeowner tabs name CODEOWNERS owners on GitHub (BOARD-66)`
 
@@ -159,7 +159,7 @@ Expected: FAIL (`sectionKey` not exported; GitHub demand empty).
 - Consumes: Task 2's `LatchGateway`, `LatchMr`, `LatchFile`.
 - Produces:
   - `githubLatchGateway(deps?: { command?: typeof rtCommand; stage?: StageFn; timeoutMs?: number }): LatchGateway` with `forge: 'github'`.
-  - `stageFiles(files: LatchFile[], opts?: { root?: string }): Promise<{ dir: string; paths: { path: string; name: string }[]; cleanup(): Promise<void> }>`. Default root is `join(homedir(), '.mattstack', 'evidence', 'board-latch')`. It makes a `mkdtemp` subfolder there, mode 0700, and writes each file under its `filename`.
+  - `stageFiles(files: LatchFile[], opts?: { root?: string }): Promise<{ dir: string; paths: { path: string; name: string }[]; cleanup(): Promise<void> }>`. Default root is `join(process.env.HOME ?? homedir(), '.mattstack', 'evidence', 'board-latch')`, read at call time (Bun freezes `homedir()` at startup; see `src/app-root.ts`), so a test HOME is honoured. It makes a `mkdtemp` subfolder there, mode 0700, and writes each file under its `filename`.
   - `boardLatchGateway(config: BoardConfig, gitlabToken: string | null): LatchGateway | null`: GitLab with a token gives `latchGateway(gitlabOnly(config), token)`; GitHub gives `githubLatchGateway()`; anything else gives null.
   - `LATCH_GITHUB_TIMEOUT_MS = 120_000` (above the daemon's 90 s budget, as `FORGE_WRITE_TIMEOUT_MS`).
 
@@ -190,16 +190,18 @@ Expected: FAIL (`sectionKey` not exported; GitHub demand empty).
   - `postLatch(...)` returns `{ discussionId: string; rootNoteId: number } | { noFiles: true }`.
   - `recordNoFiles(mrUrl: string, runStamp: number, db?)` and `noFilesFor(mrUrl: string, runStamp: number, db?): boolean`, in kv namespace `latch-no-files`.
   - Audit action `'no-files'` on event `'latch'`.
+  - `ReviewLatchStep.runStamp: number` and `ReviewLatchStep.appendAudit` (both required).
 
 - [ ] **Step 1: Write the failing tests**
   - `a GitHub arm uploads the common set in one batch`: a GitHub fake gateway with an empty upload cache sees one `uploadFiles` call with six files (keys of `GITHUB_BANNER_SET`), then `createThread`; every key lands in `latch_uploads`.
-  - A rare variant (`{state: 'error-stuck'}`) on GitHub uploads alone; on GitLab every upload is one file, as today (the existing parity tests stay green).
+  - A rare variant (`{state: 'error-stuck'}`) on GitHub uploads alone even with nothing cached; on GitLab every upload is one file, as today (the existing parity tests stay green).
   - `a failed thread post reuses the cached batch next tick`: `createThread` throws once; a second `postLatch` makes no `uploadFiles` call.
   - A GitHub comment landing writes the `done-comments` variant with `count: null` and still posts `Follow-up review done: 3 new comments.`; GitLab keeps the counted variant.
   - `armedCopy('github')` says "PR" where GitLab's says "MR"; the done-comments sentence likewise; GitLab strings equal today's literals.
-  - No-files from `applyReviewLatch`: returns `'none'`, writes no latch row, records the memo with the review's run stamp. From the pass's step 0: audits `{event: 'latch', action: 'no-files'}`, and a second tick with the same run stamp makes no `createThread` call; a new run stamp tries again.
-- [ ] **Step 2: Run** the five suites. Expected: FAIL.
-- [ ] **Step 3: Implement.** `bannerMarkdown` takes the gateway's `forge`: on GitHub, when the variant is uncached, it uploads `[variant, ...uncached members of GITHUB_BANNER_SET]` deduped by `variantKey`. The landing variant is chosen in `landFollowUp` from `i.gateway.forge`. `applyReviewLatch` reads `reviewRunStartedAt`; with none, it uses the review's `runStamp` from the caller (add `runStamp?: number` to `ReviewLatchStep` if needed).
+  - No-files from `applyReviewLatch`: returns `'none'`, writes no latch row, records the memo with `runStamp`, and calls `appendAudit` with `{event: 'latch', action: 'no-files'}`; a second call with the same `runStamp` makes no `createThread` call; a new one tries again.
+  - No-files from the pass's step 0: the same audit, memo and skip, keyed by `runStamp(review)`.
+- [ ] **Step 2: Run** the five suites and `latch-markers.test.ts`. Expected: FAIL.
+- [ ] **Step 3: Implement.** `bannerMarkdown` takes the gateway's `forge`. One rule: on GitHub, an uncached variant that is in `GITHUB_BANNER_SET` uploads with every other uncached member of that set, deduped by `variantKey`; any other variant uploads alone. The landing variant is chosen in `landFollowUp` from `i.gateway.forge`. `ReviewLatchStep` gains two required fields: `runStamp: number` (the finished lane's `runStamp`, which the server passes whether or not it vouches for the run) and `appendAudit(entry: AuditEntry): void`. The memo uses `runStamp`, never `reviewRunStartedAt`, which is null when the run is not vouched.
 - [ ] **Step 4: Run** all latch suites again. Expected: PASS.
 - [ ] **Step 5: Commit** `board: GitHub latch banners, copy and the no-files outcome`
 
@@ -213,14 +215,15 @@ Expected: FAIL (`sectionKey` not exported; GitHub demand empty).
 **Interfaces:**
 - Consumes: `boardLatchGateway` (Task 3), the `postLatch` no-files result (Task 4).
 - Produces:
-  - `verifyLatchIdentity(repoName: string, self: string, deps?: { command?: typeof rtCommand; now?: () => number; db?: Database }): Promise<boolean>`. A match (case-insensitive) is cached in kv `latch-identity` (key `repoName`, value `{login, at}`) for 24 h; a mismatch or failure returns false and caches nothing.
+  - `verifyLatchIdentity(repoName: string, self: string, deps?: { command?: typeof rtCommand; now?: () => number; db?: Database }): Promise<{ ok: true } | { ok: false; login: string | null }>`. A match (case-insensitive) is cached in kv `latch-identity` (key `repoName`, value `{login, at}`) for 24 h; a mismatch returns the daemon's `login`, a failure returns `login: null`, and neither is cached. Callers write the log line (both logins) and the audit.
   - `TriageForgePlan` swaps `asksAndLatch` for `asks: boolean; latch: boolean`.
   - `GITHUB_ASKS_SKIP` is the log line (respond asks only); `GITHUB_ASKS_LATCH_SKIP` goes away.
 
 - [ ] **Step 1: Write the failing tests**
-  - `verifyLatchIdentity`: `forge:self` answering `Ellie-Dev` for self `ellie-dev` gives true; a second call within 24 h makes no daemon call; after 24 h it calls again; `ivasco` vs `ellie-dev` gives false; `{ok: false}` gives false.
+  - `verifyLatchIdentity`: `forge:self` answering `Ellie-Dev` for self `ellie-dev` gives `{ok: true}`; a second call within 24 h makes no daemon call; after 24 h it calls again; `ivasco` vs `ellie-dev` gives `{ok: false, login: 'ivasco'}`; `{ok: false}` from the daemon gives `{ok: false, login: null}`.
   - `triageForgePlan` on GitHub with a username gives `{asks: false, latch: true}` and logs `GITHUB_ASKS_SKIP`; with none gives `latch: false` plus `GITHUB_NO_USERNAME`; GitLab gives both true and no lines.
-  - Server GitHub team (fake daemon on the test HOME's `rt.sock`): a review `done`/`comment` signal with `board.reReview` on reaches the fake daemon with `forge:self`, then `mr:attach-upload`, then `mr:comment-file`; with `forge:self` answering another login it sends no write and logs one line naming both logins. A finished respond with a pending re-review pick sends `discussions:resolve`.
+  - Server GitHub team (fake daemon on the test HOME's `rt.sock`): a review `done`/`comment` signal with `board.reReview` on reaches the fake daemon with `forge:self`, then `mr:attach-upload`, then `mr:comment-file`; with `forge:self` answering another login it sends no write and logs one line naming both logins. A finished respond with a pending re-review pick sends `discussions:resolve`. With no recorded team username (`forgeSelf()` null) the done step sends nothing and logs one line.
+  - Triage wiring, in `src/__tests__/triage-github-edges.test.ts` (it already drives `bin/triage.ts` for a GitHub team): with a recorded username, no GitLab token and `board.reReview` on, the latch pass runs and posts through the fake daemon; with `forge:self` answering another login, the pass sends no write and audits `{event: 'latch', action: 'identity-mismatch'}` once for that repo in the run.
 - [ ] **Step 2: Run** the three suites (from `apps/board`). Expected: FAIL.
 - [ ] **Step 3: Implement.**
   - `bin/triage.ts`: the latch pass runs when `plan.latch` (GitLab: today's `latchToken` condition); on GitHub `self = plan.identity.recorded`, `gateway = boardLatchGateway(...)`, `projectId: null`, and `countNew` is `fetchNewDiscussionCount(() => refreshed detail via discussions:refresh, username, launchAt)`. Before the pass on GitHub, `verifyLatchIdentity` per distinct `rtRepo` in `fetchLatchMrs`; MRs on an unverified repo are dropped from the pass, with one audit `{event: 'latch', action: 'identity-mismatch'}` per repo per run.
@@ -238,10 +241,10 @@ Expected: FAIL (`sectionKey` not exported; GitHub demand empty).
 **Interfaces:**
 - Consumes: `findLatches` (unchanged), `verifyLatchIdentity` (Task 5), `forgeReason` and `DAEMON_UNREACHABLE_PREFIX`.
 - Produces:
-  - `export interface ReviewerRequest { reviewer: string; discussionId: string; requested: boolean }` and
+  - `export interface ReviewerRequest { reviewer: string; discussionId: string; requested: boolean }` (unlike the existing armed-only `ReviewerLatch`, it covers a reviewer's newest live latch in any phase; keep both) and
     `reviewerRequests(detail: MRDetail, author: string): ReviewerRequest[]`. One entry per non-author reviewer with a live latch. `requested` is true when the reviewer's newest latch is armed and resolved, or is queued, running or error.
-  - `planReRequests(mrUrl: string, requests: ReviewerRequest[], reviewers: { username: string; reviewState: string | null }[], sent: (key: string) => boolean): { send: string[]; mark: string[]; forget: string[] }`. Pure; keys are `${mrUrl}|${discussionId}`.
-  - `sendReReviewRequests(mrs: BoardMR[], deps: { command?; db?; log? }): Promise<void>`. Kv namespace `latch-rerequest`.
+  - `planReRequests(mrUrl: string, requests: ReviewerRequest[], reviewers: { username: string; reviewState: string | null }[], sentKeys: string[]): { send: string[]; mark: string[]; forget: string[] }`. Pure; `sentKeys` are the stored `latch-rerequest` keys for that `mrUrl`; keys are `${mrUrl}|${discussionId}`; `send` lists reviewer usernames, `mark` and `forget` list keys. Any stored key with no `requested: true` entry (spent, gone, or armed and open) is in `forget`.
+  - `sendReReviewRequests(mrs: BoardMR[], deps: { self: string; command?; db?; log? }): Promise<void>`. `self` is `forgeSelf.get()`, for `verifyLatchIdentity`. Kv namespace `latch-rerequest`.
 
 - [ ] **Step 1: Write the failing tests**
   - `reviewerRequests` per phase: armed and open gives false; armed and resolved, queued, running and error give true; spent gives no entry; the author's own latch gives no entry.
@@ -269,7 +272,8 @@ Expected: FAIL (`sectionKey` not exported; GitHub demand empty).
 - [ ] **Step 3: Run it** (from the worktree root, the test's own path). Expected: FAIL.
 - [ ] **Step 4: Implement** and regenerate the lock.
 - [ ] **Step 5: Run** the test and `bun run typecheck` at the root. Expected: PASS.
-- [ ] **Step 6: Commit** `rt-client: an optional GitHub team on directory teams (BOARD-66)`
+- [ ] **Step 6:** Before the final push (Task 13), if forge-copy-sweep's PR has landed, merge main and regenerate `schema.lock.json` again.
+- [ ] **Step 7: Commit** `rt-client: an optional GitHub team on directory teams (BOARD-66)`
 
 ### Task 8: The ask picker's GitHub owners (board side)
 

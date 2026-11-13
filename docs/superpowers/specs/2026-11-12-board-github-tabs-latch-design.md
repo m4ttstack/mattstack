@@ -384,10 +384,10 @@ roots.
 
 `bannerMarkdown` gets the gateway's forge:
 
-- **One batch per arm.** On GitHub, when a variant is not yet cached for
-  the PR, the board uploads it together with every uncached member of the
-  common set: armed, queued (next sweep), running, done (uncounted),
-  done-approved and approved. All go in one `uploadFiles` call, so one
+- **One batch per arm.** On GitHub, when a variant in the common set
+  (armed, queued (next sweep), running, done (uncounted), done-approved and
+  approved) is not yet cached for the PR, the board uploads it together with
+  every other uncached member of that set. All go in one `uploadFiles` call, so one
   holder comment, and each is cached in `latch_uploads` as GitLab's single
   upload is. A rarer banner (another wait, retrying, stuck, superseded)
   uploads alone the first time it is needed, exactly as on GitLab. On
