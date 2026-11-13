@@ -19,17 +19,16 @@ know those pane cards never showed their drafts. The record then passes
 
 - **form:** `### Present the in-pane gate form`, holding `code-changes`
   back from the chunks. Then one last call: `code-changes`, only when some
-  thread answered `fix:` (otherwise submit its sentinel `skip` unasked),
-  plus a pane-only `next` question of **Continue** / `iterate` /
-  `hold`. That `next` never reaches the registry, and `iterate` / `hold` are
-  never extra options on a thread or code-changes question.
-  - **Continue:** ONE `gate_answer {id, answers, runDb?, stage?}` after
-    that last call, carrying every thread answer plus `code-changes`. A
-    replacement reply typed in the free-text field rides as `note`.
-  - `iterate` or `hold`: answer nothing. `hold` leaves the gate
-    open for another surface.
+  thread answered `fix:` (otherwise submit its sentinel `skip` unasked).
+  `iterate` / `hold` are never extra options on a thread or code-changes
+  question. Then ONE `gate_answer {id, answers, runDb?, stage?}` carrying
+  every thread answer plus `code-changes`. A replacement reply typed in
+  the free-text field rides as `note`.
 - **wait:** as gate-protocol draws it; an answer from the board or
-  console carries no `next`: it is the `answered off the pane` edge.
+  console records the same way.
+
+A `next` of `iterate` or `hold` on the answer records nothing: `iterate`
+redrafts with their note, `hold` holds.
 
 Neither `gate_answer` nor `gate_reconcile` records this review gate:
 `gate_record {..., gateId: <id>}` does. Never fold threads into one
