@@ -153,15 +153,15 @@ export function AskBand({
             onClick={e => e.stopPropagation()}
           >
             <span className="tui-ask-where">
-              <AskGlyph name="cloud" />
-              {band.who}
-            </span>
-            <span className="tui-ask-state">
               {band.icon === 'loader' ? (
                 <CloudSpinner />
               ) : (
-                <AskGlyph name={band.icon} />
+                <AskGlyph name="cloud" />
               )}
+              {band.who}
+            </span>
+            <span className="tui-ask-state">
+              {band.icon !== 'loader' && <AskGlyph name={band.icon} />}
               <span className="tui-ask-label" title={band.label}>
                 {band.label}
               </span>
