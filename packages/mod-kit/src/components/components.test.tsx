@@ -146,6 +146,43 @@ describe('Unfocused', () => {
     expect(tree).toEqual(renderLines(lines, ELEMENTS, { focused: true }))
   })
 
+  test('in an unfocused Panel it draws the same as a sibling outside it', () => {
+    const { tree } = draw(
+      () => (
+        <Panel width={40}>
+          <Button tone="brand">Open</Button>
+          <Unfocused>
+            <Button tone="brand">Open</Button>
+          </Unfocused>
+        </Panel>
+      ),
+      { focused: false },
+    )
+    const rows = (tree as { props: { children: { props: { children: unknown } }[] } }).props.children
+    expect(rows[1]!.props.children).toEqual(rows[0]!.props.children)
+  })
+
+  test('nested inside another it draws the same as one alone', () => {
+    const once = draw(() => (
+      <Panel width={40}>
+        <Unfocused>
+          <Button tone="brand">Open</Button>
+        </Unfocused>
+      </Panel>
+    ))
+    const twice = draw(() => (
+      <Panel width={40}>
+        <Unfocused>
+          <Unfocused>
+            <Button tone="brand">Open</Button>
+          </Unfocused>
+        </Unfocused>
+      </Panel>
+    ))
+    expect(twice.lines).toEqual(once.lines)
+    expect(twice.tree).toEqual(once.tree)
+  })
+
   test('its children lay out as unfocused: an input field shows no cursor', () => {
     const { lines } = draw(() => (
       <Panel width={40}>
