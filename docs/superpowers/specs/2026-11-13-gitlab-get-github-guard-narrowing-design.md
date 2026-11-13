@@ -36,6 +36,14 @@ These were put to Matt through the shepherd on 2026-11-13 and answered:
 2. **Refuse decoded whitespace and zero-width or format characters**
    (Unicode White_Space and the Cf category) in every segment outside a
    `contents/` file path. Inside the file path they stay allowed.
+   Cost Matt should know (raised in review): outside a file path this
+   also refuses reads that work today and hold a plain space, such as
+   `:repo/labels/good%20first%20issue` and `help%20wanted` (GitHub's
+   default labels), `:repo/readme/my%20docs`, a concurrency group name
+   with a space, and a workflow file name with a space. The alternative
+   that keeps those is to allow U+0020 alone outside the file path and
+   refuse every other White_Space and Cf character. This design follows
+   the decision as given.
 3. **Refuse `copilot`.** Already decided and in flight in a separate lane
    (`copilot-refusal`), which adds `copilot` to `GITHUB_REFUSED_SEGMENTS`
    with its tests as its own PR, ahead of this design. This design
@@ -97,37 +105,90 @@ order, with these changes:
 1. **Repo shape (widening).** The configured `projectPath` must be
    exactly two non-empty segments, `owner/name`; anything else refuses
    before any request. GitHub has no deeper repo path.
-2. **Plain repo segments (widening).** The raw path's first three
-   segments must contain no `%`. GitHub owner and repo names are limited
-   to letters, digits, `.`, `-` and `_`, so no real path needs an escape
-   there. Because those segments and a literal `contents` hold no escape,
-   raw and decoded segments line up one to one through index 3.
+2. **Plain repo segments (widening).** The raw path's segments 1 and 2
+   (owner and name) must each match `^[A-Za-z0-9._-]+$`, the alphabet
+   GitHub allows for owner and repo names. That rules out `%` escapes and
+   any non-ASCII letter that lowercases to ASCII (the Kelvin sign U+212A
+   lowercases to `k`, so today's case-insensitive prefix check would
+   accept `repos/Kcme/r` for `kcme/r`). Segment 0 is the literal `repos`.
+   So the raw bytes GitHub routes as owner and name are the bytes
+   checked, and raw and decoded segments line up one to one through
+   index 3.
 3. **The file path.** The path has a **file path** when the raw segment
-   at index 3 is exactly `contents` (lowercase, no escape, no suffix) and
-   is followed by `/`. The file path is every decoded segment from index
-   4 on. `Contents`, `%63ontents`, `contents.json` and `contents%2F...`
-   do not count: those paths are matched strictly.
+   at **index 3** is exactly `contents` (lowercase, no escape, no suffix)
+   and is followed by `/`. The test is by position, never by looking for
+   a segment whose value is `contents`: on a repo named `acme/contents`,
+   `repos/acme/contents/hooks` has `hooks` at index 3 and no file path.
+   The file path is every decoded segment from index 4 on. `Contents`,
+   `%63ontents`, `contents.json` and `contents%2F...` do not count: those
+   paths are matched strictly.
 4. **Whitespace and invisible characters (widening).** A decoded segment
    that is not in the file path and contains a character matching
-   `/[\s\p{Cf}]/u` refuses. That covers space, tab, no-break space,
-   U+FEFF, the line and paragraph separators, zero-width space, joiner
-   and non-joiner, word joiner, soft hyphen and the bidi controls. The
-   raw whitespace refusal stays as it is everywhere, file path included,
-   because Octokit cuts the route at a raw space; a file name with a
-   space is sent as `%20`.
+   `/[\p{White_Space}\p{Cf}]/u` refuses. That covers space, no-break
+   space, NEL (U+0085, which JS `\s` misses), U+FEFF, the line and
+   paragraph separators, zero-width space, joiner and non-joiner, word
+   joiner, soft hyphen and the bidi controls. The raw whitespace refusal
+   stays as it is everywhere, file path included, because Octokit cuts
+   the route at a raw space; a file name with a space is sent as `%20`.
+   Invisible characters outside both classes (U+034F, variation
+   selectors, Hangul fillers, braille blank) are not refused: the threat
+   model, as for homoglyphs, is that GitHub routes on literal bytes, so
+   a word padded with any character is a different segment and a 404.
+   Rule 4 refuses the common padding characters as defense in depth, not
+   because the proof needs it.
 5. **Word matching (narrowing).** `GITHUB_REFUSED_SEGMENTS` and
-   `git/blobs` are matched only over the route segments, and not over
-   the file path. An entry with a slash (`actions/oidc`) must start at
-   index 3 or later. The repo-name refusal ("cannot read a GitHub repo
-   whose owner or name is ...") goes away.
+   `git/blobs` are matched over a **window**: the decoded segments from
+   index 3 up to the file path's start (to the end when there is no file
+   path), that is `segments.slice(3, fileStart)`. An entry with a slash
+   (`actions/oidc`) must fit wholly inside the window. Matching runs on
+   the window itself. It must never be a first-match index over the
+   whole path filtered afterwards: `entryAt` returns the first match, so
+   on repo `acme/hooks.io` a filter of `at >= 3` would find `hooks.io`
+   at index 2, drop it, and never see `:repo/hooks` at index 3. The
+   repo-name refusal ("cannot read a GitHub repo whose owner or name is
+   ...") goes away.
 
-Unchanged, over the whole path, file path included: the control
-character, `?`, `#`, `://` and backslash refusals; one level of decoding
-only (a `%` left after decoding refuses); malformed escapes; dot segments
-(`.`, `..`, in any encoding); `{` and `}`; `;`; the prefix check that the
-decoded path sits under `repos/<owner>/<name>` of this repo (case
-insensitive); the query key refusals; redirect refusal; the 256 KiB cap;
-token redaction.
+C1 controls (my call, a widening). Today's `CONTROL` class is
+`[\u0000-\u001f\u007f]`, so U+0080 to U+009F pass everywhere.
+`CONTROL` widens to `\p{Cc}`, over the whole path, file path included,
+on both the raw and the decoded text. No real file name holds a C1
+control. This also applies on GitLab, since `plainApiPath` is shared; it
+only refuses more.
+
+Dot lookalikes in a file path (my call, a widening). A file-path segment
+that, after trimming `\p{White_Space}` and NFKC normalization, equals
+`.` or `..` refuses with the dot-segment error. For example
+`contents/..%20/hooks`, or fullwidth full stops `%EF%BC%8E%EF%BC%8E`. No
+layer is known to treat these as dot segments; refusing them costs
+nothing.
+
+Unchanged, over the whole path, file path included: the `?`, `#`, `://`
+and backslash refusals; one level of decoding only (a `%` left after
+decoding refuses); malformed escapes; dot segments (`.`, `..`, in any
+encoding); `{` and `}`; `;`; the prefix check that the decoded path sits
+under `repos/<owner>/<name>` of this repo (case insensitive); the query
+key refusals; redirect refusal; the 256 KiB cap; token redaction.
+
+### Order of checks
+
+A path that breaks several rules gets the first refusal in this order.
+The test plan's exact errors follow it.
+
+1. `plainApiPath`: required, raw control (now `\p{Cc}`), `?`, `#`,
+   `://`, backslash; decode; decoded control; double encoding; dot
+   segments.
+2. Raw whitespace; braces; decoded backslash; `;` (as today).
+3. Repo shape (rule 1).
+4. Prefix under this repo (as today).
+5. Plain repo segments (rule 2).
+6. File path start (rule 3), then dot lookalikes in the file path.
+7. Whitespace and invisible characters outside the file path (rule 4).
+8. Word matching over the window (rule 5), guarded words before
+   `git/blobs`.
+
+So `:repo/hooks%09` is refused at step 1 (a decoded tab is a control
+character), `:repo/hooks/x%20` at step 7, and `repos/o/%72/hooks` at
+step 5.
 
 ## Why nothing new is reachable
 
@@ -181,6 +242,9 @@ Claim: a guarded word in segment 1 or 2 selects no endpoint.
 
 - The prefix check already pins segments 1 and 2 to this repo's owner
   and name, and rule 2 makes the raw bytes equal the checked bytes.
+- Skipping the name never hides the same word in the route: rule 5
+  matches over the window from index 3, so `:repo/hooks` on repo
+  `acme/hooks.io` is still refused.
 - Every GET route under `/repos/` binds those two segments to
   `{owner}` and `{repo}`, which name a repository, not an endpoint.
 - An entry with a slash cannot start in the name: `acme/actions` with
@@ -213,6 +277,10 @@ Claim: a guarded word in segment 1 or 2 selects no endpoint.
 | `:repo/contents/git/blobs/x` | Allowed: a file named `x` in a folder `git/blobs`; the contents route never reads a blob by sha |
 | `:repo/tarball/<ref>`, `:repo/zipball/<ref>` | 302 to codeload; refused by the redirect rule, as today |
 | `:repo/readme/hooks` | Strict match refuses; `readme/{dir}` is not exempt |
+| C1 controls, `:repo/hooks%C2%85` (NEL) | Refused by the widened `CONTROL` class, file path included |
+| Dot lookalikes, `:repo/contents/..%20/hooks`, fullwidth `%EF%BC%8E%EF%BC%8E` | Refused as dot segments |
+| A word in the name hiding the same word in the route, `:repo/hooks` on `acme/hooks.io` | Refused: the window starts at index 3 (rule 5) |
+| A repo named `acme/contents`, `:repo/hooks` | Refused: rule 3 is positional, so index 3 is `hooks` |
 | A homoglyph such as fullwidth `ｓｅｃｒｅｔｓ` outside a file path | Not refused by the guard; GitHub routes on literal ASCII bytes, so it is a 404. See "Left open" |
 
 ## Every route family, with a verdict
@@ -226,7 +294,7 @@ not change the outcome for that family; the narrowing touches only
 |---|---|---|
 | (bare repo) | none; `*_token` keys blanked | Readable, unchanged |
 | `contents` | none (see the proof) | **Narrowed**: the file path is no longer word matched |
-| `actions` | `secrets`, `variables`, `organization-secrets`, `organization-variables`, `oidc/customization/sub`, `runners` (registration and remove tokens are POST, listing refused anyway) | Refused by word, unchanged. `artifacts/{id}/{archive_format}`, `runs/{id}/logs`, `jobs/{id}/logs` redirect to signed URLs and are refused by the redirect rule. `caches`, `permissions`, `policies`, `workflows`, `runs`, `jobs` readable, unchanged. `workflows/{workflow_id}` takes a file name and keeps the strict match |
+| `actions` | `secrets`, `variables`, `organization-secrets`, `organization-variables`, `oidc/customization/sub`, `runners` (`runners/downloads` carries `temp_download_token`; registration and remove tokens are POST) | Refused by word, unchanged. `artifacts/{id}/{archive_format}`, `runs/{id}/logs`, `jobs/{id}/logs` redirect to signed URLs and are refused by the redirect rule. `caches`, `permissions`, `policies`, `workflows`, `runs`, `jobs` readable, unchanged. `workflows/{workflow_id}` takes a file name and keeps the strict match |
 | `agents` | `secrets`, `variables`, `organization-secrets`, `organization-variables` | Refused by word, unchanged |
 | `codespaces` | `secrets`, devcontainers, machines | Refused by word (whole family), unchanged |
 | `copilot` | `cloud-agent/configuration` (free-form MCP server config) | Refused by word once the `copilot-refusal` lane lands |
@@ -260,16 +328,17 @@ by the prefix check.
 
 ## Refusal text
 
-Plain words, one sentence of what happened and one of what to do. The
-word in the text always comes from `GITHUB_REFUSED_SEGMENTS`, never from
-the caller's path.
+Plain words: one sentence of what happened, one of what to do. The word
+in the text always comes from `GITHUB_REFUSED_SEGMENTS`, never from the
+caller's path.
 
 | Case | Text |
 |---|---|
-| A guarded word in the route segments | `gitlab_get refuses "path" because it has "hooks" in it. On GitHub that word names an endpoint that can return credentials, so it is refused anywhere after the repo, branch and tag names included. File names under :repo/contents/ are not checked for it.` |
-| Decoded whitespace or an invisible character outside the file path | `"path" has a space or an invisible character outside the file path, which gitlab_get refuses on GitHub. A file name under :repo/contents/ may hold a space, sent as %20.` |
-| An escape in the owner or name | `"path" must name the repo as repos/<owner>/<name> with no percent escapes.` |
-| `projectPath` is not `owner/name` | `gitlab_get cannot read this GitHub repo: its path is not owner/name.` |
+| A guarded word in the window | `gitlab_get refuses "path" because it has "hooks" in it. On GitHub that word names an endpoint that can return credentials, so it is refused in any segment after the repo, including branch and tag names. To read a file, use :repo/contents/<file path>, where file names are not checked.` |
+| Decoded whitespace or an invisible character outside the file path | `"path" has a space or an invisible character outside the file path, which gitlab_get refuses on GitHub. Only a file name under :repo/contents/ may hold one; send a space there as %20.` |
+| Owner or name outside `[A-Za-z0-9._-]` | `"path" must name the repo as repos/<owner>/<name>, spelled plainly with no percent escapes. Start it with :repo/ instead.` |
+| `projectPath` is not `owner/name` | `gitlab_get cannot read this GitHub repo, because its path is not owner/name. Check the repo's origin remote.` |
+| A dot lookalike in a file path | The existing `"path" must not contain dot segments`. |
 | `git/blobs` | Unchanged. |
 
 The first row replaces today's `"path" names hooks, which can return
@@ -282,50 +351,111 @@ All through `forgeGet` with a real `GitHubProvider` over a stubbed
 `globalThis.fetch`, the pattern of the existing
 `forgeGet through a real GitHubProvider` block: each accepted case
 asserts exactly one request, its `pathname`, and `redirect: "manual"`;
-each refused case asserts the exact error and that `fetch` was never
-called. The pure `checkGithubForgePath` tests stay for exact wording.
+each refused case asserts the exact error (per "Order of checks") and
+that `fetch` was never called. The pure `checkGithubForgePath` tests stay
+for exact wording.
 
-Accepted, with the pathname that reaches the wire:
+### The credential routes, on every repo shape
+
+A table-driven test. Rows are real GET routes from column 2 of the
+family table, one or more per refused family:
+
+- `actions/secrets`, `actions/secrets/public-key`, `actions/secrets/X`,
+  `actions/variables`, `actions/variables/X`,
+  `actions/organization-secrets`, `actions/organization-variables`,
+  `actions/oidc/customization/sub`, `actions/runners`,
+  `actions/runners/downloads` (carries `temp_download_token`),
+  `actions/runners/1`
+- `agents/secrets`, `agents/secrets/X`, `agents/variables/X`,
+  `agents/organization-secrets`, `agents/organization-variables`
+- `codespaces/secrets`, `codespaces/secrets/X`, `codespaces/devcontainers`
+- `dependabot/secrets`, `dependabot/secrets/X`, `dependabot/runner-settings`,
+  `dependabot/alerts`
+- `environments`, `environments/prod/secrets`,
+  `environments/prod/secrets/X`, `environments/prod/variables`,
+  `environments/prod/variables/X`
+- `hooks`, `hooks/1`, `hooks/1/config`, `hooks/1/deliveries`,
+  `hooks/1/deliveries/2`
+- `keys`, `keys/1`
+- `secret-scanning/alerts`, `secret-scanning/alerts/1`,
+  `secret-scanning/alerts/1/locations`, `secret-scanning/custom-patterns`,
+  `secret-scanning/scan-history`
+- `security-advisories`, `private-vulnerability-reporting`,
+  `invitations`, `autolinks`, `autolinks/1`
+- `copilot/cloud-agent/configuration`, `copilot/code-review/settings`
+  (rows added once the `copilot-refusal` lane has landed)
+
+Each row is sent as `:repo/<row>` on each of these repos, and every one
+is refused:
+
+- `o/r`;
+- repos whose owner or name is a guarded word: `acme/hooks`,
+  `acme/hooks.io`, `acme/keys`, `secrets/app`, `acme/actions`,
+  `acme/environments`;
+- `acme/contents`, which pins that rule 3 is positional.
+
+On `acme/hooks.io`, `:repo/hooks` and `:repo/hooks/1/config` are refused.
+On `secrets/app`, `:repo/actions/secrets` is refused. On `acme/actions`,
+`:repo/actions/oidc/customization/sub` is refused. On `acme/contents`,
+`:repo/hooks` and `:repo/actions/secrets` are refused. These are the
+regression cases for a window built by filtering a first-match index
+instead of slicing.
+
+### Accepted, with the pathname that reaches the wire
 
 - `:repo/contents/src/hooks/useAuth.ts`, `:repo/contents/secrets.md`,
   `:repo/contents/infra/variables.tf`, `:repo/contents/keys/README.md`,
   `:repo/contents/Actions/Secrets`, `:repo/contents/git/blobs/x`,
   `:repo/contents/docs%2Fhooks.md`, `:repo/contents/a%20b.md`,
   `:repo/contents/a%E2%80%8Bb.md`.
-- For every entry in `GITHUB_REFUSED_SEGMENTS`:
-  `:repo/contents/<entry>` and `:repo/contents/dir/<entry>.md` accepted,
-  `:repo/<entry>` refused. This loop picks up `copilot` from the other
-  lane with no edit.
-- Repos `acme/keys`, `acme/hooks.io`, `secrets/app`: `:repo`,
-  `:repo/pulls` accepted. Repo `acme/actions`: `:repo/oidc/customization/sub`
-  accepted (GitHub's 404 is its own answer).
+- For every entry in `GITHUB_REFUSED_SEGMENTS`: `:repo/contents/<entry>`
+  and `:repo/contents/dir/<entry>.md` accepted. This loop picks up
+  `copilot` from the other lane with no edit.
+- On `acme/keys`, `acme/hooks.io`, `secrets/app` and `acme/contents`:
+  `:repo` and `:repo/pulls` accepted, and on `acme/contents`
+  `:repo/contents/README.md` accepted with wire path
+  `/repos/acme/contents/contents/README.md`. On `acme/actions`:
+  `:repo/oidc/customization/sub` accepted (no such route; GitHub's 404
+  is its own answer).
 
-Refused, never reaching `fetch`:
+### Refused, never reaching `fetch`
 
 - Strict match kept: `:repo/Contents/hooks`, `:repo/%63ontents/hooks`,
   `:repo/contents.json/hooks`, `:repo/contents%2Fhooks`,
   `:repo/actions/contents/secrets`, `:repo/readme/hooks`,
   `:repo/git/ref/heads/feature/hooks`, `:repo/commits/hooks`,
-  `:repo/environments/prod/secrets`, `:repo/git/blobs/abc`.
+  `:repo/git/blobs/abc`.
 - Climbing out of a file path: `:repo/contents/../hooks`,
   `:repo/contents/%2e%2e/hooks`, `:repo/contents/%252e%252e/hooks`,
   `:repo/contents/x;/../hooks`, `:repo/contents/{x}`,
-  `:repo/contents/a%5Cb`, `:repo/contents/a b`.
-- Repo segments: `repos/o%2Fr/pulls` style escapes, `repos/o/%72/pulls`,
-  and a provider configured with a three-segment `projectPath`.
-- Rule 4: `:repo/actions/secrets%20`, `:repo/hooks%09`,
+  `:repo/contents/a%5Cb`, `:repo/contents/a b`,
+  `:repo/contents/..%20/hooks`, `:repo/contents/%EF%BC%8E%EF%BC%8E/hooks`.
+- Repo segments (rule 2): `repos/o%2Fr/pulls`, `repos/o/%72/pulls`,
+  `repos/%4F/r/pulls`, and, on repo `kcme/r`, an owner spelled with the Kelvin sign U+212A
+  in place of `k`.
+  Rule 1: a provider configured with a three-segment `projectPath`.
+- Rule 4, outside a file path: `:repo/actions/secrets%20`,
   `:repo/hooks%C2%A0`, `:repo/actions/secrets%E2%80%8B`,
-  `:repo/pulls%E2%80%AE`, `:repo/pulls%C2%AD`, `:repo/pulls%EF%BB%BF`.
+  `:repo/pulls%E2%80%AE`, `:repo/pulls%C2%AD`, `:repo/pulls%EF%BB%BF`,
+  `:repo/hooks/x%20`.
+- Control characters, at step 1: `:repo/hooks%09`, `:repo/hooks%C2%85`,
+  `:repo/actions/secrets%C2%85`, `:repo/contents/a%C2%85b`,
+  `:repo/pulls%C2%9F`.
 - A 302 from a contents read (GitHub's documented answer for some
   files) is refused naming only the host.
 
-One test at the MCP seam: a `gitlab_get` result whose body has
+### At the MCP seam
+
+A `gitlab_get` result whose body has
 `download_url: "https://raw.githubusercontent.com/o/r/main/a.md?token=X"`
 comes back with the token value as `[redacted]` through `callTool`.
 
-Tests that change: `credentialRefusal` takes the new wording;
-`:repo/contents/secrets.md` moves from refused to accepted; the repo-name
-refusal test becomes the accepted repo cases above.
+### Tests that change
+
+`credentialRefusal` takes the new wording; `:repo/contents/secrets.md`
+moves from refused to accepted; the repo-name refusal test becomes the
+accepted and refused repo cases above; the GitLab suite gains one C1
+control case, since `CONTROL` is shared.
 
 ## Docs that change with the code
 
@@ -350,6 +480,9 @@ refusal test becomes the accepted repo cases above.
 - Non-goal: branch, tag, workflow and label names with a guarded word
   (approach D). They stay refused; `:repo/commits` with
   `query: {path: ...}` covers a file's history.
+- Non-goal: names with a plain space outside a file path (labels,
+  readme folders, concurrency groups, workflow files). Decision 2 refuses
+  them; see its cost note.
 - Non-goal: protecting repo content. Files the token can clone were
   never behind this guard.
 - Non-goal: GitLab. Its arm and its texts do not change.
