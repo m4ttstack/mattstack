@@ -14,7 +14,7 @@
 
 - Write only under `lib/setup/`, `commands/setup.ts`, `commands/__tests__/` files for setup, `rt-tray/Sources/Settings/`, `rt-tray/Tests/MattstackCoreChecks/AccountsPaneChecks.swift`, `sites/docs/docs/start/setup.mdx`, `docs/superpowers/`. Never `commands/sync.ts`, `commands/git/`, `lib/stack-guard.ts`, `lib/team/forge.ts`, `lib/worktree/`, `apps/`, `packages/`, `plugins/`.
 - Run `bun test` from the worktree root only (bunfig preload isolates HOME). Never run rt, the daemon, setup or a built binary against the real HOME; a built Swift binary runs only as `env -i HOME="$(mktemp -d)" PATH=/usr/bin:/bin <binary> ...`.
-- Swift builds use `--scratch-path` under the session scratchpad (`$SCRATCH` = `/private/tmp/claude-501/-Users-matt--mattstack-rt-worktrees-gh-m4ttstack-mattstack-lively-paddle/a74d0adb-cb7f-49e5-b98a-3d0345c79a3c/scratchpad`); never run `rt-tray/build.sh`; never touch `/Applications/mattstack.app` or `rt-tray/mattstack-dev.app`.
+- Swift builds happen only in a scratch copy of `rt-tray` under the session scratchpad (Task 5 Step 0; `$SCRATCH` = `/private/tmp/claude-501/-Users-matt--mattstack-rt-worktrees-gh-m4ttstack-mattstack-lively-paddle/a74d0adb-cb7f-49e5-b98a-3d0345c79a3c/scratchpad`); never run `rt-tray/build.sh`; never touch `/Applications/mattstack.app` or `rt-tray/mattstack-dev.app`.
 - No em or en dashes anywhere. Forge-aware copy: PR on GitHub, MR on GitLab. A token never appears in output, logs or test snapshots.
 - Create, join and restore behavior stays unchanged: existing non-solo tests in `lib/setup/__tests__/validators-accounts.test.ts` and `lib/setup/__tests__/form-connect.test.ts` pass untouched.
 - Stage named files only. Commit after each task with the `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer.
@@ -28,7 +28,7 @@
 ## Review Focus
 
 1. A solo Mac that left a github.com team keeps `rt.integrations.forgeHost: "github.com"`; the GitLab row, its Create token link and its Connect must all use gitlab.com (Tasks 2, 3, 4).
-2. A solo Mac with a confirmed self-hosted GitLab host (`gitlab.example.com`) must keep using it in the row, the link and the verb (Tasks 1, 2, 3).
+2. A solo Mac with a confirmed self-hosted GitLab host (`gitlab.example.com`) must keep using it in the row, the link and the verb (Tasks 1, 2, 3, 4).
 3. A stored GitLab token that is invalid or short on scopes must show the account's own reason on the connect screen, not the self-hosted hint (Task 3).
 4. Connecting on solo while the personal secret store is not ready stages exactly one file and writes nothing else (Task 4).
 5. A Mac with an org clone but no intent (not solo) keeps today's single team-forge row and today's host reading (Tasks 2, 4).
@@ -49,7 +49,7 @@
   - `"drops it case-insensitively"`: `{ forgeHost: "GitHub.com" }`, true → no `forgeHost`.
   - `"keeps a self-hosted GitLab host on solo"`: `{ forgeHost: "gitlab.example.com" }`, true → `toEqual({ forgeHost: "gitlab.example.com" })`.
   - `"keeps every host on a team Mac"`: `{ forgeHost: "github.com" }`, false → `toEqual({ forgeHost: "github.com" })`.
-  - `"keeps other override keys"`: any other key present in `UserIntegrationOverrides` survives the drop.
+  - `"does not change the overrides it was given"`: the input object still holds `forgeHost: "github.com"` after the call.
 - [ ] **Step 2:** `bun test lib/setup/__tests__/solo-forge.test.ts` → FAIL (module not found).
 - [ ] **Step 3:** Implement `soloForgeOverrides` in `lib/setup/solo-forge.ts`. One doc comment stating the constraint: `forgeHost` is shared by both forges, and a team Mac writes `github.com` there.
 - [ ] **Step 4:** Same command → PASS.
@@ -64,7 +64,7 @@
 
 **Interfaces:**
 - Consumes: `soloForgeOverrides` (Task 1).
-- Produces: plan rows `account.github` then `account.gitlab` on solo, both `required: false`, with `optionalNote` `SOLO_GITHUB_NOTE` / `SOLO_GITLAB_NOTE` (both exported from `accounts.ts` for Task 3's tests and docs).
+- Produces: plan rows `account.github` then `account.gitlab` on solo, both `required: false`, with `optionalNote` `SOLO_GITHUB_NOTE` / `SOLO_GITLAB_NOTE` (both exported from `accounts.ts` so the tests import them instead of repeating the strings).
 
 - [ ] **Step 1: Write the failing tests** in `describe("accountRows on solo")`, calling `accountRows(fakeProbes({ exec }), baseTeam({ slug: "" }), [], fakeSecrets(), { v: 1, at: "", mode: "solo" }, overrides, true)`:
   - Replace `"one optional github row, nothing else"` with `"an optional GitHub row, then an optional GitLab row, nothing else"`: ids `["account.github", "account.gitlab"]`; both `required === false`; `optionalNote`s equal the two Global Constraints notes; both `status === "missing"`.
@@ -76,8 +76,9 @@
 - [ ] **Step 3:** In `accountRows`: replace `SOLO_FORGE_NOTE` with exported `SOLO_GITHUB_NOTE` and `SOLO_GITLAB_NOTE`; the solo `declared` becomes `[{ id: "github", required: false, optionalNote: SOLO_GITHUB_NOTE }, { id: "gitlab", required: false, optionalNote: SOLO_GITLAB_NOTE }]`; when `solo`, pass `soloForgeOverrides(overrides, true)` instead of `overrides` to every `accountRowForSafe` call. The non-solo branch is untouched.
 - [ ] **Step 4:** Same command → PASS.
 - [ ] **Step 5:** `bun test commands/__tests__/setup-copy.test.ts` → exactly four snapshots fail: `plan: the machine view is unchanged`, `plan: the copy is what the copy table says`, `status: the machine view is unchanged`, `status: the copy is what the copy table says`. Read each diff: the only changes are the new `account.gitlab` row and the two new notes. Then `bun test commands/__tests__/setup-copy.test.ts --update-snapshots` and rerun → PASS. This diff is the look at the checklist's text output; quote the new lines in the task report.
-- [ ] **Step 6:** `bun test e2e/tests/setup.test.ts --preload ./e2e/setup.ts` → PASS.
-- [ ] **Step 7:** Commit `setup: solo plan offers GitHub and GitLab forge rows (RT-349)` with the test file, `accounts.ts` and the `.snap`.
+- [ ] **Step 6:** In `lib/setup/__tests__/plan.test.ts` (the test `"solo intent, no teams -> no access rows, github optional, ..."`, about line 187), change the expected solo accounts rows from `[["account.github", false]]` to `[["account.github", false], ["account.gitlab", false]]` and rename the test's "github optional" to "github and gitlab optional". `bun test lib/setup/__tests__/plan.test.ts` → PASS.
+- [ ] **Step 7:** `bun test e2e/tests/setup.test.ts --preload ./e2e/setup.ts` → PASS.
+- [ ] **Step 8:** Commit `setup: solo plan offers GitHub and GitLab forge rows (RT-349)` with both test files, `accounts.ts` and the `.snap`.
 
 ### Task 3: Two forge rows on the Connect your accounts screen
 
@@ -96,7 +97,7 @@
   - `"a confirmed self-hosted host is the solo GitLab row's host"`: `confirmedHost: "gitlab.example.com"` in inputs → `create.url` starts `https://gitlab.example.com/`.
   - `"formOwnedIds on solo owns both forge accounts"`: `formOwnedIds(plan(rows, SOLO), { path: "solo", forge: null, signIn: [] })` contains both ids.
   - Update the `composeForm` solo test (`"a solo Mac with nothing installed gets the code host, Claude, herdr and Get Chrome"`): expected ids `["forge", "forge.gitlab", "claude", "tool.herdr", "fast-browser"]`.
-  - `"composeForm on solo ignores a leftover github.com host for GitLab"`: same probes plus a user settings file holding `rt.integrations` `{ "forgeHost": "github.com" }` (find how `probeUserSettingsReader` reads it and fake that path) → `forge.gitlab` `create.url` starts `https://gitlab.com/`.
+  - `"composeForm on solo ignores a leftover github.com host for GitLab"`: same probes plus the file `/fake-home/.mattstack/user/settings.user.jsonc` holding `{ "rt.integrations": { "forgeHost": "github.com" } }` (the global-level key `lib/setup/team-settings.ts` reads at about lines 89 to 94) → `forge.gitlab` `create.url` starts `https://gitlab.com/`.
 - [ ] **Step 2:** `bun test lib/setup/__tests__/form-connect.test.ts` → new and updated solo cases FAIL; create and join cases PASS.
 - [ ] **Step 3:** In `form.ts`:
   - `FORM_COPY.connect`: replace `soloForge` with `soloGithub`, `soloGitlab`, `soloGitlabHint` (Global Constraints copy).
@@ -122,7 +123,8 @@
   - The same two cases for GitHub (`integrationConnect("github", ...)`, key `githubToken`).
   - `"--host on solo records only the user-scope host"`: GitLab, args `["--json", "--host", "gitlab.example.com"]`, fetch answering `gitlab.example.com/api/v4/user` 200 → `writeSetting` calls exactly `[["rt.integrations", { forgeHost: "gitlab.example.com" }, "user"]]`; writes and exec assertions as above.
   - `"a leftover github.com host does not reach a solo GitLab connect"`: `userIntegrationOverrides: () => ({ forgeHost: "github.com" })`, no `--host` → every `probes.calls.fetch` URL starts with `https://gitlab.com/`; status `ready`.
-  - `"a team Mac keeps today's host reading"`: same leftover override, but `teamSnapshot` with slug `"acme"` and integrations `{ forge: { provider: "gitlab", host: "gitlab.com" } }` → today's `ctxFor` hands the validator `host: "github.com"`, so the first `probes.calls.fetch` URL starts with `https://github.com/` (pins Review Focus 5: team paths unchanged).
+  - `"a confirmed self-hosted host still reaches a solo GitLab connect"`: `userIntegrationOverrides: () => ({ forgeHost: "gitlab.example.com" })`, no `--host`, fetch answering `gitlab.example.com/api/v4/user` 200 → every `probes.calls.fetch` URL starts with `https://gitlab.example.com/`; `writeSetting` never called (pins Review Focus 2 for the verb).
+  - `"a team Mac keeps today's host reading"` (reuse the solo cases' recording `writer`): same leftover override, but `teamSnapshot` with slug `"acme"` and integrations `{ forge: { provider: "gitlab", host: "gitlab.com" } }` → today's `ctxFor` hands the validator `host: "github.com"`, so the first `probes.calls.fetch` URL starts with `https://github.com/` (pins Review Focus 5: team paths unchanged).
 - [ ] **Step 2:** `bun test commands/__tests__/setup-connect.test.ts` → the leftover-host case FAILS; the side-effect cases may already pass (they pin today's behavior, which is the acceptance).
 - [ ] **Step 3:** In `connectCredential`, when `hostFlag === undefined`, compute `solo = snapshotFor(deps).slug === "" && isSolo(orgRefFromIntent(readIntent(deps.probes), cloneSlugs(deps.probes)))` and use `soloForgeOverrides(overrides, solo)` as `confirmedOverrides`. The `--host` branch and every write stay as they are.
 - [ ] **Step 4:** Same command → PASS. Also `bun test commands/__tests__/setup-github.test.ts commands/__tests__/setup-plan.test.ts` → PASS.
@@ -137,11 +139,14 @@
 **Interfaces:**
 - Consumes: the plan rows from Task 2 and the form rows from Task 3, copied as fixtures.
 
+All Swift building and running happens in a scratch copy of `rt-tray`, never in this worktree: the package needs the Sparkle framework at `deps/tools/sparkle-xcframework/` (a local `binaryTarget`, checked when the package loads), which this worktree lacks, and the debug rpath resolves it relative to the copy's own `.build`.
+
+- [ ] **Step 0: Prepare the scratch copy.** `rsync -a --delete --exclude .build --exclude deps rt-tray/ "$SCRATCH/tray/"` (always this exact line, so a rerun keeps the copy's `deps/`). Fetch only the Sparkle row from `rt-tray/deps.lock` (no `fetch-deps.sh`): `curl -fsSL -o "$SCRATCH/sparkle.zip" https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-for-Swift-Package-Manager.zip`; `shasum -a 256 "$SCRATCH/sparkle.zip"` must print `17e28312b8e18ab7cdbbe09a6fb28cc55a5479ec6c371dbc07cdecd2a14fd959` (stop and report BLOCKED otherwise); `mkdir -p "$SCRATCH/tray/deps/tools/sparkle-xcframework" && unzip -q "$SCRATCH/sparkle.zip" 'Sparkle.xcframework/*' -d "$SCRATCH/tray/deps/tools/sparkle-xcframework"`. After any later edit to the worktree's Swift files, rerun only the `rsync` line.
 - [ ] **Step 1: Add a check** to `accountsPaneChecks`: `"on a solo install Settings > Accounts shows the GitHub and GitLab rows, and GitLab's Connect runs gitlab connect"`. Fixture plan: `team: TeamInfo(slug: "", name: "", mode: .noTeam)`, accounts group with `account.github` and `account.gitlab` (both `required: false`, status `.missing`, `optionalNote` the Task 2 notes, action `RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: [token field])`). Expect `groups(for: .accounts)` row ids `["account.github", "account.gitlab"]`, and `RowActionDispatcher.dispatch(gitlab.action!, fieldValues: ["token": "t"], alternative: nil)` equals `.rtVerb(args: ["setup", "gitlab", "connect", "--json"], stdin: <the JSON the dispatcher builds for ["token": "t"]>)`.
-- [ ] **Step 2: Run the checks** from the worktree: `cd rt-tray && swift run --scratch-path "$SCRATCH/swift" mattstack-checks` (`$SCRATCH` = the session scratchpad). Expected: all checks pass, including the new one.
-- [ ] **Step 3: Add the render.** In `SettingsExtrasSnapshot`, under the same flag, also render `ChecklistCard` holding one `SectionRow` per solo forge row (build the rows the way `ChecklistRowSnapshot.Rows` builds its `SectionRow`s), light and dark, to `extras-accounts-solo-light.png` and `extras-accounts-solo-dark.png`; update the printed count.
-- [ ] **Step 4: Render and look.** The `rt-tray` product needs the Sparkle framework at `rt-tray/deps/tools/sparkle-xcframework/`, which a fresh worktree lacks. If it is missing, run `scripts/fetch-deps.sh arm64` from the worktree root (it fetches the pinned artifacts into the gitignored `rt-tray/deps/` only; it builds and signs nothing). Then `cd rt-tray && swift build --scratch-path "$SCRATCH/swift" --product rt-tray && env -i HOME="$(mktemp -d)" PATH=/usr/bin:/bin "$SCRATCH/swift/debug/rt-tray" --render-settings-extras-snapshots "$SCRATCH/snaps"`. Read both `extras-accounts-solo-*.png`. Say plainly what reads wrong (note wrapping, the command in the GitLab note, contrast in dark) and fix before committing. If `fetch-deps.sh` fails, stop and report BLOCKED with its output.
-- [ ] **Step 5: Look at the connect screen (nothing committed).** `cp -R rt-tray "$SCRATCH/connect-look"` (after Step 4, so `deps/` comes along). In the copy's `Sources/Setup/Fast/FastSetupSnapshot.swift`, the `("connect-solo", page(team: false, [C.soloForge, C.claudeSignIn, C.soloFastBrowser]))` entry (about line 310): set `C.soloForge`'s subtext to `Optional. Lets mattstack open PRs` and add a `FormRow(id: "forge.gitlab", title: "GitLab", subtext: "Optional. Lets mattstack open MRs", ...)` with the hint as its detail, built like `C.soloForge`, after it. `cd "$SCRATCH/connect-look" && swift build --scratch-path "$SCRATCH/swift-look" --product rt-tray && env -i HOME="$(mktemp -d)" PATH=/usr/bin:/bin "$SCRATCH/swift-look/debug/rt-tray" --render-fast-setup-snapshots "$SCRATCH/look"`. Read the `connect-solo` light and dark PNGs, report what reads wrong, then `rm -rf "$SCRATCH/connect-look" "$SCRATCH/swift-look"`.
+- [ ] **Step 2: Run the checks** in the copy (after rerunning Step 0's `rsync`): `cd "$SCRATCH/tray" && swift build --product mattstack-checks && env -i HOME="$(mktemp -d)" PATH=/usr/bin:/bin "$(swift build --show-bin-path)/mattstack-checks"`. Expected: all checks pass, including the new one.
+- [ ] **Step 3: Add the render.** In `SettingsExtrasSnapshot`, under the same flag, also render the solo accounts group the way Settings > Accounts draws it (`ChecklistScreen.flatList`): `Form { Section("Accounts") { ForEach(rows) { RowView(row: $0, isChecking: false, onAction: {}) } } }.formStyle(.grouped).frame(width: 560, height: <fits both rows>)`, light and dark, to `extras-accounts-solo-light.png` and `extras-accounts-solo-dark.png`; the rows are the Step 1 fixture rows; update the printed count.
+- [ ] **Step 4: Render and look.** Rerun Step 0's `rsync`, then `cd "$SCRATCH/tray" && swift build --product rt-tray && env -i HOME="$(mktemp -d)" PATH=/usr/bin:/bin "$(swift build --show-bin-path)/rt-tray" --render-settings-extras-snapshots "$SCRATCH/snaps"`. If dyld cannot load Sparkle, add `DYLD_FRAMEWORK_PATH="$(swift build --show-bin-path)"` inside the `env -i`. Read both `extras-accounts-solo-*.png`. Say plainly what reads wrong (note wrapping, the command in the GitLab note, contrast in dark) and fix before committing.
+- [ ] **Step 5: Look at the connect screen (nothing committed).** In the scratch copy only, in `Sources/Setup/Fast/FastSetupSnapshot.swift`'s `("connect-solo", page(team: false, [C.soloForge, C.claudeSignIn, C.soloFastBrowser]))` entry (about line 310): set `C.soloForge`'s subtext to `Optional. Lets mattstack open PRs` and add, after it, a `FormRow(id: "forge.gitlab", title: "GitLab", subtext: "Optional. Lets mattstack open MRs", ...)` with the hint as its detail, built like `C.soloForge`. Build `rt-tray` there as in Step 4 and run it with `--render-fast-setup-snapshots "$SCRATCH/look"` under the same `env -i`. Read the `connect-solo` light and dark PNGs and report what reads wrong. Then rerun Step 0's `rsync` so the copy matches the worktree again.
 - [ ] **Step 6:** Commit `settings: solo accounts check and snapshot (RT-349)` with the two Swift files.
 
 ### Task 6: Docs
@@ -158,4 +163,4 @@
 
 - [ ] **Step 1:** `bun run typecheck` → PASS.
 - [ ] **Step 2:** `bun run purity` → PASS.
-- [ ] **Step 3:** Rerun every touched test file from the worktree root (Tasks 1 to 4) and `bun test e2e/tests/setup.test.ts --preload ./e2e/setup.ts` → PASS. Record each command and result for the report.
+- [ ] **Step 3:** Rerun every touched test file from the worktree root (Tasks 1 to 4), plus `bun test lib/setup/__tests__ commands/__tests__/setup-*.test.ts` to catch any other solo assertion, and `bun test e2e/tests/setup.test.ts --preload ./e2e/setup.ts` → PASS. Record each command and result for the report.
