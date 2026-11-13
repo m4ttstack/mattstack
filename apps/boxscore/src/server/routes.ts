@@ -122,6 +122,8 @@ const leaderboard = new Hono()
     const user = c.req.query('user');
     if (!user) return c.json({ error: 'user query param is required' }, 400);
     if (fixtureMode()) {
+      if (fixtureScenario() === 'no-projects')
+        return c.json({ error: fixtureNoProjectsError() }, 400);
       let detail: ReturnType<typeof fixtureDetail>;
       try {
         detail = fixtureDetail(

@@ -164,8 +164,12 @@ function hostOf(baseUrl: string): string {
 
 const FORGE_HOST_KEY = 'forge_host';
 
-/** store_meta keys tying a configured project path to the id its GitLab push events carry. */
-const PROJECT_ID_PREFIX = 'project_id:';
+/**
+ * store_meta keys tying a configured project path to the id its GitLab push events carry,
+ * scoped to the recorded host so another host's ids never apply.
+ */
+const projectIdPrefix = (host: string | undefined): string =>
+  `project_id:${host ?? ''}|`;
 
 /** Thrown once the confirmed host is no longer the one a refresh or request started with. */
 export class ForgeHostChangedError extends Error {
@@ -358,21 +362,21 @@ function buildStore() {
     recordProjectIds(
       entries: readonly { projectPath: string; id: string }[]
     ): void {
+      const prefix = projectIdPrefix(recordedHost());
       const tx = db.transaction(() => {
         for (const e of entries)
-          stmtSetMeta.run(`${PROJECT_ID_PREFIX}${e.projectPath}`, e.id);
+          stmtSetMeta.run(`${prefix}${e.projectPath}`, e.id);
       });
       tx();
     },
 
-    /** Every recorded project id, keyed by project path. */
+    /** Every project id recorded on the current host, keyed by project path. */
     projectIds(): Map<string, string> {
+      const prefix = projectIdPrefix(recordedHost());
       const rows = db
         .query('SELECT key, value FROM store_meta WHERE key GLOB ?')
-        .all(`${PROJECT_ID_PREFIX}*`) as { key: string; value: string }[];
-      return new Map(
-        rows.map(r => [r.key.slice(PROJECT_ID_PREFIX.length), r.value])
-      );
+        .all(`${prefix}*`) as { key: string; value: string }[];
+      return new Map(rows.map(r => [r.key.slice(prefix.length), r.value]));
     },
 
     /** The incremental watermark: when the project's last successful index scan started. */

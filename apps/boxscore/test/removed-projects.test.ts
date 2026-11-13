@@ -47,11 +47,13 @@ const GITLAB: ForgeCase = {
     'rt.integrations': { forgeHost: 'gl.example' },
   },
   repoId: p => (p === 'acme/app' ? 'gitlab:11' : 'gitlab:22'),
-  recordIds: () =>
+  recordIds: () => {
+    getStore().adoptForgeHost('https://gl.example');
     getStore().recordProjectIds([
       { projectPath: 'acme/app', id: 'gitlab:11' },
       { projectPath: 'acme/old', id: 'gitlab:22' },
-    ]),
+    ]);
+  },
 };
 
 const GITHUB: ForgeCase = {
@@ -305,6 +307,43 @@ describe('a ticket linked to a kept and a removed project', () => {
     expect(issueAfterRemoval().creditedUser).toBeNull();
   });
 
+  it('keeps a legacy ticket credited while one of its links remains', () => {
+    getStore().upsertIndexRows([
+      indexRow('acme/old', 2, daysAgo(4)),
+      indexRow('acme/app', 5, daysAgo(3)),
+    ]);
+    getStore().__rawInsertLinearIssue(
+      'ACME-9',
+      JSON.stringify({
+        ...ticket([], null),
+        creditedUser: 'alice',
+        linkedMrs: [
+          { projectPath: 'acme/old', iid: 2 },
+          { projectPath: 'acme/app', iid: 5 },
+        ],
+      })
+    );
+
+    expect(issueAfterRemoval()).toMatchObject({
+      creditedUser: 'alice',
+      linkedMrs: [{ projectPath: 'acme/app', iid: 5 }],
+    });
+  });
+
+  it('drops a legacy ticket whose every link was removed', () => {
+    getStore().upsertIndexRows([indexRow('acme/old', 2, daysAgo(4))]);
+    getStore().__rawInsertLinearIssue(
+      'ACME-9',
+      JSON.stringify({
+        ...ticket([], null),
+        creditedUser: 'alice',
+        linkedMrs: [{ projectPath: 'acme/old', iid: 2 }],
+      })
+    );
+
+    expect(issueAfterRemoval().creditedUser).toBeNull();
+  });
+
   it('never credits a ticket that had no credit', () => {
     getStore().upsertIndexRows([
       { ...indexRow('acme/app', 5, daysAgo(3)), authorUsername: 'bob' },
@@ -376,5 +415,18 @@ describe('a project configured in another case', () => {
     );
     expect(fetched.mrs).toHaveLength(1);
     expect(fetched.linearIssues[0]!.creditedUser).toBe('alice');
+  });
+});
+
+describe('recorded project ids and the forge host', () => {
+  beforeEach(() => getStore().clear());
+
+  it("reads no id recorded on the previous host", () => {
+    getStore().adoptForgeHost('https://gl.example');
+    getStore().recordProjectIds([{ projectPath: 'acme/app', id: 'gitlab:11' }]);
+    expect(getStore().projectIds().get('acme/app')).toBe('gitlab:11');
+
+    getStore().adoptForgeHost('https://gl.other.example');
+    expect(getStore().projectIds().size).toBe(0);
   });
 });

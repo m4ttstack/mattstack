@@ -198,6 +198,7 @@ function pushScope(
  * An issue linked to a removed project loses those links and is graded again on what is
  * left, by the rules that credited it. Removing links never adds credit: an uncredited
  * issue stays uncredited. A removed project's attachment still holds the attachment grade.
+ * A row with no links at all is left as stored, since nothing ties it to a project.
  */
 function withoutRemovedLinks(
   store: Store,
@@ -209,6 +210,11 @@ function withoutRemovedLinks(
   const kept = issue.linkedMrs.filter(m => inScope(m.projectPath));
   if (kept.length === issue.linkedMrs.length) return issue;
   if (issue.creditedUser === null) return { ...issue, linkedMrs: kept };
+  // A row stored before links carried a grade cannot be graded again; a kept link keeps it.
+  if (issue.linkedMrs.some(m => m.via === 'mention'))
+    return kept.length > 0
+      ? { ...issue, linkedMrs: kept }
+      : { ...issue, linkedMrs: kept, creditedUser: null, closedAt: null };
   const hadAttachment = issue.linkedMrs.some(m => m.via === 'attachment');
   const viaByKey = new Map(
     kept.map(m => [mrKey(m.projectPath, m.iid), m.via])

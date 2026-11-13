@@ -67,6 +67,8 @@ describe('design fixture mode', () => {
         expect(await res.json()).toEqual({
           error: `boxscore.projects is empty: add at least one "${path}" (rt settings).`,
         });
+        const detail = await routes.request('/api/detail?user=srivera');
+        expect(detail.status).toBe(400);
       } finally {
         delete process.env.BOXSCORE_FIXTURE_FORGE;
       }
