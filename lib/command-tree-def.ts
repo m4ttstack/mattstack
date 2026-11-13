@@ -777,6 +777,18 @@ export const TREE: Record<string, CommandNode> = {
         requiresTTY: true,
         args: [],
       },
+      auth: {
+        description: "Let git sign in with rt's forge token",
+        module: "./commands/git/auth.ts",
+        fn: "authCommand",
+        args: [
+          { name: "Path", type: "text", optional: true, placeholder: ".", hint: "The clone to set up" },
+          { name: "HTTPS", flag: "--https", type: "boolean", default: false, hint: "Switch an SSH clone to HTTPS too" },
+          { name: "Check", flag: "--check", type: "boolean", default: false, hint: "Show which clones use rt's token" },
+          { name: "Yes", flag: "--yes", type: "boolean", default: false, hint: "Skip the confirm" },
+          { name: "JSON output", flag: "--json", type: "boolean", default: false, hint: "Print JSON" },
+        ],
+      },
       credential: {
         description: "Git credential helper an rt-made https clone names in its config; answers with rt's forge token, never call directly",
         module: "./commands/git/credential.ts",
