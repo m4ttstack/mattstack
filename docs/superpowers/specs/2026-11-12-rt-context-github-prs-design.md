@@ -46,7 +46,14 @@ other origin host. This change is the other half.
   when only the PR title names one.
 - Every user-facing label names the repo's forge: PR, pull request and
   GitHub on GitHub; MR, merge request and GitLab on GitLab.
-- A PR that belongs to another repo never shows.
+- On a GitHub repo, a PR or MR that belongs to another repo never shows,
+  whether it came from the daemon or from the extension's own local cache.
+
+Known limit of approach A: the daemon cannot scope a lookup by repo over
+REST, so when two repos share a branch name it may answer with the other
+repo's entry. The guard turns that into a miss, and on GitHub nothing
+falls back, so this repo's own PR does not show for that branch name.
+Accepted: it needs a daemon change this ticket does not make.
 
 ## Non-goals
 
@@ -68,7 +75,9 @@ other origin host. This change is the other half.
   repo's, skip the GitLab direct fallback on GitHub, name the forge in all
   copy. A branch the cache has not reached shows no link until the
   daemon's next refresh (5 minutes at most); the existing `status`
-  websocket event re-renders the status bar then. No daemon change, no
+  websocket event then starts a status-bar update, and on GitHub a
+  background fetch whose result differs from what is shown re-renders
+  (see Wiring). No daemon change, no
   token, zero new requests. Picked by the shepherd (gate 8335c630).
 - B: A plus an on-demand `branch:enrich` call through a new daemon REST
   route on a cache miss. Faster first link, costs a daemon route and 1 to
@@ -98,20 +107,38 @@ No `vscode` import, so `bun test` can load it.
   `/`, compared case-insensitively. `https://github.com/o/r/pull/7`
   belongs to `git@github.com:o/r.git`; `https://github.com/o/r2/pull/7`
   does not.
-- `branchDataFromDaemonEntry(entry, remoteUrl): CachedBranchData | null`:
+- `branchDataFromDaemonEntry(entry, forge, remoteUrl): CachedBranchData | null`:
   maps a daemon cache entry to the extension's `CachedBranchData` (the
   mapping `statusBar.ts` and `branchSwitcher.ts` each do inline today).
-  Returns null, a miss, when `entry.mr.provider === 'github'` and the PR
-  does not belong to `remoteUrl`, or when `remoteUrl` is unknown for such
-  an entry. A GitLab entry, or an entry with no `mr`, maps exactly as today.
+  The guard keys on the repo's forge, not the entry's provider: when
+  `forge === 'github'` and the entry has an `mr` whose `webUrl` does not
+  belong to `remoteUrl` (whatever its `provider`, so another repo's GitLab
+  MR is rejected too), it returns null, a miss. An entry with no `mr`
+  maps as today. When `forge` is `gitlab` or null, every entry maps
+  exactly as today: no guard, so nothing changes on GitLab.
+- `ownBranchData(data, forge, remoteUrl): CachedBranchData | null`: the
+  same rule for an entry read back from the extension's local
+  `branchCache` (shared by every window through `globalState`, keyed by
+  bare branch name, and holding entries written before this change). On
+  GitHub, a cached entry whose `mrUrl` does not belong to `remoteUrl` reads
+  as null, a miss; otherwise it is returned unchanged. On GitLab and null
+  it is the identity.
 
 ### Wiring
 
 - `statusBar.ts`:
   - Resolve the repo's remote URL and forge once per status-bar update.
-  - `fetchBranchData(context, branch, remoteUrl)` maps the daemon entry
-    through `branchDataFromDaemonEntry`; a null result falls through to
-    the direct fallback as a miss does today.
+  - The cached entry read at the top of the update goes through
+    `ownBranchData` before the fresh-cache check, so a foreign local entry
+    is a miss and is never rendered.
+  - `fetchBranchData(context, branch, remoteUrl, forge)` maps the daemon
+    entry through `branchDataFromDaemonEntry`; a null result falls
+    through to the direct fallback as a miss does today.
+  - On GitHub only, when the silent background fetch on the fresh-cache
+    path returns a different `mrUrl` or `linearId` from what was rendered,
+    render again from the fresh data. GitLab keeps today's
+    update-the-cache-only behaviour. No new request: the fetch already
+    runs today.
   - The direct fallback skips the GitLab token read and MR lookup when the
     forge is `github`. It still fetches the Linear ticket named in the
     branch, as it does today. GitLab and unknown hosts run unchanged.
@@ -120,13 +147,24 @@ No `vscode` import, so `bun test` can load it.
     (`getCurrentForge()`) for `extension.ts`, like `getCurrentMrUrl()`.
   - Set the `rtContext.forge` context key (`setContext`) to `github`,
     `gitlab` or `none` whenever the forge is resolved.
-- `branchSwitcher.ts`: map each `/api/cache` entry through
+- `branchSwitcher.ts`: resolve the remote URL and forge once when the
+  picker opens. Map each `/api/cache` entry through
   `branchDataFromDaemonEntry`; a rejected entry is not a hit and is not
-  cached. Labels come from `forgeWords(forge)`. The direct batch lookup
-  skips the GitLab token and MR batch on GitHub, as the status bar does.
-- `worktreePicker.ts`: labels from `forgeWords`. Its data already comes
-  through `fetchBranchData`, so it gets the guard for free; it passes the
-  remote URL it already reads.
+  written. On GitHub a rejected entry also removes any local entry for
+  that branch whose `mrUrl` fails `ownBranchData`, so a foreign entry
+  cannot linger. `buildBranchItem` reads the local cache through
+  `ownBranchData`. Labels come from `forgeWords(forge)`. The direct batch
+  lookup skips the GitLab token and MR batch on GitHub, as the status bar
+  does, and the `existing` entry it carries forward is read through
+  `ownBranchData`.
+- `worktreePicker.ts`: labels from `forgeWords`. `buildPickItem` reads the
+  local cache through `ownBranchData`. It resolves the repo's remote URL
+  and forge itself (it imports `getRemoteUrl` today but does not call it;
+  the builder adds the call through `getGitApi`/`findWorkspaceRepo`) and
+  passes them to `fetchBranchData`. Every worktree of one repo shares
+  that remote.
+- `cache.ts`: `PersistedCache` gains `delete(key)` (it has get, set and
+  clear today), for the switcher's cleanup above.
 - `extension.ts`: the status bar action reads "Open GitHub Pull Request"
   on GitHub and keeps "Open GitLab Merge Request" otherwise, matching its
   sibling actions' title case ("Open Linear Ticket").
@@ -161,9 +199,13 @@ Internal names (`mrUrl`, `fetchMRInfo`, `gitlab.ts`) stay.
 - `src/__tests__/forge.test.ts`: `forgeOfRemote` (github.com over ssh and
   https, gitlab.com, a confirmed host, an unconfirmed host, garbage),
   `forgeWords`, `prBelongsToRemote` (own repo, another repo, a prefix
-  repo name like `o/r` vs `o/r2`, case), `branchDataFromDaemonEntry` (own
-  GitHub PR kept, another repo's GitHub PR rejected, GitLab entry kept
-  untouched, entry with no `mr` kept, PR-title ticket id carried).
+  repo name like `o/r` vs `o/r2`, case), `branchDataFromDaemonEntry` (on
+  a GitHub repo: own PR kept, another repo's GitHub PR rejected, another
+  repo's GitLab MR rejected, entry with no `mr` kept, PR-title ticket id
+  carried; on a GitLab repo and an unknown host: every entry kept
+  untouched, including a foreign one), `ownBranchData` (on GitHub a local
+  entry with a foreign `mrUrl` is a miss, an own or empty one is kept; on
+  GitLab it is the identity).
 - A `package.json` test: the palette hides the GitLab token command on
   GitHub.
 - Existing suites stay green: `bun test src/__tests__`,
@@ -175,7 +217,4 @@ Internal names (`mrUrl`, `fetchMRInfo`, `gitlab.ts`) stay.
 
 ## Left to the builder
 
-- Whether `fetchBranchData` takes the remote URL as a parameter or reads it
-  itself (the worktree picker calls it for other worktrees of the same
-  repo, which share the remote).
 - Test file layout and helper names.
