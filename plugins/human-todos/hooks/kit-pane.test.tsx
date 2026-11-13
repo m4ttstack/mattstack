@@ -196,7 +196,8 @@ test('on mobile the band is the plain one', async ($, on) => {
   await band.unmount()
 })
 
-test('a press on Stop holds while output streams in, and the release stops the run', async ($, on) => {
+// `still`: the pointer stays where it went down while the rows move under it. `follows`: it moves onto Stop where Stop now is.
+for (const release of ['still', 'follows'] as const) test(`a press on Stop holds while output streams in, and a release (${release}) stops the run`, async ($, on) => {
   const w = world(on, { entries: { [`list:${SESSION}`]: { todos: [todo({})], nextId: 50, savedAt: 1_000_000 } } })
   const toasts: string[] = []
   on('ui.toast', (_, e) => {
@@ -239,10 +240,12 @@ test('a press on Stop holds while output streams in, and the release stops the r
   expect(after.find(r => r.includes('Deploy'))).not.toBe(streamed.find(r => r.includes('Deploy')))
   expect(after.filter(r => r.includes('line '))).toHaveLength(2)
   expect(after.join('\n')).not.toBe(before.join('\n'))
-  const up = cellOf(after, 'Stop')
-  expect(up.y).not.toBe(down.y)
+  const moved = cellOf(after, 'Stop')
+  expect(moved.y).not.toBe(down.y)
+  expect(after[down.y]).not.toContain('Stop')
 
-  await pane.pointer({ type: 'up', ...up, button: 'left' })
+  if (release === 'follows') await pane.pointer({ type: 'move', ...moved, button: 'left' })
+  await pane.pointer({ type: 'up', ...(release === 'still' ? down : moved), button: 'left' })
   const items = (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
   expect(items.find(t => t.id === '1')).toMatchObject({ status: 'running', isStopping: true })
   expect(toasts).toContain('Stopping #1')
@@ -306,6 +309,32 @@ test('Clear finished while scrolled to the bottom clamps the window to the short
   expect(rows.at(-1)).toContain(END)
   expect(rows.slice(2).filter(r => r.trim() !== '').length).toBeGreaterThan(5)
   expect(rows.some(r => r.includes('Finished'))).toBe(false)
+  await pane.unmount()
+})
+
+test('a shrink writes the clamped offset back, so a list that grows again is not left scrolled to the old depth', async ($, on) => {
+  const done = many(8).map(t => ({ ...t, id: `d${t.id}`, title: `Finished ${t.id}`, status: 'done' as const }))
+  await seeded($, on, [...many(10), ...done])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await scrollBy($, 1000)
+  // 10 items of 4 rows, 8 finished, a blank, Clear finished, then a blank and the end line: 52 rows in an 18-row window.
+  expect((await propsOf(pane)).offset).toBe(34)
+
+  await click(pane, 'Clear finished')
+  // 40 rows and the end line.
+  expect((await propsOf(pane)).offset).toBe(23)
+
+  for (const title of ['New 1', 'New 2', 'New 3']) await $.tool.call({ tool: 'mcp__human-todos__add', kind: 'task', title })
+  expect((await propsOf(pane)).offset).toBe(23)
+  expect((await rowsOf(pane)).some(r => r.includes(END))).toBe(false)
+
+  await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '1' })
+  await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '2' })
+  await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '3' })
+  await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '4' })
+  await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '5' })
+  // 8 items of 4 rows and the end line.
+  expect((await propsOf(pane)).offset).toBe(15)
   await pane.unmount()
 })
 

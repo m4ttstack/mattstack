@@ -1,9 +1,8 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { TITLE } from '../items'
-import { toggleExpanded } from '../store'
-import { clearFinished, pressTodo } from './act'
-import { endRows } from './model'
+import { act } from './act'
+import { endRows, messageOf } from './model'
 import type { PaneButton, PaneModel, PaneRow, Tone } from './model'
 
 // pad-top, the header and pad-header sit above the model's rows.
@@ -38,18 +37,13 @@ export function drawPlainPane($: EngineInterface, e: RenderInput<'Pane'>, model:
 
   const button = (b: PaneButton) => {
     const key = b.id === 'clear' ? 'clear' : b.id === 'more' ? `more-${b.todoId}` : `${b.id}-${b.todoId}`
-    const onPress = (surface: Parameters<typeof pressTodo>[3]) => {
-      if (b.id === 'clear') return clearFinished($)
-      if (b.id === 'more') return b.todoId ? toggleExpanded($, b.todoId) : undefined
-      return b.todoId ? pressTodo($, b.todoId, b.id, surface) : undefined
-    }
     return (
       <Button
         key={key}
         plain={b.id === 'more' ? true : undefined}
         variant={b.tone === 'primary' ? 'primary' : undefined}
         label={b.label}
-        onPress={p => void onPress(p.surface)}
+        onPress={p => void act($, messageOf(b), p.surface)}
       />
     )
   }

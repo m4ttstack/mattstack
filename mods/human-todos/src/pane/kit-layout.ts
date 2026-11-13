@@ -1,11 +1,9 @@
 import { ACCENT, DIM, DONE, FILL, GRAY, WARN, buttonRow, cellWidth, cutCells, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
 import type { Line, Style } from '@mattstack/mod-kit'
 
-import type { ButtonId } from '../items'
-import { endRows, outOfView } from './model'
-import type { PaneButton, PaneModel, PaneRow, Tone } from './model'
+import { endRows, messageOf, outOfView } from './model'
+import type { PaneMessage, PaneModel, PaneRow, Tone } from './model'
 
-export type PaneMessage = { type: 'press'; id: string; button: ButtonId } | { type: 'toggle'; id: string } | { type: 'clear' }
 type L = Line<PaneMessage>
 type Span = { first: number; last: number }
 export type KitLayout = { lines: L[]; spans: Span[]; windowRows: number }
@@ -29,12 +27,6 @@ const STYLE: Record<Tone, Style> = {
   error: { color: 'red' },
   inactive: GRAY,
   plain: {},
-}
-
-function messageOf(button: PaneButton): PaneMessage {
-  if (button.id === 'clear') return { type: 'clear' }
-  if (button.id === 'more') return { type: 'toggle', id: button.todoId ?? '' }
-  return { type: 'press', id: button.todoId ?? '', button: button.id }
 }
 
 const fit = (text: string, cells: number) => (cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`)

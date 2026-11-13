@@ -740,6 +740,13 @@ function paneModel(input) {
   }
   return { rows, spans, hasFinished: finished.length > 0 };
 }
+function messageOf(button) {
+  if (button.id === "clear")
+    return { type: "clear" };
+  if (button.id === "more")
+    return { type: "toggle", id: button.todoId ?? "" };
+  return { type: "press", id: button.todoId ?? "", button: button.id };
+}
 function endRows(model) {
   const end = { kind: "text", text: "You've reached the end of the list.", tone: "dim", indent: false };
   return model.hasFinished ? [{ kind: "blank" }, end] : [end];
@@ -771,13 +778,6 @@ var STYLE = {
   inactive: GRAY,
   plain: {}
 };
-function messageOf(button) {
-  if (button.id === "clear")
-    return { type: "clear" };
-  if (button.id === "more")
-    return { type: "toggle", id: button.todoId ?? "" };
-  return { type: "press", id: button.todoId ?? "", button: button.id };
-}
 var fit2 = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
 function buttonLines(row, room) {
   const indent = sp(" ".repeat(row.flush ? 0 : INDENT));

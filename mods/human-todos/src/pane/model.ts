@@ -12,6 +12,7 @@ export type PaneRow =
   | { kind: 'finished'; mark: string; tone: Tone; title: string; exit?: number }
   | { kind: 'blank' }
 export type PaneModel = { rows: PaneRow[]; spans: { first: number; last: number }[]; hasFinished: boolean }
+export type PaneMessage = { type: 'press'; id: string; button: ButtonId } | { type: 'toggle'; id: string } | { type: 'clear' }
 
 const SCRIPT_ROWS = 2
 const FINISHED_SHOWN = 8
@@ -132,6 +133,13 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
   }
 
   return { rows, spans, hasFinished: finished.length > 0 }
+}
+
+// What a button does, as both drawers hand it to the pane's actions.
+export function messageOf(button: PaneButton): PaneMessage {
+  if (button.id === 'clear') return { type: 'clear' }
+  if (button.id === 'more') return { type: 'toggle', id: button.todoId ?? '' }
+  return { type: 'press', id: button.todoId ?? '', button: button.id }
 }
 
 // The rows a drawer adds after the model's when the list overflows its window.

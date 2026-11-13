@@ -1397,6 +1397,13 @@ function paneModel(input) {
   }
   return { rows, spans, hasFinished: finished.length > 0 };
 }
+function messageOf(button) {
+  if (button.id === "clear")
+    return { type: "clear" };
+  if (button.id === "more")
+    return { type: "toggle", id: button.todoId ?? "" };
+  return { type: "press", id: button.todoId ?? "", button: button.id };
+}
 function endRows(model) {
   const end = { kind: "text", text: "You've reached the end of the list.", tone: "dim", indent: false };
   return model.hasFinished ? [{ kind: "blank" }, end] : [end];
@@ -1424,7 +1431,20 @@ async function pressTodo($, todoId, button, surface) {
 }
 async function clearFinished($) {
   const gone = await removeTodos($, (t) => !isActionable(t));
+  await clampScroll($);
   cleanup($, gone).catch(() => $.ui.toast("Could not tidy up after the cleared items"));
+}
+async function act($, message, surface) {
+  try {
+    if (message.type === "press")
+      return await pressTodo($, message.id, message.button, surface);
+    if (message.type === "toggle")
+      return await toggleExpanded($, message.id);
+    if (message.type === "clear")
+      return await clearFinished($);
+  } catch {
+    $.ui.toast(`Could not update ${TITLE}`);
+  }
 }
 
 // mods/human-todos/src/pane/kit-layout.ts
@@ -1444,13 +1464,6 @@ var STYLE = {
   inactive: GRAY,
   plain: {}
 };
-function messageOf(button) {
-  if (button.id === "clear")
-    return { type: "clear" };
-  if (button.id === "more")
-    return { type: "toggle", id: button.todoId ?? "" };
-  return { type: "press", id: button.todoId ?? "", button: button.id };
-}
 var fit = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
 function buttonLines(row, room) {
   const indent = sp(" ".repeat(row.flush ? 0 : INDENT));
@@ -1570,19 +1583,12 @@ function drawPlainPane($, e, model, scroll, paneId) {
   }, " "));
   const button = (b) => {
     const key = b.id === "clear" ? "clear" : b.id === "more" ? `more-${b.todoId}` : `${b.id}-${b.todoId}`;
-    const onPress = (surface) => {
-      if (b.id === "clear")
-        return clearFinished($);
-      if (b.id === "more")
-        return b.todoId ? toggleExpanded($, b.todoId) : undefined;
-      return b.todoId ? pressTodo($, b.todoId, b.id, surface) : undefined;
-    };
     return /* @__PURE__ */ h(Button, {
       key,
       plain: b.id === "more" ? true : undefined,
       variant: b.tone === "primary" ? "primary" : undefined,
       label: b.label,
-      onPress: (p) => void onPress(p.surface)
+      onPress: (p) => void act($, messageOf(b), p.surface)
     });
   };
   const draw = (row, key) => {
@@ -1655,7 +1661,7 @@ var SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
 var TODO_PANE = { id: PANE, label: "Human Todos waiting" };
 var keysAtom = atom2({ plugin: "human-todos", key: "keysInPane" }, false);
 var scrollAtom = atom2({ plugin: "human-todos", key: "scrollOffset" }, 0);
-var kitColumns;
+var kitSize;
 async function openPane($) {
   await $.ui.open({ id: PANE, title: TITLE });
   $.ui.invalidate("ui.render");
@@ -1671,20 +1677,16 @@ async function setKeysInPane($, value) {
   if (await read2($, keysAtom) !== value)
     await update2($, keysAtom, () => value);
 }
-async function act($, message, surface) {
-  if (message.type === "press")
-    return pressTodo($, message.id, message.button, surface);
-  if (message.type === "toggle")
-    return toggleExpanded($, message.id);
-  if (message.type === "clear")
-    return clearFinished($);
-}
 async function scrollKit($, by, bodyRows, columns) {
   const most = maxOffset(kitLayout(modelOf(await readPane2($), modelWidth(columns)), columns, bodyRows));
   const from = Math.min(await read2($, scrollAtom), most);
   const to = Math.min(Math.max(0, from + by), most);
   if (to !== await read2($, scrollAtom))
     await update2($, scrollAtom, () => to);
+}
+async function clampScroll($) {
+  if (kitSize)
+    await scrollKit($, 0, kitSize.bodyRows, kitSize.columns);
 }
 function registerPane(on) {
   registerPaneRedraw(on);
@@ -1709,13 +1711,13 @@ function registerPane(on) {
       await setKeysInPane($, true);
     await paneMessage($, e, TODO_PANE, await waitingBand($));
     if (e.requestId === PANE)
-      act($, e.data, e.surface).catch(() => $.ui.toast(`Could not update ${TITLE}`));
+      act($, e.data, e.surface);
     return next(e);
   });
   on("ui.scroll", { component: "Pane", requestId: "human-todos" }, async ($, e, next) => {
-    if (e.contentRows > e.bodyRows || kitColumns === undefined)
+    if (e.contentRows > e.bodyRows || kitSize === undefined)
       return next(e);
-    await scrollKit($, e.by, e.bodyRows, kitColumns);
+    await scrollKit($, e.by, e.bodyRows, kitSize.columns);
     return {};
   });
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
@@ -1767,13 +1769,14 @@ function registerPane(on) {
     }
     const { Client } = $.ui.resolve(e);
     const width = paneColumns(e);
-    kitColumns = width;
+    const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
+    kitSize = { columns: width, bodyRows };
     const props = {
       model: modelOf(pane, modelWidth(width)),
       focused: e.props.isFocused || await read2($, keysAtom),
       width,
       offset: await read2($, scrollAtom),
-      bodyRows: e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
+      bodyRows
     };
     return /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",
@@ -1861,10 +1864,12 @@ function registerContract(on) {
     if (e.reason === "clear") {
       const dropped = await listTodos($);
       await resetList($);
+      await clampScroll($);
       await cleanup($, dropped).catch(() => $.ui.toast("Could not tidy up after the cleared items"));
     } else if (e.reason === "resume" && e.resume?.id !== e.sessionId) {
       const released = release($);
       await leaveList($);
+      await clampScroll($);
       await released.catch(() => $.ui.toast("Could not stop the runs of the session you left"));
     }
     return ended;
@@ -1897,6 +1902,7 @@ function registerContract(on) {
     const gone = await removeTodos($, (t) => t.id === id);
     if (gone.length === 0)
       return { result: `No to-do #${id}.` };
+    await clampScroll($);
     await cleanup($, gone).catch(() => $.ui.toast(`Could not tidy up after #${id}`));
     return { result: `Withdrew #${id}.` };
   });

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { Todo } from '../../types'
-import { bandModel, endRows, outOfView, paneModel } from './model'
+import { bandModel, endRows, messageOf, outOfView, paneModel } from './model'
 import type { PaneRow, Tone } from './model'
 
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'task', title: 'Do it', status: 'open', ...over })
@@ -193,6 +193,12 @@ test('endRows close an overflowing list: a blank first only after the finished l
   const end = text("You've reached the end of the list.", 'dim')
   expect(endRows(build([todo({})]))).toEqual([end])
   expect(endRows(build([todo({}), todo({ id: '2', status: 'done' })]))).toEqual([BLANK, end])
+})
+
+test('messageOf gives each button the one message both drawers act on', () => {
+  expect(messageOf({ id: 'run', label: 'Run', tone: 'primary', todoId: '3' })).toEqual({ type: 'press', id: '3', button: 'run' })
+  expect(messageOf({ id: 'more', label: 'Show all', tone: 'neutral', todoId: '3' })).toEqual({ type: 'toggle', id: '3' })
+  expect(messageOf({ id: 'clear', label: 'Clear finished', tone: 'neutral' })).toEqual({ type: 'clear' })
 })
 
 test('outOfView counts the items that start above the window and end below it', () => {

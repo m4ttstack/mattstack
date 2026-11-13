@@ -2,8 +2,7 @@ import { BrandBar, Lines, Panel, kitClient, sp } from '@mattstack/mod-kit'
 
 import { TITLE } from '../items'
 import { kitLayout, kitWindow } from './kit-layout'
-import type { PaneMessage } from './kit-layout'
-import type { PaneModel } from './model'
+import type { PaneMessage, PaneModel } from './model'
 
 type Props = { model: PaneModel; focused: boolean; width: number; offset: number; bodyRows: number }
 
