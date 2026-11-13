@@ -83,11 +83,12 @@ export function menu<A = MenuHit>(spec: MenuSpec<A>): Line<A>[] {
 }
 
 // Enter opens a closed menu; open, the arrows move, right or Enter opens a sub-list, left leaves it,
-// Enter picks, and Escape closes. Undefined for a key the menu leaves alone.
+// and Enter picks. Left at the top level, Backspace and Escape close it: a Client never receives Escape,
+// which the engine keeps for returning the focus. Undefined for a key the menu leaves alone.
 export function menuKey(state: MenuState, rows: MenuRow[], key: string): MenuMove | undefined {
   const isEnter = key === 'return' || key === 'enter'
   if (!state.open) return isEnter && rows.length > 0 ? { state: { open: true, selected: 0 } } : undefined
-  if (key === 'escape' || key === 'esc') return { state: closed(state) }
+  if (key === 'escape' || key === 'esc' || key === 'backspace') return { state: closed(state) }
   const row = rows[state.selected]
   const subs = row?.rows ?? []
   if (state.sub !== undefined) {
@@ -98,6 +99,7 @@ export function menuKey(state: MenuState, rows: MenuRow[], key: string): MenuMov
   }
   if (key === 'up' || key === 'down') return { state: { open: true, selected: wrapAt(state.selected + (key === 'up' ? -1 : 1), rows.length) } }
   if ((isEnter || key === 'right') && subs.length > 0) return { state: { open: true, selected: state.selected, sub: 0 } }
+  if (key === 'left') return { state: closed(state) }
   if (isEnter && row) return { state: closed(state), picked: row.id }
   return undefined
 }

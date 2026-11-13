@@ -352,7 +352,7 @@ function menuKey(state, rows, key) {
   const isEnter = key === "return" || key === "enter";
   if (!state.open)
     return isEnter && rows.length > 0 ? { state: { open: true, selected: 0 } } : undefined;
-  if (key === "escape" || key === "esc")
+  if (key === "escape" || key === "esc" || key === "backspace")
     return { state: closed(state) };
   const row = rows[state.selected];
   const subs = row?.rows ?? [];
@@ -369,6 +369,8 @@ function menuKey(state, rows, key) {
     return { state: { open: true, selected: wrapAt(state.selected + (key === "up" ? -1 : 1), rows.length) } };
   if ((isEnter || key === "right") && subs.length > 0)
     return { state: { open: true, selected: state.selected, sub: 0 } };
+  if (key === "left")
+    return { state: closed(state) };
   if (isEnter && row)
     return { state: closed(state), picked: row.id };
   return;

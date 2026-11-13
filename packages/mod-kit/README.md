@@ -168,7 +168,9 @@ by its `id`. The menu holds no state: the Client keeps `state`
 `onChange`. `indent` is the column the button starts at, so the rows hang under
 a button drawn inside a row. For the keyboard, pass each key through
 `menuKey(state, rows, key)`: Enter opens it, the arrows move, right or Enter
-opens a sub-list, left leaves it, Enter picks and Escape closes. It returns
+opens a sub-list, left leaves it, Enter picks, and left at the top level or
+Backspace closes it. Escape closes it too where a host delivers it, but a
+Client never receives Escape: the engine keeps it for returning the focus. It returns
 `{ state, picked? }` (`MenuMove`), or undefined for a key it leaves alone.
 
 ### `InputField`

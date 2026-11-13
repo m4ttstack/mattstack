@@ -99,7 +99,14 @@ describe('menuKey', () => {
     expect(menuKey({ open: true, selected: 1, sub: 2 }, ROWS, 'left')?.state).toEqual({ open: true, selected: 1 })
   })
 
-  test('Escape closes it, from either level', () => {
+  // A Client never receives Escape (the engine takes it to return the focus), so left and Backspace are the keyboard's way out.
+  test('left at the top level and Backspace close it', () => {
+    expect(menuKey({ open: true, selected: 1 }, ROWS, 'left')?.state).toEqual({ open: false, selected: 1 })
+    expect(menuKey({ open: true, selected: 0 }, ROWS, 'backspace')?.state.open).toBe(false)
+    expect(menuKey({ open: true, selected: 1, sub: 2 }, ROWS, 'backspace')?.state.open).toBe(false)
+  })
+
+  test('Escape closes it, from either level, where the host delivers it', () => {
     expect(menuKey({ open: true, selected: 1, sub: 2 }, ROWS, 'escape')?.state.open).toBe(false)
     expect(menuKey({ open: true, selected: 0 }, ROWS, 'escape')?.state.open).toBe(false)
   })

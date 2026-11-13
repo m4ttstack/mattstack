@@ -73,10 +73,14 @@ test('keyboard: right selects More actions, Enter opens it, arrows move, Enter p
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'go-back', to: 'provision' } })
 })
 
-test('keyboard: Escape closes the menu and left goes back to Submit', () => {
+test('keyboard: left closes the menu, then goes back to Submit, then pages back', () => {
   const open = keys(gate, atReview(gate), 'right', 'return')!.state
   expect(open.menu.open).toBe(true)
-  const closed = keyEffect({ key: 'escape' }, gate, open)!.state
+  const inSub = keys(gate, open, 'down', 'return')!.state
+  expect(inSub.menu.sub).toBe(0)
+  expect(keyEffect({ key: 'left' }, gate, inSub)!.state.menu).toEqual({ open: true, selected: 1 })
+  const closed = keyEffect({ key: 'left' }, gate, open)!.state
+  expect(keyEffect({ key: 'backspace' }, gate, open)!.state.menu.open).toBe(false)
   expect(closed.menu.open).toBe(false)
   expect(keyEffect({ key: 'left' }, gate, closed)!.state.navAt).toBe('submit')
   expect(keyEffect({ key: 'left' }, gate, { ...closed, navAt: 'submit' })!.state.page).toBe(REVIEW - 1)
