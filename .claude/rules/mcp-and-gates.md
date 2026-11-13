@@ -89,12 +89,16 @@ with a guarded word stays refused. `git/blobs` is refused for size, and the
 query keys in `GITHUB_REFUSED_QUERY_KEYS` are refused too. The GitHub list
 also covers secret scanning alerts and security advisories. A word in
 `GITHUB_REFUSED_ROUTES` (`copilot`, whose cloud agent MCP configuration can
-hold tokens) is refused only as the segment right after
-`repos/<owner>/<repo>`, split after decoding, so `copilot` in a branch, a
-file path or the repo's own name is not refused. A character whose NFKD
-form is `;`, `%`, `?`, `#` or a backslash is refused anywhere in the path;
-one that folds to `/` is split as a separator in the matching window, and
-unmatched in a file path. A GitHub path with an
+hold tokens) is refused only as the first route part after
+`repos/<owner>/<repo>` whose skeleton is not blank (also with a dot
+suffix, as in `copilot.json`), split after decoding, so `copilot` in a
+branch, a file path or the repo's own name is not refused. A character
+whose own NFKD form differs from it and contains `;`, `%`, `?`, `#` or a
+backslash is refused anywhere in the path; one that folds to `/` is split
+as a separator in the matching window, and unmatched in a file path. A
+decoded `?` or `#` (`%3F`, `%23`) also splits the matching window, so
+`:repo/hooks%3F` is refused while `:repo/contents/docs/C%23.md` and
+`:repo/labels/C%23` read. A lone surrogate is refused too. A GitHub path with an
 empty segment anywhere but a single trailing slash (`//`, raw or decoded
 from `%2F`) is refused, since GitHub may collapse it and join a slash entry
 such as `actions/oidc` that the check saw apart; that also pins which
