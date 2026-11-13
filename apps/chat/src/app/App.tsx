@@ -632,7 +632,11 @@ function ChatPage({
                       roomMembers={
                         worker
                           ? [me.handle, herd.tag.shepherdHandle, worker.handle]
-                          : [me.handle]
+                          : [
+                              me.handle,
+                              herd.tag.shepherdHandle,
+                              ...herd.tag.workers.map(w => w.handle),
+                            ]
                       }
                       buddies={buddies}
                       isDm={worker !== undefined}
@@ -942,8 +946,9 @@ function AppContent({
     const latest = latestActiveRoom(rooms);
     if (!latest) return;
     const room = rooms.find(r => r.room === latest);
-    const to =
-      room && isMine(room, me.handle)
+    const to = room?.herd
+      ? herdPath(room.herd.id)
+      : room && isMine(room, me.handle)
         ? DIRECT_PATH
         : `/r/${encodeURIComponent(latest)}`;
     navigate(to, { replace: true });

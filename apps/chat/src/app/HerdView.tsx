@@ -294,18 +294,17 @@ export function HerdView({
   const url = filter ? `${base}/${encodeURIComponent(filter)}` : base;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadedUrl, setLoadedUrl] = useState<string>();
-  // A room joining the herd (a worker's first DM) reads the feed again; the
-  // listing's own polls leave it alone while the set is unchanged.
+  // A room joining the herd (a worker's first DM) pulls the tail again,
+  // merged into what is loaded; the listing's polls leave it alone while
+  // the set is unchanged.
   const roomSet = rooms
     .map(r => r.room)
     .sort()
     .join('|');
-  const fetchedUrl = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
-    if (fetchedUrl.current !== url) setMessages([]);
-    fetchedUrl.current = url;
+    setMessages([]);
     fetch(`${url}?limit=${PAGE_SIZE}`)
       .then(res => {
         if (!res.ok) throw new Error(`${res.url}: ${res.status}`);
@@ -320,11 +319,12 @@ export function HerdView({
     return () => {
       cancelled = true;
     };
-  }, [url, roomSet]);
+  }, [url]);
 
   // A draft belongs to who it was started for: a newer post must not
   // retarget it.
   const draftOpen = useRef(false);
+  const heldForDraft = useRef(false);
   const pick = useRef(onPick);
   pick.current = onPick;
 
@@ -335,6 +335,7 @@ export function HerdView({
     const fallback = (rooms.find(r => r.kind !== 'dm') ?? rooms[0])?.room;
     return {
       url,
+      tailKey: roomSet,
       faces: [tag.shepherdHandle, ...tag.workers.map(w => w.handle)],
       hears: topic => {
         if (!isMsgTopic(topic)) return false;
@@ -360,7 +361,7 @@ export function HerdView({
         },
       },
     };
-  }, [rooms, tag, me, picked, filter, url]);
+  }, [rooms, roomSet, tag, me, picked, filter, url]);
 
   const footer = (list: ChatMessage[]) => {
     const target = feed.target(list);
@@ -375,7 +376,15 @@ export function HerdView({
       <HerdTo tag={tag} rooms={rooms} target={target} onPick={onPick} />,
       hasDraft => {
         draftOpen.current = hasDraft;
-        if (hasDraft && picked === undefined) onPick(target);
+        if (hasDraft && picked === undefined) {
+          heldForDraft.current = true;
+          onPick(target);
+        } else if (!hasDraft && heldForDraft.current) {
+          // Held only for the draft: once it posts or empties, a reply goes
+          // to the newest conversation again.
+          heldForDraft.current = false;
+          onPick(undefined);
+        }
       }
     );
   };
@@ -389,7 +398,10 @@ export function HerdView({
         onFilter={room => {
           setFilter(room);
           // A draft stays with who it was started for; only the To moves it.
-          if (!draftOpen.current) onPick(room);
+          if (!draftOpen.current) {
+            heldForDraft.current = false;
+            onPick(room);
+          }
         }}
       />
       <Box style={{ flex: 1, minHeight: 0, display: 'flex' }}>

@@ -795,7 +795,7 @@ describe("herd:roster", () => {
 });
 
 describe("worker verbs", () => {
-  const Q =[{ id: "q1", label: "Which?", multi: false, options: ["a", "b"] }];
+  const Q = [{ id: "q1", label: "Which?", multi: false, options: ["a", "b"] }];
   async function withJob() {
     const hx = harness();
     const s = await hx.h["herd:start"](START);

@@ -429,16 +429,26 @@ async function withDmLastMessage(
   });
 }
 
+/** The last roster the daemon gave, so one failed read on the rooms poll
+    does not unfold every herd and tear down an open herd view. */
+let lastRoster: HerdRosterRow[] = [];
+
 /** Every herd the daemon knows, wrapped ones too. A daemon without
-    `herd:roster` answers !ok, which reads as no herds: the DMs stay plain. */
+    `herd:roster` has never answered, which reads as no herds: the DMs stay
+    plain. */
 async function readHerds(): Promise<HerdRosterRow[]> {
   if (fixturesEnabled()) return fixtureHerds();
   try {
     const res = await herdRoster(rtOpts());
-    return res?.ok ? (res.data?.herds ?? []) : [];
+    if (res?.ok) lastRoster = res.data?.herds ?? [];
   } catch {
-    return [];
+    // The last good roster stands.
   }
+  return lastRoster;
+}
+
+export function forgetHerdRoster(): void {
+  lastRoster = [];
 }
 
 /** The rooms a herd's view reads: its DMs from the listing, and its own
@@ -805,13 +815,10 @@ export const chat = new Hono()
     const lists = pages.flatMap(p =>
       p?.ok && p.data ? [p.data.messages] : []
     );
-    // A herd that never posted in its own room may have none, so only a DM
-    // going missing counts as a failed read. Any page missing a DM fails:
-    // its oldest id becomes the next cursor, which would skip the DM's
-    // newer posts for good.
-    const failed = pages.some(
-      (p, i) => names[i] !== herd.room && !(p?.ok && p.data)
-    );
+    // Any page missing a conversation fails: its oldest id becomes the next
+    // cursor, which would skip that conversation's newer posts for good. A
+    // room nobody posted in still reads, as an empty list.
+    const failed = pages.some(p => !(p?.ok && p.data));
     if (failed) {
       return c.json({ error: 'could not read every conversation' }, 502);
     }

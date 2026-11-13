@@ -28,11 +28,12 @@ vi.mock('@mattstack/rt-client', () => ({
 }));
 const rt = await import('@mattstack/rt-client');
 const { routes } = await import('./routes');
-const { forgetSlackDirectory } = await import('./chat');
+const { forgetHerdRoster, forgetSlackDirectory } = await import('./chat');
 
 beforeEach(() => {
   vi.resetAllMocks();
   forgetSlackDirectory();
+  forgetHerdRoster();
   // The rooms handler now reads each DM room's newest message for the fleet
   // tree's second line. Most tests do not care what it is, only that the call
   // resolves like the daemon's would.
@@ -1881,4 +1882,23 @@ test('a herd page with a DM that fails to read is a 502, first page included', a
 
   const res = await routes.request(`/api/chat/herd/${HERD.id}`);
   expect(res.status).toBe(502);
+});
+
+test('a failed roster read keeps the last good herd tags', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValue({
+    ok: true,
+    data: { rooms: herdListing },
+  });
+  vi.mocked(rt.herdRoster)
+    .mockResolvedValueOnce({ ok: true, data: { herds: [HERD] } })
+    .mockResolvedValueOnce({ ok: false, error: 'busy' });
+
+  await routes.request('/api/chat/rooms?handle=matt');
+  const res = await routes.request('/api/chat/rooms?handle=matt');
+  const rooms: { room: string; herd?: unknown }[] = (await res.json()).rooms;
+  expect(rooms.filter(r => r.herd).map(r => r.room)).toEqual([
+    HERD.room,
+    'dm-ida',
+    'dm-meg',
+  ]);
 });

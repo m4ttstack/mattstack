@@ -169,6 +169,9 @@ export interface TranscriptFeed {
   target: (messages: ChatMessage[]) => string | undefined;
   /** A message picks its conversation; the space around them clears it. */
   onPick: (room: string | undefined) => void;
+  /** A change pulls the tail again and merges it into what is loaded, for
+      a conversation that joined the list after its first post was heard. */
+  tailKey?: string;
   /** One timeline by day instead of a card per conversation. `to` names
       who a message went to, beside its sender. */
   timeline?: { to: (message: ChatMessage) => string | undefined };
@@ -562,6 +565,13 @@ export function Transcript({
   useRelayOpen(reconnect => {
     if (reconnect) refetchTail();
   });
+  const tailKey = feed?.tailKey;
+  const seenTailKey = useRef(tailKey);
+  useEffect(() => {
+    if (seenTailKey.current === tailKey) return;
+    seenTailKey.current = tailKey;
+    refetchTail();
+  }, [tailKey, refetchTail]);
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') refetchTail();
