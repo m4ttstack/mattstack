@@ -85,7 +85,7 @@ const PRESS_FILL: Record<string, string> = {
 }
 
 // A quiet button: a light label on a faint fill at rest (never the disabled grey), a brighter fill and a white label under the pointer.
-export const QUIET = { label: '#e0e0e0', rest: '#363636', hover: '#4a4a4a', press: '#404040', muted: '#666666' }
+export const QUIET = { label: '#e0e0e0', rest: '#363636', hover: '#4a4a4a', press: '#404040', muted: '#808080' }
 
 export function hovered<S extends Style>(span: S): S {
   if (span.quiet) return { ...span, bg: QUIET.hover, color: 'white' }
@@ -108,13 +108,13 @@ export const DIM: Style = { dim: true }
 export const rail = <A = never>(style: Style): Span<A>[] => [sp(SYMBOL.bar, style), sp('  ')]
 
 // dimColor does nothing on a span that names a colour, so the unfocused look steps each level down to an explicit shade, keeping their order. Dark terminals only for now.
-const MUTED: Record<string, string> = { cyan: '#3d6f78', green: '#4d7a4d', yellow: '#857640', red: '#8a4a4a', gray: '#4a4a4a', [BRAND.pink]: '#7a3d58' }
+const MUTED: Record<string, string> = { cyan: '#4f8a95', green: '#5f965f', yellow: '#a08f4e', red: '#a85c5c', gray: '#5c5c5c', [BRAND.pink]: '#94496b' }
 
-const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#6e3a52', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#5e2f45', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#24313f', color: '#8a8a8a' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#262626', color: '#8a8a8a' }, [SCROLL.track]: { bg: '#2a2a2a' }, [SCROLL.thumb]: { bg: '#4a4a4a' } }
+const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#86465f', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#733a55', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#2b3b4c', color: '#a0a0a0' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#2c2c2c', color: '#a0a0a0' }, [SCROLL.track]: { bg: '#303030' }, [SCROLL.thumb]: { bg: '#585858' } }
 
 export function muted<S extends Style>(span: S): S {
   if (span.quiet) return { ...span, color: QUIET.muted, dim: false }
-  if (span.bg) return { ...span, ...(MUTED_FILL[span.bg] ?? { bg: '#3a3a3a', color: '#8a8a8a' }), dim: false }
+  if (span.bg) return { ...span, ...(MUTED_FILL[span.bg] ?? { bg: '#424242', color: '#a0a0a0' }), dim: false }
   if (span.color) return { ...span, color: MUTED[span.color] ?? span.color, dim: false }
-  return { ...span, color: span.dim ? '#555555' : '#8a8a8a', dim: false }
+  return { ...span, color: span.dim ? '#6a6a6a' : '#a0a0a0', dim: false }
 }
