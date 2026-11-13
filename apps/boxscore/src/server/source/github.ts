@@ -17,7 +17,7 @@ import { loginCanon } from './logins.js';
 import { toIndexRow } from './mrs.js';
 import type { SourceIO } from './provider.js';
 
-/** The GitHubProvider reads this adapter composes; glance's GitHub reads take no signal. */
+/** glance's GitHub reads take no signal. */
 export interface GitHubSourceProvider {
   fetchUser(username: string): Promise<UserRef | null>;
   fetchMergeRequestIndex(

@@ -40,7 +40,6 @@ interface FakeOptions {
   rest?: Record<string, CannedPage>;
 }
 
-/** A hand-rolled fake: records every call and serves canned JSON for REST by exact path. */
 function makeFake(opts: FakeOptions = {}) {
   const calls: Call[] = [];
   const provider: GitHubSourceProvider = {
@@ -304,6 +303,36 @@ describe('githubSource', () => {
       'fetchMRDiscussions',
       'restRequest',
       'restRequest',
+    ]);
+    expect(calls.find(c => c.method === 'fetchSingleMR')?.args).toEqual([
+      'o/r',
+      7,
+      null,
+    ]);
+    expect(source.takeWarnings()).toEqual([]);
+  });
+
+  it('fetchDetail stores note authors in the roster spelling', async () => {
+    const { provider } = makeFake({
+      discussions: {
+        mrIid: 7,
+        repositoryId: 'github:o/r',
+        discussions: [
+          {
+            id: 'd1',
+            resolvable: true,
+            resolved: false,
+            notes: [note('Bob', { type: 'DiffNote' }), note('Ada')],
+          },
+        ],
+      },
+      rest: emptyLists,
+    });
+    const source = githubSource(provider, { knownLogins: ['ada', 'bob'] });
+    const detail = await source.fetchDetail(row, {});
+    expect(detail?.metrics.notes.map(n => n.authorUsername)).toEqual([
+      'bob',
+      'ada',
     ]);
   });
 
