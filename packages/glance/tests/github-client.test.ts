@@ -304,6 +304,56 @@ describe('createGitHubClient throttle id', () => {
   });
 });
 
+describe('a request aborted by its signal is never retried', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const client = (token: string) =>
+    createGitHubClient({ baseURL: 'https://github.com', token, log: noopLogger });
+
+  /** Rejects the way fetch does once its signal aborts, as a real transport would. */
+  function stubAbortingFetch(controller: AbortController): { calls: number } {
+    const state = { calls: 0 };
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      state.calls++;
+      controller.abort(new Error('caller stopped'));
+      throw init?.signal?.reason ?? new Error('not aborted');
+    }) as unknown as typeof fetch;
+    return state;
+  }
+
+  test('a GET whose signal aborts mid-request is sent once', async () => {
+    const controller = new AbortController();
+    const state = stubAbortingFetch(controller);
+    await expect(
+      withInstantTimers(() =>
+        client('tok-abort-get').request('GET /repos/o/r/pulls', { request: { signal: controller.signal } })
+      )
+    ).rejects.toBeDefined();
+    expect(state.calls).toBe(1);
+  });
+
+  test('a GET with a live signal still retries a 5xx', async () => {
+    const controller = new AbortController();
+    const state = { calls: 0 };
+    globalThis.fetch = (async () => {
+      state.calls++;
+      return new Response(JSON.stringify({ message: 'bad gateway' }), {
+        status: 502,
+        headers: { 'content-type': 'application/json' }
+      });
+    }) as unknown as typeof fetch;
+    await expect(
+      withInstantTimers(() =>
+        client('tok-live-get').request('GET /repos/o/r/pulls', { request: { signal: controller.signal } })
+      )
+    ).rejects.toBeDefined();
+    expect(state.calls).toBe(4);
+  });
+});
+
 describe('rate limits fail fast', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {

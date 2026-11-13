@@ -356,10 +356,15 @@ export async function runMetricsReadConformance(
   }
   if (absent.length === METRIC_READS.length) return;
 
+  const checkPresent: typeof check = async (r, f, method, label, fn) => {
+    if (absent.includes(method)) return;
+    await check(r, f, method, label, fn);
+  };
+
   const updatedAfter = isoDaysAgo(365);
   const now = new Date().toISOString();
 
-  await check(report, fixture, 'fetchProject', 'resolves the fixture project to its scoped id', async () => {
+  await checkPresent(report, fixture, 'fetchProject', 'resolves the fixture project to its scoped id', async () => {
     const ref = await provider.fetchProject!(projectPath);
     assert(ref !== null, `fetchProject("${projectPath}") returned null`);
     assert(ref.fullPath === projectPath, `expected fullPath "${projectPath}", got "${ref.fullPath}"`);
@@ -367,12 +372,12 @@ export async function runMetricsReadConformance(
     assert(ref.id === expected, `expected id "${expected}", got "${ref.id}"`);
   });
 
-  await check(report, fixture, 'fetchProject', 'returns null for a project that does not exist', async () => {
+  await checkPresent(report, fixture, 'fetchProject', 'returns null for a project that does not exist', async () => {
     const ref = await provider.fetchProject!('glance-no-such-group-8b3f/glance-no-such-project-8b3f');
     assert(ref === null, `expected null, got ${JSON.stringify(ref)}`);
   });
 
-  await check(report, fixture, 'fetchGroupProjects', 'lists the fixture project under its group', async () => {
+  await checkPresent(report, fixture, 'fetchGroupProjects', 'lists the fixture project under its group', async () => {
     const slash = projectPath.lastIndexOf('/');
     if (slash < 0) throw new Inconclusive(`fixture project "${projectPath}" has no group segment`);
     const group = projectPath.slice(0, slash);
@@ -381,7 +386,7 @@ export async function runMetricsReadConformance(
   });
 
   let indexRows: Awaited<ReturnType<NonNullable<typeof provider.fetchMergeRequestIndex>>> = [];
-  await check(report, fixture, 'fetchMergeRequestIndex', 'lists well-formed rows for the fixture project', async () => {
+  await checkPresent(report, fixture, 'fetchMergeRequestIndex', 'lists well-formed rows for the fixture project', async () => {
     indexRows = await provider.fetchMergeRequestIndex!({ projectPaths: [projectPath], updatedAfter });
     assert(Array.isArray(indexRows), 'expected an array');
     if (indexRows.length === 0) throw new Inconclusive('no MRs updated in the last year; row shape is unverified');
@@ -395,7 +400,7 @@ export async function runMetricsReadConformance(
     }
   });
 
-  await check(report, fixture, 'fetchMergeRequestIndex', 'merged rows carry mergedAt, and a states filter narrows', async () => {
+  await checkPresent(report, fixture, 'fetchMergeRequestIndex', 'merged rows carry mergedAt, and a states filter narrows', async () => {
     const merged = indexRows.filter((r) => r.state === 'merged');
     if (merged.length === 0) throw new Inconclusive('no merged MRs in the last year; mergedAt is unverified');
     for (const row of merged) {
@@ -406,7 +411,8 @@ export async function runMetricsReadConformance(
     assert(only.every((r) => r.state === 'merged'), 'a states filter returned a non-merged row');
   });
 
-  await check(report, fixture, 'fetchMergeRequestIndex', 'group mode includes the fixture project rows', async () => {
+  await checkPresent(report, fixture, 'fetchMergeRequestIndex', 'group mode includes the fixture project rows', async () => {
+    if (fixture.name === 'github') throw new Inconclusive('groupPath is GitLab-only');
     const slash = projectPath.lastIndexOf('/');
     if (slash < 0) throw new Inconclusive(`fixture project "${projectPath}" has no group segment`);
     const group = projectPath.slice(0, slash);
@@ -418,7 +424,7 @@ export async function runMetricsReadConformance(
     }
   });
 
-  await check(report, fixture, 'fetchMergeRequestMetrics', 'reads one indexed MR and agrees with the index on labels', async () => {
+  await checkPresent(report, fixture, 'fetchMergeRequestMetrics', 'reads one indexed MR and agrees with the index on labels', async () => {
     const sample = indexRows[0];
     if (!sample) throw new Inconclusive('no indexed MR to read metrics for');
     const metrics = await provider.fetchMergeRequestMetrics!(projectPath, sample.iid);
@@ -435,12 +441,12 @@ export async function runMetricsReadConformance(
     );
   });
 
-  await check(report, fixture, 'fetchMergeRequestMetrics', 'returns null for an MR that does not exist', async () => {
+  await checkPresent(report, fixture, 'fetchMergeRequestMetrics', 'returns null for an MR that does not exist', async () => {
     const metrics = await provider.fetchMergeRequestMetrics!(projectPath, 99_999_999);
     assert(metrics === null, `expected null, got ${JSON.stringify(metrics)?.slice(0, 80)}`);
   });
 
-  await check(report, fixture, 'fetchProjectPipelines', 'lists pipelines in a window, filtered by the token user', async () => {
+  await checkPresent(report, fixture, 'fetchProjectPipelines', 'lists pipelines in a window, filtered by the token user', async () => {
     const all = await provider.fetchProjectPipelines!(projectPath, { updatedAfter, updatedBefore: now });
     assert(Array.isArray(all), 'expected an array');
     if (all.length === 0) throw new Inconclusive('no pipelines in the last year; shape and filtering are unverified');
@@ -460,7 +466,7 @@ export async function runMetricsReadConformance(
       'a nonexistent-username filter returned pipelines, so username is not applied server-side');
   });
 
-  await check(report, fixture, 'fetchUserEvents', 'reads the token user\'s push events', async () => {
+  await checkPresent(report, fixture, 'fetchUserEvents', 'reads the token user\'s push events', async () => {
     const self = await provider.validateToken();
     const after = dateOnly(isoDaysAgo(366));
     const before = dateOnly(new Date(Date.now() + DAY_MS).toISOString());

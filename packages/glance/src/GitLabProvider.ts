@@ -1004,6 +1004,9 @@ export class GitLabProvider implements GitProvider {
     canReplyToGeneralComments: true,
     canRequestChanges: true,
     canFetchPullRequestDiffs: false,
+    canFetchApprovalRules: true,
+    canFetchCodeownerSections: true,
+    canFetchDivergedCount: true,
   };
 
   // MARK: - GitProvider

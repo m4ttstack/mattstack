@@ -8,7 +8,9 @@ import {
   backfillAuthors,
   backfillSections,
   DEEP_RECONCILE_MS,
+  GITHUB_DIVERGED_REMEASURE_CAP,
   remeasureDivergedCounts,
+  __resetDivergedMeasuresForTest,
   syncProjectMRs,
   type ProjectSyncOverrides,
 } from "../project-sync.ts";
@@ -48,6 +50,9 @@ function fakeGitHub(list: (opts: FetchPullRequestsOptions) => Reply, single: (ii
       for (const w of reply.warnings ?? []) opts?.onWarning?.(w);
       return reply.prs;
     },
+    async fetchMergeRequestIndex() {
+      return [];
+    },
     async fetchSingleMR(_pp: string, iid: number, _user: number | null, onWarning?: (w: FetchPullRequestsWarning) => void) {
       singleCalls.push(iid);
       const reply = single(iid);
@@ -58,6 +63,8 @@ function fakeGitHub(list: (opts: FetchPullRequestsOptions) => Reply, single: (ii
   const githubContext = async () => ({ provider, projectPath: "o/r" }) as unknown as GitHubSyncContext;
   return { githubContext, listCalls, singleCalls };
 }
+
+const owner = (section: string) => ({ type: "CODE_OWNER" as const, approved: false, section });
 
 const isDeepList = (opts: FetchPullRequestsOptions) => opts.state === "opened" && opts.updatedAfter === undefined;
 
@@ -116,23 +123,28 @@ describe("project sync on GitHub", () => {
     expect(readSyncHealth(repo)).toBeDefined();
   });
 
-  test("a scoped GitHub deep lists once, adds your login and skips sections", async () => {
+  test("a scoped GitHub deep lists once, adds your login and sweeps sections", async () => {
     const repo = "github.com/acme/scoped";
     const store = tmpStore();
-    store.registerDemand(repo, "board", ["Dev"], Date.now(), ["Backend"]);
-    const gh = fakeGitHub(() => ({ prs: [pr(1, { author: { username: "dev" } }), pr(2, { author: { username: "x" } })] }));
+    store.registerDemand(repo, "board", ["Dev"], Date.now(), ["@org/backend"]);
+    const gh = fakeGitHub(
+      () => ({ prs: [pr(1, { author: { username: "dev" } }), pr(2, { author: { username: "x" } })] }),
+      (iid) => ({ pr: pr(iid, { author: { username: "x" } }) }),
+    );
     const overrides: ProjectSyncOverrides = {
       store, forge: "github", githubContext: gh.githubContext, selfUsername: "octo",
-      fetchRules: async () => { throw new Error("must not read rules"); },
-      fetchKnownSections: async () => { throw new Error("must not read sections"); },
+      fetchRules: async () => ({ projectPath: "o/r", rules: [{ iid: 2, rules: [owner("@org/backend")] }] }),
+      fetchKnownSections: async () => ["@org/backend"],
     };
     await syncProjectMRs(deps(repo), repo, overrides);
     expect(gh.listCalls).toHaveLength(1);
     expect(gh.listCalls[0]!.authorUsernames).toBeUndefined();
     const scope = store.read(repo)!.scope!;
     expect(scope.authors).toEqual(["Dev", "octo"]);
-    expect(scope.sections).toBeUndefined();
-    expect(Object.keys(store.read(repo)!.mrs).map(Number)).toEqual([1]);
+    expect(scope.sections).toEqual(["@org/backend"]);
+    expect(Object.keys(store.read(repo)!.mrs).map(Number).sort()).toEqual([1, 2]);
+    expect(store.read(repo)!.mrs[2]!.codeownerSections).toEqual(["@org/backend"]);
+    expect(gh.singleCalls).toEqual([2]);
   });
 
   test("a scoped GitHub deep resolves your login per repo", async () => {
@@ -157,23 +169,6 @@ describe("project sync on GitHub", () => {
     expect(store.read(repo)!.mrs[3]).toBeDefined();
   });
 
-  test("backfillSections on GitHub reads nothing and logs once", async () => {
-    const repo = "github.com/acme/sections";
-    const store = tmpStore();
-    const gh = fakeGitHub(() => ({ prs: [] }));
-    const logged: Array<{ obj: object; msg: string }> = [];
-    const overrides: ProjectSyncOverrides = {
-      store, forge: "github", githubContext: gh.githubContext,
-      info: (obj, msg) => logged.push({ obj, msg }),
-    };
-    await backfillSections(deps(repo), repo, ["Backend"], overrides);
-    await backfillSections(deps(repo), repo, ["Backend"], overrides);
-    expect(gh.listCalls).toHaveLength(0);
-    expect(gh.singleCalls).toHaveLength(0);
-    expect(logged).toHaveLength(1);
-    expect(logged[0]!.msg).toBe("codeowner sections are not available on GitHub yet");
-  });
-
   test("the GitHub top-up re-reads an in-flight PR and skips a failed one", async () => {
     const repo = "github.com/acme/topup";
     const store = tmpStore();
@@ -190,17 +185,26 @@ describe("project sync on GitHub", () => {
     expect(gh.singleCalls.sort()).toEqual([1, 2]);
   });
 
-  test("remeasureDivergedCounts makes no read on GitHub", async () => {
+  test("remeasureDivergedCounts reads GitHub behind counts in one batch of 25", async () => {
+    __resetDivergedMeasuresForTest();
     const repo = "github.com/acme/behind";
     const store = tmpStore();
-    store.fullSync(repo, "o/r", [pr(1)], Date.now());
-    let reads = 0;
-    const out = await remeasureDivergedCounts(deps(repo), repo, {
+    store.fullSync(repo, "o/r", Array.from({ length: 30 }, (_, i) => pr(i + 1, { divergedCommitsCount: 0 })), Date.now());
+    const batches: Array<{ projectPath: string; iids: number[] }> = [];
+    const broadcasts: unknown[] = [];
+    const out = await remeasureDivergedCounts(deps(repo, broadcasts), repo, {
       store, forge: "github",
-      fetchDiverged: async () => { reads++; throw new Error("must not read"); },
+      fetchDiverged: async () => { throw new Error("GitHub never reads per PR"); },
+      fetchDivergedBatch: async (_repo, projectPath, iids) => {
+        batches.push({ projectPath, iids });
+        return new Map(iids.map((iid) => [iid, iid === 4 ? 7 : 0]));
+      },
     });
-    expect(out).toEqual([]);
-    expect(reads).toBe(0);
+    expect(batches).toEqual([{ projectPath: "o/r", iids: Array.from({ length: GITHUB_DIVERGED_REMEASURE_CAP }, (_, i) => i + 1) }]);
+    expect(GITHUB_DIVERGED_REMEASURE_CAP).toBe(25);
+    expect(out).toEqual([4]);
+    expect(store.read(repo)!.mrs[4]!.pr.divergedCommitsCount).toBe(7);
+    expect(broadcasts).toEqual([{ repoName: repo, iids: [4] }]);
   });
 
   test("backfillAuthors on GitHub adds the GitHub login, not the GitLab username", async () => {
@@ -214,5 +218,121 @@ describe("project sync on GitHub", () => {
     const authors = store.read(repo)!.scope!.authors;
     expect(authors).toContain("octo");
     expect(authors).not.toContain("gl-me");
+  });
+});
+
+describe("codeowner sections on GitHub", () => {
+  const A = "@org/a";
+  const stranger = (iid: number) => pr(iid, { author: { username: "stranger" } });
+
+  /** One deep that tags strangers 1, 2 and 3 with A, so later runs have stored tags to keep or drop. */
+  async function seeded(repo: string, forge: "github" | "gitlab") {
+    const store = tmpStore();
+    store.registerDemand(repo, "board", ["dev"], Date.now(), [A]);
+    await syncProjectMRs(deps(repo), repo, {
+      store, forge, selfUsername: "octo", windowDays: 30, mode: "deep",
+      fetchAuthors: async () => ({ projectPath: "o/r", prs: [] }),
+      fetchRules: async () => ({ projectPath: "o/r", rules: [1, 2, 3].map((iid) => ({ iid, rules: [owner(A)] })) }),
+      fetchKnownSections: async () => [A],
+      fetchSingle: async (_r, _p, iid) => stranger(iid),
+    });
+    expect([1, 2, 3].map((iid) => store.read(repo)!.mrs[iid]?.codeownerSections)).toEqual([[A], [A], [A]]);
+    return store;
+  }
+
+  const secondDeep = (store: ReturnType<typeof tmpStore>, forge: "github" | "gitlab", warn: ProjectSyncOverrides["warn"]): ProjectSyncOverrides => ({
+    store, forge, selfUsername: "octo", windowDays: 30, mode: "deep", warn,
+    fetchAuthors: async () => ({ projectPath: "o/r", prs: [] }),
+    fetchRules: async () => ({ projectPath: "o/r", rules: [
+      { iid: 1, rules: [] },
+      { iid: 2, rules: [], unknownReason: "team unreadable" },
+    ] }),
+    fetchKnownSections: async () => [A, "@org/b"],
+    fetchSingle: async () => { throw new Error("stored rows need no fetch"); },
+  });
+
+  test("a GitHub deep keeps a stored tag through approval and an unknown read, and drops one outside the window", async () => {
+    const repo = "github.com/acme/sticky";
+    const store = await seeded(repo, "github");
+    const warned: Array<{ obj: object; msg: string }> = [];
+    await syncProjectMRs(deps(repo), repo, secondDeep(store, "github", (obj, msg) => warned.push({ obj, msg })));
+    const rec = store.read(repo)!;
+    expect(rec.mrs[1]!.codeownerSections).toEqual([A]);
+    expect(rec.mrs[2]!.codeownerSections).toEqual([A]);
+    expect(rec.mrs[3]).toBeUndefined();
+    expect(rec.scope!.knownSections).toEqual([A, "@org/b"]);
+    expect(warned).toHaveLength(1);
+    expect(warned[0]!.obj).toMatchObject({ unknown: 1, reason: "team unreadable" });
+  });
+
+  test("a GitLab deep with the same inputs is not sticky", async () => {
+    const repo = "gitlab.com/acme/plain";
+    const store = await seeded(repo, "gitlab");
+    await syncProjectMRs(deps(repo), repo, secondDeep(store, "gitlab", () => {}));
+    const rec = store.read(repo)!;
+    expect(rec.mrs[1]).toBeUndefined();
+  });
+
+  test("a GitHub sections delta keeps an approved PR's tag and hydrates a newly tagged stranger", async () => {
+    const repo = "github.com/acme/delta";
+    const store = await seeded(repo, "github");
+    const broadcasts: Array<{ iids: number[] }> = [];
+    const hydrated: number[] = [];
+    const warned: object[] = [];
+    await syncProjectMRs(deps(repo, broadcasts), repo, {
+      store, forge: "github", selfUsername: "octo", windowDays: 30, warn: (obj) => warned.push(obj),
+      fetchDelta: async () => ({ projectPath: "o/r", prs: [] }),
+      fetchRules: async () => ({ projectPath: "o/r", rules: [
+        { iid: 1, rules: [] },
+        { iid: 2, rules: [], unknownReason: "reviewer hidden" },
+        { iid: 7, rules: [owner(A)] },
+      ] }),
+      fetchSingle: async (_r, _p, iid) => { hydrated.push(iid); return stranger(iid); },
+    });
+    const rec = store.read(repo)!;
+    expect(hydrated).toEqual([7]);
+    expect(rec.mrs[1]!.codeownerSections).toEqual([A]);
+    expect(rec.mrs[2]!.codeownerSections).toEqual([A]);
+    expect(rec.mrs[7]!.codeownerSections).toEqual([A]);
+    const iids = broadcasts.flatMap((b) => b.iids);
+    expect(iids).toContain(7);
+    expect(iids).not.toContain(1);
+    expect(iids).not.toContain(2);
+    expect(warned).toEqual([expect.objectContaining({ unknown: 1, reason: "reviewer hidden" })]);
+  });
+
+  test("backfillSections on GitHub tags matches and records knownSections", async () => {
+    const repo = "github.com/acme/backfill-sections";
+    const store = tmpStore();
+    store.fullSync(repo, "o/r", [stranger(1)], Date.now());
+    store.setScope(repo, { authors: ["dev"], windowDays: 30 });
+    const hydrated: number[] = [];
+    await backfillSections(deps(repo), repo, [A], {
+      store, forge: "github", windowDays: 30,
+      fetchRules: async () => ({ projectPath: "o/r", rules: [{ iid: 1, rules: [owner(A)] }, { iid: 5, rules: [owner(A)] }] }),
+      fetchKnownSections: async () => [A],
+      fetchSingle: async (_r, _p, iid) => { hydrated.push(iid); return stranger(iid); },
+    });
+    const rec = store.read(repo)!;
+    expect(hydrated).toEqual([5]);
+    expect(rec.mrs[1]!.codeownerSections).toEqual([A]);
+    expect(rec.mrs[5]!.codeownerSections).toEqual([A]);
+    expect(rec.scope).toMatchObject({ sections: [A], knownSections: [A] });
+  });
+
+  test("backfillSections on GitHub keeps a sticky tag in a section the scope already covers", async () => {
+    const repo = "github.com/acme/backfill-covered";
+    const B = "@org/b";
+    const store = tmpStore();
+    store.fullSync(repo, "o/r", [stranger(1)], Date.now());
+    store.setScope(repo, { authors: ["dev"], sections: [A], windowDays: 30 });
+    store.setSectionTags(repo, { 1: [A] });
+    await backfillSections(deps(repo), repo, [B], {
+      store, forge: "github", windowDays: 30,
+      fetchRules: async () => ({ projectPath: "o/r", rules: [{ iid: 1, rules: [owner(B)] }] }),
+      fetchKnownSections: async () => [A, B],
+      fetchSingle: async () => { throw new Error("stored row needs no fetch"); },
+    });
+    expect(store.read(repo)!.mrs[1]!.codeownerSections).toEqual([A, B]);
   });
 });

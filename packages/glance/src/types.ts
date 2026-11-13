@@ -87,7 +87,7 @@ export interface PipelineJob {
 }
 
 export interface Pipeline {
-  /** Scoped provider ID, e.g. "gitlab:pipeline:12345". */
+  /** Scoped provider ID, e.g. "gitlab:pipeline:12345". On GitHub, `github:run:<n>` where n is the lowest workflow run id on the head commit, whatever each run's status, so it stays the same for that commit and changes on a new push. It can also move once when a lower run's checks appear late. */
   id: string;
   /** Normalized status. */
   status: string;
@@ -100,7 +100,7 @@ export interface Pipeline {
   createdAt: string | null;
   webUrl: string | null;
   jobs: PipelineJob[];
-  /** GitHub workflow run ids on the head commit, each once. Absent on GitLab. */
+  /** GitHub workflow run ids on the head commit, each once. `retryPipeline` reruns every failed one. Absent on GitLab. */
   runIds?: string[];
 }
 
@@ -241,8 +241,8 @@ export interface PullRequest {
    * role-based mode of `fetchPullRequests`. `GitLabProvider.fetchDivergedCount`
    * returns the count alone, for refreshing it on an MR another path read. The `iids`, `authorUsernames`,
    * and `projectPath` modes of `fetchPullRequests`, plus
-   * `fetchPullRequestsByBranches`, all leave it null. GitHub always leaves it
-   * null: it would need a `GET /compare/{base}...{head}` per PR.
+   * `fetchPullRequestsByBranches`, all leave it null. GitHub's PRs leave it
+   * null from every fetch; `GitProvider.fetchDivergedCounts` reads it.
    *
    * Collapsing that null into zero is what MAT-164 fixed. Do not reintroduce
    * a `?? 0` on this field.
@@ -710,6 +710,12 @@ export interface ProviderCapabilities {
   canRequestChanges: boolean;
   /** Can read a pull request's per-file diffs with `fetchPullRequestDiffs`. */
   canFetchPullRequestDiffs: boolean;
+  /** Can read per-PR approval rules with `fetchApprovalRules`. */
+  canFetchApprovalRules?: boolean;
+  /** Can read the CODEOWNERS section names with `fetchCodeownerSections`. */
+  canFetchCodeownerSections?: boolean;
+  /** Can read how far a PR's base has moved on with `fetchDivergedCount` (and `fetchDivergedCounts` where the provider has it). */
+  canFetchDivergedCount?: boolean;
   /** Pull requests carry `sourceProjectPath`, the repository their source branch lives in. */
   canReportSourceProject?: boolean;
   /**
@@ -875,12 +881,21 @@ export interface ApprovalRuleLite {
 export interface MRApprovalRules {
   iid: number;
   rules: ApprovalRuleLite[];
+  /**
+   * Set when the rules could not be read for this PR. `rules` is then empty
+   * and means "not read", never "no rules"; the string says why in one
+   * sentence. GitLab never sets it.
+   */
+  unknownReason?: string;
 }
 
 /**
- * Options for `GitLabProvider.fetchApprovalRules`. `updatedAfter` and `iids`
+ * Options for `fetchApprovalRules` on either forge. `updatedAfter` and `iids`
  * are mutually exclusive: the former drives windowed discovery, the latter
  * the targeted events-heal path.
+ *
+ * GitHub reads 50 PRs per GraphQL request. Draft PRs are left out of windowed
+ * mode, since GitHub does not request code owners on a draft.
  */
 export interface FetchApprovalRulesOptions {
   projectPath: string;
@@ -888,7 +903,7 @@ export interface FetchApprovalRulesOptions {
   updatedAfter?: string;
   /** Targeted mode: just these MRs (the events-heal path). Mutually exclusive with updatedAfter... enforced at runtime. */
   iids?: number[];
-  /** Page size, default 100. */
+  /** Page size. Default 100 on GitLab and 50 on GitHub; GitHub caps it at 50. */
   pageSize?: number;
   /** Windowed mode only: leave out MRs whose target branch is one of these exact names, server-side. */
   excludeTargetBranches?: string[];

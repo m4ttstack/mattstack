@@ -1,5 +1,43 @@
 # @mattstack/glance
 
+## 0.33.0
+
+### Minor Changes
+
+- GitHub parity reads (GLANCE-54), each optional on `GitProvider` and behind
+  an optional capability flag:
+  - `fetchApprovalRules` (`canFetchApprovalRules`): codeowner rules from
+    GitHub's own evaluation (codeowner review requests and opinionated
+    reviews on a team's behalf). Sections are `@owner` lowercased. An entry
+    GitHub would not let glance read carries the new
+    `MRApprovalRules.unknownReason` and empty `rules`; it means "not read",
+    never "no rules". 50 pull requests per GraphQL request.
+  - `fetchCodeownerSections` (`canFetchCodeownerSections`): the owners in the
+    first CODEOWNERS of `.github/`, the root and `docs/`, lowercased; email
+    owners are dropped.
+  - `fetchDivergedCounts` and `fetchDivergedCount` (`canFetchDivergedCount`):
+    how many commits a pull request is behind its base, 25 per GraphQL
+    request. A map entry per pull request read, null when there is no
+    comparison, no entry when that pull request's read failed.
+  - `fetchMergeRequestIndex` on GitHub (`canFetchMergeRequestIndex` is now
+    true): a REST closed or open listing mapped to index rows, 100 rows a
+    page, throwing after 100 full pages. `projectPaths` only; `groupPath`
+    throws on GitHub.
+- GitLab reports `canFetchApprovalRules`, `canFetchCodeownerSections` and
+  `canFetchDivergedCount` as true; its behaviour does not change.
+- A GitHub `Pipeline.id` is now `github:run:<n>` for the lowest Actions run id
+  on the head commit, whatever each run's status, so it stays the same as that
+  commit's runs fail one after another and changes on a new push. It can move
+  once when a lower run's checks appear late. A red pull request's id can name
+  a green run. When a consumer upgrades, every GitHub pull request red at that
+  moment reports a new id once.
+- GitHub `retryPipeline(projectPath, n)` reruns every failed or cancelled run
+  on run `n`'s head commit, not only run `n`: two reads, then one
+  `rerun-failed-jobs` request per such run. It tries every run, then throws
+  once naming the runs that reran and the runs GitHub refused, and throws when
+  none failed. The token needs read access to Actions runs.
+- A GitHub request whose `signal` has aborted is never retried.
+
 ## 0.32.0
 
 ### Minor Changes
