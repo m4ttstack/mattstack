@@ -84,3 +84,36 @@ test('GitLab keeps the no such section chip and tooltip', async () => {
     );
   }
 });
+
+async function renderSyncing(forge?: 'github' | 'gitlab') {
+  await React.act(async () => {
+    root.render(
+      <TabBar
+        tabs={TABS}
+        active="w"
+        onPick={() => {}}
+        syncing
+        unknown={[]}
+        forge={forge}
+      />
+    );
+  });
+  return container.querySelector('[data-flag]')!;
+}
+
+test('GitHub names an owner in the backfill tooltip', async () => {
+  const chip = await renderSyncing('github');
+  expect(chip.textContent).toBe('syncing');
+  expect(chip.getAttribute('title')).toBe(
+    "rt hasn't finished backfilling this owner... counts may be low"
+  );
+});
+
+test('GitLab keeps the codeowner section backfill tooltip', async () => {
+  for (const forge of ['gitlab', undefined] as const) {
+    const chip = await renderSyncing(forge);
+    expect(chip.getAttribute('title')).toBe(
+      "rt hasn't finished backfilling this codeowner section... counts may be low"
+    );
+  }
+});

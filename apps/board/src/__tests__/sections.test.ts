@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { sectionKey, sectionStatus } from '../sections.ts';
+import {
+  sectionKey,
+  sectionStatus,
+  unknownSectionNotice,
+} from '../sections.ts';
 
 describe('sectionStatus', () => {
   const known = ['Billing - #pod-billing', 'Acme - #pod-acme', 'Platform QA'];
@@ -82,6 +86,26 @@ describe('sectionStatus on GitHub', () => {
   test('GitLab keeps the exact-case match', () => {
     expect(sectionStatus('@Acme/Web', ['@acme/web'], 'gitlab').unknown).toBe(
       true
+    );
+  });
+});
+
+describe('unknownSectionNotice', () => {
+  test('GitHub puts the suggestion in its own sentence', () => {
+    expect(unknownSectionNotice('github', '@acme/pay', '@acme/payments')).toBe(
+      'no CODEOWNERS owner "@acme/pay". Did you mean "@acme/payments"?'
+    );
+    expect(unknownSectionNotice('github', '@acme/pay', null)).toBe(
+      'no CODEOWNERS owner "@acme/pay"'
+    );
+  });
+
+  test('GitLab keeps its section wording', () => {
+    expect(unknownSectionNotice('gitlab', '[Web]', '[Web][#web]')).toBe(
+      'no CODEOWNERS section "[Web]" · did you mean "[Web][#web]"?'
+    );
+    expect(unknownSectionNotice('gitlab', '[Web]', null)).toBe(
+      'no CODEOWNERS section "[Web]"'
     );
   });
 });

@@ -181,7 +181,7 @@ export async function rewriteLatch(
 
 /** Arm a fresh latch: upload this MR's banner, then open a resolvable thread.
     The caller writes the latch row from the returned ids. `noFiles`: the PR
-    has no changed file to anchor the thread on, so nothing was posted. */
+    has no changed file to anchor the thread on, so no thread was posted. */
 export async function postLatch(
   gw: LatchGateway,
   mr: LatchMrUrl,

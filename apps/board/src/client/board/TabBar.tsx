@@ -72,7 +72,11 @@ export function TabBar({
             <Chip
               intent="warn"
               data-flag=""
-              title="rt hasn't finished backfilling this codeowner section... counts may be low"
+              title={
+                forge === 'github'
+                  ? "rt hasn't finished backfilling this owner... counts may be low"
+                  : "rt hasn't finished backfilling this codeowner section... counts may be low"
+              }
             >
               syncing
             </Chip>

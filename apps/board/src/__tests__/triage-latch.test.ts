@@ -699,6 +699,61 @@ describe('step 3: armed and resolved', () => {
   });
 });
 
+describe('notification refs', () => {
+  const GH = 'https://github.com/acme/web/pull/2317';
+
+  test('a GitHub dispatch names the PR with #', async () => {
+    const { deps, notifies } = harness({
+      fetchLatchMrs: async () => [{ ...facts, mrUrl: GH }],
+      readReviewStates: () => new Map([[GH, { ...commented, mrUrl: GH }]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(notifies.map(n => n.title)).toEqual([
+      'Follow-up review started on #2317',
+    ]);
+  });
+
+  test('a GitHub stuck latch names the PR with #', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        mrUrl: GH,
+        phase: 'running',
+        launchAt: NOW - 60_000,
+        variant: 'running',
+        failures: LATCH_MAX_FAILURES - 1,
+      }),
+      db
+    );
+    const { deps, stuckNotices } = harness({
+      db,
+      fetchLatchMrs: async () => [{ ...facts, mrUrl: GH }],
+      readReviewStates: () =>
+        new Map([
+          [
+            GH,
+            {
+              ...commented,
+              mrUrl: GH,
+              status: 'error',
+              outcome: undefined,
+              message: 'pane closed',
+            },
+          ],
+        ]),
+      readDetail: async () =>
+        detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(stuckNotices.map(n => n.title)).toEqual([
+      'Follow-up review stuck on #2317',
+    ]);
+  });
+});
+
 describe('idempotence across ticks', () => {
   // The write-loop the design eliminated: a spent latch must draw no writes on
   // any later tick, not merely on the tick that spent it.

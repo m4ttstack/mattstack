@@ -46,6 +46,7 @@ import {
   variantOfKey,
   type BannerVariant,
 } from '../latch/variants.ts';
+import { mrRef } from '../mr-ref.ts';
 import type { ReReviewLaunch } from '../review-launch.ts';
 import type { ReviewState } from '../review-state.ts';
 import type { AuditEntry } from './audit.ts';
@@ -984,7 +985,7 @@ async function dispatch(
   await supersede(deps, mr, canon, t.carriers);
   audit(t, from === 'error' ? 'retried' : 'dispatched');
   await deps.notify(
-    `Follow-up review started on !${mr.iid}`,
+    `Follow-up review started on ${mrRef({ iid: mr.iid, webUrl: mr.mrUrl })}`,
     'The author asked for a follow-up review',
     mr.mrUrl
   );
@@ -1111,7 +1112,7 @@ async function fail(t: Tick, message: string | undefined): Promise<void> {
   // but never re-notifies, so the notification goes before any GitLab write
   // that could throw.
   await t.notifyStuck(
-    `Follow-up review stuck on !${mr.iid}`,
+    `Follow-up review stuck on ${mrRef({ iid: mr.iid, webUrl: mr.mrUrl })}`,
     `It failed ${LATCH_MAX_FAILURES} times. Relaunch it from the board.`,
     mr.mrUrl
   );

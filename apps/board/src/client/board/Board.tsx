@@ -23,7 +23,11 @@ import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
 import { forgeWord, mrNoun, mrNouns, type ForgeKind } from '../../mr-ref.ts';
 import type { DeclineReason } from '../../peer/envelope.ts';
-import { sectionKey, sectionStatus } from '../../sections.ts';
+import {
+  sectionKey,
+  sectionStatus,
+  unknownSectionNotice,
+} from '../../sections.ts';
 import {
   menuActsOnSelection,
   postableOf,
@@ -2138,20 +2142,11 @@ export function Board() {
             {activeTab.source.kind === 'codeowners' &&
               activeSection?.unknown && (
                 <div className="tui-banner" data-intent="bad" role="alert">
-                  {boardForge === 'github' ? (
-                    <>
-                      ⚠ no CODEOWNERS owner "{activeTab.source.section}"
-                      {activeSection.suggestion && (
-                        <span> did you mean "{activeSection.suggestion}"?</span>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      ⚠ no CODEOWNERS section "{activeTab.source.section}"
-                      {activeSection.suggestion && (
-                        <> · did you mean "{activeSection.suggestion}"?</>
-                      )}
-                    </>
+                  ⚠{' '}
+                  {unknownSectionNotice(
+                    boardForge,
+                    activeTab.source.section,
+                    activeSection.suggestion
                   )}
                   <button
                     type="button"

@@ -55,6 +55,17 @@ export function askPickerModel(
     username,
     name: env.people.full(username),
   });
+  // GitHub logins are case-insensitive and glance lowercases owner tokens,
+  // so a person owner is matched to the spelling the board knows.
+  const known = [
+    ...(env.peers ?? []),
+    ...env.roster,
+    ...env.teams.flatMap(t => t.members.map(m => m.username)),
+  ];
+  const canonical = (login: string) =>
+    known.find(u => u.toLowerCase() === login.toLowerCase()) ?? login;
+  const engagedIgnoringCase = (login: string) =>
+    [...engaged].some(u => u.toLowerCase() === login.toLowerCase());
   const byName = (a: AskPerson, b: AskPerson) => a.name.localeCompare(b.name);
   const peopleOf = (team: string) =>
     (env.teams.find(t => t.name === team)?.members ?? [])
@@ -86,12 +97,13 @@ export function askPickerModel(
     if (owner.mine || owner.approved === true) continue;
     const approval = approvalOf(owner);
     if (owner.person) {
-      if (askable(owner.person))
+      const login = canonical(owner.person);
+      if (!engagedIgnoringCase(login) && askable(login))
         sections.push({
           team: owner.section!,
           role: 'owner',
           approval,
-          people: [person(owner.person)],
+          people: [person(login)],
         });
       continue;
     }

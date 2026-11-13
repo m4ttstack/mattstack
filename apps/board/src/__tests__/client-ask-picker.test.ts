@@ -101,6 +101,31 @@ describe('askPickerModel with a person owner', () => {
     expect(model!.sections.map(g => g.team)).not.toContain('@ellie-dev');
   });
 
+  test('a lowercased owner login asks as the peer spelling, with the full name', () => {
+    const mixedEnv = {
+      ...env,
+      peers: [...env.peers, 'MattG'],
+      people: boardPeople({
+        allMembers: [{ username: 'MattG', name: 'Matt Goodwin' }],
+        mrs: [],
+        teams,
+      }),
+    };
+    const owner = { person: 'mattg', section: '@mattg', approved: false };
+    const model = askPickerModel(mine({ ownerTeams: [owner] }), mixedEnv);
+    const block = model!.sections.find(g => g.team === '@mattg');
+    expect(block).toMatchObject({ role: 'owner', approval: 'needs' });
+    expect(block!.people).toEqual([
+      { username: 'MattG', name: 'Matt Goodwin' },
+    ]);
+
+    const engagedModel = askPickerModel(
+      mine({ ownerTeams: [owner], peerReviews: [{ reviewer: 'MattG' }] }),
+      mixedEnv
+    );
+    expect(engagedModel!.sections.map(g => g.team)).not.toContain('@mattg');
+  });
+
   test('leaves an approved person out', () => {
     const model = askPickerModel(
       mine({ ownerTeams: [ellie({ approved: true })] }),

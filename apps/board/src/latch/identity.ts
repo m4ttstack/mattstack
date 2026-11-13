@@ -10,8 +10,8 @@ export const LATCH_IDENTITY_TTL_MS = 24 * 60 * 60_000;
 export type LatchIdentity = { ok: true } | { ok: false; login: string | null };
 
 /** Whether the daemon's GitHub login for `repoName` is `self`. Only a match
-    is cached: the board finds its latches by root author, so a write under
-    another login would be re-posted on every tick. */
+    is cached, so a fixed token or team username is picked up on the next
+    check. */
 export async function verifyLatchIdentity(
   repoName: string,
   self: string,

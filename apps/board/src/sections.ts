@@ -32,3 +32,15 @@ export function sectionStatus(
     null;
   return { unknown: true, suggestion };
 }
+
+/** The banner text for a tab whose section is not in CODEOWNERS: a GitHub
+    tab names an owner, a GitLab tab a section. */
+export function unknownSectionNotice(
+  forge: 'gitlab' | 'github',
+  section: string,
+  suggestion: string | null
+): string {
+  if (forge === 'github')
+    return `no CODEOWNERS owner "${section}"${suggestion ? `. Did you mean "${suggestion}"?` : ''}`;
+  return `no CODEOWNERS section "${section}"${suggestion ? ` · did you mean "${suggestion}"?` : ''}`;
+}
