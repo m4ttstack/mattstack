@@ -1,4 +1,4 @@
-export type TodoKind = 'task' | 'run' | 'terminal' | 'link'
+export type TodoKind = 'task' | 'run' | 'terminal' | 'link' | 'image'
 
 export type TodoStatus = 'open' | 'confirming' | 'running' | 'done' | 'failed' | 'skipped'
 
@@ -8,6 +8,7 @@ export type AddInput = {
   detail?: string
   script?: string
   url?: string
+  paths?: string[]
   cwd?: string
 }
 
@@ -18,6 +19,7 @@ export type Todo = {
   detail?: string
   script?: string
   url?: string
+  paths?: string[]
   cwd?: string
   status: TodoStatus
   exitCode?: number

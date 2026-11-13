@@ -10,7 +10,11 @@ test('checkKind names what each kind is missing', () => {
   expect(checkKind({ kind: 'terminal', title: 'x' })).toBe('kind terminal needs a script.')
   expect(checkKind({ kind: 'link', title: 'x', url: 'ftp://x' })).toBe('kind link needs an http(s) url.')
   expect(checkKind({ kind: 'task', title: 'x' })).toBeUndefined()
-  expect(checkKind({ kind: 'bogus' as TodoKind, title: 'x' })).toBe('kind bogus is not one of task, run, terminal, link.')
+  expect(checkKind({ kind: 'image', title: 'x' })).toBe('kind image needs paths: one absolute path per image.')
+  expect(checkKind({ kind: 'image', title: 'x', paths: [] })).toBe('kind image needs paths: one absolute path per image.')
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', 'b.png'] })).toBe('kind image needs absolute paths; b.png is not one.')
+  expect(checkKind({ kind: 'image', title: 'x', paths: ['/a.png', '/b.png'] })).toBeUndefined()
+  expect(checkKind({ kind: 'bogus' as TodoKind, title: 'x' })).toBe('kind bogus is not one of task, run, terminal, link, image.')
 })
 
 test('toTodo drops the fields that do not belong to the kind', () => {
@@ -23,6 +27,11 @@ test('toTodo drops the fields that do not belong to the kind', () => {
   expect(run.script).toBe('ls')
   expect(run.cwd).toBe('/tmp')
   expect(run.url).toBeUndefined()
+  expect(run.paths).toBeUndefined()
+
+  const image = toTodo('5', { kind: 'image', title: 't', paths: ['/a.png'], script: 'ls' })
+  expect(image.paths).toEqual(['/a.png'])
+  expect(image.script).toBeUndefined()
 })
 
 test('buttonsFor follows the kind and the status', () => {
@@ -30,6 +39,7 @@ test('buttonsFor follows the kind and the status', () => {
   expect(buttonsFor(todo({ kind: 'terminal' }))).toEqual(['copy', 'done', 'skip'])
   expect(buttonsFor(todo({ kind: 'link' }))).toEqual(['open', 'done', 'skip'])
   expect(buttonsFor(todo({ kind: 'task' }))).toEqual(['done', 'skip'])
+  expect(buttonsFor(todo({ kind: 'image', paths: ['/a.png'] }))).toEqual(['open', 'done', 'skip'])
   expect(buttonsFor(todo({ kind: 'run', status: 'confirming' }))).toEqual(['confirm', 'cancel'])
   expect(buttonsFor(todo({ kind: 'run', status: 'running', runner: 'herdr' }))).toEqual(['show', 'stop'])
   expect(buttonsFor(todo({ kind: 'run', status: 'running', runner: 'local' }))).toEqual(['openLog', 'stop'])
@@ -52,6 +62,7 @@ test('describe lists each item with its status and script', () => {
   expect(describe([todo({ kind: 'run', script: 'ls' }), todo({ kind: 'task', id: '2', status: 'done' })])).toBe(
     '#1 [open] t\n    script: ls\n#2 [done] t',
   )
+  expect(describe([todo({ kind: 'image', paths: ['/x/a.png', '/x/b.png'] })])).toBe('#1 [open] t\n    images: /x/a.png, /x/b.png')
 })
 
 test('text helpers wrap, trim and quote', () => {

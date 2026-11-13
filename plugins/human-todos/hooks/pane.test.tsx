@@ -102,6 +102,7 @@ test('every kind draws the buttons the spec lists, each keyed button-id', async 
     todo({ id: '2', kind: 'terminal', script: 'sudo ls' }),
     todo({ id: '3', kind: 'link', url: 'https://example.com' }),
     todo({ id: '4', kind: 'run', script: 'ls' }),
+    todo({ id: '5', kind: 'image', paths: ['/shots/light.png', '/shots/dark.png'] }),
   ])
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
@@ -119,10 +120,16 @@ test('every kind draws the buttons the spec lists, each keyed button-id', async 
     'copy-4',
     'done-4',
     'skip-4',
+    'open-5',
+    'done-5',
+    'skip-5',
   ])
   expect((await pane.find({ key: 'open-3' }))?.props.variant).toBe('primary')
   expect((await pane.find({ key: 'run-4' }))?.props.variant).toBe('primary')
   expect(await texts(pane)).toContain('https://example.com')
+  expect((await pane.find({ key: 'open-5' }))?.props.label).toBe('Open')
+  expect(await texts(pane)).toContain('light.png, dark.png')
+  expect((await texts(pane)).some(row => row.includes('/shots/'))).toBe(false)
   await pane.unmount()
 })
 

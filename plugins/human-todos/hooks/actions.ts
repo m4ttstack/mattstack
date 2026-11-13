@@ -80,6 +80,14 @@ async function openLink($: EngineInterface, url: string): Promise<void> {
   await $.process.run(['open', url])
 }
 
+// Absolute paths only: a path starting with a dash would reach open as a flag.
+async function openImages($: EngineInterface, todo: Todo): Promise<void> {
+  const paths = (todo.paths ?? []).filter(p => p.startsWith('/'))
+  if (paths.length === 0) return $.ui.toast(`#${todo.id} has no images to open`)
+  const opened = await $.process.run(['open', ...paths])
+  if (opened.exitCode !== 0) $.ui.toast(`Could not open the images for #${todo.id}`)
+}
+
 export async function press($: EngineInterface, todo: Todo, button: ButtonId, surface: RenderSurface): Promise<void> {
   const current = (await listTodos($)).find(t => t.id === todo.id)
   if (!current) return
@@ -114,7 +122,7 @@ export async function press($: EngineInterface, todo: Todo, button: ButtonId, su
       if (current.status === 'running' && current.runner) await showRun($, current)
       return
     case 'open':
-      return openLink($, current.url ?? '')
+      return current.kind === 'image' ? openImages($, current) : openLink($, current.url ?? '')
     case 'copy':
       if (current.script) await $.ui.copy({ text: current.script, surface })
       return

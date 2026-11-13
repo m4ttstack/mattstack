@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 
 import type { AddInput } from '../types'
 import { resumeWatching } from './herdr'
-import { TITLE, checkKind, describe } from './items'
+import { KINDS, TITLE, checkKind, describe } from './items'
 import { addTodo, leaveList, listTodos, removeTodos, resetList, restoreList } from './store'
 import { cleanup, openPane, release, syncSpinner } from './wiring'
 
@@ -11,7 +11,7 @@ const PREFIX = 'mcp__human-todos__'
 type ToolNames = { add: string; list: string; withdraw: string }
 
 export function addDescription(paneTitle: string): string {
-  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page). You get a message when they finish, skip, stop or run it, so never ask them to type "done".`
+  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, skip, stop or run it, so never ask them to type "done".`
 }
 
 export function guidance(names: ToolNames): string {
@@ -22,6 +22,7 @@ When you need the user to do something you cannot do yourself (a command that ne
   - \`run\`: a shell command that runs without a TTY. Give \`script\`; the pane offers Run and sends you the exit code and output.
   - \`terminal\`: a command that needs their terminal (sudo, a login or password prompt). Give \`script\`; the pane offers Copy.
   - \`link\`: a step on a web page. Give \`url\`; the pane offers Open.
+  - \`image\`: images for the user to look at (screenshots, captures). Give \`paths\`, one absolute path per image; the pane offers Open, which opens them all in their default image app. Use it instead of running \`open\` yourself or wrapping \`open\` in a run script.
 - When the user ticks, skips or runs an item, you receive a message saying so. Do not ask them to type "done".
 - Use ${names.list} to see what is still open, and ${names.withdraw} when an item is no longer needed.`
 }
@@ -39,13 +40,18 @@ export function registerContract(on: On): void {
         properties: {
           kind: {
             type: 'string',
-            enum: ['task', 'run', 'terminal', 'link'],
-            description: 'task: done by hand. run: script the pane can Run (needs script). terminal: script that needs a TTY, offered as Copy (needs script). link: a web page step (needs url).',
+            enum: [...KINDS],
+            description: 'task: done by hand. run: script the pane can Run (needs script). terminal: script that needs a TTY, offered as Copy (needs script). link: a web page step (needs url). image: images to look at, offered as Open (needs paths).',
           },
           title: { type: 'string', description: 'Short imperative, e.g. "Sign in to gcloud"' },
           detail: { type: 'string', description: 'Optional one or two lines of context' },
           script: { type: 'string', description: 'The shell command, for kind run or terminal (run uses zsh -lc)' },
           url: { type: 'string', description: 'The http(s) page, for kind link' },
+          paths: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'For kind image: one absolute path per image; Open opens them all in the default image app',
+          },
           cwd: { type: 'string', description: 'For kind run: directory to run in; defaults to the session cwd' },
         },
         required: ['kind', 'title'],
