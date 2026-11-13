@@ -85,11 +85,31 @@ through `rt:ui-copy`):
 
 - GitHub: "Works without this. Connect GitHub to open PRs from rt."
 - GitLab: "Works without this. Connect GitLab to open MRs from rt. On your own
-  GitLab server, run rt setup gitlab connect --host <host> first."
+  GitLab server, connect from a terminal with rt setup gitlab connect --host
+  <host>."
 
 The GitLab row is the existing `genericRow` path: Connect with a token field;
 Create token links to gitlab.com, or to the confirmed host when there is one.
-Nothing about how a row validates changes.
+The validation code itself does not change; only which host it is handed on
+solo does (below).
+
+**The confirmed host on solo.** `rt.integrations.forgeHost` is one user-scope
+value shared by both forges, and `connectCredential` writes `github.com` there
+for a team whose declared forge is github.com. A Mac that left such a team and
+is now solo would point its GitLab row at github.com, and its Connect would
+check the token there. So on solo a confirmed host of `github.com` reads as no
+confirmed host (gitlab.com) for GitLab, in all three places that read it:
+
+- the plan row (`ctxFor` in `lib/setup/validators/accounts.ts`);
+- the connect screen row (section 2);
+- the connect verb (`ctxFor` in `commands/setup.ts`, used by
+  `connectCredential` when no `--host` is passed).
+
+One shared helper in `lib/setup/` (for example `soloForgeOverrides`) drops
+`forgeHost` when it is `github.com` and the Mac is solo; each caller applies
+it to the overrides before they reach `ctxFor`, so the three cannot drift.
+`accountRows` already has the `solo` flag; the verb and the form section
+derive it with `isSolo`. Team paths keep today's reading.
 
 ### 2. Connect your accounts screen (`lib/setup/form.ts`)
 
@@ -99,11 +119,12 @@ On the solo path the connect section draws two forge rows, GitHub then GitLab:
   Lets mattstack open PRs".
 - GitLab gets id `forge.gitlab`, forge `{ provider: "gitlab", host: confirmed
   host ?? "gitlab.com" }`, subtext "Optional. Lets mattstack open MRs",
-  `optional: true`. Until it is connected, its detail is the self-hosted hint
-  ("On your own GitLab server? Run rt setup gitlab connect --host <host>
-  first"), so a self-hosted dev sees it at setup and not only in Settings.
-  (My call: the form draws no `optionalNote`, and this is the only place a
-  dev on this screen would learn the command.)
+  `optional: true`. While no GitLab token is stored (the plan row's status is
+  `missing`), its detail is the self-hosted hint ("On your own GitLab server?
+  Connect from a terminal with rt setup gitlab connect --host <host>"), so a
+  self-hosted dev sees it at setup and not only in Settings. In any other
+  state (an invalid token, a scope shortfall) the row keeps the account's own
+  detail, which says why it is open. See "Calls for review" below.
 - `formOwnedIds` on solo owns both `account.github` and `account.gitlab`.
 - Neither row holds Continue.
 
@@ -132,10 +153,16 @@ GitLab and for GitHub with a token the fake forge accepts. It asserts:
 - no file write under the orgs folder, the team-local store, deck's state, the
   setup intent or `setup-state.json`;
 - no exec of `deck` or `git`;
-- no settings write without `--host`, and with `--host` exactly one:
-  `rt.integrations` at user scope;
-- the stored secret is the only credential write, and the token never
-  appears in stdout or stderr.
+- no settings write without `--host`; for GitLab with `--host` (only
+  `gitlab connect` takes it) exactly one: `rt.integrations` at user scope;
+- the only credential write is the token itself: through the secret writer
+  when the store is ready, or as the one staged file under the staging folder
+  when it is not (both cases tested); the token never appears in stdout or
+  stderr.
+
+One more case in the same file: a solo Mac with a leftover
+`forgeHost: "github.com"` connects a GitLab token with no `--host`, and the
+token is checked against gitlab.com.
 
 ### 5. Docs (`sites/docs/docs/start/setup.mdx`)
 
@@ -145,15 +172,37 @@ and the `--host` command for a self-hosted GitLab.
 
 ## Verification
 
-- Targeted `bun test` from the worktree root for each touched test file;
-  `commands/__tests__/setup-copy.test.ts` snapshot updates only for the solo
-  plan, reviewed by eye.
-- Create, join and restore plan snapshots unchanged.
+- Targeted `bun test` from the worktree root for each touched test file.
+- `commands/__tests__/setup-copy.test.ts`: every plan and status fixture there
+  is a solo team, so exactly four snapshots change and are reviewed by eye:
+  plan's copy view, plan's machine view, status's copy view and status's
+  machine view (the new `account.gitlab` row). That rendered text is the
+  look at the checklist's text output.
+- Create and join stay unchanged, held by tests that already exist and must
+  pass untouched: the non-solo `accountRows` cases in
+  `lib/setup/__tests__/validators-accounts.test.ts` and the create and join
+  cases in `lib/setup/__tests__/form-connect.test.ts`. New tests there add
+  solo cases only.
 - The e2e or pty file that covers the checklist text, if one draws the solo
   accounts group.
-- Swift checks and the snapshot render built into a scratch directory, never
-  a blessed bundle.
+- Swift checks and the Settings snapshot render, built into a scratch
+  directory, never a blessed bundle.
+- The Connect your accounts screen gets looked at too. Its renderer
+  (`FastSetupSnapshot.swift`) is outside the write fence, so in a scratch copy
+  of the tree (never this worktree, nothing committed) add a solo connect
+  fixture holding the two forge rows exactly as `rt setup form --section
+  connect` emits them, render light and dark, look, and discard the copy.
 - `bun run typecheck`, `bun run purity`.
+
+## Calls for review
+
+Decisions no ruling covers, made by me, for the shepherd or Matt to confirm
+at the spec milestone:
+
+- The connect screen's GitLab row shows the self-hosted hint as its detail
+  while no token is stored. The setup window draws no `optionalNote`, so
+  without it a self-hosted dev learns the command only from Settings or docs.
+- On solo, a confirmed host of `github.com` does not count for GitLab.
 
 ## Left to the builder
 
