@@ -13,7 +13,7 @@ import type {
 import { isBotAuthor } from './bots.ts';
 import type { ExecutorState, ExecutorView } from './client/types.ts';
 import type { BoardConfig, BoardForge, Member } from './config.ts';
-import type { ReviewerLatch } from './latch/discussions.ts';
+import type { ReviewerLatch, ReviewerRequest } from './latch/discussions.ts';
 import type { RespondTarget } from './respond-targets.ts';
 import { sectionKey } from './sections.ts';
 import { extractTicketId } from './ticket.ts';
@@ -54,6 +54,9 @@ export type BoardMR = MRDashboardProps & {
       author can ask for a re-review through the MR when the switchboard
       can't reach that reviewer. Set by the discussions fetch. */
   reviewerLatches?: ReviewerLatch[];
+  /** Each reviewer's newest live latch on a PR this GitHub board owns, for
+      the GitHub re-request step. Set by the discussions fetch. */
+  reviewerRequests?: ReviewerRequest[];
   /** People with open feedback on an MR this board owns, for the respond
       menu. Set by the discussions fetch. */
   respondTargets?: RespondTarget[];

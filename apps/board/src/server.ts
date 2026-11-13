@@ -232,11 +232,12 @@ import {
   statusBinPath,
 } from './herdr.ts';
 import { boardLatchGateway } from './latch/board-gateway.ts';
-import { reviewerLatches } from './latch/discussions.ts';
+import { reviewerLatches, reviewerRequests } from './latch/discussions.ts';
 import { refreshedDiscussionCount } from './latch/github-gateway.ts';
 import { identityMismatchLine, verifyLatchIdentity } from './latch/identity.ts';
 import { fetchNewDiscussionCount } from './latch/land.ts';
 import { readLatchRow } from './latch/latch-state.ts';
+import { sendReReviewRequests } from './latch/rerequest.ts';
 import {
   acceptedReReview,
   isStaleSignal,
@@ -1107,6 +1108,8 @@ async function enrichReviewerComments(mrs: BoardMR[]): Promise<void> {
           );
           if (ownedHere(m)) {
             m.reviewerLatches = reviewerLatches(detail, m.author.username);
+            if (config.forge.kind === 'github')
+              m.reviewerRequests = reviewerRequests(detail, m.author.username);
             m.respondTargets = respondTargets(
               detail,
               m.author.username,
@@ -1478,6 +1481,42 @@ function refreshOwnerTeamsInBackground(mrs: BoardMR[]): void {
     )
     .finally(() => {
       ownerTeamsRefreshing = false;
+    });
+}
+
+let reReviewRequesting = false;
+let reReviewSnapshot: BoardMR[] | null = null;
+
+/** GitHub only: GitLab's own latch resolve is the whole ask there. One pass
+    at a time, once per fresh snapshot: /data.json serves the cached one on
+    every client poll, and a mismatched login is re-read on each pass. */
+function sendReReviewRequestsInBackground(mrs: BoardMR[]): void {
+  if (config.forge.kind !== 'github' || reReviewRequesting) return;
+  if (mrs === reReviewSnapshot) return;
+  const self = forgeSelf.get();
+  if (!self) return;
+  const own = mrs.filter(ownedHere);
+  if (own.length === 0) return;
+  reReviewSnapshot = mrs;
+  reReviewRequesting = true;
+  void sendReReviewRequests(own, {
+    self,
+    forge: config.forge.kind,
+    verify: async (repoName, mr) =>
+      (await githubLatchSelf(
+        're-request',
+        mr.webUrl ?? '',
+        mr.iid,
+        repoName
+      )) !== null,
+  })
+    .catch(err =>
+      console.error(
+        `re-request step failed: ${err instanceof Error ? err.message : err}`
+      )
+    )
+    .finally(() => {
+      reReviewRequesting = false;
     });
 }
 
@@ -2512,7 +2551,10 @@ const httpServer = Bun.serve({
           pruneFinishedSentNudges();
           pruneNudges(onBoard);
         }
-        if (!snapshot.fetchError) refreshOwnerTeamsInBackground(snapshot.mrs);
+        if (!snapshot.fetchError) {
+          refreshOwnerTeamsInBackground(snapshot.mrs);
+          sendReReviewRequestsInBackground(snapshot.mrs);
+        }
         refreshSlackPeople();
         const { mrs: mrsWithOrphans, orphans } = await withRowState(visibleMrs);
         return new Response(
