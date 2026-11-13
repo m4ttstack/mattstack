@@ -18,7 +18,7 @@
  *   rt sync --no-agent       never offer agent escalation (abort on conflict, as before)
  */
 
-import { execFile, execFileSync, spawnSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import * as out from "../lib/ui/out.ts";
 import { getCurrentBranch, getRemoteDefaultBranch, hasUncommittedChanges } from "../lib/git-ops.ts";
 import { loadSyncConfig } from "../lib/sync-config.ts";
@@ -28,6 +28,7 @@ import { shellQuote } from "../lib/herdr-launch.ts";
 import { conflictFilesBlock, rebaseOnto, type RebaseResult } from "./git/rebase.ts";
 import { resetToOrigin, type ResetResult } from "./git/reset.ts";
 import { syncLog } from "../lib/sync-log.ts";
+import { redactCredentials } from "../packages/rt-client/src/redact.ts";
 import {
   STACK_REFUSAL_EXIT,
   checkStackMembership,
@@ -38,7 +39,32 @@ import {
 } from "../lib/stack-guard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import type { Block } from "../lib/ui/protocol.ts";
-import { asError, asRefusal, drawFailure, errText, fetchFailureOf, fetchOrigin, NOT_ON_A_BRANCH, plural, refusalNote, uncommittedChanges } from "./git/shared.ts";
+import {
+  asError,
+  asRefusal,
+  defaultFetchDeps,
+  defaultPushDeps,
+  drawFailure,
+  errText,
+  fetchFailureOf,
+  fetchNotingToken,
+  noteTokenUse,
+  NOT_ON_A_BRANCH,
+  plural,
+  PromptGuardFailed,
+  PushFailed,
+  pushOrigin,
+  refusalNote,
+  defaultAuthPending,
+  uncommittedChanges,
+  withPromptGuard,
+  withTokenNote,
+  type FetchDeps,
+  type PushDeps,
+  type RemoteOutcome,
+  type TokenUse,
+} from "./git/shared.ts";
+import { createOriginAuth, TOKEN_NOTE_NEXT, tokenNoteBlocks, tokenNoteLine, type Forge, type OriginAuth } from "./git/origin-auth.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -55,6 +81,9 @@ export interface SyncSummary {
   refused?: boolean;
   /** Set when the stack guard stopped the sync before any ref moved. */
   refusal?: StackRefusal;
+  /** A fetch or push got in only through rt's credential helper. */
+  usedRtToken?: boolean;
+  tokenForge?: Forge;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -74,16 +103,6 @@ function ensureOriginRemote(cwd: string): boolean {
   if (r.status === 0) return true;
   out.print(out.line("skipped", "This repo has no origin, so there is nothing to sync"), out.callout("next", ["Add one with ", out.cmd("git remote add origin <url>")]));
   return false;
-}
-
-/** Non-blocking git command, so a spinner can animate. */
-function gitAsync(args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, env, encoding: "utf8" }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve((stdout ?? "").trim());
-    });
-  });
 }
 
 /**
@@ -110,17 +129,43 @@ function hasDivergedFromRemote(branch: string, cwd: string): boolean {
 
 // ─── Single-branch sync ─────────────────────────────────────────────────────
 
-export async function syncBranch(
-  cwd: string,
-  opts: {
-    dryRun?: boolean;
-    quiet?: boolean;
-    onConflict?: "abort" | "pause";
-    stackRunners?: StackGuardRunners;
-    /** Refuse when stack membership cannot be verified (agent callers); a human run warns and proceeds. */
-    strictStackCheck?: boolean;
-  },
-): Promise<SyncSummary> {
+export interface SyncBranchOptions {
+  dryRun?: boolean;
+  quiet?: boolean;
+  onConflict?: "abort" | "pause";
+  stackRunners?: StackGuardRunners;
+  /** Refuse when stack membership cannot be verified (agent callers); a human run warns and proceeds. */
+  strictStackCheck?: boolean;
+  /** `rt sync all` passes one for the whole run, so each forge's token is read once. */
+  originAuth?: OriginAuth;
+  fetchDeps?: FetchDeps;
+  pushDeps?: PushDeps;
+}
+
+/**
+ * The prompt guard is set before the first remote call (the default branch
+ * lookup's ls-remote) and undone after, so under `rt sync all` one
+ * worktree's decision never reaches the next. Callers run these one at a
+ * time: the guard lives in process.env.
+ */
+export async function syncBranch(cwd: string, opts: SyncBranchOptions): Promise<SyncSummary> {
+  const auth = opts.originAuth ?? createOriginAuth();
+  try {
+    return await withPromptGuard(auth, cwd, { push: true }, () => withTokenNote((token) => syncOne(cwd, opts, auth, token)));
+  } catch (err) {
+    if (!(err instanceof PromptGuardFailed)) throw err;
+    return {
+      branch: getCurrentBranch(cwd) ?? "HEAD",
+      worktree: cwd,
+      resetResult: null,
+      rebaseResult: null,
+      pushed: false,
+      ...asError(err.failure),
+    };
+  }
+}
+
+async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, token: TokenUse): Promise<SyncSummary> {
   // Guard: a rebase in progress comes first. getCurrentBranch returns null
   // during a rebase, which would read as a detached HEAD further down.
   try {
@@ -192,7 +237,7 @@ export async function syncBranch(
 
   // Stack guard: a stack member rebased alone onto the default branch lands
   // on master and strands its chain, so this runs before the first ref move.
-  const stackRunners = opts.stackRunners ?? createStackGuardRunners((await import("../lib/setup/probes.ts")).createRealProbes());
+  const stackRunners = opts.stackRunners ?? createStackGuardRunners((await import("../lib/setup/probes.ts")).createRealProbes(), auth);
   const stack = await checkStackMembership({ cwd, branch, defaultBranch: defaultBranch ? defaultBranchName : null, runners: stackRunners });
   syncLog.phase("stack-guard", { verdict: stack.verdict, ...(stack.verdict === "clear" ? {} : { kind: stack.refusal.kind, source: stack.refusal.source }) });
   if (stack.verdict === "refuse" || (stack.verdict === "unverified" && opts.strictStackCheck)) {
@@ -205,16 +250,17 @@ export async function syncBranch(
   }
 
   // 1. Fetch once (rebase/reset will skip their own fetch)
-  let remoteEnv: NodeJS.ProcessEnv = process.env;
+  const fetchDeps = opts.fetchDeps ?? defaultFetchDeps(auth);
+  let fetched: RemoteOutcome = { env: process.env, usedRtToken: false, forge: null, host: null };
   if (opts.quiet) {
     try {
-      remoteEnv = await fetchOrigin(cwd);
+      fetched = await fetchNotingToken(cwd, fetchDeps, token);
     } catch (err) {
       return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: false, ...asError(fetchFailureOf(err)) };
     }
   } else {
     try {
-      await steps.run("Fetching from origin…", async () => { remoteEnv = await fetchOrigin(cwd); }, {
+      await steps.run("Fetching from origin…", async () => { fetched = await fetchNotingToken(cwd, fetchDeps, token); }, {
         done: "Fetched from origin",
         failSilently: true,
       });
@@ -305,21 +351,20 @@ export async function syncBranch(
   let pushFailure: out.FailureInput | undefined;
   if (needsPush && !opts.dryRun) {
     const pushArgs = ["push", "--force-with-lease", "origin", branch];
+    const pushDeps = opts.pushDeps ?? defaultPushDeps(auth);
+    const push = async () => { noteTokenUse(token, await pushOrigin(cwd, branch, pushArgs, fetched, pushDeps)); };
     try {
       if (opts.quiet) {
-        await gitAsync(pushArgs, cwd, remoteEnv);
+        await push();
       } else {
-        await steps.run("Pushing…", () =>
-          gitAsync(pushArgs, cwd, remoteEnv),
-          { done: "Pushed", failSilently: true },
-        );
+        await steps.run("Pushing…", push, { done: "Pushed", failSilently: true });
       }
       pushed = true;
       syncLog.cmd(pushArgs, cwd, 0, "", "");
-    } catch (err: any) {
+    } catch (err) {
       syncLog.cmd(pushArgs, cwd, 1, "", String(err));
       // The summary must still count this branch as failed, never as synced.
-      pushFailure = { title: `Could not push ${branch}`, details: errText(err) };
+      pushFailure = err instanceof PushFailed ? err.failure : { title: `Could not push ${branch}`, details: redactCredentials(errText(err)) };
     }
   }
 
@@ -381,6 +426,34 @@ export function syncAllBlocks(summaries: SyncSummary[]): Block[] {
   ];
 }
 
+/** The summaries `syncAllNote` names: branches that finished with rt's token. */
+export function tokenNoteUsers(summaries: SyncSummary[]): SyncSummary[] {
+  return summaries.filter((s) => s.usedRtToken && s.tokenForge && !s.error && !s.refusal);
+}
+
+/**
+ * Under `rt sync all`, once after the summary: the branches whose worktrees
+ * needed rt's token, by forge. `withNext` when `rt git auth` would go ahead
+ * on at least one of them.
+ */
+export function syncAllNote(summaries: SyncSummary[], withNext: boolean): Block[] {
+  const byForge = new Map<Forge, string[]>();
+  for (const s of tokenNoteUsers(summaries)) byForge.set(s.tokenForge!, [...(byForge.get(s.tokenForge!) ?? []), s.branch]);
+  const groups = [...byForge];
+  if (groups.length === 0) return [];
+  if (groups.length === 1) return tokenNoteBlocks(groups[0]![0], groups[0]![1], withNext);
+  return [...groups.map(([forge, branches]) => tokenNoteLine(forge, branches)), ...(withNext ? [TOKEN_NOTE_NEXT] : [])];
+}
+
+/** Test seams for the two sync verbs; production passes none. */
+export interface SyncCommandDeps {
+  syncBranch?: typeof syncBranch;
+  runEscalationFlow?: typeof import("../lib/rebase-escalation.ts").runEscalationFlow;
+  isTTY?: boolean;
+  /** Whether `rt git auth` would go ahead on a worktree; defaults to `defaultAuthPending`. */
+  authPending?: (cwd: string) => Promise<boolean>;
+}
+
 /** 1 when any branch failed or was refused, so a caller checking the code never reads a partial sync as a whole one. */
 export function syncAllExitCode(summaries: SyncSummary[]): number {
   return summaries.some((s) => s.refusal || s.error) ? 1 : 0;
@@ -389,7 +462,9 @@ export function syncAllExitCode(summaries: SyncSummary[]): number {
 async function syncAll(
   repoIdentity: string,
   opts: { dryRun?: boolean; repoRoot?: string },
+  deps: SyncCommandDeps = {},
 ): Promise<number> {
+  const sync = deps.syncBranch ?? syncBranch;
   const { daemonQuery, isDaemonRunning } = await import("../lib/daemon-client.ts");
   const running = await isDaemonRunning();
 
@@ -433,7 +508,8 @@ async function syncAll(
 
   const { createRealProbes } = await import("../lib/setup/probes.ts");
   const { getRepoIdentity } = await import("../lib/repo.ts");
-  const stackRunners = createStackGuardRunners(createRealProbes());
+  const originAuth = createOriginAuth();
+  const stackRunners = createStackGuardRunners(createRealProbes(), originAuth);
   const summaries: SyncSummary[] = [];
 
   for (const [i, wt] of syncable.entries()) {
@@ -453,7 +529,7 @@ async function syncAll(
     }
 
     const summary: SyncSummary = identity
-      ? await syncBranch(wt.path, { dryRun: opts.dryRun, quiet: false, onConflict: "abort", stackRunners })
+      ? await sync(wt.path, { dryRun: opts.dryRun, quiet: false, onConflict: "abort", stackRunners, originAuth })
       : { branch: wt.branch, worktree: wt.path, resetResult: null, rebaseResult: null, pushed: false, ...asError({ title: "rt could not tell which repo this worktree belongs to" }) };
     summaries.push(summary);
 
@@ -461,7 +537,15 @@ async function syncAll(
     if (ending.length > 0) out.note(...ending);
   }
 
-  out.print(...syncAllBlocks(summaries));
+  const pending = deps.authPending ?? ((cwd: string) => defaultAuthPending(cwd, originAuth));
+  let withNext = false;
+  for (const s of tokenNoteUsers(summaries)) {
+    if (await pending(s.worktree)) {
+      withNext = true;
+      break;
+    }
+  }
+  out.print(...syncAllBlocks(summaries), ...syncAllNote(summaries, withNext));
   return syncAllExitCode(summaries);
 }
 
@@ -471,6 +555,7 @@ async function syncAll(
 export async function syncAllCommand(
   args: string[],
   ctx: CommandContext,
+  deps: SyncCommandDeps = {},
 ): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const repoName = ctx.identity!.repoName;
@@ -479,7 +564,7 @@ export async function syncAllCommand(
   let code: number;
   // Exit only after the finally: in Bun, process.exit() inside a try skips it.
   try {
-    code = await syncAll(ctx.identity!.identity, { dryRun, repoRoot: ctx.identity!.repoRoot });
+    code = await syncAll(ctx.identity!.identity, { dryRun, repoRoot: ctx.identity!.repoRoot }, deps);
   } finally {
     syncLog.end();
   }
@@ -520,15 +605,17 @@ export function reportSync(summary: SyncSummary, json: boolean): number {
 export async function syncCommand(
   args: string[],
   ctx: CommandContext,
+  deps: SyncCommandDeps = {},
 ): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const cwd = ctx.identity!.repoRoot;
   const dataDir = ctx.identity!.dataDir;
   const repoName = ctx.identity!.repoName;
 
-  const { resolveEscalationMode, runEscalationFlow } = await import("../lib/rebase-escalation.ts");
-  const isTTY = Boolean(process.stdout.isTTY && process.stdin.isTTY);
-  const mode = resolveEscalationMode(args, isTTY);
+  const escalation = await import("../lib/rebase-escalation.ts");
+  const runEscalationFlow = deps.runEscalationFlow ?? escalation.runEscalationFlow;
+  const isTTY = deps.isTTY ?? Boolean(process.stdout.isTTY && process.stdin.isTTY);
+  const mode = escalation.resolveEscalationMode(args, isTTY);
 
   // Under --json stdout is the bundle or the refusal and nothing else: every
   // note this verb prints moves to stderr with this.
@@ -543,8 +630,10 @@ export async function syncCommand(
   // syncLog.end() unrun and the SESSION block unterminated. Exit only after
   // the try/finally below has fully completed.
   let escalationExit: number | null = null;
+  const originAuth = createOriginAuth();
   try {
-    summary = await syncBranch(cwd, {
+    summary = await (deps.syncBranch ?? syncBranch)(cwd, {
+      originAuth,
       dryRun,
       quiet: mode === "json" && !args.includes("--progress"),
       onConflict: mode === "off" ? "abort" : "pause",
@@ -574,4 +663,8 @@ export async function syncCommand(
 
   const code = reportSync(summary, mode === "json");
   if (code !== 0) process.exit(code);
+  if (mode !== "json" && summary.usedRtToken && summary.tokenForge) {
+    const pending = await (deps.authPending ?? ((c: string) => defaultAuthPending(c, originAuth)))(cwd);
+    out.print(...tokenNoteBlocks(summary.tokenForge, undefined, pending));
+  }
 }

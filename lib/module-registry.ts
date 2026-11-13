@@ -66,6 +66,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/git/backup.ts": () => import("../commands/git/backup.ts"),
   "./commands/git/pull.ts": () => import("../commands/git/pull.ts"),
   "./commands/git/credential.ts": () => import("../commands/git/credential.ts"),
+  "./commands/git/auth.ts": () => import("../commands/git/auth.ts"),
   "./commands/git/push.ts": () => import("../commands/git/push.ts"),
   "./commands/git/inspect.ts": () => import("../commands/git/inspect.ts"),
   "./commands/git/mutate.ts": () => import("../commands/git/mutate.ts"),

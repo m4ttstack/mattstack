@@ -70,6 +70,28 @@ describe("rt git credential", () => {
     expect(await gitCredentialReply("get", "protocol=https\nhost=gitlab.evil.example\n\n", { ...deps, confirmedHost: () => "gitlab.evil.example" })).toContain("password=tok_gl");
   });
 
+  describe("with a token held", () => {
+    const deps = { confirmedHost: () => "gitlab.acme.internal", lookupStored: async () => "glpat-LEAKCHECK000000000" };
+
+    test("answers nothing for another host", async () => {
+      expect(await gitCredentialReply("get", "protocol=https\nhost=evil.example\n\n", deps)).toBe("");
+    });
+
+    test("answers nothing over http", async () => {
+      expect(await gitCredentialReply("get", "protocol=http\nhost=gitlab.com\n\n", deps)).toBe("");
+    });
+
+    test("answers nothing for store or erase", async () => {
+      const filled = "protocol=https\nhost=gitlab.com\nusername=x-access-token\npassword=glpat-LEAKCHECK000000000\n\n";
+      expect(await gitCredentialReply("store", filled, deps)).toBe("");
+      expect(await gitCredentialReply("erase", filled, deps)).toBe("");
+    });
+
+    test("answers nothing for an unconfirmed GitLab host", async () => {
+      expect(await gitCredentialReply("get", "protocol=https\nhost=gitlab.other.org\n\n", deps)).toBe("");
+    });
+  });
+
   test("a store rt cannot read is an empty answer, never a crash git reports", async () => {
     const deps = { confirmedHost: () => null, lookupStored: async () => { throw new Error("keychain locked"); } };
     expect(await gitCredentialReply("get", "protocol=https\nhost=github.com\n\n", deps)).toBe("");

@@ -3,6 +3,9 @@ import { execFileSync } from "child_process";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { CommandContext } from "../../../lib/command-tree.ts";
+import type { ForgeTokenLookup } from "../../../lib/team/forge-token.ts";
+import type { OriginAuth, OriginAuthSeams } from "../origin-auth.ts";
+import type { FetchDeps } from "../shared.ts";
 
 export class Exit extends Error {
   constructor(public readonly code: number) {
@@ -60,4 +63,20 @@ export async function inDir<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   } finally {
     process.chdir(before);
   }
+}
+
+export const TOKEN = "glpat-LEAKCHECK000000000";
+export const NO_USER = "fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled";
+export const tokenSeams: OriginAuthSeams = { confirmedHost: () => null, lookup: async (): Promise<ForgeTokenLookup> => ({ kind: "token", token: TOKEN }) };
+
+/** A fetch that never contacts a remote and answers from `results`, then ok. */
+export function fakeFetch(auth: OriginAuth, results: ({ ok: true } | { ok: false; output: string })[]): FetchDeps {
+  return {
+    run: async () => results.shift() ?? { ok: true },
+    findAgent: async () => undefined,
+    env: process.env,
+    auth,
+    helper: "!helper",
+    switchViable: async () => false,
+  };
 }

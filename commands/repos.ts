@@ -30,16 +30,31 @@ import { repoLabel, repoLabelFull, repoLabelQualified } from "../lib/repo-label.
 import { daemonQuery } from "../lib/daemon-client.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
+import type { CloneDeps, CloneState } from "./git/clone-state.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import type { RepoStatusRow } from "../packages/rt-client/src/commands.ts";
 
 export interface RegisterDeps {
   /** The --json envelope line only; human text goes through lib/ui/out.ts. */
   print: (s: string) => void;
+  /** Read-only; a human register uses it to point a pending clone at `rt git auth`. */
+  cloneState?: (path: string) => Promise<CloneState>;
 }
 
-export function realRegisterDeps(): RegisterDeps {
-  return { print: (s) => out.payload(`${s}\n`) };
+type CloneStateModule = Pick<typeof import("./git/clone-state.ts"), "classifyClone" | "realCloneDeps">;
+
+/** One `CloneDeps` per run, built on first use, so the token is read once across every path. */
+export function realRegisterDeps(load: () => Promise<CloneStateModule> = () => import("./git/clone-state.ts")): RegisterDeps {
+  let shared: Promise<{ mod: CloneStateModule; deps: CloneDeps }> | null = null;
+  return {
+    print: (s) => out.payload(`${s}\n`),
+    // Dynamic so prune and locate, which share these deps, never load the token modules.
+    cloneState: async (path) => {
+      shared ??= load().then((mod) => ({ mod, deps: mod.realCloneDeps() }));
+      const { mod, deps } = await shared;
+      return mod.classifyClone(path, deps);
+    },
+  };
 }
 
 const USAGE = "usage: rt repos register <path…> [--track live|poll] [--caches branches,project-mrs] [--json]";
@@ -186,6 +201,18 @@ export async function reposRegister(args: string[], _ctx: CommandContext = {}, d
   out.print(
     ...registered.map((r) => out.line("done", `Registered ${r.name}`, r.tracking ? `${r.path} · tracking ${r.tracking.mode} (${r.tracking.caches.join(", ")})` : r.path)),
   );
+
+  if (!deps.cloneState) return;
+  for (const r of registered) {
+    try {
+      const state = await deps.cloneState(r.path);
+      if (state.state === "pending" && state.next) {
+        out.print(out.callout("note", state.reason), out.callout("next", out.cmd(state.next)));
+      }
+    } catch {
+      // The note is optional; registration has already succeeded.
+    }
+  }
 }
 
 /**
