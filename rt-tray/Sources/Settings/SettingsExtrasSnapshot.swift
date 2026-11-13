@@ -26,6 +26,14 @@ enum SettingsExtrasSnapshot {
                 count += 1
             }
         }
+        for scheme in ["light", "dark"] {
+            let view = Form { Section("Accounts") { ForEach(soloAccountRows) { RowView(row: $0, isChecking: false, onAction: {}) } } }
+                .formStyle(.grouped)
+                .frame(width: 560, height: 320)
+            SnapshotRenderer.render(view, appearance: scheme == "dark" ? .darkAqua : .aqua,
+                                    to: out.appendingPathComponent("extras-accounts-solo-\(scheme).png"))
+            count += 1
+        }
         print("wrote \(count) snapshots to \(out.path)")
         return true
         #else
@@ -64,6 +72,24 @@ enum SettingsExtrasSnapshot {
                               steps: ["Edit /Users/janedoe/.mattstack/user/skills/overrides.jsonc as listed", "Run: rt skills materialize"]),
             recheck: .onChange)),
     ] + slackSupportRows
+
+    /// Mirrors what lib/setup/validators/accounts.ts plans for a solo install with no forge account.
+    private static let soloAccountRows = [
+        PlanRow(id: "account.github", kind: .account, title: "GitHub",
+                why: "Lets rt open PRs, check CI status, and read repo metadata on GitHub.", required: false,
+                optionalNote: "Works without this. Connect GitHub to open PRs from rt.",
+                status: .missing, detail: "No GitHub account connected yet",
+                action: RowAction(type: .connect, label: "Connect", integration: "github",
+                                  fields: [ActionField(name: "token", label: "GitHub token", secret: true, hint: "repo, read:org")]),
+                recheck: .onChange),
+        PlanRow(id: "account.gitlab", kind: .account, title: "GitLab",
+                why: "Lets rt open MRs, check pipelines, and read project metadata on GitLab.", required: false,
+                optionalNote: "Works without this. Connect GitLab to open MRs from rt. On your own GitLab server, connect from a terminal with rt setup gitlab connect --host <host>.",
+                status: .missing, detail: "No GitLab account connected yet",
+                action: RowAction(type: .connect, label: "Connect", integration: "gitlab",
+                                  fields: [ActionField(name: "token", label: "GitLab token", secret: true, hint: "api")]),
+                recheck: .onChange),
+    ]
 
     private static let slackConnect = RowAction(type: .oauth, label: "Connect", integration: "slack",
                                                 verb: ["setup", "slack", "connect", "--support-chat"])
