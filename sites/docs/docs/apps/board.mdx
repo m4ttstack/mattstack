@@ -12,7 +12,7 @@ import BoardIcon from "@site/src/components/BoardIcon";
 
 board is one page of your team's open merge requests (MRs), or pull requests (PRs) on a GitHub team, that are ready for review, so you can drop a single link in Slack instead of pasting their URLs. Each row shows a status dot, the title, the author, the branch, one review-state phrase, the diff size, the age and a Linear ticket link when the branch or title carries a ticket id. Merge conflicts and red CI show as their own flag chips, so the phrase always says where the MR sits in review.
 
-On a GitHub team the board says PR and `#12` where this page says MR and `!12`, and its forge flyout and links name GitHub. Code owners tabs and the re-review thread work on GitLab only.
+On a GitHub team the board says PR and `#12` where this page says MR and `!12`, and its forge flyout and links name GitHub. Code owners tabs, asking the author's agent to respond, and the re-review thread work on GitLab only.
 
 The row and its status line name people in full. Menu items, dialogs, the inbox and the ask band use first names, with a last initial when two people share one.
 
@@ -103,7 +103,7 @@ Every item here needs a local board. Each row links to what that agent does. The
 | <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target, and a doctor skill is set up for the tab you are on. |
 | <BoardIcon name="agentCloud" /> | request review from… | Opens a list of people to ask for a review, on your team and others. See [Picking who to ask](#picking-who-to-ask). | Your own MR, when there is someone left to ask. Otherwise it sits greyed in **all agent actions**. |
 | <BoardIcon name="agentCloud" /> | ask dev2's agent for a follow-up review | Asks a teammate whose review left comments to review again. Reads **retry dev2's agent review** when their agent's last review hit an error. See [Asks between boards](#asks-between-boards). | Your own MR, one item per such teammate. |
-| <BoardIcon name="agentCloud" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
+| <BoardIcon name="agentCloud" /> | ask dev1's agent to respond | Asks the author's agent to answer your review (GitLab only). See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
 
 The asks to a teammate's agent sit last, below a divider.
 

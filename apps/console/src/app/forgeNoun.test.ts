@@ -15,6 +15,10 @@ const GITHUB_ID = 'remote:github.com%2Fowner%2Frepo';
 const GITLAB_ID = 'remote:gitlab.example.com%2Fgroup%2Frepo';
 
 describe('forgeOf', () => {
+  it('reads only github.com itself as GitHub', () => {
+    expect(forgeOf('https://notgithub.com.example.org/o/r/-/merge_requests/7')).toBe('gitlab');
+  });
+
   it('reads GitHub from a URL', () => {
     expect(forgeOf('https://github.com/o/r/pull/7')).toBe('github');
     expect(forgeOf('HTTPS://GitHub.com/o/r/pull/7')).toBe('github');

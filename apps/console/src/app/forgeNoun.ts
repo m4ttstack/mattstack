@@ -25,7 +25,7 @@ function hostOf(hint: string): string | null {
 export function forgeOf(...hints: (string | null | undefined)[]): Forge | null {
   for (const hint of hints) {
     const host = hint ? hostOf(hint) : null;
-    if (host) return host.includes('github.com') ? 'github' : 'gitlab';
+    if (host) return host === 'github.com' ? 'github' : 'gitlab';
   }
   return null;
 }

@@ -459,6 +459,13 @@ describe("the hints a person reads", () => {
     expect(two.refusal.hint).toBe("feat-parent is in a stack gitq does not track yet: the open pull requests from feat-child, feat-other target it");
   });
 
+  test("a GitLab project path with a pull segment still says merge request", async () => {
+    const url = "https://gitlab.example.com/acme/pull/2024/-/merge_requests/3";
+    const own = await checkStackMembership({ cwd: "/repo", branch: "feat-child", defaultBranch: "master", runners: runners({ forgeOpenMrs: async () => ({ ok: true, mrs: [{ iid: 3, source: "feat-child", target: "feat-parent", url }] }) }) });
+    if (own.verdict !== "refuse") throw new Error("expected refusal");
+    expect(own.refusal.hint).toBe("feat-child is in a stack gitq does not track yet: its open merge request targets feat-parent");
+  });
+
   test("the two checks that could not run", async () => {
     const noDefault = await checkStackMembership({ cwd: "/repo", branch: "feat", defaultBranch: null, runners: runners({}) });
     const forgeDown = await checkStackMembership({ cwd: "/repo", branch: "feat", defaultBranch: "master", runners: runners({ forgeOpenMrs: async () => ({ ok: false, error: "gh pr list failed: not logged in" }) }) });

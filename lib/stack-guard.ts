@@ -19,7 +19,13 @@ export interface StackMembership {
   children: string[];
 }
 
-const GITHUB_PR_URL = /\/pull\/\d+/;
+function onGitHubCom(url: string): boolean {
+  try {
+    return new URL(url).hostname === "github.com";
+  } catch {
+    return false;
+  }
+}
 
 export interface ForgeMr {
   iid: number;
@@ -146,7 +152,7 @@ export async function checkStackMembership(opts: {
   const own = forge.mrs.filter((mr) => mr.source === opts.branch && mr.target !== opts.defaultBranch);
   const dependents = forge.mrs.filter((mr) => mr.target === opts.branch);
   if (own.length > 0 || dependents.length > 0) {
-    const noun = forgeChangeNoun(forge.mrs.some((mr) => GITHUB_PR_URL.test(mr.url)) ? "github" : "gitlab", "long");
+    const noun = forgeChangeNoun(forge.mrs.some((mr) => onGitHubCom(mr.url)) ? "github" : "gitlab", "long");
     const detail = own.length > 0
       ? `its open ${noun} targets ${own[0]!.target}`
       : dependents.length === 1
