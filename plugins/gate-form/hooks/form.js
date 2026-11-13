@@ -559,7 +559,7 @@ function kitClient(body, options = {}) {
         setState({ ...latest, keyPress: true });
         const stop = surface.every(ms, () => {
           stop();
-          surface.setState({ ...surface.state, keyPress: undefined });
+          setState({ ...surface.state, keyPress: undefined });
           run();
         });
       }

@@ -86,10 +86,11 @@ export function kitClient<P, S extends PointerState = PointerState>(body: (props
       pressFor: (run, ms = KEY_PRESS_MS) => {
         if (latest.keyPress) return
         setState({ ...latest, keyPress: true })
-        // The timer outlives this frame, so it reads the surface's state as it is when it fires.
+        // The timer outlives this frame, so it reads the surface's state as it is when it fires, and brings this frame's copy up to date
+        // before `run`, which reads and writes through this frame's ui.
         const stop = surface.every(ms, () => {
           stop()
-          surface.setState({ ...(surface.state as S), keyPress: undefined })
+          setState({ ...(surface.state as S), keyPress: undefined })
           run()
         })
       },

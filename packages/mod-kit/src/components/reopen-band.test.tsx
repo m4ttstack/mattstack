@@ -12,30 +12,30 @@ const draw = (tree: () => unknown) => drawKit({ elements: ELEMENTS, look: { focu
 const textOf = (line: { t: string }[]) => line.map(span => span.t).join('')
 
 describe('ReopenBand', () => {
-  test('draws the mark and label, the title, and a brand Open button on one row', () => {
+  test('draws the mark and label, the title, and a brand Show button on one row', () => {
     const { lines } = draw(() => (
       <Panel width={60}>
         <ReopenBand label="mattstack waiting" title="Kit gallery" onOpen={() => {}} />
       </Panel>
     ))
-    expect(lines.map(textOf)).toEqual([`${BRAND.glyph} mattstack waiting  Kit gallery    Open  `])
-    expect(lines[0]!.find(span => span.t === '  Open  ')?.bg).toBe(BRAND.pink)
+    expect(lines.map(textOf)).toEqual([`${BRAND.glyph} mattstack waiting  Kit gallery    Show  `])
+    expect(lines[0]!.find(span => span.t === '  Show  ')?.bg).toBe(BRAND.pink)
   })
 
-  test('the Open button runs onOpen', () => {
+  test('the Show button runs onOpen', () => {
     let opened = 0
     const { lines, handlers } = draw(() => (
       <Panel width={60}>
         <ReopenBand label="l" title="t" onOpen={() => (opened += 1)} />
       </Panel>
     ))
-    handlers.get(lines[0]!.find(span => span.t.includes('Open'))!.action!)!()
+    handlers.get(lines[0]!.find(span => span.t.includes('Show'))!.action!)!()
     expect(opened).toBe(1)
   })
 })
 
 describe('bandClient', () => {
-  test('draws the same row as ReopenBand and posts reopen on a press of Open', () => {
+  test('draws the same row as ReopenBand and posts reopen on a press of Show', () => {
     const posts: unknown[] = []
     let state: unknown
     let pointer: ((event: { type: string; x: number; y: number; button: string }) => void) | undefined
@@ -57,7 +57,7 @@ describe('bandClient', () => {
     }
     const render = () => bandClient({ formId: 'f1', title: 'Kit gallery', label: 'mattstack waiting' }, surface as never)
     expect(JSON.stringify(render())).toContain(`${BRAND.glyph} mattstack waiting  `)
-    const x = `${BRAND.glyph} mattstack waiting  Kit gallery    Open  `.indexOf('Open')
+    const x = `${BRAND.glyph} mattstack waiting  Kit gallery    Show  `.indexOf('Show')
     for (const type of ['down', 'up']) {
       pointer!({ type, x, y: 0, button: 'left' })
       render()

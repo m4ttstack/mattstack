@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { widthOf } from '../draw/text'
-import { ICON } from '../draw/theme'
+import { BRAND, ICON, hovered } from '../draw/theme'
 import { brandBar } from './brand-bar'
 import { buttonRow, type Button } from './buttons'
 import { inputField } from './input-field'
@@ -18,7 +18,11 @@ describe('narrow panes', () => {
   test('brandBar with the real label cuts the label and keeps Hide whole', () => {
     const line = brandBar('mattstack decision gate', WIDTH, 'hide')
     expect(widthOf(line)).toBe(WIDTH)
-    expect(line.find(span => span.action === 'hide')?.t).toBe(` ${ICON.minimize} Hide `)
+    const hide = line.find(span => span.action === 'hide')
+    expect(hide?.t).toBe(` Hide ${ICON.collapse} `)
+    // Flat on the bar at rest, the deeper pink only under the pointer.
+    expect(hide).toMatchObject({ bg: BRAND.pink, chip: BRAND.pinkDeep, bold: true })
+    expect(hovered(hide!).bg).toBe(BRAND.pinkDeep)
     expect(widthOf(brandBar('mattstack decision gate', 20))).toBe(20)
   })
 
