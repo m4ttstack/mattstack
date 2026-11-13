@@ -189,10 +189,7 @@ export const GITHUB_REFUSED_SEGMENTS: readonly string[] = [
   "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
   "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables", "security-advisories",
 ];
-/**
- * Refused only as the route right after repos/<owner>/<repo>: the same word is a branch prefix and a repo name.
- * Segments are split after decoding, so an encoded slash moves no segment past this check.
- */
+/** Refused only as the first part of the skeleton window after the repo: the same word is a branch prefix and a repo name. */
 export const GITHUB_REFUSED_ROUTES: readonly string[] = ["copilot"];
 export const GITHUB_REFUSED_QUERY_KEYS: readonly string[] = ["access_token", "client_secret", "token"];
 /** glance buffers a whole response before the cap runs, and a blob can be 100 MB. */
@@ -217,12 +214,13 @@ const windowEntryAt = (parts: string[], entry: string): number => {
   return parts.findIndex((_, i) => words.every((w, j) => (j === last ? namesWord(parts[i + j], w) : parts[i + j] === w)));
 };
 
-/** Where an entry first appears, or -1; an entry with a slash names consecutive segments, the last one suffixed or not. */
-const entryAt = (segments: string[], entry: string): number => {
-  const parts = entry.split("/");
-  const last = parts.length - 1;
-  return segments.findIndex((_, i) => parts.every((p, j) => (j === last ? namesWord(segments[i + j], p) : segments[i + j] === p)));
+/** By position, never by value: on a repo named acme/contents, repos/acme/contents/hooks has no file path. */
+const fileStartOf = (rest: string): number | null => {
+  const raw = rest.split("/");
+  return raw[3] === "contents" && raw.length > 4 ? 4 : null;
 };
+
+const PLAIN_REPO_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
 export function checkGithubForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
   // projectPath comes from the origin URL, and every rule below counts segments from it.
@@ -245,14 +243,17 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   }
   // GitHub may collapse "//", which would join a slash entry such as actions/oidc the checks below saw apart.
   if (segments.slice(0, -1).includes("")) return { ok: false, error: '"path" must not contain an empty segment (//)' };
-  const rootParts = repoRoot.split("/");
-  const hits = [...GITHUB_REFUSED_SEGMENTS, GITHUB_REFUSED_BLOBS].map((entry) => ({ entry, at: entryAt(segments, entry), length: entry.split("/").length }));
-  const inName = hits.find((h) => h.at >= 0 && h.at + h.length <= rootParts.length);
-  if (inName) return { ok: false, error: `gitlab_get cannot read a GitHub repo whose owner or name is ${rootParts.slice(inName.at, inName.at + inName.length).join("/")}` };
-  const refused = hits.find((h) => h.at >= 0 && h.entry !== GITHUB_REFUSED_BLOBS);
-  if (refused) return { ok: false, error: githubWordRefusal(refused.entry) };
-  if (hits.some((h) => h.at >= 0)) return { ok: false, error: BLOBS_REFUSAL };
-  const window = matchingWindow(segments, rootParts.length, segments.length);
+  // The prefix check ignores case and decodes; the route GitHub picks is fixed by these raw bytes, which must equal the checked ones.
+  const raw = rest.split("/");
+  if (raw[0] !== "repos" || !PLAIN_REPO_SEGMENT.test(raw[1] ?? "") || !PLAIN_REPO_SEGMENT.test(raw[2] ?? "")) {
+    return { ok: false, error: '"path" must name the repo as repos/<owner>/<name>, spelled plainly with no percent escapes. Start it with :repo/ instead.' };
+  }
+  const fileStart = fileStartOf(rest);
+  // Words go unmatched in a file path, so a folded climb such as ..\uFF0Fhooks is the one thing that could leave the contents route.
+  if (fileStart !== null && segments.slice(fileStart).some((seg) => dotSkeleton(seg).split(/[\/\\]/).some((p) => p === "." || p === ".."))) {
+    return { ok: false, error: '"path" must not contain dot segments' };
+  }
+  const window = matchingWindow(segments, 3, fileStart ?? segments.length);
   if (!window.ok) return window;
   const { parts } = window;
   const refusedRoute = GITHUB_REFUSED_ROUTES.find((word) => namesWord(parts[0], word));

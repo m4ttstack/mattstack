@@ -31,6 +31,7 @@ const get = (provider: RestProvider, input: Parameters<typeof forgeGet>[2]) => f
 const emptySegment = { ok: false as const, error: '"path" must not contain an empty segment (//)' };
 const credentialRefusal = (seg: string) => ({ ok: false as const, error: githubWordRefusal(seg) });
 const routeRefusal = (word: string) => ({ ok: false as const, error: githubRouteRefusal(word) });
+const ruleTwo = { ok: false as const, error: '"path" must name the repo as repos/<owner>/<name>, spelled plainly with no percent escapes. Start it with :repo/ instead.' };
 const ruleOne = { ok: false as const, error: "gitlab_get cannot read this GitHub repo, because its path is not owner/name. Check the repo's origin remote." };
 
 describe("checkGithubForgePath", () => {
@@ -241,12 +242,12 @@ describe("checkGithubForgePath fix round 1", () => {
   test("refuses a refused word carrying a suffix, as on GitLab", () => {
     expect(check(":repo/actions/secrets.json")).toEqual(credentialRefusal("secrets"));
     expect(check(":repo/actions/secrets.")).toEqual(credentialRefusal("secrets"));
-    expect(check(":repo/contents/secrets.md")).toEqual(credentialRefusal("secrets"));
     expect(check(":repo/actions/oidc.json/x")).toEqual(credentialRefusal("actions/oidc"));
     expect(check(":repo/git/blobs.json/abc")).toMatchObject({ ok: false, error: expect.stringContaining("git/blobs") });
     expect(check(":repo/actions.json/oidc")).toMatchObject({ ok: true });
     expect(check(":repo/contents/README.md")).toMatchObject({ ok: true });
     expect(check(":repo/contents/secrets-notes.md")).toMatchObject({ ok: true });
+    expect(check(":repo/contents/secrets.md")).toEqual({ ok: true, path: "/repos/o/r/contents/secrets.md" });
   });
 
   test("refuses a semicolon anywhere", () => {
@@ -256,12 +257,6 @@ describe("checkGithubForgePath fix round 1", () => {
     }
   });
 
-  test("a repo whose owner or name is a refused word is refused as such, not as a credentials path", () => {
-    expect(checkGithubForgePath(":repo/pulls", "acme/keys")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is keys" });
-    expect(checkGithubForgePath("repos/secrets/app/pulls", "secrets/app")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is secrets" });
-    expect(checkGithubForgePath(":repo", "acme/hooks.io")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is hooks.io" });
-    expect(checkGithubForgePath(":repo/oidc/x", "acme/actions")).toEqual(credentialRefusal("actions/oidc"));
-  });
 });
 
 describe("checkGithubForgePath on the repo's own path", () => {
@@ -328,10 +323,14 @@ describe("checkGithubForgePath on copilot routes", () => {
     for (const path of [
       ":repo/COPILOT/cloud-agent/configuration", ":repo/CoPilot/Cloud-Agent/Configuration/", ":repo/copilot/cloud-agent/configuration/",
       ":repo/%63opilot/cloud-agent/configuration", ":repo/%43%4F%50%49%4C%4F%54/cloud-agent/configuration",
-      ":repo/copilot%2Fcloud-agent%2Fconfiguration", "repos%2Fo%2Fr%2Fcopilot/cloud-agent/configuration",
-      "repos/%6F/%72/copilot/cloud-agent/configuration", "REPOS/O/R/COPILOT/code-review/settings",
+      ":repo/copilot%2Fcloud-agent%2Fconfiguration",
     ]) {
       expect(check(path), path).toEqual(refused);
+    }
+    for (const path of [
+      "repos%2Fo%2Fr%2Fcopilot/cloud-agent/configuration", "repos/%6F/%72/copilot/cloud-agent/configuration", "REPOS/O/R/COPILOT/code-review/settings",
+    ]) {
+      expect(check(path), path).toEqual(ruleTwo);
     }
   });
 
@@ -397,11 +396,11 @@ describe("forgeGet through a real GitHubProvider", () => {
       [":repo/contents/a%20b.md", "/repos/o/r/contents/a%20b.md"],
       [":repo/:ab../:ab../:ab../user", "/repos/o/r/%3Aab../%3Aab../%3Aab../user"],
     ];
-    for (const [path, wire] of cases) {
+    for (const [path, wirePath] of cases) {
       sent = [];
       expect(await forgeGet(provider(), PROJECT, { path }, "github"), path).toMatchObject({ ok: true });
       expect(sent, path).toHaveLength(1);
-      expect(new URL(sent[0]!.url).pathname, path).toBe(wire);
+      expect(new URL(sent[0]!.url).pathname, path).toBe(wirePath);
       expect(sent[0]!.redirect, path).toBe("manual");
     }
     sent = [];
@@ -485,7 +484,7 @@ describe("forgeGet through a real GitHubProvider", () => {
   });
 
   test("a dot part or dot lookalike in the window is refused as a dot segment", async () => {
-    for (const path of [":repo/actions/.%E2%80%8B/oidc/customization/sub", ":repo/%EF%BC%8E%EF%BC%8E/pulls"]) {
+    for (const path of [":repo/actions/.%E2%80%8B/oidc/customization/sub", ":repo/%EF%BC%8E%EF%BC%8E/pulls", ":repo/%EF%BC%8E%EF%BC%8E/hooks"]) {
       await refusedOnWire(path, dotError);
     }
   });
@@ -527,6 +526,167 @@ describe("forgeGet through a real GitHubProvider", () => {
       expect(new URL(out[0]!.url).pathname, path).toBe(pathname);
       expect(out[0]!.redirect, path).toBe("manual");
     }
+  });
+
+  const readOnWire = async (path: string, pathnames: string[], projectPath = PROJECT) => {
+    const { result, sent: out } = await wire(projectPath, path);
+    expect(result, `${projectPath} ${path}`).toMatchObject({ ok: true });
+    expect(out, `${projectPath} ${path}`).toHaveLength(1);
+    expect(pathnames, `${projectPath} ${path}`).toContain(new URL(out[0]!.url).pathname);
+    expect(out[0]!.redirect, `${projectPath} ${path}`).toBe("manual");
+  };
+
+  const CREDENTIAL_ROUTES: Array<[string, string]> = [
+    ["actions/secrets", githubWordRefusal("secrets")],
+    ["actions/secrets/public-key", githubWordRefusal("secrets")],
+    ["actions/secrets/X", githubWordRefusal("secrets")],
+    ["actions/variables", githubWordRefusal("variables")],
+    ["actions/variables/X", githubWordRefusal("variables")],
+    ["actions/organization-secrets", githubWordRefusal("organization-secrets")],
+    ["actions/organization-variables", githubWordRefusal("organization-variables")],
+    ["actions/oidc/customization/sub", githubWordRefusal("actions/oidc")],
+    ["actions/runners", githubWordRefusal("runners")],
+    ["actions/runners/downloads", githubWordRefusal("runners")],
+    ["actions/runners/1", githubWordRefusal("runners")],
+    ["agents/secrets", githubWordRefusal("secrets")],
+    ["agents/secrets/X", githubWordRefusal("secrets")],
+    ["agents/variables/X", githubWordRefusal("variables")],
+    ["agents/organization-secrets", githubWordRefusal("organization-secrets")],
+    ["agents/organization-variables", githubWordRefusal("organization-variables")],
+    ["codespaces/secrets", githubWordRefusal("secrets")],
+    ["codespaces/secrets/X", githubWordRefusal("secrets")],
+    ["codespaces/devcontainers", githubWordRefusal("codespaces")],
+    ["dependabot/secrets", githubWordRefusal("secrets")],
+    ["dependabot/secrets/X", githubWordRefusal("secrets")],
+    ["dependabot/runner-settings", githubWordRefusal("dependabot")],
+    ["dependabot/alerts", githubWordRefusal("dependabot")],
+    ["environments", githubWordRefusal("environments")],
+    ["environments/prod/secrets", githubWordRefusal("secrets")],
+    ["environments/prod/secrets/X", githubWordRefusal("secrets")],
+    ["environments/prod/variables", githubWordRefusal("variables")],
+    ["environments/prod/variables/X", githubWordRefusal("variables")],
+    ["hooks", githubWordRefusal("hooks")],
+    ["hooks/1", githubWordRefusal("hooks")],
+    ["hooks/1/config", githubWordRefusal("hooks")],
+    ["hooks/1/deliveries", githubWordRefusal("hooks")],
+    ["hooks/1/deliveries/2", githubWordRefusal("hooks")],
+    ["keys", githubWordRefusal("keys")],
+    ["keys/1", githubWordRefusal("keys")],
+    ["secret-scanning/alerts", githubWordRefusal("secret-scanning")],
+    ["secret-scanning/alerts/1", githubWordRefusal("secret-scanning")],
+    ["secret-scanning/alerts/1/locations", githubWordRefusal("secret-scanning")],
+    ["secret-scanning/custom-patterns", githubWordRefusal("secret-scanning")],
+    ["secret-scanning/scan-history", githubWordRefusal("secret-scanning")],
+    ["security-advisories", githubWordRefusal("security-advisories")],
+    ["private-vulnerability-reporting", githubWordRefusal("private-vulnerability-reporting")],
+    ["invitations", githubWordRefusal("invitations")],
+    ["autolinks", githubWordRefusal("autolinks")],
+    ["autolinks/1", githubWordRefusal("autolinks")],
+    ["copilot/cloud-agent/configuration", githubRouteRefusal("copilot")],
+    ["copilot/code-review/settings", githubRouteRefusal("copilot")],
+  ];
+  const CREDENTIAL_REPOS = ["o/r", "acme/hooks", "acme/hooks.io", "acme/keys", "secrets/app", "acme/actions", "acme/environments", "acme/contents", "acme/copilot"];
+
+  test("every credential route is refused on every repo shape, before any request", async () => {
+    for (const repo of CREDENTIAL_REPOS) {
+      for (const [row, error] of CREDENTIAL_ROUTES) await refusedOnWire(`:repo/${row}`, error, repo);
+    }
+  });
+
+  test("a word in the repo's own name never hides the same word in the route", async () => {
+    await refusedOnWire(":repo/hooks", githubWordRefusal("hooks"), "acme/hooks.io");
+    await refusedOnWire(":repo/hooks/1/config", githubWordRefusal("hooks"), "acme/hooks.io");
+    await refusedOnWire(":repo/actions/secrets", githubWordRefusal("secrets"), "secrets/app");
+    await refusedOnWire(":repo/actions/oidc/customization/sub", githubWordRefusal("actions/oidc"), "acme/actions");
+    await refusedOnWire(":repo/hooks", githubWordRefusal("hooks"), "acme/contents");
+    await refusedOnWire(":repo/actions/secrets", githubWordRefusal("secrets"), "acme/contents");
+    await refusedOnWire(":repo/copilot/cloud-agent/configuration", githubRouteRefusal("copilot"), "acme/copilot");
+  });
+
+  test("a file path after :repo/contents/ is read whatever its name", async () => {
+    const cases: Array<[string, string[]]> = [
+      [":repo/contents/src/hooks/useAuth.ts", ["/repos/o/r/contents/src/hooks/useAuth.ts"]],
+      [":repo/contents/secrets.md", ["/repos/o/r/contents/secrets.md"]],
+      [":repo/contents/infra/variables.tf", ["/repos/o/r/contents/infra/variables.tf"]],
+      [":repo/contents/keys/README.md", ["/repos/o/r/contents/keys/README.md"]],
+      [":repo/contents/Actions/Secrets", ["/repos/o/r/contents/Actions/Secrets"]],
+      [":repo/contents/git/blobs/x", ["/repos/o/r/contents/git/blobs/x"]],
+      [":repo/contents/docs%2Fhooks.md", ["/repos/o/r/contents/docs%2Fhooks.md"]],
+      [":repo/contents/a%20b.md", ["/repos/o/r/contents/a%20b.md"]],
+      [":repo/contents/a%E2%80%8Bb.md", ["/repos/o/r/contents/a%E2%80%8Bb.md"]],
+      [":repo/contents/a/b/secrets.tf.json", ["/repos/o/r/contents/a/b/secrets.tf.json"]],
+      [":repo/contents", ["/repos/o/r/contents"]],
+      [":repo/contents/", ["/repos/o/r/contents", "/repos/o/r/contents/"]],
+      [":repo/contents/..%E2%84%80hooks", ["/repos/o/r/contents/..%E2%84%80hooks"]],
+    ];
+    for (const [path, pathnames] of cases) await readOnWire(path, pathnames);
+  });
+
+  test("every guarded word and route is read as a file name or folder", async () => {
+    for (const entry of [...GITHUB_REFUSED_SEGMENTS, ...GITHUB_REFUSED_ROUTES]) {
+      await readOnWire(`:repo/contents/${entry}`, [`/repos/o/r/contents/${entry}`]);
+      await readOnWire(`:repo/contents/dir/${entry}.md`, [`/repos/o/r/contents/dir/${entry}.md`]);
+    }
+  });
+
+  test("a repo whose owner or name is a guarded word is read", async () => {
+    for (const repo of ["acme/keys", "acme/hooks.io", "secrets/app", "acme/contents"]) {
+      await readOnWire(":repo", [`/repos/${repo}`], repo);
+      await readOnWire(":repo/pulls", [`/repos/${repo}/pulls`], repo);
+    }
+    await readOnWire(":repo/contents/README.md", ["/repos/acme/contents/contents/README.md"], "acme/contents");
+    await readOnWire(":repo/oidc/customization/sub", ["/repos/acme/actions/oidc/customization/sub"], "acme/actions");
+    await readOnWire(":repo/oidc/x", ["/repos/acme/actions/oidc/x"], "acme/actions");
+    await readOnWire(":repo/blobs/x", ["/repos/acme/git/blobs/x"], "acme/git");
+  });
+
+  test("contents counts only as the literal fourth raw segment; anything else is matched strictly", async () => {
+    for (const path of [
+      ":repo/Contents/hooks", ":repo/%63ontents/hooks", ":repo/contents.json/hooks", ":repo/contents%2Fhooks", ":repo/readme/hooks",
+      ":repo/git/ref/heads/feature/hooks", ":repo/commits/hooks",
+    ]) {
+      await refusedOnWire(path, githubWordRefusal("hooks"));
+    }
+    await refusedOnWire(":repo/actions/contents/secrets", githubWordRefusal("secrets"));
+  });
+
+  test("a dot part or dot lookalike in a file path is refused as a dot segment", async () => {
+    for (const path of [
+      ":repo/contents/..%20/hooks", ":repo/contents/%EF%BC%8E%EF%BC%8E/hooks", ":repo/contents/..%EF%BB%BF/hooks", ":repo/contents/..%E2%80%8B/hooks",
+      ":repo/contents/..%EF%BC%8Fhooks", ":repo/contents/%EF%BC%8E%EF%BC%8E%EF%BC%8Fhooks", ":repo/contents/%E2%80%A5%EF%BC%8Fhooks",
+      ":repo/contents/../hooks", ":repo/contents/%2e%2e/hooks",
+    ]) {
+      await refusedOnWire(path, dotError);
+    }
+    await refusedOnWire(":repo/contents/%252e%252e/hooks", '"path" must not be percent-encoded more than once');
+  });
+
+  test("the whole-path checks still run inside a file path", async () => {
+    await refusedOnWire(":repo/contents/x;/../hooks", dotError);
+    await refusedOnWire(":repo/contents/{x}", '"path" must not contain { or }');
+    await refusedOnWire(":repo/contents/a%5Cb", plainError);
+    await refusedOnWire(":repo/contents/a b", '"path" must not contain whitespace; send a space in a file name as %20');
+    await refusedOnWire(":repo/hooks%09", plainError);
+  });
+
+  test("the repo segments must be spelled plainly as repos/<owner>/<name>", async () => {
+    for (const path of ["Repos/o/r/contents/hooks", "repos/o%2Fr/pulls", "repos/o/%72/pulls", "repos/%4F/r/pulls"]) {
+      await refusedOnWire(path, ruleTwo.error);
+    }
+    await refusedOnWire("repos/Kcme/r/pulls", ruleTwo.error, "kcme/r");
+    await refusedOnWire("repos/%E2%84%AAcme/r/pulls", ruleTwo.error, "kcme/r");
+  });
+
+  test("words and the route are matched before git/blobs", async () => {
+    await refusedOnWire(":repo/copilot/git/blobs/x", githubRouteRefusal("copilot"));
+    await refusedOnWire(":repo/secrets/git/blobs/x", githubWordRefusal("secrets"));
+  });
+
+  test("a 302 from a contents read is refused naming only the host", async () => {
+    reply = () => new Response(null, { status: 302, headers: { location: "https://raw.example.net/o/r/main/big.bin?token=secret" } });
+    const { result, sent: out } = await wire(PROJECT, ":repo/contents/big.bin");
+    expect(result).toEqual({ ok: false, error: "gitlab_get does not follow redirects: GitHub answered 302 redirecting to raw.example.net" });
+    expect(out).toHaveLength(1);
   });
 });
 
