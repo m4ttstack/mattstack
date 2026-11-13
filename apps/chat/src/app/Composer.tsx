@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ChangeEvent, KeyboardEvent } from 'react';
+import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react';
 import {
   ActionIcon,
   Box,
@@ -103,6 +103,9 @@ export interface ComposerProps {
   /** Messages to you: who `room` reaches. Their face and name say where this
       goes, since the view holds several DMs. */
   replyTo?: { handle: string; name: string };
+  /** A herd: the control that picks which of its conversations `room` is,
+      drawn where `replyTo` draws its face. */
+  to?: ReactNode;
   /** Whether the box holds a draft, each time that changes. */
   onDraftChange?: (hasDraft: boolean) => void;
   /** Called after a post has landed and the draft has cleared. */
@@ -346,6 +349,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       onOpenDm,
       prefill,
       replyTo,
+      to,
       onDraftChange,
       onPosted,
       opening = false,
@@ -541,7 +545,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       ? phone
         ? 'rt daemon unreachable'
         : "Can't post: rt daemon unreachable. Your draft is kept."
-      : replyTo
+      : replyTo && !to
         ? `Reply to ${replyTo.name}`
         : 'Message…';
 
@@ -616,7 +620,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                 padding: compact ? '6px 6px 6px 12px' : '8px 8px 8px 14px',
               }}
             >
-              {replyTo && (
+              {to}
+              {replyTo && !to && (
                 <span className={classes.replyFace}>
                   <HandleAvatar
                     handle={replyTo.handle}
