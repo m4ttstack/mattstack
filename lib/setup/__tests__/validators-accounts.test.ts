@@ -863,7 +863,7 @@ describe("accountRows, catch-path does not apply cached health (Fix 3)", () => {
 describe("accountRows on solo", () => {
   const SOLO = { v: 1, at: "", mode: "solo" } as const;
   const ghDown: ExecScript = (argv) => (argv[0] === "gh" && argv[1] === "auth" ? { code: 1, stdout: "", stderr: "not logged in" } : ok());
-  const soloRows = (overrides: Record<string, string>, secrets = fakeSecrets(), fetch?: Parameters<typeof fakeProbes>[0]["fetch"]) =>
+  const soloRows = (overrides: Record<string, string>, secrets = fakeSecrets(), fetch?: NonNullable<Parameters<typeof fakeProbes>[0]>["fetch"]) =>
     accountRows(fakeProbes({ exec: ghDown, ...(fetch ? { fetch } : {}) }), baseTeam({ slug: "" }), [], secrets, SOLO, overrides, true);
 
   test("an optional GitHub row, then an optional GitLab row, nothing else", async () => {
