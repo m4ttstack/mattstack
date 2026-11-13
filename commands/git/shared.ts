@@ -8,7 +8,7 @@ import { hasUrlCredentials, holdsCredentialToken } from "../../lib/team/redact.t
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { isAuthFailure } from "../../lib/worktree/fetch-auth.ts";
 import type { CloneDeps } from "./clone-state.ts";
-import { createOriginAuth, forgeName, helperEnv, type Forge, type OriginAuth, type OriginAuthVerdict } from "./origin-auth.ts";
+import { configParamsNameHelper, createOriginAuth, forgeName, helperEnv, type Forge, type OriginAuth, type OriginAuthVerdict } from "./origin-auth.ts";
 
 /**
  * The one exit for a git verb that cannot go on. Under --json the envelope
@@ -186,7 +186,7 @@ export function tokenRefusedFailure(subject: string, host: string, forge: Forge,
 function noKeyFailure(subject: string, output: string, viable: boolean): out.FailureInput {
   return {
     title: `Could not ${subject}: no SSH key is loaded`,
-    why: "git reached origin over SSH, but no ssh-agent on this Mac holds a key. Load yours, then run this again.",
+    why: `git reached origin over SSH, but no ssh-agent on this Mac holds a key. ${viable ? "Load yours, or switch this clone to HTTPS." : "Load yours, then run this again."}`,
     next: viable
       ? ["Load your key with ", out.cmd("ssh-add"), ", or let rt sign in over HTTPS with ", out.cmd("rt git auth --https")]
       : ["Load your key in any terminal with ", out.cmd("ssh-add")],
@@ -232,7 +232,7 @@ async function retryWithRtToken(
   fail: (output: string) => Error,
   refused: (host: string, forge: Forge, output: string) => Error,
 ): Promise<RemoteOutcome> {
-  if (!v.ok) throw fail(firstOutput);
+  if (!v.ok || configParamsNameHelper(base)) throw fail(firstOutput);
   const env = helperEnv(v.host, base, deps.helper);
   const retry = await attempt(env);
   if (retry.ok) return { env, usedRtToken: true, forge: v.forge, host: v.host };
@@ -319,7 +319,7 @@ export async function pushOrigin(cwd: string, branch: string, args: string[], fr
 
   if (isAuthFailure(first.output)) {
     const v = await deps.auth.forOrigin(cwd, true);
-    if (from.usedRtToken && from.host && from.forge && v.host === from.host) throw refused(from.host, from.forge, first.output);
+    if (from.usedRtToken && from.host && from.forge && v.ok && v.host === from.host) throw refused(from.host, from.forge, first.output);
     return retryWithRtToken(v, first.output, from.env, deps, (env) => deps.run(cwd, args, env), plain, refused);
   }
 

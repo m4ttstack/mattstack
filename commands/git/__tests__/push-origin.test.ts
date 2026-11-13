@@ -65,6 +65,14 @@ describe("pushOrigin", () => {
     expect(forOrigin).toEqual([true]);
   });
 
+  test("a token fetch then an http push URL on the same host keeps git's plain failure: rt's token was never offered", async () => {
+    const http: OriginAuthVerdict = { ok: false, reason: "http", url: "http://gitlab.com/acme/x.git", host: "gitlab.com", forge: "gitlab" };
+    const { d, envs } = deps([{ ok: false, output: NO_USER }], { verdict: http });
+    const f = await failureOf(pushOrigin("/r", "feat", ARGS, tokenFetch(), d));
+    expect(f).toEqual({ title: "Could not push feat", details: NO_USER });
+    expect(envs.length).toBe(1);
+  });
+
   test("a push to another host than the token fetch's retries once with rt's helper for the push host", async () => {
     const pushHost: OriginAuthVerdict = { ok: true, url: "https://gitlab.acme.internal/acme/x.git", host: "gitlab.acme.internal", forge: "gitlab" };
     const from = tokenFetch();

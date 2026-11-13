@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { spawnSync } from "child_process";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { ForgeTokenLookup } from "../../../lib/team/forge-token.ts";
 import { setSshHostResolver } from "../../../lib/enrich.ts";
-import { createOriginAuth, forgeName, helperEnv, rtSelfHelper, sshToHttps, type OriginAuth, type OriginAuthSeams, type OriginAuthVerdict, type SkipReason } from "../origin-auth.ts";
+import { configParamsNameHelper, createOriginAuth, forgeName, helperEnv, rtSelfHelper, sshToHttps, type OriginAuth, type OriginAuthSeams, type OriginAuthVerdict, type SkipReason } from "../origin-auth.ts";
 import { git, makeRepo } from "./helpers.ts";
 
 const TOKEN = "glpat-LEAKCHECK000000000";
@@ -32,7 +33,7 @@ function fakeSeams(lookup: () => Promise<ForgeTokenLookup> = async () => ({ kind
 let seams: FakeSeams;
 let auth: OriginAuth;
 let root: string;
-const PROMPT_VARS = ["GIT_TERMINAL_PROMPT", "GIT_ASKPASS"] as const;
+const PROMPT_VARS = ["GIT_TERMINAL_PROMPT", "GIT_ASKPASS", "GIT_CONFIG_PARAMETERS"] as const;
 let savedPromptVars: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -160,6 +161,67 @@ describe("helperEnv", () => {
   });
 });
 
+describe("helperEnv with real git", () => {
+  /** A global helper that logs every call, standing in for the keychain, and a fake rt helper that answers get. */
+  function fakes(): { env: NodeJS.ProcessEnv; rt: string; log: () => string } {
+    const logFile = join(root, "global-helper.log");
+    const logger = join(root, "global-helper.sh");
+    writeFileSync(logger, `#!/bin/sh\necho "$1 $(cat | tr '\\n' ' ')" >> '${logFile}'\n`);
+    chmodSync(logger, 0o755);
+    const fakeRt = join(root, "fake-rt.sh");
+    writeFileSync(fakeRt, `#!/bin/sh\ncat >/dev/null\nif [ "$1" = get ]; then printf 'username=oauth2\\npassword=${TOKEN}\\n'; fi\n`);
+    chmodSync(fakeRt, 0o755);
+    const globalConfig = join(root, "global.gitconfig");
+    writeFileSync(globalConfig, `[credential]\n\thelper = !'${logger}'\n`);
+    const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
+    return { env, rt: `!'${fakeRt}'`, log: () => (existsSync(logFile) ? readFileSync(logFile, "utf8") : "") };
+  }
+
+  function credential(op: "fill" | "approve", env: NodeJS.ProcessEnv, input: string): string {
+    return spawnSync("git", ["credential", op], { cwd: root, env, encoding: "utf8", input }).stdout;
+  }
+
+  test("the empty value clears the global helper: fill asks only rt's, and approve never reaches the global one", () => {
+    const { env, rt, log } = fakes();
+    const run = helperEnv("gitlab.com", env, rt);
+    const filled = credential("fill", run, "protocol=https\nhost=gitlab.com\n\n");
+    expect(filled).toContain("password=glpat-LEAKCHECK");
+    credential("approve", run, `${filled}\n`);
+    expect(log()).toBe("");
+  });
+
+  test("a helper already passed through GIT_CONFIG_COUNT is cleared too", () => {
+    const { env, rt, log } = fakes();
+    const logger = join(root, "global-helper.sh");
+    const run = helperEnv("gitlab.com", { ...env, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "credential.helper", GIT_CONFIG_VALUE_0: `!'${logger}'` }, rt);
+    const filled = credential("fill", run, "protocol=https\nhost=gitlab.com\n\n");
+    expect(filled).toContain("password=glpat-LEAKCHECK");
+    credential("approve", run, `${filled}\n`);
+    expect(log()).toBe("");
+  });
+
+  test("rt's helper is never asked for another host", () => {
+    const { env, rt, log } = fakes();
+    const filled = credential("fill", helperEnv("gitlab.com", env, rt), "protocol=https\nhost=github.com\n\n");
+    expect(filled).not.toContain("LEAKCHECK");
+    expect(log()).toContain("get");
+  });
+});
+
+describe("configParamsNameHelper", () => {
+  test("is true for any credential helper key, in either quoting git uses", () => {
+    expect(configParamsNameHelper({ GIT_CONFIG_PARAMETERS: "'credential.helper'='!x'" })).toBe(true);
+    expect(configParamsNameHelper({ GIT_CONFIG_PARAMETERS: "'core.pager'='less' 'credential.https://gitlab.com.helper'='store'" })).toBe(true);
+    expect(configParamsNameHelper({ GIT_CONFIG_PARAMETERS: "'credential.helper=store'" })).toBe(true);
+    expect(configParamsNameHelper({ GIT_CONFIG_PARAMETERS: "'Credential.HTTPS://GitLab.com.Helper'='x'" })).toBe(true);
+  });
+
+  test("is false when unset or naming no credential helper", () => {
+    expect(configParamsNameHelper({})).toBe(false);
+    expect(configParamsNameHelper({ GIT_CONFIG_PARAMETERS: "'core.pager'='less' 'credential.username'='me'" })).toBe(false);
+  });
+});
+
 describe("sshToHttps", () => {
   test("sshToHttps maps scp and ssh:// forms", async () => {
     expect(await sshToHttps("git@gitlab.com:group/sub/repo")).toBe("https://gitlab.com/group/sub/repo.git");
@@ -212,6 +274,16 @@ describe("forOrigin and guardPrompts", () => {
     git(repo, "config", "remote.origin.pushurl", "https://gitlab.com/acme/x.git");
     delete process.env.GIT_TERMINAL_PROMPT;
     const undo = await auth.guardPrompts(repo, { push: false });
+    expect("GIT_TERMINAL_PROMPT" in process.env).toBe(false);
+    undo();
+  });
+
+  test("guardPrompts changes nothing when git's own -c names a credential helper", async () => {
+    const repo = makeRepo(root);
+    git(repo, "remote", "add", "origin", "https://gitlab.com/acme/x.git");
+    process.env.GIT_CONFIG_PARAMETERS = "'credential.helper'='!x'";
+    delete process.env.GIT_TERMINAL_PROMPT;
+    const undo = await auth.guardPrompts(repo, { push: true });
     expect("GIT_TERMINAL_PROMPT" in process.env).toBe(false);
     undo();
   });

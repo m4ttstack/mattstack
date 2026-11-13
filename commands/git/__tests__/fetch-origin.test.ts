@@ -98,12 +98,14 @@ describe("fetchOrigin", () => {
   test("the SSH failures name rt git auth --https only when the switch could go ahead", async () => {
     const noKey = await failureOf(fetchOrigin("/r", deps([{ ok: false, output: DENIED }], undefined, { viable: true }).d));
     expect(noKey.next).toEqual(["Load your key with ", out.cmd("ssh-add"), ", or let rt sign in over HTTPS with ", out.cmd("rt git auth --https")]);
+    expect(noKey.why).toBe("git reached origin over SSH, but no ssh-agent on this Mac holds a key. Load yours, or switch this clone to HTTPS.");
 
     const refused = await failureOf(fetchOrigin("/r", deps([{ ok: false, output: DENIED }], { socket: "/s", preferred: true }, { viable: true }).d));
     expect(refused.next).toEqual(["Let rt sign in over HTTPS with ", out.cmd("rt git auth --https")]);
 
     const noKeyOff = await failureOf(fetchOrigin("/r", deps([{ ok: false, output: DENIED }], undefined, { viable: false }).d));
     expect(noKeyOff.next).toEqual(["Load your key in any terminal with ", out.cmd("ssh-add")]);
+    expect(noKeyOff.why).toBe("git reached origin over SSH, but no ssh-agent on this Mac holds a key. Load yours, then run this again.");
 
     const refusedOff = await failureOf(fetchOrigin("/r", deps([{ ok: false, output: DENIED }], { socket: "/s", preferred: true }, { viable: false }).d));
     expect(refusedOff.next).toBeUndefined();
@@ -185,6 +187,19 @@ describe("fetchOrigin", () => {
     const { d, runs } = deps([{ ok: false, output: NO_USER }], undefined, { verdict: NO_TOKEN });
     expect(await failureOf(fetchOrigin("/r", d))).toEqual({ title: "Could not fetch from origin", details: NO_USER });
     expect(runs.length).toBe(1);
+  });
+
+  test("a credential helper named in GIT_CONFIG_PARAMETERS skips the retry: it would come after rt's", async () => {
+    const { d, runs } = deps([{ ok: false, output: NO_USER }, { ok: true }]);
+    d.env = { ...d.env, GIT_CONFIG_PARAMETERS: "'credential.helper'='!x'" };
+    expect(await failureOf(fetchOrigin("/r", d))).toEqual({ title: "Could not fetch from origin", details: NO_USER });
+    expect(runs.length).toBe(1);
+  });
+
+  test("GIT_CONFIG_PARAMETERS naming no credential helper still retries", async () => {
+    const { d } = deps([{ ok: false, output: NO_USER }, { ok: true }]);
+    d.env = { ...d.env, GIT_CONFIG_PARAMETERS: "'core.pager'='less'" };
+    expect((await fetchOrigin("/r", d)).usedRtToken).toBe(true);
   });
 
   test("a non-auth failure never retries", async () => {

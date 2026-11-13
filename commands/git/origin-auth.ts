@@ -98,6 +98,7 @@ export function createOriginAuth(seams: OriginAuthSeams | null = defaultOriginAu
   };
 
   const guardPrompts = async (cwd: string, opts: { push: boolean }): Promise<() => void> => {
+    if (configParamsNameHelper(process.env)) return () => {};
     const fetchOk = (await forOrigin(cwd, false)).ok;
     const passes = fetchOk || (opts.push && (await forOrigin(cwd, true)).ok);
     if (!passes) return () => {};
@@ -119,6 +120,15 @@ const PROMPT_GUARD = ["GIT_TERMINAL_PROMPT", "GIT_ASKPASS"] as const;
 
 export function rtSelfHelper(argv: string[] = rtSelfArgv()): string {
   return `!${argv.map(shellQuote).join(" ")} git credential`;
+}
+
+/**
+ * git reads `GIT_CONFIG_PARAMETERS` (a `git -c` above rt, such as an alias or
+ * hook) after the `GIT_CONFIG_COUNT` pairs, so a helper named there would come
+ * after rt's and get its token on approve. Matching loosely fails closed.
+ */
+export function configParamsNameHelper(env: NodeJS.ProcessEnv): boolean {
+  return /credential\..*helper/is.test(env.GIT_CONFIG_PARAMETERS ?? "");
 }
 
 /** The empty value first clears every helper before it for the host, so git's `store` cannot hand rt's token to a keychain. */
