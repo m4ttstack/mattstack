@@ -73,37 +73,27 @@ would travel with it), refuses a path percent-encoded more than once, and
 redacts every `token` / `*_token` value. On GitLab it refuses the paths
 that return credentials (`REFUSED_SEGMENTS`, also with a format suffix)
 and the query keys that carry credentials or impersonation, and both forges
-refuse a C1 control character, raw or decoded. On GitHub the
-path must sit under the repo (`:repo/...`), and the repo's own path, read
-from its origin URL, must be exactly `<owner>/<repo>`, since every GitHub
-rule counts segments from it. A plain `repos/<owner>/<name>` path must be
-spelled with no percent escapes. A word in `GITHUB_REFUSED_SEGMENTS` is
-refused in any route segment after the repo, or as a segment's dot-suffixed
-prefix. Words match on a skeleton (case, compatibility forms, whitespace,
-invisible characters and combining marks folded away) over a window that
-drops blank parts and refuses dot parts and dot lookalikes. The owner and
-name are never matched, so a repo named after a guarded word is readable,
-and a file path after a literal `:repo/contents/` is not matched, so
-`contents/src/hooks/x.ts` reads. A branch, tag, workflow or label named
-with a guarded word stays refused. `git/blobs` is refused for size, and the
-query keys in `GITHUB_REFUSED_QUERY_KEYS` are refused too. The GitHub list
-also covers secret scanning alerts and security advisories. A word in
+refuse a C1 control character, raw or decoded. On GitHub the path must sit
+under the repo (`:repo/...`), the origin path must be exactly
+`<owner>/<repo>`, and a plain `repos/<owner>/<name>` must have no percent
+escapes. A word in `GITHUB_REFUSED_SEGMENTS` (secret scanning, security
+advisories and the rest; also with a dot suffix) is refused in any part of
+the matching window: the segments after the repo, folded to a skeleton
+(case, compatibility forms, whitespace, invisible characters and combining
+marks), split on `/`, `\` and a decoded `?` or `#`, blank parts dropped,
+dot parts and dot lookalikes refused. The owner, the name and a file path
+after a literal `:repo/contents/` are never matched, so a repo named
+`hooks` and `contents/src/hooks/x.ts` read; a branch, tag, workflow or
+label named with a guarded word stays refused. A word in
 `GITHUB_REFUSED_ROUTES` (`copilot`, whose cloud agent MCP configuration can
-hold tokens) is refused only as the first route part after
-`repos/<owner>/<repo>` whose skeleton is not blank (also with a dot
-suffix, as in `copilot.json`), split after decoding, so `copilot` in a
-branch, a file path or the repo's own name is not refused. A character
-whose own NFKD form differs from it and contains `;`, `%`, `?`, `#` or a
-backslash is refused anywhere in the path; one that folds to `/` is split
-as a separator in the matching window, and unmatched in a file path. A
-decoded `?` or `#` (`%3F`, `%23`) also splits the matching window, so
-`:repo/hooks%3F` is refused while `:repo/contents/docs/C%23.md` and
-`:repo/labels/C%23` read. A lone surrogate is refused too. A GitHub path with an
-empty segment anywhere but a single trailing slash (`//`, raw or decoded
-from `%2F`) is refused, since GitHub may collapse it and join a slash entry
-such as `actions/oidc` that the check saw apart; that also pins which
-segment the route rule reads. Those lists are
-widened, never narrowed, without a design review;
+hold tokens) is refused only as the window's first part, also with a dot
+suffix. Anywhere in the path, the guard refuses a character whose own NFKD
+form differs from it and contains `;`, `%`, `?`, `#` or a backslash, a lone
+surrogate, and an empty segment other than one trailing slash (`//`, raw or
+from `%2F`, which GitHub may collapse to join a slash entry such as
+`actions/oidc`). `git/blobs` is refused for size, and so are the query keys
+in `GITHUB_REFUSED_QUERY_KEYS`. Those lists are widened, never narrowed,
+without a design review;
 `docs/superpowers/specs/2026-11-13-gitlab-get-github-guard-narrowing-design.md`
 is the review for the narrowing above.
 `skills_resolve` (`skills-resolve-tool.ts`) runs `rt skills resolve`'s code
