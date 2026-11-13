@@ -36,7 +36,6 @@ human sees the whole board, not only its crops.
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
 | `redaction` (write-in) | **Confirmed: nothing here should stay private (Recommended)** / **Something needs hiding**, with free text naming the board and what shows | always, once per opening |
-| `next` | `proceed` / `hold` | always |
 
 Selection: `{"redaction":"confirm|<their words>","next":"proceed|hold","note":"<their words or null>"}`.
 
@@ -54,10 +53,9 @@ A clarify question through gate-protocol, scope
 `clarify:redaction-which:<n>`, in a form of its own: which boards of the
 opening need something hidden, multiple choice, one option per board (its
 case and claim), at most four options per question, so more boards spread
-over consecutive questions in that form, then a `next` question with
-`proceed` / `hold`. The form's one-line context says that boards left unpicked count as
+over consecutive questions in that form. The form's one-line context says that boards left unpicked count as
 confirmed, and that picking none confirms them all. Their earlier words
-travel with each board they pick. A `hold` in the form is Held at
+travel with each board they pick. A `hold` answer is Held at
 evidence-redaction.
 
 ## Crops left for this board?
