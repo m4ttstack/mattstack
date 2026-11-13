@@ -1,6 +1,7 @@
 import { GitHubProvider } from '../../src/GitHubProvider.ts';
 import { GitLabProvider } from '../../src/GitLabProvider.ts';
 import type { GitProvider } from '../../src/GitProvider.ts';
+import type { ForgeLogger } from '../../src/logger.ts';
 import {
   approverUsers,
   githubApproverUsername,
@@ -11,6 +12,7 @@ import {
   parseGitHubSlug,
   resolveGitHubToken
 } from './credentials.ts';
+import { installGitLabPacer } from './gitlabPacer.ts';
 
 /**
  * The GitHub second identity, or null when none is configured.
@@ -37,6 +39,18 @@ async function githubApprover(): Promise<GitProvider | null> {
   }
   return new GitHubProvider('https://github.com', token);
 }
+
+/**
+ * Prints glance's warnings and errors into the run log. A merge-readiness
+ * poll stuck at `unchecked` has one sign of why: fetchSingleMR's warning
+ * that its REST read, the one that asks GitLab to recheck, failed.
+ */
+const harnessLogger: ForgeLogger = {
+  debug() {},
+  info() {},
+  warn: (msg, meta) => console.error(`  [glance warn] ${msg}${meta ? ` ${JSON.stringify(meta)}` : ''}`),
+  error: (msg, meta) => console.error(`  [glance error] ${msg}${meta ? ` ${JSON.stringify(meta)}` : ''}`)
+};
 
 export interface ProviderFixture {
   name: 'github' | 'gitlab';
@@ -79,6 +93,8 @@ export interface BuildFixturesResult {
 export const EXPECTED_PROVIDERS = ['github', 'gitlab'] as const;
 
 export async function buildFixtures(): Promise<BuildFixturesResult> {
+  // Before any provider exists, so no GitLab request escapes the per-identity pacing.
+  installGitLabPacer();
   const creds = await loadCredentials();
   if (!creds) {
     console.error('No harness_credentials.json. Copy harness_credentials.example.json and fill it in.');
@@ -130,11 +146,11 @@ export async function buildFixtures(): Promise<BuildFixturesResult> {
       const approvers = approverUsers(creds);
       fixtures.push({
         name: 'gitlab',
-        provider: new GitLabProvider('https://gitlab.com', ownerUser(creds).token),
+        provider: new GitLabProvider('https://gitlab.com', ownerUser(creds).token, { logger: harnessLogger }),
         projectPath: glPath,
         defaultBranch: 'main',
         approver: approvers[0]
-          ? new GitLabProvider('https://gitlab.com', approvers[0].token)
+          ? new GitLabProvider('https://gitlab.com', approvers[0].token, { logger: harnessLogger })
           : null
       });
     } catch (err) {

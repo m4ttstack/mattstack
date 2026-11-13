@@ -83,6 +83,30 @@ describe('GitHubProvider.createPullRequest partial create', () => {
     expect(partial.message).toBe(`Created PR #42 but could not apply labels: ${partial.failedSteps[0]!.message}`);
   });
 
+  test('a reviewer GitHub accepts but drops from requested_reviewers is a failed reviewers step', async () => {
+    const { provider } = stubProvider(route =>
+      route === REVIEWERS ? { number: 42, requested_reviewers: [{ login: 'alice' }] } : undefined
+    );
+
+    const err = await caught(provider.createPullRequest(input({ reviewers: ['alice', 'glance-no-such-user'] })));
+
+    expect(err).toBeInstanceOf(PartialCreateError);
+    const partial = err as PartialCreateError;
+    expect(partial.failedSteps.map(s => s.step)).toEqual(['reviewers']);
+    expect(partial.failedSteps[0]!.message).toBe(
+      'createPullRequest reviewers for #42: GitHub accepted the request but did not add glance-no-such-user as a reviewer'
+    );
+    expect(partial.pullRequest?.iid).toBe(42);
+  });
+
+  test('reviewer logins match requested_reviewers without regard to case', async () => {
+    const { provider } = stubProvider(route =>
+      route === REVIEWERS ? { number: 42, requested_reviewers: [{ login: 'Alice' }] } : undefined
+    );
+    const pr = await provider.createPullRequest(input({ reviewers: ['alice'] }));
+    expect(pr.iid).toBe(42);
+  });
+
   test('a refused reviewer step still applies assignees and labels', async () => {
     const { provider, routes } = stubProvider(route =>
       route === REVIEWERS ? requestError(422, 'Review cannot be requested from pull request author', route) : undefined
