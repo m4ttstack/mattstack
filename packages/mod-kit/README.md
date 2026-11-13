@@ -5,9 +5,10 @@ draws it in the clack look (brand bar, lists, tabs, buttons, input fields), and
 wires hover, press, focus and the hide-and-reopen band. Private workspace
 package, API 2.1.322, dark terminals only.
 
-Two mods show it in use. Read them before writing a new one:
+Three mods show it in use. Read them before writing a new one:
 
-- `mods/gate-form/`: a paged question form. The full worked example.
+- `mods/human-todos/`: a pane of steps that scrolls its own rows and takes the keyboard. The richest example: a model shared with an engine-drawn drawer for vscode and mobile, a Client sent only the rows in view, `revealKeys` and `pressFor`, and the hideable pane with its band.
+- `mods/gate-form/`: a paged question form. The full worked example of a form.
 - `mods/kit-gallery/`: every piece in every state. Run `/kit-gallery` in a
   session that loaded it. The smallest complete mod.
 

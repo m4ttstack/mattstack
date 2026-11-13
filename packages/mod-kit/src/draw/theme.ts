@@ -34,7 +34,6 @@ export const ICON = {
   review: '\u{EBB1}', // check_all
   edit: '\u{EA73}',
   info: '\u{EA74}',
-  minimize: '\u{EABA}', // chrome_minimize
 }
 
 // The mattstack mark's pink and plum (packages/ui MattstackMark).

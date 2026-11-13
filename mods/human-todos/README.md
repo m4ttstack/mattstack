@@ -39,7 +39,7 @@ Run always asks first: press Run, then Confirm. Confirm shows the script and the
 
 ## Commands
 
-- `/todos` opens the pane again after you close it. While it is hidden, the band above the prompt says how many steps wait, with a Show button.
+- `/todos` opens the pane again after you close it. While it is hidden, the band above the prompt says how many steps wait, with a Show button (Open in VS Code and on mobile).
 - `/todos-runner auto|herdr|local` picks where Run executes. `auto` is the default.
 
 ## Keyboard

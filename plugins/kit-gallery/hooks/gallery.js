@@ -166,8 +166,7 @@ var ICON = {
   text: "\uDB81\uDE0E",
   review: "",
   edit: "",
-  info: "",
-  minimize: ""
+  info: ""
 };
 var BRAND = { pink: "#FF6B9D", pinkDeep: "#e9578b", plum: "#161224", glyph: ICON.layers };
 var FILL = {
