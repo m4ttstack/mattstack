@@ -142,7 +142,7 @@ describe('fetchPullRequests contract: updatedAfter validation', () => {
 });
 
 describe('fetchPullRequests contract: an empty list asks for nothing', () => {
-  test('empty `iids` selects the batch mode on both providers', async () => {
+  test('empty `iids` selects the by-iid mode and asks for nothing on both providers', async () => {
     const gitlab = gitlabRecording();
     const github = githubRecording();
 
@@ -151,8 +151,7 @@ describe('fetchPullRequests contract: an empty list asks for nothing', () => {
       [],
     );
 
-    expect(gitlab.calls.length).toBe(1);
-    expect(gitlab.calls[0]?.iids).toEqual([]);
+    expect(gitlab.calls).toEqual([]);
     expect(github.calls.filter((c) => c.startsWith('/search/issues'))).toEqual([]);
   });
 

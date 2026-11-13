@@ -696,8 +696,9 @@ function createDashboardGroup(
   let _isInitialLoading = true;
 
   /**
-   * Batched fetch: uses fetchPullRequests with iids option for a single
-   * GraphQL call. Includes all states so merged/closed MRs are visible.
+   * Batched fetch through fetchPullRequests' iids option (one GitHub call;
+   * on GitLab, one call per iid). Includes all states so merged/closed MRs
+   * are visible.
    *
    * No try/catch here: `createRealtimeWatcher.runFetch` already wraps this
    * call and turns a rejection into `lastError`/`consecutiveErrors` on

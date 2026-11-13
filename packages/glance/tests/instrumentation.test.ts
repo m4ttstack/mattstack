@@ -75,7 +75,7 @@ describe('safeEmit', () => {
 describe('runQuery onRequest', () => {
   test('emits one graphql info per query with op label and status', async () => {
     globalThis.fetch = (async () =>
-      gqlResponse({ project: { mergeRequests: { nodes: [node(7)] } } })) as unknown as typeof fetch;
+      gqlResponse({ project: { mergeRequest: node(7) } })) as unknown as typeof fetch;
     const seen: RequestInfo[] = [];
     const provider = new GitLabProvider('https://gitlab.example', 't', { onRequest: (i) => seen.push(i) });
     await provider.fetchPullRequests({ iids: [7], projectPath: 'g/p' });
@@ -98,7 +98,7 @@ describe('runQuery onRequest', () => {
 
   test('a throwing hook never breaks the request', async () => {
     globalThis.fetch = (async () =>
-      gqlResponse({ project: { mergeRequests: { nodes: [] } } })) as unknown as typeof fetch;
+      gqlResponse({ project: { mergeRequest: null } })) as unknown as typeof fetch;
     const provider = new GitLabProvider('https://gitlab.example', 't', {
       onRequest: () => { throw new Error('hook bug'); },
     });

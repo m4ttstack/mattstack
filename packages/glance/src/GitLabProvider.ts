@@ -579,36 +579,9 @@ interface MRDetailResponse {
   project: { mergeRequest: GQLMR | null } | null;
 }
 
-const MR_BATCH_QUERY = `
-  query GlanceMRBatch($projectPath: ID!, $iids: [String!], $state: MergeRequestState) {
-    project(fullPath: $projectPath) {
-      mergeRequests(iids: $iids, state: $state, first: 100) {
-        nodes {
-          ...MRDashboardFields
-        }
-      }
-    }
-  }
-  ${MR_DASHBOARD_FRAGMENT}
-`;
-
 interface MRBatchResponse {
   project: { mergeRequests: { nodes: GQLMR[] } } | null;
 }
-
-/** Variant without the state filter — returns MRs in any state when queried by IID. */
-const MR_BATCH_QUERY_NO_STATE = `
-  query GlanceMRBatchAll($projectPath: ID!, $iids: [String!]) {
-    project(fullPath: $projectPath) {
-      mergeRequests(iids: $iids, first: 100) {
-        nodes {
-          ...MRDashboardFields
-        }
-      }
-    }
-  }
-  ${MR_DASHBOARD_FRAGMENT}
-`;
 
 /** All MRs in a project by a single author, with full dashboard fields. */
 const MR_BY_AUTHOR_QUERY = `
@@ -1152,26 +1125,24 @@ export class GitLabProvider implements GitProvider {
     const apiState = needsAllStates ? 'all' : (states[0] ?? 'opened');
     const filterSet = needsAllStates ? new Set(states) : null;
 
-    // IID batch path — use batch query for specific MRs.
     // Keyed off the field being present, not non-empty: an empty `iids` list
     // asks for no MRs, not for the role-based involvement set.
+    // One single-MR query per iid: gitlab.com scores the dashboard fragment
+    // inside a `mergeRequests(iids:)` connection at 739, over its cap of 250.
     if (options?.iids) {
       const projectPath = requireProjectPath(options.projectPath, 'iids');
-      // When fetching all states, omit the state filter entirely so
-      // GitLab returns MRs regardless of state (the default is 'opened').
-      const useStateFilter = !needsAllStates;
-      const query = useStateFilter ? MR_BATCH_QUERY : MR_BATCH_QUERY_NO_STATE;
-      const vars: Record<string, unknown> = {
-        projectPath,
-        iids: options.iids.map(String),
-      };
-      if (useStateFilter) {
-        vars.state = apiState;
-      }
-      const resp = await this.runQuery<MRBatchResponse>('fetchPullRequests.iids', query, vars);
-      const nodes = resp.project?.mergeRequests?.nodes ?? [];
-      const results = nodes.map((gql) => toMR(gql, 'author', this.baseURL, null, this.token));
-      return filterSet ? results.filter((pr) => filterSet.has(pr.state as MRState)) : results;
+      const wanted = new Set<string>(states);
+      const iids = [...new Set(options.iids.map(String))];
+      const resps = await Promise.all(
+        iids.map((iid) =>
+          this.runQuery<MRDetailResponse>('fetchPullRequests.iids', MR_DETAIL_QUERY, { projectPath, iid }),
+        ),
+      );
+      return resps
+        .map((resp) => resp.project?.mergeRequest)
+        .filter((gql): gql is GQLMR => gql != null && wanted.has(gql.state))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || Number(b.iid) - Number(a.iid))
+        .map((gql) => toMR(gql, 'author', this.baseURL, null, this.token));
     }
 
     // Author batch path — one query per author, deduped by MR global ID.

@@ -47,22 +47,18 @@ describe('GitLab head pipeline sha, ref and event type', () => {
     const p = new GitLabProvider('https://gitlab.example', 't');
     (p as any).runQuery = async () => ({
       project: {
-        mergeRequests: {
-          nodes: [
-            gitlabNode({
-              headPipeline: {
-                id: 'gid://gitlab/Ci::Pipeline/9',
-                status: 'RUNNING',
-                createdAt: '2026-09-01T00:00:00Z',
-                path: '/grp/proj/-/pipelines/9',
-                sha: 'abc123',
-                ref: 'refs/merge-requests/4/merge',
-                mergeRequestEventType: 'MERGED_RESULT',
-                stages: { nodes: [] },
-              },
-            }),
-          ],
-        },
+        mergeRequest: gitlabNode({
+          headPipeline: {
+            id: 'gid://gitlab/Ci::Pipeline/9',
+            status: 'RUNNING',
+            createdAt: '2026-09-01T00:00:00Z',
+            path: '/grp/proj/-/pipelines/9',
+            sha: 'abc123',
+            ref: 'refs/merge-requests/4/merge',
+            mergeRequestEventType: 'MERGED_RESULT',
+            stages: { nodes: [] },
+          },
+        }),
       },
     });
     const [pr] = await p.fetchPullRequests({ projectPath: 'grp/proj', iids: [7] });
@@ -101,19 +97,15 @@ describe('GitLab head pipeline sha, ref and event type', () => {
     const p = new GitLabProvider('https://gitlab.example', 't');
     (p as any).runQuery = async () => ({
       project: {
-        mergeRequests: {
-          nodes: [
-            gitlabNode({
-              headPipeline: {
-                id: 'gid://gitlab/Ci::Pipeline/12',
-                status: 'PENDING',
-                createdAt: null,
-                path: null,
-                stages: { nodes: [] },
-              },
-            }),
-          ],
-        },
+        mergeRequest: gitlabNode({
+          headPipeline: {
+            id: 'gid://gitlab/Ci::Pipeline/12',
+            status: 'PENDING',
+            createdAt: null,
+            path: null,
+            stages: { nodes: [] },
+          },
+        }),
       },
     });
     const [pr] = await p.fetchPullRequests({ projectPath: 'grp/proj', iids: [7] });
