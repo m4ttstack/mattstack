@@ -91,8 +91,10 @@ also covers secret scanning alerts and security advisories. A word in
 `GITHUB_REFUSED_ROUTES` (`copilot`, whose cloud agent MCP configuration can
 hold tokens) is refused only as the segment right after
 `repos/<owner>/<repo>`, split after decoding, so `copilot` in a branch, a
-file path or the repo's own name is not refused. NFKD separator lookalikes
-in a path count as a separator and are refused. A GitHub path with an
+file path or the repo's own name is not refused. A character whose NFKD
+form is `;`, `%`, `?`, `#` or a backslash is refused anywhere in the path;
+one that folds to `/` is split as a separator in the matching window, and
+unmatched in a file path. A GitHub path with an
 empty segment anywhere but a single trailing slash (`//`, raw or decoded
 from `%2F`) is refused, since GitHub may collapse it and join a slash entry
 such as `actions/oidc` that the check saw apart; that also pins which
