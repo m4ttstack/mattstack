@@ -18,7 +18,7 @@ metadata:
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:doctor` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call `skills_resolve {id: "skills:board:doctor", dir: "<the loaded skill's own directory>"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-576 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-575 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -101,7 +101,6 @@ digraph doctor_flow {
     "Entry outcome (doctor)?" -> "Own lease held (doctor exit)?" [label="entry ends the run"];
     "Entry outcome (doctor)?" -> "Which exit (doctor)?" [label="resumed answer ends the run"];
     "Entry outcome (doctor)?" -> "Doctor error written: stay in the pane" [label="domain skill not loaded: error already written"];
-    "Entry outcome (doctor)?" -> "Doctor error written: stay in the pane" [label="doctor can't run on GitHub: error already written"];
     "Domain repair (domain.md)" -> "Domain repair outcome (doctor)?";
     "Domain repair outcome (doctor)?" -> "Diagnose and rebase (diagnose.md)" [label="no domain skill"];
     "Domain repair outcome (doctor)?" -> "Watch the pipeline (watch.md)" [label="pushed"];

@@ -22,6 +22,7 @@ import {
   type BoardSecretsData,
   type BoardSecretsDeps,
 } from './board-secrets.ts';
+import { mrNoun, mrNouns } from './mr-ref.ts';
 import { shellSingleQuote } from './shell-quote.ts';
 import {
   DEFAULT_SLACK_EMOJI,
@@ -409,7 +410,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
       );
     }
   }
-  const slack = parseSlack(cfg.slack, source);
+  const slack = parseSlack(cfg.slack, source, forge.kind);
   const switchboard: SwitchboardBoardConfig = { url: switchboardUrl() };
   const tabs = parseTabs(cfg.tabs, source);
   return {
@@ -421,7 +422,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     gateGraceMinutes: cfg.gateGraceMinutes ?? 90,
     // Normalize to uppercase so matching is case-insensitive (ticket keys are uppercased).
     ticketPrefixes: (cfg.ticketPrefixes ?? []).map(p => p.trim().toUpperCase()),
-    title: cfg.title ?? 'MRs ready for review',
+    title: cfg.title ?? `${mrNouns(forge.kind)} ready for review`,
     reviewCwd: cfg.reviewCwd ?? '',
     reviewsWorkspace: cfg.reviewsWorkspace ?? 'reviews',
     respondCwd: cfg.respondCwd ?? '',
@@ -543,8 +544,14 @@ export function parseTabs(raw: unknown, source: string): TabConfig[] {
   });
 }
 
-function parseSlack(raw: unknown, source: string): SlackConfig {
-  if (raw === undefined || raw === null) return { ...DEFAULT_SLACK };
+function parseSlack(
+  raw: unknown,
+  source: string,
+  forge: BoardForge['kind']
+): SlackConfig {
+  const multiHeader = `{count} ${mrNoun(forge)}'s ready for review :pray:`;
+  if (raw === undefined || raw === null)
+    return { ...DEFAULT_SLACK, multiHeader };
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error(`${source} "slack" must be an object`);
   }
@@ -566,7 +573,7 @@ function parseSlack(raw: unknown, source: string): SlackConfig {
   return {
     channel: DEFAULT_SLACK.channel,
     singleTemplate: s.singleTemplate ?? DEFAULT_SLACK.singleTemplate,
-    multiHeader: s.multiHeader ?? DEFAULT_SLACK.multiHeader,
+    multiHeader: s.multiHeader ?? multiHeader,
     multiItem: s.multiItem ?? DEFAULT_SLACK.multiItem,
     autoResolveIntervalMinutes:
       s.autoResolveIntervalMinutes ?? DEFAULT_SLACK.autoResolveIntervalMinutes,

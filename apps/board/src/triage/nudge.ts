@@ -1,3 +1,4 @@
+import { FORGE_NOT_YET } from '../config.ts';
 import { mrRef } from '../mr-ref.ts';
 import type {
   AskKind,
@@ -131,6 +132,8 @@ export function plainReason(reason: string, cfg: TriageConfig): string {
       return 'Asks are turned off';
     case 'launch-failed':
       return 'Your agent could not start';
+    case FORGE_NOT_YET:
+      return "Replies on GitHub aren't supported yet";
     case 'already-handled':
       return 'Already handled';
     case 'not-your-mr':

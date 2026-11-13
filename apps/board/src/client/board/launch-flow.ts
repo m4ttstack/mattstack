@@ -6,6 +6,7 @@ import { mrRef } from './MrLinks.tsx';
 export interface ToastHandle {
   done: (text: string) => void;
   fail: (text: string) => void;
+  note: (text: string) => void;
 }
 
 /** Deps a launch flow needs from its caller: how to POST, how to reflect the

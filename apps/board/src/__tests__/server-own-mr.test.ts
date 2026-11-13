@@ -788,8 +788,9 @@ describe("a seat that is not the token's user owns nothing", () => {
   test('the board data names the token user so the client applies the same rule', async () => {
     const data = (await (
       await fetch(`http://127.0.0.1:${borrowed.port}/data.json`)
-    ).json()) as { tokenUser?: string | null };
+    ).json()) as { tokenUser?: string | null; seatUnverified?: boolean };
     expect(data.tokenUser).toBe('carol');
+    expect(data.seatUnverified).toBe(false);
   }, 15_000);
 
   test('nothing reached GitLab or launched a pane', () => {

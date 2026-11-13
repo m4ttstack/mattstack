@@ -85,9 +85,10 @@ function useBodyScrollLock(): void {
 
 /** One transient toast: a fresh id per addToast() call and the text to show.
     `state` marks a toast that tracks work: `pending` draws a spinner until the
-    work settles, then `done` a check or `failed` a cross. A plain toast has
-    none. `icon` is path data for the kit `Icon`, drawn ahead of the text so a
-    toast can echo the control that triggered it. */
+    work settles, then `done` a check or `failed` a cross; a pending toast
+    settled with `note` becomes plain. A plain toast has none. `icon` is path
+    data for the kit `Icon`, drawn ahead of the text so a toast can echo the
+    control that triggered it. */
 interface Toast {
   id: number;
   text: string;
@@ -99,6 +100,7 @@ interface Toast {
 interface ToastHandle {
   done: (text: string) => void;
   fail: (text: string) => void;
+  note: (text: string) => void;
 }
 
 const TOAST_MS = 3500;
@@ -110,7 +112,8 @@ const PENDING_MS = 30000;
 /** Transient toast queue: each addToast() call appends one with a fresh id and
     self-removes it after 3.5s. startToast() opens a pending toast that stays
     until its handle settles it: done swaps in a check and leaves after 2s,
-    fail swaps in a cross and leaves after 3.5s. */
+    fail swaps in a cross and leaves after 3.5s, note settles it as a plain
+    toast for an outcome that is neither. */
 function useToasts(): {
   toasts: Toast[];
   addToast: (text: string, opts?: { icon?: string }) => void;
@@ -154,6 +157,7 @@ function useToasts(): {
       return {
         done: (doneText) => settle({ text: doneText, state: "done" }, DONE_MS),
         fail: (failText) => settle({ text: failText, state: "failed" }, TOAST_MS),
+        note: (noteText) => settle({ text: noteText }, TOAST_MS),
       };
     },
     [expire],

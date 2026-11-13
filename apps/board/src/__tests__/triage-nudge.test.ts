@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
+import { FORGE_NOT_YET } from '../config.ts';
 import type { NudgeOutcomePayload, NudgeResult } from '../peer/envelope.ts';
 import {
   markNudgeHandled,
@@ -647,6 +648,12 @@ describe('plainReason', () => {
     expect(plainReason('disabled', cfg)).toBe('Automatic asks are off');
     expect(plainReason('already-handled', cfg)).toBe('Already handled');
     expect(plainReason('not-your-mr', cfg)).toBe("It isn't your MR");
+  });
+
+  test('a GitHub refusal says replies are not supported yet', () => {
+    expect(plainReason(FORGE_NOT_YET, cfg)).toBe(
+      "Replies on GitHub aren't supported yet"
+    );
   });
 
   test('the budget phrase names the configured limit, singular at one', () => {

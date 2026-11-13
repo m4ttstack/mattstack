@@ -275,7 +275,7 @@ export function useBoardData(
 // of DOM-touching hooks, so the test imports runLaunchFlow directly from
 // launch-flow.ts rather than through here -- this file only *uses* it below.
 
-const SILENT_TOAST = { done: () => {}, fail: () => {} };
+const SILENT_TOAST = { done: () => {}, fail: () => {}, note: () => {} };
 
 /** Closes runLaunchFlow over one action's server path and optimistic axis.
     `axis: null` skips the optimistic queued/rollback entirely -- for resume

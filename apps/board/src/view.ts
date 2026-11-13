@@ -3,6 +3,7 @@ import type { ReviewStatus } from './client/types.ts';
 import type { TabConfig } from './config.ts';
 import type { BoardMR, BoardSyncError } from './data.ts';
 import { hasChangesRequested } from './data.ts';
+import { mrNoun, type ForgeKind } from './mr-ref.ts';
 import { canonicalUsername } from './peer/envelope.ts';
 import { projectKeyOf } from './triage/stack.ts';
 import { authorTurn, type TurnConfig } from './turn.ts';
@@ -217,7 +218,7 @@ export function statusFlags<M extends BoardMR & { standDown?: boolean }>(
     flags.push({
       key: 'stood-down',
       text: 'auto-doctor off',
-      title: 'auto-doctor stood down for this MR, right-click to re-enable',
+      title: `auto-doctor stood down for this ${mrNoun(mr)}, right-click to re-enable`,
     });
   // A row nested under its parent already shows the relationship; the flag
   // only earns its place when the parent is not visible above the row.
@@ -368,6 +369,18 @@ export function effectiveSeat(
   return canonicalUsername(seat) === canonicalUsername(tokenUser) ? seat : null;
 }
 
+/** effectiveSeat as the client reads it from /data.json: a seat the server
+    could not tie to the signed-in forge user owns nothing. */
+export function boardSeat(data: {
+  defaultMember: string | null | undefined;
+  tokenUser?: string | null;
+  seatUnverified?: boolean;
+}): string | null {
+  return data.seatUnverified
+    ? null
+    : effectiveSeat(data.defaultMember, data.tokenUser);
+}
+
 /** Whether the seat authored this MR; on an "all" board nothing is. Every
     author-only action (merge, doctor, respond, slack post...) gates on this,
     in the menu and in the server route alike. */
@@ -399,12 +412,15 @@ export type StandDownTarget<M extends BoardMR> =
 export function resolveStandDownTarget<M extends BoardMR>(
   mrUrl: string,
   mrs: M[],
-  defaultMember: string
+  defaultMember: string,
+  forge: ForgeKind = 'gitlab'
 ): StandDownTarget<M> {
+  const noun = mrNoun(forge);
   const mr = mrs.find(m => m.webUrl === mrUrl);
-  if (!mr) return { ok: false, status: 400, error: `unknown MR "${mrUrl}"` };
+  if (!mr)
+    return { ok: false, status: 400, error: `unknown ${noun} "${mrUrl}"` };
   if (!isOwnMr(mr, seatOf(defaultMember)))
-    return { ok: false, status: 403, error: 'not your MR' };
+    return { ok: false, status: 403, error: `not your ${noun}` };
   return { ok: true, mr, descendants: descendantsOf(mr, mrs) };
 }
 

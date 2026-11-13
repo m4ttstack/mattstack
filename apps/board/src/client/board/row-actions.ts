@@ -5,7 +5,7 @@
 import { mergeBlockedReason } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
-import { forgeWord, mrRef, onGitHub } from '../../mr-ref.ts';
+import { forgeWord, mrNoun, mrRef, onGitHub } from '../../mr-ref.ts';
 import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
 import type { BoardMRWithReview, OrgTeam } from '../types.ts';
 import { askPickerModel, type AskPickerModel } from './ask-picker.ts';
@@ -27,7 +27,8 @@ import {
   reviewLogged,
   reviewMenuItems,
   roundSuffix,
-  SEAT_HINT,
+  SEAT_UNVERIFIED_HINT,
+  seatHint,
 } from './format.ts';
 import { boardPeople, NO_PEOPLE, type People } from './people.ts';
 import { laneDismissed } from './row-status.ts';
@@ -175,6 +176,8 @@ export interface ActionEnv {
   ownerSlackRepos?: string[];
   /** The board's seat; null on an "all" board. */
   self: string | null;
+  /** The seat is set but unverified; `self` is null for that reason. */
+  seatUnverified?: boolean;
   roster: string[];
   /** Everyone the board knows; absent, a row names only its own MR's
       people and the org's teams. */
@@ -532,7 +535,7 @@ export function rowActions(
             reviewer: latch.reviewer,
             discussionId: latch.discussionId,
           },
-          block(latch.requested && 'asked in the MR thread')
+          block(latch.requested && `asked in the ${mrNoun(mrx)} thread`)
         )
       );
     const askTargets = firstReviewTargets(mrx, env.roster, env.peers);
@@ -606,7 +609,7 @@ export function rowActions(
         'author actions',
         PEOPLE,
         { kind: 'open', url: '' },
-        { blocked: SEAT_HINT }
+        { blocked: env.seatUnverified ? SEAT_UNVERIFIED_HINT : seatHint(mrx) }
       )
     );
   if (!env.local)
@@ -621,8 +624,7 @@ export function rowActions(
       )
     );
 
-  const github = onGitHub(mrx);
-  if (env.local && own && !github) {
+  if (env.local && own) {
     // glance hides both buttons on a draft or an MR that is not open; the
     // board lists only open MRs, so a hidden button past draft is a state
     // the row blocks rather than one it trusts.
@@ -706,9 +708,9 @@ export function rowActions(
       { kind: 'open', url: mrx.webUrl ?? '' }
     )
   );
-  if (env.local && !github)
+  if (env.local)
     gitlab.push(
-      item('gitlab', 'refresh-mr', 'refresh from gitlab', REFRESH, {
+      item('gitlab', 'refresh-mr', `refresh from ${forgeWord(mrx)}`, REFRESH, {
         kind: 'refresh',
       })
     );
@@ -739,7 +741,7 @@ export function rowActions(
         ? item(
             'slack',
             'open-slack-post',
-            'open MR post in slack…',
+            `open ${mrNoun(mrx)} post in slack…`,
             SLACK,
             { kind: 'slack-posts' },
             { hint: `${posts.length} posts` }
@@ -747,7 +749,7 @@ export function rowActions(
         : item(
             'slack',
             'open-slack-post',
-            'open MR post in slack',
+            `open ${mrNoun(mrx)} post in slack`,
             SLACK,
             { kind: 'open', url: posts[0]?.permalink ?? '' },
             block(
@@ -802,7 +804,7 @@ export function rowActions(
         'stand-down',
         mrx.standDown
           ? 're-enable auto-doctor'
-          : `auto-doctor: ignore this ${hasStackDescendants(onBoard, env.allMrs) ? 'stack' : 'MR'}`,
+          : `auto-doctor: ignore this ${hasStackDescendants(onBoard, env.allMrs) ? 'stack' : mrNoun(mrx)}`,
         DISMISS,
         { kind: 'stand-down', on: !mrx.standDown },
         block(

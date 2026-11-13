@@ -11,7 +11,12 @@ the MR's project, `ci_watch`, `ci_triage`, `pipeline_jobs`,
 `mr_job_trace`, `mr_retry`, `mr_view` and `mr_ready` also take
 `repoName` = `<root>` and `iid` in its place as the same call. `mr_retry`
 keeps `leaseMrUrl: <mr>` either way. `<N>` is the number in `ci_watch`'s
-`pipeline.id` (`gitlab:pipeline:N`).
+`pipeline.id` (`gitlab:pipeline:N`). On GitHub, `ci_triage` and
+`pipeline_jobs` take no `pipelineId`: their default is every check on the
+PR head, which is the watched sha (a moved head returns `superseded`
+first). `ci_watch`'s own `N` is the head's anchor run and maps back to
+every head check, but any other run id names one workflow run alone, so
+leaving `pipelineId` out is the form that cannot narrow the read.
 
 ```mermaid
 flowchart TB
@@ -21,7 +26,6 @@ flowchart TB
     git_remote_origin[/"git remote get-url origin (watch-ci target)"/]
     target_forge_host{"Forge host (watch-ci target)?"}
     mr_for_branch[/"mr_for_branch {repoName: <root>, branches: [<branch>]}"/]
-    gh_pr_list[/gh pr list --head <branch> --json number,url/]
     gate_which_forge
     own_run_identity{"Own run (watch-ci identity)?"}
     run_field_set_branch_mr[/"run_field_set {key: branch, then mr when found, stage: watch-ci}"/]
@@ -34,7 +38,7 @@ flowchart TB
     waiting_results_spent{"waiting-results spent (watch-ci)?"}
     end_turn_background_watch
     ci_watch_notification(["Trigger: the ci_watch task notification (watch-ci)"])
-    stop_gitlab_ci_shortcut["STOP: GitLab CI goes through ci_watch, the read tools, gitlab_get and mr_retry (watch-ci)"]:::stop
+    stop_gitlab_ci_shortcut["STOP: CI goes through ci_watch, the read tools, gitlab_get on GitLab and mr_retry (watch-ci)"]:::stop
     stop_lease_holder_owns["STOP: the lease holder owns every commit, push and retry (watch-ci)"]:::stop
     stand_down((("Stand down: report the holder, or hand it back (watch-ci)")))
     gate_lease_unavailable
@@ -44,59 +48,33 @@ flowchart TB
     gate_watch_refused
     run_budget_watch_off_script[/"run_budget {key: watch-ci:ci-watch-off-script, limit: 2, stage}"/]
     watch_off_script_spent{"ci-watch-off-script spent (watch-ci)?"}
-    ci_lease_claim_github[/"ci_lease_claim {mrUrl: <mr>, branch} (GitHub)"/]
-    github_claim_result{"ci_lease_claim result (GitHub)?"}
-    stop_hand_rolled_claim["STOP: claim the lease only with ci_lease_claim (watch-ci)"]:::stop
-    run_budget_claim_errors[/"run_budget {key: watch-ci:github-claim-errors, limit: 2, stage}"/]
-    claim_errors_spent{"github-claim-errors spent (watch-ci)?"}
-    fix_claim_error
-    gate_claim_refused
-    run_budget_claim_off_script[/"run_budget {key: watch-ci:github-claim-off-script, limit: 2, stage}"/]
-    claim_off_script_spent{"github-claim-off-script spent (watch-ci)?"}
-    gh_pr_checks[/"gh pr checks <mr> (poll)"/]
-    checks_exit_code{"gh pr checks exit (GitHub poll)?"}
-    run_budget_polls[/"run_budget {key: watch-ci:github-polls:<sha12>, limit: 46, stage}"/]
-    polls_spent{"github-polls spent (watch-ci)?"}
-    ci_lease_heartbeat[/"ci_lease_heartbeat {mrUrl} (GitHub poll)"/]
-    heartbeat_result{"Heartbeat result (GitHub poll)?"}
-    sleep_between_polls[/"sleep 60 as a background Bash task (GitHub poll)"/]
-    gh_pr_view_head_sha[/"gh pr view <mr> --json headRefOid (sha guard)"/]
-    checks_match_sha{"Checks are for the watched sha (GitHub poll)?"}
-    run_budget_sha_waits[/"run_budget {key: watch-ci:github-sha-waits:<sha12>, limit: 6, stage}"/]
-    sha_waits_spent{"github-sha-waits spent (watch-ci)?"}
-    checks_passed_or_failed{"Checks passed or failed (GitHub poll)?"}
-    ci_triage[/"ci_triage {mrUrl: <mr>, pipelineId: <N>, config?}"/]
+    ci_triage[/"ci_triage {mrUrl: <mr>, pipelineId: <N> on GitLab, config?}"/]
     ci_triage_result{"ci_triage result (watch-ci)?"}
-    stop_gitlab_triage_shortcut["STOP: GitLab triage goes through ci_triage (watch-ci)"]:::stop
+    stop_gitlab_triage_shortcut["STOP: triage goes through ci_triage (watch-ci)"]:::stop
     unclear_jobs_present{"UNCLEAR jobs in the report (watch-ci)?"}
     mr_job_trace[/"mr_job_trace {mrUrl: <mr>, jobId, tailLines?, headLines?, grep?} per UNCLEAR job"/]
     classify_triage_report
     classify_failed_jobs
-    classify_failing_checks
     only_infra_failures{"Only INFRA blocking failures, none INHERITED (watch-ci)?"}
     run_budget_infra_retries[/"run_budget {key: watch-ci:infra-retries:<sha12>, limit: 2, stage}"/]
     infra_retries_spent{"infra-retries spent (watch-ci)?"}
-    retry_forge_host{"Retry on which forge (watch-ci)?"}
     mr_retry[/"mr_retry {mrUrl: <mr>, jobId, leaseMrUrl: <mr>} per INFRA job"/]
     mr_retry_result{"mr_retry result (watch-ci)?"}
     gate_retry_refused
+    run_budget_retry_waits[/"run_budget {key: watch-ci:retry-waits:<sha12>, limit: 21, stage}"/]
+    retry_waits_spent{"retry-waits spent (watch-ci)?"}
+    sleep_before_retry[/"sleep 60 as a background Bash task (GitHub retry wait)"/]
+    end_turn_retry_wait["End the turn: waiting to retry (watch-ci)"]
+    retry_wait_done(["Trigger: the retry wait's sleep finished (watch-ci)"])
     run_budget_retry_off_script[/"run_budget {key: watch-ci:retry-off-script, limit: 2, stage}"/]
     retry_off_script_spent{"retry-off-script spent (watch-ci)?"}
-    ci_lease_claim_retry[/"ci_lease_claim {mrUrl: <mr>, branch} (GitHub retry)"/]
-    reclaim_result{"Re-claim result (GitHub retry)?"}
-    gate_reclaim_refused
-    gh_run_rerun[/gh run rerun <run-id> --failed/]
     own_run_green{"Own run (watch-ci green)?"}
-    draft_forge_host{"Forge host (watch-ci draft check)?"}
     mr_view_draft[/"mr_view {mrUrl: <mr>} (draft check)"/]
-    gh_pr_view_draft[/"gh pr view <mr> --json isDraft (draft check)"/]
     mr_still_draft{"MR still a draft (watch-ci)?"}
     gate_mark_ready
     run_budget_mark_ready[/"run_budget {key: watch-ci:mark-ready-iterations, limit: 2, stage}"/]
     mark_ready_spent{"mark-ready-iterations spent (watch-ci)?"}
-    mark_ready_forge_host{"Forge host (watch-ci mark-ready)?"}
     mr_ready[/"mr_ready {mrUrl: <mr>}"/]
-    gh_pr_ready[/gh pr ready <number>/]
     gate_ci
     run_budget_ci_gate[/"run_budget {key: watch-ci:ci-gate-iterations, limit: 3}"/]
     ci_gate_spent{"ci-gate-iterations spent (watch-ci)?"}
@@ -135,14 +113,12 @@ flowchart TB
     run_open --> git_branch_current
     git_branch_current --> git_remote_origin
     git_remote_origin --> target_forge_host
-    target_forge_host -->|GitLab, no MR known| mr_for_branch
-    target_forge_host -->|GitHub, no PR known| gh_pr_list
+    target_forge_host -->|GitLab or GitHub, no MR known| mr_for_branch
     target_forge_host -->|"MR named, handed, or recorded (a resumed run's `mr`)"| own_run_identity
     target_forge_host -->|anything else, nothing handed| gate_which_forge
     gate_which_forge -->|answered: the named forge| target_forge_host
     mr_for_branch -->|a result, null included| own_run_identity
     mr_for_branch -->|error: never read as no MR| gate_ci
-    gh_pr_list --> own_run_identity
     own_run_identity -->|yes| run_field_set_branch_mr
     own_run_identity -->|no: inherited| mr_found_for_lease
     run_field_set_branch_mr --> mr_found_for_lease
@@ -165,9 +141,8 @@ flowchart TB
     ci_watch_state -->|timeout, no_pipeline, canceled, skipped, manual, superseded or aborted| gate_ci
     ci_watch_state -->|stood_down, holder named| stop_lease_holder_owns
     ci_watch_state -->|lease_unavailable| gate_lease_unavailable
-    ci_watch_state -->|unsupported_forge: a GitHub PR| ci_lease_claim_github
     ci_watch_state -->|tool error| run_budget_watch_errors
-    ci_watch_state -->|tempted to watch with a script or the GitLab CLI| stop_gitlab_ci_shortcut
+    ci_watch_state -->|tempted to watch with a script or the GitLab or GitHub CLI| stop_gitlab_ci_shortcut
     stop_gitlab_ci_shortcut --> ci_watch
     stop_lease_holder_owns --> stand_down
     gate_lease_unavailable -->|take, hold or hand back| mr_known_at_exit
@@ -183,42 +158,6 @@ flowchart TB
     run_budget_watch_off_script --> watch_off_script_spent
     watch_off_script_spent -->|no: watch again| ci_watch
     watch_off_script_spent -->|yes: fail| mr_known_at_exit
-    ci_lease_claim_github --> github_claim_result
-    github_claim_result -->|claimed: true| gh_pr_checks
-    github_claim_result -->|claimed: false, holder named| stop_lease_holder_owns
-    github_claim_result -->|tool error| run_budget_claim_errors
-    github_claim_result -->|tempted to write the lease by hand or with a script| stop_hand_rolled_claim
-    stop_hand_rolled_claim --> ci_lease_claim_github
-    run_budget_claim_errors --> claim_errors_spent
-    claim_errors_spent -->|no| fix_claim_error
-    claim_errors_spent -->|yes| gate_claim_refused
-    fix_claim_error --> ci_lease_claim_github
-    gate_claim_refused -->|take, hold or hand back| mr_known_at_exit
-    gate_claim_refused -->|iterate| run_budget_claim_off_script
-    run_budget_claim_off_script --> claim_off_script_spent
-    claim_off_script_spent -->|no: claim again| ci_lease_claim_github
-    claim_off_script_spent -->|yes: fail| mr_known_at_exit
-    gh_pr_checks --> checks_exit_code
-    checks_exit_code -->|0, or non-8 exit with checks reported| gh_pr_view_head_sha
-    checks_exit_code -->|8, or no checks reported: pending| run_budget_polls
-    run_budget_polls --> polls_spent
-    polls_spent -->|no| ci_lease_heartbeat
-    polls_spent -->|yes: timeout| gate_ci
-    ci_lease_heartbeat --> heartbeat_result
-    heartbeat_result -->|ok: true| sleep_between_polls
-    heartbeat_result -->|lost| stop_lease_holder_owns
-    heartbeat_result -->|none: claim it again| ci_lease_claim_github
-    heartbeat_result -->|tool error| gate_ci
-    sleep_between_polls --> gh_pr_checks
-    gh_pr_view_head_sha --> checks_match_sha
-    checks_match_sha -->|yes| checks_passed_or_failed
-    checks_match_sha -->|no| run_budget_sha_waits
-    run_budget_sha_waits --> sha_waits_spent
-    sha_waits_spent -->|no: wait for the watched sha| sleep_between_polls
-    sha_waits_spent -->|yes: no checks for the watched sha| gate_ci
-    checks_passed_or_failed -->|passed| own_run_green
-    checks_passed_or_failed -->|failed| classify_failing_checks
-    classify_failing_checks --> only_infra_failures
     ci_triage --> ci_triage_result
     ci_triage_result -->|triaged| unclear_jobs_present
     ci_triage_result -->|tool error: quote it| classify_failed_jobs
@@ -232,46 +171,37 @@ flowchart TB
     only_infra_failures -->|yes| run_budget_infra_retries
     only_infra_failures -->|no: a REAL, UNCLEAR or INHERITED failure| gate_ci
     run_budget_infra_retries --> infra_retries_spent
-    infra_retries_spent -->|no: retry once| retry_forge_host
+    infra_retries_spent -->|no: retry once| mr_retry
     infra_retries_spent -->|yes: retried already| gate_ci
-    retry_forge_host -->|GitLab| mr_retry
-    retry_forge_host -->|GitHub| ci_lease_claim_retry
     mr_retry --> mr_retry_result
     mr_retry_result -->|retried: watch again| ci_watch
     mr_retry_result -->|refused: lease_held, holder named| stop_lease_holder_owns
+    mr_retry_result -->|GitHub: any job's retry refused because its run is still in progress| run_budget_retry_waits
     mr_retry_result -->|tool error| gate_retry_refused
+    run_budget_retry_waits --> retry_waits_spent
+    retry_waits_spent -->|no| sleep_before_retry
+    retry_waits_spent -->|yes: GitHub retry waits spent| gate_retry_refused
+    sleep_before_retry --> end_turn_retry_wait
+    end_turn_retry_wait -.-> retry_wait_done
+    retry_wait_done --> mr_retry
     gate_retry_refused -->|take: human retried| ci_watch
     gate_retry_refused -->|iterate| run_budget_retry_off_script
     gate_retry_refused -->|hold or hand back| mr_known_at_exit
     run_budget_retry_off_script --> retry_off_script_spent
-    retry_off_script_spent -->|no: retry again| retry_forge_host
+    retry_off_script_spent -->|no: retry again| mr_retry
     retry_off_script_spent -->|yes: fail| mr_known_at_exit
-    ci_lease_claim_retry --> reclaim_result
-    reclaim_result -->|claimed: true| gh_run_rerun
-    reclaim_result -->|claimed: false, holder named| stop_lease_holder_owns
-    reclaim_result -->|tool error| gate_reclaim_refused
-    gate_reclaim_refused -->|take: human reran| gh_pr_checks
-    gate_reclaim_refused -->|iterate| run_budget_retry_off_script
-    gate_reclaim_refused -->|hold or hand back| mr_known_at_exit
-    gh_run_rerun --> gh_pr_checks
-    own_run_green -->|yes| draft_forge_host
+    own_run_green -->|yes| mr_view_draft
     own_run_green -->|no: inherited| mr_known_at_exit
-    draft_forge_host -->|GitLab| mr_view_draft
-    draft_forge_host -->|GitHub| gh_pr_view_draft
     mr_view_draft --> mr_still_draft
-    gh_pr_view_draft --> mr_still_draft
     mr_still_draft -->|yes| gate_mark_ready
     mr_still_draft -->|no| mr_known_at_exit
-    gate_mark_ready -->|mark ready now| mark_ready_forge_host
+    gate_mark_ready -->|mark ready now| mr_ready
     gate_mark_ready -->|keep it draft, go back or hold| mr_known_at_exit
     gate_mark_ready -->|iterate| run_budget_mark_ready
     run_budget_mark_ready --> mark_ready_spent
     mark_ready_spent -->|no: reopen with their note| gate_mark_ready
     mark_ready_spent -->|yes: keep it draft| mr_known_at_exit
-    mark_ready_forge_host -->|GitLab| mr_ready
-    mark_ready_forge_host -->|GitHub| gh_pr_ready
     mr_ready --> mr_known_at_exit
-    gh_pr_ready --> mr_known_at_exit
     gate_ci -->|fix and re-push| run_budget_fix_rounds
     gate_ci -->|retry the job| mr_found_for_retry
     gate_ci -->|hand back, abandon or hold| mr_known_at_exit
@@ -305,7 +235,7 @@ flowchart TB
     mr_found_for_retry -->|yes| run_budget_gate_retries
     mr_found_for_retry -->|no: nothing to retry| run_budget_ci_gate
     run_budget_gate_retries --> gate_retries_spent
-    gate_retries_spent -->|no| retry_forge_host
+    gate_retries_spent -->|no| mr_retry
     gate_retries_spent -->|yes: reopen| run_budget_ci_gate
     mr_known_at_exit -->|yes| ci_lease_release
     mr_known_at_exit -->|no| which_exit

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Badge, ICONS, Popover, SideDrawer, Tooltip } from '@mattstack/tui-kit';
+import { mrNoun } from '../../mr-ref.ts';
 import { cancelRebase } from '../api.ts';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { clauseOf } from './clause.ts';
@@ -367,7 +368,9 @@ function MoreStatuses({
           const body = (
             <span className="tui-status-more-stack">
               {l.source && (
-                <span className="tui-status-more-source">{l.source}</span>
+                <span className="tui-status-more-source">
+                  {l.source === 'MR' ? mrNoun(mr) : l.source}
+                </span>
               )}
               <span className="tui-status-more-text">
                 <span className="tui-status-word">{l.word}</span>
