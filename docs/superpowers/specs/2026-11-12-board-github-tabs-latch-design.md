@@ -138,7 +138,7 @@ shepherd on 2026-11-13 (not to be re-probed):
   merged; `packages/rt-client/` for the one directory key and the three
   verbs' entries in `src/commands.ts` (this spec asks for the
   `commands.ts` widening: the board's `rtCommand` is typed from it).
-- The forge-copy-sweep lane is editing description strings in
+- The forge-copy-sweep lane (chat id `forge-copy-sweep.x5pq`) is editing description strings in
   `packages/rt-client/src/settings/registry-defs.ts` and
   `registry-schemas.ts` and regenerating `schema.lock.json`. DM it before
   touching those files; add only this key; merge main and regenerate the
@@ -246,7 +246,7 @@ come from rt:ui-copy.
 
 **Verb.** `mr:owner-rules {repoName, iid} -> {rules: [{type, section,
 approved}], unknownReason?}` calls the repo's provider's existing
-`fetchApprovalRules(projectPath, [iid])`. It is forge-generic in the
+`fetchApprovalRules({projectPath, iids: [iid]})`. It is forge-generic in the
 handler, but the board calls it only on GitHub, since GitLab keeps its
 `forge:get` approval_state read. It is not an MCP tool.
 
@@ -276,6 +276,11 @@ rule as every other block). A team owner lists its directory team's members
 exactly as today. GitHub drops a user owner's rule once that person
 reviews, so a user owner never reads approved. They are already "engaged"
 by then and leave the picker anyway.
+
+`readOwnerRules` also feeds the Code Owner Slack posts (`ownersPostPlan`).
+On GitHub that path stays as it is: a GitHub owner token names no channel,
+so `planOwnersPost` finds nothing to post to, and the posts stay a
+non-goal. A test pins that a GitHub rule set plans no post.
 
 **Directory key.** `mattstack.directory.teams.<name>.github.team`: an
 optional string in the `@org/team` form, titled and described per
@@ -325,6 +330,15 @@ export interface LatchGateway {
   createNote(mr: LatchMr, body: string, discussionId?: string):
     Promise<{ id: number }>;
 }
+
+/** One banner to upload. `alt` is the image's alt text, which
+    bannerMarkdown checks a cached upload against. */
+export interface LatchFile {
+  filename: string;
+  bytes: Uint8Array;
+  contentType: string;
+  alt: string;
+}
 ```
 
 - **GitLab gateway** (`latch/gateway.ts`). `uploadFiles` calls
@@ -355,7 +369,7 @@ export interface LatchGateway {
 `postReplyDue`, `bannerMarkdown`, `landFollowUp` and `spendForApproval`
 take the `LatchMr` where they take `projectId`/`projectPath`/`iid` today.
 Their logic and ordering do not change. `LatchMrFacts` (`triage/latch.ts`)
-already carries `rtRepo` and gains `projectId: number | null`.
+already carries `rtRepo`; its `projectId` becomes `number | null`.
 
 ### Staging the banner for upload
 
@@ -477,16 +491,17 @@ already queued or running when the author's board starts.
 
 | When | Calls (GitHub API requests through the daemon) |
 |---|---|
-| Arm | `mr:attach-upload` with 6 files: 1 comment POST, about 12 asset requests (gh's upload policy and storage PUT per file), 1 comment GET, 1 DELETE. `mr:comment-file`: PR GET, files GET, comment POST, then a discussions refresh (about 4). About 22 in all. |
+| Arm | `mr:attach-upload` with 6 files: 1 comment POST, about 12 asset requests (gh's upload policy and storage PUT per file), gh's own lookups of the repo and PR (about 2), 1 comment GET, 1 DELETE. `mr:comment-file`: PR GET, files GET, comment POST, then a discussions refresh (about 4). About 22 in all. |
 | Each phase change (about 3 per review cycle) | `mr:note-update`: 1 PATCH; `discussions:resolve`: 1 GraphQL plus its refresh, when the thread changes |
 | A rare banner | about 5 (one-file upload) |
 | A reply | 1 POST plus a refresh |
+| Each landing | 1 `discussions:refresh` for `countNew` (about 4), from the pass or the done signal, whichever lands it |
 | Each ask | 1 `requested_reviewers` POST, plus `mr:action`'s usual read-back |
 | Latch pass reads | `discussions:read` per in-scope PR per triage run: served from the daemon's store on a granted repo, refetched at most every 2 minutes otherwise; only PRs with a finished review or a live latch |
 | Owner rules | 1 GraphQL query per own PR change |
 | Identity check | 1 `forge:self` (one `GET /user`) per repo per 24 hours; the kv entry is shared by the triage pass and the server through the state db |
 
-A reviewer running 3 review cycles in an hour costs about 100 requests that
+A reviewer running 3 review cycles in an hour costs about 110 requests that
 hour, and a typical hour far less. GitHub allows 5,000 per hour. No poll or
 interval is added.
 
@@ -520,7 +535,8 @@ All three take the serialized repo identity as `repoName`, decode it with
   returned: the images are what the caller needs, and a leftover holder
   comment is noise, not harm.
 - **`mr:owner-rules {repoName, iid}`** -> `{rules: ApprovalRuleLite[],
-  unknownReason?}` from `provider.fetchApprovalRules(projectPath, [iid])`.
+  unknownReason?}` from `provider.fetchApprovalRules({projectPath, iids:
+  [iid]})`.
 
 ### The glance method
 
