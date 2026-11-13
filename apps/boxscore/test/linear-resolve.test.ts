@@ -603,4 +603,14 @@ describe('GitHub attachment credit', () => {
       await creditFor('github', { kind: 'github', projects: ['x/y'] })
     ).toBeNull();
   });
+
+  it('credits nobody for an unconfigured project even when its spelling matches the stored rows', async () => {
+    expect(
+      await creditFor(
+        'github',
+        { kind: 'github', projects: ['x/y'] },
+        'https://github.com/o/r/pull/5'
+      )
+    ).toBeNull();
+  });
 });

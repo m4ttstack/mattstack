@@ -292,6 +292,9 @@ fixture responses carry `forge` too.
 - The parsed `<owner>/<repo>` is matched to a configured project
   case-insensitively and replaced by the configured spelling, so `mrKey`
   lookups hit.
+- A PR in a project outside `boxscore.projects` is never looked up, since
+  `mr_index` can keep rows from a removed project. It still counts as an
+  attachment, so the issue gets no text-link fallback.
 - The rest of the grading is unchanged.
 
 `resolveLinearTickets` gets the forge through its existing arguments or

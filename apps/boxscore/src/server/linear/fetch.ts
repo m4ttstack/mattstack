@@ -324,28 +324,27 @@ export async function resolveLinearTickets(
   ): { candidates: LinkCandidate[]; hadMrAttachment: boolean } => {
     const nodes = raw.attachments?.nodes ?? [];
     // Linear's sourceType for a GitHub PR is not guaranteed, so GitHub teams trust the URL alone.
-    // An unconfigured project keeps its own spelling: it matches no known MR, like a GitLab MR outside the data.
-    const parsed =
-      forge?.kind === 'github'
-        ? nodes.flatMap(n => {
-            const p = parseChangeUrl(n.url, 'github');
-            return p
-              ? [
-                  {
-                    projectPath:
-                      configuredProject(p.projectPath) ?? p.projectPath,
-                    iid: p.iid,
-                  },
-                ]
-              : [];
-          })
-        : nodes
-            .filter(n => n.sourceType === 'gitlab')
-            .map(n => parseMrUrl(n.url))
-            .filter(
-              (p): p is { projectPath: string; iid: number } => p !== null
-            );
-    if (parsed.length === 0) return { candidates: [], hadMrAttachment: false };
+    // A PR in an unconfigured project still counts as an attachment but is never looked up:
+    // mr_index can keep rows from a project since removed from boxscore.projects.
+    let parsed: { projectPath: string; iid: number }[];
+    if (forge?.kind === 'github') {
+      const prs = nodes.flatMap(n => {
+        const p = parseChangeUrl(n.url, 'github');
+        return p ? [p] : [];
+      });
+      if (prs.length === 0) return { candidates: [], hadMrAttachment: false };
+      parsed = prs.flatMap(p => {
+        const projectPath = configuredProject(p.projectPath);
+        return projectPath ? [{ projectPath, iid: p.iid }] : [];
+      });
+    } else {
+      parsed = nodes
+        .filter(n => n.sourceType === 'gitlab')
+        .map(n => parseMrUrl(n.url))
+        .filter((p): p is { projectPath: string; iid: number } => p !== null);
+      if (parsed.length === 0)
+        return { candidates: [], hadMrAttachment: false };
+    }
 
     const result: LinkCandidate[] = [];
     const indexKeys: string[] = [];
