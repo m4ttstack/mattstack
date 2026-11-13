@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { planBlocks, rowStatus, rowTitles } from "../plan-blocks.ts";
-import type { Plan, Row } from "../contract.ts";
+import type { Integration, Plan, Row } from "../contract.ts";
 import { renderPlain } from "../../ui/out-plain.ts";
 
 function row(r: Partial<Row> & Pick<Row, "id" | "title" | "status">): Row {
@@ -89,6 +89,39 @@ describe("planBlocks", () => {
         "[ok] Install can run\n" +
         "[needs you] Finish is waiting on  Fast Browser extension\n",
     );
+  });
+
+  test("an optional account nobody connected reads off with no next callout; a required one still needs you", () => {
+    const connect = (integration: Integration) => ({ type: "connect" as const, label: "Connect", integration, fields: [] });
+    const p = plan([
+      {
+        id: "accounts",
+        title: "Accounts",
+        rows: [
+          row({ id: "account.github", kind: "account", title: "GitHub", required: false, status: "ready", detail: "Connected as octo" }),
+          row({ id: "account.gitlab", kind: "account", title: "GitLab", required: false, status: "missing", detail: "No GitLab account connected yet", action: connect("gitlab") }),
+          row({ id: "account.slack", kind: "account", title: "Slack", required: true, status: "missing", detail: "No Slack account connected yet", action: connect("slack") }),
+        ],
+      },
+    ]);
+    expect(renderPlain(planBlocks(p, "status"))).toBe(
+      "Accounts (1 of 3 ready)\n" +
+        "[ok] GitHub  Connected as octo\n" +
+        "[off] GitLab  No GitLab account connected yet\n" +
+        "[needs you] Slack  No Slack account connected yet\n" +
+        "  next: rt setup slack connect\n" +
+        "\n" +
+        "[ok] Install can run\n" +
+        "[ok] Finish can run\n",
+    );
+  });
+
+  test("an optional account that gates Finish still needs you", () => {
+    const p = plan(
+      [{ id: "accounts", title: "Accounts", rows: [row({ id: "account.linear", kind: "account", title: "Linear", required: false, finishGated: true, status: "missing", detail: "No Linear account connected yet" })] }],
+      { finishBlockedBy: ["account.linear"] },
+    );
+    expect(renderPlain(planBlocks(p, "status"))).toContain("[needs you] Linear  No Linear account connected yet\n");
   });
 
   test("plan mode never prints the connect callout", () => {

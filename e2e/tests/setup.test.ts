@@ -60,6 +60,14 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
     expect(fda.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
   }, 30_000);
 
+  test("setup status on Just me: an unconnected optional forge reads off, with no needs-you line and no next callout", async () => {
+    const res = await run(["setup", "status"]);
+    expect(res.stdout).toContain("[off] GitHub");
+    expect(res.stdout).toContain("[off] GitLab");
+    expect(res.stdout).not.toMatch(/\[needs you\] Git(Hub|Lab)/);
+    expect(res.stdout).not.toMatch(/next: rt setup git(hub|lab) connect/);
+  }, 30_000);
+
   test("setup apply --from verify streams plan, only the verify step and the run-end apps restart, then done", async () => {
     const res = await run(["setup", "apply", "--json", "--non-interactive", "--team-of-one", "--from", "verify"]);
 

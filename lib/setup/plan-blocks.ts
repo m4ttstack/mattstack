@@ -22,6 +22,16 @@ export function rowStatus(r: Pick<Row, "status" | "kind">): RenderStatus {
   return ROW_STATUS[r.status];
 }
 
+/** An account that blocks neither Install nor Finish, such as the forge a solo dev does not use. */
+function isOptionalAccount(r: Row): boolean {
+  return r.kind === "account" && !r.required && !r.finishGated;
+}
+
+/** The checklist's status: an optional account nobody connected is off, not waiting on the person. */
+function checklistStatus(r: Row): RenderStatus {
+  return r.status === "missing" && isOptionalAccount(r) ? "off" : rowStatus(r);
+}
+
 /** The connect verb for a missing account row; only connect and oauth actions have one. */
 export function accountConnectVerb(r: Pick<Row, "status" | "action">): string | null {
   if (r.status !== "missing") return null;
@@ -35,9 +45,10 @@ export function rowTitles(plan: Plan, ids: readonly string[]): string[] {
 }
 
 function rowBlocks(r: Row, mode: "plan" | "status"): Block[] {
-  const blocks: Block[] = [out.line(rowStatus(r), r.title, r.detail)];
+  const status = checklistStatus(r);
+  const blocks: Block[] = [out.line(status, r.title, r.detail)];
   if (r.action?.type === "choose" && r.action.footnote) blocks.push(out.callout("note", r.action.footnote));
-  const verb = mode === "status" ? accountConnectVerb(r) : null;
+  const verb = mode === "status" && status !== "off" ? accountConnectVerb(r) : null;
   if (verb) blocks.push(out.callout("next", out.cmd(verb)));
   return blocks;
 }
