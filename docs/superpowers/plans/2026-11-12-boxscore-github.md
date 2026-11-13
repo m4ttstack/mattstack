@@ -93,7 +93,7 @@
 
 - [ ] **Step 3: Implement.**
   - `readGitHubToken`: trimmed `env.GITHUB_TOKEN` first; else `forgeToken` per project (default: rt-client `resolveForgeToken(repoName, 'github', { sockPath: join(process.env.HOME ?? homedir(), '.mattstack', 'rt', 'rt.sock') })`). Under `process.env.VITEST` with no injected `forgeToken`, return `{ token: null, reason: 'tests must inject forgeToken' }` without calling the daemon.
-  - `resolveEnv()`: GitLab branch unchanged. GitHub branch: empty `baseUrl` throws `ConfigError('GitHub is not connected: boxscore reads GitHub only on github.com, and the team names <declaredHost>.')`; empty `projects` falls through to `resolveScope()`'s existing error; token from `readGitHubToken(settings.projects)`, a null throws `ConfigError('GitHub token is not available: <reason>')`; `linearApiKey` from `readSecrets()`; returns `{ forge: 'github', baseUrl, token, linearApiKey }`.
+  - `resolveEnv()`: GitLab branch unchanged. GitHub branch: empty `baseUrl` throws `ConfigError('GitHub is not connected: boxscore reads GitHub only on github.com, and the team names <declaredHost>.')`; empty `projects` throws `resolveScope()`'s existing `boxscore.projects is empty` error before any token read (call `resolveScope()` first in the GitHub branch); token from `readGitHubToken(settings.projects)`, a null throws `ConfigError('GitHub token is not available: <reason>')`; `linearApiKey` from `readSecrets()`; returns `{ forge: 'github', baseUrl, token, linearApiKey }`.
   - `makeProvider(env)`: `env.forge === 'github'` builds `new GitHubProvider(env.baseUrl, env.token)`; else today's line.
   - `getCurrentUser`: when `forge === 'github'`, fetch `https://api.github.com/user` with `Authorization: Bearer <token>` and `Accept: application/vnd.github+json`, map `login` to `username`. The cache key adds the forge. `buildLeaderboard` passes `env.forge`.
 
@@ -121,10 +121,12 @@
     fetchPipelines(projectPath: string, username: string, window: TimeWindow, io: SourceIO): Promise<StoredPipeline[]>;
     /** GitLab reads push events per user after the project id step; GitHub returns commits from fetchDetail. */
     readonly readsPushEvents: boolean;
+    /** Warnings raised inside reads that still returned rows (caps); runRefresh drains them into its result. */
+    takeWarnings(): LeaderboardWarning[];
   }
   export function gitlabSource(provider: SourceProvider): ForgeSource;
   ```
-  `gitlabSource` delegates to today's `resolveIdentity`, `scanProject`, `fetchMetrics` (mapped to `{ metrics, commits: [] }`, null stays null) and `fetchPipelinesFor`, with `readsPushEvents: true`.
+  `gitlabSource` delegates to today's `resolveIdentity`, `scanProject`, `fetchMetrics` (mapped to `{ metrics, commits: [] }`, null stays null) and `fetchPipelinesFor`, with `readsPushEvents: true` and `takeWarnings` always `[]`.
 - Produces, in `github.ts`:
   ```ts
   export interface GitHubSourceProvider {
@@ -134,22 +136,23 @@
     fetchMRDiscussions(repositoryId: string, iid: number): Promise<MRDetail>;
     restRequest(method: string, path: string): Promise<Response>;
   }
-  export function githubSource(provider: GitHubSourceProvider, opts: { knownLogins: readonly string[]; warn: (w: LeaderboardWarning) => void }): ForgeSource;
+  export function githubSource(provider: GitHubSourceProvider, opts: { knownLogins: readonly string[] }): ForgeSource;
   ```
 - Produces, in `logins.ts`: `export function loginCanon(known: readonly string[]): (login: string | null) => string | null` returning the known spelling on a case-insensitive match, else the login unchanged.
 
 - [ ] **Step 1: Write the failing tests.** `test/logins.test.ts`: `loginCanon(['ada'])('Ada') === 'ada'`, `('eve') === 'eve'`, `(null) === null`.
   `test/source-github.test.ts`, with a hand-written fake `GitHubSourceProvider` whose `restRequest` serves canned JSON by path (pages linked by a `Link: <...page=2>; rel="next"` header) and records every call:
-  - `resolveIdentity maps fetchUser`: `{ id: 'github:user:42', username: 'ada', name: 'Ada' }` gives `{ username: 'ada', name: 'Ada', resolved: true, userId: 42 }`; null gives `resolved: false`.
+  - `resolveIdentity maps fetchUser`: asked for `ada`, `{ id: 'github:user:42', username: 'Ada', name: 'Ada' }` gives `{ username: 'ada', name: 'Ada', resolved: true, userId: 42 }` (the stored row keeps the requested roster spelling); null gives `resolved: false`.
   - `scanProject rewrites the author to the roster spelling`: index row author `Ada`, known `['ada']`, stored `authorUsername === 'ada'`.
   - `fetchDetail composes the reads`: fill returns body `'b'`, diffStats `{ additions: 10, deletions: 2, filesChanged: 1 }`, approvedBy `[{ username: 'Bob' }]`; discussions return one diff note by `bob` and one issue comment by `ada`; files return `[{ filename: 'a.ts', additions: 10, deletions: 2 }]`; commits return the GitHub shape `[{ author: { login: 'Ada' }, commit: { author: { date: '2026-05-03T10:00:00Z' } } }, { author: null, commit: { author: { date: '2026-05-04T10:00:00Z' } } }]`. Known `['ada', 'bob']`. Expect `metrics.description === 'b'`, `diffStats` as given, `fileStats === [{ path: 'a.ts', additions: 10, deletions: 2 }]`, `labels` from the index row, `approvedByUsernames === ['bob']`, notes `[{ authorUsername: 'bob', inline: true, system: false, ... }, { authorUsername: 'ada', inline: false, system: false, ... }]`, `commits === [{ username: 'ada', createdAt: '2026-05-03T10:00:00Z', repositoryId: 'github:o/r' }]`. `fetchMRDiscussions` was called with `'github:o/r'`.
   - `paging follows Link rel=next` for files and commits (two pages each, all rows kept).
   - `a null fill throws`: `fetchSingleMR` resolves null; `fetchDetail` rejects with a message naming `o/r#7`.
-  - `a fill warning throws`: `fetchSingleMR` calls `onWarning({ source: 'fill', message: 'boom' })` then returns a PR; `fetchDetail` rejects with `boom`.
+  - `a fill warning throws`: `fetchSingleMR` calls `onWarning` with a `FetchPullRequestsWarning` of `source: 'fill'`, `kind: 'request-failed'`, `message: 'boom'`, then returns a PR; `fetchDetail` rejects with `boom`.
+  - `a contexts warning does not fail the PR`: the same with `source: 'contexts'`; `fetchDetail` resolves with the metrics.
   - `a non-ok REST page throws` naming the path and status.
-  - `250 commits adds a warning`: commits pages total 250; `warn` receives one warning with code `mr_detail_partial`, naming `o/r#7` and saying commits are capped at 250.
+  - `250 commits adds a warning`: commits pages total 250; `takeWarnings()` then returns one warning with code `mr_detail_partial`, naming `o/r#7` and saying commits are capped at 250, and a second `takeWarnings()` returns `[]`.
   - `fetchPipelines lists Actions runs per user`: requested path is exactly `/repos/o/r/actions/runs?actor=ada&created=2026-05-01T00:00:00Z..2026-05-31T00:00:00Z&per_page=100&page=1`; runs `{ id: 9, actor: { login: 'Ada' }, status: 'completed', conclusion: 'failure', created_at: 'x' }` gives `{ id: 'github:run:9', projectPath: 'o/r', username: 'ada', status: 'failed', createdAt: 'x' }`; conclusions `success` gives `success`, `cancelled` gives `canceled`, `timed_out` gives `timed_out`; `conclusion: null, status: 'in_progress'` gives `in_progress`.
-  - `more than 1000 runs warns`: `total_count: 1001` makes `warn` receive one `pipeline_fetch_failed` warning naming `o/r` and `ada`.
+  - `more than 1000 runs warns`: `total_count: 1001` makes `takeWarnings()` return one `pipeline_fetch_failed` warning naming `o/r` and `ada`.
   - `readsPushEvents is false`.
 
 - [ ] **Step 2: Run** both files. Expected: FAIL.
@@ -160,6 +163,7 @@
   - `created=` bounds drop milliseconds: `iso.replace(/\.\d{3}Z$/, 'Z')`.
   - Stop paging when no `rel="next"` link is present.
   - Call `io.signal?.throwIfAborted()` before every provider call: glance's GitHub reads take no signal, so cancel works between requests.
+  - Commit authors are kept when they match `knownLogins` (roster plus org roster); `buildFetchResult` already narrows push events to the roster, so the adapter does not filter further.
 
 - [ ] **Step 4: Run** both files. Expected: PASS.
 
@@ -175,17 +179,17 @@
 **Interfaces:**
 - Consumes: `ForgeSource`, `gitlabSource`, `githubSource` (Task 3).
 - Produces: `RefreshRunOptions.source?: ForgeSource`. When absent, `runRefresh` uses `gitlabSource(provider as SourceProvider)`, so every existing caller and test is unchanged.
-- Produces: `export function sourceFor(env: Env, provider: GitProvider, settings: BoxscoreSettings, warn: (w: LeaderboardWarning) => void): ForgeSource` in `forge-source.ts`, picking `githubSource` when `env.forge === 'github'` with `knownLogins` = roster plus org roster usernames.
+- Produces: `export function sourceFor(env: Env, provider: GitProvider, settings: BoxscoreSettings): ForgeSource` in `forge-source.ts`, picking `githubSource` when `env.forge === 'github'` with `knownLogins` = roster plus org roster usernames.
 
 - [ ] **Step 1: Write the failing test** `test/refresh-github.test.ts` (store setup as in `refresh.test.ts`), with a fake `ForgeSource` and a fake `GitHubSourceProvider` passed through `githubSource`:
   - `github refresh stores metrics, commits and runs`: one roster PR; after `runRefresh({ ..., source })`, `store.pushEventsBetween(WINDOW.start, WINDOW.end)` holds the commit row, `upsertMrMetrics` stored the PR's metrics, pipelines holds the run.
   - `github refresh skips the project id and push event phases`: the progress phases seen do not include `pushes`; the fake records no `fetchProject` or `fetchUserEvents`.
   - `a failed detail counts in mr_detail_partial`: the fake `fetchDetail` rejects for one of two PRs; warnings include one `mr_detail_partial` with `1/2`.
-  - `source warnings reach the response warnings`: the adapter's `warn` output appears in the returned warnings.
+  - `source warnings reach the returned warnings`: a fake source whose `takeWarnings()` returns one `pipeline_fetch_failed` warning; it appears in what `runRefresh` returns.
 
 - [ ] **Step 2: Run** it. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** Steps 1 to 4 of `runRefresh` call `source.resolveIdentity`, `source.scanProject`, `source.fetchDetail` and `source.fetchPipelines`. A `fetchDetail` result pushes `{ ...metrics, updatedAt: row.updatedAt }` and its `commits` into the same pending batch; `flush` writes metrics with `upsertMrMetrics` and commits with `upsertPushEvents`. The project id and push event steps run only when `source.readsPushEvents`. `buildLeaderboard` passes `source: sourceFor(env, provider, settings, w => warnings.push(w))`, and the adapter's warnings join the returned list.
+- [ ] **Step 3: Implement.** Steps 1 to 4 of `runRefresh` call `source.resolveIdentity`, `source.scanProject`, `source.fetchDetail` and `source.fetchPipelines`. A `fetchDetail` result pushes `{ ...metrics, updatedAt: row.updatedAt }` and its `commits` into the same pending batch; `flush` writes metrics with `upsertMrMetrics` and commits with `upsertPushEvents`. The project id and push event steps run only when `source.readsPushEvents`. Before returning (and in the detail step's `finally`, so a cancel keeps them), `runRefresh` appends `source.takeWarnings()` to its warnings. `buildLeaderboard` passes `source: sourceFor(env, provider, settings)`.
 
 - [ ] **Step 4: Run** `test/refresh-github.test.ts`, `test/refresh.test.ts`, `test/progress.test.ts`, `test/abort.test.ts`, `test/leaderboard.test.ts`. Expected: all PASS, with `refresh.test.ts` unedited (it pins the GitLab call log).
 
@@ -197,22 +201,26 @@
 - Modify: `apps/boxscore/src/shared/forge.ts`, `apps/boxscore/src/shared/types.ts`
 - Modify: `apps/boxscore/src/server/metrics/evidence.ts` (`EvidenceContext`, `mrUrl`)
 - Modify: `apps/boxscore/src/server/leaderboard.ts` (both responses), `apps/boxscore/src/server/fixture/index.ts`, `apps/boxscore/src/server/fixture/design-evidence.ts`
-- Test: `apps/boxscore/test/forge.test.ts`, `apps/boxscore/test/evidence.test.ts` (add cases), `apps/boxscore/test/fixture.test.ts` (add cases)
+- Test: `apps/boxscore/test/forge.test.ts`, `apps/boxscore/test/evidence.test.ts`, `apps/boxscore/test/leaderboard.test.ts`, `apps/boxscore/test/fixture.test.ts` (add cases)
 
 **Interfaces:**
 - Produces: `export function changeUrl(forge: Forge | undefined, baseUrl: string, projectPath: string, iid: number): string`.
-- Produces: `LeaderboardResponse.forge?: Forge`, `UserDetailResponse.forge?: Forge`, `EvidenceContext.forge?: Forge`.
+- Produces: `LeaderboardResponse.forge?: Forge`, `UserDetailResponse.forge?: Forge`, `ColdCacheResponse.forge?: Forge`, `EvidenceContext.forge?: Forge`.
+- Produces: `export function changeRef(forge: Forge | undefined, iid: number): string`: `#12` on GitHub, `!12` otherwise.
 - Produces: `fixtureForge(): Forge`, reading `BOXSCORE_FIXTURE_FORGE` (`'github'` or GitLab).
 
 - [ ] **Step 1: Write the failing tests.**
   - `forge.test.ts`: `changeUrl('github', 'https://github.com', 'o/r', 7) === 'https://github.com/o/r/pull/7'`; `changeUrl(undefined, 'https://gl.example', 'g/p', 7) === 'https://gl.example/g/p/-/merge_requests/7'`; same for `'gitlab'`.
   - `evidence.test.ts`: `github evidence links point at pull requests`: `buildUserEvidence(..., { ...ctx, forge: 'github', baseUrl: 'https://github.com' })` gives every merged-PR row an `href` matching `^https://github\.com/[^/]+/[^/]+/pull/\d+$`.
   - `leaderboard.test.ts`: a GitLab response has `forge === 'gitlab'`; a GitHub one has `forge === 'github'`.
-  - `fixture.test.ts`: with `BOXSCORE_FIXTURE_FORGE=github`, `fixtureLeaderboard(false).forge === 'github'`, `baseUrl === 'https://github.com'`, and every evidence `href` that pointed at a merge request now matches the GitHub pull shape; without it, the fixture output is unchanged (`forge === 'gitlab'`, links as today).
+  - `forge.test.ts`: `changeRef('github', 12) === '#12'`, `changeRef(undefined, 12) === '!12'`.
+  - `evidence.test.ts`: on GitHub, PR-keyed cells read `#<iid>`; on GitLab, `!<iid>` as today.
+  - `leaderboard.test.ts`: a cold GitHub team's `ColdCacheError` response carries `forge: 'github'`; `getUserDetail` on GitHub passes `forge` into the evidence (its merged rows link to `/pull/`).
+  - `fixture.test.ts`: with `BOXSCORE_FIXTURE_FORGE=github`, `fixtureLeaderboard(false).forge === 'github'`, `fixtureColdCache().forge === 'github'`, `baseUrl === 'https://github.com'`, every evidence `href` that pointed at a merge request matches the GitHub pull shape, and the reviewer evidence includes `dependabot[bot]` marked as a bot; without it, the fixture output is unchanged (`forge === 'gitlab'`, links as today, no `[bot]` name).
 
 - [ ] **Step 2: Run** the four files. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** `mrUrl` in `evidence.ts` calls `changeUrl(ctx.forge, baseUrl, ...)`; any other server-built change-request `href` does the same (`rg -n "merge_requests" src/server`). Both responses set `forge: env.forge ?? 'gitlab'`. The fixture reads `fixtureForge()` for `forge`, `baseUrl` and its evidence links.
+- [ ] **Step 3: Implement.** `mrUrl` in `evidence.ts` calls `changeUrl(ctx.forge, baseUrl, ...)` and every `` `!${m.iid}` `` cell calls `changeRef(ctx.forge, m.iid)`; any other server-built change-request `href` does the same (`rg -n "merge_requests|'!'|\`!\\$" src/server`). `getUserDetail` passes `forge: env.forge` into `buildUserEvidence`'s ctx. The leaderboard, detail and cold-cache responses set `forge: env.forge ?? 'gitlab'` (the cold response is built where `ColdCacheError` is answered). The fixture reads `fixtureForge()` for `forge`, `baseUrl`, its evidence links and refs, and on GitHub adds one `dependabot[bot]` reviewer row with its bot flag.
 
 - [ ] **Step 4: Run** the four files. Expected: PASS.
 
@@ -250,7 +258,8 @@
 - Modify: `apps/boxscore/src/app/App.tsx` (provide the context from the leaderboard response)
 - Modify the render sites of forge-named strings: `app/detail/panelCopy.ts` consumers (`StatPanel.tsx`, `ProfileHeader.tsx`, `PersonSummary.tsx`), `app/leaderboard/StandingsTable.tsx`, `app/leaderboard/LeadersStrip.tsx`, `app/leaderboard/CardsGrid.tsx`, `app/detail/evidence/*`, `app/refresh/RefreshStatus.tsx`, `app/lib/progress.ts`, `app/access/LockedPage.tsx`
 - Modify server strings: `server/metrics/evidence.ts` (summaries, headings), `server/refresh/run.ts` (progress labels, warning texts), `server/leaderboard.ts` (hints), `server/viewer-scope.ts` (`LOCKED_MESSAGE` use sites)
-- Test: `apps/boxscore/test/forge.test.ts` (add), `apps/boxscore/src/app/detail/detail.test.tsx` and `apps/boxscore/src/app/leaderboard/leaderboard.test.tsx` (add GitHub cases)
+- Modify: `apps/boxscore/src/server/fixture/index.ts`, `apps/boxscore/src/server/fixture/design-evidence.ts` (route text through `forgeText`)
+- Test: `apps/boxscore/test/forge.test.ts`, `apps/boxscore/test/fixture.test.ts`, `apps/boxscore/src/app/detail/detail.test.tsx`, `apps/boxscore/src/app/leaderboard/leaderboard.test.tsx`, `apps/boxscore/src/app/refresh/refresh.test.tsx` (add GitHub cases)
 
 **Interfaces:**
 - Produces: `export function forgeText(text: string, forge: Forge | undefined): string`.
@@ -261,10 +270,13 @@
   - `forge.test.ts`: `forgeText(s, 'gitlab') === s` and `forgeText(s, undefined) === s` for every string in `panelCopy`, `METRICS` labels and descriptions, and a sample of server strings (loop over them). On GitHub: `'MRs merged'` gives `'PRs merged'`; `'Source: GitLab MRs you authored'` gives `'Source: GitHub PRs you authored'`; `'merge request'` gives `'pull request'`; `'MRI'` and `'SMR'` are unchanged (word boundaries); `'Source: GitLab pushes to tracked projects'` gives `'Source: GitHub commits on your PRs'`; `'Source: GitLab pipelines you triggered'` gives `'Source: GitHub Actions runs you triggered'`; the coding-days evidence summary `'<n> distinct days with a push'` gives `'<n> distinct days with a commit'`; the `codingDays` description gives `'Number of distinct days the user authored at least one commit on their PRs during the window.'`.
   - `leaderboard.test.tsx`: rendered with a `forge: 'github'` response, the column header reads `PRs merged` and no text node contains `MR` as a word or `GitLab`; with the existing GitLab response, `MRs merged` as today.
   - `detail.test.tsx`: a GitHub detail response shows `Source: GitHub PRs you authored` on the merged panel.
+  - `refresh.test.tsx` (`src/app/refresh/`): a cold GitHub board (`ColdCacheResponse` with `forge: 'github'`) renders `RefreshStatus` with no `MR` word and no `GitLab`, and a stalled progress reads `still waiting on GitHub`.
+  - `forge.test.ts`: on GitHub, `GITHUB_COPY` turns the coding-days evidence heading `'Pushes'` into `'Commits'`, the panelCopy codingDays definition into `'Distinct days you authored at least one commit on your PRs.'`, and the reviewDepth description's `(DiffNote)` mention into wording without it.
+  - `fixture.test.ts`: with `BOXSCORE_FIXTURE_FORGE=github`, no string in `fixtureDetail(...)` evidence or `fixtureRefresh()` contains `MR` as a word or `GitLab`.
 
 - [ ] **Step 2: Run** them. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** `forgeText` returns `text` unchanged unless `forge === 'github'`; on GitHub it returns `GITHUB_COPY[text]` when present, else applies, in order: `/\bmerge requests\b/g` to `pull requests`, `/\bmerge request\b/g` to `pull request`, `/\bMerge requests\b/g` to `Pull requests`, `/\bMRs\b/g` to `PRs`, `/\bMR\b/g` to `PR`, `/\bGitLab\b/g` to `GitHub`. Strings with a number (`'<n> distinct days with a push'`) get the push-to-commit change from a dedicated `/\bdays? with a push\b/` rule inside `forgeText` on GitHub. App components read strings through `useForgeText()`; server strings go through `forgeText(s, env.forge)` (evidence through `ctx.forge`). On GitHub, `LOCKED_MESSAGE` reads `"boxscore couldn't tell who you are. Check that rt can read a GitHub token for one of boxscore's projects and that your GitHub username is on the team roster in console."` through `GITHUB_COPY`.
+- [ ] **Step 3: Implement.** `forgeText` returns `text` unchanged unless `forge === 'github'`; on GitHub it returns `GITHUB_COPY[text]` when present, else applies, in order: `/\bmerge requests\b/g` to `pull requests`, `/\bmerge request\b/g` to `pull request`, `/\bMerge requests\b/g` to `Pull requests`, `/\bMRs\b/g` to `PRs`, `/\bMR\b/g` to `PR`, `/\bGitLab\b/g` to `GitHub`. Strings with a number (`'<n> distinct days with a push'`) get the push-to-commit change from a dedicated `/\bdays? with a push\b/` rule inside `forgeText` on GitHub. App components read strings through `useForgeText()`; `App.tsx` provides `ForgeContext` from `data?.forge ?? cold?.forge ?? 'gitlab'`, so the first refresh of a cold GitHub board already reads GitHub. Server strings go through `forgeText(s, env.forge)` (evidence through `ctx.forge`); the fixture's evidence text and `fixtureRefresh()` label go through `forgeText(s, fixtureForge())`. On GitHub, `LOCKED_MESSAGE` reads `"boxscore couldn't tell who you are. Check that rt can read a GitHub token for one of boxscore's projects and that your GitHub username is on the team roster in console."` through `GITHUB_COPY`.
 
 - [ ] **Step 4: Run** `bun run boxscore:test`. Expected: PASS, no existing test edited.
 
@@ -281,7 +293,7 @@
 **Interfaces:**
 - Consumes: everything above.
 
-- [ ] **Step 1: Write the failing test** `leaderboard-github.test.ts`: GitHub settings with two roster members, `GITHUB_TOKEN` env, a provider factory returning a fake `GitHubProvider` (same fake as Task 3) with two merged PRs by `ada` reviewed and approved by `bob`, inline comments, a `dependabot[bot]` comment, commits on three days, and two Actions runs. `getLeaderboard({ refresh: true, ... })` gives `forge === 'github'`, `ada`'s `mrsMerged === 2`, additions and deletions non-zero, `codingDays === 3`, `pipelines === 2`; `bob`'s `mrsReviewed === 2` and `reviewDepth > 0`; `dependabot[bot]` is not a row and its comment does not count as a review; every recorded request went to the fake (no other host), and no request carried the `GITLAB_TOKEN` value. The detail response's merged rows link to `https://github.com/o/r/pull/<n>`.
+- [ ] **Step 1: Write the failing test** `leaderboard-github.test.ts`: GitHub settings with two roster members, `GITHUB_TOKEN` env, a provider factory returning a fake `GitHubProvider` (same fake as Task 3) with two merged PRs by `ada` reviewed and approved by `bob`, inline comments, a `dependabot[bot]` comment, commits on three days, and two Actions runs. A third PR by `bob`, titled `Revert "<title of ada's first PR>"`, merges a day after it. `bob` comments on `ada`'s PRs hours after each opens, and `ada` replies on `bob`'s revert PR. `getLeaderboard({ refresh: true, ... })` gives `forge === 'github'`, `ada`'s `mrsMerged === 2`, additions and deletions non-zero, `codingDays === 3`, `pipelines === 2`, wait for review non-null, merge streak non-zero, size health non-null, reverted count `1` and revert rate non-zero; `bob`'s `mrsReviewed === 2`, `reviewDepth > 0` and response time non-null; `dependabot[bot]` is not a row and its comment does not count as a review; every recorded request went to the fake (no other host), and no request carried the `GITLAB_TOKEN` value. The detail response's merged rows link to `https://github.com/o/r/pull/<n>`.
 
 - [ ] **Step 2: Run** it. Expected: PASS once Tasks 1 to 7 are in; if it fails, fix the owning task's code, not the test.
 
