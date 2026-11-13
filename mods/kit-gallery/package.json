@@ -1,0 +1,13 @@
+{
+  "name": "@mattstack/mod-kit-gallery",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@mattstack/mod-kit": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "catalog:"
+  }
+}
