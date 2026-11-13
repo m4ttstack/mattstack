@@ -116,6 +116,41 @@ scripts/mods/build.ts        the build
 `mods/*` joins the root `workspaces`. The kit is not `packages/tui-kit` (that
 one serves the Ink apps); mod elements come from Claude Code's own table.
 
+## How a mod is written
+
+TypeScript with JSX (`.tsx`), against Claude Code's element set (`Box`, `Text`,
+`Button`, `Client`, ...), not React: no React runtime or hooks; hook-side state
+is atoms, Client state is `surface.setState`.
+
+**The kit's drawing API is JSX components** (Matt): `<BrandBar>`, `<SelectList>`,
+`<InputField>`, `<TabStrip>`, `<ButtonRow>`, `<Button tone="brand">`, a page
+shell, and the rest. A mod author never builds span or line arrays by hand.
+
+```tsx
+export default kitClient<State>((props, ui) => (
+  <Panel width={ui.width}>
+    <BrandBar title="mattstack my mod" onHide={ui.hide} />
+    <SelectList choices={choices} cursor={ui.state.cursor} onPick={pick} />
+    <ButtonRow>
+      <Button tone="brand" onPress={save}>Save</Button>
+    </ButtonRow>
+  </Panel>
+))
+```
+
+Underneath, the components keep the spike's line model, which is what gives the
+exact clack layout, hover keys per row, and press-on-release hit testing: a root
+component (`<Panel>` above) lays its children out as lines, then draws them with
+the kit renderer and wires the pointer controller. The hook-side patterns
+(`registerHideablePane(on, ...)`, the transcript summary) stay functions; they
+draw nothing of their own.
+
+Whether Claude Code's global `h` accepts function components is not known. If
+it does not, the build points the mod's JSX at a kit factory under another name
+(the environment owns `h` and `Fragment`), which expands kit components and
+passes engine elements to the global `h`. The builder settles this first, with
+a probe like the bundle probe.
+
 ## The kit (my calls)
 
 Everything in the spike's `hooks/kit/` moves in, plus what the spike wired by
