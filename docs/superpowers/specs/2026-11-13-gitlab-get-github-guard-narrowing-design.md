@@ -458,7 +458,7 @@ caller's path.
 | Case | Text |
 |---|---|
 | A guarded word in the window | `gitlab_get refuses "path" because the path after the repo reads as "hooks", ignoring case, spaces and invisible characters. On GitHub that word names an endpoint that can return credentials, so it is refused in any segment after the repo, including branch and tag names. To read a file, use :repo/contents/<file path>, where file names are not checked.` |
-| A route-anchored entry (`copilot`) | The text PR #1130 lands, with "reads as" in place of an exact match if its wording assumes one. |
+| A route-anchored entry (`copilot`) | `gitlab_get refuses "path" because the route right after the repo reads as "copilot", ignoring case, spaces and invisible characters. That GitHub endpoint can return credentials. A branch, file or repo named copilot is fine.` |
 | Owner or name outside `[A-Za-z0-9._-]` | `"path" must name the repo as repos/<owner>/<name>, spelled plainly with no percent escapes. Start it with :repo/ instead.` |
 | `projectPath` is not `owner/name` | `gitlab_get cannot read this GitHub repo, because its path is not owner/name. Check the repo's origin remote.` |
 | A dot lookalike in a file path | The existing `"path" must not contain dot segments`. |
