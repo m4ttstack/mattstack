@@ -4,7 +4,8 @@ import { atom, read, update } from "claude-code";
 // packages/mod-kit/src/draw/cells.ts
 var segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 var PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
-var EMOJI = /\p{Emoji_Presentation}|️|⃣/u;
+var EMOJI = /\p{Emoji_Presentation}|⃣/u;
+var EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}️/u;
 var ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u;
 var WIDE_RANGES = [
   [4352, 4447],
@@ -22,7 +23,7 @@ var WIDE_RANGES = [
   [131072, 262141]
 ];
 function graphemeWidth(grapheme) {
-  if (EMOJI.test(grapheme))
+  if (EMOJI.test(grapheme) || EMOJI_BASE_WITH_VS16.test(grapheme))
     return 2;
   const first = grapheme.codePointAt(0) ?? 0;
   if (ZERO_WIDTH.test(grapheme))
@@ -121,6 +122,13 @@ function wrap(text, width) {
         row = word;
       } else
         row = next;
+      while (cellWidth(row) > width) {
+        const piece = cutCells(row, width) || firstGrapheme(row);
+        if (piece === row)
+          break;
+        out.push(piece);
+        row = row.slice(piece.length);
+      }
     }
     out.push(row);
   }

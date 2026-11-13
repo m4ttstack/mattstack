@@ -2,7 +2,9 @@
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 const PRINTABLE_ASCII = /^[\x20-\x7e]*$/
-const EMOJI = /\p{Emoji_Presentation}|️|⃣/u
+const EMOJI = /\p{Emoji_Presentation}|⃣/u
+// A variation selector 16 asks for emoji presentation only on a base that has one; after a plain letter it does nothing.
+const EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}️/u
 const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u
 
 // East Asian Wide and Fullwidth blocks (the emoji blocks are caught by EMOJI).
@@ -23,7 +25,7 @@ const WIDE_RANGES: [number, number][] = [
 ]
 
 function graphemeWidth(grapheme: string): number {
-  if (EMOJI.test(grapheme)) return 2
+  if (EMOJI.test(grapheme) || EMOJI_BASE_WITH_VS16.test(grapheme)) return 2
   const first = grapheme.codePointAt(0) ?? 0
   if (ZERO_WIDTH.test(grapheme)) return 0
   return WIDE_RANGES.some(([lo, hi]) => first >= lo && first <= hi) ? 2 : 1

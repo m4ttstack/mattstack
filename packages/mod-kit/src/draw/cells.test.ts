@@ -19,6 +19,13 @@ describe('cellWidth', () => {
     expect(cellWidth('👨‍👩‍👧')).toBe(2)
     expect(cellWidth('🇺🇸')).toBe(2)
     expect(cellWidth('1️⃣')).toBe(2)
+    expect(cellWidth('#️⃣')).toBe(2)
+  })
+
+  test('counts a variation selector 16 as wide only after an emoji base', () => {
+    expect(cellWidth('❤️')).toBe(2)
+    expect(cellWidth('x️')).toBe(1)
+    expect(cellWidth('️')).toBe(0)
   })
 
   test('counts a combining mark as part of its base', () => {

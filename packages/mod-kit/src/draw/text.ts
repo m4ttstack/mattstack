@@ -1,6 +1,6 @@
-import { cellWidth } from './cells'
+import { cellWidth, cutCells, firstGrapheme } from './cells'
 
-export type Style ={ color?: string; bg?: string; dim?: boolean; bold?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean }
+export type Style = {color?: string; bg?: string; dim?: boolean; bold?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean }
 
 // A span or a whole line can carry the action a click on it performs, so a pointer handler only has to look up what it hit.
 export type Span<A> = Style & { t: string; action?: A; isLabel?: true }
@@ -63,6 +63,13 @@ export function wrap(text: string, width: number): string[] {
         out.push(row)
         row = word
       } else row = next
+      // Only a lone word can still be too wide; it breaks at the row edge, and a grapheme wider than the row keeps a row to itself.
+      while (cellWidth(row) > width) {
+        const piece = cutCells(row, width) || firstGrapheme(row)
+        if (piece === row) break
+        out.push(piece)
+        row = row.slice(piece.length)
+      }
     }
     out.push(row)
   }

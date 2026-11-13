@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { cellWidth } from './cells'
 import { hang, hitAt, hoverKeyAt, sp, widthOf, wrap, type Line } from './text'
 
 describe('wide text', () => {
@@ -22,6 +23,23 @@ describe('wide text', () => {
 
   test('wrap breaks by cells', () => {
     expect(wrap('日本 日本 日本', 9)).toEqual(['日本 日本', '日本'])
+  })
+
+  test('wrap hard-breaks a spaceless CJK title within the width', () => {
+    const title = '日本語のタイトルです日本語のタイトルです'
+    const rows = wrap(title, 10)
+    expect(rows.length).toBeGreaterThan(1)
+    for (const row of rows) expect(cellWidth(row)).toBeLessThanOrEqual(10)
+    expect(rows.join('')).toBe(title)
+  })
+
+  test('wrap hard-breaks a long ASCII word and keeps the rest of the line', () => {
+    expect(wrap('ab abcdefghijkl cd', 5)).toEqual(['ab', 'abcde', 'fghij', 'kl cd'])
+  })
+
+  test('wrap gives a grapheme wider than the row a row of its own', () => {
+    expect(wrap('a 🚀 b', 1)).toEqual(['a', '🚀', 'b'])
+    expect(wrap('🚀🚀', 1)).toEqual(['🚀', '🚀'])
   })
 
   test('hang keeps every row within the width in cells', () => {
