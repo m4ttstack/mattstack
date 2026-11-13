@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { eligibleForLinearDiscovery } from '../src/server/linear/fetch.js';
+import {
+  eligibleForLinearDiscovery,
+  parseChangeUrl,
+} from '../src/server/linear/fetch.js';
 import { mapIssue } from '../src/server/linear/map.js';
 import type { RawIssue } from '../src/server/linear/raw-types.js';
 import { computeSnapshot } from '../src/server/metrics/snapshot.js';
@@ -87,5 +90,35 @@ describe('issuesCompleted metric', () => {
       sizeBand: SIZE_BAND,
     });
     expect(legacySnap.byUser.alice!.issuesCompleted).toBe(0);
+  });
+});
+
+describe('parseChangeUrl', () => {
+  const pr = { projectPath: 'o/r', iid: 12 };
+
+  it('reads a GitHub pull request URL, with or without a suffix', () => {
+    for (const suffix of ['', '/files', '?x=1', '#c']) {
+      expect(
+        parseChangeUrl(`https://github.com/o/r/pull/12${suffix}`, 'github')
+      ).toEqual(pr);
+    }
+  });
+
+  it('rejects a GitHub issue URL', () => {
+    expect(
+      parseChangeUrl('https://github.com/o/r/issues/12', 'github')
+    ).toBeNull();
+  });
+
+  it('rejects a GitLab MR URL on a GitHub team', () => {
+    expect(
+      parseChangeUrl('https://gl.example/o/r/-/merge_requests/12', 'github')
+    ).toBeNull();
+  });
+
+  it('reads a GitLab MR URL on a GitLab team', () => {
+    expect(
+      parseChangeUrl('https://gl.example/o/r/-/merge_requests/12', 'gitlab')
+    ).toEqual(pr);
   });
 });

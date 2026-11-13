@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 
 import type { EvidenceRow } from '../../../shared/types';
+import { useForgeText } from '../../forge/forge';
 import { Glyph } from '../../ui/Glyph';
 import classes from './evidence.module.css';
 
@@ -104,20 +105,29 @@ export function EvidenceFooter({
 }
 
 /** A section head inside a panel: title left, context right. */
-export function EvHead({ title, right }: { title: string; right: string }) {
+export function EvHead({
+  title,
+  right,
+}: {
+  /** Rewritten for the team's forge, so never pass user data. */
+  title: string;
+  /** Rewritten for the team's forge, so never pass user data. */
+  right: string;
+}) {
+  const t = useForgeText();
   return (
     <div className={classes.evHead} data-parity="Ev Head">
       <span
         className={`${classes.t} ${classes.barTitle}`}
         data-parity="Ev Title"
       >
-        {title}
+        {t(title)}
       </span>
       <span
         className={`${classes.t} ${classes.evRight}`}
         data-parity="Ev Right"
       >
-        {right}
+        {t(right)}
       </span>
     </div>
   );

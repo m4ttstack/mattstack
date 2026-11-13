@@ -54,7 +54,9 @@ export function validateLeaderboard(
       'current_user_dup',
       `${currentRows.length} rows flagged isCurrentUser.`
     );
-  } else if (currentRows[0]!.username !== res.currentUser) {
+  } else if (
+    currentRows[0]!.username.toLowerCase() !== res.currentUser.toLowerCase()
+  ) {
     err(
       'current_user_mismatch',
       `isCurrentUser row is ${currentRows[0]!.username}, expected ${res.currentUser}.`

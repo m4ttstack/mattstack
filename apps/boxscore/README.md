@@ -106,6 +106,79 @@ subcommand, not a UI page:
 bun src/server/cli.ts --format bots
 ```
 
+## On GitHub
+
+A team whose code lives on github.com points boxscore at GitHub with one setting, then
+gives it a token.
+
+1. Set `mattstack.integrations.forge.provider` to `github`. Leave the forge host empty or
+   set it to `github.com`.
+2. List the team's repos in `boxscore.projects` as `<owner>/<repo>`.
+3. Give boxscore a GitHub token, either way:
+   - track one configured repo with rt, and boxscore borrows rt's GitHub token for it:
+     `rt daemon track <repo> live branches`
+   - or set `GITHUB_TOKEN` in the environment the server runs in. It takes priority.
+
+The GitLab token is never sent to GitHub, and the GitHub token never goes to a GitLab host.
+
+### What each metric reads on GitHub
+
+| Metric             | Source on GitHub                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Code added/deleted | the PR's additions and deletions, and its files list for excluded paths             |
+| PRs merged         | authored PRs merged in the window                                                   |
+| PRs reviewed       | other people's PRs with your in-window comment or approval                          |
+| Pipelines          | Actions runs you started on each repo                                               |
+| Review depth       | review (diff) comments per reviewed PR; issue comments and summaries are not inline |
+| Review latency     | first comment by someone other than the author or a bot, minus the PR open          |
+| Revert rate        | merged PRs a later `Revert "..."` PR names                                          |
+| PR size health     | share of merged PRs in the `boxscore.sizeBand` band                                 |
+| Coding days        | distinct days with a commit (author date) on the team's PRs                         |
+| Merge streak       | consecutive days with a merged PR                                                   |
+| Reciprocity        | reviews given over reviews received                                                 |
+
+GitHub App accounts (`dependabot[bot]`, `github-actions[bot]`) are bots: they get no row and
+their comments never count as a review.
+
+### What a refresh costs
+
+Refresh is manual, so per hour is per refresh times the clicks in that hour. GitHub allows
+5000 REST requests and 5000 GraphQL points per hour per token.
+
+| Read                     | Requests                                                                                                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR index, per repo       | 1 per 100 PRs updated since the last scan (usually 1)                                                                                                                                               |
+| Per-PR metrics, per repo | 6 to 8 per PR needing detail: 1 GraphQL, 3 REST discussions, 1 files page and 1 GraphQL thread index only when inline comments exist, 1 files page, 1 commits page; more pages past 100 of any list |
+| Actions runs, per repo   | 1 per roster user, plus 1 per further 100 runs                                                                                                                                                      |
+| Identities, per refresh  | 1 per roster user per day                                                                                                                                                                           |
+
+Not in the table: glance's PR read adds 1 rulesets request per repo and base branch of an
+open PR awaiting review, and 1 per further 100 status contexts on a PR's head commit.
+
+The first refresh of a window reads detail for every roster PR in it. A warm refresh reads
+detail only for PRs whose `updatedAt` moved past their stored snapshot, whether open,
+closed or merged, since GitHub bumps `updatedAt` on every commit, comment, review and label.
+With nothing changed, a repo costs 1 index request plus 1 Actions runs request per roster
+user per refresh; each PR that changed adds its 6 to 8. Per hour, multiply by the refreshes
+in that hour. The per-project id read and the per-user events read do not run on GitHub.
+
+PR detail runs 2 PRs at a time on GitHub (6 on GitLab), about 300 to 600 REST requests a
+minute, to stay under GitHub's secondary rate limit. The total is the same; a first refresh
+of a large window is slower.
+
+### Limits on GitHub
+
+- **github.com only.** A GitHub Enterprise host answers a setup error naming the host.
+- **Coding days are commit author dates on the team's PRs,** not pushes: a commit that never
+  reaches a PR in a configured repo does not count.
+- **A commit needs a GitHub login to count.** A commit whose author email is not linked to a
+  GitHub account has no login, so it adds no coding day.
+- **250 commits per PR.** GitHub lists no more, and a PR at the cap adds a warning.
+- **1000 Actions runs per person per repo per window.** GitHub stops a filtered run list
+  there, and a capped count adds a warning.
+- **Commits force-pushed off an open PR stay counted,** because the store never deletes a
+  commit it has read.
+
 ## Run
 
 ```bash
@@ -187,8 +260,9 @@ See `gitlab-leaderboard-spec.md` for the exact definitions.
   activity (a note, an approval) moved the MR after the snapshot, it is re-fetched. This
   matters because reviews land right before merge: a snapshot taken while the MR was still
   open would otherwise freeze that review out, undercounting MRs reviewed, review depth,
-  review latency, reciprocity, and even the diff totals. Non-merged rows are always
-  re-fetched.
+  review latency, reciprocity, and even the diff totals. On GitLab, non-merged rows are
+  always re-fetched; on GitHub, any PR whose snapshot covers its `updatedAt` is skipped
+  (see "What a refresh costs" under On GitHub).
 - **Trend storage** is limited to "current vs. one prior window." No long-run time series.
 - **Coding days** only count push events visible to your token.
 

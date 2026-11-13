@@ -14,6 +14,7 @@ import type {
   TimeWindow,
   UserRow,
 } from '../../shared/types';
+import { useForgeText } from '../forge/forge';
 import { userDelta } from '../model/delta';
 import { hueVar, OVERVIEW, statsInGroup } from '../model/groups';
 import { initials, priorWindowLabel } from '../model/labels';
@@ -157,6 +158,7 @@ function HeaderRow({
   sort: MetricKey;
   onSort: (k: MetricKey) => void;
 }) {
+  const t = useForgeText();
   return (
     <div className={classes.headerRow} data-parity="Header Row" role="row">
       <div className={classes.hNum} role="columnheader">
@@ -174,7 +176,7 @@ function HeaderRow({
         return (
           <Tooltip
             key={c}
-            label={definitionOf(c)}
+            label={t(definitionOf(c))}
             multiline
             w={280}
             openDelay={300}
@@ -199,7 +201,7 @@ function HeaderRow({
                   data-parity="H Label"
                   style={sorted ? { color: 'var(--tk-text-1)' } : undefined}
                 >
-                  {labelOf(c)}
+                  {t(labelOf(c))}
                 </span>
                 {sorted && (
                   <Glyph

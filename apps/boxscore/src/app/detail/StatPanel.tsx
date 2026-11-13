@@ -7,6 +7,7 @@ import type {
   TimeWindow,
   UserRow,
 } from '../../shared/types';
+import { useForgeText } from '../forge/forge';
 import { descriptor, leaderOf, rankedFor } from '../model/standings';
 import { CountChip } from '../ui/CountChip';
 import { GroupTag } from '../ui/GroupTag';
@@ -79,6 +80,7 @@ export function StatPanel({
   evidence: EvidenceState;
   self?: boolean;
 }) {
+  const t = useForgeText();
   const d = descriptor(stat);
   const copy = PANEL_COPY[stat];
   const value = metricValue(person.metrics, d);
@@ -107,12 +109,12 @@ export function StatPanel({
               className={`${classes.t} ${classes.statTitle}`}
               data-parity="Stat Title"
             >
-              {d.label}
+              {t(d.label)}
             </h2>
             <GroupTag group={d.group} variant="pill" parity="Group Tag" />
           </div>
           <span className={`${classes.t} ${classes.src}`} data-parity="Src">
-            {copy.source}
+            {t(copy.source)}
           </span>
         </div>
         <div className={classes.hero}>
@@ -127,7 +129,7 @@ export function StatPanel({
               className={`${classes.t} ${classes.bigSub}`}
               data-parity="Big Sub"
             >
-              {subOf(stat, window)}
+              {t(subOf(stat, window))}
             </span>
           </div>
           {!self && (
@@ -178,7 +180,7 @@ export function StatPanel({
           )}
         </div>
         <p className={classes.definition} data-parity="Definition">
-          {definitionOf(stat, ev?.facts)}
+          {t(definitionOf(stat, ev?.facts))}
         </p>
         {chips.length > 0 && (
           <div className={classes.counts}>
@@ -187,7 +189,7 @@ export function StatPanel({
                 key={c.name}
                 parity={c.name}
                 count={c.count}
-                label={c.label}
+                label={t(c.label)}
                 tone={c.tone}
               />
             ))}

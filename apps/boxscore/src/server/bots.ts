@@ -2,6 +2,7 @@ import { BUILTIN_BOT_PATTERNS } from '../shared/bots.js';
 import type { SuspectedBot } from '../shared/types.js';
 import { readSettings } from './config/index.js';
 import { compileBotPatterns } from './metrics/stats.js';
+import { storedLoginCanon } from './source/index.js';
 import { getStore, mrKey } from './store/index.js';
 
 export type { SuspectedBot };
@@ -29,11 +30,13 @@ export async function scanSuspectedBots(
   const knownUsers = new Set(
     [...settings.orgRoster, ...settings.roster].map(r => r.username)
   );
+  const canon = storedLoginCanon(settings, settings);
+  const isKnown = (u: string) => knownUsers.has(canon ? canon(u) : u);
   const seen = new Set<string>();
   const matches: SuspectedBot[] = [];
 
   const check = (u: string | null) => {
-    if (!u || seen.has(u) || knownUsers.has(u)) return;
+    if (!u || seen.has(u) || isKnown(u)) return;
     seen.add(u);
     const pat = allPatterns.find(p => p.test(u));
     if (pat) matches.push({ username: u, matchedPattern: String(pat) });

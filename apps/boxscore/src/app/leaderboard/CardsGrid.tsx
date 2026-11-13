@@ -5,6 +5,7 @@ import type {
   MetricKey,
   TimeWindow,
 } from '../../shared/types';
+import { useForgeText } from '../forge/forge';
 import { userDelta } from '../model/delta';
 import { statsInGroup } from '../model/groups';
 import { shortName } from '../model/labels';
@@ -47,6 +48,7 @@ function StatCard({
   trend: boolean;
   onSelectStat: (username: string, stat: MetricKey) => void;
 }) {
+  const t = useForgeText();
   const d = descriptor(stat);
   const rows = rankedFor(data.users, stat);
   const tie = isFullTie(data.users, stat);
@@ -59,14 +61,14 @@ function StatCard({
     >
       <div className={classes.cardHead}>
         <span className={classes.cardName} data-parity="Metric Name">
-          {d.label}
+          {t(d.label)}
         </span>
         <GroupTag group={d.group} variant="swatch-label" />
       </div>
       {tie ? (
         <div className={classes.tiedState} data-parity="Tied State">
           <span className={classes.tiedValue} data-parity="Tied Value">
-            {cardValue(stat, valued[0]?.value ?? null)}
+            {t(cardValue(stat, valued[0]?.value ?? null))}
           </span>
           <span className={classes.tiedNote} data-parity="Tied Note">
             All {valued.length} tied, no separation this window
@@ -98,7 +100,7 @@ function StatCard({
                 <RankRow
                   rank={r.value === null ? null : r.rank}
                   name={shortName(name)}
-                  value={cardValue(stat, r.value)}
+                  value={t(cardValue(stat, r.value))}
                   fraction={fractionOf(stat, r.value, rows)}
                   you={r.isYou}
                   leader={r.isLeader}

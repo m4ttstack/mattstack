@@ -1,8 +1,10 @@
+import { forgeText } from '../../shared/forge';
 import type {
   LeaderboardResponse,
   MetricKey,
   TimeWindow,
 } from '../../shared/types';
+import { ForgeContext } from '../forge/forge';
 import { priorWindowLabel, windowLabel } from '../model/labels';
 import { descriptor } from '../model/standings';
 import type { ViewMode } from '../shell/PageHeader';
@@ -36,7 +38,7 @@ export function leaderboardSubtitle(
     `${people} ${people === 1 ? 'person' : 'people'}`,
     view === 'cards'
       ? 'every stat, ranked'
-      : `sorted by ${descriptor(sort).label}`,
+      : `sorted by ${forgeText(descriptor(sort).label, data.forge)}`,
   ].join('  ·  ');
 }
 
@@ -59,34 +61,40 @@ export function LeaderboardPage({
   onSelectStat: (username: string, stat: MetricKey) => void;
 }) {
   const prior = trendWindow(data, trend);
-  if (view === 'cards') {
-    return (
-      <CardsGrid
-        data={data}
-        prior={prior}
-        dimmed={dimmed}
-        onSelectStat={onSelectStat}
-      />
-    );
-  }
   return (
-    <>
-      <LeadersStrip data={data} trend={prior !== null} dimmed={dimmed} />
-      <StandingsTable
-        data={data}
-        prior={prior}
-        dimmed={dimmed}
-        sort={sort}
-        onSort={onSort}
-        onSelectStat={onSelectStat}
-      />
-      <p className={classes.footnote} data-parity="Footnote">
-        <Glyph name="info" size={13} color="var(--tk-text-3)" parity="Info" />
-        <span className={classes.footnoteText} data-parity="Footnote Text">
-          Revert rate counts detected reverts only, so it undercounts
-          fix-forward fixes. Hover any header for its definition.
-        </span>
-      </p>
-    </>
+    <ForgeContext.Provider value={data.forge ?? 'gitlab'}>
+      {view === 'cards' ? (
+        <CardsGrid
+          data={data}
+          prior={prior}
+          dimmed={dimmed}
+          onSelectStat={onSelectStat}
+        />
+      ) : (
+        <>
+          <LeadersStrip data={data} trend={prior !== null} dimmed={dimmed} />
+          <StandingsTable
+            data={data}
+            prior={prior}
+            dimmed={dimmed}
+            sort={sort}
+            onSort={onSort}
+            onSelectStat={onSelectStat}
+          />
+          <p className={classes.footnote} data-parity="Footnote">
+            <Glyph
+              name="info"
+              size={13}
+              color="var(--tk-text-3)"
+              parity="Info"
+            />
+            <span className={classes.footnoteText} data-parity="Footnote Text">
+              Revert rate counts detected reverts only, so it undercounts
+              fix-forward fixes. Hover any header for its definition.
+            </span>
+          </p>
+        </>
+      )}
+    </ForgeContext.Provider>
   );
 }

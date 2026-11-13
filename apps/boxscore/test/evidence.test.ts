@@ -10,7 +10,7 @@ import type {
   FetchResult,
   NormLinearIssue,
 } from '../src/server/store/model.js';
-import { FETCH, fetchedWithMergedMrs, USERS, WINDOW } from './fixtures.js';
+import { FETCH, fetchedWithMergedMrs, li, USERS, WINDOW } from './fixtures.js';
 
 const SIZE_BAND = { tooSmall: 10, tooLarge: 400 };
 const CTX: EvidenceContext = {
@@ -187,6 +187,31 @@ describe('issuesCompleted shows the closed date and non-mention links only', () 
   });
 });
 
+describe('github issue evidence', () => {
+  it('links a done issue to its pull requests and names them #iid', () => {
+    const fetched: FetchResult = {
+      ...FETCH,
+      linearIssues: [
+        {
+          ...li('ENG-10', 'alice'),
+          linkedMrs: [
+            { iid: 100, projectPath: 'org/app', via: 'closing' },
+            { iid: 200, projectPath: 'org/app', via: 'mention' },
+          ],
+        },
+      ],
+    };
+    const ev = buildUserEvidence(fetched, 'alice', {
+      ...CTX,
+      forge: 'github',
+      baseUrl: 'https://github.com',
+    });
+    const row = ev.issuesCompleted!.rows.find(r => r.cells[0] === 'ENG-10')!;
+    expect(row.cells[4]).toBe('#100');
+    expect(row.mrHrefs).toEqual(['https://github.com/org/app/pull/100']);
+  });
+});
+
 describe('evidence row ordering', () => {
   it('MR tables sort by MR number, highest first', () => {
     expect(ev.mrsMerged!.rows.map(r => r.cells[0])).toEqual(['!2', '!1']);
@@ -303,5 +328,43 @@ describe('evidence facts', () => {
     expect(evBig.mrsMerged?.rows).toHaveLength(300);
     expect(evBig.mrsMerged?.facts?.merged).toBe(320);
     expect(evBig.sizeHealthPct?.facts?.inBand).toBe(320);
+  });
+});
+
+describe('github evidence', () => {
+  const GH: EvidenceContext = {
+    ...CTX,
+    forge: 'github',
+    baseUrl: 'https://github.com',
+  };
+  const gh = buildUserEvidence(FETCH, 'alice', GH);
+
+  it('github evidence links point at pull requests', () => {
+    expect(gh.mrsMerged!.rows.length).toBeGreaterThan(0);
+    for (const r of gh.mrsMerged!.rows)
+      expect(r.href).toMatch(
+        /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/
+      );
+  });
+
+  it('PR-keyed cells read #iid on github and !iid on gitlab', () => {
+    expect(gh.mrsMerged!.rows.every(r => /^#\d+$/.test(r.cells[0]!))).toBe(
+      true
+    );
+    expect(ev.mrsMerged!.rows.every(r => /^!\d+$/.test(r.cells[0]!))).toBe(
+      true
+    );
+    const reverted = gh.revertRate!.rows.find(r => r.cells[0] === '#1');
+    expect(reverted?.cells[3]).toBe('#4');
+  });
+
+  it('every other change-request link and ref follows the forge', () => {
+    for (const metric of Object.values(gh))
+      for (const r of metric.rows) {
+        if (r.href?.includes('linear.app')) continue;
+        if (r.href) expect(r.href).not.toContain('merge_requests');
+        expect(r.cells[0]).not.toMatch(/^!/);
+        for (const h of r.mrHrefs ?? []) expect(h).toContain('/pull/');
+      }
   });
 });

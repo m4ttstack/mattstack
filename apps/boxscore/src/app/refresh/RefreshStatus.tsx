@@ -1,4 +1,5 @@
 import type { RefreshPhase, RefreshProgress } from '../../shared/types';
+import { useForgeText } from '../forge/forge';
 import { stallNotice } from '../lib/progress';
 import { Glyph } from '../ui/Glyph';
 import classes from './refresh.module.css';
@@ -48,6 +49,7 @@ function PhaseCell({
   detail: string;
   warn: boolean;
 }) {
+  const t = useForgeText();
   const tone = warn ? 'var(--tk-text-warn)' : 'var(--tk-text-accent)';
   return (
     <div
@@ -93,7 +95,7 @@ function PhaseCell({
             state === 'active' ? { color: tone, fontWeight: 500 } : undefined
           }
         >
-          {label}
+          {t(label)}
         </span>
       </div>
       <span
@@ -101,7 +103,7 @@ function PhaseCell({
         data-parity="d"
         style={state === 'active' ? { color: 'var(--tk-text-1)' } : undefined}
       >
-        {detail}
+        {t(detail)}
       </span>
     </div>
   );
@@ -121,6 +123,7 @@ export function RefreshStatus({
   cold: boolean;
   onCancel: () => void;
 }) {
+  const t = useForgeText();
   const warn = stalledMs !== null;
   const index = progress
     ? PHASES.findIndex(p => p.phase === progress.phase)
@@ -130,7 +133,8 @@ export function RefreshStatus({
   const fraction = determinate ? progress.done / progress.total : 0;
   const overall = known ? (index + fraction) / PHASES.length : fraction;
 
-  const stall = stalledMs === null ? null : stallNotice(stalledMs);
+  const notice = stalledMs === null ? null : stallNotice(stalledMs);
+  const stall = notice === null ? null : t(notice);
   const sub =
     stall ??
     (cold

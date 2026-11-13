@@ -1,4 +1,4 @@
-import { GitLabProvider } from '@mattstack/glance';
+import { GitHubProvider, GitLabProvider } from '@mattstack/glance';
 import type {
   FetchMergeRequestIndexOptions,
   FetchMergeRequestMetricsOptions,
@@ -76,5 +76,6 @@ export function makeProvider(env: Env): GitProvider {
     throw new Error(
       'tests must inject a provider factory (__setProviderFactory)'
     );
+  if (env.forge === 'github') return new GitHubProvider(env.baseUrl, env.token);
   return new GitLabProvider(env.baseUrl, env.token);
 }

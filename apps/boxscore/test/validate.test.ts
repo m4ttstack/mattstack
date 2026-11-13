@@ -73,6 +73,12 @@ describe('validateLeaderboard', () => {
     expect(codes(res)).toContain('current_user_mismatch');
   });
 
+  it('matches the current user whose login differs from the roster only in case', () => {
+    const res = validResponse();
+    res.currentUser = 'A';
+    expect(codes(res)).not.toContain('current_user_mismatch');
+  });
+
   it('flags current-user absent when no row is flagged', () => {
     const res = validResponse();
     res.users.forEach(u => (u.isCurrentUser = false));

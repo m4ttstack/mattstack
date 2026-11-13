@@ -28,8 +28,8 @@ export function mean(values: readonly number[]): number {
 }
 
 /**
- * GitLab bot / service accounts that comment automatically (resource access tokens,
- * group/project bots, CI bots). They post non-system notes seconds after MR creation,
+ * GitLab and GitHub bot accounts that comment automatically (resource access tokens,
+ * group/project bots, CI bots, `[bot]` apps). They post non-system notes seconds after MR creation,
  * which would otherwise dominate "first review" timing and reviewer counts.
  */
 const BUILTIN_BOT_RES = BUILTIN_BOT_PATTERNS.map(

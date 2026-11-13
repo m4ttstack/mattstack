@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 
@@ -206,5 +206,31 @@ describe('person page', () => {
   it('answers an unknown person with the not-found page', () => {
     renderAt('/user/nobody/issuesCompleted');
     expect(screen.getByText('Page not found')).toBeInTheDocument();
+  });
+});
+
+describe('person page on a github team', () => {
+  beforeEach(() => {
+    vi.stubEnv('BOXSCORE_FIXTURE_FORGE', 'github');
+    useLeaderboard.mockReturnValue({
+      data: fixtureLeaderboard(false),
+      error: null,
+      isFetching: false,
+    });
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('names GitHub PRs as the merged panel source', async () => {
+    const { container } = renderAt('/user/srivera/mrsMerged');
+    const panel = layer(container, 'Panel · MRs merged')!;
+    expect(layer(panel, 'Src')).toHaveTextContent(
+      'Source: GitHub PRs you authored'
+    );
+    expect(layer(panel, 'Stat Title')).toHaveTextContent('PRs merged');
+    await waitFor(
+      () => expect(within(panel).queryByText('Loading…')).toBeNull(),
+      { timeout: 5000 }
+    );
+    expect(panel.textContent).not.toMatch(/\bMRs?\b|GitLab/);
   });
 });

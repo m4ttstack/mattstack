@@ -9,6 +9,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 
 import type {
@@ -30,6 +31,15 @@ import {
   resolvePreset,
 } from '../src/server/util/window.js';
 
+// A passthrough spy, so one test can hand the real lookup a recording fetch.
+vi.mock('../src/server/config/current-user.js', async importOriginal => {
+  const real =
+    await importOriginal<
+      typeof import('../src/server/config/current-user.js')
+    >();
+  return { ...real, getCurrentUser: vi.fn(real.getCurrentUser) };
+});
+
 const dir = mkdtempSync(join(tmpdir(), 'boxscore-leaderboard-'));
 process.env.BOXSCORE_DB = join(dir, 'test.sqlite');
 
@@ -38,9 +48,11 @@ const { getLeaderboard, getUserDetail, ColdCacheError } =
 const { ConfigError } = await import('../src/server/config/index.js');
 const { getStore, __resetStore } = await import('../src/server/store/index.js');
 const { __setProviderFactory } = await import('../src/server/source/index.js');
-const { __setCurrentUser, __resetCurrentUser } =
+const { __setCurrentUser, __resetCurrentUser, getCurrentUser } =
   await import('../src/server/config/current-user.js');
 const { __setTeamReader } = await import('../src/server/config/team.js');
+const { __setGitHubTokenDeps, githubRepoName } =
+  await import('../src/server/config/github-token.js');
 const { ViewerForbiddenError, UnknownViewAsError, LOCKED_MESSAGE } =
   await import('../src/server/viewer-scope.js');
 
@@ -173,6 +185,30 @@ describe('getLeaderboard: the refresh window', () => {
     await getLeaderboard({ window, refresh: true, trend: true });
 
     expect(scans.map(s => s.updatedAfter)).toEqual([priorWindow(window).start]);
+  });
+});
+
+describe('getLeaderboard: forge on the response', () => {
+  it('a gitlab response says forge gitlab', async () => {
+    fakeProvider();
+    const res = await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+    });
+    expect(res.forge).toBe('gitlab');
+  });
+
+  it('a gitlab cold-cache error carries no github forge', async () => {
+    fakeProvider();
+    const err = await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+      cacheOnly: true,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ColdCacheError);
+    expect(err).toMatchObject({ forge: undefined });
   });
 });
 
@@ -538,5 +574,243 @@ describe('getLeaderboard: the store follows the confirmed host', () => {
     await getLeaderboard({ window, refresh: false, trend: false });
 
     expect(getStore().lastScan(PROJECT)).not.toBeNull();
+  });
+});
+
+describe('getLeaderboard: on github', () => {
+  const REFUSAL =
+    'repo acme/app is not tracked by rt ... rt daemon track acme/app live branches';
+
+  function onGitHub(host = 'github.com'): void {
+    const github: Record<string, unknown> = {
+      ...SETTINGS,
+      'mattstack.integrations': { forge: { host, provider: 'github' } },
+    };
+    __setSettingReader(<T>(k: string) => github[k] as T | undefined);
+  }
+
+  afterEach(() => {
+    __setGitHubTokenDeps(null);
+    __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
+    process.env.GITLAB_TOKEN = 'test-token';
+  });
+
+  it("an untracked team answers ConfigError with the daemon's refusal", async () => {
+    onGitHub();
+    const asked: string[] = [];
+    __setGitHubTokenDeps({
+      env: {},
+      async forgeToken(repoName) {
+        asked.push(repoName);
+        return { ok: false, error: REFUSAL };
+      },
+    });
+    let built = 0;
+    __setProviderFactory(() => {
+      built++;
+      throw new Error('the provider must not be built');
+    });
+
+    const run = getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: true,
+      trend: false,
+    });
+
+    await expect(run).rejects.toBeInstanceOf(ConfigError);
+    await expect(run).rejects.toThrow(REFUSAL);
+    expect(asked).toEqual([githubRepoName(PROJECT)]);
+    expect(built).toBe(0);
+  });
+
+  it('the gitlab token never reaches github', async () => {
+    onGitHub();
+    process.env.GITLAB_TOKEN = 'gl-secret';
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    const { provider } = fakeProvider();
+    const envs: { token: string; forge?: string; baseUrl: string }[] = [];
+    __setProviderFactory(env => {
+      envs.push(env);
+      return provider as unknown as GitProvider;
+    });
+
+    await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: true,
+      trend: false,
+    });
+
+    expect(envs).toHaveLength(1);
+    expect(envs[0]!.token).toBe('gh-tkn');
+    expect(envs[0]!.forge).toBe('github');
+    expect(envs[0]!.baseUrl).toBe('https://github.com');
+  });
+
+  it('a github enterprise host answers a ConfigError naming the host', async () => {
+    onGitHub('ghe.example');
+    const asked: string[] = [];
+    __setGitHubTokenDeps({
+      env: {},
+      async forgeToken(repoName) {
+        asked.push(repoName);
+        return { ok: true, data: { token: 'gh-tkn' } };
+      },
+    });
+
+    const run = getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+    });
+
+    await expect(run).rejects.toBeInstanceOf(ConfigError);
+    await expect(run).rejects.toThrow('ghe.example');
+    expect(asked).toEqual([]);
+  });
+
+  it('no projects answers the boxscore.projects error before any token read', async () => {
+    onGitHub();
+    const github: Record<string, unknown> = {
+      ...SETTINGS,
+      'mattstack.integrations': {
+        forge: { host: 'github.com', provider: 'github' },
+      },
+      'boxscore.projects': [],
+    };
+    __setSettingReader(<T>(k: string) => github[k] as T | undefined);
+    const asked: string[] = [];
+    __setGitHubTokenDeps({
+      env: {},
+      async forgeToken(repoName) {
+        asked.push(repoName);
+        return { ok: true, data: { token: 'gh-tkn' } };
+      },
+    });
+
+    const run = getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+    });
+
+    await expect(run).rejects.toBeInstanceOf(ConfigError);
+    await expect(run).rejects.toThrow('boxscore.projects is empty');
+    expect(asked).toEqual([]);
+  });
+
+  it('the current user is read from api.github.com with the GitHub token', async () => {
+    onGitHub();
+    __resetCurrentUser();
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    fakeProvider();
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const recording = (async (
+      url: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      seen.push({
+        url: String(url),
+        headers: init?.headers as Record<string, string>,
+      });
+      return new Response(JSON.stringify({ login: 'alice', name: null }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+    const lookup = vi.mocked(getCurrentUser);
+    const real = lookup.getMockImplementation()!;
+    lookup.mockImplementationOnce((baseUrl, token, _fetch, forge) =>
+      real(baseUrl, token, recording, forge)
+    );
+
+    try {
+      await getLeaderboard({
+        window: resolvePreset('30d', new Date()),
+        refresh: false,
+        trend: false,
+      });
+    } finally {
+      __resetCurrentUser();
+    }
+
+    expect(lookup).toHaveBeenLastCalledWith(
+      'https://github.com',
+      'gh-tkn',
+      undefined,
+      'github'
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toBe('https://api.github.com/user');
+    expect(seen[0]!.headers.Authorization).toBe('Bearer gh-tkn');
+    expect(seen[0]!.headers['PRIVATE-TOKEN']).toBeUndefined();
+  });
+
+  it('a github response says forge github', async () => {
+    onGitHub();
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    fakeProvider();
+    const res = await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+    });
+    expect(res.forge).toBe('github');
+    expect(res.baseUrl).toBe('https://github.com');
+  });
+
+  it('a cold github team answers a ColdCacheError carrying forge github', async () => {
+    onGitHub();
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    fakeProvider();
+    const err = await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+      cacheOnly: true,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ColdCacheError);
+    expect(err).toMatchObject({ forge: 'github' });
+  });
+
+  it('a github detail carries forge and links its merged rows to pull requests', async () => {
+    onGitHub();
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    __setCurrentUser({ username: 'alice', name: null });
+    fakeProvider();
+    const now = new Date();
+    const window = resolvePreset('30d', now);
+    // The first read adopts github.com as the store's host and clears the store.
+    await getLeaderboard({ window, refresh: false, trend: false });
+    const day = new Date(now.getTime() - 86_400_000).toISOString();
+    getStore().upsertIndexRows([
+      {
+        projectPath: PROJECT,
+        iid: 7,
+        title: 'Add feature',
+        state: 'merged',
+        createdAt: day,
+        updatedAt: day,
+        mergedAt: day,
+        authorUsername: 'alice',
+        sourceBranch: 'feat/x',
+        labels: [],
+        scannedAt: day,
+      },
+    ]);
+
+    try {
+      const res = await getUserDetail({
+        window,
+        refresh: false,
+        trend: false,
+        user: 'alice',
+      });
+      expect(res.forge).toBe('github');
+      const rows = res.evidence.mrsMerged!.rows;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.href).toBe(`https://github.com/${PROJECT}/pull/7`);
+      expect(rows[0]!.cells[0]).toBe('#7');
+    } finally {
+      __resetCurrentUser();
+    }
   });
 });

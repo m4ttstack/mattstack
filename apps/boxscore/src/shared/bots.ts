@@ -1,8 +1,8 @@
 /**
  * Built-in bot username patterns: one list feeding metric filtering (isBotUsername),
  * the suspected-bot scanner, and the settings-page badges. GitLab service accounts
- * (resource access tokens, group/project bots, CI bots) comment automatically and
- * would otherwise skew review metrics.
+ * (resource access tokens, group/project bots, CI bots) and GitHub App accounts
+ * (`name[bot]`) comment automatically and would otherwise skew review metrics.
  */
 export const BUILTIN_BOT_PATTERNS: readonly {
   source: string;
@@ -14,6 +14,7 @@ export const BUILTIN_BOT_PATTERNS: readonly {
   },
   { source: '_bot_', labels: ['*_bot_*'] },
   { source: '_bot$', labels: ['*_bot'] },
+  { source: '\\[bot\\]$', labels: ['*[bot]'] },
   { source: '^ghost$', labels: ['ghost'] },
 ];
 

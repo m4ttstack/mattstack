@@ -8,6 +8,7 @@ import {
   metricValue,
 } from '../../shared/metrics';
 import type { MetricKey, UserRow } from '../../shared/types';
+import { useForgeText } from '../forge/forge';
 import { cardValue } from '../leaderboard/format';
 import { hueVar, statsInGroup } from '../model/groups';
 import { descriptor } from '../model/standings';
@@ -38,6 +39,7 @@ export function StatRail({
   self?: boolean;
 }) {
   const personHref = usePersonHref();
+  const t = useForgeText();
   return (
     <nav
       className={classes.statRail}
@@ -83,13 +85,13 @@ export function StatRail({
                       fontWeight: on ? 500 : 400,
                     }}
                   >
-                    {d.label}
+                    {t(d.label)}
                   </span>
                   <span
                     className={`${classes.t} ${classes.num} ${classes.statValue}`}
                     data-parity="V"
                   >
-                    {cardValue(key, metricValue(person.metrics, d))}
+                    {t(cardValue(key, metricValue(person.metrics, d)))}
                   </span>
                   {!self && <RankPill rank={metricRank(person.metrics, d)} />}
                 </Link>

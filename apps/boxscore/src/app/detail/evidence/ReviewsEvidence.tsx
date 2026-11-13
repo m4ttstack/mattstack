@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { useGrow } from '@mattstack/app-kit/hooks';
 import { formatNumber } from '../../../shared/metrics';
 import type { EvidenceRow } from '../../../shared/types';
+import { useForgeText } from '../../forge/forge';
 import { reviewsByAuthor } from '../../model/evidence-shapes';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
@@ -61,6 +62,7 @@ function ReviewRow({ row }: { row: EvidenceRow }) {
 }
 
 export function ReviewsEvidence({ ev }: EvidenceProps) {
+  const t = useForgeText();
   const [all, setAll] = useState(false);
   const authors = useMemo(() => reviewsByAuthor(ev), [ev]);
   const grow = useGrow();
@@ -108,7 +110,7 @@ export function ReviewsEvidence({ ev }: EvidenceProps) {
             className={`${classes.t} ${classes.h} ${h.className}`}
             data-parity="h"
           >
-            {h.label}
+            {t(h.label)}
           </span>
         ))}
       </div>

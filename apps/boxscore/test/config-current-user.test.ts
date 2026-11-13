@@ -77,4 +77,25 @@ describe('getCurrentUser', () => {
       (await getCurrentUser('https://gl.other.example', 'tok'))?.username
     ).toBe('pinned');
   });
+
+  it('github reads GET https://api.github.com/user with a Bearer token', async () => {
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const f = (async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({
+        url: String(url),
+        headers: init?.headers as Record<string, string>,
+      });
+      return new Response(JSON.stringify({ login: 'ada', name: 'Ada' }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+
+    expect(
+      await getCurrentUser('https://github.com', 'tkn', f, 'github')
+    ).toEqual({ username: 'ada', name: 'Ada' });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toBe('https://api.github.com/user');
+    expect(seen[0]!.headers.Authorization).toBe('Bearer tkn');
+    expect(seen[0]!.headers['PRIVATE-TOKEN']).toBeUndefined();
+  });
 });

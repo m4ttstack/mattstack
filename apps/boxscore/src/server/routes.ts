@@ -103,6 +103,7 @@ const leaderboard = new Hono()
           cached: false,
           window,
           scope: err.scope,
+          forge: err.forge,
         };
         return c.json(cold, 200);
       }

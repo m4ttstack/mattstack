@@ -1,4 +1,5 @@
 import type { EvidenceRow } from '../../../shared/types';
+import { useForgeText } from '../../forge/forge';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import {
@@ -126,6 +127,7 @@ function IssueRow({ row }: { row: EvidenceRow }) {
 }
 
 export function IssuesEvidence({ ev }: EvidenceProps) {
+  const t = useForgeText();
   const { query, setQuery, all, setAll, filtered, shown } = useEvidenceRows(
     ev.rows
   );
@@ -151,7 +153,7 @@ export function IssuesEvidence({ ev }: EvidenceProps) {
                   role="columnheader"
                 >
                   <span className={`${classes.t} ${classes.h}`} data-parity="h">
-                    {c.label}
+                    {t(c.label)}
                   </span>
                 </span>
               ))}

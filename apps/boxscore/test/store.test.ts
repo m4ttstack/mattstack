@@ -172,6 +172,27 @@ describe('metrics rows', () => {
     expect([...keys]).toEqual([mrKey('g/p', 1)]);
   });
 
+  it('freshMetricsKeysAnyState returns current rows whatever their state', () => {
+    const s = getStore();
+    const at = '2026-05-02T00:00:00Z';
+    s.upsertIndexRows([
+      row({ iid: 1, state: 'opened', mergedAt: null, updatedAt: at }),
+      row({ iid: 2, state: 'closed', mergedAt: null, updatedAt: at }),
+      row({ iid: 3, state: 'merged', updatedAt: '2026-05-09T00:00:00Z' }),
+      row({ iid: 4, state: 'opened', mergedAt: null, updatedAt: at }),
+    ]);
+    s.upsertMrMetrics([
+      { ...metrics('g/p', 1), updatedAt: at },
+      { ...metrics('g/p', 2), updatedAt: at },
+      { ...metrics('g/p', 3), updatedAt: at },
+      metrics('g/p', 4),
+    ]);
+    const keys = s.freshMetricsKeysAnyState(
+      [1, 2, 3, 4].map(i => mrKey('g/p', i))
+    );
+    expect([...keys].sort()).toEqual([mrKey('g/p', 1), mrKey('g/p', 2)]);
+  });
+
   it('freshMergedMetricsKeys treats a metrics row with no timestamp as stale', () => {
     const s = getStore();
     s.upsertIndexRows([row({ iid: 1, state: 'merged' })]);

@@ -1,5 +1,6 @@
 import { Tooltip } from '@mattstack/app-kit/core';
 import type { TimeWindow, UserRow } from '../../shared/types';
+import { useForgeText } from '../forge/forge';
 import { descriptor } from '../model/standings';
 import { personSummary } from '../model/summary';
 import classes from './detail.module.css';
@@ -75,6 +76,7 @@ export function PersonSummary({
   window: TimeWindow;
   self?: boolean;
 }) {
+  const t = useForgeText();
   if (self) return null;
   const s = personSummary(users, person.username);
   const rankedCount = users.filter(u => u.resolved).length;
@@ -92,7 +94,7 @@ export function PersonSummary({
         unit={s.leads.length === 1 ? 'stat' : 'stats'}
         sub={
           s.leads.length > 0
-            ? s.leads.map(k => descriptor(k).label).join(', ')
+            ? s.leads.map(k => t(descriptor(k).label)).join(', ')
             : 'none this window'
         }
         wrap={s.leads.length > 0}
