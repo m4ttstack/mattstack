@@ -48,3 +48,35 @@ test('no fixture file carries a GitLab merge request url', () => {
   ])
     expect(read(name)).not.toContain('/-/merge_requests/');
 });
+
+type Pipeline = {
+  id: string;
+  runIds: string[];
+  jobs: { runId: string | null }[];
+};
+
+test('every pipeline id is the glance 0.33 stable GitHub id', () => {
+  const ids = rows().map(row => ({
+    row,
+    pipeline: (row as unknown as { pipeline: Pipeline }).pipeline,
+  }));
+  for (const { row, pipeline } of ids) {
+    const runIds = [
+      ...new Set(pipeline.jobs.flatMap(j => (j.runId ? [j.runId] : []))),
+    ];
+    expect([...pipeline.runIds].sort()).toEqual(runIds.sort());
+    const lowest = runIds.reduce<string | null>(
+      (best, id) => (best === null || Number(id) < Number(best) ? id : best),
+      null
+    );
+    expect(pipeline.id).toBe(
+      lowest ? `github:run:${lowest}` : `github:checks:${row.webUrl}`
+    );
+  }
+  expect(
+    ids.some(({ pipeline }) => pipeline.id.startsWith('github:run:'))
+  ).toBe(true);
+  expect(
+    ids.some(({ pipeline }) => pipeline.id.startsWith('github:checks:'))
+  ).toBe(true);
+});
