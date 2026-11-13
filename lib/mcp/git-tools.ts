@@ -17,6 +17,7 @@ import { resolveRepoTarget } from "./mr-target.ts";
 import { remoteDefault } from "./remote-default.ts";
 import { checkOptional, err, MR_TARGET_PROPS, ok, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, gitChildEnv, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
+import { changeNoun } from "../repo-label.ts";
 
 export { gitChildEnv };
 
@@ -557,7 +558,7 @@ export async function branchSyncSweep(
   const repo = await deps.resolveRepo(repoName);
   if (!repo.ok) return err(repo.error);
   const [mrs, trees] = await Promise.all([deps.authoredOpenMrs(repo.identity), deps.repoTrees(repo.identity)]);
-  if (!mrs.ok) return err(`could not list your open merge requests: ${mrs.error}`);
+  if (!mrs.ok) return err(`could not list your open ${changeNoun(repo.identity)}s: ${mrs.error}`);
   if (!trees.ok) return err(`could not list the repo's worktrees: ${trees.error}`);
   const selected = branches === undefined ? mrs.mrs : mrs.mrs.filter((mr) => branches.includes(mr.branch));
   const results: Array<BranchSyncResult & { tree: string; mr: { iid: number; url: string | null } }> = [];
