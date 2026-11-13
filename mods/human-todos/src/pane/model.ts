@@ -8,7 +8,7 @@ export type Tone = 'title' | 'dim' | 'warning' | 'script' | 'link' | 'success' |
 export type PaneButton = { id: ButtonId | 'more' | 'clear'; label: string; tone: ButtonTone; todoId?: string }
 export type PaneRow =
   | { kind: 'text'; text: string; tone: Tone; indent: boolean; spin?: true }
-  | { kind: 'buttons'; buttons: PaneButton[]; lead?: { text: string; tone: Tone } }
+  | { kind: 'buttons'; buttons: PaneButton[]; lead?: { text: string; tone: Tone; spin?: true; pad?: true }; flush?: true }
   | { kind: 'finished'; mark: string; tone: Tone; title: string; exit?: number }
   | { kind: 'blank' }
 export type PaneModel = { rows: PaneRow[]; spans: { first: number; last: number }[]; hasFinished: boolean }
@@ -81,9 +81,12 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
     const hidden = script.length - SCRIPT_ROWS
     const tail = (todo.liveTail ?? []).slice(todo.runner === 'local' ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR)
 
-    lines(`${todo.status === 'running' ? `${spin} ` : '○ '}${todo.title}`, inner, 'title', false)
+    const isRunning = todo.status === 'running'
+    wrapWords(`${isRunning ? `${spin} ` : '○ '}${todo.title}`, inner).forEach((line, n) =>
+      rows.push({ kind: 'text', text: line, tone: 'title', indent: false, ...(isRunning && n === 0 && { spin: true as const }) }),
+    )
     if (todo.detail) lines(todo.detail, width, 'dim', true)
-    if (todo.status !== 'running' && todo.note) lines(todo.note, width, 'warning', true)
+    if (!isRunning && todo.note) lines(todo.note, width, 'warning', true)
     for (const row of shown) rows.push({ kind: 'text', text: row, tone: 'script', indent: true })
     if (hidden > 0 && !isConfirming) {
       const more: PaneButton = { id: 'more', label: isOpen ? 'Show less' : 'Show all', tone: 'neutral', todoId: todo.id }
@@ -92,11 +95,16 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
     if (todo.kind === 'run' && todo.cwd) rows.push({ kind: 'text', text: `in ${todo.cwd}`, tone: 'dim', indent: true })
     if (todo.url) lines(todo.url, width, 'link', true)
     if (todo.paths?.length) lines(todo.paths.map(fileName).join(', '), width, 'link', true)
-    if (todo.status === 'running') {
+    if (isRunning) {
       blank()
       for (const line of tail) rows.push({ kind: 'text', text: line, tone: 'dim', indent: true })
       if (tail.length > 0) blank()
-      const lead = { text: `${spin} ${todo.isStopping ? 'Stopping…' : 'Running'}`, tone: todo.isStopping ? ('error' as const) : ('warning' as const) }
+      const lead = {
+        text: `${spin} ${todo.isStopping ? 'Stopping…' : 'Running'}`,
+        tone: todo.isStopping ? ('error' as const) : ('warning' as const),
+        spin: true as const,
+        pad: true as const,
+      }
       rows.push({ kind: 'buttons', lead, buttons: buttonsOf(todo) })
     } else {
       blank()
@@ -120,7 +128,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
       })
     }
     blank()
-    rows.push({ kind: 'buttons', buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] })
+    rows.push({ kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] })
   }
 
   return { rows, spans, hasFinished: finished.length > 0 }

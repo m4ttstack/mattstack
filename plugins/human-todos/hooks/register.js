@@ -1067,10 +1067,11 @@ function paneModel(input) {
     const shown = isOpen ? script : script.slice(0, SCRIPT_ROWS);
     const hidden = script.length - SCRIPT_ROWS;
     const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR);
-    lines(`${todo.status === "running" ? `${spin} ` : "○ "}${todo.title}`, inner, "title", false);
+    const isRunning = todo.status === "running";
+    wrapWords(`${isRunning ? `${spin} ` : "○ "}${todo.title}`, inner).forEach((line, n) => rows.push({ kind: "text", text: line, tone: "title", indent: false, ...isRunning && n === 0 && { spin: true } }));
     if (todo.detail)
       lines(todo.detail, width, "dim", true);
-    if (todo.status !== "running" && todo.note)
+    if (!isRunning && todo.note)
       lines(todo.note, width, "warning", true);
     for (const row of shown)
       rows.push({ kind: "text", text: row, tone: "script", indent: true });
@@ -1084,13 +1085,18 @@ function paneModel(input) {
       lines(todo.url, width, "link", true);
     if (todo.paths?.length)
       lines(todo.paths.map(fileName).join(", "), width, "link", true);
-    if (todo.status === "running") {
+    if (isRunning) {
       blank();
       for (const line of tail)
         rows.push({ kind: "text", text: line, tone: "dim", indent: true });
       if (tail.length > 0)
         blank();
-      const lead = { text: `${spin} ${todo.isStopping ? "Stopping…" : "Running"}`, tone: todo.isStopping ? "error" : "warning" };
+      const lead = {
+        text: `${spin} ${todo.isStopping ? "Stopping…" : "Running"}`,
+        tone: todo.isStopping ? "error" : "warning",
+        spin: true,
+        pad: true
+      };
       rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo) });
     } else {
       blank();
@@ -1114,7 +1120,7 @@ function paneModel(input) {
       });
     }
     blank();
-    rows.push({ kind: "buttons", buttons: [{ id: "clear", label: "Clear finished", tone: "neutral" }] });
+    rows.push({ kind: "buttons", flush: true, buttons: [{ id: "clear", label: "Clear finished", tone: "neutral" }] });
   }
   return { rows, spans, hasFinished: finished.length > 0 };
 }
@@ -1142,8 +1148,8 @@ var TEXT_PROPS = {
 function paneColumns(e) {
   return e.props.bodyColumns ?? 60;
 }
-async function closePane($) {
-  await $.ui.close({ id: PLUGIN });
+async function closePane($, paneId) {
+  await $.ui.close({ id: paneId });
   $.ui.invalidate("ui.render");
 }
 async function clearFinished($) {
@@ -1160,7 +1166,7 @@ async function pressTodo($, button, surface) {
     $.ui.toast(`Could not ${LABELS[button.id].toLowerCase()} #${todo.id}`);
   }
 }
-function drawPlainPane($, e, model, scroll) {
+function drawPlainPane($, e, model, scroll, paneId) {
   const { Box, Text, Button } = $.ui.resolve(e);
   const columns = paneColumns(e);
   const rows = [];
@@ -1188,7 +1194,7 @@ function drawPlainPane($, e, model, scroll) {
     key: "close",
     role: "dismiss",
     label: "Close",
-    onPress: () => closePane($)
+    onPress: () => closePane($, paneId)
   })));
   blank("pad-header");
   model.rows.forEach((row, i) => {
@@ -1220,15 +1226,14 @@ function drawPlainPane($, e, model, scroll) {
           dimColor: true
         }, ` (exit ${row.exit})`)));
       case "buttons": {
-        const isClear = row.buttons.some((b) => b.id === "clear");
         return rows.push(/* @__PURE__ */ h(Box, {
           key,
           flexDirection: "row",
-          gap: isClear ? undefined : 1,
-          marginLeft: isClear ? undefined : 2
+          gap: row.flush ? undefined : 1,
+          marginLeft: row.flush ? undefined : 2
         }, row.lead && /* @__PURE__ */ h(Text, {
           ...TEXT_PROPS[row.lead.tone]
-        }, row.lead.tone === "dim" ? row.lead.text : `${row.lead.text} `), row.buttons.map(button)));
+        }, row.lead.pad ? `${row.lead.text} ` : row.lead.text), row.buttons.map(button)));
       }
     }
   });
@@ -1329,7 +1334,7 @@ function registerPane(on) {
     const { list, openIds, spin: frameNo } = await readPane2($);
     const inner = Math.max(22, paneColumns(e) - 4);
     const model = paneModel({ list, expanded: openIds, spin: SPIN[frameNo % SPIN.length] ?? "", width: inner - 2 });
-    return drawPlainPane($, e, model, e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY });
+    return drawPlainPane($, e, model, e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
   });
 }
 // mods/human-todos/src/contract.ts

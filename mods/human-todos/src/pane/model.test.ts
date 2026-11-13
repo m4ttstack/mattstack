@@ -7,6 +7,7 @@ import type { PaneRow, Tone } from './model'
 const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'task', title: 'Do it', status: 'open', ...over })
 const build = (list: Todo[], expanded: string[] = [], width = 38) => paneModel({ list, expanded, spin: '⠋', width })
 const text = (t: string, tone: Tone, indent = false): PaneRow => ({ kind: 'text', text: t, tone, indent })
+const spinning = (t: string): PaneRow => ({ kind: 'text', text: t, tone: 'title', indent: false, spin: true })
 const BLANK: PaneRow = { kind: 'blank' }
 const script5 = 'one\ntwo\nthree\nfour\nfive'
 
@@ -80,18 +81,24 @@ test('a running item starts with the spin frame, caps its tail by runner, and le
   const herdr = build([todo({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', liveTail: tail })]).rows
   const tailRows = (rows: PaneRow[]) => rows.filter(r => r.kind === 'text' && r.tone === 'dim')
 
-  expect(local[0]).toEqual(text('⠋ Do it', 'title'))
+  expect(local[0]).toEqual(spinning('⠋ Do it'))
   expect(tailRows(local).map(r => (r as { text: string }).text)).toEqual(tail.slice(-15))
   expect(tailRows(herdr).map(r => (r as { text: string }).text)).toEqual(['l17', 'l18', 'l19'])
   expect(herdr.at(-2)).toEqual({
     kind: 'buttons',
-    lead: { text: '⠋ Running', tone: 'warning' },
+    lead: { text: '⠋ Running', tone: 'warning', spin: true, pad: true },
     buttons: [
       { id: 'show', label: 'Show', tone: 'primary', todoId: '1' },
       { id: 'stop', label: 'Stop', tone: 'caution', todoId: '1' },
     ],
   })
   expect(local.at(-2)).toMatchObject({ buttons: [{ id: 'openLog', tone: 'neutral' }, { id: 'stop' }] })
+})
+
+test('only the first row of a wrapped running title carries spin', () => {
+  const { rows } = build([todo({ title: 'Store the token for the replay workspace before the pilot runs', status: 'running', runner: 'herdr' })])
+
+  expect(rows.slice(0, 2)).toEqual([spinning('⠋ Store the token for the replay'), text('workspace before the pilot runs', 'title')])
 })
 
 test('a running item with no tail has no tail padding, and a stopping one reads Stopping with Force stop', () => {
@@ -101,7 +108,7 @@ test('a running item with no tail has no tail padding, and a stopping one reads 
     BLANK,
     {
       kind: 'buttons',
-      lead: { text: '⠋ Stopping…', tone: 'error' },
+      lead: { text: '⠋ Stopping…', tone: 'error', spin: true, pad: true },
       buttons: [
         { id: 'show', label: 'Show', tone: 'primary', todoId: '1' },
         { id: 'forceStop', label: 'Force stop', tone: 'caution', todoId: '1' },
@@ -128,7 +135,7 @@ test('finished items show only the last 8, with marks and exit codes, then a Cle
   expect(marks.at(-2)).toEqual({ kind: 'finished', mark: '✗', tone: 'error', title: 'Zero' })
   expect(marks.at(-1)).toEqual({ kind: 'finished', mark: '–', tone: 'inactive', title: 'Passed over' })
   expect(marks[0]).toEqual({ kind: 'finished', mark: '✓', tone: 'success', title: 'F5' })
-  expect(rows.slice(-2)).toEqual([BLANK, { kind: 'buttons', buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] }])
+  expect(rows.slice(-2)).toEqual([BLANK, { kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] }])
 })
 
 test('with nothing to do, the notice, a blank, the finished rows, a blank and Clear finished', () => {
@@ -139,7 +146,7 @@ test('with nothing to do, the notice, a blank, the finished rows, a blank and Cl
     BLANK,
     { kind: 'finished', mark: '✓', tone: 'success', title: 'Fine' },
     BLANK,
-    { kind: 'buttons', buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] },
+    { kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'neutral' }] },
   ])
   expect(spans).toEqual([{ first: 2, last: 2 }])
 })

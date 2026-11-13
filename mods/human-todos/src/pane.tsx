@@ -64,6 +64,6 @@ export function registerPane(on: On): void {
     const { list, openIds, spin: frameNo } = await readPane($)
     const inner = Math.max(22, paneColumns(e) - 4)
     const model = paneModel({ list, expanded: openIds, spin: SPIN[frameNo % SPIN.length] ?? '', width: inner - 2 })
-    return drawPlainPane($, e, model, e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY })
+    return drawPlainPane($, e, model, e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE)
   })
 }

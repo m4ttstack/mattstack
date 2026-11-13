@@ -1,6 +1,6 @@
 import type { EngineInterface, RenderElement, RenderInput, RenderSurface } from 'claude-code'
 
-import { PLUGIN, TITLE, isActionable } from '../items'
+import { TITLE, isActionable } from '../items'
 import { peekTodos, removeTodos, toggleExpanded } from '../store'
 import { cleanup, press } from '../wiring'
 import { LABELS } from './model'
@@ -26,8 +26,8 @@ export function paneColumns(e: RenderInput<'Pane'>): number {
   return e.props.bodyColumns ?? 60
 }
 
-async function closePane($: EngineInterface): Promise<void> {
-  await $.ui.close({ id: PLUGIN })
+async function closePane($: EngineInterface, paneId: string): Promise<void> {
+  await $.ui.close({ id: paneId })
   $.ui.invalidate('ui.render')
 }
 
@@ -47,7 +47,7 @@ async function pressTodo($: EngineInterface, button: PaneButton, surface: Render
 }
 
 // Every child of the body is exactly one terminal row, so its index is the row the engine scrolls by.
-export function drawPlainPane($: EngineInterface, e: RenderInput<'Pane'>, model: PaneModel, scroll: { offset: number; bodyRows: number }): RenderElement {
+export function drawPlainPane($: EngineInterface, e: RenderInput<'Pane'>, model: PaneModel, scroll: { offset: number; bodyRows: number }, paneId: string): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(e)
   const columns = paneColumns(e)
   const rows: ReturnType<typeof Text>[] = []
@@ -70,7 +70,7 @@ export function drawPlainPane($: EngineInterface, e: RenderInput<'Pane'>, model:
   rows.push(
     <Box key="header" flexDirection="row" justifyContent="space-between">
       <Text bold>{TITLE}</Text>
-      <Button key="close" role="dismiss" label="Close" onPress={() => closePane($)} />
+      <Button key="close" role="dismiss" label="Close" onPress={() => closePane($, paneId)} />
     </Box>,
   )
   blank('pad-header')
@@ -107,11 +107,9 @@ export function drawPlainPane($: EngineInterface, e: RenderInput<'Pane'>, model:
           </Box>,
         )
       case 'buttons': {
-        const isClear = row.buttons.some(b => b.id === 'clear')
         return rows.push(
-          <Box key={key} flexDirection="row" gap={isClear ? undefined : 1} marginLeft={isClear ? undefined : 2}>
-            {/* pane.test.tsx pins the status lead with its trailing space; the "+N more" lead has none. */}
-            {row.lead && <Text {...TEXT_PROPS[row.lead.tone]}>{row.lead.tone === 'dim' ? row.lead.text : `${row.lead.text} `}</Text>}
+          <Box key={key} flexDirection="row" gap={row.flush ? undefined : 1} marginLeft={row.flush ? undefined : 2}>
+            {row.lead && <Text {...TEXT_PROPS[row.lead.tone]}>{row.lead.pad ? `${row.lead.text} ` : row.lead.text}</Text>}
             {row.buttons.map(button)}
           </Box>,
         )
