@@ -718,16 +718,17 @@ export function Transcript({
         data-testid="transcript-scroll"
         className={scrollClasses.box}
         onClick={
-          feed &&
-          (event => {
-            const target = event.target as HTMLElement;
-            // A portalled card still bubbles its clicks through here.
-            if (!event.currentTarget.contains(target)) return;
-            if (window.getSelection()?.toString()) return;
-            if (!target.closest(`.${prose.block}, a, button`)) {
-              feed.onPick(undefined);
-            }
-          })
+          feed && !feed.timeline
+            ? event => {
+                const target = event.target as HTMLElement;
+                // A portalled card still bubbles its clicks through here.
+                if (!event.currentTarget.contains(target)) return;
+                if (window.getSelection()?.toString()) return;
+                if (!target.closest(`.${prose.block}, a, button`)) {
+                  feed.onPick(undefined);
+                }
+              }
+            : undefined
         }
         style={{ flex: 1, minHeight: 0 }}
       >
@@ -809,15 +810,7 @@ export function Transcript({
                               to={feed?.timeline?.to(message)}
                             />
                           );
-                          if (!feed) return row;
-                          return (
-                            <div
-                              key={message.id}
-                              onClick={event => pickBlock(event, message.room)}
-                            >
-                              {row}
-                            </div>
-                          );
+                          return row;
                         })}
                       </div>
                     ))}

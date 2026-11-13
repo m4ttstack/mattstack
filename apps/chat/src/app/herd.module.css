@@ -37,8 +37,12 @@
 }
 
 @media (hover: hover) {
-  .pill:not([data-active]):hover {
+  .pill:hover {
     background: var(--mantine-color-gray-light-hover);
+  }
+
+  .pill[data-active]:hover {
+    background: var(--mantine-color-accent-light-hover);
   }
 }
 
