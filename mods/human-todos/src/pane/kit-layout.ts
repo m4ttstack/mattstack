@@ -32,19 +32,30 @@ const STYLE: Record<Tone, Style> = {
 const fit = (text: string, cells: number) => (cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`)
 
 // Buttons that do not fit side by side carry on to a row of their own, under the first button.
+// The first row carries the lead; rows carried on start at the item's indent with its whole room, so a button too wide
+// to sit beside the lead still fits whole. A lead with no room for even one button beside it takes a row of its own.
 function buttonLines(row: Extract<PaneRow, { kind: 'buttons' }>, room: number): L[] {
   const indent = sp<PaneMessage>(' '.repeat(row.flush ? 0 : INDENT))
   const lead: L = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : []
-  const gap = row.lead ? 1 : 0
-  const avail = Math.max(1, room - widthOf([indent, ...lead]))
   let rest = row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) }))
-  const draw = (buttons: typeof rest) => buttonRow(buttons, undefined, avail, gap)
   const out: L[] = []
+  let withLead = lead.length > 0
   while (rest.length > 0) {
+    // One cell between the lead and its buttons; none at the indent.
+    const leadIn = withLead ? 1 : 0
+    const avail = Math.max(1, room - widthOf([indent, ...(withLead ? lead : [])]))
+    const draw = (buttons: typeof rest) => buttonRow(buttons, undefined, avail, leadIn)
     let n = rest.length
-    while (n > 1 && widthOf(draw(rest.slice(0, n))) > avail) n--
-    out.push([indent, ...(out.length === 0 ? lead : [sp(' '.repeat(widthOf(lead)))]), ...draw(rest.slice(0, n))])
+    while (n > 0 && widthOf(draw(rest.slice(0, n))) > avail) n--
+    if (n === 0 && withLead) {
+      out.push([indent, ...lead])
+      withLead = false
+      continue
+    }
+    n = Math.max(1, n)
+    out.push([indent, ...(withLead ? lead : []), ...draw(rest.slice(0, n))])
     rest = rest.slice(n)
+    withLead = false
   }
   return out
 }

@@ -1534,17 +1534,25 @@ var fit = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, M
 function buttonLines(row, room) {
   const indent = sp(" ".repeat(row.flush ? 0 : INDENT));
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
-  const gap = row.lead ? 1 : 0;
-  const avail = Math.max(1, room - widthOf([indent, ...lead]));
   let rest = row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) }));
-  const draw = (buttons) => buttonRow(buttons, undefined, avail, gap);
   const out = [];
+  let withLead = lead.length > 0;
   while (rest.length > 0) {
+    const leadIn = withLead ? 1 : 0;
+    const avail = Math.max(1, room - widthOf([indent, ...withLead ? lead : []]));
+    const draw = (buttons) => buttonRow(buttons, undefined, avail, leadIn);
     let n = rest.length;
-    while (n > 1 && widthOf(draw(rest.slice(0, n))) > avail)
+    while (n > 0 && widthOf(draw(rest.slice(0, n))) > avail)
       n--;
-    out.push([indent, ...out.length === 0 ? lead : [sp(" ".repeat(widthOf(lead)))], ...draw(rest.slice(0, n))]);
+    if (n === 0 && withLead) {
+      out.push([indent, ...lead]);
+      withLead = false;
+      continue;
+    }
+    n = Math.max(1, n);
+    out.push([indent, ...withLead ? lead : [], ...draw(rest.slice(0, n))]);
     rest = rest.slice(n);
+    withLead = false;
   }
   return out;
 }

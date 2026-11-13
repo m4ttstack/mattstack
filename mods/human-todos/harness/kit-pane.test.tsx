@@ -176,6 +176,25 @@ for (const surface of SURFACES) {
     expect(sent.at(-1)).toContain('#1')
     await pane.unmount()
   })
+
+  test(`at 30 columns every kind and status fits, every button label whole (${surface})`, async ($, on) => {
+    const running = { kind: 'run' as const, script: 'make deploy', status: 'running' as const, runner: 'herdr' as const, token: 't', paneId: 'p1' }
+    await seeded($, on, [
+      todo({ id: '1', ...running, title: 'Running one', liveTail: ['line a', 'line b'] }),
+      todo({ id: '2', ...running, title: 'Stopping one', isStopping: true }),
+      todo({ id: '3', title: 'Confirm me' }),
+      todo({ id: '4', kind: 'link', title: 'A link', url: 'https://example.com/a/very/long/path/that/wraps' }),
+      todo({ id: '5', kind: 'image', title: 'Shots', paths: ['/shots/light-mode.png', '/shots/dark-mode.png'] }),
+      todo({ id: '6', kind: 'terminal', title: 'Sudo', script: 'sudo make install' }),
+    ])
+    const pane = await $.ui.mount({ ...PANE, props: paneAt({ bodyColumns: 30, bodyRows: 80 }), surface })
+    await press(pane, '3', 'run')
+    const rows = await rowsOf(pane)
+    for (const row of rows) expect(cells(row), row).toBeLessThanOrEqual(30)
+    const shown = rows.join('\n')
+    for (const label of ['Show', 'Stop', 'Force stop', 'Confirm', 'Cancel', 'Open', 'Copy', 'Done', 'Skip', '⠋ Running', '⠋ Stopping…']) expect(shown, label).toContain(label)
+    await pane.unmount()
+  })
 }
 
 test('on vscode the plain drawer draws, with no Client, and its buttons press', async ($, on) => {

@@ -34,14 +34,25 @@ test('buttons that do not fit side by side carry on to a row of their own, every
   expect(roomy.lines.filter(line => line.some(s => s.action !== undefined))).toHaveLength(1)
 })
 
-test('a running row leads with its status, and a carried-on row lines up under the first button', () => {
-  const layout = kitLayout(modelAt([todo({ kind: 'run', script: 'ls', status: 'running', runner: 'local' })], 26), 26, 40)
-  const rows = layout.lines.filter(line => line.some(s => s.action !== undefined))
-  expect(textOf(rows[0]!)).toContain('⠋ Running')
-  if (rows.length > 1) {
-    const firstButtonAt = (line: L) => cellWidth(line.slice(0, line.findIndex(s => s.action !== undefined)).map(s => s.t).join(''))
-    expect(firstButtonAt(rows[1]!)).toBe(firstButtonAt(rows[0]!))
-  }
+test('a running row leads with its status, and a carried-on row starts at the indent with every label whole', () => {
+  const stopping = todo({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', isStopping: true })
+  const layout = kitLayout(modelAt([stopping], 30), 30, 40)
+  const lines = layout.lines.filter(line => line.some(s => s.action !== undefined) || textOf(line).includes('Stopping'))
+  expect(textOf(lines[0]!)).toContain('⠋ Stopping…')
+  const labels = layout.lines.flatMap(line => line.filter(s => s.action !== undefined).map(s => s.t.trim()))
+  expect(labels).toEqual(['Show', 'Force stop'])
+  const carried = lines.at(-1)!
+  const firstButtonAt = cellWidth(carried.slice(0, carried.findIndex(s => s.action !== undefined)).map(s => s.t).join(''))
+  expect(firstButtonAt).toBeLessThanOrEqual(2 + 1)
+  for (const line of kitWindow(layout, 30, 0)) expect(cellWidth(textOf(line))).toBe(30)
+})
+
+test('a lead with no room for a button beside it takes a row of its own', () => {
+  const layout = kitLayout(modelAt([todo({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', isStopping: true })], 22), 22, 40)
+  const stoppingRow = layout.lines.find(line => textOf(line).includes('Stopping'))!
+  expect(stoppingRow.some(s => s.action !== undefined)).toBe(false)
+  const labels = layout.lines.flatMap(line => line.filter(s => s.action !== undefined).map(s => s.t.trim()))
+  expect(labels).toEqual(['Show', 'Force stop'])
 })
 
 test('a finished title too long for the room is cut with an ellipsis and keeps its exit code', () => {
