@@ -6,11 +6,12 @@ import { fetchTicket, type LinearTicket } from './linear';
 import { fetchMRInfo } from './gitlab';
 import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache } from './cache';
-import { fetchBranchFromDaemon } from './daemonClient';
+import { daemonQuery } from './daemonClient';
+import { readDaemonCacheEntry } from './daemonCache';
 import { getSecret } from './secrets';
 import type { CachedBranchData, GitExtensionExports } from './types';
 import { getGitApi, findWorkspaceRepo, getRepoRootName, getGitDir, readBranchFromHead } from './git';
-import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityToStore, type Forge } from './forge';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote, repoIdentityToStore, type Forge } from './forge';
 import { resolveRepoForge, type RepoForge } from './repoForge';
 
 // ── Module state ──
@@ -304,12 +305,9 @@ export async function fetchBranchData(
 ): Promise<CachedBranchData | null> {
   // ── Daemon-first path (HTTP REST API) ──
   try {
-    const response = await fetchBranchFromDaemon(branch);
-    if (response?.ok && response.data) {
-      const entries = response.data;
-      const entry = entries[branch] ?? Object.values(entries)[0];
-      if (entry) return branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, undefined, branchCache.get(branch));
-    }
+    const repoIdentity = repoForge.remoteUrl ? repoIdentityOfRemote(repoForge.remoteUrl) : null;
+    const entry = await readDaemonCacheEntry(daemonQuery, branch, repoIdentity);
+    if (entry) return branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, undefined, branchCache.get(branch));
   } catch {
     // Daemon not available — fall through to direct fetch
   }
