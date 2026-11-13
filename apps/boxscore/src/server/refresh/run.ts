@@ -215,7 +215,7 @@ export async function runRefresh(
   try {
     await mapLimit(
       toFetch,
-      CONCURRENCY,
+      source.detailConcurrency,
       async row => {
         signal?.throwIfAborted();
         try {

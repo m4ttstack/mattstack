@@ -317,6 +317,7 @@ describe('runRefresh through a GitHub source', () => {
       fetchDetail: async () => null,
       fetchPipelines: async () => [],
       readsPushEvents: false,
+      detailConcurrency: 2,
       reusesFreshSnapshots: 'any',
       takeWarnings() {
         const taken = pending;
@@ -373,6 +374,7 @@ describe('runRefresh through a GitHub source', () => {
         return [];
       },
       readsPushEvents: true,
+      detailConcurrency: 6,
       reusesFreshSnapshots: 'merged',
       takeWarnings() {
         const taken = pending;
@@ -529,5 +531,67 @@ describe('warm refresh re-reads only PRs whose updatedAt moved', () => {
     await run();
     await run();
     expect(fetched).toEqual([4, 4]);
+  });
+});
+
+describe('PR detail concurrency', () => {
+  const many = Array.from({ length: 12 }, (_, i) => indexRow({ iid: i + 1 }));
+  const tick = () => new Promise(r => setTimeout(r, 5));
+
+  it('github never has more than 2 detail reads in flight', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const provider = makeGitHubProvider({ index: many });
+    const read = provider.fetchSingleMR.bind(provider);
+    provider.fetchSingleMR = async (...args) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await tick();
+      inFlight--;
+      return read(...args);
+    };
+
+    await runRefresh({
+      store: getStore(),
+      provider: makeGitLabSpy().provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+      source: sourceFor(ENV, provider as unknown as GitProvider, settings()),
+    });
+
+    expect(peak).toBe(2);
+  });
+
+  it('gitlab keeps 6 detail reads in flight', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const provider = {
+      ...makeGitLabSpy().provider,
+      fetchMergeRequestIndex: async () =>
+        many.map(r => ({ ...r, projectPath: 'g/p' })),
+      fetchMergeRequestMetrics: async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await tick();
+        inFlight--;
+        return null;
+      },
+    } as unknown as GitProvider;
+
+    await runRefresh({
+      store: getStore(),
+      provider,
+      settings: settings({
+        forge: undefined,
+        projects: ['g/p'],
+        baseUrl: 'https://gl.example',
+        declaredHost: 'gl.example',
+      }),
+      env: { baseUrl: 'https://gl.example', token: 'tkn' },
+      window: WINDOW,
+    });
+
+    expect(peak).toBe(6);
   });
 });

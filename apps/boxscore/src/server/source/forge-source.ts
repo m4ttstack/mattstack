@@ -1,4 +1,5 @@
 import type { LeaderboardWarning, TimeWindow } from '../../shared/types.js';
+import { CONCURRENCY } from '../config/index.js';
 import type { BoxscoreSettings, Env } from '../config/index.js';
 import type {
   IndexRow,
@@ -34,6 +35,8 @@ export interface ForgeSource {
   ): Promise<StoredPipeline[]>;
   /** GitLab reads push events per user after the project id step; GitHub returns commits from fetchDetail. */
   readonly readsPushEvents: boolean;
+  /** How many PR or MR detail reads runRefresh keeps in flight. */
+  readonly detailConcurrency: number;
   /**
    * Which stored snapshots at least as new as the index updatedAt a refresh reuses. GitHub
    * bumps updatedAt on every commit, comment, review and label; GitLab trusts it only once merged.
@@ -60,6 +63,7 @@ export function gitlabSource(provider: SourceProvider): ForgeSource {
     fetchPipelines: (projectPath, username, window, io) =>
       fetchPipelinesFor(provider, projectPath, username, window, io),
     readsPushEvents: true,
+    detailConcurrency: CONCURRENCY,
     reusesFreshSnapshots: 'merged',
     takeWarnings: () => [],
   };

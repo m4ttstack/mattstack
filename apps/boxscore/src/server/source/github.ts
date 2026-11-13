@@ -7,6 +7,7 @@ import type {
   UserRef,
 } from '@mattstack/glance';
 import type { LeaderboardWarning } from '../../shared/types.js';
+import { GITHUB_DETAIL_CONCURRENCY } from '../config/index.js';
 import type {
   StoredNote,
   StoredPipeline,
@@ -255,6 +256,7 @@ export function githubSource(
     },
 
     readsPushEvents: false,
+    detailConcurrency: GITHUB_DETAIL_CONCURRENCY,
     reusesFreshSnapshots: 'any',
 
     takeWarnings() {

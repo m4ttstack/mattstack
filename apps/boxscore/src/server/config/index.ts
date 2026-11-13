@@ -9,6 +9,9 @@ import type { RangePreset } from '../../shared/types.js';
 /** Politeness cap on concurrent GitLab requests; a code constant since the fold. */
 export const CONCURRENCY = 6;
 
+/** GitHub's secondary rate limit trips on bursts of concurrent REST reads; each PR detail is 6 to 8 of them. */
+export const GITHUB_DETAIL_CONCURRENCY = 2;
+
 /** Configuration missing or unusable; routes surface it as a 400, not a 500. */
 export class ConfigError extends Error {
   override readonly name = 'ConfigError';
