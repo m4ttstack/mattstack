@@ -1,6 +1,7 @@
 # gitlab_get on GitHub: narrowing the word guard (RT-554)
 
-Status: design for review. No plan and no code until Matt approves it.
+Status: approved by Matt on 2026-11-13 with one change to decision 2,
+applied here (revision 1). The build follows once PR #1130 is on main.
 
 ## Intent
 
@@ -33,21 +34,29 @@ These were put to Matt through the shepherd on 2026-11-13 and answered:
    never match the owner and name segments. Every other route keeps the
    strict match. The raw owner and name segments must carry no percent
    escapes.
-2. **Refuse decoded whitespace and zero-width or format characters**
-   (Unicode White_Space and the Cf category) in every segment outside a
-   `contents/` file path. Inside the file path they stay allowed.
-   Cost Matt should know (raised in review): outside a file path this
-   also refuses reads that work today and hold a plain space, such as
-   `:repo/labels/good%20first%20issue` and `help%20wanted` (GitHub's
-   default labels), `:repo/readme/my%20docs`, a concurrency group name
-   with a space, and a workflow file name with a space. The alternative
-   that keeps those is to allow U+0020 alone outside the file path and
-   refuse every other White_Space and Cf character. This design follows
-   the decision as given.
-3. **Refuse `copilot`.** Already decided and in flight in a separate lane
-   (`copilot-refusal`), which adds `copilot` to `GITHUB_REFUSED_SEGMENTS`
-   with its tests as its own PR, ahead of this design. This design
-   assumes that entry exists and treats it like every other word.
+2. **Refuse a padded guarded word** (revised by Matt on approval). A
+   segment outside a `contents/` file path is refused when stripping its
+   Unicode White_Space and Cf characters leaves a guarded word, so
+   `secrets%20` and `secrets%E2%80%8B` are refused. Whitespace on its own
+   is not refused: ordinary spaced names such as the label
+   `good first issue` stay readable. Rule 4 below spells this out as the
+   word skeleton, which also folds case, compatibility forms and
+   combining marks (my call, a widening of the decided rule, so the
+   reviewer could attack those too). Inside the file path nothing is
+   stripped or matched.
+3. **Refuse `copilot`, anchored to the route.** Decided and in flight in
+   the `copilot-refusal` lane (PR #1130), ahead of this design. That PR
+   is being reworked into a route-anchored entry: `copilot` is refused
+   only as the segment directly after `repos/<owner>/<repo>/` (index 3),
+   so `copilot/cloud-agent/configuration` and `copilot/code-review/settings`
+   are refused, and a branch or repo named `copilot` is not. This design
+   keeps whatever representation that PR lands for anchored entries, and
+   requires two things of it: an anchored entry is matched only at window
+   index 0 (path index 3), and it is matched on the word skeleton like
+   every other entry.
+4. **Build it.** Matt approved building this design once the spec's
+   revised sections pass the same reviewer. The guard code waits for
+   PR #1130 on main.
 
 ## Approaches considered
 
@@ -124,26 +133,45 @@ order, with these changes:
    The file path is every decoded segment from index 4 on. `Contents`,
    `%63ontents`, `contents.json` and `contents%2F...` do not count: those
    paths are matched strictly.
-4. **Whitespace and invisible characters (widening).** A decoded segment
-   that is not in the file path and contains a character matching
-   `/[\p{White_Space}\p{Cf}]/u` refuses. That covers space, no-break
-   space, NEL (U+0085, which JS `\s` misses), U+FEFF, the line and
-   paragraph separators, zero-width space, joiner and non-joiner, word
-   joiner, soft hyphen and the bidi controls. The raw whitespace refusal
-   stays as it is everywhere, file path included, because Octokit cuts
-   the route at a raw space; a file name with a space is sent as `%20`.
-   Invisible characters outside both classes (U+034F, variation
-   selectors, Hangul fillers, braille blank) are not refused: the threat
-   model, as for homoglyphs, is that GitHub routes on literal bytes, so
-   a word padded with any character is a different segment and a 404.
-   Rule 4 refuses the common padding characters as defense in depth, not
-   because the proof needs it.
+4. **The word skeleton (widening).** Word matching never compares a
+   segment as sent. It compares the segment's **skeleton**:
+   1. NFKD normalization (splits accented letters into letter plus
+      combining mark, and maps compatibility forms such as fullwidth
+      `ｓ` and the long s `ſ` to `s`);
+   2. delete every character in `[\p{White_Space}\p{Cf}\p{M}]`, anywhere
+      in the segment, not only at its ends (space, no-break space, NEL
+      U+0085, U+FEFF, the line and paragraph separators, zero-width
+      space, joiner and non-joiner, word joiner, soft hyphen, bidi
+      controls, combining marks including U+034F and the variation
+      selectors);
+   3. `toUpperCase()` then `toLowerCase()`, a full case fold.
+
+   So `secrets%20`, `sec%E2%80%8Brets`, `%EF%BD%93ecrets`,
+   `secrets%CC%81`, `%C5%BFecrets` and `SECRETS` all have the skeleton
+   `secrets` and are refused, while `good%20first%20issue` has the
+   skeleton `goodfirstissue` and is read. The skeleton is used only to
+   decide; the path GitHub receives is the caller's, unchanged. The raw
+   whitespace refusal stays as it is everywhere, file path included,
+   because Octokit cuts the route at a raw space; a name with a space is
+   sent as `%20`.
+
+   What the skeleton does not fold: letters from another script that
+   only look Latin (Cyrillic `ѕ` U+0455, Greek omicron), and invisible
+   characters outside the three classes (Hangul fillers, braille blank).
+   The threat model, stated once: GitHub's router compares route
+   literals as bytes, so a segment that is not byte for byte the ASCII
+   word routes nowhere and answers 404. The skeleton refuses the padding
+   a lenient layer might plausibly strip or fold, as defense in depth;
+   the proof does not depend on it.
 5. **Word matching (narrowing).** `GITHUB_REFUSED_SEGMENTS` and
-   `git/blobs` are matched over a **window**: the decoded segments from
-   index 3 up to the file path's start (to the end when there is no file
-   path), that is `segments.slice(3, fileStart)`. An entry with a slash
-   (`actions/oidc`) must fit wholly inside the window. Matching runs on
-   the window itself. It must never be a first-match index over the
+   `git/blobs` are matched against the skeletons of a **window**: the
+   decoded segments from index 3 up to the file path's start (to the end
+   when there is no file path), that is `segments.slice(3, fileStart)`.
+   A word matches a skeleton that equals it or starts with the word and
+   a dot (today's `namesWord`). An entry with a slash (`actions/oidc`)
+   must fit wholly inside the window. A route-anchored entry
+   (`copilot`, decision 3) matches only at window index 0. Matching runs
+   on the window itself. It must never be a first-match index over the
    whole path filtered afterwards: `entryAt` returns the first match, so
    on repo `acme/hooks.io` a filter of `at >= 3` would find `hooks.io`
    at index 2, drop it, and never see `:repo/hooks` at index 3. The
@@ -158,9 +186,8 @@ control. This also applies on GitLab, since `plainApiPath` is shared; it
 only refuses more.
 
 Dot lookalikes in a file path (my call, a widening). A file-path segment
-that, after trimming `[\p{White_Space}\p{Cf}]` (the class rule 4 uses)
-and NFKC normalization, equals
-`.` or `..` refuses with the dot-segment error. For example
+whose skeleton (rule 4, steps 1 and 2) equals `.` or `..` refuses with
+the dot-segment error. For example
 `contents/..%20/hooks`, or fullwidth full stops `%EF%BC%8E%EF%BC%8E`. No
 layer is known to treat these as dot segments; refusing them costs
 nothing.
@@ -186,13 +213,12 @@ The test plan's exact errors follow it.
 5. Plain repo segments (rule 2): raw segment 0 is exactly `repos`, and
    segments 1 and 2 match `^[A-Za-z0-9._-]+$`.
 6. File path start (rule 3), then dot lookalikes in the file path.
-7. Whitespace and invisible characters outside the file path (rule 4).
-8. Word matching over the window (rule 5), guarded words before
-   `git/blobs`.
+7. Word matching on the window's skeletons (rules 4 and 5), guarded
+   words before `git/blobs`.
 
 So `:repo/hooks%09` is refused at step 1 (a decoded tab is a control
-character), `:repo/hooks/x%20` at step 7, and `repos/o/%72/hooks` at
-step 5.
+character), `:repo/actions/secrets%20` at step 7, and `repos/o/%72/hooks`
+at step 5.
 
 ## Why nothing new is reachable
 
@@ -270,7 +296,11 @@ Claim: a guarded word in segment 1 or 2 selects no endpoint.
 | `:repo/contents/a\b`, `:repo/contents/a%5Cb` | Backslash refused, raw and decoded |
 | `:repo/contents/a b` | Raw whitespace refused; send `%20` |
 | `repos/acme%2Fkeys/...`, `repos/o/%72/hooks` | Escape in a repo segment, refused by rule 2 |
-| `:repo/actions/secrets%20`, `:repo/hooks%C2%A0`, `:repo/actions/secrets%E2%80%8B` | Decoded whitespace or Cf outside a file path, refused by rule 4 |
+| `:repo/actions/secrets%20`, `:repo/hooks%C2%A0`, `:repo/actions/sec%E2%80%8Brets`, `:repo/actions/secrets%E2%80%AE` | Skeleton is the word; refused at step 7 |
+| Combining marks, `:repo/actions/secrets%CC%81`, `:repo/actions/s%CD%8Fecrets` (U+034F) | NFKD plus mark deletion leaves `secrets`; refused |
+| Case folding, `:repo/actions/%C5%BFecrets` (long s), `:repo/HOOKS`, `:repo/%E2%84%AAeys` (Kelvin sign) | NFKD and the case fold leave the word; refused |
+| A spaced name, `:repo/labels/good%20first%20issue` | Skeleton `goodfirstissue`, no word; read |
+| A spaced word with a suffix, `:repo/actions/secrets%20.json` | Skeleton `secrets.json`; refused by the dot-suffix rule |
 | `:repo/contents/hooks` with `query: {ref: "x"}` | Allowed; `ref` picks a commit in this repo and the route is still contents. Query values never change GitHub's route |
 | A query key such as `token` or `access_token` | Refused as today |
 | A renamed or transferred repo | GitHub answers 301 to `/repositories/<id>/...`; refused by the redirect rule. The guard never sends a `/repositories/` path |
@@ -285,7 +315,10 @@ Claim: a guarded word in segment 1 or 2 selects no endpoint.
 | Dot lookalikes, `:repo/contents/..%20/hooks`, fullwidth `%EF%BC%8E%EF%BC%8E` | Refused as dot segments |
 | A word in the name hiding the same word in the route, `:repo/hooks` on `acme/hooks.io` | Refused: the window starts at index 3 (rule 5) |
 | A repo named `acme/contents`, `:repo/hooks` | Refused: rule 3 is positional, so index 3 is `hooks` |
-| A homoglyph such as fullwidth `ｓｅｃｒｅｔｓ` outside a file path | Not refused by the guard; GitHub routes on literal ASCII bytes, so it is a 404. See "Left open" |
+| Fullwidth `%EF%BD%93%EF%BD%85%EF%BD%83%EF%BD%92%EF%BD%85%EF%BD%94%EF%BD%93` outside a file path | NFKD maps it to `secrets`; refused |
+| A cross-script homoglyph, Cyrillic `%D1%95ecrets` | Not folded; GitHub routes on literal bytes, so it is a 404 (rule 4's threat model) |
+| `copilot` anchored, `:repo/copilot/cloud-agent/configuration`, `:repo/%E2%80%8Bcopilot/x` | Refused at window index 0, skeleton included |
+| `copilot` elsewhere, `:repo/commits/copilot/fix`, repo `acme/copilot` | Not an anchored match; read |
 
 ## Every route family, with a verdict
 
@@ -301,7 +334,7 @@ not change the outcome for that family; the narrowing touches only
 | `actions` | `secrets`, `variables`, `organization-secrets`, `organization-variables`, `oidc/customization/sub`, `runners` (`runners/downloads` carries `temp_download_token`; registration and remove tokens are POST) | Refused by word, unchanged. `artifacts/{id}/{archive_format}`, `runs/{id}/logs`, `jobs/{id}/logs` redirect to signed URLs and are refused by the redirect rule. `caches`, `permissions`, `policies`, `workflows`, `runs`, `jobs` readable, unchanged. `workflows/{workflow_id}` takes a file name and keeps the strict match |
 | `agents` | `secrets`, `variables`, `organization-secrets`, `organization-variables` | Refused by word, unchanged |
 | `codespaces` | `secrets`, devcontainers, machines | Refused by word (whole family), unchanged |
-| `copilot` | `cloud-agent/configuration` (free-form MCP server config) | Refused by word once the `copilot-refusal` lane lands |
+| `copilot` | `cloud-agent/configuration` (free-form MCP server config) | Refused as the route-anchored entry at index 3 once PR #1130 lands; a branch or repo named `copilot` stays readable |
 | `dependabot` | `secrets`, `runner-settings`, alerts | Refused by word (whole family), unchanged |
 | `environments` | `{name}/secrets`, `{name}/variables` | Refused by word (whole family), unchanged |
 | `hooks` | `{id}/config` (webhook secret), deliveries (request headers and payloads) | Refused by word, unchanged |
@@ -319,7 +352,7 @@ not change the outcome for that family; the narrowing touches only
 | `rules`, `rulesets` | none | Readable; `rules/branches/{branch}` keeps the strict match |
 | `readme` | none | Readable; `readme/{dir}` keeps the strict match |
 | `tarball`, `zipball` | signed redirect | Refused by the redirect rule, unchanged |
-| `labels` | none | Readable; `labels/{name}` keeps the strict match |
+| `labels` | none | Readable; `labels/{name}` keeps the strict match on the skeleton, so `good first issue` is read |
 | `attestations` | none | Readable, unchanged |
 | `deployments` | none by design; `payload` is free-form JSON the deployer sets | Readable, unchanged |
 | `code-scanning`, `code-quality`, `code-security-configuration`, `dependency-graph`, `vulnerability-alerts`, `automated-security-fixes` | none (findings, settings, SBOM) | Readable, unchanged |
@@ -338,8 +371,8 @@ caller's path.
 
 | Case | Text |
 |---|---|
-| A guarded word in the window | `gitlab_get refuses "path" because it has "hooks" in it. On GitHub that word names an endpoint that can return credentials, so it is refused in any segment after the repo, including branch and tag names. To read a file, use :repo/contents/<file path>, where file names are not checked.` |
-| Decoded whitespace or an invisible character outside the file path | `"path" has a space or an invisible character outside the file path, which gitlab_get refuses on GitHub. Only a file name under :repo/contents/ may hold one; send a space there as %20.` |
+| A guarded word in the window | `gitlab_get refuses "path" because a segment after the repo reads as "hooks", ignoring case, spaces and invisible characters. On GitHub that word names an endpoint that can return credentials, so it is refused in any segment after the repo, including branch and tag names. To read a file, use :repo/contents/<file path>, where file names are not checked.` |
+| A route-anchored entry (`copilot`) | The text PR #1130 lands, with "reads as" in place of an exact match if its wording assumes one. |
 | Owner or name outside `[A-Za-z0-9._-]` | `"path" must name the repo as repos/<owner>/<name>, spelled plainly with no percent escapes. Start it with :repo/ instead.` |
 | `projectPath` is not `owner/name` | `gitlab_get cannot read this GitHub repo, because its path is not owner/name. Check the repo's origin remote.` |
 | A dot lookalike in a file path | The existing `"path" must not contain dot segments`. |
@@ -387,7 +420,7 @@ family table, one or more per refused family:
 - `security-advisories`, `private-vulnerability-reporting`,
   `invitations`, `autolinks`, `autolinks/1`
 - `copilot/cloud-agent/configuration`, `copilot/code-review/settings`
-  (rows added once the `copilot-refusal` lane has landed)
+  (from PR #1130, route-anchored)
 
 Each row is sent as `:repo/<row>` on each of these repos, and every one
 is refused:
@@ -414,7 +447,14 @@ instead of slicing.
   `:repo/contents/a%E2%80%8Bb.md`.
 - For every entry in `GITHUB_REFUSED_SEGMENTS`: `:repo/contents/<entry>`
   and `:repo/contents/dir/<entry>.md` accepted. This loop picks up
-  `copilot` from the other lane with no edit.
+  `copilot` from PR #1130 with no edit.
+- Spaced and accented names outside a file path:
+  `:repo/labels/good%20first%20issue`, `:repo/labels/help%20wanted`,
+  `:repo/readme/my%20docs`, `:repo/actions/workflows/ci%20build.yml`,
+  `:repo/labels/caf%C3%A9`.
+- `copilot` not anchored: `:repo/commits/copilot/fix`,
+  `:repo/git/ref/heads/copilot/x`, and repo `acme/copilot` with
+  `:repo/pulls`.
 - On `acme/keys`, `acme/hooks.io`, `secrets/app` and `acme/contents`:
   `:repo` and `:repo/pulls` accepted, and on `acme/contents`
   `:repo/contents/README.md` accepted with wire path
@@ -439,10 +479,17 @@ instead of slicing.
   `repos/%4F/r/pulls`, and, on repo `kcme/r`, an owner spelled with the Kelvin sign U+212A
   in place of `k`.
   Rule 1: a provider configured with a three-segment `projectPath`.
-- Rule 4, outside a file path: `:repo/actions/secrets%20`,
-  `:repo/hooks%C2%A0`, `:repo/actions/secrets%E2%80%8B`,
-  `:repo/pulls%E2%80%AE`, `:repo/pulls%C2%AD`, `:repo/pulls%EF%BB%BF`,
-  `:repo/hooks/x%20`.
+- The skeleton, outside a file path, each with the word in the error:
+  `:repo/actions/secrets%20`, `:repo/actions/%20secrets`,
+  `:repo/hooks%C2%A0`, `:repo/actions/sec%E2%80%8Brets`,
+  `:repo/hooks%E2%80%AE`, `:repo/hoo%C2%ADks`, `:repo/%EF%BB%BFhooks`,
+  `:repo/actions/secrets%CC%81`, `:repo/actions/s%CD%8Fecrets`,
+  `:repo/actions/%C5%BFecrets`, `:repo/%E2%84%AAeys`, fullwidth
+  `secrets` under `actions/`, `:repo/actions/secrets%20.json`,
+  `:repo/actions/oidc%E2%80%8B/customization/sub`, and
+  `:repo/%E2%80%8Bcopilot/cloud-agent/configuration`. The same loop runs
+  each guarded word padded with `%20`, `%E2%80%8B` and `%CC%81` at
+  `:repo/<word>`.
 - Control characters, at step 1: `:repo/hooks%09`, `:repo/hooks%C2%85`,
   `:repo/actions/secrets%C2%85`, `:repo/contents/a%C2%85b`,
   `:repo/pulls%C2%9F`.
@@ -469,8 +516,10 @@ control case, since `CONTROL` is shared.
   repo, or as a segment's dot-suffixed prefix; the owner and name are
   never matched, and a file path after a literal `:repo/contents/` is
   not matched", plus the widenings: repo shape and plain repo segments,
-  decoded whitespace and Cf outside a file path, C1 controls on both
-  forges, and dot lookalikes in a file path. Keep
+  matching on the word skeleton (case, compatibility forms, whitespace,
+  Cf and combining marks folded away), C1 controls on both forges, and
+  dot lookalikes in a file path; and `copilot` as the route-anchored
+  entry PR #1130 lands. Keep
   "widened, never narrowed, without a design review" and name this
   spec as the review.
 - The `gitlab_get` description in `lib/mcp/forge-read-tools.ts` gains
@@ -487,9 +536,6 @@ control case, since `CONTROL` is shared.
 - Non-goal: branch, tag, workflow and label names with a guarded word
   (approach D). They stay refused; `:repo/commits` with
   `query: {path: ...}` covers a file's history.
-- Non-goal: names with a plain space outside a file path (labels,
-  readme folders, concurrency groups, workflow files). Decision 2 refuses
-  them; see its cost note.
 - Non-goal: protecting repo content. Files the token can clone were
   never behind this guard.
 - Non-goal: GitLab's word list and texts. They do not change; GitLab
@@ -514,9 +560,10 @@ control case, since `CONTROL` is shared.
   passes today and still would; no layer is known to read it as `..`.
   The non-ASCII widening below would close it.
 - **Non-ASCII outside a file path.** Refusing any non-ASCII character in
-  route segments would close homoglyph questions without relying on
-  GitHub routing by bytes. It was not put to Matt; it would refuse label
-  and environment names with non-ASCII text. A later widening if wanted.
+  route segments would close the cross-script homoglyph question without
+  relying on GitHub routing by bytes. It was not put to Matt; it would
+  refuse label and environment names with non-ASCII text, such as
+  `café`. A later widening if wanted.
 - **The route table moves.** GitHub adds route families (`agents`,
   `copilot` and `stacks` are recent). The narrowing holds as long as no
   second GET route starts with a literal `contents` under a repo; whoever
