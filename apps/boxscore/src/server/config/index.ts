@@ -3,6 +3,7 @@ import {
   getSetting,
   mayOfferGitLabTokenToHost,
 } from '@mattstack/rt-client';
+import { type Forge, GITHUB_BASE_URL } from '../../shared/forge.js';
 import type { RangePreset } from '../../shared/types.js';
 
 /** Politeness cap on concurrent GitLab requests; a code constant since the fold. */
@@ -22,11 +23,13 @@ export interface RosterEntry {
 /** The fetchers' connection envelope; assembled per run from settings + secrets. */
 export interface Env {
   baseUrl: string;
+  forge?: Forge;
   token: string;
   linearApiKey?: string;
 }
 
 export interface BoxscoreSettings {
+  forge: Forge;
   projects: string[];
   roster: RosterEntry[];
   /** Everyone in the org, whatever their team: who counts as a known person rather than a bot. */
@@ -92,7 +95,7 @@ function read<T>(key: string): T | undefined {
 }
 
 interface Integrations {
-  forge?: { host?: string };
+  forge?: { host?: string; provider?: string };
 }
 
 const BARE_HOST = /^[a-z0-9.-]+(:\d+)?$/i;
@@ -123,8 +126,19 @@ export function readSettings(): BoxscoreSettings {
   const integrations = read<Integrations>('mattstack.integrations') ?? {};
   const declaredHost = hostOf(integrations.forge?.host);
   const confirmed = read<{ forgeHost?: unknown }>('rt.integrations')?.forgeHost;
-  const trusted = trustedGitLabHost(declaredHost, confirmed);
+  const forge: Forge =
+    integrations.forge?.provider === 'github' ? 'github' : 'gitlab';
+  const baseUrl =
+    forge === 'github'
+      ? declaredHost === '' || declaredHost === 'github.com'
+        ? GITHUB_BASE_URL
+        : ''
+      : (() => {
+          const trusted = trustedGitLabHost(declaredHost, confirmed);
+          return trusted ? `https://${trusted}` : '';
+        })();
   return {
+    forge,
     projects: read<string[]>('boxscore.projects') ?? [],
     roster,
     orgRoster: rosterEntries(read<unknown>('mattstack.roster')),
@@ -138,7 +152,7 @@ export function readSettings(): BoxscoreSettings {
     ignoredMrs: read<string[]>('boxscore.ignoredMrs') ?? [],
     botPatterns: read<string[]>('boxscore.botPatterns') ?? [],
     defaultRange: read<RangePreset>('boxscore.defaultRange') ?? '30d',
-    baseUrl: trusted ? `https://${trusted}` : '',
+    baseUrl,
     declaredHost,
     roles: read<unknown>('boxscore.roles') ?? {},
   };
