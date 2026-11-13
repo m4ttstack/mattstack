@@ -82,7 +82,8 @@ test('a second workflow failing on the same commit keeps the handled id quiet', 
   markHandled(mem, red);
 
   // glance 0.33 keeps the lowest run id on the head commit, so a later run
-  // of another workflow adds to runIds and leaves pipeline.id where it was.
+  // of another workflow adds to runIds and leaves pipeline.id where it was
+  // (glance proves the id in tests/gh-fill-ci.test.ts; this row mirrors it).
   const later = rowOf(4107);
   const pipeline = later.pipeline as NonNullable<Row['pipeline']> & {
     runIds: string[];
@@ -95,7 +96,6 @@ test('a second workflow failing on the same commit keeps the handled id quiet', 
     runId: '7004150',
   });
   pipeline.runIds = [...pipeline.runIds, '7004150'];
-  expect(pipeline.id).toBe('github:run:7004107');
   const facts2 = ownMrFacts(later);
   observe(mem, [facts2], DAY);
   expect(detectEdges(mem, [facts2])).toEqual([]);
