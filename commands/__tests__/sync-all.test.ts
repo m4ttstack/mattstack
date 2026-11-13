@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { syncAllCommand } from "../sync.ts";
+import { syncAllCommand, type SyncSummary } from "../sync.ts";
 import { ctxFor, exitCodeOf, git, makeRepo, trapExit } from "../git/__tests__/helpers.ts";
 
 // mock.module mutates the live namespace in place: keep the real bindings
@@ -115,4 +115,37 @@ describe("rt sync all's exit code", () => {
     expect(io.stdout()).toContain("1 of 2 branches synced");
     expect(io.stdout()).toContain("1 refused");
   });
+});
+
+describe("rt sync all and rt's token", () => {
+  test("every branch shares one OriginAuth, and the note names the branches that used it, after the summary", async () => {
+    const { repo } = repoWithTwoFeatureTrees();
+    const auths: unknown[] = [];
+    const syncBranch = async (cwd: string, opts: { originAuth?: unknown }): Promise<SyncSummary> => {
+      auths.push(opts.originAuth);
+      const branch = cwd.endsWith("feature-a") ? "feature-a" : "feature-b";
+      return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: true, ...(branch === "feature-a" ? { usedRtToken: true, tokenForge: "gitlab" as const } : {}) };
+    };
+    const asked: string[] = [];
+    const authPending = async (cwd: string) => (asked.push(cwd), true);
+    expect(await exitCodeOf(() => syncAllCommand([], ctxFor(repo), { syncBranch, authPending }))).toBeNull();
+    expect(asked.map((p) => p.endsWith("feature-a"))).toEqual([true]);
+    expect(auths.length).toBe(2);
+    expect(auths[0]).toBeDefined();
+    expect(auths[1]).toBe(auths[0]);
+    const summaryAt = io.stdout().indexOf("2 of 2 branches synced");
+    const noteAt = io.stdout().indexOf("rt signed in with your GitLab token for this run on feature-a,");
+    expect(summaryAt).toBeGreaterThan(-1);
+    expect(noteAt).toBeGreaterThan(summaryAt);
+    expect(io.stdout()).not.toContain("on feature-b");
+    expect(io.stdout().trimEnd()).toEndWith("next: To use it for every git on this clone, run rt git auth");
+  }, 20_000);
+
+  test("the note leaves out rt git auth when no listed worktree is pending", async () => {
+    const { repo } = repoWithTwoFeatureTrees();
+    const syncBranch = async (cwd: string): Promise<SyncSummary> => ({ branch: cwd.endsWith("feature-a") ? "feature-a" : "feature-b", worktree: cwd, resetResult: null, rebaseResult: null, pushed: true, usedRtToken: true, tokenForge: "gitlab" });
+    expect(await exitCodeOf(() => syncAllCommand([], ctxFor(repo), { syncBranch, authPending: async () => false }))).toBeNull();
+    expect(io.stdout()).toContain("rt signed in with your GitLab token for this run on feature-a and feature-b");
+    expect(io.stdout()).not.toContain("rt git auth");
+  }, 20_000);
 });

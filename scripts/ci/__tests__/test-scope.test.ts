@@ -352,7 +352,7 @@ describe("plugins", () => {
   });
   test("a kit change names every plugin built from a mod and runs no unit shards", () => {
     const changed = ["packages/mod-kit/src/draw/theme.ts"];
-    expect(pluginDirs(changed)).toEqual(["plugins/gate-form", "plugins/kit-gallery"]);
+    expect(pluginDirs(changed)).toEqual(["plugins/gate-form", "plugins/human-todos", "plugins/kit-gallery"]);
     expect(decide(pr(changed)).mode).toBe("skip");
   });
   test("a kit change names only plugins whose mod exists", () => {

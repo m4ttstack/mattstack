@@ -1,3 +1,89 @@
+// packages/mod-kit/src/draw/cells.ts
+var segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+var PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
+var EMOJI = /\p{Emoji_Presentation}|\u20E3/u;
+var EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}\uFE0F/u;
+var ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u;
+var WIDE_RANGES = [
+  [4352, 4447],
+  [9001, 9002],
+  [11904, 12350],
+  [12353, 13311],
+  [13312, 19903],
+  [19968, 40959],
+  [40960, 42191],
+  [43360, 43391],
+  [44032, 55203],
+  [63744, 64255],
+  [65072, 65135],
+  [65280, 65376],
+  [65504, 65510],
+  [131072, 262141]
+];
+function graphemeWidth(grapheme) {
+  if (EMOJI.test(grapheme) || EMOJI_BASE_WITH_VS16.test(grapheme))
+    return 2;
+  const first = grapheme.codePointAt(0) ?? 0;
+  if (ZERO_WIDTH.test(grapheme))
+    return 0;
+  return WIDE_RANGES.some(([lo, hi]) => first >= lo && first <= hi) ? 2 : 1;
+}
+var graphemes = (text) => Array.from(segmenter.segment(text), (part) => part.segment);
+function cellWidth(text) {
+  if (PRINTABLE_ASCII.test(text))
+    return text.length;
+  return graphemes(text).reduce((n, grapheme) => n + graphemeWidth(grapheme), 0);
+}
+function cutCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return text.slice(0, Math.max(0, cells));
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text)) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out += grapheme;
+  }
+  return out;
+}
+function tailCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return cells <= 0 ? "" : text.slice(-cells);
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text).reverse()) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out = grapheme + out;
+  }
+  return out;
+}
+function chunkCells(text, cells) {
+  const out = [];
+  let piece = "";
+  let used = 0;
+  for (const grapheme of graphemes(text)) {
+    const w = graphemeWidth(grapheme);
+    if (used + w > cells && piece !== "") {
+      out.push(piece);
+      piece = "";
+      used = 0;
+    }
+    piece += grapheme;
+    used += w;
+  }
+  out.push(piece);
+  return out;
+}
+function padCells(text, cells) {
+  return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
+}
+function firstGrapheme(text) {
+  return segmenter.segment(text)[Symbol.iterator]().next().value?.segment ?? "";
+}
+
 // packages/mod-kit/src/draw/text.ts
 function sp(t, style = {}) {
   return { t, ...style };
@@ -8,12 +94,12 @@ function withAction(lines, action) {
   return lines;
 }
 function widthOf(spans) {
-  return spans.reduce((n, span) => n + span.t.length, 0);
+  return spans.reduce((n, span) => n + cellWidth(span.t), 0);
 }
 function spanAt(line, x) {
   let from = 0;
   for (const span of line) {
-    const to = from + span.t.length;
+    const to = from + cellWidth(span.t);
     if (span.action !== undefined && x >= from && x < to)
       return span;
     from = to;
@@ -46,11 +132,16 @@ function wrap(text, width) {
     let row = "";
     for (const word of raw.split(" ")) {
       const next = row === "" ? word : `${row} ${word}`;
-      if (next.length > width && row !== "") {
+      if (cellWidth(next) > width && row !== "") {
         out.push(row);
         row = word;
       } else
         row = next;
+      if (cellWidth(row) > width) {
+        const pieces = chunkCells(row, width);
+        out.push(...pieces.slice(0, -1));
+        row = pieces.at(-1) ?? "";
+      }
     }
     out.push(row);
   }
@@ -73,7 +164,8 @@ var SYMBOL = {
   radioOff: "○",
   boxActive: "◻",
   boxOn: "◼",
-  boxOff: "◻"
+  boxOff: "◻",
+  selectEdge: "▎"
 };
 var ICON = {
   layers: "",
@@ -82,14 +174,14 @@ var ICON = {
   missing: "",
   back: "",
   next: "",
+  collapse: "",
   chat: "",
   single: "\uDB81\uDC3E",
   multi: "\uDB80\uDD38",
   text: "\uDB81\uDE0E",
   review: "",
   edit: "",
-  info: "",
-  minimize: ""
+  info: ""
 };
 var BRAND = { pink: "#FF6B9D", pinkDeep: "#e9578b", plum: "#161224", glyph: ICON.layers };
 var FILL = {
@@ -103,6 +195,7 @@ var FILL = {
   field: { bg: "#2c2c2c", color: "white" },
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
+var SCROLL = { track: "#383838", thumb: "#707070" };
 var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
@@ -124,11 +217,28 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-function hovered(span) {
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
+function hoverOf(span) {
+  if (span.quiet)
+    return { ...span, bg: QUIET.hover, color: "white" };
+  if (span.chip)
+    return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
-function pressed(span) {
+function pressOf(span) {
+  if (span.quiet)
+    return { ...span, bg: QUIET.press, color: "white" };
+  if (span.chip)
+    return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
+}
+function hovered(span) {
+  const out = hoverOf(span);
+  return span.mark ? { ...out, color: span.mark } : out;
+}
+function pressed(span) {
+  const out = pressOf(span);
+  return span.mark ? { ...out, color: span.mark } : out;
 }
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
@@ -136,24 +246,26 @@ var DONE = { color: "green" };
 var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var rail = (style) => [sp(SYMBOL.bar, style), sp("  ")];
-var MUTED = { cyan: "#3d6f78", green: "#4d7a4d", yellow: "#857640", red: "#8a4a4a", gray: "#4a4a4a", [BRAND.pink]: "#7a3d58" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#6e3a52", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#5e2f45", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#24313f", color: "#8a8a8a" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#262626", color: "#8a8a8a" } };
+var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
+  if (span.quiet)
+    return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
-    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#3a3a3a", color: "#8a8a8a" }, dim: false };
+    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#4a4a4a", color: "#b8b8b8" }, dim: false };
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
-  return { ...span, color: span.dim ? "#555555" : "#8a8a8a", dim: false };
+  return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
 }
 // packages/mod-kit/src/widgets/brand-bar.ts
-var fit = (text, room) => text.length <= room ? text.padEnd(room) : `${text.slice(0, Math.max(0, room - 1))}…`;
+var fit = (text, room) => padCells(cellWidth(text) <= room ? text : `${cutCells(text, Math.max(0, room - 1))}…`, room);
 function brandBar(label, width, hide) {
   const look = { bg: BRAND.pink, color: BRAND.plum, bold: true };
   const text = `  ${BRAND.glyph}  ${label}`;
   if (hide === undefined)
     return [sp(fit(text, width), look)];
-  const button = ` ${ICON.minimize} Hide `;
-  return [sp(fit(text, width - button.length - 1), look), sp(button, { bg: BRAND.pinkDeep, color: BRAND.plum, action: hide }), sp(" ", look)];
+  const button = ` Hide ${ICON.collapse} `;
+  return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 // packages/mod-kit/src/widgets/input-field.ts
 function inputField(value, placeholder, width, showCursor) {
@@ -164,10 +276,11 @@ function inputField(value, placeholder, width, showCursor) {
     sp(" ".repeat(Math.max(0, width - 1 - widthOf(spans))), FILL.field)
   ];
   if (value === "") {
-    const hint = placeholder.slice(0, room);
-    return box([sp(hint.slice(0, 1) || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(1), PLACEHOLDER)]);
+    const hint = cutCells(placeholder, room);
+    const head = firstGrapheme(hint);
+    return box([sp(head || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)]);
   }
-  const shown = value.length >= room ? value.slice(value.length - room + 1) : value;
+  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
   return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
 }
 
@@ -232,7 +345,7 @@ function tabText(tab, room) {
     return "";
   const text = tab.mark ? `${tab.mark} ${tab.label}` : tab.label;
   const limit = Math.max(1, room - 2);
-  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
+  return cellWidth(text) <= limit ? text : `${cutCells(text, limit - 1)}…`;
 }
 var MARK_WIDTH = 5;
 var STRIP_CHROME = 3 + 2 * MARK_WIDTH + 2;
@@ -245,7 +358,7 @@ function scrollMark(side, hidden, action) {
 }
 function windowFiller(tabs, width) {
   const room = width - STRIP_CHROME;
-  const cost = (k) => tabText(tabs[k], room).length + 2;
+  const cost = (k) => cellWidth(tabText(tabs[k], room)) + 2;
   return (seed, first) => fillWindow(Math.max(0, Math.min(tabs.length - 1, seed)), first, tabs.length, room, cost);
 }
 function revealTab(tabs, current, width, from) {
@@ -277,8 +390,10 @@ function tabStrip(spec) {
 function textCursor(value, placeholder, showCursor) {
   if (!showCursor)
     return value === "" ? [sp(placeholder, DIM)] : [sp(value)];
-  if (value === "")
-    return [sp(placeholder.slice(0, 1), { inverse: true }), sp(placeholder.slice(1), DIM)];
+  if (value === "") {
+    const head = firstGrapheme(placeholder);
+    return [sp(head, { inverse: true }), sp(placeholder.slice(head.length), DIM)];
+  }
   return [sp(value), sp(" ", { inverse: true })];
 }
 // packages/mod-kit/src/interact/pointer.ts
@@ -286,6 +401,42 @@ function lookOf(state, focused) {
   const hover = state?.hover;
   const held = state?.pressed;
   return { focused, hover, pressed: held === hover ? held : undefined };
+}
+var labelOf = (text) => text.split(SYMBOL.selectEdge).join("").trim();
+function runOf(line, n) {
+  const armed = JSON.stringify(line[n].action);
+  const carries = (m) => line[m]?.action !== undefined && JSON.stringify(line[m].action) === armed;
+  let first = n;
+  let last = n;
+  while (carries(first - 1))
+    first--;
+  while (carries(last + 1))
+    last++;
+  return { armed, label: labelOf(line.slice(first, last + 1).map((s) => s.t).join("")) };
+}
+function controlAt(line, x) {
+  if (!line)
+    return;
+  let from = 0;
+  for (let n = 0;n < line.length; n++) {
+    const to = from + cellWidth(line[n].t);
+    if (line[n].action !== undefined && x >= from && x < to)
+      return runOf(line, n);
+    from = to;
+  }
+  return line.action === undefined ? undefined : { armed: JSON.stringify(line.action), label: labelOf(line.map((s) => s.t).join("")) };
+}
+function drawnAction(lines, held) {
+  for (const line of lines) {
+    if (line.action !== undefined && JSON.stringify(line.action) === held.armed && labelOf(line.map((s) => s.t).join("")) === held.label)
+      return line.action;
+    for (let n = 0;n < line.length; n++) {
+      const run = line[n].action === undefined ? undefined : runOf(line, n);
+      if (run && run.armed === held.armed && run.label === held.label)
+        return line[n].action;
+    }
+  }
+  return;
 }
 function attachPointer(surface, lines, opts) {
   const s = surface.state;
@@ -299,13 +450,20 @@ function attachPointer(surface, lines, opts) {
       opts.onEngage?.();
       if (!opts.focused || ev.button !== "left" || !key || !isActive())
         return;
-      return surface.setState({ ...s, pressed: key, hover: key });
+      const held = controlAt(lines[ev.y], ev.x);
+      return surface.setState({ ...s, pressed: key, hover: key, armed: held?.armed, label: held?.label, pressAt: `${ev.x},${ev.y}` });
     }
     if (ev.type === "up") {
       if (s.pressed === undefined)
         return;
-      surface.setState({ ...s, pressed: undefined });
-      const action = key === s.pressed ? hitAt(lines[ev.y], ev.x) : undefined;
+      const { armed, label, pressAt } = s;
+      surface.setState({ ...s, pressed: undefined, armed: undefined, label: undefined, pressAt: undefined });
+      if (armed === undefined || label === undefined)
+        return;
+      const here = controlAt(lines[ev.y], ev.x);
+      const isSame = here !== undefined && here.armed === armed && here.label === label;
+      const isStill = s.hover === s.pressed && pressAt === `${ev.x},${ev.y}`;
+      const action = isSame ? hitAt(lines[ev.y], ev.x) : isStill ? drawnAction(lines, { armed, label }) : undefined;
       if (action !== undefined)
         opts.onAction(action);
       return;
@@ -396,6 +554,7 @@ function partsOf(render, nodes, view) {
 }
 
 // packages/mod-kit/src/components/client.tsx
+var KEY_PRESS_MS = 150;
 function kitClient(body, options = {}) {
   return function KitClient(props, surface) {
     const seed = surface.state ?? options.initial?.(props) ?? {};
@@ -408,6 +567,7 @@ function kitClient(body, options = {}) {
     };
     const focused = options.focused ? options.focused(props) : props?.focused !== false;
     const engage = options.engaged && (() => surface.post(options.engaged(props)));
+    let reveal;
     const ui = {
       width: surface.columns || 80,
       focused,
@@ -418,9 +578,36 @@ function kitClient(body, options = {}) {
       post: (message) => surface.post(message),
       hide: () => surface.post({ type: "hide" }),
       onKey: (fn) => void surface.onKey((event) => {
+        if (latest.keyPress)
+          return;
         engage?.();
-        fn(event);
-      })
+        if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
+          setState({ ...latest, keyboard: true });
+          reveal?.();
+          return;
+        }
+        if (fn(event) === true && !latest.keyboard)
+          setState({ ...latest, keyboard: true });
+      }),
+      get keyboard() {
+        return latest.keyboard === true;
+      },
+      get keyPressing() {
+        return latest.keyPress === true;
+      },
+      onReveal: (fn) => {
+        reveal = fn;
+      },
+      pressFor: (run, ms = KEY_PRESS_MS) => {
+        if (latest.keyPress)
+          return;
+        setState({ ...latest, keyPress: true });
+        const stop = surface.every(ms, () => {
+          stop();
+          setState({ ...surface.state, keyPress: undefined });
+          run();
+        });
+      }
     };
     const { tree, lines, handlers } = drawKit({ elements: surface.elements, look: lookOf(latest, focused), width: ui.width, focused }, () => body(props, ui));
     const local = {
@@ -428,7 +615,11 @@ function kitClient(body, options = {}) {
         return latest;
       },
       setState,
-      onPointer: (fn) => surface.onPointer(fn)
+      onPointer: (fn) => surface.onPointer((event) => {
+        fn(event);
+        if (latest.keyboard)
+          setState({ ...latest, keyboard: undefined });
+      })
     };
     attachPointer(local, lines, {
       focused,
@@ -488,18 +679,19 @@ function Panel(props) {
 }
 
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 2 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
   const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled, ...!button.disabled && { action: button.action } });
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
 }
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + button.label.length + 2 * pad + gap, 0) + (right ? gap + right.label.length + 2 * pad : 0);
-var cut = (label, room) => label.length <= room ? label : `${label.slice(0, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width) {
-  const space = widthWith(left, right, ROOMY) <= width ? ROOMY : COMPACT;
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
   const line = [sp(" ".repeat(space.indent))];
   for (const button of left)
     line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
@@ -507,40 +699,9 @@ function buttonRow(left, right, width) {
     return line;
   const room = width - widthOf(line) - space.gap - 2 * space.pad;
   const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - end.t.length))), end);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
   return line;
 }
-
-// packages/mod-kit/src/components/buttons.tsx
-function buttonOf(props, ctx) {
-  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
-}
-var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
-var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
-  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
-  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
-});
-
-// packages/mod-kit/src/components/lines.tsx
-function keyed(lines, key) {
-  return lines.map((line) => {
-    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
-    if (line.action !== undefined)
-      out.action = key(line.action);
-    return out;
-  });
-}
-var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
-var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
-var Row = kitComponent("Row", (props, ctx) => [
-  ctx.parts(props.children).flatMap((part) => {
-    if ("text" in part)
-      return [sp(part.text)];
-    if (part.component === Button)
-      return [buttonSpan(buttonOf(part.props, part.ctx))];
-    return part.component.toLines(part.props, part.ctx)[0] ?? [];
-  })
-]);
 // packages/mod-kit/src/patterns/page-shell.ts
 function padToHeight(page, height, filler) {
   const padding = Array.from({ length: Math.max(0, height - page.length) }, () => [...filler]);
@@ -572,6 +733,36 @@ function reviewList(items, width) {
     return [[sp(SYMBOL.bar, GRAY)], ...entry];
   });
 }
+// packages/mod-kit/src/components/buttons.tsx
+function buttonOf(props, ctx) {
+  return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
+}
+var Button = kitComponent("Button", (props, ctx) => [buttonRow([buttonOf(props, ctx)], undefined, ctx.width)]);
+var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
+  const buttons = (nodes) => ctx.parts(nodes).flatMap((part) => ("component" in part) && part.component === Button ? [buttonOf(part.props, part.ctx)] : []);
+  return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
+});
+
+// packages/mod-kit/src/components/lines.tsx
+function keyed(lines, key) {
+  return lines.map((line) => {
+    const out = line.map(({ action, ...span }) => action === undefined ? span : { ...span, action: key(action) });
+    if (line.action !== undefined)
+      out.action = key(line.action);
+    return out;
+  });
+}
+var Lines = kitComponent("Lines", (props, ctx) => keyed(props.lines, (action) => ctx.bind(JSON.stringify(action), () => props.onAction?.(action))));
+var Span = kitComponent("Span", ({ children, ...style }) => [[sp(textOf(children), style)]]);
+var Row = kitComponent("Row", (props, ctx) => [
+  ctx.parts(props.children).flatMap((part) => {
+    if ("text" in part)
+      return [sp(part.text)];
+    if (part.component === Button)
+      return [buttonSpan(buttonOf(part.props, part.ctx))];
+    return part.component.toLines(part.props, part.ctx)[0] ?? [];
+  })
+]);
 // mods/gate-form/src/form/state.ts
 var WRITE_IN = "__other__";
 var isRecommended = (o) => /\(recommended\)\s*$/i.test(o.label);

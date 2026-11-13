@@ -74,7 +74,7 @@ describe('buildMod', () => {
     const out = join(scratch(), 'fixture-mod')
     await buildMod(FIXTURE, out, { validate: false })
 
-    expect(readdirSync(join(out, 'hooks')).sort()).toEqual(['band.js', 'fixture.test.tsx', 'form.js', 'hooks.json', 'register.js'])
+    expect(readdirSync(join(out, 'hooks')).sort()).toEqual(['band.js', 'fixture.test.tsx', 'form.js', 'helper.ts', 'hooks.json', 'register.js'])
     expect(JSON.parse(readFileSync(join(out, 'hooks/hooks.json'), 'utf8'))).toEqual({ modules: ['./register.js'] })
     expect(JSON.parse(readFileSync(join(out, '.claude-plugin/plugin.json'), 'utf8'))).toMatchObject({ name: 'fixture-mod', version: '0.0.1' })
     expect(readFileSync(join(out, '.gitignore'), 'utf8')).toContain('.claude-plugin/types/')
@@ -165,6 +165,58 @@ describe('buildMod', () => {
     writeFileSync(join(src, 'src/kit/band-slot.tsx'), 'export const lazy = (path: string) => import(path)\nexport const bandSlot = () => null\n')
     writeFileSync(join(src, 'src/register.tsx'), 'import { lazy } from "./kit/band-slot"\nexport function register(on: unknown): void { void on; void lazy("x") }\n')
     await expect(buildMod(src, join(scratch(), 'out'), { validate: false })).rejects.toThrow(/import\(/)
+  })
+
+  test('copies the files entries to the plugin root', async () => {
+    const out = join(scratch(), 'out')
+    await buildMod(FIXTURE, out, { validate: false })
+    expect(readFileSync(join(out, 'LICENSE'), 'utf8')).toBe('Fixture license.\n')
+    expect(readFileSync(join(out, 'docs/note.md'), 'utf8')).toContain('carried')
+    expect(existsSync(join(out, 'hooks/helper.ts'))).toBe(true)
+  })
+
+  test('rejects a files entry that leaves the mod folder', async () => {
+    const manifest = JSON.parse(readFileSync(join(FIXTURE, 'mod.json'), 'utf8'))
+    for (const entry of ['../escape', '/etc/hosts']) {
+      const src = join(scratch(), 'mod')
+      cpSync(FIXTURE, src, { recursive: true })
+      writeFileSync(join(src, 'mod.json'), JSON.stringify({ ...manifest, files: [entry] }))
+      await expect(buildMod(src, join(scratch(), 'out'), { validate: false })).rejects.toThrow(/files entry/)
+    }
+  })
+
+  test('rejects a harness file that would replace a built module or hooks.json, and leaves the old output alone', async () => {
+    for (const name of ['register.js', 'hooks.json']) {
+      const src = join(scratch(), 'mod')
+      const out = join(scratch(), 'out')
+      cpSync(FIXTURE, src, { recursive: true })
+      await buildMod(src, out, { validate: false })
+      const before = readFileSync(join(out, 'hooks/register.js'), 'utf8')
+      writeFileSync(join(src, 'harness', name), 'export const replaced = true\n')
+      await expect(buildMod(src, out, { validate: false })).rejects.toThrow(new RegExp(`harness/${name.replace('.', '\\.')}`))
+      expect(readFileSync(join(out, 'hooks/register.js'), 'utf8')).toBe(before)
+    }
+  })
+
+  test('rejects a files entry that would land on the hooks, the plugin metadata or the .gitignore', async () => {
+    const manifest = JSON.parse(readFileSync(join(FIXTURE, 'mod.json'), 'utf8'))
+    for (const entry of ['hooks', 'hooks/register.js', '.claude-plugin', '.gitignore']) {
+      const src = join(scratch(), 'mod')
+      cpSync(FIXTURE, src, { recursive: true })
+      if (entry === '.gitignore') writeFileSync(join(src, entry), 'x\n')
+      else mkdirSync(join(src, entry.split('/')[0]!), { recursive: true })
+      if (entry.includes('/')) writeFileSync(join(src, entry), 'x\n')
+      writeFileSync(join(src, 'mod.json'), JSON.stringify({ ...manifest, files: [entry] }))
+      await expect(buildMod(src, join(scratch(), 'out'), { validate: false }), entry).rejects.toThrow(/would replace/)
+    }
+  })
+
+  test('rejects a files entry that does not exist', async () => {
+    const src = join(scratch(), 'mod')
+    cpSync(FIXTURE, src, { recursive: true })
+    const manifest = JSON.parse(readFileSync(join(src, 'mod.json'), 'utf8'))
+    writeFileSync(join(src, 'mod.json'), JSON.stringify({ ...manifest, files: ['MISSING.md'] }))
+    await expect(buildMod(src, join(scratch(), 'out'), { validate: false })).rejects.toThrow(/MISSING\.md/)
   })
 
   test('copies types and assets beside the hooks', async () => {

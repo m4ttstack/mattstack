@@ -240,13 +240,12 @@ binding or a pack's compile, never directly.
   work on it.
 - **checkout-and-open** -- the same checkout, plus opening it in an editor
   in one step.
-- **map-open-mrs** -- pair every one of the user's open MRs/PRs with the
-  local worktree holding its branch; the discovery step of `sync-open-mrs`
-  on GitHub.
+- **map-open-mrs** -- pair every one of the user's open MRs or PRs with the
+  local worktree holding its branch, in one `mr_map` call.
 - **rebase-worktree** -- rebase one worktree's feature branch onto a moved
   default branch.
 - **sync-open-mrs** -- rebase every open MR/PR in one sweep: it maps with
-  `mr_map` on GitLab and follows `map-open-mrs` on GitHub, then syncs with
+  `mr_map` on both forges, then syncs with
   `branch_sync_sweep` when every listed branch is selected, and one
   `branch_sync` per branch otherwise.
 

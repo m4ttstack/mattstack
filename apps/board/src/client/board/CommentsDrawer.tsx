@@ -611,14 +611,16 @@ function CommentsDrawer({
       <div className="tui-cd-title">
         <span className="tui-cd-iid">{mrRef(mr)}</span> {cleanTitle(mr.title)}
       </div>
-      <a
-        className="tui-cd-open"
-        href={mr.webUrl ?? '#'}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        open in {forgeWord(mr)} ↗
-      </a>
+      <div className="tui-cd-open-row">
+        <a
+          className="tui-cd-open"
+          href={mr.webUrl ?? '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          open in {forgeWord(mr)} ↗
+        </a>
+      </div>
       <div className="tui-cd-body">
         {!data ? (
           <p className="tui-comments-empty">

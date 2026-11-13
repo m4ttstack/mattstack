@@ -39,13 +39,26 @@ Run always asks first: press Run, then Confirm. Confirm shows the script and the
 
 ## Commands
 
-- `/todos` opens the pane again after you close it.
-- `/todos-runner auto|herdr|local` picks where Run executes. `auto` is the default.
+- `/todos` opens the pane again after you close it. While it is hidden, the band above the prompt says how many steps wait, with a Show button (Open in VS Code and on mobile).
+- `/todos-runner auto|herdr|local` picks where Run executes. `auto`, the default, uses herdr when it is installed and the plugin otherwise; `herdr` uses only herdr and says so when it cannot; `local` always runs scripts in Claude Code.
+
+## Keyboard
+
+In the terminal and the desktop app, focus the pane (click it), then:
+
+- ↑ and ↓, or Tab and Shift+Tab, move between steps, with Clear finished last.
+- ← and → move between a step's buttons.
+- Enter presses the selected button.
+- Esc goes back to the prompt.
+
+The first key only shows where the selection is; the next one moves or presses. Using the mouse hides the selection until you press a key again.
 
 ## Where Run executes
 
-With [herdr](https://github.com/herdrdev/herdr) running, Run opens a tab for the script and the pane shows its last lines. Without herdr, the plugin runs the script itself and shows the last 15 lines, with an Open log button for the full output. herdr is optional.
+With [herdr](https://github.com/herdrdev/herdr) installed, Run opens a tab for the script on a herdr server you do not have on screen, so nothing appears in your own herdr. That is mattstack's background server, `mattstack-bg`, when it is running; otherwise the plugin's own `human-todos` server, which it starts when it needs it and never stops. The pane shows the run's last lines, and Show opens everything it has printed so far in your text editor. To watch a run live, attach to its server: `herdr session attach human-todos` (or `mattstack-bg`). On that server every session shares one workspace, named Human Todos, and each tab is named after the session's repo, then the step: `mattstack #3 Deploy`.
 
-Open, Open log and the log folder (`~/Library/Caches/human-todos`, unless `XDG_CACHE_HOME` is set) are macOS only: they use `open` and the Library cache folder.
+Without herdr, or when its server will not start, the plugin runs the script itself and shows the last 15 lines, with an Open log button for the full output. herdr is optional.
+
+Open, Open log, Show and the log folder (`~/Library/Caches/human-todos`, unless `XDG_CACHE_HOME` is set) are macOS only: they use `open` and the Library cache folder.
 
 The list belongs to the session and is kept for 30 days.

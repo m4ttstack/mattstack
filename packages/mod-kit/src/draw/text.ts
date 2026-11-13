@@ -1,4 +1,9 @@
-export type Style = { color?: string; bg?: string; dim?: boolean; bold?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean }
+import { cellWidth, chunkCells } from './cells'
+
+// `quiet` marks a button drawn without a fill at rest, so the pointer states give it a fill of its own; it draws nothing itself.
+// `chip` is the fill a control drawn flat on a coloured bar takes under the pointer; it draws nothing itself.
+// `mark` is a foreground the pointer states keep, for a marker drawn inside a control; it draws nothing itself.
+export type Style = { color?: string; bg?: string; dim?: boolean; bold?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean; quiet?: boolean; chip?: string; mark?: string }
 
 // A span or a whole line can carry the action a click on it performs, so a pointer handler only has to look up what it hit.
 export type Span<A> = Style & { t: string; action?: A; isLabel?: true }
@@ -14,13 +19,13 @@ export function withAction<A>(lines: Line<A>[], action: A): Line<A>[] {
 }
 
 export function widthOf(spans: Span<unknown>[]): number {
-  return spans.reduce((n, span) => n + span.t.length, 0)
+  return spans.reduce((n, span) => n + cellWidth(span.t), 0)
 }
 
 function spanAt<A>(line: Line<A>, x: number): Span<A> | undefined {
   let from = 0
   for (const span of line) {
-    const to = from + span.t.length
+    const to = from + cellWidth(span.t)
     if (span.action !== undefined && x >= from && x < to) return span
     from = to
   }
@@ -57,10 +62,16 @@ export function wrap(text: string, width: number): string[] {
     let row = ''
     for (const word of raw.split(' ')) {
       const next = row === '' ? word : `${row} ${word}`
-      if (next.length > width && row !== '') {
+      if (cellWidth(next) > width && row !== '') {
         out.push(row)
         row = word
       } else row = next
+      // Only a lone word can still be too wide; it breaks at the row edge, and a grapheme wider than the row keeps a row to itself.
+      if (cellWidth(row) > width) {
+        const pieces = chunkCells(row, width)
+        out.push(...pieces.slice(0, -1))
+        row = pieces.at(-1) ?? ''
+      }
     }
     out.push(row)
   }

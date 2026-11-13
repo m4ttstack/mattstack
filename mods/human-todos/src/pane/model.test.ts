@@ -1,0 +1,240 @@
+import { expect, test } from 'bun:test'
+
+import type { Todo } from '../../types'
+import { bandModel, cleanLine, endRows, messageOf, paneModel } from './model'
+import type { PaneRow, Tone } from './model'
+
+const todo = (over: Partial<Todo>): Todo => ({ id: '1', kind: 'task', title: 'Do it', status: 'open', ...over })
+const build = (list: Todo[], expanded: string[] = [], width = 38) => paneModel({ list, expanded, spin: '⠋', width })
+const text = (t: string, tone: Tone, indent = false): PaneRow => ({ kind: 'text', text: t, tone, indent })
+const spinning = (t: string): PaneRow => ({ kind: 'text', text: t, tone: 'title', indent: false, spin: true })
+const BLANK: PaneRow = { kind: 'blank' }
+const script5 = 'one\ntwo\nthree\nfour\nfive'
+
+test('an open run item clips the script to two rows, then offers Show all, the cwd and its buttons', () => {
+  const { rows } = build([todo({ kind: 'run', title: 'Deploy', detail: 'To staging', script: script5, cwd: '/tmp' })])
+
+  expect(rows).toEqual([
+    text('○ Deploy', 'title'),
+    text('To staging', 'dim', true),
+    text('$ one', 'script', true),
+    text('two', 'script', true),
+    { kind: 'buttons', lead: { text: '… +3 more', tone: 'dim' }, buttons: [{ id: 'more', label: 'Show all', tone: 'quiet', todoId: '1' }] },
+    text('in /tmp', 'dim', true),
+    BLANK,
+    {
+      kind: 'buttons',
+      buttons: [
+        { id: 'run', label: 'Run', tone: 'primary', todoId: '1' },
+        { id: 'copy', label: 'Copy', tone: 'quiet', todoId: '1' },
+        { id: 'done', label: 'Done', tone: 'quiet', todoId: '1' },
+        { id: 'skip', label: 'Skip', tone: 'quiet', todoId: '1' },
+      ],
+    },
+    BLANK,
+  ])
+})
+
+test('an expanded item shows every script row and Show less', () => {
+  const { rows } = build([todo({ kind: 'run', script: script5 })], ['1'])
+
+  expect(rows.filter(r => r.kind === 'text' && r.tone === 'script')).toHaveLength(5)
+  const more = rows.find(r => r.kind === 'buttons' && r.buttons[0]?.id === 'more')
+  expect(more).toEqual({ kind: 'buttons', buttons: [{ id: 'more', label: 'Show less', tone: 'quiet', todoId: '1' }] })
+})
+
+test('a confirming item shows the whole script, then its buttons, then the confirm prompt under them', () => {
+  const { rows } = build([todo({ kind: 'run', script: script5, status: 'confirming' })], [], 60)
+
+  expect(rows.filter(r => r.kind === 'text' && r.tone === 'script')).toHaveLength(5)
+  expect(rows.some(r => r.kind === 'buttons' && r.buttons.some(b => b.id === 'more'))).toBe(false)
+  expect(rows.slice(-3)).toEqual([
+    {
+      kind: 'buttons',
+      buttons: [
+        { id: 'confirm', label: 'Confirm', tone: 'primary', todoId: '1' },
+        { id: 'cancel', label: 'Cancel', tone: 'quiet', todoId: '1' },
+      ],
+    },
+    text('Are you sure you want to run this script?', 'plain', true),
+    BLANK,
+  ])
+})
+
+test("an item's first button is its only filled one: the main action, or Stop while it runs", () => {
+  const tones = (over: Partial<Todo>) => {
+    const row = build([todo(over)]).rows.filter(r => r.kind === 'buttons').at(-1) as { buttons: { id: string; tone: string }[] }
+    return row.buttons.map(b => `${b.id}:${b.tone}`)
+  }
+  expect(tones({ kind: 'task' })).toEqual(['done:secondary', 'skip:quiet'])
+  expect(tones({ kind: 'terminal', script: 'sudo ls' })).toEqual(['copy:neutral', 'done:quiet', 'skip:quiet'])
+  expect(tones({ kind: 'link', url: 'https://example.com' })).toEqual(['open:primary', 'done:quiet', 'skip:quiet'])
+  expect(tones({ kind: 'image', paths: ['/a.png'] })).toEqual(['open:primary', 'done:quiet', 'skip:quiet'])
+  expect(tones({ kind: 'run', script: 'ls', status: 'running', runner: 'local' })).toEqual(['openLog:quiet', 'stop:caution'])
+  expect(tones({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', isStopping: true })).toEqual(['show:quiet', 'forceStop:caution'])
+})
+
+test("a note shows under the detail, link and image rows are cyan, and a long title wraps at word breaks with its later rows hung under the first row's text", () => {
+  const { rows } = build([
+    todo({ id: '1', title: 'Store the token for the replay workspace before the pilot runs', detail: 'D', note: 'Stopped' }),
+    todo({ id: '2', kind: 'link', url: 'https://example.com' }),
+    todo({ id: '3', kind: 'image', paths: ['/shots/light.png', '/shots/dark.png'] }),
+  ])
+
+  expect(rows.slice(0, 4)).toEqual([
+    text('○ Store the token for the replay', 'title'),
+    text('workspace before the pilot runs', 'title', true),
+    text('D', 'dim', true),
+    text('Stopped', 'warning', true),
+  ])
+  expect(rows).toContainEqual(text('https://example.com', 'link', true))
+  expect(rows).toContainEqual(text('light.png, dark.png', 'link', true))
+})
+
+test('a running item starts with the spin frame, caps its tail by runner, and leads its buttons with Running', () => {
+  const tail = Array.from({ length: 20 }, (_, n) => `l${n}`)
+  const local = build([todo({ kind: 'run', script: 'ls', status: 'running', runner: 'local', liveTail: tail })]).rows
+  const herdr = build([todo({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', liveTail: tail })]).rows
+  const tailRows = (rows: PaneRow[]) => rows.filter(r => r.kind === 'text' && r.tone === 'dim')
+
+  expect(local[0]).toEqual(spinning('⠋ Do it'))
+  expect(tailRows(local).map(r => (r as { text: string }).text)).toEqual(tail.slice(-15))
+  expect(tailRows(herdr).map(r => (r as { text: string }).text)).toEqual(['l17', 'l18', 'l19'])
+  expect(herdr.at(-2)).toEqual({
+    kind: 'buttons',
+    lead: { text: '⠋ Running', tone: 'warning', spin: true, pad: true },
+    buttons: [
+      { id: 'show', label: 'Show', tone: 'quiet', todoId: '1' },
+      { id: 'stop', label: 'Stop', tone: 'caution', todoId: '1' },
+    ],
+  })
+  expect(local.at(-2)).toMatchObject({ buttons: [{ id: 'openLog', tone: 'quiet' }, { id: 'stop', tone: 'caution' }] })
+})
+
+test('cleanLine drops colour and title escapes, keeps what a carriage return drew last, and expands tabs to 8-cell stops', () => {
+  const ESC = String.fromCharCode(27)
+  const BEL = String.fromCharCode(7)
+  const CR = String.fromCharCode(13)
+  expect(cleanLine(`${ESC}[1;32mok${ESC}[0m done`)).toBe('ok done')
+  expect(cleanLine(`${ESC}]0;my title${BEL}build`)).toBe('build')
+  expect(cleanLine(`${ESC}]8;;https://x.y${ESC}\\link${ESC}]8;;${ESC}\\`)).toBe('link')
+  expect(cleanLine(`${ESC}[2K${ESC}[1G 50%${CR} 100%`)).toBe(' 100%')
+  expect(cleanLine(`a${CR}`)).toBe('a')
+  expect(cleanLine('a\tb')).toBe('a       b')
+  expect(cleanLine('abcdefgh\tz')).toBe('abcdefgh        z')
+  expect(cleanLine('日本\tx')).toBe('日本    x')
+  expect(cleanLine(`bell${BEL} and${String.fromCharCode(8)}`)).toBe('bell and')
+})
+
+test("a running item's tail rows are cleaned lines", () => {
+  const ESC = String.fromCharCode(27)
+  const { rows } = build([todo({ kind: 'run', script: 'ls', status: 'running', runner: 'local', liveTail: [`${ESC}[31mred${ESC}[0m`, 'a\tb'] })])
+  const tail = rows.filter(r => r.kind === 'text' && r.tone === 'dim').map(r => (r as { text: string }).text)
+  expect(tail).toEqual(['red', 'a       b'])
+})
+
+test('only the first row of a wrapped running title carries spin', () => {
+  const { rows } = build([todo({ title: 'Store the token for the replay workspace before the pilot runs', status: 'running', runner: 'herdr' })])
+
+  expect(rows.slice(0, 2)).toEqual([spinning('⠋ Store the token for the replay'), text('workspace before the pilot runs', 'title', true)])
+})
+
+test('a running item with no tail has no tail padding, and a stopping one reads Stopping with Force stop', () => {
+  const { rows } = build([todo({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', isStopping: true })])
+
+  expect(rows.slice(-3, -1)).toEqual([
+    BLANK,
+    {
+      kind: 'buttons',
+      lead: { text: '⠋ Stopping…', tone: 'error', spin: true, pad: true },
+      buttons: [
+        { id: 'show', label: 'Show', tone: 'quiet', todoId: '1' },
+        { id: 'forceStop', label: 'Force stop', tone: 'caution', todoId: '1' },
+      ],
+    },
+  ])
+})
+
+test('finished items show only the last 8, with marks and exit codes, then a Clear finished button', () => {
+  const finished: Todo[] = Array.from({ length: 10 }, (_, n) => todo({ id: `f${n}`, title: `F${n}`, status: 'done' }))
+  const { rows, hasFinished } = build([
+    ...finished,
+    todo({ id: 'x', title: 'Broke', status: 'failed', exitCode: 2 }),
+    todo({ id: 'y', title: 'Zero', status: 'failed', exitCode: 0 }),
+    todo({ id: 'z', title: 'Passed over', status: 'skipped' }),
+    todo({ id: 'o', title: 'Open' }),
+  ])
+  const marks = rows.filter(r => r.kind === 'finished')
+
+  expect(hasFinished).toBe(true)
+  expect(marks).toHaveLength(8)
+  expect(marks.map(r => r.title)).not.toContain('F0')
+  expect(marks.at(-3)).toEqual({ kind: 'finished', mark: '✗', tone: 'error', title: 'Broke', exit: 2 })
+  expect(marks.at(-2)).toEqual({ kind: 'finished', mark: '✗', tone: 'error', title: 'Zero' })
+  expect(marks.at(-1)).toEqual({ kind: 'finished', mark: '–', tone: 'inactive', title: 'Passed over' })
+  expect(marks[0]).toEqual({ kind: 'finished', mark: '✓', tone: 'success', title: 'F5' })
+  expect(rows.slice(-2)).toEqual([BLANK, { kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'quiet' }] }])
+})
+
+test('with nothing to do, the notice, a blank, the finished rows, a blank and Clear finished', () => {
+  const { rows, spans } = build([todo({ title: 'Fine', status: 'done' })])
+
+  expect(rows).toEqual([
+    text('Nothing for you right now.', 'dim'),
+    BLANK,
+    { kind: 'finished', mark: '✓', tone: 'success', title: 'Fine' },
+    BLANK,
+    { kind: 'buttons', flush: true, buttons: [{ id: 'clear', label: 'Clear finished', tone: 'quiet' }] },
+  ])
+  expect(spans).toEqual([{ first: 2, last: 2 }])
+})
+
+test('the notice has no blank after it when nothing finished either', () => {
+  const { rows, hasFinished } = build([])
+  expect(rows).toEqual([text('Nothing for you right now.', 'dim')])
+  expect(hasFinished).toBe(false)
+})
+
+test('Clear finished beside a running item carries no todo id and comes after the running rows', () => {
+  const { rows } = build([todo({ id: '1', kind: 'run', script: 'ls', status: 'running', runner: 'herdr' }), todo({ id: '2', status: 'done' })])
+  const clear = rows.findIndex(r => r.kind === 'buttons' && r.buttons.some(b => b.id === 'clear'))
+  const running = rows.findIndex(r => r.kind === 'buttons' && r.lead?.text === '⠋ Running')
+  const fin = rows.findIndex(r => r.kind === 'finished')
+  const button = (rows[clear] as { buttons: { todoId?: string }[] }).buttons[0]
+
+  expect(running).toBeLessThan(fin)
+  expect(fin).toBeLessThan(clear)
+  expect(button && 'todoId' in button).toBe(false)
+})
+
+test('spans cover each actionable item without its trailing blank, then one row per finished item', () => {
+  const { rows, spans } = build([todo({ id: '1', title: 'One' }), todo({ id: '2', title: 'Two' }), todo({ id: '3', title: 'Old', status: 'done' })])
+
+  // per item: title, blank, buttons, then a blank that no span covers
+  expect(spans).toEqual([
+    { first: 0, last: 2 },
+    { first: 4, last: 6 },
+    { first: 8, last: 8 },
+  ])
+  expect(rows[8]).toMatchObject({ kind: 'finished', title: 'Old' })
+  expect(rows[3]).toEqual(BLANK)
+})
+
+test('bandModel counts open and confirming items and has nothing when none wait', () => {
+  expect(bandModel([todo({ id: '1' }), todo({ id: '2', status: 'confirming' }), todo({ id: '3', status: 'done' })])).toEqual({ waiting: 2, title: '2 to-dos' })
+  expect(bandModel([todo({})])).toEqual({ waiting: 1, title: '1 to-do' })
+  expect(bandModel([todo({ status: 'done' }), todo({ id: '2', status: 'running' })])).toBeUndefined()
+  expect(bandModel([])).toBeUndefined()
+})
+
+test('endRows close an overflowing list: a blank first only after the finished list', () => {
+  const end = text("You've reached the end of the list.", 'dim')
+  expect(endRows(build([todo({})]))).toEqual([end])
+  expect(endRows(build([todo({}), todo({ id: '2', status: 'done' })]))).toEqual([BLANK, end])
+})
+
+test('messageOf gives each button the one message both drawers act on', () => {
+  expect(messageOf({ id: 'run', todoId: '3' })).toEqual({ type: 'press', id: '3', button: 'run' })
+  expect(messageOf({ id: 'more', todoId: '3' })).toEqual({ type: 'toggle', id: '3' })
+  expect(messageOf({ id: 'clear' })).toEqual({ type: 'clear' })
+})

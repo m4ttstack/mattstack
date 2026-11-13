@@ -64,6 +64,7 @@ export type ActionGlyph =
   | { kind: 'slack' }
   | { kind: 'flock' }
   | { kind: 'rt' }
+  | { kind: 'shredder' }
   | { kind: 'emoji'; glyph: string };
 
 export type LaunchFlow =
@@ -96,6 +97,7 @@ export type ActionRequest =
   | { kind: 'view-report'; lane: 'review' | 'respond' }
   | { kind: 'dismiss'; lane: Lane }
   | { kind: 'stand-down'; on: boolean }
+  | { kind: 'drop-review' }
   | {
       kind: 'flock';
       action: FlockAction;
@@ -248,6 +250,13 @@ const block = (
 /** Block reasons that only say there is nothing yet to act on; the session
     rows carrying them are left out rather than shown disabled. */
 const ABSENT = new Set(['no session', 'no report yet', 'nothing to dismiss']);
+
+/** A review gate still waiting in the decision queue: one a drop can close. */
+export function hasDroppableReviewGate(mrx: BoardMRWithReview): boolean {
+  return (mrx.gates ?? []).some(
+    g => g.domain === 'review' && (g.status === 'open' || g.status === 'parked')
+  );
+}
 
 /** Every action this MR offers, in menu order, each in one section. A row
     is omitted for who is looking (local board, own MR, seat, Slack on, an
@@ -509,6 +518,17 @@ export function rowActions(
         )
       );
     }
+  if (env.local && hasDroppableReviewGate(mrx))
+    agent.push(
+      item(
+        'agent',
+        'drop-review',
+        'discard review',
+        { kind: 'shredder' },
+        { kind: 'drop-review' },
+        { confirm: 'really discard?' }
+      )
+    );
   if (env.local && own) {
     const peers = nudgeTargets(mrx, env.peers);
     for (const peer of peers)

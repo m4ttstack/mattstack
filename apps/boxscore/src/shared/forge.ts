@@ -20,6 +20,12 @@ export function changeRef(forge: Forge | undefined, iid: number): string {
   return `${forge === 'github' ? '#' : '!'}${iid}`;
 }
 
+/** What a coding day counts: GitHub reads commits on PRs, GitLab reads pushes. */
+export function pushWord(forge: Forge | undefined, count: number): string {
+  if (forge === 'github') return count === 1 ? 'commit' : 'commits';
+  return count === 1 ? 'push' : 'pushes';
+}
+
 /** Whole-string GitHub copy, for strings the word rewrite in forgeText cannot express. */
 export const GITHUB_COPY: Readonly<Record<string, string>> = {
   'Source: GitLab pushes to tracked projects':
@@ -46,8 +52,6 @@ export const GITHUB_COPY: Readonly<Record<string, string>> = {
   'Check that your GitLab token is set and that your GitLab username is on the team roster in console.':
     "Check that rt can read a GitHub token for one of boxscore's projects and that your GitHub username is on the team roster in console.",
   Pushes: 'Commits',
-  pushes: 'commits',
-  push: 'commit',
   'Push calendar': 'Commit calendar',
   'pushes per day': 'commits per day',
   'Weekdays without a push': 'Weekdays without a commit',

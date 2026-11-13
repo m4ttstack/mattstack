@@ -1737,6 +1737,12 @@ button.tui-status-more-verb:active {
   background: var(--panel);
   z-index: 1;
 }
+/* The drawer is a scrolling flex column: a shrinking title or link row
+   collapses under a wrapped title and the two overlap. */
+.tui-cd-title,
+.tui-cd-open-row {
+  flex-shrink: 0;
+}
 .tui-cd-title {
   padding: 0.4rem 1rem 0.5rem;
   font-weight: 700;
@@ -1749,12 +1755,14 @@ button.tui-status-more-verb:active {
   font-family: var(--font-sans);
   font-weight: 400;
 }
+.tui-cd-open-row {
+  padding: 0 1rem 0.7rem;
+  border-bottom: 1px solid var(--border-soft);
+}
 .tui-cd-open {
   color: var(--text-accent-small);
   font-size: 0.76rem;
   text-decoration: none;
-  padding: 0.3rem 1rem 0.7rem;
-  border-bottom: 1px solid var(--border-soft);
 }
 .tui-cd-open:hover {
   text-decoration: underline;
@@ -4292,6 +4300,9 @@ a.tui-id-card-ref:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-2);
+}
+.tui-gate-sheet-drop {
+  gap: 6px;
 }
 .tui-gate-sheet-close {
   display: inline-flex;
