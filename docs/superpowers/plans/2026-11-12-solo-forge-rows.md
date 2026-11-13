@@ -4,7 +4,7 @@
 
 **Goal:** A Just me (solo) install shows an optional GitHub row and an optional GitLab row in the plan, on the setup window's Connect your accounts screen and in Settings > Accounts, and connecting either touches no team state or app toggle.
 
-**Architecture:** One helper in `lib/setup/solo-forge.ts` decides which confirmed host a solo GitLab row may use. The plan validator (`accountRows`), the form's connect section and the `rt setup gitlab connect` verb all run overrides through it. The tray draws the new rows with no view change; Settings gets a check and a snapshot render.
+**Architecture:** One helper, `confirmedGitlabHost` in `lib/setup/gitlab-host.ts`, decides which confirmed host a GitLab token may go to, on every Mac, solo or team. Its four readers are the plan validator's `ctxFor` (`accountRows`), the form's solo GitLab row, the `rt setup gitlab connect` verb's `ctxFor` and the daemon's accounts sweep (`credentialHealthCtxFor`). Tasks 1 to 4 first built a solo-only `soloForgeOverrides`; the final review replaced it (see "Final review fix wave" at the end). The tray draws the new rows with no view change; Settings gets a check and a snapshot render.
 
 **Tech Stack:** Bun + TypeScript (`bun test`), Swift (SwiftPM `mattstack-checks`, the `rt-tray` DEBUG snapshot flags), Docusaurus MDX.
 
@@ -164,3 +164,13 @@ All Swift building and running happens in a scratch copy of `rt-tray`, never in 
 - [ ] **Step 1:** `bun run typecheck` → PASS.
 - [ ] **Step 2:** `bun run purity` → PASS.
 - [ ] **Step 3:** Rerun every touched test file from the worktree root (Tasks 1 to 4), plus `bun test lib/setup/__tests__ commands/__tests__/setup-*.test.ts` to catch any other solo assertion, and `bun test e2e/tests/setup.test.ts --preload ./e2e/setup.ts` → PASS. Record each command and result for the report.
+
+### Final review fix wave (gate f2356cb1)
+
+The final whole-branch review found the github.com leak was not solo-only: a Mac in a github.com team writes `github.com` to the shared `rt.integrations.forgeHost`, and the daemon's accounts sweep checked a stored GitLab token against it every 6 hours. The shepherd ruled one helper for every GitLab reader, solo or team. This supersedes the solo-only parts of Tasks 1, 3 and 4:
+
+- `lib/setup/solo-forge.ts` becomes `lib/setup/gitlab-host.ts`: `confirmedGitlabHost(overrides: UserIntegrationOverrides): string | null` returns the forgeHost, lowercased, only when it is a valid hostname and not `github.com`; otherwise null (gitlab.com).
+- `ctxFor` in `lib/setup/validators/accounts.ts` and `commands/setup.ts`, and `credentialHealthCtxFor` in `lib/daemon.ts` (exported, with its own test), read the GitLab host through it. `accountRows` and `connectCredential` lose their solo detection.
+- The form's solo GitLab row takes its host and confirmed host from the helper; `connectSection` passes the raw confirmed host, which only the GitHub and team forge rows read.
+- The solo GitLab row says plain "Connected" when ready: `forgeLogin` is the team forge's login.
+- Task 4's "a team Mac keeps today's host reading" flips: a team Mac with a leftover github.com forgeHost checks a GitLab token against gitlab.com, never github.com.

@@ -31,6 +31,10 @@ rows, so it has the same gap. The fix gives solo both forges, each optional.
   The GitLab row checks a token against gitlab.com, or against a host this
   Mac already confirmed. A dev on their own GitLab server runs
   `rt setup gitlab connect --host <host>` once, and the row's note says so.
+- **A github.com confirmed host never counts for GitLab** (shepherd, gate
+  f2356cb1). On every Mac, solo or team, every reader of a GitLab host drops a
+  `github.com` forgeHost through one helper, the daemon's accounts sweep
+  included.
 - **One forge per team, read for solo.** The rule binds a team. A solo install
   has no team, so nothing picks a forge for it: both rows show, and connecting
   one does not hide or disable the other. Once the dev creates or joins a team,
@@ -89,26 +93,34 @@ through `rt:ui-copy`):
 
 The GitLab row is the existing `genericRow` path: Connect with a token field;
 Create token links to gitlab.com, or to the confirmed host when there is one.
-The validation code itself does not change; only which host it is handed on
-solo does (below).
+The validation code itself does not change; only which host it is handed
+does (below).
 
 **The confirmed host on solo.** `rt.integrations.forgeHost` is one user-scope
 value shared by both forges, and `connectCredential` writes `github.com` there
 for a team whose declared forge is github.com. A Mac that left such a team and
 is now solo would point its GitLab row at github.com, and its Connect would
-check the token there. So on solo a confirmed host of `github.com` reads as no
-confirmed host (gitlab.com) for GitLab, in all three places that read it:
+check the token there. A Mac still in that team has the same value, and the
+daemon's accounts sweep checks a stored GitLab token against it every 6 hours.
+So on every Mac, solo or team, a confirmed host of `github.com` reads as no
+confirmed host (gitlab.com) for GitLab, in all four places that read it:
 
 - the plan row (`ctxFor` in `lib/setup/validators/accounts.ts`);
-- the connect screen row (section 2);
+- the connect screen's solo GitLab row (section 2);
 - the connect verb (`ctxFor` in `commands/setup.ts`, used by
-  `connectCredential` when no `--host` is passed).
+  `connectCredential` when no `--host` is passed);
+- the daemon's accounts sweep (`credentialHealthCtxFor` in `lib/daemon.ts`).
 
-One shared helper in `lib/setup/` (for example `soloForgeOverrides`) drops
-`forgeHost` when it is `github.com` and the Mac is solo; each caller applies
-it to the overrides before they reach `ctxFor`, so the three cannot drift.
-`accountRows` already has the `solo` flag; the verb and the form section
-derive it with `isSolo`. Team paths keep today's reading.
+One shared helper, `confirmedGitlabHost` in `lib/setup/gitlab-host.ts`,
+returns the GitLab host to use: the forgeHost, lowercased, only when it is a
+valid hostname and not `github.com`, otherwise null (gitlab.com). Every GitLab
+ctx reads its host through it, so the four cannot drift. It needs no solo
+flag. The GitHub ctx and the GitHub rows keep today's reading. A connect
+`--host` still writes the host as given.
+
+This changes a team Mac too: a Mac in any team that holds a leftover
+`forgeHost: "github.com"` now checks a GitLab token against gitlab.com, not
+github.com. Before, that token went to github.com, which could only fail.
 
 ### 2. Connect your accounts screen (`lib/setup/form.ts`)
 
@@ -116,8 +128,9 @@ On the solo path the connect section draws two forge rows, GitHub then GitLab:
 
 - GitHub keeps id `forge` and its behavior. Its subtext becomes "Optional.
   Lets mattstack open PRs".
-- GitLab gets id `forge.gitlab`, forge `{ provider: "gitlab", host: confirmed
-  host ?? "gitlab.com" }`, subtext "Optional. Lets mattstack open MRs",
+- GitLab gets id `forge.gitlab`, forge `{ provider: "gitlab", host:
+  confirmedGitlabHost ?? "gitlab.com" }`, its connected text a plain
+  "Connected" (the forge login on the inputs is the team forge's), subtext "Optional. Lets mattstack open MRs",
   `optional: true`. While no GitLab token is stored (the plan row's status is
   `missing`), its detail is the self-hosted hint ("On your own GitLab server?
   Connect from a terminal with rt setup gitlab connect --host <host>"), so a
@@ -201,7 +214,6 @@ at the spec milestone:
 - The connect screen's GitLab row shows the self-hosted hint as its detail
   while no token is stored. The setup window draws no `optionalNote`, so
   without it a self-hosted dev learns the command only from Settings or docs.
-- On solo, a confirmed host of `github.com` does not count for GitLab.
 
 ## Left to the builder
 
