@@ -219,7 +219,9 @@ functions below.
 
 `paneMessage($, e, pane, waiting): Promise<void>`. Call it from your single
 `ui.message` hook. It handles `{ type: 'hide' }` and `{ type: 'reopen', formId }`
-from the pane's Clients. `waiting` is `undefined` or a `Waiting`.
+from the pane's Clients. `waiting` is `undefined` or a `Waiting`. A hide closes
+the pane only when `e.requestId` equals `pane.id`, so a Client mounted in a pane
+with another id never hides.
 
 ### `Waiting`
 
@@ -232,7 +234,7 @@ The mod reads its own state into this plain object.
 
 ### `bandAbovePrompt`
 
-`bandAbovePrompt($, e, rest, waiting, pane)`. Call it from your `ui.render`
+`bandAbovePrompt($, e, rest, waiting, pane): Promise<RenderElement>`. Call it from your `ui.render`
 hook for the prompt's AbovePrompt slot when `waiting` is set and the pane is
 not placed: it returns `rest` with the reopen band above it. Falls back to the
 engine's `Button` where Client is unavailable. It writes `module="./band.tsx"`
@@ -263,8 +265,10 @@ message stays whole. It registers a `ui.render` hook for `UserMessage`.
 ### `isEngaged`
 
 `isEngaged(e): boolean`. True when a `ui.message` event carries the Client's
-engaged post. Claude Code has no Client focus signal, so the mod keeps its own
-atom:
+engaged post. The Client must return exactly `{ type: 'engaged' }` (plus any
+other fields) from its `engaged` option, as in `mods/gate-form/src/form.tsx`;
+any other value never matches. Claude Code has no Client focus signal, so the
+mod keeps its own atom:
 
 ```ts
 const keysAtom = atom({ plugin: '<name>', key: 'keysInForm' } as const, false)
@@ -315,7 +319,9 @@ Types: `Line`, `Style`.
 
 Hit testing. `hitAt(line, x)` returns the action under a column.
 `hoverKeyAt(lines, row, x)` returns the hover key, which includes the row, so
-two identical buttons on different rows hover separately.
+two identical buttons on different rows hover separately. `spanHoverKey(span, row)`
+is that key for one span. `lineHoverKey(line)` is the key for a whole-line
+action, with no row, so every row of the line lights together.
 
 ### `renderLines` and `Look`
 

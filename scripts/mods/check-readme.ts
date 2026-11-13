@@ -23,7 +23,7 @@ for (const m of readme.matchAll(/`([^`\n]+)`/g)) {
 }
 
 // Documented in the README but owned by Claude Code or by an option object, not exports of the kit.
-const NOT_KIT = new Set(['on', 'atom', 'import', 'initial', 'focused', 'isActive', 'engaged', 'toLines', 'bind', 'summary', 'withoutContext'])
+const NOT_KIT = new Set(['on', 'atom', 'import', 'initial', 'focused', 'isActive', 'engaged', 'toLines', 'bind', 'summary', 'withoutContext', 'RenderElement'])
 const missing = [...claimed].filter(n => !known(n) && !NOT_KIT.has(n))
 const mentioned = (n: string) => readme.includes(`\`${n}`) || readme.includes(`<${n}`)
 const unmentioned = [...Object.keys(exported), ...typeExports].filter(n => !mentioned(n))
