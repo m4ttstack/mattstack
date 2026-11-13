@@ -430,3 +430,12 @@ describe("forgeGet", () => {
     expect(await forgeGet(provider, "grp/proj", { path: "projects/9/issues" })).toEqual({ ok: false, error: "GitLab returned 403 Forbidden: no" });
   });
 });
+
+describe("checkForgePath C1 controls", () => {
+  test("refuses a C1 control character, raw or decoded", () => {
+    const plain = { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
+    for (const path of ["projects/:id/issues%C2%85", "projects/:id/issues%C2%9F", "projects/:id/issues\u0085"]) {
+      expect(checkForgePath(path, "grp/proj"), path).toEqual(plain);
+    }
+  });
+});

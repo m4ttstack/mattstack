@@ -127,7 +127,7 @@ export const REFUSED_SEGMENTS: readonly string[] = [
   "pipeline_schedules", "terraform", "application",
 ];
 export const FORGE_GET_MAX_BYTES = 256 * 1024;
-const CONTROL = /[\u0000-\u001f\u007f]/;
+const CONTROL = /\p{Cc}/u;
 
 type PlainPath = { ok: true; rest: string; decoded: string; segments: string[] } | { ok: false; error: string };
 

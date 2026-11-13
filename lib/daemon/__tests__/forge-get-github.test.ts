@@ -449,3 +449,12 @@ describe("the forge:get handler on a GitHub repo", () => {
     expect(paths).toEqual([]);
   });
 });
+
+describe("checkGithubForgePath C1 controls", () => {
+  test("refuses a C1 control character, raw or decoded", () => {
+    const plain = { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
+    for (const path of [":repo/hooks%C2%85", ":repo/actions/secrets%C2%85", ":repo/contents/a%C2%85b", ":repo/pulls%C2%9F"]) {
+      expect(check(path), path).toEqual(plain);
+    }
+  });
+});
