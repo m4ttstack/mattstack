@@ -55,6 +55,9 @@ export interface RunLiveness {
   workingAgentPane(worktree: string): string | null;
   /** Latest git-activity mtime in the worktree, or null when unstatable. */
   worktreeActiveAt(worktree: string): number | null;
+  /** Id of the open kit gate drawn in this session's pane, or null. Absent
+      where no gate store is wired. */
+  openKitGate?(session: string): string | null;
 }
 
 /** The one "this run is not being driven" verdict every consumer reads, so a
@@ -88,6 +91,13 @@ export function computeAttention(
     const agent = liveness?.agentFor(session, worktree) ?? null;
     if (agent?.status === "blocked") {
       return { needs: true, reason: "blocked", evidence: `agent waiting for input in pane ${agent.pane}` };
+    }
+    // A kit form is drawn by a mod while the agent idles at its prompt, so
+    // herdr reads it idle and the silence below would call it stale.
+    const kitGate = session ? liveness?.openKitGate?.(session) ?? null : null;
+    if (kitGate) {
+      const where = agent ? ` in pane ${agent.pane}` : "";
+      return { needs: true, reason: "blocked", evidence: `agent waiting at gate ${kitGate}${where}` };
     }
     const silentMs = now - lastEventAt(run, stages, fields, decisions);
     if (silentMs > STALE_MS) {

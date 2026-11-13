@@ -27,6 +27,9 @@ export interface WatchdogSensors {
   unreadDmMentionsFor(handle: string): number;
   openHumanGates(herdPrefix: string): { id: string; ageMs: number }[];
   unconsumedAnswered(session: string): { id: string; ageMs: number }[];
+  /** An open kit gate is drawn for this Claude session: a mod owns its form
+      and the agent idles at its prompt until a person answers. */
+  openKitGate(session: string): boolean;
 }
 
 export type WedgeVerdict =
@@ -121,6 +124,9 @@ export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCo
 
   const state = s.paneState(job.pane);
   const since = s.idleSinceMs(job.pane);
+  // Nothing may be typed into a pane that is showing a kit form, so no
+  // pending DM or answer reaches a poke, and its pane reading is not a wedge.
+  if (state !== "dead" && job.agentSession !== null && s.openKitGate(job.agentSession)) return HEALTHY;
   // The spawn path owns a spawning pane's trust prompt and missing agent.
   if (job.status !== "spawning") {
     if (state === "dead") return { kind: "dead" };

@@ -2129,6 +2129,17 @@ describe("herd:nudge", () => {
     expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
   });
 
+  test("second nudge with a kit-presentation gate open returns form-open and types nothing", async () => {
+    const { h, herd, gate, gateStore, injects, store } = await nudgeable();
+    store.tickBudget(herd, "job-a", "nudges", gate);
+    gateStore.open({ subject: "run:run-1", kind: "clarify", questions: Q, origin: { paneId: "w9:p1", presentation: "kit" } });
+    const res = await h["herd:nudge"]({ herd, job: "job-a", gate });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toEqual({ gate, rung: "pane", delivered: false, needsHuman: true, why: "form-open", budget: { used: 1, cap: 2, spent: false } });
+    expect(injects).toEqual([]);
+    expect(store.budgetRows(herd, "job-a")).toEqual([{ counter: "nudges", key: gate, used: 1 }]);
+  });
+
   test("an open wait-presentation gate does not block the pane nudge", async () => {
     const { h, herd, gate, gateStore, injects, store } = await nudgeable();
     store.tickBudget(herd, "job-a", "nudges", gate);

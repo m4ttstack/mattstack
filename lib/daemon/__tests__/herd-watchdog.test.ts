@@ -24,6 +24,7 @@ function sensors(over: Partial<WatchdogSensors> = {}): WatchdogSensors {
     unreadDmMentionsFor: () => 0,
     openHumanGates: () => [],
     unconsumedAnswered: () => [],
+    openKitGate: () => false,
     ...over,
   };
 }
@@ -77,6 +78,27 @@ describe("evaluateJob", () => {
     expect(evaluateJob(job({ status: "at-gate" }), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "gate g-2 answered 2m ago and unconsumed" });
     const dm = sensors({ ...idleFor(3), unreadDmMentionsFor: () => 2 });
     expect(evaluateJob(job({ status: "at-gate" }), dm, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "idle 3m with 2 unread DM/mentions" });
+  });
+
+  test("an open kit gate for the job's session is awaiting an answer: healthy at any idle length, whatever the job's status", () => {
+    const s = sensors({ ...idleFor(20), openKitGate: (sess) => sess === "sess-a" });
+    expect(evaluateJob(job(), s, cfg)).toEqual({ kind: "healthy" });
+    expect(evaluateJob(job({ status: "at-gate" }), s, cfg)).toEqual({ kind: "healthy" });
+  });
+
+  test("an open kit gate never pokes, even with an unread DM or an unconsumed answer", () => {
+    const s = sensors({ ...idleFor(20), openKitGate: () => true, unreadDmMentionsFor: () => 2, unconsumedAnswered: () => [{ id: "g-3", ageMs: 9 * MIN }] });
+    expect(evaluateJob(job(), s, cfg)).toEqual({ kind: "healthy" });
+  });
+
+  test("a kit gate for another session does not exempt this job", () => {
+    const s = sensors({ ...idleFor(20), openKitGate: (sess) => sess === "sess-other" });
+    expect(evaluateJob(job(), s, cfg)).toMatchObject({ kind: "wedged", path: "backstop" });
+  });
+
+  test("a job with no recorded session cannot match a kit gate", () => {
+    const s = sensors({ ...idleFor(20), openKitGate: () => true });
+    expect(evaluateJob(job({ agentSession: null }), s, cfg)).toMatchObject({ kind: "wedged", path: "backstop" });
   });
 
   test("(e) idle 5m with nothing pending is healthy", () => {

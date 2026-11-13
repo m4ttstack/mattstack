@@ -65,6 +65,7 @@ import { defaultHerdrRunner } from "../agent-herdr.ts";
 import { resolveGateSubject } from "./gate-subject.ts";
 import { isStaleRun, type RunLiveness } from "../runs/attention.ts";
 import { getRunLiveness } from "../runs/liveness.ts";
+import { openKitGateFor } from "./kit-gate.ts";
 import type { EventsBus } from "./events-bus.ts";
 import type { GatesStore } from "./gates-store.ts";
 import type { HerdStore } from "./herd-store.ts";
@@ -251,7 +252,7 @@ export function buildRoutedHandlers(opts: {
     getAgentRecord: opts.getAgentRecord,
     runWorktree,
     resolveSubject: async (args) => {
-      const liveness = await (opts.runLiveness ?? getRunLiveness)();
+      const liveness = await (opts.runLiveness ?? (() => getRunLiveness(undefined, undefined, openKitGateFor(opts.gatesStore))))();
       return resolveGateSubject({
         runsBySession: (sid) => findRunsBySession(sid, liveness).map((m) => ({
           runId: m.summary.id,
@@ -323,6 +324,7 @@ export function buildRoutedHandlers(opts: {
     ...createSdmHandlers({ log: ctx.log }),
     ...createRunsHandlers({ log: ctx.log }, emitEvent, {
       isRunTree: (path, runRepo) => isRunTree(path, runRepo, { findTreeByPath, repoIndex: ctx.repoIndex }),
+      openKitGate: openKitGateFor(opts.gatesStore),
     }),
     ...createUsageHandlers({ log: ctx.log }),
     ...createSecretsHandlers({ log: ctx.log }),

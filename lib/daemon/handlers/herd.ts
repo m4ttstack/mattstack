@@ -805,8 +805,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (read.bare === null || read.paneState === "gone") return undelivered("pane-gone");
       if (read.paneState === "dead") return undelivered("not-claude");
       if (read.paneState === "working") return undelivered("pane-busy");
-      // A blocked pane is showing a modal: typing would answer it.
-      if (read.paneState === "modal" || read.gates.some((g) => g.origin?.presentation === "form")) return undelivered("form-open");
+      // A blocked pane is showing a modal: typing would answer it. A kit gate's
+      // form is drawn over an idle pane, so the pane state cannot show it.
+      if (read.paneState === "modal" || read.gates.some((g) => g.origin?.presentation === "form" || g.origin?.presentation === "kit")) return undelivered("form-open");
 
       const inject = deps.inject ?? injectIntoPane;
       const typed = await inject({

@@ -26,6 +26,8 @@ type RunsHandlers = { "runs:list": (payload: unknown) => Promise<CommandResult<"
 export interface RunsSeams {
   /** Whether an absolute path is a checkout or worktree rt registered under the run's own repo key. */
   isRunTree?: (path: string, runRepo: string) => boolean;
+  /** Id of the open kit gate for a Claude session, so a run waiting at one is not read as stale. */
+  openKitGate?: (session: string) => string | null;
 }
 
 function readAddress(p: Record<string, unknown>): EvidenceAddress | null {
@@ -50,7 +52,7 @@ export function createRunsHandlers(
       // out for pre-cutover runs.
       const payload = rawPayload as Commands["runs:list"]["payload"] | undefined;
       try {
-        return { ok: true as const, data: { runs: listRuns(payload?.repo || undefined, await getRunLiveness(), { includeTests: payload?.includeTests === true }) } };
+        return { ok: true as const, data: { runs: listRuns(payload?.repo || undefined, await getRunLiveness(undefined, undefined, seams.openKitGate), { includeTests: payload?.includeTests === true }) } };
       } catch (err) {
         ctx.log.warn({ err }, "runs:list failed");
         return { ok: false as const, error: String(err) };
@@ -61,7 +63,7 @@ export function createRunsHandlers(
       const runId = typeof payload?.runId === "string" ? payload.runId.trim() : "";
       if (!runId) return { ok: false as const, error: "missing runId" };
       try {
-        const liveness = await getRunLiveness();
+        const liveness = await getRunLiveness(undefined, undefined, seams.openKitGate);
         const detail = payload?.repo ? readRun(payload.repo, runId, liveness) : findRun(runId, liveness);
         if (!detail) return { ok: false as const, error: "run not found" };
         return { ok: true as const, data: detail };

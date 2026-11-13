@@ -16,6 +16,7 @@ import type { HerdLifecycle } from "./herd-lifecycle.ts";
 import type { HerdStore } from "./herd-store.ts";
 import type { WatchdogActuators, WatchdogConfig, WatchdogSensors } from "./herd-watchdog.ts";
 import { injectIntoPane } from "./inject.ts";
+import { openKitGateFor } from "./kit-gate.ts";
 import { cwdPath, driveTrustAccept } from "./trust-accept.ts";
 import { paneStatuses } from "./pane-statuses.ts";
 
@@ -93,6 +94,7 @@ export function readingState(row: Pick<PaneReading, "agent" | "status"> | undefi
 
 export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSensors {
   const now = deps.now ?? Date.now;
+  const openKitGate = openKitGateFor(deps.gatesStore);
   // Keyed by the addressable ref the job row stores (bg: for a hidden herd),
   // not the bare id: two servers can both hold a w1:p1.
   let panes = new Map<string, PaneReading>();
@@ -172,6 +174,7 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
         .filter((g) => g.owner === "human")
         .map((g) => ({ id: g.id, ageMs: t - g.openedAt }));
     },
+    openKitGate: (session) => openKitGate(session) !== null,
     unconsumedAnswered(session) {
       const t = now();
       return deps.gatesStore.unconsumedAnsweredPushes(t)

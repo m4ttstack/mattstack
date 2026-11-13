@@ -115,3 +115,17 @@ test("a successful probe after backoff resets consecutiveFailures and resumes pe
   // waiting out another BACKOFF_TICKS window.
   expect(probeCalls).toBe(callsBeforeRecovery + 1);
 });
+
+test("the liveness handed to the run listing carries the kit-gate lookup", async () => {
+  let seen: string | null = "unset";
+  handle = startAgentStatusPoller({
+    emitEvent: () => {},
+    log: quietLog,
+    intervalMs: 3_600_000,
+    probe: async () => [],
+    openKitGate: (session) => (session === "sess-kit" ? "gate-1" : null),
+    list: (liveness) => { seen = liveness.openKitGate?.("sess-kit") ?? null; return []; },
+  });
+  await handle.tick();
+  expect(seen).toBe("gate-1");
+});

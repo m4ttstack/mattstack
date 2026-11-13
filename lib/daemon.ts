@@ -104,6 +104,7 @@ import { startPollers } from "./daemon/pollers.ts";
 import { startHomeSnapshot } from "./daemon/home-snapshot.ts";
 import { startTeamSnapshots } from "./daemon/team-snapshots.ts";
 import { startAgentStatusPoller } from "./daemon/agent-status-poller.ts";
+import { openKitGateFor } from "./daemon/kit-gate.ts";
 import { startNotifyBridge, parseEventBridgeRules, type EventBridgeRule } from "./notify-bridge.ts";
 import { herdrRequest, herdrSocketPath } from "./herdr/client.ts";
 import type { HerdrSnapshot } from "./daemon/handlers/pane.ts";
@@ -1251,6 +1252,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             emit("event", { id, topic, payload, emittedAt });
           },
           log: loggerHandle.childLogger("agent-status"),
+          openKitGate: openKitGateFor(gatesStore),
         });
 
         // Fills the run outcome cache (MR state, CI, a review's posted label)
