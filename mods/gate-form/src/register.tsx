@@ -5,9 +5,9 @@ import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, registerPaneRedraw, 
 import type { Form, LegacyForm } from '../types'
 import { DEMO } from './gate/demo'
 import { addForm, currentForm, fitForm, fromLegacy, openCount, patchForm } from './gate/forms'
-import { agentFields, formFromRow, gateForm, readKitResult, spilledGate, toForm } from './gate/parse'
+import { agentFields, answerOutcome, formFromRow, gateForm, readKitResult, spilledGate, toForm } from './gate/parse'
 import { GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, toastReply, type Outcome } from './gate/reply'
-import { rtError, runRt } from './gate/rt'
+import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
 
 const PANE = 'gate-form'
@@ -24,6 +24,11 @@ const keysAtom = atom({ plugin: 'gate-form', key: 'keysInForm' } as const, false
 // tool.call carries no surface, so the band, which draws every frame, records the one this session draws on.
 // A render hook may not write state, so this lives in the module; a reload forgets it until the next frame.
 const drawn: { surface?: RenderSurface } = {}
+// rt.gates.kitForm, read once per module on session.start: an rt or mattstack plugin too old for the flag must
+// never be sent it, since the gate tools refuse an input they don't know. Unread or unreadable counts as off.
+const setting: { isOn: boolean; reading?: Promise<void> } = { isOn: false }
+const ELSEWHERE = 'Already answered elsewhere'
+const SETTING_TIMEOUT_MS = 5_000
 
 type FormMessage = { type: 'answer'; formId: string; answers?: Record<string, unknown> } | { type: 'chat'; formId: string; draft?: Record<string, unknown> }
 type Next = (e: ToolCallInput) => Promise<ToolCallResult>
@@ -73,24 +78,41 @@ async function showCurrent($: EngineInterface, forms: Form[]): Promise<void> {
   else $.ui.invalidate('ui.render')
 }
 
+async function readSetting($: EngineInterface): Promise<void> {
+  try {
+    setting.isOn = settingIsOn(await runRt($, ['settings', 'get', 'rt.gates.kitForm', '--json'], SETTING_TIMEOUT_MS))
+  } catch {
+    setting.isOn = false
+  }
+}
+
+const failureText = (failure: unknown) =>
+  failure instanceof Error && failure.message === RT_OVERRAN
+    ? `rt took longer than ${RT_TIMEOUT_MS / 1000}s, so the answer may already be recorded. Submit again to check.`
+    : `Not recorded: rt could not run (${failure instanceof Error ? failure.message : String(failure)}).`
+
 // The pane's own answer: no doorbell rings for it, so the mod wakes the agent once rt has recorded it.
+// Lost to another surface, the form closes and that surface's doorbell wakes the agent.
 async function answerGate($: EngineInterface, form: Form, answers: Record<string, unknown>): Promise<void> {
   const gateId = form.gateId ?? ''
-  const args = ['gate', 'answer', gateId, '--answers', JSON.stringify(answers), '--by', 'pane', '--session', await $.session.id()]
+  const session = await $.session.id()
+  const args = ['gate', 'answer', gateId, '--answers', JSON.stringify(answers), '--by', 'pane', '--session', session]
   let error: string | undefined
+  let outcome: 'recorded' | 'elsewhere' = 'recorded'
   try {
     const ran = await runRt($, args)
-    if (ran.exitCode !== 0) error = rtError(ran)
-    else if ((JSON.parse(ran.stdout) as { conflict?: unknown }).conflict === true) error = `gate ${gateId} was already answered`
+    if (ran.exitCode !== 0) error = `Not recorded: ${rtError(ran)}`
+    else outcome = answerOutcome(ran.stdout, session)
   } catch (failure) {
-    error = `rt could not run: ${failure instanceof Error ? failure.message : String(failure)}`
+    error = failureText(failure)
   }
   if (error !== undefined) {
     await writeForms($, list => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }))
     return
   }
-  const forms = await writeForms($, list => patchForm(list, form.id, { status: 'answered', error: undefined }))
-  await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
+  const patch: Partial<Form> = outcome === 'elsewhere' ? { status: 'answered', error: undefined, note: ELSEWHERE } : { status: 'answered', error: undefined }
+  const forms = await writeForms($, list => patchForm(list, form.id, patch))
+  if (outcome === 'recorded') await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
   await showCurrent($, forms)
 }
 
@@ -122,6 +144,7 @@ async function openForm($: EngineInterface, form: Form, supersededId?: string | 
 
 // Only a main-loop call on a surface that draws the form takes it; a hand-back opens nothing to draw.
 function canDraw(e: ToolCallInput): boolean {
+  if (!setting.isOn) return false
   const surface = drawn.surface
   const args = e as unknown as { handBack?: unknown }
   return e.agentId === undefined && args.handBack !== true && (surface === 'terminal' || surface === 'desktop')
@@ -143,6 +166,7 @@ function withText(result: unknown, text: string): unknown {
 }
 
 async function takeGate($: EngineInterface, e: ToolCallInput, next: Next): Promise<ToolCallResult> {
+  if (setting.reading) await setting.reading
   if (!canDraw(e)) return next(e)
   const out = await next({ ...e, kitForm: true } as ToolCallInput)
   if (out.deny !== undefined || out.isError) return out
@@ -182,6 +206,8 @@ export function register(on: On): void {
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false })
     await $.command.register({ name: 'gate-form-demo', description: 'Open the gate form with a demo gate' })
+    // Not awaited, so a slow rt never holds the session's start; a gate call waits for it instead.
+    setting.reading = readSetting($)
     return next(e)
   })
 

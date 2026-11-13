@@ -593,17 +593,34 @@ function spilledGate(stdout, session, known) {
 function formFromRow(row) {
   return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, undefined);
 }
+function answerOutcome(stdout, session) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return "recorded";
+  }
+  if (!isObject(parsed) || parsed.conflict !== true)
+    return "recorded";
+  const answer = isObject(parsed.row) && isObject(parsed.row.answer) ? parsed.row.answer : {};
+  return answer.by === "pane" && answer.session === session ? "recorded" : "elsewhere";
+}
 
 // mods/gate-form/src/gate/rt.ts
 var RT_TIMEOUT_MS = 15000;
-async function runRt($, args) {
+var START_FAILURE_MS = 2000;
+var RT_OVERRAN = "rt overran";
+async function runRt($, args, timeoutMs = RT_TIMEOUT_MS) {
   const home = await $.env.get("HOME");
   const names = ["rt", `${home ?? ""}/.local/bin/rt`];
   let failure;
   for (const rt of names) {
+    const started = await $.clock.now();
     try {
-      return await $.process.run([rt, ...args], { timeoutMs: RT_TIMEOUT_MS });
+      return await $.process.run([rt, ...args], { timeoutMs });
     } catch (error) {
+      if (await $.clock.now() - started >= START_FAILURE_MS)
+        throw new Error(RT_OVERRAN);
       failure = error;
     }
   }
@@ -612,6 +629,16 @@ async function runRt($, args) {
 function rtError(ran) {
   const said = (ran.stderr.trim() || ran.stdout.trim()).replace(/^rt gate: /, "");
   return said || `rt exited ${ran.exitCode}`;
+}
+function settingIsOn(ran) {
+  if (ran.exitCode !== 0)
+    return false;
+  try {
+    const parsed = JSON.parse(ran.stdout);
+    return parsed.ok === true && parsed.value === true;
+  } catch {
+    return false;
+  }
 }
 
 // mods/gate-form/src/gate/schema.ts
@@ -664,6 +691,9 @@ var formsAtom = atom({ plugin: "gate-form", key: "forms" }, [], { shape: "forms-
 var legacyAtom = atom({ plugin: "gate-form", key: "form" }, null, { shape: "form-3" });
 var keysAtom = atom({ plugin: "gate-form", key: "keysInForm" }, false);
 var drawn = {};
+var setting = { isOn: false };
+var ELSEWHERE = "Already answered elsewhere";
+var SETTING_TIMEOUT_MS = 5000;
 var GATE_PANE = { id: PANE, label: "mattstack gate waiting" };
 async function readForms($) {
   const forms = await read($, formsAtom);
@@ -703,25 +733,37 @@ async function showCurrent($, forms) {
   else
     $.ui.invalidate("ui.render");
 }
+async function readSetting($) {
+  try {
+    setting.isOn = settingIsOn(await runRt($, ["settings", "get", "rt.gates.kitForm", "--json"], SETTING_TIMEOUT_MS));
+  } catch {
+    setting.isOn = false;
+  }
+}
+var failureText = (failure) => failure instanceof Error && failure.message === RT_OVERRAN ? `rt took longer than ${RT_TIMEOUT_MS / 1000}s, so the answer may already be recorded. Submit again to check.` : `Not recorded: rt could not run (${failure instanceof Error ? failure.message : String(failure)}).`;
 async function answerGate($, form, answers) {
   const gateId = form.gateId ?? "";
-  const args = ["gate", "answer", gateId, "--answers", JSON.stringify(answers), "--by", "pane", "--session", await $.session.id()];
+  const session = await $.session.id();
+  const args = ["gate", "answer", gateId, "--answers", JSON.stringify(answers), "--by", "pane", "--session", session];
   let error;
+  let outcome = "recorded";
   try {
     const ran = await runRt($, args);
     if (ran.exitCode !== 0)
-      error = rtError(ran);
-    else if (JSON.parse(ran.stdout).conflict === true)
-      error = `gate ${gateId} was already answered`;
+      error = `Not recorded: ${rtError(ran)}`;
+    else
+      outcome = answerOutcome(ran.stdout, session);
   } catch (failure) {
-    error = `rt could not run: ${failure instanceof Error ? failure.message : String(failure)}`;
+    error = failureText(failure);
   }
   if (error !== undefined) {
     await writeForms($, (list) => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }));
     return;
   }
-  const forms = await writeForms($, (list) => patchForm(list, form.id, { status: "answered", error: undefined }));
-  await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
+  const patch = outcome === "elsewhere" ? { status: "answered", error: undefined, note: ELSEWHERE } : { status: "answered", error: undefined };
+  const forms = await writeForms($, (list) => patchForm(list, form.id, patch));
+  if (outcome === "recorded")
+    await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
   await showCurrent($, forms);
 }
 async function setGateAside($, form) {
@@ -749,6 +791,8 @@ async function openForm($, form, supersededId) {
   await showPane($, GATE_PANE, shown?.title ?? form.title);
 }
 function canDraw(e) {
+  if (!setting.isOn)
+    return false;
   const surface = drawn.surface;
   const args = e;
   return e.agentId === undefined && args.handBack !== true && (surface === "terminal" || surface === "desktop");
@@ -770,6 +814,8 @@ function withText(result, text) {
   return text;
 }
 async function takeGate($, e, next) {
+  if (setting.reading)
+    await setting.reading;
   if (!canDraw(e))
     return next(e);
   const out = await next({ ...e, kitForm: true });
@@ -812,6 +858,7 @@ function register(on) {
   on("session.start", async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false });
     await $.command.register({ name: "gate-form-demo", description: "Open the gate form with a demo gate" });
+    setting.reading = readSetting($);
     return next(e);
   });
   on("command.run", { command: "gate-form-demo" }, async ($) => {

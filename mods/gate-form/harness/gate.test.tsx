@@ -45,14 +45,30 @@ const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isSt
 const failed = (stderr: string) => ({ value: { exitCode: 1, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } })
 
 type ToolReply = { text: string; result?: unknown }
-type Answer = (argv: readonly string[]) => ReturnType<typeof ok> | { deny: string }
+type Ran = ReturnType<typeof ok> | { deny: string }
+type Answer = (argv: readonly string[]) => Ran | Promise<Ran>
+type Setting = 'on' | 'off' | 'unreadable' | 'missing'
+
+const SETTING_ARGS = ['settings', 'get', 'rt.gates.kitForm', '--json']
+const isSettingRead = (argv: readonly string[]) => argv.slice(1).join(' ') === SETTING_ARGS.join(' ')
+
+function settingReply(setting: Setting): Ran {
+  if (setting === 'missing') return failed('No setting is called rt.gates.kitForm')
+  if (setting === 'unreadable') return ok('not json')
+  return ok(JSON.stringify({ ok: true, key: 'rt.gates.kitForm', value: setting === 'on', provenance: { scope: 'machine' } }))
+}
 
 // What sits beneath the plugin: the pane list, the mattstack tool, `rt`, the prompt and the session.
-function world(on: On, opts: { reply?: (input: Record<string, unknown>) => ToolReply; rt?: Answer; openFails?: boolean } = {}) {
+function world(on: On, opts: { reply?: (input: Record<string, unknown>) => ToolReply; rt?: Answer; openFails?: boolean; setting?: Setting } = {}) {
   const panes = new Map<string, string>()
   const calls: Record<string, unknown>[] = []
   const ran: string[][] = []
   const sent: string[] = []
+  const state = { setting: opts.setting ?? 'on', settingReads: 0 }
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__gate-form__${e.name}` } }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('ui.open', (_, e) => {
     if (opts.openFails) throw new Error('no room for a pane')
     panes.set(e.id, e.title ?? e.id)
@@ -74,15 +90,22 @@ function world(on: On, opts: { reply?: (input: Record<string, unknown>) => ToolR
     const reply = opts.reply?.(e as Record<string, unknown>) ?? { text: JSON.stringify(kitResult('g1')) }
     return { result: reply.result ?? [{ type: 'text', text: reply.text }], text: reply.text }
   })
-  on('process.run', (_, e) => {
+  on('process.run', async (_, e) => {
+    if (isSettingRead(e.argv)) {
+      state.settingReads += 1
+      return settingReply(state.setting)
+    }
     ran.push([...e.argv])
-    return opts.rt?.(e.argv) ?? ok(JSON.stringify({ ok: true, conflict: false }))
+    return (await opts.rt?.(e.argv)) ?? ok(JSON.stringify({ ok: true, conflict: false }))
   })
-  return { panes, calls, ran, sent }
+  return { panes, calls, ran, sent, state, clock }
 }
 
-// The band records the surface the session draws on; tool.call carries none.
+const startSession = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)
+
+// The session starts, which reads the setting, and the band records the surface the session draws on; tool.call carries none.
 async function drawOn($: Engine, surface: 'terminal' | 'desktop' | 'vscode' | 'mobile') {
+  await startSession($)
   const band = await $.ui.mount({ ...ABOVE, surface })
   await band.unmount()
 }
@@ -94,7 +117,7 @@ async function rowsOf(ui: { drawn: (scope?: { in?: string }) => Promise<unknown>
   return (((await ui.drawn({ in: key })) as Node).children ?? []).map(shown)
 }
 const formOf = async (ui: { find: (q: { type: string }) => Promise<{ props: Record<string, unknown>; key?: string } | undefined> }) =>
-  ((await ui.find({ type: 'Client' }))?.props.props as { form: { id: string; gateId?: string; status: string; error?: string } } | undefined)?.form
+  ((await ui.find({ type: 'Client' }))?.props.props as { form: { id: string; gateId?: string; status: string; error?: string; note?: string } } | undefined)?.form
 const resultText = (out: unknown) => {
   const result = (out as { result?: unknown }).result
   if (typeof result === 'string') return result
@@ -124,8 +147,39 @@ for (const surface of ['vscode', 'mobile'] as const) {
 
 test('nothing is added before any surface is recorded', async ($, on) => {
   const w = world(on)
+  await startSession($)
   await ask($)
   expect(w.calls[0]!.kitForm).toBeUndefined()
+})
+
+for (const setting of ['off', 'unreadable', 'missing'] as const) {
+  test(`with rt.gates.kitForm ${setting}, the tool input is unchanged`, async ($, on) => {
+    const w = world(on, { setting })
+    await drawOn($, 'terminal')
+    await ask($)
+    expect(w.calls[0]).not.toHaveProperty('kitForm')
+    expect(w.state.settingReads).toBe(1)
+  })
+}
+
+test('nothing is added before the session start has read the setting', async ($, on) => {
+  const w = world(on)
+  const band = await $.ui.mount({ ...ABOVE, surface: 'terminal' })
+  await band.unmount()
+  await ask($)
+  expect(w.calls[0]).not.toHaveProperty('kitForm')
+  expect(w.state.settingReads).toBe(0)
+})
+
+test('a new session start reads the setting again', async ($, on) => {
+  const w = world(on)
+  await drawOn($, 'terminal')
+  await ask($)
+  w.state.setting = 'off'
+  await startSession($)
+  await ask($)
+  expect(w.calls.map(c => c.kitForm)).toEqual([true, undefined])
+  expect(w.state.settingReads).toBe(2)
 })
 
 test('nothing is added for a subagent', async ($, on) => {
@@ -229,10 +283,70 @@ test('a failed answer keeps the form open with the error and wakes nobody', asyn
   await ask($)
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
-  expect(await formOf(pane)).toMatchObject({ status: 'open', error: 'gate g1 is closed (abandoned)' })
+  expect(await formOf(pane)).toMatchObject({ status: 'open', error: 'Not recorded: gate g1 is closed (abandoned)' })
   expect(w.sent).toEqual([])
   const key = (await pane.find({ type: 'Client' }))!.key!
   expect((await rowsOf(pane, key)).join('\n')).toContain('gate g1 is closed (abandoned)')
+  await pane.unmount()
+})
+
+test('an answer that overruns is never sent again, and the form says it may be recorded', async ($, on) => {
+  const w = world(on, {
+    rt: async argv => {
+      if (argv[2] !== 'answer') return { deny: 'unexpected' }
+      await w.clock.sleep(15_000)
+      return { deny: 'rt is still running at its timeout' }
+    },
+  })
+  const clock = w.clock
+  await drawOn($, 'terminal')
+  await ask($)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const posting = pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  await clock.settle()
+  await clock.advance(15_000)
+  await posting
+  expect(w.ran.map(argv => argv[0])).toEqual(['rt'])
+  expect(await formOf(pane)).toMatchObject({ status: 'open' })
+  expect((await formOf(pane))!.error).toContain('may already be recorded')
+  expect(w.sent).toEqual([])
+  await pane.unmount()
+})
+
+const conflict = (by: string, session?: string) => ok(JSON.stringify({ ok: true, conflict: true, row: { id: 'g1', status: 'answered', answer: { answers: {}, by, answeredAt: 1, ...(session ? { session } : {}) } } }))
+
+test('a lost race to this pane’s own earlier answer counts as recorded and wakes the agent', async ($, on) => {
+  const w = world(on, { rt: () => conflict('pane', SESSION) })
+  await drawOn($, 'terminal')
+  await ask($)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  expect(await formOf(pane)).toMatchObject({ status: 'answered' })
+  expect(w.sent).toEqual(['Gate g1 was answered in the kit form. Call gate_reconcile for it.'])
+  await pane.unmount()
+})
+
+test('a lost race to another surface closes the form as answered elsewhere and wakes nobody', async ($, on) => {
+  const w = world(on, { rt: () => conflict('board') })
+  await drawOn($, 'terminal')
+  await ask($)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  expect(await formOf(pane)).toMatchObject({ status: 'answered', note: 'Already answered elsewhere' })
+  expect(w.sent).toEqual([])
+  const key = (await pane.find({ type: 'Client' }))!.key!
+  expect((await rowsOf(pane, key)).join('\n')).toContain('Already answered elsewhere')
+  await pane.unmount()
+})
+
+test('an answer rt recorded counts even when its output will not parse', async ($, on) => {
+  const w = world(on, { rt: () => ok('recorded, in words') })
+  await drawOn($, 'terminal')
+  await ask($)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  expect(await formOf(pane)).toMatchObject({ status: 'answered' })
+  expect(w.sent).toEqual(['Gate g1 was answered in the kit form. Call gate_reconcile for it.'])
   await pane.unmount()
 })
 

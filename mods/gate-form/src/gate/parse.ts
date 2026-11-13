@@ -137,3 +137,17 @@ export function spilledGate(stdout: string, session: string, known: string[]): G
 export function formFromRow(row: GateRow): Form | string {
   return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, undefined)
 }
+
+// What `rt gate answer` exiting 0 means: recorded, unless it lost the race, when its winning row says by whom.
+// This pane's own earlier answer (a retried submit) is as good as recorded; output that won't parse is recorded.
+export function answerOutcome(stdout: string, session: string): 'recorded' | 'elsewhere' {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    return 'recorded'
+  }
+  if (!isObject(parsed) || parsed.conflict !== true) return 'recorded'
+  const answer = isObject(parsed.row) && isObject(parsed.row.answer) ? parsed.row.answer : {}
+  return answer.by === 'pane' && answer.session === session ? 'recorded' : 'elsewhere'
+}

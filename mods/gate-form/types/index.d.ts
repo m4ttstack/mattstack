@@ -24,7 +24,7 @@ export type Form = {
   source: 'gate' | 'ask' | 'demo'
   gateId?: string
   controls?: Controls
-  // Why the last answer was not recorded; `attempt` counts the failures so the Client knows to take the form back.
+  // What the person reads about the last answer, which may not be recorded; `attempt` counts the failures so the Client knows to take the form back.
   error?: string
   attempt?: number
   // What the closed form says in place of its own ending, such as where the gate was answered.

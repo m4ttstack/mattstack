@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { Form } from '../../types'
-import { agentFields, formFromRow, gateForm, readKitResult, spilledGate } from './parse'
+import { agentFields, answerOutcome, formFromRow, gateForm, readKitResult, spilledGate } from './parse'
 import { GATE_INSTRUCTION } from './reply'
 
 const QUESTIONS = [
@@ -68,4 +68,13 @@ test('a listed gate opens a form with no run controls', () => {
   const form = formFromRow(ROW) as Form
   expect(form).toMatchObject({ source: 'gate', gateId: 'g9', title: 'plan-review', context: 'Row context' })
   expect(form.controls).toBeUndefined()
+})
+
+test('an exit-0 answer is recorded unless it lost the race to another surface', () => {
+  const row = (by: string, session?: string) => JSON.stringify({ ok: true, conflict: true, row: { answer: { by, ...(session ? { session } : {}) } } })
+  expect(answerOutcome(JSON.stringify({ ok: true, conflict: false }), 'sess-1')).toBe('recorded')
+  expect(answerOutcome('not json', 'sess-1')).toBe('recorded')
+  expect(answerOutcome(row('pane', 'sess-1'), 'sess-1')).toBe('recorded')
+  expect(answerOutcome(row('pane', 'sess-2'), 'sess-1')).toBe('elsewhere')
+  expect(answerOutcome(row('board'), 'sess-1')).toBe('elsewhere')
 })

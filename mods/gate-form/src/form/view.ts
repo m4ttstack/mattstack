@@ -146,7 +146,7 @@ function navRows(form: Form, s: State, view: View): L[] {
 function errorLines(form: Form, view: View): L[] {
   if (form.status !== 'open' || !form.error) return []
   const lead = [sp<Action>(SYMBOL.warn, WARN), sp('  ')]
-  return [[sp(' ')], ...hang(lead, [sp<Action>('   ')], `Not recorded: ${form.error}`, view.width, WARN)]
+  return [[sp(' ')], ...hang(lead, [sp<Action>('   ')], form.error, view.width, WARN)]
 }
 
 // The review page has none: its Back and Submit buttons say it.

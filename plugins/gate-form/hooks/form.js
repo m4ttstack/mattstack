@@ -1208,7 +1208,7 @@ function errorLines(form, view) {
   if (form.status !== "open" || !form.error)
     return [];
   const lead = [sp(SYMBOL.warn, WARN), sp("  ")];
-  return [[sp(" ")], ...hang(lead, [sp("   ")], `Not recorded: ${form.error}`, view.width, WARN)];
+  return [[sp(" ")], ...hang(lead, [sp("   ")], form.error, view.width, WARN)];
 }
 function hint(form, s, view) {
   if (!view.focused)
