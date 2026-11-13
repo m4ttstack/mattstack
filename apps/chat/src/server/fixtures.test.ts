@@ -69,7 +69,7 @@ test('the roster exercises the states that break layout', () => {
 
 test('DM rooms carry participants and a hashed name that is never shown', () => {
   const dms = fixtureRooms().filter(r => r.kind === 'dm');
-  expect(dms).toHaveLength(5);
+  expect(dms).toHaveLength(8);
   for (const dm of dms) {
     expect(dm.room).toMatch(/^dm-[0-9a-f]{12}$/);
     expect(dm.participants?.a).toBeTruthy();

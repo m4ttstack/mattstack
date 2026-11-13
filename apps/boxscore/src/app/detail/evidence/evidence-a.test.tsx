@@ -11,7 +11,7 @@ import {
 } from '../../../server/fixture/index';
 import type { UserDetailResponse } from '../../../shared/types';
 import { App } from '../../App';
-import { quietWeekdays } from './CodingDaysEvidence';
+import { busiestDay, quietWeekdays } from './CodingDaysEvidence';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
   useLeaderboard: vi.fn(),
@@ -150,6 +150,15 @@ describe('Coding days panel', () => {
     ]);
     expect(layer(panel, 'a')).toHaveTextContent('Fewer');
     expect(layer(panel, 'b')).toHaveTextContent('More');
+  });
+  it('counts the busiest day in commits on github', () => {
+    const day = { date: '2026-09-17', inWindow: true, level: 3 } as const;
+    expect(busiestDay([{ ...day, count: 28 }], 'github')).toBe(
+      'Thu Sep 17 · 28 commits'
+    );
+    expect(busiestDay([{ ...day, count: 1 }], 'github')).toBe(
+      'Thu Sep 17 · 1 commit'
+    );
   });
 });
 

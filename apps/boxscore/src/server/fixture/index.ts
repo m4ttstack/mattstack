@@ -11,6 +11,7 @@ import {
   GITHUB_BASE_URL,
   type Forge,
 } from '../../shared/forge.js';
+import { EMPTY_PROJECTS_HINT } from '../../shared/setup-hints.js';
 import type {
   ColdCacheResponse,
   EvidenceRow,
@@ -53,13 +54,19 @@ import {
 } from './design-evidence.js';
 
 export type FixtureScenario =
-  'warm' | 'refreshing' | 'cold-stalled' | 'self-view' | 'locked';
+  | 'warm'
+  | 'refreshing'
+  | 'cold-stalled'
+  | 'self-view'
+  | 'locked'
+  | 'no-projects';
 
 const SCENARIOS: FixtureScenario[] = [
   'refreshing',
   'cold-stalled',
   'self-view',
   'locked',
+  'no-projects',
 ];
 
 export function fixtureMode(): 'design' | null {
@@ -74,6 +81,11 @@ export function fixtureScenario(): FixtureScenario {
 
 export function fixtureForge(): Forge {
   return process.env.BOXSCORE_FIXTURE_FORGE === 'github' ? 'github' : 'gitlab';
+}
+
+/** The setup error a team with no boxscore.projects gets, in the fixture forge's words. */
+export function fixtureNoProjectsError(): string {
+  return forgeText(EMPTY_PROJECTS_HINT, fixtureForge());
 }
 
 const fixtureBaseUrl = (): string =>
