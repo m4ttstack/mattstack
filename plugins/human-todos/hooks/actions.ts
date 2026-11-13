@@ -2,6 +2,7 @@ import type { EngineInterface, On, RenderSurface } from 'claude-code'
 
 import type { Todo } from '../types'
 import type { ButtonId } from './items'
+import { fileName, isImageName } from './items'
 import { report } from './report'
 import { cleanupHerdr, releaseHerdr } from './herdr'
 import { releaseLocal } from './local'
@@ -80,6 +81,22 @@ async function openLink($: EngineInterface, url: string): Promise<void> {
   await $.process.run(['open', url])
 }
 
+// open launches whatever a path lands on, so each must resolve, links followed, to a plain file named as an image.
+async function openImages($: EngineInterface, todo: Todo): Promise<void> {
+  const real: string[] = []
+  for (const path of todo.paths ?? []) {
+    const stat = path.startsWith('/') ? await $.fs.stat(path, { resolve: true }).catch(() => undefined) : undefined
+    const landed = stat?.realPath
+    if (stat?.kind !== 'file' || landed === undefined || !landed.startsWith('/') || !isImageName(landed)) {
+      return $.ui.toast(`Could not open #${todo.id}: ${fileName(path)} is not an image file`)
+    }
+    real.push(landed)
+  }
+  if (real.length === 0) return $.ui.toast(`#${todo.id} has no images to open`)
+  const opened = await $.process.run(['open', ...real])
+  if (opened.exitCode !== 0) $.ui.toast(`Could not open the images for #${todo.id}`)
+}
+
 export async function press($: EngineInterface, todo: Todo, button: ButtonId, surface: RenderSurface): Promise<void> {
   const current = (await listTodos($)).find(t => t.id === todo.id)
   if (!current) return
@@ -114,7 +131,7 @@ export async function press($: EngineInterface, todo: Todo, button: ButtonId, su
       if (current.status === 'running' && current.runner) await showRun($, current)
       return
     case 'open':
-      return openLink($, current.url ?? '')
+      return current.kind === 'image' ? openImages($, current) : openLink($, current.url ?? '')
     case 'copy':
       if (current.script) await $.ui.copy({ text: current.script, surface })
       return
