@@ -160,9 +160,10 @@ order, with these changes:
    because Octokit cuts the route at a raw space; a name with a space is
    sent as `%20`.
 
-   NFKD can put a `/` inside a skeleton: the fullwidth solidus U+FF0F
-   becomes `/`, and U+2100, U+2101, U+2105 and U+2106 become `a/c`,
-   `a/s`, `c/o` and `c/u`. Rule 5 splits skeletons on `/` for that
+   NFKD can put a separator inside a skeleton: the fullwidth solidus
+   U+FF0F becomes `/`, U+2100, U+2101, U+2105 and U+2106 become `a/c`,
+   `a/s`, `c/o` and `c/u`, and U+FE68 and U+FF3C become `\`. Rule 5 and
+   the file-path dot check split skeletons on `/` and `\` for that
    reason.
 
    What the skeleton does not fold: letters from another script that
@@ -180,7 +181,7 @@ order, with these changes:
 
    ```ts
    segments.slice(3, fileStart)
-     .flatMap((seg) => skeleton(seg).split("/"))
+     .flatMap((seg) => skeleton(seg).split(/[\/\\]/))
      .filter((part) => part !== "")
    ```
 
@@ -213,12 +214,27 @@ on both the raw and the decoded text. No real file name holds a C1
 control. This also applies on GitLab, since `plainApiPath` is shared; it
 only refuses more.
 
-Dot lookalikes in a file path (my call, a widening). A file-path segment
-whose skeleton (rule 4, steps 1 and 2) equals `.` or `..` refuses with
-the dot-segment error. For example
-`contents/..%20/hooks`, or fullwidth full stops `%EF%BC%8E%EF%BC%8E`. No
-layer is known to treat these as dot segments; refusing them costs
+Dot lookalikes in a file path (my call, a widening). Each file-path
+segment's skeleton (rule 4, steps 1 and 2) is split on `/` and `\`, and
+if any part is `.` or `..` the path refuses with the dot-segment error.
+For example `contents/..%20/hooks`, fullwidth full stops
+`%EF%BC%8E%EF%BC%8E`, and a fold that would build a climb inside one
+segment, `contents/..%EF%BC%8Fhooks` or `contents/%E2%80%A5%EF%BC%8Fhooks`
+(two-dot leader then fullwidth solidus, skeleton `../hooks`). Inside the
+file path word matching is off, so this check is the only one that
+stands between a folding layer and `contents/../hooks`, which would be
+`GET .../hooks`. No layer is known to fold this way; refusing costs
 nothing.
+
+Separators from NFKD (my call, a widening). The decoded-path refusals
+of `;`, `%`, `?`, `#` and backslash also run on
+`decoded.normalize("NFKD")`, over the whole path, file path included.
+That refuses the compatibility forms of those characters: `;` from
+U+037E (a canonical decomposition, so NFC yields it too), U+FE14,
+U+FE54 and U+FF1B; `%` from U+FE6A and U+FF05; `?` from U+2047 to
+U+2049, U+FE16, U+FE56 and U+FF1F; `#` from U+FE5F and U+FF03; `\` from
+U+FE68 and U+FF3C. The cost is the rare file name holding one of those
+fullwidth or small forms.
 
 Unchanged, over the whole path, file path included: the `?`, `#`, `://`
 and backslash refusals; one level of decoding only (a `%` left after
@@ -235,7 +251,8 @@ The test plan's exact errors follow it.
 1. `plainApiPath`: required, raw control (now `\p{Cc}`), `?`, `#`,
    `://`, backslash; decode; decoded control; double encoding; dot
    segments.
-2. Raw whitespace; braces; decoded backslash; `;` (as today).
+2. Raw whitespace; braces; decoded backslash; `;` (as today); then the
+   `;`, `%`, `?`, `#` and backslash refusals on the NFKD form.
 3. Repo shape (rule 1).
 4. Prefix under this repo (as today).
 5. Plain repo segments (rule 2): raw segment 0 is exactly `repos`, and
@@ -350,6 +367,8 @@ Claim: a guarded word in segment 1 or 2 selects no endpoint.
 | An empty or blank segment before the anchor, `:repo//copilot/...`, `:repo/%20/copilot/...`, `:repo/%E2%80%8B/copilot/...`, `:repo/%CC%81/copilot/...` | Empty parts are dropped from the window; `copilot` is at index 0; refused |
 | An empty or blank segment inside a slash entry, `:repo/actions//oidc/customization/sub` (passes on main today), `:repo/actions/%20/oidc/...`, `:repo/actions/.%E2%80%8B/oidc/...` | Dropped, or refused as a dot part; refused either way |
 | A slash from NFKD, `:repo/actions%EF%BC%8Foidc/customization/sub`, `:repo/git%EF%BC%8Fblobs/x`, `:repo/copilot%EF%BC%8Fcloud-agent/configuration` | The window splits the skeleton on `/`; refused |
+| A climb folded inside one file-path segment, `:repo/contents/..%EF%BC%8Fhooks`, `:repo/contents/%E2%80%A5%EF%BC%8Fhooks` | The file-path dot check splits the skeleton; a `..` part refuses |
+| A separator from NFKD, fullwidth `\` `;` `%` `?` `#` anywhere | Refused on the NFKD form at step 2 |
 | Fullwidth dots outside a file path, `:repo/%EF%BC%8E%EF%BC%8E/hooks` | A `..` part in the window; refused as a dot segment |
 | `copilot` elsewhere, `:repo/commits/copilot/fix`, repo `acme/copilot` | Not an anchored match; read |
 
@@ -510,7 +529,17 @@ instead of slicing.
   `:repo/contents/x;/../hooks`, `:repo/contents/{x}`,
   `:repo/contents/a%5Cb`, `:repo/contents/a b`,
   `:repo/contents/..%20/hooks`, `:repo/contents/%EF%BC%8E%EF%BC%8E/hooks`,
-  `:repo/contents/..%EF%BB%BF/hooks`, `:repo/contents/..%E2%80%8B/hooks`.
+  `:repo/contents/..%EF%BB%BF/hooks`, `:repo/contents/..%E2%80%8B/hooks`,
+  `:repo/contents/..%EF%BC%8Fhooks`,
+  `:repo/contents/%EF%BC%8E%EF%BC%8E%EF%BC%8Fhooks`,
+  `:repo/contents/%E2%80%A5%EF%BC%8Fhooks`,
+  `:repo/contents/..%E2%84%80hooks` (U+2100, skeleton `..a/chooks`
+  is read; the case pins that only a `.` or `..` part refuses).
+- NFKD separators, at step 2: `:repo/contents/..%EF%BC%BChooks`,
+  `:repo/actions%EF%BC%BCoidc/customization/sub`,
+  `:repo/contents/x%EF%BC%9B/a` (fullwidth `;`), `:repo/pulls%CD%BE`
+  (U+037E), `:repo/contents/a%EF%BC%85b`, `:repo/contents/a%EF%BC%9Fb`,
+  `:repo/contents/a%EF%BC%83b`.
 - Repo segments (rule 2): `Repos/o/r/contents/hooks`, `repos/o%2Fr/pulls`, `repos/o/%72/pulls`,
   `repos/%4F/r/pulls`, and, on repo `kcme/r`, an owner spelled with the Kelvin sign U+212A
   in place of `k`.
