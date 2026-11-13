@@ -1013,6 +1013,7 @@ var kit_view_default = kitClient((props, ui) => {
   const stops = keyStops(props.model);
   const here = resolve(stops, ui.state.sel);
   const current = stops[here.at]?.buttons[here.col];
+  const rail = current?.todoId === undefined ? undefined : stopLines(layout, stops, here.at);
   const mark = (at, col) => {
     const stop = stops[at];
     const button = stop?.buttons[col];
@@ -1069,7 +1070,7 @@ var kit_view_default = kitClient((props, ui) => {
   }), /* @__PURE__ */ h(Lines, {
     lines: [[sp(" ")]]
   }), /* @__PURE__ */ h(Lines, {
-    lines: kitWindow(layout, props.width, props.offset, ui.focused && current ? { selected: messageOf(current), range: stopLines(layout, stops, here.at), marked: ui.keyboard, pressing: ui.keyPressing } : {}),
+    lines: kitWindow(layout, props.width, props.offset, ui.focused && current ? { selected: messageOf(current), range: rail, marked: ui.keyboard, pressing: ui.keyPressing } : {}),
     onAction: clicked
   }));
 }, {

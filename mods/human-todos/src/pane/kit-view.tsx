@@ -31,6 +31,8 @@ export default kitClient<Props, State>(
     const stops = keyStops(props.model)
     const here = resolve(stops, ui.state.sel)
     const current = stops[here.at]?.buttons[here.col]
+    // Only an item carries the rail: Clear finished is one row with nothing to group, and its button's edge marks it.
+    const rail = current?.todoId === undefined ? undefined : stopLines(layout, stops, here.at)
 
     const mark = (at: number, col: number) => {
       const stop = stops[at]
@@ -91,7 +93,7 @@ export default kitClient<Props, State>(
             layout,
             props.width,
             props.offset,
-            ui.focused && current ? { selected: messageOf(current), range: stopLines(layout, stops, here.at), marked: ui.keyboard, pressing: ui.keyPressing } : {},
+            ui.focused && current ? { selected: messageOf(current), range: rail, marked: ui.keyboard, pressing: ui.keyPressing } : {},
           )}
           onAction={clicked}
         />
