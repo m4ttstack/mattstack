@@ -946,20 +946,26 @@ async function showLog($, todo) {
   return `${await logFolder($)}/${await $.session.id()}-${todo.id}-herdr.log`;
 }
 async function showHerdr($, todo) {
+  let step = "find the run's pane";
   try {
     if (!todo.paneId || !todo.herdrSession)
-      throw new Error("no pane to read");
+      throw new Error(`pane ${todo.paneId ?? "none"} on ${todo.herdrSession ?? "no server"}`);
+    step = "read the pane";
     const text = await readPane($, todo.herdrSession, todo.paneId, SHOW_LINES);
     if (text === null)
-      throw new Error("herdr would not read the pane");
+      throw new Error(`herdr would not read ${todo.paneId} on ${todo.herdrSession}`);
+    step = "write the log";
     const path = await showLog($, todo);
     await $.fs.write(path, text);
     if (todo.logPath !== path)
       await patchTodo($, todo.id, { logPath: path });
-    if ((await $.process.run(["open", "-t", path])).exitCode !== 0)
-      throw new Error("open failed");
-  } catch {
-    $.ui.toast(`Could not show the output of #${todo.id}`);
+    step = "open the log";
+    const opened = await $.process.run(["open", "-t", path]);
+    if (opened.exitCode !== 0)
+      throw new Error(`open exited ${opened.exitCode}: ${opened.stderr.trim()}`);
+  } catch (err) {
+    $.ui.log(`human-todos: Show for #${todo.id} could not ${step}: ${err instanceof Error ? err.message : String(err)}`, { to: "debug" });
+    $.ui.toast(`Could not show the output of #${todo.id}: could not ${step}`);
   }
 }
 async function cleanupHerdr($, todo) {
@@ -1357,6 +1363,8 @@ async function press($, todo, button, surface) {
     case "show":
       if (current.status === "running" && current.runner)
         await showRun($, current);
+      else
+        $.ui.log(`human-todos: Show for #${current.id} came after its run ended (${current.status})`, { to: "debug" });
       return;
     case "open":
       return current.kind === "image" ? openImages($, current) : openLink($, current.url ?? "");

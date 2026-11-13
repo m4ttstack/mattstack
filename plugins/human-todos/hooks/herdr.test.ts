@@ -379,6 +379,31 @@ test('a Stop that herdr refuses puts the button back and says so', async ($, on)
   expect(sent).toEqual([])
 })
 
+type Node = { children?: unknown[] }
+const shown = (node: unknown): string => (typeof node === 'string' ? node : ((node as Node).children ?? []).map(shown).join(''))
+
+test("a click on a running run's Show, on the kit drawer, writes the run's output to a log and opens it", async ($, on) => {
+  const { run1, fake, item, written, opened, toasts } = await seeded($, on, [todo({})])
+  await run1('1')
+  fake.print(item('1')!.paneId!, 'compiling', 'linked')
+  expect(item('1')).toMatchObject({ status: 'running', herdrSession: BG, paneId: expect.any(String) })
+
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, isFocused: true } })
+  const key = (await pane.find({ type: 'Client' }))!.key!
+  const rows = (((await pane.drawn({ in: key })) as Node).children ?? []).map(shown)
+  const y = rows.findIndex(r => /\bShow\b/.test(r) && !r.includes('Show all'))
+  expect(y, rows.join('\n')).toBeGreaterThan(-1)
+  const x = rows[y]!.indexOf('Show') + 1
+  await pane.pointer({ type: 'down', x, y, button: 'left' })
+  await pane.pointer({ type: 'up', x, y, button: 'left' })
+
+  const log = '/home/u/Library/Caches/human-todos/sess-1-1-herdr.log'
+  expect(toasts).toEqual([])
+  expect(written.get(log)).toContain('linked')
+  expect(opened).toEqual([['open', '-t', log]])
+  await pane.unmount()
+})
+
 test("Show writes what the run's pane shows to a log and opens it, and clearing the item removes the log", async ($, on) => {
   const { run1, fake, item, pane, written, opened, ran, toasts } = await seeded($, on, [todo({})])
   await run1('1')
@@ -406,7 +431,7 @@ test('Show on a pane herdr cannot read says so and opens nothing', async ($, on)
 
   await press(pane, '1', 'show')
 
-  expect(toasts).toEqual(['Could not show the output of #1'])
+  expect(toasts).toEqual(['Could not show the output of #1: could not read the pane'])
   expect(opened).toEqual([])
 })
 

@@ -290,18 +290,25 @@ async function showLog($: EngineInterface, todo: Todo): Promise<string> {
 }
 
 // The run's tab is on a server no one has on screen, so Show writes what its pane shows to a log and opens that, as Open log does.
+// Each step is named, so a failure says which one in the toast, and the debug log has the error itself.
 export async function showHerdr($: EngineInterface, todo: Todo): Promise<void> {
+  let step = "find the run's pane"
   try {
-    if (!todo.paneId || !todo.herdrSession) throw new Error('no pane to read')
+    if (!todo.paneId || !todo.herdrSession) throw new Error(`pane ${todo.paneId ?? 'none'} on ${todo.herdrSession ?? 'no server'}`)
+    step = 'read the pane'
     const text = await readPane($, todo.herdrSession, todo.paneId, SHOW_LINES)
-    if (text === null) throw new Error('herdr would not read the pane')
+    if (text === null) throw new Error(`herdr would not read ${todo.paneId} on ${todo.herdrSession}`)
+    step = 'write the log'
     const path = await showLog($, todo)
     await $.fs.write(path, text)
     // Kept on the item, so clearing it removes the file Show wrote.
     if (todo.logPath !== path) await patchTodo($, todo.id, { logPath: path })
-    if ((await $.process.run(['open', '-t', path])).exitCode !== 0) throw new Error('open failed')
-  } catch {
-    $.ui.toast(`Could not show the output of #${todo.id}`)
+    step = 'open the log'
+    const opened = await $.process.run(['open', '-t', path])
+    if (opened.exitCode !== 0) throw new Error(`open exited ${opened.exitCode}: ${opened.stderr.trim()}`)
+  } catch (err) {
+    $.ui.log(`human-todos: Show for #${todo.id} could not ${step}: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
+    $.ui.toast(`Could not show the output of #${todo.id}: could not ${step}`)
   }
 }
 

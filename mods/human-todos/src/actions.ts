@@ -135,6 +135,7 @@ export async function press($: EngineInterface, todo: Todo, button: ButtonId, su
       return
     case 'show':
       if (current.status === 'running' && current.runner) await showRun($, current)
+      else $.ui.log(`human-todos: Show for #${current.id} came after its run ended (${current.status})`, { to: 'debug' })
       return
     case 'open':
       return current.kind === 'image' ? openImages($, current) : openLink($, current.url ?? '')
