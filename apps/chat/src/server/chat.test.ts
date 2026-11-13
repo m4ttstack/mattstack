@@ -1767,9 +1767,11 @@ const msg = (id: number, room: string, handle: string) => ({
   id,
   room,
   handle,
+  name: handle,
   body: `m${id}`,
   postedAt: id,
   mentions: [],
+  mentionNames: [],
 });
 
 test("rooms tags a herd's own room and its shepherd-worker DMs, nothing else", async () => {
@@ -1848,7 +1850,7 @@ test('the herd feed narrows to one room when asked', async () => {
     data: { messages: [msg(3, 'dm-ida', 'ida')] },
   });
 
-  const res = await routes.request(`/api/chat/herd/${HERD.id}?room=dm-ida`);
+  const res = await routes.request(`/api/chat/herd/${HERD.id}/dm-ida`);
   expect(res.status).toBe(200);
   expect(vi.mocked(rt.chatMessages).mock.calls.map(c => c[0].room)).toEqual([
     'dm-ida',

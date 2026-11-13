@@ -14,12 +14,14 @@ import { modals } from '@mattstack/app-kit/modals';
 import { notifications } from '@mattstack/app-kit/notifications';
 import type { RoomSummary } from '@mattstack/rt-client';
 
+import type { HerdTag } from '../server/herds';
 import { isRoomForRepo } from './agent-state';
 import { FaceGroup } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { whenLabel } from './day-label';
-import { DmNames, DmStack } from './DmPairTitle';
+import { DmNames, DmStack, HerdStack } from './DmPairTitle';
 import classes from './fleet-tree.module.css';
+import { mergeByNewest, type HerdGroup } from './herds';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
 import {
@@ -43,7 +45,11 @@ export interface DmLastMessage {
 /** `/api/chat/rooms`' own shape: the daemon's `RoomSummary` plus the newest
     message per DM room, joined in by `src/server/chat.ts` so a DM entry whose
     two ends have no task line still has an honest second line. */
-export type FleetRoom = RoomSummary & { lastMessage?: DmLastMessage };
+export type FleetRoom = RoomSummary & {
+  lastMessage?: DmLastMessage;
+  /** Set when the room is a herd's own or its shepherd's DM with a worker. */
+  herd?: HerdTag;
+};
 
 export interface FleetTreeProps {
   /** Channel rooms, in listing order. */
@@ -57,6 +63,13 @@ export interface FleetTreeProps {
   onNewSlackChat?: () => void;
   /** The row's right-click menu. It does not render without this. */
   onClose?: (room: string) => void;
+  /** Herds, each one row among the DMs, placed by its newest post. */
+  herds?: HerdGroup[];
+  /** The herd open in the transcript. */
+  activeHerd?: string;
+  onOpenHerd?: (id: string) => void;
+  /** How new a DM is, for placing herds among them. */
+  newest?: (room: FleetRoom) => number;
 }
 
 /** The room an agent's repo maps to. A presence row's `repo` is a display
@@ -433,6 +446,109 @@ function DmRow({
   );
 }
 
+/** A herd: its shepherd's DMs with every worker and its own room, as one
+    row. Archiving it archives each of them. */
+function HerdRow({
+  group,
+  active,
+  onSelect,
+  onClose,
+}: {
+  group: HerdGroup;
+  active: boolean;
+  onSelect?: () => void;
+  onClose?: (room: string) => void;
+}) {
+  const [menuOpened, setMenuOpened] = useState(false);
+  const selfName = useBuddies()?.selfName;
+  const { tag } = group;
+  const preview = group.lastMessage
+    ? previewLine(
+        { ...group.rooms[0]!, lastMessage: group.lastMessage },
+        selfName
+      )
+    : undefined;
+  const row = (
+    <Box
+      role="button"
+      tabIndex={0}
+      data-testid={`herd-row-${tag.id}`}
+      data-active={active ? 'true' : undefined}
+      data-menu-open={menuOpened || undefined}
+      onClick={onSelect}
+      onKeyDown={e => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect?.();
+        }
+      }}
+      className={`${classes.listRow} ${classes.dmRow}`}
+    >
+      <FaceGroup handles={[tag.shepherdHandle]}>
+        <HerdStack
+          shepherd={tag.shepherdHandle}
+          workers={tag.workers.length}
+          size={40}
+        />
+      </FaceGroup>
+      <div className={classes.dmText}>
+        <Group gap="sm" justify="space-between" wrap="nowrap">
+          <Text
+            component="div"
+            fw={500}
+            truncate
+            style={{ fontSize: CHROME_SIZE, minWidth: 0 }}
+          >
+            {herdTitle(tag.shepherdName)}
+          </Text>
+          {group.lastPostedAt !== undefined && (
+            <span className={classes.when}>
+              {whenLabel(group.lastPostedAt)}
+            </span>
+          )}
+        </Group>
+        {preview && <div className={classes.preview}>{preview}</div>}
+      </div>
+    </Box>
+  );
+  if (!onClose) return row;
+  const archive = () =>
+    modals.confirm({
+      title: `Archive ${herdTitle(tag.shepherdName)}?`,
+      message: `${group.rooms.length} ${group.rooms.length === 1 ? 'conversation' : 'conversations'} will be hidden until someone sends a new message.`,
+      labels: { confirm: 'Archive', cancel: 'Cancel' },
+      onConfirm: () => group.rooms.forEach(room => onClose(room.room)),
+    });
+  return (
+    <Menu
+      onChange={setMenuOpened}
+      position="bottom-start"
+      offset={2}
+      width={240}
+      radius="sm"
+      shadow="md"
+      withinPortal
+      transitionProps={{ duration: 0 }}
+    >
+      <Menu.ContextMenu>{row}</Menu.ContextMenu>
+      <Menu.Dropdown data-testid={`herd-context-${tag.id}`}>
+        <Menu.Item
+          data-testid="herd-context-archive"
+          rightSection={<Icon name="archive" size={16} />}
+          onClick={archive}
+        >
+          Archive herd
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
+}
+
+export function herdTitle(shepherdName: string): string {
+  return `${shepherdName}'s herd`;
+}
+
 /**
  * The sidebar's list: rooms, then direct conversations named by their pair.
  */
@@ -444,9 +560,14 @@ export function FleetTree({
   onOpenDm,
   onNewSlackChat,
   onClose,
+  herds = [],
+  activeHerd,
+  onOpenHerd,
+  newest = room => room.lastPostedAt ?? 0,
 }: FleetTreeProps) {
   // A DM is named by its pair, so one with no participants has no row.
   const namedDms = dms.filter(d => d.participants);
+  const entries = mergeByNewest(namedDms, herds, newest);
   const persona = useSupportPersona();
   const supportChatOpen = useContext(SupportChatOpenContext);
 
@@ -462,12 +583,12 @@ export function FleetTree({
         />
       ))}
 
-      {(namedDms.length > 0 || onNewSlackChat) && (
+      {(entries.length > 0 || onNewSlackChat) && (
         <>
           <Box style={{ height: 10 }} />
           <SectionLabel
             label="Direct"
-            detail={String(namedDms.length)}
+            detail={String(entries.length)}
             action={
               onClose &&
               namedDms.length > 0 && (
@@ -487,15 +608,25 @@ export function FleetTree({
               <span>{supportChatLabel(persona)}</span>
             </UnstyledButton>
           )}
-          {namedDms.map(room => (
-            <DmRow
-              key={room.room}
-              room={room}
-              active={room.room === activeRoom}
-              onSelect={() => onOpenDm?.(room.room)}
-              onClose={onClose}
-            />
-          ))}
+          {entries.map(entry =>
+            entry.kind === 'herd' ? (
+              <HerdRow
+                key={`herd:${entry.group.tag.id}`}
+                group={entry.group}
+                active={entry.group.tag.id === activeHerd}
+                onSelect={() => onOpenHerd?.(entry.group.tag.id)}
+                onClose={onClose}
+              />
+            ) : (
+              <DmRow
+                key={entry.room.room}
+                room={entry.room}
+                active={entry.room.room === activeRoom}
+                onSelect={() => onOpenDm?.(entry.room.room)}
+                onClose={onClose}
+              />
+            )
+          )}
         </>
       )}
     </Fragment>

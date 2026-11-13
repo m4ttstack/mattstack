@@ -448,16 +448,11 @@ function herdRoomNames(rooms: RoomSummary[], herd: HerdRosterRow): string[] {
   return names.includes(herd.room) ? names : [...names, herd.room];
 }
 
-function pageQuery(value: unknown): {
-  before?: number;
-  limit?: number;
-  room?: string;
-} {
-  const v = value as { before?: unknown; limit?: unknown; room?: unknown };
+function pageQuery(value: unknown): { before?: number; limit?: number } {
+  const v = value as { before?: unknown; limit?: unknown };
   return {
     before: parseIntParam(typeof v?.before === 'string' ? v.before : undefined),
     limit: parseIntParam(typeof v?.limit === 'string' ? v.limit : undefined),
-    room: typeof v?.room === 'string' && v.room ? v.room : undefined,
   };
 }
 
@@ -775,11 +770,12 @@ export const chat = new Hono()
     }
   )
   // A herd as one list: its shepherd's DMs with each worker, and the herd's
-  // own room. `room` narrows it to one of them, so an older page of a
-  // filtered view pages that room alone.
-  .get('/api/chat/herd/:id', validator('query', pageQuery), async c => {
+  // own room. A trailing room narrows it to one of them, in the path so the
+  // transcript's own `?limit=&before=` paging still appends cleanly.
+  .get('/api/chat/herd/:id/:room?', validator('query', pageQuery), async c => {
     const id = c.req.param('id');
-    const { before, limit, room } = c.req.valid('query');
+    const room = c.req.param('room') || undefined;
+    const { before, limit } = c.req.valid('query');
     const size = limit ?? FIXTURE_PAGE_DEFAULT;
     const herd = (await readHerds()).find(h => h.id === id);
     if (!herd) return c.json({ error: `unknown herd "${id}"` }, 404);

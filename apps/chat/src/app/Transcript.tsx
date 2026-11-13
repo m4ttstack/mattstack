@@ -169,6 +169,9 @@ export interface TranscriptFeed {
   target: (messages: ChatMessage[]) => string | undefined;
   /** A message picks its conversation; the space around them clears it. */
   onPick: (room: string | undefined) => void;
+  /** One timeline by day instead of a card per conversation. `to` names
+      who a message went to, beside its sender. */
+  timeline?: { to: (message: ChatMessage) => string | undefined };
 }
 
 export interface TranscriptProps {
@@ -247,6 +250,7 @@ function MessageRow({
   compact,
   grouped,
   dated,
+  to,
 }: {
   message: ChatMessage;
   humanHandle: string | undefined;
@@ -254,6 +258,8 @@ function MessageRow({
   grouped: boolean;
   /** No day lines around it, so the row names its own day. */
   dated: boolean;
+  /** Who the message went to, in a list that mixes conversations. */
+  to?: string;
 }) {
   const time = (
     <Text
@@ -268,14 +274,26 @@ function MessageRow({
     </Text>
   );
   const name = (
-    <span className={prose.who}>
-      <AgentName
-        handle={message.handle}
-        name={message.name}
-        variant="name"
-        withAvatar={false}
-      />
-    </span>
+    <>
+      <span className={prose.who}>
+        <AgentName
+          handle={message.handle}
+          name={message.name}
+          variant="name"
+          withAvatar={false}
+        />
+      </span>
+      {to && (
+        <Text
+          component="span"
+          className={prose.meta}
+          data-testid="message-to"
+          style={{ flex: 'none' }}
+        >
+          to {to}
+        </Text>
+      )}
+    </>
   );
   const body = (
     <div data-testid="message-body" className={prose.prose}>
@@ -740,7 +758,7 @@ export function Transcript({
               )}
 
               <Stack gap={0}>
-                {feed
+                {feed && !feed.timeline
                   ? blocksByLatest(messages).map(block => {
                       const blockRoom = block[0]!.room;
                       return (
@@ -775,16 +793,34 @@ export function Transcript({
                               : 'day-divider'
                           }
                         />
-                        {day.map(({ message, i }) => (
-                          <MessageRow
-                            key={message.id}
-                            message={message}
-                            humanHandle={humanHandle}
-                            compact={compact}
-                            grouped={continuesGroup(messages[i - 1], message)}
-                            dated={false}
-                          />
-                        ))}
+                        {day.map(({ message, i }) => {
+                          const prev = messages[i - 1];
+                          const row = (
+                            <MessageRow
+                              key={message.id}
+                              message={message}
+                              humanHandle={humanHandle}
+                              compact={compact}
+                              grouped={
+                                continuesGroup(prev, message) &&
+                                (!feed || prev?.room === message.room)
+                              }
+                              dated={false}
+                              to={feed?.timeline?.to(message)}
+                            />
+                          );
+                          if (!feed) return row;
+                          return (
+                            <div
+                              key={message.id}
+                              className={prose.timelineRow}
+                              data-picked={target === message.room || undefined}
+                              onClick={event => pickBlock(event, message.room)}
+                            >
+                              {row}
+                            </div>
+                          );
+                        })}
                       </div>
                     ))}
               </Stack>

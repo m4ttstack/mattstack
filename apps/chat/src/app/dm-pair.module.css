@@ -41,3 +41,9 @@
   right: 0;
   bottom: 0;
 }
+
+.count {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  color: var(--tk-app-ink-soft);
+}

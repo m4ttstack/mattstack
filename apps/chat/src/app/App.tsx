@@ -37,6 +37,8 @@ import { PageShellDemoPage } from './demo/PageShellDemoPage';
 import { DIRECT_PATH, isMine, waitingCount } from './direct';
 import { DirectView } from './DirectView';
 import type { FleetRoom } from './FleetTree';
+import { groupHerds, herdPath, type HerdGroup } from './herds';
+import { HerdBar, HerdView } from './HerdView';
 import type { Me } from './human';
 import { NewSlackChatDialog } from './NewSlackChatDialog';
 import { PageBar } from './PageBar';
@@ -403,6 +405,8 @@ function ChatSidebar({
   onCloseRoom,
   onNewSlackChat,
   direct,
+  activeHerd,
+  onOpenHerd,
 }: {
   rooms: FleetRoom[];
   buddies: Buddy[];
@@ -412,6 +416,8 @@ function ChatSidebar({
   onCloseRoom: (room: string) => void;
   onNewSlackChat: () => void;
   direct: RoomRailProps['direct'];
+  activeHerd: string | undefined;
+  onOpenHerd: (id: string) => void;
 }) {
   const { collapsedSidebar, sidebarOpen, toggleSidebar } =
     usePageShellContext();
@@ -432,6 +438,11 @@ function ChatSidebar({
       onCloseRoom={onCloseRoom}
       onNewSlackChat={() => {
         onNewSlackChat();
+        closeDrawer();
+      }}
+      activeHerd={activeHerd}
+      onOpenHerd={id => {
+        onOpenHerd(id);
         closeDrawer();
       }}
       direct={
@@ -474,6 +485,12 @@ interface ChatPageProps {
   directDraft: string | undefined;
   onDirectPick: (room: string | undefined) => void;
   railDirect: RoomRailProps['direct'];
+  /** The herd route's id, whether or not the listing has its rooms yet. */
+  herdOpen: string | undefined;
+  herd: HerdGroup | undefined;
+  herdPick: string | undefined;
+  onHerdPick: (room: string | undefined) => void;
+  onOpenHerd: (id: string) => void;
 }
 
 function ChatPage({
@@ -501,6 +518,11 @@ function ChatPage({
   directDraft,
   onDirectPick,
   railDirect,
+  herdOpen,
+  herd,
+  herdPick,
+  onHerdPick,
+  onOpenHerd,
 }: ChatPageProps) {
   const isMobile = useIsMobile();
   const opening = isOpening(useSlackChat(activeRoom ?? ''), activeRoomSummary);
@@ -533,6 +555,8 @@ function ChatPage({
               onCloseRoom={onCloseRoom}
               onNewSlackChat={onNewSlackChat}
               direct={railDirect}
+              activeHerd={herdOpen}
+              onOpenHerd={onOpenHerd}
             />
           ) : (
             <RailSkeleton />
@@ -540,7 +564,15 @@ function ChatPage({
         </PageShell.Sidebar>
       )}
       <PageShell.Main>
-        {!directOpen && (activeRoomSummary || !roomsLoaded) ? (
+        {herdOpen ? (
+          <PageShell.Header>
+            {herd ? (
+              <HerdBar group={herd} />
+            ) : roomsLoaded ? null : (
+              <TitleSkeleton />
+            )}
+          </PageShell.Header>
+        ) : !directOpen && (activeRoomSummary || !roomsLoaded) ? (
           <PageShell.Header>
             {activeRoomSummary ? (
               <PageBar
@@ -579,7 +611,43 @@ function ChatPage({
             gap={0}
             style={{ flex: 1, minHeight: 0, minWidth: 0 }}
           >
-            {directOpen ? (
+            {herdOpen ? (
+              herd ? (
+                <HerdView
+                  key={herd.tag.id}
+                  tag={herd.tag}
+                  rooms={herd.rooms}
+                  me={me.handle}
+                  picked={herdPick}
+                  onPick={onHerdPick}
+                  composer={(room, to, onDraftChange) => (
+                    <Composer
+                      ref={composerRef}
+                      phone={isMobile}
+                      humanHandle={me.handle}
+                      room={room}
+                      roomMembers={
+                        to
+                          ? [me.handle, herd.tag.shepherdHandle, to.handle]
+                          : [me.handle]
+                      }
+                      buddies={buddies}
+                      isDm={to !== undefined}
+                      daemonReachable={daemon.reachable}
+                      onOpenDm={onOpenDm}
+                      replyTo={to}
+                      onDraftChange={onDraftChange}
+                    />
+                  )}
+                />
+              ) : roomsLoaded ? (
+                <Box style={{ flex: 1, minWidth: 0 }} p="xl">
+                  <Text c="dimmed">This herd has no conversations</Text>
+                </Box>
+              ) : (
+                <RoomSkeleton />
+              )
+            ) : directOpen ? (
               <DirectView
                 rooms={rooms}
                 me={me.handle}
@@ -715,8 +783,13 @@ function AppContent({
     route.name === 'room' || route.name === 'embed' ? route.room : undefined;
   const [activeRoom, setActiveRoom] = useState<string | undefined>(routeRoom);
   const directOpen = route.name === 'direct';
+  const herdOpen = route.name === 'herd' ? route.herd : undefined;
   const chatRoute =
-    route.name === 'home' || route.name === 'room' || directOpen;
+    route.name === 'home' ||
+    route.name === 'room' ||
+    directOpen ||
+    herdOpen !== undefined;
+  const [herdPick, setHerdPick] = useState<string>();
   const [directPick, setDirectPick] = useState<string>();
   const [directDraft, setDirectDraft] = useState<string>();
   // The view's composer mounts with the route, after the DM has opened.
@@ -732,7 +805,9 @@ function AppContent({
     if (route.name === 'room' || route.name === 'embed') {
       if (route.room !== activeRoom) setActiveRoom(route.room);
     } else if (
-      (route.name === 'home' || route.name === 'direct') &&
+      (route.name === 'home' ||
+        route.name === 'direct' ||
+        route.name === 'herd') &&
       activeRoom !== undefined
     ) {
       setActiveRoom(undefined);
@@ -883,6 +958,36 @@ function AppContent({
     setDirectPick(undefined);
     setDirectDraft(undefined);
   }, [directOpen]);
+
+  const herd = herdOpen
+    ? groupHerds(rooms).find(g => g.tag.id === herdOpen)
+    : undefined;
+  const openHerd = useCallback((id: string) => {
+    setHerdPick(undefined);
+    const to = herdPath(id);
+    if (window.location.pathname !== to) navigate(to);
+  }, []);
+  useEffect(() => {
+    setHerdPick(undefined);
+  }, [herdOpen]);
+  const herdUnread = herd?.rooms.some(r => r.unread > 0) ?? false;
+  const markingHerd = useRef(false);
+  // Seeing the herd reads it, retried on each listing like Messages to you.
+  useEffect(() => {
+    if (!herdOpen || !herdUnread || markingHerd.current) return;
+    if (document.visibilityState !== 'visible') return;
+    markingHerd.current = true;
+    void fetch(`/api/chat/herd/${encodeURIComponent(herdOpen)}/read`, {
+      method: 'POST',
+    })
+      .then(res => {
+        if (res.ok) void refetchRooms();
+      })
+      .catch(() => {})
+      .finally(() => {
+        markingHerd.current = false;
+      });
+  }, [herdOpen, herdUnread, rooms, refetchRooms]);
 
   const waiting = waitingCount(rooms, me.handle);
   const marking = useRef(false);
@@ -1053,6 +1158,11 @@ function AppContent({
                 directDraft={directDraft}
                 onDirectPick={setDirectPick}
                 railDirect={railDirect}
+                herdOpen={herdOpen}
+                herd={herd}
+                herdPick={herdPick}
+                onHerdPick={setHerdPick}
+                onOpenHerd={openHerd}
               />
             ) : (
               <NotFoundPage />
