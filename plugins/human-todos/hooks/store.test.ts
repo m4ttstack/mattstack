@@ -39,7 +39,7 @@ test('session.start restores the saved list and settles unfinished items', async
   const list = [
     saved({ id: '1', status: 'confirming', kind: 'run', script: 'ls' }),
     saved({ id: '2', status: 'running', kind: 'run', script: 'ls', runner: 'local', liveTail: ['x'], isStopping: true }),
-    saved({ id: '3', status: 'running', kind: 'run', script: 'ls', runner: 'herdr', token: 'tok', paneId: 'p1' }),
+    saved({ id: '3', status: 'running', kind: 'run', script: 'ls', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'tok', paneId: 'p1' }),
     saved({ id: '4', status: 'done' }),
   ]
   const { store } = world(on, { entries: { 'list:sess-1': savedList(list, 5) } })
@@ -57,6 +57,14 @@ test('session.start restores the saved list and settles unfinished items', async
   expect(now[1]?.liveTail).toBeUndefined()
   expect(now[1]?.isStopping).toBeUndefined()
   expect(now[2]).toMatchObject({ status: 'running', runner: 'herdr', token: 'tok', paneId: 'p1' })
+})
+
+test('a herdr run saved with no server settles to open, since its tab is on the visible server the plugin leaves alone', async ($, on) => {
+  const list = [saved({ id: '1', status: 'running', kind: 'run', script: 'ls', runner: 'herdr', token: 'tok', paneId: 'p1', tabId: 't1' })]
+  world(on, { entries: { 'list:sess-1': savedList(list, 2) } })
+  await startSession($)
+
+  expect((await $.tool.call({ tool: LIST })).result).toMatch(/^#1 \[open\] t/)
 })
 
 test('a list saved by 0.1.3 loads in full: every field survives, a local run settles to open', async ($, on) => {

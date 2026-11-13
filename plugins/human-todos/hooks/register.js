@@ -142,475 +142,6 @@ function quote(text) {
 // mods/human-todos/src/store.ts
 import { atom, read, update } from "claude-code";
 
-// mods/human-todos/src/herdr.ts
-var POLL_MS = 1000;
-var SCAN_LINES = 400;
-var LABEL_MAX = 40;
-var POLLS_TO_END = 2;
-var HERDR_MS = 15000;
-var runs = new Map;
-var placing = Promise.resolve();
-function sh($, command) {
-  return $.process.run(["/bin/zsh", "-lc", command], { timeoutMs: HERDR_MS });
-}
-async function herdrJson($, args) {
-  const ran = await sh($, `herdr ${args}`);
-  if (ran.exitCode !== 0)
-    return null;
-  try {
-    return JSON.parse(ran.stdout).result ?? null;
-  } catch {
-    return null;
-  }
-}
-async function sharedWorkspace($) {
-  const known = await getWorkspace($);
-  if (known && await herdrJson($, `workspace get ${quote(known)}`))
-    return known;
-  const found = (await herdrJson($, "workspace list"))?.workspaces?.find((w) => w.label === TITLE)?.workspace_id;
-  if (found)
-    await setWorkspace($, found);
-  return found;
-}
-async function repoName($) {
-  const cwd = (await $.session.cwd()).replace(/\/+$/, "");
-  try {
-    const ran = await sh($, `cd ${quote(cwd)} && git rev-parse --path-format=absolute --git-common-dir`);
-    const common = ran.stdout.trim().replace(/\/+$/, "");
-    if (ran.exitCode === 0 && common.startsWith("/"))
-      return fileName(common.slice(0, common.lastIndexOf("/")));
-  } catch {}
-  return fileName(cwd);
-}
-async function tabLabel($, todo) {
-  const repo = await repoName($);
-  return quote(`${repo ? `${repo} ` : ""}#${todo.id} ${todo.title}`.slice(0, LABEL_MAX));
-}
-async function paneFor($, todo, cwd) {
-  if (todo.paneId && await herdrJson($, `pane get ${quote(todo.paneId)}`))
-    return { paneId: todo.paneId, tabId: todo.tabId };
-  const label = await tabLabel($, todo);
-  const shared = await sharedWorkspace($);
-  if (shared) {
-    const made = await herdrJson($, `tab create --workspace ${quote(shared)} --cwd ${quote(cwd)} --label ${label} --no-focus`);
-    if (made?.root_pane?.pane_id)
-      return { paneId: made.root_pane.pane_id, tabId: made.tab?.tab_id ?? made.root_pane.tab_id };
-  }
-  const made = await herdrJson($, `workspace create --cwd ${quote(cwd)} --label ${quote(TITLE)} --no-focus`);
-  if (!made?.root_pane?.pane_id || !made.workspace?.workspace_id)
-    return null;
-  await setWorkspace($, made.workspace.workspace_id);
-  if (made.root_pane.tab_id)
-    await sh($, `herdr tab rename ${quote(made.root_pane.tab_id)} ${label}`);
-  return { paneId: made.root_pane.pane_id, tabId: made.root_pane.tab_id };
-}
-function placeTab($, todo, cwd) {
-  const placed = placing.then(() => paneFor($, todo, cwd));
-  placing = placed.catch(() => {
-    return;
-  });
-  return placed;
-}
-async function paneIsIdle($, paneId) {
-  const info = (await herdrJson($, `pane process-info --pane ${quote(paneId)}`))?.process_info;
-  return Boolean(info?.shell_pid && info.foreground_process_group_id === info.shell_pid);
-}
-async function readPane($, paneId) {
-  try {
-    const ran = await sh($, `herdr pane read ${quote(paneId)} --source recent-unwrapped --lines ${SCAN_LINES}`);
-    return ran.exitCode === 0 ? ran.stdout : null;
-  } catch {
-    return null;
-  }
-}
-function scanPane(text, token, script) {
-  const lines = text.split(`
-`);
-  const marker = `__todo_exit_${token}`;
-  const echoed = lines.findLastIndex((line) => line.includes(marker) && line.includes("%s"));
-  const body = lines.slice(echoed === -1 ? 0 : echoed + script.split(`
-`).length);
-  const end = body.findIndex((line) => line.trimStart().startsWith(`${marker} `));
-  const output = (end === -1 ? body : body.slice(0, end)).filter((line) => line.trim() !== "");
-  if (end === -1)
-    return { isEchoed: echoed !== -1, output };
-  const code = Number.parseInt((body[end] ?? "").trimStart().slice(marker.length + 1), 10);
-  return { isEchoed: echoed !== -1, output, exitCode: Number.isNaN(code) ? -1 : code };
-}
-function end(token) {
-  runs.get(token)?.poller?.cancel();
-  runs.delete(token);
-}
-async function conclude($, token, todo, outcome) {
-  await report($, todo, outcome);
-  end(token);
-}
-async function pollOnce($, token, run) {
-  const todo = (await listTodos($)).find((t) => t.id === run.id);
-  if (!todo || todo.status !== "running" || todo.token !== token || !todo.paneId)
-    return end(token);
-  const text = await readPane($, todo.paneId);
-  if (run.isGone)
-    return;
-  if (text === null) {
-    run.unreadPolls += 1;
-    if (run.unreadPolls >= POLLS_TO_END)
-      await conclude($, token, todo, { kind: "ended", outputTail: run.output.join(`
-`) });
-    return;
-  }
-  run.unreadPolls = 0;
-  const scan = scanPane(text, token, todo.script ?? "");
-  run.output = scan.output;
-  const outputTail = scan.output.join(`
-`);
-  if (scan.exitCode !== undefined) {
-    await conclude($, token, todo, todo.isStopping ? { kind: "stopped", outputTail } : { kind: "ran", exitCode: scan.exitCode, outputTail });
-    return;
-  }
-  const isIdle = scan.isEchoed && await paneIsIdle($, todo.paneId);
-  if (run.isGone)
-    return;
-  run.idlePolls = isIdle ? run.idlePolls + 1 : 0;
-  if (run.idlePolls >= POLLS_TO_END) {
-    await conclude($, token, todo, { kind: "ended", outputTail });
-    return;
-  }
-  const liveTail = clipLines(scan.output.slice(-LIVE_LINES_HERDR));
-  if (JSON.stringify(liveTail) !== JSON.stringify(todo.liveTail))
-    await patchTodo($, todo.id, { liveTail });
-}
-async function poll($, token) {
-  const run = runs.get(token);
-  if (!run || run.isBusy)
-    return;
-  run.isBusy = true;
-  try {
-    await pollOnce($, token, run);
-  } catch {} finally {
-    run.isBusy = false;
-  }
-}
-function watch($, token) {
-  const run = runs.get(token);
-  if (!run || run.poller)
-    return;
-  run.poller = $.clock.every(POLL_MS, () => {
-    poll($, token);
-  });
-}
-async function startHerdr($, todo) {
-  let token = "";
-  do
-    token = newToken();
-  while (runs.has(token));
-  const run = { id: todo.id, isGone: false, isBusy: false, idlePolls: 0, unreadPolls: 0, output: [] };
-  runs.set(token, run);
-  try {
-    const placed = await placeTab($, todo, todo.cwd ?? await $.session.cwd());
-    if (!placed)
-      throw new Error("herdr made no tab");
-    const still = run.isGone ? undefined : (await listTodos($)).find((t) => t.id === todo.id);
-    if (run.isGone || still?.status !== "running") {
-      run.isGone = true;
-      if (placed.tabId)
-        await sh($, `herdr tab close ${quote(placed.tabId)}`);
-      return end(token);
-    }
-    await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, liveTail: [], isStopping: false });
-    const wrapper = `trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
-    const typed = await sh($, `herdr pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? "")}`)}`);
-    if (typed.exitCode !== 0)
-      throw new Error("herdr would not run the script");
-  } catch (err) {
-    end(token);
-    if (run.isGone)
-      return;
-    await patchTodo($, todo.id, { token: undefined }).catch(() => {
-      return;
-    });
-    throw err;
-  }
-  if (!run.isGone)
-    watch($, token);
-}
-async function stopHerdr($, todo) {
-  let isSent = false;
-  try {
-    isSent = todo.paneId !== undefined && (await sh($, `herdr pane send-keys ${quote(todo.paneId)} ctrl+c`)).exitCode === 0;
-  } catch {
-    isSent = false;
-  }
-  if (isSent)
-    return;
-  await patchTodo($, todo.id, { isStopping: false });
-  $.ui.toast(`Could not stop #${todo.id}`);
-}
-async function showHerdr($, todo) {
-  let isShown = true;
-  try {
-    const workspace = await getWorkspace($);
-    if (workspace)
-      isShown = (await sh($, `herdr workspace focus ${quote(workspace)}`)).exitCode === 0;
-    if (todo.tabId)
-      isShown = (await sh($, `herdr tab focus ${quote(todo.tabId)}`)).exitCode === 0 && isShown;
-    if (todo.paneId && (await sh($, "command -v rt")).exitCode === 0)
-      await sh($, `rt pane focus ${quote(todo.paneId)}`);
-  } catch {
-    isShown = false;
-  }
-  if (!isShown)
-    $.ui.toast("Could not bring that tab forward");
-}
-async function cleanupHerdr($, todo) {
-  const run = todo.token ? runs.get(todo.token) : undefined;
-  if (todo.token && run) {
-    run.isGone = true;
-    end(todo.token);
-  }
-  if (todo.tabId)
-    await sh($, `herdr tab close ${quote(todo.tabId)}`);
-}
-function releaseHerdr() {
-  for (const [token, run] of [...runs]) {
-    run.isGone = true;
-    end(token);
-  }
-}
-async function resumeWatching($) {
-  for (const todo of await listTodos($)) {
-    if (todo.status !== "running" || todo.runner !== "herdr" || !todo.token || !todo.paneId || runs.has(todo.token))
-      continue;
-    runs.set(todo.token, { id: todo.id, isGone: false, isBusy: false, idlePolls: 0, unreadPolls: 0, output: [] });
-    watch($, todo.token);
-  }
-}
-
-// mods/human-todos/src/store.ts
-var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1" });
-var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
-var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
-var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
-var workspace = atom({ plugin: "human-todos", key: "workspace" }, null);
-var loadedFor = atom({ plugin: "human-todos", key: "loadedFor" }, null);
-var isSaveFailed = atom({ plugin: "human-todos", key: "isSaveFailed" }, false);
-var runnerPref = atom({ plugin: "human-todos", key: "runnerPref" }, "auto");
-var LIST_PREFIX = "list:";
-var MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-async function saveList($) {
-  try {
-    const entry = {
-      todos: await read($, todos),
-      nextId: await read($, nextId),
-      savedAt: await $.clock.now()
-    };
-    const owner = await read($, loadedFor);
-    if (owner === null)
-      return;
-    await $.store.set(`${LIST_PREFIX}${owner}`, entry);
-    await update($, isSaveFailed, () => false);
-  } catch {
-    if (await read($, isSaveFailed))
-      return;
-    await update($, isSaveFailed, () => true);
-    $.ui.toast("Could not save the to-do list; it will not survive a restart");
-  }
-}
-var loading;
-var leaving;
-async function ensureLoaded($) {
-  const id = await $.session.id();
-  if (await read($, loadedFor) === id || id === leaving)
-    return;
-  const pending = loading;
-  if (pending && pending.id === id)
-    return pending.done;
-  const done = loadResumed($).finally(() => {
-    if (loading?.done === done)
-      loading = undefined;
-  });
-  loading = { id, done };
-  await done;
-}
-async function loadResumed($) {
-  await restoreList($);
-  await resumeWatching($);
-  await syncSpinner($);
-}
-async function addTodo($, input) {
-  await ensureLoaded($);
-  let id = 0;
-  await update($, nextId, (n) => {
-    id = n;
-    return n + 1;
-  });
-  const todo = toTodo(String(id), input);
-  await update($, todos, (list) => [...list, todo]);
-  await saveList($);
-  return todo;
-}
-async function listTodos($) {
-  await ensureLoaded($);
-  return read($, todos);
-}
-async function patchTodo($, id, change) {
-  await ensureLoaded($);
-  await update($, todos, (list) => list.map((t) => t.id === id ? { ...t, ...change } : t));
-  await saveList($);
-}
-async function removeTodos($, pick) {
-  await ensureLoaded($);
-  const removed = [];
-  await update($, todos, (list) => {
-    removed.length = 0;
-    for (const t of list)
-      if (pick(t))
-        removed.push(t);
-    return list.filter((t) => !pick(t));
-  });
-  await saveList($);
-  return removed;
-}
-function isFresh(entry, now) {
-  return typeof entry?.savedAt === "number" && now - entry.savedAt <= MAX_AGE_MS;
-}
-function resume(t) {
-  if (t.status === "confirming")
-    return { ...t, status: "open" };
-  if (t.status === "running" && !(t.runner === "herdr" && t.token && t.paneId)) {
-    const { liveTail: _tail, isStopping: _stopping, ...rest } = t;
-    return { ...rest, status: "open", note: "Ended without an exit code." };
-  }
-  return t;
-}
-async function restoreList($) {
-  leaving = undefined;
-  const now = await $.clock.now();
-  for (const key of await $.store.keys()) {
-    if (!key.startsWith(LIST_PREFIX))
-      continue;
-    const entry = await $.store.get(key);
-    if (!isFresh(entry, now))
-      await $.store.delete(key);
-  }
-  const id = await $.session.id();
-  const mine = await $.store.get(`${LIST_PREFIX}${id}`);
-  if (mine) {
-    await update($, todos, () => mine.todos.map(resume));
-    await update($, expanded, () => []);
-    await update($, nextId, () => mine.nextId);
-  } else {
-    await resetList($);
-  }
-  await update($, loadedFor, () => id);
-}
-async function leaveList($) {
-  leaving = await $.session.id();
-  await update($, loadedFor, () => null);
-  await resetList($);
-}
-async function resetList($) {
-  await update($, todos, () => []);
-  await update($, expanded, () => []);
-  await update($, nextId, () => 1);
-}
-function peekTodos($) {
-  return read($, todos);
-}
-async function readPane2($) {
-  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame) };
-}
-async function bumpFrame($) {
-  await update($, frame, (n) => n + 1);
-}
-function getRunnerPref($) {
-  return read($, runnerPref);
-}
-async function setRunnerPref($, pref) {
-  await update($, runnerPref, () => pref);
-}
-function getWorkspace($) {
-  return read($, workspace);
-}
-async function setWorkspace($, id) {
-  await update($, workspace, () => id);
-}
-async function toggleExpanded($, id) {
-  await update($, expanded, (ids) => ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]);
-}
-
-// mods/human-todos/src/spinner.ts
-var FRAME_MS = 100;
-var timer;
-function stop() {
-  timer?.cancel();
-  timer = undefined;
-}
-async function hasRunning($) {
-  return (await peekTodos($)).some((t) => t.status === "running");
-}
-async function syncSpinner($) {
-  if (!await hasRunning($))
-    return stop();
-  if (timer)
-    return;
-  timer = $.clock.every(FRAME_MS, () => {
-    (async () => {
-      try {
-        if (await hasRunning($))
-          await bumpFrame($);
-        else
-          stop();
-      } catch {}
-    })();
-  });
-}
-
-// mods/human-todos/src/report.ts
-var SETTLED = { liveTail: undefined, isStopping: false };
-function settle(todo, outcome) {
-  const who = `#${todo.id} "${todo.title}"`;
-  switch (outcome.kind) {
-    case "done":
-      return { patch: { status: "done" }, text: `${who}: the user marked it done.` };
-    case "skipped":
-      return { patch: { status: "skipped" }, text: `${who}: the user skipped it.` };
-    case "ran": {
-      const outputTail = tail(outcome.outputTail);
-      return {
-        patch: { ...SETTLED, status: outcome.exitCode === 0 ? "done" : "failed", exitCode: outcome.exitCode, outputTail },
-        text: `The user ran ${who} from the pane: exit ${outcome.exitCode}.
-\`\`\`
-${outputTail || "(no output)"}
-\`\`\``
-      };
-    }
-    case "stopped":
-      return {
-        patch: { ...SETTLED, status: "open", outputTail: tail(outcome.outputTail), note: "Stopped" },
-        text: `The user stopped ${who} before it finished. It is open again.`
-      };
-    case "ended":
-      return {
-        patch: { ...SETTLED, status: "open", outputTail: tail(outcome.outputTail), note: "Ended without an exit code." },
-        text: `${who} ended in its tab without reporting an exit code (most likely stopped). It is open again.`
-      };
-  }
-}
-async function report($, todo, outcome) {
-  const { patch, text } = settle(todo, outcome);
-  await patchTodo($, todo.id, patch);
-  await syncSpinner($);
-  const warn = () => {
-    $.ui.log(`could not send #${todo.id} to the agent`, { to: "debug" });
-    $.ui.toast(`Could not tell the agent about #${todo.id}`);
-  };
-  $.prompt.submit({ text: `[${TITLE}] ${text}` }).then((sent) => {
-    if (sent.drop !== undefined)
-      warn();
-  }).catch(warn);
-}
-
 // mods/human-todos/src/local.ts
 var PID_LINE = /^__human_todo_pid__(\d+)$/;
 var FLUSH_MS = 1000;
@@ -831,6 +362,535 @@ async function cleanupLocal($, todo) {
   }
 }
 
+// mods/human-todos/src/herdr.ts
+var POLL_MS = 1000;
+var SCAN_LINES = 400;
+var SHOW_LINES = 5000;
+var LABEL_MAX = 40;
+var POLLS_TO_END = 2;
+var HERDR_MS = 15000;
+var BG_SESSION = "mattstack-bg";
+var OWN_SESSION = "human-todos";
+var START_MS = 1e4;
+var START_POLL_MS = 250;
+var runs = new Map;
+var placing = Promise.resolve();
+var picking;
+function sh($, command) {
+  return $.process.run(["/bin/zsh", "-lc", command], { timeoutMs: HERDR_MS });
+}
+function herdrCommand(session, args) {
+  return `env -u HERDR_SOCKET_PATH HERDR_SESSION=${quote(session)} herdr ${args}`;
+}
+function herdr($, session, args) {
+  return sh($, herdrCommand(session, args));
+}
+async function herdrJson($, session, args) {
+  const ran = await herdr($, session, args);
+  if (ran.exitCode !== 0)
+    return null;
+  try {
+    return JSON.parse(ran.stdout).result ?? null;
+  } catch {
+    return null;
+  }
+}
+async function runningSessions($) {
+  try {
+    const ran = await sh($, "env -u HERDR_SOCKET_PATH herdr session list --json");
+    if (ran.exitCode !== 0)
+      return null;
+    const listed = JSON.parse(ran.stdout).sessions ?? [];
+    return listed.flatMap((s) => s.running && s.name ? [s.name] : []);
+  } catch {
+    return null;
+  }
+}
+async function pickSession($) {
+  const running = await runningSessions($);
+  if (!running)
+    return null;
+  if (running.includes(BG_SESSION))
+    return BG_SESSION;
+  if (running.includes(OWN_SESSION))
+    return OWN_SESSION;
+  await sh($, `env -u HERDR_SOCKET_PATH HERDR_SESSION=${quote(OWN_SESSION)} nohup herdr --session ${quote(OWN_SESSION)} server >/dev/null 2>&1 </dev/null &!`);
+  for (let waited = 0;; waited += START_POLL_MS) {
+    if ((await runningSessions($))?.includes(OWN_SESSION))
+      return OWN_SESSION;
+    if (waited >= START_MS)
+      return null;
+    await $.clock.sleep(START_POLL_MS);
+  }
+}
+function herdrSession($) {
+  if (!picking) {
+    picking = pickSession($).finally(() => {
+      picking = undefined;
+    });
+  }
+  return picking;
+}
+async function sharedWorkspace($, session) {
+  const known = await getWorkspace($, session);
+  if (known && await herdrJson($, session, `workspace get ${quote(known)}`))
+    return known;
+  const found = (await herdrJson($, session, "workspace list"))?.workspaces?.find((w) => w.label === TITLE)?.workspace_id;
+  if (found)
+    await setWorkspace($, session, found);
+  return found;
+}
+async function repoName($) {
+  const cwd = (await $.session.cwd()).replace(/\/+$/, "");
+  try {
+    const ran = await sh($, `cd ${quote(cwd)} && git rev-parse --path-format=absolute --git-common-dir`);
+    const common = ran.stdout.trim().replace(/\/+$/, "");
+    if (ran.exitCode === 0 && common.startsWith("/"))
+      return fileName(common.slice(0, common.lastIndexOf("/")));
+  } catch {}
+  return fileName(cwd);
+}
+async function tabLabel($, todo) {
+  const repo = await repoName($);
+  return quote(`${repo ? `${repo} ` : ""}#${todo.id} ${todo.title}`.slice(0, LABEL_MAX));
+}
+async function paneFor($, session, todo, cwd) {
+  if (todo.paneId && todo.herdrSession === session && await herdrJson($, session, `pane get ${quote(todo.paneId)}`))
+    return { paneId: todo.paneId, tabId: todo.tabId };
+  const label = await tabLabel($, todo);
+  const shared = await sharedWorkspace($, session);
+  if (shared) {
+    const made = await herdrJson($, session, `tab create --workspace ${quote(shared)} --cwd ${quote(cwd)} --label ${label} --no-focus`);
+    if (made?.root_pane?.pane_id)
+      return { paneId: made.root_pane.pane_id, tabId: made.tab?.tab_id ?? made.root_pane.tab_id };
+  }
+  const made = await herdrJson($, session, `workspace create --cwd ${quote(cwd)} --label ${quote(TITLE)} --no-focus`);
+  if (!made?.root_pane?.pane_id || !made.workspace?.workspace_id)
+    return null;
+  await setWorkspace($, session, made.workspace.workspace_id);
+  if (made.root_pane.tab_id)
+    await herdr($, session, `tab rename ${quote(made.root_pane.tab_id)} ${label}`);
+  return { paneId: made.root_pane.pane_id, tabId: made.root_pane.tab_id };
+}
+function placeTab($, session, todo, cwd) {
+  const placed = placing.then(() => paneFor($, session, todo, cwd));
+  placing = placed.catch(() => {
+    return;
+  });
+  return placed;
+}
+async function paneIsIdle($, session, paneId) {
+  const info = (await herdrJson($, session, `pane process-info --pane ${quote(paneId)}`))?.process_info;
+  return Boolean(info?.shell_pid && info.foreground_process_group_id === info.shell_pid);
+}
+async function readPane($, session, paneId, lines = SCAN_LINES) {
+  try {
+    const ran = await herdr($, session, `pane read ${quote(paneId)} --source recent-unwrapped --lines ${lines}`);
+    return ran.exitCode === 0 ? ran.stdout : null;
+  } catch {
+    return null;
+  }
+}
+function scanPane(text, token, script) {
+  const lines = text.split(`
+`);
+  const marker = `__todo_exit_${token}`;
+  const echoed = lines.findLastIndex((line) => line.includes(marker) && line.includes("%s"));
+  const body = lines.slice(echoed === -1 ? 0 : echoed + script.split(`
+`).length);
+  const end = body.findIndex((line) => line.trimStart().startsWith(`${marker} `));
+  const output = (end === -1 ? body : body.slice(0, end)).filter((line) => line.trim() !== "");
+  if (end === -1)
+    return { isEchoed: echoed !== -1, output };
+  const code = Number.parseInt((body[end] ?? "").trimStart().slice(marker.length + 1), 10);
+  return { isEchoed: echoed !== -1, output, exitCode: Number.isNaN(code) ? -1 : code };
+}
+function end(token) {
+  runs.get(token)?.poller?.cancel();
+  runs.delete(token);
+}
+async function conclude($, token, todo, outcome) {
+  await report($, todo, outcome);
+  end(token);
+}
+async function pollOnce($, token, run) {
+  const todo = (await listTodos($)).find((t) => t.id === run.id);
+  if (!todo || todo.status !== "running" || todo.token !== token || !todo.paneId || !todo.herdrSession)
+    return end(token);
+  const text = await readPane($, todo.herdrSession, todo.paneId);
+  if (run.isGone)
+    return;
+  if (text === null) {
+    run.unreadPolls += 1;
+    if (run.unreadPolls >= POLLS_TO_END)
+      await conclude($, token, todo, { kind: "ended", outputTail: run.output.join(`
+`) });
+    return;
+  }
+  run.unreadPolls = 0;
+  const scan = scanPane(text, token, todo.script ?? "");
+  run.output = scan.output;
+  const outputTail = scan.output.join(`
+`);
+  if (scan.exitCode !== undefined) {
+    await conclude($, token, todo, todo.isStopping ? { kind: "stopped", outputTail } : { kind: "ran", exitCode: scan.exitCode, outputTail });
+    return;
+  }
+  const isIdle = scan.isEchoed && await paneIsIdle($, todo.herdrSession, todo.paneId);
+  if (run.isGone)
+    return;
+  run.idlePolls = isIdle ? run.idlePolls + 1 : 0;
+  if (run.idlePolls >= POLLS_TO_END) {
+    await conclude($, token, todo, { kind: "ended", outputTail });
+    return;
+  }
+  const liveTail = clipLines(scan.output.slice(-LIVE_LINES_HERDR));
+  if (JSON.stringify(liveTail) !== JSON.stringify(todo.liveTail))
+    await patchTodo($, todo.id, { liveTail });
+}
+async function poll($, token) {
+  const run = runs.get(token);
+  if (!run || run.isBusy)
+    return;
+  run.isBusy = true;
+  try {
+    await pollOnce($, token, run);
+  } catch {} finally {
+    run.isBusy = false;
+  }
+}
+function watch($, token) {
+  const run = runs.get(token);
+  if (!run || run.poller)
+    return;
+  run.poller = $.clock.every(POLL_MS, () => {
+    poll($, token);
+  });
+}
+async function startHerdr($, todo) {
+  const session = todo.herdrSession;
+  if (!session)
+    throw new Error("no herdr server for the run");
+  let token = "";
+  do
+    token = newToken();
+  while (runs.has(token));
+  const run = { id: todo.id, isGone: false, isBusy: false, idlePolls: 0, unreadPolls: 0, output: [] };
+  runs.set(token, run);
+  try {
+    const placed = await placeTab($, session, todo, todo.cwd ?? await $.session.cwd());
+    if (!placed)
+      throw new Error("herdr made no tab");
+    const still = run.isGone ? undefined : (await listTodos($)).find((t) => t.id === todo.id);
+    if (run.isGone || still?.status !== "running") {
+      run.isGone = true;
+      if (placed.tabId)
+        await herdr($, session, `tab close ${quote(placed.tabId)}`);
+      return end(token);
+    }
+    await patchTodo($, todo.id, { token, paneId: placed.paneId, tabId: placed.tabId, herdrSession: session, liveTail: [], isStopping: false });
+    const wrapper = `trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?`;
+    const typed = await herdr($, session, `pane run ${quote(placed.paneId)} ${quote(`zsh -c ${quote(wrapper)} todo ${quote(todo.script ?? "")}`)}`);
+    if (typed.exitCode !== 0)
+      throw new Error("herdr would not run the script");
+  } catch (err) {
+    end(token);
+    if (run.isGone)
+      return;
+    await patchTodo($, todo.id, { token: undefined }).catch(() => {
+      return;
+    });
+    throw err;
+  }
+  if (!run.isGone)
+    watch($, token);
+}
+async function stopHerdr($, todo) {
+  let isSent = false;
+  try {
+    isSent = todo.paneId !== undefined && todo.herdrSession !== undefined && (await herdr($, todo.herdrSession, `pane send-keys ${quote(todo.paneId)} ctrl+c`)).exitCode === 0;
+  } catch {
+    isSent = false;
+  }
+  if (isSent)
+    return;
+  await patchTodo($, todo.id, { isStopping: false });
+  $.ui.toast(`Could not stop #${todo.id}`);
+}
+async function showLog($, todo) {
+  return `${await logFolder($)}/${await $.session.id()}-${todo.id}-herdr.log`;
+}
+async function showHerdr($, todo) {
+  try {
+    if (!todo.paneId || !todo.herdrSession)
+      throw new Error("no pane to read");
+    const text = await readPane($, todo.herdrSession, todo.paneId, SHOW_LINES);
+    if (text === null)
+      throw new Error("herdr would not read the pane");
+    const path = await showLog($, todo);
+    await $.fs.write(path, text);
+    if (todo.logPath !== path)
+      await patchTodo($, todo.id, { logPath: path });
+    if ((await $.process.run(["open", "-t", path])).exitCode !== 0)
+      throw new Error("open failed");
+  } catch {
+    $.ui.toast(`Could not show the output of #${todo.id}`);
+  }
+}
+async function cleanupHerdr($, todo) {
+  const run = todo.token ? runs.get(todo.token) : undefined;
+  if (todo.token && run) {
+    run.isGone = true;
+    end(todo.token);
+  }
+  if (todo.tabId && todo.herdrSession)
+    await herdr($, todo.herdrSession, `tab close ${quote(todo.tabId)}`);
+  if (todo.runner === "herdr" && todo.logPath)
+    await $.process.run(["rm", "-f", "--", todo.logPath]).catch(() => {
+      return;
+    });
+}
+function releaseHerdr() {
+  for (const [token, run] of [...runs]) {
+    run.isGone = true;
+    end(token);
+  }
+}
+async function resumeWatching($) {
+  for (const todo of await listTodos($)) {
+    if (todo.status !== "running" || todo.runner !== "herdr" || !todo.token || !todo.paneId || !todo.herdrSession || runs.has(todo.token))
+      continue;
+    runs.set(todo.token, { id: todo.id, isGone: false, isBusy: false, idlePolls: 0, unreadPolls: 0, output: [] });
+    watch($, todo.token);
+  }
+}
+
+// mods/human-todos/src/store.ts
+var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1" });
+var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
+var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
+var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
+var workspace = atom({ plugin: "human-todos", key: "herdrWorkspace" }, null);
+var loadedFor = atom({ plugin: "human-todos", key: "loadedFor" }, null);
+var isSaveFailed = atom({ plugin: "human-todos", key: "isSaveFailed" }, false);
+var runnerPref = atom({ plugin: "human-todos", key: "runnerPref" }, "auto");
+var LIST_PREFIX = "list:";
+var MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+async function saveList($) {
+  try {
+    const entry = {
+      todos: await read($, todos),
+      nextId: await read($, nextId),
+      savedAt: await $.clock.now()
+    };
+    const owner = await read($, loadedFor);
+    if (owner === null)
+      return;
+    await $.store.set(`${LIST_PREFIX}${owner}`, entry);
+    await update($, isSaveFailed, () => false);
+  } catch {
+    if (await read($, isSaveFailed))
+      return;
+    await update($, isSaveFailed, () => true);
+    $.ui.toast("Could not save the to-do list; it will not survive a restart");
+  }
+}
+var loading;
+var leaving;
+async function ensureLoaded($) {
+  const id = await $.session.id();
+  if (await read($, loadedFor) === id || id === leaving)
+    return;
+  const pending = loading;
+  if (pending && pending.id === id)
+    return pending.done;
+  const done = loadResumed($).finally(() => {
+    if (loading?.done === done)
+      loading = undefined;
+  });
+  loading = { id, done };
+  await done;
+}
+async function loadResumed($) {
+  await restoreList($);
+  await resumeWatching($);
+  await syncSpinner($);
+}
+async function addTodo($, input) {
+  await ensureLoaded($);
+  let id = 0;
+  await update($, nextId, (n) => {
+    id = n;
+    return n + 1;
+  });
+  const todo = toTodo(String(id), input);
+  await update($, todos, (list) => [...list, todo]);
+  await saveList($);
+  return todo;
+}
+async function listTodos($) {
+  await ensureLoaded($);
+  return read($, todos);
+}
+async function patchTodo($, id, change) {
+  await ensureLoaded($);
+  await update($, todos, (list) => list.map((t) => t.id === id ? { ...t, ...change } : t));
+  await saveList($);
+}
+async function removeTodos($, pick) {
+  await ensureLoaded($);
+  const removed = [];
+  await update($, todos, (list) => {
+    removed.length = 0;
+    for (const t of list)
+      if (pick(t))
+        removed.push(t);
+    return list.filter((t) => !pick(t));
+  });
+  await saveList($);
+  return removed;
+}
+function isFresh(entry, now) {
+  return typeof entry?.savedAt === "number" && now - entry.savedAt <= MAX_AGE_MS;
+}
+function resume(t) {
+  if (t.status === "confirming")
+    return { ...t, status: "open" };
+  if (t.status === "running" && !(t.runner === "herdr" && t.token && t.paneId && t.herdrSession)) {
+    const { liveTail: _tail, isStopping: _stopping, ...rest } = t;
+    return { ...rest, status: "open", note: "Ended without an exit code." };
+  }
+  return t;
+}
+async function restoreList($) {
+  leaving = undefined;
+  const now = await $.clock.now();
+  for (const key of await $.store.keys()) {
+    if (!key.startsWith(LIST_PREFIX))
+      continue;
+    const entry = await $.store.get(key);
+    if (!isFresh(entry, now))
+      await $.store.delete(key);
+  }
+  const id = await $.session.id();
+  const mine = await $.store.get(`${LIST_PREFIX}${id}`);
+  if (mine) {
+    await update($, todos, () => mine.todos.map(resume));
+    await update($, expanded, () => []);
+    await update($, nextId, () => mine.nextId);
+  } else {
+    await resetList($);
+  }
+  await update($, loadedFor, () => id);
+}
+async function leaveList($) {
+  leaving = await $.session.id();
+  await update($, loadedFor, () => null);
+  await resetList($);
+}
+async function resetList($) {
+  await update($, todos, () => []);
+  await update($, expanded, () => []);
+  await update($, nextId, () => 1);
+}
+function peekTodos($) {
+  return read($, todos);
+}
+async function readPane2($) {
+  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame) };
+}
+async function bumpFrame($) {
+  await update($, frame, (n) => n + 1);
+}
+function getRunnerPref($) {
+  return read($, runnerPref);
+}
+async function setRunnerPref($, pref) {
+  await update($, runnerPref, () => pref);
+}
+async function getWorkspace($, session) {
+  const stored = await read($, workspace);
+  return stored?.session === session ? stored.id : null;
+}
+async function setWorkspace($, session, id) {
+  await update($, workspace, () => ({ session, id }));
+}
+async function toggleExpanded($, id) {
+  await update($, expanded, (ids) => ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]);
+}
+
+// mods/human-todos/src/spinner.ts
+var FRAME_MS = 100;
+var timer;
+function stop() {
+  timer?.cancel();
+  timer = undefined;
+}
+async function hasRunning($) {
+  return (await peekTodos($)).some((t) => t.status === "running");
+}
+async function syncSpinner($) {
+  if (!await hasRunning($))
+    return stop();
+  if (timer)
+    return;
+  timer = $.clock.every(FRAME_MS, () => {
+    (async () => {
+      try {
+        if (await hasRunning($))
+          await bumpFrame($);
+        else
+          stop();
+      } catch {}
+    })();
+  });
+}
+
+// mods/human-todos/src/report.ts
+var SETTLED = { liveTail: undefined, isStopping: false };
+function settle(todo, outcome) {
+  const who = `#${todo.id} "${todo.title}"`;
+  switch (outcome.kind) {
+    case "done":
+      return { patch: { status: "done" }, text: `${who}: the user marked it done.` };
+    case "skipped":
+      return { patch: { status: "skipped" }, text: `${who}: the user skipped it.` };
+    case "ran": {
+      const outputTail = tail(outcome.outputTail);
+      return {
+        patch: { ...SETTLED, status: outcome.exitCode === 0 ? "done" : "failed", exitCode: outcome.exitCode, outputTail },
+        text: `The user ran ${who} from the pane: exit ${outcome.exitCode}.
+\`\`\`
+${outputTail || "(no output)"}
+\`\`\``
+      };
+    }
+    case "stopped":
+      return {
+        patch: { ...SETTLED, status: "open", outputTail: tail(outcome.outputTail), note: "Stopped" },
+        text: `The user stopped ${who} before it finished. It is open again.`
+      };
+    case "ended":
+      return {
+        patch: { ...SETTLED, status: "open", outputTail: tail(outcome.outputTail), note: "Ended without an exit code." },
+        text: `${who} ended in its tab without reporting an exit code (most likely stopped). It is open again.`
+      };
+  }
+}
+async function report($, todo, outcome) {
+  const { patch, text } = settle(todo, outcome);
+  await patchTodo($, todo.id, patch);
+  await syncSpinner($);
+  const warn = () => {
+    $.ui.log(`could not send #${todo.id} to the agent`, { to: "debug" });
+    $.ui.toast(`Could not tell the agent about #${todo.id}`);
+  };
+  $.prompt.submit({ text: `[${TITLE}] ${text}` }).then((sent) => {
+    if (sent.drop !== undefined)
+      warn();
+  }).catch(warn);
+}
+
 // mods/human-todos/src/runners.ts
 function startRun($, todo) {
   return todo.runner === "herdr" ? startHerdr($, todo) : startLocal($, todo);
@@ -849,20 +909,15 @@ function cleanupRun($, todo) {
 }
 
 // mods/human-todos/src/actions.ts
-var HERDR_PROBE_MS = 15000;
 var confirmingIds = new Set;
 async function chooseRunner($) {
   const pref = await getRunnerPref($);
-  if (pref !== "auto")
-    return pref;
-  if (!await $.env.get("HERDR_SOCKET_PATH"))
-    return "local";
-  try {
-    const probe = await $.process.run(["/bin/zsh", "-lc", "herdr workspace list"], { timeoutMs: HERDR_PROBE_MS });
-    return probe.exitCode === 0 ? "herdr" : "local";
-  } catch {
-    return "local";
-  }
+  if (pref === "local")
+    return { runner: "local" };
+  const session = await herdrSession($);
+  if (session)
+    return { runner: "herdr", session };
+  return pref === "herdr" ? null : { runner: "local" };
 }
 async function launch($, todo) {
   try {
@@ -885,12 +940,19 @@ async function confirm($, todo) {
   const fresh = { runner: undefined, liveTail: [], isStopping: false, note: undefined, exitCode: undefined, outputTail: undefined };
   await patchTodo($, todo.id, { ...fresh, status: "running" });
   await syncSpinner($);
-  const runner = await chooseRunner($);
+  const chosen = await chooseRunner($);
   const still = (await listTodos($)).find((t) => t.id === todo.id);
   if (still?.status !== "running")
     return;
-  await patchTodo($, todo.id, { runner });
-  launch($, { ...still, runner });
+  if (!chosen) {
+    await patchTodo($, todo.id, { status: "open", liveTail: undefined, note: "herdr is not running" });
+    await syncSpinner($);
+    $.ui.toast(`herdr is not running and could not be started, so #${todo.id} did not run`);
+    return;
+  }
+  const where = chosen.runner === "herdr" ? { runner: chosen.runner, herdrSession: chosen.session } : { runner: chosen.runner };
+  await patchTodo($, todo.id, where);
+  launch($, { ...still, ...where });
 }
 async function stop2($, todo) {
   if (todo.isStopping)

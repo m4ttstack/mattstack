@@ -212,13 +212,21 @@ type FakePane = { tab: string; lines: string[]; isIdle: boolean; isAlive: boolea
 type Reply = { exitCode: number; stdout: string; stderr: string }
 
 // Stands for herdr and rt. A test hands `run` the command a plugin ran through `/bin/zsh -lc`.
-export function herdrFake({ hasRt = true }: { hasRt?: boolean } = {}) {
+export const BG = 'mattstack-bg'
+export const OWN = 'human-todos'
+
+// `servers` are the herdr sessions running beside the visible `default` one; mattstack's background server by default.
+export function herdrFake({ hasRt = true, servers: running = { [BG]: true } }: { hasRt?: boolean; servers?: Record<string, boolean> } = {}) {
   const calls: string[] = []
+  // Every herdr command as the plugin sent it: the server its env named, and whether it dropped HERDR_SOCKET_PATH.
+  const sent: { command: string; session?: string; dropsSocket: boolean }[] = []
+  const servers = new Map<string, boolean>(Object.entries({ default: true, ...running }))
   const workspaces = new Set<string>()
   const workspaceLabels = new Map<string, string>()
+  const workspaceServer = new Map<string, string | undefined>()
   const panes = new Map<string, FakePane>()
   const labels = new Map<string, string>()
-  const state = { hasRt, isCtrlCEnding: true, isCreateRefused: false, isRunRefused: false }
+  const state = { hasRt, isCtrlCEnding: true, isCreateRefused: false, isRunRefused: false, isMissing: false, canStart: true }
   let seq = 0
   const ok = (stdout = ''): Reply => ({ exitCode: 0, stdout, stderr: '' })
   const no = (): Reply => ({ exitCode: 1, stdout: '', stderr: 'failed' })
@@ -236,23 +244,36 @@ export function herdrFake({ hasRt = true }: { hasRt?: boolean } = {}) {
     return id
   }
 
-  const run = (command: string): Reply | undefined => {
+  const run = (raw: string): Reply | undefined => {
+    const env = /^env -u HERDR_SOCKET_PATH(?: HERDR_SESSION=('[^']*'|\S+))? (.*)$/s.exec(raw)
+    const session = env?.[1] ? words(env[1])[0] : undefined
+    const command = env ? (env[2] ?? '') : raw
+    if (/^(nohup )?herdr /.test(command)) sent.push({ command, session, dropsSocket: env !== null })
     calls.push(command)
     const w = words(command)
     const [head, a, b] = w
     if (command === 'command -v rt') return state.hasRt ? ok('/bin/rt') : no()
     if (head === 'rt') return ok()
-    if (head !== 'herdr') return undefined
+    if (head !== 'herdr' && head !== 'nohup') return undefined
+    if (state.isMissing) return { exitCode: 127, stdout: '', stderr: 'zsh: command not found: herdr' }
+    if (head === 'nohup') {
+      if (state.canStart) servers.set(w[w.indexOf('--session') + 1] ?? '', true)
+      return ok()
+    }
     const flag = (name: string) => w[w.indexOf(name) + 1] ?? ''
+    const here = (ws: string) => workspaces.has(ws) && workspaceServer.get(ws) === session
     switch (`${a} ${b}`) {
+      case 'session list':
+        return ok(JSON.stringify({ sessions: [...servers].map(([name, isUp]) => ({ default: name === 'default', name, running: isUp })) }))
       case 'workspace list':
-        return json({ type: 'workspace_list', workspaces: [...workspaces].map(id => ({ workspace_id: id, label: workspaceLabels.get(id) ?? id })) })
+        return json({ type: 'workspace_list', workspaces: [...workspaces].filter(here).map(id => ({ workspace_id: id, label: workspaceLabels.get(id) ?? id })) })
       case 'workspace get':
-        return workspaces.has(w[3] ?? '') ? json({ workspace: { workspace_id: w[3] } }) : no()
+        return here(w[3] ?? '') ? json({ workspace: { workspace_id: w[3] } }) : no()
       case 'workspace create': {
         if (state.isCreateRefused) return no()
         const ws = `ws${++seq}`
         workspaces.add(ws)
+        workspaceServer.set(ws, session)
         workspaceLabels.set(ws, flag('--label'))
         const tab = `tab${++seq}`
         const pane = newPane(tab)
@@ -260,7 +281,7 @@ export function herdrFake({ hasRt = true }: { hasRt?: boolean } = {}) {
         return json({ workspace: { workspace_id: ws }, root_pane: { pane_id: pane, tab_id: tab } })
       }
       case 'tab create': {
-        if (state.isCreateRefused || !workspaces.has(flag('--workspace'))) return no()
+        if (state.isCreateRefused || !here(flag('--workspace'))) return no()
         const tab = `tab${++seq}`
         labels.set(tab, flag('--label'))
         return json({ tab: { tab_id: tab }, root_pane: { pane_id: newPane(tab) } })
@@ -310,15 +331,18 @@ export function herdrFake({ hasRt = true }: { hasRt?: boolean } = {}) {
   return {
     run,
     calls,
+    sent,
+    servers,
     labels,
     state,
     panes,
     workspaces,
     // A workspace herdr already has, as another session would have left it.
-    addWorkspace: (label: string) => {
+    addWorkspace: (label: string, server: string = BG) => {
       const ws = `ws${++seq}`
       workspaces.add(ws)
       workspaceLabels.set(ws, label)
+      workspaceServer.set(ws, server)
       return ws
     },
     print: (id: string, ...lines: string[]) => panes.get(id)?.lines.push(...lines),

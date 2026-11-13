@@ -286,10 +286,25 @@ the kit's `ReopenBand` on terminal and desktop, today's band on the others.
 - Unfocused look: two steps lighter than the gate-form spike (plain text
   `#b8b8b8`, dim `#808080`, every muted colour and fill raised to match).
   Kit-wide.
-- herdr runs (a behaviour change, Matt's call to fold it in): every session's
-  runs share one "Human Todos" herdr workspace. Lookup order: the stored id,
-  then a workspace labelled "Human Todos", then create one. Tabs are labelled
-  `<repo> #<id> <title>` with the session's repo, so sessions stay apart.
+- herdr runs (a behaviour change, Matt's call to fold it in): runs go to a
+  herdr server no one has on screen, so no workspace or tab of a run appears
+  in the herdr Matt sees.
+  - The server: `mattstack-bg` when `herdr session list` shows it running;
+    otherwise the plugin's own `human-todos`, started detached
+    (`herdr --session human-todos server`) and waited for, bounded. Neither
+    is ever stopped or deleted by the plugin, and `default` is never touched.
+  - Every command aimed at a server drops `HERDR_SOCKET_PATH` and sets
+    `HERDR_SESSION`: Claude Code runs in a visible herdr pane, and that
+    variable outranks `HERDR_SESSION`.
+  - `/todos-runner`: `auto` takes the order above, then the local runner;
+    `herdr` has no fallback and says so; `local` stays local.
+  - On the chosen server every session's runs share one "Human Todos"
+    workspace. Lookup order: the stored id (kept with its server's name),
+    then a workspace labelled "Human Todos", then create one. Tabs are
+    labelled `<repo> #<id> <title>` with the session's repo.
+  - Show cannot bring a hidden tab forward: it writes the pane's output to a
+    log and opens it, as Open log does. `herdr session attach <name>` watches
+    a run live.
 - Left as is (Matt's call): each report of a to-do action still starts a
   Claude turn. herdr Force stop only re-sends Ctrl-C (RT-571).
 

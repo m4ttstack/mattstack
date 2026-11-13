@@ -155,8 +155,8 @@ test('a note draws under the detail', async ($, on) => {
 
 test('a running item draws the live tail, a spinner frame and its own buttons', async ($, on) => {
   await seeded($, on, [
-    todo({ id: '1', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1', liveTail: ['a', 'b', 'c', 'd'] }),
-    todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1', isStopping: true }),
+    todo({ id: '1', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 't', paneId: 'p1', liveTail: ['a', 'b', 'c', 'd'] }),
+    todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 't', paneId: 'p1', isStopping: true }),
   ])
   const pane = await $.ui.mount({ ...PANE, surface: 'vscode' })
   const rows = await texts(pane)
@@ -220,7 +220,7 @@ test('the band counts open and confirming items and yields to an open pane', asy
 })
 
 test('a band with only finished or running items draws nothing', async ($, on) => {
-  await seeded($, on, [todo({ id: '1', status: 'done' }), todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', token: 't', paneId: 'p1' })])
+  await seeded($, on, [todo({ id: '1', status: 'done' }), todo({ id: '2', kind: 'run', script: 'ls', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 't', paneId: 'p1' })])
   const band = await $.ui.mount({ ...BAND, surface: 'vscode' })
 
   expect(await band.find({ key: 'open-pane' })).toBeUndefined()

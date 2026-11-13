@@ -182,7 +182,7 @@ for (const surface of SURFACES) {
   })
 
   test(`at 30 columns every kind and status fits, every button label whole (${surface})`, async ($, on) => {
-    const running = { kind: 'run' as const, script: 'make deploy', status: 'running' as const, runner: 'herdr' as const, token: 't', paneId: 'p1' }
+    const running = { kind: 'run' as const, script: 'make deploy', status: 'running' as const, runner: 'herdr' as const, herdrSession: 'mattstack-bg', token: 't', paneId: 'p1' }
     await seeded($, on, [
       todo({ id: '1', ...running, title: 'Running one', liveTail: ['line a', 'line b'] }),
       todo({ id: '2', ...running, title: 'Stopping one', isStopping: true }),

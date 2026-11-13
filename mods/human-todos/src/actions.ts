@@ -4,27 +4,25 @@ import type { Todo } from '../types'
 import type { ButtonId } from './items'
 import { fileName, isImageName } from './items'
 import { report } from './report'
-import { cleanupHerdr, releaseHerdr } from './herdr'
+import { cleanupHerdr, herdrSession, releaseHerdr } from './herdr'
 import { releaseLocal } from './local'
 import { cleanupRun, forceStopRun, showRun, startRun, stopRun } from './runners'
 import { syncSpinner } from './spinner'
 import { getRunnerPref, listTodos, patchTodo, setRunnerPref } from './store'
 
-const HERDR_PROBE_MS = 15_000
-
 // Two presses read the item before either has marked it running, so the check and the add share one synchronous step.
 const confirmingIds = new Set<string>()
 
-export async function chooseRunner($: EngineInterface): Promise<'herdr' | 'local'> {
+type Chosen = { runner: 'local' } | { runner: 'herdr'; session: string }
+
+// `auto` runs on a herdr server when one is up or the plugin can start its own, else in Claude Code; a pinned `herdr`
+// has no fallback, so it is null when no server can be had.
+export async function chooseRunner($: EngineInterface): Promise<Chosen | null> {
   const pref = await getRunnerPref($)
-  if (pref !== 'auto') return pref
-  if (!(await $.env.get('HERDR_SOCKET_PATH'))) return 'local'
-  try {
-    const probe = await $.process.run(['/bin/zsh', '-lc', 'herdr workspace list'], { timeoutMs: HERDR_PROBE_MS })
-    return probe.exitCode === 0 ? 'herdr' : 'local'
-  } catch {
-    return 'local'
-  }
+  if (pref === 'local') return { runner: 'local' }
+  const session = await herdrSession($)
+  if (session) return { runner: 'herdr', session }
+  return pref === 'herdr' ? null : { runner: 'local' }
 }
 
 // Never rejects: it runs detached, and the item must not be left running with nothing behind it.
@@ -52,11 +50,19 @@ async function confirm($: EngineInterface, todo: Todo): Promise<void> {
   const fresh = { runner: undefined, liveTail: [], isStopping: false, note: undefined, exitCode: undefined, outputTail: undefined }
   await patchTodo($, todo.id, { ...fresh, status: 'running' })
   await syncSpinner($)
-  const runner = await chooseRunner($)
+  const chosen = await chooseRunner($)
   const still = (await listTodos($)).find(t => t.id === todo.id)
   if (still?.status !== 'running') return
-  await patchTodo($, todo.id, { runner })
-  void launch($, { ...still, runner })
+  if (!chosen) {
+    await patchTodo($, todo.id, { status: 'open', liveTail: undefined, note: 'herdr is not running' })
+    await syncSpinner($)
+    $.ui.toast(`herdr is not running and could not be started, so #${todo.id} did not run`)
+    return
+  }
+  // A local run keeps the server of a tab the item once had on herdr, so clearing it can still close that tab.
+  const where = chosen.runner === 'herdr' ? { runner: chosen.runner, herdrSession: chosen.session } : { runner: chosen.runner }
+  await patchTodo($, todo.id, where)
+  void launch($, { ...still, ...where })
 }
 
 async function stop($: EngineInterface, todo: Todo): Promise<void> {

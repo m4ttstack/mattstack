@@ -1,8 +1,8 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
-import { SESSION, herdrFake, press, startSession, words, world } from './test-world'
+import { BG, OWN, SESSION, herdrFake, press, startSession, words, world } from './test-world'
 
 type On = Parameters<typeof world>[0]
 
@@ -22,9 +22,17 @@ const wrapperFor = (token: string, script: string) =>
   `zsh -c 'trap : INT; zsh -lc "$1"; printf "\\n__todo_exit_${token} %s\\n" $?' todo '${script.replace(/'/g, `'\\''`)}'`
 
 // `gitDir` is what git answers for the session folder's shared git dir; left out, the folder is not in a git repo.
-async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; session?: boolean; gitDir?: string } = {}) {
+// `servers` are the herdr sessions running beside the visible one (mattstack's background server by default).
+async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; session?: boolean; gitDir?: string; servers?: Record<string, boolean> } = {}) {
   const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
-  const fake = herdrFake({ hasRt: opts.hasRt ?? true })
+  const fake = herdrFake({ hasRt: opts.hasRt ?? true, ...(opts.servers && { servers: opts.servers }) })
+  mock.env(on, { HOME: '/home/u' })
+  const written = new Map<string, string>()
+  on('fs.write', (_, e) => {
+    written.set(e.path, e.text)
+    return { value: undefined }
+  })
+  const opened: string[][] = []
   const toasts: string[] = []
   const ran: string[][] = []
   on('ui.toast', (_, e) => {
@@ -41,6 +49,11 @@ async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; 
       const answer = opts.gitDir ? { exitCode: 0, stdout: `${opts.gitDir}\n`, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' }
       return { value: { ...answer, isStdoutTruncated: false, isStderrTruncated: false } }
     }
+    if (e.argv[0] === 'open') {
+      opened.push([...e.argv])
+      return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (e.argv[0] === 'rm') return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     const reply = fake.run(e.argv.at(-1) ?? '')
     if (!reply) return { deny: `unexpected command ${e.argv.join(' ')}` }
     return { value: { ...reply, isStdoutTruncated: false, isStderrTruncated: false } }
@@ -57,7 +70,7 @@ async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; 
   const items = () => (w.store.get(`list:${SESSION}`) as { todos: Todo[] }).todos
   const item = (id: string) => items().find(t => t.id === id)
   const tokenOf = (id: string) => item(id)?.token ?? ''
-  return { ...w, fake, pane, toasts, ran, gitAsked, run1, item, tokenOf }
+  return { ...w, fake, pane, toasts, ran, gitAsked, written, opened, run1, item, tokenOf }
 }
 
 test('the first run creates a background workspace and names its tab; the second adds a tab to it', async ($, on) => {
@@ -366,41 +379,87 @@ test('a Stop that herdr refuses puts the button back and says so', async ($, on)
   expect(sent).toEqual([])
 })
 
-test('Show focuses the workspace and the tab, then the pane through rt when rt exists', async ($, on) => {
-  const { run1, fake, item, pane } = await seeded($, on, [todo({})])
+test("Show writes what the run's pane shows to a log and opens it, and clearing the item removes the log", async ($, on) => {
+  const { run1, fake, item, pane, written, opened, ran, toasts } = await seeded($, on, [todo({})])
   await run1('1')
-  const ws = [...fake.workspaces][0]
+  fake.print(item('1')!.paneId!, 'compiling', 'linked')
 
   await press(pane, '1', 'show')
 
-  expect(fake.calls.slice(-4)).toEqual([
-    `herdr workspace focus '${ws}'`,
-    `herdr tab focus '${item('1')?.tabId}'`,
-    'command -v rt',
-    `rt pane focus '${item('1')?.paneId}'`,
-  ])
-})
-
-test('Show without rt still focuses the tab and never calls rt', async ($, on) => {
-  const { run1, fake, pane, toasts } = await seeded($, on, [todo({})], { hasRt: false })
-  await run1('1')
-
-  await press(pane, '1', 'show')
-
-  expect(fake.ran('herdr tab focus')).toHaveLength(1)
-  expect(fake.ran('rt ')).toEqual([])
+  const log = '/home/u/Library/Caches/human-todos/sess-1-1-herdr.log'
+  expect(written.get(log)).toContain('linked')
+  expect(opened).toEqual([['open', '-t', log]])
+  expect(item('1')?.logPath).toBe(log)
+  expect(fake.ran('herdr tab focus')).toEqual([])
+  expect(fake.ran('herdr workspace focus')).toEqual([])
   expect(toasts).toEqual([])
+
+  await $.tool.call({ tool: WITHDRAW, id: '1' })
+  expect(ran).toContainEqual(['rm', '-f', '--', log])
 })
 
-test('Show on a tab herdr cannot focus says so', async ($, on) => {
-  const { run1, fake, pane, toasts } = await seeded($, on, [todo({})])
+test('Show on a pane herdr cannot read says so and opens nothing', async ($, on) => {
+  const { run1, fake, pane, toasts, opened } = await seeded($, on, [todo({})])
   await run1('1')
   const real = fake.run
-  fake.run = c => (c.startsWith('herdr tab focus') ? { exitCode: 1, stdout: '', stderr: '' } : real(c))
+  fake.run = c => (c.includes('herdr pane read') ? { exitCode: 1, stdout: '', stderr: '' } : real(c))
 
   await press(pane, '1', 'show')
 
-  expect(toasts).toEqual(['Could not bring that tab forward'])
+  expect(toasts).toEqual(['Could not show the output of #1'])
+  expect(opened).toEqual([])
+})
+
+test("every command for a run names mattstack's background server and drops HERDR_SOCKET_PATH, and none goes to the visible one", async ($, on) => {
+  const { run1, fake, item, pane } = await seeded($, on, [todo({})])
+  await run1('1')
+  await press(pane, '1', 'show')
+  await press(pane, '1', 'stop')
+
+  expect(item('1')?.herdrSession).toBe(BG)
+  const aimed = fake.sent.filter(s => !s.command.startsWith('herdr session list'))
+  expect(aimed.length).toBeGreaterThan(5)
+  for (const s of aimed) expect(s, s.command).toMatchObject({ dropsSocket: true, session: BG })
+  expect(fake.sent.filter(s => s.command.startsWith('herdr session list')).every(s => s.dropsSocket)).toBe(true)
+  expect(fake.sent.some(s => s.session === 'default')).toBe(false)
+})
+
+test("with the background server down, the plugin starts its own detached, runs there, and never stops or deletes a server", async ($, on) => {
+  const { run1, fake, item } = await seeded($, on, [todo({})], { servers: {} })
+  await run1('1')
+
+  expect(fake.ran('nohup herdr --session')).toEqual([`nohup herdr --session '${OWN}' server >/dev/null 2>&1 </dev/null &!`])
+  expect(fake.sent.find(s => s.command.startsWith('nohup'))).toMatchObject({ dropsSocket: true, session: OWN })
+  expect(fake.servers.get(OWN)).toBe(true)
+  expect(item('1')).toMatchObject({ status: 'running', herdrSession: OWN })
+  expect(fake.sent.filter(s => s.command.startsWith('herdr pane run')).map(s => s.session)).toEqual([OWN])
+  expect(fake.calls.some(c => /herdr session (stop|delete)/.test(c))).toBe(false)
+})
+
+test('a run already on a server stays on it: Stop goes there even after the background server came up', async ($, on) => {
+  const { run1, fake, item, pane } = await seeded($, on, [todo({})], { servers: {} })
+  await run1('1')
+  fake.servers.set(BG, true)
+
+  await press(pane, '1', 'stop')
+
+  expect(item('1')?.herdrSession).toBe(OWN)
+  expect(fake.sent.filter(s => s.command.startsWith('herdr pane send-keys')).map(s => s.session)).toEqual([OWN])
+})
+
+test("the shared workspace's id is kept with its server: after a switch each server uses its own Human Todos workspace", async ($, on) => {
+  const { run1, fake } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2' }), todo({ id: '3' })])
+  await run1('1')
+  fake.servers.set(BG, false)
+  await run1('2')
+  fake.servers.set(BG, true)
+  await run1('3')
+
+  const creates = fake.sent.filter(s => s.command.startsWith('herdr workspace create'))
+  expect(creates.map(s => s.session)).toEqual([BG, OWN])
+  const tabs = fake.sent.filter(s => s.command.startsWith('herdr tab create'))
+  expect(tabs.map(s => s.session)).toEqual([BG])
+  expect(tabs[0]?.command).toContain(`--workspace '${[...fake.workspaces][0]}'`)
 })
 
 test('withdrawing a running item closes its tab, stops its poller and reports nothing', async ($, on) => {
@@ -517,8 +576,8 @@ test('a session that starts with a running herdr item watches it again', async (
     entries: {
       [`list:${SESSION}`]: {
         todos: [
-          todo({ id: '1', status: 'running', runner: 'herdr', token: 'abc123', paneId: 'pane1', tabId: 'tab1' }),
-          todo({ id: '2', status: 'running', runner: 'herdr', token: 'def456', paneId: 'pane2', tabId: 'tab2' }),
+          todo({ id: '1', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'abc123', paneId: 'pane1', tabId: 'tab1' }),
+          todo({ id: '2', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'def456', paneId: 'pane2', tabId: 'tab2' }),
         ],
         nextId: 3,
         savedAt: 1_000_000,
@@ -547,7 +606,7 @@ test('an in-session /resume into a session with a running herdr item watches it 
   const w = world(on, {
     entries: {
       'list:sess-2': {
-        todos: [todo({ id: '1', status: 'running', runner: 'herdr', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
+        todos: [todo({ id: '1', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
         nextId: 2,
         savedAt: 1_000_000,
       },
@@ -574,7 +633,7 @@ test('a resumed herdr item can still be stopped', async ($, on) => {
   const w = world(on, {
     entries: {
       [`list:${SESSION}`]: {
-        todos: [todo({ id: '1', status: 'running', runner: 'herdr', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
+        todos: [todo({ id: '1', status: 'running', runner: 'herdr', herdrSession: 'mattstack-bg', token: 'abc123', paneId: 'pane1', tabId: 'tab1' })],
         nextId: 2,
         savedAt: 1_000_000,
       },
