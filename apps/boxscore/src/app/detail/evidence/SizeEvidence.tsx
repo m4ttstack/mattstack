@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { formatNumber } from '../../../shared/metrics';
 import type { EvidenceRow } from '../../../shared/types';
+import { useForgeText } from '../../forge/forge';
 import { sizeBins } from '../../model/evidence-shapes';
 import { BinHistogram, type HistBin } from './BinHistogram';
 import classes from './evidence.module.css';
@@ -16,6 +17,7 @@ const iid = (r: EvidenceRow): number =>
   Number((r.cells[0] ?? '').replace(/[^0-9]/g, '')) || 0;
 
 export function SizeEvidence({ ev }: EvidenceProps) {
+  const t = useForgeText();
   const [all, setAll] = useState(false);
   const bins = useMemo<HistBin[]>(
     () =>
@@ -62,7 +64,7 @@ export function SizeEvidence({ ev }: EvidenceProps) {
         right="newest first"
       />
       {shown.length === 0 && (
-        <EmptyEvidence message="Every merged MR is inside the band" />
+        <EmptyEvidence message={t('Every merged MR is inside the band')} />
       )}
       {shown.map(row => (
         <div

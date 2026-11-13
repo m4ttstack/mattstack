@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
+import { changeRef } from '../../../shared/forge';
 import { formatNumber } from '../../../shared/metrics';
 import type { EvidenceRow } from '../../../shared/types';
+import { useForge, useForgeText } from '../../forge/forge';
 import { dayLabel } from '../../model/labels';
 import { Glyph } from '../../ui/Glyph';
 import classes from './evidence.module.css';
@@ -50,6 +52,7 @@ function RevertRow({ row }: { row: EvidenceRow }) {
 }
 
 function ZeroState({ checked }: { checked: number }) {
+  const t = useForgeText();
   return (
     <div className={panels.zeroState} data-parity="Zero State">
       <span
@@ -65,11 +68,12 @@ function ZeroState({ checked }: { checked: number }) {
         />
       </span>
       <span className={`${classes.t} ${panels.zeroTitle}`} data-parity="zt">
-        {`No reverts across ${formatNumber(checked)} merged MRs`}
+        {t(`No reverts across ${formatNumber(checked)} merged MRs`)}
       </span>
       <span className={`${classes.t} ${panels.zeroSub}`} data-parity="zs">
-        A reverted MR shows here with the MR that reverted it and how long it
-        lived.
+        {t(
+          'A reverted MR shows here with the MR that reverted it and how long it lived.'
+        )}
       </span>
     </div>
   );
@@ -94,6 +98,8 @@ function CheckedRow({ row }: { row: EvidenceRow }) {
 }
 
 export function RevertEvidence({ ev }: EvidenceProps) {
+  const t = useForgeText();
+  const forge = useForge();
   const [open, setOpen] = useState(false);
   if (ev.rows.length === 0) return <EmptyEvidence />;
   const checked = ev.facts?.checked ?? ev.rows.length;
@@ -113,15 +119,15 @@ export function RevertEvidence({ ev }: EvidenceProps) {
               className={`${classes.t} ${classes.num} ${classes.id} ${classes.idCol}`}
               data-parity="id"
             >
-              !45xxx
+              {`${changeRef(forge, 45)}xxx`}
             </span>
             <span
               className={`${classes.t} ${panels.rowTitle} ${panels.exampleTitle}`}
               data-parity="t"
             >
-              Title of the reverted MR
+              {t('Title of the reverted MR')}
             </span>
-            <RevertBadge by="!45yyy" lived="2d" />
+            <RevertBadge by={`${changeRef(forge, 45)}yyy`} lived="2d" />
           </div>
         </>
       ) : (
@@ -142,7 +148,7 @@ export function RevertEvidence({ ev }: EvidenceProps) {
       )}
       <div className={classes.evFooter} data-parity="Ev Footer">
         <span className={`${classes.t} ${classes.count}`} data-parity="c">
-          {`${formatNumber(checked)} merged MRs checked`}
+          {t(`${formatNumber(checked)} merged MRs checked`)}
         </span>
         <button
           type="button"
@@ -153,7 +159,7 @@ export function RevertEvidence({ ev }: EvidenceProps) {
             className={`${classes.t} ${classes.showAllLabel}`}
             data-parity="sa"
           >
-            {open ? 'Hide checked MRs' : 'Show checked MRs'}
+            {t(open ? 'Hide checked MRs' : 'Show checked MRs')}
           </span>
         </button>
       </div>

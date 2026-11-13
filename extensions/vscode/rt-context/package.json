@@ -50,6 +50,14 @@
         "title": "RT Context: Reset Workspace File Preference"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "rtContext.setGitlabToken",
+          "when": "rtContext.forge != 'github'"
+        }
+      ]
+    },
     "configuration": {
       "title": "RT Context",
       "properties": {

@@ -462,7 +462,7 @@ test("join-status answers waiting, then approved, and no-join before this Mac jo
   expect((await run("create-happy", ["setup", "join-status", "--json"], "", creatorDir)).lines[0].state).toBe("approved");
 });
 
-const FORM_KEYS = ["path", "team", "stage", "sections", "continueReady", "startReady", "start", "paused", "home"].sort();
+const FORM_KEYS = ["path", "team", "stage", "sections", "continueReady", "continueNote", "startReady", "start", "paused", "home"].sort();
 const ROW_KEYS = ["id", "title", "subtext", "state", "detail", "action", "waiting", "watch", "optional"].sort();
 type StubAction = {
   type: string; label?: string; verb?: string[]; url?: string; target?: string; which?: string; integration?: string;

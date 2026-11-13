@@ -724,6 +724,7 @@ export function Board() {
     started: 'doctor called on the conflicts',
     noun: 'rebase',
     claims: 'syncing',
+    drawerShowsProgress: true,
     optimistic: optimisticLifecycle,
     addToast,
     startToast,

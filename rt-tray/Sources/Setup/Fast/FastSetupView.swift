@@ -143,7 +143,7 @@ struct FastSetupView: View {
         case .connect:
             let read = form.read(carrying: "connect")
             ConnectScreenBody(teamFirst: teamPath, rows: form.rows(for: "connect") ?? [],
-                              waiting: actions.waiting, errors: actions.errors, continueReady: read?.continueReady ?? false,
+                              waiting: actions.waiting, errors: actions.errors, continueReady: read?.continueReady ?? false, continueNote: read?.continueNote,
                               onAction: perform, onBack: back, onContinue: { flow.continueToThisMac() })
         case .thisMac:
             let read = form.read(carrying: "this-mac")

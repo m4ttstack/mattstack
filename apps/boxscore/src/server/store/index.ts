@@ -188,6 +188,48 @@ function buildStore() {
     return recorded === undefined || recorded === hostOf(baseUrl);
   };
 
+  const selectIdentities = (
+    usernames: readonly string[],
+    collate: string
+  ): StoredIdentity[] => {
+    if (usernames.length === 0) return [];
+    const rows = db
+      .query(
+        `SELECT * FROM identities WHERE username${collate} IN ${placeholders(usernames.length)}`
+      )
+      .all(...usernames) as {
+      username: string;
+      name: string | null;
+      resolved: number;
+      user_id: number | null;
+      fetched_at: string;
+    }[];
+    return rows.map(r => ({
+      username: r.username,
+      name: r.name,
+      resolved: r.resolved === 1,
+      userId: r.user_id,
+      fetchedAt: r.fetched_at,
+    }));
+  };
+
+  const freshMetricsKeys = (
+    keys: readonly string[],
+    mergedOnly: boolean
+  ): Set<string> => {
+    if (keys.length === 0) return new Set();
+    const rows = db
+      .query(
+        `SELECT mi.key as key FROM mr_index mi
+         JOIN mr_metrics mm ON mm.key = mi.key
+         WHERE mi.key IN ${placeholders(keys.length)}${mergedOnly ? " AND mi.state = 'merged'" : ''}
+           AND mm.metrics_updated_at IS NOT NULL
+           AND mm.metrics_updated_at >= mi.updated_at`
+      )
+      .all(...keys) as { key: string }[];
+    return new Set(rows.map(r => r.key));
+  };
+
   const stmtUpsertIndex = db.query(
     `INSERT OR REPLACE INTO mr_index
       (key, project_path, iid, title, state, created_at, updated_at, merged_at, author_username, source_branch, labels, scanned_at)
@@ -346,17 +388,12 @@ function buildStore() {
      * fetched; a null stamp counts as stale for the same reason.
      */
     freshMergedMetricsKeys(keys: readonly string[]): Set<string> {
-      if (keys.length === 0) return new Set();
-      const rows = db
-        .query(
-          `SELECT mi.key as key FROM mr_index mi
-           JOIN mr_metrics mm ON mm.key = mi.key
-           WHERE mi.key IN ${placeholders(keys.length)} AND mi.state = 'merged'
-             AND mm.metrics_updated_at IS NOT NULL
-             AND mm.metrics_updated_at >= mi.updated_at`
-        )
-        .all(...keys) as { key: string }[];
-      return new Set(rows.map(r => r.key));
+      return freshMetricsKeys(keys, true);
+    },
+
+    /** Like freshMergedMetricsKeys, whatever the row's state. */
+    freshMetricsKeysAnyState(keys: readonly string[]): Set<string> {
+      return freshMetricsKeys(keys, false);
     },
 
     metricsByKeys(keys: readonly string[]): StoredMetrics[] {
@@ -514,25 +551,12 @@ function buildStore() {
       tx(rows);
     },
     identities(usernames: readonly string[]): StoredIdentity[] {
-      if (usernames.length === 0) return [];
-      const rows = db
-        .query(
-          `SELECT * FROM identities WHERE username IN ${placeholders(usernames.length)}`
-        )
-        .all(...usernames) as {
-        username: string;
-        name: string | null;
-        resolved: number;
-        user_id: number | null;
-        fetched_at: string;
-      }[];
-      return rows.map(r => ({
-        username: r.username,
-        name: r.name,
-        resolved: r.resolved === 1,
-        userId: r.user_id,
-        fetchedAt: r.fetched_at,
-      }));
+      return selectIdentities(usernames, '');
+    },
+
+    /** Like identities, but a stored username matches whatever its case. */
+    identitiesIgnoringCase(usernames: readonly string[]): StoredIdentity[] {
+      return selectIdentities(usernames, ' COLLATE NOCASE');
     },
 
     counts(): {

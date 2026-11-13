@@ -229,6 +229,12 @@ let formModelsChecks: [Check] = [
         c.expectEqual(await m.rows(for: "tools"), [], "an empty section is rows, not a missing read")
         c.expectEqual(await m.read(carrying: "tools")?.tools?.heading, "You're all set")
     },
+    Check("SetupForm: continueNote decodes, and an rt older than it reads nil") { c in
+        let note = #""continueReady":false,"continueNote":"Anything marked Optional can wait","#
+        let form = try decodeForm(wholeFormJSON.replacingOccurrences(of: #""continueReady":false,"#, with: note))
+        c.expectEqual(form.continueNote, "Anything marked Optional can wait")
+        c.expectEqual(try decodeForm(wholeFormJSON).continueNote, nil)
+    },
     Check("SetupForm: a whole read's orgNotice decodes and outlives a section read") { c in
         let notice = #""orgNotice":{"title":"Your org's setup file has an error. Ask an admin to fix it","detail":"tools[1] is malformed"},"continueReady":false,"#
         let whole = wholeFormJSON.replacingOccurrences(of: #""continueReady":false,"#, with: notice)

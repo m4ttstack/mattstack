@@ -7235,6 +7235,9 @@ a.tui-id-card-ref:focus-visible {
 .tui-ask-state {
   min-width: 0;
 }
+.tui-ask-where .tui-cloud-spin {
+  margin-right: 0;
+}
 /* The click target for the trail: the band's left side, bare until hovered. */
 .tui-ask-trigger {
   display: inline-flex;

@@ -9,11 +9,21 @@ import type { FetchResult, NormMr, UserIdentity } from './model.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function toNormMr(row: IndexRow, metrics: StoredMetrics | undefined): NormMr {
+/** Maps a stored login to the spelling the roster compares against. */
+export type LoginCanon = (login: string) => string;
+
+const canonOrNull = (canon: LoginCanon, login: string | null): string | null =>
+  login === null ? null : canon(login);
+
+function toNormMr(
+  row: IndexRow,
+  metrics: StoredMetrics | undefined,
+  canon: LoginCanon
+): NormMr {
   return {
     iid: row.iid,
     projectPath: row.projectPath,
-    authorUsername: row.authorUsername,
+    authorUsername: canonOrNull(canon, row.authorUsername),
     state: row.state,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -28,8 +38,11 @@ function toNormMr(row: IndexRow, metrics: StoredMetrics | undefined): NormMr {
     additions: metrics?.diffStats?.additions ?? 0,
     deletions: metrics?.diffStats?.deletions ?? 0,
     fileCount: metrics?.diffStats?.filesChanged ?? 0,
-    approvedByUsernames: metrics?.approvedByUsernames ?? [],
-    notes: metrics?.notes ?? [],
+    approvedByUsernames: (metrics?.approvedByUsernames ?? []).map(canon),
+    notes: (metrics?.notes ?? []).map(n => ({
+      ...n,
+      authorUsername: canonOrNull(canon, n.authorUsername),
+    })),
     diffStats: metrics?.fileStats ?? [],
   };
 }
@@ -41,12 +54,17 @@ function toNormMr(row: IndexRow, metrics: StoredMetrics | undefined): NormMr {
  * `updatedAt` is bounded on both sides (inclusive), matching sliceOutcome's departure from
  * a live fetch's open-ended lower bound: without an upper bound this query would surface
  * MRs updated during a later window, which then leaks into revert detection for this one.
+ *
+ * `canon` rewrites every stored login before it meets the roster; without it (GitLab)
+ * stored logins pass through unchanged.
  */
 export function buildFetchResult(
   store: Store,
   window: TimeWindow,
-  roster: readonly string[]
+  roster: readonly string[],
+  canon?: LoginCanon
 ): FetchResult {
+  const toRoster: LoginCanon = canon ?? (login => login);
   const start = Date.parse(window.start);
   const end = Date.parse(window.end);
   const rosterSet = new Set(roster);
@@ -57,30 +75,45 @@ export function buildFetchResult(
     store.metricsByKeys(keys).map(m => [mrKey(m.projectPath, m.iid), m])
   );
   const mrs = indexRows.map(row =>
-    toNormMr(row, metricsByKey.get(mrKey(row.projectPath, row.iid)))
+    toNormMr(row, metricsByKey.get(mrKey(row.projectPath, row.iid)), toRoster)
   );
 
   const pipelines = store
     .pipelinesBetween(window.start, window.end)
-    .filter(p => rosterSet.has(p.username ?? ''))
     .map(p => ({
       projectPath: p.projectPath,
-      username: p.username,
+      username: canonOrNull(toRoster, p.username),
       status: p.status,
       createdAt: p.createdAt,
-    }));
+    }))
+    .filter(p => rosterSet.has(p.username ?? ''));
 
   // Widened by a day on each side, mirroring slice.ts:31-34's mirror of the live fetch's
   // push-event bound.
   const padStart = new Date(start - DAY_MS).toISOString();
   const padEnd = new Date(end + DAY_MS).toISOString();
+  // Push rows key on the stored spelling, so the canon can fold two rows for one commit
+  // onto a single user; those count once.
+  const seenPushes = new Set<string>();
   const pushEvents = store
     .pushEventsBetween(padStart, padEnd)
-    .filter(e => rosterSet.has(e.username))
-    .map(e => ({ username: e.username, createdAt: e.createdAt }));
+    .filter(e => {
+      if (!canon) return true;
+      const key = `${canon(e.username)}:${e.createdAt}:${e.repositoryId ?? ''}`;
+      if (seenPushes.has(key)) return false;
+      seenPushes.add(key);
+      return true;
+    })
+    .map(e => ({ username: toRoster(e.username), createdAt: e.createdAt }))
+    .filter(e => rosterSet.has(e.username));
 
   // Issues are windowed downstream in cohorts.ts by closedAt, not here by MR linkage.
-  const linearIssues = store.allLinearIssues();
+  const linearIssues = canon
+    ? store.allLinearIssues().map(i => ({
+        ...i,
+        creditedUser: canonOrNull(canon, i.creditedUser),
+      }))
+    : store.allLinearIssues();
 
   // A tier-capability flag (does this GitLab tier expose approvals at all), not a
   // per-window content check. Parity with fetch.ts:68, which also hardcodes true:
@@ -90,22 +123,30 @@ export function buildFetchResult(
   return { mrs, pipelines, pushEvents, linearIssues, approvalsAvailable };
 }
 
-/** Identities for a roster, keyed by username. Usernames never stored are simply absent. */
+/**
+ * Identities for a roster, keyed by username. Usernames never stored are simply absent.
+ * With `canon`, a row stored under another case keys onto the roster spelling it maps to;
+ * a row stored under that exact spelling wins.
+ */
 export function storedIdentities(
   store: Store,
-  roster: readonly string[]
+  roster: readonly string[],
+  canon?: LoginCanon
 ): Record<string, UserIdentity> {
   const out: Record<string, UserIdentity> = {};
-  for (const r of store.identities(roster)) {
-    out[r.username] =
+  const rosterSet = new Set(roster);
+  const exact = new Set<string>();
+  const rows = canon
+    ? store.identitiesIgnoringCase(roster)
+    : store.identities(roster);
+  for (const r of rows) {
+    const username = canon ? canon(r.username) : r.username;
+    if (canon && (!rosterSet.has(username) || exact.has(username))) continue;
+    if (username === r.username) exact.add(username);
+    out[username] =
       r.userId == null
-        ? { username: r.username, name: r.name, resolved: r.resolved }
-        : {
-            username: r.username,
-            name: r.name,
-            resolved: r.resolved,
-            userId: r.userId,
-          };
+        ? { username, name: r.name, resolved: r.resolved }
+        : { username, name: r.name, resolved: r.resolved, userId: r.userId };
   }
   return out;
 }
