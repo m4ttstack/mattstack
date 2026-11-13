@@ -32,12 +32,12 @@ const credentialRefusal = (seg: string) => ({ ok: false as const, error: `"path"
 
 describe("checkGithubForgePath", () => {
   test("the refused segments are the spec's list, verbatim", () => {
-    expect(GITHUB_REFUSED_SEGMENTS).toHaveLength(21);
+    expect(GITHUB_REFUSED_SEGMENTS).toHaveLength(22);
     expect([...GITHUB_REFUSED_SEGMENTS]).toEqual([
       "secrets", "variables", "hooks", "keys", "deploy_keys", "installations", "tokens", "runners", "registration-token",
       "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
       "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables",
-      "security-advisories",
+      "security-advisories", "copilot",
     ]);
   });
 
@@ -258,6 +258,49 @@ describe("checkGithubForgePath fix round 1", () => {
     expect(checkGithubForgePath("repos/secrets/app/pulls", "secrets/app")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is secrets" });
     expect(checkGithubForgePath(":repo", "acme/hooks.io")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is hooks.io" });
     expect(checkGithubForgePath(":repo/oidc/x", "acme/actions")).toEqual(credentialRefusal("actions/oidc"));
+  });
+});
+
+describe("checkGithubForgePath on copilot routes", () => {
+  const refused = credentialRefusal("copilot");
+
+  test("refuses the cloud agent configuration and every other repo copilot route", () => {
+    for (const path of [
+      ":repo/copilot/cloud-agent/configuration", "repos/o/r/copilot/cloud-agent/configuration", ":repo/copilot",
+      ":repo/copilot/", ":repo/copilot/code-review/settings", ":repo/copilot/a/b/c/d", ":repo/copilot.json/x",
+    ]) {
+      expect(check(path), path).toEqual(refused);
+    }
+  });
+
+  test("refuses copilot hidden by case, a trailing slash or percent encoded letters", () => {
+    for (const path of [
+      ":repo/COPILOT/cloud-agent/configuration", ":repo/CoPilot/Cloud-Agent/Configuration/", ":repo/copilot/cloud-agent/configuration/",
+      ":repo/%63opilot/cloud-agent/configuration", ":repo/%43%4F%50%49%4C%4F%54/cloud-agent/configuration", ":repo/copilot%2Fcloud-agent%2Fconfiguration",
+    ]) {
+      expect(check(path), path).toEqual(refused);
+    }
+  });
+
+  test("a query string in the path is refused before any segment is read", () => {
+    expect(check(":repo/copilot/cloud-agent/configuration?x=1")).toEqual({ ok: false, error: '"path" must be a plain API path; pass query values in "query"' });
+  });
+
+  test("a word that only contains copilot is not refused, as for every other refused word", () => {
+    expect(check(":repo/contents/copilot-notes.md")).toEqual({ ok: true, path: "/repos/o/r/contents/copilot-notes.md" });
+    expect(check(":repo/contents/my-copilot")).toMatchObject({ ok: true });
+    expect(check(":repo/contents/docs/copilot.md")).toEqual(refused);
+    expect(checkGithubForgePath(":repo/pulls", "acme/copilot-notes")).toMatchObject({ ok: true });
+    expect(checkGithubForgePath(":repo/pulls", "acme/copilot")).toEqual({ ok: false, error: "gitlab_get cannot read a GitHub repo whose owner or name is copilot" });
+  });
+
+  test("a copilot route never reaches GitHub, with or without a query", async () => {
+    const { provider, paths } = restFake([]);
+    for (const path of [":repo/copilot/cloud-agent/configuration", ":repo/Copilot/", ":repo/%63opilot/code-review", ":repo/copilot?x=1"]) {
+      expect(await get(provider, { path }), path).toMatchObject({ ok: false });
+    }
+    expect(await get(provider, { path: ":repo/copilot/cloud-agent/configuration", query: { page: "1" } })).toEqual(refused);
+    expect(paths).toEqual([]);
   });
 });
 
