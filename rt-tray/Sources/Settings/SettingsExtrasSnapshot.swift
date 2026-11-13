@@ -26,13 +26,19 @@ enum SettingsExtrasSnapshot {
                 count += 1
             }
         }
-        for scheme in ["light", "dark"] {
-            let view = Form { Section("Accounts") { ForEach(soloAccountRows) { RowView(row: $0, isChecking: false, onAction: {}) } } }
-                .formStyle(.grouped)
-                .frame(width: 560, height: 320)
-            SnapshotRenderer.render(view, appearance: scheme == "dark" ? .darkAqua : .aqua,
-                                    to: out.appendingPathComponent("extras-accounts-solo-\(scheme).png"))
-            count += 1
+        let accounts: [(String, TeamInfo, [PlanRow], CGFloat)] = [
+            ("solo", TeamInfo(slug: "", name: "", mode: .noTeam), soloAccountRows, 320),
+            ("team", TeamInfo(slug: "acme", name: "Acme", mode: .join), teamAccountRows, 290),
+        ]
+        for (name, team, accountRows, height) in accounts {
+            for scheme in ["light", "dark"] {
+                let view = Form { Section("Accounts") { ForEach(accountRows) { RowView(row: $0, isChecking: false, team: team, onAction: {}) } } }
+                    .formStyle(.grouped)
+                    .frame(width: 560, height: height)
+                SnapshotRenderer.render(view, appearance: scheme == "dark" ? .darkAqua : .aqua,
+                                        to: out.appendingPathComponent("extras-accounts-\(name)-\(scheme).png"))
+                count += 1
+            }
         }
         print("wrote \(count) snapshots to \(out.path)")
         return true
@@ -89,6 +95,17 @@ enum SettingsExtrasSnapshot {
                 action: RowAction(type: .connect, label: "Connect", integration: "gitlab",
                                   fields: [ActionField(name: "token", label: "GitLab token", secret: true, hint: "api")]),
                 recheck: .onChange),
+    ]
+
+    /// A joined member's Mac before the owner makes the Slack app: `slackAppRow(false)` in lib/setup/validators/accounts.ts.
+    private static let teamAccountRows = [
+        PlanRow(id: "account.github", kind: .account, title: "GitHub",
+                why: "Lets rt open PRs, check CI status, and read repo metadata on GitHub.", required: true,
+                status: .ready, detail: "Connected as janedoe", recheck: .onChange),
+        PlanRow(id: "account.slack-app", kind: .account, title: "Slack app",
+                why: "Your team needs its own Slack app before anyone can connect Slack. One owner creates it once.", required: false,
+                optionalNote: "Works without this until the team's Slack app exists. Only the team's owner can create it; ask them, or re-check once it does.",
+                status: .missing, detail: "The team has no Slack app yet", recheck: .onChange),
     ]
 
     private static let slackConnect = RowAction(type: .oauth, label: "Connect", integration: "slack",

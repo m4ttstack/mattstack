@@ -12,6 +12,8 @@ public struct TeamInfo: Codable, Equatable, Sendable {
     public init(slug: String? = nil, name: String? = nil, mode: TeamMode) {
         self.slug = slug; self.name = name; self.mode = mode
     }
+    /// Mirrors `isSolo` in lib/setup/contract.ts.
+    public var isSolo: Bool { mode == .noTeam && (slug ?? "") == "" }
 }
 
 /// Unknown values decode as `.info` so one new kind from a newer rt
