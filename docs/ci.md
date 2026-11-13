@@ -17,14 +17,14 @@ own changes.
 | Workflow | Job | Runner | On a PR, runs when the diff touches |
 |---|---|---|---|
 | checks | `scope` | ubuntu | always |
-| checks | `static` | ubuntu | always (turbo's `--affected` narrows the apps gates) |
+| checks | `static` | ubuntu | always (turbo's `--affected` narrows the apps gates). Its four mods steps are "Mods are built" (`mods:build` leaves `plugins/` unchanged), `mods:typecheck`, `mods:test` and `mods:check-readme` |
 | checks | `unit` (1-3 shards) | ubuntu | anything left after the drop-outs below; `full` or `changed` mode |
 | checks | `unit-macos` | macOS (see [The Mac runner](#the-mac-runner)) | a `full` run, or a `changed` run that reaches a test on the Mac-only list (below) |
 | checks | `guards` | ubuntu | whenever `unit` is not `full`: runs the `no-*` guards |
 | checks | `go` | ubuntu | `ui/`, `package.json`, `checks.yml`, the scope script |
-| checks | `deck-macos` | macOS | `apps/deck/`, any non-docs file under `packages/` or at the repo root, `scripts/turbo.sh`, `checks.yml`, the scope script |
+| checks | `deck-macos` | macOS | `apps/deck/`, any non-docs file under `packages/` (but not `packages/mod-kit/`) or at the repo root, `scripts/turbo.sh`, `checks.yml`, the scope script |
 | checks | `website` | ubuntu | `sites/docs/`, the docs generators and checkers, `lib/command-tree-def.ts`, `checks.yml`, the scope script |
-| checks | `plugin-<name>` | per plugin | `plugins/<name>/`, the rt paths in `RT_PLUGIN_TRIGGERS`, `checks.yml`, the scope script |
+| checks | `plugin-<name>` | per plugin | `plugins/<name>/`, the rt paths in `RT_PLUGIN_TRIGGERS`, `checks.yml`, the scope script; for a mod, also `mods/<name>/` and `packages/mod-kit/` (every mod) |
 | e2e | `changes` | ubuntu | always |
 | e2e | `e2e-tests` | macOS | anything the compiled binary or the e2e run can reach (below) |
 | e2e | `glitter-pty` | macOS | the paths in `GLITTER_TRIGGERS` (the board's inputs, `e2e.yml`, the scope script) |
@@ -37,7 +37,7 @@ own changes.
 First, files in trees the shards never run drop out of the diff when no
 unit test reads them by path: docs (`docs/`, `.md` and `.mdx` outside
 `skills/`), the docs site (`sites/docs/`), `rt-tray/` outside the two unit
-directories, the apps and plugin trees, workflow files other than
+directories, the apps, plugin and mod trees (`mods/`, `packages/mod-kit/`), workflow files other than
 `checks.yml`, repo metadata (`.gitignore` and the like), and `e2e/` files no
 unit test imports. A snapshot (`__snapshots__/x.test.ts.snap`) drops out
 too, and its own test is added to the run. So does a file in those trees
@@ -212,7 +212,7 @@ here, since the process belongs to another user. Killing one needs Matt's
 
 `e2e-tests` compiles `cli.ts` and runs `e2e/` under the bunfig preload, so
 it runs only when the diff can reach those. A diff made only of these skips
-it: docs, `sites/docs/`, the apps trees, `plugins/`, `rt-tray/`, Go source
+it: docs, `sites/docs/`, the apps trees, `plugins/`, the mod trees, `rt-tray/`, Go source
 under `ui/`, workflow files other than `e2e.yml`, and rt TypeScript outside
 `packages/` that neither `cli.ts`, `e2e/` nor the preload imports (a unit
 test, a script). Workspace packages always count, since `cli.ts` reaches

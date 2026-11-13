@@ -55,6 +55,8 @@ export interface RecordHeaderProps {
   meta: string;
   title: string;
   outcome: RunOutcome | undefined;
+  /** The run's repo identity, for the forge's MR or PR marker. */
+  repo?: string;
   stats: RecordStat[];
   /** An abandoned run's quoted reason, under the card, when recorded. */
   abandoned?: string | null;
@@ -70,6 +72,7 @@ export function RecordHeader({
   meta,
   title,
   outcome,
+  repo,
   stats,
   abandoned = null,
   facts = [],
@@ -106,7 +109,7 @@ export function RecordHeader({
               title={title}
             />
             <Group gap={12} wrap="nowrap" align="center" flex="none">
-              {outcome ? <OutcomeBadge outcome={outcome} /> : null}
+              {outcome ? <OutcomeBadge outcome={outcome} repo={repo} /> : null}
               {cost && details === null ? <HeadCost stat={cost} /> : null}
               <Accordion.Control aria-label="Run details">
                 <Text span fz="sm" c="dimmed">

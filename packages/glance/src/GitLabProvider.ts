@@ -69,6 +69,7 @@ import type { FetchEvents, GitLabEvent } from './EventsPoller.ts';
 import { safeEmit, instrumentGitbeaker, type OnRequestHook, type RequestInfo } from './instrumentation.ts';
 import { RetryableError, asRetryable, isTransientStatus, retryAfterMs, withRetry } from './retry.ts';
 import { glanceRequesterFn } from './gitbeakerRequester.ts';
+import { fetchSameOrigin } from './sameOriginFetch.ts';
 import { throwIfGitLabRateLimited, withGitLabRateLimit } from './gitlabRateLimit.ts';
 
 export interface RequestIO {
@@ -366,23 +367,26 @@ function domainId(type: string, id: number | string): string {
   return `gitlab:${type}:${id}`;
 }
 
+/**
+ * An avatar URL that renders in an <img>: an instance-relative path is made
+ * absolute, and `private_token` is appended, since a private instance's
+ * uploads need it, but only when the URL is on the GitLab host's own origin.
+ * A user with no upload gets a gravatar URL, and the token must never go there.
+ */
+function gitlabAvatarUrl(avatarUrl: string | null, baseURL?: string, token?: string): string | null {
+  if (!avatarUrl) return avatarUrl;
+  const absolute = baseURL && avatarUrl.startsWith('/') ? `${baseURL}${avatarUrl}` : avatarUrl;
+  if (!token || !baseURL || !URL.canParse(absolute) || new URL(absolute).origin !== new URL(baseURL).origin) return absolute;
+  const sep = absolute.includes('?') ? '&' : '?';
+  return `${absolute}${sep}private_token=${token}`;
+}
+
 function toUserRef(u: GQLUser, baseURL?: string, token?: string): UserRef {
-  let avatarUrl = u.avatarUrl;
-  if (avatarUrl) {
-    // GitLab GraphQL returns relative avatar paths — make them absolute
-    if (baseURL && avatarUrl.startsWith('/')) {
-      avatarUrl = `${baseURL}${avatarUrl}`;
-    }
-    if (token) {
-      const sep = avatarUrl.includes('?') ? '&' : '?';
-      avatarUrl = `${avatarUrl}${sep}private_token=${token}`;
-    }
-  }
   return {
     id: `gitlab:user:${numericId(u.id)}`,
     username: u.username,
     name: u.name,
-    avatarUrl,
+    avatarUrl: gitlabAvatarUrl(u.avatarUrl, baseURL, token),
   };
 }
 
@@ -1022,21 +1026,8 @@ export class GitLabProvider implements GitProvider {
       id: `gitlab:user:${user.id}`,
       username: user.username,
       name: user.name,
-      avatarUrl: this.normalizeAvatarUrl(user.avatar_url),
+      avatarUrl: gitlabAvatarUrl(user.avatar_url, this.baseURL, this.token),
     };
-  }
-
-  /**
-   * GitLab avatar URLs on private instances need the caller's token to
-   * render, and self-hosted instances can return instance-relative paths.
-   * Absolute-izes and appends `private_token` so the URL works in an <img>
-   * exactly as `validateToken` has always returned it.
-   */
-  private normalizeAvatarUrl(avatarUrl: string | null): string | null {
-    if (!avatarUrl) return null;
-    const absolute = avatarUrl.startsWith('/') ? `${this.baseURL}${avatarUrl}` : avatarUrl;
-    const sep = absolute.includes('?') ? '&' : '?';
-    return `${absolute}${sep}private_token=${this.token}`;
   }
 
   async fetchUser(username: string): Promise<UserRef | null> {
@@ -1056,7 +1047,7 @@ export class GitLabProvider implements GitProvider {
       id: `gitlab:user:${user.id}`,
       username: user.username,
       name: user.name,
-      avatarUrl: this.normalizeAvatarUrl(user.avatar_url),
+      avatarUrl: gitlabAvatarUrl(user.avatar_url, this.baseURL, this.token),
     };
   }
 
@@ -2058,7 +2049,7 @@ export class GitLabProvider implements GitProvider {
       const started = performance.now();
       let res: Response;
       try {
-        res = await fetch(url, { method: 'GET', headers, signal });
+        res = await fetchSameOrigin(url, { method: 'GET', headers, signal });
       } catch (err) {
         throw asRetryable(err, io.signal);
       }
@@ -2126,7 +2117,7 @@ export class GitLabProvider implements GitProvider {
       const started = performance.now();
       let res: Response;
       try {
-        res = await fetch(url, { method, headers, body: bodyStr, signal, ...(io?.redirect ? { redirect: io.redirect } : {}) });
+        res = await fetchSameOrigin(url, { method, headers, body: bodyStr, signal, ...(io?.redirect ? { redirect: io.redirect } : {}) });
       } catch (err) {
         throw io ? asRetryable(err, io.signal) : err;
       }
@@ -2927,7 +2918,7 @@ export class GitLabProvider implements GitProvider {
       const started = performance.now();
       let res: Response;
       try {
-        res = await fetch(url, {
+        res = await fetchSameOrigin(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

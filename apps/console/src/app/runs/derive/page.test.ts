@@ -158,6 +158,50 @@ describe('mrFact', () => {
   });
 });
 
+describe('mrFact on GitHub', () => {
+  const gh = 'remote:github.com%2Facme%2Fweb';
+
+  it('names a work run’s PR by the repo', () => {
+    expect(
+      mrFact(
+        false,
+        run({ repo: gh }),
+        { iid: 409, webUrl: null, state: 'opened', pipeline: null },
+        null
+      )
+    ).toMatchObject({ label: 'PR · CI', value: '#409 opened' });
+    expect(mrFact(false, run({ repo: gh }), undefined, null).label).toBe(
+      'PR · CI'
+    );
+  });
+
+  it('says PR when the url carries no number', () => {
+    expect(
+      mrFact(false, run(), undefined, 'https://github.com/acme/web/pulls').value
+    ).toBe('PR');
+  });
+
+  it('names the reviewed PR by its url', () => {
+    expect(
+      mrFact(
+        true,
+        run({
+          outcome: {
+            status: 'running',
+            reviewed: {
+              iid: 412,
+              url: 'https://github.com/acme/web/pull/412',
+              posted: null,
+            },
+          },
+        }),
+        undefined,
+        null
+      )
+    ).toMatchObject({ label: 'Reviewed PR', value: '#412' });
+  });
+});
+
 describe('filePath', () => {
   it('keeps an absolute path and roots a relative one in the worktree', () => {
     expect(filePath('/a/b.md', null)).toBe('/a/b.md');
@@ -234,6 +278,21 @@ describe('runPageFacts', () => {
       ticketUrl: 'https://forge/412',
     });
     expect(facts.handoff?.id).toBe('post');
+    const github = runPageFacts(
+      input({
+        kind: 'review',
+        repo: 'remote:github.com%2Facme%2Fweb',
+        run: run({
+          work_type: 'review',
+          ticket: null,
+          outcome: {
+            status: 'running',
+            reviewed: { iid: 412, url: null, posted: null },
+          },
+        }),
+      })
+    );
+    expect(github.hero.ticket).toBe('#412');
     expect(facts.branch.sub).toBe("author's branch");
   });
 });

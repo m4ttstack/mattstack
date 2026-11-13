@@ -111,3 +111,16 @@ test("every team verb's --team that takes the org clone reads like rename's", ()
 test("rt check's agent cap outlasts the 900s timeout documented for mattstack's own check", () => {
   expect(TREE.check!.agentTimeoutMs).toBeGreaterThan(900_000);
 });
+
+test("rt ci copy names both forges' changes", () => {
+  const ci = TREE.ci!;
+  const texts: string[] = [];
+  const walk = (node: (typeof TREE)[string]): void => {
+    texts.push(node.description);
+    for (const arg of node.args ?? []) if (arg.name === "MR") texts.push(arg.hint ?? "");
+    for (const child of Object.values(node.subcommands ?? {})) walk(child);
+  };
+  walk(ci);
+  const mrOnly = texts.filter((t) => /\bMR\b/.test(t) && !/\bPR\b/.test(t));
+  expect(mrOnly).toEqual([]);
+});

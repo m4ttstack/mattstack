@@ -193,7 +193,7 @@ export function lintPackDir(dir: string, rules: readonly LintRule[], deps: LintD
 }
 
 export const SCRIPT_ONLY_RULES: LintRule[] = [
-  { id: "gh", pattern: /\bgh\s+(pr|api)\b/, tool: null, note: "GitHub has no MCP tool yet; listed so a script's forge calls stay visible", example: "gh pr view 3", source: "script" },
+  { id: "gh", pattern: /\bgh\s+(pr|api)\b/, tool: null, note: "the mr_* tools cover GitHub PRs, but a script cannot call them; listed so a script's forge calls stay visible", example: "gh pr view 3", source: "script" },
 ];
 
 const SCRIPT_EXTS = [".sh", ".py", ".ts"];

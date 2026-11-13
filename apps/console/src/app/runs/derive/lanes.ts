@@ -13,6 +13,7 @@ import {
   isWaiting,
 } from '../../../shared/gate-waiting';
 import { isHandoffGate, waitingHandoff } from '../../../shared/handoff';
+import { forgeOf, mrRefText, noMrYet } from '../../forgeNoun';
 import { formatDuration } from './duration';
 import { fieldLabel, storyFields } from './fields';
 import { gateStage } from './gates';
@@ -175,14 +176,16 @@ function attentionNote(run: RunSummary): string | null {
 function endingText(run: RunSummary): string | null {
   if (isStale(run)) return run.agent ? 'stale' : 'stale · no pane';
   const reviewed = run.outcome?.reviewed;
-  if (reviewed)
+  if (reviewed) {
+    const ref = mrRefText(forgeOf(reviewed.url, run.repo), reviewed.iid);
     return reviewed.posted
-      ? `reviewed !${reviewed.iid} · ${reviewed.posted}`
-      : `reviewed !${reviewed.iid}`;
+      ? `reviewed ${ref} · ${reviewed.posted}`
+      : `reviewed ${ref}`;
+  }
   if (run.status === 'abandoned' || run.status === 'failed') return run.status;
   const mr = run.outcome?.mr;
   if (mr && mr.state !== 'unknown')
-    return `!${mr.iid} ${mr.state === 'opened' ? 'open' : mr.state}`;
+    return `${mrRefText(forgeOf(mr.url, run.repo), mr.iid)} ${mr.state === 'opened' ? 'open' : mr.state}`;
   if (run.ended_at == null) return 'running';
   return null;
 }
@@ -244,14 +247,15 @@ export const fieldLine = (f: RunFieldRow) => `${fieldLabel(f.key)}: ${f.value}`;
     that a work run has none yet. Null when neither applies. */
 export function laneMrLine(run: RunSummary, kind: RunKind): string | null {
   const reviewed = run.outcome?.reviewed;
-  if (reviewed) return `reviewing !${reviewed.iid}`;
+  if (reviewed)
+    return `reviewing ${mrRefText(forgeOf(reviewed.url, run.repo), reviewed.iid)}`;
   const mr = run.outcome?.mr;
   if (mr && mr.state !== 'unknown') {
     const ci = ciLabel(run.outcome?.ci);
-    const head = `!${mr.iid} ${mr.state === 'opened' ? 'open' : mr.state}`;
+    const head = `${mrRefText(forgeOf(mr.url, run.repo), mr.iid)} ${mr.state === 'opened' ? 'open' : mr.state}`;
     return ci ? `${head} · ${ci}` : head;
   }
-  return kind === 'work' ? 'no MR yet' : null;
+  return kind === 'work' ? noMrYet(forgeOf(run.repo)) : null;
 }
 
 export interface LaneFacts {

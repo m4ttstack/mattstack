@@ -49,7 +49,7 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     func registerCategories() {
         let openMR = UNNotificationAction(
             identifier: "OPEN_MR",
-            title: "Open MR",
+            title: "Open MR or PR",
             options: .foreground
         )
 
