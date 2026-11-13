@@ -49,6 +49,67 @@ const rows = (model: AskPickerModel | null) =>
     g.slack ?? null,
   ]);
 
+describe('askPickerModel with a person owner', () => {
+  const ellie = (extra: object = {}) => ({
+    person: 'ellie-dev',
+    section: '@ellie-dev',
+    approved: false,
+    ...extra,
+  });
+  const peopleEnv = {
+    ...env,
+    peers: [...env.peers, 'ellie-dev'],
+    people: boardPeople({
+      allMembers: [{ username: 'ellie-dev', name: 'Ellie Dev' }],
+      mrs: [],
+      teams,
+    }),
+  };
+
+  test('lists the person under a block headed by the owner token', () => {
+    const model = askPickerModel(mine({ ownerTeams: [ellie()] }), peopleEnv);
+    expect(rows(model)).toContainEqual([
+      '@ellie-dev',
+      'owner',
+      'needs',
+      ['ellie-dev'],
+      null,
+    ]);
+  });
+
+  test('omits a person who is not an enrolled peer', () => {
+    const model = askPickerModel(mine({ ownerTeams: [ellie()] }), env);
+    expect(model!.sections.map(g => g.team)).not.toContain('@ellie-dev');
+  });
+
+  test('omits a person already engaged on the PR', () => {
+    const model = askPickerModel(
+      mine({
+        ownerTeams: [ellie()],
+        peerReviews: [{ reviewer: 'ellie-dev' }],
+      }),
+      peopleEnv
+    );
+    expect(model!.sections.map(g => g.team)).not.toContain('@ellie-dev');
+  });
+
+  test('offers no Slack post for a person with nobody to ask', () => {
+    const model = askPickerModel(mine({ ownerTeams: [ellie()] }), {
+      ...env,
+      canPostOwners: true,
+    });
+    expect(model!.sections.map(g => g.team)).not.toContain('@ellie-dev');
+  });
+
+  test('leaves an approved person out', () => {
+    const model = askPickerModel(
+      mine({ ownerTeams: [ellie({ approved: true })] }),
+      peopleEnv
+    );
+    expect(model!.sections.map(g => g.team)).not.toContain('@ellie-dev');
+  });
+});
+
 describe('askPickerModel', () => {
   test('your team, then each owning team still to approve, then the rest with approved owners marked', () => {
     const model = askPickerModel(

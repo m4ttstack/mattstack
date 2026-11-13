@@ -271,7 +271,11 @@ import {
 import { memoizeAsync } from './memoize-async.ts';
 import { parseMrActionBody } from './mr-action.ts';
 import { forgeWord, mrNoun, mrNouns, mrRef, onGitHub } from './mr-ref.ts';
-import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
+import {
+  attachOwnerTeams,
+  readGithubOwnerRules,
+  refreshOwnerTeams,
+} from './owner-teams.ts';
 import {
   acceptAsk,
   declineAsk,
@@ -1349,7 +1353,12 @@ async function withRowState(mrs: BoardMR[]) {
           ),
           readNotes()
         ),
-        { ...config, posts: mrUrl => readOwnerPosts(mrUrl) }
+        {
+          directory: config.directory,
+          ownTeam: config.ownTeam,
+          forge: config.forge.kind,
+          posts: mrUrl => readOwnerPosts(mrUrl),
+        }
       )
     ),
     memory
@@ -1413,8 +1422,8 @@ function mrPostText(mrs: BoardMR[], header: string | null = null): string {
   );
 }
 
-/** The MR's Code Owner rules from GitLab's live approval state, or why they
-    could not be read. */
+/** The MR's Code Owner rules from GitLab's live approval state (GitHub's
+    from the daemon), or why they could not be read. */
 async function readOwnerRules(
   mr: BoardMR
 ): Promise<
@@ -1424,7 +1433,6 @@ async function readOwnerRules(
   const projectPath = mr.webUrl
     ? projectPathFromWebUrl(mr.webUrl, config)
     : null;
-  if (config.forge.kind === 'github') return { ok: true, rules: [] };
   const repoName = projectPath ? daemonRepoField(config, projectPath) : null;
   if (!repoName) {
     return {
@@ -1433,6 +1441,8 @@ async function readOwnerRules(
       message: noRepoIdentity(config, `${projectPath ?? mr.webUrl}`),
     };
   }
+  if (config.forge.kind === 'github')
+    return readGithubOwnerRules(repoName, mr.iid);
   const res = await rtCommand<ForgeGetData>(
     'forge:get',
     {

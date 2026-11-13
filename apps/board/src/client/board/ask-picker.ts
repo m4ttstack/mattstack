@@ -85,6 +85,16 @@ export function askPickerModel(
   for (const owner of owners) {
     if (owner.mine || owner.approved === true) continue;
     const approval = approvalOf(owner);
+    if (owner.person) {
+      if (askable(owner.person))
+        sections.push({
+          team: owner.section!,
+          role: 'owner',
+          approval,
+          people: [person(owner.person)],
+        });
+      continue;
+    }
     const people = owner.team ? peopleOf(owner.team) : [];
     const team =
       owner.team ?? (owner.channel ? `#${owner.channel}` : owner.section!);
