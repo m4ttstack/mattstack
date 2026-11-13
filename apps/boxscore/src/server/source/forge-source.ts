@@ -1,4 +1,5 @@
 import type { LeaderboardWarning, TimeWindow } from '../../shared/types.js';
+import type { BoxscoreSettings, Env } from '../config/index.js';
 import type {
   IndexRow,
   StoredIdentity,
@@ -7,9 +8,10 @@ import type {
   StoredPushEvent,
 } from '../store/index.js';
 import { fetchPipelinesFor } from './activity.js';
+import { githubSource, type GitHubSourceProvider } from './github.js';
 import { resolveIdentity } from './identities.js';
 import { fetchMetrics, scanProject } from './mrs.js';
-import type { SourceIO, SourceProvider } from './provider.js';
+import type { GitProvider, SourceIO, SourceProvider } from './provider.js';
 
 export interface ForgeDetail {
   metrics: StoredMetrics;
@@ -55,4 +57,21 @@ export function gitlabSource(provider: SourceProvider): ForgeSource {
     readsPushEvents: true,
     takeWarnings: () => [],
   };
+}
+
+export function sourceFor(
+  env: Env,
+  provider: GitProvider,
+  settings: BoxscoreSettings
+): ForgeSource {
+  if (env.forge !== 'github') {
+    return gitlabSource(provider as unknown as SourceProvider);
+  }
+  const knownLogins = [...settings.roster, ...settings.orgRoster].map(
+    r => r.username
+  );
+  // makeProvider builds a GitHubProvider for this forge; GitProvider types its reads optional.
+  return githubSource(provider as unknown as GitHubSourceProvider, {
+    knownLogins,
+  });
 }

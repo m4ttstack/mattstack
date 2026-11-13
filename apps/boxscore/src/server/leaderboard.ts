@@ -21,7 +21,7 @@ import { buildUserEvidence } from './metrics/evidence.js';
 import { computeSnapshot, type Snapshot } from './metrics/snapshot.js';
 import { buildResponse, type BuildContext } from './metrics/trend.js';
 import { runRefresh } from './refresh/index.js';
-import { makeProvider } from './source/index.js';
+import { makeProvider, sourceFor } from './source/index.js';
 import { ForgeHostChangedError, getStore } from './store/index.js';
 import type { FetchResult } from './store/model.js';
 import {
@@ -209,11 +209,13 @@ async function buildLeaderboard(
     // Spec 7.3: the refresh covers the base window (90 days, 180 with trend), so switching
     // presets never refetches; only a range the base cannot cover is fetched as itself.
     const base = baseWindow(opts.trend, new Date());
+    const provider = makeProvider(env);
     const refreshed = await runRefresh({
       store,
-      provider: makeProvider(env),
+      provider,
       settings,
       env,
+      source: sourceFor(env, provider, settings),
       window: covers(base, read) ? base : read,
       signal: opts.signal,
       onProgress: withWindow('current', opts.onProgress),
