@@ -4,8 +4,9 @@
  * touches the network, and no field but `originUrl` repeats a raw URL.
  */
 
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { homedir } from "os";
+import { join } from "path";
 import { linkPath } from "../../lib/deps/resolve.ts";
 import { shellQuote } from "../../lib/herdr-launch.ts";
 import { rtCredentialHelper } from "../../lib/setup/steps/repos.ts";
@@ -105,23 +106,37 @@ async function clonesCredentialEntries(root: string): Promise<ConfigEntry[]> {
   return entries;
 }
 
+/** The `config.worktree` files under the shared git dir: the main worktree's and each linked one's. */
+async function worktreeConfigFiles(root: string): Promise<string[]> {
+  const common = await runGit(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (common.exitCode !== 0) throw new Error("git could not find this clone's git dir");
+  const dir = common.stdout.trim();
+  let linked: string[] = [];
+  try {
+    linked = readdirSync(join(dir, "worktrees"));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  return [join(dir, "config.worktree"), ...linked.map((name) => join(dir, "worktrees", name, "config.worktree"))];
+}
+
 /**
  * The worktree-scope `credential.*` keys of every worktree of the clone, when
- * `extensions.worktreeConfig` is on. rt writes its pair to the shared config,
- * so in each worktree these come after it. Throws when a worktree cannot be
- * listed or read: a missing worktree folder fails closed.
+ * the clone's own config turns on `extensions.worktreeConfig` (git honors it
+ * from nowhere else). rt writes its pair to the shared config, so in each
+ * worktree these come after it. Read from the shared git dir, so a worktree
+ * whose folder is gone still counts: its config applies again if the folder
+ * comes back. Throws when a file that is there cannot be read.
  */
 async function otherWorktreeKeys(root: string): Promise<string[]> {
-  const ext = await runGit(root, ["config", "--bool", "extensions.worktreeConfig"]);
+  const ext = await runGit(root, ["config", "--local", "--type=bool", "--get", "extensions.worktreeConfig"]);
   if (ext.exitCode === 1) return [];
   if (ext.exitCode !== 0) throw new Error("git could not read this clone's credential config");
   if (ext.stdout.trim() !== "true") return [];
-  const list = await runGit(root, ["worktree", "list", "--porcelain", "-z"]);
-  if (list.exitCode !== 0) throw new Error("git could not list this clone's worktrees");
-  const paths = list.stdout.split("\0").filter((f) => f.startsWith("worktree ")).map((f) => f.slice("worktree ".length));
   const keys: string[] = [];
-  for (const path of paths) {
-    const res = await runGit(path, ["config", "--worktree", "--includes", "--get-regexp", "-z", "^credential\\."]);
+  for (const file of await worktreeConfigFiles(root)) {
+    if (!existsSync(file)) continue;
+    const res = await runGit(root, ["config", "--file", file, "--includes", "--get-regexp", "-z", "^credential\\."]);
     if (res.exitCode === 1) continue;
     if (res.exitCode !== 0) throw new Error("git could not read a worktree's credential config");
     for (const item of res.stdout.split("\0")) {

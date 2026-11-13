@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { setSshHostResolver } from "../../../lib/enrich.ts";
 import { rtCredentialHelper } from "../../../lib/setup/steps/repos.ts";
@@ -198,10 +198,28 @@ describe("helpers in another worktree's own config", () => {
     expect((await readHelperOrder(repo, "gitlab.com", link)).after).toBeNull();
   });
 
-  test("a worktree whose config cannot be read throws, never reads as no helper", async () => {
+  test("a linked worktree whose folder is gone does not block", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    rmSync(linkedWorktree(repo), { recursive: true, force: true });
+    expect(await readHelperOrder(repo, "gitlab.com", link)).toEqual({ own: [], wired: false, after: null });
+  });
+
+  test("a helper in a worktree whose folder is gone still counts: it applies again if the folder comes back", async () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");
     const linked = linkedWorktree(repo);
+    git(linked, "config", "--worktree", "credential.helper", "!secret-gone");
     rmSync(linked, { recursive: true, force: true });
+    const order = await readHelperOrder(repo, "gitlab.com", link);
+    expect(order.after).toBe("credential.helper");
+    expect(JSON.stringify(order)).not.toContain("secret-gone");
+  });
+
+  test("a config.worktree git cannot parse throws, never reads as no helper", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    git(linked, "config", "--worktree", "core.x", "y");
+    const file = git(linked, "rev-parse", "--path-format=absolute", "--git-path", "config.worktree");
+    writeFileSync(file, "[core\nbroken = = =\n");
     await expect(readHelperOrder(repo, "gitlab.com", link)).rejects.toThrow();
   });
 
@@ -215,6 +233,40 @@ describe("helpers in another worktree's own config", () => {
     expect(s.cause).toBe("own-helper");
     expect(s.helperAfter).toEqual({ key: "credential.helper", rtWrote: true });
     expect(JSON.stringify(s)).not.toContain("secret-linked");
+  });
+});
+
+/** Sets `extensions.worktreeConfig` in the test HOME's global config, which git does not honor for the extension. */
+async function withGlobalWorktreeConfig(fn: () => Promise<void>): Promise<void> {
+  const home = process.env.HOME!;
+  expect(home).not.toBe(homedir());
+  const global = join(home, ".gitconfig");
+  expect(existsSync(global)).toBe(false);
+  writeFileSync(global, "[extensions]\n\tworktreeConfig = true\n");
+  try {
+    await fn();
+  } finally {
+    rmSync(global, { force: true });
+  }
+}
+
+describe("extensions.worktreeConfig set only globally", () => {
+  test("a clone with a linked worktree reads as no helper, not unreadable", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    git(repo, "worktree", "add", "-q", "-b", "linked", join(root, "linked"));
+    await withGlobalWorktreeConfig(async () => {
+      expect(await readHelperOrder(repo, "gitlab.com", link)).toEqual({ own: [], wired: false, after: null });
+      expect((await classifyClone(repo, deps())).state).toBe("pending");
+    });
+  });
+
+  test("a single-worktree clone with rt's pair reads as wired: rt's own key is never 'after'", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    addHelpers(repo, "gitlab.com", ["", rtCredentialHelper(link)]);
+    await withGlobalWorktreeConfig(async () => {
+      expect(await readHelperOrder(repo, "gitlab.com", link)).toEqual({ own: ["", rtCredentialHelper(link)], wired: true, after: null });
+      expect((await classifyClone(repo, deps())).state).toBe("done");
+    });
   });
 });
 

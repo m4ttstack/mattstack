@@ -625,13 +625,35 @@ describe("rt git auth and helpers in other worktrees", () => {
     expect(otherLog()).not.toContain("LEAKCHECK");
   });
 
-  test("a worktree rt cannot read: refused config-unreadable, nothing written", async () => {
+  test("a linked worktree whose folder is gone: rt git auth still goes ahead", async () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");
     rmSync(linkedWorktree(repo), { recursive: true, force: true });
+    expect(await run([repo, "--yes"], harness())).toBeNull();
+    expect(helpers(repo)).toEqual(["", rtCredentialHelper(link)]);
+  });
+
+  test("a config.worktree git cannot parse: refused config-unreadable, nothing written", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const linked = linkedWorktree(repo);
+    git(linked, "config", "--worktree", "core.x", "y");
+    writeFileSync(git(linked, "rev-parse", "--path-format=absolute", "--git-path", "config.worktree"), "[core\nbroken = = =\n");
     const before = config(repo);
     expect(await run([repo, "--yes", "--json"], harness())).toBe(1);
     expect(JSON.parse(io.stdout())).toMatchObject({ ok: false, error: "config-unreadable" });
     expect(config(repo)).toBe(before);
+  });
+
+  test("extensions.worktreeConfig set only globally: a single-worktree clone is wired, the re-check passes", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const global = join(process.env.HOME!, ".gitconfig");
+    expect(existsSync(global)).toBe(false);
+    writeFileSync(global, "[extensions]\n\tworktreeConfig = true\n");
+    try {
+      expect(await run([repo, "--yes"], harness())).toBeNull();
+      expect(helpers(repo)).toEqual(["", rtCredentialHelper(link)]);
+    } finally {
+      rmSync(global, { force: true });
+    }
   });
 });
 
