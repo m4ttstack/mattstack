@@ -6,7 +6,7 @@ import type { ButtonId } from './items'
 import { peekTodos, readPane, removeTodos, toggleExpanded } from './store'
 import { cleanup, press } from './wiring'
 
-const PANE = PLUGIN
+const PANE = 'human-todos'
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const SCRIPT_ROWS = 2
 const FINISHED_SHOWN = 8

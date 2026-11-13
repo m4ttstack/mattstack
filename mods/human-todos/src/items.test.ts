@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, test } from 'bun:test'
 
 import type { Todo, TodoKind } from '../types'
 import { buttonsFor, checkKind, clipLine, describe, hardWrap, isActionable, quote, tail, toTodo } from './items'

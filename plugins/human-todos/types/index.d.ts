@@ -45,6 +45,7 @@ declare module 'claude-code' {
       frame: number
       workspace: string | null
       runnerPref: 'auto' | 'herdr' | 'local'
+      keysInPane: boolean
     }
   }
 }

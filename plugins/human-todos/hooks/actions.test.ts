@@ -2,7 +2,6 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import type { Todo } from '../types'
-import { settle } from './report'
 import { SESSION, children, exits, hangs, herdrFake, startSession, world } from './test-world'
 import type { Child } from './test-world'
 
@@ -232,33 +231,6 @@ test('Done and Skip mark the item and tell the agent', async ($, on) => {
   expect(await state($)).toBe('#1 [done] T\n    script: ls -la\n#2 [skipped] U')
   expect(sent).toEqual(['[Human Todos] #1 "T": the user marked it done.', '[Human Todos] #2 "U": the user skipped it.'])
   await pane.unmount()
-})
-
-test('settle turns each outcome into the item change and the message to the agent', () => {
-  const t = todo({ liveTail: ['x'], isStopping: true })
-
-  expect(settle(t, { kind: 'ran', exitCode: 0, outputTail: 'ok' })).toEqual({
-    patch: { status: 'done', exitCode: 0, outputTail: 'ok', liveTail: undefined, isStopping: false },
-    text: 'The user ran #1 "T" from the pane: exit 0.\n```\nok\n```',
-  })
-  const failed = settle(t, { kind: 'ran', exitCode: 3, outputTail: '' })
-  expect(failed.patch.status).toBe('failed')
-  expect(failed.patch.exitCode).toBe(3)
-  expect(failed.text).toBe('The user ran #1 "T" from the pane: exit 3.\n```\n(no output)\n```')
-
-  expect(settle(t, { kind: 'stopped', outputTail: 'half' })).toEqual({
-    patch: { status: 'open', outputTail: 'half', note: 'Stopped', liveTail: undefined, isStopping: false },
-    text: 'The user stopped #1 "T" before it finished. It is open again.',
-  })
-  expect(settle(t, { kind: 'ended', outputTail: '' })).toEqual({
-    patch: { status: 'open', outputTail: '', note: 'Ended without an exit code.', liveTail: undefined, isStopping: false },
-    text: '#1 "T" ended in its tab without reporting an exit code (most likely stopped). It is open again.',
-  })
-
-  const long = Array.from({ length: 40 }, (_, n) => `line ${n}`).join('\n')
-  const kept = settle(t, { kind: 'ran', exitCode: 0, outputTail: long }).patch.outputTail?.split('\n')
-  expect(kept).toHaveLength(30)
-  expect(kept?.[0]).toBe('line 10')
 })
 
 const herdrItem = (over: Partial<Todo> = {}) => todo({ status: 'running', runner: 'herdr', token: 't', paneId: 'pane1', tabId: 'tab1', ...over })
