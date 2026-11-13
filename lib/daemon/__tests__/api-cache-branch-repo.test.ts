@@ -71,6 +71,15 @@ describe("GET /api/cache/:branch with a repo identity", () => {
     });
   });
 
+  test("a wire appended without its own encoding still reads that repo's entry", async () => {
+    const { handleCommand } = sharedBranchCache();
+    await withApiServer(handleCommand, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/cache/main?repoIdentity=${REPO_B}`);
+      const body = await res.json() as any;
+      expect(body.data.main.linearId).toBe("B");
+    });
+  });
+
   test("a read with no identity sends cache:read exactly today's payload", async () => {
     const { calls, handleCommand } = sharedBranchCache();
     await withApiServer(handleCommand, async (port) => {

@@ -246,6 +246,17 @@ export function repoPathParam(pathname: string, prefix: string, suffix = ""): st
 }
 
 /**
+ * The `repoIdentity` query value, accepted both double-encoded and appended
+ * as the bare wire, by the same disjointness `repoPathParam` relies on.
+ */
+function repoIdentityQueryParam(url: URL): string | null {
+  const decoded = url.searchParams.get("repoIdentity");
+  if (decoded === null) return null;
+  const raw = /(?:^\?|&)repoIdentity=([^&]*)/.exec(url.search)?.[1];
+  return raw !== undefined && parseIdentity(raw) ? raw : decoded;
+}
+
+/**
  * `/api/<thing>/:repo/:rest`. The repo is split off the RAW path so a wire
  * identity survives whole; only `rest` is decoded. Splitting after a
  * whole-remainder decode (what this replaced) could not tell the wire's own
@@ -464,7 +475,7 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
           if (branch === undefined) {
             return Response.json({ ok: false, error: "malformed path parameter" }, { status: 400, headers: corsHeaders });
           }
-          const repoIdentity = url.searchParams.get("repoIdentity");
+          const repoIdentity = repoIdentityQueryParam(url);
           if (repoIdentity === null) {
             const result = await handleCommand("cache:read", { branches: [branch] }, req.signal);
             return Response.json(result, { headers: corsHeaders });
