@@ -45,6 +45,11 @@ until Matt is happy with it.
 - Gates the board raises for MRs. They open through the board's own CLI
   (`apps/board/src/gates/verbs.ts`), never through MCP `gate_ask`, so the mod
   never sees them.
+- A kit form for the board-only gates: `review-post`, `respond-plan` and
+  `respond-post`. Matt ruled that these are answered on the board only, and on
+  #1138 the daemon always presents them as wait (`BOARD_ONLY_KINDS` in
+  `lib/daemon/handlers/gate.ts`). The mod shows an "Open on board" band for
+  them instead (below).
 - Pause and Go back on the plain AskUserQuestion form. With the setting off,
   they stay gone, as #1138 leaves them.
 - Making the kit form the default. That's a later call.
@@ -298,6 +303,35 @@ signals that read "blocked" need a kit case:
   AskUserQuestion hook no longer fires. The builder picks the call that
   `herdr-doorbell.sh` uses.
 
+### Board-only gates: an "Open on board" band
+
+For a board-only gate raised in this pane, the mod shows a band just above the
+Claude Code prompt (an `AbovePrompt` band, not the sidebar pane), as Matt asked:
+
+```
+  Review findings are waiting on the board        [ Open on board ]
+```
+
+- **When.** The hooked `gate_ask` or `gate_open` call carried the mod's
+  `kitForm: true`, and the result came back `presentation: wait` for a
+  board-only kind. The tool adds `boardOnly: true` to the result so the mod
+  doesn't need its own copy of the kind list. My call.
+- **The button** opens the gate on the board with `$.process.run(['open',
+  <url>])`. The URL is the board's local address plus `?gate=<id>`, a deep link
+  the board already handles (`apps/board/src/client/board/Board.tsx`).
+  - The address comes from `deck list` (today `http://localhost:11006`). A
+    `*.mattstack` URL won't open in a browser, so it's never used. The builder
+    picks how the mod reads it (`deck list --json`, or an rt verb that
+    returns it).
+  - If the address can't be found, the band says so and shows no button.
+- **Going away.** The same per-gate watcher as a kit form clears the band when
+  the gate is answered, closed or superseded. On `session.start` the mod
+  restores bands for this session's open board-only gates.
+- **The result is untouched.** The agent still gets the wait result and runs
+  `rt gate wait` as today. The band only adds a shortcut.
+- With several board-only gates open, the band names the newest and how many
+  more are waiting. Its button opens the newest.
+
 ### Installing the mod
 
 Matt picked the human-todos pattern: list gate-form in
@@ -331,6 +365,8 @@ until turned on. The gate hook lives in gate-form.
   - no Escape for kit gates, from either the push or the reconciler
   - the watcher closing only its own gate's form
   - reopening forms on `session.start`
+  - the board-only band: shown for board-only kinds, the `?gate=<id>` URL from
+    the deck address, cleared by the watcher
 
 ## Open questions
 
