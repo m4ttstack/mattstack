@@ -12,14 +12,18 @@ type Props = { model: PaneModel; focused: boolean; width: number; offset: number
 type Selection = { key: string; button: string; at: number; col: number }
 type State = PointerState & { sel?: Selection }
 
-// The stop and button the selection lands on now: its own, else the nearest one left.
+// The stop and button the selection lands on now: its own; within its item, the same column when the button changed (Run to Confirm);
+// once its item has gone, the nearest item left, on its filled button.
 function resolve(stops: KeyStop[], sel: Selection | undefined): { at: number; col: number } {
   if (!sel) return { at: 0, col: stops[0] ? mainOf(stops[0]) : 0 }
   const found = stops.findIndex(s => s.key === sel.key)
-  const at = found >= 0 ? found : Math.min(sel.at, stops.length - 1)
-  const buttons = stops[at]?.buttons ?? []
-  const col = found >= 0 ? buttons.findIndex(b => b.id === sel.button) : -1
-  return { at, col: col >= 0 ? col : Math.min(sel.col, buttons.length - 1) }
+  if (found < 0) {
+    const at = Math.min(sel.at, stops.length - 1)
+    return { at, col: stops[at] ? mainOf(stops[at]) : 0 }
+  }
+  const buttons = stops[found]?.buttons ?? []
+  const col = buttons.findIndex(b => b.id === sel.button)
+  return { at: found, col: col >= 0 ? col : Math.min(sel.col, buttons.length - 1) }
 }
 
 // Moving onto an item lands on its filled button: its main action.
