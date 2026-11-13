@@ -10,6 +10,7 @@ import type { Probes } from "./setup/probes.ts";
 import { forgeFromRemote } from "./setup/team-settings.ts";
 import { forgeArgv, glabEnv } from "./team/forge.ts";
 import { bundledToolExec } from "./deps/resolve.ts";
+import { forgeChangeNoun } from "./repo-label.ts";
 
 export interface StackMembership {
   name: string;
@@ -145,7 +146,7 @@ export async function checkStackMembership(opts: {
   const own = forge.mrs.filter((mr) => mr.source === opts.branch && mr.target !== opts.defaultBranch);
   const dependents = forge.mrs.filter((mr) => mr.target === opts.branch);
   if (own.length > 0 || dependents.length > 0) {
-    const noun = forge.mrs.some((mr) => GITHUB_PR_URL.test(mr.url)) ? "pull request" : "merge request";
+    const noun = forgeChangeNoun(forge.mrs.some((mr) => GITHUB_PR_URL.test(mr.url)) ? "github" : "gitlab", "long");
     const detail = own.length > 0
       ? `its open ${noun} targets ${own[0]!.target}`
       : dependents.length === 1
