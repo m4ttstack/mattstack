@@ -1131,7 +1131,7 @@ export class GitLabProvider implements GitProvider {
     // inside a `mergeRequests(iids:)` connection at 739, over its cap of 250.
     if (options?.iids) {
       const projectPath = requireProjectPath(options.projectPath, 'iids');
-      const wanted = new Set<string>(states);
+      const wanted = new Set<string>(states.length > 0 ? states : ['opened']);
       const iids = [...new Set(options.iids.map(String))];
       const resps = await Promise.all(
         iids.map((iid) =>

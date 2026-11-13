@@ -981,6 +981,12 @@ async function queueCase(fixture: ProviderFixture, report: Reporter, prefix: str
         'mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { clientMutationId } }',
         { id: nodeId }
       );
+      const iid = queuedIid;
+      await pollUntil(
+        `#${iid} to leave the merge queue`,
+        async () => ((await provider.fetchMergeQueueStatus!(queueProject, iid)).inQueue ? null : true),
+        { timeoutMs: 30_000, intervalMs: 2_000 }
+      );
       const entry = await provider.enqueuePullRequest!(queueProject, queuedIid);
       assert(entry.position >= 1, `expected a queue position of at least 1, got ${entry.position}`);
       assert(entry.state.length > 0, 'the queue entry came back with no state');

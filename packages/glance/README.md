@@ -390,13 +390,14 @@ commit (`github:checks:<pr url>` when no check belongs to a run). It stays the
 same while that commit's runs fail one after another, and changes on a new
 push.
 
-It can move once for the same head commit: a run's checks appear only when its
+It can move for the same head commit: a run's checks appear only when its
 jobs start, so a run created earlier than the ones already visible, with a
-lower id, can show up on a later read. This is accepted behaviour. Keeping the
+lower id, can show up on a later read, and each such run moves the id down. This is accepted behaviour. Keeping the
 first id seen would mean holding per-commit state across reads, and a provider
 instance lives only as long as its caller. A consumer that keys work on the id
 (the board's auto-doctor keys its red-pipeline pass on it) can act once more
-for that commit; one that must not should compare `Pipeline.sha` as well.
+for that commit each time; one that must not should compare `Pipeline.sha` as
+well.
 
 ### Utility Exports
 

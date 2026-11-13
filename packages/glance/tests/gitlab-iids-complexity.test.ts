@@ -103,6 +103,14 @@ describe('GitLab fetchPullRequests({ iids }) stays under the complexity cap', ()
     expect(both.map((pr) => pr.iid).sort()).toEqual([1, 2]);
   });
 
+  test('an empty state list reads as opened, as in the other modes', async () => {
+    const { provider } = recordingProvider({ '1': gitlabNode(1), '2': gitlabNode(2, { state: 'merged' }) });
+
+    const prs = await provider.fetchPullRequests({ projectPath: 'g/p', iids: [1, 2], state: [] });
+
+    expect(prs.map((pr) => pr.iid)).toEqual([1]);
+  });
+
   test('returns MRs newest first, the order the mergeRequests connection used', async () => {
     const { provider } = recordingProvider({ '1': gitlabNode(1), '3': gitlabNode(3), '2': gitlabNode(2) });
 
