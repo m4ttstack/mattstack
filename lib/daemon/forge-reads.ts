@@ -169,8 +169,12 @@ export const GITHUB_REFUSED_SEGMENTS: readonly string[] = [
   "secrets", "variables", "hooks", "keys", "deploy_keys", "installations", "tokens", "runners", "registration-token",
   "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
   "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables", "security-advisories",
-  "copilot",
 ];
+/**
+ * Refused only as the route right after repos/<owner>/<repo>: the same word is a branch prefix and a repo name.
+ * Segments are split after decoding, so an encoded slash moves no segment past this check.
+ */
+export const GITHUB_REFUSED_ROUTES: readonly string[] = ["copilot"];
 export const GITHUB_REFUSED_QUERY_KEYS: readonly string[] = ["access_token", "client_secret", "token"];
 /** glance buffers a whole response before the cap runs, and a blob can be 100 MB. */
 export const GITHUB_REFUSED_BLOBS = "git/blobs";
@@ -204,6 +208,10 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   if (inName) return { ok: false, error: `gitlab_get cannot read a GitHub repo whose owner or name is ${rootParts.slice(inName.at, inName.at + inName.length).join("/")}` };
   const refused = hits.find((h) => h.at >= 0 && h.entry !== GITHUB_REFUSED_BLOBS);
   if (refused) return { ok: false, error: `"path" names ${refused.entry}, which can return credentials; gitlab_get refuses it` };
+  // GitHub may collapse an empty segment, so the route is the first non-empty one after the repo.
+  const route = segments.slice(rootParts.length).find((s) => s !== "");
+  const refusedRoute = GITHUB_REFUSED_ROUTES.find((word) => namesWord(route, word));
+  if (refusedRoute) return { ok: false, error: `"path" names ${refusedRoute}, which can return credentials; gitlab_get refuses it` };
   if (hits.some((h) => h.at >= 0)) {
     return { ok: false, error: `"path" names ${GITHUB_REFUSED_BLOBS}, and a blob can be too large to read through gitlab_get; read the file with :repo/contents/<path> instead` };
   }
