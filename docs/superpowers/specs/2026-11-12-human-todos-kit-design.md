@@ -70,12 +70,14 @@ and none of the kit's interaction applies to it.
 
 ## Constraints learned
 
-- A live probe (2026-11-12) showed that a Pane scrolls a kit Client with the
-  wheel, and clicks land on the right row after scrolling. A line drawn
-  outside the Client stayed at the top. So the Client's own rows scroll. The
-  `ui.scroll` event's offset does not describe them either: Matt saw it report
-  a non-zero offset with the list back at its top. Today's hints, which read
-  that offset, can't carry over as they are.
+- A live probe (2026-11-12/13) showed that a Pane scrolls a kit Client with
+  the wheel, and clicks land on the right row after scrolling. A video of it
+  shows that the engine scrolls the whole pane tree, the Client's rows
+  included: a line drawn above the Client scrolled away with them. `ui.scroll`
+  reported `offset 0` at the top and `contentRows` 201, which is that line
+  plus the Client's 200 rows. So the pane's offset does describe the Client's
+  rows, and today's hints may carry over. `ui.scroll` fires on every wheel
+  tick, even at an edge, which is expected and not an error.
 - The mod API lets a mod own a site's scrolling: a `ui.scroll` hook that
   returns without calling `next` keeps the engine from moving the window, and
   the mod scrolls its own rows (the types' example:
@@ -215,12 +217,14 @@ the kit's `ReopenBand` on terminal and desktop, today's band on the others.
   atom, cleared on `prompt.edit`, `prompt.submit` and `ui.focus`). Opening the
   pane when Claude adds an item still doesn't take focus from the prompt:
   human-todos keeps its own `openPane` rather than the kit's `showPane`.
-- Scroll hints: the pane's offset doesn't describe the Client's rows, so the
-  hints need the mod to own scrolling. A `ui.scroll` hook keeps the offset in
-  an atom, and the Client draws only the rows in that window, plus
-  "↑/↓ N more" from the item spans. If a live check in the plan's first task
-  shows the engine still moves the Client when the hook answers without
-  `next`, the hints go and the "end of the list" line stays.
+- Scroll hints: the engine scrolls the Client with the pane, so "↑/↓ N more"
+  works as today when the Pane hook sees the current `e.props.scroll`. The
+  hook passes `offset` and `bodyRows` to the Client, which draws the hints at
+  the window's first and last rows. The plan's first task checks live that
+  the hook is asked again on a wheel scroll. If it isn't, the mod owns
+  scrolling instead: a `ui.scroll` hook keeps the offset in an atom and
+  returns without `next`, and the Client draws only its window. If neither
+  works, the hints go and the "end of the list" line stays.
 
 ### Band and transcript row
 

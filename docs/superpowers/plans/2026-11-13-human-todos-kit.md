@@ -55,13 +55,16 @@
 
 The controller runs this with Matt. No subagent.
 
-- [ ] **Step 1:** Write the probe:
-  - a Pane whose hook draws a Client with 200 numbered rows
-  - an `on('ui.scroll', { requestId }, ...)` hook that returns `{}` without `next`
-  - the offset kept in an atom, moved by `e.by` and clamped to `[0, rows - bodyRows]`
-  - the Client drawing only rows `offset .. offset + e.props.scroll.bodyRows`
-- [ ] **Step 2:** Matt scrolls with the wheel and arrows, and clicks a row after scrolling. Record two things: does only the probe's window move (the engine doesn't also move it)? Does the click land?
-- [ ] **Step 3:** Record the answer in the spec. **Owns** means the mod owns scrolling and keeps the "↑/↓ N more" hints. **Engine** means the engine scrolls the Client, the hints go and the end-of-list line stays. Delete the probe and commit `spec: record the scroll check`.
+Already known from an earlier probe: the engine scrolls the whole pane, Client included, and `ui.scroll` reports accurate offsets.
+
+- [ ] **Step 1:** Write the probe: a Pane whose hook draws a Client with 200 numbered rows. The hook passes `e.props.scroll` (offset, bodyRows) as Client props, and the Client draws `↑ offset N` on the first visible row (`offset`) and `↓` on the last (`offset + bodyRows - 1`).
+- [ ] **Step 2:** Matt scrolls with the wheel. Record whether the hints follow the window, which shows whether the Pane hook is asked again with the new offset. If they don't, try variant B in the same probe and have Matt scroll again. In B, a `ui.scroll` hook returns `{}` without `next` and keeps the offset in an atom, and the Client draws only its window.
+- [ ] **Step 3:** Record the answer in the spec's "Scroll hints" bullet:
+  - **props**: hints from `e.props.scroll`
+  - **owns**: variant B
+  - **none**: drop the hints and keep the end-of-list line
+
+  Delete the probe and commit `spec: record the scroll check`.
 
 ### Task 2: The build carries root files and the whole harness
 
