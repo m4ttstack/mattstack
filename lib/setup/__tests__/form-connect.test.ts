@@ -377,21 +377,63 @@ describe("connectRows", () => {
     expect(fb.action).toEqual(FAST_BROWSER_ADD_ACTION);
   });
 
-  test("solo shows the code host as optional, then Claude and Fast Browser", () => {
-    const rows = [
+  const GITLAB_HINT = "On your own GitLab server? Connect from a terminal with rt setup gitlab connect --host <host>";
+
+  function soloForgeRows(gitlab: Row): Row[] {
+    return [
       r("account.github", "missing", "No GitHub account connected yet", { required: false }),
+      gitlab,
       r("tool.claude", "ready", "Claude Code 2.1.0, signed in"),
       r("tool.chrome", "ready", "Google Chrome installed"),
       r("tool.fast-browser-extension", "ready", "Loaded and paired", { required: false }),
     ];
-    const list = connectRows(inputs({ path: "solo", plan: plan(rows, SOLO), forge: null, forgeLogin: null, signIn: [] }));
-    expect(list.map((x) => x.id)).toEqual(["forge", "claude", "fast-browser"]);
+  }
+
+  function soloList(gitlab: Row, over: Partial<ConnectInputs> = {}): FormRow[] {
+    return connectRows(inputs({ path: "solo", plan: plan(soloForgeRows(gitlab), SOLO), forge: null, forgeLogin: null, signIn: [], ...over }));
+  }
+
+  const GITLAB_MISSING = r("account.gitlab", "missing", "No GitLab account connected yet", { required: false });
+
+  test("solo shows GitHub and GitLab as optional, then Claude and Fast Browser", () => {
+    const list = soloList(GITLAB_MISSING);
+    expect(list.map((x) => x.id)).toEqual(["forge", "forge.gitlab", "claude", "fast-browser"]);
     const forge = pick(list, "forge");
     expect(forge.title).toBe("GitHub");
-    expect(forge.subtext).toBe("Optional. Lets mattstack open PRs and MRs");
+    expect(forge.subtext).toBe("Optional. Lets mattstack open PRs");
     expect(forge.state).toBe("todo");
     expect(forge.optional).toBe(true);
+    const gitlab = pick(list, "forge.gitlab");
+    expect(gitlab.title).toBe("GitLab");
+    expect(gitlab.subtext).toBe("Optional. Lets mattstack open MRs");
+    expect(gitlab.state).toBe("todo");
+    expect(gitlab.optional).toBe(true);
+    expect(gitlab.detail).toBe(GITLAB_HINT);
+    expect(gitlab.action).toMatchObject({ type: "connect", integration: "gitlab" });
+    expect((gitlab.action as Extract<Action, { type: "connect" }>).create?.url.startsWith("https://gitlab.com/")).toBe(true);
     expect(allAnswered(list)).toBe(true);
+  });
+
+  test("the solo GitLab row keeps the account's reason once a token is stored", () => {
+    const gitlab = pick(soloList(r("account.gitlab", "invalid", "GitLab rejected the token", { required: false })), "forge.gitlab");
+    expect(gitlab.detail).toBe("GitLab rejected the token");
+  });
+
+  test("a connected solo GitLab row reads done", () => {
+    const gitlab = pick(soloList(r("account.gitlab", "ready", "GitLab token works", { required: false })), "forge.gitlab");
+    expect(gitlab.state).toBe("done");
+    expect(gitlab.action).toBeNull();
+  });
+
+  test("a confirmed self-hosted host is the solo GitLab row's host", () => {
+    const gitlab = pick(soloList(GITLAB_MISSING, { confirmedHost: "gitlab.example.com" }), "forge.gitlab");
+    expect((gitlab.action as Extract<Action, { type: "connect" }>).create?.url.startsWith("https://gitlab.example.com/")).toBe(true);
+  });
+
+  test("formOwnedIds on solo owns both forge accounts", () => {
+    const owned = formOwnedIds(plan(soloForgeRows(GITLAB_MISSING), SOLO), { path: "solo", forge: null, signIn: [] });
+    expect(owned.has("account.github")).toBe(true);
+    expect(owned.has("account.gitlab")).toBe(true);
   });
 
   test("on solo Fast Browser never holds Continue", () => {
@@ -486,10 +528,22 @@ describe("composeForm", () => {
     const form = await composeForm(p, { sections: ["connect"], secrets: NO_SECRETS, orgs: [] });
     const elapsed = performance.now() - started;
     const list = form.sections.connect ?? [];
-    expect(list.map((x) => x.id).filter((id) => id !== "tool.app")).toEqual(["forge", "claude", "tool.herdr", "fast-browser"]);
+    expect(list.map((x) => x.id).filter((id) => id !== "tool.app")).toEqual(["forge", "forge.gitlab", "claude", "tool.herdr", "fast-browser"]);
     expect(pick(list, "claude").action).toEqual({ type: "install", label: "Install", tool: "claude", via: "vendor" });
     expect(pick(list, "fast-browser").action).toMatchObject({ label: "Get Chrome" });
     expect(form.continueReady).toBe(false);
     expect(elapsed).toBeLessThan(5000);
+  });
+
+  test("composeForm on solo ignores a leftover github.com host for GitLab", async () => {
+    const p = fakeProbes({
+      home: "/fake-home",
+      now: NOW,
+      files: { "/fake-home/.mattstack/user/settings.user.jsonc": JSON.stringify({ "rt.integrations": { forgeHost: "github.com" } }) },
+      exec: (argv) => (MAC_ANSWERS[argv[0]!] ? { code: 0, stdout: MAC_ANSWERS[argv[0]!]!, stderr: "" } : { code: 127, stdout: "", stderr: "" }),
+    });
+    const form = await composeForm(p, { sections: ["connect"], secrets: NO_SECRETS, orgs: [] });
+    const gitlab = pick(form.sections.connect ?? [], "forge.gitlab");
+    expect((gitlab.action as Extract<Action, { type: "connect" }>).create?.url.startsWith("https://gitlab.com/")).toBe(true);
   });
 });

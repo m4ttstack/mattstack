@@ -579,7 +579,7 @@ function slackAppRow(): FormRow {
 function connectSection(path: FormPath | null): FormRow[] {
   const c = FORM_COPY.connect;
   if (path === "solo") {
-    return [forgeTokenRow("forge", "github", "member", c.soloForge, FORM_COPY.invite.connectedAs("janedoe"), true), claudeRow(), fastBrowserRow(true)];
+    return [forgeTokenRow("forge", "github", "member", c.soloGithub, FORM_COPY.invite.connectedAs("janedoe"), true), claudeRow(), fastBrowserRow(true)];
   }
   if (path === "create") {
     const forge = createdForge();
