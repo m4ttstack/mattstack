@@ -23,9 +23,10 @@ not your own.
 - **The questions are the site's table, and only those.** A gate asks no
   navigation question: an answer with no `next` reads as `proceed`, and a
   write-in is the way to ask for a change (`Act on a write-in`). The
-  daemon refuses an answer key the gate did not ask, so a `next` (`hold`,
-  `iterate`, `go-back`, `abandon`) reaches a site only through a hand-back
-  or a future surface; the site's `Read next` lines still route it.
+  daemon refuses an answer key the gate did not ask, except the kit form's
+  run controls, `next: hold` and `next: go-back` with `to`, which Run
+  control routes. Any other `next` (`iterate`, `abandon`) reaches a site
+  only through a hand-back; the site's `Read next` lines still route it.
 - **A gate with no question to show opens nothing.** Print its one
   sentence of context and take the site's `proceed` edge.
 - **Write-ins** go only on a decision question whose free text you can act
