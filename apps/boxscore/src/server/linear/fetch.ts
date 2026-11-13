@@ -1,3 +1,4 @@
+import type { Forge } from '../../shared/forge.js';
 import { isRevertTitle } from '../../shared/reverts.js';
 import type {
   LeaderboardWarning,
@@ -95,6 +96,21 @@ export function parseMrUrl(
 ): { projectPath: string; iid: number } | null {
   const m = url.match(
     /^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)(?:[/?#]|$)/
+  );
+  return m ? { projectPath: m[1]!, iid: Number(m[2]) } : null;
+}
+
+/**
+ * The change's project path and number from a forge URL: a GitLab MR URL on a GitLab
+ * team, a github.com pull request URL on a GitHub team. Anything else is null.
+ */
+export function parseChangeUrl(
+  url: string,
+  forge: Forge
+): { projectPath: string; iid: number } | null {
+  if (forge === 'gitlab') return parseMrUrl(url);
+  const m = url.match(
+    /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)(?:[/?#]|$)/
   );
   return m ? { projectPath: m[1]!, iid: Number(m[2]) } : null;
 }
@@ -228,9 +244,16 @@ export async function resolveLinearTickets(
   warnings: LeaderboardWarning[],
   roster: readonly string[] | ReadonlySet<string>,
   signal?: AbortSignal,
-  onProgress?: (p: Omit<RefreshProgress, 'window'>) => void
+  onProgress?: (p: Omit<RefreshProgress, 'window'>) => void,
+  forge?: { kind: Forge; projects: readonly string[] }
 ): Promise<NormLinearIssue[]> {
   if (!apiKey || sourceMrs.length === 0) return [];
+
+  const projectByLower = new Map(
+    (forge?.projects ?? []).map(p => [p.toLowerCase(), p])
+  );
+  const configuredProject = (path: string): string | undefined =>
+    projectByLower.get(path.toLowerCase());
 
   const rosterSet = roster instanceof Set ? roster : new Set(roster);
 
@@ -299,10 +322,21 @@ export async function resolveLinearTickets(
   const resolveAttachments = (
     raw: RawIssue
   ): { candidates: LinkCandidate[]; hadMrAttachment: boolean } => {
-    const parsed = (raw.attachments?.nodes ?? [])
-      .filter(n => n.sourceType === 'gitlab')
-      .map(n => parseMrUrl(n.url))
-      .filter((p): p is { projectPath: string; iid: number } => p !== null);
+    const nodes = raw.attachments?.nodes ?? [];
+    // Linear's sourceType for a GitHub PR is not guaranteed, so GitHub teams trust the URL alone.
+    const parsed =
+      forge?.kind === 'github'
+        ? nodes.flatMap(n => {
+            const p = parseChangeUrl(n.url, 'github');
+            const project = p && configuredProject(p.projectPath);
+            return p && project ? [{ projectPath: project, iid: p.iid }] : [];
+          })
+        : nodes
+            .filter(n => n.sourceType === 'gitlab')
+            .map(n => parseMrUrl(n.url))
+            .filter(
+              (p): p is { projectPath: string; iid: number } => p !== null
+            );
     if (parsed.length === 0) return { candidates: [], hadMrAttachment: false };
 
     const result: LinkCandidate[] = [];

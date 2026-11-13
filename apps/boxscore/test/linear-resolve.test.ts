@@ -543,3 +543,64 @@ describe('attachment-graded resolution', () => {
     ]);
   });
 });
+
+describe('GitHub attachment credit', () => {
+  const ghMr = mr({
+    iid: 5,
+    projectPath: 'o/r',
+    authorUsername: 'ada',
+    title: 'build it',
+    mergedAt: '2026-05-10T00:00:00.000Z',
+  });
+  const mentioner = mr({
+    iid: 6,
+    projectPath: 'o/r',
+    authorUsername: 'bob',
+    title: 'ACME-1 cleanup',
+    mergedAt: '2026-05-20T00:00:00.000Z',
+  });
+  const github = { kind: 'github' as const, projects: ['o/r'] };
+
+  const creditFor = async (
+    sourceType: string | null,
+    forge?: { kind: 'github' | 'gitlab'; projects: readonly string[] },
+    url = 'https://github.com/O/R/pull/5'
+  ) => {
+    stubLinear(ids =>
+      okData(ids, id => ({
+        ...rawFor(id),
+        attachments: { nodes: [{ url, sourceType }] },
+      }))
+    );
+    const issues = await resolveLinearTickets(
+      'key',
+      [ghMr, mentioner],
+      [],
+      ['ada', 'bob'],
+      undefined,
+      undefined,
+      forge
+    );
+    return issues.find(i => i.identifier === 'ACME-1')!.creditedUser;
+  };
+
+  it('credits a GitHub PR attachment', async () => {
+    expect(await creditFor('github', github)).toBe('ada');
+  });
+
+  it('takes the attachment whatever its sourceType', async () => {
+    expect(await creditFor(null, github)).toBe('ada');
+  });
+
+  it('a gitlab team ignores GitHub attachments', async () => {
+    expect(
+      await creditFor('github', { kind: 'gitlab', projects: ['o/r'] })
+    ).toBe('bob');
+  });
+
+  it('drops an attachment outside the configured projects', async () => {
+    expect(
+      await creditFor('github', { kind: 'github', projects: ['x/y'] })
+    ).toBe('bob');
+  });
+});

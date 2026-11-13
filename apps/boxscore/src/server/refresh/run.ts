@@ -378,7 +378,8 @@ export async function runRefresh(
     warnings,
     rosterUsernames,
     signal,
-    report
+    report,
+    { kind: env.forge ?? 'gitlab', projects: settings.projects }
   );
   // resolveLinearTickets returns [] when Linear is unconfigured or there are no source MRs;
   // upsertLinearIssues([]) is a no-op transaction, so this never clobbers previously stored issues.
