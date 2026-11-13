@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { extractLinearId } from './branchParser';
 import { fetchTicketsBatch, fetchMyTodoTickets } from './linear';
 import { fetchMRInfoBatch } from './gitlab';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityToStore } from './forge';
+import { resolveRepoForge } from './repoForge';
 import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache, branchListCache } from './cache';
 import { daemonQuery } from './daemonClient';
@@ -22,7 +24,6 @@ import {
   checkoutBranch,
   getGitApi,
   findWorkspaceRepo,
-  getRemoteUrl,
   resolveDataDir,
   resolveRepoIdentity,
 } from './git';
@@ -39,6 +40,8 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     return;
   }
 
+  const repoForge = resolveRepoForge(repo);
+  const w = forgeWords(repoForge.forge);
   const cwd = repo.rootUri.fsPath;
   const currentBranch = repo.state.HEAD?.name ?? null;
 
@@ -81,13 +84,13 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
 
   const openMrButton: vscode.QuickInputButton = {
     iconPath: new vscode.ThemeIcon('git-merge'),
-    tooltip: 'Open GitLab merge request',
+    tooltip: `Open ${w.site} ${w.long}`,
   };
 
   function buildBranchItem(info: BranchInfo): BranchPickItem {
     const branch = info.name;
     const isCurrent = branch === currentBranch;
-    const cached = branchCache.get(branch);
+    const cached = ownBranchData(branchCache.get(branch), repoForge.forge, repoForge.remoteUrl);
     let linearId = extractLinearId(branch);
     if (!linearId && cached?.linearId) linearId = cached.linearId;
 
@@ -112,7 +115,7 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     const description = isCurrent ? '(current)' : undefined;
     const detailParts: string[] = [];
     if (ticketLabel) detailParts.push(ticketLabel);
-    if (mrUrl) detailParts.push('$(git-pull-request) MR');
+    if (mrUrl) detailParts.push(`$(git-pull-request) ${w.short}`);
     const detail = detailParts.length ? detailParts.join('  │  ') : undefined;
     const buttons: vscode.QuickInputButton[] = [];
     if (ticketUrl) buttons.push(openTicketButton);
@@ -227,12 +230,10 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
           const entry = allEntries[branch];
           if (entry) {
             hitCount++;
-            branchCache.set(branch, {
-              ticket: entry.ticket ?? null,
-              mrUrl: entry.mr?.webUrl ?? null,
-              linearId: entry.linearId || null,
-              fetchedAt: entry.fetchedAt ?? now,
-            });
+            branchCache.set(
+              branch,
+              branchDataFromDaemonEntry(entry, repoForge.forge, repoForge.remoteUrl, branch, now, branchCache.get(branch)),
+            );
           }
         }
         daemonHit = hitCount > 0;
@@ -254,8 +255,8 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     const hasStaleBranches = localBranchNames.some((branch) => {
       const linearId = extractLinearId(branch);
       if (!linearId) return false;
-      const existing = branchCache.get(branch);
-      return !existing || (now - existing.fetchedAt) >= cacheTtl;
+      const cached = branchCache.get(branch);
+      return !cached || (now - cached.fetchedAt) >= cacheTtl;
     });
 
     if (!hasStaleBranches) {
@@ -272,10 +273,10 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     const fetchableBranches = localBranchNames.filter((b) => !SKIP_MR_BRANCHES.has(b));
 
     const [gitlabToken, apiKey] = await Promise.all([
-      getSecret(context, 'gitlabToken'),
+      repoForge.forge === 'github' ? null : getSecret(context, 'gitlabToken'),
       getSecret(context, 'linearApiKey'),
     ]);
-    const remoteUrl = getRemoteUrl(repo);
+    const remoteUrl = repoForge.remoteUrl;
 
     // 5. Batch MR lookup — single API call for all local non-default branches
     let mrResults = new Map<string, { webUrl: string | null; linearId: string | null }>();
@@ -294,8 +295,8 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
 
       branchLinearMap.set(branch, linearId);
 
-      const existing = branchCache.get(branch);
-      if (existing && (now - existing.fetchedAt) < cacheTtl) continue;
+      const cached = branchCache.get(branch);
+      if (cached && (now - cached.fetchedAt) < cacheTtl) continue;
 
       staleLinearIds.push(linearId);
     }
@@ -311,17 +312,21 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     for (const branch of localBranchNames) {
       const mrInfo = mrResults.get(branch) ?? null;
       const linearId = branchLinearMap.get(branch) ?? null;
-      const existing = branchCache.get(branch);
+      const cached = branchCache.get(branch);
+      const existing = ownBranchData(cached, repoForge.forge, repoForge.remoteUrl);
+      if (cached && !existing && (now - cached.fetchedAt) < cacheTtl) continue;
       const isFreshCache = existing && (now - existing.fetchedAt) < cacheTtl;
 
       const freshTicket = linearId ? ticketMap.get(linearId) ?? null : null;
       const ticket = freshTicket ?? (isFreshCache ? existing?.ticket ?? null : null);
 
+      const repoIdentity = repoIdentityToStore(repoForge.forge, existing?.repoIdentity, remoteUrl);
       branchCache.set(branch, {
         ticket,
         mrUrl: mrInfo?.webUrl ?? existing?.mrUrl ?? null,
         linearId: mrInfo?.linearId ?? existing?.linearId ?? null,
         fetchedAt: freshTicket ? now : (isFreshCache ? existing!.fetchedAt : now),
+        ...(repoIdentity ? { repoIdentity } : {}),
       });
     }
 

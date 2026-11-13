@@ -38,9 +38,11 @@ The extension extracts Linear ticket identifiers (e.g. `ACME-1287`) from branch 
 
 With a Linear API key configured, it fetches the full ticket title and status.
 
-### GitLab MR fallback
+### Pull request and merge request links
 
-For branches without a recognizable Linear ID in the name, the extension can look up the open merge request title on GitLab and extract the ticket ID from there (e.g. `[ACME-1287] Add damage photos`).
+The PR or MR link comes from the rt daemon. On GitHub the daemon reads pull requests once GitHub is connected (`rt setup github connect --use-gh`), and a new branch's link appears after the daemon's next refresh. On GitLab the extension can also look the MR up itself with the GitLab token, and extract the ticket ID from the MR title for branches without one in the name (e.g. `[ACME-1287] Add damage photos`).
+
+Known limit on GitHub: the daemon cannot scope a lookup by repo over its REST API, so when two repos share a branch name, the daemon may answer with the other repo's entry. The extension then drops that entry's PR link, so a branch name another repo also uses may show no PR link.
 
 ## Install
 
@@ -56,8 +58,8 @@ rt extension install
 
 Open the command palette and run:
 
-- **RT Context: Set Linear API Key** — enables ticket title and status lookup
-- **RT Context: Set GitLab Token** — enables MR title fallback for branches without a Linear ID
+- **RT Context: Set Linear API Key**: enables ticket title and status lookup
+- **RT Context: Set GitLab Token**: enables MR title fallback for branches without a Linear ID. Shown on GitLab and other hosts, not on GitHub repos
 
 Both keys are stored securely in the editor's secret storage and shared with the rt CLI.
 
