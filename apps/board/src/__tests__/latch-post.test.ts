@@ -20,6 +20,7 @@ import {
   type LatchMr,
   type LatchTarget,
 } from '../latch/post.ts';
+import { bannerAlt, GITHUB_BANNER_SET, variantKey } from '../latch/variants.ts';
 import { removeTempDbs, tempDb } from './latch-temp-db.ts';
 
 afterAll(removeTempDbs);
@@ -63,6 +64,49 @@ function gateway() {
     },
   };
   return { gw, calls, bodies, uploads };
+}
+
+function githubGateway() {
+  const calls: string[] = [];
+  const bodies: string[] = [];
+  const batches: string[][] = [];
+  let thread: () => Promise<{
+    discussionId: string;
+    rootNoteId: number;
+  } | null> = async () => ({ discussionId: 'gh1', rootNoteId: 5 });
+  const gw: LatchGateway = {
+    forge: 'github',
+    async uploadFiles(_mr, files) {
+      calls.push('upload');
+      batches.push(files.map(f => f.filename));
+      return files.map(
+        f => `![${f.alt}](https://github.com/user-attachments/${f.filename})`
+      );
+    },
+    async createThread(_mr, body) {
+      calls.push('createThread');
+      bodies.push(body);
+      return thread();
+    },
+    async updateNote(_mr, noteId, body) {
+      calls.push(`updateNote:${noteId}`);
+      bodies.push(body);
+    },
+    async resolveDiscussion() {},
+    async unresolveDiscussion() {},
+    async createNote() {
+      return { id: 9 };
+    },
+  };
+  return {
+    gw,
+    calls,
+    bodies,
+    batches,
+    setThread: (fn: typeof thread) => {
+      thread = fn;
+    },
+  };
 }
 
 function row(overrides: Partial<LatchRow> = {}): LatchRow {
@@ -179,6 +223,116 @@ describe('postLatch', () => {
     expect(latchKindOf(bodies[0]!)).toBe('armed');
     expect(bodies[0]).toContain('](/uploads/ab12/latch-2317-armed.gif)\n');
     expect(bodies[0]).toContain('Resolve this thread');
+  });
+});
+
+describe('GitHub banners', () => {
+  test('the common set is the six banners an ordinary cycle shows', () => {
+    expect(GITHUB_BANNER_SET.map(variantKey)).toEqual([
+      'armed',
+      'queued-next-sweep',
+      'running',
+      'done-comments-none',
+      'done-approved',
+      'approved',
+    ]);
+  });
+
+  test('a GitHub arm uploads the common set in one batch', async () => {
+    const db = tempDb();
+    const { gw, calls, batches } = githubGateway();
+    const posted = await postLatch(gw, mr, db);
+    expect(posted).toEqual({ discussionId: 'gh1', rootNoteId: 5 });
+    expect(calls).toEqual(['upload', 'createThread']);
+    expect(batches).toEqual([
+      GITHUB_BANNER_SET.map(v => `latch-2317-${variantKey(v)}.gif`),
+    ]);
+    for (const v of GITHUB_BANNER_SET) {
+      const key = variantKey(v);
+      expect(cachedUpload(MR, key, db)).toBe(
+        `![${bannerAlt(v)}](https://github.com/user-attachments/latch-2317-${key}.gif)`
+      );
+    }
+  });
+
+  test('a later common banner reuses the batch', async () => {
+    const db = tempDb();
+    const { gw, batches } = githubGateway();
+    await postLatch(gw, mr, db);
+    const md = await bannerMarkdown(gw, mr, { state: 'running' }, db);
+    expect(batches).toHaveLength(1);
+    expect(md).toBe(cachedUpload(MR, 'running', db)!);
+  });
+
+  test('a common banner uploads only the members not yet cached', async () => {
+    const db = tempDb();
+    const { gw, batches } = githubGateway();
+    for (const state of ['armed', 'approved'] as const)
+      rememberUpload(MR, state, `![${bannerAlt({ state })}](/a.gif)`, db);
+    rememberUpload(MR, 'done-approved', '![older copy](/b.gif)', db);
+    await bannerMarkdown(gw, mr, { state: 'running' }, db);
+    expect(batches).toEqual([
+      [
+        'latch-2317-queued-next-sweep.gif',
+        'latch-2317-running.gif',
+        'latch-2317-done-comments-none.gif',
+        'latch-2317-done-approved.gif',
+      ],
+    ]);
+  });
+
+  test('a rare banner uploads alone on GitHub even with nothing cached', async () => {
+    const db = tempDb();
+    const { gw, batches } = githubGateway();
+    const md = await bannerMarkdown(gw, mr, { state: 'error-stuck' }, db);
+    expect(batches).toEqual([['latch-2317-error-stuck.gif']]);
+    expect(md).toBe(
+      '![Follow-up review stuck. Reviewer notified](https://github.com/user-attachments/latch-2317-error-stuck.gif)'
+    );
+    expect(cachedUpload(MR, 'armed', db)).toBeNull();
+  });
+
+  test('a GitLab arm still uploads one file', async () => {
+    const db = tempDb();
+    const { gw, uploads } = gateway();
+    await postLatch(gw, mr, db);
+    expect(uploads).toEqual([
+      { filename: 'latch-2317-armed.gif', contentType: 'image/gif' },
+    ]);
+  });
+
+  test('a failed thread post reuses the cached batch next tick', async () => {
+    const db = tempDb();
+    const { gw, calls, setThread } = githubGateway();
+    let fail = true;
+    setThread(async () => {
+      if (fail) {
+        fail = false;
+        throw new Error('github 502');
+      }
+      return { discussionId: 'gh1', rootNoteId: 5 };
+    });
+    await expect(postLatch(gw, mr, db)).rejects.toThrow('github 502');
+    expect(await postLatch(gw, mr, db)).toEqual({
+      discussionId: 'gh1',
+      rootNoteId: 5,
+    });
+    expect(calls).toEqual(['upload', 'createThread', 'createThread']);
+  });
+
+  test('a PR with no changed files is the no-files outcome', async () => {
+    const db = tempDb();
+    const { gw, setThread } = githubGateway();
+    setThread(async () => null);
+    expect(await postLatch(gw, mr, db)).toEqual({ noFiles: true });
+  });
+
+  test('the GitHub armed sentence names the PR', async () => {
+    const db = tempDb();
+    const { gw, bodies } = githubGateway();
+    await postLatch(gw, mr, db);
+    expect(bodies[0]).toContain("I'll take another pass over the PR.");
+    expect(bodies[0]).not.toContain('MR');
   });
 });
 

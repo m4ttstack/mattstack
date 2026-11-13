@@ -79,11 +79,16 @@ export async function landFollowUp(
   if (first !== 'ok') return first;
 
   const count = i.outcome === 'comment' ? await i.countNew() : null;
+  // GitHub shows the uncounted done banner, one of the common set uploaded
+  // at arm; the reply still carries the count.
   const variant: BannerVariant =
     i.outcome === 'approve'
       ? DONE_APPROVED
       : i.outcome === 'comment'
-        ? { state: 'done-comments', count }
+        ? {
+            state: 'done-comments',
+            count: i.gateway.forge === 'github' ? null : count,
+          }
         : ARMED;
   const key = variantKey(variant);
   // Owed in the same write that lands, so a reply that fails to post is

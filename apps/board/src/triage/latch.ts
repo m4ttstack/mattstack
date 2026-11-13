@@ -32,6 +32,7 @@ import {
   type LatchRow,
   type WaitReason,
 } from '../latch/latch-state.ts';
+import { noFilesFor, recordNoFiles } from '../latch/no-files.ts';
 import {
   postLatch,
   postReplyDue,
@@ -402,13 +403,23 @@ export async function runLatchPass(
           review?.status === 'done' &&
           review.outcome === 'comment' &&
           !mr.approvedBySelf &&
-          now - review.updatedAt >= LATCH_POST_GRACE_MS
+          now - review.updatedAt >= LATCH_POST_GRACE_MS &&
+          !noFilesFor(mr.mrUrl, runStamp(review), deps.db)
         ) {
-          const { discussionId, rootNoteId } = await postLatch(
-            deps.gateway,
-            mr,
-            deps.db
-          );
+          const posted = await postLatch(deps.gateway, mr, deps.db);
+          if ('noFiles' in posted) {
+            recordNoFiles(mr.mrUrl, runStamp(review), deps.db);
+            deps.appendAudit({
+              ts: now,
+              mrUrl: mr.mrUrl,
+              iid: mr.iid,
+              event: 'latch',
+              action: 'no-files',
+            });
+            result.skipped++;
+            continue;
+          }
+          const { discussionId, rootNoteId } = posted;
           rows.put({
             mrUrl: mr.mrUrl,
             discussionId,

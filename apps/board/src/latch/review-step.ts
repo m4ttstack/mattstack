@@ -8,9 +8,11 @@ import type { Database } from 'bun:sqlite';
 
 import type { MRDetail } from '@mattstack/glance';
 import { getStateDb } from '../state/index.ts';
+import type { AuditEntry } from '../triage/audit.ts';
 import { findLatches, hasLiveLatch } from './discussions.ts';
 import { landFollowUp, spendForApproval } from './land.ts';
 import { putLatchRow, readLatchRow } from './latch-state.ts';
+import { noFilesFor, recordNoFiles } from './no-files.ts';
 import { postLatch, type LatchGateway, type LatchMr } from './post.ts';
 
 export interface ReviewLatchStep {
@@ -22,6 +24,10 @@ export interface ReviewLatchStep {
   /** runStamp of the finished review; null when the lane no longer reads
       done, so this signal cannot vouch for the run and nothing lands. */
   reviewRunStartedAt: number | null;
+  /** runStamp of the finished lane whether or not it vouches for the run;
+      the no-files memo keys on it, since reviewRunStartedAt can be null. */
+  runStamp: number;
+  appendAudit(entry: AuditEntry): void;
   /** The reviewer's discussions created at or after `launchAt`, fresh from
       GitLab; null when they cannot be read. */
   countNew: (launchAt: number) => Promise<number | null>;
@@ -98,7 +104,20 @@ export async function applyReviewLatch(
   if (hasLiveLatch(latches)) return 'none';
   const live = readLatchRow(s.mrUrl, db);
   if (live && live.phase !== 'spent') return 'none';
-  const { discussionId, rootNoteId } = await postLatch(s.gateway, mr, db);
+  if (noFilesFor(s.mrUrl, s.runStamp, db)) return 'none';
+  const posted = await postLatch(s.gateway, mr, db);
+  if ('noFiles' in posted) {
+    recordNoFiles(s.mrUrl, s.runStamp, db);
+    s.appendAudit({
+      ts: now,
+      mrUrl: s.mrUrl,
+      iid: s.mr.iid,
+      event: 'latch',
+      action: 'no-files',
+    });
+    return 'none';
+  }
+  const { discussionId, rootNoteId } = posted;
   putLatchRow(
     {
       mrUrl: s.mrUrl,

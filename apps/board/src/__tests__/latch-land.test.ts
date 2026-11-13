@@ -57,8 +57,8 @@ function harness(
     forge: 'gitlab',
     async uploadFiles(_mr, files) {
       calls.push('upload');
-      uploads.push(files[0]!.filename);
-      return [IMG];
+      uploads.push(...files.map(f => f.filename));
+      return files.map(() => IMG);
     },
     async createThread() {
       calls.push('createDiscussion');
@@ -177,6 +177,23 @@ describe('landFollowUp', () => {
     expect(await h.land()).toBe('landed');
     expect(h.replies).toEqual([]);
     expect(readLatchRow(MR, h.db)?.replyDue).toBeNull();
+  });
+
+  test('a GitHub comment landing shows the uncounted done banner and the counted reply', async () => {
+    const h = harness();
+    h.input.gateway.forge = 'github';
+    expect(await h.land()).toBe('landed');
+    expect(h.uploads).toContain('latch-2317-done-comments-none.gif');
+    expect(h.uploads).not.toContain('latch-2317-done-comments-3.gif');
+    expect(h.replies).toEqual(['Follow-up review done: 3 new comments.']);
+    expect(readLatchRow(MR, h.db)?.variant).toBe('done-comments-none');
+  });
+
+  test('a GitLab comment landing keeps the counted done banner', async () => {
+    const h = harness();
+    await h.land();
+    expect(h.uploads).toEqual(['latch-2317-done-comments-3.gif']);
+    expect(readLatchRow(MR, h.db)?.variant).toBe('done-comments-3');
   });
 
   test('one new comment reads singular', async () => {

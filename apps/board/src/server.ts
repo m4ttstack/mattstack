@@ -464,6 +464,7 @@ import {
   type ThreadWriteResult,
   type ThreadWriteSend,
 } from './thread-write.ts';
+import { appendAudit } from './triage/audit.ts';
 import {
   loadPeerAsksAlwaysAllow,
   loadPeerAsksConfig,
@@ -5877,6 +5878,8 @@ async function handleAgentSignal(
             outcome,
             arm,
             reviewRunStartedAt: vouched ? runStamp(lane) : null,
+            runStamp: lane ? runStamp(lane) : emittedAt,
+            appendAudit: entry => appendAudit(entry),
             countNew: launchAt =>
               fetchNewDiscussionCount(
                 () =>

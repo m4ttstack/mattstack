@@ -18,6 +18,7 @@ import { imageMarkdownFor, latchBody } from './markers.ts';
 import {
   bannerAlt,
   copyFor,
+  GITHUB_BANNER_SET,
   variantKey,
   type BannerVariant,
 } from './variants.ts';
@@ -42,6 +43,7 @@ export interface LatchGateway {
   forge: 'gitlab' | 'github';
   /** Markdown for each file, in the order given. */
   uploadFiles(mr: LatchMr, files: LatchFile[]): Promise<string[]>;
+  /** null: the MR has no file to anchor a thread on. */
   createThread(
     mr: LatchMr,
     body: string
@@ -76,6 +78,42 @@ export async function postReplyDue(
   clearReplyDue(mr.mrUrl, body, db);
 }
 
+function usableUpload(
+  mrUrl: string,
+  variant: BannerVariant,
+  db: Database
+): string | null {
+  const cached = cachedUpload(mrUrl, variantKey(variant), db);
+  // A row whose alt text no longer matches was drawn with older copy (or is a
+  // sized pre-3x upload): it is replaced, not reused.
+  if (
+    cached?.startsWith(`![${bannerAlt(variant)}](`) &&
+    !cached.includes('{width=')
+  )
+    return cached;
+  return null;
+}
+
+/** The banners one upload carries: on GitHub a common banner brings every
+    other common one this MR still lacks, so an ordinary cycle makes one
+    upload; anything else goes alone. */
+function uploadBatch(
+  gw: LatchGateway,
+  mrUrl: string,
+  variant: BannerVariant,
+  db: Database
+): BannerVariant[] {
+  const key = variantKey(variant);
+  if (
+    gw.forge !== 'github' ||
+    !GITHUB_BANNER_SET.some(v => variantKey(v) === key)
+  )
+    return [variant];
+  return GITHUB_BANNER_SET.map(v =>
+    variantKey(v) === key ? variant : v
+  ).filter(v => !usableUpload(mrUrl, v, db));
+}
+
 /** This MR's banner for `variant`, uploaded only the first time the MR shows it. */
 export async function bannerMarkdown(
   gw: LatchGateway,
@@ -84,23 +122,25 @@ export async function bannerMarkdown(
   db: Database = getStateDb()
 ): Promise<string> {
   const { mrUrl, iid } = mr;
-  const key = variantKey(variant);
-  const alt = bannerAlt(variant);
-  const cached = cachedUpload(mrUrl, key, db);
-  // A row whose alt text no longer matches was drawn with older copy (or is a
-  // sized pre-3x upload): it is replaced, not reused.
-  if (cached?.startsWith(`![${alt}](`) && !cached.includes('{width='))
-    return cached;
-  const [uploaded] = await gw.uploadFiles(mr, [
-    {
-      filename: `latch-${iid}-${key}.gif`,
-      bytes: latchBannerGif(mrUrl, variant),
+  const cached = usableUpload(mrUrl, variant, db);
+  if (cached) return cached;
+  const batch = uploadBatch(gw, mrUrl, variant, db);
+  const uploaded = await gw.uploadFiles(
+    mr,
+    batch.map(v => ({
+      filename: `latch-${iid}-${variantKey(v)}.gif`,
+      bytes: latchBannerGif(mrUrl, v),
       contentType: 'image/gif',
-      alt,
-    },
-  ]);
-  const markdown = imageMarkdownFor(alt, uploaded!);
-  rememberUpload(mrUrl, key, markdown, db);
+      alt: bannerAlt(v),
+    }))
+  );
+  const key = variantKey(variant);
+  let markdown = '';
+  batch.forEach((v, i) => {
+    const md = imageMarkdownFor(bannerAlt(v), uploaded[i]!);
+    rememberUpload(mrUrl, variantKey(v), md, db);
+    if (variantKey(v) === key) markdown = md;
+  });
   return markdown;
 }
 
@@ -112,7 +152,7 @@ async function writeNote(
   db: Database
 ): Promise<void> {
   const img = await bannerMarkdown(gw, t, variant, db);
-  const body = latchBody(phase, img, copyFor(variant).sentence);
+  const body = latchBody(phase, img, copyFor(variant, gw.forge).sentence);
   await gw.updateNote(t, t.rootNoteId, body);
 }
 
@@ -140,21 +180,20 @@ export async function rewriteLatch(
 }
 
 /** Arm a fresh latch: upload this MR's banner, then open a resolvable thread.
-    The caller writes the latch row from the returned ids. */
+    The caller writes the latch row from the returned ids. `noFiles`: the PR
+    has no changed file to anchor the thread on, so nothing was posted. */
 export async function postLatch(
   gw: LatchGateway,
   mr: LatchMrUrl,
   db: Database = getStateDb()
-): Promise<{ discussionId: string; rootNoteId: number }> {
+): Promise<{ discussionId: string; rootNoteId: number } | { noFiles: true }> {
   const variant: BannerVariant = { state: 'armed' };
   const img = await bannerMarkdown(gw, mr, variant, db);
   const thread = await gw.createThread(
     mr,
-    latchBody('armed', img, copyFor(variant).sentence)
+    latchBody('armed', img, copyFor(variant, gw.forge).sentence)
   );
-  if (!thread)
-    throw new Error(`latch post on !${mr.iid} returned no root note`);
-  return thread;
+  return thread ?? { noFiles: true };
 }
 
 /**

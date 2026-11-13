@@ -7,11 +7,13 @@ import {
   type LatchRow,
 } from '../latch/latch-state.ts';
 import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
+import { noFilesFor } from '../latch/no-files.ts';
 import type { LatchGateway } from '../latch/post.ts';
 import {
   applyReviewLatch,
   type ReviewLatchStep,
 } from '../latch/review-step.ts';
+import type { AuditEntry } from '../triage/audit.ts';
 import { removeTempDbs, tempDb } from './latch-temp-db.ts';
 
 afterAll(removeTempDbs);
@@ -66,11 +68,12 @@ function latchRow(over: Partial<LatchRow> = {}): LatchRow {
 function step(over: Partial<ReviewLatchStep>) {
   const calls: string[] = [];
   const replies: string[] = [];
+  const audits: AuditEntry[] = [];
   const gateway: LatchGateway = {
     forge: 'gitlab',
-    async uploadFiles() {
+    async uploadFiles(_mr, files) {
       calls.push('upload');
-      return [IMG];
+      return files.map(() => IMG);
     },
     async createThread() {
       calls.push('createDiscussion');
@@ -95,6 +98,10 @@ function step(over: Partial<ReviewLatchStep>) {
     outcome: 'comment',
     arm: true,
     reviewRunStartedAt: 2_000,
+    runStamp: 2_000,
+    appendAudit: entry => {
+      audits.push(entry);
+    },
     countNew: async () => 2,
     now: 5_000,
     self: 'matt',
@@ -111,7 +118,7 @@ function step(over: Partial<ReviewLatchStep>) {
     db: tempDb(),
     ...over,
   };
-  return { s, calls, replies };
+  return { s, calls, replies, audits };
 }
 
 describe('applyReviewLatch', () => {
@@ -121,6 +128,38 @@ describe('applyReviewLatch', () => {
     });
     expect(await applyReviewLatch(s)).toBe('posted');
     expect(calls).toEqual(['upload', 'createDiscussion']);
+  });
+
+  test('a PR with no changed files posts no latch and remembers the run', async () => {
+    const db = tempDb();
+    const { s, calls, audits } = step({ db });
+    s.gateway.forge = 'github';
+    s.gateway.createThread = async () => {
+      calls.push('createDiscussion');
+      return null;
+    };
+    expect(await applyReviewLatch(s)).toBe('none');
+    expect(readLatchRow(MR, db)).toBeNull();
+    expect(noFilesFor(MR, 2_000, db)).toBe(true);
+    expect(audits).toEqual([
+      {
+        ts: 5_000,
+        mrUrl: MR,
+        iid: 2317,
+        event: 'latch',
+        action: 'no-files',
+      },
+    ]);
+
+    expect(await applyReviewLatch(s)).toBe('none');
+    expect(calls.filter(c => c === 'createDiscussion')).toHaveLength(1);
+    expect(audits).toHaveLength(1);
+
+    s.runStamp = 3_000;
+    s.reviewRunStartedAt = null;
+    await applyReviewLatch(s);
+    expect(calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
+    expect(noFilesFor(MR, 3_000, db)).toBe(true);
   });
 
   test('a post records the latch as an armed row', async () => {

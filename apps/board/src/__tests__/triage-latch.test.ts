@@ -8,6 +8,7 @@ import {
   type LatchRow,
 } from '../latch/latch-state.ts';
 import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
+import { noFilesFor } from '../latch/no-files.ts';
 import type { LatchGateway } from '../latch/post.ts';
 import type { ReviewState } from '../review-state.ts';
 import type { AuditEntry } from '../triage/audit.ts';
@@ -126,8 +127,8 @@ function harness(
     forge: 'gitlab',
     async uploadFiles(_mr, files) {
       calls.push('upload');
-      uploads.push(files[0]!.filename);
-      return [IMG];
+      uploads.push(...files.map(f => f.filename));
+      return files.map(() => IMG);
     },
     async createThread() {
       calls.push('createDiscussion');
@@ -246,6 +247,44 @@ describe('step 0: no latch', () => {
       replyDue: null,
       updatedAt: NOW,
     });
+  });
+
+  test('a PR with no changed files posts no latch until the next review', async () => {
+    const db = tempDb();
+    let review: ReviewState = { ...commented, runStartedAt: 7_000 };
+    const h = harness({
+      detail: detail(),
+      db,
+      readReviewStates: () => new Map([[MR, review]]),
+    });
+    h.deps.gateway.forge = 'github';
+    h.deps.gateway.createThread = async () => {
+      h.calls.push('createDiscussion');
+      return null;
+    };
+
+    const first = await runLatchPass(h.deps);
+    expect(first.posted).toBe(0);
+    expect(first.skipped).toBe(1);
+    expect(readLatchRow(MR, db)).toBeNull();
+    expect(noFilesFor(MR, 7_000, db)).toBe(true);
+    expect(h.audits).toEqual([
+      {
+        ts: NOW,
+        mrUrl: MR,
+        iid: 2317,
+        event: 'latch',
+        action: 'no-files',
+      },
+    ]);
+
+    expect((await runLatchPass(h.deps)).skipped).toBe(1);
+    expect(h.calls.filter(c => c === 'createDiscussion')).toHaveLength(1);
+    expect(h.audits).toHaveLength(1);
+
+    review = { ...review, runStartedAt: 8_000 };
+    await runLatchPass(h.deps);
+    expect(h.calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
   });
 
   test('posts nothing on an approve-outcome state', async () => {
