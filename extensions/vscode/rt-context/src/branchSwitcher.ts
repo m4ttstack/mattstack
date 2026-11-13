@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { extractLinearId } from './branchParser';
 import { fetchTicketsBatch, fetchMyTodoTickets } from './linear';
 import { fetchMRInfoBatch } from './gitlab';
-import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote } from './forge';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityToStore } from './forge';
 import { resolveRepoForge } from './repoForge';
 import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache, branchListCache } from './cache';
@@ -274,7 +274,6 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
       getSecret(context, 'linearApiKey'),
     ]);
     const remoteUrl = repoForge.remoteUrl;
-    const ownIdentity = repoForge.forge === 'github' && remoteUrl ? repoIdentityOfRemote(remoteUrl) : null;
 
     // 5. Batch MR lookup — single API call for all local non-default branches
     let mrResults = new Map<string, { webUrl: string | null; linearId: string | null }>();
@@ -316,7 +315,7 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
       const freshTicket = linearId ? ticketMap.get(linearId) ?? null : null;
       const ticket = freshTicket ?? (isFreshCache ? existing?.ticket ?? null : null);
 
-      const repoIdentity = existing?.repoIdentity ?? ownIdentity;
+      const repoIdentity = repoIdentityToStore(repoForge.forge, existing?.repoIdentity, remoteUrl);
       branchCache.set(branch, {
         ticket,
         mrUrl: mrInfo?.webUrl ?? existing?.mrUrl ?? null,

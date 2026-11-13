@@ -51,9 +51,44 @@ export function forgeWords(forge: Forge | null): ForgeWords {
   return forge === 'github' ? GITHUB_WORDS : GITLAB_WORDS;
 }
 
-export function repoIdentityOfRemote(remoteUrl: string): string | null {
+export function memoizeFor<K, V>(fn: (key: K) => V, ttlMs: number, clock: () => number = Date.now) {
+  const memo = new Map<K, { value: V; at: number }>();
+  return {
+    get(key: K): V {
+      const now = clock();
+      const hit = memo.get(key);
+      if (hit && now - hit.at < ttlMs) return hit.value;
+      const value = fn(key);
+      memo.set(key, { value, at: now });
+      return value;
+    },
+    clear() {
+      memo.clear();
+    },
+  };
+}
+
+const identityMemo = memoizeFor((remoteUrl: string): string | null => {
   const identity = identityFromRemote(remoteUrl);
   return identity === null ? null : serializeIdentity(identity);
+}, 60_000);
+
+export function repoIdentityOfRemote(remoteUrl: string): string | null {
+  return identityMemo.get(remoteUrl);
+}
+
+export function clearRepoIdentityMemo() {
+  identityMemo.clear();
+}
+
+/** The identity a written cache entry carries: only a GitHub repo stores one, so GitLab's stored data stays as it was. */
+export function repoIdentityToStore(
+  forge: Forge | null,
+  entryIdentity: string | undefined,
+  remoteUrl: string | null,
+): string | null {
+  if (forge !== 'github') return null;
+  return entryIdentity ?? (remoteUrl ? repoIdentityOfRemote(remoteUrl) : null);
 }
 
 export function prBelongsToRemote(webUrl: string, remoteUrl: string): boolean {

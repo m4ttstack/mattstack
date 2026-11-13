@@ -10,13 +10,17 @@ import {
   forgeWords,
   ownBranchData,
   prBelongsToRemote,
+  clearRepoIdentityMemo,
+  memoizeFor,
   repoIdentityOfRemote,
+  repoIdentityToStore,
 } from '../forge';
 
 const origHome = process.env.HOME;
 let home: string;
 
 beforeEach(() => {
+  clearRepoIdentityMemo();
   home = realpathSync(mkdtempSync(join(tmpdir(), 'rt-ext-forge-')));
   process.env.HOME = home;
 });
@@ -87,6 +91,41 @@ describe('repoIdentityOfRemote', () => {
   test('a remote that yields no identity is null', () => {
     expect(repoIdentityOfRemote('/tmp/local/path')).toBeNull();
     expect(repoIdentityOfRemote('')).toBeNull();
+  });
+});
+
+describe('memoizeFor', () => {
+  test('calls through once per key inside the ttl, again after it, and clear forgets', () => {
+    let now = 0;
+    let calls = 0;
+    const memo = memoizeFor((key: string) => `${key}:${++calls}`, 60_000, () => now);
+    expect(memo.get('a')).toBe('a:1');
+    now = 59_999;
+    expect(memo.get('a')).toBe('a:1');
+    expect(memo.get('b')).toBe('b:2');
+    now = 60_000;
+    expect(memo.get('a')).toBe('a:3');
+    memo.clear();
+    expect(memo.get('a')).toBe('a:4');
+  });
+  test('a null result is memoized too', () => {
+    let calls = 0;
+    const memo = memoizeFor((_key: string) => (++calls, null), 1000, () => 0);
+    memo.get('x');
+    memo.get('x');
+    expect(calls).toBe(1);
+  });
+});
+
+describe('repoIdentityToStore', () => {
+  test('github keeps the entry identity, else stamps the repo own', () => {
+    expect(repoIdentityToStore('github', FOREIGN_ID, REMOTE)).toBe(FOREIGN_ID);
+    expect(repoIdentityToStore('github', undefined, REMOTE)).toBe(OWN_ID);
+    expect(repoIdentityToStore('github', undefined, null)).toBeNull();
+  });
+  test('gitlab and null store no identity, whatever the entry carried', () => {
+    expect(repoIdentityToStore('gitlab', FOREIGN_ID, 'git@gitlab.com:g/p.git')).toBeNull();
+    expect(repoIdentityToStore(null, OWN_ID, REMOTE)).toBeNull();
   });
 });
 

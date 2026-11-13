@@ -10,7 +10,7 @@ import { fetchBranchFromDaemon } from './daemonClient';
 import { getSecret } from './secrets';
 import type { CachedBranchData, GitExtensionExports } from './types';
 import { getGitApi, findWorkspaceRepo, getRepoRootName, getGitDir, readBranchFromHead } from './git';
-import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote, type Forge } from './forge';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityToStore, type Forge } from './forge';
 import { resolveRepoForge, type RepoForge } from './repoForge';
 
 // ── Module state ──
@@ -384,7 +384,7 @@ async function fetchBranchDataDirect(
     }
   }
 
-  const repoIdentity = repoForge.forge === 'github' && repoForge.remoteUrl ? repoIdentityOfRemote(repoForge.remoteUrl) : null;
+  const repoIdentity = repoIdentityToStore(repoForge.forge, undefined, repoForge.remoteUrl);
   return {
     ticket,
     mrUrl,
