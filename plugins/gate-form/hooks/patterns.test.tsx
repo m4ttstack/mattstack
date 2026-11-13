@@ -13,8 +13,6 @@ const ABOVE = {
   props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 
-const MESSAGE = (text: string, name: string) => ({ plugin: 'gate-form', component: 'UserMessage', props: { text, origin: { kind: 'plugin', name }, isExpanded: false } }) as const
-
 type Body = Parameters<Parameters<typeof test>[1]>
 type On = Body[1]
 type Node = { children?: unknown[] }
@@ -117,22 +115,6 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await band.find({ type: 'Client' })).toBeDefined()
     await pane.unmount()
     await band.unmount()
-  })
-
-  test(`a gate row is summarised and another plugin's row is untouched (${surface})`, async ($, on) => {
-    const rows: string[] = []
-    on('ui.render', { component: 'UserMessage' }, async (_, e, next) => {
-      rows.push(e.props.text)
-      return next(e)
-    })
-    const text = '[gate-form] The user answered "T" (1 of 1 questions).\nForm f1.\n```json\n{"a": 1}\n```'
-    for (const name of ['gate-form', 'other']) {
-      const row = await $.ui.mount({ ...MESSAGE(text, name), surface })
-      await row.unmount()
-    }
-    expect(rows[0]).toContain('mattstack gate')
-    expect(rows[0]).not.toContain('"a": 1')
-    expect(rows[1]).toBe(text)
   })
 
   test(`pointer: pressing Next, dragging off and releasing leaves the page; releasing on it moves on (${surface})`, async ($, on) => {

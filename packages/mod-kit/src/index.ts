@@ -21,7 +21,6 @@ export { isEngaged } from './interact/focus'
 export { bandClient } from './patterns/band-client'
 export { bandAbovePrompt, isPlaced, paneMessage, registerPaneRedraw, showPane } from './patterns/hideable-pane'
 export type { HideablePane, Waiting } from './patterns/hideable-pane'
-export { registerTranscriptSummary } from './patterns/transcript'
 export { fitToRows, navRow, padToHeight, reviewList } from './patterns/page-shell'
 export type { Drawn, NavSpec, ReviewItem } from './patterns/page-shell'
 

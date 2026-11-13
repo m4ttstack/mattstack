@@ -256,12 +256,6 @@ a `Panel`. Re-exported as `band.tsx`'s default (above).
 redraws `ui.render` after a close, so the band follows the engine's pane list.
 Register no other matcherless `ui.close` hook in the mod.
 
-### `registerTranscriptSummary`
-
-`registerTranscriptSummary(on, { plugin, label, summary }): void`. Rewrites a
-plugin's transcript row to one line (`label` then `summary(text)`). The stored
-message stays whole. It registers a `ui.render` hook for `UserMessage`.
-
 ### `isEngaged`
 
 `isEngaged(e): boolean`. True when a `ui.message` event carries the Client's

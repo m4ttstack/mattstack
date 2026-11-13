@@ -200,15 +200,6 @@ async function bandAbovePrompt($, e, rest, waiting, pane) {
 async function isPlaced($, pane) {
   return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
 }
-// packages/mod-kit/src/patterns/transcript.ts
-function registerTranscriptSummary(on, opts) {
-  on("ui.render", { component: "UserMessage" }, async ($, e, next) => {
-    const origin = e.props.origin;
-    if (origin.kind !== "plugin" || origin.name !== opts.plugin)
-      return next(e);
-    return next({ ...e, props: { ...e.props, text: `${BRAND.glyph} ${opts.label}  ${opts.summary(e.props.text)}` } });
-  });
-}
 // mods/gate-form/src/gate/demo.ts
 var DEMO = {
   title: "respond-plan gate (demo)",
@@ -402,11 +393,6 @@ function agentReply(form, outcome) {
   ].join(`
 `);
 }
-function summaryOf(text) {
-  const summary = (text.split(`
-`)[0] ?? "").replace(REPLY_TAG, "").replace(/^The user /, "");
-  return summary.charAt(0).toUpperCase() + summary.slice(1);
-}
 function toastReply(form, outcome) {
   if (outcome.status === "chat")
     return `Set "${form.title}" aside to chat about it`;
@@ -484,7 +470,6 @@ async function settle($, formId, outcome) {
 }
 function register(on) {
   registerPaneRedraw(on);
-  registerTranscriptSummary(on, { plugin: "gate-form", label: "mattstack gate", summary: summaryOf });
   on("session.start", async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false });
     await $.command.register({ name: "gate-form-demo", description: "Open the gate form with a demo gate" });

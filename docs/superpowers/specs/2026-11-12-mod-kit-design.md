@@ -116,9 +116,8 @@ packages/mod-kit/            @mattstack/mod-kit (private workspace package)
                              buttons (tones + disabled), scroll chips
   src/interact/              Client pointer controller (hover, press-on-release,
                              drag-off cancel, click-to-focus), focus-post check
-  src/patterns/              hideable pane helpers + reopen band Client, transcript
-                             summary line, page shell (fixed height, nav row,
-                             review list)
+  src/patterns/              hideable pane helpers + reopen band Client, page
+                             shell (fixed height, nav row, review list)
   README.md
 mods/<name>/                 a mod's source package
   src/register.tsx           hooks module entry
@@ -162,7 +161,7 @@ Underneath, the components keep the spike's line model, which is what gives the
 exact clack layout, hover keys per row, and press-on-release hit testing: a root
 component (`<Panel>` above) lays its children out as lines, then draws them with
 the kit renderer and wires the pointer controller. The hook-side patterns
-(`showPane`, `paneMessage`, `registerTranscriptSummary`) stay functions; they
+(`showPane`, `paneMessage`) stay functions; they
 draw nothing of their own.
 
 **`h` runs function components at once (eager), probed 2026-11-12 on mod API
@@ -242,7 +241,6 @@ hand in gate-form:
 | Pointer controller for a Client: `attachPointer(surface, lines, { focused, onAction, onEngage?, isActive? })` returns the `look` for `renderLines`: hover, press on down and act on release over the same control, drag-off cancel, first click on a dimmed surface only engages | `form.tsx`, `band.tsx` | The module seeds `surface.state` first; until it exists no listener is set, so a press cannot overwrite the module's own state. |
 | Focus stand-in: a per-mod atom set by the Client's "engaged" post, cleared by `prompt.edit`, `prompt.submit` and `ui.focus`; combined with the pane's `isFocused` | `register.tsx` | Claude Code has no Client focus signal. The kit ships only `isEngaged(e)`; the mod declares the atom (`atom({ plugin: '<name>', key: 'keysInForm' } as const, false)`) and owns the set, the three clearing hooks and the read, because kit code cannot touch state. |
 | Hideable pane: `showPane($, pane, title)`, `paneMessage($, e, pane, waiting)` (handles `{ type: 'hide' }` and `{ type: 'reopen', formId }`), `isPlaced($, pane)`, `bandAbovePrompt($, e, rest, waiting, pane)` (a Client with the brand Open button, falling back to the engine `Button` on surfaces without Client), `registerPaneRedraw(on)` (`ui.close` redraw), and `bandClient` in `patterns/band-client.tsx` | `register.tsx`, `band.tsx` | The engine's own `×` cannot be hidden; it behaves like Hide. A Client's `module` must be a string literal, so `bandAbovePrompt` writes `module="./band.tsx"` itself; a mod using the pattern has a `band.tsx` (`export { bandClient as default } from '@mattstack/mod-kit'`) listed in its `mod.json` clients. The mod reads its own state into a plain `Waiting` (`{ formId, title }`) and passes it in; it owns its atoms and its single `ui.message` hook, which calls `isEngaged`, `paneMessage` and its own handlers. |
-| Transcript summary: `registerTranscriptSummary(on, { plugin, label, summary })`, a `UserMessage` hook that rewrites a plugin's message text to one line, leaving the stored message whole | `register.tsx` | Rewrite the text and pass to `next`; returning a custom tree was not drawn. Unverified on screen; see open risks. |
 | Page shell: `padToHeight` and `fitToRows(drawn, rows, withoutContext, pad?)` (pad pages to the tallest page so buttons keep their row, drop context first on overflow), `navRow({ back, next?, aside? }, width)` (the Back / Next / Review / Submit row with a side button such as the press-again confirm), `reviewList(items, width)` (entries clickable when they carry an action) | `form/view.ts` | Generic enough for any paged surface. The mod builds the buttons and items; the kit lays them out. |
 | Components (`src/components/`): `kitClient`, `<Panel width?>`, `<BrandBar title onHide?>`, `<SelectList choices cursor multi? cursorIsChoice? isPicked? writeIn? onPick? maxShown?>`, `<InputField value placeholder? width? cursor?>`, `<TabStrip tabs current from? onSelect? onScroll?>`, `<ButtonRow right?>` with `<Button tone? disabled? onPress?>` children, `<Rail color? dim? bold?>`, `<PageShell rows head? context? foot? padTo?>`, `<Lines lines onAction?>`, `<Row>` and `<Span>`, `<ReopenBand label title onOpen>` (the band's one row: mark and label, the waiting title, the brand Open button; `bandClient` wraps it in a `Panel` and the gallery draws it directly), `<Unfocused>` (its children muted and unclickable beside live controls in the same Panel); `kitComponent` and `drawKit` for new components and bun tests | new | Each component's `toLines` calls the widget's line builder. gate-form's `form.tsx` and `bandClient` are drawn with them. |
 
@@ -252,7 +250,7 @@ in `mods/gate-form/`.
 
 A mod uses the hook-side kit in two ways, both forced by the scan rules above:
 `register*(on, plain data)` functions that return void and register an event no
-other hook of the mod uses (`registerPaneRedraw`, `registerTranscriptSummary`),
+other hook of the mod uses (`registerPaneRedraw`),
 and top-level `async function name($, ...plain data)` helpers the mod's own hooks
 call (`showPane`, `paneMessage`, `bandAbovePrompt`, `isPlaced`). They are inlined
 at build, so the `$` rule holds. Kit code takes no atoms, no `$`-taking callbacks
@@ -285,7 +283,7 @@ CI:
 - Tests (my call): the pure kit pieces (text, theme, widgets, page-shell layout)
   get plain bun unit tests in `packages/mod-kit`, run in CI. The pieces that
   need `claude-code` or the `claude-code/testing` harness (hideable pane,
-  transcript summary, focus stand-in, render) are tested through
+  focus stand-in, render) are tested through
   `claude plugin test` in gate-form's harness tests, the first mod that uses
   them; the `kit-gallery` mod adds harness tests of the pointer's press-release
   cycle.
@@ -325,15 +323,12 @@ and how to start a new mod (`mods/<name>/`, `mod.json`, `mods:watch`).
 - `plugins/gate-form/` becomes build output.
 - Behaviour must match the spike branch at commit `2f04ad07f` and the live
   dev-mods copy, including every change listed under "the kit" above.
-- Its existing transcript test keeps passing against the built folder.
 
 ## Open risks
 
-- The transcript text rewrite passes its mod test but has not been seen working
-  in a real transcript. Matt checks it live before merge. If the row still shows
-  the full answers, the summary piece ships out of the kit and gate-form for
-  now, and a working approach becomes a follow-up; it does not block the
-  project. (Matt)
+- Follow-up: the plugin-prompt row from a `ui.message`-driven submit is not a
+  `UserMessage` the mod can rewrite in 2.1.322, so the transcript summary was
+  dropped. Revisit if the API gains a hook for plugin-submitted prompts.
 - The bundle probe covered gate-form only. The freshness check and validator
   run in the build are the guard for other mods.
 

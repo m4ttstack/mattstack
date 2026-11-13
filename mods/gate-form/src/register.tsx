@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
-import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, registerPaneRedraw, registerTranscriptSummary, showPane, type HideablePane, type Waiting } from '@mattstack/mod-kit'
+import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, registerPaneRedraw, showPane, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
 import { DEMO } from './gate/demo'
 import { toForm } from './gate/parse'
-import { agentReply, summaryOf, toastReply, type Outcome } from './gate/reply'
+import { agentReply, toastReply, type Outcome } from './gate/reply'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
 
 const PANE = 'gate-form'
@@ -48,7 +48,6 @@ async function settle($: EngineInterface, formId: string, outcome: Outcome): Pro
 // A function declaration, not a const arrow: a bundler keeps it one, and the engine's source check requires it.
 export function register(on: On): void {
   registerPaneRedraw(on)
-  registerTranscriptSummary(on, { plugin: 'gate-form', label: 'mattstack gate', summary: summaryOf })
 
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false })

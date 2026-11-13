@@ -6,7 +6,6 @@ export const REPLY_TAG = '[gate-form] '
 
 const json = (value: unknown) => `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``
 
-// The first line is a plain summary: the transcript shows it alone (summaryOf).
 export function agentReply(form: Form, outcome: Outcome): string {
   const total = form.questions.length
   if (outcome.status === 'answered') {
@@ -22,11 +21,6 @@ export function agentReply(form: Form, outcome: Outcome): string {
     `Form ${form.id} is closed; any gate it stands for stays open. Talk it through with them, then ask again. What they had answered so far:`,
     json(outcome.draft),
   ].join('\n')
-}
-
-export function summaryOf(text: string): string {
-  const summary = (text.split('\n')[0] ?? '').replace(REPLY_TAG, '').replace(/^The user /, '')
-  return summary.charAt(0).toUpperCase() + summary.slice(1)
 }
 
 // The demo's reply: what happened in words, since nobody reads the answers but the person who gave them.
