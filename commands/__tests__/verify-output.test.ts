@@ -223,10 +223,29 @@ describe("verifyBlocks", () => {
         "[ok] Git  2.45\n" +
         "\n" +
         "Accounts\n" +
-        "[needs you] Forge account  No account connected\n" +
-        "  next: rt setup github connect\n" +
+        "[off] Forge account  No account connected\n" +
         "\n" +
-        "[failed] 1 check failed  1 needs attention, 1 passed, 1 warning\n",
+        "[failed] 1 check failed  1 passed, 1 warning\n",
+    );
+  });
+
+  test("on a team Mac an unconnected optional account still needs you, with its next callout, as rt setup status draws it", () => {
+    const fixture: Plan = {
+      ...plan([
+        {
+          id: "accounts",
+          title: "Accounts",
+          rows: [row({ id: "account.slack-app", kind: "account", title: "Slack app", required: false, status: "missing", detail: "The team has no Slack app yet", action: { type: "connect", label: "Connect", integration: "slack", fields: [] } })],
+        },
+      ]),
+      team: { slug: "acme", name: "Acme", mode: "join" },
+    };
+    expect(renderPlain(verifyBlocks(fixture, { ci: false }))).toBe(
+      "Accounts\n" +
+        "[needs you] Slack app  The team has no Slack app yet\n" +
+        "  next: rt setup slack connect\n" +
+        "\n" +
+        "[ok] Everything checks out  1 needs attention\n",
     );
   });
 
