@@ -6,7 +6,13 @@ import { join } from "path";
 
 import * as out from "../../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import { hardResetCommand, originCommand, resetToOrigin, softResetCommand } from "../reset.ts";
+import { __testSeams, hardResetCommand, originCommand, resetToOrigin, softResetCommand } from "../reset.ts";
+import { renderPlain } from "../../../lib/ui/out-plain.ts";
+import type { ForgeTokenLookup } from "../../../lib/team/forge-token.ts";
+import { createOriginAuth, tokenNoteBlocks, type OriginAuth, type OriginAuthSeams } from "../origin-auth.ts";
+import type { FetchDeps } from "../shared.ts";
+
+
 import { ctxFor, exitCodeOf, trapExit } from "./helpers.ts";
 
 let tmpRoot: string;
@@ -294,5 +300,107 @@ describe("what a reset prints", () => {
     expect(io.lines()[0]).toMatch(/^\[ok\] Saved a backup of the branch  rt-backup\/reset\/feature\//);
     expect(io.lines()[1]).toBe("[ok] Threw away every uncommitted change");
     expect(sh(`git status --porcelain`, local)).toBe("");
+  }, 20_000);
+});
+
+const TOKEN = "glpat-LEAKCHECK000000000";
+const NO_USER = "fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled";
+const tokenSeams: OriginAuthSeams = { confirmedHost: () => null, lookup: async (): Promise<ForgeTokenLookup> => ({ kind: "token", token: TOKEN }) };
+
+function fakeFetch(auth: OriginAuth, results: ({ ok: true } | { ok: false; output: string })[]): FetchDeps {
+  return {
+    run: async () => results.shift() ?? { ok: true },
+    findAgent: async () => undefined,
+    env: process.env,
+    auth,
+    helper: "!helper",
+    switchViable: async () => false,
+  };
+}
+
+describe("reset and the forge token", () => {
+  let io: CapturedOut;
+  let exit: { restore(): void };
+  const saved: Record<string, string | undefined> = {};
+  const KEYS = ["GIT_TERMINAL_PROMPT", "GIT_ASKPASS"] as const;
+
+  beforeEach(() => {
+    for (const k of KEYS) saved[k] = process.env[k];
+    io = captureOut({ console: true });
+    out.__test__.reset();
+    out.__test__.setHuman(() => false);
+    exit = trapExit();
+  });
+  afterEach(() => {
+    exit.restore();
+    io.restore();
+    delete __testSeams.originAuth;
+    delete __testSeams.fetchDeps;
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  /** feature already matches origin/feature, so no remote call follows the fetch. */
+  function inSync(): string {
+    const { local } = makeFixture();
+    sh(`git remote set-url origin https://gitlab.com/acme/x.git`, local);
+    return local;
+  }
+
+  test("resetToOrigin reports usedRtToken when its fetch needed rt's helper", async () => {
+    const { local } = makeFixture();
+    sh(`git remote set-url origin https://gitlab.com/acme/x.git`, local);
+    sh(`git update-ref refs/remotes/origin/feature HEAD`, local);
+    const auth = createOriginAuth(tokenSeams);
+    const result = await resetToOrigin({ cwd: local, quiet: true, fetchDeps: fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]), originAuth: auth });
+    expect(result.status).toBe("in-sync");
+    expect(result.usedRtToken).toBe(true);
+    expect(result.tokenForge).toBe("gitlab");
+    expect(JSON.stringify(result)).not.toContain("LEAKCHECK");
+  }, 20_000);
+
+  test("resetToOrigin with skipFetch never reports usedRtToken", async () => {
+    const { local } = makeFixture();
+    const result = await resetToOrigin({ cwd: local, quiet: true, skipFetch: true });
+    expect(result.usedRtToken).toBeUndefined();
+    expect(result.tokenForge).toBeUndefined();
+  }, 20_000);
+
+  test("originCommand prints the token note after a finished reset and not after a failure", async () => {
+    const local = inSync();
+    sh(`git update-ref refs/remotes/origin/feature HEAD`, local);
+    const auth = createOriginAuth(tokenSeams);
+    __testSeams.originAuth = createOriginAuth(null);
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: NO_USER }, { ok: true }]);
+    expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBeNull();
+    expect(io.stderr() + io.stdout()).toContain(renderPlain(tokenNoteBlocks("gitlab")).split("\n")[0]!);
+    expect(io.stderr() + io.stdout()).not.toContain("LEAKCHECK");
+
+    io.restore();
+    io = captureOut({ console: true });
+    __testSeams.fetchDeps = fakeFetch(auth, [{ ok: false, output: "fatal: unable to access: Could not resolve host" }]);
+    expect(await exitCodeOf(() => originCommand([], ctxFor(local)))).toBe(1);
+    expect(io.stderr() + io.stdout()).not.toContain("GitLab token");
+  }, 20_000);
+
+  test("the command calls guardPrompts before the fetch and undoes it before exiting", async () => {
+    const local = inSync();
+    sh(`git update-ref refs/remotes/origin/feature HEAD`, local);
+    const order: string[] = [];
+    const auth: OriginAuth = {
+      ...createOriginAuth(null),
+      guardPrompts: async (_cwd, o) => {
+        order.push(`guard push=${o?.push}`);
+        return () => order.push("undo");
+      },
+    };
+    const deps = fakeFetch(auth, []);
+    deps.run = async () => (order.push("fetch"), { ok: true });
+    __testSeams.originAuth = auth;
+    __testSeams.fetchDeps = deps;
+    await exitCodeOf(() => originCommand([], ctxFor(local)));
+    expect(order).toEqual(["guard push=false", "fetch", "undo"]);
   }, 20_000);
 });

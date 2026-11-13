@@ -32,10 +32,12 @@ import {
 } from "../../lib/sync-config.ts";
 import { deriveRepoIdentity } from "../../lib/settings/identity.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
-import { asError, asRefusal, drawFailure, errText, fetchFailureOf, fetchOrigin, NOT_ON_A_BRANCH, plural, uncommittedChanges } from "./shared.ts";
+import { asError, asRefusal, defaultFetchDeps, drawFailure, errText, fetchFailureOf, fetchOrigin, NOT_ON_A_BRANCH, plural, uncommittedChanges, type FetchDeps } from "./shared.ts";
+import { createOriginAuth, tokenNoteBlocks, type Forge, type OriginAuth } from "./origin-auth.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,9 @@ export interface RebaseResult {
   failure?: out.FailureInput;
   /** `failure` is rt's own guard declining, drawn as a refused note. */
   refused?: boolean;
+  /** The fetch only worked through rt's own token. */
+  usedRtToken?: boolean;
+  tokenForge?: Forge;
 }
 
 export interface RebaseOptions {
@@ -80,7 +85,12 @@ export interface RebaseOptions {
   skipFetch?: boolean;
   /** What to do when conflicts can't be auto-resolved. Default "abort" preserves historic behavior. */
   onConflict?: "abort" | "pause";
+  originAuth?: OriginAuth;
+  fetchDeps?: FetchDeps;
 }
+
+/** Tests set these; the command handler reads them. */
+export const __testSeams: { originAuth?: OriginAuth; fetchDeps?: FetchDeps } = {};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -154,6 +164,12 @@ function commitsBehind(target: string, cwd: string): number {
  * Programmatic rebase API. Used by both the CLI handler and rt sync.
  */
 export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
+  const token: { forge?: Forge } = {};
+  const result = await rebaseOntoInner(opts, token);
+  return token.forge ? { ...result, usedRtToken: true, tokenForge: token.forge } : result;
+}
+
+async function rebaseOntoInner(opts: RebaseOptions, token: { forge?: Forge }): Promise<RebaseResult> {
   const { cwd, dryRun, quiet } = opts;
   const branch = getCurrentBranch(cwd);
 
@@ -190,10 +206,12 @@ export async function rebaseOnto(opts: RebaseOptions): Promise<RebaseResult> {
   if (!opts.skipFetch) {
     const { withSpinner } = await import("../../lib/rt-render.ts");
     try {
-      await withSpinner("Fetching from origin…", () => fetchOrigin(cwd), {
+      const fetchDeps = opts.fetchDeps ?? defaultFetchDeps(opts.originAuth);
+      const fetched = await withSpinner("Fetching from origin…", () => fetchOrigin(cwd, fetchDeps), {
         doneLabel: "Fetched from origin",
         failSilently: true,
       });
+      if (fetched.usedRtToken && fetched.forge) token.forge = fetched.forge;
     } catch (err) {
       return {
         status: "error",
@@ -532,13 +550,28 @@ async function runRebaseWithEscalation(
   // step's plain line, printed off a terminal, moves to stderr with this.
   if (mode === "json") out.payloadOnStdout();
 
-  const result = await rebaseOnto({
-    cwd,
-    target,
-    dryRun,
-    quiet: mode === "json",
-    onConflict: mode === "off" ? "abort" : "pause",
-  });
+  const auth = __testSeams.originAuth ?? createOriginAuth();
+  let undo: () => void;
+  try {
+    undo = await auth.guardPrompts(cwd, { push: false });
+  } catch (err) {
+    drawFailure({ title: "rt could not check how git signs in to origin", details: redactCredentials(errText(err)) });
+    process.exit(1);
+  }
+  let result: RebaseResult;
+  try {
+    result = await rebaseOnto({
+      cwd,
+      target,
+      dryRun,
+      quiet: mode === "json",
+      onConflict: mode === "off" ? "abort" : "pause",
+      originAuth: auth,
+      fetchDeps: __testSeams.fetchDeps,
+    });
+  } finally {
+    undo();
+  }
 
   if (result.status === "error") {
     drawFailure(result.failure ?? { title: result.error ?? "The rebase failed" }, result.refused);
@@ -561,6 +594,8 @@ async function runRebaseWithEscalation(
     });
     process.exit(exitCode);
   }
+
+  if (mode !== "json" && result.usedRtToken && result.tokenForge) out.print(...tokenNoteBlocks(result.tokenForge));
 }
 
 /**

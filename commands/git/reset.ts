@@ -24,7 +24,9 @@ import { syncLog } from "../../lib/sync-log.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
-import { asError, asRefusal, drawFailure, errText, fetchFailureOf, fetchOrigin, NOT_ON_A_BRANCH, plural, uncommittedChanges } from "./shared.ts";
+import { asError, asRefusal, defaultFetchDeps, drawFailure, errText, fetchFailureOf, fetchOrigin, NOT_ON_A_BRANCH, plural, uncommittedChanges, type FetchDeps } from "./shared.ts";
+import { createOriginAuth, tokenNoteBlocks, type Forge, type OriginAuth } from "./origin-auth.ts";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +54,9 @@ export interface ResetResult {
   refused?: boolean;
   /** The person said no at the confirm; nothing was changed. */
   cancelled?: boolean;
+  /** The fetch only worked through rt's own token. */
+  usedRtToken?: boolean;
+  tokenForge?: Forge;
 }
 
 export interface ResetOptions {
@@ -62,7 +67,12 @@ export interface ResetOptions {
   autoConfirm?: boolean;
   /** If true, skip git fetch (caller already fetched). */
   skipFetch?: boolean;
+  originAuth?: OriginAuth;
+  fetchDeps?: FetchDeps;
 }
+
+/** Tests set these; the command handler reads them. */
+export const __testSeams: { originAuth?: OriginAuth; fetchDeps?: FetchDeps } = {};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -137,6 +147,12 @@ function getCommitOneliner(sha: string, cwd: string): string {
  * Used after someone (or GitLab's rebase button) rewrote the remote history.
  */
 export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
+  const token: { forge?: Forge } = {};
+  const result = await resetToOriginInner(opts, token);
+  return token.forge ? { ...result, usedRtToken: true, tokenForge: token.forge } : result;
+}
+
+async function resetToOriginInner(opts: ResetOptions, token: { forge?: Forge }): Promise<ResetResult> {
   const { cwd, quiet, autoConfirm } = opts;
   const branch = getCurrentBranch(cwd);
 
@@ -167,10 +183,12 @@ export async function resetToOrigin(opts: ResetOptions): Promise<ResetResult> {
   if (!opts.skipFetch) {
     const { withSpinner } = await import("../../lib/rt-render.ts");
     try {
-      await withSpinner("Fetching from origin…", () => fetchOrigin(cwd), {
+      const fetchDeps = opts.fetchDeps ?? defaultFetchDeps(opts.originAuth);
+      const fetched = await withSpinner("Fetching from origin…", () => fetchOrigin(cwd, fetchDeps), {
         doneLabel: "Fetched from origin",
         failSilently: true,
       });
+      if (fetched.usedRtToken && fetched.forge) token.forge = fetched.forge;
     } catch (err) {
       return {
         status: "error",
@@ -357,7 +375,20 @@ export async function originCommand(
   ctx: CommandContext,
 ): Promise<void> {
   const cwd = ctx.identity!.repoRoot;
-  const result = await resetToOrigin({ cwd });
+  const auth = __testSeams.originAuth ?? createOriginAuth();
+  let undo: () => void;
+  try {
+    undo = await auth.guardPrompts(cwd, { push: false });
+  } catch (err) {
+    drawFailure({ title: "rt could not check how git signs in to origin", details: redactCredentials(errText(err)) });
+    process.exit(1);
+  }
+  let result: ResetResult;
+  try {
+    result = await resetToOrigin({ cwd, originAuth: auth, fetchDeps: __testSeams.fetchDeps });
+  } finally {
+    undo();
+  }
 
   if (result.cancelled) {
     out.print(out.line("skipped", "Nothing was changed"));
@@ -367,6 +398,7 @@ export async function originCommand(
     drawFailure(result.failure ?? { title: result.error ?? "The reset failed" }, result.refused);
     process.exit(1);
   }
+  if (result.usedRtToken && result.tokenForge) out.print(...tokenNoteBlocks(result.tokenForge));
 }
 
 /** rt git reset soft: unstage everything */
