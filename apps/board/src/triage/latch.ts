@@ -15,6 +15,7 @@
 import type { Database } from 'bun:sqlite';
 
 import type { MRDetail } from '@mattstack/glance';
+import { armHeld, postLatchOrHold } from '../latch/arm-hold.ts';
 import {
   canonicalLatch,
   findLatches,
@@ -34,7 +35,6 @@ import {
 } from '../latch/latch-state.ts';
 import { noFilesFor, recordNoFiles } from '../latch/no-files.ts';
 import {
-  postLatch,
   postReplyDue,
   rewriteLatch,
   spendLatch,
@@ -404,9 +404,16 @@ export async function runLatchPass(
           review.outcome === 'comment' &&
           !mr.approvedBySelf &&
           now - review.updatedAt >= LATCH_POST_GRACE_MS &&
-          !noFilesFor(mr.mrUrl, runStamp(review), deps.db)
+          !noFilesFor(mr.mrUrl, runStamp(review), deps.db) &&
+          !armHeld(deps.gateway, mr.mrUrl, now, deps.db)
         ) {
-          const posted = await postLatch(deps.gateway, mr, deps.db);
+          const posted = await postLatchOrHold(
+            deps.gateway,
+            mr,
+            deps.appendAudit,
+            now,
+            deps.db
+          );
           if ('noFiles' in posted) {
             recordNoFiles(mr.mrUrl, runStamp(review), deps.db);
             deps.appendAudit({

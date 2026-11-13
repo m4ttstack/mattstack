@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
+import { ARM_HOLD_MS, armHeld } from '../latch/arm-hold.ts';
 import {
   putLatchRow,
   readLatchRow,
@@ -13,6 +14,7 @@ import {
   applyReviewLatch,
   type ReviewLatchStep,
 } from '../latch/review-step.ts';
+import { getKvValue } from '../state/index.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { removeTempDbs, tempDb } from './latch-temp-db.ts';
 
@@ -160,6 +162,56 @@ describe('applyReviewLatch', () => {
     await applyReviewLatch(s);
     expect(calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
     expect(noFilesFor(MR, 3_000, db)).toBe(true);
+  });
+
+  test('a GitHub arm that throws holds the PR for an hour and audits once', async () => {
+    const db = tempDb();
+    const { s, calls, audits } = step({ db });
+    s.gateway.forge = 'github';
+    s.gateway.createThread = async () => {
+      calls.push('createDiscussion');
+      throw new Error('gh pr comment failed');
+    };
+    await expect(applyReviewLatch(s)).rejects.toThrow('gh pr comment failed');
+    expect(audits).toEqual([
+      {
+        ts: 5_000,
+        mrUrl: MR,
+        iid: 2317,
+        event: 'latch',
+        action: 'arm-failed',
+        reason: 'gh pr comment failed',
+      },
+    ]);
+
+    calls.length = 0;
+    s.now = 5_000 + ARM_HOLD_MS - 1;
+    expect(await applyReviewLatch(s)).toBe('none');
+    expect(calls).toEqual([]);
+    expect(audits).toHaveLength(1);
+
+    s.now = 5_000 + ARM_HOLD_MS;
+    s.gateway.createThread = async () => {
+      calls.push('createDiscussion');
+      return { discussionId: 'new', rootNoteId: 1 };
+    };
+    expect(await applyReviewLatch(s)).toBe('posted');
+    expect(calls).toEqual(['createDiscussion']);
+    expect(armHeld(s.gateway, MR, 5_000, db)).toBe(false);
+  });
+
+  test('a GitLab arm that throws writes no hold', async () => {
+    const db = tempDb();
+    const { s, calls, audits } = step({ db });
+    s.gateway.createThread = async () => {
+      calls.push('createDiscussion');
+      throw new Error('gitlab 500');
+    };
+    await expect(applyReviewLatch(s)).rejects.toThrow('gitlab 500');
+    await expect(applyReviewLatch(s)).rejects.toThrow('gitlab 500');
+    expect(calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
+    expect(audits).toEqual([]);
+    expect(getKvValue('latch-arm-hold', MR, null, db)).toBeNull();
   });
 
   test('a post records the latch as an armed row', async () => {

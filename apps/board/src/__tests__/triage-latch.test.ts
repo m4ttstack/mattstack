@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
+import { ARM_HOLD_MS, armHeld } from '../latch/arm-hold.ts';
 import {
   casLatch as casLatchIn,
   putLatchRow,
@@ -11,6 +12,7 @@ import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
 import { noFilesFor } from '../latch/no-files.ts';
 import type { LatchGateway } from '../latch/post.ts';
 import type { ReviewState } from '../review-state.ts';
+import { getKvValue } from '../state/index.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import {
@@ -285,6 +287,89 @@ describe('step 0: no latch', () => {
     review = { ...review, runStartedAt: 8_000 };
     await runLatchPass(h.deps);
     expect(h.calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
+  });
+
+  test('a GitHub arm that throws holds the PR for an hour and audits once', async () => {
+    const db = tempDb();
+    let now = NOW;
+    const h = harness({ detail: detail(), db, now: () => now });
+    h.deps.gateway.forge = 'github';
+    h.deps.gateway.createThread = async () => {
+      h.calls.push('createDiscussion');
+      throw new Error('gh pr comment failed');
+    };
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      expect((await runLatchPass(h.deps)).failed).toBe(1);
+      expect(h.audits).toEqual([
+        {
+          ts: NOW,
+          mrUrl: MR,
+          iid: 2317,
+          event: 'latch',
+          action: 'arm-failed',
+          reason: 'gh pr comment failed',
+        },
+      ]);
+
+      h.calls.length = 0;
+      now = NOW + ARM_HOLD_MS - 1;
+      expect((await runLatchPass(h.deps)).skipped).toBe(1);
+      expect(h.calls).toEqual([]);
+      expect(h.audits).toHaveLength(1);
+
+      now = NOW + ARM_HOLD_MS;
+      await runLatchPass(h.deps);
+      expect(h.calls).toEqual(['createDiscussion']);
+      expect(h.audits).toHaveLength(2);
+    } finally {
+      console.error = origError;
+    }
+  });
+
+  test('a GitHub arm that posts clears its hold', async () => {
+    const db = tempDb();
+    let now = NOW;
+    let broken = true;
+    const h = harness({ detail: detail(), db, now: () => now });
+    h.deps.gateway.forge = 'github';
+    h.deps.gateway.createThread = async () => {
+      if (broken) throw new Error('gh pr comment failed');
+      return { discussionId: 'new', rootNoteId: 1 };
+    };
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      await runLatchPass(h.deps);
+    } finally {
+      console.error = origError;
+    }
+    expect(armHeld(h.deps.gateway, MR, NOW, db)).toBe(true);
+    broken = false;
+    now = NOW + ARM_HOLD_MS;
+    expect((await runLatchPass(h.deps)).posted).toBe(1);
+    expect(armHeld(h.deps.gateway, MR, NOW, db)).toBe(false);
+  });
+
+  test('a GitLab arm that throws writes no hold and retries on the next pass', async () => {
+    const db = tempDb();
+    const h = harness({ detail: detail(), db });
+    h.deps.gateway.createThread = async () => {
+      h.calls.push('createDiscussion');
+      throw new Error('gitlab 500');
+    };
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      expect((await runLatchPass(h.deps)).failed).toBe(1);
+      expect((await runLatchPass(h.deps)).failed).toBe(1);
+    } finally {
+      console.error = origError;
+    }
+    expect(h.calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
+    expect(h.audits).toEqual([]);
+    expect(getKvValue('latch-arm-hold', MR, null, db)).toBeNull();
   });
 
   test('posts nothing on an approve-outcome state', async () => {

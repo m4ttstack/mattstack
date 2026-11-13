@@ -9,11 +9,12 @@ import type { Database } from 'bun:sqlite';
 import type { MRDetail } from '@mattstack/glance';
 import { getStateDb } from '../state/index.ts';
 import type { AuditEntry } from '../triage/audit.ts';
+import { armHeld, postLatchOrHold } from './arm-hold.ts';
 import { findLatches, hasLiveLatch } from './discussions.ts';
 import { landFollowUp, spendForApproval } from './land.ts';
 import { putLatchRow, readLatchRow } from './latch-state.ts';
 import { noFilesFor, recordNoFiles } from './no-files.ts';
-import { postLatch, type LatchGateway, type LatchMr } from './post.ts';
+import type { LatchGateway, LatchMr } from './post.ts';
 
 export interface ReviewLatchStep {
   /** null: the review ended done with no verdict (an abandoned post gate). */
@@ -105,7 +106,8 @@ export async function applyReviewLatch(
   const live = readLatchRow(s.mrUrl, db);
   if (live && live.phase !== 'spent') return 'none';
   if (noFilesFor(s.mrUrl, s.runStamp, db)) return 'none';
-  const posted = await postLatch(s.gateway, mr, db);
+  if (armHeld(s.gateway, s.mrUrl, now, db)) return 'none';
+  const posted = await postLatchOrHold(s.gateway, mr, s.appendAudit, now, db);
   if ('noFiles' in posted) {
     recordNoFiles(s.mrUrl, s.runStamp, db);
     s.appendAudit({
