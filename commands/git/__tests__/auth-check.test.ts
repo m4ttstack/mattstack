@@ -6,6 +6,7 @@ import { shellQuote } from "../../../lib/herdr-launch.ts";
 import type { ForgeTokenLookup } from "../../../lib/team/forge-token.ts";
 import * as out from "../../../lib/ui/out.ts";
 import { renderPlain } from "../../../lib/ui/out-plain.ts";
+import { __test__ as warnTest, setWarningLog } from "../../../lib/ui/warn.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
 import { authCommand, checkBlocks, type AuthDeps } from "../auth.ts";
 import type { CloneState } from "../clone-state.ts";
@@ -65,7 +66,8 @@ describe("rt git auth --check", () => {
     expect(text).toContain("uses its own git credentials");
     expect(text).toContain("rt git auth /w/app");
     expect(text).toContain("already uses rt's GitLab token");
-    expect(text.indexOf("rt git auth /w/app")).toBeLessThan(text.indexOf("lib"));
+    expect(text.indexOf("app")).toBeLessThan(text.indexOf("rt git auth /w/app"));
+    expect(text.indexOf("rt git auth /w/app")).toBeLessThan(text.indexOf("lib  already"));
     expect(text).not.toContain("LEAKCHECK");
     expect(text).not.toContain("secret-script");
 
@@ -84,7 +86,7 @@ describe("rt git auth --check", () => {
     expect(JSON.parse(printed)).toEqual({ ok: true, repos: [{ path, label: "app", state: "pending", transport: "https", host: "gitlab.com", next: `rt git auth ${shellQuote(path)}` }] });
     expect(printed).not.toContain("LEAKCHECK");
     expect(io.stdout()).not.toContain("LEAKCHECK");
-    expect(io.stderr()).not.toContain("LEAKCHECK");
+    expect(io.stderr()).toBe("");
   });
 
   test("--check skips index rows whose folder is gone and exits 0 whatever the states", async () => {
@@ -103,6 +105,8 @@ describe("rt git auth --check", () => {
     const before = readFileSync(join(repo, ".git", "config"), "utf8");
     await authCommand(["--check"], {}, deps([{ repoName: "app", path: repo }]));
     expect(readFileSync(join(repo, ".git", "config"), "utf8")).toBe(before);
+    expect(io.stdout()).toContain("uses its own git credentials");
+    expect(io.stdout()).not.toContain("rt could not read its git config");
   });
 
   test("--check shows a clone it cannot read as its own row and keeps going", async () => {
@@ -115,10 +119,18 @@ describe("rt git auth --check", () => {
         return real(url);
       } } };
     };
-    await authCommand(["--check"], {}, throwing(deps([
-      { repoName: "broken", path: broken },
-      { repoName: "good", path: good },
-    ])));
+    const logged: string[] = [];
+    setWarningLog((module, message) => logged.push(`${module}: ${message}`));
+    try {
+      await authCommand(["--check"], {}, throwing(deps([
+        { repoName: "broken", path: broken },
+        { repoName: "good", path: good },
+      ])));
+    } finally {
+      warnTest.reset();
+    }
+    expect(logged).toEqual(["git-auth: rt could not read a clone's git config"]);
+    expect(io.stderr()).toBe("");
     expect(io.stdout()).toContain("rt could not read its git config");
     expect(io.stdout()).toContain(`rt git auth ${shellQuote(good)}`);
 
