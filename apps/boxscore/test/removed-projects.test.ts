@@ -108,10 +108,7 @@ function seed(c: ForgeCase): void {
     indexRow(c.kept, 1, daysAgo(5)),
     indexRow(c.gone, 2, daysAgo(4)),
   ]);
-  store.upsertMrMetrics([
-    reviewedByBob(c.kept, 1),
-    reviewedByBob(c.gone, 2),
-  ]);
+  store.upsertMrMetrics([reviewedByBob(c.kept, 1), reviewedByBob(c.gone, 2)]);
   store.upsertPipelines([
     {
       id: `${c.forge}:pipeline:1`,
@@ -129,8 +126,16 @@ function seed(c: ForgeCase): void {
     },
   ]);
   store.upsertPushEvents([
-    { username: 'alice', createdAt: daysAgo(6), repositoryId: c.repoId(c.kept) },
-    { username: 'alice', createdAt: daysAgo(3), repositoryId: c.repoId(c.gone) },
+    {
+      username: 'alice',
+      createdAt: daysAgo(6),
+      repositoryId: c.repoId(c.kept),
+    },
+    {
+      username: 'alice',
+      createdAt: daysAgo(3),
+      repositoryId: c.repoId(c.gone),
+    },
   ]);
   c.recordIds();
   const issue = (
@@ -213,9 +218,9 @@ describe.each([GITLAB, GITHUB])('a project removed on $forge', c => {
     expect(alice.issuesCompleted.value).toBe(1);
     expect(detail.evidence.mrsMerged!.rows).toHaveLength(1);
     expect(detail.evidence.codingDays!.rows).toHaveLength(1);
-    expect(
-      detail.evidence.issuesCompleted!.rows.map(r => r.cells[0])
-    ).toEqual(['ACME-1']);
+    expect(detail.evidence.issuesCompleted!.rows.map(r => r.cells[0])).toEqual([
+      'ACME-1',
+    ]);
   });
 
   it('gets its credit back once re-added, each change counted once', async () => {
@@ -259,13 +264,9 @@ describe('a ticket linked to a kept and a removed project', () => {
   });
 
   const issueAfterRemoval = () =>
-    buildFetchResult(
-      getStore(),
-      WINDOW,
-      ['alice', 'bob'],
-      undefined,
-      ['acme/app']
-    ).linearIssues[0]!;
+    buildFetchResult(getStore(), WINDOW, ['alice', 'bob'], undefined, [
+      'acme/app',
+    ]).linearIssues[0]!;
 
   it("credits the kept project's change once the earlier one is removed", () => {
     getStore().upsertIndexRows([
@@ -406,13 +407,9 @@ describe('a project configured in another case', () => {
   });
 
   it('still counts rows the forge stored under its own spelling', () => {
-    const fetched = buildFetchResult(
-      getStore(),
-      WINDOW,
-      ['alice'],
-      undefined,
-      ['Acme/App']
-    );
+    const fetched = buildFetchResult(getStore(), WINDOW, ['alice'], undefined, [
+      'Acme/App',
+    ]);
     expect(fetched.mrs).toHaveLength(1);
     expect(fetched.linearIssues[0]!.creditedUser).toBe('alice');
   });
@@ -421,7 +418,7 @@ describe('a project configured in another case', () => {
 describe('recorded project ids and the forge host', () => {
   beforeEach(() => getStore().clear());
 
-  it("reads no id recorded on the previous host", () => {
+  it('reads no id recorded on the previous host', () => {
     getStore().adoptForgeHost('https://gl.example');
     getStore().recordProjectIds([{ projectPath: 'acme/app', id: 'gitlab:11' }]);
     expect(getStore().projectIds().get('acme/app')).toBe('gitlab:11');

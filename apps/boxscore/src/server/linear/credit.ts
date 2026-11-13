@@ -75,7 +75,9 @@ export function creditedUserOf(
 }
 
 /** Latest mergedAt among qualifying merged MRs, or null when none qualify. */
-export function closedAtOf(qualifying: readonly LinkCandidate[]): string | null {
+export function closedAtOf(
+  qualifying: readonly LinkCandidate[]
+): string | null {
   return qualifying.reduce<string | null>(
     (latest, c) =>
       latest === null || Date.parse(c.mergedAt!) > Date.parse(latest)

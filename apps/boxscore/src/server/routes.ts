@@ -6,10 +6,10 @@ import type { CacheStatsResponse, ColdCacheResponse } from '../shared/types.js';
 import { ConfigError, readSettings } from './config/index.js';
 import {
   fixtureColdCache,
-  fixtureNoProjectsError,
   fixtureDetail,
   fixtureLeaderboard,
   fixtureMode,
+  fixtureNoProjectsError,
   fixtureRefresh,
   fixtureScenario,
 } from './fixture/index.js';

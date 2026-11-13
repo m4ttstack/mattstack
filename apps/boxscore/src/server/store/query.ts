@@ -216,9 +216,7 @@ function withoutRemovedLinks(
       ? { ...issue, linkedMrs: kept }
       : { ...issue, linkedMrs: kept, creditedUser: null, closedAt: null };
   const hadAttachment = issue.linkedMrs.some(m => m.via === 'attachment');
-  const viaByKey = new Map(
-    kept.map(m => [mrKey(m.projectPath, m.iid), m.via])
-  );
+  const viaByKey = new Map(kept.map(m => [mrKey(m.projectPath, m.iid), m.via]));
   const candidates: LinkCandidate[] = store
     .indexRowsByKeys([...viaByKey.keys()])
     .map(row => ({
