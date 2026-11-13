@@ -14,12 +14,12 @@ Two mods show it in use. Read them before writing a new one:
 ## Start a new mod
 
 1. Make `mods/<name>/` with these files:
-   - `mod.json`: `{ "plugin": { "name", "version", "description", "types"? }, "clients": ["<client>.tsx", ...] }`. `clients` lists every Client module file in `src/`.
+   - `mod.json`: `{ "plugin": { "name", "version", "description", "types"? }, "clients": ["<client>.tsx", ...] }`. `clients` lists every Client module file in `src/`. `files` (optional) lists files or folders in the mod folder, such as `LICENSE`, `README.md` or `docs`, that the build copies to the plugin root.
    - `package.json`: copy gate-form's, with `"@mattstack/mod-kit": "workspace:*"`.
    - `tsconfig.json`: copy gate-form's.
    - `src/register.tsx`: the hooks module.
    - `types/index.d.ts`: only when the mod declares typed atoms. It augments `PluginState` under the mod's name; copy the shape from `mods/gate-form/types/index.d.ts`. The build copies `types/` into the plugin.
-   - `harness/*.test.tsx`: Claude Code harness tests.
+   - `harness/*.test.tsx`: Claude Code harness tests. The build copies all of `harness/`, helpers included, into `hooks/`.
 2. Run `bun install` at the repo root.
 3. Live reload: `bun run mods:watch <name> --into ~/.claude/dev-mods/<session>/`. It rebuilds into `<dir>/<name>/` whenever the mod or the kit changes. Each session has its own dev-mods folder.
 4. Build: `bun run mods:build [name]` (no name builds every mod; `--no-validate` skips `claude plugin validate`). Commit the output in `plugins/<name>/`. CI fails when a build would change it.
