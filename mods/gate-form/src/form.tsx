@@ -2,7 +2,7 @@ import { Lines, Panel, kitClient } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
 import { keyEffect, perform, type Effect } from './form/input'
-import { initial, type State } from './form/state'
+import { afterAttempt, initial, type State } from './form/state'
 import { visibleLines, withTabInView } from './form/view'
 
 type Props = { form: Form; rows: number; cols: number; focused: boolean }
@@ -10,6 +10,8 @@ type Props = { form: Form; rows: number; cols: number; focused: boolean }
 export default kitClient<Props, State>(
   (props, ui) => {
     const { form } = props
+    const retried = afterAttempt(form, ui.state)
+    if (retried !== ui.state) ui.setState(retried)
     const width = Math.max(30, props.cols || ui.width)
     const apply = (effect: Effect | undefined) => {
       if (!effect) return

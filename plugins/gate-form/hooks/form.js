@@ -240,6 +240,14 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
+function keySelected(span) {
+  if (!span.t.startsWith(" "))
+    return [span];
+  return [
+    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: span.t.slice(1) }
+  ];
+}
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -266,6 +274,115 @@ function brandBar(label, width, hide) {
     return [sp(fit(text, width), look)];
   const button = ` Hide ${ICON.collapse} `;
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
+}
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
+}
+// packages/mod-kit/src/widgets/menu.ts
+var MORE_ACTIONS = "More actions ▾";
+var SUB_MARK = " ▸";
+var GAP = 2;
+var CONNECTOR = 2;
+var labelOf = (row) => row.rows ? `${row.label}${SUB_MARK}` : row.label;
+var cut2 = (text, room) => cellWidth(text) <= room ? text : `${cutCells(text, Math.max(0, room - 1))}…`;
+var closed = (state) => ({ open: false, selected: state.selected });
+var wrapAt = (n, count) => (n + count) % count;
+function menu(spec) {
+  const act = spec.actionFor ?? ((hit) => hit);
+  const indent = spec.indent ?? 0;
+  const button = buttonSpan({ label: spec.label, action: act({ type: "toggle" }), tone: "quiet" });
+  const head = [sp(" ".repeat(indent)), ...spec.isSelected ? keySelected(button) : [button]];
+  if (!spec.open || spec.rows.length === 0)
+    return [head];
+  const width = spec.width ?? Number.POSITIVE_INFINITY;
+  const labels = spec.rows.map(labelOf);
+  const widest = Math.max(...labels.map(cellWidth));
+  const at = Math.max(0, Math.min(indent, width - CONNECTOR - widest));
+  const room = Math.max(1, width - at - CONNECTOR);
+  const column = Math.min(widest, room);
+  const lead = sp(" ".repeat(at));
+  const subs = spec.sub === undefined ? [] : spec.rows[spec.selected]?.rows ?? [];
+  const subWidest = Math.max(0, ...subs.map((row) => cellWidth(row.label)));
+  const isBeside = at + CONNECTOR + column + GAP + subWidest <= width;
+  const rowLine = (i) => {
+    const isLast = i === spec.rows.length - 1;
+    const look = i === spec.selected ? { ...ACCENT, bold: true } : {};
+    const text = cut2(labels[i], column);
+    return [lead, sp(isLast ? "└ " : "├ ", GRAY), sp(isBeside && subs.length > 0 ? padCells(text, column) : text, { ...look, action: act({ type: "row", path: [i] }) })];
+  };
+  const subSpan = (row, j, cells) => sp(padCells(cut2(row.label, cells), cells), { ...j === spec.sub ? { ...ACCENT, bold: true } : {}, action: act({ type: "row", path: [spec.selected, j] }) });
+  const lines = spec.rows.map((_, i) => rowLine(i));
+  if (subs.length > 0 && isBeside) {
+    const blank = sp(" ".repeat(CONNECTOR + column));
+    subs.forEach((row, j) => {
+      const k = spec.selected + j;
+      const left = lines[k] ?? [lead, blank];
+      lines[k] = [...left, sp(" ".repeat(GAP)), subSpan(row, j, subWidest)];
+    });
+  } else if (subs.length > 0) {
+    const isLastParent = spec.selected === spec.rows.length - 1;
+    const under = [lead, sp(isLastParent ? "  " : "│ ", GRAY), sp("  ")];
+    const cells = Math.max(1, Math.min(subWidest, width - at - CONNECTOR - 2));
+    lines.splice(spec.selected + 1, 0, ...subs.map((row, j) => [...under, subSpan(row, j, cells)]));
+  }
+  return [head, ...lines];
+}
+function menuKey(state, rows, key) {
+  const isEnter = key === "return" || key === "enter";
+  if (!state.open)
+    return isEnter && rows.length > 0 ? { state: { open: true, selected: 0 } } : undefined;
+  if (key === "escape" || key === "esc")
+    return { state: closed(state) };
+  const row = rows[state.selected];
+  const subs = row?.rows ?? [];
+  if (state.sub !== undefined) {
+    if (key === "up" || key === "down")
+      return { state: { ...state, sub: wrapAt(state.sub + (key === "up" ? -1 : 1), subs.length) } };
+    if (key === "left")
+      return { state: { open: true, selected: state.selected } };
+    if (isEnter)
+      return { state: closed(state), picked: subs[state.sub]?.id };
+    return;
+  }
+  if (key === "up" || key === "down")
+    return { state: { open: true, selected: wrapAt(state.selected + (key === "up" ? -1 : 1), rows.length) } };
+  if ((isEnter || key === "right") && subs.length > 0)
+    return { state: { open: true, selected: state.selected, sub: 0 } };
+  if (isEnter && row)
+    return { state: closed(state), picked: row.id };
+  return;
+}
+function menuHit(state, rows, hit) {
+  if (hit.type === "toggle")
+    return { state: state.open ? closed(state) : { open: true, selected: 0 } };
+  const [i = 0, j] = hit.path;
+  const row = rows[i];
+  if (j !== undefined)
+    return { state: { open: false, selected: i }, picked: row?.rows?.[j]?.id };
+  if (row?.rows && row.rows.length > 0)
+    return { state: { open: true, selected: i, sub: 0 } };
+  return { state: { open: false, selected: i }, picked: row?.id };
 }
 // packages/mod-kit/src/widgets/input-field.ts
 function inputField(value, placeholder, width, showCursor) {
@@ -402,7 +519,7 @@ function lookOf(state, focused) {
   const held = state?.pressed;
   return { focused, hover, pressed: held === hover ? held : undefined };
 }
-var labelOf = (text) => text.split(SYMBOL.selectEdge).join("").trim();
+var labelOf2 = (text) => text.split(SYMBOL.selectEdge).join("").trim();
 function runOf(line, n) {
   const armed = JSON.stringify(line[n].action);
   const carries = (m) => line[m]?.action !== undefined && JSON.stringify(line[m].action) === armed;
@@ -412,7 +529,7 @@ function runOf(line, n) {
     first--;
   while (carries(last + 1))
     last++;
-  return { armed, label: labelOf(line.slice(first, last + 1).map((s) => s.t).join("")) };
+  return { armed, label: labelOf2(line.slice(first, last + 1).map((s) => s.t).join("")) };
 }
 function controlAt(line, x) {
   if (!line)
@@ -424,11 +541,11 @@ function controlAt(line, x) {
       return runOf(line, n);
     from = to;
   }
-  return line.action === undefined ? undefined : { armed: JSON.stringify(line.action), label: labelOf(line.map((s) => s.t).join("")) };
+  return line.action === undefined ? undefined : { armed: JSON.stringify(line.action), label: labelOf2(line.map((s) => s.t).join("")) };
 }
 function drawnAction(lines, held) {
   for (const line of lines) {
-    if (line.action !== undefined && JSON.stringify(line.action) === held.armed && labelOf(line.map((s) => s.t).join("")) === held.label)
+    if (line.action !== undefined && JSON.stringify(line.action) === held.armed && labelOf2(line.map((s) => s.t).join("")) === held.label)
       return line.action;
     for (let n = 0;n < line.length; n++) {
       const run = line[n].action === undefined ? undefined : runOf(line, n);
@@ -677,31 +794,6 @@ function Panel(props) {
   render.lines = lines;
   return renderLines(lines, render.elements, render.look);
 }
-
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
-}
 // packages/mod-kit/src/patterns/page-shell.ts
 function padToHeight(page, height, filler) {
   const padding = Array.from({ length: Math.max(0, height - page.length) }, () => [...filler]);
@@ -714,9 +806,6 @@ function fitToRows(drawn, rows, withoutContext, pad) {
   const padded = pad ? padToHeight(page, Math.min(pad.height, room - foot.length), pad.filler) : page;
   const body = [...padded, ...foot];
   return [...head, ...body.slice(Math.max(0, body.length - room))];
-}
-function navRow(spec, width) {
-  return buttonRow(spec.next ? [spec.back, spec.next] : [spec.back], spec.aside, width);
 }
 function reviewList(items, width) {
   const bar = rail(GRAY);
@@ -769,7 +858,7 @@ var isRecommended = (o) => /\(recommended\)\s*$/i.test(o.label);
 var replaceAt = (list, i, value) => list.map((old, k) => k === i ? value : old);
 var markAnswered = (s, i) => replaceAt(s.answered, i, true);
 function choicesOf(q) {
-  if (q.options.length === 0)
+  if (q.options.length === 0 || !q.other)
     return q.options;
   return [...q.options, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
 }
@@ -782,8 +871,35 @@ function initial(form) {
     answered: form.questions.map(() => false),
     moved: form.questions.map(() => false),
     phase: "active",
-    tabsFrom: 0
+    tabsFrom: 0,
+    menu: { open: false, selected: 0 },
+    navAt: "submit"
   };
+}
+var canSubmit = (form, s) => form.source !== "gate" || unansweredCount(s) === 0;
+var PAUSE = "pause";
+var GO_BACK = "go-back:";
+function menuRows(form) {
+  const controls = form.controls;
+  if (!controls)
+    return [];
+  const rows = controls.pause ? [{ id: PAUSE, label: "Pause run" }] : [];
+  if (controls.goBack.length > 0)
+    rows.push({ id: "go-back", label: "Go back to stage", rows: controls.goBack.map((stage) => ({ id: `${GO_BACK}${stage}`, label: stage })) });
+  return rows;
+}
+function controlAnswers(id) {
+  if (id === PAUSE)
+    return { answers: { next: "hold" }, label: "Asked to pause the run." };
+  if (!id.startsWith(GO_BACK))
+    return;
+  const to = id.slice(GO_BACK.length);
+  return { answers: { next: "go-back", to }, label: `Asked to go back to stage ${to}.` };
+}
+function afterAttempt(form, s) {
+  if (s.phase !== "submitted" || form.status !== "open" || (form.attempt ?? 0) <= (s.sent ?? 0))
+    return s;
+  return { ...s, phase: "active", sent: form.attempt, control: undefined };
 }
 var unansweredCount = (s) => s.answered.filter((a) => !a).length;
 function isPicked(q, s, i, idx) {
@@ -881,13 +997,24 @@ function deleteChar(s) {
 
 // mods/gate-form/src/form/input.ts
 var disarm = (s) => ({ ...s, chatArmed: undefined });
+function post(form, s, answers, control) {
+  return { state: { ...s, phase: "submitted", sent: form.attempt ?? 0, control }, post: { type: "answer", formId: form.id, answers } };
+}
 function send(form, s) {
-  return { state: { ...s, phase: "submitted" }, post: { type: "answer", formId: form.id, answers: answersOf(form, s) } };
+  return canSubmit(form, s) ? post(form, s, answersOf(form, s)) : undefined;
 }
 function chat(form, s) {
   if (!s.chatArmed)
     return { state: { ...s, chatArmed: true } };
-  return { state: { ...disarm(s), phase: "chat" }, post: { type: "chat", formId: form.id, draft: answersOf(form, s) } };
+  const state = form.source === "gate" ? disarm(s) : { ...disarm(s), phase: "chat" };
+  return { state, post: { type: "chat", formId: form.id, draft: answersOf(form, s) } };
+}
+function moved(form, s, move) {
+  if (!move)
+    return;
+  const state = { ...s, menu: move.state };
+  const control = move.picked === undefined ? undefined : controlAnswers(move.picked);
+  return control ? post(form, state, control.answers, control.label) : { state };
 }
 function perform(action, form, armed) {
   if (action.type === "hide")
@@ -908,14 +1035,22 @@ function perform(action, form, armed) {
       return { state: clickChoice(form, s, action.idx) };
     case "send":
       return send(form, s);
+    case "menu":
+      return moved(form, { ...s, navAt: "more" }, menuHit(s.menu, menuRows(form), action.hit));
   }
 }
 function reviewKey(ev, form, s) {
+  const rows = menuRows(form);
+  if (s.menu.open)
+    return moved(form, s, menuKey(s.menu, rows, ev.key)) ?? { state: s };
+  const onMore = s.navAt === "more" && rows.length > 0;
+  if (ev.key === "right" && rows.length > 0)
+    return { state: { ...s, navAt: "more" } };
   if (ev.key === "left")
-    return { state: goTo(form, s, s.page - 1) };
-  if (ev.key === "return" || ev.key === "enter")
-    return send(form, s);
-  return;
+    return onMore ? { state: { ...s, navAt: "submit" } } : { state: goTo(form, s, s.page - 1) };
+  if (ev.key !== "return" && ev.key !== "enter")
+    return;
+  return onMore ? moved(form, s, menuKey(s.menu, rows, ev.key)) : send(form, s);
 }
 function questionKey(ev, form, s) {
   const { key } = ev;
@@ -1009,13 +1144,26 @@ function reviewPage(form, s, view) {
   const missing = unansweredCount(s);
   const bar = rail(ACCENT);
   const lines = [...reviewList2(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, DONE), sp("  Submit your answers?", { bold: true })]];
+  const warning = form.source === "gate" ? `${missing} not answered. Answer every question to submit.` : `${missing} not answered; left out if you submit now`;
   if (missing > 0)
-    lines.push([...bar, sp(`${missing} not answered; left out if you submit now`, WARN)]);
+    lines.push(...hang(bar, bar, warning, view.width, WARN));
   return lines;
 }
+function ending(form, s) {
+  if (form.note)
+    return { text: form.note, isWarn: false };
+  if (s.phase === "chat")
+    return { text: "Set aside to chat about it.", isWarn: true };
+  if (form.source !== "gate")
+    return { text: "Answers sent.", isWarn: false };
+  if (form.status === "open")
+    return { text: "Recording your answer…", isWarn: false };
+  return { text: s.control ?? "Answer recorded.", isWarn: false };
+}
 function closedPage(form, s, view) {
-  const end = s.phase === "submitted" ? [sp(SYMBOL.end, GRAY), sp("  Answers sent.")] : [sp(SYMBOL.end, GRAY), sp("  Set aside to chat about it.", WARN)];
-  return [...reviewList2(form, s, view), [sp(SYMBOL.bar, GRAY)], end];
+  const end = ending(form, s);
+  const rest = [sp(" "), sp("  ")];
+  return [...reviewList2(form, s, view), [sp(SYMBOL.bar, GRAY)], ...hang([sp(SYMBOL.end, GRAY), sp("  ")], rest, end.text, view.width, end.isWarn ? WARN : {})];
 }
 function tabList(form, s) {
   const n = form.questions.length;
@@ -1034,14 +1182,31 @@ function tabs(form, s, view) {
 function withTabInView(form, s, width) {
   return { ...s, tabsFrom: revealTab(tabList(form, s), s.page, width, s.tabsFrom) };
 }
-function navRow2(form, s, view) {
+var MORE = { type: "menu", hit: { type: "toggle" } };
+function navRows(form, s, view) {
   const n = form.questions.length;
   const page = s.page;
   const back = { label: `${ICON.back} Back`, action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === 0 };
   const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
-  const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : { label: unansweredCount(s) === 0 ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand" };
+  const submit = { label: unansweredCount(s) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) };
+  const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : submit;
   const aside = s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
-  return navRow({ back, next, aside }, view.width);
+  const rows = page === n ? menuRows(form) : [];
+  if (rows.length === 0)
+    return [buttonRow([back, next], aside, view.width)];
+  const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
+  const line = buttonRow([back, next, more], aside, view.width);
+  const at = line.findIndex((span) => span.action === MORE);
+  const indent = widthOf(line.slice(0, at));
+  const marked = s.navAt === "more" && view.focused ? [...line.slice(0, at), ...keySelected(line[at]), ...line.slice(at + 1)] : line;
+  const hung = menu({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, actionFor: (hit) => ({ type: "menu", hit }) });
+  return [marked, ...hung.slice(1)];
+}
+function errorLines(form, view) {
+  if (form.status !== "open" || !form.error)
+    return [];
+  const lead = [sp(SYMBOL.warn, WARN), sp("  ")];
+  return [[sp(" ")], ...hang(lead, [sp("   ")], `Not recorded: ${form.error}`, view.width, WARN)];
 }
 function hint(form, s, view) {
   if (!view.focused)
@@ -1053,7 +1218,7 @@ function hint(form, s, view) {
 }
 function draw(form, s, view, withContext) {
   const head = [brandBar("mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
-  if (s.phase !== "active")
+  if (s.phase !== "active" || form.status !== "open")
     return { head, page: closedPage(form, s, view), foot: [] };
   if (withContext && form.context) {
     const first = [sp(SYMBOL.bar, GRAY), sp("  "), sp(ICON.info, ACCENT), sp(" ")];
@@ -1067,7 +1232,7 @@ function draw(form, s, view, withContext) {
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
   const keys = hint(form, s, view);
   const hintLines = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)];
-  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], [sp(" ")], navRow2(form, s, view)];
+  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(" ")], ...navRows(form, s, view)];
   return { head, page, foot };
 }
 function tallestQuestion(form, s, view) {
@@ -1082,13 +1247,16 @@ function tallestQuestion(form, s, view) {
   return tallest;
 }
 function visibleLines(form, s, view, rows) {
-  const pad = s.phase === "active" ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
+  const pad = s.phase === "active" && form.status === "open" ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
   return fitToRows(draw(form, s, view, true), rows, () => draw(form, s, view, false), pad);
 }
 
 // mods/gate-form/src/form.tsx
 var form_default = kitClient((props, ui) => {
   const { form } = props;
+  const retried = afterAttempt(form, ui.state);
+  if (retried !== ui.state)
+    ui.setState(retried);
   const width = Math.max(30, props.cols || ui.width);
   const apply = (effect) => {
     if (!effect)

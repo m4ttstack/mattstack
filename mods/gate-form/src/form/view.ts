@@ -1,13 +1,12 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, SYMBOL, WARN, brandBar, fitToRows, hang, navRow as navButtons, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, fitToRows, hang, keySelected, menu, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { choicesOf, cursorIsChoice, isPicked, unansweredCount, WRITE_IN, type State } from './state'
+import { canSubmit, choicesOf, cursorIsChoice, isPicked, menuRows, unansweredCount, WRITE_IN, type State } from './state'
 
 export type View = { width: number; focused: boolean }
 
 type L = Line<Action>
-
 
 // A gate-ctx@1 JSON context reads as `key: value` lines.
 function contextText(context: string): string {
@@ -79,13 +78,23 @@ function reviewPage(form: Form, s: State, view: View): L[] {
   const missing = unansweredCount(s)
   const bar = rail<Action>(ACCENT)
   const lines: L[] = [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, DONE), sp('  Submit your answers?', { bold: true })]]
-  if (missing > 0) lines.push([...bar, sp(`${missing} not answered; left out if you submit now`, WARN)])
+  const warning = form.source === 'gate' ? `${missing} not answered. Answer every question to submit.` : `${missing} not answered; left out if you submit now`
+  if (missing > 0) lines.push(...hang(bar, bar, warning, view.width, WARN))
   return lines
 }
 
+function ending(form: Form, s: State): { text: string; isWarn: boolean } {
+  if (form.note) return { text: form.note, isWarn: false }
+  if (s.phase === 'chat') return { text: 'Set aside to chat about it.', isWarn: true }
+  if (form.source !== 'gate') return { text: 'Answers sent.', isWarn: false }
+  if (form.status === 'open') return { text: 'Recording your answer…', isWarn: false }
+  return { text: s.control ?? 'Answer recorded.', isWarn: false }
+}
+
 function closedPage(form: Form, s: State, view: View): L[] {
-  const end: L = s.phase === 'submitted' ? [sp(SYMBOL.end, GRAY), sp('  Answers sent.')] : [sp(SYMBOL.end, GRAY), sp('  Set aside to chat about it.', WARN)]
-  return [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], end]
+  const end = ending(form, s)
+  const rest = [sp<Action>(' '), sp('  ')]
+  return [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], ...hang([sp(SYMBOL.end, GRAY), sp('  ')], rest, end.text, view.width, end.isWarn ? WARN : {})]
 }
 
 function tabList(form: Form, s: State): Tab<Action>[] {
@@ -109,21 +118,35 @@ export function withTabInView(form: Form, s: State, width: number): State {
   return { ...s, tabsFrom: revealTab(tabList(form, s), s.page, width, s.tabsFrom) }
 }
 
-function navRow(form: Form, s: State, view: View): L {
+const MORE: Action = { type: 'menu', hit: { type: 'toggle' } }
+
+// The nav row, and under it the More actions rows while that menu is open (the review page only).
+function navRows(form: Form, s: State, view: View): L[] {
   const n = form.questions.length
   const page = s.page
   const back: Button<Action> = { label: `${ICON.back} Back`, action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 }
   const forward = (label: string): Button<Action> => ({ label, action: { type: 'advance' }, tone: 'secondary' })
-  const next =
-    page < n - 1
-      ? forward(`Next ${ICON.next}`)
-      : page === n - 1
-        ? forward(`Review ${ICON.next}`)
-        : { label: unansweredCount(s) === 0 ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand' } satisfies Button<Action>
+  const submit: Button<Action> = { label: unansweredCount(s) === 0 || form.source === 'gate' ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }
+  const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : submit
   const aside: Button<Action> = s.chatArmed
     ? { label: `${ICON.chat} Press again to chat`, action: { type: 'chat' }, tone: 'caution' }
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }
-  return navButtons({ back, next, aside }, view.width)
+  const rows = page === n ? menuRows(form) : []
+  if (rows.length === 0) return [buttonRow([back, next], aside, view.width)]
+
+  const more: Button<Action> = { label: MORE_ACTIONS, action: MORE, tone: 'quiet' }
+  const line = buttonRow([back, next, more], aside, view.width)
+  const at = line.findIndex(span => span.action === MORE)
+  const indent = widthOf(line.slice(0, at))
+  const marked: L = s.navAt === 'more' && view.focused ? [...line.slice(0, at), ...keySelected(line[at]!), ...line.slice(at + 1)] : line
+  const hung = menu<Action>({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, actionFor: hit => ({ type: 'menu', hit }) })
+  return [marked, ...hung.slice(1)]
+}
+
+function errorLines(form: Form, view: View): L[] {
+  if (form.status !== 'open' || !form.error) return []
+  const lead = [sp<Action>(SYMBOL.warn, WARN), sp('  ')]
+  return [[sp(' ')], ...hang(lead, [sp<Action>('   ')], `Not recorded: ${form.error}`, view.width, WARN)]
 }
 
 // The review page has none: its Back and Submit buttons say it.
@@ -136,7 +159,7 @@ function hint(form: Form, s: State, view: View): string | undefined {
 
 function draw(form: Form, s: State, view: View, withContext: boolean): Drawn<Action> {
   const head: L[] = [brandBar<Action>('mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
-  if (s.phase !== 'active') return { head, page: closedPage(form, s, view), foot: [] }
+  if (s.phase !== 'active' || form.status !== 'open') return { head, page: closedPage(form, s, view), foot: [] }
   if (withContext && form.context) {
     const first = [sp<Action>(SYMBOL.bar, GRAY), sp('  '), sp(ICON.info, ACCENT), sp(' ')]
     const rest = [sp<Action>(SYMBOL.bar, GRAY), sp('    ')]
@@ -150,7 +173,7 @@ function draw(form: Form, s: State, view: View, withContext: boolean): Drawn<Act
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view)
   const keys = hint(form, s, view)
   const hintLines: L[] = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)]
-  const foot: L[] = [...hintLines, [sp(SYMBOL.end, ACCENT)], [sp(' ')], navRow(form, s, view)]
+  const foot: L[] = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(' ')], ...navRows(form, s, view)]
   return { head, page, foot }
 }
 
@@ -169,6 +192,6 @@ function tallestQuestion(form: Form, s: State, view: View): number {
 
 // Every page is padded to the tallest question's height, room allowing, so the buttons keep their row as you page.
 export function visibleLines(form: Form, s: State, view: View, rows: number): L[] {
-  const pad = s.phase === 'active' ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
+  const pad = s.phase === 'active' && form.status === 'open' ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
   return fitToRows(draw(form, s, view, true), rows, () => draw(form, s, view, false), pad)
 }

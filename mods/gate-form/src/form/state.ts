@@ -1,3 +1,5 @@
+import type { MenuRow, MenuState } from '@mattstack/mod-kit'
+
 import type { Form, FormOption, FormQuestion } from '../../types'
 
 export const WRITE_IN = '__other__'
@@ -17,15 +19,22 @@ export type State = {
   pressed?: string
   tabsFrom: number
   chatArmed?: true
+  menu: MenuState
+  // Which of the review page's buttons the keyboard is on.
+  navAt: 'submit' | 'more'
+  // The form's failed-attempt count when this state sent its answer: a higher count means that send failed.
+  sent?: number
+  // The run control that was sent, for the closed form to name.
+  control?: string
 }
 
 const isRecommended = (o: FormOption) => /\(recommended\)\s*$/i.test(o.label)
 const replaceAt = <T>(list: T[], i: number, value: T): T[] => list.map((old, k) => (k === i ? value : old))
 const markAnswered = (s: State, i: number) => replaceAt(s.answered, i, true)
 
-// Every question with options ends in a write-in row.
+// A question with options ends in a write-in row where it takes typed text.
 export function choicesOf(q: FormQuestion): FormOption[] {
-  if (q.options.length === 0) return q.options
+  if (q.options.length === 0 || !q.other) return q.options
   return [...q.options, { value: WRITE_IN, label: 'Something else', description: 'Write in your answer' }]
 }
 
@@ -39,7 +48,37 @@ export function initial(form: Form): State {
     moved: form.questions.map(() => false),
     phase: 'active',
     tabsFrom: 0,
+    menu: { open: false, selected: 0 },
+    navAt: 'submit',
   }
+}
+
+// The daemon refuses a gate answer that leaves a question out.
+export const canSubmit = (form: Form, s: State) => form.source !== 'gate' || unansweredCount(s) === 0
+
+const PAUSE = 'pause'
+const GO_BACK = 'go-back:'
+
+export function menuRows(form: Form): MenuRow[] {
+  const controls = form.controls
+  if (!controls) return []
+  const rows: MenuRow[] = controls.pause ? [{ id: PAUSE, label: 'Pause run' }] : []
+  if (controls.goBack.length > 0) rows.push({ id: 'go-back', label: 'Go back to stage', rows: controls.goBack.map(stage => ({ id: `${GO_BACK}${stage}`, label: stage })) })
+  return rows
+}
+
+// A run control answers the run with the reserved keys only.
+export function controlAnswers(id: string): { answers: Record<string, string>; label: string } | undefined {
+  if (id === PAUSE) return { answers: { next: 'hold' }, label: 'Asked to pause the run.' }
+  if (!id.startsWith(GO_BACK)) return undefined
+  const to = id.slice(GO_BACK.length)
+  return { answers: { next: 'go-back', to }, label: `Asked to go back to stage ${to}.` }
+}
+
+// After an answer that was not recorded, the form is answerable again with every pick kept.
+export function afterAttempt(form: Form, s: State): State {
+  if (s.phase !== 'submitted' || form.status !== 'open' || (form.attempt ?? 0) <= (s.sent ?? 0)) return s
+  return { ...s, phase: 'active', sent: form.attempt, control: undefined }
 }
 
 export const unansweredCount = (s: State) => s.answered.filter(a => !a).length

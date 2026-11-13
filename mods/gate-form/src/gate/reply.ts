@@ -28,3 +28,11 @@ export function toastReply(form: Form, outcome: Outcome): string {
   if (outcome.status === 'chat') return `Set "${form.title}" aside to chat about it`
   return `Submitted "${form.title}": ${Object.keys(outcome.answers).length} of ${form.questions.length} questions answered`
 }
+
+// The agent's result for a gate the kit form took over; the compiled gate-protocol skill reads the answer as its next input.
+export const GATE_INSTRUCTION = (gateId: string) =>
+  `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`
+
+export const GATE_ANSWERED = (gateId: string) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`
+
+export const GATE_ASIDE = (gateId: string) => `The user set gate ${gateId} aside to talk about it first. Don't present it again; it stays open in the kit form.`

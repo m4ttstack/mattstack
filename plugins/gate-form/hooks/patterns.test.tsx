@@ -195,3 +195,14 @@ test('a form stored under an older shape tag is declined, and the pane says so',
   expect(await ui.find({ type: 'Client' })).toBeUndefined()
   await ui.unmount()
 })
+
+test('a form stored under form-3 loads as the one form in the list', async ($, on) => {
+  stubPanes(on)
+  const old = { id: 'f-old', title: 'Old', questions: [{ id: 'q', header: 'q', label: 'Pick one', multi: false, writeIn: false, options: [{ value: 'a', label: 'Alpha' }] }], status: 'open', replyTo: 'toast' }
+  on('state.get', (_, e) => ({ value: { value: e.key === 'form' ? { shape: 'form-3', value: old } : undefined, version: 1 } }))
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const client = await ui.find({ type: 'Client' })
+  expect((client!.props.props as { form: { id: string; source: string } }).form).toMatchObject({ id: 'f-old', source: 'demo' })
+  expect((await rowsOf(ui, client!.key!)).join('\n')).toContain('Something else')
+  await ui.unmount()
+})

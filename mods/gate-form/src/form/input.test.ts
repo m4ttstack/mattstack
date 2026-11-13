@@ -6,7 +6,7 @@ import { toForm } from '../gate/parse'
 import { keyEffect, perform } from './input'
 import { answersOf, goTo, initial } from './state'
 
-const demo = toForm(DEMO.title, DEMO.context, DEMO.questions, 'toast') as Form
+const demo = toForm(DEMO.title, DEMO.context, DEMO.questions, 'demo') as Form
 const APPROACH = demo.questions.findIndex(q => q.id === 'approach')
 
 test('the demo form builds and has an approach question', () => {
@@ -45,7 +45,7 @@ test('advance with the cursor never moved leaves an option list with no recommen
     { value: 'a', label: 'Alpha' },
     { value: 'b', label: 'Beta' },
   ]
-  const form = toForm('t', undefined, [{ id: 'pick', label: 'Pick one', options }], 'toast') as Form
+  const form = toForm('t', undefined, [{ id: 'pick', label: 'Pick one', options }], 'demo') as Form
   const effect = perform({ type: 'advance' }, form, initial(form))
   expect(effect?.state.page).toBe(1)
   expect(effect?.state.answered[0]).toBe(false)

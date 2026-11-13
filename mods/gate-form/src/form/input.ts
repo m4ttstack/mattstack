@@ -1,22 +1,43 @@
 import type { ClientKeyEvent, JsonValue } from 'claude-code'
+import { menuHit, menuKey, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, clickChoice, confirm, deleteChar, goTo, isTyping, moveCursor, toggleAtCursor, typeChar, type State } from './state'
+import { advance, answersOf, canSubmit, clickChoice, confirm, controlAnswers, deleteChar, goTo, isTyping, menuRows, moveCursor, toggleAtCursor, typeChar, type State } from './state'
 
-export type Action = { type: 'page'; page: number } | { type: 'hide' } | { type: 'scroll-tabs'; from: number } | { type: 'advance' } | { type: 'option'; idx: number } | { type: 'send' } | { type: 'chat' }
+export type Action =
+  | { type: 'page'; page: number }
+  | { type: 'hide' }
+  | { type: 'scroll-tabs'; from: number }
+  | { type: 'advance' }
+  | { type: 'option'; idx: number }
+  | { type: 'send' }
+  | { type: 'chat' }
+  | { type: 'menu'; hit: MenuHit }
 
 export type Effect = { state: State; post?: JsonValue }
 
 const disarm = (s: State): State => ({ ...s, chatArmed: undefined })
 
-function send(form: Form, s: State): Effect {
-  return { state: { ...s, phase: 'submitted' }, post: { type: 'answer', formId: form.id, answers: answersOf(form, s) as JsonValue } }
+function post(form: Form, s: State, answers: Record<string, unknown>, control?: string): Effect {
+  return { state: { ...s, phase: 'submitted', sent: form.attempt ?? 0, control }, post: { type: 'answer', formId: form.id, answers: answers as JsonValue } }
 }
 
-// The first press arms it; the second sets the form aside.
+function send(form: Form, s: State): Effect | undefined {
+  return canSubmit(form, s) ? post(form, s, answersOf(form, s)) : undefined
+}
+
+// The first press arms it; the second sets the form aside. A gate set aside stays open and answerable.
 function chat(form: Form, s: State): Effect {
   if (!s.chatArmed) return { state: { ...s, chatArmed: true } }
-  return { state: { ...disarm(s), phase: 'chat' }, post: { type: 'chat', formId: form.id, draft: answersOf(form, s) as JsonValue } }
+  const state = form.source === 'gate' ? disarm(s) : { ...disarm(s), phase: 'chat' as const }
+  return { state, post: { type: 'chat', formId: form.id, draft: answersOf(form, s) as JsonValue } }
+}
+
+function moved(form: Form, s: State, move: MenuMove | undefined): Effect | undefined {
+  if (!move) return undefined
+  const state = { ...s, menu: move.state }
+  const control = move.picked === undefined ? undefined : controlAnswers(move.picked)
+  return control ? post(form, state, control.answers, control.label) : { state }
 }
 
 export function perform(action: Action, form: Form, armed: State): Effect | undefined {
@@ -36,13 +57,20 @@ export function perform(action: Action, form: Form, armed: State): Effect | unde
       return { state: clickChoice(form, s, action.idx) }
     case 'send':
       return send(form, s)
+    case 'menu':
+      return moved(form, { ...s, navAt: 'more' }, menuHit(s.menu, menuRows(form), action.hit))
   }
 }
 
+// Left and right move between Submit and More actions, then left pages back; Enter presses the one selected.
 function reviewKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
-  if (ev.key === 'left') return { state: goTo(form, s, s.page - 1) }
-  if (ev.key === 'return' || ev.key === 'enter') return send(form, s)
-  return undefined
+  const rows = menuRows(form)
+  if (s.menu.open) return moved(form, s, menuKey(s.menu, rows, ev.key)) ?? { state: s }
+  const onMore = s.navAt === 'more' && rows.length > 0
+  if (ev.key === 'right' && rows.length > 0) return { state: { ...s, navAt: 'more' } }
+  if (ev.key === 'left') return onMore ? { state: { ...s, navAt: 'submit' } } : { state: goTo(form, s, s.page - 1) }
+  if (ev.key !== 'return' && ev.key !== 'enter') return undefined
+  return onMore ? moved(form, s, menuKey(s.menu, rows, ev.key)) : send(form, s)
 }
 
 function questionKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {

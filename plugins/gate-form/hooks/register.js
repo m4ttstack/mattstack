@@ -243,6 +243,14 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
+function keySelected(span) {
+  if (!span.t.startsWith(" "))
+    return [span];
+  return [
+    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: span.t.slice(1) }
+  ];
+}
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -397,89 +405,42 @@ var DEMO = {
         { value: "split", label: "Split into two MRs", description: "blocking now, the rest as a follow-up" }
       ]
     },
-    { id: "summary", header: "summary", label: "One line for the MR comment that lists the fixes?" },
-    {
-      id: "next",
-      label: "Happy with this, or should something change?",
-      options: [
-        { value: "proceed", label: "Looks good, continue (Recommended)", description: "Move on to the next step" },
-        { value: "iterate", label: "Change something", description: "Say what to change, then redo this step" },
-        { value: "go-back", label: "Redo an earlier step", description: "Return to a step that needs redoing" },
-        { value: "hold", label: "Pause", description: "Stop until you resume this run" },
-        { value: "abandon", label: "Abandon", description: "End this run for good" }
-      ]
-    }
+    { id: "summary", header: "summary", label: "One line for the MR comment that lists the fixes?" }
   ]
 };
 
-// mods/gate-form/src/gate/parse.ts
-var DEFAULT_TITLE = "Questions";
-var counter = 0;
-var isText = (v) => typeof v === "string" && v.trim() !== "";
-function toOption(raw) {
-  if (typeof raw === "string")
-    return { value: raw, label: raw };
-  return {
-    value: String(raw.value ?? raw.label ?? ""),
-    label: String(raw.label ?? raw.value ?? ""),
-    ...typeof raw.description === "string" && { description: raw.description }
-  };
+// mods/gate-form/src/gate/forms.ts
+function currentForm(list) {
+  return list.find((f) => f.status === "open") ?? list.at(-1);
 }
-function toOptions(q) {
-  const options = [];
-  const seen = new Set;
-  for (const raw of Array.isArray(q.options) ? q.options : []) {
-    const option = toOption(raw);
-    if (option.value === "")
-      return `question ${q.id} has an option with no value.`;
-    if (seen.has(option.value))
-      return `question ${q.id} has option ${option.value} twice.`;
-    seen.add(option.value);
-    options.push(option);
-  }
-  return options;
+var openCount = (list) => list.filter((f) => f.status === "open").length;
+function addForm(list, form, supersededId) {
+  const replaces = (f) => f.gateId === undefined ? form.gateId === undefined && f.source === form.source : f.gateId === form.gateId || f.gateId === supersededId;
+  const at = list.findIndex(replaces);
+  const kept = list.filter((f, i) => i === at || !replaces(f) && f.status === "open");
+  return at < 0 ? [...kept, form] : kept.map((f) => replaces(f) ? form : f);
 }
-function toQuestion(q, seen) {
-  if (typeof q?.id !== "string" || q.id === "")
-    return "every question needs a string id.";
-  if (seen.has(q.id))
-    return `question id ${q.id} is used twice.`;
-  if (typeof q.label !== "string")
-    return `question ${q.id} needs a label.`;
-  seen.add(q.id);
-  const options = toOptions(q);
-  if (typeof options === "string")
-    return options;
-  return {
-    id: q.id,
-    header: isText(q.header) ? q.header : q.id,
-    label: q.label,
-    multi: q.multi === true,
-    writeIn: q.writeIn === true,
-    ...isText(q.context) && { context: q.context },
-    options
-  };
+function patchForm(list, formId, patch) {
+  return list.map((f) => f.id === formId ? { ...f, ...patch } : f);
 }
-function toForm(title, context, raw, replyTo) {
-  if (!Array.isArray(raw) || raw.length === 0)
-    return "questions must be a non-empty array.";
-  const seen = new Set;
-  const questions = [];
-  for (const q of raw) {
-    const question = toQuestion(q, seen);
-    if (typeof question === "string")
-      return question;
-    questions.push(question);
-  }
-  counter += 1;
-  return {
-    id: `f${Date.now().toString(36)}${counter}`,
-    title: isText(title) ? title : DEFAULT_TITLE,
-    ...isText(context) && { context },
-    questions,
-    status: "open",
-    replyTo
-  };
+function fitForm(form, budget) {
+  const fits = (f) => JSON.stringify(f).length <= budget;
+  if (fits(form))
+    return form;
+  const plain = { ...form, questions: form.questions.map((q) => ({ ...q, options: q.options.map(({ description: _, ...o }) => o) })) };
+  if (fits(plain))
+    return plain;
+  const bare = { ...plain, questions: plain.questions.map(({ context: _, ...q }) => q) };
+  if (fits(bare))
+    return bare;
+  const { context: _, ...rest } = bare;
+  return rest;
+}
+function fromLegacy(old) {
+  if (!old)
+    return [];
+  const { replyTo, ...rest } = old;
+  return [{ ...rest, source: replyTo === "toast" ? "demo" : "ask", questions: old.questions.map((q) => ({ ...q, other: true })) }];
 }
 
 // mods/gate-form/src/gate/reply.ts
@@ -509,6 +470,148 @@ function toastReply(form, outcome) {
   if (outcome.status === "chat")
     return `Set "${form.title}" aside to chat about it`;
   return `Submitted "${form.title}": ${Object.keys(outcome.answers).length} of ${form.questions.length} questions answered`;
+}
+var GATE_INSTRUCTION = (gateId) => `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`;
+var GATE_ANSWERED = (gateId) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`;
+var GATE_ASIDE = (gateId) => `The user set gate ${gateId} aside to talk about it first. Don't present it again; it stays open in the kit form.`;
+
+// mods/gate-form/src/gate/parse.ts
+var DEFAULT_TITLE = "Questions";
+var counter = 0;
+var isText = (v) => typeof v === "string" && v.trim() !== "";
+function toOption(raw) {
+  if (typeof raw === "string")
+    return { value: raw, label: raw };
+  return {
+    value: String(raw.value ?? raw.label ?? ""),
+    label: String(raw.label ?? raw.value ?? ""),
+    ...typeof raw.description === "string" && { description: raw.description }
+  };
+}
+function toOptions(q) {
+  const options = [];
+  const seen = new Set;
+  for (const raw of Array.isArray(q.options) ? q.options : []) {
+    const option = toOption(raw);
+    if (option.value === "")
+      return `question ${q.id} has an option with no value.`;
+    if (seen.has(option.value))
+      return `question ${q.id} has option ${option.value} twice.`;
+    seen.add(option.value);
+    options.push(option);
+  }
+  return options;
+}
+function toQuestion(q, seen, source) {
+  if (typeof q?.id !== "string" || q.id === "")
+    return "every question needs a string id.";
+  if (seen.has(q.id))
+    return `question id ${q.id} is used twice.`;
+  if (typeof q.label !== "string")
+    return `question ${q.id} needs a label.`;
+  seen.add(q.id);
+  const options = toOptions(q);
+  if (typeof options === "string")
+    return options;
+  return {
+    id: q.id,
+    header: isText(q.header) ? q.header : q.id,
+    label: q.label,
+    multi: q.multi === true,
+    writeIn: q.writeIn === true,
+    other: source !== "gate" || q.writeIn === true,
+    ...isText(q.context) && { context: q.context },
+    options
+  };
+}
+function toForm(title, context, raw, source) {
+  if (!Array.isArray(raw) || raw.length === 0)
+    return "questions must be a non-empty array.";
+  const seen = new Set;
+  const questions = [];
+  for (const q of raw) {
+    const question = toQuestion(q, seen, source);
+    if (typeof question === "string")
+      return question;
+    questions.push(question);
+  }
+  counter += 1;
+  return {
+    id: `f${Date.now().toString(36)}${counter}`,
+    title: isText(title) ? title : DEFAULT_TITLE,
+    ...isText(context) && { context },
+    questions,
+    status: "open",
+    source
+  };
+}
+var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+function readKitResult(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { kind: "spilled" };
+  }
+  return isObject(parsed) && parsed.paneAction === "kit" ? { kind: "kit", fields: parsed } : { kind: "other" };
+}
+function controlsOf(raw, questions) {
+  if (!isObject(raw) || questions.some((q) => q.id === "next"))
+    return;
+  const pause = raw.pause === true;
+  const goBack = Array.isArray(raw.goBack) ? raw.goBack.filter((s) => typeof s === "string" && s !== "") : [];
+  return pause || goBack.length > 0 ? { pause, goBack } : undefined;
+}
+function gateFormOf(id, title, context, questions, controls) {
+  if (!isText(id))
+    return "the gate result has no id.";
+  const form = toForm(title, context, questions, "gate");
+  if (typeof form === "string")
+    return form;
+  const allowed = controlsOf(controls, form.questions);
+  return { ...form, gateId: id, ...allowed && { controls: allowed } };
+}
+function gateForm(fields, title) {
+  const kit = isObject(fields.kitForm) ? fields.kitForm : {};
+  return gateFormOf(fields.id, title, kit.context, kit.questions, kit.controls);
+}
+function agentFields(fields) {
+  const { kitForm: _, ...rest } = fields;
+  return { ...rest, instruction: GATE_INSTRUCTION(String(fields.id)) };
+}
+function spilledGate(stdout, session, known) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return;
+  }
+  const gates = isObject(parsed) && Array.isArray(parsed.gates) ? parsed.gates : [];
+  const mine = gates.filter((g) => isObject(g) && isText(g.id) && g.presentation === "kit" && g.status === "open" && isObject(g.nudge) && g.nudge.session === session && !known.includes(g.id));
+  return mine.sort((a, b) => Number(b.openedAt ?? 0) - Number(a.openedAt ?? 0))[0];
+}
+function formFromRow(row) {
+  return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, undefined);
+}
+
+// mods/gate-form/src/gate/rt.ts
+var RT_TIMEOUT_MS = 15000;
+async function runRt($, args) {
+  const home = await $.env.get("HOME");
+  const names = ["rt", `${home ?? ""}/.local/bin/rt`];
+  let failure;
+  for (const rt of names) {
+    try {
+      return await $.process.run([rt, ...args], { timeoutMs: RT_TIMEOUT_MS });
+    } catch (error) {
+      failure = error;
+    }
+  }
+  throw failure;
+}
+function rtError(ran) {
+  const said = (ran.stderr.trim() || ran.stdout.trim()).replace(/^rt gate: /, "");
+  return said || `rt exited ${ran.exitCode}`;
 }
 
 // mods/gate-form/src/gate/schema.ts
@@ -555,30 +658,154 @@ var INPUT_SCHEMA = {
 // mods/gate-form/src/register.tsx
 var PANE = "gate-form";
 var TOOL = "ask";
-var formAtom = atom({ plugin: "gate-form", key: "form" }, null, { shape: "form-3" });
+var GATE_TITLE = "Decision gate";
+var FORM_BUDGET = 95000;
+var formsAtom = atom({ plugin: "gate-form", key: "forms" }, [], { shape: "forms-1" });
+var legacyAtom = atom({ plugin: "gate-form", key: "form" }, null, { shape: "form-3" });
 var keysAtom = atom({ plugin: "gate-form", key: "keysInForm" }, false);
-async function waitingForm($) {
-  const form = await read($, formAtom);
-  return form && form.status === "open" ? { formId: form.id, title: form.title } : undefined;
-}
+var drawn = {};
 var GATE_PANE = { id: PANE, label: "mattstack gate waiting" };
+async function readForms($) {
+  const forms = await read($, formsAtom);
+  return forms.length > 0 ? forms : fromLegacy(await read($, legacyAtom));
+}
+async function writeForms($, change) {
+  const legacy = fromLegacy(await read($, legacyAtom));
+  let written = [];
+  await update($, formsAtom, (list) => written = change(list.length > 0 || legacy.length === 0 ? list : legacy));
+  if (legacy.length > 0)
+    await update($, legacyAtom, () => null);
+  return written;
+}
+async function waitingForm($) {
+  const forms = await readForms($);
+  const form = currentForm(forms);
+  if (!form || form.status !== "open")
+    return;
+  const more = openCount(forms) - 1;
+  return { formId: form.id, title: more > 0 ? `${form.title}, ${more} more waiting` : form.title };
+}
 async function setKeysInForm($, value) {
   if (await read($, keysAtom) !== value)
     await update($, keysAtom, () => value);
 }
-async function settle($, formId, outcome) {
-  const form = await read($, formAtom);
-  if (!form || form.id !== formId || form.status !== "open")
-    return;
-  const status = outcome.status === "answered" ? "answered" : "cancelled";
-  await update($, formAtom, (f) => f && f.id === formId ? { ...f, status } : f);
-  if (form.replyTo === "toast")
-    return $.ui.toast(toastReply(form, outcome));
-  const warn = () => $.ui.toast(`Could not send the answers for ${formId} to Claude`);
-  $.prompt.submit({ text: agentReply(form, outcome) }).then((sent) => {
+async function wake($, text, what) {
+  const warn = () => $.ui.toast(`Could not tell Claude about ${what}`);
+  $.prompt.submit({ text }).then((sent) => {
     if (sent.drop !== undefined)
       warn();
   }).catch(warn);
+}
+async function showCurrent($, forms) {
+  const next = currentForm(forms);
+  if (next?.status === "open")
+    await showPane($, GATE_PANE, next.title);
+  else
+    $.ui.invalidate("ui.render");
+}
+async function answerGate($, form, answers) {
+  const gateId = form.gateId ?? "";
+  const args = ["gate", "answer", gateId, "--answers", JSON.stringify(answers), "--by", "pane", "--session", await $.session.id()];
+  let error;
+  try {
+    const ran = await runRt($, args);
+    if (ran.exitCode !== 0)
+      error = rtError(ran);
+    else if (JSON.parse(ran.stdout).conflict === true)
+      error = `gate ${gateId} was already answered`;
+  } catch (failure) {
+    error = `rt could not run: ${failure instanceof Error ? failure.message : String(failure)}`;
+  }
+  if (error !== undefined) {
+    await writeForms($, (list) => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }));
+    return;
+  }
+  const forms = await writeForms($, (list) => patchForm(list, form.id, { status: "answered", error: undefined }));
+  await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
+  await showCurrent($, forms);
+}
+async function setGateAside($, form) {
+  await wake($, GATE_ASIDE(form.gateId ?? ""), `setting gate ${form.gateId} aside`);
+  await $.ui.close({ id: PANE });
+}
+async function settle($, formId, outcome) {
+  const form = (await readForms($)).find((f) => f.id === formId);
+  if (!form || form.status !== "open")
+    return;
+  if (form.source === "gate") {
+    if (outcome.status === "answered")
+      return answerGate($, form, outcome.answers);
+    return setGateAside($, form);
+  }
+  const status = outcome.status === "answered" ? "answered" : "cancelled";
+  await writeForms($, (list) => patchForm(list, formId, { status }));
+  if (form.source === "demo")
+    return $.ui.toast(toastReply(form, outcome));
+  await wake($, agentReply(form, outcome), `the answers for ${formId}`);
+}
+async function openForm($, form, supersededId) {
+  await writeForms($, (list) => addForm(list, form, supersededId));
+  const shown = currentForm(await readForms($));
+  await showPane($, GATE_PANE, shown?.title ?? form.title);
+}
+function canDraw(e) {
+  const surface = drawn.surface;
+  const args = e;
+  return e.agentId === undefined && args.handBack !== true && (surface === "terminal" || surface === "desktop");
+}
+var textOf = (out) => {
+  if (typeof out.text === "string")
+    return out.text;
+  const result = out.result;
+  if (typeof result === "string")
+    return result;
+  const blocks = Array.isArray(result) ? result : result?.content ?? [];
+  return (Array.isArray(blocks) ? blocks : []).map((b) => typeof b.text === "string" ? b.text : "").join("");
+};
+function withText(result, text) {
+  if (Array.isArray(result))
+    return [{ type: "text", text }];
+  if (result && typeof result === "object" && "content" in result)
+    return { ...result, content: [{ type: "text", text }], structuredContent: undefined };
+  return text;
+}
+async function takeGate($, e, next) {
+  if (!canDraw(e))
+    return next(e);
+  const out = await next({ ...e, kitForm: true });
+  if (out.deny !== undefined || out.isError)
+    return out;
+  const text = textOf(out);
+  const kit = readKitResult(text);
+  if (kit.kind === "other")
+    return out;
+  const kind = e.kind;
+  const title = typeof kind === "string" && kind.trim() !== "" ? kind : GATE_TITLE;
+  if (kit.kind === "kit") {
+    const form = gateForm(kit.fields, title);
+    if (typeof form === "string")
+      return out;
+    await openForm($, form, kit.fields.supersededId);
+    return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) };
+  }
+  return takeSpilled($, out, text);
+}
+async function takeSpilled($, out, text) {
+  const known = (await readForms($)).flatMap((f) => f.gateId ? [f.gateId] : []);
+  let row;
+  try {
+    const ran = await runRt($, ["gate", "list", "--open", "--json"]);
+    row = ran.exitCode === 0 ? spilledGate(ran.stdout, await $.session.id(), known) : undefined;
+  } catch {
+    row = undefined;
+  }
+  const form = row && formFromRow(row);
+  if (!row || !form || typeof form === "string")
+    return out;
+  await openForm($, form);
+  return { result: withText(out.result, `${text}
+
+${GATE_INSTRUCTION(row.id)}`) };
 }
 function register(on) {
   registerPaneRedraw(on);
@@ -588,24 +815,24 @@ function register(on) {
     return next(e);
   });
   on("command.run", { command: "gate-form-demo" }, async ($) => {
-    const form = toForm(DEMO.title, DEMO.context, DEMO.questions, "toast");
+    const form = toForm(DEMO.title, DEMO.context, DEMO.questions, "demo");
     if (typeof form === "string")
       return { text: form };
-    await update($, formAtom, () => form);
-    await showPane($, GATE_PANE, form.title);
+    await openForm($, form);
     return { text: "Demo gate form opened." };
   });
   on("tool.call", { tool: "mcp__gate-form__ask" }, async ($, e) => {
     const args = e;
-    const form = toForm(args.title, args.context, args.questions, "agent");
+    const form = toForm(args.title, args.context, args.questions, "ask");
     if (typeof form === "string")
       return { deny: form };
-    await update($, formAtom, () => form);
-    await showPane($, GATE_PANE, form.title);
+    await openForm($, form);
     return {
       result: `Form ${form.id} is open in the pane with ${form.questions.length} questions. End your turn now: the user's answers arrive as your next input, as JSON keyed by question id.`
     };
   });
+  on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_ask" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));
+  on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_open" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));
   on("prompt.edit", async ($, e, next) => {
     await setKeysInForm($, false);
     return next(e);
@@ -632,6 +859,7 @@ function register(on) {
     return next(e);
   });
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    drawn.surface = e.surface;
     if (e.props.hasSurvey)
       return next(e);
     const waiting = await waitingForm($);
@@ -643,7 +871,7 @@ function register(on) {
     const els = $.ui.resolve(e);
     const { Box, Text, Button } = els;
     const Client = "Client" in els ? els.Client : undefined;
-    const form = await read($, formAtom);
+    const form = currentForm(await readForms($));
     if (!form)
       return /* @__PURE__ */ h(Text, {
         dimColor: true
@@ -661,7 +889,7 @@ function register(on) {
     }, /* @__PURE__ */ h(Client, {
       key: `form-${form.id}`,
       module: "./form.js",
-      props: { form, rows, cols: (e.props.bodyColumns ?? 60) - 2, focused }
+      props: { form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused }
     }), form.status === "open" ? null : /* @__PURE__ */ h(Box, {
       flexDirection: "row",
       gap: 1

@@ -82,16 +82,5 @@ export const DEMO = {
       ],
     },
     { id: 'summary', header: 'summary', label: 'One line for the MR comment that lists the fixes?' },
-    {
-      id: 'next',
-      label: 'Happy with this, or should something change?',
-      options: [
-        { value: 'proceed', label: 'Looks good, continue (Recommended)', description: 'Move on to the next step' },
-        { value: 'iterate', label: 'Change something', description: 'Say what to change, then redo this step' },
-        { value: 'go-back', label: 'Redo an earlier step', description: 'Return to a step that needs redoing' },
-        { value: 'hold', label: 'Pause', description: 'Stop until you resume this run' },
-        { value: 'abandon', label: 'Abandon', description: 'End this run for good' },
-      ],
-    },
   ],
 }

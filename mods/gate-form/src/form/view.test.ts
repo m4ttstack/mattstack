@@ -7,7 +7,7 @@ import { perform, type Action } from './input'
 import { goTo, initial } from './state'
 import { visibleLines } from './view'
 
-const demo = toForm(DEMO.title, DEMO.context, DEMO.questions, 'toast') as Form
+const demo = toForm(DEMO.title, DEMO.context, DEMO.questions, 'demo') as Form
 const VIEW = { width: 60, focused: true }
 const ROWS = 80
 
