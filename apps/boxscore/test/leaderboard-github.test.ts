@@ -350,6 +350,27 @@ describe('a GitHub team end to end', () => {
     }
   });
 
+  it('the prior window also reads stored logins through the roster spelling', async () => {
+    __setRosterReader(() => [{ username: 'ADA' }, { username: 'Bob' }]);
+    try {
+      const res = await getLeaderboard({
+        window: {
+          start: at(8.5),
+          end: new Date(NOW).toISOString(),
+          key: 'custom',
+        },
+        refresh: false,
+        trend: true,
+      });
+
+      const ada = res.users.find(u => u.username === 'ADA')!.metrics;
+      expect(ada.mrsMerged.value).toBe(1);
+      expect(ada.mrsMerged.delta).toBe(0);
+    } finally {
+      __setRosterReader(() => [{ username: 'ada' }, { username: 'bob' }]);
+    }
+  });
+
   it("the detail response links ada's merged rows to GitHub pull requests", async () => {
     const res = await getUserDetail({
       window,

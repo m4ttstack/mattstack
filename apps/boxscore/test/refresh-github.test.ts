@@ -1,7 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import type { MergeRequestIndexRow, PullRequest } from '@mattstack/glance';
 import type { BoxscoreSettings, Env } from '../src/server/config/index.js';
@@ -599,6 +607,73 @@ describe('detail eligibility reads stored authors through the current roster', (
     });
 
     expect(calls).not.toContain('fetchMergeRequestMetrics');
+  });
+});
+
+describe('Linear credit through a GitHub refresh', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('credits a roster author whose attached PR is stored under another case', async () => {
+    const stored = (iid: number, author: string, mergedAt: string) =>
+      toIndexRow(
+        indexRow({
+          iid,
+          authorUsername: author,
+          createdAt: '2026-04-01T00:00:00Z',
+          updatedAt: mergedAt,
+          mergedAt,
+        }),
+        '2026-04-05T00:00:00Z'
+      );
+    getStore().upsertIndexRows([
+      stored(10, 'zed', '2026-04-02T00:00:00Z'),
+      stored(11, 'ADA', '2026-04-03T00:00:00Z'),
+    ]);
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      const { query } = JSON.parse(String(init?.body ?? '{}')) as {
+        query: string;
+      };
+      const ids = [...query.matchAll(/issue\(id: "([^"]+)"\)/g)].map(
+        m => m[1]!
+      );
+      return Response.json({
+        data: Object.fromEntries(
+          ids.map((id, i) => [
+            `_${i}`,
+            {
+              id: `uuid-${id}`,
+              identifier: id,
+              title: `Ticket ${id}`,
+              url: `https://linear.app/acme/issue/${id}`,
+              state: { type: 'completed', name: 'Done' },
+              attachments: {
+                nodes: [10, 11].map(n => ({
+                  url: `https://github.com/o/r/pull/${n}`,
+                  sourceType: 'github',
+                })),
+              },
+            },
+          ])
+        ),
+      });
+    });
+    const provider = makeGitHubProvider({
+      index: [indexRow({ iid: 7, title: 'ACME-1 cleanup' })],
+    });
+
+    await runRefresh({
+      store: getStore(),
+      provider: makeGitLabSpy().provider,
+      settings: settings(),
+      env: { ...ENV, linearApiKey: 'key' },
+      window: WINDOW,
+      source: sourceFor(ENV, provider as unknown as GitProvider, settings()),
+    });
+
+    const issue = getStore()
+      .allLinearIssues()
+      .find(i => i.identifier === 'ACME-1');
+    expect(issue?.creditedUser).toBe('ada');
   });
 });
 
