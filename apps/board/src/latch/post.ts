@@ -22,72 +22,68 @@ import {
   type BannerVariant,
 } from './variants.ts';
 
+/** One MR as the gateway addresses it. `projectId` is a GitLab numeric id
+    and is null where the forge has none. */
+export interface LatchMr {
+  projectId: number | null;
+  projectPath: string;
+  iid: number;
+  rtRepo: string;
+}
+
+export interface LatchFile {
+  filename: string;
+  bytes: Uint8Array;
+  contentType: string;
+  alt: string;
+}
+
 export interface LatchGateway {
-  uploadFile(
-    projectId: number,
-    filename: string,
-    bytes: Uint8Array,
-    contentType?: string
-  ): Promise<{ markdown: string; url: string; alt: string; full_path: string }>;
-  createDiscussion(
-    projectId: number,
-    mrIid: number,
+  forge: 'gitlab' | 'github';
+  /** Markdown for each file, in the order given. */
+  uploadFiles(mr: LatchMr, files: LatchFile[]): Promise<string[]>;
+  createThread(
+    mr: LatchMr,
     body: string
-  ): Promise<{ id: string; notes: { id: number }[] }>;
-  updateNote(
-    projectId: number,
-    mrIid: number,
-    noteId: number,
-    body: string
-  ): Promise<void>;
-  resolveDiscussion(
-    projectPath: string,
-    mrIid: number,
-    discussionId: string
-  ): Promise<void>;
-  unresolveDiscussion(
-    projectPath: string,
-    mrIid: number,
-    discussionId: string
-  ): Promise<void>;
+  ): Promise<{ discussionId: string; rootNoteId: number } | null>;
+  updateNote(mr: LatchMr, noteId: number, body: string): Promise<void>;
+  resolveDiscussion(mr: LatchMr, discussionId: string): Promise<void>;
+  unresolveDiscussion(mr: LatchMr, discussionId: string): Promise<void>;
   createNote(
-    projectId: number,
-    mrIid: number,
+    mr: LatchMr,
     body: string,
     discussionId?: string
   ): Promise<{ id: number }>;
 }
 
-export interface LatchTarget {
-  projectId: number;
-  projectPath: string;
-  iid: number;
+export type LatchTarget = LatchMr & {
   mrUrl: string;
   discussionId: string;
   rootNoteId: number;
-}
+};
+
+type LatchMrUrl = LatchMr & { mrUrl: string };
 
 /** Posts the reply a row owes its latch's discussion, then clears it. */
 export async function postReplyDue(
   gw: LatchGateway,
-  mr: Pick<LatchTarget, 'projectId' | 'iid' | 'mrUrl'>,
+  mr: LatchMrUrl,
   discussionId: string,
   body: string,
   db: Database = getStateDb()
 ): Promise<void> {
-  await gw.createNote(mr.projectId, mr.iid, body, discussionId);
+  await gw.createNote(mr, body, discussionId);
   clearReplyDue(mr.mrUrl, body, db);
 }
 
 /** This MR's banner for `variant`, uploaded only the first time the MR shows it. */
 export async function bannerMarkdown(
   gw: LatchGateway,
-  projectId: number,
-  mrUrl: string,
-  iid: number,
+  mr: LatchMrUrl,
   variant: BannerVariant,
   db: Database = getStateDb()
 ): Promise<string> {
+  const { mrUrl, iid } = mr;
   const key = variantKey(variant);
   const alt = bannerAlt(variant);
   const cached = cachedUpload(mrUrl, key, db);
@@ -95,34 +91,29 @@ export async function bannerMarkdown(
   // sized pre-3x upload): it is replaced, not reused.
   if (cached?.startsWith(`![${alt}](`) && !cached.includes('{width='))
     return cached;
-  const up = await gw.uploadFile(
-    projectId,
-    `latch-${iid}-${key}.gif`,
-    latchBannerGif(mrUrl, variant),
-    'image/gif'
-  );
-  const markdown = imageMarkdownFor(alt, up.markdown);
+  const [uploaded] = await gw.uploadFiles(mr, [
+    {
+      filename: `latch-${iid}-${key}.gif`,
+      bytes: latchBannerGif(mrUrl, variant),
+      contentType: 'image/gif',
+      alt,
+    },
+  ]);
+  const markdown = imageMarkdownFor(alt, uploaded!);
   rememberUpload(mrUrl, key, markdown, db);
   return markdown;
 }
 
 async function writeNote(
   gw: LatchGateway,
-  t: Pick<LatchTarget, 'projectId' | 'iid' | 'mrUrl' | 'rootNoteId'>,
+  t: LatchMrUrl & { rootNoteId: number },
   phase: LatchPhase,
   variant: BannerVariant,
   db: Database
 ): Promise<void> {
-  const img = await bannerMarkdown(
-    gw,
-    t.projectId,
-    t.mrUrl,
-    t.iid,
-    variant,
-    db
-  );
+  const img = await bannerMarkdown(gw, t, variant, db);
   const body = latchBody(phase, img, copyFor(variant).sentence);
-  await gw.updateNote(t.projectId, t.iid, t.rootNoteId, body);
+  await gw.updateNote(t, t.rootNoteId, body);
 }
 
 /**
@@ -143,32 +134,27 @@ export async function rewriteLatch(
   casLatch(t.mrUrl, [phase], { variant: variantKey(variant) }, now, db, {
     discussionId: t.discussionId,
   });
-  if (thread === 'resolve')
-    await gw.resolveDiscussion(t.projectPath, t.iid, t.discussionId);
+  if (thread === 'resolve') await gw.resolveDiscussion(t, t.discussionId);
   else if (thread === 'unresolve')
-    await gw.unresolveDiscussion(t.projectPath, t.iid, t.discussionId);
+    await gw.unresolveDiscussion(t, t.discussionId);
 }
 
 /** Arm a fresh latch: upload this MR's banner, then open a resolvable thread.
     The caller writes the latch row from the returned ids. */
 export async function postLatch(
   gw: LatchGateway,
-  projectId: number,
-  _projectPath: string,
-  mrUrl: string,
-  iid: number,
+  mr: LatchMrUrl,
   db: Database = getStateDb()
 ): Promise<{ discussionId: string; rootNoteId: number }> {
   const variant: BannerVariant = { state: 'armed' };
-  const img = await bannerMarkdown(gw, projectId, mrUrl, iid, variant, db);
-  const d = await gw.createDiscussion(
-    projectId,
-    iid,
+  const img = await bannerMarkdown(gw, mr, variant, db);
+  const thread = await gw.createThread(
+    mr,
     latchBody('armed', img, copyFor(variant).sentence)
   );
-  const root = d.notes[0];
-  if (!root) throw new Error(`latch post on !${iid} returned no root note`);
-  return { discussionId: d.id, rootNoteId: root.id };
+  if (!thread)
+    throw new Error(`latch post on !${mr.iid} returned no root note`);
+  return thread;
 }
 
 /**
@@ -184,20 +170,17 @@ export async function postLatch(
  */
 export async function spendLatch(
   gw: LatchGateway,
-  projectId: number,
-  projectPath: string,
-  mrUrl: string,
-  iid: number,
+  mr: LatchMrUrl,
   latch: LatchRef,
   variant: BannerVariant,
   now: number = Date.now(),
   db: Database = getStateDb()
 ): Promise<void> {
+  const { mrUrl } = mr;
   if (latch.kind === 'spent') {
     // Idempotent: an already-spent latch is left alone, except for the crash
     // residue where the body was written but the resolve never landed.
-    if (!latch.resolved)
-      await gw.resolveDiscussion(projectPath, iid, latch.discussionId);
+    if (!latch.resolved) await gw.resolveDiscussion(mr, latch.discussionId);
     return;
   }
   // The guard keeps a duplicate's spend off the row, which tracks one latch.
@@ -214,12 +197,12 @@ export async function spendLatch(
   if (!moved) casLatch(mrUrl, ['spent'], { variant: key }, now, db, guard);
   await writeNote(
     gw,
-    { projectId, iid, mrUrl, rootNoteId: latch.rootNoteId },
+    { ...mr, rootNoteId: latch.rootNoteId },
     'spent',
     variant,
     db
   );
-  await gw.resolveDiscussion(projectPath, iid, latch.discussionId);
+  await gw.resolveDiscussion(mr, latch.discussionId);
 }
 
 /** Terminal disposal of every latch copy found on an MR, deduped by
@@ -228,10 +211,7 @@ export async function spendLatch(
     set, not just the newest one. */
 export async function spendAllLatches(
   gw: LatchGateway,
-  projectId: number,
-  projectPath: string,
-  mrUrl: string,
-  iid: number,
+  mr: LatchMrUrl,
   latches: LatchRef[],
   variant: BannerVariant,
   now: number = Date.now(),
@@ -241,16 +221,6 @@ export async function spendAllLatches(
   for (const latch of latches) {
     if (seen.has(latch.discussionId)) continue;
     seen.add(latch.discussionId);
-    await spendLatch(
-      gw,
-      projectId,
-      projectPath,
-      mrUrl,
-      iid,
-      latch,
-      variant,
-      now,
-      db
-    );
+    await spendLatch(gw, mr, latch, variant, now, db);
   }
 }

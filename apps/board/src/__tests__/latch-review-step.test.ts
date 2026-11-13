@@ -67,24 +67,25 @@ function step(over: Partial<ReviewLatchStep>) {
   const calls: string[] = [];
   const replies: string[] = [];
   const gateway: LatchGateway = {
-    async uploadFile() {
+    forge: 'gitlab',
+    async uploadFiles() {
       calls.push('upload');
-      return { alt: '', url: '', full_path: '', markdown: IMG };
+      return [IMG];
     },
-    async createDiscussion() {
+    async createThread() {
       calls.push('createDiscussion');
-      return { id: 'new', notes: [{ id: 1 }] };
+      return { discussionId: 'new', rootNoteId: 1 };
     },
-    async updateNote(_p, _i, id) {
+    async updateNote(_mr, id) {
       calls.push(`updateNote:${id}`);
     },
-    async resolveDiscussion(_p, _i, id) {
+    async resolveDiscussion(_mr, id) {
       calls.push(`resolve:${id}`);
     },
-    async unresolveDiscussion(_p, _i, id) {
+    async unresolveDiscussion(_mr, id) {
       calls.push(`unresolve:${id}`);
     },
-    async createNote(_p, _i, body, d) {
+    async createNote(_mr, body, d) {
       calls.push(`reply:${d}`);
       replies.push(body);
       return { id: 9 };
@@ -100,10 +101,13 @@ function step(over: Partial<ReviewLatchStep>) {
     approvedBy: [],
     detail: detail(),
     gateway,
-    projectId: 42,
-    projectPath: 'acme/web',
+    mr: {
+      projectId: 42,
+      projectPath: 'acme/web',
+      iid: 2317,
+      rtRepo: 'acme-web',
+    },
     mrUrl: MR,
-    iid: 2317,
     db: tempDb(),
     ...over,
   };
@@ -262,10 +266,10 @@ describe('applyReviewLatch', () => {
       outcome: 'approve',
       detail: detail(disc('mine', latchBody('running', IMG, 'r'), 'matt', 1)),
     });
-    const upload = s.gateway.uploadFile;
-    s.gateway.uploadFile = async (p, f, b, ct) => {
-      uploads.push(f);
-      return upload(p, f, b, ct);
+    const upload = s.gateway.uploadFiles;
+    s.gateway.uploadFiles = async (mr, files) => {
+      uploads.push(files[0]!.filename);
+      return upload(mr, files);
     };
     expect(await applyReviewLatch(s)).toBe('spent');
     expect(uploads).toEqual(['latch-2317-done-approved.gif']);

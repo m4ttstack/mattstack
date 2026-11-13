@@ -61,7 +61,7 @@ import { decideRequest, type ReReviewRequest } from './nudge.ts';
 export interface LatchMrFacts {
   mrUrl: string;
   iid: number;
-  projectId: number;
+  projectId: number | null;
   projectPath: string;
   /** Encoded daemon identity for rt queries on this MR's discussions.
       An unrecognized identity answers with an empty-but-ok result rather than
@@ -406,10 +406,7 @@ export async function runLatchPass(
         ) {
           const { discussionId, rootNoteId } = await postLatch(
             deps.gateway,
-            mr.projectId,
-            mr.projectPath,
-            mr.mrUrl,
-            mr.iid,
+            mr,
             deps.db
           );
           rows.put({
@@ -452,10 +449,7 @@ export async function runLatchPass(
         if (!canon.resolved) {
           await spendLatch(
             deps.gateway,
-            mr.projectId,
-            mr.projectPath,
-            mr.mrUrl,
-            mr.iid,
+            mr,
             canon,
             { state: 'approved' },
             now,
@@ -479,6 +473,7 @@ export async function runLatchPass(
         projectId: mr.projectId,
         projectPath: mr.projectPath,
         iid: mr.iid,
+        rtRepo: mr.rtRepo,
         mrUrl: mr.mrUrl,
         discussionId: canon.discussionId,
         rootNoteId: canon.rootNoteId,
@@ -1247,10 +1242,7 @@ async function supersede(
     if (c.discussionId === canon.discussionId) continue;
     await spendLatch(
       deps.gateway,
-      mr.projectId,
-      mr.projectPath,
-      mr.mrUrl,
-      mr.iid,
+      mr,
       c,
       { state: 'superseded' },
       deps.now(),

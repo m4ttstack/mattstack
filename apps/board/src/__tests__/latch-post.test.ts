@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { LatchRef } from '../latch/discussions.ts';
+import { latchGateway, type GitlabLatchClients } from '../latch/gateway.ts';
 import {
   cachedUpload,
   putLatchRow,
@@ -16,6 +17,7 @@ import {
   spendAllLatches,
   spendLatch,
   type LatchGateway,
+  type LatchMr,
   type LatchTarget,
 } from '../latch/post.ts';
 import { removeTempDbs, tempDb } from './latch-temp-db.ts';
@@ -31,32 +33,30 @@ function gateway() {
   const bodies: string[] = [];
   const uploads: Array<{ filename: string; contentType?: string }> = [];
   const gw: LatchGateway = {
-    async uploadFile(_p, filename, _bytes, contentType) {
-      calls.push(`upload:${filename}`);
-      uploads.push({ filename, contentType });
-      return {
-        alt: filename,
-        url: `/uploads/ab12/${filename}`,
-        full_path: 'x',
-        markdown: `![${filename}](/uploads/ab12/${filename})`,
-      };
+    forge: 'gitlab',
+    async uploadFiles(_mr, files) {
+      return files.map(({ filename, contentType }) => {
+        calls.push(`upload:${filename}`);
+        uploads.push({ filename, contentType });
+        return `![${filename}](/uploads/ab12/${filename})`;
+      });
     },
-    async createDiscussion(_p, _iid, body) {
+    async createThread(_mr, body) {
       calls.push('createDiscussion');
       bodies.push(body);
-      return { id: 'd1', notes: [{ id: 1 } as never] };
+      return { discussionId: 'd1', rootNoteId: 1 };
     },
-    async updateNote(_p, _iid, noteId, body) {
+    async updateNote(_mr, noteId, body) {
       calls.push(`updateNote:${noteId}`);
       bodies.push(body);
     },
-    async resolveDiscussion(_path, _iid, id) {
+    async resolveDiscussion(_mr, id) {
       calls.push(`resolve:${id}`);
     },
-    async unresolveDiscussion(_path, _iid, id) {
+    async unresolveDiscussion(_mr, id) {
       calls.push(`unresolve:${id}`);
     },
-    async createNote(_p, _iid, body) {
+    async createNote(_mr, body) {
       calls.push('createNote');
       bodies.push(body);
       return { id: 9 } as never;
@@ -82,11 +82,16 @@ function row(overrides: Partial<LatchRow> = {}): LatchRow {
   };
 }
 
-const target: LatchTarget = {
+const mr: LatchMr & { mrUrl: string } = {
   projectId: 42,
   projectPath: 'acme/web',
   iid: 2317,
+  rtRepo: 'acme-web',
   mrUrl: MR,
+};
+
+const target: LatchTarget = {
+  ...mr,
   discussionId: 'd1',
   rootNoteId: 1,
 };
@@ -95,7 +100,7 @@ describe('bannerMarkdown', () => {
   test('uploads a gif named for the variant and titles it', async () => {
     const db = tempDb();
     const { gw, uploads } = gateway();
-    const md = await bannerMarkdown(gw, 42, MR, 2317, { state: 'armed' }, db);
+    const md = await bannerMarkdown(gw, mr, { state: 'armed' }, db);
     expect(uploads).toEqual([
       { filename: 'latch-2317-armed.gif', contentType: 'image/gif' },
     ]);
@@ -108,8 +113,8 @@ describe('bannerMarkdown', () => {
     const db = tempDb();
     const { gw, calls } = gateway();
     const v = { state: 'queued' as const, wait: 'cooldown' as const };
-    const first = await bannerMarkdown(gw, 42, MR, 2317, v, db);
-    const second = await bannerMarkdown(gw, 42, MR, 2317, v, db);
+    const first = await bannerMarkdown(gw, mr, v, db);
+    const second = await bannerMarkdown(gw, mr, v, db);
     expect(second).toBe(first);
     expect(calls).toEqual(['upload:latch-2317-queued-cooldown.gif']);
   });
@@ -123,7 +128,7 @@ describe('bannerMarkdown', () => {
       '![Follow-up review running](/uploads/old1/latch-2317-running.gif){width=520}',
       db
     );
-    const md = await bannerMarkdown(gw, 42, MR, 2317, { state: 'running' }, db);
+    const md = await bannerMarkdown(gw, mr, { state: 'running' }, db);
     const want =
       '![Follow-up review running. Results post here when done](/uploads/ab12/latch-2317-running.gif)';
     expect(md).toBe(want);
@@ -142,9 +147,7 @@ describe('bannerMarkdown', () => {
     );
     const md = await bannerMarkdown(
       gw,
-      42,
-      MR,
-      2317,
+      mr,
       { state: 'queued', wait: 'next-sweep' },
       db
     );
@@ -157,8 +160,8 @@ describe('bannerMarkdown', () => {
   test('a different variant uploads its own banner', async () => {
     const db = tempDb();
     const { gw, calls } = gateway();
-    await bannerMarkdown(gw, 42, MR, 2317, { state: 'running' }, db);
-    await bannerMarkdown(gw, 42, MR, 2317, { state: 'armed' }, db);
+    await bannerMarkdown(gw, mr, { state: 'running' }, db);
+    await bannerMarkdown(gw, mr, { state: 'armed' }, db);
     expect(calls).toEqual([
       'upload:latch-2317-running.gif',
       'upload:latch-2317-armed.gif',
@@ -170,7 +173,7 @@ describe('postLatch', () => {
   test('uploads the banner then creates a resolvable discussion', async () => {
     const db = tempDb();
     const { gw, calls, bodies } = gateway();
-    const posted = await postLatch(gw, 42, 'acme/web', MR, 2317, db);
+    const posted = await postLatch(gw, mr, db);
     expect(posted).toEqual({ discussionId: 'd1', rootNoteId: 1 });
     expect(calls).toEqual(['upload:latch-2317-armed.gif', 'createDiscussion']);
     expect(latchKindOf(bodies[0]!)).toBe('armed');
@@ -268,17 +271,7 @@ describe('spendLatch', () => {
   test('rewrites the body before resolving', async () => {
     const db = tempDb();
     const { gw, calls, bodies } = gateway();
-    await spendLatch(
-      gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
-      armed,
-      { state: 'approved' },
-      NOW,
-      db
-    );
+    await spendLatch(gw, mr, armed, { state: 'approved' }, NOW, db);
     expect(calls).toEqual([
       'upload:latch-2317-approved.gif',
       'updateNote:1',
@@ -294,10 +287,7 @@ describe('spendLatch', () => {
     const { gw, calls } = gateway();
     await spendLatch(
       gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
+      mr,
       { ...armed, kind: 'spent', resolved: true },
       { state: 'approved' },
       NOW,
@@ -312,10 +302,7 @@ describe('spendLatch', () => {
     const { gw, calls } = gateway();
     await spendLatch(
       gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
+      mr,
       { ...armed, kind: 'spent', resolved: false },
       { state: 'approved' },
       NOW,
@@ -327,17 +314,7 @@ describe('spendLatch', () => {
   test('a superseded variant writes the superseded wording instead', async () => {
     const db = tempDb();
     const { gw, bodies } = gateway();
-    await spendLatch(
-      gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
-      armed,
-      { state: 'superseded' },
-      NOW,
-      db
-    );
+    await spendLatch(gw, mr, armed, { state: 'superseded' }, NOW, db);
     expect(bodies[0]).toContain('![Replaced. Use the newer thread](');
     expect(bodies[0]).not.toContain('Approved');
   });
@@ -346,17 +323,7 @@ describe('spendLatch', () => {
     const db = tempDb();
     putLatchRow(row({ phase: 'running', variant: 'running' }), db);
     const { gw } = gateway();
-    await spendLatch(
-      gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
-      armed,
-      { state: 'approved' },
-      NOW,
-      db
-    );
+    await spendLatch(gw, mr, armed, { state: 'approved' }, NOW, db);
     const r = readLatchRow(MR, db);
     expect(r?.phase).toBe('spent');
     expect(r?.variant).toBe('approved');
@@ -367,17 +334,7 @@ describe('spendLatch', () => {
     const db = tempDb();
     putLatchRow(row({ discussionId: 'canon', rootNoteId: 7 }), db);
     const { gw } = gateway();
-    await spendLatch(
-      gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
-      armed,
-      { state: 'superseded' },
-      NOW,
-      db
-    );
+    await spendLatch(gw, mr, armed, { state: 'superseded' }, NOW, db);
     const r = readLatchRow(MR, db);
     expect(r?.phase).toBe('armed');
     expect(r?.variant).toBe('armed');
@@ -388,17 +345,7 @@ describe('spendLatch', () => {
     const db = tempDb();
     putLatchRow(row({ phase: 'spent', variant: 'running' }), db);
     const { gw, calls } = gateway();
-    await spendLatch(
-      gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
-      armed,
-      { state: 'done-approved' },
-      NOW,
-      db
-    );
+    await spendLatch(gw, mr, armed, { state: 'done-approved' }, NOW, db);
     expect(calls).toEqual([
       'upload:latch-2317-done-approved.gif',
       'updateNote:1',
@@ -424,10 +371,7 @@ describe('spendAllLatches', () => {
     const other: LatchRef = { ...armed, discussionId: 'd2', rootNoteId: 2 };
     await spendAllLatches(
       gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
+      mr,
       [armed, other, armed],
       { state: 'approved' },
       NOW,
@@ -448,10 +392,7 @@ describe('spendAllLatches', () => {
     const other: LatchRef = { ...armed, discussionId: 'd2', rootNoteId: 2 };
     await spendAllLatches(
       gw,
-      42,
-      'acme/web',
-      MR,
-      2317,
+      mr,
       [armed, other],
       { state: 'superseded' },
       NOW,
@@ -460,5 +401,113 @@ describe('spendAllLatches', () => {
     expect(
       bodies.every(b => b.includes('![Replaced. Use the newer thread]('))
     ).toBe(true);
+  });
+});
+
+describe("gitlab gateway sends today's calls", () => {
+  function gitlab() {
+    const calls: unknown[][] = [];
+    const clients: GitlabLatchClients = {
+      mutator: {
+        async uploadFile(...args) {
+          calls.push(['uploadFile', ...args]);
+          return {
+            markdown: '![a](/u/a.gif)',
+            url: '',
+            alt: '',
+            full_path: '',
+          };
+        },
+        async createDiscussion(...args) {
+          calls.push(['createDiscussion', ...args]);
+          return { id: 'disc', notes: [{ id: 77 }] } as never;
+        },
+        async updateNote(...args) {
+          calls.push(['updateNote', ...args]);
+        },
+        async createNote(...args) {
+          calls.push(['createNote', ...args]);
+          return { id: 9 } as never;
+        },
+      },
+      provider: {
+        async resolveDiscussion(...args) {
+          calls.push(['resolveDiscussion', ...args]);
+        },
+        async unresolveDiscussion(...args) {
+          calls.push(['unresolveDiscussion', ...args]);
+        },
+      },
+    };
+    return { gw: latchGateway('https://gitlab.com', 'tok', clients), calls };
+  }
+
+  test('names itself gitlab', () => {
+    expect(gitlab().gw.forge).toBe('gitlab');
+  });
+
+  test('uploadFiles makes one uploadFile per file', async () => {
+    const { gw, calls } = gitlab();
+    const bytes = new Uint8Array([1, 2]);
+    const md = await gw.uploadFiles(mr, [
+      { filename: 'a.gif', bytes, contentType: 'image/gif', alt: 'a' },
+    ]);
+    expect(md).toEqual(['![a](/u/a.gif)']);
+    expect(calls).toEqual([['uploadFile', 42, 'a.gif', bytes, 'image/gif']]);
+  });
+
+  test('createThread makes createDiscussion and returns the root note', async () => {
+    const { gw, calls } = gitlab();
+    expect(await gw.createThread(mr, 'hi')).toEqual({
+      discussionId: 'disc',
+      rootNoteId: 77,
+    });
+    expect(calls).toEqual([['createDiscussion', 42, 2317, 'hi']]);
+  });
+
+  test('createThread throws when the discussion has no root note', async () => {
+    const empty = latchGateway('https://gitlab.com', 'tok', {
+      mutator: {
+        uploadFile: async () => ({}) as never,
+        createDiscussion: async () => ({ id: 'x', notes: [] }) as never,
+        updateNote: async () => {},
+        createNote: async () => ({ id: 1 }) as never,
+      },
+      provider: {
+        resolveDiscussion: async () => {},
+        unresolveDiscussion: async () => {},
+      },
+    });
+    await expect(empty.createThread(mr, 'hi')).rejects.toThrow(
+      'latch post on !2317 returned no root note'
+    );
+  });
+
+  test('updateNote and createNote address the project id', async () => {
+    const { gw, calls } = gitlab();
+    await gw.updateNote(mr, 5, 'body');
+    await gw.createNote(mr, 'reply', 'disc');
+    expect(calls).toEqual([
+      ['updateNote', 42, 2317, 5, 'body'],
+      ['createNote', 42, 2317, 'reply', 'disc'],
+    ]);
+  });
+
+  test('resolve and unresolve address the project path', async () => {
+    const { gw, calls } = gitlab();
+    await gw.resolveDiscussion(mr, 'disc');
+    await gw.unresolveDiscussion(mr, 'disc');
+    expect(calls).toEqual([
+      ['resolveDiscussion', 'acme/web', 2317, 'disc'],
+      ['unresolveDiscussion', 'acme/web', 2317, 'disc'],
+    ]);
+  });
+
+  test('a write that needs a project id throws without one', async () => {
+    const { gw, calls } = gitlab();
+    const noId = { ...mr, projectId: null };
+    await expect(gw.createThread(noId, 'hi')).rejects.toThrow('no project id');
+    await gw.resolveDiscussion(noId, 'disc');
+    expect(calls).toEqual([['resolveDiscussion', 'acme/web', 2317, 'disc']]);
   });
 });

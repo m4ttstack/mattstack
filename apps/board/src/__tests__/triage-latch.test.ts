@@ -123,26 +123,27 @@ function harness(
   const launches: string[] = [];
   const noteBodies = new Map<number, string>();
   const gateway: LatchGateway = {
-    async uploadFile(_p, filename) {
+    forge: 'gitlab',
+    async uploadFiles(_mr, files) {
       calls.push('upload');
-      uploads.push(filename);
-      return { alt: '', url: '', full_path: '', markdown: IMG };
+      uploads.push(files[0]!.filename);
+      return [IMG];
     },
-    async createDiscussion() {
+    async createThread() {
       calls.push('createDiscussion');
-      return { id: 'new', notes: [{ id: 1 }] };
+      return { discussionId: 'new', rootNoteId: 1 };
     },
-    async updateNote(_p, _i, id, body) {
+    async updateNote(_mr, id, body) {
       calls.push(`updateNote:${id}`);
       noteBodies.set(id, body);
     },
-    async resolveDiscussion(_p, _i, id) {
+    async resolveDiscussion(_mr, id) {
       calls.push(`resolve:${id}`);
     },
-    async unresolveDiscussion(_p, _i, id) {
+    async unresolveDiscussion(_mr, id) {
       calls.push(`unresolve:${id}`);
     },
-    async createNote(_p, _i, body, d) {
+    async createNote(_mr, body, d) {
       calls.push(`reply:${d}`);
       replies.push(body);
       return { id: 9 };
@@ -515,11 +516,12 @@ describe('step 3: armed and resolved', () => {
         disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
       ),
       gateway: {
-        async uploadFile() {
-          return { alt: '', url: '', full_path: '', markdown: IMG };
+        forge: 'gitlab',
+        async uploadFiles() {
+          return [IMG];
         },
-        async createDiscussion() {
-          return { id: 'new', notes: [{ id: 1 }] };
+        async createThread() {
+          return { discussionId: 'new', rootNoteId: 1 };
         },
         async updateNote() {
           throw new Error('gitlab 500');
@@ -1785,9 +1787,9 @@ describe('error, retry and stuck', () => {
       readReviewStates: () => new Map([[MR, failed]]),
       detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
     });
-    const upload = h.deps.gateway.uploadFile;
+    const upload = h.deps.gateway.uploadFiles;
     let broken = true;
-    h.deps.gateway.uploadFile = async (...args) => {
+    h.deps.gateway.uploadFiles = async (...args) => {
       if (broken) {
         broken = false;
         throw new Error('gitlab 500');
@@ -2044,9 +2046,9 @@ describe('error, retry and stuck', () => {
       ),
     });
     const update = h.deps.gateway.updateNote;
-    h.deps.gateway.updateNote = async (p, i, id, body) => {
+    h.deps.gateway.updateNote = async (mr, id, body) => {
       if (body.startsWith(SPENT)) throw new Error('gitlab 500');
-      return update(p, i, id, body);
+      return update(mr, id, body);
     };
     expect((await runLatchPass(h.deps)).failed).toBe(1);
     expect(h.replies).toEqual([STUCK_REPLY]);

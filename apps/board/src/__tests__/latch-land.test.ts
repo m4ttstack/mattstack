@@ -54,26 +54,27 @@ function harness(
   const noteBodies = new Map<number, string>();
   let counted = 0;
   const gateway: LatchGateway = {
-    async uploadFile(_p, filename) {
+    forge: 'gitlab',
+    async uploadFiles(_mr, files) {
       calls.push('upload');
-      uploads.push(filename);
-      return { alt: '', url: '', full_path: '', markdown: IMG };
+      uploads.push(files[0]!.filename);
+      return [IMG];
     },
-    async createDiscussion() {
+    async createThread() {
       calls.push('createDiscussion');
-      return { id: 'new', notes: [{ id: 1 }] };
+      return { discussionId: 'new', rootNoteId: 1 };
     },
-    async updateNote(_p, _i, id, body) {
+    async updateNote(_mr, id, body) {
       calls.push(`updateNote:${id}`);
       noteBodies.set(id, body);
     },
-    async resolveDiscussion(_p, _i, id) {
+    async resolveDiscussion(_mr, id) {
       calls.push(`resolve:${id}`);
     },
-    async unresolveDiscussion(_p, _i, id) {
+    async unresolveDiscussion(_mr, id) {
       calls.push(`unresolve:${id}`);
     },
-    async createNote(_p, _i, body, d) {
+    async createNote(_mr, body, d) {
       calls.push(`reply:${d}`);
       replies.push(body);
       return { id: 9 };
@@ -84,6 +85,7 @@ function harness(
       projectId: 42,
       projectPath: 'acme/web',
       iid: 2317,
+      rtRepo: 'acme-web',
       mrUrl: MR,
       discussionId: 'd1',
       rootNoteId: 1,

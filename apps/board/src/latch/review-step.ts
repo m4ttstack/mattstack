@@ -11,7 +11,7 @@ import { getStateDb } from '../state/index.ts';
 import { findLatches, hasLiveLatch } from './discussions.ts';
 import { landFollowUp, spendForApproval } from './land.ts';
 import { putLatchRow, readLatchRow } from './latch-state.ts';
-import { postLatch, type LatchGateway } from './post.ts';
+import { postLatch, type LatchGateway, type LatchMr } from './post.ts';
 
 export interface ReviewLatchStep {
   /** null: the review ended done with no verdict (an abandoned post gate). */
@@ -30,10 +30,8 @@ export interface ReviewLatchStep {
   approvedBy: string[];
   detail: MRDetail;
   gateway: LatchGateway;
-  projectId: number;
-  projectPath: string;
+  mr: LatchMr;
   mrUrl: string;
-  iid: number;
   now?: number;
   /** The board's state db; the default is the live one. */
   db?: Database;
@@ -45,12 +43,7 @@ export async function applyReviewLatch(
   const db = s.db ?? getStateDb();
   const now = s.now ?? Date.now();
   const latches = findLatches(s.detail, s.self);
-  const mr = {
-    projectId: s.projectId,
-    projectPath: s.projectPath,
-    mrUrl: s.mrUrl,
-    iid: s.iid,
-  };
+  const mr = { ...s.mr, mrUrl: s.mrUrl };
   const row = readLatchRow(s.mrUrl, db);
   if (
     row &&
@@ -105,14 +98,7 @@ export async function applyReviewLatch(
   if (hasLiveLatch(latches)) return 'none';
   const live = readLatchRow(s.mrUrl, db);
   if (live && live.phase !== 'spent') return 'none';
-  const { discussionId, rootNoteId } = await postLatch(
-    s.gateway,
-    s.projectId,
-    s.projectPath,
-    s.mrUrl,
-    s.iid,
-    db
-  );
+  const { discussionId, rootNoteId } = await postLatch(s.gateway, mr, db);
   putLatchRow(
     {
       mrUrl: s.mrUrl,

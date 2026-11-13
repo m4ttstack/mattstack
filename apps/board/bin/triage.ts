@@ -414,16 +414,19 @@ try {
           notifyEscalation(title, message, 'rt', {
             url: await boardLinkFor(mrUrl),
           }),
-        countNew: (mr, launchAt) =>
-          fetchNewDiscussionCount(
+        countNew: (mr, launchAt) => {
+          const { projectId } = mr;
+          if (projectId === null) return Promise.resolve(null);
+          return fetchNewDiscussionCount(
             () =>
               new MRDetailFetcher(
                 gitlabOnly(boardConfig),
                 latchToken
-              ).fetchDetail(mr.projectId, mr.iid),
+              ).fetchDetail(projectId, mr.iid),
             username,
             launchAt
-          ),
+          );
+        },
         readLatchRow: mrUrl => readLatchRow(mrUrl),
         casLatch: (mrUrl, from, patch, at, opts) =>
           casLatch(mrUrl, from, patch, at, undefined, opts),

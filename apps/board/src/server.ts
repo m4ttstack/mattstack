@@ -5891,10 +5891,13 @@ async function handleAgentSignal(
             approvedBy: mr.reviews.approvedBy.map(r => r.username),
             detail,
             gateway: latchGateway(gitlabOnly(config), gitlabToken),
-            projectId,
-            projectPath: projectPathFromWebUrl(signal.mrUrl, config) ?? '',
+            mr: {
+              projectId,
+              projectPath: projectPathFromWebUrl(signal.mrUrl, config) ?? '',
+              iid: mr.iid,
+              rtRepo: repoIdentityField(mr.rtRepo) ?? '',
+            },
             mrUrl: signal.mrUrl,
-            iid: mr.iid,
           });
         }
       }
@@ -5934,12 +5937,19 @@ async function handleAgentSignal(
           signal.status,
           pending,
           async id => {
+            const projectPath =
+              projectPathFromWebUrl(signal.mrUrl, config) ?? '';
+            const rtRepo = config.rtRepos[projectPath];
             await latchGateway(
               gitlabOnly(config),
               gitlabToken
             ).resolveDiscussion(
-              projectPathFromWebUrl(signal.mrUrl, config) ?? '',
-              signal.iid,
+              {
+                projectId: null,
+                projectPath,
+                iid: signal.iid,
+                rtRepo: (rtRepo && repoIdentityField(rtRepo)) || '',
+              },
               id
             );
             resolvedAny = true;

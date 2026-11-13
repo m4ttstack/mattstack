@@ -22,6 +22,7 @@ import {
   spendAllLatches,
   spendLatch,
   type LatchGateway,
+  type LatchMr,
   type LatchTarget,
 } from './post.ts';
 import { variantKey, type BannerVariant } from './variants.ts';
@@ -131,17 +132,7 @@ export async function landFollowUp(
       createdAt: '',
       body: '',
     };
-    await spendLatch(
-      i.gateway,
-      target.projectId,
-      target.projectPath,
-      target.mrUrl,
-      target.iid,
-      latch,
-      variant,
-      now,
-      db
-    );
+    await spendLatch(i.gateway, target, latch, variant, now, db);
   } else {
     await rewriteLatch(
       i.gateway,
@@ -166,10 +157,7 @@ export async function landFollowUp(
   if (i.outcome === 'approve') {
     await spendAllLatches(
       i.gateway,
-      target.projectId,
-      target.projectPath,
-      target.mrUrl,
-      target.iid,
+      target,
       (i.latches ?? []).filter(l => l.discussionId !== target.discussionId),
       { state: 'approved' },
       now,
@@ -217,7 +205,7 @@ export async function fetchNewDiscussionCount(
     cannot turn the follow-up's verdict back into a plain approval. */
 export async function spendForApproval(
   gw: LatchGateway,
-  mr: Pick<LatchTarget, 'projectId' | 'projectPath' | 'mrUrl' | 'iid'>,
+  mr: LatchMr & { mrUrl: string },
   latches: LatchRef[],
   row: LatchRow | null,
   now: number,
@@ -229,24 +217,11 @@ export async function spendForApproval(
       : null;
   const own = latches.find(l => l.discussionId === landed);
   if (own) {
-    await spendLatch(
-      gw,
-      mr.projectId,
-      mr.projectPath,
-      mr.mrUrl,
-      mr.iid,
-      own,
-      DONE_APPROVED,
-      now,
-      db
-    );
+    await spendLatch(gw, mr, own, DONE_APPROVED, now, db);
   }
   await spendAllLatches(
     gw,
-    mr.projectId,
-    mr.projectPath,
-    mr.mrUrl,
-    mr.iid,
+    mr,
     latches.filter(l => l.discussionId !== landed),
     { state: 'approved' },
     now,
