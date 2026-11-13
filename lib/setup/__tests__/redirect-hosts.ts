@@ -3,8 +3,9 @@ import { fakeProbes } from "./fakes.ts";
 
 /**
  * Two listening local servers on different ports, so different origins. The
- * host answers every path with a redirect, to the other server or, with
- * `sameOrigin`, to `/moved<path>` on itself, where `reply` answers. The other
+ * host answers each request `redirectWhen` picks (every one by default) with
+ * a redirect, to the other server or, with `sameOrigin`, to `/moved<path>`
+ * on itself, and the rest with `reply`. The other
  * server records whether each request it got carried a PRIVATE-TOKEN, and
  * answers with `reply` too, so a caller that follows it would succeed.
  */
@@ -16,9 +17,10 @@ export interface RedirectHosts {
   stop(): void;
 }
 
-export function startRedirectHosts(opts: { status?: number; sameOrigin?: boolean; reply: (req: Request, path: string) => Response }): RedirectHosts {
+export function startRedirectHosts(opts: { status?: number; sameOrigin?: boolean; redirectWhen?: (req: Request, path: string) => boolean; reply: (req: Request, path: string) => Response }): RedirectHosts {
   const otherHits: string[] = [];
   const other = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     fetch(req) {
       otherHits.push(req.headers.get("private-token") === null ? "no token" : "token");
@@ -26,10 +28,12 @@ export function startRedirectHosts(opts: { status?: number; sameOrigin?: boolean
     },
   });
   const host = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     fetch(req) {
       const url = new URL(req.url);
       if (url.pathname.startsWith("/moved/")) return opts.reply(req, url.pathname.slice("/moved".length));
+      if (opts.redirectWhen && !opts.redirectWhen(req, url.pathname)) return opts.reply(req, url.pathname);
       const location = opts.sameOrigin ? `/moved${url.pathname}${url.search}` : `http://127.0.0.1:${other.port}${url.pathname}${url.search}`;
       return new Response(null, { status: opts.status ?? 302, headers: { location } });
     },

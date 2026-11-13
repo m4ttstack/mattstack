@@ -39,7 +39,13 @@ function answerLog(i: ForgeRepoRequest, step: string, res: Reply): string {
 
 function failed(i: ForgeRepoRequest, step: string, res: Reply): UserActionableError {
   const forge = TITLES[i.provider];
-  if (res.status === 0 && res.error) return new UserActionableError("create-repo-failed", `${forge} redirected rt to another site, so rt stopped before sending the token there`, {}, { why: res.error });
+  if (res.refusedRedirect) {
+    const { from, to } = res.refusedRedirect;
+    return new UserActionableError("create-repo-failed", `${forge} sent rt to another site, so rt stopped before sending the token there`, {}, {
+      why: `${from} redirected to ${to}.`,
+      log: `${step} for ${i.namespace}/${i.name}: ${from} redirected to ${to}`,
+    });
+  }
   if (res.status === 0) return new UserActionableError("create-repo-failed", `rt could not reach ${forge} to create the team repo`, {}, { log: `${step} for ${i.namespace}/${i.name} got no answer` });
   return new UserActionableError("create-repo-failed", `${forge} did not create the team repo`, {}, { log: answerLog(i, step, res) });
 }

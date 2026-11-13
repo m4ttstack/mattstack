@@ -134,6 +134,17 @@ describe("createForgeRepo on a GitLab host that redirects", () => {
     });
   }
 
+  test("a 307 on the project create alone sends the other origin nothing", async () => {
+    const hosts = startRedirectHosts({ status: 307, redirectWhen: (req) => req.method === "POST", reply });
+    try {
+      const err = await failure(createForgeRepo(realFetchProbes(), { ...GITLAB, host: hosts.host, token: TOKEN }));
+      expect(hosts.otherHits).toEqual([]);
+      expect(`${err.message} ${err.why ?? ""} ${err.log ?? ""}`).toContain(hosts.otherHost);
+    } finally {
+      hosts.stop();
+    }
+  });
+
   test("a redirect on the same origin is still followed", async () => {
     const hosts = startRedirectHosts({ status: 307, sameOrigin: true, reply });
     try {

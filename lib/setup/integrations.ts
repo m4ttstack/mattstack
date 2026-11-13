@@ -110,6 +110,11 @@ function unreachableDetail(host: string): string {
   return `Could not reach ${host}. Check your network or proxy`;
 }
 
+function noAnswerDetail(host: string, res: { refusedRedirect?: { from: string; to: string } }): string {
+  if (res.refusedRedirect) return `${res.refusedRedirect.from} redirected rt to ${res.refusedRedirect.to}, another site, so rt did not send the token there`;
+  return unreachableDetail(host);
+}
+
 function isCredentialRejection(status: number): boolean {
   return status === 401 || status === 403;
 }
@@ -188,7 +193,7 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
       const headers = { "PRIVATE-TOKEN": token };
 
       const userRes = await p.fetch(`https://${host}/api/v4/user`, { headers, redirect: "same-origin" });
-      if (userRes.status === 0) return { status: "error", detail: userRes.error ?? unreachableDetail(host), scopesSeen: [] };
+      if (userRes.status === 0) return { status: "error", detail: noAnswerDetail(host, userRes), scopesSeen: [] };
       if (isCredentialRejection(userRes.status)) return { status: "invalid", detail: `GitLab answered HTTP ${userRes.status} to the account check`, scopesSeen: [] };
       if (userRes.status !== 200) return { status: "error", detail: `GitLab answered HTTP ${userRes.status} to the account check`, scopesSeen: [] };
 
@@ -206,7 +211,7 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
       const path = ctx.team.remote ? parseProjectPath(ctx.team.remote, host) : null;
       if (path) {
         const projRes = await p.fetch(`https://${host}/api/v4/projects/${encodeURIComponent(path)}`, { headers, redirect: "same-origin" });
-        if (projRes.status === 0) return { status: "error", detail: projRes.error ?? unreachableDetail(host), scopesSeen };
+        if (projRes.status === 0) return { status: "error", detail: noAnswerDetail(host, projRes), scopesSeen };
         if (projRes.status === 404 || projRes.status === 403) return { status: "invalid", detail: `This token cannot see ${path}`, scopesSeen };
         if (projRes.status !== 200) return { status: "error", detail: `GitLab answered HTTP ${projRes.status} to the project lookup`, scopesSeen };
       }

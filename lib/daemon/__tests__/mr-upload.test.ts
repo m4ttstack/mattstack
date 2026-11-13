@@ -556,8 +556,9 @@ describe("mr:upload", () => {
 
     beforeEach(() => {
       otherHits = [];
-      other = Bun.serve({ port: 0, fetch(req) { otherHits.push(req.headers.get("private-token") === null ? "no token" : "token"); return Response.json(REPLY, { status: 201 }); } });
+      other = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) { otherHits.push(req.headers.get("private-token") === null ? "no token" : "token"); return Response.json(REPLY, { status: 201 }); } });
       host = Bun.serve({
+        hostname: "127.0.0.1",
         port: 0,
         fetch(req) {
           const url = new URL(req.url);

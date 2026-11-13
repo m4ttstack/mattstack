@@ -387,6 +387,29 @@ describe("gitlab on a host that redirects", () => {
     });
   }
 
+  test("validate: a redirect on the token self-read alone sends the other origin nothing", async () => {
+    const hosts = startRedirectHosts({ redirectWhen: (_req, path) => path.endsWith("/personal_access_tokens/self"), reply });
+    try {
+      expect((await INTEGRATIONS.gitlab.validate(realFetchProbes(), TOKEN, ctx(hosts.host))).scopesSeen).toEqual([]);
+      expect(hosts.otherHits).toEqual([]);
+    } finally {
+      hosts.stop();
+    }
+  });
+
+  test("validate: a redirect on the project lookup alone sends the other origin nothing and is an error naming both hosts", async () => {
+    const hosts = startRedirectHosts({ redirectWhen: (_req, path) => path.startsWith("/api/v4/projects/"), reply });
+    try {
+      const result = await INTEGRATIONS.gitlab.validate(realFetchProbes(), TOKEN, ctx(hosts.host));
+      expect(hosts.otherHits).toEqual([]);
+      expect(result.status).toBe("error");
+      expect(result.detail).toContain(hosts.host);
+      expect(result.detail).toContain(hosts.otherHost);
+    } finally {
+      hosts.stop();
+    }
+  });
+
   test("expiry: a redirect to another origin sends it nothing and reads no expiry", async () => {
     const hosts = startRedirectHosts({ reply });
     try {

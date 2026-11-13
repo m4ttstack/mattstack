@@ -69,11 +69,12 @@ export interface Probes {
   sleepSync(ms: number): void;
   /**
    * Never throws: network failure yields status 0, body "", headers {}. Header names are lowercased.
-   * `redirect: "same-origin"` follows a redirect only within the request's origin, for a request that
-   * carries a GitLab token: fetch keeps `PRIVATE-TOKEN` across origins. A redirect to another origin
-   * yields status 0 with `error` naming both origins.
+   * `redirect: "same-origin"` is for a request that carries a GitLab token, since fetch keeps
+   * `PRIVATE-TOKEN` across origins: it follows a redirect only within the request's origin or an
+   * http to https upgrade on the same host, and any other redirect yields status 0 with
+   * `refusedRedirect` naming both hosts.
    */
-  fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number; redirect?: "same-origin" }): Promise<{ status: number; body: string; headers: Record<string, string>; error?: string }>;
+  fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number; redirect?: "same-origin" }): Promise<{ status: number; body: string; headers: Record<string, string>; refusedRedirect?: { from: string; to: string } }>;
   tray: TrayClient;
   daemon(cmd: string, payload?: Record<string, unknown>, timeoutMs?: number): Promise<DaemonResponse | null>;
   env: Record<string, string | undefined>;
@@ -405,7 +406,7 @@ export function createRealProbes(): Probes {
         });
         return { status: response.status, body, headers };
       } catch (err) {
-        if (err instanceof CrossOriginRedirectError) return { status: 0, body: "", headers: {}, error: err.message };
+        if (err instanceof CrossOriginRedirectError) return { status: 0, body: "", headers: {}, refusedRedirect: { from: err.fromHost, to: err.toHost } };
         return { status: 0, body: "", headers: {} };
       }
     },
