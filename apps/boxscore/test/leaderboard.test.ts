@@ -188,6 +188,30 @@ describe('getLeaderboard: the refresh window', () => {
   });
 });
 
+describe('getLeaderboard: forge on the response', () => {
+  it('a gitlab response says forge gitlab', async () => {
+    fakeProvider();
+    const res = await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+    });
+    expect(res.forge).toBe('gitlab');
+  });
+
+  it('a gitlab cold-cache error carries no github forge', async () => {
+    fakeProvider();
+    const err = await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+      cacheOnly: true,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ColdCacheError);
+    expect((err as InstanceType<typeof ColdCacheError>).forge).toBeUndefined();
+  });
+});
+
 describe('getLeaderboard: cacheOnly against the scan floor', () => {
   it('after a non-trend refresh, a 90d request with trend is cold: its prior window precedes the floor', async () => {
     fakeProvider();
@@ -718,5 +742,75 @@ describe('getLeaderboard: on github', () => {
     expect(seen[0]!.url).toBe('https://api.github.com/user');
     expect(seen[0]!.headers.Authorization).toBe('Bearer gh-tkn');
     expect(seen[0]!.headers['PRIVATE-TOKEN']).toBeUndefined();
+  });
+
+  it('a github response says forge github', async () => {
+    onGitHub();
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    fakeProvider();
+    const res = await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+    });
+    expect(res.forge).toBe('github');
+    expect(res.baseUrl).toBe('https://github.com');
+  });
+
+  it('a cold github team answers a ColdCacheError carrying forge github', async () => {
+    onGitHub();
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    fakeProvider();
+    const err = await getLeaderboard({
+      window: resolvePreset('30d', new Date()),
+      refresh: false,
+      trend: false,
+      cacheOnly: true,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ColdCacheError);
+    expect((err as InstanceType<typeof ColdCacheError>).forge).toBe('github');
+  });
+
+  it('a github detail carries forge and links its merged rows to pull requests', async () => {
+    onGitHub();
+    __setGitHubTokenDeps({ env: { GITHUB_TOKEN: 'gh-tkn' } });
+    __setCurrentUser({ username: 'alice', name: null });
+    fakeProvider();
+    const now = new Date();
+    const window = resolvePreset('30d', now);
+    // The first read adopts github.com as the store's host and clears the store.
+    await getLeaderboard({ window, refresh: false, trend: false });
+    const day = new Date(now.getTime() - 86_400_000).toISOString();
+    getStore().upsertIndexRows([
+      {
+        projectPath: PROJECT,
+        iid: 7,
+        title: 'Add feature',
+        state: 'merged',
+        createdAt: day,
+        updatedAt: day,
+        mergedAt: day,
+        authorUsername: 'alice',
+        sourceBranch: 'feat/x',
+        labels: [],
+        scannedAt: day,
+      },
+    ]);
+
+    try {
+      const res = await getUserDetail({
+        window,
+        refresh: false,
+        trend: false,
+        user: 'alice',
+      });
+      expect(res.forge).toBe('github');
+      const rows = res.evidence.mrsMerged!.rows;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.href).toBe(`https://github.com/${PROJECT}/pull/7`);
+      expect(rows[0]!.cells[0]).toBe('#7');
+    } finally {
+      __resetCurrentUser();
+    }
   });
 });

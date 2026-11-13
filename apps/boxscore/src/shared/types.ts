@@ -2,6 +2,7 @@
  * The wire contract between the backend and the frontend.
  * No `any` anywhere here (spec section 10): both sides import these types.
  */
+import type { Forge } from './forge.js';
 
 export type RangePreset = '7d' | '30d' | '90d';
 export type RangeKey = RangePreset | 'custom' | 'base90' | 'base180';
@@ -155,6 +156,8 @@ export interface UserDetailResponse {
   priorWindow: TimeWindow | null;
   hasTrend: boolean;
   baseUrl: string;
+  /** Which forge the data came from; absent means GitLab. */
+  forge?: Forge;
   currentUser: string;
   viewer: Viewer;
   /** True only when a Team viewer's `viewAs` applied: the response is that member's Self view. */
@@ -175,6 +178,8 @@ export interface LeaderboardResponse {
   /** true when prior-window deltas are populated. */
   hasTrend: boolean;
   baseUrl: string;
+  /** Which forge the data came from; absent means GitLab. */
+  forge?: Forge;
   currentUser: string;
   viewer: Viewer;
   /** True only when a Team viewer's `viewAs` applied: the response is that member's Self view. */
@@ -215,6 +220,8 @@ export interface ColdCacheResponse {
   cached: false;
   window: TimeWindow;
   scope: Scope;
+  /** Which forge the team is on; absent means GitLab. */
+  forge?: Forge;
 }
 
 export type RefreshJobStatus = 'running' | 'done' | 'error' | 'cancelled';

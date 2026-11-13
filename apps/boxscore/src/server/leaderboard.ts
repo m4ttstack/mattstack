@@ -1,3 +1,4 @@
+import type { Forge } from '../shared/forge.js';
 import type {
   LeaderboardResponse,
   LeaderboardWarning,
@@ -46,7 +47,8 @@ export class ColdCacheError extends Error {
 
   constructor(
     message: string,
-    readonly scope: Scope
+    readonly scope: Scope,
+    readonly forge?: Forge
   ) {
     super(message);
   }
@@ -235,7 +237,8 @@ async function buildLeaderboard(
   ) {
     throw new ColdCacheError(
       `no data back to ${read.start} for ${settings.projects.join(', ')}`,
-      scope
+      scope,
+      env.forge
     );
   }
 
@@ -293,6 +296,7 @@ async function buildLeaderboard(
         viewer
       ),
       previewing,
+      forge: env.forge ?? 'gitlab',
     },
     current,
     env,
@@ -334,6 +338,7 @@ export async function getUserDetail(
   const evidence = buildUserEvidence(current, userRow.username, {
     window: opts.window,
     baseUrl: env.baseUrl,
+    forge: env.forge,
     ...evidenceOpts,
   });
 
@@ -342,6 +347,7 @@ export async function getUserDetail(
     priorWindow: response.priorWindow,
     hasTrend: response.hasTrend,
     baseUrl: response.baseUrl,
+    forge: response.forge,
     currentUser: response.currentUser,
     viewer: response.viewer,
     previewing: response.previewing,

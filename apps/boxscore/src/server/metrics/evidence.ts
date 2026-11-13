@@ -4,6 +4,7 @@
  * and the output is render-agnostic (columns + rows + summary) so the UI renders every stat
  * with one component.
  */
+import { changeRef, changeUrl, type Forge } from '../../shared/forge.js';
 import type {
   EvidenceRow,
   MetricEvidence,
@@ -20,6 +21,8 @@ import { mean, percentile, round, streaks } from './stats.js';
 
 export interface EvidenceContext extends CohortOptions {
   baseUrl: string;
+  /** Absent means GitLab. */
+  forge?: Forge;
 }
 
 const MAX_ROWS = 300;
@@ -49,7 +52,8 @@ export function buildUserEvidence(
   const c = buildUserCohorts(corpus, u, ctx);
   const lines = corpus.filters.lineCounts;
   const mrUrl = (m: Pick<NormMr, 'projectPath' | 'iid'>) =>
-    `${baseUrl}/${m.projectPath}/-/merge_requests/${m.iid}`;
+    changeUrl(ctx.forge, baseUrl, m.projectPath, m.iid);
+  const ref = (iid: number) => changeRef(ctx.forge, iid);
 
   const out: Partial<Record<MetricKey, MetricEvidence>> = {};
 
@@ -61,7 +65,7 @@ export function buildUserEvidence(
     const f = lines(m);
     return {
       cells: [
-        `!${m.iid}`,
+        ref(m.iid),
         m.title,
         `+${f.additions}`,
         `−${f.deletions}`,
@@ -107,7 +111,7 @@ export function buildUserEvidence(
       const f = lines(m);
       return {
         cells: [
-          `!${m.iid}`,
+          ref(m.iid),
           m.title,
           String(f.additions + f.deletions),
           c.inBand(m) ? '✓' : '✗',
@@ -142,10 +146,10 @@ export function buildUserEvidence(
         : undefined;
       return {
         cells: [
-          `!${m.iid}`,
+          ref(m.iid),
           m.title,
           day(m.mergedAt),
-          by ? `!${by.iid}` : '—',
+          by ? ref(by.iid) : '—',
           by ? lived(m.mergedAt, firstAt(by)) : '—',
         ],
         href: mrUrl(m),
@@ -164,7 +168,7 @@ export function buildUserEvidence(
     columns: ['MR', 'Author', 'Title', 'Comments', 'Inline'],
     rows: reviewed.map(r => ({
       cells: [
-        `!${r.mr.iid}`,
+        ref(r.mr.iid),
         r.mr.authorUsername ?? '—',
         r.mr.title,
         String(r.notes.length),
@@ -181,7 +185,7 @@ export function buildUserEvidence(
   out.reviewDepth = {
     columns: ['MR', 'Title', 'Inline comments'],
     rows: reviewed.map(r => ({
-      cells: [`!${r.mr.iid}`, r.mr.title, String(r.inlineCount)],
+      cells: [ref(r.mr.iid), r.mr.title, String(r.inlineCount)],
       href: mrUrl(r.mr),
     })),
     summary: `mean ${round(mean(reviewed.map(r => r.inlineCount)), 2)} inline comments per reviewed MR`,
@@ -196,7 +200,7 @@ export function buildUserEvidence(
   out.responseLatencyHours = {
     columns: ['MR', 'Title', 'Response'],
     rows: responded.map(r => ({
-      cells: [`!${r.mr.iid}`, r.mr.title, hrs(r.hours)],
+      cells: [ref(r.mr.iid), r.mr.title, hrs(r.hours)],
       href: mrUrl(r.mr),
     })),
     summary: distSummary(
@@ -211,7 +215,7 @@ export function buildUserEvidence(
   out.reviewLatencyHours = {
     columns: ['MR', 'Title', 'Wait'],
     rows: waited.map(w => ({
-      cells: [`!${w.mr.iid}`, w.mr.title, hrs(w.waitHours)],
+      cells: [ref(w.mr.iid), w.mr.title, hrs(w.waitHours)],
       href: mrUrl(w.mr),
     })),
     summary: distSummary(
@@ -326,7 +330,7 @@ export function buildUserEvidence(
           i.title,
           i.stateName ?? i.stateType ?? '—',
           day(i.closedAt),
-          mrs.map(m => `!${m.iid}`).join(', ') || '—',
+          mrs.map(m => ref(m.iid)).join(', ') || '—',
         ],
         href: i.url,
         mrHrefs: mrs.map(mrUrl),
