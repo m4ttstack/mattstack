@@ -3,7 +3,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import type { Form } from '../../types'
 import { advance, answersOf, clickChoice, confirm, deleteChar, goTo, isTyping, moveCursor, toggleAtCursor, typeChar, type State } from './state'
 
-export type Action = { type: 'page'; page: number } | { type: 'scroll-tabs'; from: number } | { type: 'advance' } | { type: 'option'; idx: number } | { type: 'send' } | { type: 'chat' }
+export type Action = { type: 'page'; page: number } | { type: 'minimize' } | { type: 'scroll-tabs'; from: number } | { type: 'advance' } | { type: 'option'; idx: number } | { type: 'send' } | { type: 'chat' }
 
 export type Effect = { state: State; post?: JsonValue }
 
@@ -20,6 +20,8 @@ function chat(form: Form, s: State): Effect {
 }
 
 export function perform(action: Action, form: Form, armed: State): Effect | undefined {
+  // Only the hooks module can close the pane, so minimizing asks it to.
+  if (action.type === 'minimize') return { state: armed, post: { type: 'minimize', formId: form.id } }
   if (armed.phase !== 'active') return undefined
   if (action.type === 'chat') return chat(form, armed)
   const s = disarm(armed)

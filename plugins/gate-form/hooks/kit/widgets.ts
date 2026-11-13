@@ -1,10 +1,14 @@
 import { ACCENT, BRAND, DIM, DONE, FILL, GRAY, ICON, PLACEHOLDER, SYMBOL, rail } from './theme'
 import { hang, sp, widthOf, withAction, type Line, type Span, type Style } from './text'
 
-// The mattstack header every kit surface opens with: a full-width pink bar, plum lettering.
-export function brandBar(label: string, width: number): Line<never> {
+// The mattstack header every kit surface opens with: a full-width pink bar, plum lettering,
+// and a minimize button at its right end when the surface can be put away.
+export function brandBar<A = never>(label: string, width: number, minimize?: A): Line<A> {
+  const look = { bg: BRAND.pink, color: BRAND.plum, bold: true }
   const text = `  ${BRAND.glyph}  ${label}`
-  return [sp(text.padEnd(width), { bg: BRAND.pink, color: BRAND.plum, bold: true })]
+  if (minimize === undefined) return [sp(text.padEnd(width), look)]
+  const button = ` ${ICON.minimize} Hide `
+  return [sp(text.padEnd(width - button.length - 1), look), sp(button, { bg: BRAND.pinkDeep, color: BRAND.plum, action: minimize }), sp(' ', look)]
 }
 
 export function textCursor(value: string, placeholder: string, showCursor: boolean): Span<never>[] {
@@ -79,14 +83,12 @@ function choiceRows<A>(choice: Choice, idx: number, spec: SelectSpec<A>): Line<A
   return [...hang(lead, under, choice.label, spec.width, { bold: true, isLabel: true }), ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
 }
 
-const WRITE_IN_WIDTH = 48
-
 // The label stays put; the row under it is the description until the choice is focused, then the line you type on,
 // with the description as its placeholder. Typed text shows in that row once you move off.
 function writeInRows<A>(choice: Choice, isAt: boolean, lead: Span<A>[], under: Span<A>[], spec: SelectSpec<A>): Line<A>[] {
   const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...(isAt && { bold: true }) })]
   const typed = spec.writeIn
-  if (isAt) return [label, [...under, ...inputField(typed, choice.description ?? '', Math.min(WRITE_IN_WIDTH, spec.width - 8), spec.focused)]]
+  if (isAt) return [label, [...under, ...inputField(typed, choice.description ?? '', spec.width - widthOf(under), spec.focused)]]
   if (typed !== '') return [label, [...under, sp(`“${typed}”`)]]
   return [label, ...(choice.description ? [[...under, sp(choice.description, DIM)]] : [])]
 }
@@ -165,12 +167,12 @@ export function tabStrip<A>(spec: TabStripSpec<A>): Line<A> {
 }
 
 // Every button is a filled block; its tone picks the fill. A disabled one keeps its place and shape but takes no clicks.
-export type ButtonTone = 'primary' | 'secondary' | 'neutral' | 'caution'
+export type ButtonTone = 'primary' | 'secondary' | 'neutral' | 'caution' | 'brand'
 export type Button<A> = { label: string; action: A; tone?: ButtonTone; disabled?: boolean }
 
-const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution }
+const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand }
 
-function buttonSpan<A>(button: Button<A>): Span<A> {
+export function buttonSpan<A>(button: Button<A>): Span<A> {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? 'secondary']
   return sp(`  ${button.label}  `, { ...fill, bold: !button.disabled, ...(!button.disabled && { action: button.action }) })
 }

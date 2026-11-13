@@ -31,15 +31,17 @@ export const ICON = {
   review: '\u{EBB1}', // check_all
   edit: '\u{EA73}',
   info: '\u{EA74}',
+  minimize: '\u{EABA}', // chrome_minimize
 }
 
 // The mattstack mark's pink and plum (packages/ui MattstackMark).
-export const BRAND = { pink: '#FF6B9D', plum: '#161224', glyph: ICON.layers }
+// `pinkDeep` is a step down the pink for controls inside the bar.
+export const BRAND = { pink: '#FF6B9D', pinkDeep: '#e9578b', plum: '#161224', glyph: ICON.layers }
 
 // Filled controls: `primary` for the one action that finishes, `secondary` for paging buttons,
 // `neutral` for a side action, `caution` for one that asks to be pressed again,
 // `chip` for small marks like the tab strip's scroll counts, `current` for the tab you're on,
-// `field` for a box you type in.
+// `field` for a box you type in, `brand` for a mattstack call to action.
 export const FILL = {
   primary: { bg: '#2f9e5b', color: 'black' },
   secondary: { bg: '#2b4a6b', color: 'white' },
@@ -49,6 +51,7 @@ export const FILL = {
   current: { bg: '#3aa8b8', color: 'black' },
   disabled: { bg: '#262626', color: '#5c5c5c' },
   field: { bg: '#2c2c2c', color: 'white' },
+  brand: { bg: BRAND.pink, color: BRAND.plum },
 }
 
 export const PLACEHOLDER: Style = { color: '#7a7a7a' }
@@ -56,6 +59,8 @@ export const PLACEHOLDER: Style = { color: '#7a7a7a' }
 // A control under the pointer lightens; one held down darkens, so a click reads as a press.
 // An unfilled control (an option, a tab, an outlined button) takes a faint fill instead.
 const HOVER_FILL: Record<string, string> = {
+  [BRAND.pink]: '#ff94b9',
+  [BRAND.pinkDeep]: '#f57ba6',
   [FILL.primary.bg]: '#45c275',
   [FILL.secondary.bg]: '#3b6896',
   [FILL.neutral.bg]: '#666666',
@@ -65,6 +70,8 @@ const HOVER_FILL: Record<string, string> = {
 }
 // A press steps only a little below the resting fill, so the button never sinks into the background.
 const PRESS_FILL: Record<string, string> = {
+  [BRAND.pink]: '#ea5d8c',
+  [BRAND.pinkDeep]: '#d84a7d',
   [FILL.primary.bg]: '#288a4f',
   [FILL.secondary.bg]: '#26425f',
   [FILL.neutral.bg]: '#424242',
@@ -90,9 +97,9 @@ export const DIM: Style = { dim: true }
 export const rail = <A = never>(style: Style): Span<A>[] => [sp(SYMBOL.bar, style), sp('  ')]
 
 // dimColor does nothing on a span that names a colour, so the unfocused look steps each level down to an explicit shade, keeping their order. Dark terminals only for now.
-const MUTED: Record<string, string> = { cyan: '#3d6f78', green: '#4d7a4d', yellow: '#857640', red: '#8a4a4a', gray: '#4a4a4a' }
+const MUTED: Record<string, string> = { cyan: '#3d6f78', green: '#4d7a4d', yellow: '#857640', red: '#8a4a4a', gray: '#4a4a4a', [BRAND.pink]: '#7a3d58' }
 
-const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#6e3a52', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#24313f', color: '#8a8a8a' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#262626', color: '#8a8a8a' } }
+const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#6e3a52', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#5e2f45', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#24313f', color: '#8a8a8a' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#262626', color: '#8a8a8a' } }
 
 export function muted<S extends Style>(span: S): S {
   if (span.bg) return { ...span, ...(MUTED_FILL[span.bg] ?? { bg: '#3a3a3a', color: '#8a8a8a' }), dim: false }

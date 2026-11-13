@@ -17,6 +17,8 @@ const keysAtom = atom({ plugin: 'gate-form', key: 'keysInForm' } as const, false
 
 type FormMessage =
   | { type: 'engaged'; formId: string }
+  | { type: 'minimize'; formId: string }
+  | { type: 'reopen'; formId: string }
   | { type: 'answer'; formId: string; answers?: Record<string, unknown> }
   | { type: 'chat'; formId: string; draft?: Record<string, unknown> }
 
@@ -71,9 +73,16 @@ export const register: Register = on => {
   })
 
   on('ui.message', async ($, e, next) => {
-    if (e.requestId !== PANE) return next(e)
     const message = e.data as FormMessage
+    // The band's Open, from the Client drawn above the prompt.
+    if (message.type === 'reopen') {
+      const form = await read($, formAtom)
+      if (form && form.id === message.formId && form.status === 'open') await show($, form)
+      return next(e)
+    }
+    if (e.requestId !== PANE) return next(e)
     if (message.type === 'engaged') await setKeysInForm($, true)
+    if (message.type === 'minimize') await $.ui.close({ id: PANE })
     if (message.type === 'answer') await settle($, message.formId, { status: 'answered', answers: message.answers ?? {} })
     if (message.type === 'chat') await settle($, message.formId, { status: 'chat', draft: message.draft ?? {} })
     return next(e)
@@ -104,6 +113,40 @@ export const register: Register = on => {
         <Text dimColor wrap="truncate-end">
           {summaryOf(e.props.text)}
         </Text>
+      </Box>
+    )
+  })
+
+  // The band reads the engine's pane list, which no atom write tracks, so a close redraws it.
+  on('ui.close', async ($, e, next) => {
+    const closed = await next(e)
+    $.ui.invalidate('ui.render')
+    return closed
+  })
+
+  // A form closed before it was answered waits above the prompt, with a way back to it. Other plugins' bands draw under it.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+    const form = await read($, formAtom)
+    if (!form || form.status !== 'open' || (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced)) return next(e)
+    const els = $.ui.resolve(e)
+    const { Box, Text, Button } = els
+    const Client = 'Client' in els ? els.Client : undefined
+    const rest = await next(e)
+    // A surface without Client gets the engine's own Button.
+    const band = Client ? (
+      <Client key={`band-${form.id}`} module="./band.tsx" props={{ formId: form.id, title: form.title }} />
+    ) : (
+      <Box flexDirection="row" gap={2}>
+        <Text color={BRAND.pink}>{`${BRAND.glyph} mattstack gate waiting `}</Text>
+        <Text wrap="truncate-end">{form.title}</Text>
+        <Button key="open-gate-form" label="Open" onPress={() => show($, form)} />
+      </Box>
+    )
+    return (
+      <Box flexDirection="column">
+        {band}
+        {rest}
       </Box>
     )
   })

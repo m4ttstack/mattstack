@@ -1,6 +1,6 @@
 import type { Form, FormQuestion } from '../../types'
 import { hang, sp, withAction, type Line } from '../kit/text'
-import { ACCENT, DIM, DONE, GRAY, ICON, SYMBOL, WARN, rail } from '../kit/theme'
+import { ACCENT, BRAND, DIM, DONE, GRAY, ICON, SYMBOL, WARN, rail } from '../kit/theme'
 import { brandBar, buttonRow, revealTab, selectList, tabStrip, textCursor, type Button, type Tab } from '../kit/widgets'
 import type { Action } from './input'
 import { choicesOf, cursorIsChoice, isPicked, unansweredCount, WRITE_IN, type State } from './state'
@@ -81,7 +81,7 @@ function reviewList(form: Form, s: State, view: View): L[] {
 function reviewPage(form: Form, s: State, view: View): L[] {
   const missing = unansweredCount(s)
   const bar = rail<Action>(ACCENT)
-  const lines: L[] = [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, ACCENT), sp('  Submit your answers?', { bold: true })]]
+  const lines: L[] = [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, DONE), sp('  Submit your answers?', { bold: true })]]
   if (missing > 0) lines.push([...bar, sp(`${missing} not answered; left out if you submit now`, WARN)])
   return lines
 }
@@ -119,7 +119,7 @@ function navRow(form: Form, s: State, view: View): L {
   left.push({ label: `${ICON.back} Back`, action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 })
   if (page < n - 1) left.push({ label: `Next ${ICON.next}`, action: { type: 'advance' }, tone: 'secondary' })
   if (page === n - 1) left.push({ label: `Review ${ICON.next}`, action: { type: 'advance' }, tone: 'secondary' })
-  if (page === n) left.push({ label: unansweredCount(s) === 0 ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'primary' })
+  if (page === n) left.push({ label: unansweredCount(s) === 0 ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand' })
   const chat: Button<Action> = s.chatArmed
     ? { label: `${ICON.chat} Press again to chat`, action: { type: 'chat' }, tone: 'caution' }
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }
@@ -137,7 +137,7 @@ function hint(form: Form, s: State, view: View): string | undefined {
 type Drawn = { head: L[]; page: L[]; foot: L[] }
 
 function draw(form: Form, s: State, view: View, withContext: boolean): Drawn {
-  const head: L[] = [brandBar('mattstack decision gate', view.width), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
+  const head: L[] = [brandBar<Action>('mattstack decision gate', view.width, { type: 'minimize' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
   if (s.phase !== 'active') return { head, page: closedPage(form, s, view), foot: [] }
   if (withContext && form.context) {
     const first = [sp<Action>(SYMBOL.bar, GRAY), sp('  '), sp(ICON.info, ACCENT), sp(' ')]
