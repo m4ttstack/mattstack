@@ -317,6 +317,7 @@ describe('runRefresh through a GitHub source', () => {
       fetchDetail: async () => null,
       fetchPipelines: async () => [],
       readsPushEvents: false,
+      reusesFreshSnapshots: 'any',
       takeWarnings() {
         const taken = pending;
         pending = [];
@@ -372,6 +373,7 @@ describe('runRefresh through a GitHub source', () => {
         return [];
       },
       readsPushEvents: true,
+      reusesFreshSnapshots: 'merged',
       takeWarnings() {
         const taken = pending;
         pending = [];
@@ -427,5 +429,105 @@ describe('sourceFor', () => {
       sourceFor({ ...gitlabEnv, forge: 'gitlab' }, provider, settings())
         .readsPushEvents
     ).toBe(true);
+  });
+});
+
+describe('warm refresh re-reads only PRs whose updatedAt moved', () => {
+  const ROWS = [
+    indexRow({ iid: 1, state: 'opened', mergedAt: null }),
+    indexRow({ iid: 2, state: 'closed', mergedAt: null }),
+    indexRow({ iid: 3, state: 'merged' }),
+  ];
+
+  function countingGitHub(index: () => MergeRequestIndexRow[]) {
+    const fetched: number[] = [];
+    const provider = makeGitHubProvider();
+    provider.fetchMergeRequestIndex = async () => index();
+    const read = provider.fetchSingleMR.bind(provider);
+    provider.fetchSingleMR = async (projectPath, iid, me, onWarning) => {
+      fetched.push(iid);
+      return read(projectPath, iid, me, onWarning);
+    };
+    return { provider, fetched };
+  }
+
+  const refresh = (provider: GitHubSourceProvider) =>
+    runRefresh({
+      store: getStore(),
+      provider: makeGitLabSpy().provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+      source: sourceFor(ENV, provider as unknown as GitProvider, settings()),
+    });
+
+  it('github skips a fresh open, closed or merged PR on the next refresh', async () => {
+    const { provider, fetched } = countingGitHub(() => ROWS);
+
+    await refresh(provider);
+    expect(fetched.sort()).toEqual([1, 2, 3]);
+
+    fetched.length = 0;
+    await refresh(provider);
+    expect(fetched).toEqual([]);
+  });
+
+  it('github re-reads a PR whose updatedAt moved past its snapshot', async () => {
+    let rows = ROWS;
+    const { provider, fetched } = countingGitHub(() => rows);
+    await refresh(provider);
+
+    rows = ROWS.map(r =>
+      r.iid === 2 ? { ...r, updatedAt: '2026-05-09T00:00:00Z' } : r
+    );
+    fetched.length = 0;
+    await refresh(provider);
+    expect(fetched).toEqual([2]);
+  });
+
+  it('gitlab still re-reads a fresh open MR', async () => {
+    const gitlabEnv: Env = { baseUrl: 'https://gl.example', token: 'tkn' };
+    const fetched: number[] = [];
+    const glRow = indexRow({
+      iid: 4,
+      projectPath: 'g/p',
+      state: 'opened',
+      mergedAt: null,
+    });
+    const provider = {
+      ...makeGitLabSpy().provider,
+      fetchMergeRequestIndex: async () => [glRow],
+      fetchMergeRequestMetrics: async (projectPath: string, iid: number) => {
+        fetched.push(iid);
+        return {
+          projectPath,
+          iid,
+          description: '',
+          diffStats: null,
+          fileStats: [],
+          labels: [],
+          approvedByUsernames: [],
+          notes: [],
+        };
+      },
+    } as unknown as GitProvider;
+    const glSettings = settings({
+      forge: undefined,
+      projects: ['g/p'],
+      baseUrl: 'https://gl.example',
+      declaredHost: 'gl.example',
+    });
+    const run = () =>
+      runRefresh({
+        store: getStore(),
+        provider,
+        settings: glSettings,
+        env: gitlabEnv,
+        window: WINDOW,
+      });
+
+    await run();
+    await run();
+    expect(fetched).toEqual([4, 4]);
   });
 });

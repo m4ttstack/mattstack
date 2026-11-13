@@ -179,7 +179,7 @@ export async function runRefresh(
   );
 
   // Step 3: metrics for the eligible set (roster-authored in window, or a revert by anyone),
-  // skipping rows already merged with stored metrics.
+  // skipping rows whose stored snapshot the source says is still current.
   signal?.throwIfAborted();
   const rosterSet = new Set(rosterUsernames);
   const indexRows = store.indexRowsUpdatedWithin(window.start, window.end);
@@ -189,7 +189,10 @@ export async function runRefresh(
       isRevertTitle(r.title)
   );
   const eligibleKeys = eligibleRows.map(r => mrKey(r.projectPath, r.iid));
-  const doneKeys = store.freshMergedMetricsKeys(eligibleKeys);
+  const doneKeys =
+    source.reusesFreshSnapshots === 'any'
+      ? store.freshMetricsKeysAnyState(eligibleKeys)
+      : store.freshMergedMetricsKeys(eligibleKeys);
   const toFetch = eligibleRows.filter(
     r => !doneKeys.has(mrKey(r.projectPath, r.iid))
   );

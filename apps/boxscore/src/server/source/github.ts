@@ -255,6 +255,7 @@ export function githubSource(
     },
 
     readsPushEvents: false,
+    reusesFreshSnapshots: 'any',
 
     takeWarnings() {
       const taken = warnings;

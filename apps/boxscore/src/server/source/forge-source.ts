@@ -34,6 +34,11 @@ export interface ForgeSource {
   ): Promise<StoredPipeline[]>;
   /** GitLab reads push events per user after the project id step; GitHub returns commits from fetchDetail. */
   readonly readsPushEvents: boolean;
+  /**
+   * Which stored snapshots at least as new as the index updatedAt a refresh reuses. GitHub
+   * bumps updatedAt on every commit, comment, review and label; GitLab trusts it only once merged.
+   */
+  readonly reusesFreshSnapshots: 'merged' | 'any';
   /** Warnings raised inside reads that still returned rows (caps); runRefresh drains them into its result. */
   takeWarnings(): LeaderboardWarning[];
 }
@@ -55,6 +60,7 @@ export function gitlabSource(provider: SourceProvider): ForgeSource {
     fetchPipelines: (projectPath, username, window, io) =>
       fetchPipelinesFor(provider, projectPath, username, window, io),
     readsPushEvents: true,
+    reusesFreshSnapshots: 'merged',
     takeWarnings: () => [],
   };
 }
