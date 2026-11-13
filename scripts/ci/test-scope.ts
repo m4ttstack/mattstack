@@ -232,7 +232,7 @@ function goReads(f: string): boolean {
 function deckReads(f: string): boolean {
   if (f.startsWith("apps/deck/")) return true;
   if (f === "scripts/turbo.sh" || f === CHECKS_WORKFLOW || f === SCOPE_SCRIPT) return true;
-  return (f.startsWith("packages/") || !f.includes("/")) && !isProse(f);
+  return (f.startsWith("packages/") || !f.includes("/")) && !isProse(f) && !isModTree(f);
 }
 
 function isGoSource(f: string): boolean {

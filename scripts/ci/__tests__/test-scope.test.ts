@@ -490,6 +490,13 @@ describe("workflow wiring", () => {
     return (job.steps ?? []).map((step) => step.run ?? "").join("\n");
   }
 
+  test("static fails when a mod build changes the committed plugins", () => {
+    const steps = jobs("checks.yml").static!.steps!;
+    const build = steps.findIndex((step) => step.run?.includes("mods:build") && step.run.includes("git status --porcelain -- plugins/"));
+    expect(build).toBeGreaterThan(-1);
+    expect(steps[build]!.run!.indexOf("mods:build")).toBeLessThan(steps[build]!.run!.indexOf("git status --porcelain -- plugins/"));
+  });
+
   describe.each([
     ["checks.yml", "unit"],
     ["timings.yml", "timings"],
@@ -924,6 +931,10 @@ describe("jobsFor", () => {
 
   test("a workspace package rt links runs deck and e2e", () => {
     expect(jobsFor("pull_request", ["packages/rt-client/src/index.ts"])).toEqual({ ...none, deck: true, e2e: true });
+  });
+
+  test("a mod kit edit does not run deck", () => {
+    expect(jobsFor("pull_request", ["packages/mod-kit/src/draw/theme.ts", "packages/mod-kit/package.json"]).deck).toBe(false);
   });
 
   test("an apps package manifest runs e2e, since a dependency bump can change the binary", () => {

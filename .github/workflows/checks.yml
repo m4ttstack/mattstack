@@ -81,7 +81,14 @@ jobs:
       # the plugin jobs validate. A mod source edited without mods:build leaves
       # plugins/ different from the committed output, and this step fails.
       - name: Mods are built
-        run: bun run mods:build --no-validate && test -z "$(git status --porcelain -- plugins/)"
+        run: |
+          bun run mods:build --no-validate
+          dirty="$(git status --porcelain -- plugins/)"
+          if [ -n "$dirty" ]; then
+            echo "$dirty"
+            echo "plugins/ differs from a fresh build: run bun run mods:build and commit the result"
+            exit 1
+          fi
       - name: Mods typecheck
         run: bun run mods:typecheck
       - name: Mods test
@@ -475,7 +482,8 @@ jobs:
           claude plugin test plugins/human-todos
           claude plugin validate plugins/human-todos
 
-  # The gate form spike's tests and manifest check, run when plugins/gate-form changes.
+  # The gate form spike's tests and manifest check, run when plugins/gate-form,
+  # mods/gate-form/ or packages/mod-kit/ changes.
   plugin-gate-form:
     needs: scope
     if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/gate-form,')
@@ -498,7 +506,8 @@ jobs:
           claude plugin test plugins/gate-form
           claude plugin validate plugins/gate-form
 
-  # The kit gallery mod's tests and manifest check, run when plugins/kit-gallery changes.
+  # The kit gallery mod's tests and manifest check, run when plugins/kit-gallery,
+  # mods/kit-gallery/ or packages/mod-kit/ changes.
   plugin-kit-gallery:
     needs: scope
     if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/kit-gallery,')
@@ -565,7 +574,7 @@ jobs:
           RUN_DECK: ${{ needs.scope.outputs.deck }}
           RUN_MACOS: ${{ needs.scope.outputs.macos }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS gate-form=$GATE_FORM website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS gate-form=$GATE_FORM kit-gallery=$KIT_GALLERY website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
