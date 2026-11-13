@@ -82,12 +82,12 @@ Every `mr_resolve_branch` fixture carries `webUrl` (the fork rule compares `sour
   - C2c as C2 but `sourceProjectPath: null` (deleted fork). Expected: same as C2.
   - C3 checkout ticket `RT-77` on GitHub. `mr_list {search: "RT-77", state: "all", limit: 200}` returns one row `{iid: 31, title: "RT-77: tidy", sourceBranch: "rt-77-tidy", state: "merged"}`, `truncated: false`; `mr_resolve_branch {iid: 31}` returns same-repo `sourceProjectPath: "acme/app"`, `trees: []`; `worktree_provision` returns a path. Expected: `mr_list` with those args, then `mr_resolve_branch {repoName, iid: 31}`, then `worktree_provision {branch: "rt-77-tidy"}`; report names state merged.
   - C3b as C3 but `mr_resolve_branch {iid: 31}` returns `sourceProjectPath: "someone/app-fork"`. Expected: ends at **Fork PR: reported**.
-  - C3c checkout ticket `RT-88` on GitHub. `mr_list {search: "RT-88", state: "all", limit: 200}` returns 200 rows, none carrying `RT-88` in `title` or `sourceBranch`, `truncated: true`; the second read `mr_list {state: "all", limit: 200}` also returns 200 rows with none carrying it, `truncated: true`. Expected: both reads, then the clarify gate with a sentence saying the search was cut at 200 rows; no `worktree_provision`.
+  - C3c checkout ticket `RT-88` on GitHub. `mr_list {search: "RT-88", state: "all", limit: 200}` returns 200 rows (described in a sentence, not listed), none carrying `RT-88` in `title` or `sourceBranch`, `truncated: true`; the second read `mr_list {state: "all", limit: 200}` also returns 200 rows with none carrying it, `truncated: true`. Expected: both reads, then the clarify gate with a sentence saying the search was cut at 200 rows; no `worktree_provision`.
   - C7 checkout `https://gitlab.com/acme/app/-/merge_requests/9`, origin on gitlab.com. `mr_resolve_branch` returns `{iid: 9, state: "opened", sourceBranch: "fix-y", trees: []}` with no `sourceProjectPath`. Expected: `mr_resolve_branch`, `worktree_provision {branch: "fix-y"}`; never the fork terminal.
   - J1 a herd worker with the job template's graph, GitHub origin, goal says open a PR, `git_push` ok. Expected: `mr_create {repoName, sourceBranch, targetBranch, title, description, draft: false}`; no `gh pr create`.
   - J2 the same on a GitLab origin. Expected: `mr_create {repoName, sourceBranch, targetBranch, title, description}` with no `draft` argument.
 
-- [ ] **Step 2: Run RED for every scenario** against the baseline compiled skills (`map-open-mrs`, `sync-open-mrs`, `checkout`, and `$SCRATCH/base/pack/skills/shepherdr/references/job-template.md` for J1 and J2). Save each `red-<id>.md`. Expected: M1, S1, C1, C2, C2b, C3, C3b and J1 show a `gh` call (or the wrong provision for C2/C2b/C3b); M2, S2, C7 and J2 record today's GitLab walk, which GREEN must reproduce.
+- [ ] **Step 2: Run RED for every scenario** against the baseline compiled skills (`map-open-mrs`, `sync-open-mrs`, `checkout`, and `$SCRATCH/base/pack/skills/shepherdr/references/job-template.md` for J1 and J2). Save each `red-<id>.md`. Expected: M1, S1, C1, C2, C2b, C2c, C3, C3b, C3c and J1 show a `gh` call (or the wrong provision for C2/C2b/C2c/C3b; `gh pr list --search` for C3c); M2, S2, C7 and J2 record today's GitLab walk, which GREEN must reproduce.
 
 - [ ] **Step 3: Commit**
 
@@ -147,7 +147,7 @@ git commit -m "skills-mr-tools: scenarios and RED baselines (RT-569)"
 - Modify: `plugins/mattstack/attachments/forge/checkout-and-open/index.block.md`, `1-check-it-out.block.md`
 
 **Interfaces:**
-- Consumes: scenarios C1, C2, C2b, C3, C3b, C7.
+- Consumes: scenarios C1, C2, C2b, C2c, C3, C3b, C3c, C7.
 
 - [ ] **Step 1: Edit the graph** in `checkout/index.block.md`:
   - Delete `mr_forge_host`, `ticket_forge_host`, `gh_pr_view`, `gh_pr_list_search` and their edges.
