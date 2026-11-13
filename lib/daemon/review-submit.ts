@@ -6,10 +6,11 @@ import type { ReviewSubmitComment, ReviewSubmitReply } from "../../packages/rt-c
 import { checkAnchor, type DiffFileRow } from "./diff-line-kind.ts";
 
 export interface ReviewSubmitInput {
-  outcome: "comment" | "approve";
+  outcome: "comment" | "approve" | "request_changes";
   summary: string;
   comments: ReviewSubmitComment[];
   replies: ReviewSubmitReply[];
+  expectedHeadSha?: string;
 }
 
 /** glance's GitLab review allows no more: its pending check and rollback each read one 100-item page. */
@@ -17,15 +18,17 @@ const MAX_ITEMS = 100;
 
 const isPosInt = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v > 0;
 const isText = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
+const isFullSha = (v: unknown): v is string => typeof v === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(v);
 
 export function parseReviewSubmit(
   payload: unknown,
 ): { ok: true; input: ReviewSubmitInput } | { ok: false; error: string } {
   const p = (payload ?? {}) as Record<string, unknown>;
   const fail = (error: string) => ({ ok: false as const, error });
-  if (p.outcome !== "comment" && p.outcome !== "approve") return fail("outcome must be comment or approve");
+  if (p.outcome !== "comment" && p.outcome !== "approve" && p.outcome !== "request_changes") return fail("outcome must be comment, approve or request_changes");
   if (!isText(p.summary)) return fail("summary must be a non-empty string");
   if (!Array.isArray(p.comments) || !Array.isArray(p.replies)) return fail("comments and replies must be arrays");
+  if (p.expectedHeadSha !== undefined && !isFullSha(p.expectedHeadSha)) return fail("expectedHeadSha must be a full commit sha");
   if (p.comments.length + p.replies.length > MAX_ITEMS) {
     return fail(`at most ${MAX_ITEMS} comments and replies in total per review`);
   }
@@ -57,7 +60,13 @@ export function parseReviewSubmit(
     seen.add(r.discussionId);
     replies.push({ discussionId: r.discussionId, resolve: r.resolve, ...(r.body !== undefined ? { body: r.body as string } : {}) });
   }
-  return { ok: true, input: { outcome: p.outcome, summary: p.summary, comments, replies } };
+  return {
+    ok: true,
+    input: {
+      outcome: p.outcome, summary: p.summary, comments, replies,
+      ...(p.expectedHeadSha !== undefined ? { expectedHeadSha: p.expectedHeadSha as string } : {}),
+    },
+  };
 }
 
 export type BadAnchor = { index: number; path: string; line: number };

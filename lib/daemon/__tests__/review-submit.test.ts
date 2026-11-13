@@ -8,7 +8,10 @@ describe("parseReviewSubmit", () => {
   test("accepts the minimal review", () => {
     expect(parseReviewSubmit(base)).toEqual({ ok: true, input: base });
   });
-  test("refuses anything but comment or approve", () => bad({ outcome: "request_changes" }, "outcome must be comment or approve"));
+  test("accepts request_changes", () => {
+    expect(parseReviewSubmit({ ...base, outcome: "request_changes" })).toEqual({ ok: true, input: { ...base, outcome: "request_changes" } });
+  });
+  test("refuses an unknown outcome", () => bad({ outcome: "reject" }, "outcome must be comment, approve or request_changes"));
   test("refuses a blank summary", () => bad({ summary: "  " }, "summary must be a non-empty string"));
   test("refuses a comment without a positive integer line", () =>
     bad({ comments: [{ body: "b", path: "a.ts", line: 0 }] }, "comments[0]: body, path and a positive integer line are required"));
@@ -27,5 +30,22 @@ describe("parseReviewSubmit", () => {
     const replies = (n: number) => Array.from({ length: n }, (_, i) => ({ discussionId: `d${i}`, resolve: true }));
     bad({ comments, replies: replies(41) }, "at most 100 comments and replies in total per review");
     expect(parseReviewSubmit({ ...base, comments, replies: replies(40) }).ok).toBe(true);
+  });
+  describe("expectedHeadSha", () => {
+    const sha40 = "a".repeat(39) + "F";
+    const sha64 = "AbCdEf01".repeat(8);
+    test("accepts a 40-hex or 64-hex sha in either case and keeps it as given", () => {
+      for (const sha of [sha40, sha40.toLowerCase(), sha64, sha64.toUpperCase()]) {
+        expect(parseReviewSubmit({ ...base, expectedHeadSha: sha })).toEqual({ ok: true, input: { ...base, expectedHeadSha: sha } });
+      }
+    });
+    test("refuses a short sha, a 41-character string and a non-string", () => {
+      for (const expectedHeadSha of ["abc1234", "a".repeat(41), 5]) bad({ expectedHeadSha }, "expectedHeadSha must be a full commit sha");
+    });
+    test("a missing field leaves expectedHeadSha undefined", () => {
+      const r = parseReviewSubmit(base);
+      expect(r.ok && r.input.expectedHeadSha).toBeUndefined();
+      expect(r.ok && "expectedHeadSha" in r.input).toBe(false);
+    });
   });
 });

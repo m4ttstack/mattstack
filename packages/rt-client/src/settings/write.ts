@@ -97,7 +97,7 @@ import { machineSettingsPath, orgDir, orgSettingsPath, orgsDir, teamSettingsPath
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { orgOwnersAsk, roleOf, writeRefusalFor, type OrgRole } from "./org-roles.ts";
 import { orgStoreChangeRefusal } from "./org-store-guard.ts";
-import { getSetting } from "./resolve.ts";
+import { expandVariables, getSetting } from "./resolve.ts";
 import { currentOrg, parseStoreText, readStore, TEAM_NAME_RE } from "./stores.ts";
 import { readForgeUsername } from "./team-local-read.ts";
 import { directoryIssues } from "./team-directory.ts";
@@ -210,7 +210,42 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
       notify({ text: `#${u.channel.replace(/^#/, "")} on ${u.team} has kind "${u.kind}", which no app reads yet.` });
   }
 
+  if (key === "rt.mcp.uploadRoots" && Array.isArray(value)) {
+    const home = process.env.HOME;
+    const entries = value.filter((e): e is string => typeof e === "string");
+    for (const entry of home ? broadUploadRoots(entries, home) : [])
+      notify({ text: `${entry} is a very broad folder: mr_upload and evidence_attach may send any image or video under it off this Mac. Name a narrower folder.` });
+  }
+
   shareTip("saved", key, scope, storePath);
+}
+
+function realOrResolved(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function expandedEntry(entry: string, home: string): string {
+  try {
+    const org = currentOrg();
+    const ctx = { home, orgDir: org === null ? null : orgDir(org) };
+    return expandVariables(entry, ctx) as string;
+  } catch {
+    return entry;
+  }
+}
+
+function broadUploadRoots(entries: string[], home: string): string[] {
+  const realHome = realOrResolved(home);
+  return entries.filter((entry) => {
+    const path = expandedEntry(entry, home);
+    if (!isAbsolute(path)) return false;
+    const real = realOrResolved(path);
+    return real === "/" || real === realHome || realHome.startsWith(real + sep);
+  });
 }
 
 export interface SettingsNotice {

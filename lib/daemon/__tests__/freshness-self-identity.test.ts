@@ -14,6 +14,7 @@ import {
   getRepoContext,
   getSelfIds,
   isGitHubRepo,
+  resolveGitHubSelfLogin,
   resolveSelfUsername,
   resolveUserIdAcrossTracking,
 } from "../freshness.ts";
@@ -192,5 +193,21 @@ describe("your identity on each forge", () => {
     const hub = repoWithOrigin("git@github.com:acme/widgets.git");
     expect(await resolveSelfUsername(hub.name, hub.path)).toBe("octo");
     expect(requests.filter((u) => new URL(u).host !== "api.github.com")).toEqual([]);
+  });
+
+  test("resolveGitHubSelfLogin on a GitHub repo returns the login", async () => {
+    secrets = { gitlabToken: GITLAB_TOKEN, githubToken: "ghp_x" };
+    const hub = repoWithOrigin("git@github.com:acme/widgets.git");
+    expect(await resolveGitHubSelfLogin(hub.name, hub.path)).toBe("octo");
+    expect(requests.filter((u) => new URL(u).host !== "api.github.com")).toEqual([]);
+  });
+
+  test("resolveGitHubSelfLogin never answers with the GitLab username", async () => {
+    secrets = { gitlabToken: GITLAB_TOKEN, githubToken: "ghp_x" };
+    const lab = repoWithOrigin("git@gitlab.com:acme/widgets.git");
+    await resolveUserIdAcrossTracking(...tracked(lab));
+    expect(await cachedSelfUsername(lab.name, lab.path)).toBe("gl-me");
+    expect(await resolveGitHubSelfLogin(lab.name, lab.path)).toBeNull();
+    expect(await resolveGitHubSelfLogin(lab.name, "")).toBeNull();
   });
 });

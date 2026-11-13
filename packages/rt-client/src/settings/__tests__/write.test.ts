@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -256,6 +256,52 @@ describe("settings/write", () => {
       }
       expect(lines).toContain('#a-x on a has kind "oncall", which no app reads yet.');
       expect(lines).toContain('#a-y on a has kind "pr", which no app reads yet.');
+    });
+
+    describe("rt.mcp.uploadRoots", () => {
+      function capture(value: string[]): string[] {
+        const lines: string[] = [];
+        const prev = setSettingsNoticeSink((line) => lines.push(line));
+        try {
+          setSetting("rt.mcp.uploadRoots", value, "machine");
+        } finally {
+          setSettingsNoticeSink(prev);
+        }
+        return lines.filter((l) => l.includes("very broad folder"));
+      }
+      const broad = (entry: string) =>
+        `${entry} is a very broad folder: mr_upload and evidence_attach may send any image or video under it off this Mac. Name a narrower folder.`;
+
+      test("warns once for each entry that is the root, home or an ancestor of home", () => {
+        const link = join(home, "home-link");
+        symlinkSync(home, link);
+        const entries = ["/", home, home + "/", dirname(home), link];
+        const lines = capture([...entries, join(home, "shots"), "relative/dir"]);
+        expect(lines).toEqual(entries.map(broad));
+        expect(getSetting<string[]>("rt.mcp.uploadRoots").value).toEqual([...entries, join(home, "shots"), "relative/dir"]);
+      });
+
+      test("a missing entry that normalizes to home still gets a notice", () => {
+        const entry = `${home}/missing/..`;
+        expect(capture([entry])).toEqual([broad(entry)]);
+      });
+
+      test("a missing folder under home gets no notice", () => {
+        expect(capture([join(home, "no", "such", "dir")])).toEqual([]);
+      });
+
+      test("a ${home} entry is expanded and noticed as stored", () => {
+        expect(capture(["${home}", "${home}/"])).toEqual([broad("${home}"), broad("${home}/")]);
+      });
+
+      test("a ${home} entry under home gets no notice", () => {
+        expect(capture(["${home}/shots"])).toEqual([]);
+      });
+
+      test("an entry with an unexpandable variable gets no notice and the write lands", () => {
+        expect(capture(["${repoRoot}"])).toEqual([]);
+        expect(readStore(machineSettingsPath()).global["rt.mcp.uploadRoots"]).toEqual(["${repoRoot}"]);
+      });
     });
 
     test("scope team writes the active team's store", () => {

@@ -45,16 +45,19 @@ over `lib/gates/`), the `mr_*` writes, `rt_verb`, the herd worker tools
 (`chat_post`, `chat_dm`, `chat_ack`, `chat_claim`, `chat_release`), and
 spreads in the rest: the composites (`mr-composite-tools.ts`:
 `mr_map`, `mr_posted_since`, `mr_resolve_branch`, `respond_post_execute`;
-only `mr_resolve_branch` works on GitHub, unlike the thread, comment and
-review tools, which work on both forges), run tracking (`run-tools.ts`,
+all four work on both forges, and `mr_posted_since` and
+`respond_post_execute` read the token's own login on GitHub through the
+daemon verb `forge:self`, which returns that login and nothing else, so
+the `forge:get` read guard stays as it is; GitLab still reads
+`forge:get "user"`), run tracking (`run-tools.ts`,
 in-process over `runWriteVerb`, a caller's `runDb` confined to the runs
 root), forge reads (`mr-read-tools.ts`, `forge-read-tools.ts`: every one
 asks the repo's own forge through the daemon on each call and none reads
-the open-MR cache, so an agent can read any MR its token can; all but
-`pipeline_jobs` work on GitHub too, `mr_threads` included; `mr_map` also lists
+the open-MR cache, so an agent can read any MR its token can; all of
+them work on GitHub too, `mr_threads` and `pipeline_jobs` included; `mr_map` also lists
 the MRs live and reads the daemon's synced MR list only for each row's
 `ciStatus`; `gitlab_get` is a GET-only passthrough, guarded as below), CI
-(`ci-tools.ts`: `ci_watch`, which reads GitLab on every poll, and the
+(`ci-tools.ts`: `ci_watch`, which reads the forge on every poll, and the
 `ci_lease_*` tools), the stack store read
 (`stack-tool.ts`: `branch_stack` admits a tree only through
 `tree-guard.ts`), git writes
@@ -110,14 +113,18 @@ new tool inherits it and must never answer around it.
 The `mr_*` tools cover what board panes and pipeline verbs write (notes,
 whole submitted reviews, approvals, resolves, note edits, draft state,
 retries, rebase, create, update, upload, merge). `mr_review_submit` posts a
-review the way GitLab's own submit does: pending comments, one publish with
-the summary and a reviewed state, then the approval; it refuses when the
-caller already has pending comments on the MR, because a publish would post
-those too. `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`,
+review: on GitLab the way its own submit does (pending comments, one publish
+with the summary and a reviewed state, then the approval), on GitHub in one
+request. `outcome` is `comment`, `approve` or `request_changes`, which never
+approves: on GitHub a changes-requested review, on GitLab the reviewer shows
+as having requested changes. With `expectedHeadSha` the daemon reads the MR
+head before posting, and a moved head posts nothing and answers
+`published: false` with reason `head-moved`. It refuses when the caller
+already has pending comments on the MR, because a publish would post those
+too. `mr_approve`, `mr_ready`, `mr_retry`, `mr_create`, `mr_update`,
 `mr_merge`, `mr_rebase` and the thread, comment and review tools (`mr_reply_thread`,
 `mr_resolve_thread`, `mr_update_note`, `mr_comment`, `mr_comment_inline`,
-`mr_review_submit`) work on both forges; on GitHub a review posts in one
-request, and `mr_rebase` with `wait` reads the PR back through `mr:get`
+`mr_review_submit`) work on both forges; `mr_rebase` with `wait` reads the PR back through `mr:get`
 until its head moves, since GitHub reports no rebase in progress. The
 upload tool is GitLab only. `mr_merge` is on the server for both forges
 (the forge still enforces approvals and pipeline rules); on GitHub it goes
@@ -138,7 +145,8 @@ user owns, never a symlink), a pipeline run's own evidence folder
 (`~/.mattstack/work/<run id>/evidence/`, for a run that exists) and
 `rt.mcp.uploadRoots`, and anything whose bytes do not match its image or
 video extension; widen the roots through that setting, never by loosening
-the guard. Target resolution (`repoName` as identity, path or
+the guard; the setting warns on an entry that is `/`, the home folder or an
+ancestor of it. Target resolution (`repoName` as identity, path or
 label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; for a tool that
 resolves its target through `resolveMrTarget` or `resolveRepoTarget` there, a
 GitHub PR URL names a target only when the tool passes `github: true`, and

@@ -162,6 +162,26 @@ describe("selfUsername", () => {
     expect(await selfUsername(deps, ID)).toEqual({ ok: true, username: "me-bot" });
     expect(calls).toEqual([{ name: "forge:get", payload: { repoName: ID, path: "user" } }]);
   });
+
+  test("selfUsername reads forge:self on GitHub and forge:get user on GitLab", async () => {
+    const { deps, calls } = fake({
+      "forge:self": { username: "octo" },
+      "forge:get": { status: 200, body: { username: "me-bot" }, truncated: false, nextPage: null, totalPages: null },
+    });
+    expect(await selfUsername(deps, GH)).toEqual({ ok: true, username: "octo" });
+    expect(await selfUsername(deps, ID)).toEqual({ ok: true, username: "me-bot" });
+    expect(calls).toEqual([
+      { name: "forge:self", payload: { repoName: GH } },
+      { name: "forge:get", payload: { repoName: ID, path: "user" } },
+    ]);
+  });
+
+  test("a forge:self error on GitHub comes back as an error", async () => {
+    const { deps } = fake({ "forge:self": new Error("GitHub returned 401 Unauthorized") });
+    const r = await selfUsername(deps, GH);
+    expect(r.ok).toBe(false);
+    expect((r as { error: string }).error).toContain("401");
+  });
 });
 
 describe("mr_posted_since", () => {
@@ -208,20 +228,20 @@ describe("mr_posted_since", () => {
     expect(calls).toEqual([]);
   });
 
-  test("a GitHub identity is refused before any command", async () => {
-    const { deps, calls } = fake(answers());
-    const res = await tool(deps, "mr_posted_since").handler({ repoName: GH, iid: 7, since: SINCE, threads: [{ discussionId: "d1" }] }, ENV);
-    expect(res.ok).toBe(false);
-    expect(res.error).toStartWith("GitLab only: mr_posted_since does not speak GitHub");
-    expect(calls).toEqual([]);
+  test("mr_posted_since on GitHub with a named login skips forge:self", async () => {
+    const { deps, calls } = fake({ "discussions:refresh": { discussions: [disc("gh-review-thread-11", [note(901, { by: "octo" })])], fetchedAt: 5 } });
+    const res = await tool(deps, "mr_posted_since").handler({ repoName: GH, iid: 5, since: SINCE, by: "octo", threads: [{ discussionId: "gh-review-thread-11" }] }, ENV);
+    expect(calls).toEqual([{ name: "discussions:refresh", payload: { repoName: GH, iid: 5 } }]);
+    expect(res).toMatchObject({ ok: true, body: { by: "octo", threads: [{ discussionId: "gh-review-thread-11", posted: true, noteId: 901, via: "author" }] } });
   });
 
-  test("a GitHub mrUrl is refused naming the gh move, before any command", async () => {
-    const { deps, calls } = fake(answers());
-    const res = await tool(deps, "mr_posted_since").handler({ mrUrl: "https://github.com/acme/app/pull/3", since: SINCE, threads: [{ discussionId: "d1" }] }, ENV);
-    expect(res.ok).toBe(false);
-    expect(res.error).toBe("GitLab only: mr_posted_since does not speak GitHub; read threads with gh");
-    expect(calls).toEqual([]);
+  test("on GitLab by me keeps the forge:get path and its exact error strings", async () => {
+    const empty = fake({ ...answers(), "forge:get": { status: 200, body: {}, truncated: false, nextPage: null, totalPages: null } });
+    const res = await tool(empty.deps, "mr_posted_since").handler({ repoName: ID, iid: 7, since: SINCE, threads: [{ discussionId: "d1" }] }, ENV);
+    expect(res).toMatchObject({ ok: false, error: "GitLab's user read carried no username" });
+    expect(empty.calls.map((c) => c.name)).toEqual(["forge:get"]);
+    const bad = await tool(empty.deps, "mr_posted_since").handler({ repoName: ID, iid: 7, since: SINCE, by: " ", threads: [] }, ENV);
+    expect(bad.error).toBe('"by" must be a GitLab username or "me"');
   });
 
   test("a discussions:refresh error passes through verbatim", async () => {
@@ -231,10 +251,13 @@ describe("mr_posted_since", () => {
     expect(res.error).toBe("GitLab returned 404 Not Found: 404 Merge Request Not Found");
   });
 
-  test("the description starts GitLab only and names the target rule", () => {
+  test("the description names both forges, GitHub thread ids and the target rule", () => {
     const { deps } = fake();
     const t = tool(deps, "mr_posted_since");
-    expect(t.description).toStartWith("GitLab only.");
+    expect(t.description).not.toContain("GitLab only");
+    expect(t.description).toContain("gh-review-thread-");
+    expect(t.description).toContain("github.com/<owner>/<repo>/pull/<number>");
+    expect((t.inputSchema as any).properties.by.description).toContain("A forge username (a GitHub login)");
     expect(t.description).toContain("Name the target with repoName");
     expect(t.description).not.toContain("by by");
     expect(t.description).not.toContain("since since");
@@ -334,11 +357,42 @@ describe("mr_resolve_branch", () => {
       expect(calls[0]).toEqual({ name: "mr:get", payload: { repoName: GH, iid: 3 } });
     });
 
-    test("mr_map and mr_posted_since keep refusing a GitHub PR URL, before any command", async () => {
-      const { deps, calls } = fake(answers());
-      expect((await tool(deps, "mr_map").handler({ mrUrl: "https://github.com/acme/app/pull/3" }, ENV)).error).toStartWith("GitLab only: mr_map does not speak GitHub");
-      expect((await tool(deps, "mr_posted_since").handler({ mrUrl: "https://github.com/acme/app/pull/3", since: SINCE, threads: [{ discussionId: "d1" }] }, ENV)).error).toStartWith("GitLab only: mr_posted_since does not speak GitHub");
-      expect(calls).toEqual([]);
+    test("mr_map lists a GitHub repo's PRs from a PR URL", async () => {
+      const pr = (iid: number, sourceBranch: string) => ({
+        iid, title: `PR ${iid}`, state: "opened", draft: false, sourceBranch, targetBranch: "main", author: "octo", webUrl: null, detailedMergeStatus: null,
+      });
+      const { deps, calls } = fake({
+        "mr:list-live": { mrs: [pr(5, "feat-5"), pr(6, "feat-6")], truncated: false },
+        "worktree:list": { trees: [{ name: "five", kind: "worktree", path: "/trees/five", branch: "feat-5", repoName: GH, mr: null }] },
+        "forge:get": { body: { default_branch: "main" } },
+      });
+      deps.readMrCache = (async () => ({ ok: false, error: "x" })) as any;
+      deps.status = async () => "";
+      const res = (await tool(deps, "mr_map").handler({ mrUrl: "https://github.com/acme/app/pull/5" }, ENV)) as any;
+      expect(res.ok).toBe(true);
+      expect(calls.find((c) => c.name === "mr:list-live")!.payload.repoName).toBe(GH);
+      expect(res.body.rows.map((r: any) => r.ref)).toEqual(["#5", "#6"]);
+      expect(res.body.rows.map((r: any) => r.worktree)).toEqual(["/trees/five", null]);
+      expect(res.body.rows.map((r: any) => r.stacked)).toEqual([false, false]);
+      const gets = calls.filter((c) => c.name === "forge:get");
+      expect(gets).toEqual([{ name: "forge:get", payload: { repoName: GH, path: ":repo" } }]);
+    });
+
+    test("mr_posted_since matches a GitHub PR's notes by the token's login", async () => {
+      const { deps, calls } = fake({
+        "forge:self": { username: "octo" },
+        "discussions:refresh": { discussions: [disc("gh-review-thread-11", [note(42, { by: "octo", at: "2026-10-16T11:00:00Z" })])], fetchedAt: 5 },
+      });
+      const res = await tool(deps, "mr_posted_since").handler({ mrUrl: "https://github.com/acme/app/pull/5", by: "me", since: SINCE, threads: [{ discussionId: "gh-review-thread-11" }] }, ENV);
+      expect(calls).toEqual([
+        { name: "forge:self", payload: { repoName: GH } },
+        { name: "discussions:refresh", payload: { repoName: GH, iid: 5 } },
+      ]);
+      expect(res.ok).toBe(true);
+      const body = (res as any).body;
+      expect(body.by).toBe("octo");
+      expect(body.threads[0].posted).toBe(true);
+      expect(body.threads[0].noteId).toBe(42);
     });
   });
 
@@ -512,24 +566,24 @@ describe("mr_map", () => {
     expect(res.ok).toBe(false);
   });
 
-  test("a GitHub repoName, legacy repo or mrUrl is refused naming the gh move, before any command", async () => {
-    for (const input of [{ repoName: GH }, { repo: GH }, { repo: "github.com/acme/app" }, { mrUrl: "https://github.com/acme/app/pull/3" }]) {
-      const { deps, calls } = withDeps();
-      const res = await call(deps, input);
-      expect(res.ok).toBe(false);
-      expect(res.error).toStartWith("GitLab only: mr_map does not speak GitHub; ");
-      expect(res.error).toContain("gh pr list --author @me");
-      expect(calls).toEqual([]);
-    }
+  test("mr_map on GitHub degrades to stacked null when :repo fails", async () => {
+    const { deps, calls } = withDeps({ "forge:get": new Error("GitHub returned 404 Not Found") });
+    const res = (await call(deps, { repoName: GH })) as any;
+    expect(res.ok).toBe(true);
+    expect(calls.find((c) => c.name === "forge:get")!.payload).toEqual({ repoName: GH, path: ":repo" });
+    expect(res.body.rows.map((r: any) => r.stacked)).toEqual([null, null, null]);
+    expect(res.body.rows.map((r: any) => r.ref)).toEqual(["#1", "#2", "#3"]);
   });
 
-  test("the description starts GitLab only, says live, and names the target rule", () => {
+  test("the description names no single forge, says read live from the forge, and names the target rule", () => {
     const t = tool(fake().deps, "mr_map");
-    expect(t.description).toStartWith("GitLab only.");
-    expect(t.description).toContain("live");
+    expect(t.description).not.toContain("GitLab only");
+    expect(t.description).toContain("read live from the forge");
+    expect((t.shellForms as any).none).toContain("read live from the forge");
     expect(t.description).toContain("200");
     expect(t.description).toContain("Name the target with repoName");
     expect(Object.keys((t.inputSchema as any).properties).sort()).toEqual(["author", "mrUrl", "repo", "repoName"]);
+    expect((t.inputSchema as any).properties.author.description).toBe('A forge username (a GitHub login), or "me" for the token\'s own user. Omit for every author.');
   });
 });
 

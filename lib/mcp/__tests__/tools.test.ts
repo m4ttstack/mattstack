@@ -487,6 +487,34 @@ describe("mcpTools", () => {
       expect(res.error).toBe("no gitlabToken in secrets");
     });
 
+    describe("mr_comment_inline landing hint", () => {
+      const args = { repoName: "remote:x", iid: 7, body: "hi", path: "a.ts", line: 3 };
+
+      test("a timed-out mr_comment_inline says the note may still land and where to check", async () => {
+        fakeDaemon(() => ({ ok: false, error: "rt daemon unreachable at /x.sock: The operation timed out." }));
+        const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+        const res = await tool.handler(args, {} as NodeJS.ProcessEnv);
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain("may still land");
+        expect(res.error).toContain("the MR's discussions");
+      });
+
+      test("a daemon-unreachable mr_comment_inline error gets the same hint", async () => {
+        fakeDaemon(() => ({ ok: false, error: "rt daemon unreachable at /x.sock: connect ENOENT" }));
+        const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+        const res = await tool.handler(args, {} as NodeJS.ProcessEnv);
+        expect(res.error).toContain("may still land");
+        expect(res.error).toContain("the MR's discussions");
+      });
+
+      test("a daemon error that is not a timeout passes through unchanged", async () => {
+        fakeDaemon(() => ({ ok: false, error: "no gitlabToken in secrets" }));
+        const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+        const res = await tool.handler(args, {} as NodeJS.ProcessEnv);
+        expect(res.error).toBe("no gitlabToken in secrets");
+      });
+    });
+
     test("mr_create schema requires the branches and title, offers repoName, mrUrl, labels, squash and ifExists, and has no iid", () => {
       const schema = mcpTools().find((t) => t.name === "mr_create")!.inputSchema as { required?: string[]; properties?: Record<string, unknown> };
       expect(schema.required).toEqual(["sourceBranch", "targetBranch", "title"]);
@@ -678,12 +706,13 @@ describe("mcpTools", () => {
       expect(d).toContain("replyErrors (GitHub only: the review is up but those replies did not post and their threads stay unresolved; post each with mr_reply_thread, never by calling this again)");
       expect(d).not.toContain("unless all of it can");
       expect(d).toContain("A refused review posts nothing:");
+      expect(d).toContain('With outcome "approve", published: true with approved: false');
     });
 
-    test("schema requires outcome and summary and limits outcome to comment or approve", () => {
+    test("schema requires outcome and summary and limits outcome to comment, approve or request_changes", () => {
       const schema = tool().inputSchema as { required?: string[]; properties: Record<string, { enum?: string[] }> };
       expect(schema.required).toEqual(["outcome", "summary"]);
-      expect(schema.properties.outcome!.enum).toEqual(["comment", "approve"]);
+      expect(schema.properties.outcome!.enum).toEqual(["comment", "approve", "request_changes"]);
     });
 
     test("sends mr:review-submit with a long timeout and empty arrays by default", async () => {
@@ -692,8 +721,16 @@ describe("mcpTools", () => {
       expect(calls).toEqual([{ cmd: "mr:review-submit", payload: { ...TARGET, outcome: "comment", summary: "s", comments: [], replies: [] }, timeoutMs: 180_000 }]);
     });
 
+    test("sends request_changes to the daemon", async () => {
+      const out = await tool().handler({ ...TARGET, outcome: "request_changes", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect(out.ok).toBe(true);
+      expect(calls[0]!.payload.outcome).toBe("request_changes");
+    });
+
     test("refuses a bad outcome and non-array comments before calling the daemon", async () => {
-      expect((await tool().handler({ ...TARGET, outcome: "request_changes", summary: "s" }, {} as NodeJS.ProcessEnv)).ok).toBe(false);
+      const rejected = await tool().handler({ ...TARGET, outcome: "reject", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect(rejected.ok).toBe(false);
+      expect(JSON.stringify(rejected)).toContain("outcome must be comment, approve or request_changes");
       expect((await tool().handler({ ...TARGET, outcome: "comment", summary: "s", comments: "x" }, {} as NodeJS.ProcessEnv)).ok).toBe(false);
       expect(calls).toEqual([]);
     });
@@ -723,6 +760,23 @@ describe("mcpTools", () => {
         expect(out.error).toBe(error);
       });
     }
+
+    test("passes expectedHeadSha to the daemon and returns a head-moved reply as data", async () => {
+      const sha = "a".repeat(40);
+      const data = { published: false, reason: "head-moved", expectedHeadSha: sha, headSha: "b".repeat(40), mrUrl: "u" };
+      reply = () => ({ ok: true, data });
+      const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s", expectedHeadSha: sha }, {} as NodeJS.ProcessEnv);
+      expect(calls[0]!.payload.expectedHeadSha).toBe(sha);
+      expect(out).toEqual({ ok: true, body: data });
+    });
+
+    test("leaves expectedHeadSha off the payload when not given, and the schema and description carry it", async () => {
+      await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect("expectedHeadSha" in calls[0]!.payload).toBe(false);
+      const schema = tool().inputSchema as { properties: Record<string, { type?: string; description?: string }> };
+      expect(schema.properties.expectedHeadSha).toEqual({ type: "string", description: "the full head sha you reviewed" });
+      expect(tool().description).toContain('reason "head-moved"');
+    });
 
     test("a bare request timeout is still rewritten to the outcome-unknown wording", async () => {
       reply = () => ({ ok: false, error: "request timed out" });
