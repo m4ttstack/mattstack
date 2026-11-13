@@ -30,11 +30,13 @@ const other = Bun.serve({
 });
 
 let status = 302;
+const hostAuth: string[] = [];
 const host = Bun.serve({
   hostname: '127.0.0.1',
   port: 0,
   fetch(req) {
     const url = new URL(req.url);
+    hostAuth.push(req.headers.get('authorization') ?? '');
     return new Response(null, { status, headers: { location: `http://127.0.0.1:${other.port}${url.pathname}` } });
   },
 });
@@ -45,8 +47,12 @@ afterAll(() => {
 });
 beforeEach(() => {
   otherSeen.length = 0;
+  hostAuth.length = 0;
   status = 302;
 });
+
+/** The GitHub host itself got the token, so a clean other origin means it was dropped, not never sent. */
+const hostGotToken = () => expect(hostAuth.map((a) => a.includes(TOKEN))).toEqual([true]);
 
 const provider = () => new GitHubProvider(`http://127.0.0.1:${host.port}`, TOKEN);
 
@@ -55,12 +61,14 @@ describe('a GitHub host redirecting to another origin', () => {
     const user = await provider().fetchUser('ada');
     expect(user).not.toBeNull();
     expect(otherSeen).toEqual([{ method: 'GET', path: '/api/v3/users/ada', carriedToken: false }]);
+    hostGotToken();
   });
 
   test('a REST write sent on through a 307 arrives without the token', async () => {
     status = 307;
     await provider().restRequest('POST', '/repos/o/r/issues/1/comments', { body: 'hi' });
     expect(otherSeen).toEqual([{ method: 'POST', path: '/api/v3/repos/o/r/issues/1/comments', carriedToken: false }]);
+    hostGotToken();
   });
 
   test('a GraphQL query sent on through a 307 arrives without the token', async () => {
@@ -70,5 +78,6 @@ describe('a GitHub host redirecting to another origin', () => {
     };
     await gql.graphqlOrThrow('viewer', 'query { viewer { login } }', {});
     expect(otherSeen).toEqual([{ method: 'POST', path: '/api/graphql', carriedToken: false }]);
+    hostGotToken();
   });
 });

@@ -21,6 +21,7 @@ interface Seen {
 interface HostHit {
   method: string;
   path: string;
+  carriedToken: boolean;
 }
 
 const otherSeen: Seen[] = [];
@@ -46,7 +47,7 @@ const host = Bun.serve({
   port: 0,
   fetch(req) {
     const url = new URL(req.url);
-    hostSeen.push({ method: req.method, path: url.pathname });
+    hostSeen.push({ method: req.method, path: url.pathname, carriedToken: req.headers.get('private-token') === TOKEN });
     return route(req, url);
   },
 });
@@ -100,6 +101,26 @@ describe('a GitLab host redirecting to another origin', () => {
     expect(hostSeen).toHaveLength(1);
   });
 
+  test.each(PATHS.filter(([name]) => name !== 'GraphQL (fetchPullRequests)'))(
+    '%s sends the token to the GitLab host itself',
+    async (_name, call) => {
+      route = toOther(302);
+      await call().catch(() => undefined);
+      expect(hostSeen.map((s) => s.carriedToken)).toEqual([true]);
+    },
+  );
+
+  test('a hop to another origin after a same-origin hop is still refused', async () => {
+    route = (_req, url) =>
+      url.pathname.startsWith('/moved')
+        ? new Response(null, { status: 302, headers: { location: `${OTHER}${url.pathname}` } })
+        : new Response(null, { status: 302, headers: { location: `/moved${url.pathname}` } });
+    const err = await provider().restRequest('GET', '/projects/1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CrossOriginRedirectError);
+    expect(hostSeen.map((s) => s.path)).toEqual(['/api/v4/projects/1', '/moved/api/v4/projects/1']);
+    expect(otherSeen).toEqual([]);
+  });
+
   test('a 307 on a write is refused the same way', async () => {
     route = toOther(307);
     const err = await mutator().createNote('g/p', 7, 'hi').catch((e: unknown) => e);
@@ -122,11 +143,14 @@ describe('a GitLab host redirecting within its own origin', () => {
       ? final(req, url)
       : new Response(null, { status: 302, headers: { location: `/moved${url.pathname}${url.search}` } });
 
-  test('gitbeaker follows it', async () => {
+  test('gitbeaker follows it, with the token on both hops', async () => {
     route = sameOrigin(() => Response.json([{ id: 9, username: 'ada', name: 'Ada', avatar_url: null }]));
     const user = await provider().fetchUser('ada');
     expect(user?.username).toBe('ada');
-    expect(hostSeen.map((s) => s.path)).toEqual(['/api/v4/users', '/moved/api/v4/users']);
+    expect(hostSeen).toEqual([
+      { method: 'GET', path: '/api/v4/users', carriedToken: true },
+      { method: 'GET', path: '/moved/api/v4/users', carriedToken: true },
+    ]);
   });
 
   test('restJson follows it', async () => {
@@ -134,10 +158,11 @@ describe('a GitLab host redirecting within its own origin', () => {
     expect(await provider().fetchProject('g/p')).toEqual({ id: 'gitlab:5', fullPath: 'g/p' });
   });
 
-  test('restRequest follows it', async () => {
+  test('restRequest follows it, with the token on both hops', async () => {
     route = sameOrigin(() => Response.json({ ok: true }));
     const res = await provider().restRequest('GET', '/projects/1');
     expect(await res.json()).toEqual({ ok: true });
+    expect(hostSeen.map((s) => s.carriedToken)).toEqual([true, true]);
   });
 
   test('GraphQL follows it', async () => {

@@ -335,7 +335,9 @@ async function redirectServers(token) {
   });
   const otherBase = `http://127.0.0.1:${other.address().port}`;
   let target = 'other';
+  const hostSeen = [];
   const host = await listen((req, res) => {
+    hostSeen.push(Object.values(req.headers).join('\n').includes(token));
     if (req.url.startsWith('/moved')) {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"id":5,"path_with_namespace":"g/p"}');
@@ -346,6 +348,7 @@ async function redirectServers(token) {
   return {
     base: `http://127.0.0.1:${host.address().port}`,
     otherSeen,
+    hostSeen,
     sameOrigin: () => (target = 'self'),
     close: () => (host.close(), other.close())
   };
@@ -358,6 +361,7 @@ await check('a GitLab redirect to another origin is refused before the token goe
     await assert.rejects(() => p.restRequest('GET', '/projects/1'), CrossOriginRedirectError);
     await assert.rejects(() => p.fetchUser('ada'), CrossOriginRedirectError);
     assert.deepEqual(s.otherSeen, []);
+    assert.deepEqual(s.hostSeen, [true, true], 'the GitLab host itself must get the token');
   } finally {
     s.close();
   }
@@ -380,6 +384,7 @@ await check('a GitHub redirect to another origin arrives without the token', asy
     const user = await new GitHubProvider(s.base, 'ghp_smoke').fetchUser('ada');
     assert.equal(user.username, 'ada');
     assert.deepEqual(s.otherSeen, [false]);
+    assert.deepEqual(s.hostSeen, [true], 'the GitHub host itself must get the token');
   } finally {
     s.close();
   }

@@ -473,7 +473,9 @@ limited and, when GitHub said, when the limit resets. A caller that retries on
 
 Every `GitLabProvider` request, and `NoteMutator` and `MRDetailFetcher`,
 follows a redirect only while it stays on the GitLab host's origin (scheme,
-host and port), or moves from `http://` to `https://` on the same host. A hop
+host and port), or moves from `http://` to `https://` on the same host with
+both on their default ports (`http://gl.example:8080` to `https://gl.example`
+is refused). A hop
 anywhere else throws `CrossOriginRedirectError` before any request goes there,
 because fetch keeps the `PRIVATE-TOKEN` header on a cross-origin redirect. It
 is never retried, so a `baseURL` on a host name that redirects to another name

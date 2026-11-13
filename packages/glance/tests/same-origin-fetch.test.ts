@@ -77,9 +77,10 @@ describe('fetchSameOrigin', () => {
     expect(hits[1]?.body).toContain('a.bin');
   });
 
-  test('a 3xx with no location comes back as is', async () => {
-    route = () => new Response(null, { status: 304 });
-    expect((await fetchSameOrigin(`${BASE}/start`)).status).toBe(304);
+  test.each([302, 304])('a %i with no location comes back as is', async (status) => {
+    route = () => new Response('kept', { status });
+    const res = await fetchSameOrigin(`${BASE}/start`);
+    expect(res.status).toBe(status);
     expect(hits).toHaveLength(1);
   });
 
@@ -128,6 +129,7 @@ describe('mayFollowRedirect', () => {
     ['the same origin', 'https://gl.example/a', 'https://gl.example/b', true],
     ['an http to https upgrade on the same host', 'http://gl.example/a', 'https://gl.example/a', true],
     ['an upgrade that also changes the port', 'http://gl.example/a', 'https://gl.example:8443/a', false],
+    ['an upgrade from a non-default port', 'http://gl.example:8080/a', 'https://gl.example/a', false],
     ['an https to http downgrade', 'https://gl.example/a', 'http://gl.example/a', false],
     ['another port', 'https://gl.example/a', 'https://gl.example:8443/a', false],
     ['another host', 'https://gl.example/a', 'https://other.example/a', false],
