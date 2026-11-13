@@ -17,7 +17,7 @@ import type { Block } from "../../lib/ui/protocol.ts";
 import { warn } from "../../lib/ui/warn.ts";
 import { runGit, type GitResult } from "../../lib/worktree/git-async.ts";
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
-import { classifyClone, helperEntries, realCloneDeps, rtWired, type CloneCause, type CloneDeps, type CloneState } from "./clone-state.ts";
+import { classifyClone, helperEntries, realCloneDeps, type CloneCause, type CloneDeps, type CloneState } from "./clone-state.ts";
 import { forgeName, sshToHttps } from "./origin-auth.ts";
 import { failUsage, failWith, printable, refusalNote, refuseWith } from "./shared.ts";
 
@@ -135,9 +135,12 @@ async function repoRoot(dir: string, git: Git): Promise<string | null> {
   }
 }
 
+/** Throws when git cannot read the config: an unread value must never pass as absent. */
 async function configValues(root: string, key: string, git: Git): Promise<string[]> {
-  const res = await git(root, ["config", "--get-all", key]);
-  return res.exitCode === 0 ? res.stdout.split("\n").filter((v) => v !== "") : [];
+  const res = await git(root, ["config", "--local", "--get-all", "-z", key]);
+  if (res.exitCode === 1) return [];
+  if (res.exitCode !== 0) throw new Error("git could not read this clone's config");
+  return res.stdout.split("\0").slice(0, -1);
 }
 
 function connectNext(s: CloneState): out.CellInput {
@@ -163,11 +166,11 @@ function cleanDetails(stderr: string): string | undefined {
   return text === "" ? undefined : text;
 }
 
-/** A failure after origin already switched: the undo is the one way back. */
-function failPartway(json: boolean, error: string, title: string, undo: string[], details?: string): never {
-  if (json) out.json({ ok: false, error, undo });
-  else out.fail({ title, details }, out.copy(undo.join("\n"), "to undo"));
-  process.exit(1);
+const HELD_CREDENTIALS = out.callout("note", "The old URL held credentials rt will not print, so its undo is left out");
+
+/** What follows a failure or the done line: the undo commands, and why one is missing. */
+function undoBlocks(undo: string[], withheld: boolean): Block[] {
+  return [...(withheld ? [HELD_CREDENTIALS] : []), ...(undo.length > 0 ? [out.copy(undo.join("\n"), "to undo")] : [])];
 }
 
 async function setUp(path: string | undefined, o: SetUpOpts, deps: AuthDeps): Promise<void> {
@@ -176,7 +179,10 @@ async function setUp(path: string | undefined, o: SetUpOpts, deps: AuthDeps): Pr
   const root = await repoRoot(dir, git);
   if (root === null) refuse(o.json, "not-a-repo", { title: "Not a git repo", hint: dir });
   const label = basename(root);
-  const unreadable = (): never => refuse(o.json, "config-unreadable", { title: "rt could not read this clone's git config" });
+  const unreadable = (): never => {
+    warn("git-auth", "rt could not read a clone's git config", { context: { path: root } });
+    return refuse(o.json, "config-unreadable", { title: "rt could not read this clone's git config" });
+  };
 
   let s: CloneState;
   try {
@@ -257,45 +263,53 @@ async function setUp(path: string | undefined, o: SetUpOpts, deps: AuthDeps): Pr
     out.print(...plan);
   }
 
+  // The undo names the clone, so a paste from another folder cannot change a different one.
+  const inClone = `git -C ${shellQuote(root)}`;
   const undo: string[] = [];
-  const shownFrom = printable(from);
+  let withheld = false;
+  /** A URL that held credentials gets no undo: a redacted one would set a different URL. */
+  const pushUrlUndo = (flag: string, url: string): void => {
+    if (printable(url) === url) undo.push(`${inClone} remote set-url ${flag}origin ${shellQuote(url)}`);
+    else withheld = true;
+  };
+  const failPartway = (error: string, title: string, details: string | undefined): never =>
+    failWith(o.json, error, { title, details }, { after: undoBlocks(undo, withheld), fields: { undo } });
+
   if (switching) {
     const set = await git(root, ["remote", "set-url", "origin", to]);
     if (set.exitCode !== 0) failWith(o.json, "origin-switch-failed", { title: "Could not switch origin to https", details: cleanDetails(set.stderr) });
-    undo.push(`git remote set-url origin ${shellQuote(shownFrom)}`);
+    pushUrlUndo("", from);
     if (pushPlan === "rewrite") {
       const push = await git(root, ["remote", "set-url", "--push", "origin", to]);
-      if (push.exitCode !== 0) failPartway(o.json, "push-switch-failed", "Switched origin to https, but not its push URL", undo, cleanDetails(push.stderr));
-      undo.push(`git remote set-url --push origin ${shellQuote(printable(oldPush!))}`);
+      if (push.exitCode !== 0) failPartway("push-switch-failed", "Switched origin to https, but not its push URL", cleanDetails(push.stderr));
+      pushUrlUndo("--push ", oldPush!);
     }
   }
 
   if (needHelper) {
-    const helperUndo = `git config --unset-all ${key}`;
+    const helperUndo = `${inClone} config --unset-all ${key}`;
     const first = await git(root, ["config", "--local", "--add", key, ""]);
     const second = first.exitCode === 0 ? await git(root, ["config", "--local", "--add", key, rtCredentialHelper(deps.rtLink)]) : first;
     if (second.exitCode !== 0) {
       // A lone empty value would switch off every helper for the host.
       const cleaned = first.exitCode !== 0 || (await git(root, ["config", "--local", "--unset-all", key])).exitCode === 0;
       const details = cleanDetails(second.stderr);
-      if (switching) failPartway(o.json, "helper-write-failed", "Switched origin to https, but could not add rt's helper", [...undo, helperUndo], details);
-      failWith(o.json, "helper-write-failed", {
-        title: "Could not add rt's credential helper",
-        ...(cleaned ? { why: "Nothing changed in this clone" } : { next: out.cmd(helperUndo) }),
-        details,
-      });
+      if (switching) {
+        undo.push(helperUndo);
+        failPartway("helper-write-failed", "Switched origin to https, but could not add rt's helper", details);
+      }
+      if (cleaned) failWith(o.json, "helper-write-failed", { title: "Could not add rt's credential helper", why: "Nothing changed in this clone", details });
+      failWith(o.json, "helper-write-failed", { title: "Could not add rt's credential helper", next: out.cmd(helperUndo), details }, { fields: { undo: [helperUndo] } });
     }
     undo.push(helperUndo);
   }
 
   if (o.json) {
-    deps.print(JSON.stringify({ ok: true, path: root, host, changed: true, ...(switching ? { from: shownFrom, to } : {}), undo }));
+    deps.print(JSON.stringify({ ok: true, path: root, host, changed: true, ...(switching ? { from: printable(from), to } : {}), undo }));
     return;
   }
   const token = `rt's ${forgeName(s.forge)} token`;
   const blocks: Block[] = [out.line("done", label, switching ? `now uses https and ${token}` : `now uses ${token}`)];
   if (pushPlan === "leave") blocks.push(out.callout("note", "Its push URL points elsewhere, so rt left it as it was"));
-  if (switching && shownFrom !== from) blocks.push(out.callout("note", "The old URL held credentials, so the undo leaves them out"));
-  blocks.push(out.copy(undo.join("\n"), "to undo"));
-  out.print(...blocks);
+  out.print(...blocks, ...undoBlocks(undo, withheld));
 }

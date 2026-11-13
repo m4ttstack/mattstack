@@ -14,6 +14,20 @@ import { createOriginAuth } from "../origin-auth.ts";
 import { exitCodeOf, git, inDir, makeRepo, TOKEN, trapExit } from "./helpers.ts";
 
 const KEY = "credential.https://gitlab.com.helper";
+const LOCK_FAIL = { stdout: "", stderr: "error: could not lock config file", exitCode: 255 };
+
+function helperUndo(repo: string): string {
+  return `git -C ${shellQuote(repo)} config --unset-all ${KEY}`;
+}
+
+function originUndo(repo: string, url: string, push = false): string {
+  return `git -C ${shellQuote(repo)} remote set-url ${push ? "--push " : ""}origin ${url}`;
+}
+
+/** Real git except where `fails` says so. */
+function gitFailing(fails: (args: string[]) => boolean): NonNullable<AuthDeps["git"]> {
+  return async (cwd, args) => (fails(args) ? LOCK_FAIL : runGit(cwd, args));
+}
 
 let root: string;
 let link: string;
@@ -121,7 +135,7 @@ describe("rt git auth, plain form", () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");
     await run([repo], harness());
     expect(io.stdout()).toContain("now uses rt's GitLab token");
-    expect(io.stdout()).toContain(`git config --unset-all ${KEY}`);
+    expect(io.stdout()).toContain(helperUndo(repo));
   });
 
   test("--json success is the frozen shape", async () => {
@@ -129,7 +143,7 @@ describe("rt git auth, plain form", () => {
     const h = harness();
     expect(await run([repo, "--yes", "--json"], h)).toBeNull();
     expect(h.printed).toHaveLength(1);
-    expect(JSON.parse(h.printed[0]!)).toEqual({ ok: true, path: repo, host: "gitlab.com", changed: true, undo: [`git config --unset-all ${KEY}`] });
+    expect(JSON.parse(h.printed[0]!)).toEqual({ ok: true, path: repo, host: "gitlab.com", changed: true, undo: [helperUndo(repo)] });
     expect(io.stdout()).toBe("");
     expect(io.stderr()).toBe("");
   });
@@ -239,6 +253,18 @@ describe("rt git auth, plain form", () => {
     expect(io.stderr()).toContain("rt could not read this clone's git config");
     expect(io.stderr()).not.toContain("boom");
     expect(io.stderr()).not.toContain("LEAKCHECK");
+    io.clear();
+    expect(await run([repo, "--json"], h)).toBe(1);
+    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "config-unreadable" });
+  });
+
+  test("an origin read git fails on (not just absent) is refused config-unreadable and writes nothing", async () => {
+    const repo = repoWith("git@gitlab.com:acme/x.git");
+    const before = config(repo);
+    const h = harness({ git: gitFailing((args) => args.includes("remote.origin.pushurl")) });
+    expect(await run(["--https", repo, "--yes", "--json"], h)).toBe(1);
+    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "config-unreadable" });
+    expect(config(repo)).toBe(before);
   });
 
   test("ssh origin, plain form: refused ssh-origin, names --https only when the state is off", async () => {
@@ -291,7 +317,7 @@ describe("rt git auth --https", () => {
     expect(JSON.parse(h.printed[0]!)).toEqual({
       ok: true, path: repo, host: "gitlab.com", changed: true,
       from: "ssh://git@gitlab.com:2222/acme/x.git", to: "https://gitlab.com/acme/x.git",
-      undo: ["git remote set-url origin ssh://git@gitlab.com:2222/acme/x.git", `git config --unset-all ${KEY}`],
+      undo: [originUndo(repo, "ssh://git@gitlab.com:2222/acme/x.git"), helperUndo(repo)],
     });
     expect(io.stderr()).toBe("");
   });
@@ -299,7 +325,9 @@ describe("rt git auth --https", () => {
   test("a no at the --https prompt switches nothing", async () => {
     const repo = repoWith("git@gitlab.com:acme/x.git");
     const before = config(repo);
-    expect(await run(["--https", repo], harness({ answer: false }))).toBeNull();
+    const h = harness({ answer: false });
+    expect(await run(["--https", repo], h)).toBeNull();
+    expect(h.prompts).toEqual(["Switch origin and add rt's helper?"]);
     expect(config(repo)).toBe(before);
   });
 
@@ -308,7 +336,7 @@ describe("rt git auth --https", () => {
     git(same, "config", "remote.origin.pushurl", "ssh://git@gitlab.com/acme/x.git");
     expect(await run(["--https", same, "--yes"], harness())).toBeNull();
     expect(git(same, "config", "--get-all", "remote.origin.pushurl")).toBe("https://gitlab.com/acme/x.git");
-    expect(io.stdout()).toContain("git remote set-url --push origin ssh://git@gitlab.com/acme/x.git");
+    expect(io.stdout()).toContain(originUndo(same, "ssh://git@gitlab.com/acme/x.git", true));
 
     const other = repoWith("git@gitlab.com:acme/x.git", "other");
     git(other, "config", "remote.origin.pushurl", "git@gitlab.com:acme/fork.git");
@@ -364,15 +392,15 @@ describe("rt git auth --https", () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");
     const h = harness();
     expect(await run(["--https", repo, "--yes", "--json"], h)).toBeNull();
-    expect(JSON.parse(h.printed[0]!)).toEqual({ ok: true, path: repo, host: "gitlab.com", changed: true, undo: [`git config --unset-all ${KEY}`] });
+    expect(JSON.parse(h.printed[0]!)).toEqual({ ok: true, path: repo, host: "gitlab.com", changed: true, undo: [helperUndo(repo)] });
     expect(git(repo, "remote", "get-url", "origin")).toBe("https://gitlab.com/acme/x.git");
   });
 
   test("--https names both undo commands", async () => {
     const repo = repoWith("git@gitlab.com:acme/x.git");
     await run(["--https", repo, "--yes"], harness());
-    expect(io.stdout()).toContain("git remote set-url origin git@gitlab.com:acme/x.git");
-    expect(io.stdout()).toContain(`git config --unset-all ${KEY}`);
+    expect(io.stdout()).toContain(originUndo(repo, "git@gitlab.com:acme/x.git"));
+    expect(io.stdout()).toContain(helperUndo(repo));
   });
 
   test("--https on an ssh clone rt already wired switches origin and adds no second pair", async () => {
@@ -381,50 +409,97 @@ describe("rt git auth --https", () => {
     const h = harness();
     expect(await run(["--https", repo, "--yes", "--json"], h)).toBeNull();
     expect(helpers(repo)).toEqual(["", rtCredentialHelper(link)]);
-    expect(JSON.parse(h.printed[0]!).undo).toEqual(["git remote set-url origin git@gitlab.com:acme/x.git"]);
+    expect(JSON.parse(h.printed[0]!).undo).toEqual([originUndo(repo, "git@gitlab.com:acme/x.git")]);
   });
 
-  test("an old origin holding a password is never printed and the undo leaves it out, saying so", async () => {
-    const repo = repoWith(`ssh://sam:${TOKEN}@gitlab.com/acme/x.git`);
-    const h = harness();
-    expect(await run(["--https", repo, "--yes"], h)).toBeNull();
+  test("an old origin holding credentials is never printed and its undo is left out, saying so", async () => {
+    const origins: Array<[string, string]> = [["pw", `ssh://sam:${TOKEN}@gitlab.com/acme/x.git`], ["scp", `${TOKEN}@gitlab.com:acme/x.git`]];
+    for (const [name, origin] of origins) {
+      const repo = repoWith(origin, name);
+      io.clear();
+      // The --json run before this one moved human text to stderr for the rest of the process.
+      out.__test__.reset();
+      out.__test__.setHuman(() => false);
+      expect([name, await run(["--https", repo, "--yes"], harness())]).toEqual([name, null]);
+      expect(git(repo, "remote", "get-url", "origin")).toBe("https://gitlab.com/acme/x.git");
+      expect(io.stdout()).not.toContain("LEAKCHECK");
+      expect(io.stdout()).not.toContain("set-url");
+      expect(io.stdout()).toContain("credentials rt will not print");
+      expect(io.stdout()).toContain(helperUndo(repo));
+
+      const fresh = repoWith(origin, `${name}-json`);
+      const h = harness();
+      expect([name, await run(["--https", fresh, "--yes", "--json"], h)]).toEqual([name, null]);
+      expect(h.printed[0]).not.toContain("LEAKCHECK");
+      const env = JSON.parse(h.printed[0]!);
+      expect(env.changed).toBe(true);
+      expect(env.undo).toEqual([helperUndo(fresh)]);
+    }
+  });
+
+  test("an origin switch that fails changes nothing", async () => {
+    const repo = repoWith("git@gitlab.com:acme/x.git");
+    const before = config(repo);
+    const h = harness({ git: gitFailing((args) => args[0] === "remote" && args[1] === "set-url" && !args.includes("--push")) });
+    expect(await run(["--https", repo, "--yes", "--json"], h)).toBe(1);
+    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "origin-switch-failed" });
+    expect(config(repo)).toBe(before);
+  });
+
+  test("a push URL switch that fails after origin switched reports it with origin's undo", async () => {
+    const repo = repoWith("git@gitlab.com:acme/x.git");
+    git(repo, "config", "remote.origin.pushurl", "git@gitlab.com:acme/x.git");
+    const h = harness({ git: gitFailing((args) => args.includes("--push")) });
+    expect(await run(["--https", repo, "--yes"], h)).toBe(1);
     expect(git(repo, "remote", "get-url", "origin")).toBe("https://gitlab.com/acme/x.git");
-    expect(io.stdout()).not.toContain("LEAKCHECK");
-    expect(io.stdout()).toContain("leaves them out");
-    expect(await run(["--https", repo, "--yes", "--json"], h)).toBeNull();
-    expect(h.printed.join("\n")).not.toContain("LEAKCHECK");
+    expect(helpers(repo)).toEqual([]);
+    expect(io.stderr()).toContain("Switched origin to https, but not its push URL");
+    expect(io.stderr()).toContain(originUndo(repo, "git@gitlab.com:acme/x.git"));
+
+    const again = repoWith("git@gitlab.com:acme/y.git", "again");
+    git(again, "config", "remote.origin.pushurl", "git@gitlab.com:acme/y.git");
+    io.clear();
+    expect(await run(["--https", again, "--yes", "--json"], h)).toBe(1);
+    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "push-switch-failed", undo: [originUndo(again, "git@gitlab.com:acme/y.git")] });
   });
 
   test("a helper write that fails after the origin switch reports the switch, the failure and both undo commands", async () => {
     const repo = repoWith("git@gitlab.com:acme/x.git");
-    const failing: AuthDeps["git"] = async (cwd, args) => {
-      if (args.includes("--add") && args.at(-1) !== "") return { stdout: "", stderr: "error: could not lock config file", exitCode: 255 };
-      return runGit(cwd, args);
-    };
-    const h = harness({ git: failing });
+    const h = harness({ git: gitFailing((args) => args.includes("--add") && args.at(-1) !== "") });
     expect(await run(["--https", repo, "--yes"], h)).toBe(1);
     expect(git(repo, "remote", "get-url", "origin")).toBe("https://gitlab.com/acme/x.git");
     expect(helpers(repo)).toEqual([]);
     const err = io.stderr();
     expect(err).toContain("Switched origin to https");
-    expect(err).toContain("git remote set-url origin git@gitlab.com:acme/x.git");
-    expect(err).toContain(`git config --unset-all ${KEY}`);
+    expect(err).toContain(originUndo(repo, "git@gitlab.com:acme/x.git"));
+    expect(err).toContain(helperUndo(repo));
 
     const again = repoWith("git@gitlab.com:acme/y.git", "again");
     io.clear();
     expect(await run(["--https", again, "--yes", "--json"], h)).toBe(1);
-    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "helper-write-failed", undo: ["git remote set-url origin git@gitlab.com:acme/y.git", `git config --unset-all ${KEY}`] });
+    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "helper-write-failed", undo: [originUndo(again, "git@gitlab.com:acme/y.git"), helperUndo(again)] });
   });
 
   test("a plain helper write that fails leaves no half pair behind", async () => {
     const repo = repoWith("https://gitlab.com/acme/x.git");
-    const failing: AuthDeps["git"] = async (cwd, args) => {
-      if (args.includes("--add") && args.at(-1) !== "") return { stdout: "", stderr: "error: could not lock config file", exitCode: 255 };
-      return runGit(cwd, args);
-    };
-    expect(await run([repo, "--yes", "--json"], harness({ git: failing }))).toBe(1);
+    const h = harness({ git: gitFailing((args) => args.includes("--add") && args.at(-1) !== "") });
+    expect(await run([repo, "--yes", "--json"], h)).toBe(1);
     expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "helper-write-failed" });
     expect(helpers(repo)).toEqual([]);
+  });
+
+  test("when removing the half pair fails too, the failure names the undo", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    const h = harness({ git: gitFailing((args) => (args.includes("--add") && args.at(-1) !== "") || args.includes("--unset-all")) });
+    expect(await run([repo, "--yes"], h)).toBe(1);
+    expect(helpers(repo)).toEqual([""]);
+    expect(io.stderr()).toContain(helperUndo(repo));
+    expect(io.stderr()).not.toContain("Nothing changed");
+
+    const again = repoWith("https://gitlab.com/acme/y.git", "again");
+    io.clear();
+    expect(await run([again, "--yes", "--json"], h)).toBe(1);
+    expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "helper-write-failed", undo: [helperUndo(again)] });
   });
 });
 

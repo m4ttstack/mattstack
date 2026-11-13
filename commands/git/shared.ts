@@ -16,9 +16,9 @@ import { createOriginAuth, forgeName, helperEnv, type Forge, type OriginAuth, ty
  * on, so it is passed in separately from what a person reads. Exit 1 either
  * way.
  */
-export function failWith(json: boolean, error: string, failure: out.FailureInput): never {
-  if (json) out.json({ ok: false, error });
-  else out.fail(failure);
+export function failWith(json: boolean, error: string, failure: out.FailureInput, extra: { after?: Block[]; fields?: Record<string, unknown> } = {}): never {
+  if (json) out.json({ ok: false, error, ...extra.fields });
+  else out.fail(failure, ...(extra.after ?? []));
   process.exit(1);
 }
 
