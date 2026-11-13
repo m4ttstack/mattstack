@@ -85,6 +85,7 @@ describe("mr:attach-upload", () => {
     rewrite?: Record<string, number>;
     readStatus?: number;
     deleteFails?: boolean;
+    dropMarker?: boolean;
   };
 
   function harness(overrides: Partial<MrUploadSeams> & { gh?: GhScript; provider?: ProviderScript } = {}) {
@@ -99,6 +100,7 @@ describe("mr:attach-upload", () => {
         if (ps.readStatus && ps.readStatus !== 200) return new Response("nope", { status: ps.readStatus });
         let body = readFileSync(join(logDir, "body.md"), "utf8");
         for (const [name, n] of Object.entries(ps.rewrite ?? {})) body = body.split(`](./${name})`).join(`](${url(n)})`);
+        if (ps.dropMarker) body = body.replace(/<!-- rt-attach [^>]* -->\n/, "");
         return new Response(JSON.stringify({ id: 123, body }), { status: 200, headers: { "content-type": "application/json" } });
       },
       deleteComment: async (projectPath, iid, note) => {
@@ -272,8 +274,72 @@ describe("mr:attach-upload", () => {
     const { files } = twoFiles();
     const h = harness({ gh: { stdout: "done" } });
     const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
-    expect(res).toEqual({ ok: false, error: "gh pr comment printed no comment URL, so the image URLs could not be read" });
+    expect(res).toEqual({ ok: false, error: "gh pr comment printed no comment URL for this PR, so the image URLs could not be read" });
     expect(h.deletes).toEqual([]);
+  });
+
+  for (const [label, stdout] of [
+    ["another PR", "https://github.com/acme/web/pull/43#issuecomment-999"],
+    ["another repo", "https://github.com/acme/other/pull/42#issuecomment-999"],
+    ["a URL inside other text", "see https://github.com/acme/web/pull/42#issuecomment-999 there"],
+  ] as const) {
+    test(`a comment URL for ${label} yields no id: no read, no delete, and the verb fails`, async () => {
+      const { files } = twoFiles();
+      const h = harness({ gh: { stdout }, provider: BOTH });
+      const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+      expect(res).toEqual({ ok: false, error: "gh pr comment printed no comment URL for this PR, so the image URLs could not be read" });
+      expect(h.reads).toEqual([]);
+      expect(h.deletes).toEqual([]);
+    });
+  }
+
+  test("the PR URL matches its repo path ignoring case", async () => {
+    const { files } = twoFiles();
+    const h = harness({ gh: { stdout: "https://github.com/Acme/Web/pull/42#issuecomment-123" }, provider: BOTH });
+    const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    expect(res.ok).toBe(true);
+    expect(h.deletes).toEqual([{ projectPath: "acme/web", iid: 42, note: { id: 123, kind: "general" } }]);
+  });
+
+  test("a read-back without this call's marker is not deleted, warns once without the token, and fails", async () => {
+    const { files } = twoFiles();
+    const h = harness({ provider: { ...BOTH, dropMarker: true } });
+    const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    expect(res).toEqual({ ok: false, error: "comment 123 is not this upload's holder comment, so it was left alone" });
+    expect(h.deletes).toEqual([]);
+    expect(h.warns.length).toBe(1);
+    expect(h.warns[0]!.message).toContain("not this upload's holder");
+    expect(JSON.stringify(h.warns)).not.toContain(TOKEN);
+  });
+
+  test("each call's holder carries its own marker", async () => {
+    const { files } = twoFiles();
+    const markers: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      await harness({ provider: BOTH }).handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+      const m = /<!-- rt-attach (\S+) -->/.exec(readFileSync(join(logDir, "body.md"), "utf8"));
+      expect(m).not.toBeNull();
+      markers.push(m![1]!);
+    }
+    expect(markers[0]).not.toBe(markers[1]);
+  });
+
+  test("a URL that is not a GitHub user attachment is not taken", async () => {
+    const { files } = twoFiles();
+    const h = harness({
+      attachContext: async () => ({
+        projectPath: "acme/web",
+        provider: {
+          restRequest: async () => {
+            const body = readFileSync(join(logDir, "body.md"), "utf8").split("](./latch-42-armed.gif)").join("](https://example.com/x.gif)").split("](./latch-42-queued.gif)").join(`](${url(2)})`);
+            return new Response(JSON.stringify({ body }), { status: 200 });
+          },
+          deleteComment: async () => {},
+        },
+      }),
+    });
+    const res = await h.handlers["mr:attach-upload"]({ repoName: REPO, iid: 42, files });
+    expect(res).toEqual({ ok: false, error: "the holder comment came back without an upload URL for latch-42-armed.gif" });
   });
 
   test("gh past the deadline is stopped and the staging folder removed", async () => {

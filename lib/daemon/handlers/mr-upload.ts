@@ -103,7 +103,7 @@ const MAX_ATTACH_UPLOADS = 10;
 const ATTACH_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
 const ATTACH_GITHUB_ONLY = "unsupported: mr:attach-upload needs a GitHub repo";
 const HOLDER_LINE = "Uploading images for a review thread. rt deletes this comment once they are up.";
-const COMMENT_ID = /#issuecomment-(\d+)\b/g;
+const HOSTED_PREFIX = "https://github.com/user-attachments/";
 
 type AttachPayload = { iid: number; files: DescribeAttachment[] };
 
@@ -134,8 +134,10 @@ function parseAttachPayload(payload: unknown): { ok: true; p: AttachPayload } | 
   return { ok: true, p: { iid: p.iid, files } };
 }
 
-function holderCommentId(stdout: string): number | null {
-  const last = [...stdout.matchAll(COMMENT_ID)].at(-1)?.[1];
+/** Only a URL for this PR counts: the delete endpoint is repo-scoped, so any other id could be someone else's comment. */
+function holderCommentId(stdout: string, projectPath: string, iid: number): number | null {
+  const own = new RegExp(`^https://github\\.com/${escapeRegExp(projectPath)}/pull/${iid}#issuecomment-(\\d+)[ \\t\\r]*$`, "gim");
+  const last = [...stdout.matchAll(own)].at(-1)?.[1];
   const id = last === undefined ? NaN : Number(last);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
@@ -145,7 +147,7 @@ function escapeRegExp(text: string): string {
 }
 
 function hostedUrl(body: string, name: string): string | null {
-  const m = new RegExp(`!\\[${escapeRegExp(name)}\\]\\((https://[^)\\s]+)\\)`).exec(body);
+  const m = new RegExp(`!\\[${escapeRegExp(name)}\\]\\((${escapeRegExp(HOSTED_PREFIX)}[^)\\s]+)\\)`).exec(body);
   return m ? m[1]! : null;
 }
 
@@ -704,7 +706,9 @@ export function createMrUploadHandlers(
         };
         const staged = checked.map((c) => join(dir, c.name));
         const bodyFile = join(dir, "body.md");
-        const body = [HOLDER_LINE, "", ...checked.map((c) => `![${c.name}](./${c.name})`), ""].join("\n");
+        // The staging folder's random suffix is unique per call, so two uploads on one PR never take each other's holder for their own.
+        const marker = `<!-- rt-attach ${basename(dir).slice(STAGING_PREFIX.length)} -->`;
+        const body = [HOLDER_LINE, marker, "", ...checked.map((c) => `![${c.name}](./${c.name})`), ""].join("\n");
         try {
           // wx: gh uploads exactly the bytes that passed the checks, never a file something else put at that name.
           checked.forEach((c, i) => writeFileSync(staged[i]!, c.bytes, { flag: "wx", mode: 0o600 }));
@@ -722,36 +726,40 @@ export function createMrUploadHandlers(
         const ghError = run.timedOut
           ? `gh pr comment did not finish in ${timeoutMs / 1000}s and was stopped`
           : scrub(run.stderr).trim().slice(0, GH_ERROR_MAX_CHARS) || `gh pr comment exited with code ${run.exitCode}`;
-        const commentId = holderCommentId(run.stdout);
+        const commentId = holderCommentId(run.stdout, github.projectPath, iid);
         if (commentId === null) {
-          return { ok: false, error: exitedClean ? "gh pr comment printed no comment URL, so the image URLs could not be read" : ghError };
+          return { ok: false, error: exitedClean ? "gh pr comment printed no comment URL for this PR, so the image URLs could not be read" : ghError };
         }
 
+        const readBackMs = readBackTimeoutMsOpt ?? READ_BACK_TIMEOUT_MS;
+        let posted: string | undefined;
+        let readError: string | undefined;
         try {
-          if (!exitedClean) return { ok: false, error: ghError };
-          const readBackMs = readBackTimeoutMsOpt ?? READ_BACK_TIMEOUT_MS;
-          let posted: string;
-          try {
-            posted = await withDeadline(readHolder(github, commentId), readBackMs, `reading comment ${commentId} did not finish in ${readBackMs / 1000}s`);
-          } catch (err) {
-            return { ok: false, error: `could not read the holder comment back: ${errorMessage(err)}` };
-          }
-          const urls: Record<string, string> = {};
-          const missing: string[] = [];
-          for (const c of checked) {
-            const hosted = hostedUrl(posted, c.name);
-            if (hosted === null) missing.push(c.name);
-            else urls[c.name] = hosted;
-          }
-          if (missing.length > 0) return { ok: false, error: `the holder comment came back without an upload URL for ${missing.join(", ")}` };
-          return { ok: true, data: { urls } };
-        } finally {
-          try {
-            await github.provider.deleteComment(github.projectPath, iid, { id: commentId, kind: "general" });
-          } catch (err) {
-            ctx.log.warn({ err, iid, commentId }, "mr:attach-upload: the holder comment could not be deleted and stays on the PR");
-          }
+          posted = await withDeadline(readHolder(github, commentId), readBackMs, `reading comment ${commentId} did not finish in ${readBackMs / 1000}s`);
+        } catch (err) {
+          readError = errorMessage(err);
         }
+        if (posted !== undefined && !posted.includes(marker)) {
+          ctx.log.warn({ iid, commentId }, "mr:attach-upload: the comment gh named is not this upload's holder, so it was not deleted");
+          return { ok: false, error: `comment ${commentId} is not this upload's holder comment, so it was left alone` };
+        }
+        try {
+          await github.provider.deleteComment(github.projectPath, iid, { id: commentId, kind: "general" });
+        } catch (err) {
+          ctx.log.warn({ err, iid, commentId }, "mr:attach-upload: the holder comment could not be deleted and stays on the PR");
+        }
+
+        if (!exitedClean) return { ok: false, error: ghError };
+        if (posted === undefined) return { ok: false, error: `could not read the holder comment back: ${readError}` };
+        const urls: Record<string, string> = {};
+        const missing: string[] = [];
+        for (const c of checked) {
+          const hosted = hostedUrl(posted, c.name);
+          if (hosted === null) missing.push(c.name);
+          else urls[c.name] = hosted;
+        }
+        if (missing.length > 0) return { ok: false, error: `the holder comment came back without an upload URL for ${missing.join(", ")}` };
+        return { ok: true, data: { urls } };
       } finally {
         removeStaging(made, root);
       }
