@@ -55,7 +55,7 @@ digraph herd_job {
     herd_ask_push_refused [label="herd_ask {questions, context}: the push was refused" shape=plaintext];
     forge_host [label="Forge?" shape=diamond];
     mr_create [label="mr_create {repoName, sourceBranch, targetBranch, title, description}" shape=plaintext];
-    gh_pr_create [label="gh pr create" shape=plaintext];
+    mr_create_github [label="mr_create {repoName, sourceBranch, targetBranch, title, description, draft: false}" shape=plaintext];
     gate_opened [label="Gate opened?" shape=diamond];
     stop_wait_for_herd_answer [label="STOP: wait; the answer comes only through herd_answer" shape=octagon style=filled fillcolor=red fontcolor=white];
     end_turn_wait [label="End the turn until the gate answer arrives" shape=box];
@@ -91,9 +91,9 @@ digraph herd_job {
     git_push_result -> forge_host [label="ok"];
     git_push_result -> herd_ask_push_refused [label="refused"];
     forge_host -> mr_create [label="GitLab"];
-    forge_host -> gh_pr_create [label="GitHub"];
+    forge_host -> mr_create_github [label="GitHub"];
     mr_create -> work_method;
-    gh_pr_create -> work_method;
+    mr_create_github -> work_method;
     herd_ask_decision -> gate_opened;
     herd_ask_push_refused -> gate_opened;
     herd_ask_keep_revising -> gate_opened;
@@ -220,7 +220,7 @@ from a quoted heredoc.
 Commit incrementally on this branch. Push only when the goal above asks
 you to ship, push, or open a PR or MR: `git_push` with `tree` = this
 worktree's root and `setUpstream: true`, then `mr_create` on a GitLab
-origin or `gh pr create` on a GitHub origin. Any other goal: never push;
+origin, or `mr_create` with `draft: false` on a GitHub origin, so the PR opens ready. Any other goal: never push;
 the commits on this branch are the deliverable. Questions, milestones,
 and reports go through the herd tools, never into the repo. Tooling that
 manages its own workspace inside the repo writes where that tooling

@@ -3,11 +3,7 @@ name: sync-open-mrs
 disable-model-invocation: true
 description: "Use when every open MR or PR should be brought current with the default branch in one sweep -- 'rebase all my open MRs', 'my branches are stale, sync them', batch maintenance after the default branch moved."
 allowed-tools:
-  - Bash(gh pr list:*)
-  - Bash(git worktree list:*)
-  - Bash(git -C * status:*)
   - Bash(git -C * log:*)
-  - Bash(git -C * remote get-url:*)
 type: pipeline-step
 ---
 
@@ -15,10 +11,9 @@ type: pipeline-step
 
 Bring every open MR or PR current with the default branch in one sweep:
 rebase each, then offer to push and watch CI. The sweep covers the open
-MRs the map returns: `mr_map` on GitLab, `map-open-mrs` on GitHub. This
-verb owns the sequencing, the batch gates and the report. Discovery and CI
-watching belong to the verbs it follows; rebasing belongs to
-`branch_sync_sweep` and `branch_sync`. Gates stay human decisions: never
+MRs or PRs `mr_map` returns. This verb owns the sequencing, the batch
+gates and the report. CI watching belongs to the verb it follows;
+rebasing belongs to `branch_sync_sweep` and `branch_sync`. Gates stay human decisions: never
 stash a tree, never resolve a conflict. `<checkout>`, and the `repoName`
 the map and sweep calls take, are the current checkout's absolute path.
 
@@ -37,12 +32,9 @@ flowchart TB
     refused_reported(((run_enter refused: reported)))
     run_snapshot[/"run_snapshot {runDb: <resumed>}"/]
     keep_recorded_answers
-    git_remote_url[/git -C <checkout> remote get-url origin/]
-    forge_host{Forge?}
     mr_map[/"mr_map {repoName, author: me}"/]
     mr_map_result{mr_map result?}
-    stop_gitlab_mr_read[STOP: GitLab MR reads go through mr_map]:::stop
-    follow_map_open_mrs
+    stop_shell_mr_read[STOP: MR and PR reads go through mr_map]:::stop
     plan_sweep
     gate_sweep
     sweep_answer{sweep answer?}
@@ -98,7 +90,7 @@ flowchart TB
     run_enter --> run_enter_mode
     run_enter_resume --> run_enter_mode
     run_enter_fresh --> run_enter_mode
-    run_enter_mode -->|started| git_remote_url
+    run_enter_mode -->|started| mr_map
     run_enter_mode -->|inherited| inherit_run
     run_enter_mode -->|resumed| run_snapshot
     run_enter_mode -->|candidates| gate_resume_choice
@@ -106,22 +98,18 @@ flowchart TB
     why_refused -->|a resume of a run that is gone or no longer running: say so, start fresh| run_enter_fresh
     why_refused -->|no run_enter tool| rt_too_old
     why_refused -->|anything else: quote it| refused_reported
-    inherit_run --> git_remote_url
+    inherit_run --> mr_map
     gate_resume_choice --> clarify_answer
     clarify_answer -->|resume a candidate| run_enter_resume
     clarify_answer -->|start fresh| run_enter_fresh
     clarify_answer -->|hold| held_end_turn
     run_snapshot --> keep_recorded_answers
-    keep_recorded_answers --> git_remote_url
-    git_remote_url --> forge_host
-    forge_host -->|GitLab| mr_map
-    forge_host -->|GitHub| follow_map_open_mrs
-    forge_host -->|tempted to use the GitLab CLI| stop_gitlab_mr_read
-    stop_gitlab_mr_read --> mr_map
+    keep_recorded_answers --> mr_map
+    run_enter_mode -->|tempted to list MRs or PRs with the GitLab CLI or gh| stop_shell_mr_read
+    stop_shell_mr_read --> mr_map
     mr_map --> mr_map_result
     mr_map_result -->|rows| plan_sweep
-    mr_map_result -->|GitLab error: quoted| report_branch_buckets
-    follow_map_open_mrs --> plan_sweep
+    mr_map_result -->|forge error: quoted| report_branch_buckets
     plan_sweep --> gate_sweep
     gate_sweep --> sweep_answer
     sweep_answer -->|proceed with branches| all_selected

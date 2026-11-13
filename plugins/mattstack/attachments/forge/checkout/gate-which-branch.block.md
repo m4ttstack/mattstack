@@ -7,7 +7,7 @@ label: Which branch
 # Gate clarify: which branch
 
 Scope `clarify`. One sentence naming the candidates with each one's state
-(opened, merged, closed), or quoting the GitLab error when a read failed,
+(opened, merged, closed), or quoting the forge's error when a read failed,
 or saying the search was cut at 200 rows when a read was truncated, then the questions, each its own question:
 
 - `branch` (write-in): one option per candidate, or their text

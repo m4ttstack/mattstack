@@ -1,7 +1,7 @@
 ---
 name: rebase-worktree
 disable-model-invocation: true
-description: "Use when one worktree's feature branch has fallen behind the default branch -- 'rebase this worktree', a stale MR branch. Not for resolving conflicts on its own or moving uncommitted work."
+description: "Use when one worktree's feature branch has fallen behind the default branch -- 'rebase this worktree', a stale MR or PR branch. Not for resolving conflicts on its own or moving uncommitted work."
 allowed-tools:
   - Bash(git -C * status:*)
   - Bash(git -C * log:*)

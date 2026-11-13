@@ -6,14 +6,12 @@ node: plan_sweep
 
 One sentence: how many branches rebase, how many are skipped up front and
 why. Skipped up front: NONE rows, with nothing local to rebase, and trees
-`branch_sync` would refuse as dirty. On GitLab a row's `dirty` decides:
-`true` is a dirty tree, and `null` with a tree means the read failed, so
-the tree is not known clean and is skipped too, saying so. On GitHub,
-a tree whose `git -C <tree> status --porcelain` is not empty is the dirty
-one. When the map was cut short, the same sentence says so: on GitLab,
-`complete: false` means it was cut at 200 open MRs; on GitHub, exactly 200
-rows from `gh pr list` means it was cut at 200 open PRs. Every row of the map is the signed-in user's own MR, so every branch
-starts pre-selected; deselecting skips it.
+`branch_sync` would refuse as dirty. A row's `dirty` decides: `true` is a
+dirty tree, and `null` with a tree means the read failed, so the tree is
+not known clean and is skipped too, saying so. When the map was cut short,
+the same sentence says so: `complete: false` means it was cut at 200 open
+MRs or PRs. Every row of the map is the signed-in user's own MR or PR, so
+every branch starts pre-selected; deselecting skips it.
 
 **These thoughts mean you are skipping the gate -- STOP:**
 

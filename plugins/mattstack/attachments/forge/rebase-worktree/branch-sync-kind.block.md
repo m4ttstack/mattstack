@@ -21,7 +21,7 @@ paths?}`. `kind` decides, and nothing else does:
 
 | Thought | Reality |
 |---|---|
-| "The stack refusal came back, but the MR targets the default branch, so I'll rebase by hand" | `stacked-refused` is the guard's verdict, not a hint. The run ends reported; the restack is the named tool's. |
-| "The stack check could not run, so I'll check the MRs myself and rebase" | `stack-unverified` ends the run. An unverified branch is never rebased, by hand or by another tool. |
+| "The stack refusal came back, but the MR or PR targets the default branch, so I'll rebase by hand" | `stacked-refused` is the guard's verdict, not a hint. The run ends reported; the restack is the named tool's. |
+| "The stack check could not run, so I'll check the MRs or PRs myself and rebase" | `stack-unverified` ends the run. An unverified branch is never rebased, by hand or by another tool. |
 | "`synced`, so now the push gate" | With `pushed: true` the push already happened; a push form would be a false choice. Report it as pushed. |
 | "`synced` means pushed" | Read `pushed`. With `pushed: false` the new head is local only, and the push gate decides. |
