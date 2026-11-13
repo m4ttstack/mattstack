@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChartColumn, ListChecks, ScanSearch } from 'lucide-react';
+import { ChartColumn, ListChecks, ScanSearch, Shredder } from 'lucide-react';
 
 import {
   collapseChunks,
@@ -843,19 +843,24 @@ function ReviewGateSheet({
           >
             focus pane
           </Button>
-          {onDropReview && mr && (
-            <Button
-              type="button"
-              variant="subtle"
-              intent="muted"
-              size="sm"
-              title="close this review without posting anything"
-              onClick={() => setConfirmDrop(true)}
-            >
-              drop review
-            </Button>
-          )}
         </>
+      }
+      trailActions={
+        onDropReview &&
+        mr && (
+          <Button
+            type="button"
+            variant="subtle"
+            intent="muted"
+            size="sm"
+            className="tui-gate-sheet-drop"
+            title="close this review without posting anything"
+            onClick={() => setConfirmDrop(true)}
+          >
+            <Shredder size={14} aria-hidden />
+            discard review
+          </Button>
+        )
       }
       queue={queue}
       tag={`review gate${mr ? ` ${mrRef(mr)}` : ''}`}
@@ -1212,8 +1217,8 @@ function ReviewGateSheet({
       {onDropReview && mr && (
         <ConfirmDialog
           open={confirmDrop}
-          title={`Drop the review of ${mrRef(mr)}?`}
-          confirmLabel="Drop review"
+          title={`Discard the review of ${mrRef(mr)}?`}
+          confirmLabel="Discard review"
           cancelLabel="Keep it"
           onConfirm={() => {
             setConfirmDrop(false);

@@ -1509,7 +1509,7 @@ test('bulk rebase targets only the MRs needing one', () => {
   expect(entry?.targets.map(t => t.iid)).toEqual([411, 413]);
 });
 
-test('drop review shows only while a review gate waits, and confirms first', () => {
+test('discard review shows only while a review gate waits, and confirms first', () => {
   const gate = (over: Record<string, unknown>) => ({
     gateId: 'g1',
     subject: 'mr:x',
@@ -1529,9 +1529,9 @@ test('drop review shows only while a review gate waits, and confirms first', () 
   };
   expect(drop([gate({})])).toMatchObject({
     section: 'sessions',
-    label: 'drop review',
+    label: 'discard review',
     request: { kind: 'drop-review' },
-    confirm: 'really drop?',
+    confirm: 'really discard?',
   });
   expect(drop([gate({ status: 'parked' })])).toBeDefined();
   expect(drop([gate({ status: 'answered' })])).toBeUndefined();

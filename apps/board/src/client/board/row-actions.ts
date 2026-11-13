@@ -522,10 +522,10 @@ export function rowActions(
       item(
         'sessions',
         'drop-review',
-        'drop review',
+        'discard review',
         DISMISS,
         { kind: 'drop-review' },
-        { confirm: 'really drop?' }
+        { confirm: 'really discard?' }
       )
     );
   if (env.local && own) {
