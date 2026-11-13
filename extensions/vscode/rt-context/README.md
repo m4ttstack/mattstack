@@ -56,8 +56,8 @@ rt extension install
 
 Open the command palette and run:
 
-- **RT Context: Set Linear API Key** — enables ticket title and status lookup
-- **RT Context: Set GitLab Token** — enables MR title fallback for branches without a Linear ID. Shown on GitLab and other hosts, not on GitHub repos
+- **RT Context: Set Linear API Key**: enables ticket title and status lookup
+- **RT Context: Set GitLab Token**: enables MR title fallback for branches without a Linear ID. Shown on GitLab and other hosts, not on GitHub repos
 
 Both keys are stored securely in the editor's secret storage and shared with the rt CLI.
 

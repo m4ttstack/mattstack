@@ -194,9 +194,7 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
     // Render from cache immediately — no spinner, clickable right away
     renderFinalState(worktreeName, branch, cached, linearIdFromBranch);
 
-    // Silent background refresh. On GitHub a changed link repaints, but only
-    // if no later update has started: a late result for a branch since
-    // switched away from must not repaint.
+    // A late result for a branch already switched away from must not repaint.
     fetchBranchData(context, branch, repoForge).then((fresh) => {
       if (!fresh) return;
       branchCache.set(branch, fresh);
