@@ -24,7 +24,7 @@ import { drawPhaseWords, STEP_PHASES } from "../../../lib/setup/run-phases.ts";
 import { PREPARE_STAGES } from "../../../lib/setup/prepare-record.ts";
 import { TITLES, tokenCreateLink, tokenField } from "../../../lib/setup/token-create.ts";
 import { PLACE_REPO_LABELS } from "../../../lib/setup/validators/repos.ts";
-import { SLACK_APP_ACTION, SLACK_APP_MISSING } from "../../../lib/setup/validators/accounts.ts";
+import { SLACK_APP_ACTION, SLACK_APP_MISSING, SOLO_GITHUB_NOTE, SOLO_GITLAB_NOTE } from "../../../lib/setup/validators/accounts.ts";
 
 const scenario = process.env.RT_STUB_SCENARIO ?? "join-happy";
 const stateDir = process.env.RT_STUB_STATE_DIR ?? join(import.meta.dir, ".state", scenario);
@@ -236,10 +236,15 @@ function plan(): unknown {
           create: { label: "Create a token on GitLab…", url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api" } }),
   ];
   if (scenario === "solo") {
-    accounts[0] = row("account.github", "account", "GitHub", "Opens pull requests from rt.", false, "missing", null,
-      { type: "connect", label: "Connect", integration: "github",
-        fields: [{ name: "token", label: "Personal access token", secret: true }], alternatives: [] },
-      undefined, "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.");
+    const soloForge = (forge: "github" | "gitlab", note: string) =>
+      connected(forge)
+        ? row(`account.${forge}`, "account", TITLES[forge], integrationDef(forge).why(null), false, "ready", "Connected as janedoe", null, undefined, note)
+        : row(`account.${forge}`, "account", TITLES[forge], integrationDef(forge).why(null), false, "missing", null,
+            { type: "connect", label: "Connect", integration: forge, fields: [tokenField(forge, "member")], alternatives: [] },
+            undefined, note);
+    accounts.splice(0, accounts.length,
+      soloForge("github", SOLO_GITHUB_NOTE),
+      soloForge("gitlab", SOLO_GITLAB_NOTE));
   }
   const access = scenario === "solo" ? [] :
     [row("access.team-repo", "access", "Team repo reachable", "github.com/acme/mattstack-team-acme", true, "ready", "ls-remote ok", null)];
@@ -579,7 +584,13 @@ function slackAppRow(): FormRow {
 function connectSection(path: FormPath | null): FormRow[] {
   const c = FORM_COPY.connect;
   if (path === "solo") {
-    return [forgeTokenRow("forge", "github", "member", c.soloForge, FORM_COPY.invite.connectedAs("janedoe"), true), claudeRow(), fastBrowserRow(true)];
+    const gitlab = forgeTokenRow("forge.gitlab", "gitlab", "member", c.soloGitlab, c.connected, true);
+    return [
+      forgeTokenRow("forge", "github", "member", c.soloForge, FORM_COPY.invite.connectedAs("janedoe"), true),
+      gitlab.state === "done" ? gitlab : { ...gitlab, detail: c.soloGitlabHint },
+      claudeRow(),
+      { ...fastBrowserRow(true), subtext: c.soloFastBrowser },
+    ];
   }
   if (path === "create") {
     const forge = createdForge();
