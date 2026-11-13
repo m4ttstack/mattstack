@@ -27,7 +27,7 @@ function buildApiIndex(port: number) {
     { method: "GET",  path: "/api/status",        description: "Daemon health, uptime, memory, cache stats" },
     { method: "GET",  path: "/api/ports",          description: "Listening ports grouped by repo/worktree" },
     { method: "GET",  path: "/api/cache",           description: "All branch cache entries (MR or PR, Linear, pipeline)" },
-    { method: "GET",  path: "/api/cache/:branch",   description: "Single branch cache entry" },
+    { method: "GET",  path: "/api/cache/:branch",   description: "Single branch cache entry; ?repoIdentity=<serialized identity> picks that repo's entry" },
     { method: "GET",  path: "/api/repos",           description: "Tracked repos with worktrees and watched status" },
     { method: "GET",  path: "/api/processes/system", description: "All repo-associated processes with CPU, memory, ports, runaway status" },
     { method: "GET",  path: "/api/notifications",   description: "Pending notifications (drains queue)" },
@@ -464,7 +464,15 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
           if (branch === undefined) {
             return Response.json({ ok: false, error: "malformed path parameter" }, { status: 400, headers: corsHeaders });
           }
-          const result = await handleCommand("cache:read", { branches: [branch] }, req.signal);
+          const repoIdentity = url.searchParams.get("repoIdentity");
+          if (repoIdentity === null) {
+            const result = await handleCommand("cache:read", { branches: [branch] }, req.signal);
+            return Response.json(result, { headers: corsHeaders });
+          }
+          if (parseIdentity(repoIdentity) === null) {
+            return Response.json({ ok: true, data: {} }, { headers: corsHeaders });
+          }
+          const result = await handleCommand("cache:read", { branches: [branch], repoIdentity }, req.signal);
           return Response.json(result, { headers: corsHeaders });
         }
 
