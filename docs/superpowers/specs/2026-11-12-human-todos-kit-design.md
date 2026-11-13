@@ -200,12 +200,22 @@ the kit's `ReopenBand` on terminal and desktop, today's band on the others.
   - **status line:** "Running" or "Stopping…"
   - **confirm prompt**
   - **buttons:** a `<ButtonRow>` of kit `<Button>`s
-- Button tones:
-  - `run`, `open`, `confirm` and `show` (today's primary) are `primary`
-  - `done` and `skip` are `secondary`
-  - `cancel`, `copy` and `openLog` are `neutral`
-  - `stop` and `forceStop` are `caution`
-  - "Show all", "Show less" and "Clear finished" are `neutral`
+- Button tones (revised in the live check, Matt's call: all-filled rows read
+  as noisy):
+  - each item fills only its main button: the first in `buttonsFor` order
+    (Run, Open, Copy for a terminal step, Done for a task, Show for an image,
+    Confirm while confirming), or Stop/Force stop while running. It keeps its
+    tone: `run`, `open`, `confirm` and `show` are `primary`; `done` is
+    `secondary`; `copy` is `neutral`; `stop` and `forceStop` are `caution`
+  - every other button, plus "Show all", "Show less" and "Clear finished", is
+    the kit's new `quiet` tone: a light label (`#e0e0e0`) on a faint fill
+    (`#363636`), `#4a4a4a` under the pointer, `#404040` pressed. Never the
+    disabled grey, so it doesn't read as disabled
+- The confirm prompt sits under the buttons row, so Confirm lands where Run
+  was (Matt's ask). A script longer than two rows still expands while
+  confirming, which can push the buttons down.
+- Wrapped titles hang: later title rows start under the first row's text, not
+  under the mark (Matt's ask). The plain drawer gets the same order and indent.
 - Finished items: `✓`, `✗` or `–` in their colours, then the title, dimmed,
   plus " (exit N)" when the exit code isn't 0.
 - The Pane hook reads the list, the expanded ids and the spinner frame, as
@@ -236,17 +246,52 @@ the kit's `ReopenBand` on terminal and desktop, today's band on the others.
     draws only the rows in view and clamps the offset again when the list
     shrinks, for example after Clear finished.
   - The brand bar stays pinned and only the body scrolls (my call).
-  - "↑ N more" and "↓ N more" sit on the window's first and last rows and
-    count items above and below, as today.
+  - No "↑/↓ N more" rows in the kit drawer: the scroll bar shows the
+    position (Matt's call in the live check). The end-of-list line stays.
   - Scroll bar (Matt's ask, tuned live):
     - a one-cell track at the right edge, with one blank column on each side
     - track background `#383838`; the thumb, also a background colour,
-      `#707070`
+      `#707070` (muted: `#353535` / `#646464`)
     - thumb height `max(1, round(bodyRows² / total))`, placed in proportion
       to the offset
     - shown only when the list overflows
   - The scroll bar is a kit widget, so other mods can reuse it (my call).
     Its colours live in the kit theme next to the button fills.
+
+### Live-check additions (2026-11-13, Matt's asks)
+
+- Keyboard, while the pane has focus (kit drawer only):
+  - ↑/↓ and Tab/Shift+Tab move between items (Clear finished last) and land
+    on the item's filled button; they stop at the ends, as gate-form does
+  - ←/→ move across the item's buttons; Enter presses through the same post a
+    click sends; Esc stays the engine's (back to the prompt)
+  - keyboard mode: the marks show only after a handled key and clear on any
+    pointer move or click. The first key out of mouse mode only reveals the
+    selection (Enter too), so nothing acts on a selection you can't see.
+    A click still moves the selection
+  - marks: a pink `│` rail down the selected item and a pink `○`, and a pink
+    `▎` left edge on the selected button over its own fill, so mouse hover
+    and press still show on it. The Clear finished stop gets the edge only
+  - Enter shows the button pressed for about 150 ms, then acts; keys are
+    ignored meanwhile
+  - when the selected item leaves the list, the selection lands on the next
+    item's filled button; the scroll follows the selection
+  - kit parts (opt-in, so gate-form is unchanged): `keySelected`, a `mark`
+    style, `kitClient`'s keyboard mode with `revealKeys`/`onReveal`, and
+    `ui.pressFor`
+- Brand bar: Hide is bold plum text with a chevron on the pink bar; the darker
+  `pinkDeep` chip shows only under the pointer (a new `chip` style). Kit-wide,
+  so gate-form changes too.
+- Band: its button says Show, the opposite of Hide. Kit-wide.
+- Unfocused look: two steps lighter than the gate-form spike (plain text
+  `#b8b8b8`, dim `#808080`, every muted colour and fill raised to match).
+  Kit-wide.
+- herdr runs (a behaviour change, Matt's call to fold it in): every session's
+  runs share one "Human Todos" herdr workspace. Lookup order: the stored id,
+  then a workspace labelled "Human Todos", then create one. Tabs are labelled
+  `<repo> #<id> <title>` with the session's repo, so sessions stay apart.
+- Left as is (Matt's call): each report of a to-do action still starts a
+  Claude turn. herdr Force stop only re-sends Ctrl-C (RT-571).
 
 ### Band and transcript row
 
