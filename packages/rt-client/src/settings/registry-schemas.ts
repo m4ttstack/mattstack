@@ -239,6 +239,12 @@ export const SCHEMAS = {
             })
             .optional()
             .meta({ title: "Slack", description: "The team's Slack channels: its code owners channel and any others, each with a kind." }),
+          github: z
+            .looseObject({
+              team: z.string().min(1).optional().meta({ title: "GitHub team", description: "Match this team to its CODEOWNERS entry", placeholder: "@acme/web" }),
+            })
+            .optional()
+            .meta({ title: "GitHub", description: "The team's GitHub team." }),
         }),
       )
       .optional()
