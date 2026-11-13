@@ -120,7 +120,7 @@ No `vscode` import, so `bun test` can load it.
   change) falls back to `prBelongsToRemote` on its PR URL. Matching on
   identity keeps a renamed or transferred repo's own PRs, whose URLs name
   the new path while the local remote still names the old one.
-- `branchDataFromDaemonEntry(entry, forge, remoteUrl): CachedBranchData | null`:
+- `branchDataFromDaemonEntry(entry, forge, remoteUrl, branch): CachedBranchData`:
   maps a daemon cache entry to the extension's `CachedBranchData` (the
   mapping `statusBar.ts` and `branchSwitcher.ts` each do inline today).
   The guard keys on the repo's forge, not the entry's provider: when
