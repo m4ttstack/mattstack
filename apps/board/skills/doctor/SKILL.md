@@ -18,7 +18,7 @@ metadata:
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:doctor` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call `skills_resolve {id: "skills:board:doctor", dir: "<the loaded skill's own directory>"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-573 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-576 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -530,7 +530,10 @@ escalation instead.
 - `clean-api-rebase`: a server-side rebase (`mr_rebase`).
   `Server-side rebase licensed?` answers yes only when `--fix-classes`
   is absent or lists `clean-api-rebase`; under `--fix-classes none` it
-  answers no.
+  answers no. On the generic path, Diagnose and rebase never rebases a
+  stack parent: it first lists the MRs that target the MR's source branch
+  (`mr_list` with `targetBranch`), and any MR listed, or a read that
+  cannot prove none, ends the run in `error`.
 - **`mechanical-lint`** (checkout tier only): **behavior-neutral
   mechanical code fixes ONLY**... appending a required lint-disable reason
   suffix, formatting-only changes (whitespace, quote style, trailing

@@ -4,13 +4,17 @@ export interface CurrentUser {
 }
 
 let cached: CurrentUser | null = null;
+/** The host and token `cached` was read with; null for a user set by __setCurrentUser. */
+let cachedFor: { baseUrl: string; token: string } | null = null;
 
 export function __resetCurrentUser(): void {
   cached = null;
+  cachedFor = null;
 }
 
 export function __setCurrentUser(u: CurrentUser | null): void {
   cached = u;
+  cachedFor = null;
 }
 
 /**
@@ -22,7 +26,13 @@ export async function getCurrentUser(
   token: string,
   fetchImpl?: typeof fetch
 ): Promise<CurrentUser | null> {
-  if (cached) return cached;
+  if (
+    cached &&
+    (cachedFor === null ||
+      (cachedFor.baseUrl === baseUrl && cachedFor.token === token))
+  ) {
+    return cached;
+  }
   if (!fetchImpl && process.env.VITEST) return null;
   const f = fetchImpl ?? fetch;
   try {
@@ -35,6 +45,7 @@ export async function getCurrentUser(
       name: string | null;
     };
     cached = { username: body.username, name: body.name ?? null };
+    cachedFor = { baseUrl, token };
     return cached;
   } catch {
     return null;

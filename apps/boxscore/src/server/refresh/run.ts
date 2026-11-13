@@ -19,7 +19,11 @@ import {
   scanProject,
 } from '../source/index.js';
 import type { GitProvider, SourceProvider } from '../source/index.js';
-import { mrKey } from '../store/index.js';
+import {
+  ForgeHostChangedError,
+  guardForgeWrites,
+  mrKey,
+} from '../store/index.js';
 import type {
   Store,
   StoredIdentity,
@@ -43,7 +47,8 @@ export interface RefreshRunOptions {
   onProgress?: (p: Omit<RefreshProgress, 'window'>) => void;
 }
 
-const isAbort = (err: unknown): boolean => (err as Error).name === 'AbortError';
+const isAbort = (err: unknown): boolean =>
+  (err as Error).name === 'AbortError' || err instanceof ForgeHostChangedError;
 
 /**
  * Where a project's index scan starts: incrementally from its watermark, unless the
@@ -69,7 +74,8 @@ function scanFrom(
 export async function runRefresh(
   opts: RefreshRunOptions
 ): Promise<LeaderboardWarning[]> {
-  const { store, provider, settings, env, window, signal, onProgress } = opts;
+  const { provider, settings, env, window, signal, onProgress } = opts;
+  const store = guardForgeWrites(opts.store, env.baseUrl);
   const report = onProgress ?? (() => {});
   const warnings: LeaderboardWarning[] = [];
   // GitProvider declares these methods optional (GitHub doesn't implement all of them);
