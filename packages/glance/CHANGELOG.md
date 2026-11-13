@@ -14,12 +14,16 @@
 - A GitLab dashboard group (`createDashboard({ mrIid: [...] })`) sends at
   most 20 GitLab requests in any 60 s window, however many MRs it watches
   (`GITLAB_GROUP_REQUESTS_PER_MINUTE`, exported). Each fetch reads the MRs a
-  push event named first, then the ones read longest ago. While the push
-  cable is up, polls leave 5 of the 20 for push
-  (`GITLAB_GROUP_PUSH_RESERVE`). Worst-case staleness for N MRs is
+  push event named first, then the ones read longest ago, and gives the rest
+  half the room when they have waited longer, so a push storm cannot starve
+  them. A batch counts until it settles, and a failed batch is not a read.
+  While the push cable is up or connecting, polls leave 5 of the 20 for push
+  (`GITLAB_GROUP_PUSH_RESERVE`); a push that finds the window full is read
+  as soon as it frees. Worst-case staleness for N MRs is
   `ceil(N / 20) x 71 s` with the cable down and `ceil(N / 15) x 93 s` with
-  it up (142 s and 186 s for 30 MRs). Small groups read every MR on every
-  poll as before, and GitHub groups are unchanged.
+  it up (142 s and 186 s for 30 MRs). Groups that fit the budget (3 MRs with
+  the cable down, 5 with it up) read every MR on every poll as before, and
+  GitHub groups are unchanged.
   `WatcherSubscribeCallbacks.onEvent` takes an optional iid, which GitLab's
   `subscribePullRequestEvents` now passes.
 - GitHub `Pipeline.id` can still move for a head commit, each time a lower

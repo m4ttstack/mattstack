@@ -66,8 +66,23 @@ interface Fetch {
   iids: number[];
 }
 
-function recordingProvider(providerName: 'gitlab' | 'github') {
-  const rec = { fetches: [] as Fetch[], cable: null as WatcherSubscribeCallbacks | null, provider: null as unknown as GitProvider };
+interface ProviderBehaviour {
+  /** Batches to reject before answering normally. */
+  failBatches?: number;
+  /** For the first batch only, the time each wave of 4 in-flight requests takes, as a forge slow for a moment would answer. */
+  firstBatchWaveMs?: number;
+}
+
+function recordingProvider(providerName: 'gitlab' | 'github', behaviour: ProviderBehaviour = {}) {
+  const rec = {
+    fetches: [] as Fetch[],
+    /** One entry per request the forge saw, at the time it was sent. */
+    requests: [] as number[],
+    subs: [] as number[][],
+    cable: null as WatcherSubscribeCallbacks | null,
+    provider: null as unknown as GitProvider,
+  };
+  let failures = behaviour.failBatches ?? 0;
   rec.provider = {
     providerName,
     baseURL: 'https://forge.example',
@@ -75,17 +90,32 @@ function recordingProvider(providerName: 'gitlab' | 'github') {
     async fetchPullRequests(options?: FetchPullRequestsOptions) {
       const iids = options?.iids ?? [];
       rec.fetches.push({ at: Date.now(), iids: [...iids] });
+      const waveMs = rec.fetches.length === 1 ? (behaviour.firstBatchWaveMs ?? 0) : 0;
+      for (let i = 0; i < iids.length; i += 4) {
+        for (const _ of iids.slice(i, i + 4)) rec.requests.push(Date.now());
+        if (waveMs > 0) await new Promise((resolve) => setTimeout(resolve, waveMs));
+      }
+      if (failures > 0) {
+        failures--;
+        throw new Error('forge refused the batch');
+      }
       return iids.map(stubPR);
     },
     watchMR() {
       return () => {};
     },
-    subscribePullRequestEvents(_p: string, _prs: unknown, callbacks: WatcherSubscribeCallbacks) {
+    subscribePullRequestEvents(_p: string, prs: Array<{ iid: number }>, callbacks: WatcherSubscribeCallbacks) {
+      rec.subs.push(prs.map((pr) => pr.iid));
       rec.cable ??= callbacks;
       return () => {};
     },
   } as unknown as GitProvider;
   return rec;
+}
+
+/** First time each iid came back from a fetch that did not fail. */
+function firstRead(rec: { fetches: Fetch[] }, iid: number, failed: number): number | undefined {
+  return rec.fetches.slice(failed).find((f) => f.iids.includes(iid))?.at;
 }
 
 const range = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
@@ -224,6 +254,153 @@ describe('GitLab dashboard group poll budget', () => {
 
     expect(rec.fetches.length).toBe(13);
     for (const f of rec.fetches) expect(f.iids).toEqual(range(30));
+  });
+});
+
+describe('GitLab dashboard group budget under failure, flaps, storms and restarts', () => {
+  test('a failed batch does not count as a read: its iids go first once the window frees', async () => {
+    const rec = recordingProvider('gitlab', { failBatches: 1 });
+    const start = Date.now();
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(40), userId: null });
+    group.subscribe(() => {});
+    await flush();
+    rec.cable?.onDisconnected();
+
+    await advance(3 * 60_000);
+    group.dispose();
+
+    const failedBatch = rec.fetches[0]!.iids;
+    for (const iid of failedBatch) {
+      expect(firstRead(rec, iid, 1)! - start).toBeLessThanOrEqual(72_000);
+    }
+  });
+
+  test('a push right after the cable connects is read within a second', async () => {
+    const rec = recordingProvider('gitlab');
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(30), userId: null });
+    group.subscribe(() => {});
+    await flush();
+    rec.cable?.onConnected();
+    await advance(5000);
+
+    const at = Date.now();
+    rec.cable?.onEvent(25);
+    await advance(1000);
+    group.dispose();
+
+    const read = rec.fetches.find((f) => f.at >= at && f.iids.includes(25));
+    expect(read).toBeDefined();
+    expect(read!.at - at).toBeLessThan(1000);
+  });
+
+  // Polls spend the whole window while the cable is down, since no push can
+  // arrive; a push right after the reconnect waits at most for it to free.
+  test('a push right after the cable reconnects is read within 61 s, and within a second when the window has room', async () => {
+    const rec = recordingProvider('gitlab');
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(30), userId: null });
+    group.subscribe(() => {});
+    await flush();
+    rec.cable?.onConnected();
+    await advance(3 * 60_000);
+    rec.cable?.onDisconnected();
+    await advance(70_000);
+    rec.cable?.onConnected();
+    await flush();
+
+    const at = Date.now();
+    rec.cable?.onEvent(12);
+    await advance(62_000);
+    group.dispose();
+
+    const read = rec.fetches.find((f) => f.at >= at && f.iids.includes(12));
+    expect(read).toBeDefined();
+    expect(read!.at - at).toBeLessThanOrEqual(61_000);
+    expect(maxInAnyMinute(requestTimes(rec.fetches))).toBeLessThanOrEqual(20);
+  });
+
+  test('a push named while the window is full is read as soon as it frees, not at the next poll', async () => {
+    const rec = recordingProvider('gitlab');
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(30), userId: null });
+    group.subscribe(() => {});
+    await flush();
+    rec.cable?.onConnected();
+    for (const iid of range(5)) rec.cable?.onEvent(iid + 15);
+    await advance(1000);
+
+    const at = Date.now();
+    rec.cable?.onEvent(29);
+    await advance(2 * 60_000);
+    group.dispose();
+
+    const firstFull = rec.fetches[0]!.at;
+    const read = rec.fetches.find((f) => f.at >= at && f.iids.includes(29));
+    expect(read).toBeDefined();
+    expect(read!.at - firstFull).toBeLessThanOrEqual(61_000);
+    expect(maxInAnyMinute(requestTimes(rec.fetches))).toBeLessThanOrEqual(20);
+  });
+
+  test('a storm of push events on 25 iids still reads every iid within 186 s', async () => {
+    const rec = recordingProvider('gitlab');
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(40), userId: null });
+    group.subscribe(() => {});
+    await flush();
+    rec.cable?.onConnected();
+
+    for (let second = 0; second < 600; second++) {
+      for (const iid of range(25)) rec.cable?.onEvent(iid);
+      await advance(1000);
+    }
+    group.dispose();
+
+    const start = rec.fetches[0]!.at;
+    for (const iid of range(40)) {
+      expect(longestGap(rec.fetches, iid, start, start + 600_000)).toBeLessThanOrEqual(186_000);
+    }
+    expect(maxInAnyMinute(requestTimes(rec.fetches))).toBeLessThanOrEqual(20);
+  });
+
+  test('an updateIids restart with a full window keeps push on the MRs already read', async () => {
+    const rec = recordingProvider('gitlab');
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(30), userId: null });
+    group.subscribe(() => {});
+    await flush();
+    rec.cable?.onConnected();
+    await advance(2000);
+    const subsBefore = rec.subs.length;
+
+    group.updateIids(range(31));
+    await advance(2000);
+    group.dispose();
+
+    const resubscribed = rec.subs.slice(subsBefore).flat();
+    expect(resubscribed.length).toBeGreaterThan(0);
+    expect(new Set(resubscribed)).toEqual(new Set(rec.fetches[0]!.iids));
+  });
+
+  test('a slow forge never sees more than 20 requests in any minute', async () => {
+    const rec = recordingProvider('gitlab', { firstBatchWaveMs: 16_000 });
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: range(30), userId: null });
+    group.subscribe(() => {});
+    await flush();
+    rec.cable?.onConnected();
+
+    for (let second = 0; second < 600; second++) {
+      if (second % 2 === 0) rec.cable?.onEvent((second % 30) + 1);
+      await advance(1000);
+    }
+    group.dispose();
+
+    expect(maxInAnyMinute(rec.requests)).toBeLessThanOrEqual(20);
+  });
+
+  test('duplicate iids in the initial list are read once', async () => {
+    const rec = recordingProvider('gitlab');
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: [1, 2, 2, 3, 3, 3], userId: null });
+    group.subscribe(() => {});
+    await flush();
+    group.dispose();
+
+    expect(rec.fetches[0]!.iids).toEqual([1, 2, 3]);
   });
 });
 
