@@ -8,6 +8,7 @@ import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache } from './cache';
 import { daemonQuery } from './daemonClient';
 import { readDaemonCacheEntry } from './daemonCache';
+import { settleStaleFetch } from './staleFetch';
 import { getSecret } from './secrets';
 import type { CachedBranchData, GitExtensionExports } from './types';
 import { getGitApi, findWorkspaceRepo, getRepoRootName, getGitDir, readBranchFromHead } from './git';
@@ -240,24 +241,15 @@ async function updateStatusBar(context: vscode.ExtensionContext) {
   showStatusBarItems();
 
   // ── Fetch and render ──
-  let fresh: CachedBranchData | null = null;
-  try {
-    const FETCH_TIMEOUT_MS = 15_000;
-    fresh = await Promise.race([
-      fetchBranchData(context, branch, repoForge),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), FETCH_TIMEOUT_MS)),
-    ]);
-
-    if (fresh) {
-      branchCache.set(branch, fresh);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    vscode.window.showErrorMessage(`RT Context: Failed to refresh — ${msg}`);
-  } finally {
-    const effectiveData = fresh ?? cached ?? null;
-    renderFinalState(worktreeName, branch, effectiveData, linearIdFromBranch);
-  }
+  await settleStaleFetch({
+    fetch: () => fetchBranchData(context, branch, repoForge),
+    timeoutMs: 15_000,
+    isLatest: () => updateId === updateSeq,
+    store: (fresh) => branchCache.set(branch, fresh),
+    render: (data) => renderFinalState(worktreeName, branch, data, linearIdFromBranch),
+    fallback: cached ?? null,
+    onError: (msg) => { vscode.window.showErrorMessage(`RT Context: Failed to refresh — ${msg}`); },
+  });
 }
 
 /** Render the status bar in its final, clickable state from the given data. */
