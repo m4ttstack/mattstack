@@ -33,7 +33,11 @@ import type {
   StoredMetricsWrite,
   StoredPushEvent,
 } from '../store/index.js';
-import { buildFetchResult, storedIdentities } from '../store/query.js';
+import {
+  buildFetchResult,
+  inProjects,
+  storedIdentities,
+} from '../store/query.js';
 import { mapLimit } from '../util/concurrency.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -185,10 +189,10 @@ export async function runRefresh(
   const rosterSet = new Set(rosterUsernames);
   const canon = storedLoginCanon(env, settings);
   const toRoster = canon ?? ((login: string) => login);
-  const configured = new Set(settings.projects);
+  const configured = inProjects(settings.projects);
   const indexRows = store
     .indexRowsUpdatedWithin(window.start, window.end)
-    .filter(r => configured.has(r.projectPath));
+    .filter(r => configured(r.projectPath));
   const eligibleRows = indexRows.filter(
     r =>
       (r.authorUsername != null && rosterSet.has(toRoster(r.authorUsername))) ||
@@ -379,8 +383,7 @@ export async function runRefresh(
     store,
     window,
     rosterUsernames,
-    canon,
-    settings.projects
+    canon
   ).mrs.filter(
     m =>
       eligibleKeySet.has(mrKey(m.projectPath, m.iid)) &&

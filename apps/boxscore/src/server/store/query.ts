@@ -85,12 +85,8 @@ export function buildFetchResult(
   const start = Date.parse(window.start);
   const end = Date.parse(window.end);
   const rosterSet = new Set(roster);
-  const configured = projects ? new Set(projects) : null;
-  const inScope = (projectPath: string): boolean =>
-    configured === null || configured.has(projectPath);
-  const pushInScope = configured
-    ? pushScope(store, configured)
-    : () => true;
+  const inScope = projects ? inProjects(projects) : () => true;
+  const pushInScope = projects ? pushScope(store, projects) : () => true;
 
   const indexRows = store
     .indexRowsUpdatedWithin(window.start, window.end)
@@ -135,10 +131,10 @@ export function buildFetchResult(
     .filter(e => rosterSet.has(e.username));
 
   // Issues are windowed downstream in cohorts.ts by closedAt, not here by MR linkage.
-  const stored = configured
+  const stored = projects
     ? store
         .allLinearIssues()
-        .map(i => withoutRemovedLinks(store, i, configured, rosterSet, canon))
+        .map(i => withoutRemovedLinks(store, i, inScope, rosterSet, canon))
     : store.allLinearIssues();
   const linearIssues = canon
     ? stored.map(i => ({
@@ -156,6 +152,17 @@ export function buildFetchResult(
 }
 
 /**
+ * Whether a stored row's project is one of `projects`. Both forges ignore case in a path,
+ * and GitLab stores its own spelling, which can differ from the configured one.
+ */
+export function inProjects(
+  projects: readonly string[]
+): (projectPath: string) => boolean {
+  const configured = new Set(projects.map(p => p.toLowerCase()));
+  return projectPath => configured.has(projectPath.toLowerCase());
+}
+
+/**
  * Whether a stored push event belongs to a configured project. GitHub stamps the path
  * (`github:<owner>/<repo>`); GitLab stamps a project id, traced back through the ids each
  * refresh records. An id nothing recorded predates that record and counts until every
@@ -163,9 +170,12 @@ export function buildFetchResult(
  */
 function pushScope(
   store: Store,
-  configured: ReadonlySet<string>
+  projects: readonly string[]
 ): (e: StoredPushEvent) => boolean {
-  const recorded = store.projectIds();
+  const recorded = new Map(
+    [...store.projectIds()].map(([p, id]) => [p.toLowerCase(), id])
+  );
+  const configured = projects.map(p => p.toLowerCase());
   const kept = new Set<string>();
   for (const p of configured) {
     kept.add(`github:${p}`);
@@ -173,13 +183,15 @@ function pushScope(
     if (id !== undefined) kept.add(id);
   }
   const known = new Set(recorded.values());
-  const allRecorded = [...configured].every(p => recorded.has(p));
-  return e =>
-    e.repositoryId !== null &&
-    (kept.has(e.repositoryId) ||
-      (!allRecorded &&
-        !known.has(e.repositoryId) &&
-        !e.repositoryId.startsWith('github:')));
+  const allRecorded = configured.every(p => recorded.has(p));
+  return e => {
+    if (e.repositoryId === null) return false;
+    const id = e.repositoryId.toLowerCase();
+    return (
+      kept.has(id) ||
+      (!allRecorded && !known.has(id) && !id.startsWith('github:'))
+    );
+  };
 }
 
 /**
@@ -190,11 +202,11 @@ function pushScope(
 function withoutRemovedLinks(
   store: Store,
   issue: NormLinearIssue,
-  configured: ReadonlySet<string>,
+  inScope: (projectPath: string) => boolean,
   roster: ReadonlySet<string>,
   canon?: LoginCanon
 ): NormLinearIssue {
-  const kept = issue.linkedMrs.filter(m => configured.has(m.projectPath));
+  const kept = issue.linkedMrs.filter(m => inScope(m.projectPath));
   if (kept.length === issue.linkedMrs.length) return issue;
   if (issue.creditedUser === null) return { ...issue, linkedMrs: kept };
   const hadAttachment = issue.linkedMrs.some(m => m.via === 'attachment');

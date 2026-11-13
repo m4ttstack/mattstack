@@ -346,3 +346,35 @@ describe('GitLab pushes stored before project ids were recorded', () => {
     expect(pushDays()).toEqual([daysAgo(6)]);
   });
 });
+
+describe('a project configured in another case', () => {
+  beforeEach(() => {
+    getStore().clear();
+    getStore().upsertIndexRows([indexRow('acme/app', 1, daysAgo(5))]);
+    getStore().upsertLinearIssues([
+      {
+        id: 'issue-1',
+        identifier: 'ACME-1',
+        title: 'Ticket 1',
+        url: 'https://linear.app/acme/issue/ACME-1',
+        creditedUser: 'alice',
+        linkedMrs: [{ projectPath: 'acme/app', iid: 1, via: 'closing' }],
+        closedAt: daysAgo(5),
+        stateType: 'completed',
+        stateName: 'Done',
+      },
+    ]);
+  });
+
+  it('still counts rows the forge stored under its own spelling', () => {
+    const fetched = buildFetchResult(
+      getStore(),
+      WINDOW,
+      ['alice'],
+      undefined,
+      ['Acme/App']
+    );
+    expect(fetched.mrs).toHaveLength(1);
+    expect(fetched.linearIssues[0]!.creditedUser).toBe('alice');
+  });
+});

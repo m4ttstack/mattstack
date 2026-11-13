@@ -207,4 +207,14 @@ describe('scanSuspectedBots and a removed project', () => {
     const flagged = (await scanSuspectedBots([])).map(b => b.username);
     expect(flagged).toEqual(['release_bot']);
   });
+
+  it('reads a project configured in another case than the forge stores it', async () => {
+    __setSettingReader(<T>(key: string) =>
+      key === 'boxscore.projects' ? (['Acme/Widgets'] as T) : undefined
+    );
+    __setRosterReader(() => []);
+    getStore().upsertIndexRows([row(1, 'release_bot')]);
+    const flagged = (await scanSuspectedBots([])).map(b => b.username);
+    expect(flagged).toEqual(['release_bot']);
+  });
 });

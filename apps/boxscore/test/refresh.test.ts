@@ -1048,4 +1048,23 @@ describe('runRefresh: a project removed from boxscore.projects', () => {
 
     expect(asked.filter(b => b.includes('ACME-77'))).toEqual([]);
   });
+
+  it('fetches detail for a project configured in another case than GitLab stores it', async () => {
+    const store = getStore();
+    const { provider, calls } = makeFakeProvider({
+      fetchMergeRequestIndex: async () => [indexRow({ projectPath: 'g/p' })],
+    });
+
+    await runRefresh({
+      store,
+      provider,
+      settings: settings({ projects: ['G/P'] }),
+      env: ENV,
+      window: WINDOW,
+    });
+
+    expect(
+      calls.filter(c => c.method === 'fetchMergeRequestMetrics')
+    ).toHaveLength(1);
+  });
 });

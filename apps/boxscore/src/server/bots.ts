@@ -4,6 +4,7 @@ import { readSettings } from './config/index.js';
 import { compileBotPatterns } from './metrics/stats.js';
 import { storedLoginCanon } from './source/index.js';
 import { getStore, mrKey } from './store/index.js';
+import { inProjects } from './store/query.js';
 
 export type { SuspectedBot };
 
@@ -28,10 +29,10 @@ export async function scanSuspectedBots(
   const store = getStore();
   if (settings.baseUrl) store.adoptForgeHost(settings.baseUrl);
   // An empty project list reads every stored row, as the scan always has.
-  const configured = new Set(settings.projects);
+  const configured = inProjects(settings.projects);
   const indexRows = store
     .allIndexRows()
-    .filter(r => configured.size === 0 || configured.has(r.projectPath));
+    .filter(r => settings.projects.length === 0 || configured(r.projectPath));
   const keys = indexRows.map(r => mrKey(r.projectPath, r.iid));
   const metricsRows = store.metricsByKeys(keys);
 
