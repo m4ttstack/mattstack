@@ -169,6 +169,12 @@ export interface TranscriptFeed {
   target: (messages: ChatMessage[]) => string | undefined;
   /** A message picks its conversation; the space around them clears it. */
   onPick: (room: string | undefined) => void;
+  /** A change pulls the tail again and merges it into what is loaded, for
+      a conversation that joined the list after its first post was heard. */
+  tailKey?: string;
+  /** One timeline by day instead of a card per conversation. `to` names
+      who a message went to, beside its sender. */
+  timeline?: { to: (message: ChatMessage) => string | undefined };
 }
 
 export interface TranscriptProps {
@@ -247,6 +253,7 @@ function MessageRow({
   compact,
   grouped,
   dated,
+  to,
 }: {
   message: ChatMessage;
   humanHandle: string | undefined;
@@ -254,6 +261,8 @@ function MessageRow({
   grouped: boolean;
   /** No day lines around it, so the row names its own day. */
   dated: boolean;
+  /** Who the message went to, in a list that mixes conversations. */
+  to?: string;
 }) {
   const time = (
     <Text
@@ -268,14 +277,26 @@ function MessageRow({
     </Text>
   );
   const name = (
-    <span className={prose.who}>
-      <AgentName
-        handle={message.handle}
-        name={message.name}
-        variant="name"
-        withAvatar={false}
-      />
-    </span>
+    <>
+      <span className={prose.who}>
+        <AgentName
+          handle={message.handle}
+          name={message.name}
+          variant="name"
+          withAvatar={false}
+        />
+      </span>
+      {to && (
+        <Text
+          component="span"
+          className={prose.meta}
+          data-testid="message-to"
+          style={{ flex: 'none' }}
+        >
+          to {to}
+        </Text>
+      )}
+    </>
   );
   const body = (
     <div data-testid="message-body" className={prose.prose}>
@@ -544,6 +565,13 @@ export function Transcript({
   useRelayOpen(reconnect => {
     if (reconnect) refetchTail();
   });
+  const tailKey = feed?.tailKey;
+  const seenTailKey = useRef(tailKey);
+  useEffect(() => {
+    if (seenTailKey.current === tailKey) return;
+    seenTailKey.current = tailKey;
+    refetchTail();
+  }, [tailKey, refetchTail]);
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') refetchTail();
@@ -685,7 +713,7 @@ export function Transcript({
         // A white card only rises off something darker than itself.
         background: bare
           ? undefined
-          : feed
+          : feed && !feed.timeline
             ? 'color-mix(in srgb, var(--tk-bg) 50%, var(--tk-card))'
             : 'var(--tk-card)',
       }}
@@ -700,16 +728,17 @@ export function Transcript({
         data-testid="transcript-scroll"
         className={scrollClasses.box}
         onClick={
-          feed &&
-          (event => {
-            const target = event.target as HTMLElement;
-            // A portalled card still bubbles its clicks through here.
-            if (!event.currentTarget.contains(target)) return;
-            if (window.getSelection()?.toString()) return;
-            if (!target.closest(`.${prose.block}, a, button`)) {
-              feed.onPick(undefined);
-            }
-          })
+          feed && !feed.timeline
+            ? event => {
+                const target = event.target as HTMLElement;
+                // A portalled card still bubbles its clicks through here.
+                if (!event.currentTarget.contains(target)) return;
+                if (window.getSelection()?.toString()) return;
+                if (!target.closest(`.${prose.block}, a, button`)) {
+                  feed.onPick(undefined);
+                }
+              }
+            : undefined
         }
         style={{ flex: 1, minHeight: 0 }}
       >
@@ -740,7 +769,7 @@ export function Transcript({
               )}
 
               <Stack gap={0}>
-                {feed
+                {feed && !feed.timeline
                   ? blocksByLatest(messages).map(block => {
                       const blockRoom = block[0]!.room;
                       return (
@@ -775,16 +804,24 @@ export function Transcript({
                               : 'day-divider'
                           }
                         />
-                        {day.map(({ message, i }) => (
-                          <MessageRow
-                            key={message.id}
-                            message={message}
-                            humanHandle={humanHandle}
-                            compact={compact}
-                            grouped={continuesGroup(messages[i - 1], message)}
-                            dated={false}
-                          />
-                        ))}
+                        {day.map(({ message, i }) => {
+                          const prev = messages[i - 1];
+                          const row = (
+                            <MessageRow
+                              key={message.id}
+                              message={message}
+                              humanHandle={humanHandle}
+                              compact={compact}
+                              grouped={
+                                continuesGroup(prev, message) &&
+                                (!feed || prev?.room === message.room)
+                              }
+                              dated={false}
+                              to={feed?.timeline?.to(message)}
+                            />
+                          );
+                          return row;
+                        })}
                       </div>
                     ))}
               </Stack>
