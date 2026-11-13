@@ -106,6 +106,67 @@ subcommand, not a UI page:
 bun src/server/cli.ts --format bots
 ```
 
+## On GitHub
+
+A team whose code lives on github.com points boxscore at GitHub with one setting, then
+gives it a token.
+
+1. Set `mattstack.integrations.forge.provider` to `github`. Leave the forge host empty or
+   set it to `github.com`.
+2. List the team's repos in `boxscore.projects` as `<owner>/<repo>`.
+3. Give boxscore a GitHub token, either way:
+   - track one configured repo with rt, and boxscore borrows rt's GitHub token for it:
+     `rt daemon track <repo> live branches`
+   - or set `GITHUB_TOKEN` in the environment the server runs in. It takes priority.
+
+The GitLab token is never sent to GitHub, and the GitHub token never goes to a GitLab host.
+
+### What each metric reads on GitHub
+
+| Metric             | Source on GitHub                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Code added/deleted | the PR's additions and deletions, and its files list for excluded paths             |
+| PRs merged         | authored PRs merged in the window                                                   |
+| PRs reviewed       | other people's PRs with your in-window comment or approval                          |
+| Pipelines          | Actions runs you started on each repo                                               |
+| Review depth       | review (diff) comments per reviewed PR; issue comments and summaries are not inline |
+| Review latency     | first comment by someone other than the author or a bot, minus the PR open          |
+| Revert rate        | merged PRs a later `Revert "..."` PR names                                          |
+| PR size health     | share of merged PRs in the `boxscore.sizeBand` band                                 |
+| Coding days        | distinct days with a commit (author date) on the team's PRs                         |
+| Merge streak       | consecutive days with a merged PR                                                   |
+| Reciprocity        | reviews given over reviews received                                                 |
+
+GitHub App accounts (`dependabot[bot]`, `github-actions[bot]`) are bots: they get no row and
+their comments never count as a review.
+
+### What a refresh costs
+
+Refresh is manual, so per hour is per refresh times the clicks in that hour. GitHub allows
+5000 REST requests and 5000 GraphQL points per hour per token.
+
+| Read                     | Requests                                                                                                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR index, per repo       | 1 per 100 PRs updated since the last scan (usually 1)                                                                                                                                               |
+| Per-PR metrics, per repo | 6 to 8 per PR needing detail: 1 GraphQL, 3 REST discussions, 1 files page and 1 GraphQL thread index only when inline comments exist, 1 files page, 1 commits page; more pages past 100 of any list |
+| Actions runs, per repo   | 1 per roster user, plus 1 per further 100 runs                                                                                                                                                      |
+| Identities, per refresh  | 1 per roster user per day                                                                                                                                                                           |
+
+A warm refresh fetches only PRs updated since the last scan and not yet settled; the first
+refresh of a window fetches every roster PR in it. The per-project id read and the per-user
+events read do not run on GitHub.
+
+### Limits on GitHub
+
+- **github.com only.** A GitHub Enterprise host answers a setup error naming the host.
+- **Coding days are commit author dates on the team's PRs,** not pushes: a commit that never
+  reaches a PR in a configured repo does not count.
+- **250 commits per PR.** GitHub lists no more, and a PR at the cap adds a warning.
+- **1000 Actions runs per person per repo per window.** GitHub stops a filtered run list
+  there, and a capped count adds a warning.
+- **Commits force-pushed off an open PR stay counted,** because the store never deletes a
+  commit it has read.
+
 ## Run
 
 ```bash
