@@ -10,7 +10,11 @@ import type {
   GitHubSourceProvider,
   GitProvider,
 } from '../src/server/source/index.js';
-import type { RefreshProgress, TimeWindow } from '../src/shared/types.js';
+import type {
+  LeaderboardWarning,
+  RefreshProgress,
+  TimeWindow,
+} from '../src/shared/types.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'boxscore-refresh-github-'));
 process.env.BOXSCORE_DB = join(dir, 'test.sqlite');
@@ -18,7 +22,8 @@ process.env.BOXSCORE_DB = join(dir, 'test.sqlite');
 const { getStore, mrKey, __resetStore } =
   await import('../src/server/store/index.js');
 const { runRefresh } = await import('../src/server/refresh/run.js');
-const { githubSource } = await import('../src/server/source/index.js');
+const { githubSource, sourceFor } =
+  await import('../src/server/source/index.js');
 
 beforeEach(() => getStore().clear());
 afterAll(() => {
@@ -64,7 +69,8 @@ function makeGitLabSpy() {
   const calls: string[] = [];
   const record = (method: string) => async () => {
     calls.push(method);
-    return method === 'restRequest' ? new Response('[]') : [];
+    if (method === 'restRequest') return new Response('[]');
+    return method === 'fetchProject' ? null : [];
   };
   const provider = {
     fetchMergeRequestIndex: record('fetchMergeRequestIndex'),
@@ -109,9 +115,10 @@ const json = (body: unknown) =>
 interface GitHubFakeOptions {
   index?: MergeRequestIndexRow[];
   emptyFor?: number[];
+  runsTotal?: number;
 }
 
-function makeGitHubFake(opts: GitHubFakeOptions = {}) {
+function makeGitHubProvider(opts: GitHubFakeOptions = {}) {
   const provider: GitHubSourceProvider = {
     async fetchUser(username) {
       return {
@@ -145,7 +152,7 @@ function makeGitHubFake(opts: GitHubFakeOptions = {}) {
       }
       if (pathname.endsWith('/actions/runs')) {
         return json({
-          total_count: 1,
+          total_count: opts.runsTotal ?? 1,
           workflow_runs: [
             {
               id: 9,
@@ -160,8 +167,11 @@ function makeGitHubFake(opts: GitHubFakeOptions = {}) {
       return new Response('not found', { status: 404 });
     },
   };
-  return githubSource(provider, { knownLogins: ['ada'] });
+  return provider;
 }
+
+const makeGitHubFake = (opts: GitHubFakeOptions = {}) =>
+  githubSource(makeGitHubProvider(opts), { knownLogins: ['ada'] });
 
 describe('runRefresh through a GitHub source', () => {
   it('github refresh stores metrics, commits and runs', async () => {
@@ -279,5 +289,96 @@ describe('runRefresh through a GitHub source', () => {
     expect(warnings.filter(w => w.code === 'pipeline_fetch_failed')).toEqual([
       { code: 'pipeline_fetch_failed', message: 'capped' },
     ]);
+  });
+  it('a pipeline cap warning is returned once', async () => {
+    const { provider } = makeGitLabSpy();
+
+    const warnings = await runRefresh({
+      store: getStore(),
+      provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+      source: makeGitHubFake({ runsTotal: 1001 }),
+    });
+
+    expect(
+      warnings.filter(w => w.code === 'pipeline_fetch_failed')
+    ).toHaveLength(1);
+  });
+
+  it('source warnings from the pipelines step precede later steps', async () => {
+    const { provider } = makeGitLabSpy();
+    let pending: LeaderboardWarning[] = [];
+    const source: ForgeSource = {
+      resolveIdentity: async username => ({
+        username,
+        name: username,
+        resolved: true,
+        userId: 5,
+        fetchedAt: new Date().toISOString(),
+      }),
+      scanProject: async () => [],
+      fetchDetail: async () => null,
+      fetchPipelines: async () => {
+        pending.push({ code: 'pipeline_fetch_failed', message: 'capped' });
+        return [];
+      },
+      readsPushEvents: true,
+      takeWarnings() {
+        const taken = pending;
+        pending = [];
+        return taken;
+      },
+    };
+
+    const warnings = await runRefresh({
+      store: getStore(),
+      provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+      source,
+    });
+
+    const codes = warnings.map(w => w.code);
+    expect(codes.filter(c => c === 'pipeline_fetch_failed')).toHaveLength(1);
+    expect(codes).toContain('project_id_failed');
+    expect(codes.indexOf('pipeline_fetch_failed')).toBeLessThan(
+      codes.indexOf('project_id_failed')
+    );
+  });
+});
+
+describe('sourceFor', () => {
+  it('github canonicalizes a login known only from the org roster', async () => {
+    const provider = makeGitHubProvider({
+      index: [indexRow({ authorUsername: 'Eve' })],
+    }) as unknown as GitProvider;
+    const source = sourceFor(
+      ENV,
+      provider,
+      settings({
+        roster: [{ username: 'ada' }],
+        orgRoster: [{ username: 'ada' }, { username: 'eve' }],
+      })
+    );
+
+    expect(source.readsPushEvents).toBe(false);
+    const rows = await source.scanProject('o/r', WINDOW.start, {});
+    expect(rows.map(r => r.authorUsername)).toEqual(['eve']);
+  });
+
+  it('gitlab or an absent forge reads push events', () => {
+    const { provider } = makeGitLabSpy();
+    const gitlabEnv: Env = { baseUrl: 'https://gl.example', token: 'tkn' };
+
+    expect(sourceFor(gitlabEnv, provider, settings()).readsPushEvents).toBe(
+      true
+    );
+    expect(
+      sourceFor({ ...gitlabEnv, forge: 'gitlab' }, provider, settings())
+        .readsPushEvents
+    ).toBe(true);
   });
 });

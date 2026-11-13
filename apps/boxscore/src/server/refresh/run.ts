@@ -283,6 +283,7 @@ export async function runRefresh(
     (done, total) =>
       report({ phase: 'pipelines', label: 'Fetching pipelines', done, total })
   );
+  drainSourceWarnings();
 
   if (source.readsPushEvents) {
     // Resolve the configured projects to their scoped ids so a push event to a repo outside
