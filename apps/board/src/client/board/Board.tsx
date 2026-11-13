@@ -21,7 +21,7 @@ import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
-import { forgeWord } from '../../mr-ref.ts';
+import { forgeWord, mrNoun, mrNouns, type ForgeKind } from '../../mr-ref.ts';
 import type { DeclineReason } from '../../peer/envelope.ts';
 import { sectionStatus } from '../../sections.ts';
 import {
@@ -34,8 +34,8 @@ import { ALL_TURN } from '../../turn.ts';
 import {
   activeOff,
   arrangeGroups,
+  boardSeat,
   dataAgeLabel,
-  effectiveSeat,
   effectiveSort,
   filterByMember,
   filterByShow,
@@ -53,6 +53,7 @@ import {
   parseViewState,
   picksOnTabSwitch,
   rosterUsernamesFor,
+  seatOf,
   serializeViewState,
   tabDimsEmpty,
   visibleByAuthor,
@@ -525,6 +526,9 @@ export function Board() {
   const { data, loadError, load, refreshNow, refreshing, setData } =
     useBoardData(state.member, onData);
   const people = useMemo(() => (data ? boardPeople(data) : NO_PEOPLE), [data]);
+  const firstRow = data?.mrs[0];
+  const boardForge: ForgeKind =
+    data?.forge ?? (firstRow && onGitHub(firstRow) ? 'github' : 'gitlab');
 
   // Selection for the multi-copy bar, keyed by webUrl so it survives the
   // refresh poll and every member/group/sort change. Deliberately not
@@ -607,7 +611,7 @@ export function Board() {
       setDraftModal(null);
       addToast(
         outcome === 'posted'
-          ? `held note posted to !${mr.iid}`
+          ? `held note posted to ${mrRef(mr)}`
           : `held note dismissed on ${mrRef(mr)}`
       );
     },
@@ -713,25 +717,29 @@ export function Board() {
     startToast,
     reload: load,
   });
-  // The sync's own output, on the row's word, says how it went; only a
-  // request the server refuses outright still toasts.
-  const failuresOnlyToast = useCallback(
-    () => ({ done: () => {}, fail: addToast }),
-    [addToast]
-  );
-  const rebaseLocalAction = useLaunchAction({
+  const rebaseAction = useLaunchAction({
     axis: 'doctor',
     path: '/doctor',
-    verbing: 'syncing',
+    verbing: 'rebasing',
     started: 'doctor called on the conflicts',
-    noun: 'local rebase',
+    noun: 'rebase',
     claims: 'syncing',
     optimistic: optimisticLifecycle,
     addToast,
-    startToast: failuresOnlyToast,
+    startToast,
     reload: load,
+    doneMessage: (result, mr) => {
+      const said =
+        result.body?.synced ??
+        (result.body?.cancelled ? 'rebase cancelled' : undefined);
+      return said ? `${mrRef(mr)} ${said}` : undefined;
+    },
+    stoppedMessage: (result, mr) =>
+      result.body?.stopped
+        ? `couldn't rebase ${mrRef(mr)}: ${result.body.stopped}`
+        : undefined,
     failureMessage: (result, mr) =>
-      `couldn't sync ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
+      `couldn't rebase ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`,
   });
   // Resume actions: axis null means useLaunchAction's setQueued/rollback are
   // no-ops, matching today's handleResume (which never claimed a badge before
@@ -832,11 +840,11 @@ export function Board() {
           );
         case 'doctor':
           return doctorAction(mr, { tabId: state.tab }, note, intent, quiet);
-        case 'rebase-local':
-          // rt sync first; on a conflict the doctor chassis, scoped to the
-          // paused rebase.
+        case 'rebase':
+          // The forge first, then rt sync; on a conflict the doctor chassis,
+          // scoped to the paused rebase.
           if (mr.webUrl && !quiet) startSyncLines(mr.webUrl);
-          return rebaseLocalAction(
+          return rebaseAction(
             mr,
             { mode: 'rebase', tabId: state.tab },
             note,
@@ -852,7 +860,7 @@ export function Board() {
       respondAction,
       resumeRespondAction,
       doctorAction,
-      rebaseLocalAction,
+      rebaseAction,
       state.tab,
     ]
   );
@@ -1115,7 +1123,7 @@ export function Board() {
     (mrUrl: string) => {
       const mr = data?.mrs.find(m => m.webUrl === mrUrl);
       if (!mr) {
-        addToast('That MR is not on this board.');
+        addToast(`That ${mrNoun(boardForge)} is not on this board.`);
         return;
       }
       const asks = data?.asks;
@@ -1125,7 +1133,7 @@ export function Board() {
       setAsksOpen(false);
       handleFocusPane(mr, ask ? verbLane(ask.kind) : 'review');
     },
-    [data, addToast, handleFocusPane]
+    [data, addToast, handleFocusPane, boardForge]
   );
 
   // Row menu's "never diagnose this stack" toggle. Turning it on mutes
@@ -1251,7 +1259,7 @@ export function Board() {
       if (!urls.length) return;
       setPostingSummary(true);
       const toast = startToast(
-        `posting ${urls.length} MR${urls.length === 1 ? '' : 's'} to slack…`
+        `posting ${urls.length} ${urls.length === 1 ? mrNoun(boardForge) : mrNouns(boardForge)} to slack…`
       );
       postAction(
         '/slack/post',
@@ -1264,14 +1272,14 @@ export function Board() {
                 `slack post failed (${result.status})${result.text ? `: ${result.text}` : ''}`
             );
           toast.done(
-            `posted ${urls.length} MR${urls.length === 1 ? '' : 's'} to slack`
+            `posted ${urls.length} ${urls.length === 1 ? mrNoun(boardForge) : mrNouns(boardForge)} to slack`
           );
           onPosted?.();
           load();
         })
         .finally(() => setPostingSummary(false));
     },
-    [startToast, load]
+    [startToast, load, boardForge]
   );
 
   const runner: RunnerDeps = useMemo(
@@ -1717,7 +1725,7 @@ export function Board() {
   useFlockMenuWarmup(
     data?.mrs,
     data?.local === true,
-    data ? effectiveSeat(data.defaultMember, data.tokenUser) : null
+    data ? boardSeat(data) : null
   );
 
   if (!data) {
@@ -1792,7 +1800,7 @@ export function Board() {
   // Drawn from `mrs`, not `filtered` -- that's what lets a selection span
   // member filters.
   const selectedMrs = selectionOf(mrs, selected);
-  const seat = effectiveSeat(data.defaultMember, data.tokenUser);
+  const seat = boardSeat(data);
   seatRef.current = seat;
   const postableMrs = postableOf(flatMrs, seat);
   const postableSelected = postableOf(selectedMrs, seat);
@@ -1840,6 +1848,8 @@ export function Board() {
     tab: state.tab,
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
+    seatUnverified:
+      !!data.seatUnverified && seatOf(data.defaultMember) !== null,
     roster: data.members.map(m => m.username),
     people,
     peers: data.peers,
@@ -1914,6 +1924,7 @@ export function Board() {
             toggle: toggleShow,
             turn: data.turn ?? ALL_TURN,
             prs: memberFiltered.some(mr => isOwnMr(mr, seat) && onGitHub(mr)),
+            forge: boardForge,
           }
         : null,
     onOpenTurnSettings: openConfig,
@@ -1950,6 +1961,7 @@ export function Board() {
           Also hidden on a codeowners tab: it isn't filtered by member, so the
           roster has nothing to drive. */}
           <Sidebar
+            forge={boardForge}
             members={roster}
             total={rosterTotal}
             active={state.member}
@@ -2228,6 +2240,7 @@ export function Board() {
                 </button>
               </div>
               <Sidebar
+                forge={boardForge}
                 members={roster}
                 total={rosterTotal}
                 active={state.member}
@@ -2249,6 +2262,7 @@ export function Board() {
 
           {showSettings && (
             <SettingsModal
+              forge={boardForge}
               members={data.allMembers}
               canInvite={data.canInvite}
               local={data.local}
@@ -2303,7 +2317,7 @@ export function Board() {
                   setPendingAsk({
                     kind: req.ask,
                     reviewer: opts.pick,
-                    subject: `${count} ${count === 1 ? 'MR' : 'MRs'}`,
+                    subject: `${count} ${count === 1 ? mrNoun(boardForge) : mrNouns(boardForge)}`,
                     send: note =>
                       void runBulk(
                         {
@@ -2328,6 +2342,7 @@ export function Board() {
 
           <RedoConfirmDialog
             pending={pendingRedo}
+            forge={boardForge}
             onDone={() => setPendingRedo(null)}
           />
 
@@ -2388,7 +2403,7 @@ export function Board() {
               readOnly={gateReadOnlyReason(
                 queue.active.gate,
                 queue.active.mr,
-                effectiveSeat(data.defaultMember, data.tokenUser)
+                boardSeat(data)
               )}
             />
           )}
@@ -2408,10 +2423,7 @@ export function Board() {
               mr={draftModal.mr}
               draft={draftModal.draft}
               local={data.local}
-              canPost={isOwnMr(
-                draftModal.mr,
-                effectiveSeat(data.defaultMember, data.tokenUser)
-              )}
+              canPost={isOwnMr(draftModal.mr, boardSeat(data))}
               onResolved={handleDraftResolved}
               onClose={() => setDraftModal(null)}
             />
@@ -2451,7 +2463,7 @@ export function Board() {
                 ) ?? comments.shown
               }
               local={data.local}
-              self={effectiveSeat(data.defaultMember, data.tokenUser)}
+              self={boardSeat(data)}
               closing={comments.leaving}
               onClose={() => setCommentsFor(null)}
             />

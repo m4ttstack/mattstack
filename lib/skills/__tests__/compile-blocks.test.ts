@@ -10,7 +10,7 @@ import { loadAttachment, loadInclude, loadStepSource, type PluginRoots } from ".
 import type { CompiledFile, PlannedAttachments, StepSource } from "../types.ts";
 import type { BlockTree } from "../blocks/types.ts";
 import { newTeamContext, type TeamContext } from "../team-params.ts";
-import { fileCheckFor, pointerErrorsIn, unitsInMemory } from "../unit-maps.ts";
+import { fileCheckFor, pointerErrorsIn, readPackIdentity, unitsInMemory } from "../unit-maps.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "blocks");
 const MANIFEST = join(FIX, "mattstack-home", "repos", "my-repo", "skills.jsonc");
@@ -99,17 +99,17 @@ describe("compileBlockSkill", () => {
     expect(skillMd.startsWith('---\nname: "mini"\ndescription: "Run the mini widget step"\nallowed-tools:\n')).toBe(true);
     expect(skillMd).toContain('  - "Bash(${CLAUDE_SKILL_DIR}/parts/rules/lint.sh)"\n');
     expect(skillMd).toContain(
-      '  compiled: "mattstack@1.0.0 + widgets:mini-rules/fast@0.1.0 + mattstack:model-tiering@1.0.0 + mattstack:style-floor@1.0.0"\n',
+      '  compiled: "mattstack + widgets:mini-rules/fast + mattstack:model-tiering + mattstack:style-floor"\n',
     );
     expect(skillMd).toContain("<!-- compiled by rt skills compile");
     expect(skillMd.split("\n").filter((l) => l.startsWith("#"))).toEqual(["# mini", "## Run the step", "### Check the result", "## Ask the gate", "## Notes"]);
     expect(skillMd).not.toContain("{{");
-    expect(skillMd).toContain("<!-- part: prop:mini.rules binding=widgets:mini-rules/fast version=0.1.0 path=attachments/mini-rules/fast.md lines=1-2 -->\nFollow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first.");
+    expect(skillMd).toContain("<!-- part: prop:mini.rules binding=widgets:mini-rules/fast path=attachments/mini-rules/fast.md lines=1-2 -->\nFollow the fast widget rules.\nRun ${CLAUDE_SKILL_DIR}/parts/rules/lint.sh first.");
   });
 
   test("the pack's empty tiering falls back to its default, a public skill bound by reference", () => {
     const { skillMd } = compileMini();
-    expect(skillMd).toContain("For tiering, invoke the `mattstack:model-tiering` skill (mattstack:model-tiering@1.0.0) when this flow needs it.");
+    expect(skillMd).toContain("For tiering, invoke the `mattstack:model-tiering` skill when this flow needs it.");
   });
 
   test("a per-file value's sibling files vendor under parts/<prop>; no block file is vendored", () => {
@@ -803,4 +803,13 @@ describe("tree includes", () => {
     const values = valuesFor(step, s.roots, bindingsOf(readFileSync(MANIFEST, "utf8")));
     expect(() => compileBlockSkill(VERB, step, values, new Set(["mattstack:model-tiering"]), {})).toThrow('include "gone-lookup" is not a loaded attachment');
   });
+});
+
+test("a pack named skills is refused", () => {
+  const packDir = tmp();
+  mkdirSync(join(packDir, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "skills", version: "0.1.0" }));
+  const identity = readPackIdentity(packDir);
+  expect(identity.ok).toBe(false);
+  expect(identity).toMatchObject({ fault: expect.stringContaining('has the name "skills"') });
 });

@@ -81,6 +81,11 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `fetchCommitParents?(path, sha)` | A commit's parent shas (`canFetchCommitParents`) |
 | `fetchPipelineFailedJobs?(path, pipelineId)` | A pipeline's failed jobs; on GitLab, plus those of the child pipelines its bridges trigger (`canFetchPipelineFailedJobs`) |
 | `fetchPullRequestSummaries?(path, options)` | Scalar `PullRequestSummary` rows by state, author, branch or search, without the dashboard fill (`canFetchPullRequestSummaries`) |
+| `fetchMergeRequestIndex?(options)` | Scalar rows for MRs updated at or after `updatedAfter`, for `projectPaths` or a `groupPath` (GitLab) or `projectPaths` only (GitHub) (`canFetchMergeRequestIndex`) |
+| `fetchApprovalRules?({ projectPath, updatedAfter \| iids })` | Approval rules per open MR or PR; GitHub reads 50 per GraphQL request, and an entry with `unknownReason` was not read (`canFetchApprovalRules`) |
+| `fetchCodeownerSections?({ projectPath })` | CODEOWNERS section names, or `null` without the file; GitHub returns the owners lowercased with an `@` prefix (`canFetchCodeownerSections`) |
+| `fetchDivergedCount?(path, iid)` | How many commits the base has moved on for one MR, or `null` without a comparison (`canFetchDivergedCount`) |
+| `fetchDivergedCounts?(path, iids)` | The same for a batch, 25 per request; GitHub only (`canFetchDivergedCount`) |
 | `addPullRequestLabels?(path, iid, labels)` | Add labels, leaving the others in place (`canEditLabels`) |
 | `removePullRequestLabels?(path, iid, labels)` | Remove labels, leaving the others in place (`canEditLabels`) |
 | `fetchPullRequestDiffs?(path, iid, options?)` | One page of up to 100 per-file diffs; a file with no inline patch has an empty `diff` and `tooLarge: true` (GitHub; `canFetchPullRequestDiffs`) |

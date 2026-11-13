@@ -49,15 +49,34 @@ test('no fixture file carries a GitLab merge request url', () => {
     expect(read(name)).not.toContain('/-/merge_requests/');
 });
 
-test('every pipeline id is a glance 0.31 GitHub id', () => {
+type Pipeline = {
+  id: string;
+  runIds: string[];
+  jobs: { runId: string | null }[];
+};
+
+test('every pipeline id is the glance 0.33 stable GitHub id', () => {
   const ids = rows().map(row => ({
     row,
-    id: (row as unknown as { pipeline: { id: string } }).pipeline.id,
+    pipeline: (row as unknown as { pipeline: Pipeline }).pipeline,
   }));
-  for (const { row, id } of ids)
-    expect(
-      /^github:run:\d+$/.test(id) || id === `github:checks:${row.webUrl}`
-    ).toBe(true);
-  expect(ids.some(({ id }) => /^github:run:\d+$/.test(id))).toBe(true);
-  expect(ids.some(({ id }) => id.startsWith('github:checks:'))).toBe(true);
+  for (const { row, pipeline } of ids) {
+    const runIds = [
+      ...new Set(pipeline.jobs.flatMap(j => (j.runId ? [j.runId] : []))),
+    ];
+    expect([...pipeline.runIds].sort()).toEqual(runIds.sort());
+    const lowest = runIds.reduce<string | null>(
+      (best, id) => (best === null || Number(id) < Number(best) ? id : best),
+      null
+    );
+    expect(pipeline.id).toBe(
+      lowest ? `github:run:${lowest}` : `github:checks:${row.webUrl}`
+    );
+  }
+  expect(ids.some(({ pipeline }) => pipeline.id.startsWith('github:run:'))).toBe(
+    true
+  );
+  expect(
+    ids.some(({ pipeline }) => pipeline.id.startsWith('github:checks:'))
+  ).toBe(true);
 });

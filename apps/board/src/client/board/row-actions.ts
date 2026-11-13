@@ -5,7 +5,7 @@
 import { mergeBlockedReason } from '@mattstack/glance';
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
-import { forgeWord, mrRef, onGitHub } from '../../mr-ref.ts';
+import { forgeWord, mrNoun, mrRef, onGitHub } from '../../mr-ref.ts';
 import { hasStackDescendants, isOwnMr, stackParents } from '../../view.ts';
 import type { BoardMRWithReview, OrgTeam } from '../types.ts';
 import { askPickerModel, type AskPickerModel } from './ask-picker.ts';
@@ -27,7 +27,8 @@ import {
   reviewLogged,
   reviewMenuItems,
   roundSuffix,
-  SEAT_HINT,
+  SEAT_UNVERIFIED_HINT,
+  seatHint,
 } from './format.ts';
 import { boardPeople, NO_PEOPLE, type People } from './people.ts';
 import { laneDismissed } from './row-status.ts';
@@ -72,7 +73,7 @@ export type LaunchFlow =
   | 'respond'
   | 'resume-respond'
   | 'doctor'
-  | 'rebase-local';
+  | 'rebase';
 
 export type ActionRequest =
   | { kind: 'launch'; flow: LaunchFlow; intent?: 'focus'; person?: string }
@@ -175,6 +176,8 @@ export interface ActionEnv {
   ownerSlackRepos?: string[];
   /** The board's seat; null on an "all" board. */
   self: string | null;
+  /** The seat is set but unverified; `self` is null for that reason. */
+  seatUnverified?: boolean;
   roster: string[];
   /** Everyone the board knows; absent, a row names only its own MR's
       people and the org's teams. */
@@ -211,9 +214,8 @@ const SHELL: ActionGlyph = { kind: 'menu', name: 'shell' };
 const CLAUDE: ActionGlyph = { kind: 'agent' };
 const RESUME: ActionGlyph = { kind: 'menu', name: 'resume' };
 const COMMAND: ActionGlyph = { kind: 'menu', name: 'command' };
-const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
+const GITLAB_GLYPH: Record<Exclude<MrAction, 'rebase'>, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
-  rebase: { kind: 'menu', name: 'branch' },
   setAutoMerge: { kind: 'flag', name: 'auto-merge' },
   cancelAutoMerge: { kind: 'flag', name: 'auto-merge' },
 };
@@ -250,7 +252,7 @@ const ABSENT = new Set(['no session', 'no report yet', 'nothing to dismiss']);
 /** Every action this MR offers, in menu order, each in one section. A row
     is omitted for who is looking (local board, own MR, seat, Slack on, an
     opted-in repo) and in these state cases: call doctor on a healthy MR,
-    rebase locally on a current one, and a session row (resume, view report,
+    rebase on a current one, and a session row (resume, view report,
     dismiss) with nothing to act on. Every other state blocks
     the row with a reason instead of removing it. */
 export function rowActions(
@@ -442,20 +444,31 @@ export function rowActions(
     }
     if (
       own &&
-      (!mrx.doctorSkillTabs || mrx.doctorSkillTabs.includes(env.tab ?? '')) &&
       (mrx.blockers?.hasConflicts ||
         mrx.rebaseButton.visible ||
-        (mrx.behindTarget ?? 0) > 0)
-    )
+        (mrx.behindTarget ?? 0) > 0 ||
+        mrx.readiness?.reasons.includes('behind'))
+    ) {
+      const status = mrx.doctor?.status;
       agent.push(
         agentItem(
           'doctor',
-          'rebase-local',
-          'rebase locally',
-          { kind: 'launch', flow: 'rebase-local' },
-          { notable: true }
+          'rebase',
+          'rebase',
+          { kind: 'launch', flow: 'rebase' },
+          {
+            notable: true,
+            bulk: 'rebase',
+            ...block(
+              (mrx.rebaseButton.loading ||
+                status === 'forge-rebasing' ||
+                status === 'syncing') &&
+                'rebasing'
+            ),
+          }
         )
       );
+    }
   }
 
   sessions.push(
@@ -522,7 +535,7 @@ export function rowActions(
             reviewer: latch.reviewer,
             discussionId: latch.discussionId,
           },
-          block(latch.requested && 'asked in the MR thread')
+          block(latch.requested && `asked in the ${mrNoun(mrx)} thread`)
         )
       );
     const askTargets = firstReviewTargets(mrx, env.roster, env.peers);
@@ -596,7 +609,7 @@ export function rowActions(
         'author actions',
         PEOPLE,
         { kind: 'open', url: '' },
-        { blocked: SEAT_HINT }
+        { blocked: env.seatUnverified ? SEAT_UNVERIFIED_HINT : seatHint(mrx) }
       )
     );
   if (!env.local)
@@ -611,8 +624,7 @@ export function rowActions(
       )
     );
 
-  const github = onGitHub(mrx);
-  if (env.local && own && !github) {
+  if (env.local && own) {
     // glance hides both buttons on a draft or an MR that is not open; the
     // board lists only open MRs, so a hidden button past draft is a state
     // the row blocks rather than one it trusts.
@@ -629,25 +641,6 @@ export function rowActions(
           confirm: 'really merge?',
           ...block(
             mergeBlockedReason(mrx) || (!mrx.mergeButton.visible && hidden)
-          ),
-        }
-      )
-    );
-    gitlab.push(
-      item(
-        'gitlab',
-        'rebase',
-        'rebase on target',
-        GITLAB_GLYPH.rebase,
-        { kind: 'mr', action: 'rebase' },
-        {
-          bulk: 'rebase on target',
-          ...block(
-            mrx.rebaseButton.loading
-              ? 'rebasing'
-              : !mrx.rebaseButton.visible &&
-                  mrx.behindTarget === 0 &&
-                  'up to date'
           ),
         }
       )
@@ -715,9 +708,9 @@ export function rowActions(
       { kind: 'open', url: mrx.webUrl ?? '' }
     )
   );
-  if (env.local && !github)
+  if (env.local)
     gitlab.push(
-      item('gitlab', 'refresh-mr', 'refresh from gitlab', REFRESH, {
+      item('gitlab', 'refresh-mr', `refresh from ${forgeWord(mrx)}`, REFRESH, {
         kind: 'refresh',
       })
     );
@@ -748,7 +741,7 @@ export function rowActions(
         ? item(
             'slack',
             'open-slack-post',
-            'open MR post in slack…',
+            `open ${mrNoun(mrx)} post in slack…`,
             SLACK,
             { kind: 'slack-posts' },
             { hint: `${posts.length} posts` }
@@ -756,7 +749,7 @@ export function rowActions(
         : item(
             'slack',
             'open-slack-post',
-            'open MR post in slack',
+            `open ${mrNoun(mrx)} post in slack`,
             SLACK,
             { kind: 'open', url: posts[0]?.permalink ?? '' },
             block(
@@ -811,7 +804,7 @@ export function rowActions(
         'stand-down',
         mrx.standDown
           ? 're-enable auto-doctor'
-          : `auto-doctor: ignore this ${hasStackDescendants(onBoard, env.allMrs) ? 'stack' : 'MR'}`,
+          : `auto-doctor: ignore this ${hasStackDescendants(onBoard, env.allMrs) ? 'stack' : mrNoun(mrx)}`,
         DISMISS,
         { kind: 'stand-down', on: !mrx.standDown },
         block(
@@ -974,13 +967,6 @@ function mergeBlock(checked: BoardMR[], allMrs: BoardMR[]): string | undefined {
   return undefined;
 }
 
-/** An unknown behind count leaves the row's rebase enabled, but a bulk
-    rebase only targets an MR GitLab or the behind count says is behind;
-    the rest count as already there. */
-function rebaseNeeded(mr: BoardMR): boolean {
-  return mr.rebaseButton.visible || (mr.behindTarget ?? 0) > 0;
-}
-
 /** The bulk menu: an action shows when every checked MR either offers it
     (a target) or is already where it leads (skipped); one checked MR that
     cannot get there hides it. Eligibility comes only from rowActions; what
@@ -992,9 +978,7 @@ export function bulkActions(
 ): BulkEntry[] {
   if (!env.local) return [];
   const rows = mrs.map(mr => {
-    const actions = rowActions(mr, env).filter(
-      a => !a.blocked && (a.key !== 'rebase' || rebaseNeeded(mr))
-    );
+    const actions = rowActions(mr, env).filter(a => !a.blocked);
     return {
       mr,
       actions,

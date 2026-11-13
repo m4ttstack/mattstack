@@ -61,3 +61,15 @@ test('a response redo for one person names them and the round it starts', () => 
 test('no person leaves the copy unchanged', () => {
   expect(redoCopy('respond', 1, 1, undefined)).toEqual(redoCopy('respond', 1));
 });
+
+test('a GitHub board names PRs in every redo body', () => {
+  expect(redoCopy('review', 1, 1, undefined, 'github').body[1]).toBe(
+    'This PR already had a review. Are you sure?'
+  );
+  expect(redoCopy('review', 3, 3, undefined, 'github').body[1]).toBe(
+    'Each of these PRs already had a review. Are you sure?'
+  );
+  expect(redoCopy('review', 3, 1, undefined, 'github').body[1]).toBe(
+    '1 of these PRs already had a review. Are you sure?'
+  );
+});

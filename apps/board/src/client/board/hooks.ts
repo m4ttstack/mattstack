@@ -275,7 +275,7 @@ export function useBoardData(
 // of DOM-touching hooks, so the test imports runLaunchFlow directly from
 // launch-flow.ts rather than through here -- this file only *uses* it below.
 
-const SILENT_TOAST = { done: () => {}, fail: () => {} };
+const SILENT_TOAST = { done: () => {}, fail: () => {}, note: () => {} };
 
 /** Closes runLaunchFlow over one action's server path and optimistic axis.
     `axis: null` skips the optimistic queued/rollback entirely -- for resume
@@ -293,6 +293,7 @@ export function useLaunchAction(opts: {
   /** What the row claims on the click; a sync is not a queued doctor. */
   claims?: 'queued' | 'syncing';
   doneMessage?: LaunchFlowDeps['doneMessage'];
+  stoppedMessage?: LaunchFlowDeps['stoppedMessage'];
   failureMessage?: LaunchFlowDeps['failureMessage'];
 }): (
   mr: BoardMR,
@@ -313,6 +314,7 @@ export function useLaunchAction(opts: {
     started,
     claims,
     doneMessage,
+    stoppedMessage,
     failureMessage,
   } = opts;
   return useCallback(
@@ -346,6 +348,7 @@ export function useLaunchAction(opts: {
         noun,
         started,
         doneMessage,
+        stoppedMessage,
         failureMessage,
       };
       return runLaunchFlow(deps, mr, { ...extra, note }, intent);
@@ -362,6 +365,7 @@ export function useLaunchAction(opts: {
       reload,
       claims,
       doneMessage,
+      stoppedMessage,
       failureMessage,
     ]
   );

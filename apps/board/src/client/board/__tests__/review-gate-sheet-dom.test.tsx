@@ -218,18 +218,20 @@ function Host({
   onPrev = () => {},
   onContinue = () => {},
   noMr = false,
+  mr = MR,
 }: {
   gate?: GateRow;
   queueIndex?: number;
   onPrev?: () => void;
   onContinue?: () => void;
   noMr?: boolean;
+  mr?: BoardMRWithReview;
 }) {
   const form = useGateForm(gate);
   return (
     <ReviewGateSheet
       gate={gate}
-      mr={noMr ? undefined : MR}
+      mr={noMr ? undefined : mr}
       form={form}
       queue={{
         ...QUEUE,
@@ -291,6 +293,7 @@ async function render(
     onPrev?: () => void;
     onContinue?: () => void;
     noMr?: boolean;
+    mr?: BoardMRWithReview;
   }
 ) {
   await React.act(async () => {
@@ -1966,4 +1969,18 @@ describe('keyboard', () => {
     await press(sheetEl(), 'Enter', { metaKey: true });
     expect(answerPosts().length).toBe(before);
   });
+});
+
+test('the heading names the PR on GitHub and the MR on GitLab', async () => {
+  await render();
+  expect(container.textContent).toContain("'s MR");
+  await render(undefined, {
+    mr: {
+      ...MR,
+      webUrl: 'https://github.com/acme/widgets/pull/31',
+      provider: 'github',
+    } as BoardMRWithReview,
+  });
+  expect(container.textContent).toContain("'s PR");
+  expect(container.textContent).not.toContain("'s MR");
 });

@@ -94,15 +94,74 @@ describe('mapPipeline', () => {
     expect(p.jobs[0]!.id).toBe('github:check:1');
     expect(p.jobs[0]!.runId).toBe('50');
     expect(p.runIds).toEqual(['50', '70']);
-    expect(p.id).toBe('github:run:70');
-    expect(Number(p.id.slice(p.id.lastIndexOf(':') + 1))).toBe(70);
+    expect(p.id).toBe('github:run:50');
+    expect(Number(p.id.slice(p.id.lastIndexOf(':') + 1))).toBe(50);
   });
 
-  it('Pipeline.id prefers the run holding the first failed required job', () => {
+  it('Pipeline.id is the lowest run id, whichever run failed', () => {
     const p = map([
       check(1, { checkSuite: run(90) }),
-      check(2, { conclusion: 'FAILURE', checkSuite: run(40) })
+      check(2, { conclusion: 'FAILURE', checkSuite: run(140) })
     ]);
-    expect(p.id).toBe('github:run:40');
+    expect(p.id).toBe('github:run:90');
+  });
+
+  it('compares run ids numerically, not as strings', () => {
+    const p = map([check(1, { checkSuite: run(1000) }), check(2, { checkSuite: run(99) })]);
+    expect(p.id).toBe('github:run:99');
+  });
+
+  it('one head commit keeps one pipeline id while lint fails and then tests fail', () => {
+    const tests = (over: Partial<CheckRun> = {}) =>
+      check(1, { checkSuite: run(100), status: 'IN_PROGRESS', conclusion: null, ...over });
+    const lint = (over: Partial<CheckRun> = {}) =>
+      check(2, { checkSuite: run(101), status: 'IN_PROGRESS', conclusion: null, ...over });
+    const failed: Partial<CheckRun> = { status: 'COMPLETED', conclusion: 'FAILURE' };
+
+    const ids = [
+      map([tests(), lint()]).id,
+      map([tests(), lint(failed)]).id,
+      map([tests(failed), lint(failed)]).id
+    ];
+
+    expect(ids).toEqual(['github:run:100', 'github:run:100', 'github:run:100']);
+  });
+
+  it('a new push changes the pipeline id', () => {
+    const first = map([check(1, { checkSuite: run(100) }), check(2, { checkSuite: run(101) })]);
+    const next = map([check(3, { checkSuite: run(200) }), check(4, { checkSuite: run(201) })]);
+
+    expect(next.id).toBe('github:run:200');
+    expect(next.id).not.toBe(first.id);
+  });
+
+  it('a run whose checks appear late moves the id at most once', () => {
+    const failed: Partial<CheckRun> = { conclusion: 'FAILURE' };
+    const a = map([check(2, { checkSuite: run(101) })]);
+    const b = map([check(2, { checkSuite: run(101) }), check(1, { checkSuite: run(100) })]);
+    const c = map([
+      check(2, { checkSuite: run(101), ...failed }),
+      check(1, { checkSuite: run(100), ...failed }),
+      check(3, { checkSuite: run(102), ...failed })
+    ]);
+
+    const ids = [a.id, b.id, c.id];
+    expect(ids).toEqual(['github:run:101', 'github:run:100', 'github:run:100']);
+    expect(ids.filter((id, i) => i > 0 && id !== ids[i - 1])).toHaveLength(1);
+  });
+
+  it('statuses-only contexts keep the checks id', () => {
+    const p = map([
+      {
+        __typename: 'StatusContext',
+        context: 'ci/external',
+        state: 'SUCCESS',
+        targetUrl: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        isRequired: true
+      }
+    ]);
+    expect(p.id).toBe(`github:checks:${PR}`);
+    expect(p.runIds).toEqual([]);
   });
 });

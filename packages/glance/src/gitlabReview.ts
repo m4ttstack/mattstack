@@ -1,4 +1,5 @@
 import type { DiffRefs, NoteMutator, TextPosition } from './NoteMutator.ts';
+import { RateLimitedError } from './errors.ts';
 import { pendingPreview } from './reviewPreview.ts';
 import type { CommentAnchor, ReviewSubmission, ReviewSubmitResult } from './types.ts';
 
@@ -38,7 +39,9 @@ const MAX_ITEMS = 100;
 /** Statuses GitLab answers before it acts on a request. */
 const REFUSED_BEFORE_ACTING = new Set([400, 401, 403, 404, 422]);
 
+/** A 429 is never applied, and `RateLimitedError` is what a 429 past the wait deadline becomes. */
 function refusedBeforeActing(err: unknown): boolean {
+  if (err instanceof RateLimitedError) return true;
   const status = (err as { status?: unknown } | null)?.status;
   return typeof status === 'number' && REFUSED_BEFORE_ACTING.has(status);
 }

@@ -6,6 +6,7 @@ import { mrRef } from './MrLinks.tsx';
 export interface ToastHandle {
   done: (text: string) => void;
   fail: (text: string) => void;
+  note: (text: string) => void;
 }
 
 /** Deps a launch flow needs from its caller: how to POST, how to reflect the
@@ -25,6 +26,9 @@ export interface LaunchFlowDeps {
   /** Overrides `started` when the answer says what happened, as a local
       rebase's does. */
   doneMessage?: (result: ActionResult, mr: BoardMR) => string | undefined;
+  /** A 200 answer that still reports the action did not get there, as a
+      rebase that stopped does: the toast fails with this text. */
+  stoppedMessage?: (result: ActionResult, mr: BoardMR) => string | undefined;
   /** Overrides the default failure toast (`couldn't launch ${noun} for
       ${mrRef(mr)} (${status})`). Resume actions use this to surface the
       server's own response text, matching today's handleResume (`resume
@@ -85,11 +89,29 @@ export async function runLaunchFlow(
   // A refusal or a focus starts no run, so the server may never write the
   // lane the claim is waiting on; the claim would otherwise stand until its
   // hold lapses.
+  // A refused or stopped answer is returned as not ok, so a bulk run counts
+  // it failed and names its reason.
   if (intent === 'launch' && result.body?.refused) {
     deps.rollback();
     toast?.fail(result.body.refused);
     deps.reload();
-    return result;
+    return {
+      ...result,
+      ok: false,
+      body: { ...result.body, reason: result.body.refused },
+    };
+  }
+  const stopped =
+    intent === 'launch' ? deps.stoppedMessage?.(result, mr) : undefined;
+  if (stopped) {
+    deps.rollback();
+    toast?.fail(stopped);
+    deps.reload();
+    return {
+      ...result,
+      ok: false,
+      body: { ...result.body, reason: result.body?.stopped ?? stopped },
+    };
   }
   if (intent === 'focus') {
     if (result.body?.focused)

@@ -15,6 +15,7 @@ import type {
 } from "./types.ts";
 import { type ForgeLogger, noopLogger } from "./logger.ts";
 import { type OnRequestHook, safeEmit } from "./instrumentation.ts";
+import { throwIfGitLabRateLimited, withGitLabRateLimit } from "./gitlabRateLimit.ts";
 
 // ---------------------------------------------------------------------------
 // Raw REST response shapes
@@ -75,18 +76,21 @@ export class MRDetailFetcher {
     let page = 1;
     for (;;) {
       const url = `${this.baseURL}${path}?per_page=100&page=${page}`;
-      const started = performance.now();
-      const res = await fetch(url, {
-        headers: { "PRIVATE-TOKEN": this.token },
-      });
-
-      safeEmit(this.onRequest, {
-        op: 'fetchMRDiscussions',
-        transport: 'rest',
-        method: 'GET',
-        path,
-        durationMs: performance.now() - started,
-        status: res.status,
+      const res = await withGitLabRateLimit(`GET ${path}`, 'read', async () => {
+        const started = performance.now();
+        const attempt = await fetch(url, {
+          headers: { "PRIVATE-TOKEN": this.token },
+        });
+        safeEmit(this.onRequest, {
+          op: 'fetchMRDiscussions',
+          transport: 'rest',
+          method: 'GET',
+          path,
+          durationMs: performance.now() - started,
+          status: attempt.status,
+        });
+        throwIfGitLabRateLimited(attempt);
+        return attempt;
       });
 
       if (!res.ok) {

@@ -139,6 +139,56 @@ describe("useToasts", () => {
     expect(hook.current.toasts).toEqual([]);
   });
 
+  it("note settles the pending toast as a plain one that leaves after 3500ms", () => {
+    const hook = renderUseToasts();
+    let handle!: ReturnType<typeof hook.current.startToast>;
+    act(() => {
+      handle = hook.current.startToast("merging #7…");
+    });
+    act(() => {
+      handle.note("no answer for #7; the merge may still land");
+    });
+    expect(hook.current.toasts).toEqual([
+      { id: 1, text: "no answer for #7; the merge may still land" },
+    ]);
+    act(() => {
+      vi.advanceTimersByTime(3499);
+    });
+    expect(hook.current.toasts).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(hook.current.toasts).toEqual([]);
+  });
+
+  it("a settle after note is ignored", () => {
+    const hook = renderUseToasts();
+    let handle!: ReturnType<typeof hook.current.startToast>;
+    act(() => {
+      handle = hook.current.startToast("merging #7…");
+    });
+    act(() => {
+      handle.note("no answer");
+      handle.fail("couldn't merge #7");
+    });
+    expect(hook.current.toasts).toEqual([{ id: 1, text: "no answer" }]);
+  });
+
+  it("note after the pending toast timed out shows as a fresh plain toast", () => {
+    const hook = renderUseToasts();
+    let handle!: ReturnType<typeof hook.current.startToast>;
+    act(() => {
+      handle = hook.current.startToast("stuck…");
+    });
+    act(() => {
+      vi.advanceTimersByTime(30000);
+    });
+    act(() => {
+      handle.note("no answer");
+    });
+    expect(hook.current.toasts).toEqual([{ id: 2, text: "no answer" }]);
+  });
+
   it("a pending toast whose work never answers leaves after 30s, and a late result still shows", () => {
     const hook = renderUseToasts();
     let handle!: ReturnType<typeof hook.current.startToast>;

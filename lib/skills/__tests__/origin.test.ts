@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { lockWrite, mergeLock, readLock } from "../compiled-lock.ts";
 import { originFor, originOf, originOfDir } from "../origin.ts";
 import type { PluginRoots } from "../sources.ts";
 
@@ -40,7 +41,7 @@ test("an emitted folder is a base from its compiled.json", () => {
 });
 
 test("a compiled.json version of null reads as a null baseVersion", () => {
-  const dir = emitted(join(root, "a"), JSON.stringify({ base: "acme-base", version: null, files: [] }));
+  const dir = emitted(join(root, "a"), JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }));
   expect(originOfDir(dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: null });
 });
 
@@ -51,8 +52,41 @@ test("a hand-authored or malformed compiled.json is not a base", () => {
 });
 
 test("the path wins over the name", () => {
-  const dir = emitted(join(root, "widgets", "attachments", "board-fill"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: [] }));
+  const dir = emitted(join(root, "widgets", "attachments", "board-fill"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: ["SKILL.md"] }));
   expect(originFor(roots(), "widgets", dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.1.0" });
   expect(originFor(roots(), "acme-base", null)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.1.0" });
   expect(originFor(roots(), "mattstack", join(root, "mattstack", "attachments", "x"))).toEqual({});
+});
+
+function lockBase(packDir: string, base: string, version: string): void {
+  const read = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
+  lockWrite(packDir, mergeLock(readLock(packDir, read), { targets: {}, bases: { [base]: version }, mattstackSha: {}, mattstackDirty: {} }), read, true);
+}
+
+test("originFor reads baseVersion from the lock", () => {
+  const packDir = join(root, "widgets");
+  const dir = emitted(join(packDir, "attachments", "dev-servers"), JSON.stringify({ base: "acme-base", files: ["SKILL.md"] }));
+  lockBase(packDir, "acme-base", "0.2.0");
+  expect(originOfDir(dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.2.0" });
+  expect(originFor(roots(), "widgets", dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.2.0" });
+});
+
+test("a grouped copy finds its pack's lock too", () => {
+  const packDir = join(root, "widgets");
+  const dir = emitted(join(packDir, "attachments", "refs", "dev-servers"), JSON.stringify({ base: "acme-base", files: ["SKILL.md"] }));
+  lockBase(packDir, "acme-base", "0.2.0");
+  expect(originOfDir(dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.2.0" });
+});
+
+test("a copy with no version and no lock entry has a null baseVersion", () => {
+  const packDir = join(root, "widgets");
+  const dir = emitted(join(packDir, "attachments", "dev-servers"), JSON.stringify({ base: "acme-base", files: ["SKILL.md"] }));
+  lockBase(packDir, "other-base", "9.9.9");
+  expect(originOfDir(dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: null });
+});
+
+test("originFor still reads an old copy's own version", () => {
+  const packDir = join(root, "widgets");
+  const dir = emitted(join(packDir, "attachments", "dev-servers"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: ["SKILL.md"] }));
+  expect(originFor(roots(), "widgets", dir)).toEqual({ origin: "base", base: "acme-base", baseVersion: "0.1.0" });
 });

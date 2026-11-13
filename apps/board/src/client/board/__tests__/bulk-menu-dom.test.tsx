@@ -218,7 +218,7 @@ test('right-click on a checked row, two checked, opens the menu for the selectio
   await check(102);
   await rightClick(101);
   expect(menu()?.getAttribute('aria-label')).toBe('actions for 2 selected');
-  expect(items().some(i => i.textContent === 'rebase on target')).toBe(true);
+  expect(items().some(i => i.textContent === 'rebase')).toBe(true);
 });
 
 test('an action one checked MR cannot take is hidden', async () => {
@@ -231,7 +231,7 @@ test('an action one checked MR cannot take is hidden', async () => {
   await check(104);
   await rightClick(101);
   const texts = items().map(i => i.textContent);
-  expect(texts).toContain('rebase on target');
+  expect(texts).toContain('rebase');
   expect(texts.some(t => t?.startsWith('merge'))).toBe(false);
 });
 
@@ -249,7 +249,7 @@ test('call doctor goes to the broken MR and the toast says who was skipped', asy
     105,
   ]);
   expect(document.body.textContent).toContain(
-    "doctor called on !105 · 1 didn't need it"
+    "doctor called on !105; 1 didn't need it"
   );
 });
 
@@ -411,16 +411,14 @@ test('a bulk rebase posts once per MR and speaks once', async () => {
   await check(101);
   await check(102);
   await rightClick(101);
-  await click('rebase on target');
+  await click('rebase');
   expect(
-    posts
-      .filter(p => p.url === '/mr/action')
-      .map(p => [p.body.iid, p.body.action])
+    posts.filter(p => p.url === '/doctor').map(p => [p.body.iid, p.body.mode])
   ).toEqual([
     [101, 'rebase'],
     [102, 'rebase'],
   ]);
-  expect(document.body.textContent).toContain('rebase started on !101, !102');
+  expect(document.body.textContent).toContain('rebase ran on !101, !102');
 });
 
 test('a bulk rebase keeps the selection checked', async () => {
@@ -428,7 +426,7 @@ test('a bulk rebase keeps the selection checked', async () => {
   await check(101);
   await check(102);
   await rightClick(101);
-  await click('rebase on target');
+  await click('rebase');
   const bar = container.querySelector('.tui-selbar');
   expect(bar?.textContent).toContain('2 selected');
   const boxes = [101, 102].map(iid =>
@@ -672,4 +670,81 @@ test('a bulk doctor redo skips the MR a live run owns and names it', async () =>
   expect(document.body.textContent).toContain(
     "skipped !115, Pip's run is active"
   );
+});
+
+const ghMr = (iid: number, over: Record<string, unknown> = {}) =>
+  boardMr(iid, {
+    webUrl: `https://github.com/acme/webapp/pull/${iid}`,
+    provider: 'github',
+    repositoryId: `github:${iid}`,
+    ...over,
+  });
+const githubBoard = (mrs: unknown[]) =>
+  ({
+    ...BOARD_DATA,
+    title: 'PRs ready for review',
+    forge: 'github',
+    slackEnabled: true,
+    mrs,
+  }) as unknown as typeof BOARD_DATA;
+
+test('a GitHub board says PR in the redo confirm', async () => {
+  servedData = githubBoard([
+    ghMr(201, {
+      blockers: { any: true, pipelineFailing: true },
+      respond: { status: 'done', sessionId: 'sess-1' },
+    }),
+  ]);
+  await renderBoard();
+  await rightClick(201);
+  await click('redo response');
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+    'This PR already had a response. Are you sure?'
+  );
+  await confirmWith('Cancel');
+});
+
+test('a GitHub board asks about PRs and posts PRs to slack', async () => {
+  servedData = githubBoard([ghMr(202), ghMr(203)]);
+  await renderBoard();
+  await check(202);
+  await check(203);
+  await rightClick(202);
+  await click('request review from…');
+  await click('Kimberly Ash');
+  expect(document.body.textContent).toContain(
+    "Ask Kimberly's agent to review 2 PRs?"
+  );
+  const cancel = [...document.querySelectorAll('button')].find(
+    b => b.textContent === 'Cancel'
+  )!;
+  await React.act(async () => cancel.click());
+  const post = container.querySelector<HTMLButtonElement>('.tui-selbar-post')!;
+  await React.act(async () => post.click());
+  await settle();
+  expect(document.body.textContent).toContain('posted 2 PRs to slack');
+});
+
+test('a posted held note on a GitHub row toasts its #ref', async () => {
+  servedData = githubBoard([
+    ghMr(204, {
+      drafts: [
+        { kind: 'ci-note', body: 'the cache key changed', createdAt: 1 },
+      ],
+    }),
+  ]);
+  await renderBoard();
+  const press = async (label: string) => {
+    const b = [...document.querySelectorAll('button')].find(
+      x => x.textContent?.trim() === label
+    );
+    if (!b) throw new Error(`no button "${label}"`);
+    await React.act(async () => b.click());
+    await settle();
+  };
+  await press('read');
+  await press('post');
+  await press('confirm post');
+  expect(document.body.textContent).toContain('held note posted to #204');
+  expect(document.body.textContent).not.toContain('!204');
 });

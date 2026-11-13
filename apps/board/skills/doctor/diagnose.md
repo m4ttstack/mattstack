@@ -19,12 +19,19 @@ digraph doctor_diagnose_and_rebase {
     "Fix what the mr_view error names" [shape=box];
     "What is broken (doctor)?" [shape=diamond];
     "Server-side rebase licensed?" [shape=diamond];
+    "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [shape=plaintext];
+    "Stack-parent check (doctor)?" [shape=diamond];
+    "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check, after the lease take)" [shape=plaintext];
+    "Stack-parent check after the lease take (doctor)?" [shape=diamond];
     "Lease mode (before the rebase)?" [shape=diamond];
     "ci_lease_read {mrUrl} (before the rebase)" [shape=plaintext];
     "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the rebase)" [shape=plaintext];
     "Lease check result (before the rebase)?" [shape=diamond];
     "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [shape=plaintext];
+    "Forge (before the rebase)?" [shape=diamond];
     "mr_rebase {mrUrl}" [shape=plaintext];
+    "mr_rebase {mrUrl, wait: true} (GitHub)" [shape=plaintext];
+    "mr_rebase result (GitHub)?" [shape=diamond];
     "mr_rebase result?" [shape=diamond];
     "STOP: rebases go through mr_rebase" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the mr_rebase call once already?" [shape=diamond];
@@ -61,7 +68,11 @@ digraph doctor_diagnose_and_rebase {
     "What is broken (doctor)?" -> "Red CI: continue at Classify and retry" [label="red CI, no conflicts"];
     "What is broken (doctor)?" -> "Rebased or running: continue at Watch the pipeline" [label="pipeline running or pending, no conflicts: watch its head sha"];
     "What is broken (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="pipeline canceled, skipped or manual, or no pipeline, no conflicts: error naming the state"];
-    "Server-side rebase licensed?" -> "Lease mode (before the rebase)?" [label="yes"];
+    "Server-side rebase licensed?" -> "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [label="yes"];
+    "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" -> "Stack-parent check (doctor)?";
+    "Stack-parent check (doctor)?" -> "Lease mode (before the rebase)?" [label="full: true, no MR listed"];
+    "Stack-parent check (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="an MR listed: error, a stack parent needs a restack"];
+    "Stack-parent check (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="tool error, or no MR listed with full: false: error, cannot prove no children"];
     "Server-side rebase licensed?" -> "Diagnosis ends the run: continue at the map's exit" [label="no: error, the conflicts need a checkout"];
     "Lease mode (before the rebase)?" -> "ci_lease_read {mrUrl} (before the rebase)" [label="board mode"];
     "Lease mode (before the rebase)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the rebase)" [label="own mode"];
@@ -70,11 +81,19 @@ digraph doctor_diagnose_and_rebase {
     "Lease check result (before the rebase)?" -> "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [label="still the board's, or claimed: true"];
     "Lease check result (before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="another owner: stand down"];
     "Lease check result (before the rebase)?" -> "doctor off-script escalation: lease check refused before the rebase" [label="tool error"];
-    "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" -> "mr_rebase {mrUrl}";
+    "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" -> "Forge (before the rebase)?";
+    "Forge (before the rebase)?" -> "mr_rebase {mrUrl}" [label="GitLab"];
+    "Forge (before the rebase)?" -> "mr_rebase {mrUrl, wait: true} (GitHub)" [label="GitHub"];
     "mr_rebase {mrUrl}" -> "mr_rebase result?";
     "mr_rebase result?" -> "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)" [label="accepted"];
     "mr_rebase result?" -> "Fixed the mr_rebase call once already?" [label="tool error"];
     "mr_rebase result?" -> "STOP: rebases go through mr_rebase" [label="tempted to rebase with the forge CLI or a checkout"];
+    "mr_rebase {mrUrl, wait: true} (GitHub)" -> "mr_rebase result (GitHub)?";
+    "mr_rebase result (GitHub)?" -> "Rebased or running: continue at Watch the pipeline" [label="GitHub: rebased: watch the returned sha"];
+    "mr_rebase result (GitHub)?" -> "Diagnosis ends the run: continue at the map's exit" [label="GitHub: pending: error, rebase still pending on <sha>"];
+    "mr_rebase result (GitHub)?" -> "Diagnosis ends the run: continue at the map's exit" [label="GitHub: will not rebase (conflicts, up to date, a fork that blocks edits): error, the conflicts need a checkout"];
+    "mr_rebase result (GitHub)?" -> "Fixed the mr_rebase call once already?" [label="GitHub: any other tool error"];
+    "mr_rebase result (GitHub)?" -> "STOP: rebases go through mr_rebase" [label="tempted to rebase the GitHub PR with the forge CLI or a checkout"];
     "STOP: rebases go through mr_rebase" -> "Fixed the mr_rebase call once already?";
     "Fixed the mr_rebase call once already?" -> "Fix what the mr_rebase error names" [label="no"];
     "Fixed the mr_rebase call once already?" -> "doctor off-script escalation: mr_rebase refused" [label="yes"];
@@ -82,20 +101,24 @@ digraph doctor_diagnose_and_rebase {
     "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)" -> "Rebase state (doctor)?";
     "Rebase state (doctor)?" -> "Rebased or running: continue at Watch the pipeline" [label="rebased cleanly: a new sha"];
     "Rebase state (doctor)?" -> "Rebase polls = 5?" [label="still rebasing, or the poll errored"];
-    "Rebase state (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="conflicts GitLab cannot rebase: error, needs a checkout"];
+    "Rebase state (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="conflicts the forge cannot rebase: error, needs a checkout"];
     "Rebase polls = 5?" -> "One background Bash task: sleep 20 (rebase poll)" [label="no: poll again"];
     "One background Bash task: sleep 20 (rebase poll)" -> "End the turn: waiting on the rebase poll";
     "End the turn: waiting on the rebase poll" -> "Trigger: the rebase poll's sleep finished" [style=dashed];
     "Trigger: the rebase poll's sleep finished" -> "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)";
     "Rebase polls = 5?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error with the rebase state"];
     "doctor off-script escalation: lease check refused before the rebase" -> "Off-script outcome (lease check before the rebase)?";
-    "Off-script outcome (lease check before the rebase)?" -> "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [label="take: the human confirms the lease"];
+    "Off-script outcome (lease check before the rebase)?" -> "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check, after the lease take)" [label="take: the human confirms the lease"];
+    "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check, after the lease take)" -> "Stack-parent check after the lease take (doctor)?";
+    "Stack-parent check after the lease take (doctor)?" -> "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [label="full: true, no MR listed"];
+    "Stack-parent check after the lease take (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="an MR listed: error, a stack parent needs a restack"];
+    "Stack-parent check after the lease take (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="tool error, or no MR listed with full: false: error, cannot prove no children"];
     "Off-script outcome (lease check before the rebase)?" -> "Off-script rounds = 2 (lease check before the rebase)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="hold"];
     "Off-script outcome (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
     "Off-script outcome (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="gate gone"];
     "Off-script outcome (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="degraded: error"];
-    "Off-script rounds = 2 (lease check before the rebase)?" -> "Lease mode (before the rebase)?" [label="no: check again"];
+    "Off-script rounds = 2 (lease check before the rebase)?" -> "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [label="no: check for stack children and the lease again"];
     "Off-script rounds = 2 (lease check before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
     "doctor off-script escalation: mr_view refused" -> "Off-script outcome (mr_view)?";
     "Off-script outcome (mr_view)?" -> "What is broken (doctor)?" [label="take: the human reports the MR state"];
@@ -113,7 +136,7 @@ digraph doctor_diagnose_and_rebase {
     "Off-script outcome (mr_rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
     "Off-script outcome (mr_rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="gate gone"];
     "Off-script outcome (mr_rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="degraded: error"];
-    "Off-script rounds = 2 (mr_rebase)?" -> "Lease mode (before the rebase)?" [label="no: check the lease, rebase again"];
+    "Off-script rounds = 2 (mr_rebase)?" -> "mr_list {mrUrl, targetBranch: <source branch>} (stack-parent check)" [label="no: check for stack children and the lease, rebase again"];
     "Off-script rounds = 2 (mr_rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
 }
 ```
@@ -128,6 +151,27 @@ What this graph cannot show:
   take or iterate that retried, rebased or pushed, and after someone else
   retried before this launch. Never call a running or pending pipeline
   clean and green.
+- **The stack-parent check.** `<source branch>` is the `sourceBranch`
+  the first `mr_view` read. The call passes no `limit` and no `state`, so
+  it reads up to 50 open MRs (drafts included) by any author. Only
+  `full: true` with no MR listed goes on to the lease check and the
+  rebase: a rebase rewrites the commits every listed MR is built on. Any
+  MR listed, whatever `full` says, is `error` with
+  `MR !<iid> is a stack parent (stacked on it: <children>); a rebase would strand the stack: needs a restack of the stack root`,
+  where `<children>` is each listed MR as `!<iid>`, comma separated,
+  followed by `, and more` when `full` is false. A tool error, or no MR
+  listed with `full: false`, is `error` with
+  `cannot prove MR !<iid> has no stacked children: the live target-branch query failed (<reason>)`,
+  where `<reason>` is the tool's error quoted as written, or
+  `partial list, no rows`. Neither retries
+  nor escalates: nothing has moved yet, so a human relaunch costs
+  nothing. The check never reads rt's MR cache and never treats a failed
+  read as no children. It runs again on every return toward the rebase
+  after an escalation (the lease check's take and iterate, and
+  `mr_rebase`'s iterate), because a gate can be held for hours and a
+  child can open meanwhile. The take path uses
+  `Stack-parent check after the lease take (doctor)?`, which reads the
+  same as the first check and goes on to the `rebasing` write.
 - **A pipeline with no verdict.** A head pipeline that is canceled,
   skipped or manual, or no head pipeline at all, with no conflicts, has
   nothing to classify and nothing to watch, and no fix class starts one:
@@ -137,27 +181,64 @@ pipeline for <sha>`), so a human reruns or starts it.
   fields: `rebaseInProgress` true is still rebasing; `rebaseInProgress`
   false with a `sha` other than the one the diagnosis read is rebased
   cleanly; `rebaseInProgress` false with `conflicts` true or a
-  `mergeError` set, and the `sha` unchanged, is conflicts GitLab cannot
-  rebase (the error quotes `mergeError`). GitLab rebases asynchronously
-  and `mr_view` takes no wait, so each re-read waits on one background
-  Bash task (`sleep 20`). Five reads span about 80 seconds.
+  `mergeError` set, and the `sha` unchanged, is conflicts the forge
+  cannot rebase (the error quotes `mergeError`). GitLab rebases
+  asynchronously and `mr_view` takes no wait, so each re-read waits on one
+  background Bash task (`sleep 20`). Five reads span about 80 seconds. On
+  GitHub, `mr_rebase` with `wait: true` returns the outcome itself, so the
+  poll runs only after an off-script take, and there `rebaseInProgress` is
+  always false: a moved `sha` is rebased cleanly, and an unchanged `sha`
+  with `conflicts` true is conflicts the forge cannot rebase. On GitHub,
+  an unchanged `sha` with `conflicts` false takes `still rebasing`, which
+  the 5-poll bound ends.
 
 ### Fix what the mr_view error names
 
 `mr_view` refused its input. Correct what the error names (`mrUrl` the
 MR's https URL, `maxAgeMs` a number) and read again, once. An error that
-names no input (GitLab's own refusal, such as a 404 or 403, or the repo
-is not registered with rt) is quoted as written and has nothing to correct: read again unchanged, once,
-and the off-script escalation follows. An error is never a reason to read
-the MR with the forge CLI.
+names no input (the forge's own refusal, such as a 404 or 403, or the
+repo is not registered with rt) is quoted as written and has nothing to
+correct: read again unchanged, once, and the off-script escalation
+follows. An error is never a reason to read the MR with the forge CLI.
+
+### Forge (before the rebase)?
+
+GitHub when the host of `mrUrl` is `github.com`, GitLab for every other
+host. Both edges come after the lease check and the `rebasing` status
+write, so the lease rules are the same on both forges.
+
+### mr_rebase result (GitHub)?
+
+`mr_rebase` with `wait: true` returns only once GitHub has an answer, so
+there is no poll:
+
+- `{status: "rebased", sha, previousSha}`: watch `sha`, the new head.
+- `{status: "pending", sha, lastError?}`: GitHub has not finished. Write
+  `error` naming the state, `rebase still pending on <sha>`, followed by
+  `lastError` when it is present.
+- A tool error saying GitHub will not rebase the PR: merge conflicts, a
+  branch already up to date, a fork that blocks edits. Write `error`
+  saying the conflicts need a checkout, quoting the tool's error. Match by
+  meaning, anchored on `PullRequest::RebaseConflictError`, the one string
+  measured live for conflicts.
+- Any other tool error goes to `Fixed the mr_rebase call once already?`,
+  as on GitLab.
 
 ### Fix what the mr_rebase error names
 
 `mr_rebase` refused. Correct what the error names (`mrUrl` the MR's https
-URL) and go back through the lease check before rebasing again, once: the
-lease may have moved while you fixed the call. An error that names no
-input has nothing to correct: rebase again unchanged, once, and the
-off-script escalation follows.
+URL, `wait` true on GitHub) and go back through the lease check before
+rebasing again, once: the lease may have moved while you fixed the call.
+An error that names no input has nothing to correct: rebase again
+unchanged, once, and the off-script escalation follows.
+
+On GitHub, an error saying GitHub will not rebase the PR never reaches
+this box: `mr_rebase result (GitHub)?` takes it to the exit. Read the
+error by meaning, not by one exact string: merge conflicts (the one string
+measured live is `PullRequest::RebaseConflictError`), a branch already up
+to date with its base, or a fork that does not allow edits from
+maintainers. Every other error comes here: correct a wrong input, or
+retry unchanged when it names none.
 
 ### End the turn: waiting on the rebase poll
 

@@ -131,6 +131,7 @@ export function manualDoctorFields(
 
 const IN_FLIGHT = new Set<DoctorStatus>([
   'queued',
+  'forge-rebasing',
   'syncing',
   'diagnosing',
   'rebasing',

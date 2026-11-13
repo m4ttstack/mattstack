@@ -11,6 +11,7 @@ import {
   type RowHandlers,
   type RunnerDeps,
 } from '../action-runner.ts';
+import { runLaunchFlow } from '../launch-flow.ts';
 
 const ok = (body: ActionResult['body'] = null): ActionResult => ({
   ok: true,
@@ -50,6 +51,7 @@ function fakeDeps(
       return {
         done: d => events.push(`done ${d}`),
         fail: f => events.push(`fail ${f}`),
+        note: n => events.push(`note ${n}`),
       };
     },
     reload: fresh => events.push(`reload ${fresh}`),
@@ -135,8 +137,25 @@ test('bulk merge names the reason when one MR is refused', async () => {
   );
   await runMany({ kind: 'mr', action: 'merge' }, [1, 2].map(mr), deps);
   expect(events.filter(e => e.startsWith('toast'))).toEqual([
-    "toast merge accepted on !1 · couldn't merge !2 (merge conflicts)",
+    "toast merge accepted on !1; couldn't merge !2 (merge conflicts)",
   ]);
+});
+
+test('refresh words its pending toast by forge', async () => {
+  const gh = fakeDeps();
+  await runOne(
+    { kind: 'refresh' },
+    {
+      iid: 12,
+      webUrl: 'https://github.com/acme/webapp/pull/12',
+      provider: 'github',
+    } as BoardMR,
+    gh.deps
+  );
+  expect(gh.events).toContain('toast refreshing #12 from github…');
+  const gl = fakeDeps();
+  await runOne({ kind: 'refresh' }, mr(7), gl.deps);
+  expect(gl.events).toContain('toast refreshing !7 from gitlab…');
 });
 
 test('runOne draft words both directions', async () => {
@@ -176,6 +195,25 @@ test("runOne ask prefers the server's refusal text, and says when it queued", as
   await runOne({ kind: 'ask', ask: 'review', reviewer: 'kim' }, mr(7), b.deps);
   expect(b.events).toContain(
     'done switchboard unreachable... queued the ask to kim'
+  );
+});
+
+test('runOne resolve-latch on a GitHub row says the PR thread', async () => {
+  const target = {
+    ...mr(7),
+    webUrl: 'https://github.com/acme/webapp/pull/7',
+    provider: 'github',
+    rtRepo: 'github.com/acme/webapp',
+    author: { username: 'rae' },
+  } as BoardMR;
+  const a = fakeDeps();
+  await runOne(
+    { kind: 'resolve-latch', reviewer: 'kim', discussionId: 'd1' },
+    target,
+    a.deps
+  );
+  expect(a.events).toContain(
+    "done asked kim's agent for a follow-up review of #7 through the PR thread"
   );
 });
 
@@ -245,7 +283,7 @@ test('runMany speaks once: what it did, what failed, then what it skipped', asyn
     1
   );
   expect(events.filter(e => e.startsWith('toast'))).toEqual([
-    "toast rebase started on !1, !2 · couldn't rebase !3 (409) · 1 didn't need it",
+    "toast rebase started on !1, !2; couldn't rebase !3 (409); 1 didn't need it",
   ]);
   expect(events.at(-1)).toBe('reload true');
 });
@@ -297,7 +335,7 @@ test('runMany keeps at most four requests in flight', async () => {
     launch: async () => ok(),
     presence: () => null,
     addToast: () => {},
-    startToast: () => ({ done: () => {}, fail: () => {} }),
+    startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
     reload: () => {},
     merging: { start: () => {}, fail: () => {} },
   };
@@ -339,7 +377,7 @@ test('runBulk asks the picked person only on the MRs they can take', async () =>
     `post /nudge {"mrUrl":"${mr(1).webUrl}","iid":1,"reviewer":"kim","kind":"review"}`,
     `post /nudge {"mrUrl":"${mr(3).webUrl}","iid":3,"reviewer":"kim","kind":"review"}`,
   ]);
-  expect(events).toContain("toast asked kim on !1, !3 · 1 didn't need it");
+  expect(events).toContain("toast asked kim on !1, !3; 1 didn't need it");
 });
 
 test('runBulk says how many checked MRs did not need the action', async () => {
@@ -353,7 +391,7 @@ test('runBulk says how many checked MRs did not need the action', async () => {
     {},
     deps
   );
-  expect(events).toContain("toast doctor called on !7 · 3 didn't need it");
+  expect(events).toContain("toast doctor called on !7; 3 didn't need it");
 });
 
 test('runBulk does nothing for an ask without a pick or a one-row request', () => {
@@ -472,7 +510,7 @@ test('a bulk review skips MRs a peer is reviewing and names them', async () => {
   );
   expect(events).toEqual([
     'launch review !1 {"quiet":true}',
-    'toast review started on !1 · skipped !2, mira is reviewing',
+    'toast review started on !1; skipped !2, mira is reviewing',
     'reload false',
   ]);
 });
@@ -526,7 +564,7 @@ test("presence skips stay out of the didn't-need-it count", async () => {
     deps
   );
   expect(events[1]).toBe(
-    "toast review started on !1 · 1 didn't need it · skipped !2, mira is reviewing"
+    "toast review started on !1; 1 didn't need it; skipped !2, mira is reviewing"
   );
 });
 
@@ -564,18 +602,18 @@ test('a bulk doctor skips MRs a live work run owns and names them', async () => 
   );
   expect(events).toEqual([
     'launch doctor !1 {"quiet":true}',
-    "toast doctor called on !1 · skipped !2, Pip's run is active · skipped !3, a work run is active",
+    "toast doctor called on !1; skipped !2, Pip's run is active; skipped !3, a work run is active",
     'reload false',
   ]);
 });
 
-test('a bulk local rebase skips MRs a live work run owns too', async () => {
+test('a bulk rebase skips MRs a live work run owns too', async () => {
   const { deps, events } = fakeDeps();
   deps.activeRun = (_flow, m) =>
     m.iid === 2 ? { runId: 'run-7', stage: 'implement', name: 'Pip' } : null;
   await runBulk(
     {
-      request: { kind: 'launch', flow: 'rebase-local' },
+      request: { kind: 'launch', flow: 'rebase' },
       targets: [mr(1), mr(2)],
       selected: 2,
     },
@@ -583,8 +621,83 @@ test('a bulk local rebase skips MRs a live work run owns too', async () => {
     deps
   );
   expect(events).toEqual([
-    'launch rebase-local !1 {"quiet":true}',
-    "toast local rebase ran on !1 · skipped !2, Pip's run is active",
+    'launch rebase !1 {"quiet":true}',
+    "toast rebase ran on !1; skipped !2, Pip's run is active",
+    'reload false',
+  ]);
+});
+
+test('a bulk rebase launches only the targets and says how many it skipped', async () => {
+  const { deps, events } = fakeDeps();
+  await runBulk(
+    {
+      request: { kind: 'launch', flow: 'rebase' },
+      targets: [mr(1), mr(3)],
+      selected: 3,
+    },
+    {},
+    deps
+  );
+  expect(events).toEqual([
+    'launch rebase !1 {"quiet":true}',
+    'launch rebase !3 {"quiet":true}',
+    "toast rebase ran on !1, !3; 1 didn't need it",
+    'reload false',
+  ]);
+});
+
+test('a bulk rebase counts a stopped reply as failed and names its reason', async () => {
+  const { deps, events } = fakeDeps();
+  deps.launch = (_flow, m) =>
+    runLaunchFlow(
+      {
+        post: async () =>
+          m.iid === 2 ? ok({ stopped: 'tree is dirty' }) : ok({ synced: 'x' }),
+        setQueued: () => {},
+        rollback: () => {},
+        addToast: () => {},
+        startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
+        reload: () => {},
+        verbing: 'rebasing',
+        noun: 'rebase',
+        started: 'doctor called on the conflicts',
+        stoppedMessage: r =>
+          r.body?.stopped ? `couldn't rebase: ${r.body.stopped}` : undefined,
+      },
+      m,
+      {}
+    );
+  await runMany({ kind: 'launch', flow: 'rebase' }, [mr(1), mr(2)], deps);
+  expect(events).toEqual([
+    "toast rebase ran on !1; couldn't launch rebase for !2 (tree is dirty)",
+    'reload false',
+  ]);
+});
+
+test('a bulk review counts a refused reply as failed and names its reason', async () => {
+  const { deps, events } = fakeDeps();
+  deps.launch = (_flow, m) =>
+    runLaunchFlow(
+      {
+        post: async () =>
+          m.iid === 2 ? ok({ refused: 'the acme plugin is turned off' }) : ok(),
+        setQueued: () => {},
+        rollback: () => {},
+        addToast: () => {},
+        startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
+        reload: () => {},
+        verbing: 'launching review',
+        noun: 'review',
+        started: 'review started',
+      },
+      m,
+      {}
+    );
+  await runMany({ kind: 'launch', flow: 'review' }, [mr(1), mr(2)], deps);
+  expect(events).toEqual([
+    expect.stringMatching(
+      /^toast .* on !1; couldn't launch review for !2 \(the acme plugin is turned off\)$/
+    ),
     'reload false',
   ]);
 });
@@ -602,4 +715,136 @@ test('the live-run skip never filters a review bulk run', async () => {
     deps
   );
   expect(events[0]).toBe('launch review !1 {"quiet":true}');
+});
+
+const ghMr = (iid: number) =>
+  ({
+    iid,
+    webUrl: `https://github.com/acme/webapp/pull/${iid}`,
+    provider: 'github',
+  }) as BoardMR;
+const reply = (
+  status: number,
+  body: ActionResult['body'] = null
+): ActionResult => ({ ok: status < 400, status, body, text: '' });
+const merge = { kind: 'mr', action: 'merge' } as const;
+
+test('a queued merge says it joined the queue and lets go of the row', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(200, { mergeQueued: { position: 2, state: 'QUEUED' } })
+  );
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain('done #7 joined the merge queue at position 2');
+  expect(events.filter(e => /^release/.test(e))).toEqual(['release 7']);
+  expect(events.some(e => /merge accepted/.test(e))).toBe(false);
+});
+
+test('a queued merge with no position leaves the position out', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(200, { mergeQueued: { position: null, state: 'QUEUED' } })
+  );
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain('done #7 joined the merge queue');
+});
+
+test('a merge with no answer keeps the hold and says it may still land', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(504, { reason: 'the merge may still land' })
+  );
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain('note no answer for #7; the merge may still land');
+  expect(events.some(e => /^fail/.test(e))).toBe(false);
+  expect(events.some(e => /^release/.test(e))).toBe(false);
+});
+
+test('a merge refused with 409 still settles the toast as failed', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(409, { reason: 'merge conflicts' })
+  );
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain("fail couldn't merge #7: merge conflicts");
+  expect(events.some(e => /^note/.test(e))).toBe(false);
+});
+
+test('a reasonless 504 still settles the toast as failed', async () => {
+  const { deps, events } = fakeDeps(() => reply(504));
+  await runOne(merge, ghMr(7), deps);
+  expect(events).toContain("fail couldn't merge #7 (504)");
+  expect(events.some(e => /^note/.test(e))).toBe(false);
+});
+
+test('a cancel of auto-merge with no answer says it may still apply', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(504, { reason: 'it may still apply' })
+  );
+  await runOne({ kind: 'mr', action: 'cancelAutoMerge' }, ghMr(7), deps);
+  expect(events).toContain('note no answer for #7; it may still apply');
+});
+
+test('a draft toggle with no answer says it may still apply', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(504, { reason: 'it may still apply' })
+  );
+  await runOne({ kind: 'draft', draft: true }, ghMr(7), deps);
+  expect(events).toContain('note no answer for #7; it may still apply');
+  expect(events.some(e => /couldn't/.test(e))).toBe(false);
+});
+
+test("a refused draft toggle toasts the forge's reason", async () => {
+  const { deps, events } = fakeDeps(() => reply(409, { reason: 'x' }));
+  await runOne({ kind: 'draft', draft: true }, ghMr(7), deps);
+  expect(events).toContain("fail couldn't mark #7 draft: x");
+});
+
+test('a GitLab merge refusal keeps its wording and lets go of the row', async () => {
+  const { deps, events } = fakeDeps(() =>
+    reply(409, { reason: 'not approved yet' })
+  );
+  await runOne(merge, mr(7), deps);
+  expect(events).toContain("fail couldn't merge !7: not approved yet");
+  expect(events.filter(e => /^release/.test(e))).toEqual(['release 7']);
+});
+
+test('bulk merge names merged, queued and unanswered rows apart', async () => {
+  const { deps, events } = fakeDeps(p =>
+    p.iid === 8
+      ? reply(200, { mergeQueued: { position: 1, state: 'QUEUED' } })
+      : p.iid === 10
+        ? reply(504, { reason: 'the merge may still land' })
+        : reply(200)
+  );
+  await runMany(merge, [7, 8, 10].map(ghMr), deps);
+  const summary = events.find(e => e.startsWith('toast ')) ?? '';
+  expect(summary).toContain('merge accepted on #7');
+  expect(summary).toContain('#8 joined the merge queue');
+  expect(summary).toContain('no answer for #10 (the merge may still land)');
+  expect(summary).not.toContain("couldn't");
+  expect(events.filter(e => /^release/.test(e)).sort()).toEqual(['release 8']);
+});
+
+test('a refused auto-merge change on GitHub names the action readably', async () => {
+  const { deps, events } = fakeDeps(() => reply(409, { reason: 'x' }));
+  await runOne({ kind: 'mr', action: 'setAutoMerge' }, ghMr(7), deps);
+  await runOne({ kind: 'mr', action: 'cancelAutoMerge' }, ghMr(7), deps);
+  expect(events).toContain("fail couldn't arm auto-merge on #7: x");
+  expect(events).toContain("fail couldn't cancel auto-merge on #7: x");
+});
+
+test('bulk merge keeps the merged list apart from the queued one', async () => {
+  const { deps, events } = fakeDeps(p =>
+    p.iid === 8
+      ? reply(200, { mergeQueued: { position: 1, state: 'QUEUED' } })
+      : reply(200)
+  );
+  await runMany(merge, [7, 9, 8].map(ghMr), deps);
+  expect(events).toContain(
+    'toast merge accepted on #7, #9; #8 joined the merge queue'
+  );
+});
+
+test('a merge answered 504 with no reason releases the hold and keeps its wording', async () => {
+  const { deps, events } = fakeDeps(() => reply(504));
+  await runOne(merge, mr(7), deps);
+  expect(events).toContain("fail couldn't merge !7 (504)");
+  expect(events.filter(e => /^release/.test(e))).toEqual(['release 7']);
 });

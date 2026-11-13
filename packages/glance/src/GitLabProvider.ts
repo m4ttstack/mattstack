@@ -68,6 +68,8 @@ import { startEventsWatcher } from './EventsWatcher.ts';
 import type { FetchEvents, GitLabEvent } from './EventsPoller.ts';
 import { safeEmit, instrumentGitbeaker, type OnRequestHook, type RequestInfo } from './instrumentation.ts';
 import { RetryableError, asRetryable, isTransientStatus, retryAfterMs, withRetry } from './retry.ts';
+import { glanceRequesterFn } from './gitbeakerRequester.ts';
+import { throwIfGitLabRateLimited, withGitLabRateLimit } from './gitlabRateLimit.ts';
 
 export interface RequestIO {
   signal?: AbortSignal;
@@ -334,7 +336,12 @@ interface AssignedResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** gitbeaker retries only these, and its retry error carries no response to read a reason phrase from. */
+/**
+ * glance's gitbeaker handler (`gitbeakerRequester.ts`) retries only a read's
+ * 502, and its retry error carries no response to read a reason phrase from.
+ * A 429 becomes RateLimitedError instead; its entry here covers a retry error
+ * from any other gitbeaker handler.
+ */
 const RETRIED_STATUS_TEXT: Record<number, string> = { 429: 'Too Many Requests', 502: 'Bad Gateway' };
 
 /** Extract numeric ID from a GQL global ID like "gid://gitlab/MergeRequest/12345". */
@@ -957,7 +964,7 @@ export class GitLabProvider implements GitProvider {
     this.token = token;
     this.log = options.logger ?? noopLogger;
     this.onRequest = options.onRequest;
-    const gb = new Gitlab({ host: this.baseURL, token });
+    const gb = new Gitlab({ host: this.baseURL, token, requesterFn: glanceRequesterFn });
     // Zero-cost when unset: no Proxy layer unless a hook is attached.
     this.gb = options.onRequest ? instrumentGitbeaker(gb, (info) => safeEmit(this.onRequest, info)) : gb;
     this.mrDetailFetcher = new MRDetailFetcher(this.baseURL, token, {
@@ -997,6 +1004,9 @@ export class GitLabProvider implements GitProvider {
     canReplyToGeneralComments: true,
     canRequestChanges: true,
     canFetchPullRequestDiffs: false,
+    canFetchApprovalRules: true,
+    canFetchCodeownerSections: true,
+    canFetchDivergedCount: true,
   };
 
   // MARK: - GitProvider
@@ -1077,6 +1087,12 @@ export class GitLabProvider implements GitProvider {
     currentUserNumericId: number | null,
   ): Promise<PullRequest | null> {
     // Run GraphQL detail query and REST diverged_commits_count fetch in parallel.
+    // The REST read is also, as far as GitLab's API source shows, the only
+    // one that asks GitLab to recheck mergeability: its MR entity calls
+    // `check_mergeability(async: true)` when it renders `merge_status`, while
+    // GraphQL's `detailedMergeStatus` reads the stored state. A live
+    // merge-readiness poll sat at `unchecked` for 90s in a run whose REST
+    // reads were refused with 429.
     let resp: MRDetailResponse;
     let divergedCommitsCount: number | null = null;
     try {
@@ -1089,8 +1105,12 @@ export class GitLabProvider implements GitProvider {
           .then((data) => {
             divergedCommitsCount = (data as unknown as { diverged_commits_count?: number }).diverged_commits_count ?? null;
           })
-          .catch(() => {
-            // Non-fatal: leave divergedCommitsCount null.
+          .catch((err: unknown) => {
+            this.log.warn('fetchSingleMR: the REST read of the MR failed, so GitLab was not asked to recheck mergeability', {
+              projectPath,
+              mrIid,
+              message: err instanceof Error ? err.message : String(err),
+            });
           }),
       ] as unknown as [MRDetailResponse, void]);
     } catch (err) {
@@ -2050,6 +2070,7 @@ export class GitLabProvider implements GitProvider {
         durationMs: performance.now() - started,
         status: res.status,
       });
+      throwIfGitLabRateLimited(res);
       if (io.retry && isTransientStatus(res.status)) {
         throw new RetryableError(new Error(`${op}: HTTP ${res.status} for ${path}`), retryAfterMs(res));
       }
@@ -2064,7 +2085,12 @@ export class GitLabProvider implements GitProvider {
       }
     };
 
-    return withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 });
+    return withGitLabRateLimit(
+      `GET ${path}`,
+      'read',
+      () => withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 }),
+      { signal: io.signal },
+    );
   }
 
   async restRequest(method: string, path: string, body?: unknown, op = 'restRequest', io?: RequestIO): Promise<Response> {
@@ -2091,6 +2117,10 @@ export class GitLabProvider implements GitProvider {
       headers['Content-Type'] = 'application/json';
     }
     const bodyStr = body !== undefined ? JSON.stringify(body) : undefined;
+    const verb = method.toUpperCase();
+    const isRead = verb === 'GET' || verb === 'HEAD';
+    // A write that timed out or drew a 5xx may have been applied; only a 429 proves it was not.
+    const retryTransient = io?.retry === true && isRead;
 
     const attempt = async (signal?: AbortSignal): Promise<Response> => {
       const started = performance.now();
@@ -2108,14 +2138,19 @@ export class GitLabProvider implements GitProvider {
         durationMs: performance.now() - started,
         status: res.status,
       });
-      if (io?.retry && isTransientStatus(res.status)) {
+      throwIfGitLabRateLimited(res);
+      if (retryTransient && isTransientStatus(res.status)) {
         throw new RetryableError(new Error(`${op}: HTTP ${res.status} for ${path}`), retryAfterMs(res));
       }
       return res;
     };
 
-    if (!io) return attempt();
-    return withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 });
+    return withGitLabRateLimit(
+      `${verb} ${path}`,
+      isRead ? 'read' : 'write',
+      () => (io ? withRetry(attempt, { signal: io.signal, attempts: retryTransient ? undefined : 1 }) : attempt()),
+      { signal: io?.signal },
+    );
   }
 
   watchMR(
@@ -2869,9 +2904,9 @@ export class GitLabProvider implements GitProvider {
       return new Error(`${label} failed: ${res.status} ${res.statusText}${desc ? ` — ${desc}` : ''}`);
     }
     if (err instanceof GitbeakerRetryError) {
-      // Gitbeaker retries 429/502 internally up to 10 times, then throws
-      // this (no cause.response) with a message like "...after 10 retries,
-      // last status code: 429. Check the applicable rate limits...".
+      // glance's gitbeaker handler retries a read's 502 up to 10 times, then
+      // throws this (no cause.response) with a message like "...after 10
+      // retries, last status code: 502. Verify the status of the endpoint."
       const match = err.message.match(/status code: (\d{3})/);
       const status = match?.[1];
       return status
@@ -2912,6 +2947,7 @@ export class GitLabProvider implements GitProvider {
         durationMs: performance.now() - started,
         status: res.status,
       });
+      throwIfGitLabRateLimited(res);
       if (io?.retry && isTransientStatus(res.status)) {
         throw new RetryableError(new Error(`GraphQL request failed: ${res.status} ${res.statusText}`), retryAfterMs(res));
       }
@@ -2925,7 +2961,13 @@ export class GitLabProvider implements GitProvider {
       }
     };
 
-    const envelope = io ? await withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 }) : await attempt();
+    // Every GitLab GraphQL call glance sends is a query, so it waits as a read.
+    const envelope = await withGitLabRateLimit(
+      `POST /api/graphql (${op})`,
+      'read',
+      () => (io ? withRetry(attempt, { signal: io.signal, attempts: io.retry ? undefined : 1 }) : attempt()),
+      { signal: io?.signal },
+    );
 
     if (envelope.errors?.length) {
       const msg = envelope.errors.map((e) => e.message).join('; ');

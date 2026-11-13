@@ -5,7 +5,7 @@
     {
       "username": "mkeller",
       "name": "Mara Keller",
-      "count": 5
+      "count": 6
     },
     {
       "username": "tobrandt",
@@ -33,7 +33,7 @@
       "username": "mkeller",
       "name": "Mara Keller",
       "hidden": false,
-      "count": 5
+      "count": 6
     },
     {
       "username": "tobrandt",
@@ -171,7 +171,8 @@
             "webUrl": "https://github.com/acme/webapp/actions/runs/7004101/job/9041014",
             "downstreamPipeline": null
           }
-        ]
+        ],
+        "runIds": ["7004101"]
       },
       "reviews": {
         "required": 1,
@@ -245,12 +246,21 @@
       },
       "generalComments": 0,
       "slack": {
-        "status": "none",
-        "permalink": null,
-        "reactions": [],
-        "posted": false
+        "status": "found",
+        "permalink": "https://example.slack.com/archives/C0200000000/p1755600000000100",
+        "reactions": ["eyes"],
+        "posted": true
       },
-      "gates": []
+      "gates": [],
+      "slackChannel": "webapp-reviews",
+      "ownerPosts": [
+        {
+          "channel": "web-platform",
+          "permalink": "https://example.slack.com/archives/C0200000001/p1755601000000200",
+          "postedAt": 1755601000000,
+          "reactions": ["white_check_mark"]
+        }
+      ]
     },
     {
       "provider": "github",
@@ -329,7 +339,8 @@
             "webUrl": "https://github.com/acme/webapp/actions/runs/7004102/job/9041024",
             "downstreamPipeline": null
           }
-        ]
+        ],
+        "runIds": ["7004102"]
       },
       "reviews": {
         "required": 1,
@@ -480,7 +491,8 @@
             "webUrl": "https://github.com/acme/webapp/actions/runs/7004103/job/9041034",
             "downstreamPipeline": null
           }
-        ]
+        ],
+        "runIds": ["7004103"]
       },
       "reviews": {
         "required": 1,
@@ -686,7 +698,8 @@
             "webUrl": "https://ci.acme.test/webapp/4104/e2e",
             "downstreamPipeline": null
           }
-        ]
+        ],
+        "runIds": []
       },
       "reviews": {
         "required": 1,
@@ -758,7 +771,20 @@
         "reactions": [],
         "posted": false
       },
-      "gates": []
+      "gates": [],
+      "review": {
+        "mrUrl": "https://github.com/acme/webapp/pull/4104",
+        "iid": 4104,
+        "status": "done",
+        "message": "2 suggestions: locale pin, empty value case",
+        "tabId": "w9:t1",
+        "workspaceId": "w9",
+        "outcome": "comment",
+        "sessionId": "33333333-3333-4333-8333-333333333333",
+        "startedAt": 1755602000000,
+        "updatedAt": 1755602600000,
+        "reportReady": true
+      }
     },
     {
       "provider": "github",
@@ -837,7 +863,8 @@
             "webUrl": "https://github.com/acme/webapp/actions/runs/7004105/job/9041054",
             "downstreamPipeline": null
           }
-        ]
+        ],
+        "runIds": ["7004105"]
       },
       "reviews": {
         "required": 1,
@@ -909,12 +936,19 @@
         "reactions": [],
         "posted": false
       },
-      "gates": []
+      "gates": [],
+      "drafts": [
+        {
+          "kind": "note",
+          "body": "Holding this until the checklist copy lands.",
+          "createdAt": 1755590000000
+        }
+      ]
     },
     {
       "provider": "github",
       "iid": 4106,
-      "title": "WEB-452: validate the invite email before sending",
+      "title": "WEB-445: trim the changelog page weight",
       "webUrl": "https://github.com/acme/webapp/pull/4106",
       "state": "opened",
       "isDraft": false,
@@ -925,21 +959,21 @@
         "avatarUrl": null
       },
       "assignees": [],
-      "createdAt": "2025-08-19T11:00:00Z",
-      "sourceBranch": "web-452-invite-email",
+      "createdAt": "2025-08-18T10:00:00Z",
+      "sourceBranch": "web-445-changelog-weight",
       "targetBranch": "main",
       "isStacked": false,
       "behindTarget": null,
       "diff": {
-        "additions": 58,
-        "deletions": 12,
-        "filesChanged": 4
+        "additions": 184,
+        "deletions": 41,
+        "filesChanged": 6
       },
       "pipeline": {
         "id": "github:run:7004106",
-        "status": "failed",
-        "passing": 3,
-        "failing": 1,
+        "status": "success",
+        "passing": 4,
+        "failing": 0,
         "running": 0,
         "total": 4,
         "hasWarnings": false,
@@ -982,13 +1016,173 @@
             "runId": "7004106",
             "name": "e2e",
             "stage": "checks",
-            "status": "failed",
+            "status": "success",
             "allowFailure": false,
             "duration": 151,
             "webUrl": "https://github.com/acme/webapp/actions/runs/7004106/job/9041064",
             "downstreamPipeline": null
           }
-        ]
+        ],
+        "runIds": ["7004106"]
+      },
+      "reviews": {
+        "required": 1,
+        "given": 1,
+        "remaining": 0,
+        "isApproved": true,
+        "approvedBy": [
+          {
+            "id": "github:user:ivasco",
+            "username": "ivasco",
+            "name": "Ines Vasco",
+            "avatarUrl": null
+          }
+        ],
+        "reviewers": [],
+        "totalAssigned": 0,
+        "haveActed": 0,
+        "havePending": 0,
+        "haveNotStarted": 0
+      },
+      "status": "mergeable",
+      "statusDetail": "mergeable",
+      "isReady": true,
+      "isCheckingMergeability": false,
+      "isMerging": false,
+      "isRebasing": false,
+      "isLoading": false,
+      "mergeButton": {
+        "visible": true,
+        "disabled": false,
+        "loading": false,
+        "label": "Merge"
+      },
+      "autoMergeButton": {
+        "visible": true,
+        "isActive": false,
+        "strategy": null,
+        "setBy": null,
+        "label": "Auto-merge",
+        "cancelLabel": "Cancel auto-merge"
+      },
+      "rebaseButton": {
+        "visible": false,
+        "loading": false,
+        "label": "Rebase"
+      },
+      "blockers": {
+        "isDraft": false,
+        "hasConflicts": false,
+        "needsRebase": false,
+        "pipelineFailing": false,
+        "pipelineRunning": false,
+        "awaitingApprovals": false,
+        "hasUnresolvedDiscussions": false,
+        "hasMergeError": false,
+        "mergeError": null,
+        "any": false
+      },
+      "connection": "idle",
+      "updatedAt": "2025-08-19T10:20:00Z",
+      "unresolvedThreads": 0,
+      "reviewerComments": 0,
+      "pipelineState": "passed",
+      "repositoryId": "github:700042",
+      "rtRepo": "github.com/acme/webapp",
+      "codeownerSections": [],
+      "threadSummary": {
+        "awaiting": 0,
+        "replied": 0,
+        "resolved": 0
+      },
+      "generalComments": 0,
+      "gates": [],
+      "slack": {
+        "status": "none",
+        "permalink": null,
+        "reactions": [],
+        "posted": false
+      }
+    },
+    {
+      "provider": "github",
+      "iid": 4107,
+      "title": "WEB-452: validate the invite email before sending",
+      "webUrl": "https://github.com/acme/webapp/pull/4107",
+      "state": "opened",
+      "isDraft": false,
+      "author": {
+        "id": "github:user:mkeller",
+        "username": "mkeller",
+        "name": "Mara Keller",
+        "avatarUrl": null
+      },
+      "assignees": [],
+      "createdAt": "2025-08-19T11:00:00Z",
+      "sourceBranch": "web-452-invite-email",
+      "targetBranch": "main",
+      "isStacked": false,
+      "behindTarget": null,
+      "diff": {
+        "additions": 58,
+        "deletions": 12,
+        "filesChanged": 4
+      },
+      "pipeline": {
+        "id": "github:run:7004107",
+        "status": "failed",
+        "passing": 3,
+        "failing": 1,
+        "running": 0,
+        "total": 4,
+        "hasWarnings": false,
+        "jobs": [
+          {
+            "id": "github:check:41070",
+            "runId": "7004107",
+            "name": "lint",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 40,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041071",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41071",
+            "runId": "7004107",
+            "name": "unit",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 77,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041072",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41072",
+            "runId": "7004107",
+            "name": "build",
+            "stage": "checks",
+            "status": "success",
+            "allowFailure": false,
+            "duration": 114,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041073",
+            "downstreamPipeline": null
+          },
+          {
+            "id": "github:check:41073",
+            "runId": "7004107",
+            "name": "e2e",
+            "stage": "checks",
+            "status": "failed",
+            "allowFailure": false,
+            "duration": 151,
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041074",
+            "downstreamPipeline": null
+          }
+        ],
+        "runIds": ["7004107"]
       },
       "reviews": {
         "required": 1,
@@ -1064,9 +1258,9 @@
     },
     {
       "provider": "github",
-      "iid": 4107,
+      "iid": 4108,
       "title": "WEB-458: move the footer links into a shared list",
-      "webUrl": "https://github.com/acme/webapp/pull/4107",
+      "webUrl": "https://github.com/acme/webapp/pull/4108",
       "state": "opened",
       "isDraft": false,
       "author": {
@@ -1087,7 +1281,7 @@
         "filesChanged": 5
       },
       "pipeline": {
-        "id": "github:run:7004107",
+        "id": "github:run:7004108",
         "status": "success",
         "passing": 4,
         "failing": 0,
@@ -1096,50 +1290,51 @@
         "hasWarnings": false,
         "jobs": [
           {
-            "id": "github:check:41070",
-            "runId": "7004107",
+            "id": "github:check:41080",
+            "runId": "7004108",
             "name": "lint",
             "stage": "checks",
             "status": "success",
             "allowFailure": false,
             "duration": 40,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041071",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004108/job/9041081",
             "downstreamPipeline": null
           },
           {
-            "id": "github:check:41071",
-            "runId": "7004107",
+            "id": "github:check:41081",
+            "runId": "7004108",
             "name": "unit",
             "stage": "checks",
             "status": "success",
             "allowFailure": false,
             "duration": 77,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041072",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004108/job/9041082",
             "downstreamPipeline": null
           },
           {
-            "id": "github:check:41072",
-            "runId": "7004107",
+            "id": "github:check:41082",
+            "runId": "7004108",
             "name": "build",
             "stage": "checks",
             "status": "success",
             "allowFailure": false,
             "duration": 114,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041073",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004108/job/9041083",
             "downstreamPipeline": null
           },
           {
-            "id": "github:check:41073",
-            "runId": "7004107",
+            "id": "github:check:41083",
+            "runId": "7004108",
             "name": "e2e",
             "stage": "checks",
             "status": "success",
             "allowFailure": false,
             "duration": 151,
-            "webUrl": "https://github.com/acme/webapp/actions/runs/7004107/job/9041074",
+            "webUrl": "https://github.com/acme/webapp/actions/runs/7004108/job/9041084",
             "downstreamPipeline": null
           }
-        ]
+        ],
+        "runIds": ["7004108"]
       },
       "reviews": {
         "required": 1,

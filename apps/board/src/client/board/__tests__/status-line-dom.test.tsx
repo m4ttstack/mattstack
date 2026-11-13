@@ -331,6 +331,42 @@ test('the +N more list on a GitHub row names the PR #<n>', async () => {
   ).toBeNull();
 });
 
+test('the +N more source names the PR on GitHub and the MR on GitLab', async () => {
+  const sources = async (mr: BoardMRWithReview) => {
+    await React.act(async () => {
+      root.render(
+        <StatusLine
+          mr={mr}
+          status={{
+            line: { tone: 'warn', word: 'post which findings?', verbs: [] },
+            more: [
+              { tone: 'work', word: 'needs review', source: 'MR', verbs: [] },
+            ],
+            bar: 'warn',
+          }}
+          ctx={ctx()}
+        />
+      );
+    });
+    const more =
+      container.querySelector<HTMLButtonElement>('.tui-status-more')!;
+    await React.act(async () => more.click());
+    const text = [...document.querySelectorAll('.tui-status-more-source')].map(
+      el => el.textContent
+    );
+    await React.act(async () => more.click());
+    return text;
+  };
+  expect(await sources(MR)).toEqual(['MR']);
+  expect(
+    await sources({
+      ...MR,
+      webUrl: 'https://github.com/acme/webapp/pull/1418',
+      provider: 'github',
+    } as unknown as BoardMRWithReview)
+  ).toEqual(['PR']);
+});
+
 test('a long detail renders its first clause and keeps the whole message as the tooltip', async () => {
   const full =
     'rebased acme-2214 onto origin/main (pat); resolved Overview.test.tsx conflict (kept both sides)';
@@ -619,4 +655,187 @@ test('a sync opens its drawer for whoever started it, the word and pips follow t
   // The drawer sits in a portal on body, so only React's bubbling could
   // carry a click from it to the row.
   expect(rowClicks).toEqual([]);
+});
+
+async function renderForgeRow(
+  doctor: Record<string, unknown>,
+  webUrl = MR.webUrl
+) {
+  const mr = {
+    ...MR,
+    webUrl,
+    sourceBranch: 'feat',
+    doctor,
+  } as unknown as BoardMRWithReview;
+  await React.act(async () => {
+    root.render(
+      <StatusLine
+        mr={mr}
+        status={{
+          line: {
+            tone: 'work',
+            word: 'rebasing…',
+            spin: true,
+            syncLog: [],
+            verbs: [],
+          },
+          more: [],
+          bar: null,
+        }}
+        ctx={ctx()}
+      />
+    );
+  });
+  await React.act(async () => {
+    container.querySelector<HTMLButtonElement>('.tui-status-word-log')!.click();
+  });
+  return document.querySelector('[data-part="sidedrawer"]')!;
+}
+
+test('cancel shows while the forge step runs and calls cancelRebase', async () => {
+  const realFetch = globalThis.fetch;
+  const calls: { url: string; body: string }[] = [];
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    calls.push({ url, body: String(init?.body) });
+    return new Response(JSON.stringify({ ok: true, cancelled: true }));
+  }) as unknown as typeof fetch;
+  try {
+    const drawer = await renderForgeRow({
+      status: 'forge-rebasing',
+      forge: { forge: 'gitlab', state: 'running' },
+    });
+    expect(container.querySelector('.tui-status-word-log')?.textContent).toBe(
+      'rebasing'
+    );
+    const cancel = drawer.querySelector<HTMLButtonElement>(
+      '.tui-syncsteps-cancel'
+    )!;
+    expect(cancel.textContent).toBe('cancel');
+    await React.act(async () => cancel.click());
+    expect(calls).toEqual([
+      { url: '/rebase/cancel', body: JSON.stringify({ mrUrl: MR.webUrl }) },
+    ]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('no cancel once the forge step has settled', async () => {
+  const drawer = await renderForgeRow({
+    status: 'synced',
+    message: 'rebased',
+    forge: { forge: 'gitlab', state: 'done', detail: 'rebased' },
+  });
+  expect(drawer.querySelector('.tui-syncsteps-title')?.textContent).toBe(
+    'Rebased on GitLab'
+  );
+  expect(drawer.querySelector('.tui-syncsteps-cancel')).toBeNull();
+});
+
+test('no cancel on a row that left the forge wait with its step still running', async () => {
+  const drawer = await renderForgeRow({
+    status: 'sync-stopped',
+    message: 'the board restarted during the rebase; run rebase again',
+    forge: { forge: 'gitlab', state: 'running' },
+  });
+  expect(drawer.querySelector('.tui-syncsteps-cancel')).toBeNull();
+});
+
+test('a cancelled rebase says so once and shows no raw output', async () => {
+  const drawer = await renderForgeRow({
+    status: 'sync-stopped',
+    message: 'cancelled; the forge may still be rebasing',
+    forge: { forge: 'gitlab', state: 'failed', detail: 'cancelled' },
+  });
+  expect(drawer.querySelector('.tui-syncsteps-title')?.textContent).toBe(
+    'Rebase cancelled'
+  );
+  expect(drawer.querySelector('.tui-syncsteps-note')).toBeNull();
+  expect(drawer.querySelector('.tui-syncsteps-raw')).toBeNull();
+  expect(drawer.querySelector('.tui-syncsteps-rawlog')).toBeNull();
+});
+
+test('raw output is hidden while the forge step runs with no sync lines', async () => {
+  // A running row streams the page's live lines, which are keyed by URL.
+  const drawer = await renderForgeRow(
+    {
+      status: 'forge-rebasing',
+      forge: { forge: 'gitlab', state: 'running' },
+    },
+    'https://gitlab.example.com/acme/webapp/-/merge_requests/1430'
+  );
+  expect(drawer.querySelector('.tui-syncsteps-raw')).toBeNull();
+  expect(drawer.querySelector('.tui-syncsteps-rawlog')).toBeNull();
+  expect(drawer.textContent).not.toContain('Starting rt sync');
+});
+
+test('raw output is hidden when the forge alone settled it', async () => {
+  const drawer = await renderForgeRow({
+    status: 'synced',
+    forge: { forge: 'gitlab', state: 'done', detail: 'rebased' },
+  });
+  expect(drawer.querySelector('.tui-syncsteps-raw')).toBeNull();
+  expect(drawer.textContent).not.toContain('No output was saved');
+});
+
+test('GitHub note shows on a GitHub forge step', async () => {
+  const drawer = await renderForgeRow({
+    status: 'forge-rebasing',
+    forge: { forge: 'github', state: 'running' },
+  });
+  expect(drawer.querySelector('.tui-syncsteps-note')?.textContent).toBe(
+    'Re-runs checks; can drop the PR from a merge queue'
+  );
+  const gitlab = await renderForgeRow(
+    { status: 'forge-rebasing', forge: { forge: 'gitlab', state: 'running' } },
+    'https://gitlab.example.com/acme/webapp/-/merge_requests/1419'
+  );
+  expect(gitlab.querySelector('.tui-syncsteps-note')).toBeNull();
+});
+
+test('no-doctor stop names the tree', async () => {
+  const url = 'https://gitlab.example.com/acme/webapp/-/merge_requests/1420';
+  const saved = [
+    '[ok] Syncing in worktree george',
+    '[needs you] 3 files have conflicts rt cannot resolve  the rebase is paused',
+  ];
+  const message = 'paused in george; no doctor on this tab';
+  const mr = {
+    ...MR,
+    webUrl: url,
+    sourceBranch: 'feat',
+    doctor: { status: 'sync-stopped', message, pausedTree: 'george' },
+  } as unknown as BoardMRWithReview;
+  await React.act(async () => {
+    root.render(
+      <StatusLine
+        mr={mr}
+        status={{
+          line: {
+            tone: 'bad',
+            word: 'sync stopped',
+            detail: message,
+            syncLog: saved,
+            verbs: [],
+          },
+          more: [],
+          bar: null,
+        }}
+        ctx={ctx()}
+      />
+    );
+  });
+  expect(container.querySelector('.tui-status-detail')?.textContent).toBe(
+    message
+  );
+  await React.act(async () => {
+    container.querySelector<HTMLButtonElement>('.tui-status-word-log')!.click();
+  });
+  const drawer = document.querySelector('[data-part="sidedrawer"]')!;
+  expect(drawer.querySelector('.tui-syncsteps-tree')?.textContent).toBe(
+    'george'
+  );
+  expect(drawer.querySelector('.tui-syncsteps-title')?.textContent).toBe(
+    'Rebase paused on conflicts'
+  );
 });

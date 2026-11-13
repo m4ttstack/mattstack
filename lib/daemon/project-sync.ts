@@ -36,7 +36,7 @@ import { loadRepoTracking, grants } from "../repo-tracking.ts";
 import { lazyChildLogger } from "../daemon-logger.ts";
 import { recordSyncFailure, recordSyncSuccess } from "./project-sync-health.ts";
 import { createExcludedTargetsCache, gitlabBranchSearch, readIgnoredMrs } from "./ignored-mrs.ts";
-import { githubFetchDelta, githubFetchOpen, githubFetchSingle, type GitHubSyncContext } from "./project-sync-github.ts";
+import { githubFetchDelta, githubFetchKnownSections, githubFetchOpen, githubFetchRules, githubFetchSingle, type GitHubSyncContext } from "./project-sync-github.ts";
 import { authorListed } from "./scope-authors.ts";
 
 const log = lazyChildLogger("project-sync");
@@ -75,6 +75,40 @@ export function sectionsMatching(rules: ApprovalRuleLite[], demanded: string[]):
   return demanded
     .filter((s) => rules.some((r) => r.type === "CODE_OWNER" && r.section === s))
     .sort();
+}
+
+/**
+ * One sweep's tags per iid. Sticky (GitHub) keeps a stored tag still among
+ * the demanded sections, because GitHub drops a codeowner request once that
+ * owner reviews. An `unknownReason` entry was not read, so it keeps its
+ * stored demanded tags on every forge.
+ */
+export function sweepTags(
+  rules: MRApprovalRules[],
+  demanded: string[],
+  stored: (iid: number) => string[] | undefined,
+  opts: { sticky: boolean },
+): { tags: Map<number, string[]>; unknown: MRApprovalRules[] } {
+  const tags = new Map<number, string[]>();
+  const unknown: MRApprovalRules[] = [];
+  const storedDemanded = (iid: number) => (stored(iid) ?? []).filter((s) => demanded.includes(s));
+  for (const entry of rules) {
+    if (entry.unknownReason !== undefined) {
+      unknown.push(entry);
+      tags.set(entry.iid, storedDemanded(entry.iid).sort());
+      continue;
+    }
+    const fresh = sectionsMatching(entry.rules, demanded);
+    tags.set(entry.iid, opts.sticky ? [...new Set([...fresh, ...storedDemanded(entry.iid)])].sort() : fresh);
+  }
+  return { tags, unknown };
+}
+
+type WarnSink = (obj: object, msg: string) => void;
+
+function warnUnknown(warn: WarnSink, repoName: string, mode: string, unknown: MRApprovalRules[]): void {
+  if (unknown.length === 0) return;
+  warn({ repo: repoName, mode, unknown: unknown.length, reason: unknown[0]!.unknownReason }, "codeowner rules unread for some PRs; their stored tags are kept");
 }
 
 /** Order-sensitive equality on two optional tag lists; both sides come from sectionsMatching's sorted output, so order-sensitivity is safe. */
@@ -139,9 +173,9 @@ export interface ProjectSyncOverrides {
   fetchSingle?: (repoName: string, projectPath: string, iid: number) => Promise<PullRequest | null>;
   /** Scoped deep's fetch: every open MR by any of these authors. */
   fetchAuthors?: (repoName: string, authors: string[]) => Promise<{ projectPath: string; prs: PullRequest[] }>;
-  /** Codeowner section sweep's fetch, shared by the deep sweep and backfillSections. Never used on GitHub. */
+  /** Codeowner section sweep's fetch, shared by the deep sweep, the sections delta and backfillSections. */
   fetchRules?: (repoName: string, opts: { updatedAfter?: string; iids?: number[] }) => Promise<{ projectPath: string; rules: MRApprovalRules[] }>;
-  /** Default-branch CODEOWNERS section headers; null when the project has none. Deep and backfillSections only, never on GitHub. */
+  /** Default-branch CODEOWNERS section headers; null when the project has none. Deep and backfillSections only. */
   fetchKnownSections?: (repoName: string) => Promise<string[] | null>;
   /** Overrides the grants-resolved window (test seam); production always resolves it from repo-tracking. */
   windowDays?: number;
@@ -153,8 +187,8 @@ export interface ProjectSyncOverrides {
    */
   selfUsername?: string | null;
   store?: ProjectMRs;
-  /** The GitHub sections notice's sink (test seam); production logs it at info. */
-  info?: (obj: object, msg: string) => void;
+  /** The unread-rules warning's sink (test seam); production logs it at warn. */
+  warn?: WarnSink;
 }
 
 /** Pipeline states that mean "still running" — the set the delta top-up refreshes. */
@@ -243,17 +277,18 @@ interface SyncReads {
   fetchAuthors: (repoName: string, authors: string[]) => Promise<{ projectPath: string; prs: PullRequest[] }>;
   fetchSingle: (repoName: string, projectPath: string, iid: number) => Promise<PullRequest | null>;
   fetchDeltaFor: (record: ProjectMRStore | undefined) => (repoName: string, updatedAfter: string) => Promise<{ projectPath: string; prs: PullRequest[] }>;
-  /** Absent on GitHub, which has no codeowner sections yet. */
-  fetchRules?: NonNullable<ProjectSyncOverrides["fetchRules"]>;
-  fetchKnownSections?: NonNullable<ProjectSyncOverrides["fetchKnownSections"]>;
+  fetchRules: NonNullable<ProjectSyncOverrides["fetchRules"]>;
+  fetchKnownSections: NonNullable<ProjectSyncOverrides["fetchKnownSections"]>;
+}
+
+async function resolveGitHubContext(deps: ProjectSyncDeps, repo: string): Promise<GitHubSyncContext> {
+  const ctx = await freshness.getRepoContext(repo, deps.repoIndex()[repo]);
+  if (ctx.forge !== "github") throw new Error(`project sync: ${repo} is not a GitHub repo`);
+  return { provider: ctx.provider, projectPath: ctx.projectPath };
 }
 
 function githubReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides): SyncReads {
-  const context = overrides.githubContext ?? (async (repo: string): Promise<GitHubSyncContext> => {
-    const ctx = await freshness.getRepoContext(repo, deps.repoIndex()[repo]);
-    if (ctx.forge !== "github") throw new Error(`project sync: ${repo} is not a GitHub repo`);
-    return { provider: ctx.provider, projectPath: ctx.projectPath };
-  });
+  const context = overrides.githubContext ?? ((repo: string) => resolveGitHubContext(deps, repo));
   return {
     fetchProject: overrides.fetchProject ?? (async (repo: string) => {
       const ctx = await context(repo);
@@ -267,6 +302,11 @@ function githubReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides): Sy
       const { provider } = await context(repo);
       return githubFetchSingle({ provider, projectPath: pp }, iid);
     }),
+    fetchRules: overrides.fetchRules ?? (async (repo: string, opts: { updatedAfter?: string; iids?: number[] }) => {
+      const ctx = await context(repo);
+      return { projectPath: ctx.projectPath, rules: await githubFetchRules(ctx, opts) };
+    }),
+    fetchKnownSections: overrides.fetchKnownSections ?? (async (repo: string) => githubFetchKnownSections(await context(repo))),
     fetchDeltaFor: (record: ProjectMRStore | undefined) => overrides.fetchDelta ?? (async (repo: string, ua: string) => {
       const ctx = await context(repo);
       return { projectPath: ctx.projectPath, prs: await githubFetchDelta(ctx, ua, record) };
@@ -316,8 +356,6 @@ function defaultReads(deps: ProjectSyncDeps, overrides: ProjectSyncOverrides, fo
 }
 
 const syncInFlight = new Map<string, Promise<void>>();
-/** Repos whose GitHub sections notice already logged this daemon start. */
-const githubSectionsLogged = new Set<string>();
 
 export function syncProjectMRs(
   deps: ProjectSyncDeps,
@@ -360,6 +398,8 @@ async function syncImpl(
   const repoPath = deps.repoIndex()[repoName];
   const forge = await resolveForge(deps, repoName, overrides.forge);
   const { fetchSingle, fetchRules, fetchKnownSections, fetchProject, fetchAuthors, fetchDeltaFor } = defaultReads(deps, overrides, forge);
+  const sticky = forge === "github";
+  const warn: WarnSink = overrides.warn ?? ((obj, msg) => log.warn(obj, msg));
 
   if (isDeep) {
     const windowDays = overrides.windowDays ?? grants(loadRepoTracking(), repoName).projectMrsWindowDays;
@@ -388,7 +428,7 @@ async function syncImpl(
         // now covers both out-of-scope authors and out-of-window MRs...a
         // failed author fetch rejects the whole deep (below) rather than
         // landing here as "this author has no MRs".
-        const sections = fetchRules ? effectiveSections(record) : [];
+        const sections = effectiveSections(record);
         // Captured BEFORE fullSync runs: fullSync's reconcile overwrites
         // every surviving entry with a fresh { pr, fetchedAt } object, which
         // would erase this same signal if read afterward -- a demand that
@@ -404,14 +444,16 @@ async function syncImpl(
         // Containment: with no demand ever declaring a section, `sections`
         // is [] and this whole block is skipped -- no rules fetch, no tag
         // write, byIid stays exactly `kept`. Bit-identical to pre-sections behavior.
-        if (sections.length > 0 && fetchRules) {
+        if (sections.length > 0) {
           const sweepStartedAt = Date.now();
           const updatedAfter = new Date(syncStartedAt - windowDays * 86_400_000).toISOString();
           const { rules } = await fetchRules(repoName, { updatedAfter });
-          if (fetchKnownSections) knownSections = await readKnownSections(fetchKnownSections, repoName, knownSections);
+          knownSections = await readKnownSections(fetchKnownSections, repoName, knownSections);
           sweep.candidates = rules.length;
-          const matched = rules
-            .map((r) => ({ iid: r.iid, sections: sectionsMatching(r.rules, sections) }))
+          const swept = sweepTags(rules, sections, (iid) => record?.mrs[iid]?.codeownerSections, { sticky });
+          warnUnknown(warn, repoName, "deep", swept.unknown);
+          const matched = [...swept.tags]
+            .map(([iid, tagged]) => ({ iid, sections: tagged }))
             .filter((m) => m.sections.length > 0);
           sweep.matched = matched.length;
           for (const m of matched) tags[m.iid] = m.sections;
@@ -508,11 +550,13 @@ async function syncImpl(
   // this, clients keep stale tab membership until an unrelated pr change or
   // the next deep.
   const tagChangedIids: number[] = [];
-  if (fetchRules && record?.scope?.sections?.length) {
+  if (record?.scope?.sections?.length) {
     const sweepStartedAt = Date.now();
     try {
       const { rules } = await fetchRules(repoName, { updatedAfter });
-      freshTags = new Map(rules.map((r) => [r.iid, sectionsMatching(r.rules, record.scope!.sections!)]));
+      const swept = sweepTags(rules, record.scope.sections, (iid) => record.mrs[iid]?.codeownerSections, { sticky });
+      warnUnknown(warn, repoName, "sections-delta", swept.unknown);
+      freshTags = swept.tags;
       for (const [iid, sections] of freshTags) {
         if (!sameSections(sections, record.mrs[iid]?.codeownerSections)) tagChangedIids.push(iid);
       }
@@ -625,6 +669,9 @@ async function syncImpl(
  */
 export const DIVERGED_REMEASURE_CAP = 10;
 
+/** GitHub reads behind counts 25 PRs to a GraphQL request, so one request per cycle re-measures up to 25. */
+export const GITHUB_DIVERGED_REMEASURE_CAP = 25;
+
 /**
  * repoName → iid → when this daemon last measured its behind count.
  * In-memory on purpose: after a restart every count is unmeasured again, and
@@ -653,10 +700,12 @@ export interface RemeasureOverrides {
   /** The repo's forge; production reads it from the repo's origin remote. */
   forge?: SyncForge;
   fetchDiverged?: (repoName: string, projectPath: string, iid: number) => Promise<number | null>;
+  /** GitHub only: an entry per PR read (null when there is no comparison); a PR with no entry failed. */
+  fetchDivergedBatch?: (repoName: string, projectPath: string, iids: number[]) => Promise<Map<number, number | null>>;
 }
 
 /**
- * Refreshes up to DIVERGED_REMEASURE_CAP stored behind counts for one repo
+ * Refreshes up to DIVERGED_REMEASURE_CAP (GITHUB_DIVERGED_REMEASURE_CAP on GitHub) stored behind counts for one repo
  * and broadcasts the iids whose count moved. Callers run it after a sync
  * without awaiting it, so a forced read never waits on these calls.
  */
@@ -671,32 +720,52 @@ export async function remeasureDivergedCounts(
     const store = overrides.store ?? getProjectMRs();
     const record = store.read(repoName);
     if (!record?.projectPath) return [];
-    if ((await resolveForge(deps, repoName, overrides.forge)) === "github") return [];
+    const github = (await resolveForge(deps, repoName, overrides.forge)) === "github";
     const measured = divergedMeasuredAt.get(repoName) ?? new Map<number, number>();
     divergedMeasuredAt.set(repoName, measured);
     for (const iid of measured.keys()) if (!record.mrs[iid]) measured.delete(iid);
 
-    const picks = pickRemeasure(record, measured, DIVERGED_REMEASURE_CAP);
+    const picks = pickRemeasure(record, measured, github ? GITHUB_DIVERGED_REMEASURE_CAP : DIVERGED_REMEASURE_CAP);
     if (picks.length === 0) return [];
-    const fetchDiverged = overrides.fetchDiverged ?? (async (repo: string, projectPath: string, iid: number) => {
-      const { provider } = await freshness.getGitLabContext("project sync", repo, deps.repoIndex()[repo]);
-      return provider.fetchDivergedCount(projectPath, iid);
-    });
 
     const startedAt = Date.now();
     const counts: Record<number, number> = {};
     let failed = 0;
-    for (let i = 0; i < picks.length; i += TOPUP_CONCURRENCY) {
-      await Promise.all(picks.slice(i, i + TOPUP_CONCURRENCY).map(async (iid) => {
-        try {
-          const n = await fetchDiverged(repoName, record.projectPath, iid);
+    if (github) {
+      const fetchBatch = overrides.fetchDivergedBatch ?? (async (repo: string, projectPath: string, iids: number[]) => {
+        const { provider } = await resolveGitHubContext(deps, repo);
+        return provider.fetchDivergedCounts(projectPath, iids);
+      });
+      try {
+        const read = await fetchBatch(repoName, record.projectPath, picks);
+        for (const iid of picks) {
+          if (!read.has(iid)) { failed++; continue; }
           measured.set(iid, Date.now());
-          if (n !== null) counts[iid] = n;
-        } catch (err) {
-          failed++;
-          log.warn({ err, repo: repoName, iid }, "behind count re-measure failed");
+          const n = read.get(iid);
+          if (n != null) counts[iid] = n;
         }
-      }));
+        if (failed > 0) log.warn({ repo: repoName, failed }, "behind count re-measure missed PRs");
+      } catch (err) {
+        failed = picks.length;
+        log.warn({ err, repo: repoName }, "behind count re-measure failed");
+      }
+    } else {
+      const fetchDiverged = overrides.fetchDiverged ?? (async (repo: string, projectPath: string, iid: number) => {
+        const { provider } = await freshness.getGitLabContext("project sync", repo, deps.repoIndex()[repo]);
+        return provider.fetchDivergedCount(projectPath, iid);
+      });
+      for (let i = 0; i < picks.length; i += TOPUP_CONCURRENCY) {
+        await Promise.all(picks.slice(i, i + TOPUP_CONCURRENCY).map(async (iid) => {
+          try {
+            const n = await fetchDiverged(repoName, record.projectPath, iid);
+            measured.set(iid, Date.now());
+            if (n !== null) counts[iid] = n;
+          } catch (err) {
+            failed++;
+            log.warn({ err, repo: repoName, iid }, "behind count re-measure failed");
+          }
+        }));
+      }
     }
     const changed = store.setDivergedCounts(repoName, counts);
     log.debug({ repo: repoName, mode: "behind", measured: picks.length - failed, failed, changed: changed.length, durationMs: Date.now() - startedAt }, "project sync");
@@ -782,14 +851,8 @@ export async function backfillSections(
 ): Promise<void> {
   if (sections.length === 0) return;
 
-  const { fetchRules, fetchSingle, fetchKnownSections } = defaultReads(deps, overrides, await resolveForge(deps, repoName, overrides.forge));
-  if (!fetchRules || !fetchKnownSections) {
-    if (!githubSectionsLogged.has(repoName)) {
-      githubSectionsLogged.add(repoName);
-      (overrides.info ?? ((obj, msg) => log.info(obj, msg)))({ repo: repoName }, "codeowner sections are not available on GitHub yet");
-    }
-    return;
-  }
+  const forge = await resolveForge(deps, repoName, overrides.forge);
+  const { fetchRules, fetchSingle, fetchKnownSections } = defaultReads(deps, overrides, forge);
 
   const store = overrides.store ?? getProjectMRs();
   const record = store.read(repoName);
@@ -799,9 +862,16 @@ export async function backfillSections(
 
   const updatedAfter = new Date(Date.now() - windowDays * 86_400_000).toISOString();
   const { projectPath, rules } = await fetchRules(repoName, { updatedAfter });
-  const matched = rules
-    .map((r) => ({ iid: r.iid, sections: sectionsMatching(r.rules, sections) }))
-    .filter((m) => m.sections.length > 0);
+  const sticky = forge === "github";
+  // The write below replaces each PR's whole tag list, so a sticky sweep must
+  // also demand the sections the scope already covers or their tags are lost.
+  const demanded = sticky ? [...new Set([...(record?.scope?.sections ?? []), ...sections])].sort() : sections;
+  const swept = sweepTags(rules, demanded, (iid) => store.read(repoName)?.mrs[iid]?.codeownerSections, { sticky });
+  warnUnknown(overrides.warn ?? ((obj, msg) => log.warn(obj, msg)), repoName, "sections-backfill", swept.unknown);
+  const unread = new Set(swept.unknown.map((r) => r.iid));
+  const matched = [...swept.tags]
+    .filter(([iid, tagged]) => tagged.length > 0 && !unread.has(iid))
+    .map(([iid, tagged]) => ({ iid, sections: tagged }));
 
   const changed: number[] = [];
   for (const m of matched) {

@@ -45,10 +45,14 @@ type Setup = {
   script?: (script: string) => Child
   // Answers any other command run beneath the plugin (the kill, the log removal); omitted, it is refused.
   run?: (argv: readonly string[]) => Partial<Result>
+  // The exit code open answers with; omitted, it succeeds.
+  openExit?: (argv: readonly string[]) => number
+  // What fs.stat answers per path; a path left out is missing.
+  stats?: Record<string, { kind: 'file' | 'dir' | 'other'; realPath?: string }>
 }
 
 // The world plus recorders for everything the actions reach beneath the plugin.
-async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0, probeHold = 0, probeDeny = false, script, run }: Setup = {}) {
+async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0, probeHold = 0, probeDeny = false, script, run, openExit, stats = {} }: Setup = {}) {
   const w = world(on, { entries: { [`list:${SESSION}`]: { todos: list, nextId: 20, savedAt: 1_000_000 } } })
   const events: string[] = []
   const ran: string[][] = []
@@ -72,7 +76,7 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0
       if (probeHold > 0) await w.clock.sleep(probeHold)
     }
     if (e.argv.join(' ').includes('herdr workspace list')) return { value: { exitCode: probeExit, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    if (e.argv[0] === 'open') return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv[0] === 'open') return { value: { exitCode: openExit?.(e.argv) ?? 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (run === undefined) return { deny: 'no command stand-in' }
     return { value: { exitCode: 0, stdout: '', stderr: '', ...run(e.argv), isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -81,6 +85,11 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0
   on('fs.write', (_, e) => {
     written.set(e.path, e.text)
     return { value: undefined }
+  })
+  on('fs.stat', (_, e) => {
+    const stat = stats[e.path]
+    if (!stat) return { deny: 'ENOENT' }
+    return { value: { size: 1, mtimeMs: 0, isLink: stat.realPath !== e.path, ...stat, ...(e.resolve ? {} : { realPath: undefined }) } }
   })
   mock.env(on, { HOME: '/home/u', ...env })
   await startSession($)
@@ -322,6 +331,63 @@ test('Open runs open for http(s) links only', async ($, on) => {
   await pane.press({ key: 'open-2' })
   expect(ran).toHaveLength(1)
   expect(toasts(events)).toEqual(['Only http and https links open from here'])
+  await pane.unmount()
+})
+
+test('Open on an image item opens every image in one open call, and tells the person when it fails', async ($, on) => {
+  const { ran, events } = await seeded(
+    $,
+    on,
+    [
+      todo({ id: '1', kind: 'image', script: undefined, paths: ['/shots/light.png', '/shots/dark.png'] }),
+      todo({ id: '2', kind: 'image', script: undefined, paths: ['/shots/broken.png'] }),
+    ],
+    {
+      stats: {
+        '/shots/light.png': { kind: 'file', realPath: '/shots/light.png' },
+        '/shots/dark.png': { kind: 'file', realPath: '/real/dark.png' },
+        '/shots/broken.png': { kind: 'file', realPath: '/shots/broken.png' },
+      },
+      openExit: argv => (argv.includes('/shots/broken.png') ? 1 : 0),
+    },
+  )
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  await pane.press({ key: 'open-1' })
+  expect(ran).toEqual([['open', '/shots/light.png', '/real/dark.png']])
+  expect(toasts(events)).toEqual([])
+  await pane.press({ key: 'open-2' })
+  expect(toasts(events)).toEqual(['Could not open the images for #2'])
+  expect(await state($)).toContain('#1 [open]')
+  await pane.unmount()
+})
+
+test('Open opens nothing unless every path lands on an image file', async ($, on) => {
+  const { ran, events } = await seeded(
+    $,
+    on,
+    [
+      todo({ id: '1', kind: 'image', script: undefined, paths: ['/shots/a.png', '/shots/app.png'] }),
+      todo({ id: '2', kind: 'image', script: undefined, paths: ['/shots/folder.png'] }),
+      todo({ id: '3', kind: 'image', script: undefined, paths: ['/shots/gone.png'] }),
+    ],
+    {
+      stats: {
+        '/shots/a.png': { kind: 'file', realPath: '/shots/a.png' },
+        '/shots/app.png': { kind: 'file', realPath: '/tmp/run.command' },
+        '/shots/folder.png': { kind: 'dir', realPath: '/shots/folder.png' },
+      },
+    },
+  )
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  for (const id of ['1', '2', '3']) await pane.press({ key: `open-${id}` })
+  expect(ran.filter(argv => argv[0] === 'open')).toEqual([])
+  expect(toasts(events)).toEqual([
+    'Could not open #1: app.png is not an image file',
+    'Could not open #2: folder.png is not an image file',
+    'Could not open #3: gone.png is not an image file',
+  ])
   await pane.unmount()
 })
 

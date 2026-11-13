@@ -1,4 +1,4 @@
-Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:respond`, use it; otherwise call `skills_resolve {id: "skills:board:respond"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
+Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:respond` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call `skills_resolve {id: "skills:board:respond", dir: "<the loaded skill's own directory>"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
 # board:respond: triage and Gate 1
 
@@ -244,7 +244,8 @@ filter drops a comment whose author reads as a bot, so a reply posted by
 a bot-named account is missing from the filtered read. Only the filtered
 rows are ever adjudicated. A marker read that errors is a fetch error:
 it takes the fetch read's fix-once path and its off-script gate, quoting
-the error, and nothing is adjudicated until both reads succeed. Rows dropped this way count
+the error, and nothing is adjudicated until both reads succeed or that
+gate's take supplies the threads. Rows dropped this way count
 as no thread for `Unresolved human threads = 0?`.
 
 With `--person <username>`, keep only that person's feedback:

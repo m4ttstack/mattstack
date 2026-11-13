@@ -28,7 +28,11 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-async function render(local: boolean, canInvite = false): Promise<HTMLElement> {
+async function render(
+  local: boolean,
+  canInvite = false,
+  forge?: 'gitlab' | 'github'
+): Promise<HTMLElement> {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const noop = () => {};
@@ -43,6 +47,7 @@ async function render(local: boolean, canInvite = false): Promise<HTMLElement> {
         canInvite={canInvite}
         local={local}
         defaultMember="alice"
+        forge={forge}
         onToggle={noop}
         onClose={noop}
       />
@@ -90,4 +95,14 @@ test('a peered teammate gets a read-only badge, and the modal offers no invite, 
   expect(el.querySelectorAll('button:not([aria-label])')).toHaveLength(0);
   expect(el.querySelectorAll('input:not(.tui-check-box)')).toHaveLength(0);
   expect(el.textContent).not.toMatch(/invite|remove|join/);
+});
+
+test("a checked-out member's count tip names MRs on GitLab and PRs on GitHub", async () => {
+  const tip = (el: HTMLElement) =>
+    el.querySelector('.tui-modal-count[title]')?.getAttribute('title');
+  expect(tip(await render(true))).toBe('checked out -- MR count not fetched');
+  document.body.innerHTML = '';
+  expect(tip(await render(true, false, 'github'))).toBe(
+    'checked out -- PR count not fetched'
+  );
 });

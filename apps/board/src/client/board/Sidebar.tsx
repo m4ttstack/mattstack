@@ -1,4 +1,5 @@
 import { Chip, ICONS } from '@mattstack/tui-kit';
+import { mrNouns, type ForgeKind } from '../../mr-ref.ts';
 import type { RosterMember } from '../types.ts';
 import { MemberInvadr } from './MemberInvadr.tsx';
 
@@ -12,6 +13,7 @@ function Sidebar({
   note,
   empty,
   dimEmpty = false,
+  forge,
 }: {
   members: RosterMember[];
   total: number;
@@ -27,6 +29,8 @@ function Sidebar({
   empty?: string;
   /** Fade members with nothing on this tab (the tab's dimEmpty). */
   dimEmpty?: boolean;
+  /** The board's forge, which names MRs or PRs in the syncing tip. */
+  forge?: ForgeKind;
 }) {
   return (
     <nav className="tui-sidebar" aria-label="team members">
@@ -72,7 +76,7 @@ function Sidebar({
               <Chip
                 intent="warn"
                 data-flag=""
-                title="rt hasn't finished backfilling this author's MRs... the count may be low"
+                title={`rt hasn't finished backfilling this author's ${mrNouns(forge)}... the count may be low`}
               >
                 syncing
               </Chip>

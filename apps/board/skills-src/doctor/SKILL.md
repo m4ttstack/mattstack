@@ -95,7 +95,6 @@ digraph doctor_flow {
     "Entry outcome (doctor)?" -> "Own lease held (doctor exit)?" [label="entry ends the run"];
     "Entry outcome (doctor)?" -> "Which exit (doctor)?" [label="resumed answer ends the run"];
     "Entry outcome (doctor)?" -> "Doctor error written: stay in the pane" [label="domain skill not loaded: error already written"];
-    "Entry outcome (doctor)?" -> "Doctor error written: stay in the pane" [label="doctor can't run on GitHub: error already written"];
     "Domain repair (domain.md)" -> "Domain repair outcome (doctor)?";
     "Domain repair outcome (doctor)?" -> "Diagnose and rebase (diagnose.md)" [label="no domain skill"];
     "Domain repair outcome (doctor)?" -> "Watch the pipeline (watch.md)" [label="pushed"];
@@ -524,7 +523,10 @@ escalation instead.
 - `clean-api-rebase`: a server-side rebase (`mr_rebase`).
   `Server-side rebase licensed?` answers yes only when `--fix-classes`
   is absent or lists `clean-api-rebase`; under `--fix-classes none` it
-  answers no.
+  answers no. On the generic path, Diagnose and rebase never rebases a
+  stack parent: it first lists the MRs that target the MR's source branch
+  (`mr_list` with `targetBranch`), and any MR listed, or a read that
+  cannot prove none, ends the run in `error`.
 - **`mechanical-lint`** (checkout tier only): **behavior-neutral
   mechanical code fixes ONLY**... appending a required lint-disable reason
   suffix, formatting-only changes (whitespace, quote style, trailing

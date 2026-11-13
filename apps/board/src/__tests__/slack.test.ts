@@ -132,6 +132,15 @@ describe('extractMrUrls', () => {
   test('collapses a repeated url to one (single-MR message)', () => {
     expect(extractMrUrls(`${URL_A} ... ${URL_A}`)).toEqual([URL_A]);
   });
+  test('finds every GitHub PR url in a message', () => {
+    const a = 'https://github.com/acme/webapp/pull/12';
+    const b = 'https://github.com/acme/webapp/pull/13';
+    expect(extractMrUrls(`<${a}|#12> and <${b}|#13>`).sort()).toEqual([a, b]);
+  });
+  test('collapses a repeated PR url to one', () => {
+    const a = 'https://github.com/acme/webapp/pull/12';
+    expect(extractMrUrls(`${a} and again ${a}`)).toEqual([a]);
+  });
   test('returns empty for a message with no MR link', () => {
     expect(extractMrUrls('just chatting')).toEqual([]);
   });

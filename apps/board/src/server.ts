@@ -12,10 +12,10 @@ import {
   MRDetailFetcher,
   NoteMutator,
   parseRepoId,
-  ReadBackFailedError,
 } from '@mattstack/glance';
 import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
+  activeTeam,
   chatSlackAvatarFile,
   chatSlackAvatars,
   chatSlackDm,
@@ -163,6 +163,22 @@ import {
   type FlockMenu,
 } from './flock-open.ts';
 import { focusPane } from './focus-pane.ts';
+import {
+  forgeRebase,
+  githubRebaseDeps,
+  gitlabRebaseDeps,
+  type ForgeRebaseResult,
+} from './forge-rebase.ts';
+import { createForgeSelf, launchIdentity } from './forge-self.ts';
+import {
+  githubMrWrite,
+  githubPostNote,
+  githubSetDraft,
+  gitlabMrWrite,
+  gitlabPostNote,
+  gitlabSetDraft,
+  type GithubWriteResult,
+} from './forge-writes.ts';
 import { answerGate } from './gates/answer.ts';
 import {
   answeredWinner,
@@ -250,12 +266,8 @@ import {
   type BoardSkillKind,
 } from './manifest-bindings.ts';
 import { memoizeAsync } from './memoize-async.ts';
-import {
-  mergeRefusalReason,
-  parseMrActionBody,
-  runMrAction,
-} from './mr-action.ts';
-import { mrRef, onGitHub } from './mr-ref.ts';
+import { parseMrActionBody } from './mr-action.ts';
+import { forgeWord, mrNoun, mrNouns, mrRef, onGitHub } from './mr-ref.ts';
 import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
 import {
   acceptAsk,
@@ -340,6 +352,7 @@ import {
   slackMatchPayload,
   type SlackMatch,
 } from './peer/slack-match.ts';
+import { runRebaseChain } from './rebase-chain.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachRespondRounds,
@@ -508,7 +521,7 @@ function fixtureDataJson(): string {
     mrs: Array<{ peerReviews?: PeerReviewState[] }>;
   };
   shiftPeerReviews(data, shift);
-  return JSON.stringify(data);
+  return JSON.stringify({ ...data, seatUnverified: false });
 }
 
 // Containment must be structural, not route-enumeration-dependent: pin
@@ -629,6 +642,67 @@ async function gitlab(): Promise<GitLabProvider> {
   if (!token) throw new Error('gitlab token not configured');
   gitlabProvider ??= new GitLabProvider(gitlabOnly(config), token);
   return gitlabProvider;
+}
+
+/** The rebase chain running on each MR, for POST /rebase/cancel. */
+const REBASE_ABORTS = new Map<string, AbortController>();
+
+/** A poll wait that a cancel cuts short. */
+function abortableSleep(signal: AbortSignal): (ms: number) => Promise<void> {
+  return ms =>
+    new Promise(resolve => {
+      if (signal.aborted) return resolve();
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      signal.addEventListener('abort', done, { once: true });
+    });
+}
+
+/** Step 1 of the rebase chain: the MR's own forge rebases it. A cancel
+    answers at once, even while a forge read is still out. */
+async function rebaseOnForge(
+  mr: BoardMR,
+  signal: AbortSignal,
+  onReadError: (message: string | null) => void
+): Promise<ForgeRebaseResult> {
+  const failed = (reason: string): ForgeRebaseResult => ({
+    kind: 'failed',
+    reason,
+    conflicts: false,
+  });
+  let deps: ReturnType<typeof gitlabRebaseDeps>;
+  if (onGitHub(mr)) {
+    const repoName = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
+    if (!repoName) return failed(`this ${boardNoun()} has no rt repo`);
+    deps = githubRebaseDeps(repoName, mr.iid);
+  } else {
+    const path = mr.webUrl ? projectPathFromWebUrl(mr.webUrl, config) : null;
+    if (!path) return failed('this MR has no GitLab project');
+    try {
+      deps = gitlabRebaseDeps(await gitlab(), path, mr.iid);
+    } catch (err) {
+      return failed(err instanceof Error ? err.message : String(err));
+    }
+  }
+  const cancelled = new Promise<ForgeRebaseResult>(resolve => {
+    if (signal.aborted) resolve({ kind: 'cancelled' });
+    signal.addEventListener('abort', () => resolve({ kind: 'cancelled' }), {
+      once: true,
+    });
+  });
+  return Promise.race([
+    forgeRebase({
+      ...deps,
+      signal,
+      sleep: abortableSleep(signal),
+      onReadError,
+    }),
+    cancelled,
+  ]);
 }
 
 // Daemon-backed gate rows for the board-row read (attachGates below). Fed by
@@ -955,10 +1029,9 @@ function resolveLaunchSkillFor(
   return resolveLaunchSkill(kind, mrUrl, config, packForLaunch(config, tabId));
 }
 
-/** The board tabs a doctor launch on this MR reaches a domain skill from
-    (the "rebase locally" item needs one to rebase in a checkout). Every MR
-    of a project gets the same answer, so `memo` reads each project's pack
-    files once per request. */
+/** The board tabs a doctor launch on this MR reaches a domain skill from.
+    Every MR of a project gets the same answer, so `memo` reads each
+    project's pack files once per request. */
 function doctorTabs(
   webUrl: string | null | undefined,
   memo: Map<string, string[]>
@@ -1106,12 +1179,12 @@ async function ringActiveWorker(
   if (mr.blockers.needsRebase || mr.blockers.hasConflicts)
     kinds.push('needs-rebase');
   if (kinds.length === 0)
-    return new Response('nothing on this MR needs the worker', {
+    return new Response(`nothing on this ${boardNoun()} needs the worker`, {
       status: 409,
     });
   const doctor = readDoctorStates().get(mr.webUrl);
   if (doctor && DOCTOR_IN_FLIGHT.has(doctor.status))
-    return new Response('a doctor is already running on this MR', {
+    return new Response(`a doctor is already running on this ${boardNoun()}`, {
       status: 409,
     });
   const io = ownerIo();
@@ -1126,7 +1199,9 @@ async function ringActiveWorker(
     io.probe
   );
   if (!found)
-    return new Response('no work run is active on this MR', { status: 409 });
+    return new Response(`no work run is active on this ${boardNoun()}`, {
+      status: 409,
+    });
   const { owner, step } = found;
   const pipelineId = mr.pipeline ? numericPipelineId(mr.pipeline.id) : null;
   const target = { iid: mr.iid, targetBranch: mr.targetBranch, pipelineId };
@@ -1169,11 +1244,34 @@ function iidMismatch(
       });
 }
 
+/** The board's noun in a reply a person reads; a GitLab board keeps MR. */
+const boardNoun = () => mrNoun(config.forge.kind);
+const boardNouns = () => mrNouns(config.forge.kind);
+
 /** The one refusal every author-only route answers with when the MR is not
     the seat's; null when it is. An "all" board owns nothing, so it refuses
     everything. */
 function requireOwnMr(mr: BoardMR): Response | null {
-  return ownedHere(mr) ? null : new Response('not your MR', { status: 403 });
+  return ownedHere(mr)
+    ? null
+    : new Response(`not your ${boardNoun()}`, { status: 403 });
+}
+
+function githubRepoName(mr: BoardMR): string | null {
+  return mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
+}
+
+const noRtRepo = () => `this ${boardNoun()} has no rt repo`;
+
+function githubWriteFailure(
+  result: Exclude<GithubWriteResult, { kind: 'done' }>
+): Response {
+  switch (result.kind) {
+    case 'refused':
+      return Response.json({ reason: result.reason }, { status: 409 });
+    case 'unanswered':
+      return Response.json({ reason: result.reason }, { status: 504 });
+  }
 }
 
 /** Each MR with the channel `/slack/post` would send it to. */
@@ -1693,6 +1791,7 @@ function ownName(mr: BoardMR): string {
 }
 
 const remindReviewer = createReminder({
+  forge: () => config.forge.kind,
   peerReview: (mrUrl, reviewer) =>
     getKvValue<PeerReviewState | undefined>(
       PEER_REVIEW_NS,
@@ -1734,11 +1833,25 @@ const remindReviewer = createReminder({
   now: Date.now,
 });
 
-function actingSeat(): string | null {
-  return effectiveSeat(
-    config.defaultMember,
-    readMemory().identity?.username ?? null
+const forgeSelf = createForgeSelf({
+  forge: () => config.forge.kind,
+  fixture: !!FIXTURE_DIR,
+  memoryUsername: () => readMemory().identity?.username ?? null,
+  teamUsername: () => activeTeam().username,
+});
+
+/** A GitHub board with no recorded forge username cannot tell whose seat
+    this is, so it owns nothing; the fixture is inert and keeps its seat. */
+function seatUnverified(): boolean {
+  return (
+    !FIXTURE_DIR && config.forge.kind === 'github' && forgeSelf.get() === null
   );
+}
+
+function actingSeat(): string | null {
+  return seatUnverified()
+    ? null
+    : effectiveSeat(config.defaultMember, forgeSelf.get());
 }
 
 /** A respond or doctor gate is the MR author's to answer; a review gate
@@ -1759,7 +1872,9 @@ async function requireGateOwner(
         m => !!m.webUrl && normalizeMrUrl(m.webUrl) === url
       )
     : undefined;
-  return mr ? requireOwnMr(mr) : new Response('not your MR', { status: 403 });
+  return mr
+    ? requireOwnMr(mr)
+    : new Response(`not your ${boardNoun()}`, { status: 403 });
 }
 
 const sendThreadWrite: ThreadWriteSend = (verb, payload) =>
@@ -2252,6 +2367,7 @@ const httpServer = Bun.serve({
     if (pathname === '/review/file-diff')
       return fileDiffRoute(req, {
         isLocal: r => isLocalRequest(r, server),
+        forge: config.forge.kind,
         findMr: async mrUrl => {
           const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
           return mr ? { iid: mr.iid, webUrl: mrUrl } : null;
@@ -2366,8 +2482,10 @@ const httpServer = Bun.serve({
         return new Response(
           JSON.stringify({
             title: config.title,
+            forge: config.forge.kind,
             defaultMember: config.defaultMember,
-            tokenUser: readMemory().identity?.username ?? null,
+            tokenUser: forgeSelf.get(),
+            seatUnverified: seatUnverified(),
             members: buildRoster(visible, visibleMrs, memberNames),
             ...slackMatchPayload(currentSlackMatch(snapshot.mrs)),
             allMembers: config.members.map(m => ({
@@ -2762,7 +2880,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         }
         {
           const mismatch = iidMismatch(parsed, mr);
@@ -2968,7 +3088,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         }
         {
           const mismatch = iidMismatch(parsed, mr);
@@ -3021,9 +3143,12 @@ const httpServer = Bun.serve({
           !mr.respondTargets?.some(t => t.username === person) &&
           !Object.hasOwn(readRespondRounds().get(parsed.mrUrl) ?? {}, person)
         )
-          return new Response(`person "${person}" has no feedback on this MR`, {
-            status: 400,
-          });
+          return new Response(
+            `person "${person}" has no feedback on this ${boardNoun()}`,
+            {
+              status: 400,
+            }
+          );
         {
           const dedup = await dedupInFlight(
             existing,
@@ -3156,7 +3281,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr) {
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         }
         {
           const mismatch = iidMismatch(parsed, mr);
@@ -3198,19 +3325,20 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        // A running rebase chain's row carries no tabId, so dedup lets an
+        // ordinary launch through.
+        if (parsed.mode !== 'rebase' && LOCAL_SYNCS.has(parsed.mrUrl))
+          return new Response(
+            `a sync is already running on this ${boardNoun()}`,
+            {
+              status: 409,
+            }
+          );
         const doctorSkill = resolveLaunchSkillFor(
           'doctor',
           parsed.mrUrl,
           boardTabId
         );
-        // A rebase-only doctor with no domain skill has nothing that can
-        // rebase in a checkout, and its empty allowlist rules out GitLab's
-        // own rebase too, so it could only end in an error.
-        if (parsed.mode === 'rebase' && !doctorSkill)
-          return new Response(
-            'no doctor skill is set up for this board tab, so nothing can rebase in a checkout',
-            { status: 409 }
-          );
         const statePath = doctorFilePath(parsed.mrUrl);
         const doctorRefusal = await skillBindRefusal(doctorSkill);
         if (doctorRefusal) {
@@ -3226,185 +3354,270 @@ const httpServer = Bun.serve({
           });
         }
         let pausedTree: string | undefined;
+        // The rebase chain's lock stays held through its doctor hand-off;
+        // the row has no tabId until the launch settles, so dedup cannot
+        // stop a second doctor in that window.
+        let handOff = false;
         if (parsed.mode === 'rebase') {
           if (LOCAL_SYNCS.has(parsed.mrUrl))
-            return new Response('a sync is already running on this MR', {
-              status: 409,
-            });
+            return new Response(
+              `a sync is already running on this ${boardNoun()}`,
+              {
+                status: 409,
+              }
+            );
           LOCAL_SYNCS.add(parsed.mrUrl);
+          // The forge wait has no clock, so it can outlast Bun's 60s idle
+          // timeout.
+          server.timeout(req, 0);
+          const abort = new AbortController();
+          REBASE_ABORTS.set(parsed.mrUrl, abort);
           const endLive = startLiveSync(parsed.mrUrl, repo, mr.sourceBranch);
           sseSyncStart(parsed.mrUrl);
           try {
             const priorPaused = existing?.pausedTree;
+            const skipForge = !!mr.blockers?.hasConflicts;
             writeDoctorState(statePath, {
               mrUrl: parsed.mrUrl,
               iid: parsed.iid,
-              status: 'syncing',
+              status: skipForge ? 'syncing' : 'forge-rebasing',
               origin: 'manual',
               boardTabId: boardTabId ?? '',
               ...FRESH_SYNC_ROW,
               syncLog: [],
+              forge: null as unknown as undefined,
             });
-            const outcome = await syncBranchLocally(
-              repo,
-              mr.sourceBranch,
-              priorPaused
-            );
-            // The reply's log is whole; streamed lines can land after it.
-            const syncLog = outcome.log.length
-              ? outcome.log
-              : (LIVE_SYNC_LOGS.get(parsed.mrUrl) ?? []);
-            if (outcome.kind === 'clean') {
-              writeDoctorState(statePath, {
-                status: 'synced',
-                message: outcome.message,
-                pausedTree: null as unknown as undefined,
-                syncLog,
-                pipelineAtSync:
-                  mr.pipeline?.id ?? (null as unknown as undefined),
-              });
-              return Response.json({ ok: true, synced: outcome.message });
-            }
-            if (outcome.kind === 'stopped') {
-              writeDoctorState(statePath, {
-                status: 'sync-stopped',
-                message: outcome.message,
-                pausedTree: null as unknown as undefined,
-                syncLog,
-              });
-              return Response.json({ ok: true, stopped: outcome.message });
-            }
-            pausedTree = outcome.tree;
-            writeDoctorState(statePath, {
-              status: 'queued',
-              pausedTree,
-              syncLog,
+            const end = await runRebaseChain({
+              forge: () =>
+                rebaseOnForge(mr, abort.signal, message => {
+                  // A read still out when a cancel ended the chain must not
+                  // reopen the stopped row.
+                  if (abort.signal.aborted) return;
+                  writeDoctorState(statePath, {
+                    status: 'forge-rebasing',
+                    forge: {
+                      forge: forgeWord(mr),
+                      state: 'running',
+                      ...(message ? { detail: message } : {}),
+                    },
+                  });
+                }),
+              forgeKind: forgeWord(mr),
+              skipForge,
+              sync: async () => {
+                const outcome = await syncBranchLocally(
+                  repo,
+                  mr.sourceBranch,
+                  priorPaused
+                );
+                // The reply's log is whole; streamed lines can land after it.
+                return outcome.log.length
+                  ? outcome
+                  : {
+                      ...outcome,
+                      log: LIVE_SYNC_LOGS.get(parsed.mrUrl) ?? [],
+                    };
+              },
+              write: patch =>
+                writeDoctorState(
+                  statePath,
+                  patch as Partial<DoctorState> & { status: DoctorStatus }
+                ),
+              hasDoctor: !!doctorSkill,
+              pipelineAtSync: mr.pipeline?.id,
             });
+            switch (end.kind) {
+              case 'forge-done':
+                cache.invalidate();
+                return Response.json({ ok: true, synced: end.message });
+              case 'synced':
+                return Response.json({ ok: true, synced: end.message });
+              case 'stopped':
+                return Response.json({ ok: true, stopped: end.message });
+              case 'cancelled':
+                return Response.json({ ok: true, cancelled: true });
+            }
+            if (!end.doctor)
+              return Response.json({
+                ok: true,
+                stopped: `paused in ${end.tree}; no doctor on this tab`,
+              });
+            pausedTree = end.tree;
+            handOff = true;
           } finally {
             endLive();
-            LOCAL_SYNCS.delete(parsed.mrUrl);
+            if (!handOff) LOCAL_SYNCS.delete(parsed.mrUrl);
+            REBASE_ABORTS.delete(parsed.mrUrl);
           }
         }
-        const triage = loadTriageConfig();
-        // Token validation happens here, OUTSIDE the lock, since it's a
-        // network round-trip and the lock must never sit open for that long.
-        const identityRead = readMemory();
-        const identityBefore = identityRead.identity;
-        const identity =
-          config.forge.kind === 'github'
-            ? null
-            : await resolveDispatchIdentity(identityRead, async () =>
+        let launched: Promise<void> | undefined;
+        try {
+          const triage = loadTriageConfig();
+          // Token validation happens here, OUTSIDE the lock, since it's a
+          // network round-trip and the lock must never sit open for that long.
+          const identityRead = readMemory();
+          const identityBefore = identityRead.identity;
+          const identity = await launchIdentity(
+            config.forge.kind,
+            () => forgeSelf.get(),
+            () =>
+              resolveDispatchIdentity(identityRead, async () =>
                 (await gitlab()).validateToken()
-              );
-        // Only touch state/auto-dispatch.json when the identity actually
-        // refreshed (a cache hit leaves identityRead.identity's reference
-        // unchanged). bin/triage.ts serializes every access to this file
-        // behind the same lock, so a slow pass and this manual launch never
-        // clobber the SAME attempt budgets / lastHandledPipelineId /
-        // budgetEscalatedDay in either direction; writeRefreshedIdentity
-        // re-reads the CURRENT file under the lock rather than writing back
-        // this stale pre-network-call snapshot, so a pass that wrote OTHER
-        // fields during the round-trip is never reverted. A pass already
-        // holding the lock just means this request's own identity refresh is
-        // not persisted; it still applies to fixClasses below, and the next
-        // request re-resolves it.
-        if (identityRead.identity !== identityBefore) {
-          const lockToken = tryClaimCron(Date.now());
-          if (lockToken !== false) {
-            try {
-              writeRefreshedIdentity(identityRead.identity);
-            } finally {
-              releaseCron(lockToken);
+              )
+          );
+          // Only touch state/auto-dispatch.json when the identity actually
+          // refreshed (a cache hit leaves identityRead.identity's reference
+          // unchanged). bin/triage.ts serializes every access to this file
+          // behind the same lock, so a slow pass and this manual launch never
+          // clobber the SAME attempt budgets / lastHandledPipelineId /
+          // budgetEscalatedDay in either direction; writeRefreshedIdentity
+          // re-reads the CURRENT file under the lock rather than writing back
+          // this stale pre-network-call snapshot, so a pass that wrote OTHER
+          // fields during the round-trip is never reverted. A pass already
+          // holding the lock just means this request's own identity refresh is
+          // not persisted; it still applies to fixClasses below, and the next
+          // request re-resolves it.
+          if (identityRead.identity !== identityBefore) {
+            const lockToken = tryClaimCron(Date.now());
+            if (lockToken !== false) {
+              try {
+                writeRefreshedIdentity(identityRead.identity);
+              } finally {
+                releaseCron(lockToken);
+              }
             }
           }
-        }
-        // mode "rebase" is a scoped doctor: checkout tier (whose base
-        // playbook is exactly worktree + rebase) with an EMPTY fix-class
-        // allowlist, so CI triage and code fixes stay out of scope, plus a
-        // note pinning the job to the rebase alone.
-        const manual = manualDoctorFields(triage, mr.author.username, identity);
-        const tier = parsed.mode === 'rebase' ? undefined : manual.tier;
-        const fixClasses = parsed.mode === 'rebase' ? [] : manual.fixClasses;
-        const launchNote =
-          parsed.mode === 'rebase'
-            ? [
-                'rebase-only: resolve the paused rebase and push; skip CI triage and any other fixes',
-                note,
-              ]
-                .filter(Boolean)
-                .join('. ')
-            : note;
-        writeDoctorState(statePath, {
-          mrUrl: parsed.mrUrl,
-          iid: parsed.iid,
-          status: 'queued',
-          origin: 'manual',
-          tier,
-          fixClasses,
-          boardTabId: boardTabId ?? '',
-          noPack: !launchPack(boardTabId),
-          ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
-        });
-        void launchDoctor({
-          mrUrl: parsed.mrUrl,
-          iid: parsed.iid,
-          cwd,
-          repo,
-          workspaceLabel: config.doctorsWorkspace,
-          statePath,
-          skill: doctorSkill,
-          pack: launchPack(boardTabId),
-          author,
-          ...loadAgentSettings(),
-          note: launchNote,
-          tier,
-          fixClasses,
-          draftBin: manual.draftBin,
-          pausedTree,
-        })
-          .then(result => {
-            void clearHandoffsAfterLaunch(parsed.mrUrl);
-            if (result.focusedExisting) return;
-            // Race guard: the row may have closed out (operator stand-down)
-            // while this launch was in flight -- readDoctorStates() here is
-            // a fresh read, not the `existing` this handler captured before
-            // dispatching. A terminal row is never resurrected to 'queued'.
-            // Only nudge the fresh pane when it's actually a stand-down
-            // (readMemory, not the doctor row's message string) -- a terminal
-            // row for some other reason gets left alone rather than handed a
-            // misleading "operator stood down" message.
-            const fresh = readDoctorStates().get(parsed.mrUrl);
-            if (fresh && !DOCTOR_IN_FLIGHT.has(fresh.status)) {
-              if (result.paneId && readMemory().mrs[parsed.mrUrl]?.standDown) {
-                void sendPaneText(result.paneId, STAND_DOWN_PANE_MESSAGE).catch(
-                  err =>
+          // mode "rebase" is a scoped doctor: checkout tier (whose base
+          // playbook is exactly worktree + rebase) with an EMPTY fix-class
+          // allowlist, so CI triage and code fixes stay out of scope, plus a
+          // note pinning the job to the rebase alone.
+          const manual = manualDoctorFields(
+            triage,
+            mr.author.username,
+            identity
+          );
+          const tier = parsed.mode === 'rebase' ? undefined : manual.tier;
+          const fixClasses = parsed.mode === 'rebase' ? [] : manual.fixClasses;
+          const launchNote =
+            parsed.mode === 'rebase'
+              ? [
+                  'rebase-only: resolve the paused rebase and push; skip CI triage and any other fixes',
+                  note,
+                ]
+                  .filter(Boolean)
+                  .join('. ')
+              : note;
+          writeDoctorState(statePath, {
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            status: 'queued',
+            origin: 'manual',
+            tier,
+            fixClasses,
+            boardTabId: boardTabId ?? '',
+            noPack: !launchPack(boardTabId),
+            ...(parsed.mode === 'rebase' ? {} : NO_SYNC_CARRY),
+          });
+          launched = launchDoctor({
+            mrUrl: parsed.mrUrl,
+            iid: parsed.iid,
+            cwd,
+            repo,
+            workspaceLabel: config.doctorsWorkspace,
+            statePath,
+            skill: doctorSkill,
+            pack: launchPack(boardTabId),
+            author,
+            ...loadAgentSettings(),
+            note: launchNote,
+            tier,
+            fixClasses,
+            draftBin: manual.draftBin,
+            pausedTree,
+          })
+            .then(result => {
+              void clearHandoffsAfterLaunch(parsed.mrUrl);
+              if (result.focusedExisting) return;
+              // Race guard: the row may have closed out (operator stand-down)
+              // while this launch was in flight -- readDoctorStates() here is
+              // a fresh read, not the `existing` this handler captured before
+              // dispatching. A terminal row is never resurrected to 'queued'.
+              // Only nudge the fresh pane when it's actually a stand-down
+              // (readMemory, not the doctor row's message string) -- a terminal
+              // row for some other reason gets left alone rather than handed a
+              // misleading "operator stood down" message.
+              const fresh = readDoctorStates().get(parsed.mrUrl);
+              if (fresh && !DOCTOR_IN_FLIGHT.has(fresh.status)) {
+                if (
+                  result.paneId &&
+                  readMemory().mrs[parsed.mrUrl]?.standDown
+                ) {
+                  void sendPaneText(
+                    result.paneId,
+                    STAND_DOWN_PANE_MESSAGE
+                  ).catch(err =>
                     console.error(
                       `stand-down pane nudge (post-launch) failed: ${err instanceof Error ? err.message : err}`
                     )
-                );
+                  );
+                }
+                return;
               }
-              return;
-            }
-            writeDoctorState(statePath, {
-              status: 'queued',
-              tabId: result.tabId,
-              workspaceId: result.workspaceId,
-              agentId: result.agentId,
-              paneId: result.paneId,
+              writeDoctorState(statePath, {
+                status: 'queued',
+                tabId: result.tabId,
+                workspaceId: result.workspaceId,
+                agentId: result.agentId,
+                paneId: result.paneId,
+              });
+            })
+            .catch(err => {
+              console.error(
+                `doctor launch failed: ${err instanceof Error ? err.message : err}`
+              );
+              writeDoctorState(statePath, {
+                status: 'error',
+                message: launchErrorMessage('doctor', err),
+              });
             });
-          })
-          .catch(err => {
-            console.error(
-              `doctor launch failed: ${err instanceof Error ? err.message : err}`
-            );
-            writeDoctorState(statePath, {
-              status: 'error',
-              message: launchErrorMessage('doctor', err),
-            });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: { 'content-type': 'application/json' },
           });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: { 'content-type': 'application/json' },
-        });
+        } finally {
+          if (handOff) {
+            const release = () => LOCAL_SYNCS.delete(parsed.mrUrl);
+            if (launched) void launched.finally(release);
+            else release();
+          }
+        }
+      }
+      case '/rebase/cancel': {
+        // Ends a rebase chain while it waits on the forge. A forge rebase
+        // already under way is not stopped.
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const mrUrl = (body as { mrUrl?: unknown } | null)?.mrUrl;
+        if (typeof mrUrl !== 'string')
+          return new Response('expected { mrUrl: string }', { status: 400 });
+        const abort = REBASE_ABORTS.get(mrUrl);
+        const waiting =
+          !!abort &&
+          !abort.signal.aborted &&
+          readDoctorStates().get(mrUrl)?.status === 'forge-rebasing';
+        if (waiting) abort.abort();
+        return Response.json({ ok: true, cancelled: waiting });
       }
       case '/review/finding-question': {
         // Types the human's question about one finding into the review
@@ -3456,7 +3669,7 @@ const httpServer = Bun.serve({
             });
       }
       case '/drafts': {
-        // The ONLY path from a held doctor draft to a GitLab note. The human
+        // The ONLY path from a held doctor draft to a forge note. The human
         // click is the approval (spec §6): the doctor tier writes drafts and
         // nothing here runs unattended.
         if (req.method !== 'POST')
@@ -3492,7 +3705,7 @@ const httpServer = Bun.serve({
           d => d.mrUrl === mrUrl && d.kind === kind && d.status === 'held'
         );
         if (!draft)
-          return new Response('no held draft for that MR/kind', {
+          return new Response(`no held draft for that ${boardNoun()}/kind`, {
             status: 404,
           });
         if (action === 'dismiss') {
@@ -3501,28 +3714,58 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
-        if (config.forge.kind === 'github')
-          return new Response(FORGE_NOT_YET, { status: 400 });
-        if (!gitlabToken)
+        if (config.forge.kind === 'gitlab' && !gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === mrUrl);
-        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
-        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
+        if (!mr)
+          return new Response(`unknown ${boardNoun()} "${mrUrl}"`, {
+            status: 400,
+          });
+        if (onGitHub(mr) !== (config.forge.kind === 'github'))
+          return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
+        if (config.forge.kind === 'github') {
+          const repoName = githubRepoName(mr);
+          if (!repoName) return new Response(noRtRepo(), { status: 400 });
+          server.timeout(req, 0);
+          const result = await githubPostNote(repoName, mr.iid, draft.body);
+          if (result.kind !== 'done') return githubWriteFailure(result);
+          cache.invalidate();
+          try {
+            writeDraft(mrUrl, kind, {
+              status: 'posted',
+              postedNoteId: result.noteId,
+            });
+          } catch (err) {
+            console.error(
+              `board: posted note but could not record the draft: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+          return Response.json({
+            ok: true,
+            posted: true,
+            noteId: result.noteId,
+          });
+        }
         try {
           const projectId = parseRepoId(mr.repositoryId);
-          const mutator = new NoteMutator(gitlabOnly(config), gitlabToken);
-          const note = await mutator.createNote(projectId, mr.iid, draft.body);
+          const result = await gitlabPostNote(
+            new NoteMutator(gitlabOnly(config), gitlabToken!),
+            projectId,
+            mr.iid,
+            draft.body
+          );
+          if (result.kind === 'failed') throw new Error(result.message);
           writeDraft(mrUrl, kind, {
             status: 'posted',
-            postedNoteId: note.id,
+            postedNoteId: result.noteId,
           });
           return new Response(
-            JSON.stringify({ ok: true, posted: true, noteId: note.id }),
+            JSON.stringify({ ok: true, posted: true, noteId: result.noteId }),
             {
               headers: { 'content-type': 'application/json' },
             }
@@ -3535,9 +3778,10 @@ const httpServer = Bun.serve({
         }
       }
       case '/draft': {
-        // Flip one of your own MRs between draft and ready. GitLab has no draft
-        // flag: the draft state IS the title prefix, so rewriting the title is
-        // the whole operation, both directions. Gated to your own MRs on both
+        // Flip one of your own MRs between draft and ready. On GitLab there is no
+        // draft flag: the draft state IS the title prefix, so rewriting the
+        // title is the whole operation, both directions. GitHub toggles its
+        // draft flag through the daemon. Gated to your own MRs on both
         // sides (the menu item only renders for them, and this refuses others').
         if (req.method !== 'POST')
           return new Response('method not allowed', { status: 405 });
@@ -3547,9 +3791,7 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
-        if (config.forge.kind === 'github')
-          return new Response(FORGE_NOT_YET, { status: 400 });
-        if (!gitlabToken)
+        if (config.forge.kind === 'gitlab' && !gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         let body: unknown;
         try {
@@ -3568,8 +3810,11 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
-        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
+        if (onGitHub(mr) !== (config.forge.kind === 'github'))
+          return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -3583,84 +3828,48 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           });
         }
+        if (config.forge.kind === 'github') {
+          const repoName = githubRepoName(mr);
+          if (!repoName) return new Response(noRtRepo(), { status: 400 });
+          server.timeout(req, 0);
+          const result = await githubSetDraft(repoName, parsed.iid, draft);
+          if (result.kind !== 'done') return githubWriteFailure(result);
+          cache.invalidate();
+          return Response.json({ ok: true, draft });
+        }
         const path = projectPathFromWebUrl(parsed.mrUrl, config);
         if (!path)
           return new Response(
             `could not derive a project path from "${parsed.mrUrl}"`,
             { status: 400 }
           );
-        try {
-          // glance owns the title mechanics (on GitLab the draft state IS the
-          // title prefix), reads the MR first since we send `draft` without a
-          // title, and reads it back after to confirm the flag actually landed --
-          // throwing instead of reporting a transition that did not happen.
-          const updated = await (
-            await gitlab()
-          ).updatePullRequest(path, parsed.iid, { draft });
-          // The cached snapshot still has the old state; drop it so the next
-          // /data.json reflects the flip instead of waiting out the cache TTL.
-          cache.invalidate();
-          return new Response(
-            JSON.stringify({ ok: true, draft, title: updated.title }),
-            {
-              headers: { 'content-type': 'application/json' },
-            }
-          );
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(
-            `draft update failed for !${parsed.iid} (draft=${draft}): ${message}`
-          );
-          // glance retries its post-write read-back, rejections and a draft flag
-          // that has not caught up alike (0.18.1, MAT-169), so getting here means
-          // those retries were exhausted rather than never tried. The edit landed
-          // before any of that ran either way, so ask GitLab what is actually true
-          // instead of reporting a write that worked as a failure.
-          const after = await (
-            await gitlab()
-          )
-            .fetchSingleMR(path, parsed.iid, null)
-            .catch(() => null);
-          if (after?.draft === draft) {
-            cache.invalidate();
-            return new Response(
-              JSON.stringify({
-                ok: true,
-                draft,
-                title: after.title,
-                recovered: true,
-              }),
-              {
-                headers: { 'content-type': 'application/json' },
-              }
-            );
-          }
-          // The read above is a guess at what happened; this is the SDK telling
-          // us outright that the edit reached GitLab and only describing it back
-          // failed (glance 0.19.0). That outranks a recovery read which may
-          // itself have just failed -- the flip is applied, so 502-ing here
-          // would report a succeeded write as a failure, which is the whole bug.
-          if (err instanceof ReadBackFailedError && err.writeApplied) {
-            cache.invalidate();
-            return new Response(
-              JSON.stringify({
-                ok: true,
-                draft,
-                recovered: true,
-                verified: false,
-              }),
-              {
-                headers: { 'content-type': 'application/json' },
-              }
-            );
-          }
-          return new Response(`gitlab update failed: ${message}`, {
+        const result = await gitlabSetDraft(
+          gitlab,
+          path,
+          parsed.iid,
+          draft,
+          message =>
+            console.error(
+              `draft update failed for !${parsed.iid} (draft=${draft}): ${message}`
+            )
+        );
+        if (result.kind === 'failed')
+          return new Response(`gitlab update failed: ${result.message}`, {
             status: 502,
           });
-        }
+        // The cached snapshot still has the old state; drop it so the next
+        // /data.json reflects the flip instead of waiting out the cache TTL.
+        cache.invalidate();
+        const { title, recovered, verified } = result;
+        return new Response(
+          JSON.stringify({ ok: true, draft, title, recovered, verified }),
+          {
+            headers: { 'content-type': 'application/json' },
+          }
+        );
       }
       case '/mr/refresh': {
-        // Re-read one MR from GitLab into the daemon's store. The store's
+        // Re-read one MR from its forge into the daemon's store. The store's
         // routine sync only re-reads MRs whose updatedAt moved, and some
         // changes (an approval) never move it.
         if (req.method !== 'POST')
@@ -3686,14 +3895,19 @@ const httpServer = Bun.serve({
             status: 400,
           });
         const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
-        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        if (!mr)
+          return new Response(`unknown ${boardNoun()} "${mrUrl}"`, {
+            status: 400,
+          });
         {
           const mismatch = iidMismatch({ mrUrl, iid }, mr);
           if (mismatch) return mismatch;
         }
         const repoId = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
         if (!repoId)
-          return new Response('this MR has no rt repo', { status: 400 });
+          return new Response(`this ${boardNoun()} has no rt repo`, {
+            status: 400,
+          });
         const res = await rtCommand(
           'mr:get',
           { repoName: repoId, iid, refresh: true },
@@ -3733,7 +3947,10 @@ const httpServer = Bun.serve({
             status: 400,
           });
         const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
-        if (!mr) return new Response(`unknown MR "${mrUrl}"`, { status: 400 });
+        if (!mr)
+          return new Response(`unknown ${boardNoun()} "${mrUrl}"`, {
+            status: 400,
+          });
         {
           const mismatch = iidMismatch({ mrUrl, iid }, mr);
           if (mismatch) return mismatch;
@@ -3744,7 +3961,9 @@ const httpServer = Bun.serve({
         }
         const repoName = mr.rtRepo ? repoIdentityField(mr.rtRepo) : null;
         if (!repoName)
-          return new Response('this MR has no rt repo', { status: 400 });
+          return new Response(`this ${boardNoun()} has no rt repo`, {
+            status: 400,
+          });
         const commands = parseFlockCommands(
           boardSetting<unknown>('board.flockCommands')
         );
@@ -3787,7 +4006,7 @@ const httpServer = Bun.serve({
             { status: 409 }
           );
         if (FLOCK_OPENS.has(mrUrl))
-          return new Response('already opening this MR in flock', {
+          return new Response(`already opening this ${boardNoun()} in flock`, {
             status: 409,
           });
         // Provisioning a worktree can outlast Bun's 60s idle timeout.
@@ -3797,7 +4016,7 @@ const httpServer = Bun.serve({
           let folder: string;
           if (action === 'resume') {
             if (!menu.resume)
-              return new Response('no work session for this MR', {
+              return new Response(`no work session for this ${boardNoun()}`, {
                 status: 409,
               });
             if (menu.resume.livePane) {
@@ -3847,10 +4066,10 @@ const httpServer = Bun.serve({
         }
       }
       case '/mr/action': {
-        // Fire one GitLab-side MR action (merge / rebase / auto-merge arm or
-        // cancel) from the row menu, on the seat's own MR only. Which of them
-        // shows is the client's job (the view-model's button state); GitLab
-        // still has the last word on permission.
+        // Fire one MR action (merge / rebase / auto-merge arm or cancel) on the
+        // board's forge from the row menu, on the seat's own MR only. Which of
+        // them shows is the client's job (the view-model's button state); the
+        // forge still has the last word on permission.
         if (req.method !== 'POST')
           return new Response('method not allowed', { status: 405 });
         if (!isLocalRequest(req, server))
@@ -3859,9 +4078,7 @@ const httpServer = Bun.serve({
           const notJson = requireJsonBody(req);
           if (notJson) return notJson;
         }
-        if (config.forge.kind === 'github')
-          return new Response(FORGE_NOT_YET, { status: 400 });
-        if (!gitlabToken)
+        if (config.forge.kind === 'gitlab' && !gitlabToken)
           return new Response('gitlab token not configured', { status: 400 });
         let body: unknown;
         try {
@@ -3879,8 +4096,11 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
-        if (onGitHub(mr)) return new Response(FORGE_NOT_YET, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
+        if (onGitHub(mr) !== (config.forge.kind === 'github'))
+          return new Response(FORGE_NOT_YET, { status: 400 });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -3889,36 +4109,56 @@ const httpServer = Bun.serve({
           const refused = requireOwnMr(mr);
           if (refused) return refused;
         }
+        if (config.forge.kind === 'github') {
+          const repoName = githubRepoName(mr);
+          if (!repoName) return new Response(noRtRepo(), { status: 400 });
+          server.timeout(req, 0);
+          const result = await githubMrWrite(
+            repoName,
+            parsed.iid,
+            parsed.action
+          );
+          if (result.kind !== 'done') return githubWriteFailure(result);
+          cache.invalidate();
+          const { mergeQueued, sourceBranchNotDeleted } = result;
+          return Response.json({
+            ok: true,
+            mergeQueued,
+            sourceBranchNotDeleted,
+          });
+        }
         const path = projectPathFromWebUrl(parsed.mrUrl, config);
         if (!path)
           return new Response(
             `could not derive a project path from "${parsed.mrUrl}"`,
             { status: 400 }
           );
-        try {
-          await runMrAction(await gitlab(), path, parsed.iid, parsed.action);
-          // The cached snapshot predates the action; drop it so the next
-          // /data.json reflects it instead of waiting out the cache TTL.
-          cache.invalidate();
-          return new Response(JSON.stringify({ ok: true }), {
+        const result = await gitlabMrWrite(
+          gitlab,
+          path,
+          parsed.iid,
+          parsed.action,
+          message =>
+            console.error(
+              `mr action ${parsed.action} failed for !${parsed.iid}: ${message}`
+            )
+        );
+        if (result.kind === 'refused')
+          return new Response(JSON.stringify({ reason: result.reason }), {
+            status: 409,
             headers: { 'content-type': 'application/json' },
           });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(
-            `mr action ${parsed.action} failed for !${parsed.iid}: ${message}`
+        if (result.kind === 'failed')
+          return new Response(
+            `gitlab ${parsed.action} failed: ${result.message}`,
+            { status: 502 }
           );
-          const reason =
-            parsed.action === 'merge' ? mergeRefusalReason(message) : null;
-          if (reason)
-            return new Response(JSON.stringify({ reason }), {
-              status: 409,
-              headers: { 'content-type': 'application/json' },
-            });
-          return new Response(`gitlab ${parsed.action} failed: ${message}`, {
-            status: 502,
-          });
-        }
+        // The cached snapshot predates the action; drop it so the next
+        // /data.json reflects it instead of waiting out the cache TTL.
+        cache.invalidate();
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        });
       }
       case '/gate/answer': {
         // Answer a gate from the board UI, addressed by its own id -- an MR
@@ -4190,7 +4430,8 @@ const httpServer = Bun.serve({
         const resolved = resolveStandDownTarget(
           mrUrl,
           snapshot.mrs,
-          config.defaultMember
+          config.defaultMember,
+          config.forge.kind
         );
         if (!resolved.ok)
           return new Response(resolved.error, { status: resolved.status });
@@ -4401,7 +4642,9 @@ const httpServer = Bun.serve({
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
-          return new Response(`unknown MR "${parsed.mrUrl}"`, { status: 400 });
+          return new Response(`unknown ${boardNoun()} "${parsed.mrUrl}"`, {
+            status: 400,
+          });
         {
           const mismatch = iidMismatch(parsed, mr);
           if (mismatch) return mismatch;
@@ -4418,9 +4661,12 @@ const httpServer = Bun.serve({
             canonicalUsername(reviewer) !==
             canonicalUsername(mr.author.username)
           )
-            return new Response('a respond ask goes to the MR author', {
-              status: 400,
-            });
+            return new Response(
+              `a respond ask goes to the ${boardNoun()} author`,
+              {
+                status: 400,
+              }
+            );
         } else {
           const refused = requireOwnMr(mr);
           if (refused) return refused;
@@ -4954,9 +5200,12 @@ const httpServer = Bun.serve({
             channels => !channels.has('')
           );
           if (resolved.size > 1) {
-            return new Response('MRs span Slack channels; post them per tab', {
-              status: 400,
-            });
+            return new Response(
+              `${boardNouns()} span Slack channels; post them per tab`,
+              {
+                status: 400,
+              }
+            );
           }
           targetChannel = [...resolved][0]!;
         }
@@ -5025,15 +5274,21 @@ const httpServer = Bun.serve({
         if (typeof mrUrl !== 'string')
           return new Response('expected { mrUrl: string }', { status: 400 });
         const mr = (await cache.get()).mrs.find(m => m.webUrl === mrUrl);
-        if (!mr) return new Response('MR is not on the board', { status: 400 });
+        if (!mr)
+          return new Response(`${boardNoun()} is not on the board`, {
+            status: 400,
+          });
         const refused = requireOwnMr(mr);
         if (refused) return refused;
         if (pathname === '/slack/owners/preview')
           return ownersPreviewOrPost(mr, slackToken, null);
         if (ownerPostsRunning.has(mrUrl))
-          return new Response('a post for this MR is still running', {
-            status: 409,
-          });
+          return new Response(
+            `a post for this ${boardNoun()} is still running`,
+            {
+              status: 409,
+            }
+          );
         ownerPostsRunning.add(mrUrl);
         try {
           return await ownersPreviewOrPost(mr, slackToken, {
@@ -6118,6 +6373,7 @@ if (writer) {
 function reloadConfig(reason: string): void {
   try {
     Object.assign(config, loadConfig());
+    forgeSelf.reset();
     namesFetchedAt = 0; // re-resolve display names, including new members
     // Stale, not dropped: checking a member in/out lands here (the board
     // writes the store itself), and dropping the snapshot would stall every

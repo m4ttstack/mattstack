@@ -6,6 +6,8 @@ import type {
   InvalidationBatch,
   JobDetail,
   EnqueuePullRequestInput,
+  FetchApprovalRulesOptions,
+  MRApprovalRules,
   MergePullRequestInput,
   MergePullRequestResult,
   MergeQueueEntry,
@@ -530,6 +532,36 @@ export interface GitProvider {
    */
   fetchUserEvents?(userId: string, options: FetchUserEventsOptions): Promise<UserEvent[]>;
 
+  /**
+   * Reads the approval rules of the project's open PRs, one entry per PR.
+   * Gated on `capabilities.canFetchApprovalRules`. A rule's `section` is the
+   * owner; GitHub lowercases it (`@org/team`, `@login`) so it joins with
+   * `fetchCodeownerSections`. An entry with `unknownReason` set means that
+   * PR's rules were not read, which is not the same as "no rules".
+   */
+  fetchApprovalRules?(options: FetchApprovalRulesOptions): Promise<MRApprovalRules[]>;
+
+  /**
+   * Reads the CODEOWNERS section names for a project, or null when it has no
+   * CODEOWNERS file. Gated on `capabilities.canFetchCodeownerSections`.
+   * GitHub's sections are the owners, lowercased with an `@` prefix; email
+   * owners are dropped because a review request cannot name one.
+   */
+  fetchCodeownerSections?(options: { projectPath: string }): Promise<string[] | null>;
+
+  /**
+   * Reads how many commits one PR's base has moved on, or null when there is
+   * no comparison. Gated on `capabilities.canFetchDivergedCount`.
+   */
+  fetchDivergedCount?(projectPath: string, mrIid: number): Promise<number | null>;
+
+  /**
+   * Batched `fetchDivergedCount`. The map has an entry for each PR that was
+   * read, null when that PR has no comparison, and no entry when that PR's
+   * read failed. Gated on `capabilities.canFetchDivergedCount`.
+   */
+  fetchDivergedCounts?(projectPath: string, mrIids: number[]): Promise<Map<number, number | null>>;
+
   // ── Mutation capabilities ───────────────────────────────────────────────
 
   /**
@@ -879,6 +911,9 @@ export interface GitProvider {
    * instead of surfacing it once, at the one call site that needs to change.
    *
    * A non-2xx resolves rather than throwing, so callers branch on `res.ok`.
+   * The exception is a rate limit: GitLab waits out a 429 (up to 30s for a
+   * GET, 65s for a write) and then throws `RateLimitedError`, and GitHub
+   * throws it for a rate-limited GET.
    *
    * GitHub's Response is rebuilt from its HTTP client rather than returned
    * from `fetch`, so `res.url` is always empty there. Status, statusText,

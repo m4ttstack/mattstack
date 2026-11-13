@@ -1,7 +1,7 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Todo } from '../types'
-import { LIVE_LINES_HERDR, LIVE_LINES_LOCAL, PLUGIN, TITLE, buttonsFor, hardWrap, isActionable, wrapWords } from './items'
+import { LIVE_LINES_HERDR, LIVE_LINES_LOCAL, PLUGIN, TITLE, buttonsFor, fileName, hardWrap, isActionable, wrapWords } from './items'
 import type { ButtonId } from './items'
 import { peekTodos, readPane, removeTodos, toggleExpanded } from './store'
 import { cleanup, press } from './wiring'
@@ -185,6 +185,7 @@ export function registerPane(on: On): void {
           </Text>,
         )
       if (todo.url) lines(`url-${id}`, todo.url, width, { color: 'cyan' }, true)
+      if (todo.paths?.length) lines(`images-${id}`, todo.paths.map(fileName).join(', '), width, { color: 'cyan' }, true)
       if (todo.status === 'running') {
         blank(`pad-tail-${id}`)
         tail.forEach((line, n) =>

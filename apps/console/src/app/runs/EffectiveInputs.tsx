@@ -19,7 +19,12 @@ import type {
 import { client } from '../api';
 import { StepLoader, useStepLoading } from '../StepLoader';
 import accordion from './accordion.module.css';
-import { decisionSentence, packState, settingValue } from './derive/inputs';
+import {
+  decisionSentence,
+  packState,
+  settingValue,
+  type PackState,
+} from './derive/inputs';
 import classes from './EffectiveInputs.module.css';
 import { Eyebrow } from './Eyebrow';
 import {
@@ -72,7 +77,7 @@ function Box({ children }: { children: ReactNode }) {
 
 const Spacer = () => <span className={classes.sp} />;
 
-function Pill({ label, tone }: ReturnType<typeof packState>) {
+function Pill({ label, tone }: PackState) {
   return (
     <Badge
       size="sm"
@@ -88,6 +93,7 @@ function Pill({ label, tone }: ReturnType<typeof packState>) {
 }
 
 function PackRow({ pack, last }: { pack: PackVersionRow; last: boolean }) {
+  const state = packState(pack);
   return (
     <div
       className={`${classes.rule} ${classes.flat}`}
@@ -98,10 +104,10 @@ function PackRow({ pack, last }: { pack: PackVersionRow; last: boolean }) {
         {pack.pack}
       </Text>
       <Text ff="monospace" fz="md" lh="normal" c="dimmed" data-parity="s">
-        {pack.recordedSha.slice(0, 7)}
+        {pack.recordedSha?.slice(0, 7) ?? pack.recordedVersion}
       </Text>
       <Spacer />
-      <Pill {...packState(pack)} />
+      {state && <Pill {...state} />}
     </div>
   );
 }

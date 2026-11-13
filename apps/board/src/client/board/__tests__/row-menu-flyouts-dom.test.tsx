@@ -34,7 +34,7 @@ test('an own MR shows the short top level, flyouts last', async () => {
     '---',
     '# agent actions',
     'respond to John',
-    'rebase locally',
+    'rebase',
     '---',
     'request review from…',
     '---',
@@ -57,7 +57,6 @@ test('a flyout opens with its rows in it', async () => {
     [...panel!.querySelectorAll('[role="menuitem"]')].map(el => el.textContent)
   ).toEqual([
     'merge',
-    'rebase on target',
     'set auto-merge',
     'mark as draft',
     'open in gitlab',
@@ -354,18 +353,22 @@ test("a GitHub row's forge heading reads github, a GitLab row's gitlab", async (
   expect(menuLines()).toContain('# gitlab');
 });
 
-test('a GitHub own MR offers open in github and no GitLab-only rows', async () => {
+test('a GitHub own MR offers its forge writes in a github flyout', async () => {
   await openMenu(ghOwnIdle, ownEnv);
-  expect(menuLines()).toContain('open in github');
-  const all = await allItemLabels();
+  expect(menuLines()).toContain('> github');
+  await openSub('github');
+  const panel = document.querySelector('[data-part="contextmenu-submenu"]');
+  const labels = [...panel!.querySelectorAll('[role="menuitem"]')].map(
+    el => el.textContent
+  );
   for (const label of [
+    'open in github',
     'merge',
-    'rebase on target',
     'set auto-merge',
     'mark as draft',
-    'open in gitlab',
-    'refresh from gitlab',
+    'refresh from github',
   ])
-    expect(all).not.toContain(label);
-  expect(itemTexts()).toContain('open in github');
+    expect(labels).toContain(label);
+  for (const label of ['open in gitlab', 'refresh from gitlab'])
+    expect(labels).not.toContain(label);
 });

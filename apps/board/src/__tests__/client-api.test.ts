@@ -36,6 +36,7 @@ test('launch flow: a launch the server answered with a focus settles the toast a
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -67,6 +68,7 @@ test('launch flow: non-ok rolls back and toasts the status', async () => {
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -102,6 +104,7 @@ test('launch flow: failureMessage override replaces the default failure toast', 
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -139,6 +142,7 @@ test('launch flow: focus intent skips queued and launch toast, toasts the focus'
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -169,6 +173,7 @@ test('launch flow: focus intent posts focus:true, and a refusal toasts the serve
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -199,6 +204,7 @@ test('launch flow: a started launch settles its toast with the started text', as
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -226,7 +232,7 @@ test('launch flow: a launch never sends focus:true', async () => {
       setQueued: () => {},
       rollback: () => {},
       addToast: () => {},
-      startToast: () => ({ done: () => {}, fail: () => {} }),
+      startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
       reload: () => {},
       verbing: 'calling doctor',
       noun: 'doctor',
@@ -245,7 +251,7 @@ test('launch flow returns the server result', async () => {
       setQueued: () => {},
       rollback: () => {},
       addToast: () => {},
-      startToast: () => ({ done: () => {}, fail: () => {} }),
+      startToast: () => ({ done: () => {}, fail: () => {}, note: () => {} }),
       reload: () => {},
       verbing: 'launching review',
       noun: 'review',
@@ -256,9 +262,52 @@ test('launch flow returns the server result', async () => {
   );
   expect(result).toBe(reply);
 });
+test('launch flow: a 200 that reports a stop fails the toast with that text', async () => {
+  const events: string[] = [];
+  const result = await runLaunchFlow(
+    {
+      post: async () => ({
+        ok: true,
+        status: 200,
+        body: { stopped: 'daemon gone' },
+        text: '',
+      }),
+      setQueued: () => events.push('queued'),
+      rollback: () => events.push('rollback'),
+      addToast: t => events.push(`toast:${t}`),
+      startToast: t => {
+        events.push(`toast:${t}`);
+        return {
+          done: d => events.push(`done:${d}`),
+          fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
+        };
+      },
+      reload: () => events.push('reload'),
+      verbing: 'rebasing',
+      noun: 'rebase',
+      started: 'doctor called on the conflicts',
+      doneMessage: () => 'should not be used',
+      stoppedMessage: result =>
+        result.body?.stopped
+          ? `couldn't rebase !7: ${result.body.stopped}`
+          : undefined,
+    },
+    { webUrl: 'u', iid: 7 } as never,
+    {}
+  );
+  expect(events).toEqual([
+    'queued',
+    'toast:rebasing for !7…',
+    'rollback',
+    "fail:couldn't rebase !7: daemon gone",
+    'reload',
+  ]);
+  expect(result).toMatchObject({ ok: false, body: { reason: 'daemon gone' } });
+});
 test('launch flow: a refused launch drops the claim, fails the toast with the reason and reloads', async () => {
   const events: string[] = [];
-  await runLaunchFlow(
+  const result = await runLaunchFlow(
     {
       post: async () => ({
         ok: true,
@@ -277,6 +326,7 @@ test('launch flow: a refused launch drops the claim, fails the toast with the re
         return {
           done: d => events.push(`done:${d}`),
           fail: f => events.push(`fail:${f}`),
+          note: n => events.push(`note:${n}`),
         };
       },
       reload: () => events.push('reload'),
@@ -294,4 +344,10 @@ test('launch flow: a refused launch drops the claim, fails the toast with the re
     "fail:Couldn't load acme:board-review: the acme plugin is turned off.",
     'reload',
   ]);
+  expect(result).toMatchObject({
+    ok: false,
+    body: {
+      reason: "Couldn't load acme:board-review: the acme plugin is turned off.",
+    },
+  });
 });
