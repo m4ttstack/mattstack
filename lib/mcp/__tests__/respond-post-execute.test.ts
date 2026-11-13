@@ -80,7 +80,7 @@ function note(id: number, body: string, by = "renee", at = T_PRE) {
 function disc(id: string, notes: ReturnType<typeof note>[], resolved = false) {
   return { id, resolvable: true, resolved, notes };
 }
-const fresh = () => [disc("T1", [note(1, "please drop non-retryable jobs")]), disc("T2", [note(2, "why delay?")])];
+const fresh = (a = "T1", b = "T2") => [disc(a, [note(1, "please drop non-retryable jobs")]), disc(b, [note(2, "why delay?")])];
 
 type World = {
   snapshot: RunSnapshot;
@@ -90,6 +90,9 @@ type World = {
   pushes: GitReply[];
   tree: string;
   runFail?: Record<string, string>;
+  identity: string;
+  mrUrl: string;
+  iid: number;
 };
 
 const okData = (data: unknown): Reply => ({ ok: true, data });
@@ -97,7 +100,9 @@ const fail = (error: string): Reply => ({ ok: false, error });
 const gitOk = (stdout: string): GitReply => ({ code: 0, stdout, stderr: "" });
 const gitFail = (stderr: string, code = 1): GitReply => ({ code, stdout: "", stderr });
 
-function world(): World {
+function world(a = "T1", b = "T2"): World {
+  const plan = planSource([planThread(1, a, { kind: "direction", text: "fix it" }), planThread(2, b, { kind: "verbatim", text: T2_VERBATIM })]);
+  const post = postSource([postThread(1, a, "fix", T1_FIXED)]);
   return {
     snapshot: {
       ok: true,
@@ -106,20 +111,20 @@ function world(): World {
       fields: [
         field("mr", MR, 50),
         field("branch", "feat-x", 50),
-        sourceField("respond-plan", "g-plan", PLAN, 1_000),
-        sourceField("respond-post", "g-post", POST_T1, 3_000),
+        sourceField("respond-plan", "g-plan", plan, 1_000),
+        sourceField("respond-post", "g-post", post, 3_000),
       ],
       decisions: [
-        decision("respond-plan", { threads: { T1: "fix", T2: "reply" }, "code-changes": "approve" }, 2_000),
-        decision("respond-post", { threads: { T1: { post: true, resolve: true } } }, 4_000),
+        decision("respond-plan", { threads: { [a]: "fix", [b]: "reply" }, "code-changes": "approve" }, 2_000),
+        decision("respond-post", { threads: { [a]: { post: true, resolve: true } } }, 4_000),
       ],
     },
     gates: {
-      "g-plan": okData({ status: "answered", row: row("g-plan", PLAN, { "thread-1": "fix:T1", "thread-2": "reply:T2", "code-changes": "approve" }, 1_000) }),
-      "g-post": okData({ status: "answered", row: row("g-post", POST_T1, { "thread-1": ["post:T1", "resolve:T1"], next: "proceed" }, 3_000) }),
+      "g-plan": okData({ status: "answered", row: row("g-plan", plan, { "thread-1": `fix:${a}`, "thread-2": `reply:${b}`, "code-changes": "approve" }, 1_000) }),
+      "g-post": okData({ status: "answered", row: row("g-post", post, { "thread-1": [`post:${a}`, `resolve:${a}`], next: "proceed" }, 3_000) }),
     },
     cmd: {
-      "discussions:refresh": [okData({ discussions: fresh(), fetchedAt: 1 })],
+      "discussions:refresh": [okData({ discussions: fresh(a, b), fetchedAt: 1 })],
       "forge:get": [okData({ status: 200, body: { username: "me-bot" } })],
       "mr:get": [okData({ mr: { sourceBranch: "feat-x", state: "opened" } })],
       "discussions:reply": [okData({ discussions: [], fetchedAt: 1, noteId: 900 })],
@@ -135,13 +140,36 @@ function world(): World {
     },
     pushes: [gitOk("")],
     tree: "/w",
+    identity: ID,
+    mrUrl: MR,
+    iid: 7,
   };
 }
 
-function noFixRow(w: World) {
+const GH_MR = "https://github.com/acme/app/pull/5";
+const GH_ID = "remote:github.com%2Facme%2Fapp";
+const GA = "gh-review-thread-11";
+const GB = "gh-review-thread-22";
+const FORK_HELD = "the PR's branch lives in another repository, so this tool will not push it";
+
+/** A GitHub PR whose head repo is `sourceProjectPath`; null leaves the key off the PR read. */
+function ghWorld(sourceProjectPath: string | null = "acme/app"): World {
+  const w = world(GA, GB);
+  w.identity = GH_ID;
+  w.mrUrl = GH_MR;
+  w.iid = 5;
+  w.snapshot.fields = w.snapshot.fields.map((f) => (f.key === "mr" ? field("mr", GH_MR, 50) : f));
+  delete w.cmd["forge:get"];
+  w.cmd["forge:self"] = [okData({ username: "octo" })];
+  w.cmd["mr:get"] = [okData({ mr: { sourceBranch: "feat-x", state: "opened", ...(sourceProjectPath !== null && { sourceProjectPath }) } })];
+  return w;
+}
+
+function noFixRow(w: World, a = "T1", b = "T2") {
+  const plan = planSource([planThread(1, a, { kind: "direction", text: "fix it" }), planThread(2, b, { kind: "verbatim", text: T2_VERBATIM })]);
   w.snapshot.fields = w.snapshot.fields.filter((f) => f.key !== "extra.gate-source.respond-post");
-  w.snapshot.decisions = [decision("respond-plan", { threads: { T1: "skip", T2: "reply" }, "code-changes": "skip" }, 2_000)];
-  w.gates["g-plan"] = okData({ status: "answered", row: row("g-plan", PLAN, { "thread-1": "skip:T1", "thread-2": "reply:T2", "code-changes": "skip" }, 1_000) });
+  w.snapshot.decisions = [decision("respond-plan", { threads: { [a]: "skip", [b]: "reply" }, "code-changes": "skip" }, 2_000)];
+  w.gates["g-plan"] = okData({ status: "answered", row: row("g-plan", plan, { "thread-1": `skip:${a}`, "thread-2": `reply:${b}`, "code-changes": "skip" }, 1_000) });
   delete w.gates["g-post"];
 }
 
@@ -199,12 +227,12 @@ function fake(w: World): { deps: MrCompositeDeps; calls: Call[]; progress: numbe
       if (!q || q.length === 0) throw new Error(`unscripted git ${args.join(" ")}`);
       return q.length > 1 ? q.shift()! : q[0]!;
     },
-    guard: { repoIndex: () => ({ [ID]: "/w" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false, ignoredBy: () => false },
+    guard: { repoIndex: () => ({ [w.identity]: "/w" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false, ignoredBy: () => false },
     status: async () => { throw new Error("unexpected status"); },
     sleep: async () => {},
     resolveMr: async (input) => {
-      if (input.mrUrl !== MR) return { ok: false, error: `unexpected mrUrl ${String(input.mrUrl)}` };
-      return { ok: true, identity: ID, iid: 7 };
+      if (input.mrUrl !== w.mrUrl) return { ok: false, error: `unexpected mrUrl ${String(input.mrUrl)}` };
+      return { ok: true, identity: w.identity, iid: w.iid };
     },
   };
   return { deps, calls, progress };
@@ -294,12 +322,16 @@ describe("reading", () => {
     expect(outward(calls)).toEqual([]);
   });
 
-  test("a GitHub MR refuses before any gate read", async () => {
-    const w = world();
-    w.snapshot.fields = w.snapshot.fields.map((f) => (f.key === "mr" ? field("mr", "https://github.com/acme/app/pull/7", 50) : f));
-    const { error, calls } = await refused(w);
-    expect(error).toBe("GitLab only: respond_post_execute does not speak GitHub; reply to and resolve the threads with gh");
-    expect(calls.map((c) => c.name)).toEqual(["run_snapshot"]);
+  test("the default resolveMr takes a GitHub PR URL", async () => {
+    const r = await realMrCompositeDeps.resolveMr!({ mrUrl: GH_MR });
+    expect(r).toEqual({ ok: false, error: `mrUrl names github.com/acme/app (${GH_ID}), which is not registered with rt; run rt repos register in its checkout first` });
+  });
+
+  test("with no resolveMr dep, the fallback takes a GitHub PR URL", async () => {
+    const f = fake(ghWorld());
+    delete f.deps.resolveMr;
+    const r = await executeRespondPost(f.deps, { runDb: RUN_DB, tree: "/w", stage: STAGE }, ENV);
+    expect(r.error).toBe(`mrUrl names github.com/acme/app (${GH_ID}), which is not registered with rt; run rt repos register in its checkout first`);
   });
 
   test("runDb, tree and stage are required strings", async () => {
@@ -493,6 +525,111 @@ describe("push, when a fix row is picked", () => {
     w.tree = "/elsewhere";
     const { res } = await done(w);
     expect(res.posted).toEqual(["T2"]);
+  });
+});
+
+describe("a GitHub PR", () => {
+  const ids = (calls: Call[], name: string) => cmdCalls(calls, name).map((c) => (c.payload as Record<string, unknown>).discussionId);
+
+  test("posts and resolves review threads on a GitHub PR", async () => {
+    const { res, calls } = await done(ghWorld());
+    expect(cmdCalls(calls, "forge:self").map((c) => c.payload)).toEqual([{ repoName: GH_ID }]);
+    expect(cmdCalls(calls, "forge:get")).toEqual([]);
+    expect(ids(calls, "discussions:reply")).toEqual([GA, GB]);
+    expect(ids(calls, "discussions:resolve")).toEqual([GA]);
+    for (const c of [...cmdCalls(calls, "discussions:reply"), ...cmdCalls(calls, "discussions:resolve")]) expect(c.payload).toMatchObject({ repoName: GH_ID, iid: 5 });
+    expect(res.mr).toBe(GH_MR);
+    expect(res.posted).toEqual([GA, GB]);
+    expect(res.resolved).toEqual([GA]);
+    expect(res.held).toEqual([]);
+  });
+
+  test("this account's GitHub login counts a note as posted", async () => {
+    const w = ghWorld();
+    w.cmd["discussions:refresh"] = [okData({ discussions: [disc(GA, [note(1, "please drop non-retryable jobs"), note(5, "done", "octo", T_POST)]), disc(GB, [note(2, "why delay?")])], fetchedAt: 1 })];
+    const { res } = await done(w);
+    expect(res.alreadyPosted).toEqual([{ threadId: GA, noteId: 5 }]);
+    expect(res.posted).toEqual([GB]);
+  });
+
+  test("a fix row on a same-repo GitHub PR pushes once", async () => {
+    const { res, calls } = await done(ghWorld("acme/app"));
+    expect(res.pushed).toEqual({ branch: "feat-x" });
+    expect(pushCalls(calls)).toHaveLength(1);
+    expect(res.held).toEqual([]);
+  });
+
+  test("a GitHub PR read with no sourceProjectPath holds the fix row as a fork", async () => {
+    const { res, calls } = await done(ghWorld(null));
+    expect(res.held).toEqual([{ threadId: GA, kind: "push", error: FORK_HELD }]);
+    expect(pushCalls(calls)).toEqual([]);
+    expect(res.pushed).toBeNull();
+  });
+
+  test("a fix row on a fork PR is held as push and nothing is pushed", async () => {
+    const { res, calls } = await done(ghWorld("someone/r"));
+    expect(res.held).toEqual([{ threadId: GA, kind: "push", error: FORK_HELD }]);
+    expect(gitCalls(calls)).toEqual([]);
+    expect(res.pushed).toBeNull();
+    expect(res.posted).toEqual([GB]);
+    expect(ids(calls, "discussions:reply")).toEqual([GB]);
+    expect(cmdCalls(calls, "discussions:resolve")).toEqual([]);
+    expect(res.hold).toBe("held");
+  });
+
+  test("a merged same-repo GitHub PR holds the fix row with the PR text", async () => {
+    const w = ghWorld("acme/app");
+    w.cmd["mr:get"] = [okData({ mr: { sourceBranch: "feat-x", state: "merged", sourceProjectPath: "acme/app" } })];
+    const { res, calls } = await done(w);
+    expect(res.held).toEqual([{ threadId: GA, kind: "mismatch", error: "PR #5 is merged, so a fix push would not reach it" }]);
+    expect(pushCalls(calls)).toEqual([]);
+  });
+
+  test("a merged fork PR reports the fork reason", async () => {
+    const w = ghWorld("someone/r");
+    w.cmd["mr:get"] = [okData({ mr: { sourceBranch: "feat-x", state: "merged", sourceProjectPath: "someone/r" } })];
+    const { res } = await done(w);
+    expect(res.held).toEqual([{ threadId: GA, kind: "push", error: FORK_HELD }]);
+  });
+
+  test("a fork PR with no fix row posts normally", async () => {
+    const w = ghWorld("someone/r");
+    noFixRow(w, GA, GB);
+    const { res, calls } = await done(w);
+    expect(gitCalls(calls)).toEqual([]);
+    expect(cmdCalls(calls, "mr:get")).toEqual([]);
+    expect(res.posted).toEqual([GB]);
+    expect(res.held).toEqual([]);
+  });
+
+  test("a reply the daemon refuses on gh-issue-comment lands in held through the write-failure path", async () => {
+    const IC = "gh-issue-comment-33";
+    const w = world(GA, IC);
+    Object.assign(w, { identity: GH_ID, mrUrl: GH_MR, iid: 5 });
+    w.snapshot.fields = w.snapshot.fields.map((f) => (f.key === "mr" ? field("mr", GH_MR, 50) : f));
+    noFixRow(w, GA, IC);
+    delete w.cmd["forge:get"];
+    w.cmd["forge:self"] = [okData({ username: "octo" })];
+    const daemonText = "gh-issue-comment-33 is a PR conversation comment, which GitHub cannot thread a reply under";
+    w.cmd["discussions:reply"] = [fail(daemonText)];
+    const { res } = await done(w);
+    expect(res.held).toEqual([{ threadId: IC, kind: "reply", error: daemonText }]);
+    expect(res.posted).toEqual([]);
+    expect(res.hold).toBe("held");
+  });
+
+  test("a thread GitHub no longer returns names GitHub", async () => {
+    const w = ghWorld();
+    w.cmd["discussions:refresh"] = [okData({ discussions: [disc(GB, [note(2, "why delay?")])], fetchedAt: 1 })];
+    const { res } = await done(w);
+    expect(res.held.map((h) => h.error)).toEqual([`GitHub no longer returns thread ${GA}`, `GitHub no longer returns thread ${GA}`]);
+  });
+
+  test("a thread GitLab no longer returns keeps GitLab's text", async () => {
+    const w = world();
+    w.cmd["discussions:refresh"] = [okData({ discussions: [disc("T2", [note(2, "why delay?")])], fetchedAt: 1 })];
+    const { res } = await done(w);
+    expect(res.held[0]!.error).toBe("GitLab no longer returns thread T1");
   });
 });
 
@@ -773,14 +910,17 @@ describe("progress", () => {
 });
 
 describe("the tool", () => {
-  test("its description states the four rules in order and starts GitLab only", () => {
+  test("its description states the four rules in order and names GitHub's held outcomes", () => {
     const t = mrCompositeToolDefs(fake(world()).deps).find((x) => x.name === "respond_post_execute")!;
-    expect(t.description).toStartWith("GitLab only.");
+    expect(t.description).not.toContain("GitLab only");
+    expect(t.description).not.toContain("On GitHub it refuses");
     const at = (s: string) => t.description.indexOf(s);
     for (const s of ["recorded", "retried once", "held", "GitHub"]) expect(at(s)).toBeGreaterThan(-1);
     expect(at("recorded")).toBeLessThan(at("retried once"));
     expect(at("retried once")).toBeLessThan(at("held[]"));
     expect(at("held[]")).toBeLessThan(at("GitHub"));
+    expect(t.description).toContain("another repository");
+    expect(t.description).toContain("gh-issue-comment");
     expect(t.shellForms).toEqual({ none: "composes git_push, mr_reply_thread and mr_resolve_thread; no single shell command is equivalent" });
     expect(t.inputSchema).toMatchObject({ required: ["runDb", "tree", "stage"] });
   });

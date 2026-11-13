@@ -920,6 +920,7 @@ export interface ReviewSubmitReply { discussionId: string; body?: string; resolv
 export type ReviewSubmitData =
   | { published: false; reason: "pending-drafts"; pending: { count: number; firstLines: string[] }; mrUrl: string }
   | { published: false; reason: "bad-anchors"; badAnchors: Array<{ index: number; path: string; line: number }>; mrUrl: string }
+  | { published: false; reason: "head-moved"; expectedHeadSha: string; headSha: string; mrUrl: string }
   | {
       published: true;
       comments: number;
@@ -1227,8 +1228,8 @@ export interface Commands {
       caller never publishes twice. */
   "mr:review-submit": {
     payload: {
-      repoName: string; iid: number; outcome: "comment" | "approve"; summary: string;
-      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[];
+      repoName: string; iid: number; outcome: "comment" | "approve" | "request_changes"; summary: string;
+      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[]; expectedHeadSha?: string;
     };
     data: ReviewSubmitData;
   };
@@ -1310,6 +1311,8 @@ export interface Commands {
   "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
   "pipeline:list": { payload: { repoName: string; ref?: string; sha?: string; iid?: number; limit?: number }; data: { pipelines: PipelineListRow[] } };
   "forge:get": { payload: { repoName: string; path: string; query?: Record<string, string | number | boolean>; page?: number; perPage?: number }; data: ForgeGetData };
+  /** The forge token's own login, and nothing else about that user. */
+  "forge:self": { payload: { repoName: string }; data: { username: string } };
   /** One file's diff in an MR (GitLab) or PR (GitHub), read through the repo's own forge; iid is the MR iid or PR number. */
   "forge:file-diff": { payload: { repoName: string; iid: number; path: string }; data: ForgeFileDiffData };
 
@@ -1607,6 +1610,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "project:labels",
   "pipeline:list",
   "forge:get",
+  "forge:self",
   "forge:file-diff",
   "endpoint:claim",
   "endpoint:lookup",

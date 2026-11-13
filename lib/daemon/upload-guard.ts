@@ -19,7 +19,8 @@
  * open is not defended against: that already requires a writer inside an
  * allowed root, which can defeat the byte check by other means too.
  */
-import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Stats } from "fs";
+import * as realFs from "fs";
+import { constants, lstatSync, readdirSync, realpathSync, statSync, type Stats } from "fs";
 import { homedir } from "os";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "path";
 import { evidenceDir } from "../rt-paths.ts";
@@ -146,23 +147,26 @@ export function builtInEvidenceRoot(root: string, uid: number | null): string | 
   return st.isDirectory() && st.uid === uid ? resolved : null;
 }
 
+/** The fs calls readVerified makes, so a test can fake one of them. */
+export type GuardFs = Pick<typeof realFs, "openSync" | "fstatSync" | "readSync" | "closeSync">;
+
 /**
  * Reads the whole file from one descriptor, verified against `expect` (the
  * stat taken before this open) so the bytes returned are the bytes that were
  * checked, not whatever a later, separate open would follow or a file that
  * grew past its checked size. Never throws.
  */
-function readVerified(real: string, expect: Stats, maxBytes: number, tooBig: (size: number) => string): { bytes: Uint8Array } | { error: string } {
+function readVerified(real: string, expect: Stats, maxBytes: number, tooBig: (size: number) => string, fs: GuardFs): { bytes: Uint8Array } | { error: string } {
   let fd: number;
   try {
-    fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    fd = fs.openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (err) {
     return { error: `cannot open file: ${(err as NodeJS.ErrnoException).code ?? String(err)}` };
   }
   try {
     let fstat: Stats;
     try {
-      fstat = fstatSync(fd);
+      fstat = fs.fstatSync(fd);
     } catch (err) {
       return { error: `cannot stat open file: ${(err as NodeJS.ErrnoException).code ?? String(err)}` };
     }
@@ -178,14 +182,14 @@ function readVerified(real: string, expect: Stats, maxBytes: number, tooBig: (si
     const buf = Buffer.alloc(fstat.size);
     let offset = 0;
     while (offset < buf.length) {
-      const n = readSync(fd, buf, offset, buf.length - offset, offset);
+      const n = fs.readSync(fd, buf, offset, buf.length - offset, offset);
       if (n <= 0) break;
       offset += n;
     }
     if (offset < buf.length) return { error: "file read short of its reported size" };
 
     const probe = Buffer.alloc(1);
-    const extra = readSync(fd, probe, 0, 1, offset);
+    const extra = fs.readSync(fd, probe, 0, 1, offset);
     if (extra > 0) return { error: "file grew during read" };
 
     return { bytes: buf };
@@ -194,14 +198,14 @@ function readVerified(real: string, expect: Stats, maxBytes: number, tooBig: (si
   } finally {
     // The bytes are already read and verified; a close failure must not turn this never-throw function into a throw.
     try {
-      closeSync(fd);
+      fs.closeSync(fd);
     } catch {
       // ignore
     }
   }
 }
 
-type AdmitOpts = { workRoot?: string; runsRoot?: string; evidenceRoot?: string; uid?: number | null };
+type AdmitOpts = { workRoot?: string; runsRoot?: string; evidenceRoot?: string; uid?: number | null; fs?: GuardFs };
 
 /** The checks every guarded read shares: absolute, resolved, a regular single-link file, and under an admitted root. */
 function admitFile(path: unknown, roots: readonly string[], opts: AdmitOpts): { real: string; stat: Stats } | { error: string } {
@@ -237,7 +241,7 @@ export function checkUploadPath(
   if (!type) return { ok: false, error: `extension must be one of ${UPLOAD_EXTENSIONS.join(", ")}` };
 
   const maxBytes = opts.maxBytes ?? UPLOAD_MAX_BYTES;
-  const read = readVerified(real, stat, maxBytes, (size) => `file is ${(size / (1024 * 1024)).toFixed(1)} MB; the upload cap is ${Math.round(UPLOAD_MAX_BYTES / (1024 * 1024))} MB`);
+  const read = readVerified(real, stat, maxBytes, (size) => `file is ${(size / (1024 * 1024)).toFixed(1)} MB; the upload cap is ${Math.round(UPLOAD_MAX_BYTES / (1024 * 1024))} MB`, opts.fs ?? realFs);
   if ("error" in read) return { ok: false, error: read.error };
 
   if (!type.matches(read.bytes.subarray(0, HEAD_BYTES))) return { ok: false, error: `file bytes do not match a .${ext} signature` };
@@ -270,7 +274,7 @@ export function checkTextPath(
   if (!(TEXT_EXTENSIONS as readonly string[]).includes(ext)) return { ok: false, error: `extension must be one of ${TEXT_EXTENSIONS.join(", ")}` };
 
   const maxBytes = opts.maxBytes ?? TEXT_MAX_BYTES;
-  const read = readVerified(real, stat, maxBytes, (size) => `file is ${Math.ceil(size / 1024)} KB; the text cap is ${Math.round(maxBytes / 1024)} KB`);
+  const read = readVerified(real, stat, maxBytes, (size) => `file is ${Math.ceil(size / 1024)} KB; the text cap is ${Math.round(maxBytes / 1024)} KB`, opts.fs ?? realFs);
   if ("error" in read) return { ok: false, error: read.error };
 
   try {

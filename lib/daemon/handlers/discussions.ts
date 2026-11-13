@@ -50,6 +50,7 @@ const log = lazyChildLogger("discussions");
 export type ThreadProvider = { baseURL: string }
   & Pick<GitProvider, "createComment" | "createInlineComment" | "replyToDiscussion" | "updateComment"
     | "deleteComment" | "submitReview" | "resolveDiscussion" | "unresolveDiscussion">
+  & Partial<Pick<GitProvider, "fetchSingleMR">>
   & Partial<Pick<GitHubProvider, "fetchPullRequestDiffs">>
   & Partial<Pick<GitLabProvider, "restRequest" | "fetchReviewerStates">>;
 
@@ -141,6 +142,19 @@ function mrWebUrl(ctx: ThreadContext, iid: number): string {
 /** GitLab answers a non-GET on a moved project's old path with 404, so its writes go by numeric id. */
 function writeRef(ctx: ThreadContext): string {
   return ctx.forge !== "github" && ctx.projectId != null ? String(ctx.projectId) : ctx.projectPath;
+}
+
+/** Reads by project path, never `writeRef`: GitLab's fetchSingleMR queries GraphQL by full path and finds no MR for a numeric id. */
+async function readHeadSha(ctx: ThreadContext, iid: number): Promise<{ ok: true; sha: string } | { ok: false; reason: string }> {
+  const { fetchSingleMR } = ctx.provider;
+  if (!fetchSingleMR) return { ok: false, reason: "the provider cannot read the MR" };
+  try {
+    const mr = await fetchSingleMR.call(ctx.provider, ctx.projectPath, iid, null);
+    if (!mr) return { ok: false, reason: "no MR" };
+    return mr.sha ? { ok: true, sha: mr.sha } : { ok: false, reason: "no head sha" };
+  } catch (err) {
+    return { ok: false, reason: String(err) };
+  }
 }
 
 const GITHUB_THREAD_KINDS: Array<[prefix: string, kind: NonNullable<NoteRef["kind"]>]> = [
@@ -605,9 +619,19 @@ export function createDiscussionHandlers(
           }
         }
 
+        const { expectedHeadSha, ...review } = input;
+        if (expectedHeadSha !== undefined) {
+          const head = await readHeadSha(repoCtx, iid);
+          if (signal?.aborted) return { ok: false, error: "request aborted before the review was posted" };
+          if (!head.ok) return { ok: false, error: `could not read the MR's head to check expectedHeadSha; nothing was posted (${head.reason})` };
+          if (head.sha.toLowerCase() !== expectedHeadSha.toLowerCase()) {
+            return { ok: true, data: { published: false, reason: "head-moved", expectedHeadSha, headSha: head.sha, mrUrl } };
+          }
+        }
+
         const github = repoCtx.forge === "github";
-        const comments: ReviewComment[] = github ? parsed.input.comments.map(githubReviewComment) : input.comments;
-        const outcome = await repoCtx.provider.submitReview(writeRef(repoCtx), iid, { ...input, comments });
+        const comments: ReviewComment[] = github ? parsed.input.comments.map(githubReviewComment) : review.comments;
+        const outcome = await repoCtx.provider.submitReview(writeRef(repoCtx), iid, { ...review, comments });
         if (!outcome.published) return { ok: true, data: { ...outcome, mrUrl } };
         const { reviewId, reviewerState: reviewState, ...published } = outcome;
 

@@ -1,7 +1,6 @@
 /**
  * Composite tools: each answers in one call what a skill otherwise strings
- * together from several reads. Only mr_resolve_branch speaks GitHub; the
- * rest refuse a github.com identity before any daemon call.
+ * together from several reads. Every one speaks GitLab and GitHub.
  */
 import { readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
 import type { Commands, Discussion, GateRow } from "../../packages/rt-client/src/index.ts";
@@ -11,7 +10,7 @@ import { joinMrsToWorktrees, type MrMapRow } from "../mr-map.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { statusPorcelainAsync } from "../worktree/git-async.ts";
 import { gitPush, realGitRunner, type GitRunner } from "./git-tools.ts";
-import { resolveMrTarget, resolveRepoTarget, sourceInRepo, type MrTarget, type TargetInput } from "./mr-target.ts";
+import { githubProjectOf, resolveMrTarget, resolveRepoTarget, sourceInRepo, type MrTarget, type TargetInput } from "./mr-target.ts";
 import { runToolDefs } from "./run-tools.ts";
 import { checkRequired, err, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok, PR_URL_NOTE, REPO_NAME_RULE, REPO_TARGET_PROPS, REPO_TARGET_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
@@ -29,6 +28,8 @@ export interface MrCompositeDeps {
 
 let runTools: McpToolDef[] | undefined;
 
+const resolveMrOnEitherForge = (input: TargetInput) => resolveMrTarget(input, { github: true });
+
 export const realMrCompositeDeps: MrCompositeDeps = {
   command: rtCommand,
   readMrCache: readProjectMRs,
@@ -42,12 +43,12 @@ export const realMrCompositeDeps: MrCompositeDeps = {
   guard: realTreeGuardDeps,
   status: statusPorcelainAsync,
   sleep: (ms) => Bun.sleep(ms),
-  resolveMr: resolveMrTarget,
+  resolveMr: resolveMrOnEitherForge,
 };
 
 const READ_TIMEOUT_MS = 30_000;
 const NOTE_BODY_CAP = 2000;
-/** decided_at is this machine's clock and a note's createdAt is GitLab's, so the author rule allows a minute of skew before counting a note as an earlier round's. */
+/** decided_at is this machine's clock and a note's createdAt is the forge's, so the author rule allows a minute of skew before counting a note as an earlier round's. */
 export const AUTHOR_RULE_GRACE_MS = 60_000;
 
 export type ThreadPosted = { discussionId: string; found: boolean; posted: boolean; noteId: number | null; via: "body" | "author" | null };
@@ -105,6 +106,12 @@ export function normalizeBody(s: string): string {
 }
 
 export async function selfUsername(deps: MrCompositeDeps, identity: string): Promise<{ ok: true; username: string } | { ok: false; error: string }> {
+  if (githubProjectOf(identity)) {
+    const r = await deps.command<Commands["forge:self"]["data"]>("forge:self", { repoName: identity }, { timeoutMs: READ_TIMEOUT_MS });
+    if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "reading the token's login failed") };
+    if (typeof r.data.username !== "string" || !r.data.username) return { ok: false, error: "GitHub's user read carried no login" };
+    return { ok: true, username: r.data.username };
+  }
   const r = await deps.command<Commands["forge:get"]["data"]>("forge:get", { repoName: identity, path: "user" }, { timeoutMs: READ_TIMEOUT_MS });
   if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "reading the token's user failed") };
   const username = (r.data.body as { username?: unknown } | null)?.username;
@@ -188,10 +195,9 @@ function checkItems(v: unknown): string | ItemQuery[] {
 }
 
 const MR_MAP_LIMIT = 200;
-const MR_MAP_GH_MOVE = "gh pr list --author @me and the worktree list";
 
 async function defaultBranchOf(deps: MrCompositeDeps, identity: string): Promise<string | null> {
-  const r = await deps.command<Commands["forge:get"]["data"]>("forge:get", { repoName: identity, path: "projects/:id" }, { timeoutMs: READ_TIMEOUT_MS });
+  const r = await deps.command<Commands["forge:get"]["data"]>("forge:get", { repoName: identity, path: githubProjectOf(identity) ? ":repo" : "projects/:id" }, { timeoutMs: READ_TIMEOUT_MS });
   const branch = r.ok ? (r.data?.body as { default_branch?: unknown } | null)?.default_branch : undefined;
   return typeof branch === "string" && branch ? branch : null;
 }
@@ -308,7 +314,6 @@ export type GateSource = { gate: string | null; source: { context?: unknown; que
 type SourceThread = { threadId: string; questionId: string; card: Record<string, unknown> | null };
 type PostEntry = { post: boolean; resolve: boolean; text?: string; note?: string };
 
-export const RESPOND_POST_GH_MOVE = "reply to and resolve the threads with gh";
 const GATE_CONTRACT = "gate@1";
 const PLAN_VERBS = ["reply", "fix", "skip"] as const;
 const POST_VERBS = ["post", "resolve"] as const;
@@ -550,8 +555,6 @@ function readPostEntries(selection: Record<string, unknown>, offered: SourceThre
 function readMrUrl(fields: SnapshotField[]): string {
   const mr = fields.find((f) => f.key === "mr")?.value;
   if (typeof mr !== "string" || !mr.trim()) return refuse("the run has no mr field, so there is no MR to post to");
-  const gh = refuseGithubTarget({ mrUrl: mr }, "respond_post_execute", RESPOND_POST_GH_MOVE);
-  if (gh) refuse(gh);
   try {
     const u = new URL(mr.trim());
     if (u.protocol !== "https:") throw new Error("not https");
@@ -723,19 +726,20 @@ async function readThreads(deps: MrCompositeDeps, t: Target): Promise<ThreadsRea
 
 const gitOutput = (r: { code: number; stdout: string; stderr: string }) => (r.code === 0 ? JSON.stringify(r.stdout.trim()) : `exit ${r.code}: ${JSON.stringify(r.stderr.trim() || r.stdout.trim())}`);
 
-type ExpectedBranch = { branch: string; mismatch: string | null; notOpen: string | null };
+type ExpectedBranch = { branch: string; mismatch: string | null; notOpen: string | null; fork: string | null };
 
 /** The branch a fix reply claims: the run's branch field, which must also be the MR's source branch, or the MR's source branch when the run has none. */
 async function expectedBranch(deps: MrCompositeDeps, t: Target, fromRun: string | null): Promise<({ ok: true } & ExpectedBranch) | { ok: false; error: string }> {
   const r = await deps.command<Commands["mr:get"]["data"]>("mr:get", { repoName: t.identity, iid: t.iid }, { timeoutMs: READ_TIMEOUT_MS });
   if (!r.ok || !r.data) return { ok: false, error: explainError(r.error ?? "MR read failed") };
   const { sourceBranch: source, state } = r.data.mr;
-  const notOpen = state === "opened" ? null : `MR !${t.iid} is ${state}, so a fix push would not reach it`;
-  if (fromRun === null) return { ok: true, branch: source, mismatch: null, notOpen };
-  return { ok: true, branch: fromRun, mismatch: source === fromRun ? null : `the run's branch is ${fromRun} but the MR's source branch is ${source}`, notOpen };
+  const notOpen = state === "opened" ? null : `${githubProjectOf(t.identity) ? `PR #${t.iid}` : `MR !${t.iid}`} is ${state}, so a fix push would not reach it`;
+  const fork = sourceInRepo(t.identity, r.data.mr) ? null : "the PR's branch lives in another repository, so this tool will not push it";
+  if (fromRun === null) return { ok: true, branch: source, mismatch: null, notOpen, fork };
+  return { ok: true, branch: fromRun, mismatch: source === fromRun ? null : `the run's branch is ${fromRun} but the MR's source branch is ${source}`, notOpen, fork };
 }
 
-/** Acts only on the recorded decisions planRespondPost checked. A doubt found from the run, the registry or the tree refuses before GitLab is read; a failed GitLab read, and any step that fails after it, holds the threads instead. */
+/** Acts only on the recorded decisions planRespondPost checked. A doubt found from the run, the registry or the tree refuses before the forge is read; a failed forge read, and any step that fails after it, holds the threads instead. */
 export async function executeRespondPost(
   deps: MrCompositeDeps,
   input: { runDb: string; tree: string; stage: string },
@@ -747,9 +751,6 @@ export async function executeRespondPost(
   if (!snap.ok) return err(snap.error ?? "run_snapshot failed");
   const snapshot = snap.body as RunSnapshot;
   const fields = isRecord(snapshot) && Array.isArray(snapshot.fields) ? snapshot.fields : [];
-  const mrField = fields.find((f) => f.key === "mr")?.value;
-  const gh = refuseGithubTarget({ mrUrl: mrField }, "respond_post_execute", RESPOND_POST_GH_MOVE);
-  if (gh) return err(gh);
 
   const gates: { plan: GateRow | null; post: GateRow | null } = { plan: null, post: null };
   for (const [scope, slot] of [["respond-plan", "plan"], ["respond-post", "post"]] as const) {
@@ -765,10 +766,8 @@ export async function executeRespondPost(
   if (!planned.ok) return err(planned.error);
   const plan = planned.plan;
 
-  const resolved = await (deps.resolveMr ?? resolveMrTarget)({ mrUrl: plan.mrUrl });
+  const resolved = await (deps.resolveMr ?? resolveMrOnEitherForge)({ mrUrl: plan.mrUrl });
   if (!resolved.ok) return err(resolved.error);
-  const ghIdentity = githubRefusal(resolved.identity, "respond_post_execute", RESPOND_POST_GH_MOVE);
-  if (ghIdentity) return err(ghIdentity);
   const target: Target = { identity: resolved.identity, iid: resolved.iid };
 
   const resume = plan.heldResume === null ? null : new Set(plan.heldResume);
@@ -813,7 +812,7 @@ export async function executeRespondPost(
     progress?.();
     if (!read.ok) return failRead(read.error);
     const missing = acting.filter((a) => !read.discussions.some((d) => d.id === a.threadId)).map((a) => a.threadId);
-    if (missing.length > 0) return failRead(`GitLab no longer returns thread ${missing.join(", ")}`);
+    if (missing.length > 0) return failRead(`${githubProjectOf(target.identity) ? "GitHub" : "GitLab"} no longer returns thread ${missing.join(", ")}`);
     let branch: ExpectedBranch | null = null;
     if (treePath !== null) {
       const b = await expectedBranch(deps, target, plan.branch);
@@ -829,7 +828,9 @@ export async function executeRespondPost(
         .threads.map((t) => [t.discussionId, t]),
     );
 
-    if (branch?.notOpen) {
+    if (branch?.fork) {
+      for (const a of fixRows) hold(a.threadId, "push", branch.fork);
+    } else if (branch?.notOpen) {
       for (const a of fixRows) hold(a.threadId, "mismatch", branch.notOpen);
     } else if (treePath !== null && branch !== null) {
       const want = branch.branch;
@@ -872,7 +873,7 @@ export async function executeRespondPost(
         continue;
       }
       const firstError = explainError(first.error ?? "reply failed");
-      // The error may have come after GitLab stored the note, so only a re-read that shows no reply makes a second post safe.
+      // The error may have come after the forge stored the note, so only a re-read that shows no reply makes a second post safe.
       const reread = await readThreads(deps, target);
       progress?.();
       if (!reread.ok) {
@@ -926,13 +927,13 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
   return [
     {
       name: "mr_posted_since",
-      description: `GitLab only. Whether this account (or \`by\`) already posted on the MR: one live thread read, nothing posted, nothing judged beyond the match. \`since\` is epoch milliseconds or an ISO time; a note counts when it is at or after \`since\`. \`by\` defaults to "me", the token's own user. \`threads\` [{discussionId, body?}]: posted when the discussion holds a note whose body equals \`body\` (any author, any time; CRLF and trailing spaces ignored), or a note by \`by\` at or after \`since\`; each row is {discussionId, found, posted, noteId, via: "body" | "author" | null}, found false when GitLab no longer returns the discussion. \`items\` [{id, body?, contains?, path?, line?}]: posted when a note by \`by\` at or after \`since\` has that \`body\` or contains that text, and, when \`path\` or \`line\` is given, sits at that new-side position; each row is {id, posted, noteId, discussionId}. Pass \`threads\`, \`items\` or both. Returns {by, since, threads, items, notes}, where \`notes\` is every non-system note by \`by\` at or after \`since\` (body cut at ${NOTE_BODY_CAP} characters). System notes never match. ${REPO_NAME_RULE}`,
+      description: `Whether this account (or \`by\`) already posted on the MR, on GitLab or GitHub: one live thread read, nothing posted, nothing judged beyond the match. \`since\` is epoch milliseconds or an ISO time; a note counts when it is at or after \`since\`. \`by\` defaults to "me", the token's own user. \`threads\` [{discussionId, body?}]: posted when the discussion holds a note whose body equals \`body\` (any author, any time; CRLF and trailing spaces ignored), or a note by \`by\` at or after \`since\`; each row is {discussionId, found, posted, noteId, via: "body" | "author" | null}, found false when the forge no longer returns the discussion. On GitHub a discussionId reads gh-review-thread-<id> (a diff comment thread), gh-issue-comment-<id> (a PR conversation comment) or gh-review-<id> (a review's summary). \`items\` [{id, body?, contains?, path?, line?}]: posted when a note by \`by\` at or after \`since\` has that \`body\` or contains that text, and, when \`path\` or \`line\` is given, sits at that new-side position (on GitHub only diff comments carry one, so \`path\` and \`line\` match only those); each row is {id, posted, noteId, discussionId}. Pass \`threads\`, \`items\` or both. Returns {by, since, threads, items, notes}, where \`notes\` is every non-system note by \`by\` at or after \`since\` (body cut at ${NOTE_BODY_CAP} characters). System notes never match. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
           ...MR_TARGET_PROPS,
           since: { type: ["number", "string"], description: "Epoch milliseconds or an ISO time, e.g. 2026-10-16T10:00:00Z." },
-          by: { type: "string", description: 'A GitLab username, or "me" (the default) for the token\'s own user.' },
+          by: { type: "string", description: 'A forge username (a GitHub login), or "me" (the default) for the token\'s own user.' },
           threads: {
             type: "array",
             items: { type: "object", properties: { discussionId: { type: "string" }, body: { type: "string" } }, required: ["discussionId"], additionalProperties: false },
@@ -961,12 +962,8 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         const items = input.items === undefined ? [] : checkItems(input.items);
         if (typeof items === "string") return err(items);
 
-        const early = refuseGithubTarget(input, "mr_posted_since", "read threads with gh");
-        if (early) return err(early);
-        const target = await resolveMrTarget(input);
+        const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
-        const refused = githubRefusal(target.identity, "mr_posted_since", "read threads with gh");
-        if (refused) return err(refused);
 
         let by = typeof input.by === "string" ? input.by.trim() : "me";
         if (by.toLowerCase() === "me") {
@@ -981,7 +978,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "respond_post_execute",
-      description: "GitLab only. Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, which must carry the gate-source fields `gate_open {runDb}` writes, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on GitLab counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked, the MR is still opened, and HEAD, @{push} and @{u} all name that branch on origin; `tree` must be a checkout of the MR's repo and is checked only when a push is due; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold, writeErrors?}, where writeErrors carries the text of a failed re-record or hold write. One caller per run at a time: nothing stops two panes running it on the same run at once. On GitHub it refuses; reply to and resolve the threads with gh.",
+      description: "Receive-review's post side in one call: it acts only on the respond-plan and respond-post decisions recorded on the run, which must carry the gate-source fields `gate_open {runDb}` writes, after checking each against its gate source and registry answer, and refuses before anything moves when one is missing, stale or does not match. It reads the threads once, so a reply already on the MR counts as alreadyPosted and a resolved thread as alreadyResolved; it pushes the run's branch from `tree` (never forced) only when a fix row is picked, the MR is still opened, and HEAD, @{push} and @{u} all name that branch on origin; `tree` must be a checkout of the MR's repo and is checked only when a push is due; then it posts the replies and resolves the threads. Pushes, replies and resolves are each retried once, and a reply that errored is re-read first so it never posts twice. Threads it could not finish come back in held[] with the hold field set to held under `stage`, for the skill's off-script gates; the respond-post decision is re-recorded with those ids as `held`, and a later call acts only on them. Returns {mr, pushed, posted, alreadyPosted, resolved, alreadyResolved, held, recorded, hold, writeErrors?}, where writeErrors carries the text of a failed re-record or hold write. One caller per run at a time: nothing stops two panes running it on the same run at once. On GitHub, a reply or resolve on a PR conversation comment (gh-issue-comment-<id>) or a review summary (gh-review-<id>) comes back in held with the forge's error, and so does every fix row on a PR whose branch lives in another repository (a fork), which it never pushes.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1026,30 +1023,27 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
     },
     {
       name: "mr_map",
-      description: `GitLab only. A repo's open MRs joined to the local worktrees holding their branches, read live from GitLab on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_TARGET_RULE}`,
+      description: `A repo's open MRs joined to the local worktrees holding their branches, read live from the forge on every call. Lists every author's MRs unless \`author\` is passed (a username, or "me" for the token's own user). Each row is {ref, iid, title, author, sourceBranch, targetBranch, draft, stacked, worktree, dirty, mrState, ciStatus}: ref is \`!<iid>\` on GitLab and \`#<iid>\` on GitHub; stacked is whether targetBranch is not the project's default branch (null when the default branch could not be read); worktree is the path of the registered tree whose branch equals sourceBranch exactly (the last one when two share it), or null; dirty is whether that tree has uncommitted changes (null with no tree or on a git error); ciStatus is the pipeline status from the daemon's synced MR list, null when that list lacks the MR. Returns {rows, complete}, where complete false means the repo has more than ${MR_MAP_LIMIT} open MRs and only the first ${MR_MAP_LIMIT} are listed. \`repo\` is a legacy alias for repoName; pass one, not both. ${REPO_TARGET_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
           ...REPO_TARGET_PROPS,
           repo: { type: "string", description: "Legacy alias for repoName; pass one, not both." },
-          author: { type: "string", description: 'A GitLab username, or "me" for the token\'s own user. Omit for every author.' },
+          author: { type: "string", description: 'A forge username (a GitHub login), or "me" for the token\'s own user. Omit for every author.' },
         },
         additionalProperties: false,
       },
-      shellForms: { none: "joins a live GitLab MR list to the local worktrees; no shell command is equivalent" },
+      shellForms: { none: "joins an open MR list read live from the forge to the local worktrees; no shell command is equivalent" },
       async handler(input) {
         if (input.repoName !== undefined && input.repo !== undefined) return err("pass repoName, not both repoName and repo");
         if (input.repo !== undefined && typeof input.repo !== "string") return err('"repo" must be a string');
         if (input.author !== undefined && (typeof input.author !== "string" || !input.author.trim())) return err('"author" must be a GitLab username or "me"');
         const targetInput = { repoName: input.repoName ?? input.repo, mrUrl: input.mrUrl };
 
-        const early = refuseGithubTarget(targetInput, "mr_map", MR_MAP_GH_MOVE);
-        if (early) return err(early);
-        const target = await resolveRepoTarget(targetInput);
+        const target = await resolveRepoTarget(targetInput, { github: true });
         if (!target.ok) return err(target.error);
-        const refused = githubRefusal(target.identity, "mr_map", MR_MAP_GH_MOVE);
-        if (refused) return err(refused);
         const identity = target.identity;
+        const github = githubProjectOf(identity) !== null;
 
         const listPayload: Record<string, unknown> = { repoName: identity, state: "opened", limit: MR_MAP_LIMIT };
         if (typeof input.author === "string") listPayload.author = input.author.trim();
@@ -1070,7 +1064,7 @@ export function mrCompositeToolDefs(deps: MrCompositeDeps = realMrCompositeDeps)
         const dirtyByPath = await dirtyPerWorktree(deps, joined.map((row) => row.worktree));
         const rows = joined.map((row): MrMapRow => {
           const { mrState, ciStatus, ...head } = row;
-          return { ...head, dirty: row.worktree === null ? null : (dirtyByPath.get(row.worktree) ?? null), mrState, ciStatus };
+          return { ...head, ...(github && { ref: `#${row.iid}` }), dirty: row.worktree === null ? null : (dirtyByPath.get(row.worktree) ?? null), mrState, ciStatus };
         });
         return ok({ rows, complete: !list.data.truncated });
       },

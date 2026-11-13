@@ -90,6 +90,23 @@ describe("mr:upload", () => {
     return p;
   }
 
+  test("the upload sends the verified bytes even when the file is swapped after the check", async () => {
+    const path = png(repoPath);
+    const swapped = Buffer.concat([Buffer.from(PNG), Buffer.from("SWAPPED-BYTES")]);
+    const h = harness({
+      repoPath,
+      repoContext: async () => {
+        writeFileSync(path, swapped);
+        return { provider: { baseURL: "https://gitlab.example.com" }, projectPath: "acme/app", projectId: 99 };
+      },
+    });
+    const res = await h.handlers["mr:upload"]({ repoName: REPO, path });
+    expect(res.ok).toBe(true);
+    const sent = Buffer.from(await h.calls[0]!.file!.arrayBuffer());
+    expect(sent.equals(PNG)).toBe(true);
+    expect(sent.includes(Buffer.from("SWAPPED-BYTES"))).toBe(false);
+  });
+
   test("a png under the repo's index path uploads as one multipart POST and returns url and markdown", async () => {
     const h = harness({ repoPath });
     const res = await h.handlers["mr:upload"]({ repoName: REPO, path: png(repoPath) });
