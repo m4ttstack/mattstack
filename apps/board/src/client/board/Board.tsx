@@ -23,7 +23,7 @@ import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
 import { forgeWord, mrNoun, mrNouns, type ForgeKind } from '../../mr-ref.ts';
 import type { DeclineReason } from '../../peer/envelope.ts';
-import { sectionStatus } from '../../sections.ts';
+import { sectionKey, sectionStatus } from '../../sections.ts';
 import {
   menuActsOnSelection,
   postableOf,
@@ -1767,19 +1767,29 @@ export function Board() {
 
   const activeSection =
     activeTab.source.kind === 'codeowners'
-      ? sectionStatus(activeTab.source.section, data.scopeKnownSections)
+      ? sectionStatus(
+          activeTab.source.section,
+          data.scopeKnownSections,
+          boardForge
+        )
       : null;
   const unknownTabs = data.tabs.flatMap(t =>
     t.source.kind === 'codeowners' &&
-    sectionStatus(t.source.section, data.scopeKnownSections).unknown
+    sectionStatus(t.source.section, data.scopeKnownSections, boardForge).unknown
       ? [t.id]
       : []
   );
   // A wrong name is not "still syncing": the unknown state owns the tab.
+  const activeKey =
+    activeTab.source.kind === 'codeowners'
+      ? sectionKey(boardForge, activeTab.source.section)
+      : null;
   const tabSyncing =
-    activeTab.source.kind === 'codeowners' &&
+    activeKey !== null &&
     !activeSection?.unknown &&
-    data.scopeUncoveredSections.includes(activeTab.source.section);
+    data.scopeUncoveredSections.some(
+      s => sectionKey(boardForge, s) === activeKey
+    );
   const activeMember =
     state.member !== 'all'
       ? (roster.find(m => m.username === state.member) ?? null)
@@ -2079,6 +2089,7 @@ export function Board() {
                   onPick={tab => update({ tab })}
                   syncing={tabSyncing}
                   unknown={unknownTabs}
+                  forge={boardForge}
                   trailing={
                     <button
                       type="button"
@@ -2126,9 +2137,20 @@ export function Board() {
             {activeTab.source.kind === 'codeowners' &&
               activeSection?.unknown && (
                 <div className="tui-banner" data-intent="bad" role="alert">
-                  ⚠ no CODEOWNERS section "{activeTab.source.section}"
-                  {activeSection.suggestion && (
-                    <> · did you mean "{activeSection.suggestion}"?</>
+                  {boardForge === 'github' ? (
+                    <>
+                      ⚠ no CODEOWNERS owner "{activeTab.source.section}"
+                      {activeSection.suggestion && (
+                        <span> did you mean "{activeSection.suggestion}"?</span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      ⚠ no CODEOWNERS section "{activeTab.source.section}"
+                      {activeSection.suggestion && (
+                        <> · did you mean "{activeSection.suggestion}"?</>
+                      )}
+                    </>
                   )}
                   <button
                     type="button"

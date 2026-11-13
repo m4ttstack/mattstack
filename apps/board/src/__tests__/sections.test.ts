@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { sectionStatus } from '../sections.ts';
+import { sectionKey, sectionStatus } from '../sections.ts';
 
 describe('sectionStatus', () => {
   const known = ['Billing - #pod-billing', 'Acme - #pod-acme', 'Platform QA'];
@@ -52,5 +52,36 @@ describe('sectionStatus', () => {
       unknown: true,
       suggestion: null,
     });
+  });
+});
+
+describe('sectionKey', () => {
+  test('lower-cases a GitHub owner token', () => {
+    expect(sectionKey('github', '@Acme/Web')).toBe('@acme/web');
+  });
+
+  test('leaves a GitLab section unchanged', () => {
+    expect(sectionKey('gitlab', 'Acme - #pod-acme')).toBe('Acme - #pod-acme');
+  });
+});
+
+describe('sectionStatus on GitHub', () => {
+  test('mixed-case GitHub tab matches lowercased tags and known owners', () => {
+    expect(sectionStatus('@Acme/Web', ['@acme/web'], 'github').unknown).toBe(
+      false
+    );
+  });
+
+  test('an owner missing from CODEOWNERS is unknown', () => {
+    expect(sectionStatus('@acme/ops', ['@acme/web'], 'github')).toEqual({
+      unknown: true,
+      suggestion: null,
+    });
+  });
+
+  test('GitLab keeps the exact-case match', () => {
+    expect(sectionStatus('@Acme/Web', ['@acme/web'], 'gitlab').unknown).toBe(
+      true
+    );
   });
 });
