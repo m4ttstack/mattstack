@@ -149,7 +149,7 @@ export const FORM_COPY = {
     title: "You're in. Connect your accounts",
     subtitle: "One click each. Most open in your browser",
     connectedFromInvite: (login: string) => `Connected as ${login} from your invite`,
-    soloGithub: "Optional. Lets mattstack open PRs",
+    soloForge: "Optional. Lets mattstack open PRs",
     soloGitlab: "Optional. Lets mattstack open MRs",
     soloGitlabHint: "On your own GitLab server? Connect from a terminal with rt setup gitlab connect --host <host>",
     slackApp: { title: "Slack app", subtext: "Lets your team connect Slack. One owner makes it once" },
@@ -578,7 +578,7 @@ function soloForgeRows(i: ConnectInputs, rows: ReadonlyMap<string, Row>): Connec
   const gitlab = rows.get("account.gitlab");
   const ghLogin = (github?.status === "ready" ? GH_LOGIN.exec(github.detail)?.[1] : undefined) ?? i.forgeLogin;
   const asLogin = (login: string | null) => (login === null ? c.connected : FORM_COPY.invite.connectedAs(login));
-  const githubRow = forgeAccountRow({ id: "forge", forge: { provider: "github", host: "github.com" }, account: github, role: "member", subtext: c.soloGithub, connected: asLogin(ghLogin), confirmedHost: i.confirmedHost });
+  const githubRow = forgeAccountRow({ id: "forge", forge: { provider: "github", host: "github.com" }, account: github, role: "member", subtext: c.soloForge, connected: asLogin(ghLogin), confirmedHost: i.confirmedHost });
   const gitlabRow = forgeAccountRow({ id: "forge.gitlab", forge: { provider: "gitlab", host: i.confirmedHost ?? "gitlab.com" }, account: gitlab, role: "member", subtext: c.soloGitlab, connected: asLogin(i.forgeLogin), confirmedHost: i.confirmedHost });
   return [
     { ...githubRow, optional: true },
