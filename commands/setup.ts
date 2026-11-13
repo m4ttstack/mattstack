@@ -1688,6 +1688,9 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
   if (hostFlag !== undefined && !isValidHostname(hostFlag)) {
     throw new UserActionableError("bad-host", `--host takes a bare hostname such as gitlab.example.com, not ${hostFlag}`);
   }
+  if (hostFlag === "github.com") {
+    throw new UserActionableError("bad-host", "--host takes your GitLab server's hostname, and github.com is GitHub");
+  }
   const overrides = overridesFor(deps);
   const confirmedOverrides: UserIntegrationOverrides = hostFlag === undefined ? overrides : { ...overrides, forgeHost: hostFlag };
   const ctx = ctxFor(id, snapshotFor(deps), confirmedOverrides);

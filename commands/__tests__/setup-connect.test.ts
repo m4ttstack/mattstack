@@ -1597,6 +1597,16 @@ describe("integrationConnect on a solo Mac", () => {
     expectTokenOnly(probes, deps, GITLAB_TOKEN);
   });
 
+  test("--host github.com is refused before any fetch or write", async () => {
+    const { probes, deps, tokenWrites, settingWrites } = soloDeps(GITLAB_TOKEN, gitlabUserOk, { userIntegrationOverrides: () => ({ forgeHost: "gitlab.example.com" }) });
+    await expectExit(() => integrationConnect("gitlab", ["--json", "--host", "GitHub.com"], deps));
+    expect(deps.exitCodes).toEqual([2]);
+    expect((JSON.parse(deps.lines[0]!) as { error: { code: string } }).error.code).toBe("bad-host");
+    expect(probes.calls.fetch).toEqual([]);
+    expect(tokenWrites).toEqual([]);
+    expect(settingWrites).toEqual([]);
+  });
+
   test("a leftover github.com host does not reach a solo GitLab connect", async () => {
     const { probes, deps } = soloDeps(GITLAB_TOKEN, gitlabUserOk, { userIntegrationOverrides: () => ({ forgeHost: "github.com" }) });
     await integrationConnect("gitlab", ["--json"], deps);

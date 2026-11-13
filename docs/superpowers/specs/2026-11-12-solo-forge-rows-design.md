@@ -96,7 +96,7 @@ Create token links to gitlab.com, or to the confirmed host when there is one.
 The validation code itself does not change; only which host it is handed
 does (below).
 
-**The confirmed host on solo.** `rt.integrations.forgeHost` is one user-scope
+**The confirmed GitLab host.** `rt.integrations.forgeHost` is one user-scope
 value shared by both forges, and `connectCredential` writes `github.com` there
 for a team whose declared forge is github.com. A Mac that left such a team and
 is now solo would point its GitLab row at github.com, and its Connect would
@@ -116,7 +116,8 @@ returns the GitLab host to use: the forgeHost, lowercased, only when it is a
 valid hostname and not `github.com`, otherwise null (gitlab.com). Every GitLab
 ctx reads its host through it, so the four cannot drift. It needs no solo
 flag. The GitHub ctx and the GitHub rows keep today's reading. A connect
-`--host` still writes the host as given.
+`--host` writes the host as given, except that `gitlab connect --host
+github.com` is refused with `bad-host` before any fetch or write.
 
 This changes a team Mac too: a Mac in any team that holds a leftover
 `forgeHost: "github.com"` now checks a GitLab token against gitlab.com, not
