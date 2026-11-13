@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 
+import { pushWord, type Forge } from '../../../shared/forge';
 import { formatNumber } from '../../../shared/metrics';
-import { useForgeText } from '../../forge/forge';
+import { useForge, useForgeText } from '../../forge/forge';
 import { calendarWeeks, type CalendarDay } from '../../model/evidence-shapes';
 import { dayLabel } from '../../model/labels';
 import { PushCalendar } from '../../ui/PushCalendar';
@@ -21,12 +22,12 @@ const dayOfMonth = (d: CalendarDay): string => dayLabel(d.date).split(' ')[1]!;
 
 export function busiestDay(
   days: CalendarDay[],
-  t: (text: string) => string = text => text
+  forge: Forge | undefined = 'gitlab'
 ): string {
   let best: CalendarDay | undefined;
   for (const d of days) if (d.count > (best?.count ?? 0)) best = d;
   if (!best) return 'None';
-  return `${named(best)} · ${formatNumber(best.count)} ${t(best.count === 1 ? 'push' : 'pushes')}`;
+  return `${named(best)} · ${formatNumber(best.count)} ${pushWord(forge, best.count)}`;
 }
 
 /** A range repeats its month only when the month changes from the range before it. */
@@ -102,6 +103,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 export function CodingDaysEvidence({ ev, window }: EvidenceProps) {
   const t = useForgeText();
+  const forge = useForge();
   const weeks = useMemo(
     () => calendarWeeks(ev, window.start, window.end),
     [ev, window.start, window.end]
@@ -118,7 +120,7 @@ export function CodingDaysEvidence({ ev, window }: EvidenceProps) {
       <div className={`${classes.block} ${panels.calendar}`}>
         <PushCalendar weeks={weeks} />
         <div className={panels.calFacts}>
-          <Fact label="Busiest day" value={busiestDay(days, t)} />
+          <Fact label="Busiest day" value={busiestDay(days, forge)} />
           <Fact label="Longest run" value={longestRun(days)} />
           <Fact
             label={t('Weekdays without a push')}
