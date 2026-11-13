@@ -18,7 +18,7 @@ import type { AgentRecord } from "../../state/agents-store.ts";
 import type { PaneHints } from "../pane-resolve-live.ts";
 import { GATE_FORM_OPTION_CAP, gatePresentation } from "../../../packages/rt-client/src/gate-presentation.ts";
 
-const FORM_CAP_ADVISORY = `the in-pane form caps a question at ${GATE_FORM_OPTION_CAP} options, so this gate presents as wait; give navigation verbs (iterate, go back, hold) their own next question, and split an oversized selection into <id>-1, <id>-2, ... questions whose answers read as one union`;
+const FORM_CAP_ADVISORY = `the in-pane form caps a question at ${GATE_FORM_OPTION_CAP} options, so this gate presents as wait; split an oversized selection into <id>-1, <id>-2, ... questions whose answers read as one union`;
 import { resolveGateSubject, type GateSubjectResult } from "../gate-subject.ts";
 import { SLACK_OPEN_ANSWERERS, SLACK_OPEN_KIND, SLACK_OPEN_OPEN_REFUSAL, SLACK_OPEN_REFUSAL } from "../../slack/request.ts";
 

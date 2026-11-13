@@ -27,8 +27,9 @@ know those pane cards never showed their drafts. The record then passes
 - **wait:** as gate-protocol draws it; an answer from the board or
   console records the same way.
 
-A `next` of `iterate` or `hold` on the answer records nothing: `iterate`
-redrafts with their note, `hold` holds.
+A `next` of `iterate` or `hold` records nothing: `iterate` redrafts with
+their note, `hold` holds. Only a hand-back or a future surface can send
+one: the daemon refuses an answer key the gate did not ask.
 
 Neither `gate_answer` nor `gate_reconcile` records this review gate:
 `gate_record {..., gateId: <id>}` does. Never fold threads into one

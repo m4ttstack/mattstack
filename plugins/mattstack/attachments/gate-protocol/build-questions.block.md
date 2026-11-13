@@ -22,9 +22,10 @@ not your own.
   the option the table writes; a row with none marks none.
 - **The questions are the site's table, and only those.** A gate asks no
   navigation question: an answer with no `next` reads as `proceed`, and a
-  write-in is the way to ask for a change (`Act on a write-in`). A `next`
-  that arrives from another surface (`hold`, `iterate`, `go-back`,
-  `abandon`) still routes as the site's `Read next` lines say.
+  write-in is the way to ask for a change (`Act on a write-in`). The
+  daemon refuses an answer key the gate did not ask, so a `next` (`hold`,
+  `iterate`, `go-back`, `abandon`) reaches a site only through a hand-back
+  or a future surface; the site's `Read next` lines still route it.
 - **A gate with no question to show opens nothing.** Print its one
   sentence of context and take the site's `proceed` edge.
 - **Write-ins** go only on a decision question whose free text you can act
