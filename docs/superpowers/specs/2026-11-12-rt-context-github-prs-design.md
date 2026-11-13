@@ -51,7 +51,7 @@ other origin host. This change is the other half.
 
 Known limit of approach A: the daemon cannot scope a lookup by repo over
 REST, so when two repos share a branch name it may answer with the other
-repo's entry. The guard turns that into a miss, and on GitHub nothing
+repo's entry. On GitHub the guard strips that entry's PR, and nothing
 falls back, so this repo's own PR does not show for that branch name.
 Accepted: it needs a daemon change this ticket does not make.
 
@@ -102,38 +102,67 @@ No `vscode` import, so `bun test` can load it.
   - gitlab and null: `GitLab`, `MR`, `merge request`, `Merge Request`.
     Null keeps today's words, so an unrecognised host reads exactly as it
     does now.
-- `prBelongsToRemote(webUrl, remoteUrl): boolean`: true when the PR URL's
-  origin and path start with the remote's origin and project path plus
-  `/`, compared case-insensitively. `https://github.com/o/r/pull/7`
-  belongs to `git@github.com:o/r.git`; `https://github.com/o/r2/pull/7`
-  does not.
+- `repoIdentityOfRemote(remoteUrl): string | null`: the serialized repo
+  identity, `serializeIdentity(identityFromRemote(remoteUrl))` from
+  rt-client, the key the daemon stores each cache entry under (`repoName`),
+  or null when the remote yields none. Its own normalisation covers ssh,
+  `ssh://`, `git+ssh://`, https with or without `.git`, a trailing slash
+  and a mixed-case host. (Gate 78d7aebb.)
+- `prBelongsToRemote(webUrl, remoteUrl): boolean`: the fallback rule for
+  an entry that carries no identity. True when the PR URL's host and path
+  start with the remote's normalised `host/path` (rt-client's
+  `normalizeRemote`) plus `/`, compared case-insensitively.
+  `https://github.com/o/r/pull/7` belongs to `git@github.com:o/r.git`;
+  `https://github.com/o/r2/pull/7` does not.
+- An entry belongs to this repo when its repo identity equals
+  `repoIdentityOfRemote(remoteUrl)`. Only an entry with no identity (a
+  daemon entry with no `repoName`, a local entry written before this
+  change) falls back to `prBelongsToRemote` on its PR URL. Matching on
+  identity keeps a renamed or transferred repo's own PRs, whose URLs name
+  the new path while the local remote still names the old one.
 - `branchDataFromDaemonEntry(entry, forge, remoteUrl): CachedBranchData | null`:
   maps a daemon cache entry to the extension's `CachedBranchData` (the
   mapping `statusBar.ts` and `branchSwitcher.ts` each do inline today).
   The guard keys on the repo's forge, not the entry's provider: when
-  `forge === 'github'` and the entry has an `mr` whose `webUrl` does not
-  belong to `remoteUrl` (whatever its `provider`, so another repo's GitLab
-  MR is rejected too), it returns null, a miss. An entry with no `mr`
-  maps as today. When `forge` is `gitlab` or null, every entry maps
+  `forge === 'github'` and the entry has an `mr` but does not belong to
+  this repo (whatever its `provider`, so another repo's GitLab MR is
+  rejected too), the entry is stripped, not dropped: it maps to this
+  branch's data with no PR link (`mrUrl` null), no PR-title ticket id
+  (`linearId` null), and its Linear ticket kept only when the ticket's
+  identifier is the one named in the branch itself
+  (`extractLinearId(branch)`), else null. It is a hit, never a miss, so
+  nothing falls back to the extension's own lookup and the extension makes
+  no request main did not make. (Gate 78d7aebb.) A mapped entry records
+  the daemon entry's `repoName` as its repo identity. An entry with no
+  `mr` maps as today. When `forge` is `gitlab` or null, every entry maps
   exactly as today: no guard, so nothing changes on GitLab.
 - `ownBranchData(data, forge, remoteUrl): CachedBranchData | null`: the
   same rule for an entry read back from the extension's local
   `branchCache` (shared by every window through `globalState`, keyed by
   bare branch name, and holding entries written before this change). On
-  GitHub, a cached entry whose `mrUrl` does not belong to `remoteUrl` reads
-  as null, a miss; otherwise it is returned unchanged. On GitLab and null
-  it is the identity.
+  GitHub, a cached entry with an `mrUrl` that does not belong to this repo
+  (by its stored identity, or by `prBelongsToRemote` when it has none)
+  reads as null, a miss; otherwise it is returned unchanged. On GitLab and
+  null it is the identity.
+- `CachedBranchData` gains an optional `repoIdentity`, written with every
+  entry the extension stores on a GitHub repo.
 
 ### Wiring
 
 - `statusBar.ts`:
-  - Resolve the repo's remote URL and forge once per status-bar update.
+  - Resolve the repo's remote URL and forge per status-bar update, but
+    reuse the confirmed forge host and call `setContext` only when the
+    forge changes.
   - The cached entry read at the top of the update goes through
     `ownBranchData` before the fresh-cache check, so a foreign local entry
     is a miss and is never rendered.
   - `fetchBranchData(context, branch, remoteUrl, forge)` maps the daemon
-    entry through `branchDataFromDaemonEntry`; a null result falls
-    through to the direct fallback as a miss does today.
+    entry through `branchDataFromDaemonEntry`; a stripped entry is a hit,
+    and only a daemon miss (no entry, or the daemon down) falls through to
+    the direct fallback as today.
+  - When the daemon is unreachable on GitHub, the fallback result keeps
+    the own `mrUrl` and `linearId` already cached for this branch, so a
+    daemon blip does not drop a PR link that was showing.
   - On GitHub only, when the silent background fetch on the fresh-cache
     path returns a different `mrUrl` or `linearId` from what was rendered,
     render again from the fresh data. GitLab keeps today's
@@ -149,9 +178,8 @@ No `vscode` import, so `bun test` can load it.
     `gitlab` or `none` whenever the forge is resolved.
 - `branchSwitcher.ts`: resolve the remote URL and forge once when the
   picker opens. Map each `/api/cache` entry through
-  `branchDataFromDaemonEntry`; a rejected entry is not a hit and is not
-  written. On GitHub a rejected entry also removes any local entry for
-  that branch whose `mrUrl` fails `ownBranchData`, so a foreign entry
+  `branchDataFromDaemonEntry` and write the result, a stripped entry
+  included, so a foreign local entry for that branch is overwritten and
   cannot linger. `buildBranchItem` reads the local cache through
   `ownBranchData`. Labels come from `forgeWords(forge)`. The direct batch
   lookup skips the GitLab token and MR batch on GitHub, as the status bar
@@ -173,8 +201,9 @@ No `vscode` import, so `bun test` can load it.
   per team, so a GitHub user never needs it. No GitHub token command: the
   daemon owns GitHub access.
 - `README.md`: say that on GitHub the PR link comes from the rt daemon,
-  which reads GitHub through `rt setup github connect --use-gh`, and that
-  the GitLab token command is for GitLab repos.
+  which reads GitHub through `rt setup github connect --use-gh`, that the
+  GitLab token command is for GitLab repos, and the known limit above
+  (a branch name another repo also uses may show no PR link).
 
 ### Copy
 
@@ -196,13 +225,17 @@ Internal names (`mrUrl`, `fetchMRInfo`, `gitlab.ts`) stay.
 
 ## Testing
 
-- `src/__tests__/forge.test.ts`: `forgeOfRemote` (github.com over ssh and
-  https, gitlab.com, a confirmed host, an unconfirmed host, garbage),
+- `src/__tests__/forge.test.ts`: `forgeOfRemote` (github.com over ssh,
+  `ssh://`, https with and without `.git`, a mixed-case host, gitlab.com,
+  a confirmed host, an unconfirmed host, garbage), `repoIdentityOfRemote`,
+  identity match (a renamed repo's own PR kept by identity, a foreign
+  identity stripped, no identity falls back to the URL rule, a trailing
+  slash remote),
   `forgeWords`, `prBelongsToRemote` (own repo, another repo, a prefix
   repo name like `o/r` vs `o/r2`, case), `branchDataFromDaemonEntry` (on
-  a GitHub repo: own PR kept, another repo's GitHub PR rejected, another
-  repo's GitLab MR rejected, entry with no `mr` kept, PR-title ticket id
-  carried; on a GitLab repo and an unknown host: every entry kept
+  a GitHub repo: own PR kept, another repo's GitHub PR stripped, another
+  repo's GitLab MR stripped, a stripped entry keeps only the branch-named
+  ticket, entry with no `mr` kept, PR-title ticket id carried; on a GitLab repo and an unknown host: every entry kept
   untouched, including a foreign one), `ownBranchData` (on GitHub a local
   entry with a foreign `mrUrl` is a miss, an own or empty one is kept; on
   GitLab it is the identity).
