@@ -253,6 +253,32 @@ describe('runRefresh through a GitHub source', () => {
     expect(partial[0]!.message).toContain('1/2');
   });
 
+  it('reports the detail phase and its partial warning in PR copy', async () => {
+    const { provider } = makeGitLabSpy();
+    const labels: string[] = [];
+
+    const warnings = await runRefresh({
+      store: getStore(),
+      provider,
+      settings: settings(),
+      env: ENV,
+      window: WINDOW,
+      source: makeGitHubFake({
+        index: [indexRow({ iid: 7 }), indexRow({ iid: 8 })],
+        emptyFor: [8],
+      }),
+      onProgress: (p: Omit<RefreshProgress, 'window'>) => {
+        if (p.phase === 'mrs-detail') labels.push(p.label);
+      },
+    });
+
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) expect(label).toBe('Fetching PR details');
+    const partial = warnings.find(w => w.code === 'mr_detail_partial')!;
+    expect(partial.message).toMatch(/^Detail fetch failed for 1\/2 PRs /);
+    expect(partial.message).not.toMatch(/\bMRs?\b/);
+  });
+
   it('source warnings reach the returned warnings', async () => {
     const { provider } = makeGitLabSpy();
     let pending = [

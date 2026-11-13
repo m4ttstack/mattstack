@@ -282,6 +282,22 @@ describe('LeaderboardPage forge copy', () => {
       expect(t).not.toMatch(/\bMRs?\b|GitLab/);
   });
 
+  it('says PR and never MR or GitLab in github cards', () => {
+    const { container } = renderWithProviders(
+      <LeaderboardPage
+        data={{ ...fixtureLeaderboard(false), forge: 'github' }}
+        view="cards"
+        trend={false}
+        sort="mrsMerged"
+        onSort={vi.fn()}
+        onSelectStat={vi.fn()}
+      />
+    );
+    expect(container.textContent).toContain('PRs merged');
+    for (const t of textNodes(container))
+      expect(t).not.toMatch(/\bMRs?\b|GitLab/);
+  });
+
   it('keeps MRs merged on a gitlab board', () => {
     renderFor(fixtureLeaderboard(false));
     expect(headerLabels()).toContain('MRs merged');

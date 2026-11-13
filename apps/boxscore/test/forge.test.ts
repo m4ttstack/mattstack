@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { LOCKED_BODY } from '../src/app/access/copy.js';
 import {
   definitionOf,
   PANEL_COPY,
@@ -117,5 +118,29 @@ describe('forgeText', () => {
       const g = forgeText(s, 'github');
       expect(g).not.toMatch(/\bMRs?\b|GitLab|[Mm]erge requests?/);
     }
+  });
+});
+
+describe('GITHUB_COPY entries read from their source copy', () => {
+  it('rewrites the longestStreak description with an article that fits PR', () => {
+    expect(forgeText(descriptor('longestStreak').description, 'github')).toBe(
+      'Longest run of consecutive calendar days on which the user merged at least one PR, within the window. E.g. 4 = merged a PR on 4 days in a row at some point. (Based on merges, not commits.)'
+    );
+  });
+
+  it('rewrites the locked page body to name the GitHub token rt reads', () => {
+    expect(forgeText(LOCKED_BODY, 'github')).toBe(
+      "Check that rt can read a GitHub token for one of boxscore's projects and that your GitHub username is on the team roster in console."
+    );
+    expect(forgeText(LOCKED_BODY, 'gitlab')).toBe(LOCKED_BODY);
+  });
+
+  it('names comments and approvals as the github review source', () => {
+    expect(forgeText(PANEL_COPY.mrsReviewed.source, 'github')).toBe(
+      'Source: GitHub comments and approvals'
+    );
+    expect(forgeText(PANEL_COPY.mrsReviewed.source, 'gitlab')).toBe(
+      'Source: GitLab notes and approvals'
+    );
   });
 });

@@ -24,6 +24,7 @@ export function changeRef(forge: Forge | undefined, iid: number): string {
 export const GITHUB_COPY: Readonly<Record<string, string>> = {
   'Source: GitLab pushes to tracked projects':
     'Source: GitHub commits on your PRs',
+  'Source: GitLab notes and approvals': 'Source: GitHub comments and approvals',
   'Source: GitLab pipelines you triggered':
     'Source: GitHub Actions runs you triggered',
   'Number of distinct days the user pushed at least one commit (to the tracked project) during the window.':

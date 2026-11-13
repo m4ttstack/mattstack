@@ -126,8 +126,7 @@ async function resolveGitHubEnv(s: BoxscoreSettings): Promise<Env> {
     throw new ConfigError(`GitHub token is not available: ${github.reason}`);
   }
   const secrets = await readSecrets();
-  if (secrets.warning)
-    console.warn(`[config] ${forgeText(secrets.warning, 'github')}`);
+  if (secrets.warning) console.warn(`[config] ${secrets.warning}`);
   return {
     forge: 'github',
     baseUrl: s.baseUrl,

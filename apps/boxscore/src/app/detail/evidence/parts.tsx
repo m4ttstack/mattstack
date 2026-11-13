@@ -105,7 +105,15 @@ export function EvidenceFooter({
 }
 
 /** A section head inside a panel: title left, context right. */
-export function EvHead({ title, right }: { title: string; right: string }) {
+export function EvHead({
+  title,
+  right,
+}: {
+  /** Rewritten for the team's forge, so never pass user data. */
+  title: string;
+  /** Rewritten for the team's forge, so never pass user data. */
+  right: string;
+}) {
   const t = useForgeText();
   return (
     <div className={classes.evHead} data-parity="Ev Head">
