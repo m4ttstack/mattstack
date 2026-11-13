@@ -373,6 +373,7 @@ function MoreStatuses({
                 </span>
               )}
               <span className="tui-status-more-text">
+                {l.spin === 'cloud' && <CloudSpinner />}
                 <span className="tui-status-word">{l.word}</span>
                 {l.spin === true && (
                   <span className="tui-status-ring" aria-hidden />
