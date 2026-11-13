@@ -1,3 +1,5 @@
+import { cellWidth, chunkCells } from '@mattstack/mod-kit'
+
 import type { AddInput, Todo } from '../types'
 
 export const PLUGIN = 'human-todos'
@@ -65,11 +67,12 @@ export function isActionable(t: Todo): boolean {
   return t.status === 'open' || t.status === 'confirming' || t.status === 'running'
 }
 
+// Both wrap by terminal cells and break only between graphemes, so an emoji or a wide character never splits across rows.
 export function hardWrap(text: string, width: number): string[] {
   const rows: string[] = []
   for (const line of text.split('\n')) {
     if (line.length === 0) rows.push('')
-    for (let i = 0; i < line.length; i += width) rows.push(line.slice(i, i + width))
+    else rows.push(...chunkCells(line, width))
   }
   return rows
 }
@@ -80,7 +83,7 @@ export function wrapWords(text: string, width: number): string[] {
     let row = ''
     for (const word of line.split(' ').filter(w => w !== '')) {
       const joined = row === '' ? word : `${row} ${word}`
-      if (joined.length <= width) {
+      if (cellWidth(joined) <= width) {
         row = joined
         continue
       }

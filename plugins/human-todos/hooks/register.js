@@ -1,3 +1,328 @@
+// packages/mod-kit/src/draw/cells.ts
+var segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+var PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
+var EMOJI = /\p{Emoji_Presentation}|\u20E3/u;
+var EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}\uFE0F/u;
+var ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u;
+var WIDE_RANGES = [
+  [4352, 4447],
+  [9001, 9002],
+  [11904, 12350],
+  [12353, 13311],
+  [13312, 19903],
+  [19968, 40959],
+  [40960, 42191],
+  [43360, 43391],
+  [44032, 55203],
+  [63744, 64255],
+  [65072, 65135],
+  [65280, 65376],
+  [65504, 65510],
+  [131072, 262141]
+];
+function graphemeWidth(grapheme) {
+  if (EMOJI.test(grapheme) || EMOJI_BASE_WITH_VS16.test(grapheme))
+    return 2;
+  const first = grapheme.codePointAt(0) ?? 0;
+  if (ZERO_WIDTH.test(grapheme))
+    return 0;
+  return WIDE_RANGES.some(([lo, hi]) => first >= lo && first <= hi) ? 2 : 1;
+}
+var graphemes = (text) => Array.from(segmenter.segment(text), (part) => part.segment);
+function cellWidth(text) {
+  if (PRINTABLE_ASCII.test(text))
+    return text.length;
+  return graphemes(text).reduce((n, grapheme) => n + graphemeWidth(grapheme), 0);
+}
+function cutCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return text.slice(0, Math.max(0, cells));
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text)) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out += grapheme;
+  }
+  return out;
+}
+function chunkCells(text, cells) {
+  const out = [];
+  let piece = "";
+  let used = 0;
+  for (const grapheme of graphemes(text)) {
+    const w = graphemeWidth(grapheme);
+    if (used + w > cells && piece !== "") {
+      out.push(piece);
+      piece = "";
+      used = 0;
+    }
+    piece += grapheme;
+    used += w;
+  }
+  out.push(piece);
+  return out;
+}
+function padCells(text, cells) {
+  return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
+}
+
+// packages/mod-kit/src/draw/text.ts
+function sp(t, style = {}) {
+  return { t, ...style };
+}
+function widthOf(spans) {
+  return spans.reduce((n, span) => n + cellWidth(span.t), 0);
+}
+function spanAt(line, x) {
+  let from = 0;
+  for (const span of line) {
+    const to = from + cellWidth(span.t);
+    if (span.action !== undefined && x >= from && x < to)
+      return span;
+    from = to;
+  }
+  return;
+}
+function hitAt(line, x) {
+  if (!line)
+    return;
+  return spanAt(line, x)?.action ?? line.action;
+}
+var actionKey = (action) => JSON.stringify(action);
+function spanHoverKey(span, row) {
+  return span.action === undefined ? undefined : `${row}:${actionKey(span.action)}`;
+}
+function lineHoverKey(line) {
+  return line.action === undefined ? undefined : actionKey(line.action);
+}
+function hoverKeyAt(lines, row, x) {
+  const line = lines[row];
+  if (!line)
+    return;
+  const span = spanAt(line, x);
+  return span ? spanHoverKey(span, row) : lineHoverKey(line);
+}
+function wrap(text, width) {
+  const out = [];
+  for (const raw of text.split(`
+`)) {
+    let row = "";
+    for (const word of raw.split(" ")) {
+      const next = row === "" ? word : `${row} ${word}`;
+      if (cellWidth(next) > width && row !== "") {
+        out.push(row);
+        row = word;
+      } else
+        row = next;
+      if (cellWidth(row) > width) {
+        const pieces = chunkCells(row, width);
+        out.push(...pieces.slice(0, -1));
+        row = pieces.at(-1) ?? "";
+      }
+    }
+    out.push(row);
+  }
+  return out;
+}
+// packages/mod-kit/src/draw/theme.ts
+var SYMBOL = {
+  start: "┌",
+  bar: "│",
+  end: "└",
+  active: "◆",
+  submit: "◇",
+  cancel: "■",
+  warn: "▲",
+  radioOn: "●",
+  radioOff: "○",
+  boxActive: "◻",
+  boxOn: "◼",
+  boxOff: "◻",
+  selectEdge: "▎"
+};
+var ICON = {
+  layers: "",
+  done: "",
+  todo: "",
+  missing: "",
+  back: "",
+  next: "",
+  collapse: "",
+  chat: "",
+  single: "\uDB81\uDC3E",
+  multi: "\uDB80\uDD38",
+  text: "\uDB81\uDE0E",
+  review: "",
+  edit: "",
+  info: ""
+};
+var BRAND = { pink: "#FF6B9D", pinkDeep: "#e9578b", plum: "#161224", glyph: ICON.layers };
+var FILL = {
+  primary: { bg: "#2f9e5b", color: "black" },
+  secondary: { bg: "#2b4a6b", color: "white" },
+  neutral: { bg: "#4a4a4a", color: "white" },
+  caution: { bg: "#b8902e", color: "black" },
+  chip: { bg: "#3a3a3a", color: "white" },
+  current: { bg: "#3aa8b8", color: "black" },
+  disabled: { bg: "#262626", color: "#5c5c5c" },
+  field: { bg: "#2c2c2c", color: "white" },
+  brand: { bg: BRAND.pink, color: BRAND.plum }
+};
+var SCROLL = { track: "#383838", thumb: "#707070" };
+var HOVER_FILL = {
+  [BRAND.pink]: "#ff94b9",
+  [BRAND.pinkDeep]: "#f57ba6",
+  [FILL.primary.bg]: "#45c275",
+  [FILL.secondary.bg]: "#3b6896",
+  [FILL.neutral.bg]: "#666666",
+  [FILL.caution.bg]: "#d6aa45",
+  [FILL.chip.bg]: "#555555",
+  [FILL.current.bg]: "#5fcfdc"
+};
+var PRESS_FILL = {
+  [BRAND.pink]: "#ea5d8c",
+  [BRAND.pinkDeep]: "#d84a7d",
+  [FILL.primary.bg]: "#288a4f",
+  [FILL.secondary.bg]: "#26425f",
+  [FILL.neutral.bg]: "#424242",
+  [FILL.caution.bg]: "#a58127",
+  [FILL.chip.bg]: "#333333",
+  [FILL.current.bg]: "#3394a2"
+};
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
+function hoverOf(span) {
+  if (span.quiet)
+    return { ...span, bg: QUIET.hover, color: "white" };
+  if (span.chip)
+    return { ...span, bg: span.chip };
+  return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
+}
+function pressOf(span) {
+  if (span.quiet)
+    return { ...span, bg: QUIET.press, color: "white" };
+  if (span.chip)
+    return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
+  return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
+}
+function hovered(span) {
+  const out = hoverOf(span);
+  return span.mark ? { ...out, color: span.mark } : out;
+}
+function pressed(span) {
+  const out = pressOf(span);
+  return span.mark ? { ...out, color: span.mark } : out;
+}
+function keySelected(span) {
+  if (!span.t.startsWith(" "))
+    return [span];
+  return [
+    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: span.t.slice(1) }
+  ];
+}
+var ACCENT = { color: "cyan" };
+var GRAY = { color: "gray" };
+var DONE = { color: "green" };
+var WARN = { color: "yellow" };
+var DIM = { dim: true };
+var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
+function muted(span) {
+  if (span.quiet)
+    return { ...span, color: QUIET.muted, dim: false };
+  if (span.bg)
+    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#4a4a4a", color: "#b8b8b8" }, dim: false };
+  if (span.color)
+    return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
+  return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
+}
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
+}
+// packages/mod-kit/src/widgets/scroll-bar.ts
+function scrollBar(rows, total, offset) {
+  if (total <= rows)
+    return Array.from({ length: rows }, () => [sp("   ")]);
+  const size = Math.max(1, Math.round(rows * rows / total));
+  const at = Math.min(Math.max(0, offset), total - rows);
+  const top = Math.round(at / (total - rows) * (rows - size));
+  return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
+}
+// packages/mod-kit/src/interact/focus.ts
+function isEngaged(e) {
+  return e.data?.type === "engaged";
+}
+// packages/mod-kit/src/patterns/hideable-pane.tsx
+var DEFAULT_BAND_LABEL = "mattstack waiting";
+async function showPane($, pane, title) {
+  await $.ui.open({ id: pane.id, title, focus: true });
+  $.ui.invalidate("ui.render");
+}
+async function paneMessage($, e, pane, waiting) {
+  const message = e.data;
+  if (message?.type === "reopen" && waiting && waiting.formId === message.formId)
+    await showPane($, pane, waiting.title);
+  if (message?.type === "hide" && e.requestId === pane.id)
+    await $.ui.close({ id: pane.id });
+}
+function registerPaneRedraw(on) {
+  on("ui.close", async ($, e, next) => {
+    const closed = await next(e);
+    $.ui.invalidate("ui.render");
+    return closed;
+  });
+}
+async function bandAbovePrompt($, e, rest, waiting, pane) {
+  const label = pane.label ?? DEFAULT_BAND_LABEL;
+  const els = $.ui.resolve(e);
+  const { Box, Text, Button } = els;
+  const Client = "Client" in els ? els.Client : undefined;
+  const band = Client ? /* @__PURE__ */ h(Client, {
+    key: `band-${waiting.formId}`,
+    module: "./band.js",
+    props: { formId: waiting.formId, title: waiting.title, label }
+  }) : /* @__PURE__ */ h(Box, {
+    flexDirection: "row",
+    gap: 2
+  }, /* @__PURE__ */ h(Text, {
+    color: BRAND.pink
+  }, `${BRAND.glyph} ${label} `), /* @__PURE__ */ h(Text, {
+    wrap: "truncate-end"
+  }, waiting.title), /* @__PURE__ */ h(Button, {
+    key: `open-${pane.id}`,
+    label: "Open",
+    onPress: () => showPane($, pane, waiting.title)
+  }));
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, band, rest);
+}
+async function isPlaced($, pane) {
+  return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
+}
 // mods/human-todos/src/items.ts
 var PLUGIN = "human-todos";
 var TITLE = "Human Todos";
@@ -70,8 +395,8 @@ function hardWrap(text, width) {
 `)) {
     if (line.length === 0)
       rows.push("");
-    for (let i = 0;i < line.length; i += width)
-      rows.push(line.slice(i, i + width));
+    else
+      rows.push(...chunkCells(line, width));
   }
   return rows;
 }
@@ -82,7 +407,7 @@ function wrapWords(text, width) {
     let row = "";
     for (const word of line.split(" ").filter((w) => w !== "")) {
       const joined = row === "" ? word : `${row} ${word}`;
-      if (joined.length <= width) {
+      if (cellWidth(joined) <= width) {
         row = joined;
         continue;
       }
@@ -1091,331 +1416,6 @@ function registerActions(on) {
 // mods/human-todos/src/pane.tsx
 import { atom as atom2, read as read2, update as update2 } from "claude-code";
 
-// packages/mod-kit/src/draw/cells.ts
-var segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-var PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
-var EMOJI = /\p{Emoji_Presentation}|\u20E3/u;
-var EMOJI_BASE_WITH_VS16 = /^(?![A-Za-z])\p{Emoji}\uFE0F/u;
-var ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]/u;
-var WIDE_RANGES = [
-  [4352, 4447],
-  [9001, 9002],
-  [11904, 12350],
-  [12353, 13311],
-  [13312, 19903],
-  [19968, 40959],
-  [40960, 42191],
-  [43360, 43391],
-  [44032, 55203],
-  [63744, 64255],
-  [65072, 65135],
-  [65280, 65376],
-  [65504, 65510],
-  [131072, 262141]
-];
-function graphemeWidth(grapheme) {
-  if (EMOJI.test(grapheme) || EMOJI_BASE_WITH_VS16.test(grapheme))
-    return 2;
-  const first = grapheme.codePointAt(0) ?? 0;
-  if (ZERO_WIDTH.test(grapheme))
-    return 0;
-  return WIDE_RANGES.some(([lo, hi]) => first >= lo && first <= hi) ? 2 : 1;
-}
-var graphemes = (text) => Array.from(segmenter.segment(text), (part) => part.segment);
-function cellWidth(text) {
-  if (PRINTABLE_ASCII.test(text))
-    return text.length;
-  return graphemes(text).reduce((n, grapheme) => n + graphemeWidth(grapheme), 0);
-}
-function cutCells(text, cells) {
-  if (PRINTABLE_ASCII.test(text))
-    return text.slice(0, Math.max(0, cells));
-  let used = 0;
-  let out = "";
-  for (const grapheme of graphemes(text)) {
-    used += graphemeWidth(grapheme);
-    if (used > cells)
-      break;
-    out += grapheme;
-  }
-  return out;
-}
-function chunkCells(text, cells) {
-  const out = [];
-  let piece = "";
-  let used = 0;
-  for (const grapheme of graphemes(text)) {
-    const w = graphemeWidth(grapheme);
-    if (used + w > cells && piece !== "") {
-      out.push(piece);
-      piece = "";
-      used = 0;
-    }
-    piece += grapheme;
-    used += w;
-  }
-  out.push(piece);
-  return out;
-}
-function padCells(text, cells) {
-  return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
-}
-
-// packages/mod-kit/src/draw/text.ts
-function sp(t, style = {}) {
-  return { t, ...style };
-}
-function widthOf(spans) {
-  return spans.reduce((n, span) => n + cellWidth(span.t), 0);
-}
-function spanAt(line, x) {
-  let from = 0;
-  for (const span of line) {
-    const to = from + cellWidth(span.t);
-    if (span.action !== undefined && x >= from && x < to)
-      return span;
-    from = to;
-  }
-  return;
-}
-function hitAt(line, x) {
-  if (!line)
-    return;
-  return spanAt(line, x)?.action ?? line.action;
-}
-var actionKey = (action) => JSON.stringify(action);
-function spanHoverKey(span, row) {
-  return span.action === undefined ? undefined : `${row}:${actionKey(span.action)}`;
-}
-function lineHoverKey(line) {
-  return line.action === undefined ? undefined : actionKey(line.action);
-}
-function hoverKeyAt(lines, row, x) {
-  const line = lines[row];
-  if (!line)
-    return;
-  const span = spanAt(line, x);
-  return span ? spanHoverKey(span, row) : lineHoverKey(line);
-}
-function wrap(text, width) {
-  const out = [];
-  for (const raw of text.split(`
-`)) {
-    let row = "";
-    for (const word of raw.split(" ")) {
-      const next = row === "" ? word : `${row} ${word}`;
-      if (cellWidth(next) > width && row !== "") {
-        out.push(row);
-        row = word;
-      } else
-        row = next;
-      if (cellWidth(row) > width) {
-        const pieces = chunkCells(row, width);
-        out.push(...pieces.slice(0, -1));
-        row = pieces.at(-1) ?? "";
-      }
-    }
-    out.push(row);
-  }
-  return out;
-}
-// packages/mod-kit/src/draw/theme.ts
-var SYMBOL = {
-  start: "┌",
-  bar: "│",
-  end: "└",
-  active: "◆",
-  submit: "◇",
-  cancel: "■",
-  warn: "▲",
-  radioOn: "●",
-  radioOff: "○",
-  boxActive: "◻",
-  boxOn: "◼",
-  boxOff: "◻",
-  selectEdge: "▎"
-};
-var ICON = {
-  layers: "",
-  done: "",
-  todo: "",
-  missing: "",
-  back: "",
-  next: "",
-  collapse: "",
-  chat: "",
-  single: "\uDB81\uDC3E",
-  multi: "\uDB80\uDD38",
-  text: "\uDB81\uDE0E",
-  review: "",
-  edit: "",
-  info: ""
-};
-var BRAND = { pink: "#FF6B9D", pinkDeep: "#e9578b", plum: "#161224", glyph: ICON.layers };
-var FILL = {
-  primary: { bg: "#2f9e5b", color: "black" },
-  secondary: { bg: "#2b4a6b", color: "white" },
-  neutral: { bg: "#4a4a4a", color: "white" },
-  caution: { bg: "#b8902e", color: "black" },
-  chip: { bg: "#3a3a3a", color: "white" },
-  current: { bg: "#3aa8b8", color: "black" },
-  disabled: { bg: "#262626", color: "#5c5c5c" },
-  field: { bg: "#2c2c2c", color: "white" },
-  brand: { bg: BRAND.pink, color: BRAND.plum }
-};
-var SCROLL = { track: "#383838", thumb: "#707070" };
-var HOVER_FILL = {
-  [BRAND.pink]: "#ff94b9",
-  [BRAND.pinkDeep]: "#f57ba6",
-  [FILL.primary.bg]: "#45c275",
-  [FILL.secondary.bg]: "#3b6896",
-  [FILL.neutral.bg]: "#666666",
-  [FILL.caution.bg]: "#d6aa45",
-  [FILL.chip.bg]: "#555555",
-  [FILL.current.bg]: "#5fcfdc"
-};
-var PRESS_FILL = {
-  [BRAND.pink]: "#ea5d8c",
-  [BRAND.pinkDeep]: "#d84a7d",
-  [FILL.primary.bg]: "#288a4f",
-  [FILL.secondary.bg]: "#26425f",
-  [FILL.neutral.bg]: "#424242",
-  [FILL.caution.bg]: "#a58127",
-  [FILL.chip.bg]: "#333333",
-  [FILL.current.bg]: "#3394a2"
-};
-var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
-function hoverOf(span) {
-  if (span.quiet)
-    return { ...span, bg: QUIET.hover, color: "white" };
-  if (span.chip)
-    return { ...span, bg: span.chip };
-  return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
-}
-function pressOf(span) {
-  if (span.quiet)
-    return { ...span, bg: QUIET.press, color: "white" };
-  if (span.chip)
-    return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
-  return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
-}
-function hovered(span) {
-  const out = hoverOf(span);
-  return span.mark ? { ...out, color: span.mark } : out;
-}
-function pressed(span) {
-  const out = pressOf(span);
-  return span.mark ? { ...out, color: span.mark } : out;
-}
-function keySelected(span) {
-  if (!span.t.startsWith(" "))
-    return [span];
-  return [
-    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
-    { ...span, t: span.t.slice(1) }
-  ];
-}
-var ACCENT = { color: "cyan" };
-var GRAY = { color: "gray" };
-var DONE = { color: "green" };
-var WARN = { color: "yellow" };
-var DIM = { dim: true };
-var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
-function muted(span) {
-  if (span.quiet)
-    return { ...span, color: QUIET.muted, dim: false };
-  if (span.bg)
-    return { ...span, ...MUTED_FILL[span.bg] ?? { bg: "#4a4a4a", color: "#b8b8b8" }, dim: false };
-  if (span.color)
-    return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
-  return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
-}
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
-}
-// packages/mod-kit/src/widgets/scroll-bar.ts
-function scrollBar(rows, total, offset) {
-  if (total <= rows)
-    return Array.from({ length: rows }, () => [sp("   ")]);
-  const size = Math.max(1, Math.round(rows * rows / total));
-  const at = Math.min(Math.max(0, offset), total - rows);
-  const top = Math.round(at / (total - rows) * (rows - size));
-  return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
-}
-// packages/mod-kit/src/interact/focus.ts
-function isEngaged(e) {
-  return e.data?.type === "engaged";
-}
-// packages/mod-kit/src/patterns/hideable-pane.tsx
-var DEFAULT_BAND_LABEL = "mattstack waiting";
-async function showPane($, pane, title) {
-  await $.ui.open({ id: pane.id, title, focus: true });
-  $.ui.invalidate("ui.render");
-}
-async function paneMessage($, e, pane, waiting) {
-  const message = e.data;
-  if (message?.type === "reopen" && waiting && waiting.formId === message.formId)
-    await showPane($, pane, waiting.title);
-  if (message?.type === "hide" && e.requestId === pane.id)
-    await $.ui.close({ id: pane.id });
-}
-function registerPaneRedraw(on) {
-  on("ui.close", async ($, e, next) => {
-    const closed = await next(e);
-    $.ui.invalidate("ui.render");
-    return closed;
-  });
-}
-async function bandAbovePrompt($, e, rest, waiting, pane) {
-  const label = pane.label ?? DEFAULT_BAND_LABEL;
-  const els = $.ui.resolve(e);
-  const { Box, Text, Button } = els;
-  const Client = "Client" in els ? els.Client : undefined;
-  const band = Client ? /* @__PURE__ */ h(Client, {
-    key: `band-${waiting.formId}`,
-    module: "./band.js",
-    props: { formId: waiting.formId, title: waiting.title, label }
-  }) : /* @__PURE__ */ h(Box, {
-    flexDirection: "row",
-    gap: 2
-  }, /* @__PURE__ */ h(Text, {
-    color: BRAND.pink
-  }, `${BRAND.glyph} ${label} `), /* @__PURE__ */ h(Text, {
-    wrap: "truncate-end"
-  }, waiting.title), /* @__PURE__ */ h(Button, {
-    key: `open-${pane.id}`,
-    label: "Open",
-    onPress: () => showPane($, pane, waiting.title)
-  }));
-  return /* @__PURE__ */ h(Box, {
-    flexDirection: "column"
-  }, band, rest);
-}
-async function isPlaced($, pane) {
-  return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
-}
 // mods/human-todos/src/pane/model.ts
 var SCRIPT_ROWS = 2;
 var FINISHED_SHOWN = 8;

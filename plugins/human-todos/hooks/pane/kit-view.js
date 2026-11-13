@@ -667,8 +667,8 @@ function hardWrap(text, width) {
 `)) {
     if (line.length === 0)
       rows.push("");
-    for (let i = 0;i < line.length; i += width)
-      rows.push(line.slice(i, i + width));
+    else
+      rows.push(...chunkCells(line, width));
   }
   return rows;
 }
@@ -679,7 +679,7 @@ function wrapWords(text, width) {
     let row = "";
     for (const word of line.split(" ").filter((w) => w !== "")) {
       const joined = row === "" ? word : `${row} ${word}`;
-      if (joined.length <= width) {
+      if (cellWidth(joined) <= width) {
         row = joined;
         continue;
       }

@@ -322,7 +322,7 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 
 Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Hide does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
 
-### `cellWidth`, `cutCells` and `padCells`
+### `cellWidth`, `cutCells`, `padCells` and `chunkCells`
 
 Every width in the kit counts terminal cells, not characters: an emoji or a
 CJK character takes two, a combining mark none. `wrap`, `hang`, `hitAt`, hover
@@ -333,6 +333,7 @@ text should too.
 - `cutCells(text, cells)`: the longest start of `text` that fits. It never
   splits a grapheme and never leaves half a wide character in.
 - `padCells(text, cells)`: `text` padded with spaces to `cells`.
+- `chunkCells(text, cells)`: `text` cut into pieces of at most `cells` cells, in one pass, never splitting a grapheme; one wider than `cells` is a piece of its own.
 
 ### `hitAt`, `hoverKeyAt`, `lineHoverKey` and `spanHoverKey`
 
