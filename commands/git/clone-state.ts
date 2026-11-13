@@ -50,36 +50,44 @@ export function realCloneDeps(auth: OriginAuth = createOriginAuth()): CloneDeps 
   return { auth, rtLink, rtLinkExists: () => existsSync(rtLink) };
 }
 
+/** Throws when git cannot read the config: an unread config must never pass as "no helper". */
 export async function helperEntries(root: string, host: string): Promise<string[]> {
-  const res = await runGit(root, ["config", "--local", "--get-all", `credential.https://${host}.helper`]);
-  if (res.exitCode !== 0) return [];
-  return res.stdout.replace(/\n$/, "").split("\n");
+  const res = await runGit(root, ["config", "--local", "--get-all", "-z", `credential.https://${host}.helper`]);
+  if (res.exitCode === 1) return [];
+  if (res.exitCode !== 0) throw new Error("git could not read this clone's credential config");
+  return res.stdout.split("\0").slice(0, -1);
 }
 
 export function rtWired(entries: string[], rtLink: string): boolean {
   return entries.length === 2 && entries[0] === "" && entries[1] === rtCredentialHelper(rtLink);
 }
 
-/** The rule git would apply to `httpsUrl`, or null when it reaches git unchanged. */
-export async function insteadOfMapsBack(root: string, httpsUrl: string): Promise<string | null> {
+async function readInsteadOfRules(root: string): Promise<string> {
+  const res = await runGit(root, ["config", "-z", "--get-regexp", "^url\\..*\\.insteadof$"]);
+  return res.exitCode === 0 ? res.stdout : "";
+}
+
+/**
+ * When git rewrites `httpsUrl`: the rule as `url.<base>.insteadOf <value>`, or
+ * "" when git rewrote it but no rule could be named. Null when unchanged.
+ */
+export async function insteadOfMapsBack(root: string, httpsUrl: string, readRules: (root: string) => Promise<string> = readInsteadOfRules): Promise<string | null> {
   const echo = await runGit(root, ["ls-remote", "--get-url", httpsUrl]);
   if (echo.exitCode !== 0 || echo.stdout.trim() === httpsUrl) return null;
-  const rules = await runGit(root, ["config", "--get-regexp", "^url\\..*\\.insteadof$"]);
   let best: { base: string; value: string } | null = null;
-  for (const line of rules.exitCode === 0 ? rules.stdout.split("\n") : []) {
-    const space = line.indexOf(" ");
-    if (space < 0) continue;
-    const key = line.slice(0, space);
-    const value = line.slice(space + 1);
+  for (const entry of (await readRules(root)).split("\0")) {
+    const nl = entry.indexOf("\n");
+    if (nl < 0) continue;
+    const key = entry.slice(0, nl);
+    const value = entry.slice(nl + 1);
     const base = key.slice("url.".length, key.length - ".insteadof".length);
     // git applies the longest matching prefix.
     if (httpsUrl.startsWith(value) && (!best || value.length > best.value.length)) best = { base, value };
   }
-  if (!best) return `an insteadOf rule maps it to ${printable(echo.stdout.trim())}`;
-  return `url.${printable(best.base)}.insteadOf ${printable(best.value)}`;
+  return best ? `url.${printable(best.base)}.insteadOf ${printable(best.value)}` : "";
 }
 
-const VERDICT_CAUSE: Record<Exclude<SkipReason, "ssh">, CloneCause> = {
+const VERDICT_CAUSE: Record<Exclude<SkipReason, "ssh">, CopiedCause> = {
   "no-origin": "no-origin",
   http: "http-origin",
   "not-https": "not-https",
@@ -89,7 +97,9 @@ const VERDICT_CAUSE: Record<Exclude<SkipReason, "ssh">, CloneCause> = {
   unreadable: "token-unreadable",
 };
 
-function skipCopy(cause: CloneCause, host: string | null, forge: Forge | null): string {
+type CopiedCause = Exclude<CloneCause, "wired" | "ready" | "ssh-ready" | "own-helper" | "insteadof-maps-back">;
+
+function skipCopy(cause: CopiedCause, host: string | null, forge: Forge | null): string {
   switch (cause) {
     case "no-origin": return "has no origin";
     case "http-origin": return "origin uses http, not https";
@@ -100,7 +110,6 @@ function skipCopy(cause: CloneCause, host: string | null, forge: Forge | null): 
     case "token-unreadable": return "rt could not read its token store";
     case "unmappable-ssh": return "its SSH host is not a known forge";
     case "no-rt-link": return "rt is not installed";
-    default: return "";
   }
 }
 
@@ -135,7 +144,7 @@ export async function classifyClone(root: string, deps: CloneDeps): Promise<Clon
   const host = v.host;
   const forge = v.forge;
   const base = { transport, host, forge, originUrl, httpsUrl };
-  const skipped = (cause: CloneCause, extra: Partial<CloneState> = {}): CloneState => ({ state: "skipped", cause, ...base, reason: skipCopy(cause, host, forge), ...extra });
+  const skipped = (cause: CopiedCause): CloneState => ({ state: "skipped", cause, ...base, reason: skipCopy(cause, host, forge) });
 
   if ((transport === "https" || transport === "ssh") && host !== null) {
     const entries = await helperEntries(root, host);
@@ -144,13 +153,14 @@ export async function classifyClone(root: string, deps: CloneDeps): Promise<Clon
       return { state: "done", cause: "wired", ...base, reason: forge ? `already uses rt's ${forgeName(forge)} token` : "already uses rt's token" };
     }
     if (entries.length > 0 && !wired) {
-      return skipped("own-helper", { reason: `has its own credential helper for ${host}`, ownHelpers: entries });
+      return { state: "skipped", cause: "own-helper", ...base, reason: `has its own credential helper for ${host}`, ownHelpers: entries };
     }
   }
 
   if (transport === "ssh" && httpsUrl !== null) {
     const rule = await insteadOfMapsBack(root, httpsUrl);
-    if (rule !== null) return skipped("insteadof-maps-back", { reason: `an insteadOf rule maps https back to SSH: ${rule}`, insteadOfRule: rule });
+    if (rule === "") return { state: "skipped", cause: "insteadof-maps-back", ...base, reason: "an insteadOf rule rewrites its URL" };
+    if (rule !== null) return { state: "skipped", cause: "insteadof-maps-back", ...base, reason: `an insteadOf rule rewrites it: ${rule}`, insteadOfRule: rule };
   }
 
   if (!v.ok) return skipped(v.reason === "ssh" ? "not-https" : VERDICT_CAUSE[v.reason]);

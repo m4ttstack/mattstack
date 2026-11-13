@@ -56,6 +56,24 @@ describe("helpers", () => {
     expect(rtWired([], link)).toBe(false);
   });
 
+  test("helperEntries keeps a value holding a newline as one entry", async () => {
+    const repo = repoWith("https://gitlab.com/acme/x.git");
+    addHelpers(repo, "gitlab.com", ["", "!f() {\n echo hi; }; f"]);
+    expect(await helperEntries(repo, "gitlab.com")).toEqual(["", "!f() {\n echo hi; }; f"]);
+  });
+
+  test("helperEntries throws when git cannot read the config, never reads as unset", async () => {
+    const repo = repoWith(null);
+    writeFileSync(join(repo, ".git", "config"), "[core\nbroken = = =\n");
+    await expect(helperEntries(repo, "gitlab.com")).rejects.toThrow("git could not read this clone's credential config");
+  });
+
+  test("insteadOfMapsBack returns empty when git rewrites the URL but no rule is named", async () => {
+    const repo = repoWith("git@gitlab.com:acme/x.git");
+    git(repo, "config", "--local", "url.git@gitlab.com:.insteadOf", "https://gitlab.com/");
+    expect(await insteadOfMapsBack(repo, "https://gitlab.com/acme/x.git", async () => "")).toBe("");
+  });
+
   test("insteadOfMapsBack is null with no rule", async () => {
     const repo = repoWith("git@gitlab.com:acme/x.git");
     expect(await insteadOfMapsBack(repo, "https://gitlab.com/acme/x.git")).toBeNull();
@@ -202,5 +220,6 @@ describe("classifyClone", () => {
     expect(s.cause).toBe("insteadof-maps-back");
     expect(s.reason).not.toContain("LEAKCHECK");
     expect(s.insteadOfRule).not.toContain("LEAKCHECK");
+    expect(s.reason.startsWith("an insteadOf rule rewrites it: ")).toBe(true);
   });
 });
