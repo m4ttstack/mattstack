@@ -110,8 +110,38 @@ describe('buildMod', () => {
   })
 
   test('refuses a folder holding the mod itself', async () => {
-    await expect(buildMod(FIXTURE, resolve(FIXTURE, '..'), { validate: false })).rejects.toThrow(/mod/)
-    expect(existsSync(join(FIXTURE, 'mod.json'))).toBe(true)
+    const parent = scratch()
+    mkdirSync(join(parent, '.claude-plugin'))
+    writeFileSync(join(parent, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'fixture-mod' }))
+    const src = join(parent, 'src-copy')
+    cpSync(FIXTURE, src, { recursive: true })
+    await expect(buildMod(src, parent, { validate: false })).rejects.toThrow(/holds the mod's source/)
+    expect(existsSync(join(src, 'mod.json'))).toBe(true)
+  })
+
+  test('refuses an output folder inside the mod source', async () => {
+    const src = join(scratch(), 'mod')
+    cpSync(FIXTURE, src, { recursive: true })
+    await expect(buildMod(src, join(src, 'out'), { validate: false })).rejects.toThrow(/inside the mod's source/)
+    expect(existsSync(join(src, 'out'))).toBe(false)
+    expect(existsSync(join(src, 'mod.json'))).toBe(true)
+  })
+
+  test('builds the same bytes from any working directory', async () => {
+    const first = join(scratch(), 'a')
+    const second = join(scratch(), 'b')
+    const here = process.cwd()
+    try {
+      await buildMod(FIXTURE, first, { validate: false })
+      process.chdir(scratch())
+      await buildMod(FIXTURE, second, { validate: false })
+    } finally {
+      process.chdir(here)
+    }
+    const register = readFileSync(join(first, 'hooks/register.js'), 'utf8')
+    expect(readFileSync(join(second, 'hooks/register.js'), 'utf8')).toBe(register)
+    expect(register).toMatch(/^\/\/ packages\/mod-kit\/test\/fixture-mod\/src\/register\.tsx$/m)
+    expect(register).not.toContain(tmpdir())
   })
 
   test('fails when the hooks entry names a Client that mod.json does not list', async () => {

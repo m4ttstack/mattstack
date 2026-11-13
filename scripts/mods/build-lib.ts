@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 
 import { childEnv } from '../../lib/subprocess'
 
@@ -26,6 +26,17 @@ export function rewriteClientPaths(source: string, clients: string[]): { source:
     return whole.replace(`./${file}"`, `./${file.slice(0, -'.tsx'.length)}.js"`)
   })
   return { source: rewritten, unknown }
+}
+
+const REPO_ROOT = resolve(import.meta.dir, '../..')
+const SOURCE_MARKER = /^\/\/ (.+)$/gm
+
+// Bun writes each module's `// path` marker relative to the cwd; rebasing onto the repo root keeps a committed build the same from any directory.
+export function rebaseSourceMarkers(text: string, cwd: string = process.cwd()): string {
+  return text.replace(SOURCE_MARKER, (whole, path: string) => {
+    const file = resolve(cwd, path)
+    return existsSync(file) && statSync(file).isFile() ? `// ${relative(REPO_ROOT, file)}` : whole
+  })
 }
 
 export function findDynamicImport(source: string): number | undefined {
@@ -114,6 +125,7 @@ function assertEmptiable(srcDir: string, outDir: string, name: string): void {
   const out = resolve(outDir)
   const src = resolve(srcDir)
   if (src === out || src.startsWith(out + sep)) throw new Error(`refusing to empty ${out}: it holds the mod's source`)
+  if (out.startsWith(src + sep)) throw new Error(`refusing to build into ${out}: it is inside the mod's source`)
   if (!existsSync(out) || readdirSync(out).length === 0) return
   const manifest = join(out, '.claude-plugin/plugin.json')
   let owner: unknown
@@ -149,7 +161,7 @@ export async function buildMod(srcDir: string, outDir: string, opts: { validate:
   const files = new Map<string, string>()
   for (const output of result.outputs) {
     if (output.kind !== 'entry-point') continue
-    let text = await output.text()
+    let text = rebaseSourceMarkers(await output.text())
     const name = output.path.replace(/^\.\//, '')
     const dynamic = findDynamicImport(text)
     if (dynamic !== undefined) throw new Error(`${name} has a dynamic import( at offset ${dynamic}; a mod's modules are bundled into one file each`)
