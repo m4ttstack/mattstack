@@ -1,7 +1,7 @@
 import type { EngineInterface, Timer } from 'claude-code'
 
 import type { Todo } from '../types'
-import { LIVE_LINES_HERDR, TITLE, clipLines, newToken, quote } from './items'
+import { LIVE_LINES_HERDR, TITLE, clipLines, fileName, newToken, quote } from './items'
 import { report } from './report'
 import type { Outcome } from './report'
 import { getWorkspace, listTodos, patchTodo, setWorkspace } from './store'
@@ -15,6 +15,7 @@ const HERDR_MS = 15_000
 type Run = { id: string; poller?: Timer; isGone: boolean; isBusy: boolean; idlePolls: number; unreadPolls: number; output: string[] }
 type Made = {
   workspace?: { workspace_id?: string }
+  workspaces?: { workspace_id?: string; label?: string }[]
   tab?: { tab_id?: string }
   root_pane?: { pane_id?: string; tab_id?: string }
   process_info?: { shell_pid?: number; foreground_process_group_id?: number }
@@ -41,12 +42,27 @@ async function herdrJson($: EngineInterface, args: string): Promise<Made | null>
   }
 }
 
+// Every session's runs share the one workspace named TITLE: a stored id herdr no longer knows, or none yet, falls back to the one already there.
+async function sharedWorkspace($: EngineInterface): Promise<string | undefined> {
+  const known = await getWorkspace($)
+  if (known && (await herdrJson($, `workspace get ${quote(known)}`))) return known
+  const found = (await herdrJson($, 'workspace list'))?.workspaces?.find(w => w.label === TITLE)?.workspace_id
+  if (found) await setWorkspace($, found)
+  return found
+}
+
+// Tabs from several sessions share the workspace, so each names the session's repo; a run's own cwd is not its session's.
+async function tabLabel($: EngineInterface, todo: Todo): Promise<string> {
+  const repo = fileName((await $.session.cwd()).replace(/\/+$/, ''))
+  return quote(`${repo ? `${repo} ` : ''}#${todo.id} ${todo.title}`.slice(0, LABEL_MAX))
+}
+
 async function paneFor($: EngineInterface, todo: Todo, cwd: string): Promise<Placed | null> {
   if (todo.paneId && (await herdrJson($, `pane get ${quote(todo.paneId)}`))) return { paneId: todo.paneId, tabId: todo.tabId }
-  const label = quote(`#${todo.id} ${todo.title}`.slice(0, LABEL_MAX))
-  const known = await getWorkspace($)
-  if (known && (await herdrJson($, `workspace get ${quote(known)}`))) {
-    const made = await herdrJson($, `tab create --workspace ${quote(known)} --cwd ${quote(cwd)} --label ${label} --no-focus`)
+  const label = await tabLabel($, todo)
+  const shared = await sharedWorkspace($)
+  if (shared) {
+    const made = await herdrJson($, `tab create --workspace ${quote(shared)} --cwd ${quote(cwd)} --label ${label} --no-focus`)
     if (made?.root_pane?.pane_id) return { paneId: made.root_pane.pane_id, tabId: made.tab?.tab_id ?? made.root_pane.tab_id }
   }
   const made = await herdrJson($, `workspace create --cwd ${quote(cwd)} --label ${quote(TITLE)} --no-focus`)

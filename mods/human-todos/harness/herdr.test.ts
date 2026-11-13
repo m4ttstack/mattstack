@@ -59,17 +59,65 @@ test('the first run creates a background workspace and names its tab; the second
 
   await run1('1')
   expect(fake.ran('herdr workspace create')).toEqual(["herdr workspace create --cwd '/work' --label 'Human Todos' --no-focus"])
-  expect(fake.ran('herdr tab rename')).toEqual([`herdr tab rename '${item('1')?.tabId}' '#1 Sign in'`])
+  expect(fake.ran('herdr tab rename')).toEqual([`herdr tab rename '${item('1')?.tabId}' 'work #1 Sign in'`])
   expect(item('1')).toMatchObject({ status: 'running', runner: 'herdr', paneId: expect.any(String), tabId: expect.any(String) })
 
   await run1('2')
   expect(fake.ran('herdr workspace create')).toHaveLength(1)
   const ws = [...fake.workspaces][0]
-  const label = `#2 ${'x'.repeat(60)}`.slice(0, 40)
+  const label = `work #2 ${'x'.repeat(60)}`.slice(0, 40)
   expect(fake.ran('herdr tab create')).toEqual([`herdr tab create --workspace '${ws}' --cwd '/work' --label '${label}' --no-focus`])
   expect(label).toHaveLength(40)
   expect(item('2')?.tabId).not.toBe(item('1')?.tabId)
   expect(item('2')?.paneId).not.toBe(item('1')?.paneId)
+})
+
+test('with no stored workspace, a run reuses the "Human Todos" workspace another session left, and creates none', async ($, on) => {
+  const { run1, fake, item } = await seeded($, on, [todo({ id: '1', title: 'Sign in' }), todo({ id: '2', title: 'Deploy' })])
+  fake.addWorkspace('mattstack')
+  const shared = fake.addWorkspace('Human Todos')
+
+  await run1('1')
+  await run1('2')
+
+  expect(fake.ran('herdr workspace create')).toEqual([])
+  expect(fake.ran('herdr tab create')).toEqual([
+    `herdr tab create --workspace '${shared}' --cwd '/work' --label 'work #1 Sign in' --no-focus`,
+    `herdr tab create --workspace '${shared}' --cwd '/work' --label 'work #2 Deploy' --no-focus`,
+  ])
+  expect(item('1')).toMatchObject({ status: 'running', runner: 'herdr' })
+  // The id found is stored, so the second run asks for it by id instead of listing again.
+  expect(fake.ran('herdr workspace list')).toHaveLength(1)
+})
+
+test('a stored workspace that is gone falls back to the "Human Todos" one herdr has', async ($, on) => {
+  const { run1, fake } = await seeded($, on, [todo({ id: '1' }), todo({ id: '2' })])
+  await run1('1')
+  fake.workspaces.clear()
+  const shared = fake.addWorkspace('Human Todos')
+
+  await run1('2')
+
+  expect(fake.ran('herdr workspace create')).toHaveLength(1)
+  expect(fake.ran('herdr tab create')).toEqual([`herdr tab create --workspace '${shared}' --cwd '/work' --label 'work #2 T' --no-focus`])
+})
+
+test('a workspace is created only when herdr has none called "Human Todos"', async ($, on) => {
+  const { run1, fake } = await seeded($, on, [todo({ id: '1' })])
+  fake.addWorkspace('mattstack')
+  fake.addWorkspace('Human Todos (old)')
+
+  await run1('1')
+
+  expect(fake.ran('herdr workspace create')).toEqual(["herdr workspace create --cwd '/work' --label 'Human Todos' --no-focus"])
+})
+
+test("a tab's label names the session's repo, not the run's cwd, so tabs from several sessions stay apart", async ($, on) => {
+  const { run1, fake, item } = await seeded($, on, [todo({ id: '1', title: 'Deploy', cwd: '/elsewhere/other-repo' })])
+
+  await run1('1')
+
+  expect(fake.labels.get(item('1')?.tabId ?? '')).toBe('work #1 Deploy')
 })
 
 test('a run uses the item\'s cwd for its tab', async ($, on) => {

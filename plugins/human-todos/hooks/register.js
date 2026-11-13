@@ -163,13 +163,26 @@ async function herdrJson($, args) {
     return null;
   }
 }
+async function sharedWorkspace($) {
+  const known = await getWorkspace($);
+  if (known && await herdrJson($, `workspace get ${quote(known)}`))
+    return known;
+  const found = (await herdrJson($, "workspace list"))?.workspaces?.find((w) => w.label === TITLE)?.workspace_id;
+  if (found)
+    await setWorkspace($, found);
+  return found;
+}
+async function tabLabel($, todo) {
+  const repo = fileName((await $.session.cwd()).replace(/\/+$/, ""));
+  return quote(`${repo ? `${repo} ` : ""}#${todo.id} ${todo.title}`.slice(0, LABEL_MAX));
+}
 async function paneFor($, todo, cwd) {
   if (todo.paneId && await herdrJson($, `pane get ${quote(todo.paneId)}`))
     return { paneId: todo.paneId, tabId: todo.tabId };
-  const label = quote(`#${todo.id} ${todo.title}`.slice(0, LABEL_MAX));
-  const known = await getWorkspace($);
-  if (known && await herdrJson($, `workspace get ${quote(known)}`)) {
-    const made = await herdrJson($, `tab create --workspace ${quote(known)} --cwd ${quote(cwd)} --label ${label} --no-focus`);
+  const label = await tabLabel($, todo);
+  const shared = await sharedWorkspace($);
+  if (shared) {
+    const made = await herdrJson($, `tab create --workspace ${quote(shared)} --cwd ${quote(cwd)} --label ${label} --no-focus`);
     if (made?.root_pane?.pane_id)
       return { paneId: made.root_pane.pane_id, tabId: made.tab?.tab_id ?? made.root_pane.tab_id };
   }

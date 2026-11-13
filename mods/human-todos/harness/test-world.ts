@@ -215,6 +215,7 @@ type Reply = { exitCode: number; stdout: string; stderr: string }
 export function herdrFake({ hasRt = true }: { hasRt?: boolean } = {}) {
   const calls: string[] = []
   const workspaces = new Set<string>()
+  const workspaceLabels = new Map<string, string>()
   const panes = new Map<string, FakePane>()
   const labels = new Map<string, string>()
   const state = { hasRt, isCtrlCEnding: true, isCreateRefused: false, isRunRefused: false }
@@ -245,13 +246,14 @@ export function herdrFake({ hasRt = true }: { hasRt?: boolean } = {}) {
     const flag = (name: string) => w[w.indexOf(name) + 1] ?? ''
     switch (`${a} ${b}`) {
       case 'workspace list':
-        return ok('[]')
+        return json({ type: 'workspace_list', workspaces: [...workspaces].map(id => ({ workspace_id: id, label: workspaceLabels.get(id) ?? id })) })
       case 'workspace get':
         return workspaces.has(w[3] ?? '') ? json({ workspace: { workspace_id: w[3] } }) : no()
       case 'workspace create': {
         if (state.isCreateRefused) return no()
         const ws = `ws${++seq}`
         workspaces.add(ws)
+        workspaceLabels.set(ws, flag('--label'))
         const tab = `tab${++seq}`
         const pane = newPane(tab)
         labels.set(tab, flag('--label'))
@@ -312,6 +314,13 @@ export function herdrFake({ hasRt = true }: { hasRt?: boolean } = {}) {
     state,
     panes,
     workspaces,
+    // A workspace herdr already has, as another session would have left it.
+    addWorkspace: (label: string) => {
+      const ws = `ws${++seq}`
+      workspaces.add(ws)
+      workspaceLabels.set(ws, label)
+      return ws
+    },
     print: (id: string, ...lines: string[]) => panes.get(id)?.lines.push(...lines),
     finish,
     idle: (id: string) => {

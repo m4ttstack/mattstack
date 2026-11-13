@@ -69,13 +69,17 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, probeExit = 0
     copied.push({ text: e.text, surface: e.surface })
     return { value: { isCopied: true as const } }
   })
+  // The runner probe and the tab placement both ask `herdr workspace list`: herdr answers each with the probe's exit code and,
+  // through the command stand-in, the workspaces it has. Only the first ask, the probe, is held.
+  let lists = 0
   on('process.run', async (_, e) => {
     ran.push([...e.argv])
     if (e.argv.join(' ').includes('herdr workspace list')) {
       if (probeDeny) return { deny: 'no herdr' }
-      if (probeHold > 0) await w.clock.sleep(probeHold)
+      if (probeHold > 0 && lists++ === 0) await w.clock.sleep(probeHold)
+      const listed = run?.(e.argv).stdout ?? ''
+      return { value: { exitCode: probeExit, stdout: probeExit === 0 ? listed : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
-    if (e.argv.join(' ').includes('herdr workspace list')) return { value: { exitCode: probeExit, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'open') return { value: { exitCode: openExit?.(e.argv) ?? 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (run === undefined) return { deny: 'no command stand-in' }
     return { value: { exitCode: 0, stdout: '', stderr: '', ...run(e.argv), isStdoutTruncated: false, isStderrTruncated: false } }
@@ -486,7 +490,9 @@ for (const { name, setup, pin, started } of CHOICES) {
 
     expect(fake.ran('herdr pane run').length === 1).toBe(started === 'herdr')
     expect(spawned.some(s => s.argv.at(-1)?.includes('ls -la'))).toBe(started === 'local')
-    const probed = ran.some(argv => argv.join(' ').includes('herdr workspace list'))
+    // A herdr run also lists the workspaces once, to find the shared one; any ask beyond that is the probe.
+    const lists = ran.filter(argv => argv.join(' ').includes('herdr workspace list')).length
+    const probed = lists > (started === 'herdr' ? 1 : 0)
     expect(probed).toBe(!pin && Boolean(setup.env?.HERDR_SOCKET_PATH))
     await pane.unmount()
   })
