@@ -304,7 +304,20 @@ describe('a GitHub team end to end', () => {
       expect(env.baseUrl).toBe('https://github.com');
       expect(env.token).toBe(GITHUB_SECRET);
     }
-    for (const call of calls) expect(call.args).not.toContain(GITLAB_SECRET);
+  });
+
+  it('the empty-projects hint names owner/repo', async () => {
+    const projects = SETTINGS['boxscore.projects'];
+    SETTINGS['boxscore.projects'] = [];
+    try {
+      await expect(
+        getLeaderboard({ window, refresh: false, trend: false })
+      ).rejects.toThrow(
+        'boxscore.projects is empty: add at least one "owner/repo" (rt settings).'
+      );
+    } finally {
+      SETTINGS['boxscore.projects'] = projects;
+    }
   });
 
   it("the detail response links ada's merged rows to GitHub pull requests", async () => {

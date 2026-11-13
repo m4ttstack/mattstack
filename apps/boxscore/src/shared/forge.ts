@@ -51,6 +51,8 @@ export const GITHUB_COPY: Readonly<Record<string, string>> = {
   'Push calendar': 'Commit calendar',
   'pushes per day': 'commits per day',
   'Weekdays without a push': 'Weekdays without a commit',
+  'boxscore.projects is empty: add at least one "group/project" (rt settings).':
+    'boxscore.projects is empty: add at least one "owner/repo" (rt settings).',
 };
 
 const GITHUB_WORDS: [RegExp, string][] = [
@@ -66,8 +68,7 @@ const GITHUB_WORDS: [RegExp, string][] = [
 /** The copy for a team's forge: GitLab copy is returned as written, so absent reads GitLab. */
 export function forgeText(text: string, forge: Forge | undefined): string {
   if (forge !== 'github') return text;
-  const whole = GITHUB_COPY[text];
-  if (whole !== undefined) return whole;
+  if (Object.hasOwn(GITHUB_COPY, text)) return GITHUB_COPY[text]!;
   return GITHUB_WORDS.reduce((s, [re, to]) => s.replace(re, to), text);
 }
 

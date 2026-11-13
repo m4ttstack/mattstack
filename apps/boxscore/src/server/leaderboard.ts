@@ -137,10 +137,13 @@ async function resolveGitHubEnv(s: BoxscoreSettings): Promise<Env> {
 
 /** Settings-driven, projects-only (spec 5.4; groupPath scoping was retired with config.ts). */
 function resolveScope(): Scope {
-  const projects = readSettings().projects;
+  const { projects, forge } = readSettings();
   if (projects.length === 0) {
     throw new ConfigError(
-      'boxscore.projects is empty: add at least one "group/project" (rt settings).'
+      forgeText(
+        'boxscore.projects is empty: add at least one "group/project" (rt settings).',
+        forge
+      )
     );
   }
   return { type: 'projects', projectPaths: projects };

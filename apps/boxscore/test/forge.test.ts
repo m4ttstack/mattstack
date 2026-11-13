@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { LOCKED_BODY } from '../src/app/access/copy.js';
@@ -39,6 +41,9 @@ describe('changeRef', () => {
   });
 });
 
+const EMPTY_PROJECTS_HINT =
+  'boxscore.projects is empty: add at least one "group/project" (rt settings).';
+
 describe('forgeText', () => {
   const WINDOW: TimeWindow = {
     start: '2026-08-30T00:00:00.000Z',
@@ -59,7 +64,14 @@ describe('forgeText', () => {
       'GitLab /user lookup failed; no row is highlighted as you',
       'Fetching MR details',
       '12 distinct days with a push',
-      'Pushes'
+      'Pushes',
+      'pushes',
+      'push',
+      'Push calendar',
+      'pushes per day',
+      'Weekdays without a push',
+      'those count with zeroed diff/notes.',
+      EMPTY_PROJECTS_HINT
     );
     return out;
   }
@@ -177,5 +189,82 @@ describe('GitHub review copy says comment, not note', () => {
     ];
     for (const s of strings)
       expect(forgeText(s, 'github')).not.toMatch(/\bnotes?\b/i);
+  });
+});
+
+describe('forgeText reads only its own copy entries', () => {
+  it('leaves Object.prototype names as written', () => {
+    for (const name of ['toString', 'constructor', 'hasOwnProperty']) {
+      expect(forgeText(name, 'github')).toBe(name);
+    }
+  });
+});
+
+describe('GitHub copy says commit, not push', () => {
+  it('rewrites the coding days panel copy', () => {
+    expect(forgeText('Push calendar', 'github')).toBe('Commit calendar');
+    expect(forgeText('pushes per day', 'github')).toBe('commits per day');
+    expect(forgeText('Weekdays without a push', 'github')).toBe(
+      'Weekdays without a commit'
+    );
+    expect(forgeText('push', 'github')).toBe('commit');
+    expect(forgeText('pushes', 'github')).toBe('commits');
+  });
+
+  it('says comments in the partial detail warning', () => {
+    expect(forgeText('those count with zeroed diff/notes.', 'github')).toBe(
+      'those count with zeroed diff/comments.'
+    );
+  });
+
+  it('names owner/repo in the empty-projects hint', () => {
+    expect(forgeText(EMPTY_PROJECTS_HINT, 'github')).toBe(
+      'boxscore.projects is empty: add at least one "owner/repo" (rt settings).'
+    );
+    expect(forgeText(EMPTY_PROJECTS_HINT, 'gitlab')).toBe(EMPTY_PROJECTS_HINT);
+  });
+
+  it('leaves no push wording in any github copy string', () => {
+    const strings = [
+      ...(Object.keys(PANEL_COPY) as MetricKey[]).flatMap(k => [
+        PANEL_COPY[k].source,
+        definitionOf(k, {
+          count: 3,
+          p50: 1,
+          p90: 2,
+          bandLow: 10,
+          bandHigh: 400,
+        }),
+      ]),
+      ...METRICS.flatMap(d => [d.label, d.description]),
+      ...Object.keys(GITHUB_COPY),
+    ];
+    for (const s of strings)
+      expect(forgeText(s, 'github')).not.toMatch(/\bpush(es|ed)?\b/i);
+  });
+});
+
+describe('GITHUB_COPY drift guard', () => {
+  const SRC = join(import.meta.dirname, '../src');
+  const FORGE_TABLE = join(SRC, 'shared/forge.ts');
+
+  function sourceFiles(dir: string): string[] {
+    return readdirSync(dir).flatMap(name => {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) return sourceFiles(path);
+      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
+    });
+  }
+
+  const corpus = sourceFiles(SRC)
+    .filter(path => path !== FORGE_TABLE)
+    .map(path => readFileSync(path, 'utf8'))
+    .join('\n');
+
+  it('every key is still a string literal in the app source', () => {
+    const missing = Object.keys(GITHUB_COPY).filter(
+      key => !["'", '"', '`'].some(q => corpus.includes(`${q}${key}${q}`))
+    );
+    expect(missing).toEqual([]);
   });
 });
