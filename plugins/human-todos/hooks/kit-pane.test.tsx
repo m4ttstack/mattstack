@@ -66,7 +66,11 @@ async function thumbRows(ui: Drawing): Promise<number[]> {
   return lines.flatMap((line, n) => (has(line) ? [n] : []))
 }
 
-const propsOf = async (ui: Drawing) => (await clientOf(ui)).props.props as { focused: boolean; width: number; offset: number; bodyRows: number }
+// The Client's props, with the window's first row as `offset`.
+const propsOf = async (ui: Drawing) => {
+  const props = (await clientOf(ui)).props.props as { focused: boolean; width: number; view: { top: number; total: number; windowRows: number } }
+  return { ...props, offset: props.view.top }
+}
 
 const cellOf = (rows: string[], word: string) => {
   const y = rows.findIndex(r => r.includes(word))
@@ -511,5 +515,74 @@ test('keyboard: moving the selection past the window scrolls it into view', asyn
   expect((await propsOf(pane)).offset).toBeGreaterThan(0)
   expect(titleAbove(rows)).toBe('○ Item 9')
   expect(edged(rows)).toBe('Done')
+  await pane.unmount()
+})
+
+test('keyboard: Enter on a selection the wheel scrolled away brings it back and presses nothing; the next Enter acts', async ($, on) => {
+  await seeded($, on, many(30))
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.key({ key: 'down' })
+  expect(await scrollBy($, 40)).toEqual({})
+  expect((await propsOf(pane)).offset).toBe(40)
+  expect(titleAbove(await rowsOf(pane))).toBeUndefined()
+
+  await pane.key({ key: 'return' })
+  await pane.advance(500)
+  expect(await state($)).not.toContain('[done]')
+  expect((await propsOf(pane)).offset).toBe(0)
+  expect(titleAbove(await rowsOf(pane))).toBe('○ Item 1')
+
+  await pane.key({ key: 'return' })
+  await pane.advance(160)
+  expect(await state($)).toMatch(/#1 \[done\]/)
+  await pane.unmount()
+})
+
+test('keyboard: when the selected item goes, the window follows the selection to the item it falls to', async ($, on) => {
+  await seeded($, on, many(12))
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.key({ key: 'down' })
+  for (let n = 0; n < 11; n++) await pane.key({ key: 'tab' })
+  expect(titleAbove(await rowsOf(pane))).toBe('○ Item 12')
+  await scrollBy($, -1000)
+  expect((await propsOf(pane)).offset).toBe(0)
+
+  await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '12' })
+  const rows = await rowsOf(pane)
+  expect((await propsOf(pane)).offset).toBeGreaterThan(0)
+  expect(titleAbove(rows)).toBe('○ Item 11')
+  expect(edged(rows)).toBe('Done')
+  await pane.unmount()
+})
+
+test("keyboard: once Confirm starts the run, the selection lands on the item's filled Stop", async ($, on) => {
+  const w = world(on, { entries: { [`list:${SESSION}`]: { todos: [todo({ id: '1', title: 'Deploy', script: 'make' })], nextId: 50, savedAt: 1_000_000 } } })
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.write', () => ({ value: undefined }))
+  mock.env(on, { HOME: '/home/u' })
+  children(on, () =>
+    (async function* (): Child {
+      yield pid(4242)
+      await new Promise<void>(() => {})
+      return { code: 0, signal: null }
+    })(),
+  )
+  await startSession($)
+  await $.command.run({ command: 'todos-runner', args: 'local' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  await pane.key({ key: 'down' })
+  // Moving off Run and back stores the selection on Run itself, as a person picking it would.
+  await pane.key({ key: 'right' })
+  await pane.key({ key: 'left' })
+  expect(edged(await rowsOf(pane))).toBe('Run')
+  await pane.key({ key: 'return' })
+  await pane.advance(160)
+  expect(edged(await rowsOf(pane))).toBe('Confirm')
+  await pane.key({ key: 'return' })
+  await pane.advance(160)
+  await w.clock.settle()
+  expect(await state($)).toMatch(/#1 \[running\]/)
+  expect(edged(await rowsOf(pane))).toBe('Stop')
   await pane.unmount()
 })

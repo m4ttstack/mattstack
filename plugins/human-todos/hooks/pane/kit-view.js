@@ -411,9 +411,9 @@ function kitClient(body, options = {}) {
       post: (message) => surface.post(message),
       hide: () => surface.post({ type: "hide" }),
       onKey: (fn) => void surface.onKey((event) => {
-        engage?.();
         if (latest.keyPress)
           return;
+        engage?.();
         if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
           setState({ ...latest, keyboard: true });
           reveal?.();
@@ -865,6 +865,7 @@ var STYLE = {
   plain: {}
 };
 var fit2 = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
+var roomOf = (width) => Math.max(1, width - GUTTER - BAR);
 function buttonLines(row, room) {
   const indent = sp(" ".repeat(row.flush ? 0 : INDENT));
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
@@ -911,22 +912,78 @@ function rowLines(row, room) {
   }
 }
 function kitLayout(model, width, bodyRows) {
-  const room = Math.max(1, width - GUTTER - BAR);
+  const room = roomOf(width);
   const windowRows = Math.max(1, bodyRows - BAR_ROWS);
-  const starts = [];
+  const rows = [];
   const lines = [];
-  for (const row of model.rows) {
-    starts.push(lines.length);
-    lines.push(...rowLines(row, room));
-  }
-  const spans = model.spans.map((s) => ({ first: starts[s.first] ?? 0, last: (starts[s.last + 1] ?? lines.length) - 1 }));
+  const add = (row) => {
+    const laid = rowLines(row, room);
+    rows.push({ row, first: lines.length, count: laid.length });
+    lines.push(...laid);
+  };
+  model.rows.forEach(add);
+  const spans = model.spans.map((s) => ({ first: rows[s.first]?.first ?? 0, last: (rows[s.last + 1]?.first ?? lines.length) - 1 }));
   if (lines.length > windowRows)
-    for (const row of endRows(model))
-      lines.push(...rowLines(row, room));
-  return { lines, spans, windowRows };
+    endRows(model).forEach(add);
+  return { lines, spans, windowRows, rows };
 }
 function maxOffset(layout) {
   return Math.max(0, layout.lines.length - layout.windowRows);
+}
+function stopMessage(stop, col) {
+  const id = stop.ids[col];
+  return id === undefined ? undefined : messageOf({ id, todoId: stop.isItem ? stop.key : undefined });
+}
+function keyStops(model, layout) {
+  const stops = [];
+  for (const row of model.rows) {
+    if (row.kind !== "buttons")
+      continue;
+    for (const button of row.buttons) {
+      const key = button.todoId ?? button.id;
+      const stop = stops.find((s) => s.key === key);
+      if (stop) {
+        stop.ids.push(button.id);
+        stop.tones.push(button.tone);
+      } else
+        stops.push({ key, ids: [button.id], tones: [button.tone], main: 0, first: 0, last: 0, isItem: button.todoId !== undefined });
+    }
+  }
+  let item = 0;
+  return stops.map(({ tones, ...stop }) => {
+    const wanted = JSON.stringify(stopMessage(stop, 0));
+    const at = layout.lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+    const span = stop.isItem ? layout.spans[item++] : { first: at, last: at };
+    return { ...stop, main: Math.max(0, tones.findIndex((t) => t !== "quiet")), first: span?.first ?? 0, last: span?.last ?? 0 };
+  });
+}
+function kitView(model, width, bodyRows, offset) {
+  const layout = kitLayout(model, width, bodyRows);
+  const top = Math.min(Math.max(0, offset), maxOffset(layout));
+  const touched = layout.rows.filter((r) => r.first + r.count > top && r.first < top + layout.windowRows);
+  return {
+    rows: touched.map((r) => r.row),
+    skip: top - (touched[0]?.first ?? top),
+    top,
+    total: layout.lines.length,
+    windowRows: layout.windowRows,
+    stops: keyStops(model, layout)
+  };
+}
+function revealOffset(view, index) {
+  const stop = view.stops[index];
+  const most = Math.max(0, view.total - view.windowRows);
+  if (!stop)
+    return view.top;
+  if (stop.first < view.top)
+    return Math.max(0, stop.first);
+  if (stop.last > view.top + view.windowRows - 1)
+    return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1));
+  return view.top;
+}
+function isInView(view, index) {
+  const stop = view.stops[index];
+  return stop !== undefined && stop.first >= view.top && stop.last <= view.top + view.windowRows - 1;
 }
 function clip(line, cells) {
   const out = [];
@@ -948,45 +1005,6 @@ function clip(line, cells) {
   return out;
 }
 var RAIL = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(GUTTER - 1))];
-function keyStops(model) {
-  const stops = [];
-  for (const row of model.rows) {
-    if (row.kind !== "buttons")
-      continue;
-    for (const button of row.buttons) {
-      const key = button.todoId ?? button.id;
-      const stop = stops.find((s) => s.key === key);
-      if (stop)
-        stop.buttons.push(button);
-      else
-        stops.push({ key, buttons: [button] });
-    }
-  }
-  return stops;
-}
-function stopLines(layout, stops, index) {
-  const stop = stops[index];
-  if (!stop)
-    return;
-  if (stop.buttons[0]?.todoId !== undefined)
-    return layout.spans[stops.slice(0, index).filter((s) => s.buttons[0]?.todoId !== undefined).length];
-  const wanted = JSON.stringify(messageOf(stop.buttons[0]));
-  const at = layout.lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
-  return at < 0 ? undefined : { first: at, last: at };
-}
-function revealOffset(layout, stops, index, offset) {
-  const range = stopLines(layout, stops, index);
-  const most = maxOffset(layout);
-  const top = Math.min(Math.max(0, offset), most);
-  if (!range)
-    return top;
-  const { first, last } = range;
-  if (first < top)
-    return Math.max(0, first);
-  if (last > top + layout.windowRows - 1)
-    return Math.min(most, Math.min(first, last - layout.windowRows + 1));
-  return top;
-}
 function markFirst(line) {
   const at = line.findIndex((span) => span.t.startsWith("○ "));
   if (at < 0)
@@ -994,73 +1012,67 @@ function markFirst(line) {
   const span = line[at];
   return [...line.slice(0, at), { ...span, t: "○", color: BRAND.pink }, { ...span, t: span.t.slice(1) }, ...line.slice(at + 1)];
 }
-function kitWindow(layout, width, offset, focus = {}) {
-  const { lines: all, windowRows } = layout;
+function viewLines(view, width, focus = {}) {
+  const room = roomOf(width);
+  const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const chosen = focus.selected && JSON.stringify(focus.selected);
   const range = focus.marked ? focus.range : undefined;
   const look = (span) => {
     const base = focus.pressing ? pressed(span) : span;
     return focus.marked ? keySelected(base) : [base];
   };
-  const lines = all.map((line, n) => {
+  const bar = scrollBar(view.windowRows, view.total, view.top);
+  return shown.map((line, n) => {
+    const at = view.top + n;
     const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? look(span) : [span]) : line;
-    return range && n === range.first ? markFirst(lit) : lit;
+    const marked = range && at === range.first ? markFirst(lit) : lit;
+    const gutter = range && at >= range.first && at <= range.last ? RAIL : [sp(" ".repeat(GUTTER))];
+    return [...clip([...gutter, ...marked], width - BAR), ...bar[n] ?? []];
   });
-  const top = Math.min(Math.max(0, offset), maxOffset(layout));
-  const shown = lines.slice(top, top + windowRows);
-  const bar = scrollBar(windowRows, lines.length, top);
-  const gutter = (n) => {
-    const at = top + n;
-    return range && at >= range.first && at <= range.last ? RAIL : [sp(" ".repeat(GUTTER))];
-  };
-  return shown.map((line, n) => [...clip([...gutter(n), ...line], width - BAR), ...bar[n] ?? []]);
 }
 
 // mods/human-todos/src/pane/kit-view.tsx
 function resolve(stops, sel) {
   if (!sel)
-    return { at: 0, col: stops[0] ? mainOf(stops[0]) : 0 };
+    return { at: 0, col: stops[0]?.main ?? 0, hasFallen: false };
   const found = stops.findIndex((s) => s.key === sel.key);
   if (found < 0) {
     const at = Math.min(sel.at, stops.length - 1);
-    return { at, col: stops[at] ? mainOf(stops[at]) : 0 };
+    return { at, col: stops[at]?.main ?? 0, hasFallen: true };
   }
-  const buttons = stops[found]?.buttons ?? [];
-  const col = buttons.findIndex((b) => b.id === sel.button);
-  return { at: found, col: col >= 0 ? col : Math.min(sel.col, buttons.length - 1) };
+  const col = stops[found].ids.indexOf(sel.button);
+  return { at: found, col: col >= 0 ? col : stops[found].main, hasFallen: false };
 }
-var mainOf = (stop) => Math.max(0, stop.buttons.findIndex((b) => b.tone !== "quiet"));
 var kit_view_default = kitClient((props, ui) => {
-  const layout = kitLayout(props.model, props.width, props.bodyRows);
-  const stops = keyStops(props.model);
+  const { view } = props;
+  const { stops } = view;
   const here = resolve(stops, ui.state.sel);
-  const current = stops[here.at]?.buttons[here.col];
-  const rail = current?.todoId === undefined ? undefined : stopLines(layout, stops, here.at);
+  const current = stops[here.at] && stopMessage(stops[here.at], here.col);
   const mark = (at, col) => {
     const stop = stops[at];
-    const button = stop?.buttons[col];
+    const button = stop?.ids[col];
     if (!stop || !button)
       return false;
-    ui.setState({ ...ui.state, sel: { key: stop.key, button: button.id, at, col } });
+    ui.setState({ ...ui.state, sel: { key: stop.key, button, at } });
     return true;
   };
-  const select = (at, col) => {
-    if (!mark(at, col))
-      return;
-    const offset = revealOffset(layout, stops, at, props.offset);
-    if (offset !== props.offset)
+  const reveal = (at) => {
+    const offset = revealOffset(view, at);
+    if (offset !== view.top)
       ui.post({ type: "scrollTo", offset });
   };
+  const select = (at, col) => {
+    if (mark(at, col))
+      reveal(at);
+  };
+  if (here.hasFallen && ui.focused && ui.keyboard && mark(here.at, here.col) && !isInView(view, here.at))
+    reveal(here.at);
   const clicked = (message) => {
     const wanted = JSON.stringify(message);
-    stops.forEach((stop, at) => stop.buttons.forEach((button, col) => JSON.stringify(messageOf(button)) === wanted && mark(at, col)));
+    stops.forEach((stop, at) => stop.ids.forEach((_id, col) => JSON.stringify(stopMessage(stop, col)) === wanted && mark(at, col)));
     ui.post(message);
   };
-  ui.onReveal(() => {
-    const offset = revealOffset(layout, stops, here.at, props.offset);
-    if (offset !== props.offset)
-      ui.post({ type: "scrollTo", offset });
-  });
+  ui.onReveal(() => reveal(here.at));
   ui.onKey((ev) => {
     if (!ui.focused || stops.length === 0)
       return false;
@@ -1068,22 +1080,27 @@ var kit_view_default = kitClient((props, ui) => {
     if (step !== 0) {
       const at = Math.min(Math.max(0, here.at + step), stops.length - 1);
       if (at !== here.at)
-        select(at, mainOf(stops[at]));
+        select(at, stops[at].main);
       return true;
     }
     if (ev.key === "left" || ev.key === "right") {
       const col = here.col + (ev.key === "left" ? -1 : 1);
-      if (col >= 0 && col < (stops[here.at]?.buttons.length ?? 0))
+      if (col >= 0 && col < (stops[here.at]?.ids.length ?? 0))
         select(here.at, col);
       return true;
     }
     if ((ev.key === "return" || ev.key === "enter") && current) {
-      const message = messageOf(current);
-      ui.pressFor(() => ui.post(message));
+      if (!isInView(view, here.at)) {
+        reveal(here.at);
+        return true;
+      }
+      ui.pressFor(() => ui.post(current));
       return true;
     }
     return false;
   });
+  const stop = stops[here.at];
+  const range = stop?.isItem ? { first: stop.first, last: stop.last } : undefined;
   return /* @__PURE__ */ h(Panel, {
     width: props.width
   }, /* @__PURE__ */ h(BrandBar, {
@@ -1092,7 +1109,7 @@ var kit_view_default = kitClient((props, ui) => {
   }), /* @__PURE__ */ h(Lines, {
     lines: [[sp(" ")]]
   }), /* @__PURE__ */ h(Lines, {
-    lines: kitWindow(layout, props.width, props.offset, ui.focused && current ? { selected: messageOf(current), range: rail, marked: ui.keyboard, pressing: ui.keyPressing } : {}),
+    lines: viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {}),
     onAction: clicked
   }));
 }, {

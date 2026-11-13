@@ -161,7 +161,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
 }
 
 // What a button does, as both drawers hand it to the pane's actions.
-export function messageOf(button: PaneButton): PaneMessage {
+export function messageOf(button: Pick<PaneButton, 'id' | 'todoId'>): PaneMessage {
   if (button.id === 'clear') return { type: 'clear' }
   if (button.id === 'more') return { type: 'toggle', id: button.todoId ?? '' }
   return { type: 'press', id: button.todoId ?? '', button: button.id }

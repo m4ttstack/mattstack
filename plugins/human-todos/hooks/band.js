@@ -402,9 +402,9 @@ function kitClient(body, options = {}) {
       post: (message) => surface.post(message),
       hide: () => surface.post({ type: "hide" }),
       onKey: (fn) => void surface.onKey((event) => {
-        engage?.();
         if (latest.keyPress)
           return;
+        engage?.();
         if (focused && !latest.keyboard && options.revealKeys?.includes(event.key)) {
           setState({ ...latest, keyboard: true });
           reveal?.();

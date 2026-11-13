@@ -234,7 +234,7 @@ test('endRows close an overflowing list: a blank first only after the finished l
 })
 
 test('messageOf gives each button the one message both drawers act on', () => {
-  expect(messageOf({ id: 'run', label: 'Run', tone: 'primary', todoId: '3' })).toEqual({ type: 'press', id: '3', button: 'run' })
-  expect(messageOf({ id: 'more', label: 'Show all', tone: 'neutral', todoId: '3' })).toEqual({ type: 'toggle', id: '3' })
-  expect(messageOf({ id: 'clear', label: 'Clear finished', tone: 'neutral' })).toEqual({ type: 'clear' })
+  expect(messageOf({ id: 'run', todoId: '3' })).toEqual({ type: 'press', id: '3', button: 'run' })
+  expect(messageOf({ id: 'more', todoId: '3' })).toEqual({ type: 'toggle', id: '3' })
+  expect(messageOf({ id: 'clear' })).toEqual({ type: 'clear' })
 })

@@ -1531,6 +1531,7 @@ var STYLE = {
   plain: {}
 };
 var fit = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
+var roomOf = (width) => Math.max(1, width - GUTTER - BAR);
 function buttonLines(row, room) {
   const indent = sp(" ".repeat(row.flush ? 0 : INDENT));
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
@@ -1577,22 +1578,78 @@ function rowLines(row, room) {
   }
 }
 function kitLayout(model, width, bodyRows) {
-  const room = Math.max(1, width - GUTTER - BAR);
+  const room = roomOf(width);
   const windowRows = Math.max(1, bodyRows - BAR_ROWS);
-  const starts = [];
+  const rows = [];
   const lines = [];
-  for (const row of model.rows) {
-    starts.push(lines.length);
-    lines.push(...rowLines(row, room));
-  }
-  const spans = model.spans.map((s) => ({ first: starts[s.first] ?? 0, last: (starts[s.last + 1] ?? lines.length) - 1 }));
+  const add = (row) => {
+    const laid = rowLines(row, room);
+    rows.push({ row, first: lines.length, count: laid.length });
+    lines.push(...laid);
+  };
+  model.rows.forEach(add);
+  const spans = model.spans.map((s) => ({ first: rows[s.first]?.first ?? 0, last: (rows[s.last + 1]?.first ?? lines.length) - 1 }));
   if (lines.length > windowRows)
-    for (const row of endRows(model))
-      lines.push(...rowLines(row, room));
-  return { lines, spans, windowRows };
+    endRows(model).forEach(add);
+  return { lines, spans, windowRows, rows };
 }
 function maxOffset(layout) {
   return Math.max(0, layout.lines.length - layout.windowRows);
+}
+function stopMessage(stop, col) {
+  const id = stop.ids[col];
+  return id === undefined ? undefined : messageOf({ id, todoId: stop.isItem ? stop.key : undefined });
+}
+function keyStops(model, layout) {
+  const stops = [];
+  for (const row of model.rows) {
+    if (row.kind !== "buttons")
+      continue;
+    for (const button of row.buttons) {
+      const key = button.todoId ?? button.id;
+      const stop = stops.find((s) => s.key === key);
+      if (stop) {
+        stop.ids.push(button.id);
+        stop.tones.push(button.tone);
+      } else
+        stops.push({ key, ids: [button.id], tones: [button.tone], main: 0, first: 0, last: 0, isItem: button.todoId !== undefined });
+    }
+  }
+  let item = 0;
+  return stops.map(({ tones, ...stop }) => {
+    const wanted = JSON.stringify(stopMessage(stop, 0));
+    const at = layout.lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+    const span = stop.isItem ? layout.spans[item++] : { first: at, last: at };
+    return { ...stop, main: Math.max(0, tones.findIndex((t) => t !== "quiet")), first: span?.first ?? 0, last: span?.last ?? 0 };
+  });
+}
+function kitView(model, width, bodyRows, offset) {
+  const layout = kitLayout(model, width, bodyRows);
+  const top = Math.min(Math.max(0, offset), maxOffset(layout));
+  const touched = layout.rows.filter((r) => r.first + r.count > top && r.first < top + layout.windowRows);
+  return {
+    rows: touched.map((r) => r.row),
+    skip: top - (touched[0]?.first ?? top),
+    top,
+    total: layout.lines.length,
+    windowRows: layout.windowRows,
+    stops: keyStops(model, layout)
+  };
+}
+function revealOffset(view, index) {
+  const stop = view.stops[index];
+  const most = Math.max(0, view.total - view.windowRows);
+  if (!stop)
+    return view.top;
+  if (stop.first < view.top)
+    return Math.max(0, stop.first);
+  if (stop.last > view.top + view.windowRows - 1)
+    return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1));
+  return view.top;
+}
+function isInView(view, index) {
+  const stop = view.stops[index];
+  return stop !== undefined && stop.first >= view.top && stop.last <= view.top + view.windowRows - 1;
 }
 function clip(line, cells) {
   const out = [];
@@ -1614,45 +1671,6 @@ function clip(line, cells) {
   return out;
 }
 var RAIL = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(GUTTER - 1))];
-function keyStops(model) {
-  const stops = [];
-  for (const row of model.rows) {
-    if (row.kind !== "buttons")
-      continue;
-    for (const button of row.buttons) {
-      const key = button.todoId ?? button.id;
-      const stop = stops.find((s) => s.key === key);
-      if (stop)
-        stop.buttons.push(button);
-      else
-        stops.push({ key, buttons: [button] });
-    }
-  }
-  return stops;
-}
-function stopLines(layout, stops, index) {
-  const stop = stops[index];
-  if (!stop)
-    return;
-  if (stop.buttons[0]?.todoId !== undefined)
-    return layout.spans[stops.slice(0, index).filter((s) => s.buttons[0]?.todoId !== undefined).length];
-  const wanted = JSON.stringify(messageOf(stop.buttons[0]));
-  const at = layout.lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
-  return at < 0 ? undefined : { first: at, last: at };
-}
-function revealOffset(layout, stops, index, offset) {
-  const range = stopLines(layout, stops, index);
-  const most = maxOffset(layout);
-  const top = Math.min(Math.max(0, offset), most);
-  if (!range)
-    return top;
-  const { first, last } = range;
-  if (first < top)
-    return Math.max(0, first);
-  if (last > top + layout.windowRows - 1)
-    return Math.min(most, Math.min(first, last - layout.windowRows + 1));
-  return top;
-}
 function markFirst(line) {
   const at = line.findIndex((span) => span.t.startsWith("○ "));
   if (at < 0)
@@ -1660,26 +1678,23 @@ function markFirst(line) {
   const span = line[at];
   return [...line.slice(0, at), { ...span, t: "○", color: BRAND.pink }, { ...span, t: span.t.slice(1) }, ...line.slice(at + 1)];
 }
-function kitWindow(layout, width, offset, focus = {}) {
-  const { lines: all, windowRows } = layout;
+function viewLines(view, width, focus = {}) {
+  const room = roomOf(width);
+  const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const chosen = focus.selected && JSON.stringify(focus.selected);
   const range = focus.marked ? focus.range : undefined;
   const look = (span) => {
     const base = focus.pressing ? pressed(span) : span;
     return focus.marked ? keySelected(base) : [base];
   };
-  const lines = all.map((line, n) => {
+  const bar = scrollBar(view.windowRows, view.total, view.top);
+  return shown.map((line, n) => {
+    const at = view.top + n;
     const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? look(span) : [span]) : line;
-    return range && n === range.first ? markFirst(lit) : lit;
+    const marked = range && at === range.first ? markFirst(lit) : lit;
+    const gutter = range && at >= range.first && at <= range.last ? RAIL : [sp(" ".repeat(GUTTER))];
+    return [...clip([...gutter, ...marked], width - BAR), ...bar[n] ?? []];
   });
-  const top = Math.min(Math.max(0, offset), maxOffset(layout));
-  const shown = lines.slice(top, top + windowRows);
-  const bar = scrollBar(windowRows, lines.length, top);
-  const gutter = (n) => {
-    const at = top + n;
-    return range && at >= range.first && at <= range.last ? RAIL : [sp(" ".repeat(GUTTER))];
-  };
-  return shown.map((line, n) => [...clip([...gutter(n), ...line], width - BAR), ...bar[n] ?? []]);
 }
 
 // mods/human-todos/src/pane/plain-view.tsx
@@ -1905,11 +1920,9 @@ function registerPane(on) {
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
     kitSize = { columns: width, bodyRows };
     const props = {
-      model: modelOf(pane, modelWidth(width)),
+      view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),
-      width,
-      offset: await read2($, scrollAtom),
-      bodyRows
+      width
     };
     return /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",

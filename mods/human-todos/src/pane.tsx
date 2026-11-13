@@ -5,7 +5,7 @@ import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, registerPaneRedraw, 
 import type { Todo } from '../types'
 import { PLUGIN, TITLE } from './items'
 import { act } from './pane/act'
-import { kitLayout, maxOffset, modelWidth } from './pane/kit-layout'
+import { kitLayout, kitView, maxOffset, modelWidth } from './pane/kit-layout'
 import { drawPlainPane, paneColumns } from './pane/plain-view'
 import { bandModel, paneModel } from './pane/model'
 import type { PaneMessage, PaneModel } from './pane/model'
@@ -143,11 +143,9 @@ export function registerPane(on: On): void {
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
     kitSize = { columns: width, bodyRows }
     const props = {
-      model: modelOf(pane, modelWidth(width)),
+      view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
       width,
-      offset: await read($, scrollAtom),
-      bodyRows,
     }
     return <Client key="human-todos-pane" module="./pane/kit-view.tsx" props={props} />
   })
