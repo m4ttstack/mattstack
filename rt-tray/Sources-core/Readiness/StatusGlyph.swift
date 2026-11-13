@@ -27,4 +27,20 @@ public enum StatusGlyph {
     public static func multicolor(for status: RowStatus) -> Bool {
         tint(for: status) == .yellow
     }
+
+    /// Mirrors `checklistStatus` in lib/setup/plan-blocks.ts: on Just me an
+    /// account that blocks neither Install nor Finish, left unconnected, is
+    /// off, not a warning. A team Mac, or no plan read yet, keeps the warning.
+    public static func isOff(_ row: PlanRow, team: TeamInfo?) -> Bool {
+        (team?.isSolo ?? false) && row.kind == .account && !row.required && !row.finishGated && row.status == .missing
+    }
+    public static func symbol(for row: PlanRow, team: TeamInfo?) -> String {
+        isOff(row, team: team) ? "circle" : symbol(for: row.status)
+    }
+    public static func tint(for row: PlanRow, team: TeamInfo?) -> GlyphTint {
+        isOff(row, team: team) ? .grey : tint(for: row.status)
+    }
+    public static func multicolor(for row: PlanRow, team: TeamInfo?) -> Bool {
+        tint(for: row, team: team) == .yellow
+    }
 }

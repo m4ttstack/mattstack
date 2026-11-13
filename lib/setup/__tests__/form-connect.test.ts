@@ -414,6 +414,13 @@ describe("connectRows", () => {
     expect(allAnswered(list)).toBe(true);
   });
 
+  test("solo's Fast Browser row says it is optional, with Chrome or without it", () => {
+    expect(pick(soloList(GITLAB_MISSING), "fast-browser").subtext).toBe("Optional. Lets agents drive your real Chrome");
+    const noChrome = soloForgeRows(GITLAB_MISSING).map((row) => (row.id === "tool.chrome" ? r("tool.chrome", "missing", "Google Chrome is not installed", { required: false }) : row));
+    const fb = pick(connectRows(inputs({ path: "solo", plan: plan(noChrome, SOLO), forge: null, forgeLogin: null, signIn: [] })), "fast-browser");
+    expect([fb.subtext, fb.action?.label]).toEqual(["Optional. Lets agents drive your real Chrome", "Get Chrome"]);
+  });
+
   test("the solo GitLab row keeps the account's reason once a token is stored", () => {
     const gitlab = pick(soloList(r("account.gitlab", "invalid", "GitLab rejected the token", { required: false })), "forge.gitlab");
     expect(gitlab.detail).toBe("GitLab rejected the token");

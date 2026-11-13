@@ -153,6 +153,7 @@ export const FORM_COPY = {
     connectedFromInvite: (login: string) => `Connected as ${login} from your invite`,
     soloForge: "Optional. Lets mattstack open PRs",
     soloGitlab: "Optional. Lets mattstack open MRs",
+    soloFastBrowser: "Optional. Lets agents drive your real Chrome",
     soloGitlabHint: "On your own GitLab server? Connect from a terminal with rt setup gitlab connect --host <host>",
     slackApp: { title: "Slack app", subtext: "Lets your team connect Slack. One owner makes it once" },
     slack: { title: "Slack", label: "Connect Slack", subtext: (forge: Forge) => `Lets mattstack track and post ${reviews(forge)} in Slack`, waiting: "Waiting for Slack…" },
@@ -720,7 +721,7 @@ export function connectRows(i: ConnectInputs): FormRow[] {
     ...(team ? i.signIn.map((tool) => signInRow(i, rows, tool)) : []),
     ...extraRows(i.plan, formOwnedIds(i.plan, i), { afterRun: false, prepare: i.prepare }),
     team ? linearRow(rows) : null,
-    team ? fastBrowserRow(rows, i.prepare) : { ...fastBrowserRow(rows, i.prepare), optional: true },
+    team ? fastBrowserRow(rows, i.prepare) : { ...fastBrowserRow(rows, i.prepare), subtext: FORM_COPY.connect.soloFastBrowser, optional: true },
   ];
   return list.filter((r): r is ConnectRow => r !== null).map(settle);
 }

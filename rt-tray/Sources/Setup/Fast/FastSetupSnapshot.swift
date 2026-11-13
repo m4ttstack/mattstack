@@ -308,7 +308,7 @@ enum FastSetupSnapshot {
             ("connect-waiting", page([C.forge, C.slack, C.claudePasteCode, C.dopplerCode, C.sdm, C.linearDone, C.fastBrowser],
                                      waiting: [C.slack.id: C.slack.waiting ?? "", C.fastBrowser.id: C.fastBrowser.waiting ?? ""])),
             ("connect-done", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.fastBrowserDone], ready: true)),
-            ("connect-solo", page(team: false, [C.soloForge, C.claudeSignIn, C.soloFastBrowser])),
+            ("connect-solo", page(team: false, [C.soloForge, C.soloGitlab, C.claudeSignIn, C.soloFastBrowser])),
             ("connect-solo-mock", page(team: false, [MockRows.github, MockRows.claude, MockRows.fastBrowser])),
             ("connect-get-chrome", page([C.forge, C.slackDone, C.claudeDone, C.dopplerDone, C.linearDone, C.getChrome])),
             ("connect-steps", page([C.forge, C.slackDone, C.claudeDone, C.newerAction, C.linearDone, C.fastBrowserSteps])),
@@ -839,8 +839,11 @@ enum FastSetupSnapshot {
     enum ConnectRows {
         static let forge = FormRow(id: "forge", title: "GitLab", subtext: "Lets mattstack reach the team's repo and open MRs",
                                    state: .done, detail: "Connected as janedoe from your invite")
-        static let soloForge = FormRow(id: "forge", title: "GitHub", subtext: "Optional. Lets mattstack open PRs and MRs",
+        static let soloForge = FormRow(id: "forge", title: "GitHub", subtext: "Optional. Lets mattstack open PRs",
                                        state: .todo, detail: "No GitHub account connected yet", action: Rows.githubToken.action, optional: true)
+        static let soloGitlab = FormRow(id: "forge.gitlab", title: "GitLab", subtext: "Optional. Lets mattstack open MRs", state: .todo,
+                                        detail: "On your own GitLab server? Connect from a terminal with rt setup gitlab connect --host <host>",
+                                        action: Rows.gitlabToken.action, optional: true)
         static let slack = FormRow(id: "slack", title: "Slack", subtext: "Lets mattstack track and post MRs in Slack", state: .todo,
                                    detail: "No Slack account connected yet. If Slack rejects the redirect, add http://localhost:11234/callback in the app's OAuth settings",
                                    action: RowAction(type: .oauth, label: "Connect Slack", integration: "slack", verb: ["setup", "slack", "connect"]),
@@ -888,7 +891,7 @@ enum FastSetupSnapshot {
                                                    waiting: "Waiting for Chrome…", again: "Open again", primary: true)
         static let fastBrowser = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
                                          detail: "Not installed in Chrome", action: addToChrome, waiting: "Waiting for Chrome…", watch: true)
-        static let soloFastBrowser = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .todo,
+        static let soloFastBrowser = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Optional. Lets agents drive your real Chrome", state: .todo,
                                              detail: "Not installed in Chrome", action: addToChrome, waiting: "Waiting for Chrome…", watch: true,
                                              optional: true)
         static let fastBrowserDone = FormRow(id: "fast-browser", title: "Fast Browser", subtext: "Lets agents drive your real Chrome", state: .done,

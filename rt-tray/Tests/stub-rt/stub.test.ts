@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { personalSkillsDir } from "../../../lib/skills/writing-style-sources.ts";
+import { SOLO_GITHUB_NOTE, SOLO_GITLAB_NOTE } from "../../../lib/setup/validators/accounts.ts";
 
 const STUB = join(import.meta.dir, "stub.ts");
 
@@ -468,7 +469,7 @@ type StubAction = {
   type: string; label?: string; verb?: string[]; url?: string; target?: string; which?: string; integration?: string;
   fields?: { name: string; label?: string; secret?: boolean }[]; identity?: string; clonePath?: string; options?: { id: string }[]; selected?: string;
 };
-type StubRow = { id: string; state: string; detail: string; watch: boolean; optional: boolean; action: StubAction | null };
+type StubRow = { id: string; title: string; subtext: string; state: string; detail: string; watch: boolean; optional: boolean; action: StubAction | null };
 type StubForm = {
   path: string | null; team: { slug: string; name: string; invitedBy: string | null } | null; stage: string | null;
   sections: Record<string, StubRow[]>; continueReady: boolean; startReady: boolean; paused: unknown; home: unknown;
@@ -610,6 +611,37 @@ test("the solo scenario connects nothing it need not and keeps the found folder 
   expect(done.home).toEqual({ label: "Open the console", url: "https://console.mattstack" });
   expect(done.sections.thisMac!.find((r) => r.id === "repos.root")).toMatchObject({ state: "done", detail: "/Users/janedoe/Documents/GitHub" });
 }, 20000);
+
+test("the solo connect screen draws GitHub and GitLab, both optional, then Claude and an optional Fast Browser", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  expect((await run("solo", ["setup", "intent", "solo", "--json"], "", dir)).code).toBe(0);
+  const connect = async () => (await form(dir, "connect", "solo")).sections.connect!;
+  const rows = await connect();
+  expect(rows.map((r) => [r.id, r.title, r.subtext, r.optional])).toEqual([
+    ["forge", "GitHub", "Optional. Lets mattstack open PRs", true],
+    ["forge.gitlab", "GitLab", "Optional. Lets mattstack open MRs", true],
+    ["claude", "Claude", "You know, to do agentic stuff.", false],
+    ["fast-browser", "Fast Browser", "Optional. Lets agents drive your real Chrome", true],
+  ]);
+  const gitlab = rows.find((r) => r.id === "forge.gitlab")!;
+  expect([gitlab.state, gitlab.action?.type]).toEqual(["todo", "connect"]);
+  expect(gitlab.detail).toBe("On your own GitLab server? Connect from a terminal with rt setup gitlab connect --host <host>");
+  expect((await run("solo", ["setup", "gitlab", "connect", "--json"], JSON.stringify({ token: "glpat-x" }), dir)).code).toBe(0);
+  expect((await connect()).find((r) => r.id === "forge.gitlab")).toMatchObject({ state: "done", detail: "Connected" });
+});
+
+test("the solo plan's accounts are the optional GitHub and GitLab rows real rt plans", async () => {
+  const plan = (await run("solo", ["setup", "plan", "--json"])).lines[0];
+  const accounts = plan.groups.find((g: { id: string }) => g.id === "accounts").rows;
+  expect(accounts.map((r: { id: string; required: boolean; optionalNote: string }) => [r.id, r.required, r.optionalNote])).toEqual([
+    ["account.github", false, SOLO_GITHUB_NOTE],
+    ["account.gitlab", false, SOLO_GITLAB_NOTE],
+  ]);
+  const dir = mkdtempSync(join(tmpdir(), "stub-"));
+  expect((await run("solo", ["setup", "gitlab", "connect", "--json"], JSON.stringify({ token: "glpat-x" }), dir)).code).toBe(0);
+  const after = (await run("solo", ["setup", "plan", "--json"], "", dir)).lines[0].groups.find((g: { id: string }) => g.id === "accounts").rows;
+  expect(after.find((r: { id: string }) => r.id === "account.gitlab")).toMatchObject({ status: "ready", detail: "Connected as janedoe", action: null });
+});
 
 test("the restore scenario runs straight after the restore", async () => {
   const { stages } = await walk("restore", async (dir) => {
