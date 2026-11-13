@@ -350,6 +350,17 @@
         "typescript": "catalog:",
       },
     },
+    "mods/kit-gallery": {
+      "name": "@mattstack/mod-kit-gallery",
+      "version": "0.0.0",
+      "dependencies": {
+        "@mattstack/mod-kit": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "catalog:",
+      },
+    },
     "packages/app-icons": {
       "name": "@mattstack/app-icons",
       "version": "0.1.0",
@@ -1111,6 +1122,8 @@
     "@mattstack/mod-gate-form": ["@mattstack/mod-gate-form@workspace:mods/gate-form"],
 
     "@mattstack/mod-kit": ["@mattstack/mod-kit@workspace:packages/mod-kit"],
+
+    "@mattstack/mod-kit-gallery": ["@mattstack/mod-kit-gallery@workspace:mods/kit-gallery"],
 
     "@mattstack/rt-client": ["@mattstack/rt-client@workspace:packages/rt-client"],
 
