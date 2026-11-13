@@ -701,7 +701,7 @@ digraph gate_protocol {
 }
 ```
 
-<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-46 -->
+<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-33 -->
 ### Build the gate's questions and context
 
 Open before anything that depends on the answer. A question is `{"id",
@@ -719,31 +719,18 @@ not your own.
 - **Options** are `{value, label}` objects when values are not
   human-readable; a recommended pick's `label` ends ` (Recommended)`, its
   `value` bare. In a site table headed `Options (recommended first)`, mark
-  the option the table writes; a row with none, such as the stage-end
-  `next`, marks none.
-- **`next` values** are exactly `proceed`, `iterate`, `go-back`, `hold`,
-  and `abandon`, `done`, `handback` or `goon` where the site's table offers
-  them; the tools read `proceed` and `iterate`. A site lists `next` by
-  value; send each as `{value, label, description}` from this table,
-  under the question label `Happy with this, or should something
-  change?`. A site's `(recommended)` after a value makes that label end
-  ` (Recommended)`, and an option the site writes in bold keeps the
-  site's label and takes no description:
-
-  | Value | Label | Description |
-  |---|---|---|
-  | `proceed` | Looks good, continue | Move on to the next step |
-  | `iterate` | Change something | Say what to change, then redo this step |
-  | `go-back` | Redo an earlier step | Return to a step that needs redoing |
-  | `hold` | Pause | Stop until you resume this run |
-  | `abandon` | Abandon | End this run for good |
+  the option the table writes; a row with none marks none.
+- **The questions are the site's table, and only those.** A gate asks no
+  navigation question: an answer with no `next` reads as `proceed`, and a
+  write-in is the way to ask for a change (`Act on a write-in`). A `next`
+  that arrives from another surface (`hold`, `iterate`, `go-back`,
+  `abandon`) still routes as the site's `Read next` lines say.
+- **A gate with no question to show opens nothing.** Print its one
+  sentence of context and take the site's `proceed` edge.
 - **Write-ins** go only on a decision question whose free text you can act
-  on, never on `next` or a review-post, respond, doctor or pane-attention
-  question.
-- **At most 4 options per question**, or the whole gate goes to the wait.
-  Navigation (`iterate`, `go-back`, `hold`, Abandon) is its own `next`
-  question; a longer list splits into `<id>-1`, `<id>-2`, ... read as one
-  union.
+  on, never on a review-post, respond, doctor or pane-attention question.
+- **At most 4 options per question**, or the whole gate goes to the wait;
+  a longer list splits into `<id>-1`, `<id>-2`, ... read as one union.
 
 <!-- part: block:gate-protocol/trigger-site-opened source=mattstack:gate-protocol path=attachments/gate-protocol/trigger-site-opened.block.md lines=6-10 -->
 ### Trigger: a site opened its gate with gate_open
@@ -878,7 +865,7 @@ tool.
   review gate (`respond-plan`, `respond-post`, `review-post`, scope `post`)
   unless passed `record: true`; the site records with `gate_record`.
 
-<!-- part: block:gate-protocol/off-script-gate source=mattstack:gate-protocol path=attachments/gate-protocol/off-script-gate.block.md lines=5-19 -->
+<!-- part: block:gate-protocol/off-script-gate source=mattstack:gate-protocol path=attachments/gate-protocol/off-script-gate.block.md lines=5-18 -->
 ### Off-script gate
 
 A host STOP opens it through the graph: scope `off-script:<site>:<n>` (`n`
@@ -887,8 +874,7 @@ line asking for the move.
 
 | Question | Options |
 |---|---|
-| `action` | **Take the proposed move** (its value spells the whole move) / **Hand back** |
-| `next` | `proceed` (recommended) / `iterate` / `hold` |
+| `action` (write-in) | **Take the proposed move** (its value spells the whole move) / **Hand back** |
 
 Take: make exactly that move once, then continue from the node it led to.
 Hand back: follow the site's own hand-back edge where its graph draws one;
