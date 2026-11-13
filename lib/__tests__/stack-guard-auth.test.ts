@@ -56,7 +56,7 @@ describe("the stack check with rt's forge token", () => {
     expect(cli).toHaveLength(2);
     for (const glabCall of cli) {
       expect(glabCall.argv[0]).toBe("glab");
-      expect(glabCall.opts?.env).toEqual({ GITLAB_TOKEN: TOKEN, GITLAB_HOST: "gitlab.com" });
+      expect(glabCall.opts?.env).toEqual({ GITLAB_TOKEN: TOKEN, GITLAB_HOST: "gitlab.com", API_PROTOCOL: "https" });
       expect(glabCall.opts?.cwd).toBe(CWD);
       expect(pin(glabCall, "-R")).toBe("gitlab.com/acme/x");
       expect(glabCall.argv.join(" ")).not.toContain("LEAKCHECK");
@@ -67,7 +67,7 @@ describe("the stack check with rt's forge token", () => {
     const { cli } = await run("git@gitlab.acme.internal:acme/sub/x.git", fakeAuth({ kind: "token", token: TOKEN }, "gitlab.acme.internal"));
     expect(cli).toHaveLength(2);
     for (const c of cli) {
-      expect(c.opts?.env).toEqual({ GITLAB_TOKEN: TOKEN, GITLAB_HOST: "gitlab.acme.internal" });
+      expect(c.opts?.env).toEqual({ GITLAB_TOKEN: TOKEN, GITLAB_HOST: "gitlab.acme.internal", API_PROTOCOL: "https" });
       expect(c.opts?.cwd).toBe(CWD);
       expect(pin(c, "-R")).toBe("gitlab.acme.internal/acme/sub/x");
     }
@@ -118,6 +118,17 @@ describe("the stack check with rt's forge token", () => {
     expect(verdict.verdict).toBe("unverified");
     if (verdict.verdict !== "unverified") return;
     expect(verdict.refusal.hint).not.toContain("hunter2secretvalue");
+  });
+
+  test("glab is forced to HTTPS only when it carries rt's token", async () => {
+    const withToken = await run("https://gitlab.acme.internal/acme/x.git", fakeAuth({ kind: "token", token: TOKEN }, "gitlab.acme.internal"));
+    expect(withToken.cli).toHaveLength(2);
+    for (const c of withToken.cli) expect(c.opts?.env?.API_PROTOCOL).toBe("https");
+    for (const auth of [fakeAuth({ kind: "absent" }, "gitlab.acme.internal"), fakeAuth({ kind: "token", token: TOKEN })]) {
+      const without = await run("https://gitlab.acme.internal/acme/x.git", auth);
+      expect(without.cli).toHaveLength(2);
+      for (const c of without.cli) expect(c.opts?.env?.API_PROTOCOL).toBeUndefined();
+    }
   });
 
   test("no token held: the CLI's own login, env as today", async () => {

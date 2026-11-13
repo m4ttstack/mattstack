@@ -33,4 +33,4 @@ With `--json`, a clone rt could not read has `"transport": null` and `"host": nu
 
 **Undo.** rt prints the commands that reverse the change, in the form `git -C <path> config --unset-all ...` and `git -C <path> remote set-url ...`. When the old origin URL held credentials, rt leaves out its undo rather than print them.
 
-One caution: if your `glab` config sets `api_protocol: http` for a host, `glab` sends the token in cleartext. rt cannot override your `glab` config.
+When rt passes its token to `glab`, it forces HTTPS, even if your `glab` config sets `api_protocol: http` for that host.

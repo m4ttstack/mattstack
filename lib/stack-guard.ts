@@ -289,7 +289,9 @@ async function cliOpts(
   if (!token) return asToday;
   const env = forgeAuthEnv(forge.provider, forge.host, token) ?? {};
   return forge.provider === "gitlab"
-    ? { env: { ...env, GITLAB_HOST: forge.host }, cwd, pin: ["-R", pin], token }
+    // glab's own `api_protocol: http` would send the token in cleartext; only
+    // API_PROTOCOL overrides it (GITLAB_API_PROTOCOL does not, glab 1.108).
+    ? { env: { ...env, GITLAB_HOST: forge.host, API_PROTOCOL: "https" }, cwd, pin: ["-R", pin], token }
     : { env: { ...env, GH_HOST: forge.host }, cwd, pin: ["--repo", pin], token };
 }
 
