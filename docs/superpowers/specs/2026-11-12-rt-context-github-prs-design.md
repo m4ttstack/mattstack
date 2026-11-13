@@ -145,7 +145,8 @@ No `vscode` import, so `bun test` can load it.
   reads as null, a miss; otherwise it is returned unchanged. On GitLab and
   null it is the identity.
 - `CachedBranchData` gains an optional `repoIdentity`, written with every
-  entry the extension stores on a GitHub repo.
+  entry the extension stores on a GitHub repo, and never on GitLab or an
+  unknown host.
 
 ### Wiring
 
@@ -160,9 +161,10 @@ No `vscode` import, so `bun test` can load it.
     entry through `branchDataFromDaemonEntry`; a stripped entry is a hit,
     and only a daemon miss (no entry, or the daemon down) falls through to
     the direct fallback as today.
-  - When the daemon is unreachable on GitHub, the fallback result keeps
-    the own `mrUrl` and `linearId` already cached for this branch, so a
-    daemon blip does not drop a PR link that was showing.
+  - When the daemon has no entry or is unreachable on GitHub, the
+    fallback result keeps the own `mrUrl`, `linearId` and ticket already
+    cached for this branch, so a daemon blip does not drop a PR link that
+    was showing.
   - On GitHub only, when the silent background fetch on the fresh-cache
     path returns a different `mrUrl` or `linearId` from what was rendered,
     render again from the fresh data. GitLab keeps today's
@@ -191,8 +193,6 @@ No `vscode` import, so `bun test` can load it.
   the builder adds the call through `getGitApi`/`findWorkspaceRepo`) and
   passes them to `fetchBranchData`. Every worktree of one repo shares
   that remote.
-- `cache.ts`: `PersistedCache` gains `delete(key)` (it has get, set and
-  clear today), for the switcher's cleanup above.
 - `extension.ts`: the status bar action reads "Open GitHub Pull Request"
   on GitHub and keeps "Open GitLab Merge Request" otherwise, matching its
   sibling actions' title case ("Open Linear Ticket").
