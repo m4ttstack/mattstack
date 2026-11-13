@@ -18,7 +18,9 @@ label: Graph notes
   clears, `shipTarget` or `pipeline-stages` here.
 - **Hand-back.** A stage ending at a `go-back` hands `{to, note,
   decidedBy}`, and a Fix hands `{to: implement, note, decidedBy}` the same
-  way; `attempt` is its running attempt.
+  way; `attempt` is its running attempt. A stage whose gate already
+  redirected through gate-protocol's Run control takes the same edge with
+  that gate's `to`; `run_resolve` returns it `repeated: true`.
 - **`repeated: true`**: already applied; follow the result.
 - **decidedBy** is the gate tool's returned `decidedBy`, or, for a
   hand-back, the handed `decidedBy` (`pane` when it was typed in the

@@ -107,7 +107,7 @@ flowchart TB
     at_status -->|running| follow_stage_file
     at_status -->|failed or done| run_next
     stage_file_ended -->|"returned, failed, held or abandoned (run_next routes them)"| run_next
-    stage_file_ended -->|"handed back a Go back or a Fix (a redirect)"| run_resolve_redirect
+    stage_file_ended -->|"handed back a Go back or a Fix, or a gate's Go back to stage already redirected (a redirect)"| run_resolve_redirect
     run_next --> run_next_ended
     run_next_ended -->|done, next| follow_stage_file
     run_next_ended -->|done, last| gate_close

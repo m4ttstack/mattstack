@@ -23,8 +23,10 @@ draws it (the doorbell, then reconcile); the board's answer routes as
 `respond-plan next answer?` draws.
 
 A `next` of `iterate` or `hold` records nothing: `iterate` redrafts with
-their note, `hold` holds. Only a hand-back or a future surface can send
-one: the daemon refuses an answer key the gate did not ask.
+their note, `hold` holds. Only a hand-back sends `iterate`: the daemon
+refuses an answer key the gate did not ask, except the run controls
+`hold` and `go-back`, which gate-protocol's Run control routes under a
+run.
 
 Neither `gate_answer` nor `gate_reconcile` records this review gate:
 `gate_record {..., gateId: <id>}` does. Never fold threads into one
