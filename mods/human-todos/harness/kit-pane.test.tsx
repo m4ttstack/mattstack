@@ -529,8 +529,9 @@ test('keyboard: Enter on a selection the wheel scrolled away brings it back and 
   await pane.key({ key: 'return' })
   await pane.advance(500)
   expect(await state($)).not.toContain('[done]')
-  expect((await propsOf(pane)).offset).toBe(0)
-  expect(titleAbove(await rowsOf(pane))).toBe('○ Item 1')
+  // The window moves the least that shows the selected button: Item 1's Done, on line 2, comes in at the top.
+  expect((await propsOf(pane)).offset).toBe(2)
+  expect(edged(await rowsOf(pane))).toBe('Done')
 
   await pane.key({ key: 'return' })
   await pane.advance(160)
@@ -552,6 +553,54 @@ test('keyboard: when the selected item goes, the window follows the selection to
   expect((await propsOf(pane)).offset).toBeGreaterThan(0)
   expect(titleAbove(rows)).toBe('○ Item 11')
   expect(edged(rows)).toBe('Done')
+  await pane.unmount()
+})
+
+// A run item whose script is taller than the window, confirming, under the local runner with a child that never exits.
+async function tallConfirming($: Engine, on: On) {
+  const script = Array.from({ length: 30 }, (_, n) => `echo step ${n}`).join('\n')
+  world(on, { entries: { [`list:${SESSION}`]: { todos: [todo({ id: '1', title: 'Tall', script })], nextId: 50, savedAt: 1_000_000 } } })
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.write', () => ({ value: undefined }))
+  mock.env(on, { HOME: '/home/u' })
+  children(on, () =>
+    (async function* (): Child {
+      yield pid(4242)
+      await new Promise<void>(() => {})
+      return { code: 0, signal: null }
+    })(),
+  )
+  await startSession($)
+  await $.command.run({ command: 'todos-runner', args: 'local' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await press(pane, '1', 'run')
+  await pane.key({ key: 'down' })
+  return pane
+}
+
+test('keyboard: on an item taller than the window, the first Enter brings its button into view and the next presses it', async ($, on) => {
+  const pane = await tallConfirming($, on)
+  expect(edged(await rowsOf(pane))).toBeUndefined()
+
+  await pane.key({ key: 'return' })
+  await pane.advance(500)
+  expect(await state($)).toMatch(/#1 \[confirming\]/)
+  expect(edged(await rowsOf(pane))).toBe('Confirm')
+
+  await pane.key({ key: 'return' })
+  await pane.advance(160)
+  expect(await state($)).toMatch(/#1 \[running\]/)
+  await pane.unmount()
+})
+
+test('keyboard: on an item taller than the window, Enter presses at once while the button is already on screen', async ($, on) => {
+  const pane = await tallConfirming($, on)
+  await scrollBy($, 1000)
+  expect(edged(await rowsOf(pane))).toBe('Confirm')
+
+  await pane.key({ key: 'return' })
+  await pane.advance(160)
+  expect(await state($)).toMatch(/#1 \[running\]/)
   await pane.unmount()
 })
 

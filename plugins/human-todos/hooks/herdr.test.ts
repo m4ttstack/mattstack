@@ -31,11 +31,13 @@ async function seeded($: Engine, on: On, list: Todo[], opts: { hasRt?: boolean; 
     toasts.push(e.text)
     return { value: undefined }
   })
-  const gitAsked: (string | undefined)[] = []
+  // The git commands the plugin ran, each through the login shell as herdr's are.
+  const gitAsked: string[] = []
   on('process.run', (_, e) => {
     ran.push([...e.argv])
-    if (e.argv[0] === 'git') {
-      gitAsked.push(e.init?.cwd)
+    const command = e.argv.at(-1) ?? ''
+    if (e.argv[0] === '/bin/zsh' && e.argv[1] === '-lc' && command.includes('git rev-parse')) {
+      gitAsked.push(command)
       const answer = opts.gitDir ? { exitCode: 0, stdout: `${opts.gitDir}\n`, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' }
       return { value: { ...answer, isStdoutTruncated: false, isStderrTruncated: false } }
     }
@@ -124,7 +126,7 @@ test("outside a git repo a tab's label names the session's folder, not the run's
 
   await run1('1')
 
-  expect(gitAsked).toEqual(['/work'])
+  expect(gitAsked).toEqual(["cd '/work' && git rev-parse --path-format=absolute --git-common-dir"])
   expect(fake.labels.get(item('1')?.tabId ?? '')).toBe('work #1 Deploy')
 })
 
@@ -133,7 +135,7 @@ test("in a git worktree a tab's label names the repo the worktree belongs to, no
 
   await run1('1')
 
-  expect(gitAsked).toEqual(['/work'])
+  expect(gitAsked).toEqual(["cd '/work' && git rev-parse --path-format=absolute --git-common-dir"])
   expect(fake.labels.get(item('1')?.tabId ?? '')).toBe('mattstack #1 Deploy')
 })
 

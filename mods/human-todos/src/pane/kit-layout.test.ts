@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test'
 import { BRAND, SCROLL, SYMBOL, cellWidth } from '@mattstack/mod-kit'
 
 import type { Todo } from '../../types'
-import { BAR_ROWS, isInView, kitLayout, kitView, maxOffset, modelWidth, revealOffset, viewLines } from './kit-layout'
+import { BAR_ROWS, isButtonInView, kitLayout, kitView, maxOffset, modelWidth, revealButtonOffset, revealOffset, viewLines } from './kit-layout'
 import type { KitFocus } from './kit-layout'
 import { paneModel } from './model'
 import type { PaneModel } from './model'
@@ -134,9 +134,9 @@ test('revealing a stop moves the window as little as it can, and not at all whil
   expect(revealOffset(at(0), 9)).toBe(tenth.last - at(0).windowRows + 1)
   expect(revealOffset(at(20), 0)).toBe(0)
   expect(revealOffset(at(tenth.first), 9)).toBe(tenth.first)
-  expect(isInView(at(0), 0)).toBe(true)
-  expect(isInView(at(0), 9)).toBe(false)
-  expect(isInView(at(tenth.first), 9)).toBe(true)
+  expect(isButtonInView(at(0), 0, 0)).toBe(true)
+  expect(isButtonInView(at(0), 9, 0)).toBe(false)
+  expect(isButtonInView(at(tenth.first), 9, 0)).toBe(true)
 })
 
 test('an item taller than the window is revealed from its top', () => {
@@ -146,6 +146,28 @@ test('an item taller than the window is revealed from its top', () => {
   const stop = view.stops[1]!
   expect(stop.last - stop.first + 1).toBeGreaterThan(view.windowRows)
   expect(revealOffset(view, 1)).toBe(stop.first)
+})
+
+test("each stop knows its buttons' lines, so a tall item's button can be brought into view by itself, moving the least", () => {
+  const tall = todo({ id: '2', kind: 'run', title: 'Tall', script: Array.from({ length: 30 }, (_, n) => `line ${n}`).join('\n') })
+  const model = paneModel({ list: [todo({ id: '1' }), tall], expanded: ['2'], spin: '⠋', width: modelWidth(40) })
+  const layout = kitLayout(model, 40, 12)
+  const view = kitView(model, 40, 12, 0)
+  const stop = view.stops[1]!
+  stop.ids.forEach((id, col) => {
+    const line = layout.lines[stop.lines[col]!]!
+    expect(line.some(s => s.action !== undefined && JSON.stringify(s.action).includes(`"${id === 'more' ? 'toggle' : id}"`)), id).toBe(true)
+  })
+  const run = stop.ids.indexOf('run')
+  expect(isButtonInView(view, 1, run)).toBe(false)
+  const offset = revealButtonOffset(view, 1, run)
+  expect(offset).toBe(stop.lines[run]! - view.windowRows + 1)
+  const there = kitView(model, 40, 12, offset)
+  expect(isButtonInView(there, 1, run)).toBe(true)
+  expect(revealButtonOffset(there, 1, run)).toBe(offset)
+  const above = kitView(model, 40, 12, view.total)
+  expect(isButtonInView(above, 0, 0)).toBe(false)
+  expect(revealButtonOffset(above, 0, 0)).toBe(view.stops[0]!.lines[0]!)
 })
 
 test('in keyboard mode the selected item carries the pink rail in its gutter and a pink mark; the button its pink edge', () => {

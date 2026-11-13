@@ -934,26 +934,29 @@ function stopMessage(stop, col) {
   return id === undefined ? undefined : messageOf({ id, todoId: stop.isItem ? stop.key : undefined });
 }
 function keyStops(model, layout) {
-  const stops = [];
-  for (const row of model.rows) {
+  const stops = new Map;
+  model.rows.forEach((row, r) => {
     if (row.kind !== "buttons")
-      continue;
+      return;
+    const laid = layout.rows[r];
     for (const button of row.buttons) {
+      const wanted = JSON.stringify(messageOf(button));
+      const offsetInRow = layout.lines.slice(laid.first, laid.first + laid.count).findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+      const line = laid.first + Math.max(0, offsetInRow);
       const key = button.todoId ?? button.id;
-      const stop = stops.find((s) => s.key === key);
+      const stop = stops.get(key);
       if (stop) {
         stop.ids.push(button.id);
         stop.tones.push(button.tone);
+        stop.lines.push(line);
       } else
-        stops.push({ key, ids: [button.id], tones: [button.tone], main: 0, first: 0, last: 0, isItem: button.todoId !== undefined });
+        stops.set(key, { key, ids: [button.id], tones: [button.tone], lines: [line], main: 0, first: line, last: line, isItem: button.todoId !== undefined });
     }
-  }
+  });
   let item = 0;
-  return stops.map(({ tones, ...stop }) => {
-    const wanted = JSON.stringify(stopMessage(stop, 0));
-    const at = layout.lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
-    const span = stop.isItem ? layout.spans[item++] : { first: at, last: at };
-    return { ...stop, main: Math.max(0, tones.findIndex((t) => t !== "quiet")), first: span?.first ?? 0, last: span?.last ?? 0 };
+  return [...stops.values()].map(({ tones, ...stop }) => {
+    const span = stop.isItem ? layout.spans[item++] : undefined;
+    return { ...stop, main: Math.max(0, tones.findIndex((t) => t !== "quiet")), first: span?.first ?? stop.first, last: span?.last ?? stop.last };
   });
 }
 function kitView(model, width, bodyRows, offset) {
@@ -980,9 +983,15 @@ function revealOffset(view, index) {
     return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1));
   return view.top;
 }
-function isInView(view, index) {
-  const stop = view.stops[index];
-  return stop !== undefined && stop.first >= view.top && stop.last <= view.top + view.windowRows - 1;
+function isButtonInView(view, index, col) {
+  const line = view.stops[index]?.lines[col];
+  return line !== undefined && line >= view.top && line <= view.top + view.windowRows - 1;
+}
+function revealButtonOffset(view, index, col) {
+  const line = view.stops[index]?.lines[col];
+  if (line === undefined || isButtonInView(view, index, col))
+    return view.top;
+  return line < view.top ? line : Math.min(Math.max(0, view.total - view.windowRows), line - view.windowRows + 1);
 }
 function clip(line, cells) {
   const out = [];
@@ -1060,12 +1069,17 @@ var kit_view_default = kitClient((props, ui) => {
     if (offset !== view.top)
       ui.post({ type: "scrollTo", offset });
   };
+  const revealButton = (at, col) => {
+    const offset = revealButtonOffset(view, at, col);
+    if (offset !== view.top)
+      ui.post({ type: "scrollTo", offset });
+  };
   const select = (at, col) => {
     if (mark(at, col))
       reveal(at);
   };
-  if (here.hasFallen && ui.focused && ui.keyboard && mark(here.at, here.col) && !isInView(view, here.at))
-    reveal(here.at);
+  if (here.hasFallen && ui.focused && ui.keyboard && mark(here.at, here.col) && !isButtonInView(view, here.at, here.col))
+    revealButton(here.at, here.col);
   const clicked = (message) => {
     const wanted = JSON.stringify(message);
     stops.forEach((stop, at) => stop.ids.forEach((_id, col) => JSON.stringify(stopMessage(stop, col)) === wanted && mark(at, col)));
@@ -1089,8 +1103,8 @@ var kit_view_default = kitClient((props, ui) => {
       return true;
     }
     if ((ev.key === "return" || ev.key === "enter") && current) {
-      if (!isInView(view, here.at)) {
-        reveal(here.at);
+      if (!isButtonInView(view, here.at, here.col)) {
+        revealButton(here.at, here.col);
         return true;
       }
       ui.pressFor(() => ui.post(current));

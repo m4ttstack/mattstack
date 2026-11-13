@@ -2,7 +2,7 @@ import { BrandBar, Lines, Panel, kitClient, sp } from '@mattstack/mod-kit'
 import type { PointerState } from '@mattstack/mod-kit'
 
 import { TITLE } from '../items'
-import { isInView, revealOffset, stopMessage, viewLines } from './kit-layout'
+import { isButtonInView, revealButtonOffset, revealOffset, stopMessage, viewLines } from './kit-layout'
 import type { KitView, ViewStop } from './kit-layout'
 import type { PaneButton, PaneMessage } from './model'
 
@@ -43,12 +43,17 @@ export default kitClient<Props, State>(
       const offset = revealOffset(view, at)
       if (offset !== view.top) ui.post({ type: 'scrollTo', offset })
     }
+    // The selected button's own line: an item taller than the window never shows whole, but its button can.
+    const revealButton = (at: number, col: number) => {
+      const offset = revealButtonOffset(view, at, col)
+      if (offset !== view.top) ui.post({ type: 'scrollTo', offset })
+    }
     const select = (at: number, col: number) => {
       if (mark(at, col)) reveal(at)
     }
 
     // The scroll follows the selection: when its item went, it moved to another one, which may sit outside the window.
-    if (here.hasFallen && ui.focused && ui.keyboard && mark(here.at, here.col) && !isInView(view, here.at)) reveal(here.at)
+    if (here.hasFallen && ui.focused && ui.keyboard && mark(here.at, here.col) && !isButtonInView(view, here.at, here.col)) revealButton(here.at, here.col)
 
     // A click moves the selection too, so the next key carries on from the button clicked.
     const clicked = (message: PaneMessage) => {
@@ -76,9 +81,9 @@ export default kitClient<Props, State>(
         return true
       }
       if ((ev.key === 'return' || ev.key === 'enter') && current) {
-        // A wheel scroll or a fallen selection can leave it out of view: Enter then only brings it back, never presses what is not on screen.
-        if (!isInView(view, here.at)) {
-          reveal(here.at)
+        // A wheel scroll or a fallen selection can leave the selected button off screen: Enter then only brings it back, never presses what is not seen.
+        if (!isButtonInView(view, here.at, here.col)) {
+          revealButton(here.at, here.col)
           return true
         }
         // Enter shows the press for a moment, as a click would, then sends what a click sends.

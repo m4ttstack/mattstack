@@ -57,7 +57,8 @@ async function sharedWorkspace($: EngineInterface): Promise<string | undefined> 
 async function repoName($: EngineInterface): Promise<string> {
   const cwd = (await $.session.cwd()).replace(/\/+$/, '')
   try {
-    const ran = await $.process.run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, timeoutMs: HERDR_MS })
+    // Through the login shell, as herdr is, so git resolves on the person's PATH.
+    const ran = await sh($, `cd ${quote(cwd)} && git rev-parse --path-format=absolute --git-common-dir`)
     const common = ran.stdout.trim().replace(/\/+$/, '')
     if (ran.exitCode === 0 && common.startsWith('/')) return fileName(common.slice(0, common.lastIndexOf('/')))
   } catch {

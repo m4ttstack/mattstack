@@ -105,8 +105,8 @@ export function maxOffset(layout: KitLayout): number {
 }
 
 // What the keys move between: each actionable item's buttons in order, then Clear finished. `ids` are its buttons' ids, `main` the
-// filled one, and `first`/`last` the lines the stop covers. Ids, not whole messages, keep the props small on a long list.
-export type ViewStop = { key: string; ids: PaneButton['id'][]; main: number; first: number; last: number; isItem: boolean }
+// filled one, `lines` the line each button is on, and `first`/`last` the lines the stop covers. Ids, not whole messages, keep the props small on a long list.
+export type ViewStop = { key: string; ids: PaneButton['id'][]; lines: number[]; main: number; first: number; last: number; isItem: boolean }
 
 // The message the stop's button at `col` posts: the same one a click on it sends.
 export function stopMessage(stop: ViewStop, col: number): PaneMessage | undefined {
@@ -118,26 +118,30 @@ export function stopMessage(stop: ViewStop, col: number): PaneMessage | undefine
 // place in the whole list, and the key stops. The whole model would pass the engine's cap on a Client's props for a long list.
 export type KitView = { rows: PaneRow[]; skip: number; top: number; total: number; windowRows: number; stops: ViewStop[] }
 
+// The pane draws on every spinner tick, so each button's line is looked for only among its own row's lines.
 function keyStops(model: PaneModel, layout: KitLayout): ViewStop[] {
-  const stops: (ViewStop & { tones: string[] })[] = []
-  for (const row of model.rows) {
-    if (row.kind !== 'buttons') continue
+  const stops = new Map<string, ViewStop & { tones: string[] }>()
+  model.rows.forEach((row, r) => {
+    if (row.kind !== 'buttons') return
+    const laid = layout.rows[r]!
     for (const button of row.buttons) {
+      const wanted = JSON.stringify(messageOf(button))
+      const offsetInRow = layout.lines.slice(laid.first, laid.first + laid.count).findIndex(line => line.some(span => span.action !== undefined && JSON.stringify(span.action) === wanted))
+      const line = laid.first + Math.max(0, offsetInRow)
       const key = button.todoId ?? button.id
-      const stop = stops.find(s => s.key === key)
+      const stop = stops.get(key)
       if (stop) {
         stop.ids.push(button.id)
         stop.tones.push(button.tone)
-      } else stops.push({ key, ids: [button.id], tones: [button.tone], main: 0, first: 0, last: 0, isItem: button.todoId !== undefined })
+        stop.lines.push(line)
+      } else stops.set(key, { key, ids: [button.id], tones: [button.tone], lines: [line], main: 0, first: line, last: line, isItem: button.todoId !== undefined })
     }
-  }
+  })
   let item = 0
-  return stops.map(({ tones, ...stop }) => {
-    const wanted = JSON.stringify(stopMessage(stop, 0))
-    const at = layout.lines.findIndex(line => line.some(span => span.action !== undefined && JSON.stringify(span.action) === wanted))
-    // Actionable items come first among the model's spans, in the order of their stops.
-    const span = stop.isItem ? layout.spans[item++] : { first: at, last: at }
-    return { ...stop, main: Math.max(0, tones.findIndex(t => t !== 'quiet')), first: span?.first ?? 0, last: span?.last ?? 0 }
+  return [...stops.values()].map(({ tones, ...stop }) => {
+    // Actionable items come first among the model's spans, in the order of their stops; Clear finished keeps its own line.
+    const span = stop.isItem ? layout.spans[item++] : undefined
+    return { ...stop, main: Math.max(0, tones.findIndex(t => t !== 'quiet')), first: span?.first ?? stop.first, last: span?.last ?? stop.last }
   })
 }
 
@@ -167,9 +171,17 @@ export function revealOffset(view: KitView, index: number): number {
   return view.top
 }
 
-export function isInView(view: KitView, index: number): boolean {
-  const stop = view.stops[index]
-  return stop !== undefined && stop.first >= view.top && stop.last <= view.top + view.windowRows - 1
+// Whether a stop's button at `col` is on screen: what Enter needs, since an item taller than the window never shows whole.
+export function isButtonInView(view: KitView, index: number, col: number): boolean {
+  const line = view.stops[index]?.lines[col]
+  return line !== undefined && line >= view.top && line <= view.top + view.windowRows - 1
+}
+
+// The offset that shows a stop's button at `col`, moving the window as little as it can.
+export function revealButtonOffset(view: KitView, index: number, col: number): number {
+  const line = view.stops[index]?.lines[col]
+  if (line === undefined || isButtonInView(view, index, col)) return view.top
+  return line < view.top ? line : Math.min(Math.max(0, view.total - view.windowRows), line - view.windowRows + 1)
 }
 
 // A last guard: no row reaches into the scroll bar, however its pieces measured.
