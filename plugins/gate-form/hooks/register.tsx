@@ -101,20 +101,13 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The answers reach the agent in full; the transcript always shows one summary line, the answers themselves stay in the pane.
-  // isExpanded can't gate this: a short plugin message under its speaker label is drawn expanded too, so it would show in full.
-  on('ui.render', { component: 'UserMessage', props: { origin: { kind: 'plugin' } } }, async ($, e, next) => {
+  // The answers reach the agent in full; the transcript row shows one summary line, the answers themselves stay in the pane.
+  // The row's text is rewritten, as UserMessage's contract allows (the stored message is untouched), rather than redrawn;
+  // isExpanded can't gate it, since a short plugin message under its speaker label is drawn expanded too.
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     const origin = e.props.origin as { kind: string; name?: string }
-    if (origin.name !== 'gate-form') return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    return (
-      <Box flexDirection="row">
-        <Text color={BRAND.pink}>{`${BRAND.glyph} Decision gate `}</Text>
-        <Text dimColor wrap="truncate-end">
-          {summaryOf(e.props.text)}
-        </Text>
-      </Box>
-    )
+    if (origin.kind !== 'plugin' || origin.name !== 'gate-form') return next(e)
+    return next({ ...e, props: { ...e.props, text: `${BRAND.glyph} mattstack gate  ${summaryOf(e.props.text)}` } })
   })
 
   // The band reads the engine's pane list, which no atom write tracks, so a close redraws it.

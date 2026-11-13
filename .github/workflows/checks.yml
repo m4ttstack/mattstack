@@ -463,8 +463,7 @@ jobs:
           claude plugin test plugins/human-todos
           claude plugin validate plugins/human-todos
 
-  # The gate form spike's manifest check, run when plugins/gate-form changes.
-  # It has no tests yet, and `claude plugin test` fails on a mod with none.
+  # The gate form spike's tests and manifest check, run when plugins/gate-form changes.
   plugin-gate-form:
     needs: scope
     if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/gate-form,')
@@ -482,8 +481,10 @@ jobs:
         run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/gate-form
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code@2.1.322
-      - name: Manifest validation
-        run: claude plugin validate plugins/gate-form
+      - name: Mod tests and manifest validation
+        run: |
+          claude plugin test plugins/gate-form
+          claude plugin validate plugins/gate-form
 
   # Docusaurus fails the build on a broken link, but only a build catches it.
   website:
