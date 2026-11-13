@@ -205,4 +205,4 @@ git commit -m "rt-context: guard and forge words in the branch and worktree pick
 ### Task 4: Whole-repo gates
 
 - [ ] **Step 1:** From the worktree root: `bun run typecheck` and `bun run purity`. Expected: both exit 0.
-- [ ] **Step 2:** `grep -rn "—\|–" extensions/vscode/rt-context/src extensions/vscode/rt-context/README.md` shows no line this branch added (`git diff main -- extensions/vscode/rt-context | grep '^+' | grep -c '—\|–'` prints 0).
+- [ ] **Step 2:** No added line carries an em or en dash: `git diff main -- extensions/vscode/rt-context | grep '^+' | perl -CSD -ne 'print if /\x{2013}|\x{2014}/'` prints nothing.
