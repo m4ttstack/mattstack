@@ -29,6 +29,7 @@ export type Todo = {
   isStopping?: boolean
   runner?: 'herdr' | 'local'
   paneId?: string
+  herdrSession?: string
   tabId?: string
   token?: string
   logPath?: string
@@ -43,8 +44,10 @@ declare module 'claude-code' {
       loadedFor: string | null
       isSaveFailed: boolean
       frame: number
-      workspace: string | null
+      herdrWorkspace: { session: string; id: string } | null
       runnerPref: 'auto' | 'herdr' | 'local'
+      keysInPane: boolean
+      scrollOffset: number
     }
   }
 }
