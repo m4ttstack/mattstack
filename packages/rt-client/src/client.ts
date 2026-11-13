@@ -866,6 +866,12 @@ export function herdList(
   return rtCommand<Commands["herd:list"]["data"]>("herd:list", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
+export function herdRoster(
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["herd:roster"]["data"]>> {
+  return rtCommand<Commands["herd:roster"]["data"]>("herd:roster", {}, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
 export function herdResume(
   a: Commands["herd:resume"]["payload"],
   o: RtClientOptions = {},

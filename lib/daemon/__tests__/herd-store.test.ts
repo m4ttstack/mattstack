@@ -4,7 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import pino from "pino";
 import { Database } from "bun:sqlite";
-import { createHerdStore, herdSubject, mintHerdId, isValidJobName, type HerdStore } from "../herd-store.ts";
+import { createHerdStore, herdNameOf, herdSubject, mintHerdId, isValidJobName, type HerdStore } from "../herd-store.ts";
 
 const log = pino({ level: "silent" });
 let dirs: string[] = [];
@@ -22,6 +22,12 @@ function herd(s: HerdStore, id = "demo-20260908-120000") {
 }
 
 describe("herd-store", () => {
+  test("herdNameOf strips the stamp and a collision suffix", () => {
+    expect(herdNameOf("demo-20260908-130509")).toBe("demo");
+    expect(herdNameOf("demo-20260908-130509-2")).toBe("demo");
+    expect(herdNameOf("gh-parity-2-20260908-130509")).toBe("gh-parity-2");
+  });
+
   test("mintHerdId stamps name-YYYYMMDD-HHMMSS", () => {
     expect(mintHerdId("demo", new Date(2026, 8, 8, 13, 5, 9))).toBe("demo-20260908-130509");
   });

@@ -22,6 +22,29 @@ export function DmStack({ pair, size }: { pair: DmPair; size: number }) {
   );
 }
 
+/** A herd's face: its shepherd's sprite, and how many workers it has on the
+    tile where a DM draws its second end. */
+export function HerdStack({
+  shepherd,
+  workers,
+  size,
+}: {
+  shepherd: string;
+  workers: number;
+  size: number;
+}) {
+  const sprite = Math.round(size * 0.66);
+  const style: StackStyle = { '--stack-size': `${size}px` };
+  return (
+    <span className={classes.stack} style={style} aria-hidden>
+      <span className={classes.tile}>
+        <HandleAvatar handle={shepherd} variant="name" size={sprite} />
+      </span>
+      <span className={`${classes.tile} ${classes.count}`}>{workers}</span>
+    </span>
+  );
+}
+
 /** The pair by name, on one line that truncates at its end. */
 export function DmNames({ pair }: { pair: DmPair }) {
   const ctx = useBuddies();

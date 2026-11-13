@@ -276,6 +276,12 @@ export interface GateSubscription {
 export interface HerdInfo { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; shepherdName: string; herdrSocket: string | null; hidden: boolean; status: "active" | "wrapped"; createdAt: number; wrappedAt: number | null }
 /** A herd row as `herd:list` reports it: the registry row plus how many jobs hang off it. */
 export interface HerdListRow extends HerdInfo { jobs: number }
+/** One herd as `herd:roster` reports it: who is in its chat, read from the registry alone with no pane or socket probes, so a page load can afford it. Wrapped herds are included. */
+export interface HerdRosterRow {
+  id: string; name: string; room: string; status: "active" | "wrapped";
+  shepherdHandle: string; shepherdName: string;
+  workers: Array<{ job: string; handle: string; name: string }>;
+}
 export type HerdBudget = { used: number; cap: number; spent: boolean };
 export interface HerdJobBudgets {
   respawns: HerdBudget; blockedNotices: HerdBudget; unmergedReports: HerdBudget;
@@ -1425,6 +1431,7 @@ export interface Commands {
   "herd:status": { payload: { herd: string }; data: HerdStatusData };
   /** Active herds only unless `all`, so a shepherd's "which herd am I on" question has one answer. */
   "herd:list":   { payload: { all?: boolean }; data: { herds: HerdListRow[] } };
+  "herd:roster": { payload: Record<string, never>; data: { herds: HerdRosterRow[] } };
   "herd:close":  { payload: { herd: string; job: string }; data: { job: string; status: "closed"; /** Advisory: a resumable run can still write into this job's worktree after close, so this warns rather than blocking. */ warning?: string } };
   /** Reopens a done job for a follow-up round in its same pane: it goes back to active until its next report. */
   "herd:follow-up": { payload: { herd: string; job: string }; data: { job: string; status: "active" } };
@@ -1636,6 +1643,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "herd:resume",
   "herd:status",
   "herd:list",
+  "herd:roster",
   "herd:close",
   "herd:follow-up",
   "herd:spawn",

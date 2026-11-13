@@ -22,12 +22,14 @@ import {
   chatSlackStatus,
   chatWho,
   getSetting,
+  herdRoster,
   matchSlackFaces,
   paneList,
   parseIdentity,
   serializeIdentity,
   type AgentStatus,
   type ChatMessage,
+  type HerdRosterRow,
   type RoomSummary,
   type RtClientOptions,
 } from '@mattstack/rt-client';
@@ -37,6 +39,7 @@ import { validator } from 'hono/validator';
 
 import {
   fixtureBuddies,
+  fixtureHerds,
   fixtureMembers,
   fixtureMessages,
   fixtureRooms,
@@ -44,6 +47,7 @@ import {
   fixtureSlackPeople,
   fixtureSlackStatus,
 } from './fixtures';
+import { inHerd, withHerds } from './herds';
 
 /**
  * Resolved at CALL time (mirrors rt-client's own `defaultSock()` convention):
@@ -425,19 +429,58 @@ async function withDmLastMessage(
   });
 }
 
+/** The last roster the daemon gave, so one failed read on the rooms poll
+    does not unfold every herd and tear down an open herd view. */
+let lastRoster: HerdRosterRow[] = [];
+
+/** Every herd the daemon knows, wrapped ones too. A daemon without
+    `herd:roster` has never answered, which reads as no herds: the DMs stay
+    plain. */
+async function readHerds(): Promise<HerdRosterRow[]> {
+  if (fixturesEnabled()) return fixtureHerds();
+  try {
+    const res = await herdRoster(rtOpts());
+    if (res?.ok) lastRoster = res.data?.herds ?? [];
+  } catch {
+    // The last good roster stands.
+  }
+  return lastRoster;
+}
+
+export function forgetHerdRoster(): void {
+  lastRoster = [];
+}
+
+/** The rooms a herd's view reads: its DMs from the listing, and its own
+    room, which the human may never have joined. */
+function herdRoomNames(rooms: RoomSummary[], herd: HerdRosterRow): string[] {
+  const names = rooms.filter(r => inHerd(r, herd)).map(r => r.room);
+  return names.includes(herd.room) ? names : [...names, herd.room];
+}
+
+function pageQuery(value: unknown): { before?: number; limit?: number } {
+  const v = value as { before?: unknown; limit?: unknown };
+  return {
+    before: parseIntParam(typeof v?.before === 'string' ? v.before : undefined),
+    limit: parseIntParam(typeof v?.limit === 'string' ? v.limit : undefined),
+  };
+}
+
 export const chat = new Hono()
   .get('/api/chat/rooms', async c => {
-    if (fixturesEnabled()) return c.json({ rooms: fixtureRooms() }, 200);
-    const res = await chatRooms(
-      { handle: humanHandle(c), includeArchived: true },
-      rtOpts()
-    );
+    if (fixturesEnabled()) {
+      return c.json({ rooms: withHerds(fixtureRooms(), fixtureHerds()) }, 200);
+    }
+    const [res, herds] = await Promise.all([
+      chatRooms({ handle: humanHandle(c), includeArchived: true }, rtOpts()),
+      readHerds(),
+    ]);
     if (!res.ok) return c.json({ error: res.error }, 502);
 
     const joined = res.data?.rooms ?? [];
     const extra = await unjoinedFleetRooms(joined);
     const rooms = await withDmLastMessage([...joined, ...extra]);
-    return c.json({ rooms }, 200);
+    return c.json({ rooms: withHerds(rooms, herds) }, 200);
   })
   // Who the viewer is: the handle that keys rooms, and the name shown for it.
   .get('/api/chat/me', c => {
@@ -736,6 +779,73 @@ export const chat = new Hono()
       return c.json({ messages: newestAcross(lists, size) }, 200);
     }
   )
+  // A herd as one list: its shepherd's DMs with each worker, and the herd's
+  // own room. A trailing room narrows it to one of them, in the path so the
+  // transcript's own `?limit=&before=` paging still appends cleanly.
+  .get('/api/chat/herd/:id/:room?', validator('query', pageQuery), async c => {
+    const id = c.req.param('id');
+    const room = c.req.param('room') || undefined;
+    const { before, limit } = c.req.valid('query');
+    const size = limit ?? FIXTURE_PAGE_DEFAULT;
+    const herd = (await readHerds()).find(h => h.id === id);
+    if (!herd) return c.json({ error: `unknown herd "${id}"` }, 404);
+    const listing = fixturesEnabled()
+      ? { ok: true as const, data: { rooms: fixtureRooms() } }
+      : await chatRooms(
+          { handle: humanHandle(c), includeArchived: true },
+          rtOpts()
+        );
+    if (!listing.ok) return c.json({ error: listing.error }, 502);
+    const names = herdRoomNames(listing.data?.rooms ?? [], herd).filter(
+      name => room === undefined || name === room
+    );
+    if (fixturesEnabled()) {
+      const lists = names.map(name =>
+        pageFixtureMessages(fixtureMessages(name), before, size)
+      );
+      return c.json({ messages: newestAcross(lists, size) }, 200);
+    }
+    const pages = await Promise.all(
+      names.map(name =>
+        chatMessages({ room: name, before, limit: size }, rtOpts()).catch(
+          () => null
+        )
+      )
+    );
+    const lists = pages.flatMap(p =>
+      p?.ok && p.data ? [p.data.messages] : []
+    );
+    // Any page missing a conversation fails: its oldest id becomes the next
+    // cursor, which would skip that conversation's newer posts for good. A
+    // room nobody posted in still reads, as an empty list.
+    const failed = pages.some(p => !(p?.ok && p.data));
+    if (failed) {
+      return c.json({ error: 'could not read every conversation' }, 502);
+    }
+    return c.json({ messages: newestAcross(lists, size) }, 200);
+  })
+  // Opening a herd reads everything in it.
+  .post('/api/chat/herd/:id/read', async c => {
+    if (fixturesEnabled()) return c.json({ ok: true }, 200);
+    const id = c.req.param('id');
+    const handle = humanHandle(c);
+    const [res, herds] = await Promise.all([
+      chatRooms({ handle, includeArchived: true }, rtOpts()),
+      readHerds(),
+    ]);
+    if (!res.ok) return c.json({ error: res.error }, 502);
+    const herd = herds.find(h => h.id === id);
+    if (!herd) return c.json({ error: `unknown herd "${id}"` }, 404);
+    const unread = (res.data?.rooms ?? []).filter(
+      r => r.unread > 0 && inHerd(r, herd)
+    );
+    const marks = await Promise.all(
+      unread.map(r => chatMark({ handle, room: r.room }, rtOpts()))
+    );
+    const failed = marks.find(m => !m.ok);
+    if (failed) return c.json({ error: failed.error }, 502);
+    return c.json({ ok: true }, 200);
+  })
   // Opening Messages to you reads everything in it.
   .post('/api/chat/direct/read', async c => {
     if (fixturesEnabled()) return c.json({ ok: true }, 200);
