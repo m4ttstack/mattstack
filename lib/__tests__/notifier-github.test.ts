@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { __test__, createNotifier } from "../notifier.ts";
+import { __test__, createNotifier, NOTIFICATION_TYPES } from "../notifier.ts";
 
 const SELF = { gitlab: null, github: 77 };
 
@@ -39,13 +39,13 @@ const gh = (over?: Record<string, any>) => entry("github:user:77", over);
 
 describe("notifier on GitHub PRs", () => {
   const cases: Array<[string, string, Record<string, any>]> = [
-    ["merged", "MR Merged 🎉", { state: "merged", status: "merged" }],
-    ["closed", "MR Closed", { state: "closed", status: "closed" }],
+    ["merged", "PR Merged 🎉", { state: "merged", status: "merged" }],
+    ["closed", "PR Closed", { state: "closed", status: "closed" }],
     ["CI failed", "Pipeline Failed", { pipeline: { status: "failed" } }],
     ["CI passed", "Pipeline Passed ✓", { pipeline: { status: "success" } }],
     [
       "approved",
-      "MR Approved 👍",
+      "PR Approved 👍",
       { reviews: { isApproved: true, approvedBy: [{ id: "github:user:5" }] } },
     ],
     ["conflicts", "Merge Conflicts", { blockers: { hasConflicts: true } }],
@@ -100,11 +100,35 @@ describe("notifier on GitHub PRs", () => {
       undefined,
       SELF,
     );
-    expect(titles).not.toContain("MR Approved 👍");
+    expect(titles).not.toContain("PR Approved 👍");
   });
 
   test("isSelfAuthored keeps the bare-number GitLab meaning", () => {
     expect(__test__.isSelfAuthored(entry("gitlab:123"), 123)).toBe(true);
     expect(__test__.isSelfAuthored(entry("github:user:123"), 123)).toBe(false);
   });
+});
+
+describe("notifier on GitLab MRs", () => {
+  const gl = (over?: Record<string, any>) =>
+    entry("gitlab:77", { webUrl: "https://gitlab.com/o/r/-/merge_requests/1", ...over });
+
+  for (const [name, title, over] of [
+    ["merged", "MR Merged 🎉", { state: "merged", status: "merged" }],
+    ["closed", "MR Closed", { state: "closed", status: "closed" }],
+  ] as Array<[string, string, Record<string, any>]>) {
+    test(`${name} keeps the MR title`, () => {
+      const { titles, notifier } = harness();
+      const branch = uniqueBranch();
+      notifier.checkAndNotify({ [branch]: gl() }, undefined, { gitlab: 77, github: null });
+      notifier.checkAndNotify({ [branch]: gl(over) }, undefined, { gitlab: 77, github: null });
+      expect(titles).toContain(title);
+    });
+  }
+});
+
+test("notification settings name both forges' changes", () => {
+  const mrOnly = NOTIFICATION_TYPES.flatMap((t) => [t.label, t.description])
+    .filter((t) => (/\bMR\b/.test(t) && !/\bPR\b/.test(t)) || /GitLab/.test(t));
+  expect(mrOnly).toEqual([]);
 });
