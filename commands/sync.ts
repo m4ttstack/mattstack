@@ -208,13 +208,13 @@ export async function syncBranch(
   let remoteEnv: NodeJS.ProcessEnv = process.env;
   if (opts.quiet) {
     try {
-      remoteEnv = await fetchOrigin(cwd);
+      remoteEnv = (await fetchOrigin(cwd)).env;
     } catch (err) {
       return { branch, worktree: cwd, resetResult: null, rebaseResult: null, pushed: false, ...asError(fetchFailureOf(err)) };
     }
   } else {
     try {
-      await steps.run("Fetching from origin…", async () => { remoteEnv = await fetchOrigin(cwd); }, {
+      await steps.run("Fetching from origin…", async () => { remoteEnv = (await fetchOrigin(cwd)).env; }, {
         done: "Fetched from origin",
         failSilently: true,
       });

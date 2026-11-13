@@ -6,6 +6,9 @@ import type { Block } from "../../lib/ui/protocol.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
 import { hasUrlCredentials, holdsCredentialToken } from "../../lib/team/redact.ts";
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
+import { isAuthFailure } from "../../lib/worktree/fetch-auth.ts";
+import type { CloneDeps } from "./clone-state.ts";
+import { createOriginAuth, forgeName, helperEnv, type Forge, type OriginAuth } from "./origin-auth.ts";
 
 /**
  * The one exit for a git verb that cannot go on. Under --json the envelope
@@ -115,18 +118,26 @@ export interface FetchDeps {
   run(cwd: string, env: NodeJS.ProcessEnv): Promise<{ ok: true } | { ok: false; output: string }>;
   findAgent(preferred: string | undefined): Promise<{ socket: string; preferred: boolean } | undefined>;
   env: NodeJS.ProcessEnv;
+  auth: OriginAuth;
+  /** Defaults to `rtSelfHelper()`. */
+  helper?: string;
+  /** Defaults to `httpsSwitchViable(cwd, realCloneDeps(auth))`. */
+  switchViable?: (cwd: string) => Promise<boolean>;
 }
 
-const defaultFetchDeps = (): FetchDeps => ({
-  run: (cwd, env) =>
-    new Promise((resolve) => {
-      execFile("git", ["fetch", "origin"], { cwd, env, encoding: "utf8" }, (err) => {
-        resolve(err ? { ok: false, output: errText(err) } : { ok: true });
-      });
-    }),
-  findAgent: (preferred) => findAgentWithKey(preferred),
-  env: process.env,
-});
+export function defaultFetchDeps(auth: OriginAuth = createOriginAuth()): FetchDeps {
+  return {
+    run: (cwd, env) =>
+      new Promise((resolve) => {
+        execFile("git", ["fetch", "origin"], { cwd, env, encoding: "utf8" }, (err) => {
+          resolve(err ? { ok: false, output: errText(err) } : { ok: true });
+        });
+      }),
+    findAgent: (preferred) => findAgentWithKey(preferred),
+    env: process.env,
+    auth,
+  };
+}
 
 /** What a failed `fetchOrigin` throws, its failure ready for `asError`. */
 export class FetchFailed extends Error {
@@ -139,29 +150,97 @@ export function fetchFailureOf(err: unknown): out.FailureInput {
   return err instanceof FetchFailed ? err.failure : { title: "Could not fetch from origin", details: errText(err) };
 }
 
-/**
- * `git fetch origin`, retried once through an ssh-agent that holds a key when
- * this shell's holds none: a herdr pane's agent socket goes stale when the key
- * is loaded after herdr started.
- */
-/** Resolves to the env the fetch succeeded under, so the caller's later remote calls (a push) reach the same agent. */
-export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDeps()): Promise<NodeJS.ProcessEnv> {
-  const first = await deps.run(cwd, deps.env);
-  if (first.ok) return deps.env;
-  const plain = new FetchFailed({ title: "Could not fetch from origin", details: first.output });
-  if (!looksLikeSshAuthFailure(first.output)) throw plain;
-  const found = await deps.findAgent(deps.env.SSH_AUTH_SOCK);
-  // An agent holds a key and origin still refused: ssh-add would change nothing.
-  if (found?.preferred) throw plain;
-  if (found) {
-    const env = { ...deps.env, SSH_AUTH_SOCK: found.socket };
-    if ((await deps.run(cwd, env)).ok) return env;
-    throw plain;
+export interface RemoteOutcome {
+  env: NodeJS.ProcessEnv;
+  usedRtToken: boolean;
+  forge: Forge | null;
+  host: string | null;
+}
+
+/** `classifyClone(cwd, deps).state === "off"`: `rt git auth --https` would go ahead. */
+export async function httpsSwitchViable(cwd: string, deps: CloneDeps): Promise<boolean> {
+  try {
+    // Dynamic: clone-state.ts pulls in setup and repo-index modules every git verb would otherwise load.
+    const { classifyClone } = await import("./clone-state.ts");
+    return (await classifyClone(cwd, deps)).state === "off";
+  } catch {
+    return false;
   }
-  throw new FetchFailed({
+}
+
+async function defaultSwitchViable(cwd: string, auth: OriginAuth): Promise<boolean> {
+  const { realCloneDeps } = await import("./clone-state.ts");
+  return httpsSwitchViable(cwd, realCloneDeps(auth));
+}
+
+/** `details` is git's output, redacted: the helper's token can come back in a URL git echoes. */
+export function tokenRefusedFailure(subject: string, host: string, forge: Forge, details: string): out.FailureInput {
+  return {
+    title: `Could not ${subject}: the forge refused rt's token as well`,
+    why: `git asked ${host} for access with rt's ${forgeName(forge)} token, and ${host} said no. The token may have expired or lost access.`,
+    next: [`Connect ${forgeName(forge)} again with `, out.cmd(`rt setup ${forge} connect`)],
+    details: redactCredentials(details),
+  };
+}
+
+function noKeyFailure(output: string, viable: boolean): FetchFailed {
+  return new FetchFailed({
     title: "Could not fetch from origin: no SSH key is loaded",
     why: "git reached origin over SSH, but no ssh-agent on this Mac holds a key. Load yours, then run this again.",
-    next: ["Load your key in any terminal with ", out.cmd("ssh-add")],
-    details: first.output,
+    next: viable
+      ? ["Load your key with ", out.cmd("ssh-add"), ", or let rt sign in over HTTPS with ", out.cmd("rt git auth --https")]
+      : ["Load your key in any terminal with ", out.cmd("ssh-add")],
+    details: output,
   });
+}
+
+function refusedKeyFailure(output: string, viable: boolean): FetchFailed {
+  return new FetchFailed({
+    title: "Could not fetch from origin: the forge refused your SSH key",
+    why: "git reached origin over SSH with a loaded key, and the forge said no.",
+    ...(viable ? { next: ["Let rt sign in over HTTPS with ", out.cmd("rt git auth --https")] } : {}),
+    details: output,
+  });
+}
+
+/**
+ * `git fetch origin`, retried once when it can help: through rt's credential
+ * helper after an HTTPS auth failure, or through an ssh-agent that holds a key
+ * when this shell's holds none (a herdr pane's agent socket goes stale when
+ * the key is loaded after herdr started). The outcome's env is the one the
+ * fetch succeeded under, so the caller's later remote calls (a push) use it.
+ */
+export async function fetchOrigin(cwd: string, deps: FetchDeps = defaultFetchDeps()): Promise<RemoteOutcome> {
+  const first = await deps.run(cwd, deps.env);
+  if (first.ok) return { env: deps.env, usedRtToken: false, forge: null, host: null };
+  const plain = (output: string) => new FetchFailed({ title: "Could not fetch from origin", details: output });
+
+  if (isAuthFailure(first.output)) {
+    const v = await deps.auth.forOrigin(cwd, false);
+    if (!v.ok) throw plain(first.output);
+    const env = helperEnv(v.host, deps.env, deps.helper);
+    const retry = await deps.run(cwd, env);
+    if (retry.ok) return { env, usedRtToken: true, forge: v.forge, host: v.host };
+    if (isAuthFailure(retry.output)) throw new FetchFailed(tokenRefusedFailure("fetch from origin", v.host, v.forge, retry.output));
+    throw plain(retry.output);
+  }
+
+  if (!looksLikeSshAuthFailure(first.output)) throw plain(first.output);
+  const viable = async (): Promise<boolean> => {
+    try {
+      return await (deps.switchViable ?? ((c: string) => defaultSwitchViable(c, deps.auth)))(cwd);
+    } catch {
+      return false;
+    }
+  };
+  const found = await deps.findAgent(deps.env.SSH_AUTH_SOCK);
+  if (found?.preferred) throw refusedKeyFailure(first.output, await viable());
+  if (found) {
+    const env = { ...deps.env, SSH_AUTH_SOCK: found.socket };
+    const retry = await deps.run(cwd, env);
+    if (retry.ok) return { env, usedRtToken: false, forge: null, host: null };
+    if (looksLikeSshAuthFailure(retry.output)) throw refusedKeyFailure(retry.output, await viable());
+    throw plain(retry.output);
+  }
+  throw noKeyFailure(first.output, await viable());
 }
