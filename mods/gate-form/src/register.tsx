@@ -118,14 +118,23 @@ const failureText = (failure: unknown) =>
 async function answerGate($: EngineInterface, form: Form, answers: Record<string, unknown>): Promise<void> {
   const gateId = form.gateId ?? ''
   answering.add(form.id)
-  let failed = false
+  // Any throw counts as a failed attempt, so the form never stays on "Recording your answer…".
+  let failed = true
   try {
     failed = !(await recordAnswer($, form, gateId, answers))
+  } catch (failure) {
+    await markFailed($, form, `Not recorded: ${failure instanceof Error ? failure.message : String(failure)}`).catch(() => undefined)
   } finally {
     answering.delete(form.id)
     // A watcher that returned meanwhile left the form to this answer; a fresh wait on an ended gate returns at once and settles it.
     if (failed) watchGate($, gateId)
   }
+}
+
+// The error goes on the form only while it is still open: one already marked answered keeps its ending.
+// A new attempt count is what makes the Client hand the form back with the picks kept.
+async function markFailed($: EngineInterface, form: Form, error: string): Promise<void> {
+  await writeForms($, list => list.map(f => (f.id === form.id && f.status === 'open' ? { ...f, error, attempt: (form.attempt ?? 0) + 1 } : f)))
 }
 
 // Whether rt recorded the answer (or another surface's won); false leaves the form open with the error.
@@ -142,7 +151,7 @@ async function recordAnswer($: EngineInterface, form: Form, gateId: string, answ
     error = failureText(failure)
   }
   if (error !== undefined) {
-    await writeForms($, list => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }))
+    await markFailed($, form, error)
     return false
   }
   const patch: Partial<Form> = outcome === 'elsewhere' ? { status: 'answered', error: undefined, note: ELSEWHERE } : { status: 'answered', error: undefined }
@@ -275,12 +284,13 @@ async function restore($: EngineInterface): Promise<void> {
   } catch {
     rows = undefined
   }
-  if (!rows) return
-  const session = await $.session.id()
-  const byId = new Map(rows.map(row => [row.id, row]))
+  // Without the list nothing new is drawn and nothing reads as ended, but every stored form and band entry is watched again.
+  const listed = rows ?? []
+  const session = rows ? await $.session.id() : ''
+  const byId = new Map(listed.map(row => [row.id, row]))
   const fresh: Form[] = []
   const undrawable: { gate: BoardGate; reason: string }[] = []
-  for (const row of rows
+  for (const row of listed
     .filter(row => row.presentation === 'kit' && row.status === 'open' && (row.nudge as { session?: unknown } | null)?.session === session)
     .sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0))) {
     const form = formFromRow(row)
@@ -313,7 +323,8 @@ async function restore($: EngineInterface): Promise<void> {
     if (end) await gateEnded($, gate.gateId, end)
     else watchGate($, gate.gateId)
   }
-  if ((await read($, boardAtom)).length > 0 && deck.address === undefined) await readDeck($)
+  // Read again on every start with a band: deck may have moved the board since the last read.
+  if ((await read($, boardAtom)).length > 0) await readDeck($)
   for (const form of added) void ringBell($, form)
   $.ui.invalidate('ui.render')
 }

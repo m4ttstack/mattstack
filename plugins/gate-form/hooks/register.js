@@ -832,14 +832,21 @@ var failureText = (failure) => failure instanceof Error && failure.message === R
 async function answerGate($, form, answers) {
   const gateId = form.gateId ?? "";
   answering.add(form.id);
-  let failed = false;
+  let failed = true;
   try {
     failed = !await recordAnswer($, form, gateId, answers);
+  } catch (failure) {
+    await markFailed($, form, `Not recorded: ${failure instanceof Error ? failure.message : String(failure)}`).catch(() => {
+      return;
+    });
   } finally {
     answering.delete(form.id);
     if (failed)
       watchGate($, gateId);
   }
+}
+async function markFailed($, form, error) {
+  await writeForms($, (list) => list.map((f) => f.id === form.id && f.status === "open" ? { ...f, error, attempt: (form.attempt ?? 0) + 1 } : f));
 }
 async function recordAnswer($, form, gateId, answers) {
   const session = await $.session.id();
@@ -856,7 +863,7 @@ async function recordAnswer($, form, gateId, answers) {
     error = failureText(failure);
   }
   if (error !== undefined) {
-    await writeForms($, (list) => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }));
+    await markFailed($, form, error);
     return false;
   }
   const patch = outcome === "elsewhere" ? { status: "answered", error: undefined, note: ELSEWHERE } : { status: "answered", error: undefined };
@@ -975,13 +982,12 @@ async function restore($) {
   } catch {
     rows = undefined;
   }
-  if (!rows)
-    return;
-  const session = await $.session.id();
-  const byId = new Map(rows.map((row) => [row.id, row]));
+  const listed = rows ?? [];
+  const session = rows ? await $.session.id() : "";
+  const byId = new Map(listed.map((row) => [row.id, row]));
   const fresh = [];
   const undrawable = [];
-  for (const row of rows.filter((row) => row.presentation === "kit" && row.status === "open" && row.nudge?.session === session).sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0))) {
+  for (const row of listed.filter((row) => row.presentation === "kit" && row.status === "open" && row.nudge?.session === session).sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0))) {
     const form = formFromRow(row);
     if (typeof form === "string")
       undrawable.push({ gate: { gateId: row.id, kind: typeof row.kind === "string" ? row.kind : "" }, reason: form });
@@ -1019,7 +1025,7 @@ async function restore($) {
     else
       watchGate($, gate.gateId);
   }
-  if ((await read($, boardAtom)).length > 0 && deck.address === undefined)
+  if ((await read($, boardAtom)).length > 0)
     await readDeck($);
   for (const form of added)
     ringBell($, form);

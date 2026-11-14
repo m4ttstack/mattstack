@@ -238,6 +238,28 @@ test('a failed answer keeps the form open with the error and wakes nobody', asyn
   await pane.unmount()
 })
 
+test('a throw while recording the answer shows the error, keeps the form open and watches the gate again', async ($, on) => {
+  const w = world(on)
+  await drawOn($, 'terminal')
+  await ask($)
+  await eventually(() => w.waits.length === 1)
+  await eventually(() => false, 10)
+  w.state.sessionIdFails = true
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  const form = (await formOf(pane)) as { status: string; error?: string; attempt?: number }
+  expect(form).toMatchObject({ status: 'open', attempt: 1 })
+  expect(form.error).toMatch(/^Not recorded: /)
+  expect(w.ran).toEqual([])
+  expect(w.sent).toEqual([])
+  const key = (await pane.find({ type: 'Client' }))!.key!
+  const rows = (await rowsOf(pane, key)).join('\n')
+  expect(rows).toContain('Not recorded')
+  expect(rows).not.toContain('Recording your answer')
+  expect(await eventually(() => w.waits.length === 2)).toBe(true)
+  await pane.unmount()
+})
+
 test('an answer that overruns is never sent again, and the form says it may be recorded', async ($, on) => {
   const w = world(on, {
     rt: async argv => {

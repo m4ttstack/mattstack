@@ -245,6 +245,25 @@ test('restore keeps one form and one watcher per gate, and closes a form whose g
   expect(w.sent).toEqual([])
 })
 
+// No wait is held, so each watcher ends at once and only a session start watches again.
+test('a session start whose gate list fails still watches the stored forms and band entries, and still reads deck', async ($, on) => {
+  let n = 0
+  const replies = [kitResult('g1'), boardResult('b1')]
+  const w = world(on, { reply: () => ({ text: JSON.stringify(replies[n++]) }) })
+  await drawOn($, 'terminal')
+  await ask($)
+  await ask($, { kind: 'review-post' })
+  await eventually(() => w.waits.length === 2)
+  await eventually(() => false, 10)
+  const deckReads = w.deckRuns.length
+  w.state.listFails = true
+  // A fresh module knows no deck address, so a session start must ask deck again.
+  await startSession($)
+  expect(await eventually(() => w.waits.length === 4)).toBe(true)
+  expect(w.waits.slice(2).map(x => x.argv[3]).sort()).toEqual(['b1', 'g1'])
+  expect(w.deckRuns.length).toBeGreaterThan(deckReads)
+})
+
 test('a board-only wait result adds the Open on board band and passes through unchanged', async ($, on) => {
   const text = JSON.stringify(boardResult('b1'))
   const w = world(on, { reply: () => ({ text }) })

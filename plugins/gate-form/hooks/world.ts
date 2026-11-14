@@ -100,7 +100,7 @@ export function world(on: On, opts: WorldOptions = {}) {
   const waits: Wait[] = []
   const toasts: string[] = []
   const registered: string[] = []
-  const state = { setting: opts.setting ?? 'on', settingReads: 0, lists: 0, deck: opts.deck === undefined ? DECK_TABLE : opts.deck }
+  const state = { setting: opts.setting ?? 'on', settingReads: 0, lists: 0, listFails: false, sessionIdFails: false, deck: opts.deck === undefined ? DECK_TABLE : opts.deck }
   const clock = mock.clock(on, { now: 1_000_000 })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/Users/tester/repo' }))
@@ -126,7 +126,10 @@ export function world(on: On, opts: WorldOptions = {}) {
     return { value: undefined }
   })
   on('ui.panes', () => ({ value: [...panes].map(([id, title]) => ({ id, title, isShown: true, isFocused: false, isPlaced: true })) }))
-  on('session.id', () => ({ value: SESSION }))
+  on('session.id', () => {
+    if (state.sessionIdFails) throw new Error('no session bound')
+    return { value: SESSION }
+  })
   mock.env(on, { HOME, ...opts.env })
   on('prompt.submit', (_, e) => {
     sent.push(e.text)
@@ -144,6 +147,7 @@ export function world(on: On, opts: WorldOptions = {}) {
     }
     if (isGateList(e.argv)) {
       state.lists += 1
+      if (state.listFails) return failed('rt could not reach the daemon')
       return ok(JSON.stringify({ ok: true, gates: opts.gates?.() ?? [], cursor: null }))
     }
     if (e.argv[0] === 'deck' || e.argv[0]?.endsWith('/deck')) {
