@@ -76,14 +76,19 @@ async function setKeysInForm($: EngineInterface, value: boolean): Promise<void> 
   if ((await read($, keysAtom)) !== value) await update($, keysAtom, () => value)
 }
 
-async function wake($: EngineInterface, text: string, what: string): Promise<void> {
-  const warn = () => $.ui.toast(`Could not tell Claude about ${what}`)
+async function wake($: EngineInterface, text: string, what: string, recovery?: string): Promise<void> {
+  const warn = () => $.ui.toast(`Could not tell Claude about ${what}${recovery ? `. ${recovery}` : ''}`)
   void $.prompt
     .submit({ text })
     .then(sent => {
       if (sent.drop !== undefined) warn()
     })
     .catch(warn)
+}
+
+// The pane's own answer is stamped consumed, so no sweep rings for it again: the toast is the only way back.
+async function wakeAnswered($: EngineInterface, gateId: string): Promise<void> {
+  await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`, `Ask it to run gate_reconcile ${gateId}.`)
 }
 
 // After an answer the pane moves on to the next open form; with none left it closes, and `note`, the ending
@@ -156,7 +161,7 @@ async function recordAnswer($: EngineInterface, form: Form, gateId: string, answ
   }
   const patch: Partial<Form> = outcome === 'elsewhere' ? { status: 'answered', error: undefined, note: ELSEWHERE } : { status: 'answered', error: undefined }
   const forms = await writeForms($, list => patchForm(list, form.id, patch))
-  if (outcome === 'recorded') await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
+  if (outcome === 'recorded') await wakeAnswered($, gateId)
   await showCurrent($, forms, outcome === 'elsewhere' ? ELSEWHERE : undefined)
   return true
 }
@@ -208,7 +213,7 @@ async function gateEnded($: EngineInterface, gateId: string, end: GateEnd): Prom
     ? { status: 'answered', error: undefined }
     : { status: end.status === 'answered' ? 'answered' : 'cancelled', error: undefined, note, ...(won && { won }) }
   const forms = await writeForms($, list => list.map(f => (open.some(o => o.id === f.id) ? { ...f, ...patch } : f)))
-  if (self) await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
+  if (self) await wakeAnswered($, gateId)
   await showCurrent($, forms, note && `${open[0]!.title}: ${note}`)
 }
 

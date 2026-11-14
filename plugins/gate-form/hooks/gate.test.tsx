@@ -215,6 +215,18 @@ test('Submit records the answer with rt gate answer and wakes the agent', async 
   await pane.unmount()
 })
 
+test('a wake the session drops toasts the recovery: gate_reconcile for the gate', async ($, on) => {
+  const w = world(on)
+  await drawOn($, 'terminal')
+  await ask($)
+  w.state.submitDrops = true
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  expect(await eventually(() => w.toasts.length > 0)).toBe(true)
+  expect(w.toasts).toEqual(['Could not tell Claude about the answer to gate g1. Ask it to run gate_reconcile g1.'])
+  await pane.unmount()
+})
+
 test('a run control is sent as the answer', async ($, on) => {
   const w = world(on)
   await drawOn($, 'terminal')

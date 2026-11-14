@@ -100,7 +100,7 @@ export function world(on: On, opts: WorldOptions = {}) {
   const waits: Wait[] = []
   const toasts: string[] = []
   const registered: string[] = []
-  const state = { setting: opts.setting ?? 'on', settingReads: 0, lists: 0, listFails: false, sessionIdFails: false, deck: opts.deck === undefined ? DECK_TABLE : opts.deck }
+  const state = { setting: opts.setting ?? 'on', settingReads: 0, lists: 0, listFails: false, sessionIdFails: false, submitDrops: false, deck: opts.deck === undefined ? DECK_TABLE : opts.deck }
   const clock = mock.clock(on, { now: 1_000_000 })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/Users/tester/repo' }))
@@ -132,6 +132,7 @@ export function world(on: On, opts: WorldOptions = {}) {
   })
   mock.env(on, { HOME, ...opts.env })
   on('prompt.submit', (_, e) => {
+    if (state.submitDrops) return { drop: 'the session is not taking prompts' }
     sent.push(e.text)
     return { text: e.text }
   })

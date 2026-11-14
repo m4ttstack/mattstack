@@ -803,12 +803,15 @@ async function setKeysInForm($, value) {
   if (await read($, keysAtom) !== value)
     await update($, keysAtom, () => value);
 }
-async function wake($, text, what) {
-  const warn = () => $.ui.toast(`Could not tell Claude about ${what}`);
+async function wake($, text, what, recovery) {
+  const warn = () => $.ui.toast(`Could not tell Claude about ${what}${recovery ? `. ${recovery}` : ""}`);
   $.prompt.submit({ text }).then((sent) => {
     if (sent.drop !== undefined)
       warn();
   }).catch(warn);
+}
+async function wakeAnswered($, gateId) {
+  await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`, `Ask it to run gate_reconcile ${gateId}.`);
 }
 async function showCurrent($, forms, note) {
   const next = currentForm(forms);
@@ -869,7 +872,7 @@ async function recordAnswer($, form, gateId, answers) {
   const patch = outcome === "elsewhere" ? { status: "answered", error: undefined, note: ELSEWHERE } : { status: "answered", error: undefined };
   const forms = await writeForms($, (list) => patchForm(list, form.id, patch));
   if (outcome === "recorded")
-    await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
+    await wakeAnswered($, gateId);
   await showCurrent($, forms, outcome === "elsewhere" ? ELSEWHERE : undefined);
   return true;
 }
@@ -917,7 +920,7 @@ async function gateEnded($, gateId, end) {
   const patch = self ? { status: "answered", error: undefined } : { status: end.status === "answered" ? "answered" : "cancelled", error: undefined, note, ...won && { won } };
   const forms = await writeForms($, (list) => list.map((f) => open.some((o) => o.id === f.id) ? { ...f, ...patch } : f));
   if (self)
-    await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
+    await wakeAnswered($, gateId);
   await showCurrent($, forms, note && `${open[0].title}: ${note}`);
 }
 function controlText(answers) {
