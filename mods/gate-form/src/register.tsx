@@ -87,7 +87,10 @@ async function wake($: EngineInterface, text: string, what: string): Promise<voi
 // the closed form would have shown, becomes a toast.
 async function showCurrent($: EngineInterface, forms: Form[], note?: string): Promise<void> {
   const next = currentForm(forms)
-  if (next?.status === 'open') return showPane($, GATE_PANE, next.title)
+  if (next?.status === 'open') {
+    await showPane($, GATE_PANE, next.title)
+    return
+  }
   if (note) $.ui.toast(note)
   await $.ui.close({ id: PANE })
   $.ui.invalidate('ui.render')
@@ -170,7 +173,9 @@ async function settle($: EngineInterface, formId: string, outcome: Outcome): Pro
 async function openForm($: EngineInterface, form: Form, supersededId?: string | null): Promise<void> {
   await writeForms($, list => addForm(list, form, supersededId))
   const shown = currentForm(await readForms($))
-  await showPane($, GATE_PANE, shown?.title ?? form.title)
+  const title = shown?.title ?? form.title
+  // Opened from a tool, not by the person: on a narrow terminal it waits for the band's Show.
+  if (!(await showPane($, GATE_PANE, title))) $.ui.toast(`${title} is waiting: press Show above the prompt`)
 }
 
 // The AskUserQuestion hook that rings herdr's bell never fires for a kit form, so opening one rings it. Outside herdr nothing rings.
@@ -451,7 +456,7 @@ export function register(on: On): void {
     // Until deck has been asked, the band can't say whether the board can be opened, so it waits for the answer.
     const board = setting.isOn && deck.address !== undefined ? await read($, boardAtom) : []
     if (!formWaits && board.length === 0) return next(e)
-    const rest = formWaits ? await bandAbovePrompt($, e, await next(e), waiting, GATE_PANE) : await next(e)
+    const rest = formWaits ? await bandAbovePrompt($, e, await next(e), waiting, GATE_PANE, { engineShow: true }) : await next(e)
     return board.length > 0 ? boardBand($, e, rest, board) : rest
   })
 

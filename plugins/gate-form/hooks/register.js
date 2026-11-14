@@ -276,8 +276,9 @@ function isEngaged(e) {
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
 async function showPane($, pane, title) {
-  await $.ui.open({ id: pane.id, title, focus: true });
+  const opened = await $.ui.open({ id: pane.id, title, focus: true });
   $.ui.invalidate("ui.render");
+  return opened.isPlaced;
 }
 async function paneMessage($, e, pane, waiting) {
   const message = e.data;
@@ -293,12 +294,25 @@ function registerPaneRedraw(on) {
     return closed;
   });
 }
-async function bandAbovePrompt($, e, rest, waiting, pane) {
+async function bandAbovePrompt($, e, rest, waiting, pane, options = {}) {
   const label = pane.label ?? DEFAULT_BAND_LABEL;
   const els = $.ui.resolve(e);
   const { Box, Text, Button } = els;
   const Client = "Client" in els ? els.Client : undefined;
-  const band = Client ? /* @__PURE__ */ h(Client, {
+  const show = /* @__PURE__ */ h(Button, {
+    key: `open-${pane.id}`,
+    label: "Show",
+    onPress: () => showPane($, pane, waiting.title)
+  });
+  const band = Client ? options.engineShow ? /* @__PURE__ */ h(Box, {
+    flexDirection: "row",
+    gap: 2
+  }, /* @__PURE__ */ h(Client, {
+    key: `band-${waiting.formId}`,
+    module: "./band.js",
+    flexGrow: 1,
+    props: { formId: waiting.formId, title: waiting.title, label, bareText: true }
+  }), show) : /* @__PURE__ */ h(Client, {
     key: `band-${waiting.formId}`,
     module: "./band.js",
     props: { formId: waiting.formId, title: waiting.title, label }
@@ -871,8 +885,10 @@ async function wake($, text, what) {
 }
 async function showCurrent($, forms, note) {
   const next = currentForm(forms);
-  if (next?.status === "open")
-    return showPane($, GATE_PANE, next.title);
+  if (next?.status === "open") {
+    await showPane($, GATE_PANE, next.title);
+    return;
+  }
   if (note)
     $.ui.toast(note);
   await $.ui.close({ id: PANE });
@@ -947,7 +963,9 @@ async function settle($, formId, outcome) {
 async function openForm($, form, supersededId) {
   await writeForms($, (list) => addForm(list, form, supersededId));
   const shown = currentForm(await readForms($));
-  await showPane($, GATE_PANE, shown?.title ?? form.title);
+  const title = shown?.title ?? form.title;
+  if (!await showPane($, GATE_PANE, title))
+    $.ui.toast(`${title} is waiting: press Show above the prompt`);
 }
 async function ringBell($, form) {
   if (await $.env.get("HERDR_ENV") !== "1" || !await $.env.get("HERDR_PANE_ID"))
@@ -1230,7 +1248,7 @@ function register(on) {
     const board = setting.isOn && deck.address !== undefined ? await read($, boardAtom) : [];
     if (!formWaits && board.length === 0)
       return next(e);
-    const rest = formWaits ? await bandAbovePrompt($, e, await next(e), waiting, GATE_PANE) : await next(e);
+    const rest = formWaits ? await bandAbovePrompt($, e, await next(e), waiting, GATE_PANE, { engineShow: true }) : await next(e);
     return board.length > 0 ? boardBand($, e, rest, board) : rest;
   });
   on("ui.render", { component: "Pane", requestId: "gate-form" }, async ($, e) => {
