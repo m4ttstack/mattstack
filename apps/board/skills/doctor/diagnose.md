@@ -8,6 +8,8 @@ here too.
 The generic path's first read: what is broken on the MR, and a
 server-side rebase when it has conflicts.
 
+In the gate labels, options, waits and errors this file spells out, `<MR>` is `MR` on GitLab and `PR` on GitHub, and `<ref>` is `!<iid>` on GitLab and `#<iid>` on GitHub.
+
 ```dot
 digraph doctor_diagnose_and_rebase {
     rankdir=TB;
@@ -244,7 +246,7 @@ retry unchanged when it names none.
 ### End the turn: waiting on the rebase poll
 
 The background `sleep 20` is running: end the turn here, in one line
-naming the wait (`waiting on the rebase of !<iid>, poll <n> of 5`). Run
+naming the wait (`waiting on the rebase of <ref>, poll <n> of 5`). Run
 one sleep task at a time and never sleep in the foreground; a foreground
 sleep is refused. The task's finish wakes the pane at
 `Trigger: the rebase poll's sleep finished` for the next read.
@@ -254,7 +256,7 @@ sleep is refused. The task's finish wakes the pane at
 Take the escalation step with this question. Only one of `ci_lease_read`
 (board mode) or `ci_lease_claim` (own mode) runs at this site in a run, so
 the site is one origin. Label: `lease check before the rebase refused on
-!<iid>: <error>`. Context: the lease tool's error, quoted.
+<ref>: <error>`. Context: the lease tool's error, quoted.
 
 | Value                                                                                              | Label                 | Description                                                   |
 | -------------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------- |
@@ -269,26 +271,26 @@ before checking again.
 ### doctor off-script escalation: mr_view refused
 
 Take the escalation step with this question. Label: `mr_view refused twice
-on !<iid>: <second error>`. Context: both `mr_view` errors, quoted.
+on <ref>: <second error>`. Context: both `mr_view` errors, quoted.
 
-| Value                                                                             | Label                | Description                                                        |
-| --------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------ |
-| `take: you tell me the MR's state (conflicts, pipeline status) (mr_view refused)` | Tell me its state    | You report conflicts and pipeline status and I diagnose from that. |
-| `iterate: you fixed the cause, read the MR again (mr_view refused)`               | Fixed it, read again | You fixed what refused the read and I read it again.               |
-| `hold: keep this pane open with nothing moved (mr_view refused)`                  | Hold this pane       | I stop with nothing moved and the pane stays open.                 |
-| `leave it to me in the pane`                                                      | Leave it to me       | I write an error naming the refusal and you take over.             |
+| Value                                                                               | Label                  | Description                                                        |
+| ----------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------ |
+| `take: you tell me the <MR>'s state (conflicts, pipeline status) (mr_view refused)` | Tell me the <MR> state | You report conflicts and pipeline status and I diagnose from that. |
+| `iterate: you fixed the cause, read the <MR> again (mr_view refused)`               | Fixed it, read again   | You fixed what refused the read and I read the <MR> again.         |
+| `hold: keep this pane open with nothing moved (mr_view refused)`                    | Hold this pane         | I stop with nothing moved and the pane stays open.                 |
+| `leave it to me in the pane`                                                        | Leave it to me         | I write an error naming the refusal and you take over.             |
 
 Iterate passes `Off-script rounds = 2 (mr_view)?` before reading again.
 
 ### doctor off-script escalation: mr_rebase refused
 
 Take the escalation step with this question. Label: `mr_rebase refused
-twice on !<iid>: <second error>`. Context: both `mr_rebase` errors,
+twice on <ref>: <second error>`. Context: both `mr_rebase` errors,
 quoted.
 
 | Value                                                                                | Label                  | Description                                                               |
 | ------------------------------------------------------------------------------------ | ---------------------- | ------------------------------------------------------------------------- |
-| `take: you rebase the MR yourself, I watch for the result (mr_rebase refused)`       | Rebase it yourself     | You rebase the MR and I poll it for the result.                           |
+| `take: you rebase the <MR> yourself, I watch for the result (mr_rebase refused)`     | Rebase it yourself     | You rebase the <MR> and I poll it for the result.                         |
 | `iterate: you fixed the cause, check the lease and rebase again (mr_rebase refused)` | Fixed it, rebase again | You fixed what refused the rebase and I check the lease and rebase again. |
 | `hold: keep this pane open with nothing moved (mr_rebase refused)`                   | Hold this pane         | I stop before rebasing and the pane stays open.                           |
 | `leave it to me in the pane`                                                         | Leave it to me         | I write an error naming the refusal and you take over.                    |
