@@ -6,6 +6,9 @@ export const WRITE_IN = '__other__'
 
 export type Phase = 'active' | 'submitted' | 'chat'
 
+// `next` is the nav row's forward button: Next, Review or Submit.
+export type NavId = 'back' | 'next' | 'more' | 'chat'
+
 export type State = {
   page: number
   cursor: number[]
@@ -20,8 +23,10 @@ export type State = {
   tabsFrom: number
   chatArmed?: true
   menu: MenuState
-  // Which of the review page's buttons the keyboard is on.
-  navAt: 'submit' | 'more'
+  // The keyboard is on the nav row rather than the page's answers; the review page has only the nav row.
+  onNav?: true
+  // Which of the nav row's buttons the keyboard is on.
+  navAt: NavId
   // The form's failed-attempt count when this state sent its answer: a higher count means that send failed.
   sent?: number
   // The run control that was sent, for the closed form to name.
@@ -49,7 +54,7 @@ export function initial(form: Form): State {
     phase: 'active',
     tabsFrom: 0,
     menu: { open: false, selected: 0 },
-    navAt: 'submit',
+    navAt: 'next',
   }
 }
 
@@ -58,6 +63,22 @@ export const canSubmit = (form: Form, s: State) => form.source !== 'gate' || una
 
 const PAUSE = 'pause'
 const GO_BACK = 'go-back:'
+
+export const isReview = (form: Form, s: State) => s.page === form.questions.length
+export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)
+
+// The nav row's buttons the keyboard can rest on: a disabled Back is skipped, while a disabled Submit stays, as Enter on it does nothing.
+export function navIds(form: Form, s: State): NavId[] {
+  const ids: NavId[] = s.page > 0 ? ['back', 'next'] : ['next']
+  if (isReview(form, s) && menuRows(form).length > 0) ids.push('more')
+  ids.push('chat')
+  return ids
+}
+
+// The nav row's button the keyboard is on, or `next` when its own has gone.
+export function navAtOf(form: Form, s: State): NavId {
+  return navIds(form, s).includes(s.navAt) ? s.navAt : 'next'
+}
 
 export function menuRows(form: Form): MenuRow[] {
   const controls = form.controls

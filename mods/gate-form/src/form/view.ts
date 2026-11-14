@@ -2,7 +2,7 @@ import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, bu
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canSubmit, choicesOf, cursorIsChoice, isPicked, menuRows, unansweredCount, WRITE_IN, type State } from './state'
+import { canSubmit, choicesOf, cursorIsChoice, isOnNav, isPicked, menuRows, navAtOf, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 export type View = { width: number; focused: boolean }
 
@@ -32,9 +32,26 @@ function answerSummary(q: FormQuestion, s: State, i: number): string {
   return values.length === 0 ? 'none' : values.map(label).join(', ')
 }
 
+// An answer another surface recorded, in gate_answer's shape, read against this form's options.
+function wonSummary(q: FormQuestion, raw: unknown): string {
+  const label = (v: unknown) => q.options.find(o => o.value === v)?.label ?? String(v)
+  const labels = (v: unknown) => (Array.isArray(v) ? (v.length === 0 ? 'none' : v.map(label).join(', ')) : label(v))
+  if (raw === undefined || raw === null) return 'skipped'
+  if (typeof raw === 'string') return q.options.length > 0 ? label(raw) : raw === '' ? '(blank)' : raw
+  if (Array.isArray(raw)) return labels(raw)
+  if (typeof raw !== 'object') return String(raw)
+  const typed = raw as { writeIn?: unknown; value?: unknown; note?: unknown }
+  if (typeof typed.writeIn === 'string') return `“${typed.writeIn}”`
+  const picked = typed.value === undefined ? '' : labels(typed.value)
+  if (typeof typed.note !== 'string') return picked || 'skipped'
+  return picked ? `${picked}, “${typed.note}”` : `“${typed.note}”`
+}
+
 const kindIcon = (q: FormQuestion) => (choicesOf(q).length === 0 ? ICON.text : q.multi ? ICON.multi : ICON.single)
 
-function questionPage(q: FormQuestion, s: State, i: number, view: View): L[] {
+function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
+  // On the nav row the keys are there, so the answer shows no caret.
+  const view = { ...base, focused: base.focused && !s.onNav }
   const bar = rail<Action>(ACCENT)
   const lines: L[] = hang([sp(kindIcon(q), ACCENT), sp('  ')], bar, q.label, view.width, { bold: true })
   if (q.multi) lines.push([...bar, sp('pick any number', DIM)])
@@ -63,11 +80,12 @@ function questionPage(q: FormQuestion, s: State, i: number, view: View): L[] {
 
 // Each entry is clickable while the form is open, so the review list is also how you go back to change or finish an answer.
 function reviewList(form: Form, s: State, view: View): L[] {
-  const isOpen = s.phase === 'active'
+  const isOpen = s.phase === 'active' && form.status === 'open'
+  const won = form.status === 'open' ? undefined : form.won
   return reviewItems<Action>(
     form.questions.map((q, i) => ({
       label: q.label,
-      summary: s.answered[i] ? answerSummary(q, s, i) : undefined,
+      summary: won ? wonSummary(q, won[q.id]) : s.answered[i] ? answerSummary(q, s, i) : undefined,
       ...(isOpen && { action: { type: 'page', page: i } as const }),
     })),
     view.width,
@@ -120,6 +138,12 @@ export function withTabInView(form: Form, s: State, width: number): State {
 
 const MORE: Action = { type: 'menu', hit: { type: 'toggle' } }
 
+// Where each nav button's span sits in buttonRow's line: the indent, then each left button and its gap, the right button last.
+function spanAt(id: NavId, line: L): number {
+  const left: Record<Exclude<NavId, 'chat'>, number> = { back: 0, next: 1, more: 2 }
+  return id === 'chat' ? line.length - 1 : 1 + 2 * left[id]
+}
+
 // The nav row, and under it the More actions rows while that menu is open (the review page only).
 function navRows(form: Form, s: State, view: View): L[] {
   const n = form.questions.length
@@ -132,15 +156,19 @@ function navRows(form: Form, s: State, view: View): L[] {
     ? { label: `${ICON.chat} Press again to chat`, action: { type: 'chat' }, tone: 'caution' }
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }
   const rows = page === n ? menuRows(form) : []
-  if (rows.length === 0) return [buttonRow([back, next], aside, view.width)]
-
   const more: Button<Action> = { label: MORE_ACTIONS, action: MORE, tone: 'quiet' }
-  const line = buttonRow([back, next, more], aside, view.width)
+  const line = buttonRow(rows.length === 0 ? [back, next] : [back, next, more], aside, view.width)
+  const marked = (row: L): L => {
+    if (!view.focused || !isOnNav(form, s)) return row
+    const at = spanAt(navAtOf(form, s), row)
+    return [...row.slice(0, at), ...keySelected(row[at]!), ...row.slice(at + 1)]
+  }
+  if (rows.length === 0) return [marked(line)]
+
   const at = line.findIndex(span => span.action === MORE)
   const indent = widthOf(line.slice(0, at))
-  const marked: L = s.navAt === 'more' && view.focused ? [...line.slice(0, at), ...keySelected(line[at]!), ...line.slice(at + 1)] : line
   const hung = menu<Action>({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, actionFor: hit => ({ type: 'menu', hit }) })
-  return [marked, ...hung.slice(1)]
+  return [marked(line), ...hung.slice(1)]
 }
 
 function errorLines(form: Form, view: View): L[] {
@@ -154,7 +182,8 @@ function hint(form: Form, s: State, view: View): string | undefined {
   if (!view.focused) return 'click the form to answer with the keyboard'
   const q = form.questions[s.page]
   if (!q) return undefined
-  return choicesOf(q).length === 0 ? '←→ pages' : '←→ pages  ↑↓ move'
+  if (s.onNav) return '←→ buttons  ↑ answers'
+  return choicesOf(q).length === 0 ? '←→ pages  ↓ buttons' : '←→ pages  ↑↓ move'
 }
 
 function draw(form: Form, s: State, view: View, withContext: boolean): Drawn<Action> {

@@ -7,8 +7,8 @@ const answered = (by: string, session?: string) =>
   JSON.stringify({ ok: true, status: 'answered', row: { id: 'g1', status: 'answered', answer: { answers: {}, by, answeredAt: 1, ...(session ? { session } : {}) } } })
 
 test('a wait that ends answered names who answered', () => {
-  expect(waitEnd(answered('board'))).toEqual({ status: 'answered', by: 'board' })
-  expect(waitEnd(answered('pane', 's1'))).toEqual({ status: 'answered', by: 'pane', session: 's1' })
+  expect(waitEnd(answered('board'))).toEqual({ status: 'answered', by: 'board', answers: {} })
+  expect(waitEnd(answered('pane', 's1'))).toEqual({ status: 'answered', by: 'pane', session: 's1', answers: {} })
 })
 
 test('a wait that ends closed says why', () => {
@@ -74,13 +74,13 @@ async function* exits(text: string, code = 0): Child {
 
 test('the watcher runs rt gate wait with the session id empty, so the wait never stamps the gate consumed', async () => {
   const { $, spawned } = fakeEngine(() => exits(answered('board')))
-  expect(await waitFor($, 'g1')).toEqual({ status: 'answered', by: 'board' })
+  expect(await waitFor($, 'g1')).toEqual({ status: 'answered', by: 'board', answers: {} })
   expect(spawned).toEqual([{ argv: ['rt', 'gate', 'wait', 'g1'], env: { CLAUDE_CODE_SESSION_ID: '' } }])
 })
 
 test('an rt that cannot start moves on to the one under ~/.local/bin', async () => {
   const { $, spawned } = fakeEngine(argv => (argv[0] === 'rt' ? undefined : exits(answered('board'))))
-  expect(await waitFor($, 'g1')).toEqual({ status: 'answered', by: 'board' })
+  expect(await waitFor($, 'g1')).toEqual({ status: 'answered', by: 'board', answers: {} })
   expect(spawned.map(s => s.argv[0])).toEqual(['rt', '/home/t/.local/bin/rt'])
 })
 

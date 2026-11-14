@@ -757,7 +757,12 @@ var isObject3 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 function rowEnd(row) {
   if (row.status === "answered") {
     const answer = isObject3(row.answer) ? row.answer : {};
-    return { status: "answered", by: String(answer.by ?? ""), ...typeof answer.session === "string" && { session: answer.session } };
+    return {
+      status: "answered",
+      by: String(answer.by ?? ""),
+      ...typeof answer.session === "string" && { session: answer.session },
+      ...isObject3(answer.answers) && { answers: answer.answers }
+    };
   }
   if (row.status === "closed")
     return { status: "closed", ...typeof row.closedReason === "string" && { reason: row.closedReason } };
@@ -860,12 +865,14 @@ async function wake($, text, what) {
       warn();
   }).catch(warn);
 }
-async function showCurrent($, forms) {
+async function showCurrent($, forms, note) {
   const next = currentForm(forms);
   if (next?.status === "open")
-    await showPane($, GATE_PANE, next.title);
-  else
-    $.ui.invalidate("ui.render");
+    return showPane($, GATE_PANE, next.title);
+  if (note)
+    $.ui.toast(note);
+  await $.ui.close({ id: PANE });
+  $.ui.invalidate("ui.render");
 }
 async function readSetting($) {
   try {
@@ -909,7 +916,7 @@ async function recordAnswer($, form, gateId, answers) {
   const forms = await writeForms($, (list) => patchForm(list, form.id, patch));
   if (outcome === "recorded")
     await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
-  await showCurrent($, forms);
+  await showCurrent($, forms, outcome === "elsewhere" ? ELSEWHERE : undefined);
   return true;
 }
 async function setGateAside($, form) {
@@ -926,10 +933,12 @@ async function settle($, formId, outcome) {
     return setGateAside($, form);
   }
   const status = outcome.status === "answered" ? "answered" : "cancelled";
-  await writeForms($, (list) => patchForm(list, formId, { status }));
+  const forms = await writeForms($, (list) => patchForm(list, formId, { status }));
   if (form.source === "demo")
-    return $.ui.toast(toastReply(form, outcome));
-  await wake($, agentReply(form, outcome), `the answers for ${formId}`);
+    $.ui.toast(toastReply(form, outcome));
+  else
+    await wake($, agentReply(form, outcome), `the answers for ${formId}`);
+  await showCurrent($, forms);
 }
 async function openForm($, form, supersededId) {
   await writeForms($, (list) => addForm(list, form, supersededId));
@@ -947,14 +956,23 @@ async function gateEnded($, gateId, end) {
   if ((await read($, boardAtom)).some((b) => b.gateId === gateId))
     await update($, boardAtom, (list) => list.filter((b) => b.gateId !== gateId));
   const open = (await readForms($)).filter((f) => f.gateId === gateId && f.status === "open" && !answering.has(f.id));
-  if (open.length > 0) {
-    const self = isSelf(end, await $.session.id());
-    const patch = self ? { status: "answered", error: undefined } : { status: end.status === "answered" ? "answered" : "cancelled", error: undefined, note: endNote(end) };
-    await writeForms($, (list) => list.map((f) => open.some((o) => o.id === f.id) ? { ...f, ...patch } : f));
-    if (self)
-      await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
-  }
-  $.ui.invalidate("ui.render");
+  if (open.length === 0)
+    return $.ui.invalidate("ui.render");
+  const self = isSelf(end, await $.session.id());
+  const won = end.status === "answered" ? end.answers : undefined;
+  const note = self ? undefined : [endNote(end), won && controlText(won)].filter(Boolean).join(". ");
+  const patch = self ? { status: "answered", error: undefined } : { status: end.status === "answered" ? "answered" : "cancelled", error: undefined, note, ...won && { won } };
+  const forms = await writeForms($, (list) => list.map((f) => open.some((o) => o.id === f.id) ? { ...f, ...patch } : f));
+  if (self)
+    await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
+  await showCurrent($, forms, note && `${open[0].title}: ${note}`);
+}
+function controlText(answers) {
+  if (answers.next === "hold")
+    return "Paused the run";
+  if (answers.next === "go-back")
+    return typeof answers.to === "string" && answers.to !== "" ? `Went back to ${answers.to}` : "Went back a stage";
+  return;
 }
 function watchGate($, gateId) {
   if (!setting.isOn || watching.has(gateId))

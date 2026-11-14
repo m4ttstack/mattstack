@@ -29,6 +29,8 @@ export type Form = {
   attempt?: number
   // What the closed form says in place of its own ending, such as where the gate was answered.
   note?: string
+  // The answers that won when another surface answered the gate, in gate_answer's shape, which the closed form shows in place of its own picks.
+  won?: Record<string, unknown>
 }
 
 // A board-only gate raised in this pane: the band above the prompt links to it on the board.

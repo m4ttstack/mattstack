@@ -83,11 +83,14 @@ async function wake($: EngineInterface, text: string, what: string): Promise<voi
     .catch(warn)
 }
 
-// The pane moves on to the next open form, if any.
-async function showCurrent($: EngineInterface, forms: Form[]): Promise<void> {
+// After an answer the pane moves on to the next open form; with none left it closes, and `note`, the ending
+// the closed form would have shown, becomes a toast.
+async function showCurrent($: EngineInterface, forms: Form[], note?: string): Promise<void> {
   const next = currentForm(forms)
-  if (next?.status === 'open') await showPane($, GATE_PANE, next.title)
-  else $.ui.invalidate('ui.render')
+  if (next?.status === 'open') return showPane($, GATE_PANE, next.title)
+  if (note) $.ui.toast(note)
+  await $.ui.close({ id: PANE })
+  $.ui.invalidate('ui.render')
 }
 
 async function readSetting($: EngineInterface): Promise<void> {
@@ -139,7 +142,7 @@ async function recordAnswer($: EngineInterface, form: Form, gateId: string, answ
   const patch: Partial<Form> = outcome === 'elsewhere' ? { status: 'answered', error: undefined, note: ELSEWHERE } : { status: 'answered', error: undefined }
   const forms = await writeForms($, list => patchForm(list, form.id, patch))
   if (outcome === 'recorded') await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
-  await showCurrent($, forms)
+  await showCurrent($, forms, outcome === 'elsewhere' ? ELSEWHERE : undefined)
   return true
 }
 
@@ -158,9 +161,10 @@ async function settle($: EngineInterface, formId: string, outcome: Outcome): Pro
     return setGateAside($, form)
   }
   const status: Form['status'] = outcome.status === 'answered' ? 'answered' : 'cancelled'
-  await writeForms($, list => patchForm(list, formId, { status }))
-  if (form.source === 'demo') return $.ui.toast(toastReply(form, outcome))
-  await wake($, agentReply(form, outcome), `the answers for ${formId}`)
+  const forms = await writeForms($, list => patchForm(list, formId, { status }))
+  if (form.source === 'demo') $.ui.toast(toastReply(form, outcome))
+  else await wake($, agentReply(form, outcome), `the answers for ${formId}`)
+  await showCurrent($, forms)
 }
 
 async function openForm($: EngineInterface, form: Form, supersededId?: string | null): Promise<void> {
@@ -180,15 +184,23 @@ async function ringBell($: EngineInterface, form: Form): Promise<void> {
 async function gateEnded($: EngineInterface, gateId: string, end: GateEnd): Promise<void> {
   if ((await read($, boardAtom)).some(b => b.gateId === gateId)) await update($, boardAtom, list => list.filter(b => b.gateId !== gateId))
   const open = (await readForms($)).filter(f => f.gateId === gateId && f.status === 'open' && !answering.has(f.id))
-  if (open.length > 0) {
-    const self = isSelf(end, await $.session.id())
-    const patch: Partial<Form> = self
-      ? { status: 'answered', error: undefined }
-      : { status: end.status === 'answered' ? 'answered' : 'cancelled', error: undefined, note: endNote(end) }
-    await writeForms($, list => list.map(f => (open.some(o => o.id === f.id) ? { ...f, ...patch } : f)))
-    if (self) await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
-  }
-  $.ui.invalidate('ui.render')
+  if (open.length === 0) return $.ui.invalidate('ui.render')
+  const self = isSelf(end, await $.session.id())
+  const won = end.status === 'answered' ? end.answers : undefined
+  const note = self ? undefined : [endNote(end), won && controlText(won)].filter(Boolean).join('. ')
+  const patch: Partial<Form> = self
+    ? { status: 'answered', error: undefined }
+    : { status: end.status === 'answered' ? 'answered' : 'cancelled', error: undefined, note, ...(won && { won }) }
+  const forms = await writeForms($, list => list.map(f => (open.some(o => o.id === f.id) ? { ...f, ...patch } : f)))
+  if (self) await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
+  await showCurrent($, forms, note && `${open[0]!.title}: ${note}`)
+}
+
+// A run control's answer carries only the reserved keys, so the closed form says what it did.
+function controlText(answers: Record<string, unknown>): string | undefined {
+  if (answers.next === 'hold') return 'Paused the run'
+  if (answers.next === 'go-back') return typeof answers.to === 'string' && answers.to !== '' ? `Went back to ${answers.to}` : 'Went back a stage'
+  return undefined
 }
 
 // Runs for as long as the gate waits, after the hook that started it has returned.

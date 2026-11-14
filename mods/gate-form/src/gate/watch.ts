@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 
-export type GateEnd = { status: 'answered'; by: string; session?: string } | { status: 'closed'; reason?: string }
+export type GateEnd = { status: 'answered'; by: string; session?: string; answers?: Record<string, unknown> } | { status: 'closed'; reason?: string }
 
 type Row = { id?: string; status?: unknown; answer?: unknown; closedReason?: unknown }
 
@@ -10,7 +10,12 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export function rowEnd(row: Row): GateEnd | undefined {
   if (row.status === 'answered') {
     const answer = isObject(row.answer) ? row.answer : {}
-    return { status: 'answered', by: String(answer.by ?? ''), ...(typeof answer.session === 'string' && { session: answer.session }) }
+    return {
+      status: 'answered',
+      by: String(answer.by ?? ''),
+      ...(typeof answer.session === 'string' && { session: answer.session }),
+      ...(isObject(answer.answers) && { answers: answer.answers }),
+    }
   }
   if (row.status === 'closed') return { status: 'closed', ...(typeof row.closedReason === 'string' && { reason: row.closedReason }) }
   return undefined
