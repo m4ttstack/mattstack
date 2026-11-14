@@ -13,7 +13,7 @@ export type MenuProps = {
   onPick?: (id: string) => void
 }
 
-const hitKey = (hit: MenuHit) => (hit.type === 'toggle' ? 'toggle' : `row:${hit.path.join('.')}`)
+const hitKey = (hit: MenuHit) => (hit.type === 'toggle' ? 'toggle' : `row:${hit.at}`)
 
 export const Menu = kitComponent('Menu', (props: MenuProps, ctx) =>
   menu({

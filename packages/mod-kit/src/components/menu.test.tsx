@@ -10,7 +10,8 @@ import { Panel } from './panel'
 const ELEMENTS = { Box: 'Box', Text: 'Text' } as unknown as ClientElements
 const ROWS: MenuRow[] = [
   { id: 'pause', label: 'Pause run' },
-  { id: 'go-back', label: 'Go back to stage', rows: [{ id: 'go-back:plan', label: 'plan' }] },
+  { id: 'go-back', label: 'Go back to stage', isHeading: true },
+  { id: 'go-back:plan', label: 'plan' },
 ]
 const textOf = (line: Line<unknown>) => line.map(span => span.t).join('')
 
@@ -37,18 +38,11 @@ describe('Menu', () => {
     expect(seen.states).toEqual([{ open: true, selected: 0 }])
   })
 
-  test('open, a press on a leaf picks its id; on a row with rows it opens the sub-list', () => {
+  test('open, a press on a row picks its id, including a row under a heading', () => {
     const seen = { states: [] as MenuState[], picked: [] as string[] }
     const drawn = drawMenu({ open: true, selected: 0 }, seen)
     press(drawn, 'Pause run')
-    expect(seen.picked).toEqual(['pause'])
-    press(drawn, 'Go back to stage')
-    expect(seen.states.at(-1)).toEqual({ open: true, selected: 1, sub: 0 })
-  })
-
-  test('a press on a sub-row picks it', () => {
-    const seen = { states: [] as MenuState[], picked: [] as string[] }
-    press(drawMenu({ open: true, selected: 1, sub: 0 }, seen), 'plan')
-    expect(seen.picked).toEqual(['go-back:plan'])
+    press(drawn, 'plan')
+    expect(seen.picked).toEqual(['pause', 'go-back:plan'])
   })
 })

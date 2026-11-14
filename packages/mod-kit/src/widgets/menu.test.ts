@@ -6,15 +6,10 @@ import { menu, menuHit, menuKey, type MenuHit, type MenuRow, type MenuState } fr
 
 const ROWS: MenuRow[] = [
   { id: 'pause', label: 'Pause run' },
-  {
-    id: 'go-back',
-    label: 'Go back to stage',
-    rows: [
-      { id: 'go-back:plan', label: 'plan' },
-      { id: 'go-back:provision', label: 'provision' },
-      { id: 'go-back:implement', label: 'implement' },
-    ],
-  },
+  { id: 'go-back', label: 'Go back to stage', isHeading: true },
+  { id: 'go-back:plan', label: 'plan' },
+  { id: 'go-back:provision', label: 'provision' },
+  { id: 'go-back:implement', label: 'implement' },
 ]
 
 const textOf = (line: Line<MenuHit>) => line.map(span => span.t).join('')
@@ -30,41 +25,21 @@ describe('menu', () => {
     expect(button).toMatchObject({ quiet: true, bg: QUIET.rest, action: { type: 'toggle' } })
   })
 
-  test('open, it lists its rows under the button with ├ and └', () => {
+  test('open, it lists its rows under the button, the heading dim and its rows indented under it', () => {
     const lines = drawn({ open: true })
-    expect(lines.map(textOf).slice(1)).toEqual([`${' '.repeat(14)}├ Pause run`, `${' '.repeat(14)}└ Go back to stage ▸`])
+    const pad = ' '.repeat(14)
+    expect(lines.map(textOf).slice(1)).toEqual([`${pad}├ Pause run`, `${pad}├ Go back to stage`, `${pad}├   plan`, `${pad}├   provision`, `${pad}└   implement`])
+    expect(lines[2]!.find(span => span.t === 'Go back to stage')).toMatchObject({ dim: true })
+    expect(lines[2]!.some(span => span.action !== undefined)).toBe(false)
   })
 
-  test('a row with rows opens its sub-list to the right, the first sub-row on its own line', () => {
-    const lines = drawn({ open: true, selected: 1, sub: 0 })
-    const text = lines.map(textOf)
-    const parent = text[2]!
-    expect(parent).toContain('└ Go back to stage ▸')
-    expect(parent.trimEnd().endsWith('plan')).toBe(true)
-    const column = parent.lastIndexOf('plan')
-    expect(text[3]!.indexOf('provision')).toBe(column)
-    expect(text[4]!.indexOf('implement')).toBe(column)
+  test('row clicks carry their index, and the button toggles', () => {
+    const actions = drawn({ open: true }).flatMap(line => line.flatMap(span => (span.action ? [span.action] : [])))
+    expect(actions).toEqual([{ type: 'toggle' }, { type: 'row', at: 0 }, { type: 'row', at: 2 }, { type: 'row', at: 3 }, { type: 'row', at: 4 }])
   })
 
-  test('row clicks carry their path, and the button toggles', () => {
-    const lines = drawn({ open: true, selected: 1, sub: 0 })
-    const actions = lines.flatMap(line => line.flatMap(span => (span.action ? [span.action] : [])))
-    expect(actions).toContainEqual({ type: 'toggle' })
-    expect(actions).toContainEqual({ type: 'row', path: [0] })
-    expect(actions).toContainEqual({ type: 'row', path: [1] })
-    expect(actions).toContainEqual({ type: 'row', path: [1, 2] })
-  })
-
-  test('at 40 columns the sub-list drops under its row and every line fits', () => {
-    const lines = drawn({ open: true, selected: 1, sub: 0 }, 40, 20)
-    for (const line of lines) expect(widthOf(line)).toBeLessThanOrEqual(40)
-    const text = lines.map(textOf)
-    expect(text.some(row => row.includes('Go back to stage ▸') && row.includes('plan'))).toBe(false)
-    expect(text.some(row => row.trim() === 'plan')).toBe(true)
-  })
-
-  test('at 80 columns with the button far right, every line still fits', () => {
-    for (const line of drawn({ open: true, selected: 1, sub: 2 }, 80, 60)) expect(widthOf(line)).toBeLessThanOrEqual(80)
+  test('at 40 columns with the button far right, every line fits', () => {
+    for (const line of drawn({ open: true, selected: 3 }, 40, 20)) expect(widthOf(line)).toBeLessThanOrEqual(40)
   })
 })
 
@@ -75,39 +50,26 @@ describe('menuKey', () => {
     expect(menuKey(closed, ROWS, 'return')).toEqual({ state: { open: true, selected: 0 } })
   })
 
-  test('arrows move through the rows and wrap', () => {
+  test('arrows move through the rows, skip the heading and wrap', () => {
     const open: MenuState = { open: true, selected: 0 }
-    expect(menuKey(open, ROWS, 'down')?.state.selected).toBe(1)
-    expect(menuKey({ ...open, selected: 1 }, ROWS, 'down')?.state.selected).toBe(0)
-    expect(menuKey(open, ROWS, 'up')?.state.selected).toBe(1)
+    expect(menuKey(open, ROWS, 'down')?.state.selected).toBe(2)
+    expect(menuKey({ ...open, selected: 2 }, ROWS, 'up')?.state.selected).toBe(0)
+    expect(menuKey({ ...open, selected: 4 }, ROWS, 'down')?.state.selected).toBe(0)
+    expect(menuKey(open, ROWS, 'up')?.state.selected).toBe(4)
   })
 
-  test('Enter on a leaf picks it and closes the menu', () => {
+  test('Enter picks the selected row and closes the menu', () => {
     expect(menuKey({ open: true, selected: 0 }, ROWS, 'return')).toEqual({ state: closed, picked: 'pause' })
-  })
-
-  test('Enter or right on a row with rows opens its sub-list; arrows move in it; Enter picks', () => {
-    const atGoBack: MenuState = { open: true, selected: 1 }
-    expect(menuKey(atGoBack, ROWS, 'return')?.state).toEqual({ open: true, selected: 1, sub: 0 })
-    expect(menuKey(atGoBack, ROWS, 'right')?.state).toEqual({ open: true, selected: 1, sub: 0 })
-    const inSub: MenuState = { open: true, selected: 1, sub: 0 }
-    expect(menuKey(inSub, ROWS, 'down')?.state.sub).toBe(1)
-    expect(menuKey({ ...inSub, sub: 1 }, ROWS, 'return')).toEqual({ state: { open: false, selected: 1 }, picked: 'go-back:provision' })
-  })
-
-  test('left leaves the sub-list', () => {
-    expect(menuKey({ open: true, selected: 1, sub: 2 }, ROWS, 'left')?.state).toEqual({ open: true, selected: 1 })
+    expect(menuKey({ open: true, selected: 3 }, ROWS, 'return')).toEqual({ state: { open: false, selected: 3 }, picked: 'go-back:provision' })
   })
 
   // A Client never receives Escape (the engine takes it to return the focus), so left and Backspace are the keyboard's way out.
-  test('left at the top level and Backspace close it', () => {
-    expect(menuKey({ open: true, selected: 1 }, ROWS, 'left')?.state).toEqual({ open: false, selected: 1 })
+  test('left and Backspace close it', () => {
+    expect(menuKey({ open: true, selected: 2 }, ROWS, 'left')?.state).toEqual({ open: false, selected: 2 })
     expect(menuKey({ open: true, selected: 0 }, ROWS, 'backspace')?.state.open).toBe(false)
-    expect(menuKey({ open: true, selected: 1, sub: 2 }, ROWS, 'backspace')?.state.open).toBe(false)
   })
 
-  test('Escape closes it, from either level, where the host delivers it', () => {
-    expect(menuKey({ open: true, selected: 1, sub: 2 }, ROWS, 'escape')?.state.open).toBe(false)
+  test('Escape closes it where the host delivers it', () => {
     expect(menuKey({ open: true, selected: 0 }, ROWS, 'escape')?.state.open).toBe(false)
   })
 
@@ -120,13 +82,12 @@ describe('menuKey', () => {
 describe('menuHit', () => {
   test('a click on the button opens or closes the menu', () => {
     expect(menuHit({ open: false, selected: 0 }, ROWS, { type: 'toggle' })).toEqual({ state: { open: true, selected: 0 } })
-    expect(menuHit({ open: true, selected: 1, sub: 0 }, ROWS, { type: 'toggle' })).toEqual({ state: { open: false, selected: 1 } })
+    expect(menuHit({ open: true, selected: 3 }, ROWS, { type: 'toggle' })).toEqual({ state: { open: false, selected: 3 } })
   })
 
-  test('a click on a row with rows opens its sub-list; on a leaf or sub-row it picks', () => {
+  test('a click on a row picks it; a heading takes none', () => {
     const open: MenuState = { open: true, selected: 0 }
-    expect(menuHit(open, ROWS, { type: 'row', path: [1] })).toEqual({ state: { open: true, selected: 1, sub: 0 } })
-    expect(menuHit(open, ROWS, { type: 'row', path: [0] })).toEqual({ state: { open: false, selected: 0 }, picked: 'pause' })
-    expect(menuHit({ open: true, selected: 1, sub: 0 }, ROWS, { type: 'row', path: [1, 2] })).toEqual({ state: { open: false, selected: 1 }, picked: 'go-back:implement' })
+    expect(menuHit(open, ROWS, { type: 'row', at: 4 })).toEqual({ state: { open: false, selected: 4 }, picked: 'go-back:implement' })
+    expect(menuHit(open, ROWS, { type: 'row', at: 1 })).toEqual({ state: open })
   })
 })
