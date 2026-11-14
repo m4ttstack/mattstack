@@ -409,95 +409,6 @@ function addBoardGate(list, gate, supersededId) {
   return [...list.filter((b) => b.gateId !== supersededId), gate];
 }
 
-// mods/gate-form/src/gate/demo.ts
-var DEMO = {
-  title: "respond-plan gate (demo)",
-  context: ["Review round 2 on !482 found 7 threads. Pick which to fix in this pass.", "", "Important:", "- 2 threads are blocking", "- CodeRabbit flagged the cache key twice"].join(`
-`),
-  questions: [
-    {
-      id: "threads",
-      label: "Which threads should this pass fix?",
-      multi: true,
-      context: "Each option is one review thread, newest first.",
-      options: [
-        { value: "t1", label: "Cache key ignores the repo identity (Recommended)", description: "blocking, lib/cache.ts:41" },
-        { value: "t2", label: "Retry loop never backs off", description: "blocking, lib/retry.ts:88" },
-        { value: "t3", label: "Rename fetchAll to listAll", description: "non-blocking" },
-        { value: "t4", label: "Missing test for an empty page", description: "non-blocking" },
-        { value: "t5", label: "Log line leaks the token prefix", description: "question" },
-        { value: "t6", label: "Prefer a Map over a plain object", description: "non-blocking" },
-        { value: "t7", label: "Typo in the README", description: "non-blocking" }
-      ]
-    },
-    {
-      id: "approach",
-      label: "How should the cache key change?",
-      writeIn: true,
-      options: [
-        { value: "identity", label: "Key on the serialized identity (Recommended)", description: "matches every other store" },
-        { value: "path", label: "Key on the host/path form", description: "what the settings resolver uses" },
-        { value: "hash", label: "Hash the remote URL", description: "stable across renames, opaque in logs" },
-        { value: "both", label: "Write both, read identity first", description: "a one-release migration" },
-        { value: "drop", label: "Drop the cache", description: "every read goes to the forge" },
-        { value: "later", label: "Leave it for a follow-up", description: "file a ticket instead" }
-      ]
-    },
-    { id: "note", label: "Anything the fixer should know?" },
-    {
-      id: "notify",
-      label: "Post a reply on each fixed thread?",
-      options: [
-        { value: "yes", label: "Yes", description: "a short note on each thread naming the fix" },
-        { value: "no", label: "No", description: "resolve the threads without a reply" }
-      ]
-    },
-    {
-      id: "checks",
-      header: "checks",
-      label: "Which checks should run before pushing?",
-      multi: true,
-      options: [
-        { value: "unit", label: "Unit tests for the touched files", description: "about a minute" },
-        { value: "e2e", label: "The e2e suite", description: "slow, needs the preload" },
-        { value: "types", label: "Type-check", description: "tsc over the workspace" },
-        { value: "lint", label: "Lint", description: "biome and the import walls" },
-        { value: "purity", label: "Purity scan", description: "no private slugs in fixtures" }
-      ]
-    },
-    {
-      id: "reviewer",
-      header: "reviewer",
-      label: "Who should re-review once the fixes are pushed?",
-      context: "More than eight choices, so the list scrolls.",
-      options: [
-        { value: "coderabbit", label: "CodeRabbit (Recommended)", description: "reviews every push on its own" },
-        { value: "opus", label: "An Opus subagent", description: "when CodeRabbit is rate limited" },
-        { value: "author", label: "The thread authors", description: "each person who opened a thread" },
-        { value: "owner", label: "The code owner", description: "from CODEOWNERS" },
-        { value: "pair", label: "Whoever paired on it" },
-        { value: "lead", label: "The team lead" },
-        { value: "qa", label: "QA", description: "for the behaviour change" },
-        { value: "security", label: "Security", description: "the token prefix thread" },
-        { value: "docs", label: "Docs", description: "the README thread" },
-        { value: "none", label: "Nobody", description: "merge once CI is green" }
-      ]
-    },
-    {
-      id: "scope",
-      header: "scope",
-      label: "How big should this pass be?",
-      writeIn: true,
-      options: [
-        { value: "blocking", label: "Blocking threads only", description: "the smallest diff that unblocks the merge" },
-        { value: "picked", label: "Everything picked above (Recommended)", description: "one push, one review round" },
-        { value: "split", label: "Split into two MRs", description: "blocking now, the rest as a follow-up" }
-      ]
-    },
-    { id: "summary", header: "summary", label: "One line for the MR comment that lists the fixes?" }
-  ]
-};
-
 // mods/gate-form/src/gate/forms.ts
 function currentForm(list) {
   return list.find((f) => f.status === "open") ?? list.at(-1);
@@ -526,11 +437,12 @@ function fitForm(form, budget) {
   return rest;
 }
 function fromLegacy(old) {
-  if (!old)
+  if (!old || old.replyTo !== "agent")
     return [];
-  const { replyTo, ...rest } = old;
-  return [{ ...rest, source: replyTo === "toast" ? "demo" : "ask", questions: old.questions.map((q) => ({ ...q, other: true })) }];
+  const { replyTo: _, ...rest } = old;
+  return [{ ...rest, source: "ask", questions: old.questions.map((q) => ({ ...q, other: true })) }];
 }
+var knownForms = (list) => list.filter((f) => f.source === "gate" || f.source === "ask");
 
 // mods/gate-form/src/gate/reply.ts
 var REPLY_TAG = "[gate-form] ";
@@ -554,11 +466,6 @@ function agentReply(form, outcome) {
     json(outcome.draft)
   ].join(`
 `);
-}
-function toastReply(form, outcome) {
-  if (outcome.status === "chat")
-    return `Set "${form.title}" aside to chat about it`;
-  return `Submitted "${form.title}": ${Object.keys(outcome.answers).length} of ${form.questions.length} questions answered`;
 }
 var GATE_INSTRUCTION = (gateId) => `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`;
 var GATE_ANSWERED = (gateId) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`;
@@ -859,13 +766,16 @@ var answering = new Set;
 var deck = {};
 var GATE_PANE = { id: PANE, label: "mattstack gate waiting" };
 async function readForms($) {
-  const forms = await read($, formsAtom);
+  const forms = knownForms(await read($, formsAtom));
   return forms.length > 0 ? forms : fromLegacy(await read($, legacyAtom));
 }
 async function writeForms($, change) {
   const legacy = fromLegacy(await read($, legacyAtom));
   let written = [];
-  await update($, formsAtom, (list) => written = change(list.length > 0 || legacy.length === 0 ? list : legacy));
+  await update($, formsAtom, (stored) => {
+    const list = knownForms(stored);
+    return written = change(list.length > 0 || legacy.length === 0 ? list : legacy);
+  });
   if (legacy.length > 0)
     await update($, legacyAtom, () => null);
   return written;
@@ -960,10 +870,7 @@ async function settle($, formId, outcome) {
   }
   const status = outcome.status === "answered" ? "answered" : "cancelled";
   const forms = await writeForms($, (list) => patchForm(list, formId, { status }));
-  if (form.source === "demo")
-    $.ui.toast(toastReply(form, outcome));
-  else
-    await wake($, agentReply(form, outcome), `the answers for ${formId}`);
+  await wake($, agentReply(form, outcome), `the answers for ${formId}`);
   await showCurrent($, forms);
 }
 async function openForm($, form, supersededId) {
@@ -1191,19 +1098,11 @@ function register(on) {
   registerPaneRedraw(on);
   on("session.start", async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false });
-    await $.command.register({ name: "gate-form-demo", description: "Open the gate form with a demo gate" });
     setting.reading = readSetting($);
     setting.reading.then(() => setting.isOn ? restore($) : undefined).catch(() => {
       return;
     });
     return next(e);
-  });
-  on("command.run", { command: "gate-form-demo" }, async ($) => {
-    const form = toForm(DEMO.title, DEMO.context, DEMO.questions, "demo");
-    if (typeof form === "string")
-      return { text: form };
-    await openForm($, form);
-    return { text: "Demo gate form opened." };
   });
   on("tool.call", { tool: "mcp__gate-form__ask" }, async ($, e) => {
     const args = e;

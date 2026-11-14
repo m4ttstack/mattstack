@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { Form, LegacyForm } from '../../types'
-import { addForm, currentForm, fitForm, fromLegacy, markGate, openCount, patchForm } from './forms'
+import { addForm, currentForm, fitForm, fromLegacy, knownForms, markGate, openCount, patchForm } from './forms'
 
 const form = (id: string, over: Partial<Form> = {}): Form => ({ id, title: id, questions: [], status: 'open', source: 'gate', gateId: `g-${id}`, ...over })
 
@@ -38,14 +38,20 @@ test('markGate patches only that gate’s form', () => {
   expect(list[1]!.note).toBe('Answered on the board')
 })
 
-test('a stored form-3 value loads as a one-entry list with its source and Something else rows kept', () => {
-  const old = { id: 'f1', title: 'Old', questions: [{ id: 'q', header: 'q', label: 'Q', multi: false, writeIn: false, options: [{ value: 'a', label: 'A' }] }], status: 'open', replyTo: 'toast' } satisfies LegacyForm
+test('a stored form-3 value loads as a one-entry ask list with its Something else rows kept', () => {
+  const old = { id: 'f1', title: 'Old', questions: [{ id: 'q', header: 'q', label: 'Q', multi: false, writeIn: false, options: [{ value: 'a', label: 'A' }] }], status: 'open', replyTo: 'agent' } satisfies LegacyForm
   const loaded = fromLegacy(old)
   expect(loaded).toHaveLength(1)
-  expect(loaded[0]).toMatchObject({ id: 'f1', source: 'demo', status: 'open' })
+  expect(loaded[0]).toMatchObject({ id: 'f1', source: 'ask', status: 'open' })
   expect(loaded[0]!.questions[0]!.other).toBe(true)
-  expect(fromLegacy({ ...old, replyTo: 'agent' as const })[0]!.source).toBe('ask')
   expect(fromLegacy(null)).toEqual([])
+})
+
+test('a stored demo form is dropped, whether form-3 or listed', () => {
+  const old = { id: 'f1', title: 'Old', questions: [], status: 'open', replyTo: 'toast' } satisfies LegacyForm
+  expect(fromLegacy(old)).toEqual([])
+  const demo = { ...form('d'), source: 'demo' } as unknown as Form
+  expect(knownForms([form('a'), demo]).map(f => f.id)).toEqual(['a'])
 })
 
 test('a form too large for a Client’s props sheds option descriptions, then question contexts, then its context', () => {

@@ -5,10 +5,9 @@ import { addWheel, bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, 
 import type { BoardGate, Form, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
 import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, readBoardOnly } from './gate/board'
-import { DEMO } from './gate/demo'
-import { addForm, currentForm, fitForm, fromLegacy, openCount, patchForm } from './gate/forms'
+import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm } from './gate/forms'
 import { agentFields, answerOutcome, formFromRow, gateForm, listedGates, readKitResult, spilledGate, toForm } from './gate/parse'
-import { GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, toastReply, type Outcome } from './gate/reply'
+import { GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
 import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
 import { endNote, isSelf, rowEnd, waitFor, type GateEnd } from './gate/watch'
@@ -48,14 +47,17 @@ type Next = (e: ToolCallInput) => Promise<ToolCallResult>
 const GATE_PANE: HideablePane = { id: PANE, label: 'mattstack gate waiting' }
 
 async function readForms($: EngineInterface): Promise<Form[]> {
-  const forms = await read($, formsAtom)
+  const forms = knownForms(await read($, formsAtom))
   return forms.length > 0 ? forms : fromLegacy(await read($, legacyAtom))
 }
 
 async function writeForms($: EngineInterface, change: (list: Form[]) => Form[]): Promise<Form[]> {
   const legacy = fromLegacy(await read($, legacyAtom))
   let written: Form[] = []
-  await update($, formsAtom, list => (written = change(list.length > 0 || legacy.length === 0 ? list : legacy)))
+  await update($, formsAtom, stored => {
+    const list = knownForms(stored)
+    return (written = change(list.length > 0 || legacy.length === 0 ? list : legacy))
+  })
   if (legacy.length > 0) await update($, legacyAtom, () => null)
   return written
 }
@@ -165,8 +167,7 @@ async function settle($: EngineInterface, formId: string, outcome: Outcome): Pro
   }
   const status: Form['status'] = outcome.status === 'answered' ? 'answered' : 'cancelled'
   const forms = await writeForms($, list => patchForm(list, formId, { status }))
-  if (form.source === 'demo') $.ui.toast(toastReply(form, outcome))
-  else await wake($, agentReply(form, outcome), `the answers for ${formId}`)
+  await wake($, agentReply(form, outcome), `the answers for ${formId}`)
   await showCurrent($, forms)
 }
 
@@ -394,18 +395,10 @@ export function register(on: On): void {
 
   on('session.start', async ($, e, next) => {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false })
-    await $.command.register({ name: 'gate-form-demo', description: 'Open the gate form with a demo gate' })
     // Not awaited, so a slow rt never holds the session's start; a gate call waits for it instead.
     setting.reading = readSetting($)
     void setting.reading.then(() => (setting.isOn ? restore($) : undefined)).catch(() => undefined)
     return next(e)
-  })
-
-  on('command.run', { command: 'gate-form-demo' }, async $ => {
-    const form = toForm(DEMO.title, DEMO.context, DEMO.questions, 'demo')
-    if (typeof form === 'string') return { text: form }
-    await openForm($, form)
-    return { text: 'Demo gate form opened.' }
   })
 
   on('tool.call', { tool: 'mcp__gate-form__ask' }, async ($, e) => {

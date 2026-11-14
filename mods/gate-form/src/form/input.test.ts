@@ -1,41 +1,41 @@
 import { expect, test } from 'bun:test'
 
 import type { Form } from '../../types'
-import { DEMO } from '../gate/demo'
+import { SAMPLE } from '../../harness/sample-form'
 import { toForm } from '../gate/parse'
 import { keyEffect, perform } from './input'
 import { answersOf, goTo, initial } from './state'
 
-const demo = toForm(DEMO.title, DEMO.context, DEMO.questions, 'demo') as Form
-const APPROACH = demo.questions.findIndex(q => q.id === 'approach')
+const sample = toForm(SAMPLE.title, SAMPLE.context, SAMPLE.questions, 'ask') as Form
+const APPROACH = sample.questions.findIndex(q => q.id === 'approach')
 
-test('the demo form builds and has an approach question', () => {
-  expect(typeof demo).toBe('object')
+test('the sample form builds and has an approach question', () => {
+  expect(typeof sample).toBe('object')
   expect(APPROACH).toBeGreaterThan(-1)
 })
 
 test('right from a single-choice page leaves it unanswered', () => {
-  const at = goTo(demo, initial(demo), APPROACH)
-  const effect = keyEffect({ key: 'right' }, demo, at)
+  const at = goTo(sample, initial(sample), APPROACH)
+  const effect = keyEffect({ key: 'right' }, sample, at)
   expect(effect?.state.page).toBe(APPROACH + 1)
   expect(effect?.state.answered[APPROACH]).toBe(false)
 })
 
 test('advance on approach marks it answered with the recommended identity', () => {
-  const at = goTo(demo, initial(demo), APPROACH)
-  const effect = perform({ type: 'advance' }, demo, at)
+  const at = goTo(sample, initial(sample), APPROACH)
+  const effect = perform({ type: 'advance' }, sample, at)
   expect(effect?.state.answered[APPROACH]).toBe(true)
-  expect(answersOf(demo, effect!.state).approach).toBe('identity')
+  expect(answersOf(sample, effect!.state).approach).toBe('identity')
 })
 
 test('Tab acts like advance', () => {
-  const at = goTo(demo, initial(demo), APPROACH)
-  expect(keyEffect({ key: 'tab' }, demo, at)?.state).toEqual(perform({ type: 'advance' }, demo, at)?.state)
+  const at = goTo(sample, initial(sample), APPROACH)
+  expect(keyEffect({ key: 'tab' }, sample, at)?.state).toEqual(perform({ type: 'advance' }, sample, at)?.state)
 })
 
 test('shift+Tab only looks back', () => {
-  const at = goTo(demo, initial(demo), APPROACH)
-  const effect = keyEffect({ key: 'tab', shift: true }, demo, at)
+  const at = goTo(sample, initial(sample), APPROACH)
+  const effect = keyEffect({ key: 'tab', shift: true }, sample, at)
   expect(effect?.state.page).toBe(APPROACH - 1)
   expect(effect?.state.answered).toEqual(at.answered)
 })
@@ -45,7 +45,7 @@ test('advance with the cursor never moved leaves an option list with no recommen
     { value: 'a', label: 'Alpha' },
     { value: 'b', label: 'Beta' },
   ]
-  const form = toForm('t', undefined, [{ id: 'pick', label: 'Pick one', options }], 'demo') as Form
+  const form = toForm('t', undefined, [{ id: 'pick', label: 'Pick one', options }], 'ask') as Form
   const effect = perform({ type: 'advance' }, form, initial(form))
   expect(effect?.state.page).toBe(1)
   expect(effect?.state.answered[0]).toBe(false)

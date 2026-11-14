@@ -1,5 +1,5 @@
-export const DEMO = {
-  title: 'respond-plan gate (demo)',
+export const SAMPLE = {
+  title: 'respond-plan gate (sample)',
   context: ['Review round 2 on !482 found 7 threads. Pick which to fix in this pass.', '', 'Important:', '- 2 threads are blocking', '- CodeRabbit flagged the cache key twice'].join('\n'),
   questions: [
     {

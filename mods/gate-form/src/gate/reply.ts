@@ -23,12 +23,6 @@ export function agentReply(form: Form, outcome: Outcome): string {
   ].join('\n')
 }
 
-// The demo's reply: what happened in words, since nobody reads the answers but the person who gave them.
-export function toastReply(form: Form, outcome: Outcome): string {
-  if (outcome.status === 'chat') return `Set "${form.title}" aside to chat about it`
-  return `Submitted "${form.title}": ${Object.keys(outcome.answers).length} of ${form.questions.length} questions answered`
-}
-
 // The agent's result for a gate the kit form took over; the compiled gate-protocol skill reads the answer as its next input.
 export const GATE_INSTRUCTION = (gateId: string) =>
   `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`

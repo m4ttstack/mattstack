@@ -1,5 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
+import { SAMPLE } from './sample-form'
+import { startSession, world } from './world'
+
 const PANE = {
   plugin: 'gate-form',
   component: 'Pane',
@@ -17,22 +20,14 @@ type Body = Parameters<Parameters<typeof test>[1]>
 type On = Body[1]
 type Node = { children?: unknown[] }
 
-// What sits beneath the plugin: the pane list the engine would keep.
-function stubPanes(on: On): Map<string, string> {
-  const open = new Map<string, string>()
-  on('ui.open', (_, e) => {
-    open.set(e.id, e.title ?? e.id)
-    return { value: { isPlaced: true } }
-  })
-  on('ui.close', (_, e) => {
-    open.delete(e.id)
-    return { value: undefined }
-  })
-  on('ui.panes', () => ({ value: [...open].map(([id, title]) => ({ id, title, isShown: true, isFocused: false, isPlaced: true })) }))
-  return open
-}
+// What sits beneath the plugin, with rt.gates.kitForm on: the pane list the engine would keep.
+const stubPanes = (on: On): Map<string, string> => world(on).panes
 
-const runDemo = ($: Body[0]) => $.command.run({ command: 'gate-form-demo', args: '', origin: { kind: 'plugin', name: 'test' } } as never)
+// The ask tool opens the sample form, as an agent's call would.
+async function openSample($: Body[0]) {
+  await startSession($)
+  await $.tool.call({ tool: 'mcp__gate-form__ask', title: SAMPLE.title, context: SAMPLE.context, questions: SAMPLE.questions } as never)
+}
 
 const shown = (node: unknown): string => (typeof node === 'string' ? node : ((node as Node).children ?? []).map(shown).join(''))
 
@@ -49,7 +44,7 @@ const cellOf = (rows: string[], word: string) => {
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`the band is a Client on the band module while a form waits and its pane is closed (${surface})`, async ($, on) => {
     const panes = stubPanes(on)
-    await runDemo($)
+    await openSample($)
     panes.clear()
     const band = await $.ui.mount({ ...ABOVE, surface })
     const client = await band.find({ type: 'Client' })
@@ -60,7 +55,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`no band is drawn while the pane is placed (${surface})`, async ($, on) => {
     stubPanes(on)
-    await runDemo($)
+    await openSample($)
     const band = await $.ui.mount({ ...ABOVE, surface })
     expect(await band.find({ type: 'Client' })).toBeUndefined()
     await band.unmount()
@@ -68,7 +63,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`a reopen message opens the pane (${surface})`, async ($, on) => {
     const panes = stubPanes(on)
-    await runDemo($)
+    await openSample($)
     panes.clear()
     const band = await $.ui.mount({ ...ABOVE, surface })
     const formId = ((await band.find({ type: 'Client' }))!.props.props as { formId: string }).formId
@@ -79,7 +74,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`the band draws one row of words, and the engine's Show button beside it reopens the pane (${surface})`, async ($, on) => {
     const panes = stubPanes(on)
-    await runDemo($)
+    await openSample($)
     panes.clear()
     const band = await $.ui.mount({ ...ABOVE, surface })
     const client = (await band.find({ type: 'Client' }))!
@@ -94,7 +89,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`a reopen for another form opens nothing (${surface})`, async ($, on) => {
     const panes = stubPanes(on)
-    await runDemo($)
+    await openSample($)
     panes.clear()
     const band = await $.ui.mount({ ...ABOVE, surface })
     await band.post({ type: 'reopen', formId: 'someone-else' })
@@ -104,7 +99,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`a hide message closes the pane and the band takes its place above the prompt (${surface})`, async ($, on) => {
     const panes = stubPanes(on)
-    await runDemo($)
+    await openSample($)
     const band = await $.ui.mount({ ...ABOVE, surface })
     expect(await band.find({ type: 'Client' })).toBeUndefined()
     const pane = await $.ui.mount({ ...PANE, surface })
@@ -117,7 +112,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`pointer: pressing Next, dragging off and releasing leaves the page; releasing on it moves on (${surface})`, async ($, on) => {
     stubPanes(on)
-    await runDemo($)
+    await openSample($)
     const ui = await $.ui.mount({ ...PANE, surface })
     const key = (await ui.find({ type: 'Client' }))!.key!
     const next = cellOf(await rowsOf(ui, key), 'Next')
@@ -138,7 +133,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
   test(`pointer: the first click on an unfocused form posts engaged and answers nothing (${surface})`, async ($, on) => {
     stubPanes(on)
-    await runDemo($)
+    await openSample($)
     const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: false }, surface })
     const key = (await ui.find({ type: 'Client' }))!.key!
     const rows = await rowsOf(ui, key)
@@ -161,9 +156,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`focus: a post marks the form focused; typing, submitting and a focus move each clear it (${surface})`, async ($, on) => {
     stubPanes(on)
     on('prompt.edit', (_, e) => ({ text: e.text, cursor: e.cursor }))
-    on('prompt.submit', (_, e) => ({ text: e.text }))
     on('ui.focus', () => ({}))
-    await runDemo($)
+    await openSample($)
     const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: false }, surface })
     const focused = async () => ((await ui.find({ type: 'Client' }))!.props.props as { focused: boolean }).focused
     expect(await focused()).toBe(false)
@@ -196,11 +190,11 @@ test('a form stored under an older shape tag is declined, and the pane says so',
 
 test('a form stored under form-3 loads as the one form in the list', async ($, on) => {
   stubPanes(on)
-  const old = { id: 'f-old', title: 'Old', questions: [{ id: 'q', header: 'q', label: 'Pick one', multi: false, writeIn: false, options: [{ value: 'a', label: 'Alpha' }] }], status: 'open', replyTo: 'toast' }
+  const old = { id: 'f-old', title: 'Old', questions: [{ id: 'q', header: 'q', label: 'Pick one', multi: false, writeIn: false, options: [{ value: 'a', label: 'Alpha' }] }], status: 'open', replyTo: 'agent' }
   on('state.get', (_, e) => ({ value: { value: e.key === 'form' ? { shape: 'form-3', value: old } : undefined, version: 1 } }))
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const client = await ui.find({ type: 'Client' })
-  expect((client!.props.props as { form: { id: string; source: string } }).form).toMatchObject({ id: 'f-old', source: 'demo' })
+  expect((client!.props.props as { form: { id: string; source: string } }).form).toMatchObject({ id: 'f-old', source: 'ask' })
   expect((await rowsOf(ui, client!.key!)).join('\n')).toContain('Something else')
   await ui.unmount()
 })

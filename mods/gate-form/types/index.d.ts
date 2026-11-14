@@ -21,7 +21,7 @@ export type Form = {
   context?: string
   questions: FormQuestion[]
   status: 'open' | 'answered' | 'cancelled'
-  source: 'gate' | 'ask' | 'demo'
+  source: 'gate' | 'ask'
   gateId?: string
   controls?: Controls
   // What the person reads about the last answer, which may not be recorded; `attempt` counts the failures so the Client knows to take the form back.

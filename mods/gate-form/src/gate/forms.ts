@@ -8,7 +8,7 @@ export function currentForm(list: Form[]): Form | undefined {
 export const openCount = (list: Form[]) => list.filter(f => f.status === 'open').length
 
 // One form per gate: a form for a gate already listed, or for the gate it supersedes, takes that form's place,
-// as a demo or ask form takes the place of the last one from the same source. Closed forms go.
+// as an ask form takes the place of the last ask form. Closed forms go.
 export function addForm(list: Form[], form: Form, supersededId?: string | null): Form[] {
   const replaces = (f: Form) =>
     f.gateId === undefined ? form.gateId === undefined && f.source === form.source : f.gateId === form.gateId || f.gateId === supersededId
@@ -38,9 +38,13 @@ export function fitForm(form: Form, budget: number): Form {
   return rest
 }
 
-// A value the form-3 atom stored: one form, `replyTo` for its source, every option list ending in "Something else".
+// A value the form-3 atom stored: one form, every option list ending in "Something else". A form whose reply went
+// to a toast was a demo, which no agent waits on, so it is dropped.
 export function fromLegacy(old: LegacyForm | null): Form[] {
-  if (!old) return []
-  const { replyTo, ...rest } = old
-  return [{ ...rest, source: replyTo === 'toast' ? 'demo' : 'ask', questions: old.questions.map(q => ({ ...q, other: true })) }]
+  if (!old || old.replyTo !== 'agent') return []
+  const { replyTo: _, ...rest } = old
+  return [{ ...rest, source: 'ask', questions: old.questions.map(q => ({ ...q, other: true })) }]
 }
+
+// Forms stored by a build that still had the demo source.
+export const knownForms = (list: Form[]): Form[] => list.filter(f => f.source === 'gate' || f.source === 'ask')
