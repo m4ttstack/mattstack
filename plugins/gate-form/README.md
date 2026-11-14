@@ -21,7 +21,9 @@ The form takes over gates only after you run this:
 rt settings set rt.gates.kitForm true --scope machine
 ```
 
-The setting is off by default. With it off, gates work as they did before.
+The setting is off by default. With it off, gates work as they did before, and Gate Form adds nothing to the session.
+
+With it on, Claude also gets an `ask` tool (`mcp__gate-form__ask`) that opens questions in the same form.
 
 The mod reads the setting when the session starts. After you change it, run `/reload-plugins`.
 

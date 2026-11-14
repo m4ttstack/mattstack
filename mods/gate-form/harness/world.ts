@@ -99,12 +99,19 @@ export function world(on: On, opts: WorldOptions = {}) {
   const deckRuns: string[][] = []
   const waits: Wait[] = []
   const toasts: string[] = []
+  const registered: string[] = []
   const state = { setting: opts.setting ?? 'on', settingReads: 0, lists: 0, deck: opts.deck === undefined ? DECK_TABLE : opts.deck }
   const clock = mock.clock(on, { now: 1_000_000 })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/Users/tester/repo' }))
-  on('tool.register', (_, e) => ({ value: { tool: `mcp__gate-form__${e.name}` } }))
-  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('tool.register', (_, e) => {
+    registered.push(`tool:${e.name}`)
+    return { value: { tool: `mcp__gate-form__${e.name}` } }
+  })
+  on('command.register', (_, e) => {
+    registered.push(`command:${e.name}`)
+    return { value: { command: e.name } }
+  })
   on('ui.open', (_, e) => {
     if (opts.openFails) throw new Error('no room for a pane')
     panes.set(e.id, e.title ?? e.id)
@@ -167,7 +174,7 @@ export function world(on: On, opts: WorldOptions = {}) {
     if (stdout) yield { stream: 'stdout' as const, text: stdout }
     return { value: { code, signal: null } }
   })
-  return { panes, calls, ran, sent, opened, bells, deckRuns, waits, toasts, state, clock }
+  return { panes, calls, ran, sent, opened, bells, deckRuns, waits, toasts, registered, state, clock }
 }
 
 export const startSession = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)

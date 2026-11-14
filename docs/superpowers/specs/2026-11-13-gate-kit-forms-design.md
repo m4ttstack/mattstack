@@ -1,9 +1,8 @@
 # Gate kit forms design
 
-Status: draft, not yet approved.
+Status: built, behind the `rt.gates.kitForm` setting.
 
-Base: stacked on #1138 (`rt-572-drop-gate-next`, RT-572). Both ship in the
-same release; each PR merges when it's ready.
+Base: main, after #1138 (RT-572) merged.
 
 ## Intent
 
@@ -366,6 +365,11 @@ Matt picked the human-todos pattern: list gate-form in
 `marketplace/marketplace.json` and add it to the mattstack plugin's
 `dependencies`. It installs with mattstack, and the rt setting keeps it off
 until turned on. The gate hook lives in gate-form.
+
+With the setting off, gate-form registers nothing a session can see. With it
+on, it also registers its `ask` tool (`mcp__gate-form__ask`), which opens
+questions that are not a gate in the same form. The spike's
+`/gate-form-demo` command is gone.
 
 ## Constraints
 

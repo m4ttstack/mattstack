@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ABOVE, ASK, HOME, OPEN, PANE, QUESTIONS, SESSION, ask, drawOn, failed, formOf, kitResult, ok, resultText, rowsOf, startSession, world } from './world'
+import { ABOVE, ASK, HOME, OPEN, PANE, QUESTIONS, SESSION, ask, drawOn, eventually, failed, formOf, kitResult, ok, resultText, rowsOf, startSession, world } from './world'
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`gate_ask and gate_open carry kitForm: true on ${surface}`, async ($, on) => {
@@ -39,6 +39,31 @@ for (const setting of ['off', 'unreadable', 'missing'] as const) {
     expect(w.state.settingReads).toBe(1)
   })
 }
+
+test('with rt.gates.kitForm on, the session start registers the ask tool and nothing else', async ($, on) => {
+  const w = world(on)
+  await startSession($)
+  expect(await eventually(() => w.registered.length > 0)).toBe(true)
+  expect(w.registered).toEqual(['tool:ask'])
+})
+
+for (const setting of ['off', 'unreadable', 'missing'] as const) {
+  test(`with rt.gates.kitForm ${setting}, the session start registers nothing`, async ($, on) => {
+    const w = world(on, { setting })
+    await startSession($)
+    await eventually(() => w.state.settingReads > 0)
+    await eventually(() => false, 10)
+    expect(w.registered).toEqual([])
+  })
+}
+
+test('with rt.gates.kitForm off, a call to the ask tool opens nothing', async ($, on) => {
+  const w = world(on, { setting: 'off' })
+  await startSession($)
+  const out = await $.tool.call({ tool: 'mcp__gate-form__ask', questions: QUESTIONS } as never)
+  expect((out as { deny?: string }).deny).toContain('rt.gates.kitForm')
+  expect(w.panes.size).toBe(0)
+})
 
 test('nothing is added before the session start has read the setting', async ($, on) => {
   const w = world(on)

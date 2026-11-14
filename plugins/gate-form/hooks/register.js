@@ -759,6 +759,7 @@ var boardAtom = atom({ plugin: "gate-form", key: "board" }, [], { shape: "board-
 var drawn = {};
 var setting = { isOn: false };
 var ELSEWHERE = "Already answered elsewhere";
+var ASK_OFF = "The gate form is off. Turn on rt.gates.kitForm and run /reload-plugins to use it.";
 var SETTING_TIMEOUT_MS = 5000;
 var QUICK_TIMEOUT_MS = 5000;
 var watching = new Set;
@@ -1094,17 +1095,26 @@ function boardBand($, e, rest, board) {
     flexDirection: "column"
   }, band, rest);
 }
+async function turnOn($) {
+  await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).catch(() => {
+    return;
+  });
+  await restore($);
+}
 function register(on) {
   registerPaneRedraw(on);
   on("session.start", async ($, e, next) => {
-    await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false });
     setting.reading = readSetting($);
-    setting.reading.then(() => setting.isOn ? restore($) : undefined).catch(() => {
+    setting.reading.then(() => setting.isOn ? turnOn($) : undefined).catch(() => {
       return;
     });
     return next(e);
   });
   on("tool.call", { tool: "mcp__gate-form__ask" }, async ($, e) => {
+    if (setting.reading)
+      await setting.reading;
+    if (!setting.isOn)
+      return { deny: ASK_OFF };
     const args = e;
     const form = toForm(args.title, args.context, args.questions, "ask");
     if (typeof form === "string")

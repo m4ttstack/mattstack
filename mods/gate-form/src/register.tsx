@@ -32,6 +32,7 @@ const drawn: { surface?: RenderSurface } = {}
 // never be sent it, since the gate tools refuse an input they don't know. Unread or unreadable counts as off.
 const setting: { isOn: boolean; reading?: Promise<void> } = { isOn: false }
 const ELSEWHERE = 'Already answered elsewhere'
+const ASK_OFF = 'The gate form is off. Turn on rt.gates.kitForm and run /reload-plugins to use it.'
 const SETTING_TIMEOUT_MS = 5_000
 const QUICK_TIMEOUT_MS = 5_000
 // One `rt gate wait` per gate; the children die with the module, so a session start watches again.
@@ -389,19 +390,27 @@ function boardBand($: EngineInterface, e: Parameters<EngineInterface['ui']['reso
   )
 }
 
+async function turnOn($: EngineInterface): Promise<void> {
+  // Gates still restore when the tool can't be listed.
+  await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).catch(() => undefined)
+  await restore($)
+}
+
 // A function declaration, not a const arrow: a bundler keeps it one, and the engine's source check requires it.
 export function register(on: On): void {
   registerPaneRedraw(on)
 
+  // With rt.gates.kitForm off the mod registers nothing: an always-listed ask tool would invite agents to use it for any question.
   on('session.start', async ($, e, next) => {
-    await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false })
-    // Not awaited, so a slow rt never holds the session's start; a gate call waits for it instead.
+    // Not awaited, so a slow rt never holds the session's start; a gate call waits for it, and the tool is listed from the next prompt.
     setting.reading = readSetting($)
-    void setting.reading.then(() => (setting.isOn ? restore($) : undefined)).catch(() => undefined)
+    void setting.reading.then(() => (setting.isOn ? turnOn($) : undefined)).catch(() => undefined)
     return next(e)
   })
 
   on('tool.call', { tool: 'mcp__gate-form__ask' }, async ($, e) => {
+    if (setting.reading) await setting.reading
+    if (!setting.isOn) return { deny: ASK_OFF }
     const args = e as unknown as { title?: unknown; context?: unknown; questions?: unknown }
     const form = toForm(args.title, args.context, args.questions, 'ask')
     if (typeof form === 'string') return { deny: form }
