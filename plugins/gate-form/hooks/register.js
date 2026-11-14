@@ -321,6 +321,9 @@ async function bandAbovePrompt($, e, rest, waiting, pane) {
 async function isPlaced($, pane) {
   return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
 }
+function paneRows(e) {
+  return e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
+}
 // mods/gate-form/src/gate/bell.ts
 var BODY_MAX = 140;
 function bellArgs(cwd, questions) {
@@ -1243,8 +1246,10 @@ function register(on) {
       return /* @__PURE__ */ h(Text, {
         dimColor: true
       }, "This screen can't draw the form yet. Answer in the terminal.");
-    const rows = Math.max(8, (e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30) - 3);
+    const body = paneRows(e);
+    const rows = Math.max(8, body - 3);
     const focused = e.props.isFocused || await read($, keysAtom);
+    const height = Math.max(1, form.status === "open" ? body : body - 2);
     return /* @__PURE__ */ h(Box, {
       flexDirection: "column",
       paddingX: 1,
@@ -1252,6 +1257,7 @@ function register(on) {
     }, /* @__PURE__ */ h(Client, {
       key: `form-${form.id}`,
       module: "./form.js",
+      height,
       props: { form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused }
     }), form.status === "open" ? null : /* @__PURE__ */ h(Box, {
       flexDirection: "row",

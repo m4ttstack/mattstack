@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, RenderElement, RenderSurface, ToolCallInput, ToolCallResult } from 'claude-code'
-import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, registerPaneRedraw, showPane, type HideablePane, type Waiting } from '@mattstack/mod-kit'
+import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, showPane, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { BoardGate, Form, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
@@ -462,11 +462,14 @@ export function register(on: On): void {
     const form = currentForm(await readForms($))
     if (!form) return <Text dimColor>No questions right now.</Text>
     if (!Client) return <Text dimColor>This screen can't draw the form yet. Answer in the terminal.</Text>
-    const rows = Math.max(8, (e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30) - 3)
+    const body = paneRows(e)
+    const rows = Math.max(8, body - 3)
     const focused = e.props.isFocused || (await read($, keysAtom))
+    // The Close row and the gap above it take two of the body's rows.
+    const height = Math.max(1, form.status === 'open' ? body : body - 2)
     return (
       <Box flexDirection="column" paddingX={1} gap={1}>
-        <Client key={`form-${form.id}`} module="./form.tsx" props={{ form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused }} />
+        <Client key={`form-${form.id}`} module="./form.tsx" height={height} props={{ form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused }} />
         {form.status === 'open' ? null : (
           <Box flexDirection="row" gap={1}>
             <Button key="close" role="dismiss" label="Close" onPress={() => void $.ui.close({ id: PANE })} />
