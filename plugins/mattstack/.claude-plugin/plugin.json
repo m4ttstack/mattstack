@@ -7,7 +7,7 @@
   },
   "license": "MIT",
   "strictLint": true,
-  "dependencies": ["human-todos"],
+  "dependencies": ["human-todos", "gate-form"],
   "skills": [
     "./skills",
     "./skills/review",

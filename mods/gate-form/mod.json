@@ -1,9 +1,14 @@
 {
   "plugin": {
     "name": "gate-form",
-    "version": "0.4.0",
-    "description": "Spike: a clack-styled question form in a pane, with no question or option caps, that takes mattstack gate questions.",
+    "version": "0.5.0",
+    "description": "Draws mattstack gate questions as a form in a pane, with no question or option caps.",
+    "author": {
+      "name": "Matthew Goodwin"
+    },
+    "license": "MIT",
     "types": "./types/index.d.ts"
   },
-  "clients": ["form.tsx", "band.tsx", "board-band.tsx"]
+  "clients": ["form.tsx", "band.tsx", "board-band.tsx"],
+  "files": ["LICENSE", "README.md"]
 }
