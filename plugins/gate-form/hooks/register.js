@@ -596,9 +596,30 @@ function listedGates(stdout) {
     return;
   return parsed.gates.filter((g) => isObject2(g) && isText(g.id));
 }
-function spilledGate(stdout, session, known) {
+function spillPaths(text) {
+  const found = [...text.matchAll(/(?:^|[\s:"'`(])(\/[^\s"'`<>()[\]{},;]+)/g)].map((m) => m[1].replace(/[.:]+$/, ""));
+  return [...new Set(found)].filter((p) => p.length > 1 && !p.endsWith("/"));
+}
+function savedResult(fileText) {
+  const parse = (text) => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return;
+    }
+  };
+  const parsed = parse(fileText);
+  const blocks = Array.isArray(parsed) ? parsed : isObject2(parsed) && Array.isArray(parsed.content) ? parsed.content : undefined;
+  if (!blocks)
+    return isObject2(parsed) ? parsed : undefined;
+  const inner = parse(blocks.map((b) => isObject2(b) && typeof b.text === "string" ? b.text : "").join(""));
+  return isObject2(inner) ? inner : undefined;
+}
+var shapeOf = (questions) => JSON.stringify((Array.isArray(questions) ? questions : []).map((q) => isObject2(q) ? [q.id, q.label] : null));
+function spilledGate(stdout, session, known, call) {
+  const kind = isText(call.kind) ? call.kind.trim() : "question";
   const gates = listedGates(stdout) ?? [];
-  const mine = gates.filter((g) => isObject2(g) && isText(g.id) && g.presentation === "kit" && g.status === "open" && isObject2(g.nudge) && g.nudge.session === session && !known.includes(g.id));
+  const mine = gates.filter((g) => g.presentation === "kit" && g.status === "open" && isObject2(g.nudge) && g.nudge.session === session && !known.includes(g.id) && g.kind === kind && (!isText(call.subject) || g.subject === call.subject.trim()) && (!Array.isArray(call.questions) || shapeOf(g.questions) === shapeOf(call.questions)));
   return mine.sort((a, b) => Number(b.openedAt ?? 0) - Number(a.openedAt ?? 0))[0];
 }
 function formFromRow(row) {
@@ -1074,45 +1095,67 @@ async function takeGate($, e, next) {
     return out;
   const kind = e.kind;
   const title = typeof kind === "string" && kind.trim() !== "" ? kind : GATE_TITLE;
+  const kindText = typeof kind === "string" ? kind : "";
   if (kit.kind === "kit") {
-    const form = gateForm(kit.fields, title);
-    if (typeof form === "string") {
-      const gateId = kit.fields.id;
-      if (typeof gateId !== "string" || gateId === "")
-        return out;
-      const superseded = kit.fields.supersededId;
-      await sendToBoard($, { gateId, kind: typeof kind === "string" ? kind : "" }, form, typeof superseded === "string" ? superseded : undefined);
-      return { result: withText(out.result, JSON.stringify(boardFields(kit.fields))) };
-    }
-    await openForm($, form, kit.fields.supersededId);
-    await gateOpened($, form);
-    return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) };
+    const gateId = kit.fields.id;
+    if (typeof gateId !== "string" || gateId === "")
+      return out;
+    const shown = await showKitGate($, gateForm(kit.fields, title), { gateId, kind: kindText }, supersededOf(kit.fields));
+    return { result: withText(out.result, JSON.stringify(shown === "form" ? agentFields(kit.fields) : boardFields(kit.fields))) };
   }
-  return takeSpilled($, out, text);
+  return takeSpilled($, e, out, text, title, kindText);
 }
-async function takeSpilled($, out, text) {
-  const known = (await readForms($)).flatMap((f) => f.gateId ? [f.gateId] : []);
-  let row;
-  try {
-    const ran = await runRt($, ["gate", "list", "--open", "--json"]);
-    row = ran.exitCode === 0 ? spilledGate(ran.stdout, await $.session.id(), known) : undefined;
-  } catch {
-    row = undefined;
-  }
-  if (!row)
-    return out;
-  const form = formFromRow(row);
+var supersededOf = (fields) => typeof fields.supersededId === "string" ? fields.supersededId : undefined;
+async function showKitGate($, form, gate, supersededId) {
   if (typeof form === "string") {
-    await sendToBoard($, { gateId: row.id, kind: typeof row.kind === "string" ? row.kind : "" }, form);
-    return { result: withText(out.result, `${text}
-
-${BOARD_INSTRUCTION(row.id)}`) };
+    await sendToBoard($, gate, form, supersededId);
+    return "board";
   }
-  await openForm($, form);
+  await openForm($, form, supersededId);
   await gateOpened($, form);
+  return "form";
+}
+async function takeSpilled($, e, out, text, title, kindText) {
+  const saved = await readSpill($, text);
+  if (saved && saved.paneAction !== "kit")
+    return out;
+  let gateId;
+  let form;
+  let supersededId;
+  if (saved && typeof saved.id === "string" && saved.id !== "") {
+    gateId = saved.id;
+    form = gateForm(saved, title);
+    supersededId = supersededOf(saved);
+  } else {
+    const row = await matchingGate($, e);
+    if (!row)
+      return out;
+    gateId = row.id;
+    form = formFromRow(row);
+  }
+  const shown = await showKitGate($, form, { gateId, kind: kindText }, supersededId);
   return { result: withText(out.result, `${text}
 
-${GATE_INSTRUCTION(row.id)}`) };
+${shown === "form" ? GATE_INSTRUCTION(gateId) : BOARD_INSTRUCTION(gateId)}`) };
+}
+async function readSpill($, text) {
+  for (const path of spillPaths(text)) {
+    try {
+      const saved = savedResult(await $.fs.read(path));
+      if (saved)
+        return saved;
+    } catch {}
+  }
+  return;
+}
+async function matchingGate($, e) {
+  const known = (await readForms($)).flatMap((f) => f.gateId ? [f.gateId] : []);
+  try {
+    const ran = await runRt($, ["gate", "list", "--open", "--json"]);
+    return ran.exitCode === 0 ? spilledGate(ran.stdout, await $.session.id(), known, e) : undefined;
+  } catch {
+    return;
+  }
 }
 function boardBand($, e, rest, board) {
   const newest = board.at(-1);

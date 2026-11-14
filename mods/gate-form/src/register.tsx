@@ -6,7 +6,7 @@ import type { BoardGate, Form, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
 import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, kindTitle, readBoardOnly } from './gate/board'
 import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm } from './gate/forms'
-import { agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, readKitResult, spilledGate, toForm } from './gate/parse'
+import { agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, readKitResult, savedResult, spillPaths, spilledGate, toForm, type GateCall } from './gate/parse'
 import { BOARD_INSTRUCTION, BOARD_TOAST, GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
 import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
@@ -369,40 +369,70 @@ async function takeGate($: EngineInterface, e: ToolCallInput, next: Next): Promi
   if (kit.kind === 'other') return out
   const kind = (e as unknown as { kind?: unknown }).kind
   const title = typeof kind === 'string' && kind.trim() !== '' ? kind : GATE_TITLE
+  const kindText = typeof kind === 'string' ? kind : ''
   if (kit.kind === 'kit') {
-    const form = gateForm(kit.fields, title)
-    if (typeof form === 'string') {
-      const gateId = kit.fields.id
-      if (typeof gateId !== 'string' || gateId === '') return out
-      const superseded = kit.fields.supersededId
-      await sendToBoard($, { gateId, kind: typeof kind === 'string' ? kind : '' }, form, typeof superseded === 'string' ? superseded : undefined)
-      return { result: withText(out.result, JSON.stringify(boardFields(kit.fields))) as never }
-    }
-    await openForm($, form, kit.fields.supersededId as string | null | undefined)
-    await gateOpened($, form)
-    return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) as never }
+    const gateId = kit.fields.id
+    if (typeof gateId !== 'string' || gateId === '') return out
+    const shown = await showKitGate($, gateForm(kit.fields, title), { gateId, kind: kindText }, supersededOf(kit.fields))
+    return { result: withText(out.result, JSON.stringify(shown === 'form' ? agentFields(kit.fields) : boardFields(kit.fields))) as never }
   }
-  return takeSpilled($, out, text)
+  return takeSpilled($, e, out, text, title, kindText)
 }
 
-async function takeSpilled($: EngineInterface, out: ToolCallResult, text: string): Promise<ToolCallResult> {
+const supersededOf = (fields: Record<string, unknown>) => (typeof fields.supersededId === 'string' ? fields.supersededId : undefined)
+
+// Opens the gate's form, or sends the gate to the board when the form can't draw it.
+async function showKitGate($: EngineInterface, form: Form | string, gate: BoardGate, supersededId?: string): Promise<'form' | 'board'> {
+  if (typeof form === 'string') {
+    await sendToBoard($, gate, form, supersededId)
+    return 'board'
+  }
+  await openForm($, form, supersededId)
+  await gateOpened($, form)
+  return 'form'
+}
+
+// A spilled result's own file names the exact gate; without it, only a gate matching this call is taken, and none is drawn on a guess.
+async function takeSpilled($: EngineInterface, e: ToolCallInput, out: ToolCallResult, text: string, title: string, kindText: string): Promise<ToolCallResult> {
+  const saved = await readSpill($, text)
+  if (saved && saved.paneAction !== 'kit') return out
+  let gateId: string
+  let form: Form | string
+  let supersededId: string | undefined
+  if (saved && typeof saved.id === 'string' && saved.id !== '') {
+    gateId = saved.id
+    form = gateForm(saved, title)
+    supersededId = supersededOf(saved)
+  } else {
+    const row = await matchingGate($, e)
+    if (!row) return out
+    gateId = row.id
+    form = formFromRow(row)
+  }
+  const shown = await showKitGate($, form, { gateId, kind: kindText }, supersededId)
+  return { result: withText(out.result, `${text}\n\n${shown === 'form' ? GATE_INSTRUCTION(gateId) : BOARD_INSTRUCTION(gateId)}`) as never }
+}
+
+async function readSpill($: EngineInterface, text: string): Promise<Record<string, unknown> | undefined> {
+  for (const path of spillPaths(text)) {
+    try {
+      const saved = savedResult(await $.fs.read(path))
+      if (saved) return saved
+    } catch {
+      // Not a file the pointer saved; the next path, or the gate list, may still say.
+    }
+  }
+  return undefined
+}
+
+async function matchingGate($: EngineInterface, e: ToolCallInput) {
   const known = (await readForms($)).flatMap(f => (f.gateId ? [f.gateId] : []))
-  let row
   try {
     const ran = await runRt($, ['gate', 'list', '--open', '--json'])
-    row = ran.exitCode === 0 ? spilledGate(ran.stdout, await $.session.id(), known) : undefined
+    return ran.exitCode === 0 ? spilledGate(ran.stdout, await $.session.id(), known, e as unknown as GateCall) : undefined
   } catch {
-    row = undefined
+    return undefined
   }
-  if (!row) return out
-  const form = formFromRow(row)
-  if (typeof form === 'string') {
-    await sendToBoard($, { gateId: row.id, kind: typeof row.kind === 'string' ? row.kind : '' }, form)
-    return { result: withText(out.result, `${text}\n\n${BOARD_INSTRUCTION(row.id)}`) as never }
-  }
-  await openForm($, form)
-  await gateOpened($, form)
-  return { result: withText(out.result, `${text}\n\n${GATE_INSTRUCTION(row.id)}`) as never }
 }
 
 // The newest board gate above the prompt, its button opening it on the board. A surface without Client gets the engine's own Button.

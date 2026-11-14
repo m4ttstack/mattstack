@@ -85,6 +85,8 @@ export type WorldOptions = {
   env?: Record<string, string>
   // `rt gate wait` children wait for the test to end them; otherwise each fails at once, as a wait for a gate rt can't find.
   holdWaits?: boolean
+  // Files `$.fs.read` finds, by absolute path; any other read rejects as missing.
+  files?: Record<string, string>
 }
 
 // What sits beneath the plugin: the pane list, the mattstack tool, `rt`, `deck`, `open`, herdr, the prompt and the session.
@@ -104,6 +106,11 @@ export function world(on: On, opts: WorldOptions = {}) {
   const clock = mock.clock(on, { now: 1_000_000 })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/Users/tester/repo' }))
+  on('fs.read', (_, e) => {
+    const text = opts.files?.[e.path]
+    if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
+    return { value: text }
+  })
   on('tool.register', (_, e) => {
     registered.push(`tool:${e.name}`)
     return { value: { tool: `mcp__gate-form__${e.name}` } }

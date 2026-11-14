@@ -131,6 +131,7 @@ export function boardFields(fields: Fields): Fields {
 export type GateRow = {
   id: string
   kind?: unknown
+  subject?: unknown
   questions?: unknown
   context?: unknown
   presentation?: unknown
@@ -153,11 +154,47 @@ export function listedGates(stdout: string): GateRow[] | undefined {
   return (parsed.gates as unknown[]).filter((g): g is GateRow => isObject(g) && isText(g.id))
 }
 
-// The gate a spilled result opened: this session's newest open kit gate that has no form yet.
-export function spilledGate(stdout: string, session: string, known: string[]): GateRow | undefined {
+// The absolute paths a spill pointer names, where the full result was saved.
+export function spillPaths(text: string): string[] {
+  const found = [...text.matchAll(/(?:^|[\s:"'`(])(\/[^\s"'`<>()[\]{},;]+)/g)].map(m => m[1]!.replace(/[.:]+$/, ''))
+  return [...new Set(found)].filter(p => p.length > 1 && !p.endsWith('/'))
+}
+
+// The tool's result as a saved file holds it: its own JSON, or the content blocks around it.
+export function savedResult(fileText: string): Fields | undefined {
+  const parse = (text: string): unknown => {
+    try {
+      return JSON.parse(text)
+    } catch {
+      return undefined
+    }
+  }
+  const parsed = parse(fileText)
+  const blocks = Array.isArray(parsed) ? parsed : isObject(parsed) && Array.isArray(parsed.content) ? parsed.content : undefined
+  if (!blocks) return isObject(parsed) ? parsed : undefined
+  const inner = parse(blocks.map(b => (isObject(b) && typeof b.text === 'string' ? b.text : '')).join(''))
+  return isObject(inner) ? inner : undefined
+}
+
+export type GateCall = { kind?: unknown; subject?: unknown; questions?: unknown }
+
+const shapeOf = (questions: unknown) => JSON.stringify((Array.isArray(questions) ? questions : []).map(q => (isObject(q) ? [q.id, q.label] : null)))
+
+// The gate a spilled result opened, when its saved file can't say: an open kit gate of this session with no form yet,
+// matching this call's kind, its subject when given, and its questions when given. Equal matches take the newest.
+export function spilledGate(stdout: string, session: string, known: string[], call: GateCall): GateRow | undefined {
+  const kind = isText(call.kind) ? call.kind.trim() : 'question'
   const gates = listedGates(stdout) ?? []
   const mine = gates.filter(
-    g => isObject(g) && isText(g.id) && g.presentation === 'kit' && g.status === 'open' && isObject(g.nudge) && g.nudge.session === session && !known.includes(g.id),
+    g =>
+      g.presentation === 'kit' &&
+      g.status === 'open' &&
+      isObject(g.nudge) &&
+      g.nudge.session === session &&
+      !known.includes(g.id) &&
+      g.kind === kind &&
+      (!isText(call.subject) || g.subject === call.subject.trim()) &&
+      (!Array.isArray(call.questions) || shapeOf(g.questions) === shapeOf(call.questions)),
   )
   return mine.sort((a, b) => Number(b.openedAt ?? 0) - Number(a.openedAt ?? 0))[0]
 }

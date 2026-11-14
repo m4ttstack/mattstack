@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 
 import type { Form } from '../../types'
-import { agentFields, answerOutcome, boardFields, formFromRow, gateForm, readKitResult, spilledGate, toForm } from './parse'
+import { agentFields, answerOutcome, boardFields, formFromRow, gateForm, readKitResult, savedResult, spillPaths, spilledGate, toForm } from './parse'
 import { BOARD_INSTRUCTION, GATE_INSTRUCTION } from './reply'
 
 const QUESTIONS = [
@@ -57,11 +57,36 @@ test('the agent keeps every field but kitForm, plus the instruction', () => {
 
 const ROW = { id: 'g9', kind: 'plan-review', questions: QUESTIONS, context: 'Row context', presentation: 'kit', status: 'open', nudge: { session: 'sess-1' }, openedAt: 5 }
 
-test('a spilled result finds this session’s newest open kit gate the mod has no form for', () => {
+const CALL = { kind: 'plan-review', questions: QUESTIONS }
+
+test('a spilled result finds this session’s newest open kit gate matching the call that the mod has no form for', () => {
   const gates = [ROW, { ...ROW, id: 'g10', openedAt: 9 }, { ...ROW, id: 'g11', openedAt: 12, nudge: { session: 'other' } }, { ...ROW, id: 'g12', openedAt: 15, presentation: 'wait' }, { ...ROW, id: 'g13', openedAt: 20, status: 'answered' }]
-  expect(spilledGate(JSON.stringify({ ok: true, gates }), 'sess-1', [])?.id).toBe('g10')
-  expect(spilledGate(JSON.stringify({ ok: true, gates }), 'sess-1', ['g10'])?.id).toBe('g9')
-  expect(spilledGate('not json', 'sess-1', [])).toBeUndefined()
+  expect(spilledGate(JSON.stringify({ ok: true, gates }), 'sess-1', [], CALL)?.id).toBe('g10')
+  expect(spilledGate(JSON.stringify({ ok: true, gates }), 'sess-1', ['g10'], CALL)?.id).toBe('g9')
+  expect(spilledGate('not json', 'sess-1', [], CALL)).toBeUndefined()
+})
+
+test('a spilled gate must match the call’s kind, subject and questions, never just be the newest', () => {
+  const gates = [
+    { ...ROW, id: 'g1', subject: 'run:1', openedAt: 1 },
+    { ...ROW, id: 'g2', subject: 'run:2', openedAt: 2 },
+    { ...ROW, id: 'g3', kind: 'ship', openedAt: 3 },
+    { ...ROW, id: 'g4', questions: [QUESTIONS[0]], openedAt: 4 },
+  ]
+  const out = JSON.stringify({ ok: true, gates })
+  expect(spilledGate(out, 'sess-1', [], { ...CALL, subject: 'run:1' })?.id).toBe('g1')
+  expect(spilledGate(out, 'sess-1', [], { kind: 'ship' })?.id).toBe('g3')
+  expect(spilledGate(out, 'sess-1', [], { kind: 'clarify' })).toBeUndefined()
+  expect(spilledGate(JSON.stringify({ ok: true, gates: [{ ...ROW, kind: 'question' }] }), 'sess-1', [], { questions: QUESTIONS })?.id).toBe('g9')
+})
+
+test('a spill pointer’s paths are read for the saved result, bare or in content blocks', () => {
+  expect(spillPaths('Output too large. Full output saved to: /tmp/a b/out.txt\nPreview: {"x":1}')).toEqual(['/tmp/a'])
+  expect(spillPaths('saved to /Users/me/.claude/tool-results/r1.txt. Read it.')).toEqual(['/Users/me/.claude/tool-results/r1.txt'])
+  expect(savedResult(JSON.stringify(KIT))?.id).toBe('g1')
+  expect(savedResult(JSON.stringify([{ type: 'text', text: JSON.stringify(KIT) }]))?.id).toBe('g1')
+  expect(savedResult(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(KIT) }] }))?.id).toBe('g1')
+  expect(savedResult('plain words')).toBeUndefined()
 })
 
 test('a listed gate opens a form with no run controls', () => {

@@ -177,6 +177,50 @@ test('a spilled result reads the gate from rt gate list', async ($, on) => {
   await pane.unmount()
 })
 
+const SPILL_PATH = '/Users/tester/.claude/projects/repo/tool-results/out-1.txt'
+const spillPointer = `Output too large (52.1KB). Full output saved to: ${SPILL_PATH}\n\nPreview (first 2KB): {"id":"g`
+const listing = (rows: unknown[]) => (argv: readonly string[]) => (argv[1] === 'gate' && argv[2] === 'list' ? ok(JSON.stringify({ ok: true, gates: rows })) : ({ deny: 'unexpected' } as const))
+const kitRowFor = (id: string, over: Record<string, unknown> = {}) => ({ id, kind: 'plan-review', questions: QUESTIONS, presentation: 'kit', status: 'open', nudge: { session: SESSION }, openedAt: 3, ...over })
+
+test('a spilled result whose saved file holds the kit result opens that exact gate, run controls and all', async ($, on) => {
+  const newer = kitRowFor('g9', { openedAt: 9 })
+  const w = world(on, { reply: () => ({ text: spillPointer }), files: { [SPILL_PATH]: JSON.stringify([{ type: 'text', text: JSON.stringify(kitResult('g4')) }]) }, rt: listing([newer]) })
+  await drawOn($, 'terminal')
+  const text = resultText(await ask($))
+  expect(text).toContain('end your turn holding at gate `g4`')
+  expect(w.ran).toEqual([])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await formOf(pane)).toMatchObject({ gateId: 'g4' })
+  expect(((await pane.find({ type: 'Client' }))!.props.props as { form: { controls?: unknown } }).form.controls).toEqual({ pause: true, goBack: ['plan', 'provision'] })
+  await pane.unmount()
+})
+
+test('a spilled result with no readable file opens the gate that matches the call, not the newest one', async ($, on) => {
+  const rows = [kitRowFor('g5', { openedAt: 5 }), kitRowFor('g9', { openedAt: 9, kind: 'ship', questions: [{ id: 'other', label: 'Other?', multi: false, options: ['a'] }] })]
+  world(on, { reply: () => ({ text: spillPointer }), rt: listing(rows) })
+  await drawOn($, 'terminal')
+  expect(resultText(await ask($))).toContain('end your turn holding at gate `g5`')
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await formOf(pane)).toMatchObject({ gateId: 'g5' })
+  await pane.unmount()
+})
+
+test('a spilled result that matches no open kit gate passes through and draws nothing', async ($, on) => {
+  const w = world(on, { reply: () => ({ text: spillPointer }), rt: listing([kitRowFor('g9', { kind: 'ship' })]) })
+  await drawOn($, 'terminal')
+  expect(resultText(await ask($))).toBe(spillPointer)
+  expect(w.panes.size).toBe(0)
+})
+
+test('a spilled result whose saved file is not a kit result passes through without listing gates', async ($, on) => {
+  const formResult = JSON.stringify({ id: 'g3', paneAction: 'form', formChunks: [[]] })
+  const w = world(on, { reply: () => ({ text: spillPointer }), files: { [SPILL_PATH]: formResult }, rt: listing([kitRowFor('g5')]) })
+  await drawOn($, 'terminal')
+  expect(resultText(await ask($))).toBe(spillPointer)
+  expect(w.ran).toEqual([])
+  expect(w.panes.size).toBe(0)
+})
+
 test('a spilled result for a gate the form cannot draw sends it to the board and tells the agent to wait', async ($, on) => {
   const row = { id: 'g7', kind: 'plan-review', questions: [{ id: 'pick', label: 'Pick', multi: false, options: [''] }], presentation: 'kit', status: 'open', nudge: { session: SESSION }, openedAt: 3 }
   const w = world(on, {
@@ -184,7 +228,7 @@ test('a spilled result for a gate the form cannot draw sends it to the board and
     rt: argv => (argv[1] === 'gate' && argv[2] === 'list' ? ok(JSON.stringify({ ok: true, gates: [row] })) : { deny: 'unexpected' }),
   })
   await drawOn($, 'terminal')
-  const text = resultText(await ask($))
+  const text = resultText(await ask($, { questions: row.questions }))
   expect(text).toContain('Output too large; saved to /tmp/out.txt')
   expect(text).toContain('rt gate wait g7')
   expect(w.panes.size).toBe(0)
