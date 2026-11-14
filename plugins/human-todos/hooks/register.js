@@ -2043,7 +2043,7 @@ function registerPane(on) {
     if (!band)
       return next(e);
     if (e.surface === "terminal" || e.surface === "desktop")
-      return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE);
+      return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE, { engineShow: true });
     const { waiting } = band;
     const { Box, Text, Button } = $.ui.resolve(e);
     return /* @__PURE__ */ h(Box, {

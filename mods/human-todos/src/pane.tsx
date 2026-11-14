@@ -106,7 +106,7 @@ export function registerPane(on: On): void {
     if (await isPlaced($, TODO_PANE)) return next(e)
     const band = bandModel(await peekTodos($))
     if (!band) return next(e)
-    if (e.surface === 'terminal' || e.surface === 'desktop') return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE)
+    if (e.surface === 'terminal' || e.surface === 'desktop') return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE, { engineShow: true })
     const { waiting } = band
     const { Box, Text, Button } = $.ui.resolve(e)
     return (
