@@ -127,7 +127,7 @@ export const REFUSED_SEGMENTS: readonly string[] = [
   "pipeline_schedules", "terraform", "application",
 ];
 export const FORGE_GET_MAX_BYTES = 256 * 1024;
-const CONTROL = /[\u0000-\u001f\u007f]/;
+const CONTROL = /\p{Cc}/u;
 
 type PlainPath = { ok: true; rest: string; decoded: string; segments: string[] } | { ok: false; error: string };
 
@@ -155,6 +155,25 @@ function plainApiPath(path: unknown, expand: (rest: string) => string): PlainPat
 /** GitLab routes an optional format suffix (variables.json) to the same endpoint, so a suffixed word counts as the word. */
 const namesWord = (segment: string | undefined, word: string): boolean => segment === word || (segment?.startsWith(`${word}.`) ?? false);
 
+const SKELETON_STRIP = /[\p{White_Space}\p{Cf}\p{M}\p{Default_Ignorable_Code_Point}]/gu;
+
+/** GitHub names an endpoint by its letters, so compatibility forms, marks, blanks and invisibles must not hide a word. */
+export function wordSkeleton(segment: string): string {
+  return dotSkeleton(segment).toUpperCase().toLowerCase();
+}
+
+export function dotSkeleton(segment: string): string {
+  return segment.normalize("NFKD").replace(SKELETON_STRIP, "");
+}
+
+/** Per code point: NFKD of the whole string would also fold a legitimate trailing mark into a neighbour. */
+export function foldsToSeparator(decoded: string): boolean {
+  return [...decoded].some((ch) => {
+    const folded = ch.normalize("NFKD");
+    return folded !== ch && /[;%?#\\]/.test(folded);
+  });
+}
+
 export function checkForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
   const plain = plainApiPath(path, (rest) => rest.replace(/^api\/v4\//, ""));
   if (!plain.ok) return plain;
@@ -169,26 +188,44 @@ export const GITHUB_REFUSED_SEGMENTS: readonly string[] = [
   "secrets", "variables", "hooks", "keys", "deploy_keys", "installations", "tokens", "runners", "registration-token",
   "remove-token", "environments", "codespaces", "dependabot", "actions/oidc", "autolinks", "invitations",
   "private-vulnerability-reporting", "secret-scanning", "organization-secrets", "organization-variables", "security-advisories",
+  "variant-analyses",
 ];
-/**
- * Refused only as the route right after repos/<owner>/<repo>: the same word is a branch prefix and a repo name.
- * Segments are split after decoding, so an encoded slash moves no segment past this check.
- */
+/** Refused only as the first part of the skeleton window after the repo: the same word is a branch prefix and a repo name. */
 export const GITHUB_REFUSED_ROUTES: readonly string[] = ["copilot"];
 export const GITHUB_REFUSED_QUERY_KEYS: readonly string[] = ["access_token", "client_secret", "token"];
 /** glance buffers a whole response before the cap runs, and a blob can be 100 MB. */
 export const GITHUB_REFUSED_BLOBS = "git/blobs";
+const BLOBS_REFUSAL = `"path" names ${GITHUB_REFUSED_BLOBS}, and a blob can be too large to read through gitlab_get; read the file with :repo/contents/<path> instead`;
 
-/** Where an entry first appears, or -1; an entry with a slash names consecutive segments, the last one suffixed or not. */
-const entryAt = (segments: string[], entry: string): number => {
-  const parts = entry.split("/");
-  const last = parts.length - 1;
-  return segments.findIndex((_, i) => parts.every((p, j) => (j === last ? namesWord(segments[i + j], p) : segments[i + j] === p)));
+export const githubWordRefusal = (word: string): string =>
+  `gitlab_get refuses "path" because the path after the repo reads as "${word}", ignoring case, spaces and invisible characters. On GitHub that word names an endpoint that can return credentials, so it is refused in any segment after the repo, including branch and tag names. To read a file, use :repo/contents/<file path>, where file names are not checked.`;
+export const githubRouteRefusal = (word: string): string =>
+  `gitlab_get refuses "path" because the route right after the repo reads as "${word}", ignoring case, spaces and invisible characters. That GitHub endpoint can return credentials. A branch, file or repo named ${word} is fine.`;
+
+/** NFKD can fold a slash or backslash into a segment, a layer that re-parses a decoded ? or # would end the route there, and a part that folds to a dot could split an entry. */
+export function matchingWindow(segments: string[], from: number, to: number): { ok: true; parts: string[] } | { ok: false; error: string } {
+  const parts = segments.slice(from, to).flatMap((s) => wordSkeleton(s).split(/[\/\\?#]/)).filter((p) => p !== "");
+  if (parts.some((p) => p === "." || p === "..")) return { ok: false, error: '"path" must not contain dot segments' };
+  return { ok: true, parts };
+}
+
+const windowEntryAt = (parts: string[], entry: string): number => {
+  const words = entry.split("/");
+  const last = words.length - 1;
+  return parts.findIndex((_, i) => words.every((w, j) => (j === last ? namesWord(parts[i + j], w) : parts[i + j] === w)));
 };
+
+/** By position, never by value: on a repo named acme/contents, repos/acme/contents/hooks has no file path. */
+const fileStartOf = (rest: string): number | null => {
+  const raw = rest.split("/");
+  return raw[3] === "contents" && raw.length > 4 ? 4 : null;
+};
+
+const PLAIN_REPO_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
 export function checkGithubForgePath(path: unknown, projectPath: string): { ok: true; path: string } | { ok: false; error: string } {
   // projectPath comes from the origin URL, and every rule below counts segments from it.
-  if (!/^[^/]+\/[^/]+$/.test(projectPath)) return { ok: false, error: "gitlab_get reads a GitHub repo only by its owner/repo path" };
+  if (!/^[^/]+\/[^/]+$/.test(projectPath)) return { ok: false, error: "gitlab_get cannot read this GitHub repo, because its path is not owner/name. Check the repo's origin remote." };
   const repoRoot = `repos/${projectPath}`;
   const plain = plainApiPath(path, (rest) => rest.replace(/^:repo(?=\/|$)/, () => repoRoot));
   if (!plain.ok) return plain;
@@ -198,7 +235,10 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   // Octokit expands {name} in a route, to nothing when unset, after these checks ran.
   if (/[{}]/.test(decoded)) return { ok: false, error: '"path" must not contain { or }' };
   if (decoded.includes("\\")) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
+  // A lone surrogate has no UTF-8 form, so the bytes GitHub routes on are not the ones checked here.
+  if (!rest.isWellFormed() || !decoded.isWellFormed()) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
   if (decoded.includes(";")) return { ok: false, error: '"path" must not contain ;' };
+  if (foldsToSeparator(decoded)) return { ok: false, error: '"path" must be a plain API path; pass query values in "query"' };
   const lower = decoded.toLowerCase();
   const root = repoRoot.toLowerCase();
   if (lower !== root && !lower.startsWith(`${root}/`)) {
@@ -206,18 +246,24 @@ export function checkGithubForgePath(path: unknown, projectPath: string): { ok: 
   }
   // GitHub may collapse "//", which would join a slash entry such as actions/oidc the checks below saw apart.
   if (segments.slice(0, -1).includes("")) return { ok: false, error: '"path" must not contain an empty segment (//)' };
-  const rootParts = repoRoot.split("/");
-  const hits = [...GITHUB_REFUSED_SEGMENTS, GITHUB_REFUSED_BLOBS].map((entry) => ({ entry, at: entryAt(segments, entry), length: entry.split("/").length }));
-  const inName = hits.find((h) => h.at >= 0 && h.at + h.length <= rootParts.length);
-  if (inName) return { ok: false, error: `gitlab_get cannot read a GitHub repo whose owner or name is ${rootParts.slice(inName.at, inName.at + inName.length).join("/")}` };
-  const refused = hits.find((h) => h.at >= 0 && h.entry !== GITHUB_REFUSED_BLOBS);
-  if (refused) return { ok: false, error: `"path" names ${refused.entry}, which can return credentials; gitlab_get refuses it` };
-  const route = segments[rootParts.length];
-  const refusedRoute = GITHUB_REFUSED_ROUTES.find((word) => namesWord(route, word));
-  if (refusedRoute) return { ok: false, error: `"path" names ${refusedRoute}, which can return credentials; gitlab_get refuses it` };
-  if (hits.some((h) => h.at >= 0)) {
-    return { ok: false, error: `"path" names ${GITHUB_REFUSED_BLOBS}, and a blob can be too large to read through gitlab_get; read the file with :repo/contents/<path> instead` };
+  // The prefix check ignores case and decodes; the route GitHub picks is fixed by these raw bytes, which must equal the checked ones.
+  const raw = rest.split("/");
+  if (raw[0] !== "repos" || !PLAIN_REPO_SEGMENT.test(raw[1] ?? "") || !PLAIN_REPO_SEGMENT.test(raw[2] ?? "")) {
+    return { ok: false, error: '"path" must name the repo as repos/<owner>/<name>, spelled plainly with no percent escapes. Start it with :repo/ instead.' };
   }
+  const fileStart = fileStartOf(rest);
+  // Words go unmatched in a file path, so a folded climb such as ..\uFF0Fhooks is the one thing that could leave the contents route.
+  if (fileStart !== null && segments.slice(fileStart).some((seg) => dotSkeleton(seg).split(/[\/\\]/).some((p) => p === "." || p === ".."))) {
+    return { ok: false, error: '"path" must not contain dot segments' };
+  }
+  const window = matchingWindow(segments, 3, fileStart ?? segments.length);
+  if (!window.ok) return window;
+  const { parts } = window;
+  const refusedRoute = GITHUB_REFUSED_ROUTES.find((word) => namesWord(parts[0], word));
+  if (refusedRoute) return { ok: false, error: githubRouteRefusal(refusedRoute) };
+  const refusedWord = GITHUB_REFUSED_SEGMENTS.find((entry) => windowEntryAt(parts, entry) >= 0);
+  if (refusedWord) return { ok: false, error: githubWordRefusal(refusedWord) };
+  if (windowEntryAt(parts, GITHUB_REFUSED_BLOBS) >= 0) return { ok: false, error: BLOBS_REFUSAL };
   return { ok: true, path: `/${rest}` };
 }
 

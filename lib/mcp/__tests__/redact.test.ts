@@ -78,6 +78,12 @@ describe("toCallResult", () => {
     expect(res.content[0]!.text).toBe("push failed for https://[redacted]@gitlab.com/x.git");
   });
 
+  test("a GitHub contents body's download_url token is redacted", () => {
+    const res = toCallResult({ ok: true, body: { status: 200, body: { name: "a.md", download_url: "https://raw.githubusercontent.com/o/r/main/a.md?token=AAAAFAKETOKEN123" } } });
+    expect(res.content[0]!.text).toContain("?token=[redacted]");
+    expect(res.content[0]!.text).not.toContain("AAAAFAKETOKEN123");
+  });
+
   test("a null body serializes as null", () => {
     expect(toCallResult({ ok: true, body: undefined }).content[0]!.text).toBe("null");
   });
