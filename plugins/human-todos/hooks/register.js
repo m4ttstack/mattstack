@@ -217,8 +217,9 @@ function pressed(span) {
 function keySelected(span) {
   if (!span.t.startsWith(" "))
     return [span];
+  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
     { ...span, t: span.t.slice(1) }
   ];
 }
@@ -274,6 +275,42 @@ function scrollBar(rows, total, offset) {
 // packages/mod-kit/src/interact/focus.ts
 function isEngaged(e) {
   return e.data?.type === "engaged";
+}
+// packages/mod-kit/src/interact/grid.ts
+function gridResolve(rows, sel) {
+  if (!sel)
+    return { at: 0, col: rows[0]?.main ?? 0, hasFallen: false };
+  const found = rows.findIndex((r) => r.key === sel.key);
+  if (found < 0) {
+    const at = Math.min(sel.at, rows.length - 1);
+    return { at, col: rows[at]?.main ?? 0, hasFallen: true };
+  }
+  const col = rows[found].ids.indexOf(sel.button);
+  return { at: found, col: col >= 0 ? col : rows[found].main, hasFallen: false };
+}
+function gridSelection(rows, spot) {
+  const row = rows[spot.at];
+  const button = row?.ids[spot.col];
+  return row && button !== undefined ? { key: row.key, button, at: spot.at } : undefined;
+}
+function gridMove(rows, here, ev, options = {}) {
+  if (rows.length === 0)
+    return { handled: false };
+  const tab = options.tabSteps === true && ev.key === "tab";
+  const step = ev.key === "up" || tab && ev.shift ? -1 : ev.key === "down" || tab ? 1 : 0;
+  if (step !== 0) {
+    const at = Math.min(Math.max(0, here.at + step), rows.length - 1);
+    return at === here.at ? { handled: true } : { handled: true, to: { at, col: rows[at].main } };
+  }
+  if (ev.key === "left" || ev.key === "right") {
+    const col = here.col + (ev.key === "left" ? -1 : 1);
+    return col >= 0 && col < (rows[here.at]?.ids.length ?? 0) ? { handled: true, to: { at: here.at, col } } : { handled: true };
+  }
+  return { handled: false };
+}
+function gridLook(span, focus) {
+  const base = focus.pressing ? pressed(span) : span;
+  return focus.marked ? keySelected(base) : [base];
 }
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
@@ -1784,10 +1821,7 @@ function viewLines(view, width, focus = {}) {
   const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const chosen = focus.selected && JSON.stringify(focus.selected);
   const range = focus.marked ? focus.range : undefined;
-  const look = (span) => {
-    const base = focus.pressing ? pressed(span) : span;
-    return focus.marked ? keySelected(base) : [base];
-  };
+  const look = (span) => gridLook(span, focus);
   const bar = scrollBar(view.windowRows, view.total, view.top);
   return shown.map((line, n) => {
     const at = view.top + n;

@@ -217,8 +217,9 @@ function pressed(span) {
 function keySelected(span) {
   if (!span.t.startsWith(" "))
     return [span];
+  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
     { ...span, t: span.t.slice(1) }
   ];
 }
@@ -302,6 +303,10 @@ function gridMove(rows, here, ev, options = {}) {
     return col >= 0 && col < (rows[here.at]?.ids.length ?? 0) ? { handled: true, to: { at: here.at, col } } : { handled: true };
   }
   return { handled: false };
+}
+function gridLook(span, focus) {
+  const base = focus.pressing ? pressed(span) : span;
+  return focus.marked ? keySelected(base) : [base];
 }
 // packages/mod-kit/src/interact/pointer.ts
 function lookOf(state, focused) {
@@ -1099,10 +1104,7 @@ function viewLines(view, width, focus = {}) {
   const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const chosen = focus.selected && JSON.stringify(focus.selected);
   const range = focus.marked ? focus.range : undefined;
-  const look = (span) => {
-    const base = focus.pressing ? pressed(span) : span;
-    return focus.marked ? keySelected(base) : [base];
-  };
+  const look = (span) => gridLook(span, focus);
   const bar = scrollBar(view.windowRows, view.total, view.top);
   return shown.map((line, n) => {
     const at = view.top + n;

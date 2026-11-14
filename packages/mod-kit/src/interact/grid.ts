@@ -1,5 +1,8 @@
 import type { ClientKeyEvent } from 'claude-code'
 
+import type { Span } from '../draw/text'
+import { keySelected, pressed } from '../draw/theme'
+
 // One row of buttons the keyboard can rest on; `main` is the button a move onto the row lands on.
 export type GridRow<Id> = { key: string; ids: readonly Id[]; main: number }
 // Keyed by row and button id, so it follows its row through redraws; `at` is where it was, for when that row is gone.
@@ -41,4 +44,11 @@ export function gridMove<Id>(rows: readonly GridRow<Id>[], here: GridSpot, ev: P
     return col >= 0 && col < (rows[here.at]?.ids.length ?? 0) ? { handled: true, to: { at: here.at, col } } : { handled: true }
   }
   return { handled: false }
+}
+
+// The grid's selected button as drawn: pressed while a key's activation shows (KitUi `keyPressing`),
+// with the selection edge while `marked` (KitUi `keyboard`, or wherever the mod always shows it).
+export function gridLook<A>(span: Span<A>, focus: { marked?: boolean; pressing?: boolean }): Span<A>[] {
+  const base = focus.pressing ? pressed(span) : span
+  return focus.marked ? keySelected(base) : [base]
 }

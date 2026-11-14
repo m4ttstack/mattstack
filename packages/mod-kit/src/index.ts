@@ -21,7 +21,7 @@ export { textCursor } from './widgets/text-cursor'
 export { attachPointer, lookOf } from './interact/pointer'
 export type { PointerState } from './interact/pointer'
 export { isEngaged } from './interact/focus'
-export { gridMove, gridResolve, gridSelection } from './interact/grid'
+export { gridLook, gridMove, gridResolve, gridSelection } from './interact/grid'
 export type { GridRow, GridSelection, GridSpot } from './interact/grid'
 
 export { bandClient } from './patterns/band-client'

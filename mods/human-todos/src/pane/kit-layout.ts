@@ -1,4 +1,4 @@
-import { ACCENT, BRAND, DIM, DONE, GRAY, SYMBOL, WARN, buttonRow, cellWidth, cutCells, keySelected, pressed, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
+import { ACCENT, BRAND, DIM, DONE, GRAY, SYMBOL, WARN, buttonRow, cellWidth, cutCells, gridLook, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
 import type { Line, Style } from '@mattstack/mod-kit'
 
 import { endRows, messageOf } from './model'
@@ -226,10 +226,7 @@ export function viewLines(view: KitView, width: number, focus: KitFocus = {}): L
   const shown = view.rows.flatMap(row => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows)
   const chosen = focus.selected && JSON.stringify(focus.selected)
   const range = focus.marked ? focus.range : undefined
-  const look = (span: L[number]): L => {
-    const base = focus.pressing ? pressed(span) : span
-    return focus.marked ? keySelected(base) : [base]
-  }
+  const look = (span: L[number]): L => gridLook(span, focus)
   const bar = scrollBar<PaneMessage>(view.windowRows, view.total, view.top)
   return shown.map((line, n) => {
     const at = view.top + n

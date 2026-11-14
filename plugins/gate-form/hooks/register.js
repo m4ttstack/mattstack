@@ -246,8 +246,9 @@ function pressed(span) {
 function keySelected(span) {
   if (!span.t.startsWith(" "))
     return [span];
+  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
     { ...span, t: span.t.slice(1) }
   ];
 }
