@@ -8,8 +8,9 @@ import type { ForgeTokenLookup } from "../../lib/team/forge-token.ts";
 import * as out from "../../lib/ui/out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { createOriginAuth, tokenNoteBlocks, type OriginAuth, type OriginAuthSeams } from "../git/origin-auth.ts";
-import type { FetchDeps, PushDeps } from "../git/shared.ts";
+import { createOriginAuth, helperEnv, tokenNoteBlocks, type OriginAuth, type OriginAuthSeams } from "../git/origin-auth.ts";
+import type { RebaseResult } from "../git/rebase.ts";
+import type { FetchDeps, PushDeps, RemoteOutcome } from "../git/shared.ts";
 import { syncAllNote, tokenNoteUsers, syncBranch, syncCommand, type SyncSummary } from "../sync.ts";
 import { ctxFor, exitCodeOf, git, makeRepo, trapExit } from "../git/__tests__/helpers.ts";
 
@@ -335,4 +336,65 @@ describe("rt sync prints the token note", () => {
     expect(code).toBe(0);
     expect(io.stdout() + io.stderr()).not.toContain(NOTE);
   });
+});
+
+describe("the escalation push", () => {
+  const conflict: RebaseResult = { status: "conflict", branch: "feature", target: "origin/main", commitsBehind: 1, resolvedFiles: [], unresolvedFiles: ["a.txt"], postResolveSteps: [], backupBranch: "b", rebaseInProgress: true };
+  let exit: { restore(): void };
+
+  beforeEach(() => {
+    exit = trapExit();
+  });
+  afterEach(() => exit.restore());
+
+  /** The sync pauses after its fetch, and the escalation's agent finishes, so its push runs. */
+  async function escalate(seams: OriginAuthSeams, pushResults: Result[], fetchedAs?: RemoteOutcome) {
+    const clone = staleClone();
+    const auth = createOriginAuth(seams);
+    const { fetchDeps, pushDeps, pushEnvs } = fakeRemotes(auth, pushResults);
+    const promptAtPush: (string | undefined)[] = [];
+    const run = pushDeps.run;
+    pushDeps.run = async (cwd, args, env) => (promptAtPush.push(process.env.GIT_TERMINAL_PROMPT), run(cwd, args, env));
+    let pushed: out.FailureInput | null | undefined;
+    const code = await exitCodeOf(() =>
+      syncCommand([], ctxFor(clone), {
+        isTTY: true,
+        originAuth: auth,
+        pushDeps,
+        syncBranch: (cwd, opts) =>
+          syncBranch(cwd, { ...opts, stackRunners: clear, fetchDeps, pushDeps, onFetched: (o) => opts.onFetched?.(fetchedAs ?? o) }).then((s) => ({ ...s, pushed: false, rebaseResult: conflict })),
+        runEscalationFlow: async (o) => {
+          pushed = await o.push!("feature");
+          return pushed ? 1 : 0;
+        },
+      }),
+    );
+    return { code, pushed, pushEnvs, promptAtPush };
+  }
+
+  test("an HTTPS clone with no helper pushes through rt's helper when rt holds a token", async () => {
+    const r = await escalate(tokenSeams, [{ ok: true }, { ok: false, output: NO_USER }, { ok: true }]);
+    expect(r.pushed).toBeNull();
+    expect(r.code).toBe(0);
+    expect(r.pushEnvs.length).toBe(3);
+    expect(r.pushEnvs[2]!.GIT_CONFIG_VALUE_1).toBe("!helper");
+    expect(r.promptAtPush[1]).toBe("0");
+    expect(JSON.stringify(r.pushEnvs)).not.toContain("LEAKCHECK");
+  }, 20_000);
+
+  test("a fetch that got in through rt's helper hands that helper to the push", async () => {
+    const viaHelper: RemoteOutcome = { env: helperEnv("gitlab.com", process.env, "!helper"), usedRtToken: true, forge: "gitlab", host: "gitlab.com" };
+    const r = await escalate(tokenSeams, [{ ok: true }, { ok: true }], viaHelper);
+    expect(r.pushed).toBeNull();
+    expect(r.pushEnvs.length).toBe(2);
+    expect(r.pushEnvs[1]!.GIT_CONFIG_VALUE_1).toBe("!helper");
+    expect(JSON.stringify(r.pushEnvs)).not.toContain("LEAKCHECK");
+  }, 20_000);
+
+  test("with no token in rt the push fails with the plain push failure", async () => {
+    const r = await escalate(noTokenSeams, [{ ok: true }, { ok: false, output: NO_USER }]);
+    expect(r.pushed).toEqual({ title: "Could not push feature", details: NO_USER });
+    expect(r.code).toBe(1);
+    expect(r.pushEnvs.length).toBe(2);
+  }, 20_000);
 });

@@ -4,11 +4,13 @@ import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "os";
 import { join } from "path";
 import type { GitResult } from "../git-async.ts";
-import { originFetchAuth, runGitOrigin, type FetchAuthSeams } from "../fetch-auth.ts";
+import { rtSelfArgv } from "../../rt-self.ts";
+import { originFetchAuth, poolCredentialHelper, rtSelfHelper, runGitOrigin, type FetchAuthSeams } from "../fetch-auth.ts";
 
 let root: string;
 let repo: string;
 let helperLog: string;
+let rtHelper: string;
 const origEnv = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM, HOME: process.env.HOME };
 
 function git(cwd: string, ...args: string[]): string {
@@ -22,6 +24,7 @@ function seams(token: string | null, confirmedHost: string | null = null): Fetch
     asked,
     forgotten,
     confirmedHost: () => confirmedHost,
+    helper: `!${rtHelper}`,
     tokenFor: async (remote) => {
       asked.push(remote);
       return token;
@@ -52,6 +55,10 @@ beforeEach(() => {
   const globalConfig = join(root, "global.gitconfig");
   writeFileSync(globalConfig, `[credential]\n\thelper = ${logger}\n`);
   process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  // Stands in for `rt git credential`: it reads the token from rt's store at call time, never from git's env.
+  rtHelper = join(root, "rt-helper.sh");
+  writeFileSync(rtHelper, `#!/bin/sh\ntest "$1" = get || exit 0\ncat >/dev/null\necho username=x-access-token\necho password=tok_rt\n`);
+  chmodSync(rtHelper, 0o755);
   repo = join(root, "repo");
   git(root, "init", "-q", "-b", "main", repo);
 });
@@ -64,24 +71,72 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function credential(auth: { args: string[]; env: Record<string, string> }, sub: "fill" | "approve", input: string): string {
-  return spawnSync("git", [...auth.args, "credential", sub], {
+function credential(auth: { env: Record<string, string> }, sub: "fill" | "approve", input: string): string {
+  return spawnSync("git", ["credential", sub], {
     cwd: repo,
-    env: { ...process.env, ...auth.env, GIT_TERMINAL_PROMPT: "0" },
+    env: { ...process.env, ...auth.env },
     input,
     encoding: "utf8",
   }).stdout;
 }
 
 describe("originFetchAuth", () => {
-  test("an https origin on a forge rt holds a token for gets that token, and only rt's helper answers", async () => {
+  test("an https origin on a forge rt holds a token for gets rt's helper, and only rt's helper answers", async () => {
     git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
     const s = seams("tok_rt");
     const auth = await originFetchAuth(repo, s);
     expect(s.asked).toEqual(["https://github.com/acme/app.git"]);
-    expect(auth!.args.join(" ")).not.toContain("tok_rt");
     expect(credential(auth!, "fill", "protocol=https\nhost=github.com\n\n")).toContain("password=tok_rt");
     expect(readLog()).toBe("");
+  });
+
+  test("the token reaches git only through the helper: no env value carries it", async () => {
+    git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
+    const auth = await originFetchAuth(repo, seams("tok_rt"));
+    expect(Object.values(auth!.env).filter((v) => v.includes("tok_rt"))).toEqual([]);
+    expect(Object.keys(auth!.env).filter((k) => k.startsWith("RT_GIT_"))).toEqual([]);
+  });
+
+  test("the env carries only rt's helper, after any GIT_CONFIG pairs already in the env, and never the repo selection", async () => {
+    git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
+    const saved = { count: process.env.GIT_CONFIG_COUNT, k: process.env.GIT_CONFIG_KEY_0, v: process.env.GIT_CONFIG_VALUE_0, dir: process.env.GIT_WORK_TREE };
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "core.quotepath";
+    process.env.GIT_CONFIG_VALUE_0 = "false";
+    process.env.GIT_WORK_TREE = join(root, "elsewhere");
+    try {
+      const auth = await originFetchAuth(repo, seams("tok_rt"));
+      expect(auth!.env).toEqual({
+        GIT_CONFIG_COUNT: "3",
+        GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
+        GIT_CONFIG_VALUE_1: "",
+        GIT_CONFIG_KEY_2: "credential.https://github.com.helper",
+        GIT_CONFIG_VALUE_2: `!${rtHelper}`,
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_ASKPASS: "",
+      });
+    } finally {
+      for (const [k, v] of [["GIT_CONFIG_COUNT", saved.count], ["GIT_CONFIG_KEY_0", saved.k], ["GIT_CONFIG_VALUE_0", saved.v], ["GIT_WORK_TREE", saved.dir]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  test("a helper named in GIT_CONFIG_PARAMETERS would come after rt's, so nothing is offered", async () => {
+    git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
+    const saved = process.env.GIT_CONFIG_PARAMETERS;
+    process.env.GIT_CONFIG_PARAMETERS = "'credential.helper'='store'";
+    try {
+      expect(await originFetchAuth(repo, seams("tok_rt"))).toBeNull();
+    } finally {
+      if (saved === undefined) delete process.env.GIT_CONFIG_PARAMETERS;
+      else process.env.GIT_CONFIG_PARAMETERS = saved;
+    }
+  });
+
+  test("the default helper runs rt's CLI entry, never the daemon's, as `git credential`", () => {
+    expect(poolCredentialHelper()).toBe(rtSelfHelper(rtSelfArgv({ main: join(import.meta.dir, "..", "..", "..", "cli.ts") })));
   });
 
   test("git's store after a successful auth never reaches the user's helpers", async () => {
@@ -191,7 +246,7 @@ describe("runGitOrigin", () => {
     return { calls, run };
   }
 
-  test("only an auth failure retries, with rt as the host's only helper", async () => {
+  test("only an auth failure retries, through rt's helper, with no token in argv or env", async () => {
     git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
     const s = seams("tok_rt");
     const { calls, run } = scripted([AUTH_FAIL, OK]);
@@ -199,9 +254,19 @@ describe("runGitOrigin", () => {
     expect(r.exitCode).toBe(0);
     expect(calls[0]!.args).toEqual(["fetch", "origin", "main"]);
     expect(calls[0]!.env?.GIT_TERMINAL_PROMPT).toBe("0");
-    expect(calls[1]!.args.slice(0, 4)).toEqual(["-c", "credential.https://github.com.helper=", "-c", expect.stringContaining("credential.https://github.com.helper=!")]);
-    expect(calls[1]!.env?.RT_GIT_TOKEN).toBe("tok_rt");
-    expect(calls[1]!.env?.RT_GIT_HOST).toBe("github.com");
+    expect(calls[1]!.args).toEqual(["fetch", "origin", "main"]);
+    const env = calls[1]!.env!;
+    const count = Number(env.GIT_CONFIG_COUNT);
+    expect([env[`GIT_CONFIG_KEY_${count - 1}`], env[`GIT_CONFIG_VALUE_${count - 1}`]]).toEqual(["credential.https://github.com.helper", `!${rtHelper}`]);
+    expect(Object.values(env).filter((v) => v.includes("tok_rt"))).toEqual([]);
+  });
+
+  test("a credential fill under the retry's env gets rt's token from the helper", async () => {
+    git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
+    const { calls, run } = scripted([AUTH_FAIL, OK]);
+    await runGitOrigin(repo, ["fetch", "origin", "main"], { auth: seams("tok_rt"), run });
+    expect(credential({ env: calls[1]!.env! }, "fill", "protocol=https\nhost=github.com\n\n")).toContain("password=tok_rt");
+    expect(readLog()).toBe("");
   });
 
   test("a non-auth failure (network, missing ref) is returned as is, reading no token", async () => {
