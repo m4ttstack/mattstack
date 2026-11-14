@@ -32,6 +32,7 @@ import { THREAD_CALL } from './GateParts.tsx';
 import { GateTimeline, type RoundEntry } from './GateTimeline.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
+import { mrNoun } from '../../mr-ref.ts';
 import { usePeople } from './people.ts';
 import { PersonLead } from './PersonLead.tsx';
 import { PlanThreadCard } from './PlanThreadCard.tsx';
@@ -421,7 +422,9 @@ function MrStatusCard({ mr }: { mr: BoardMRWithReview }) {
   ];
   return (
     <div className="tui-sheet-card" data-card="mr-status">
-      <span className="tui-sheet-card-title">mr status</span>
+      <span className="tui-sheet-card-title">
+        {mrNoun(mr).toLowerCase()} status
+      </span>
       <div className="tui-sheet-card-list">
         {rows.map(r => (
           <div className="tui-sheet-card-row" key={r.key}>

@@ -162,3 +162,25 @@ test('a GitHub board says PRs in each chip tip', async () => {
     'Show or hide your own PRs, to see only your teammates’ work.',
   ]);
 });
+
+test("the My chip names the board's forge, with or without your own rows listed", async () => {
+  const mineChip = async (forge: 'gitlab' | 'github') => {
+    await React.act(async () => {
+      root.render(
+        <ShowChips
+          show={{
+            offered: ['mine'],
+            off: [],
+            counts: COUNTS,
+            channel: null,
+            toggle: () => {},
+            forge,
+          }}
+        />
+      );
+    });
+    return container.querySelector('.tui-show-chip')!.textContent;
+  };
+  expect(await mineChip('github')).toBe('My PRs0');
+  expect(await mineChip('gitlab')).toBe('My MRs0');
+});

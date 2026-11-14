@@ -41,7 +41,8 @@ const slackPlace = (channel: string | null) =>
 export function showLabel(
   item: ShowItem,
   channel: string | null,
-  prs = false
+  prs = false,
+  forge: ForgeKind = 'gitlab'
 ): string {
   switch (item) {
     case 'posted':
@@ -53,7 +54,7 @@ export function showLabel(
     case 'myDrafts':
       return 'My drafts';
     case 'mine':
-      return prs ? 'My PRs' : 'My MRs';
+      return prs ? 'My PRs' : `My ${mrNouns(forge)}`;
   }
 }
 
@@ -229,7 +230,7 @@ function Controls({
                     data-active={on || undefined}
                     onClick={() => show.toggle(item)}
                   >
-                    {on ? '✓' : '+'} {showLabel(item, show.channel, show.prs)} ·{' '}
+                    {on ? '✓' : '+'} {showLabel(item, show.channel, show.prs, show.forge)} ·{' '}
                     {show.counts[item]}
                   </button>
                 );
