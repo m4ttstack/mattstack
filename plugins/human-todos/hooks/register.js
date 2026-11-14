@@ -360,6 +360,9 @@ async function bandAbovePrompt($, e, rest, waiting, pane) {
 async function isPlaced($, pane) {
   return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
 }
+function paneRows(e) {
+  return e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
+}
 // packages/mod-kit/src/patterns/scroll-list.ts
 var maxScroll = (total, windowRows) => Math.max(0, total - windowRows);
 function revealOffset(view, index) {
@@ -2066,7 +2069,7 @@ function registerPane(on) {
     }
     const { Client } = $.ui.resolve(e);
     const width = paneColumns(e);
-    const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
+    const bodyRows = paneRows(e);
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
@@ -2076,6 +2079,7 @@ function registerPane(on) {
     return /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",
       module: "./pane/kit-view.js",
+      height: bodyRows,
       props
     });
   });

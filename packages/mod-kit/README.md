@@ -261,6 +261,13 @@ The mod reads its own state into this plain object.
 
 `isPlaced($, pane): Promise<boolean>`. Whether the pane is on screen.
 
+### `paneRows`
+
+`paneRows(e): number` gives the pane body's height in rows, from a `Pane`
+render event. A `Client` is only as tall as what it draws, so a click below
+its last line misses it. Pass `height={paneRows(e)}` (less any rows drawn
+under it) so a click anywhere in the pane focuses it.
+
 ### `bandAbovePrompt`
 
 `bandAbovePrompt($, e, rest, waiting, pane): Promise<RenderElement>`. Call it from your `ui.render`

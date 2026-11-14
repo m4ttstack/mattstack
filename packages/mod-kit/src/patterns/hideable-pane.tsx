@@ -63,3 +63,9 @@ export async function bandAbovePrompt($: EngineInterface, e: Parameters<EngineIn
 export async function isPlaced($: EngineInterface, pane: HideablePane): Promise<boolean> {
   return (await $.ui.panes()).some(p => p.id === pane.id && p.isPlaced)
 }
+
+// The pane body's height in rows. A Client is only as tall as what it draws unless told otherwise, and a click below its
+// lines misses it, so a pane's Client takes this as its `height` to take a click anywhere in the body.
+export function paneRows(e: { props: { scroll?: { bodyRows?: number } }; viewport?: { rows?: number } }): number {
+  return e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
+}
