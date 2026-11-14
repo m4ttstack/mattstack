@@ -1,8 +1,8 @@
-import { BrandBar, Lines, Panel, gridMove, gridResolve, gridSelection, kitClient, sp } from '@mattstack/mod-kit'
+import { BrandBar, Lines, Panel, gridMove, gridResolve, gridSelection, isButtonInView, kitClient, revealButtonOffset, revealOffset, sp } from '@mattstack/mod-kit'
 import type { GridSelection, PointerState } from '@mattstack/mod-kit'
 
 import { TITLE } from '../items'
-import { isButtonInView, revealButtonOffset, revealOffset, stopMessage, viewLines } from './kit-layout'
+import { stopMessage, viewLines } from './kit-layout'
 import type { KitView } from './kit-layout'
 import type { PaneButton, PaneMessage } from './model'
 

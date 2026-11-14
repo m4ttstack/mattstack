@@ -1,5 +1,5 @@
-import { ACCENT, BRAND, DIM, DONE, GRAY, SYMBOL, WARN, buttonRow, cellWidth, cutCells, gridLook, scrollBar, sp, widthOf, wrap } from '@mattstack/mod-kit'
-import type { Line, Style } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, WARN, cellWidth, ellipsize, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrappedButtons } from '@mattstack/mod-kit'
+import type { Line, ListFocus, Style, WindowStop } from '@mattstack/mod-kit'
 
 import { endRows, messageOf } from './model'
 import type { PaneButton, PaneMessage, PaneModel, PaneRow, Tone } from './model'
@@ -29,36 +29,11 @@ const STYLE: Record<Tone, Style> = {
   plain: {},
 }
 
-const fit = (text: string, cells: number) => (cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`)
-
 const roomOf = (width: number) => Math.max(1, width - GUTTER - BAR)
 
-// The first row carries the lead; rows carried on start at the item's indent with its whole room, so a button too wide
-// to sit beside the lead still fits whole. A lead with no room for even one button beside it takes a row of its own.
 function buttonLines(row: Extract<PaneRow, { kind: 'buttons' }>, room: number): L[] {
-  const indent = sp<PaneMessage>(' '.repeat(row.flush ? 0 : INDENT))
   const lead: L = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : []
-  let rest = row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) }))
-  const out: L[] = []
-  let withLead = lead.length > 0
-  while (rest.length > 0) {
-    // One cell between the lead and its buttons; none at the indent.
-    const leadIn = withLead ? 1 : 0
-    const avail = Math.max(1, room - widthOf([indent, ...(withLead ? lead : [])]))
-    const draw = (buttons: typeof rest) => buttonRow(buttons, undefined, avail, leadIn)
-    let n = rest.length
-    while (n > 0 && widthOf(draw(rest.slice(0, n))) > avail) n--
-    if (n === 0 && withLead) {
-      out.push([indent, ...lead])
-      withLead = false
-      continue
-    }
-    n = Math.max(1, n)
-    out.push([indent, ...(withLead ? lead : []), ...draw(rest.slice(0, n))])
-    rest = rest.slice(n)
-    withLead = false
-  }
-  return out
+  return wrappedButtons(lead, row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, row.flush ? 0 : INDENT)
 }
 
 // The model wraps by characters; a row wider in cells than its room wraps again here.
@@ -75,7 +50,7 @@ function rowLines(row: PaneRow, room: number): L[] {
     case 'finished': {
       const mark = `${row.mark} `
       const exit = row.exit === undefined ? '' : ` (exit ${row.exit})`
-      const title = fit(row.title, room - cellWidth(mark) - cellWidth(exit))
+      const title = ellipsize(row.title, room - cellWidth(mark) - cellWidth(exit))
       return [[sp(mark, STYLE[row.tone]), sp(title, DIM), ...(exit ? [sp(exit, DIM)] : [])]]
     }
     case 'buttons':
@@ -101,12 +76,12 @@ export function kitLayout(model: PaneModel, width: number, bodyRows: number): Ki
 }
 
 export function maxOffset(layout: KitLayout): number {
-  return Math.max(0, layout.lines.length - layout.windowRows)
+  return maxScroll(layout.lines.length, layout.windowRows)
 }
 
 // What the keys move between: each actionable item's buttons in order, then Clear finished. `ids` are its buttons' ids, `main` the
 // filled one, `lines` the line each button is on, and `first`/`last` the lines the stop covers. Ids, not whole messages, keep the props small on a long list.
-export type ViewStop = { key: string; ids: PaneButton['id'][]; lines: number[]; main: number; first: number; last: number; isItem: boolean }
+export type ViewStop = WindowStop<PaneButton['id']> & { ids: PaneButton['id'][]; isItem: boolean }
 
 // The message the stop's button at `col` posts: the same one a click on it sends.
 export function stopMessage(stop: ViewStop, col: number): PaneMessage | undefined {
@@ -125,8 +100,7 @@ function keyStops(model: PaneModel, layout: KitLayout): ViewStop[] {
     if (row.kind !== 'buttons') return
     const laid = layout.rows[r]!
     for (const button of row.buttons) {
-      const wanted = JSON.stringify(messageOf(button))
-      const offsetInRow = layout.lines.slice(laid.first, laid.first + laid.count).findIndex(line => line.some(span => span.action !== undefined && JSON.stringify(span.action) === wanted))
+      const offsetInRow = lineOfAction(layout.lines.slice(laid.first, laid.first + laid.count), messageOf(button))
       const line = laid.first + Math.max(0, offsetInRow)
       const key = button.todoId ?? button.id
       const stop = stops.get(key)
@@ -160,79 +134,14 @@ export function kitView(model: PaneModel, width: number, bodyRows: number, offse
   }
 }
 
-// The offset that shows a stop whole, moving the window as little as it can; the window's own while the stop shows already.
-export function revealOffset(view: KitView, index: number): number {
-  const stop = view.stops[index]
-  const most = Math.max(0, view.total - view.windowRows)
-  if (!stop) return view.top
-  if (stop.first < view.top) return Math.max(0, stop.first)
-  // An item taller than the window shows its top.
-  if (stop.last > view.top + view.windowRows - 1) return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1))
-  return view.top
-}
-
-// Whether a stop's button at `col` is on screen: what Enter needs, since an item taller than the window never shows whole.
-export function isButtonInView(view: KitView, index: number, col: number): boolean {
-  const line = view.stops[index]?.lines[col]
-  return line !== undefined && line >= view.top && line <= view.top + view.windowRows - 1
-}
-
-// The offset that shows a stop's button at `col`, moving the window as little as it can.
-export function revealButtonOffset(view: KitView, index: number, col: number): number {
-  const line = view.stops[index]?.lines[col]
-  if (line === undefined || isButtonInView(view, index, col)) return view.top
-  return line < view.top ? line : Math.min(Math.max(0, view.total - view.windowRows), line - view.windowRows + 1)
-}
-
-// A last guard: no row reaches into the scroll bar, however its pieces measured.
-function clip(line: L, cells: number): L {
-  const out: L = []
-  let used = 0
-  for (const span of line) {
-    const w = cellWidth(span.t)
-    if (used + w <= cells) {
-      out.push(span)
-      used += w
-      continue
-    }
-    const t = cutCells(span.t, cells - used)
-    if (t !== '') out.push({ ...span, t })
-    used += cellWidth(t)
-    break
-  }
-  out.push(sp(' '.repeat(Math.max(0, cells - used))))
-  return out
-}
-
-// The focused item's rail fills the gutter exactly, so rows keep their place as the selection moves.
-const RAIL: L = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(' '.repeat(GUTTER - 1))]
-
 // What a focused pane marks: the button the keys selected, and the lines of the item it belongs to.
-// `marked` is keyboard mode: the selected button's pink edge and its item's rail show only then. `pressing` draws the selected button pressed while a key activates it.
-export type KitFocus = { selected?: PaneMessage; range?: Span; marked?: boolean; pressing?: boolean }
-
-// The item's mark turns pink on its first line, as gate-form marks its current question.
-function markFirst(line: L): L {
-  const at = line.findIndex(span => span.t.startsWith('○ '))
-  if (at < 0) return line
-  const span = line[at]!
-  return [...line.slice(0, at), { ...span, t: '○', color: BRAND.pink }, { ...span, t: span.t.slice(1) }, ...line.slice(at + 1)]
-}
+export type KitFocus = ListFocus<PaneMessage>
 
 // The Client's half: the window's rows laid out, each ending in its scroll bar cell.
-// The button the keys selected takes the kit's selected look, and its item carries the pink rail in the gutter.
+// The button the keys selected takes the kit's selected look, and its item carries the pink rail in the gutter and a pink ○.
 export function viewLines(view: KitView, width: number, focus: KitFocus = {}): L[] {
   const room = roomOf(width)
   const shown = view.rows.flatMap(row => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows)
-  const chosen = focus.selected && JSON.stringify(focus.selected)
-  const range = focus.marked ? focus.range : undefined
-  const look = (span: L[number]): L => gridLook(span, focus)
   const bar = scrollBar<PaneMessage>(view.windowRows, view.total, view.top)
-  return shown.map((line, n) => {
-    const at = view.top + n
-    const lit = chosen ? line.flatMap(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? look(span) : [span])) : line
-    const marked = range && at === range.first ? markFirst(lit) : lit
-    const gutter = range && at >= range.first && at <= range.last ? RAIL : [sp(' '.repeat(GUTTER))]
-    return [...clip([...gutter, ...marked], width - BAR), ...(bar[n] ?? [])]
-  })
+  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus, leadGlyph: '○' })
 }

@@ -239,30 +239,6 @@ function muted(span) {
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
 }
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
-}
 // packages/mod-kit/src/interact/pointer.ts
 function lookOf(state, focused) {
   const hover = state?.hover;
@@ -543,6 +519,31 @@ function Panel(props) {
   const lines = ctxFor(render, "panel", { width: props.width ?? render.width, focused: render.focused }).layout(props.children);
   render.lines = lines;
   return renderLines(lines, render.elements, render.look);
+}
+
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
 }
 
 // packages/mod-kit/src/components/reopen-band.tsx

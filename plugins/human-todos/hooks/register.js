@@ -239,30 +239,6 @@ function muted(span) {
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
 }
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
-}
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
   if (total <= rows)
@@ -312,6 +288,30 @@ function gridLook(span, focus) {
   const base = focus.pressing ? pressed(span) : span;
   return focus.marked ? keySelected(base) : [base];
 }
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
+}
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
 async function showPane($, pane, title) {
@@ -359,6 +359,98 @@ async function bandAbovePrompt($, e, rest, waiting, pane) {
 }
 async function isPlaced($, pane) {
   return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
+}
+// packages/mod-kit/src/patterns/scroll-list.ts
+var maxScroll = (total, windowRows) => Math.max(0, total - windowRows);
+function revealOffset(view, index) {
+  const stop = view.stops[index];
+  const most = maxScroll(view.total, view.windowRows);
+  if (!stop)
+    return view.top;
+  if (stop.first < view.top)
+    return Math.max(0, stop.first);
+  if (stop.last > view.top + view.windowRows - 1)
+    return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1));
+  return view.top;
+}
+function isButtonInView(view, index, col) {
+  const line = view.stops[index]?.lines[col];
+  return line !== undefined && line >= view.top && line <= view.top + view.windowRows - 1;
+}
+function revealButtonOffset(view, index, col) {
+  const line = view.stops[index]?.lines[col];
+  if (line === undefined || isButtonInView(view, index, col))
+    return view.top;
+  return line < view.top ? line : Math.min(maxScroll(view.total, view.windowRows), line - view.windowRows + 1);
+}
+function lineOfAction(lines, action) {
+  const wanted = JSON.stringify(action);
+  return lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+}
+var ellipsize = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
+function clipLine(line, cells) {
+  const out = [];
+  let used = 0;
+  for (const span of line) {
+    const w = cellWidth(span.t);
+    if (used + w <= cells) {
+      out.push(span);
+      used += w;
+      continue;
+    }
+    const t = cutCells(span.t, cells - used);
+    if (t !== "")
+      out.push({ ...span, t });
+    used += cellWidth(t);
+    break;
+  }
+  out.push(sp(" ".repeat(Math.max(0, cells - used))));
+  return out;
+}
+function wrappedButtons(lead, buttons, room, indent) {
+  const pad = sp(" ".repeat(indent));
+  let rest = buttons;
+  const out = [];
+  let withLead = lead.length > 0;
+  while (rest.length > 0) {
+    const leadIn = withLead ? 1 : 0;
+    const avail = Math.max(1, room - widthOf([pad, ...withLead ? lead : []]));
+    const draw = (some) => buttonRow(some, undefined, avail, leadIn);
+    let n = rest.length;
+    while (n > 0 && widthOf(draw(rest.slice(0, n))) > avail)
+      n--;
+    if (n === 0 && withLead) {
+      out.push([pad, ...lead]);
+      withLead = false;
+      continue;
+    }
+    n = Math.max(1, n);
+    out.push([pad, ...withLead ? lead : [], ...draw(rest.slice(0, n))]);
+    rest = rest.slice(n);
+    withLead = false;
+  }
+  return out;
+}
+function markLead(line, glyph) {
+  const at = line.findIndex((span) => span.t.startsWith(`${glyph} `));
+  if (at < 0)
+    return line;
+  const span = line[at];
+  return [...line.slice(0, at), { ...span, t: glyph, color: BRAND.pink }, { ...span, t: span.t.slice(glyph.length) }, ...line.slice(at + 1)];
+}
+function windowLines(spec) {
+  const focus = spec.focus ?? {};
+  const chosen = focus.selected === undefined ? undefined : JSON.stringify(focus.selected);
+  const range = focus.marked ? focus.range : undefined;
+  const rail = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(Math.max(0, spec.gutter - 1)))];
+  const plain = [sp(" ".repeat(spec.gutter))];
+  return spec.shown.map((line, n) => {
+    const at = spec.top + n;
+    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? gridLook(span, focus) : [span]) : line;
+    const lead = range && at === range.first && spec.leadGlyph ? markLead(lit, spec.leadGlyph) : lit;
+    const gutter = range && at >= range.first && at <= range.last ? rail : plain;
+    return [...clipLine([...gutter, ...lead], spec.width - spec.barCells), ...spec.bar[n] ?? []];
+  });
 }
 // mods/human-todos/src/items.ts
 var PLUGIN = "human-todos";
@@ -458,11 +550,11 @@ function wrapWords(text, width) {
   }
   return rows;
 }
-function clipLine(line) {
+function clipLine2(line) {
   return line.length > LINE_MAX ? `${line.slice(0, LINE_MAX - 1)}…` : line;
 }
 function clipLines(lines) {
-  return lines.map(clipLine);
+  return lines.map(clipLine2);
 }
 function tail(out, lines = 30) {
   const kept = clipLines(out.trimEnd().split(`
@@ -1659,32 +1751,10 @@ var STYLE = {
   inactive: GRAY,
   plain: {}
 };
-var fit = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
 var roomOf = (width) => Math.max(1, width - GUTTER - BAR);
 function buttonLines(row, room) {
-  const indent = sp(" ".repeat(row.flush ? 0 : INDENT));
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
-  let rest = row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) }));
-  const out = [];
-  let withLead = lead.length > 0;
-  while (rest.length > 0) {
-    const leadIn = withLead ? 1 : 0;
-    const avail = Math.max(1, room - widthOf([indent, ...withLead ? lead : []]));
-    const draw = (buttons) => buttonRow(buttons, undefined, avail, leadIn);
-    let n = rest.length;
-    while (n > 0 && widthOf(draw(rest.slice(0, n))) > avail)
-      n--;
-    if (n === 0 && withLead) {
-      out.push([indent, ...lead]);
-      withLead = false;
-      continue;
-    }
-    n = Math.max(1, n);
-    out.push([indent, ...withLead ? lead : [], ...draw(rest.slice(0, n))]);
-    rest = rest.slice(n);
-    withLead = false;
-  }
-  return out;
+  return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, row.flush ? 0 : INDENT);
 }
 function rowLines(row, room) {
   switch (row.kind) {
@@ -1699,7 +1769,7 @@ function rowLines(row, room) {
     case "finished": {
       const mark = `${row.mark} `;
       const exit = row.exit === undefined ? "" : ` (exit ${row.exit})`;
-      const title = fit(row.title, room - cellWidth(mark) - cellWidth(exit));
+      const title = ellipsize(row.title, room - cellWidth(mark) - cellWidth(exit));
       return [[sp(mark, STYLE[row.tone]), sp(title, DIM), ...exit ? [sp(exit, DIM)] : []]];
     }
     case "buttons":
@@ -1723,7 +1793,7 @@ function kitLayout(model, width, bodyRows) {
   return { lines, spans, windowRows, rows };
 }
 function maxOffset(layout) {
-  return Math.max(0, layout.lines.length - layout.windowRows);
+  return maxScroll(layout.lines.length, layout.windowRows);
 }
 function stopMessage(stop, col) {
   const id = stop.ids[col];
@@ -1736,8 +1806,7 @@ function keyStops(model, layout) {
       return;
     const laid = layout.rows[r];
     for (const button of row.buttons) {
-      const wanted = JSON.stringify(messageOf(button));
-      const offsetInRow = layout.lines.slice(laid.first, laid.first + laid.count).findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+      const offsetInRow = lineOfAction(layout.lines.slice(laid.first, laid.first + laid.count), messageOf(button));
       const line = laid.first + Math.max(0, offsetInRow);
       const key = button.todoId ?? button.id;
       const stop = stops.get(key);
@@ -1768,68 +1837,11 @@ function kitView(model, width, bodyRows, offset) {
     stops: keyStops(model, layout)
   };
 }
-function revealOffset(view, index) {
-  const stop = view.stops[index];
-  const most = Math.max(0, view.total - view.windowRows);
-  if (!stop)
-    return view.top;
-  if (stop.first < view.top)
-    return Math.max(0, stop.first);
-  if (stop.last > view.top + view.windowRows - 1)
-    return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1));
-  return view.top;
-}
-function isButtonInView(view, index, col) {
-  const line = view.stops[index]?.lines[col];
-  return line !== undefined && line >= view.top && line <= view.top + view.windowRows - 1;
-}
-function revealButtonOffset(view, index, col) {
-  const line = view.stops[index]?.lines[col];
-  if (line === undefined || isButtonInView(view, index, col))
-    return view.top;
-  return line < view.top ? line : Math.min(Math.max(0, view.total - view.windowRows), line - view.windowRows + 1);
-}
-function clip(line, cells) {
-  const out = [];
-  let used = 0;
-  for (const span of line) {
-    const w = cellWidth(span.t);
-    if (used + w <= cells) {
-      out.push(span);
-      used += w;
-      continue;
-    }
-    const t = cutCells(span.t, cells - used);
-    if (t !== "")
-      out.push({ ...span, t });
-    used += cellWidth(t);
-    break;
-  }
-  out.push(sp(" ".repeat(Math.max(0, cells - used))));
-  return out;
-}
-var RAIL = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(GUTTER - 1))];
-function markFirst(line) {
-  const at = line.findIndex((span) => span.t.startsWith("○ "));
-  if (at < 0)
-    return line;
-  const span = line[at];
-  return [...line.slice(0, at), { ...span, t: "○", color: BRAND.pink }, { ...span, t: span.t.slice(1) }, ...line.slice(at + 1)];
-}
 function viewLines(view, width, focus = {}) {
   const room = roomOf(width);
   const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
-  const chosen = focus.selected && JSON.stringify(focus.selected);
-  const range = focus.marked ? focus.range : undefined;
-  const look = (span) => gridLook(span, focus);
   const bar = scrollBar(view.windowRows, view.total, view.top);
-  return shown.map((line, n) => {
-    const at = view.top + n;
-    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? look(span) : [span]) : line;
-    const marked = range && at === range.first ? markFirst(lit) : lit;
-    const gutter = range && at >= range.first && at <= range.last ? RAIL : [sp(" ".repeat(GUTTER))];
-    return [...clip([...gutter, ...marked], width - BAR), ...bar[n] ?? []];
-  });
+  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus, leadGlyph: "○" });
 }
 
 // mods/human-todos/src/pane/plain-view.tsx
