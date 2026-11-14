@@ -48,8 +48,8 @@ describe("openKitGateForPane", () => {
     const viaOrigin = openKit("w1:p1");
     const viaTop = store.open({ subject: "run:r2", kind: "clarify", questions: Q, pane: "w2:p2", origin: { presentation: "kit" } }).row;
     const guard = openKitGateForPane(store);
-    expect(guard("w1:p1")).toBe(viaOrigin.id);
-    expect(guard("w2:p2")).toBe(viaTop.id);
+    expect(guard("w1:p1")).toEqual({ id: viaOrigin.id, session: "sess-1" });
+    expect(guard("w2:p2")).toEqual({ id: viaTop.id });
     expect(guard("bg:w1:p1")).toBeNull();
     expect(guard("w9:p9")).toBeNull();
   });
@@ -72,13 +72,13 @@ describe("the injector's kit-gate guard", () => {
     return { herdr, seen: fake.seen };
   }
 
-  test("refuses to type into a pane with an open kit gate, before any herdr call, and delivers once the gate is answered", async () => {
+  test("refuses to type into a pane with an open kit gate, without prompting it, and delivers once the gate is answered", async () => {
     setKitGateGuard(openKitGateForPane(store));
     const row = openKit("w1:p1");
     const { herdr, seen } = pane();
 
     expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr })).toEqual(REFUSED("w1:p1"));
-    expect(seen).toEqual([]);
+    expect(seen.map((s) => s.method)).toEqual(["session.snapshot"]);
 
     store.answer(row.id, { q: "a" }, "board");
     expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr })).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
@@ -92,7 +92,56 @@ describe("the injector's kit-gate guard", () => {
     expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr })).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
     seen.length = 0;
     expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr, sockPath: bgSocketPath() })).toEqual(REFUSED("w1:p1"));
-    expect(seen).toEqual([]);
+    expect(seen.some((s) => s.method === "agent.prompt")).toBe(false);
+  });
+
+  // A pane whose snapshot names `session` as its live agent; prompts are accepted.
+  function paneRunning(session: string | null) {
+    return pane((method, params) => {
+      if (method === "session.snapshot") {
+        const agentSession = session ? { source: "hook", agent: "claude", kind: "id", value: session } : undefined;
+        return { type: "session_snapshot", snapshot: { workspaces: [], panes: [{ pane_id: "w1:p1", workspace_id: "w1", tab_id: "t1", agent: "claude", agent_status: "idle", agent_session: agentSession }] } };
+      }
+      if (method === "agent.get") return { type: "agent_info", agent: { pane_id: "w1:p1", agent: "claude", agent_status: "idle" } };
+      if (method === "agent.prompt") return { type: "agent_prompted", agent: { pane_id: "w1:p1", agent: "claude", agent_status: "working", text: params.text } };
+      return new HerdrFakeError("invalid_request", method);
+    });
+  }
+
+  test("a kit gate whose session is no longer the pane's live agent does not block typing, and says so in the log", async () => {
+    const warned: unknown[] = [];
+    setKitGateGuard(openKitGateForPane(store), { warn: (obj: unknown) => warned.push(obj) } as never);
+    const row = openKit("w1:p1", "sess-old");
+    const { herdr, seen } = paneRunning("sess-new");
+    expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr })).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
+    expect(seen.some((s) => s.method === "agent.prompt")).toBe(true);
+    expect(warned).toEqual([expect.objectContaining({ gateId: row.id, gateSession: "sess-old", paneSession: "sess-new" })]);
+  });
+
+  test("a kit gate whose session is the pane's live agent still refuses", async () => {
+    setKitGateGuard(openKitGateForPane(store));
+    openKit("w1:p1", "sess-1");
+    const { herdr, seen } = paneRunning("sess-1");
+    expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr })).toEqual(REFUSED("w1:p1"));
+    expect(seen.some((s) => s.method === "agent.prompt")).toBe(false);
+  });
+
+  test("a pane whose live session the daemon cannot learn is still refused", async () => {
+    setKitGateGuard(openKitGateForPane(store));
+    openKit("w1:p1", "sess-1");
+    const { herdr, seen } = paneRunning(null);
+    expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr })).toEqual(REFUSED("w1:p1"));
+    expect(seen.some((s) => s.method === "agent.prompt")).toBe(false);
+  });
+
+  test("a gate lookup that throws lets the text through, with a warning", async () => {
+    const warned: unknown[] = [];
+    setKitGateGuard(() => {
+      throw new Error("gates.db is locked");
+    }, { warn: (obj: unknown) => warned.push(obj) } as never);
+    const { herdr } = pane();
+    expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr })).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
+    expect(warned).toHaveLength(1);
   });
 
   test("with no guard installed nothing changes", async () => {
@@ -106,7 +155,7 @@ describe("the gate doorbell", () => {
   test("still reaches the agent after its kit gate is answered, with the pane guard installed", async () => {
     setKitGateGuard(openKitGateForPane(store));
     const row = openKit("w1:p1");
-    expect(openKitGateForPane(store)("w1:p1")).toBe(row.id);
+    expect(openKitGateForPane(store)("w1:p1")?.id).toBe(row.id);
     const delivered: Array<{ socketPath: string; body: string }> = [];
     const push = createGatePush({
       store,

@@ -2,6 +2,9 @@ import type { Logger } from "pino";
 import { herdrRequest, waitTimeout, HERDR_UNAVAILABLE } from "../herdr/client.ts";
 import { formatPaneRef } from "../../packages/rt-client/src/index.ts";
 import { bgSocketPath } from "./bg-service.ts";
+import type { HerdrSnapshot } from "./handlers/pane.ts";
+import type { KitGateMatch } from "./kit-gate.ts";
+import { withProcessSession } from "./pane-process-session.ts";
 
 const DEFAULT_WAIT_MS = 5_000;
 // Claude Code collapses a paste over this length into a pasted-text block, which is never parsed as a slash command.
@@ -15,14 +18,44 @@ export function herdrError(res: { ok: false; code: string; message: string }): {
   return { ok: false, error: `${res.code}: ${res.message}` };
 }
 
-let kitGateGuard: ((paneRef: string) => string | null) | null = null;
+let kitGateGuard: ((paneRef: string) => KitGateMatch | null) | null = null;
+let kitGateLog: Pick<Logger, "warn"> | undefined;
 
 /** Installs the daemon's lookup of an open kit gate by pane ref. A kit form is
     drawn over an idle pane, so herdr's status cannot tell the injector that
     typing would pick form options; this is the one place every injector
     caller is stopped. Null removes it. */
-export function setKitGateGuard(guard: ((paneRef: string) => string | null) | null): void {
+export function setKitGateGuard(guard: ((paneRef: string) => KitGateMatch | null) | null, log?: Pick<Logger, "warn">): void {
   kitGateGuard = guard;
+  kitGateLog = log;
+}
+
+// A gate raised by a session the pane no longer runs (after a /clear, or a dead
+// session) has no form left to protect, so it must not hold the pane forever.
+// Where the pane's live session can't be learned, the gate still refuses.
+async function kitGateBlocks(targetRef: string, paneId: string, herdr: typeof herdrRequest, sockPath: string | undefined): Promise<boolean> {
+  let gate: KitGateMatch | null;
+  try {
+    gate = kitGateGuard?.(targetRef) ?? null;
+  } catch (err) {
+    kitGateLog?.warn({ err, pane: targetRef }, "kit gate lookup failed; delivering anyway");
+    return false;
+  }
+  if (!gate) return false;
+  if (!gate.session) return true;
+  const live = await livePaneSession(herdr, paneId, sockPath);
+  if (live === null || live === gate.session) return true;
+  kitGateLog?.warn({ gateId: gate.id, gateSession: gate.session, paneSession: live, pane: targetRef }, "kit gate belongs to an earlier session; delivering anyway");
+  return false;
+}
+
+async function livePaneSession(herdr: typeof herdrRequest, paneId: string, sockPath: string | undefined): Promise<string | null> {
+  const snap = await herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
+  if (!snap.ok) return null;
+  const pane = snap.result.snapshot?.panes?.find((p) => p.pane_id === paneId);
+  if (!pane) return null;
+  const filled = await withProcessSession(herdr, pane, sockPath);
+  return filled.agent_session?.kind === "id" ? filled.agent_session.value : null;
 }
 
 export type InjectDelivery = "accepted" | "queued" | "refused";
@@ -150,7 +183,7 @@ export async function injectIntoPane(opts: InjectOptions): Promise<{ ok: true; d
   // never match even when they are the exact same pane.
   const targetRef = formatPaneRef(paneId, sockPath === bgSocketPath() ? "bg" : "visible");
   if (callerPane && callerPane === targetRef) return ok("refused", "that is this pane");
-  if (kitGateGuard?.(targetRef)) return ok("refused", "a kit form is open here");
+  if (await kitGateBlocks(targetRef, paneId, herdr, sockPath)) return ok("refused", "a kit form is open here");
   if (pastesAsText(text)) return ok("refused", `a slash command over ${PASTE_COMMAND_LIMIT} characters arrives as a paste and never runs; shorten it`);
 
   const probe = await herdr<{ agent: { agent: string; agent_status: string } }>("agent.get", { target: paneId }, { sockPath });

@@ -701,7 +701,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         mkdirSync(RT_DIR, { recursive: true });
         eventsBus = createEventsBus({ dbPath: join(RT_DIR, "events.db"), log });
         gatesStore = createGatesStore({ dbPath: join(RT_DIR, "gates.db"), log, runExists: runDirExists });
-        setKitGateGuard(openKitGateForPane(gatesStore));
+        setKitGateGuard(openKitGateForPane(gatesStore), log);
         herdStore = createHerdStore({ dbPath: join(RT_DIR, "herds.db"), log });
         bgClaims = createBgClaimsStore({ dbPath: join(RT_DIR, "bg-claims.db"), log });
         // Session id -> socket resolution goes through the claude-registry
