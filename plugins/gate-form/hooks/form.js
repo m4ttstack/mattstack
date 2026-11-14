@@ -330,9 +330,13 @@ function menu(spec) {
     const isLast = i === spec.rows.length - 1;
     const look = i === spec.selected ? { ...ACCENT, bold: true } : {};
     const text = cut2(labels[i], column);
-    return [lead, sp(isLast ? "└ " : "├ ", GRAY), sp(isBeside && subs.length > 0 ? padCells(text, column) : text, { ...look, action: act({ type: "row", path: [i] }) })];
+    const label = sp(isBeside && subs.length > 0 ? padCells(text, column) : text, { ...look, action: act({ type: "row", path: [i] }) });
+    return [lead, sp(isLast ? "└ " : "├ ", GRAY), spec.pressing && i === spec.selected && spec.sub === undefined ? pressed(label) : label];
   };
-  const subSpan = (row, j, cells) => sp(padCells(cut2(row.label, cells), cells), { ...j === spec.sub ? { ...ACCENT, bold: true } : {}, action: act({ type: "row", path: [spec.selected, j] }) });
+  const subSpan = (row, j, cells) => {
+    const span = sp(padCells(cut2(row.label, cells), cells), { ...j === spec.sub ? { ...ACCENT, bold: true } : {}, action: act({ type: "row", path: [spec.selected, j] }) });
+    return spec.pressing && j === spec.sub ? pressed(span) : span;
+  };
   const lines = spec.rows.map((_, i) => rowLine(i));
   if (subs.length > 0 && isBeside) {
     const blank = sp(" ".repeat(CONNECTOR + column));
@@ -434,6 +438,13 @@ function choiceRows(choice, idx, spec) {
   const lead = [bar, sp("  "), choiceMark(spec, idx), sp(" ")];
   const under = [bar, sp("    ")];
   const isAt = idx === spec.cursor;
+  const rows = choiceLines(choice, idx, spec, lead, under);
+  if (!isAt || !spec.pressing)
+    return rows;
+  return rows.map((line) => line.map((span) => span.isLabel ? pressed(span) : span));
+}
+function choiceLines(choice, idx, spec, lead, under) {
+  const isAt = idx === spec.cursor;
   if (choice.isWriteIn)
     return writeInRows(choice, isAt, lead, under, spec);
   if (!isAt)
@@ -531,6 +542,10 @@ function gridMove(rows, here, ev, options = {}) {
     return col >= 0 && col < (rows[here.at]?.ids.length ?? 0) ? { handled: true, to: { at: here.at, col } } : { handled: true };
   }
   return { handled: false };
+}
+function gridLook(span, focus) {
+  const base = focus.pressing ? pressed(span) : span;
+  return focus.marked ? keySelected(base) : [base];
 }
 // packages/mod-kit/src/interact/pointer.ts
 function lookOf(state, focused) {
@@ -1120,6 +1135,17 @@ function pressNav(ev, form, armed, s) {
   }
 }
 var isEnter = (ev) => ev.key === "return" || ev.key === "enter";
+function pressesButton(ev, form, s) {
+  if (s.phase !== "active" || !isEnter(ev))
+    return false;
+  if (s.menu.open)
+    return true;
+  if (!isOnNav(form, s)) {
+    const q = form.questions[s.page];
+    return q !== undefined && choicesOf(q).length > 0;
+  }
+  return !(navAtOf(form, s) === "next" && isReview(form, s) && !canSubmit(form, s));
+}
 function navKey(ev, form, armed, s) {
   if (s.menu.open)
     return moved(form, s, menuKey(s.menu, menuRows(form), ev.key)) ?? { state: s };
@@ -1199,7 +1225,7 @@ function wonSummary(q, raw) {
 }
 var kindIcon = (q) => choicesOf(q).length === 0 ? ICON.text : q.multi ? ICON.multi : ICON.single;
 function questionPage(q, s, i, base) {
-  const view = { ...base, focused: base.focused && !s.onNav };
+  const view = { ...base, focused: base.focused && !s.onNav, pressing: base.pressing && !s.onNav };
   const bar = rail(ACCENT);
   const lines = hang([sp(kindIcon(q), ACCENT), sp("  ")], bar, q.label, view.width, { bold: true });
   if (q.multi)
@@ -1221,6 +1247,7 @@ function questionPage(q, s, i, base) {
     writeIn: s.text[i],
     width: view.width,
     focused: view.focused,
+    ...view.pressing && { pressing: true },
     actionFor: (idx) => ({ type: "option", idx })
   }));
   return lines;
@@ -1296,13 +1323,13 @@ function navRows(form, s, view) {
     if (!view.focused || !isOnNav(form, s))
       return row;
     const at = spanAt2(navAtOf(form, s), row);
-    return [...row.slice(0, at), ...keySelected(row[at]), ...row.slice(at + 1)];
+    return [...row.slice(0, at), ...gridLook(row[at], { marked: true, pressing: view.pressing && !s.menu.open }), ...row.slice(at + 1)];
   };
   if (rows.length === 0)
     return [marked(line)];
   const at = line.findIndex((span) => span.action === MORE);
   const indent = widthOf(line.slice(0, at));
-  const hung = menu({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, actionFor: (hit) => ({ type: "menu", hit }) });
+  const hung = menu({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: (hit) => ({ type: "menu", hit }) });
   return [marked(line), ...hung.slice(1)];
 }
 function errorLines(form, view) {
@@ -1316,9 +1343,9 @@ function hint(form, s, view) {
     return "click the form to answer with the keyboard";
   const q = form.questions[s.page];
   if (!q)
-    return;
+    return "←→ buttons  enter presses";
   if (s.onNav)
-    return "←→ buttons  ↑ answers";
+    return "←→ buttons  ↑ answers  enter presses";
   return choicesOf(q).length === 0 ? "←→ pages  ↓ buttons" : "←→ pages  ↑↓ move";
 }
 function draw(form, s, view, withContext) {
@@ -1365,16 +1392,22 @@ var form_default = kitClient((props, ui) => {
   const width = Math.max(30, props.cols || ui.width);
   const apply = (effect) => {
     if (!effect)
-      return;
+      return false;
     if (effect.post !== undefined)
       ui.post(effect.post);
     ui.setState(effect.state.page === ui.state.page ? effect.state : withTabInView(form, effect.state, width));
+    return true;
   };
-  ui.onKey((ev) => apply(keyEffect(ev, form, ui.state)));
+  ui.onKey((ev) => {
+    if (!pressesButton(ev, form, ui.state))
+      return apply(keyEffect(ev, form, ui.state));
+    ui.pressFor(() => apply(keyEffect(ev, form, ui.state)));
+    return true;
+  });
   return /* @__PURE__ */ h(Panel, {
     width
   }, /* @__PURE__ */ h(Lines, {
-    lines: visibleLines(form, ui.state, { width, focused: ui.focused }, props.rows),
+    lines: visibleLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows),
     onAction: (action) => apply(perform(action, form, ui.state))
   }));
 }, {

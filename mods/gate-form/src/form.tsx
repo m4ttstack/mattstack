@@ -1,7 +1,7 @@
 import { Lines, Panel, kitClient } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
-import { keyEffect, perform, type Effect } from './form/input'
+import { keyEffect, perform, pressesButton, type Effect } from './form/input'
 import { afterAttempt, initial, type State } from './form/state'
 import { visibleLines, withTabInView } from './form/view'
 
@@ -14,14 +14,19 @@ export default kitClient<Props, State>(
     if (retried !== ui.state) ui.setState(retried)
     const width = Math.max(30, props.cols || ui.width)
     const apply = (effect: Effect | undefined) => {
-      if (!effect) return
+      if (!effect) return false
       if (effect.post !== undefined) ui.post(effect.post)
       ui.setState(effect.state.page === ui.state.page ? effect.state : withTabInView(form, effect.state, width))
+      return true
     }
-    ui.onKey(ev => apply(keyEffect(ev, form, ui.state)))
+    ui.onKey(ev => {
+      if (!pressesButton(ev, form, ui.state)) return apply(keyEffect(ev, form, ui.state))
+      ui.pressFor(() => apply(keyEffect(ev, form, ui.state)))
+      return true
+    })
     return (
       <Panel width={width}>
-        <Lines lines={visibleLines(form, ui.state, { width, focused: ui.focused }, props.rows)} onAction={action => apply(perform(action, form, ui.state))} />
+        <Lines lines={visibleLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows)} onAction={action => apply(perform(action, form, ui.state))} />
       </Panel>
     )
   },

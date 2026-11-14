@@ -1,10 +1,11 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, fitToRows, hang, keySelected, menu, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, fitToRows, gridLook, hang, menu, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
 import { canSubmit, choicesOf, cursorIsChoice, isOnNav, isPicked, menuRows, navAtOf, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
-export type View = { width: number; focused: boolean }
+// `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
+export type View = { width: number; focused: boolean; pressing?: boolean }
 
 type L = Line<Action>
 
@@ -51,7 +52,7 @@ const kindIcon = (q: FormQuestion) => (choicesOf(q).length === 0 ? ICON.text : q
 
 function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
   // On the nav row the keys are there, so the answer shows no caret.
-  const view = { ...base, focused: base.focused && !s.onNav }
+  const view = { ...base, focused: base.focused && !s.onNav, pressing: base.pressing && !s.onNav }
   const bar = rail<Action>(ACCENT)
   const lines: L[] = hang([sp(kindIcon(q), ACCENT), sp('  ')], bar, q.label, view.width, { bold: true })
   if (q.multi) lines.push([...bar, sp('pick any number', DIM)])
@@ -72,6 +73,7 @@ function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
       writeIn: s.text[i]!,
       width: view.width,
       focused: view.focused,
+      ...(view.pressing && { pressing: true }),
       actionFor: idx => ({ type: 'option', idx }),
     }),
   )
@@ -161,13 +163,13 @@ function navRows(form: Form, s: State, view: View): L[] {
   const marked = (row: L): L => {
     if (!view.focused || !isOnNav(form, s)) return row
     const at = spanAt(navAtOf(form, s), row)
-    return [...row.slice(0, at), ...keySelected(row[at]!), ...row.slice(at + 1)]
+    return [...row.slice(0, at), ...gridLook(row[at]!, { marked: true, pressing: view.pressing && !s.menu.open }), ...row.slice(at + 1)]
   }
   if (rows.length === 0) return [marked(line)]
 
   const at = line.findIndex(span => span.action === MORE)
   const indent = widthOf(line.slice(0, at))
-  const hung = menu<Action>({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, actionFor: hit => ({ type: 'menu', hit }) })
+  const hung = menu<Action>({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: hit => ({ type: 'menu', hit }) })
   return [marked(line), ...hung.slice(1)]
 }
 
@@ -177,12 +179,11 @@ function errorLines(form: Form, view: View): L[] {
   return [[sp(' ')], ...hang(lead, [sp<Action>('   ')], form.error, view.width, WARN)]
 }
 
-// The review page has none: its Back and Submit buttons say it.
 function hint(form: Form, s: State, view: View): string | undefined {
   if (!view.focused) return 'click the form to answer with the keyboard'
   const q = form.questions[s.page]
-  if (!q) return undefined
-  if (s.onNav) return '←→ buttons  ↑ answers'
+  if (!q) return '←→ buttons  enter presses'
+  if (s.onNav) return '←→ buttons  ↑ answers  enter presses'
   return choicesOf(q).length === 0 ? '←→ pages  ↓ buttons' : '←→ pages  ↑↓ move'
 }
 

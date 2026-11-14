@@ -117,6 +117,18 @@ function pressNav(ev: ClientKeyEvent, form: Form, armed: State, s: State): Effec
 
 const isEnter = (ev: ClientKeyEvent) => ev.key === 'return' || ev.key === 'enter'
 
+// Enter on something it activates (an enabled nav button, a More actions row, a choice) shows the press before
+// the key acts, as a click would.
+export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean {
+  if (s.phase !== 'active' || !isEnter(ev)) return false
+  if (s.menu.open) return true
+  if (!isOnNav(form, s)) {
+    const q = form.questions[s.page]
+    return q !== undefined && choicesOf(q).length > 0
+  }
+  return !(navAtOf(form, s) === 'next' && isReview(form, s) && !canSubmit(form, s))
+}
+
 function navKey(ev: ClientKeyEvent, form: Form, armed: State, s: State): Effect | undefined {
   if (s.menu.open) return moved(form, s, menuKey(s.menu, menuRows(form), ev.key)) ?? { state: s }
   return isEnter(ev) ? pressNav(ev, form, armed, s) : gridKey(ev, form, s)
