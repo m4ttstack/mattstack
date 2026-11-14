@@ -81,3 +81,15 @@ export async function isPlaced($: EngineInterface, pane: HideablePane): Promise<
 export function paneRows(e: { props: { scroll?: { bodyRows?: number } }; viewport?: { rows?: number } }): number {
   return e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
 }
+
+// The wheel's running total per pane, for a Client that draws only the rows that fit: the engine scrolls nothing it
+// cannot see past, so the mod's `ui.scroll` hook (its matcher must be a literal) hands each turn here, and the Client
+// takes the change in the total since it last looked. A module value, since a hook may not write state while drawing.
+const wheels = new Map<string, number>()
+
+export function addWheel($: EngineInterface, paneId: string, by: number): void {
+  wheels.set(paneId, (wheels.get(paneId) ?? 0) + by)
+  $.ui.invalidate('ui.render')
+}
+
+export const wheelTotal = (paneId: string): number => wheels.get(paneId) ?? 0

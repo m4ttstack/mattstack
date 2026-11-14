@@ -3,9 +3,9 @@ import { expect, test } from 'bun:test'
 import type { Form } from '../../types'
 import { DEMO } from '../gate/demo'
 import { toForm } from '../gate/parse'
-import { perform, type Action } from './input'
-import { goTo, initial } from './state'
-import { visibleLines } from './view'
+import { keyEffect, perform, type Action } from './input'
+import { goTo, initial, type State } from './state'
+import { fittedLines, visibleLines } from './view'
 
 const demo = toForm(DEMO.title, DEMO.context, DEMO.questions, 'demo') as Form
 const VIEW = { width: 60, focused: true }
@@ -40,4 +40,45 @@ test('the review page hints at its buttons, not at pages', () => {
 
 test('a question page has the hint line', () => {
   expect(pageLines(0).map(textOf).join('\n')).toContain('←→ pages')
+})
+
+// A short pane: the approach page (seven choices) does not fit in 24 rows, so it scrolls.
+const SHORT = 24
+const APPROACH = 1
+const settle = (s: State, wheel?: number): State => {
+  const fitted = fittedLines(demo, s, VIEW, SHORT, wheel)
+  return { ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt }
+}
+const down = (s: State, times: number): State => {
+  let at = s
+  for (let n = 0; n < times; n += 1) at = settle(keyEffect({ key: 'down' }, demo, at)!.state)
+  return at
+}
+
+test('a page too tall for the pane scrolls to keep the cursor in view, with a scroll bar, cutting nothing', () => {
+  const end = down(settle(goTo(demo, initial(demo), APPROACH)), 6)
+  const fitted = fittedLines(demo, end, VIEW, SHORT)
+  expect(fitted.lines).toHaveLength(SHORT)
+  expect(fitted.top).toBeGreaterThan(0)
+  const text = fitted.lines.map(textOf).join('\n')
+  expect(text).toContain('Something else')
+  expect(text).not.toContain('…')
+  expect(text).toContain('Chat about this')
+})
+
+test('the wheel scrolls a long page, and the cursor pulls the window back only once it moves', () => {
+  const start = settle(goTo(demo, initial(demo), APPROACH), 0)
+  const from = start.pageTop ?? 0
+  const wheeled = settle(start, 5)
+  expect(wheeled.pageTop).toBe(from + 5)
+  // A redraw with no new wheel turn keeps the wheel's place.
+  expect(settle(wheeled, 5).pageTop).toBe(from + 5)
+  // Past the end it stops at the last row.
+  expect(settle(wheeled, 500).pageTop).toBeLessThan(500)
+  // At the last choice, the wheel back to the top leaves the cursor below the window until the cursor moves.
+  const last = down(start, 6)
+  const top = settle({ ...last, wheelAt: 0 }, -500)
+  expect(top.pageTop).toBe(0)
+  const moved = settle(keyEffect({ key: 'up' }, demo, top)!.state, -500)
+  expect(moved.pageTop).toBeGreaterThan(0)
 })

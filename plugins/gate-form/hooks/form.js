@@ -1083,7 +1083,7 @@ function moved(form, s, move) {
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
     return effect;
-  return { ...effect, state: { ...effect.state, onNav: undefined, navAt: "next", pageTop: undefined } };
+  return { ...effect, state: { ...effect.state, onNav: undefined, navAt: "next", pageTop: undefined, followed: undefined } };
 }
 function perform(action, form, armed) {
   return settled(armed, performOn(action, form, armed));
@@ -1397,32 +1397,36 @@ function tallestQuestion(form, s, view) {
 }
 var BAR_CELLS = 3;
 var FIXED_TOP = 2;
-function fittedLines(form, s, view, rows) {
+function fittedLines(form, s, view, rows, wheel) {
   const full = draw(form, s, view, true);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
     const pad = s.phase === "active" && form.status === "open" ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
-    return { lines: fitToRows(full, rows, () => full, pad), top: 0 };
+    return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...wheel !== undefined && { wheelAt: wheel } };
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) };
   const narrow = draw(form, s, inner, true);
   const region = [...narrow.head.slice(FIXED_TOP), ...narrow.page];
   const windowRows = Math.max(1, rows - FIXED_TOP - narrow.foot.length);
-  const top = followCursor(region, s, windowRows);
+  const turned = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt;
+  const most = maxScroll(region.length, windowRows);
+  const wheeled = Math.min(Math.max(0, (s.pageTop ?? 0) + turned), most);
+  const cursor = `${s.page}:${s.onNav ? "nav" : s.cursor[s.page] ?? ""}`;
+  const top = cursor === s.followed ? wheeled : followCursor(region, s, windowRows, wheeled);
   const bar = scrollBar(windowRows, region.length, top);
   const shown = region.slice(top, top + windowRows).map((line, n) => Object.assign([...clipLine(line, inner.width), ...bar[n] ?? []], line.action === undefined ? {} : { action: line.action }));
-  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top };
+  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...wheel !== undefined && { wheelAt: wheel } };
 }
-function followCursor(region, s, windowRows) {
+function followCursor(region, s, windowRows, from) {
   const at = s.cursor[s.page];
   const isCursor = (line) => line.action?.type === "option" && line.action.idx === at;
   const first = s.onNav || at === undefined ? -1 : region.findIndex(isCursor);
   let last = first;
   while (first >= 0 && last + 1 < region.length && isCursor(region[last + 1]))
     last += 1;
-  const stops = first < 0 ? [] : [{ key: "cursor", ids: ["choice"], main: 0, lines: [first], first, last }];
-  const prev = Math.min(s.pageTop ?? 0, maxScroll(region.length, windowRows));
-  return stops.length === 0 ? prev : revealOffset({ top: prev, total: region.length, windowRows, stops }, 0);
+  if (first < 0)
+    return from;
+  return revealOffset({ top: from, total: region.length, windowRows, stops: [{ key: "cursor", ids: ["choice"], main: 0, lines: [first], first, last }] }, 0);
 }
 
 // mods/gate-form/src/form.tsx
@@ -1446,9 +1450,10 @@ var form_default = kitClient((props, ui) => {
     ui.pressFor(() => apply(keyEffect(ev, form, ui.state)));
     return true;
   });
-  const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows);
-  if (fitted.top !== (ui.state.pageTop ?? 0))
-    ui.setState({ ...ui.state, pageTop: fitted.top });
+  const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows, props.wheel);
+  const s = ui.state;
+  if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt)
+    ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt });
   return /* @__PURE__ */ h(Panel, {
     width
   }, /* @__PURE__ */ h(Lines, {

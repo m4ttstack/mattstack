@@ -226,39 +226,45 @@ const BAR_CELLS = 3
 // The brand bar and the blank row under it stay on top while the rest scrolls, as in human-todos.
 const FIXED_TOP = 2
 
-export type Fitted = { lines: L[]; top: number }
+// `followed` names the cursor the window last moved to show, and `wheelAt` the wheel total it last took;
+// the Client keeps both, so a wheel turn can leave the cursor out of view until the cursor moves again.
+export type Fitted = { lines: L[]; top: number; followed?: string; wheelAt?: number }
 
 // Every page is padded to the tallest question's height, room allowing, so the buttons keep their row as you page.
 // A page too tall for the pane scrolls between the brand bar and the nav rows instead, so nothing is cut: the window
-// follows the cursor's choice (`s.pageTop` is where it was), and a scroll bar runs down its right edge.
-export function fittedLines(form: Form, s: State, view: View, rows: number): Fitted {
+// follows the cursor's choice when it moves, the wheel (`wheel`, the pane's running total) moves it too, and a scroll
+// bar runs down its right edge.
+export function fittedLines(form: Form, s: State, view: View, rows: number, wheel?: number): Fitted {
   const full = draw(form, s, view, true)
   const room = rows - FIXED_TOP - full.foot.length
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
     const pad = s.phase === 'active' && form.status === 'open' ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
-    return { lines: fitToRows(full, rows, () => full, pad), top: 0 }
+    return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...(wheel !== undefined && { wheelAt: wheel }) }
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) }
   const narrow = draw(form, s, inner, true)
   const region = [...narrow.head.slice(FIXED_TOP), ...narrow.page]
   const windowRows = Math.max(1, rows - FIXED_TOP - narrow.foot.length)
-  const top = followCursor(region, s, windowRows)
+  const turned = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt
+  const most = maxScroll(region.length, windowRows)
+  const wheeled = Math.min(Math.max(0, (s.pageTop ?? 0) + turned), most)
+  const cursor = `${s.page}:${s.onNav ? 'nav' : (s.cursor[s.page] ?? '')}`
+  const top = cursor === s.followed ? wheeled : followCursor(region, s, windowRows, wheeled)
   const bar = scrollBar<Action>(windowRows, region.length, top)
   // A choice's click is on the line itself (`withAction`), so the drawn line keeps it.
   const shown = region.slice(top, top + windowRows).map((line, n): L => Object.assign([...clipLine(line, inner.width), ...(bar[n] ?? [])], line.action === undefined ? {} : { action: line.action }))
-  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top }
+  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...(wheel !== undefined && { wheelAt: wheel }) }
 }
 
-// The window over `region` that shows the cursor's choice whole, moving as little as it can from where it was.
-function followCursor(region: L[], s: State, windowRows: number): number {
+// The window over `region` that shows the cursor's choice whole, moving as little as it can from `from`.
+function followCursor(region: L[], s: State, windowRows: number, from: number): number {
   const at = s.cursor[s.page]
   const isCursor = (line: L) => line.action?.type === 'option' && line.action.idx === at
   const first = s.onNav || at === undefined ? -1 : region.findIndex(isCursor)
   let last = first
   while (first >= 0 && last + 1 < region.length && isCursor(region[last + 1]!)) last += 1
-  const stops = first < 0 ? [] : [{ key: 'cursor', ids: ['choice'], main: 0, lines: [first], first, last }]
-  const prev = Math.min(s.pageTop ?? 0, maxScroll(region.length, windowRows))
-  return stops.length === 0 ? prev : revealOffset({ top: prev, total: region.length, windowRows, stops }, 0)
+  if (first < 0) return from
+  return revealOffset({ top: from, total: region.length, windowRows, stops: [{ key: 'cursor', ids: ['choice'], main: 0, lines: [first], first, last }] }, 0)
 }
 
 export function visibleLines(form: Form, s: State, view: View, rows: number): L[] {

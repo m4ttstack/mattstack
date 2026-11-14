@@ -269,6 +269,20 @@ The mod reads its own state into this plain object.
 
 `isPlaced($, pane): Promise<boolean>`. Whether the pane is on screen.
 
+### `addWheel` and `wheelTotal`
+
+A Client that draws only the rows that fit leaves the engine nothing to
+scroll, so the wheel has to reach the Client through the hooks module:
+
+1. The mod's own `ui.scroll` hook for its pane calls
+   `addWheel($, paneId, e.by)` and answers `{}`. The hook's matcher must be a
+   string literal, so the kit can't register it.
+2. The render hook passes `wheelTotal(paneId)` (a running total) in the
+   Client's props.
+3. The Client scrolls by the change in that total since it last looked.
+
+See gate-form's `fittedLines`.
+
 ### `paneRows`
 
 `paneRows(e): number` gives the pane body's height in rows, from a `Pane`

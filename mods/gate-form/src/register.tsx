@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, RenderElement, RenderSurface, ToolCallInput, ToolCallResult } from 'claude-code'
-import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, showPane, type HideablePane, type Waiting } from '@mattstack/mod-kit'
+import { addWheel, bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, showPane, wheelTotal, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { BoardGate, Form, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
@@ -460,6 +460,13 @@ export function register(on: On): void {
     return board.length > 0 ? boardBand($, e, rest, board) : rest
   })
 
+  // The form draws only the rows that fit, so the engine has nothing to scroll: a wheel turn scrolls the form's own page.
+  on('ui.scroll', { component: 'Pane', requestId: 'gate-form' }, async ($, e, next) => {
+    if (e.contentRows > e.bodyRows) return next(e)
+    addWheel($, PANE, e.by)
+    return {}
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
@@ -474,7 +481,7 @@ export function register(on: On): void {
     const height = Math.max(1, form.status === 'open' ? body : body - 2)
     return (
       <Box flexDirection="column" paddingX={1} gap={1}>
-        <Client key={`form-${form.id}`} module="./form.tsx" height={height} props={{ form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused }} />
+        <Client key={`form-${form.id}`} module="./form.tsx" height={height} props={{ form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused, wheel: wheelTotal(PANE) }} />
         {form.status === 'open' ? null : (
           <Box flexDirection="row" gap={1}>
             <Button key="close" role="dismiss" label="Close" onPress={() => void $.ui.close({ id: PANE })} />

@@ -31,6 +31,9 @@ export type State = {
   sent?: number
   // The first scrolled row in view while a page is too tall for the pane.
   pageTop?: number
+  // The cursor the scrolled window last moved to show, and the pane's wheel total it last took (view.ts `Fitted`).
+  followed?: string
+  wheelAt?: number
   // The run control that was sent, for the closed form to name.
   control?: string
 }

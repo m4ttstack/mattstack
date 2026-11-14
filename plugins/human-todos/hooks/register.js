@@ -377,6 +377,7 @@ async function isPlaced($, pane) {
 function paneRows(e) {
   return e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
 }
+var wheels = new Map;
 // packages/mod-kit/src/patterns/scroll-list.ts
 var maxScroll = (total, windowRows) => Math.max(0, total - windowRows);
 function revealOffset(view, index) {

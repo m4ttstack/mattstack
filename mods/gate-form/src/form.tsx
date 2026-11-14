@@ -5,7 +5,8 @@ import { keyEffect, perform, pressesButton, type Effect } from './form/input'
 import { afterAttempt, initial, type State } from './form/state'
 import { fittedLines, withTabInView } from './form/view'
 
-type Props = { form: Form; rows: number; cols: number; focused: boolean }
+// `wheel`: the pane's running wheel total (kit `wheelTotal`), which scrolls a page too tall for the pane.
+type Props = { form: Form; rows: number; cols: number; focused: boolean; wheel?: number }
 
 export default kitClient<Props, State>(
   (props, ui) => {
@@ -24,8 +25,9 @@ export default kitClient<Props, State>(
       ui.pressFor(() => apply(keyEffect(ev, form, ui.state)))
       return true
     })
-    const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows)
-    if (fitted.top !== (ui.state.pageTop ?? 0)) ui.setState({ ...ui.state, pageTop: fitted.top })
+    const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows, props.wheel)
+    const s = ui.state
+    if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt) ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt })
     return (
       <Panel width={width}>
         <Lines lines={fitted.lines} onAction={action => apply(perform(action, form, ui.state))} />

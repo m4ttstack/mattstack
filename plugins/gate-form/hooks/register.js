@@ -338,6 +338,12 @@ async function isPlaced($, pane) {
 function paneRows(e) {
   return e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
 }
+var wheels = new Map;
+function addWheel($, paneId, by) {
+  wheels.set(paneId, (wheels.get(paneId) ?? 0) + by);
+  $.ui.invalidate("ui.render");
+}
+var wheelTotal = (paneId) => wheels.get(paneId) ?? 0;
 // mods/gate-form/src/gate/bell.ts
 var BODY_MAX = 140;
 function bellArgs(cwd, questions) {
@@ -1251,6 +1257,12 @@ function register(on) {
     const rest = formWaits ? await bandAbovePrompt($, e, await next(e), waiting, GATE_PANE, { engineShow: true }) : await next(e);
     return board.length > 0 ? boardBand($, e, rest, board) : rest;
   });
+  on("ui.scroll", { component: "Pane", requestId: "gate-form" }, async ($, e, next) => {
+    if (e.contentRows > e.bodyRows)
+      return next(e);
+    addWheel($, PANE, e.by);
+    return {};
+  });
   on("ui.render", { component: "Pane", requestId: "gate-form" }, async ($, e) => {
     const els = $.ui.resolve(e);
     const { Box, Text, Button } = els;
@@ -1276,7 +1288,7 @@ function register(on) {
       key: `form-${form.id}`,
       module: "./form.js",
       height,
-      props: { form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused }
+      props: { form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused, wheel: wheelTotal(PANE) }
     }), form.status === "open" ? null : /* @__PURE__ */ h(Box, {
       flexDirection: "row",
       gap: 1

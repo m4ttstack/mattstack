@@ -108,3 +108,16 @@ test('at 80 columns every option description and the question wrap in full, neve
   expect(flat).toContain('the text is long?')
   await pane.unmount()
 })
+
+test('a wheel turn over the pane reaches the form, which scrolls its own page', async ($, on) => {
+  world(on)
+  await drawOn($, 'terminal')
+  await ask($)
+  const pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: 20 } }, surface: 'terminal' })
+  const wheelOf = async () => ((await clientOf(pane)).props.props as { wheel?: number }).wheel
+  const before = (await wheelOf()) ?? 0
+  const scrolled = await $.ui.scroll({ component: 'Pane', requestId: 'gate-form', offset: 0, by: 3, bodyRows: 20, contentRows: 20, origin: { kind: 'person' } } as never)
+  expect(scrolled).toEqual({})
+  expect(await eventually(async () => (await wheelOf()) === before + 3)).toBe(true)
+  await pane.unmount()
+})

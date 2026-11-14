@@ -25,7 +25,7 @@ export { gridLook, gridMove, gridResolve, gridSelection } from './interact/grid'
 export type { GridRow, GridSelection, GridSpot } from './interact/grid'
 
 export { bandClient } from './patterns/band-client'
-export { bandAbovePrompt, isPlaced, paneMessage, paneRows, registerPaneRedraw, showPane } from './patterns/hideable-pane'
+export { addWheel, bandAbovePrompt, isPlaced, paneMessage, paneRows, registerPaneRedraw, showPane, wheelTotal } from './patterns/hideable-pane'
 export type { HideablePane, Waiting } from './patterns/hideable-pane'
 export { fitToRows, navRow, padToHeight, reviewList } from './patterns/page-shell'
 export { clipLine, ellipsize, isButtonInView, lineOfAction, maxScroll, revealButtonOffset, revealOffset, windowLines, wrappedButtons } from './patterns/scroll-list'
