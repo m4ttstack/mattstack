@@ -271,6 +271,38 @@ function scrollBar(rows, total, offset) {
   const top = Math.round(at / (total - rows) * (rows - size));
   return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
 }
+// packages/mod-kit/src/interact/grid.ts
+function gridResolve(rows, sel) {
+  if (!sel)
+    return { at: 0, col: rows[0]?.main ?? 0, hasFallen: false };
+  const found = rows.findIndex((r) => r.key === sel.key);
+  if (found < 0) {
+    const at = Math.min(sel.at, rows.length - 1);
+    return { at, col: rows[at]?.main ?? 0, hasFallen: true };
+  }
+  const col = rows[found].ids.indexOf(sel.button);
+  return { at: found, col: col >= 0 ? col : rows[found].main, hasFallen: false };
+}
+function gridSelection(rows, spot) {
+  const row = rows[spot.at];
+  const button = row?.ids[spot.col];
+  return row && button !== undefined ? { key: row.key, button, at: spot.at } : undefined;
+}
+function gridMove(rows, here, ev, options = {}) {
+  if (rows.length === 0)
+    return { handled: false };
+  const tab = options.tabSteps === true && ev.key === "tab";
+  const step = ev.key === "up" || tab && ev.shift ? -1 : ev.key === "down" || tab ? 1 : 0;
+  if (step !== 0) {
+    const at = Math.min(Math.max(0, here.at + step), rows.length - 1);
+    return at === here.at ? { handled: true } : { handled: true, to: { at, col: rows[at].main } };
+  }
+  if (ev.key === "left" || ev.key === "right") {
+    const col = here.col + (ev.key === "left" ? -1 : 1);
+    return col >= 0 && col < (rows[here.at]?.ids.length ?? 0) ? { handled: true, to: { at: here.at, col } } : { handled: true };
+  }
+  return { handled: false };
+}
 // packages/mod-kit/src/interact/pointer.ts
 function lookOf(state, focused) {
   const hover = state?.hover;
@@ -1082,28 +1114,16 @@ function viewLines(view, width, focus = {}) {
 }
 
 // mods/human-todos/src/pane/kit-view.tsx
-function resolve(stops, sel) {
-  if (!sel)
-    return { at: 0, col: stops[0]?.main ?? 0, hasFallen: false };
-  const found = stops.findIndex((s) => s.key === sel.key);
-  if (found < 0) {
-    const at = Math.min(sel.at, stops.length - 1);
-    return { at, col: stops[at]?.main ?? 0, hasFallen: true };
-  }
-  const col = stops[found].ids.indexOf(sel.button);
-  return { at: found, col: col >= 0 ? col : stops[found].main, hasFallen: false };
-}
 var kit_view_default = kitClient((props, ui) => {
   const { view } = props;
   const { stops } = view;
-  const here = resolve(stops, ui.state.sel);
+  const here = gridResolve(stops, ui.state.sel);
   const current = stops[here.at] && stopMessage(stops[here.at], here.col);
   const mark = (at, col) => {
-    const stop = stops[at];
-    const button = stop?.ids[col];
-    if (!stop || !button)
+    const sel = gridSelection(stops, { at, col });
+    if (!sel)
       return false;
-    ui.setState({ ...ui.state, sel: { key: stop.key, button, at } });
+    ui.setState({ ...ui.state, sel });
     return true;
   };
   const reveal = (at) => {
@@ -1131,17 +1151,10 @@ var kit_view_default = kitClient((props, ui) => {
   ui.onKey((ev) => {
     if (!ui.focused || stops.length === 0)
       return false;
-    const step = ev.key === "up" || ev.key === "tab" && ev.shift ? -1 : ev.key === "down" || ev.key === "tab" ? 1 : 0;
-    if (step !== 0) {
-      const at = Math.min(Math.max(0, here.at + step), stops.length - 1);
-      if (at !== here.at)
-        select(at, stops[at].main);
-      return true;
-    }
-    if (ev.key === "left" || ev.key === "right") {
-      const col = here.col + (ev.key === "left" ? -1 : 1);
-      if (col >= 0 && col < (stops[here.at]?.ids.length ?? 0))
-        select(here.at, col);
+    const move = gridMove(stops, here, ev, { tabSteps: true });
+    if (move.handled) {
+      if (move.to)
+        select(move.to.at, move.to.col);
       return true;
     }
     if ((ev.key === "return" || ev.key === "enter") && current) {

@@ -301,6 +301,24 @@ The mod sets it when `isEngaged` is true, clears it in its `prompt.edit`,
 `prompt.submit` and `ui.focus` hooks, and combines it with the pane's focus.
 See `mods/gate-form/src/register.tsx`.
 
+### `gridMove`, `gridResolve` and `gridSelection`
+
+Keyboard moves over a grid of buttons: up and down between rows, left and
+right along one. A row is a `GridRow` (`{ key, ids, main }`, where `main`
+is the button a move onto the row lands on).
+
+- `gridResolve(rows, sel)` gives the `GridSpot` (`{ at, col }`) a stored
+  `GridSelection` (`{ key, button, at }`) lands on now, plus `hasFallen` when
+  its row has gone. A gone button falls to its row's `main`.
+- `gridMove(rows, here, ev, { tabSteps? })` returns `{ handled, to? }`. Every
+  arrow is handled, even at an end; `to` is set only when the selection moves.
+  With `tabSteps`, Tab and Shift+Tab step rows.
+- `gridSelection(rows, spot)` turns a spot back into a selection to store.
+
+The mod keeps the selection in its state, draws the mark (`keySelected`) and
+handles Enter. See `mods/human-todos/src/pane/kit-view.tsx` and
+`mods/gate-form/src/form/input.ts`.
+
 ## Layout helpers (line builders)
 
 Used by `Lines`-based mods and by the components themselves. A line is an array
