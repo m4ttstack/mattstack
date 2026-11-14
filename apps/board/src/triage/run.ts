@@ -18,6 +18,7 @@ import {
   ringText,
   type SessionProbe,
 } from '../run-owner.ts';
+import { mrRef } from '../mr-ref.ts';
 import { SkillBindError } from '../skill-path.ts';
 import type { AuditEntry } from './audit.ts';
 import type { FixClasses, TriageConfig } from './config.ts';
@@ -563,7 +564,7 @@ export async function runTriage(
     if (decision.action === 'escalate') {
       result.escalated++;
       await deps.notify(
-        `Auto-fix stopped on !${edge.iid}`,
+        `Auto-fix stopped on ${mrRef({ iid: edge.iid, webUrl: edge.mrUrl })}`,
         'Out of tries for today, over to you',
         edge.mrUrl
       );
@@ -706,7 +707,7 @@ export async function runTriage(
           markHandled(deps.memory, edge);
           await deps
             .notify(
-              `Auto-fix can't start on !${edge.iid}`,
+              `Auto-fix can't start on ${mrRef({ iid: edge.iid, webUrl: edge.mrUrl })}`,
               err.message,
               edge.mrUrl
             )

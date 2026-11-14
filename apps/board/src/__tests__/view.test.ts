@@ -1638,6 +1638,12 @@ describe('freshnessBanner', () => {
     expect(text('other')).toStartWith('⚠ GitLab sync failing since 14:31');
   });
 
+  test("a GitHub board's sync error names GitHub", () => {
+    expect(
+      freshnessBanner({ ...base, syncError: timeout, forge: 'github' })!.text
+    ).toStartWith('⚠ GitHub timing out since 14:31');
+  });
+
   test('auth is bad even while the data is only 15 minutes old', () => {
     expect(
       freshnessBanner({

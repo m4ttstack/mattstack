@@ -68,7 +68,7 @@ export function doctorStuckNotice(
 ): { title: string; message: string; url: string | null } {
   const diagnosis = doctor.message?.trim();
   return {
-    title: `Auto-fix stuck on !${doctor.iid}`,
+    title: `Auto-fix stuck on ${mrRef({ iid: doctor.iid, webUrl: doctor.mrUrl })}`,
     message: diagnosis
       ? escalationBody(diagnosis)
       : 'No reason given, over to you',

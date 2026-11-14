@@ -122,7 +122,7 @@ export interface FreshnessBanner {
 }
 
 /** The top-of-board freshness warning, or null while the data is fresh.
-    The board's own refresh failing outranks rt's GitLab sync failing, which
+    The board's own refresh failing outranks rt's forge sync failing, which
     outranks bare age. A sync error stays quiet until the data actually goes
     stale, so one failed cycle never flashes a banner. */
 export function freshnessBanner(input: {
@@ -130,6 +130,7 @@ export function freshnessBanner(input: {
   dataSyncedAt: number | null;
   syncError?: BoardSyncError | null;
   now: number;
+  forge?: ForgeKind;
 }): FreshnessBanner | null {
   const { fetchError, syncError, now } = input;
   const syncedAt =
@@ -153,7 +154,8 @@ export function freshnessBanner(input: {
 
   if (syncError && (age === null || age > STALE_AFTER_MS)) {
     const outage = age ?? now - syncError.since;
-    const cause = `⚠ GitLab ${SYNC_ERROR_PHRASE[syncError.kind]} since ${clockLabel(syncError.since)}`;
+    const forgeName = input.forge === 'github' ? 'GitHub' : 'GitLab';
+    const cause = `⚠ ${forgeName} ${SYNC_ERROR_PHRASE[syncError.kind]} since ${clockLabel(syncError.since)}`;
     return {
       text: ageClause ? `${cause}... board data is ${ageClause}` : cause,
       intent:
