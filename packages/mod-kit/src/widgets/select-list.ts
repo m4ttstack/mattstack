@@ -1,5 +1,5 @@
 import { hang, sp, widthOf, withAction, type Line, type Span } from '../draw/text'
-import { ACCENT, DIM, DONE, ICON, SYMBOL } from '../draw/theme'
+import { ACCENT, DIM, DONE, ICON, SYMBOL, pressed } from '../draw/theme'
 import { inputField } from './input-field'
 
 export type Choice = { label: string; description?: string; isWriteIn?: boolean }
@@ -16,6 +16,8 @@ export type SelectSpec<A> = {
   focused: boolean
   actionFor: (idx: number) => A
   maxShown?: number
+  // A key's activation of the cursor's choice is showing (KitUi `keyPressing`): its label draws pressed, as a click's would.
+  pressing?: boolean
 }
 
 // Clack's select and multiselect: a window of choices around the cursor, the focused one in full and the rest cut to a row each for label and description.
@@ -46,6 +48,13 @@ function choiceRows<A>(choice: Choice, idx: number, spec: SelectSpec<A>): Line<A
   const bar = sp<A>(SYMBOL.bar, ACCENT)
   const lead = [bar, sp('  '), choiceMark(spec, idx), sp(' ')]
   const under = [bar, sp('    ')]
+  const isAt = idx === spec.cursor
+  const rows = choiceLines(choice, idx, spec, lead, under)
+  if (!isAt || !spec.pressing) return rows
+  return rows.map(line => line.map(span => ((span as { isLabel?: boolean }).isLabel ? pressed(span) : span)))
+}
+
+function choiceLines<A>(choice: Choice, idx: number, spec: SelectSpec<A>, lead: Span<A>[], under: Span<A>[]): Line<A>[] {
   const isAt = idx === spec.cursor
   if (choice.isWriteIn) return writeInRows(choice, isAt, lead, under, spec)
   if (!isAt) return [[...lead, sp(choice.label, { isLabel: true })], ...(choice.description ? [[...under, sp(choice.description, DIM)]] : [])]

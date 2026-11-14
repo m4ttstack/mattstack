@@ -10,6 +10,7 @@ export type SelectListProps = {
   writeIn?: string
   onPick?: (idx: number) => void
   maxShown?: number
+  pressing?: boolean
 }
 
 export const SelectList = kitComponent('SelectList', (props: SelectListProps, ctx) =>
@@ -24,5 +25,6 @@ export const SelectList = kitComponent('SelectList', (props: SelectListProps, ct
     focused: ctx.focused,
     actionFor: idx => ctx.bind(`pick:${idx}`, () => props.onPick?.(idx)),
     ...(props.maxShown !== undefined && { maxShown: props.maxShown }),
+    ...(props.pressing && { pressing: true }),
   }),
 )

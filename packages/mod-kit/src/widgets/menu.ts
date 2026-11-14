@@ -1,6 +1,6 @@
 import { cellWidth, cutCells, padCells } from '../draw/cells'
 import { sp, type Line, type Span } from '../draw/text'
-import { ACCENT, GRAY, keySelected } from '../draw/theme'
+import { ACCENT, GRAY, keySelected, pressed } from '../draw/theme'
 import { buttonSpan } from './buttons'
 
 // A row with `rows` opens a sub-list instead of being picked; only rows without `rows` are picked, by `id`.
@@ -20,6 +20,8 @@ export type MenuSpec<A = MenuHit> = MenuState & {
   indent?: number
   // The keyboard has the button selected.
   isSelected?: boolean
+  // A key's activation of the selected row is showing (KitUi `keyPressing`): that row draws pressed, as a click's would.
+  pressing?: boolean
   actionFor?: (hit: MenuHit) => A
 }
 
@@ -60,10 +62,13 @@ export function menu<A = MenuHit>(spec: MenuSpec<A>): Line<A>[] {
     const isLast = i === spec.rows.length - 1
     const look = i === spec.selected ? { ...ACCENT, bold: true } : {}
     const text = cut(labels[i]!, column)
-    return [lead, sp(isLast ? '└ ' : '├ ', GRAY), sp(isBeside && subs.length > 0 ? padCells(text, column) : text, { ...look, action: act({ type: 'row', path: [i] }) })]
+    const label = sp(isBeside && subs.length > 0 ? padCells(text, column) : text, { ...look, action: act({ type: 'row', path: [i] }) })
+    return [lead, sp(isLast ? '└ ' : '├ ', GRAY), spec.pressing && i === spec.selected && spec.sub === undefined ? pressed(label) : label]
   }
-  const subSpan = (row: MenuRow, j: number, cells: number): Span<A> =>
-    sp(padCells(cut(row.label, cells), cells), { ...(j === spec.sub ? { ...ACCENT, bold: true } : {}), action: act({ type: 'row', path: [spec.selected, j] }) })
+  const subSpan = (row: MenuRow, j: number, cells: number): Span<A> => {
+    const span = sp(padCells(cut(row.label, cells), cells), { ...(j === spec.sub ? { ...ACCENT, bold: true } : {}), action: act({ type: 'row', path: [spec.selected, j] }) })
+    return spec.pressing && j === spec.sub ? pressed(span) : span
+  }
 
   const lines: Line<A>[] = spec.rows.map((_, i) => rowLine(i))
   if (subs.length > 0 && isBeside) {

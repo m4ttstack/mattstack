@@ -8,6 +8,7 @@ export type MenuProps = {
   label?: string
   indent?: number
   isSelected?: boolean
+  pressing?: boolean
   onChange?: (state: MenuState) => void
   onPick?: (id: string) => void
 }
@@ -22,6 +23,7 @@ export const Menu = kitComponent('Menu', (props: MenuProps, ctx) =>
     width: ctx.width,
     indent: props.indent ?? 0,
     isSelected: props.isSelected ?? false,
+    pressing: props.pressing ?? false,
     actionFor: hit =>
       ctx.bind(hitKey(hit), () => {
         const move = menuHit(props.state, props.rows, hit)

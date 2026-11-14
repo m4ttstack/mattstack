@@ -695,6 +695,13 @@ function choiceRows(choice, idx, spec) {
   const lead = [bar, sp("  "), choiceMark(spec, idx), sp(" ")];
   const under = [bar, sp("    ")];
   const isAt = idx === spec.cursor;
+  const rows = choiceLines(choice, idx, spec, lead, under);
+  if (!isAt || !spec.pressing)
+    return rows;
+  return rows.map((line) => line.map((span) => span.isLabel ? pressed(span) : span));
+}
+function choiceLines(choice, idx, spec, lead, under) {
+  const isAt = idx === spec.cursor;
   if (choice.isWriteIn)
     return writeInRows(choice, isAt, lead, under, spec);
   if (!isAt)
@@ -722,7 +729,8 @@ var SelectList = kitComponent("SelectList", (props, ctx) => selectList({
   width: ctx.width,
   focused: ctx.focused,
   actionFor: (idx) => ctx.bind(`pick:${idx}`, () => props.onPick?.(idx)),
-  ...props.maxShown !== undefined && { maxShown: props.maxShown }
+  ...props.maxShown !== undefined && { maxShown: props.maxShown },
+  ...props.pressing && { pressing: true }
 }));
 // packages/mod-kit/src/widgets/tab-strip.ts
 function fillWindow(seed, first, count, room, cost) {
