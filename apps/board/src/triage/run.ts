@@ -9,6 +9,7 @@ import {
 import type { LaunchPaneOpts } from '../herdr.ts';
 import { draftBinPath } from '../herdr.ts';
 import { launchErrorMessage } from '../launch-error.ts';
+import { mrRef } from '../mr-ref.ts';
 import {
   firstLiveOwner,
   frameFor,
@@ -18,7 +19,6 @@ import {
   ringText,
   type SessionProbe,
 } from '../run-owner.ts';
-import { mrRef } from '../mr-ref.ts';
 import { SkillBindError } from '../skill-path.ts';
 import type { AuditEntry } from './audit.ts';
 import type { FixClasses, TriageConfig } from './config.ts';

@@ -19,6 +19,7 @@ import {
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
 import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
+import { mrNoun } from '../../mr-ref.ts';
 import { approvalSlots, personApproved } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import {
@@ -32,7 +33,6 @@ import { THREAD_CALL } from './GateParts.tsx';
 import { GateTimeline, type RoundEntry } from './GateTimeline.tsx';
 import { MrCard } from './MrCard.tsx';
 import { forgeNoun, mrRef } from './MrLinks.tsx';
-import { mrNoun } from '../../mr-ref.ts';
 import { usePeople } from './people.ts';
 import { PersonLead } from './PersonLead.tsx';
 import { PlanThreadCard } from './PlanThreadCard.tsx';

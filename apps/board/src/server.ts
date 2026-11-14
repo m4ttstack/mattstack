@@ -4521,9 +4521,12 @@ const httpServer = Bun.serve({
             status: 502,
           });
         if (result.closed === 0)
-          return new Response(`no open or parked review gate on this ${boardNoun()}`, {
-            status: 404,
-          });
+          return new Response(
+            `no open or parked review gate on this ${boardNoun()}`,
+            {
+              status: 404,
+            }
+          );
         return new Response(JSON.stringify({ ok: true, ...result }), {
           headers: { 'content-type': 'application/json' },
         });

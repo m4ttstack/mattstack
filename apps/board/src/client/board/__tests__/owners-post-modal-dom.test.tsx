@@ -349,9 +349,11 @@ test('a partly failed post names the channels that did not go', async () => {
   );
 });
 
-test("the dialog names a GitHub PR by its # ref, a GitLab MR by its ! ref", async () => {
+test('the dialog names a GitHub PR by its # ref, a GitLab MR by its ! ref', async () => {
   await open({}, { initial: PREVIEW });
-  expect(document.querySelector('[aria-label="post !1418 to slack"]')).not.toBeNull();
+  expect(
+    document.querySelector('[aria-label="post !1418 to slack"]')
+  ).not.toBeNull();
   await React.act(async () => root.unmount());
   root = createRoot(container);
   await React.act(async () => {
@@ -371,5 +373,7 @@ test("the dialog names a GitHub PR by its # ref, a GitLab MR by its ! ref", asyn
       />
     );
   });
-  expect(document.querySelector('[aria-label="post #1418 to slack"]')).not.toBeNull();
+  expect(
+    document.querySelector('[aria-label="post #1418 to slack"]')
+  ).not.toBeNull();
 });

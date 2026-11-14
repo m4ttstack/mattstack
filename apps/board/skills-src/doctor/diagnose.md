@@ -273,7 +273,7 @@ on !<iid>: <second error>`. Context: both `mr_view` errors, quoted.
 
 | Value                                                                             | Label                | Description                                                        |
 | --------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------ |
-| `take: you tell me the MR's state (conflicts, pipeline status) (mr_view refused)` | Tell me its state | You report conflicts and pipeline status and I diagnose from that. |
+| `take: you tell me the MR's state (conflicts, pipeline status) (mr_view refused)` | Tell me its state    | You report conflicts and pipeline status and I diagnose from that. |
 | `iterate: you fixed the cause, read the MR again (mr_view refused)`               | Fixed it, read again | You fixed what refused the read and I read it again.               |
 | `hold: keep this pane open with nothing moved (mr_view refused)`                  | Hold this pane       | I stop with nothing moved and the pane stays open.                 |
 | `leave it to me in the pane`                                                      | Leave it to me       | I write an error naming the refusal and you take over.             |

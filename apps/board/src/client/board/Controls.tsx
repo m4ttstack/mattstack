@@ -230,7 +230,8 @@ function Controls({
                     data-active={on || undefined}
                     onClick={() => show.toggle(item)}
                   >
-                    {on ? '✓' : '+'} {showLabel(item, show.channel, show.prs, show.forge)} ·{' '}
+                    {on ? '✓' : '+'}{' '}
+                    {showLabel(item, show.channel, show.prs, show.forge)} ·{' '}
                     {show.counts[item]}
                   </button>
                 );
