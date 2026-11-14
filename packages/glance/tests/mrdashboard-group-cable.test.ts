@@ -54,6 +54,7 @@ function stubPR(iid: number): PullRequest {
 interface CableProvider {
   provider: GitProvider;
   fetches: number[][];
+  fetchOpen: boolean;
   watchMRCalls: number;
   subscriptions: Array<Array<Pick<PullRequest, 'id' | 'iid'>>>;
   cable: WatcherSubscribeCallbacks | null;
@@ -68,6 +69,7 @@ function cableProvider(): CableProvider {
   const rec: CableProvider = {
     provider: null as unknown as GitProvider,
     fetches: [],
+    fetchOpen: false,
     watchMRCalls: 0,
     subscriptions: [],
     cable: null,
@@ -80,7 +82,14 @@ function cableProvider(): CableProvider {
     capabilities: {} as ProviderCapabilities,
     async fetchPullRequests(options?: FetchPullRequestsOptions) {
       const iids = options?.iids ?? [];
-      rec.fetches.push([...iids]);
+      // A GitLab group reads each iid with its own call; calls made in one
+      // turn of the event loop are one group fetch.
+      if (rec.fetchOpen) rec.fetches.at(-1)!.push(...iids);
+      else {
+        rec.fetches.push([...iids]);
+        rec.fetchOpen = true;
+        setTimeout(() => (rec.fetchOpen = false), 0);
+      }
       return iids.filter((iid) => !rec.omit.has(iid)).map(stubPR);
     },
     watchMR() {
@@ -265,10 +274,15 @@ describe('group dashboard over the real GitLab shared cable', () => {
     const gitlab = new GitLabProvider('https://gitlab.example', 'tok');
     const omit = new Set([3]);
     let fetches = 0;
+    let fetchOpen = false;
     (gitlab as unknown as { fetchPullRequests: GitProvider['fetchPullRequests'] }).fetchPullRequests = async (
       options?: FetchPullRequestsOptions
     ) => {
-      fetches++;
+      if (!fetchOpen) {
+        fetches++;
+        fetchOpen = true;
+        setTimeout(() => (fetchOpen = false), 0);
+      }
       return (options?.iids ?? []).filter((iid) => !omit.has(iid)).map(stubPR);
     };
     const group = createDashboard({ provider: gitlab, projectPath: 'g/p', mrIid: [1, 2, 3], userId: null });

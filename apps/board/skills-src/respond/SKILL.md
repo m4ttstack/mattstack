@@ -350,9 +350,8 @@ open` and exits with its status. The gate stores every context whole; the
 file's `pane` key is the prose the pane form shows, already fitted to the
 pane budget (see "Fitted files" in `gate-step.md`), and a file whose `pane`
 reads `contextDropped: true` left some question context out of the pane
-form. The file goes in untouched. A
-Gate 2 file ends with a pane-only `next` navigation question this wrapper
-does not ask; the script drops it.
+form. The file goes in untouched. A `next` question an older file still
+carries is never asked; the script drops it.
 
 **Gate context.** A gate this wrapper builds or refits itself carries the
 structured context the board draws its respond face from (the person,

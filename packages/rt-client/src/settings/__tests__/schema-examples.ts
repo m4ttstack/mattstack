@@ -292,10 +292,12 @@ export const EXAMPLES: Record<string, Example> = {
             slack: { codeOwnersChannel: "pod-widgets", channels: [{ name: "widgets-internal", kind: "review" }] },
           },
           gadgets: { slack: { codeOwnersChannel: "pod-gadgets" } },
+          web: { github: { team: "@acme/web" } },
         },
       },
     ],
     bad: [
+      { value: { teams: { web: { github: { team: "" } } } }, path: ["teams", "web", "github", "team"] },
       { value: { teams: { widgets: { slack: { channels: [{ name: "widgets-internal" }] } } } }, path: ["teams", "widgets", "slack", "channels", 0, "kind"] },
       { value: { teams: { widgets: { slack: { codeOwnersChannel: 4 } } } }, path: ["teams", "widgets", "slack", "codeOwnersChannel"] },
     ],

@@ -14,6 +14,8 @@ export const SYMBOL = {
   boxActive: '◻',
   boxOn: '◼',
   boxOff: '◻',
+  // The left edge of the button the keyboard selected.
+  selectEdge: '▎',
 }
 
 // Nerd Font icons: codicons, plus Material Design for the question kinds, which draw larger (names from the font's cmap). A font without them draws empty boxes.
@@ -24,6 +26,7 @@ export const ICON = {
   missing: '\u{EA6C}', // warning
   back: '\u{EAB5}', // chevron_left
   next: '\u{EAB6}', // chevron_right
+  collapse: '\u{EAB4}', // chevron_down
   chat: '\u{EAC7}', // comment_discussion
   single: '\u{F043E}', // md-radiobox_marked
   multi: '\u{F0138}', // md-checkbox_multiple_marked
@@ -31,7 +34,6 @@ export const ICON = {
   review: '\u{EBB1}', // check_all
   edit: '\u{EA73}',
   info: '\u{EA74}',
-  minimize: '\u{EABA}', // chrome_minimize
 }
 
 // The mattstack mark's pink and plum (packages/ui MattstackMark).
@@ -53,6 +55,9 @@ export const FILL = {
   field: { bg: '#2c2c2c', color: 'white' },
   brand: { bg: BRAND.pink, color: BRAND.plum },
 }
+
+// A scroll bar's column, drawn as background colour: the track runs the window's height, the thumb sits on it.
+export const SCROLL = { track: '#383838', thumb: '#707070' }
 
 export const PLACEHOLDER: Style = { color: '#7a7a7a' }
 
@@ -80,12 +85,40 @@ const PRESS_FILL: Record<string, string> = {
   [FILL.current.bg]: '#3394a2',
 }
 
-export function hovered<S extends Style>(span: S): S {
+// A quiet button: a light label on a faint fill at rest (never the disabled grey), a brighter fill and a white label under the pointer.
+export const QUIET = { label: '#e0e0e0', rest: '#363636', hover: '#4a4a4a', press: '#404040', muted: '#999999' }
+
+function hoverOf<S extends Style>(span: S): S {
+  if (span.quiet) return { ...span, bg: QUIET.hover, color: 'white' }
+  if (span.chip) return { ...span, bg: span.chip }
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: '#404040', dim: false }
 }
 
-export function pressed<S extends Style>(span: S): S {
+function pressOf<S extends Style>(span: S): S {
+  if (span.quiet) return { ...span, bg: QUIET.press, color: 'white' }
+  if (span.chip) return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip }
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: '#353535', dim: false }
+}
+
+// A span with a `mark` keeps that foreground under the pointer: only its fill follows.
+export function hovered<S extends Style>(span: S): S {
+  const out = hoverOf(span)
+  return span.mark ? { ...out, color: span.mark } : out
+}
+
+export function pressed<S extends Style>(span: S): S {
+  const out = pressOf(span)
+  return span.mark ? { ...out, color: span.mark } : out
+}
+
+// The button the keyboard selected: its own look, with a pink bar in its left edge cell so the cell count stays.
+// The bar is a mark, so under the pointer it takes the button's hover and press fills and stays pink.
+export function keySelected<A>(span: Span<A>): Span<A>[] {
+  if (!span.t.startsWith(' ')) return [span]
+  return [
+    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: span.t.slice(1) },
+  ]
 }
 
 export const ACCENT: Style = { color: 'cyan' }
@@ -97,12 +130,13 @@ export const DIM: Style = { dim: true }
 export const rail = <A = never>(style: Style): Span<A>[] => [sp(SYMBOL.bar, style), sp('  ')]
 
 // dimColor does nothing on a span that names a colour, so the unfocused look steps each level down to an explicit shade, keeping their order. Dark terminals only for now.
-const MUTED: Record<string, string> = { cyan: '#3d6f78', green: '#4d7a4d', yellow: '#857640', red: '#8a4a4a', gray: '#4a4a4a', [BRAND.pink]: '#7a3d58' }
+const MUTED: Record<string, string> = { cyan: '#62a4b0', green: '#72b072', yellow: '#baa75c', red: '#c46e6e', gray: '#6e6e6e', [BRAND.pink]: '#b05680' }
 
-const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#6e3a52', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#5e2f45', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#24313f', color: '#8a8a8a' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#262626', color: '#8a8a8a' } }
+const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#9e5270', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#884465', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#334659', color: '#b8b8b8' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#323232', color: '#b8b8b8' }, [SCROLL.track]: { bg: '#353535' }, [SCROLL.thumb]: { bg: '#646464' } }
 
 export function muted<S extends Style>(span: S): S {
-  if (span.bg) return { ...span, ...(MUTED_FILL[span.bg] ?? { bg: '#3a3a3a', color: '#8a8a8a' }), dim: false }
+  if (span.quiet) return { ...span, color: QUIET.muted, dim: false }
+  if (span.bg) return { ...span, ...(MUTED_FILL[span.bg] ?? { bg: '#4a4a4a', color: '#b8b8b8' }), dim: false }
   if (span.color) return { ...span, color: MUTED[span.color] ?? span.color, dim: false }
-  return { ...span, color: span.dim ? '#555555' : '#8a8a8a', dim: false }
+  return { ...span, color: span.dim ? '#808080' : '#b8b8b8', dim: false }
 }

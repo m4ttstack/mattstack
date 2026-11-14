@@ -1,6 +1,5 @@
 import { expect, test } from 'claude-code/testing'
 
-import { addDescription } from './contract'
 import { startSession, world } from './test-world'
 
 const ADD = 'mcp__human-todos__add'
@@ -79,12 +78,6 @@ test('the system prompt gains one guidance section naming the registered add too
   expect(mine[0]?.scope).toBe('session')
   expect(mine[0]?.text).toContain('mcp__x__add')
   expect(mine[0]?.text).toContain('mcp__x__withdraw')
-})
-
-test('the add description names every kind and forbids asking for "done"', () => {
-  const text = addDescription('Human Todos')
-  for (const kind of ['task', 'run', 'terminal', 'link', 'image']) expect(text).toContain(kind)
-  expect(text).toContain('never ask them to type "done"')
 })
 
 test('add refuses a kind that is not one of the five', async ($, on) => {

@@ -8,10 +8,13 @@ import type { Database } from 'bun:sqlite';
 
 import type { MRDetail } from '@mattstack/glance';
 import { getStateDb } from '../state/index.ts';
+import type { AuditEntry } from '../triage/audit.ts';
+import { armHeld, postLatchOrHold } from './arm-hold.ts';
 import { findLatches, hasLiveLatch } from './discussions.ts';
 import { landFollowUp, spendForApproval } from './land.ts';
 import { putLatchRow, readLatchRow } from './latch-state.ts';
-import { postLatch, type LatchGateway } from './post.ts';
+import { noFilesFor, recordNoFiles } from './no-files.ts';
+import type { LatchGateway, LatchMr } from './post.ts';
 
 export interface ReviewLatchStep {
   /** null: the review ended done with no verdict (an abandoned post gate). */
@@ -22,6 +25,10 @@ export interface ReviewLatchStep {
   /** runStamp of the finished review; null when the lane no longer reads
       done, so this signal cannot vouch for the run and nothing lands. */
   reviewRunStartedAt: number | null;
+  /** runStamp of the finished lane whether or not it vouches for the run;
+      the no-files memo keys on it, since reviewRunStartedAt can be null. */
+  runStamp: number;
+  appendAudit(entry: AuditEntry): void;
   /** The reviewer's discussions created at or after `launchAt`, fresh from
       GitLab; null when they cannot be read. */
   countNew: (launchAt: number) => Promise<number | null>;
@@ -30,10 +37,8 @@ export interface ReviewLatchStep {
   approvedBy: string[];
   detail: MRDetail;
   gateway: LatchGateway;
-  projectId: number;
-  projectPath: string;
+  mr: LatchMr;
   mrUrl: string;
-  iid: number;
   now?: number;
   /** The board's state db; the default is the live one. */
   db?: Database;
@@ -45,12 +50,7 @@ export async function applyReviewLatch(
   const db = s.db ?? getStateDb();
   const now = s.now ?? Date.now();
   const latches = findLatches(s.detail, s.self);
-  const mr = {
-    projectId: s.projectId,
-    projectPath: s.projectPath,
-    mrUrl: s.mrUrl,
-    iid: s.iid,
-  };
+  const mr = { ...s.mr, mrUrl: s.mrUrl };
   const row = readLatchRow(s.mrUrl, db);
   if (
     row &&
@@ -105,14 +105,21 @@ export async function applyReviewLatch(
   if (hasLiveLatch(latches)) return 'none';
   const live = readLatchRow(s.mrUrl, db);
   if (live && live.phase !== 'spent') return 'none';
-  const { discussionId, rootNoteId } = await postLatch(
-    s.gateway,
-    s.projectId,
-    s.projectPath,
-    s.mrUrl,
-    s.iid,
-    db
-  );
+  if (noFilesFor(s.mrUrl, s.runStamp, db)) return 'none';
+  if (armHeld(s.gateway, s.mrUrl, now, db)) return 'none';
+  const posted = await postLatchOrHold(s.gateway, mr, s.appendAudit, now, db);
+  if ('noFiles' in posted) {
+    recordNoFiles(s.mrUrl, s.runStamp, db);
+    s.appendAudit({
+      ts: now,
+      mrUrl: s.mrUrl,
+      iid: s.mr.iid,
+      event: 'latch',
+      action: 'no-files',
+    });
+    return 'none';
+  }
+  const { discussionId, rootNoteId } = posted;
   putLatchRow(
     {
       mrUrl: s.mrUrl,

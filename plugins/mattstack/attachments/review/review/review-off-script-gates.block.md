@@ -10,9 +10,9 @@ quoting the refusal verbatim, under the run, in this pane even when a board
 owns the review gates.
 
 Route: `action: handback` is hand back whatever `next` says; otherwise
-`next: iterate` is iterate here (a retry with their note; each failed
-retry opens a new gate), `hold` is `run_hold` with their words, `proceed`
-is take. A hold's or hand-back's reason says what is on the MR; from the
+`hold` is `run_hold` with their words, an `action` write-in or `next:
+iterate` is iterate here (a retry with their words as the note; each
+failed retry opens a new gate), and a take is take. A hold's or hand-back's reason says what is on the MR; from the
 submit, pending-comments or approval gate it always says whether this
 review is posted (by the submit, by the human, partly, or outcome unknown)
 and, on an approve, whether the approval is outstanding: what `This review

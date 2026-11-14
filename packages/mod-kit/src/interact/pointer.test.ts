@@ -12,7 +12,7 @@ const ONE = 2
 const TWO = 12
 
 // The engine calls the module again after each setState, which sets a fresh listener over the new state.
-function mount(opts: { focused?: boolean; initial?: PointerState | null; isActive?: () => boolean } = {}) {
+function mount(opts: { focused?: boolean; initial?: PointerState | null; isActive?: () => boolean; lines?: () => Line<Action>[] } = {}) {
   let state: PointerState | undefined = opts.initial === null ? undefined : (opts.initial ?? {})
   let handler: ((event: ClientPointerEvent) => void) | undefined
   const actions: Action[] = []
@@ -30,18 +30,21 @@ function mount(opts: { focused?: boolean; initial?: PointerState | null; isActiv
     },
   } as unknown as ClientSurface<PointerState>
   const render = () =>
-    attachPointer(surface, LINES, {
+    attachPointer(surface, opts.lines?.() ?? LINES, {
       focused: opts.focused ?? true,
       onAction: a => actions.push(a),
       onEngage: () => (engaged += 1),
       ...(opts.isActive && { isActive: opts.isActive }),
     })
   let look = render().look
-  const send = (type: ClientPointerEvent['type'], x: number, button?: 'left' | 'right') => {
-    handler?.({ type, x, y: 0, ...(button && { button }) })
+  const send = (type: ClientPointerEvent['type'], x: number, button?: 'left' | 'right', y = 0) => {
+    handler?.({ type, x, y, ...(button && { button }) })
     look = render().look
   }
-  return { send, actions, state: () => state, look: () => look, engaged: () => engaged }
+  const redraw = () => {
+    look = render().look
+  }
+  return { send, redraw, actions, state: () => state, look: () => look, engaged: () => engaged }
 }
 
 test('hover follows the pointer, and leave clears it', () => {
@@ -110,4 +113,85 @@ test('look lights only the control still under a held press', () => {
   m.send('move', TWO, 'left')
   expect(m.look().pressed).toBeUndefined()
   expect(m.look().hover).toBeDefined()
+})
+
+// Output arriving while a button is held redraws the surface and can push the button down a row.
+function shifting() {
+  let lines = LINES
+  const m = mount({ lines: () => lines })
+  const shift = () => {
+    lines = [[sp('output')], ...LINES]
+    m.redraw()
+  }
+  return { ...m, shift }
+}
+
+test('a press survives a redraw that moves its control: releasing on it where it now is acts', () => {
+  const m = shifting()
+  m.send('down', ONE, 'left')
+  m.shift()
+  m.send('move', ONE, 'left', 1)
+  m.send('up', ONE, 'left', 1)
+  expect(m.actions).toEqual(['one'])
+})
+
+test('a release with no move since the press acts on what was pressed, though the lines moved under it', () => {
+  const m = shifting()
+  m.send('down', ONE, 'left')
+  m.shift()
+  m.send('up', ONE, 'left')
+  expect(m.actions).toEqual(['one'])
+})
+
+test('a still release does nothing when the redraw disabled the pressed control', () => {
+  let lines = LINES
+  const m = mount({ lines: () => lines })
+  m.send('down', ONE, 'left')
+  lines = [[sp('output')], [buttonSpan<Action>({ label: 'One', action: 'one', disabled: true }), sp(' '), buttonSpan<Action>({ label: 'Two', action: 'two' })]]
+  m.redraw()
+  m.send('up', ONE, 'left')
+  expect(m.actions).toEqual([])
+  expect(m.state()?.pressed).toBeUndefined()
+})
+
+// A terminal that reports no motion sends a drag as a press, then a release somewhere else, with no move between.
+test('a release at another cell with no move between cancels, as a drag off does', () => {
+  const m = mount()
+  m.send('down', ONE, 'left')
+  m.send('up', TWO, 'left')
+  expect(m.actions).toEqual([])
+  m.send('down', ONE, 'left')
+  m.send('up', 30, 'left')
+  expect(m.actions).toEqual([])
+})
+
+// A component's handler key names its place in the tree, so a redraw that changes the tree can give another control that key.
+test('a still release does nothing when the pressed action now belongs to a different control', () => {
+  let lines = LINES
+  const m = mount({ lines: () => lines })
+  m.send('down', ONE, 'left')
+  lines = [[sp('output')], [buttonSpan<Action>({ label: 'Clear finished', action: 'one' })]]
+  m.redraw()
+  m.send('up', ONE, 'left')
+  expect(m.actions).toEqual([])
+})
+
+test("a release on the pressed control's own place acts though its keyboard edge came off in the redraw", () => {
+  const edged = [[{ ...buttonSpan<Action>({ label: 'One', action: 'one' }), t: '▎' }, { ...buttonSpan<Action>({ label: 'One', action: 'one' }), t: ' One  ' }, sp(' '), buttonSpan<Action>({ label: 'Two', action: 'two' })]]
+  let lines: Line<Action>[] = edged
+  const m = mount({ lines: () => lines })
+  m.send('down', 0, 'left')
+  lines = LINES
+  m.redraw()
+  m.send('up', 0, 'left')
+  expect(m.actions).toEqual(['one'])
+})
+
+test('after a redraw, dragging off onto another control and releasing still does nothing', () => {
+  const m = shifting()
+  m.send('down', ONE, 'left')
+  m.shift()
+  m.send('move', TWO, 'left', 1)
+  m.send('up', TWO, 'left', 1)
+  expect(m.actions).toEqual([])
 })

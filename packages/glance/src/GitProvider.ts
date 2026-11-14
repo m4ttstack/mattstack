@@ -153,8 +153,8 @@ export interface FetchPullRequestsOptions {
   state?: MRState | MRState[];
 
   /**
-   * Fetch specific MRs by IID in a single batched query.
-   * Requires `projectPath` to be set.
+   * Fetch specific MRs by IID: one batched query on GitHub, one query per
+   * IID on GitLab. Requires `projectPath` to be set.
    */
   iids?: number[];
 

@@ -14,7 +14,6 @@ form: the verdict and a one-line triage per blocking failure.
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
 | `action` (write-in) | **Fix and re-push** (a REAL failure in the change) / **Retry the job** (a flake not yet retried) / **Hand back** / **Abandon the run** (own run only) | always |
-| `next` | `proceed` / `iterate` / `hold` | always |
 
 Mark one `action` option `(Recommended)`: **Fix and re-push** when any
 blocking failure is REAL, while fewer than three fix rounds have run

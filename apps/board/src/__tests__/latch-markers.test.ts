@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import type { LatchPhase } from '../latch/latch-state.ts';
 import {
+  ARMED_COPY,
+  armedCopy,
   armedLatchBody,
   imageMarkdownFor,
   imageMarkdownOf,
@@ -33,6 +35,15 @@ describe('bodies', () => {
 
   test('spent body is the image alone, with no sentence', () => {
     expect(spentLatchBody(IMG)).toBe(`${LATCH_MARKER_SPENT}\n\n${IMG}\n`);
+  });
+
+  test("armedCopy keeps GitLab's sentence and names the PR on GitHub", () => {
+    expect(armedCopy('gitlab')).toBe(ARMED_COPY);
+    expect(ARMED_COPY).toBe(
+      "**Addressed everything?** Resolve this thread and I'll take another pass over the MR.\n\nLeave it open while there's still work in flight."
+    );
+    expect(armedCopy('github')).toBe(ARMED_COPY.replace('the MR.', 'the PR.'));
+    expect(armedCopy('github')).not.toMatch(/\bMR\b|[\u2013\u2014]/);
   });
 
   test('neither body uses an em dash or en dash', () => {

@@ -8,8 +8,10 @@
 
 import type { Probes } from "./setup/probes.ts";
 import { forgeFromRemote } from "./setup/team-settings.ts";
-import { forgeArgv, glabEnv } from "./team/forge.ts";
+import { forgeArgv, forgeAuthEnv, glabEnv, parseForgeRemote } from "./team/forge.ts";
+import { mayOfferGitLabToken, tokenOrNull, type ForgeTokenLookup } from "./team/forge-token.ts";
 import { bundledToolExec } from "./deps/resolve.ts";
+import { redactCredentials } from "../packages/rt-client/src/redact.ts";
 import { forgeChangeNoun } from "./repo-label.ts";
 
 export interface StackMembership {
@@ -179,8 +181,10 @@ type ForgeListing = { ok: true; mrs: ForgeMr[] } | { ok: false; error: string };
 /** A hung gitq or forge CLI must not hold the sync before its first ref move. */
 const CLI_TIMEOUT_MS = 30_000;
 
-function failure(prefix: string, r: { code: number; stdout: string; stderr: string }): ForgeListing {
-  const detail = (r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`).split("\n")[0];
+/** `secret` is the token rt handed the CLI: a legacy or custom-prefix token has no shape the pattern redaction knows. */
+function failure(prefix: string, r: { code: number; stdout: string; stderr: string }, secret?: string): ForgeListing {
+  const first = (r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`).split("\n")[0]!;
+  const detail = redactCredentials(secret ? first.split(secret).join("[redacted]") : first);
   return { ok: false, error: `${prefix}: ${detail}` };
 }
 
@@ -208,38 +212,110 @@ function complete(listing: ForgeListing, query: string): ForgeListing {
   return { ok: false, error: `${query} returned ${LISTING_LIMIT} rows, the most rt asks for, so the listing may be incomplete` };
 }
 
-async function listGithub(p: Probes, filter: string): Promise<ForgeListing> {
-  const r = await p.exec([...forgeArgv(p, "gh"), "pr", "list", "--state", "open", filter, "--limit", String(LISTING_LIMIT), "--json", "number,headRefName,baseRefName,url"], { timeoutMs: CLI_TIMEOUT_MS });
-  if (r.code !== 0) return failure("gh pr list failed", r);
+/** How a forge CLI runs for this check: its own login, or rt's token for the gated host and repo. */
+interface CliOpts {
+  env?: Record<string, string>;
+  cwd?: string;
+  /** The repo flag and its value, present only when a token goes along. */
+  pin?: string[];
+  token?: string;
+}
+
+function execOpts(cli: CliOpts) {
+  return { ...(cli.env ? { env: cli.env } : {}), ...(cli.cwd ? { cwd: cli.cwd } : {}), timeoutMs: CLI_TIMEOUT_MS };
+}
+
+async function listGithub(p: Probes, cli: CliOpts, filter: string): Promise<ForgeListing> {
+  const r = await p.exec([...forgeArgv(p, "gh"), "pr", "list", ...(cli.pin ?? []), "--state", "open", filter, "--limit", String(LISTING_LIMIT), "--json", "number,headRefName,baseRefName,url"], execOpts(cli));
+  if (r.code !== 0) return failure("gh pr list failed", r, cli.token);
   return complete(parseListing<{ number: number; headRefName: string; baseRefName: string; url: string }>(r.stdout, (row) => ({
     iid: row.number, source: row.headRefName, target: row.baseRefName, url: row.url,
   })), `gh pr list ${filter}`);
 }
 
-async function listGitlab(p: Probes, host: string, filter: string): Promise<ForgeListing> {
-  const r = await p.exec([...forgeArgv(p, "glab"), "mr", "list", filter, "--output", "json", "--per-page", String(LISTING_LIMIT)], { env: glabEnv(host), timeoutMs: CLI_TIMEOUT_MS });
-  if (r.code !== 0) return failure("glab mr list failed", r);
+async function listGitlab(p: Probes, cli: CliOpts, filter: string): Promise<ForgeListing> {
+  const r = await p.exec([...forgeArgv(p, "glab"), "mr", "list", ...(cli.pin ?? []), filter, "--output", "json", "--per-page", String(LISTING_LIMIT)], execOpts(cli));
+  if (r.code !== 0) return failure("glab mr list failed", r, cli.token);
   return complete(parseListing<{ iid: number; source_branch: string; target_branch: string; web_url: string }>(r.stdout, (row) => ({
     iid: row.iid, source: row.source_branch, target: row.target_branch, url: row.web_url,
   })), `glab mr list ${filter}`);
 }
 
+export interface StackGuardAuth {
+  confirmedHost(): string | null;
+  tokenFor(remote: string): Promise<ForgeTokenLookup>;
+}
+
+async function heldToken(auth: StackGuardAuth, remote: string): Promise<string | null> {
+  try {
+    return tokenOrNull(await auth.tokenFor(remote));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `host/path` from the origin the gate checked, or null when it cannot be
+ * derived. With a token, the CLI must be pinned to this repo: glab and gh
+ * otherwise pick a remote themselves (an `upstream` ranks above origin) and
+ * would send rt's token to that remote's host, and glab reads
+ * GITLAB_HOST=gitlab.com as no override at all.
+ */
+function repoPin(forge: { host: string; provider: "github" | "gitlab" }, remote: string): string | null {
+  const parsed = parseForgeRemote(remote);
+  if (!parsed || parsed.host !== forge.host || parsed.provider !== forge.provider) return null;
+  const segments = parsed.path.split("/");
+  const shapeOk = forge.provider === "github" ? segments.length === 2 : segments.length >= 2;
+  if (!shapeOk || !segments.every((seg) => /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(seg))) return null;
+  return `${forge.host}/${parsed.path}`;
+}
+
+/** Decided once per check, so both listings share one token read. */
+async function cliOpts(
+  forge: { host: string; provider: "github" | "gitlab" },
+  remote: string,
+  cwd: string,
+  auth: StackGuardAuth | undefined,
+): Promise<CliOpts> {
+  const asToday: CliOpts = forge.provider === "gitlab" ? withEnv(glabEnv(forge.host)) : {};
+  if (!auth || /^http:\/\//i.test(remote)) return asToday;
+  const gated = forge.provider === "gitlab"
+    ? mayOfferGitLabToken(remote, auth.confirmedHost())
+    : forge.host === "github.com";
+  if (!gated) return asToday;
+  const pin = repoPin(forge, remote);
+  if (!pin) return asToday;
+  const token = await heldToken(auth, remote);
+  if (!token) return asToday;
+  const env = forgeAuthEnv(forge.provider, forge.host, token) ?? {};
+  return forge.provider === "gitlab"
+    // glab's own `api_protocol: http` would send the token in cleartext; only
+    // API_PROTOCOL overrides it (GITLAB_API_PROTOCOL does not, glab 1.108).
+    ? { env: { ...env, GITLAB_HOST: forge.host, API_PROTOCOL: "https" }, cwd, pin: ["-R", pin], token }
+    : { env: { ...env, GH_HOST: forge.host }, cwd, pin: ["--repo", pin], token };
+}
+
+function withEnv(env: Record<string, string> | undefined): CliOpts {
+  return env ? { env } : {};
+}
+
 // Filtered by branch on the forge's side, so how many other MRs are open never
 // decides whether this branch's own MR or its dependents are seen. The `=`
 // form keeps a dash-leading branch name from parsing as a flag.
-async function listBranchMrs(p: Probes, remote: string, branch: string): Promise<ForgeListing> {
+async function listBranchMrs(p: Probes, remote: string, branch: string, cwd: string, auth: StackGuardAuth | undefined): Promise<ForgeListing> {
   const forge = forgeFromRemote(remote);
-  if (!forge) return { ok: false, error: `origin ${remote} is not a GitHub or GitLab remote` };
+  if (!forge) return { ok: false, error: redactCredentials(`origin ${remote} is not a GitHub or GitLab remote`) };
+  const cli = await cliOpts(forge, remote, cwd, auth);
   const [own, dependents] = forge.provider === "github"
-    ? [await listGithub(p, `--head=${branch}`), await listGithub(p, `--base=${branch}`)]
-    : [await listGitlab(p, forge.host, `--source-branch=${branch}`), await listGitlab(p, forge.host, `--target-branch=${branch}`)];
+    ? [await listGithub(p, cli, `--head=${branch}`), await listGithub(p, cli, `--base=${branch}`)]
+    : [await listGitlab(p, cli, `--source-branch=${branch}`), await listGitlab(p, cli, `--target-branch=${branch}`)];
   if (!own.ok) return own;
   if (!dependents.ok) return dependents;
   return { ok: true, mrs: [...own.mrs, ...dependents.mrs] };
 }
 
-/** Real runners over the machine's gitq and forge CLIs. */
-export function createStackGuardRunners(p: Probes): StackGuardRunners {
+/** Real runners over the machine's gitq and forge CLIs. Without `auth`, glab and gh use their own login. */
+export function createStackGuardRunners(p: Probes, auth?: StackGuardAuth): StackGuardRunners {
   return {
     async gitqStacks(cwd) {
       const r = await p.exec([...(bundledToolExec(p, "gitq") ?? ["gitq"]), "stacks", "--json", "-C", cwd], { timeoutMs: CLI_TIMEOUT_MS });
@@ -248,7 +324,7 @@ export function createStackGuardRunners(p: Probes): StackGuardRunners {
     async forgeOpenMrs(cwd, branch) {
       const remote = await p.exec(["git", "remote", "get-url", "origin"], { cwd, timeoutMs: CLI_TIMEOUT_MS });
       if (remote.code !== 0) return failure("no origin remote", remote);
-      return listBranchMrs(p, remote.stdout.trim(), branch);
+      return listBranchMrs(p, remote.stdout.trim(), branch, cwd, auth);
     },
   };
 }

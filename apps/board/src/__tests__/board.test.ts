@@ -525,6 +525,111 @@ describe('buildBoard on a GitHub forge', () => {
   });
 });
 
+describe('buildBoard codeowner tabs by forge', () => {
+  const now = Date.parse('2026-07-11T00:00:00Z');
+  const stranger = (id: string, url: string, provider: 'github' | 'gitlab') =>
+    pr({
+      id,
+      iid: 5,
+      provider,
+      webUrl: url,
+      author: {
+        id: `${provider}:99`,
+        username: 'outsider',
+        name: 'Outsider',
+        avatarUrl: null,
+      },
+    } as Partial<PullRequest>);
+
+  test('mixed-case GitHub tab matches lowercased tags and known owners', () => {
+    const gh: BoardConfig = {
+      ...config,
+      forge: { kind: 'github', host: 'https://github.com' },
+      projects: ['acme/widgets'],
+      rtRepos: { 'acme/widgets': 'github.com/acme/widgets' },
+      tabs: [
+        {
+          id: 'w',
+          label: 'W',
+          source: { kind: 'codeowners', section: '@Acme/Web' },
+        },
+      ],
+    };
+    const row = stranger(
+      'github:5',
+      'https://github.com/acme/widgets/pull/5',
+      'github'
+    );
+    const out = buildBoard([row], gh, now, new Map([[row.id, ['@acme/web']]]));
+    expect(out).toHaveLength(1);
+    expect(out[0]!.codeownerSections).toEqual(['@Acme/Web']);
+  });
+
+  test('case-duplicate GitHub tabs: the first tab keeps the rows', () => {
+    const gh: BoardConfig = {
+      ...config,
+      forge: { kind: 'github', host: 'https://github.com' },
+      projects: ['acme/widgets'],
+      rtRepos: { 'acme/widgets': 'github.com/acme/widgets' },
+      tabs: [
+        {
+          id: 'a',
+          label: 'A',
+          source: { kind: 'codeowners', section: '@Acme/Web' },
+        },
+        {
+          id: 'b',
+          label: 'B',
+          source: { kind: 'codeowners', section: '@acme/web' },
+        },
+      ],
+    };
+    const row = stranger(
+      'github:5',
+      'https://github.com/acme/widgets/pull/5',
+      'github'
+    );
+    const out = buildBoard([row], gh, now, new Map([[row.id, ['@acme/web']]]));
+    expect(out[0]!.codeownerSections).toEqual(['@Acme/Web']);
+  });
+
+  test('GitLab keeps a duplicate daemon tag as sent', () => {
+    const gl: BoardConfig = {
+      ...config,
+      tabs: [
+        {
+          id: 'w',
+          label: 'W',
+          source: { kind: 'codeowners', section: 'Web' },
+        },
+      ],
+    };
+    const row = stranger(
+      'gitlab:5',
+      'https://gitlab.com/org/repo-a/-/merge_requests/5',
+      'gitlab'
+    );
+    const out = buildBoard([row], gl, now, new Map([[row.id, ['Web', 'Web']]]));
+    expect(out[0]!.codeownerSections).toEqual(['Web', 'Web']);
+  });
+
+  test('GitLab tab Web does not match tag web', () => {
+    const gl: BoardConfig = {
+      ...config,
+      tabs: [
+        { id: 'w', label: 'W', source: { kind: 'codeowners', section: 'Web' } },
+      ],
+    };
+    const row = stranger(
+      'gitlab:5',
+      'https://gitlab.com/org/repo-a/-/merge_requests/5',
+      'gitlab'
+    );
+    const out = buildBoard([row], gl, now, new Map([[row.id, ['web']]]));
+    expect(out).toEqual([]);
+  });
+});
+
 describe('buildBoard tagged rows (codeowner tabs)', () => {
   const withTabs: BoardConfig = { ...config, tabs: tabsWithCodeowners };
   const now = Date.parse('2026-07-11T00:00:00Z');
@@ -767,16 +872,35 @@ describe('boardDemand', () => {
     expect(boardDemand(config, 1).codeownerSections).toBeUndefined();
   });
 
-  test('boardDemand sends no codeownerSections on a GitHub team', () => {
+  test('boardDemand sends deduped lowercased owners on a GitHub team', () => {
     const gh: BoardConfig = {
       ...config,
       forge: { kind: 'github', host: 'https://github.com' },
-      tabs: tabsWithCodeowners,
+      tabs: [
+        {
+          id: 'a',
+          label: 'A',
+          source: { kind: 'codeowners', section: '@Acme/Web' },
+        },
+        {
+          id: 'b',
+          label: 'B',
+          source: { kind: 'codeowners', section: '@acme/web' },
+        },
+      ],
     };
-    expect('codeownerSections' in boardDemand(gh, 1)).toBe(false);
-    expect(
-      boardDemand({ ...gh, forge: config.forge }, 1).codeownerSections
-    ).toEqual(['Acme']);
+    expect(boardDemand(gh, 1).codeownerSections).toEqual(['@acme/web']);
+  });
+
+  test('boardDemand sends GitLab sections exactly as configured', () => {
+    const gl: BoardConfig = {
+      ...config,
+      tabs: [
+        { id: 'a', label: 'A', source: { kind: 'codeowners', section: 'Web' } },
+        { id: 'b', label: 'B', source: { kind: 'codeowners', section: 'web' } },
+      ],
+    };
+    expect(boardDemand(gl, 1).codeownerSections).toEqual(['Web', 'web']);
   });
 });
 
@@ -904,7 +1028,7 @@ describe('reviewSkillForTab', () => {
 });
 
 describe('aggregateSyncScope', () => {
-  test('aggregateSyncScope ignores section scope on GitHub', () => {
+  test('aggregateSyncScope keeps section scope on GitHub', () => {
     const reads = [
       {
         syncedAt: 1,
@@ -912,17 +1036,17 @@ describe('aggregateSyncScope', () => {
           windowDays: 7,
           authors: [],
           uncovered: [],
-          uncoveredSections: ['A'],
-          knownSections: ['A'],
+          uncoveredSections: ['@acme/web'],
+          knownSections: ['@acme/web'],
         },
       },
     ];
     const gh = aggregateSyncScope(reads, 'github');
-    expect(gh.scopeUncoveredSections).toEqual([]);
-    expect(gh.scopeKnownSections).toBeNull();
+    expect(gh.scopeUncoveredSections).toEqual(['@acme/web']);
+    expect(gh.scopeKnownSections).toEqual(['@acme/web']);
     const gl = aggregateSyncScope(reads);
-    expect(gl.scopeUncoveredSections).toEqual(['A']);
-    expect(gl.scopeKnownSections).toEqual(['A']);
+    expect(gl.scopeUncoveredSections).toEqual(['@acme/web']);
+    expect(gl.scopeKnownSections).toEqual(['@acme/web']);
   });
 
   test('dataSyncedAt is the min syncedAt across reads', () => {

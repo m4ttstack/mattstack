@@ -105,7 +105,7 @@ flowchart TB
     conflict_answer -->|leave| left_mid_rebase
     conflict_answer -->|abort| git_rebase_abort
     conflict_answer -->|hold| held_end_turn
-    conflict_answer -->|iterate: the human worked in their pane| git_status_tree
+    conflict_answer -->|iterate or a write-in: the human worked in their pane| git_status_tree
     git_rebase_abort --> abort_succeeded
     abort_succeeded -->|yes| aborted
     abort_succeeded -->|no| abort_failed
@@ -139,7 +139,7 @@ flowchart TB
     stop_shell_push --> gate_off_script
     gate_off_script --> off_script_answer
     off_script_answer -->|take| make_recorded_move
-    off_script_answer -->|iterate: the human fixed it, retry| off_script_rounds_spent
+    off_script_answer -->|iterate or a write-in: the human fixed it, retry| off_script_rounds_spent
     off_script_answer -->|hand back| push_refused
     off_script_answer -->|hold| held_end_turn
     off_script_rounds_spent -->|no| git_push_force_lease

@@ -1,3 +1,13 @@
+/** The key a tab section is compared by. GitHub tags are lowercased owner
+    tokens, so a GitHub tab matches case-insensitively; GitLab headers are
+    exact. */
+export function sectionKey(
+  forge: 'gitlab' | 'github',
+  section: string
+): string {
+  return forge === 'github' ? section.toLowerCase() : section;
+}
+
 /**
  * Whether a configured codeowners section exists in the project's CODEOWNERS,
  * and the closest existing name when it does not. `known` null means rt could
@@ -7,9 +17,13 @@
  */
 export function sectionStatus(
   section: string,
-  known: string[] | null
+  known: string[] | null,
+  forge: 'gitlab' | 'github' = 'gitlab'
 ): { unknown: boolean; suggestion: string | null } {
-  if (known === null || known.includes(section))
+  if (
+    known === null ||
+    known.some(k => sectionKey(forge, k) === sectionKey(forge, section))
+  )
     return { unknown: false, suggestion: null };
   const needle = section.toLowerCase();
   const suggestion =
@@ -17,4 +31,16 @@ export function sectionStatus(
     known.find(k => k.toLowerCase().includes(needle)) ??
     null;
   return { unknown: true, suggestion };
+}
+
+/** The banner text for a tab whose section is not in CODEOWNERS: a GitHub
+    tab names an owner, a GitLab tab a section. */
+export function unknownSectionNotice(
+  forge: 'gitlab' | 'github',
+  section: string,
+  suggestion: string | null
+): string {
+  if (forge === 'github')
+    return `no CODEOWNERS owner "${section}"${suggestion ? `. Did you mean "${suggestion}"?` : ''}`;
+  return `no CODEOWNERS section "${section}"${suggestion ? ` · did you mean "${suggestion}"?` : ''}`;
 }

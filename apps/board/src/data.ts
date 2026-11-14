@@ -13,8 +13,9 @@ import type {
 import { isBotAuthor } from './bots.ts';
 import type { ExecutorState, ExecutorView } from './client/types.ts';
 import type { BoardConfig, BoardForge, Member } from './config.ts';
-import type { ReviewerLatch } from './latch/discussions.ts';
+import type { ReviewerLatch, ReviewerRequest } from './latch/discussions.ts';
 import type { RespondTarget } from './respond-targets.ts';
+import { sectionKey } from './sections.ts';
 import { extractTicketId } from './ticket.ts';
 
 /** The board-wide sync failure: the failing project with the longest
@@ -53,6 +54,9 @@ export type BoardMR = MRDashboardProps & {
       author can ask for a re-review through the MR when the switchboard
       can't reach that reviewer. Set by the discussions fetch. */
   reviewerLatches?: ReviewerLatch[];
+  /** Each reviewer's newest live latch on a PR this GitHub board owns, for
+      the GitHub re-request step. Set by the discussions fetch. */
+  reviewerRequests?: ReviewerRequest[];
   /** People with open feedback on an MR this board owns, for the respond
       menu. Set by the discussions fetch. */
   respondTargets?: RespondTarget[];
@@ -178,11 +182,15 @@ export function buildBoard(
   const members = new Set(config.members.map(m => m.username));
   const projects = new Set(config.projects);
   const prefixes = new Set(config.ticketPrefixes);
-  const tabSections = new Set(
-    config.tabs.flatMap(t =>
-      t.source.kind === 'codeowners' ? [t.source.section] : []
-    )
-  );
+  // Keyed so a GitHub tag (a lowercased owner) finds its tab's own spelling,
+  // which is what filterByTab and channelForMR compare against. The first tab
+  // for a key wins: tabs differing only by case are one owner.
+  const tabSections = new Map<string, string>();
+  for (const t of config.tabs) {
+    if (t.source.kind !== 'codeowners') continue;
+    const key = sectionKey(config.forge.kind, t.source.section);
+    if (!tabSections.has(key)) tabSections.set(key, t.source.section);
+  }
   const configBots = new Set(config.botUsernames.map(b => b.toLowerCase()));
   const out: BoardMR[] = [];
   for (const pr of prs) {
@@ -191,7 +199,10 @@ export function buildBoard(
     const isMember = members.has(pr.author.username);
     // Only tags matching a currently-configured tab count -- a tab removed
     // from config must not keep stale-tagged rows on the board.
-    const tagged = (tags?.get(pr.id) ?? []).filter(s => tabSections.has(s));
+    const tagged = (tags?.get(pr.id) ?? []).flatMap(s => {
+      const own = tabSections.get(sectionKey(config.forge.kind, s));
+      return own === undefined ? [] : [own];
+    });
     // A tagged row is on the board regardless of author; per-tab display
     // filtering by section is Task 11's job, not buildBoard's.
     if (!isMember && tagged.length === 0) continue;
@@ -293,16 +304,16 @@ export function boardDemand(config: BoardConfig, port: number): DemandDecl {
   const sections = [
     ...new Set(
       config.tabs.flatMap(t =>
-        t.source.kind === 'codeowners' ? [t.source.section] : []
+        t.source.kind === 'codeowners'
+          ? [sectionKey(config.forge.kind, t.source.section)]
+          : []
       )
     ),
   ];
   return {
     client: `board:${port}`,
     authors: config.members.map(m => m.username),
-    ...(sections.length > 0 && config.forge.kind === 'gitlab'
-      ? { codeownerSections: sections }
-      : {}),
+    ...(sections.length > 0 ? { codeownerSections: sections } : {}),
     declaredAt: Date.now(),
   };
 }
@@ -392,11 +403,9 @@ export function aggregateSyncScope(
           ? read.scope.windowDays
           : Math.min(scopeWindowDays, read.scope.windowDays);
       for (const author of read.scope.uncovered) uncovered.add(author);
-      for (const section of forge === 'github'
-        ? []
-        : (read.scope.uncoveredSections ?? []))
+      for (const section of read.scope.uncoveredSections ?? [])
         uncoveredSections.add(section);
-      if (forge !== 'github' && read.scope.knownSections) {
+      if (read.scope.knownSections) {
         known ??= new Set<string>();
         for (const section of read.scope.knownSections) known.add(section);
       }

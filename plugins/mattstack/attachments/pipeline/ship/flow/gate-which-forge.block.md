@@ -8,6 +8,6 @@ label: Which forge
 
 The branch is already pushed. Context: the `git remote get-url origin`
 line. Options: **GitLab** /
-**GitHub** / **Hand back**, and `next`: `proceed` / `hold`. The named
+**GitHub** / **Hand back**. The named
 forge is the host from here on: every later forge diamond reads it, never
 the origin URL.

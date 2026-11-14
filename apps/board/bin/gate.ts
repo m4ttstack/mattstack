@@ -48,7 +48,6 @@ try {
       : { questionsJson: inline!, context: flag(rest, '--context') };
     const result = await gateOpen(statePath, kind, questionsJson, io, {
       context,
-      sessionId: process.env.CLAUDE_CODE_SESSION_ID,
       worktree: process.cwd(),
     });
     console.log(JSON.stringify(result));

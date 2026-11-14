@@ -1,7 +1,7 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, test } from 'bun:test'
 
 import type { Todo, TodoKind } from '../types'
-import { buttonsFor, checkKind, clipLine, describe, hardWrap, isActionable, quote, tail, toTodo } from './items'
+import { buttonsFor, checkKind, clipLine, describe, hardWrap, isActionable, quote, tail, toTodo, wrapWords } from './items'
 
 const todo = (over: Partial<Todo> & { kind: TodoKind }): Todo => ({ id: '1', title: 't', status: 'open', ...over })
 
@@ -67,6 +67,19 @@ test('describe lists each item with its status and script', () => {
     '#1 [open] t\n    script: ls\n#2 [done] t',
   )
   expect(describe([todo({ kind: 'image', paths: ['/x/a.png', '/x/b.png'] })])).toBe('#1 [open] t\n    images: /x/a.png, /x/b.png')
+})
+
+test('wrapping measures in terminal cells and never splits a character', () => {
+  const grins = '😀'.repeat(12)
+  const isLoneHalf = (ch: string) => ch.length === 1 && ch.charCodeAt(0) >= 0xd800 && ch.charCodeAt(0) <= 0xdfff
+  for (const rows of [hardWrap(grins, 23), wrapWords(grins, 23), wrapWords(`go ${grins}`, 23)]) {
+    for (const row of rows) expect([...row].some(isLoneHalf), row).toBe(false)
+  }
+  expect(hardWrap(grins, 23)).toEqual(['😀'.repeat(11), '😀'])
+  expect(wrapWords(`go ${grins}`, 23)).toEqual(['go', '😀'.repeat(11), '😀'])
+  expect(hardWrap('日本語のスクリプト', 6)).toEqual(['日本語', 'のスク', 'リプト'])
+  expect(wrapWords('日本 語の 説明', 6)).toEqual(['日本', '語の', '説明'])
+  expect(wrapWords('ab cd', 5)).toEqual(['ab cd'])
 })
 
 test('text helpers wrap, trim and quote', () => {

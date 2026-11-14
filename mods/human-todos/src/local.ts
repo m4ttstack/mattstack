@@ -20,7 +20,7 @@ type Job = { pid?: number; isStopped: boolean; isGone: boolean }
 // One entry per live run, keyed by its token, so two runs never share a child, a log or a stop.
 const jobs = new Map<string, Job>()
 
-async function logFolder($: EngineInterface): Promise<string> {
+export async function logFolder($: EngineInterface): Promise<string> {
   const cache = await $.env.get('XDG_CACHE_HOME')
   if (cache) return `${cache}/human-todos`
   const home = await $.env.get('HOME')
