@@ -1,5 +1,5 @@
 import type { Controls, Form, FormOption, FormQuestion } from '../../types'
-import { GATE_INSTRUCTION } from './reply'
+import { BOARD_INSTRUCTION, GATE_INSTRUCTION } from './reply'
 
 const DEFAULT_TITLE = 'Questions'
 
@@ -19,16 +19,22 @@ function toOption(raw: RawOption): FormOption {
   }
 }
 
-function toOptions(q: RawQuestion & { id: string }): FormOption[] | string {
+// A gate is already open by the time the mod reads it, and the daemon accepts a blank option and a value given twice,
+// so a gate drops those rather than fail: the first of two equal values records the same answer as the second.
+// The ask tool's caller can fix its call, so it is refused instead.
+function toOptions(q: RawQuestion & { id: string }, source: Form['source']): FormOption[] | string {
+  const raws = (Array.isArray(q.options) ? q.options : []) as RawOption[]
   const options: FormOption[] = []
   const seen = new Set<string>()
-  for (const raw of (Array.isArray(q.options) ? q.options : []) as RawOption[]) {
+  for (const raw of raws) {
     const option = toOption(raw)
-    if (option.value === '') return `question ${q.id} has an option with no value.`
-    if (seen.has(option.value)) return `question ${q.id} has option ${option.value} twice.`
+    const problem = option.value === '' ? `question ${q.id} has an option with no value.` : seen.has(option.value) ? `question ${q.id} has option ${option.value} twice.` : undefined
+    if (problem && source !== 'gate') return problem
+    if (problem) continue
     seen.add(option.value)
     options.push(option)
   }
+  if (raws.length > 0 && options.length === 0) return `question ${q.id} has no option with a value.`
   return options
 }
 
@@ -37,7 +43,7 @@ function toQuestion(q: RawQuestion, seen: Set<string>, source: Form['source']): 
   if (seen.has(q.id)) return `question id ${q.id} is used twice.`
   if (typeof q.label !== 'string') return `question ${q.id} needs a label.`
   seen.add(q.id)
-  const options = toOptions(q as RawQuestion & { id: string })
+  const options = toOptions(q as RawQuestion & { id: string }, source)
   if (typeof options === 'string') return options
   return {
     id: q.id,
@@ -114,6 +120,12 @@ export function gateForm(fields: Fields, title: string): Form | string {
 export function agentFields(fields: Fields): Fields {
   const { kitForm: _, ...rest } = fields
   return { ...rest, instruction: GATE_INSTRUCTION(String(fields.id)) }
+}
+
+// What the agent reads when the form can't draw the gate: the wait branch, so it holds with `rt gate wait`.
+export function boardFields(fields: Fields): Fields {
+  const { kitForm: _, ...rest } = fields
+  return { ...rest, paneAction: 'wait', instruction: BOARD_INSTRUCTION(String(fields.id)) }
 }
 
 export type GateRow = {

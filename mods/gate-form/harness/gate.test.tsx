@@ -121,6 +121,37 @@ test('a takeover that fails hands the agent the tool’s own result, and the gat
   expect(w.calls).toHaveLength(1)
 })
 
+const oneQuestion = (options: unknown[]) => ({ kitForm: { questions: [{ id: 'pick', label: 'Pick', multi: false, options }], context: 'Pick one.' } })
+
+test('a kit gate with an option given twice, which the daemon accepts, still opens its form', async ($, on) => {
+  const w = world(on, { reply: () => ({ text: JSON.stringify(kitResult('g1', oneQuestion(['a', 'b', 'a']))) }) })
+  await drawOn($, 'terminal')
+  const out = await ask($)
+  expect(JSON.parse(resultText(out)).paneAction).toBe('kit')
+  expect([...w.panes.keys()]).toEqual(['gate-form'])
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await formOf(pane)).toMatchObject({ gateId: 'g1', status: 'open' })
+  await pane.unmount()
+})
+
+test('a kit gate the form cannot draw waits on the board: a band, a toast, and the agent told to wait', async ($, on) => {
+  const w = world(on, { reply: () => ({ text: JSON.stringify(kitResult('g1', oneQuestion(['']))) }) })
+  await drawOn($, 'terminal')
+  const fields = JSON.parse(resultText(await ask($)))
+  expect(fields.kitForm).toBeUndefined()
+  expect(fields).toMatchObject({ id: 'g1', paneAction: 'wait' })
+  expect(fields.instruction).toContain('rt gate wait g1')
+  expect(w.panes.size).toBe(0)
+  expect(w.toasts).toEqual(["Plan review can't show in the form: question pick has no option with a value. Answer it on the board."])
+  const band = await $.ui.mount({ ...ABOVE, surface: 'terminal' })
+  const key = (await band.find({ type: 'Client' }))!.key!
+  const row = (await rowsOf(band, key)).join('\n')
+  expect(row).toContain('Plan review is waiting on the board')
+  expect(row).toContain('Open on board')
+  await band.unmount()
+  expect(await eventually(() => w.waits.some(x => x.argv[3] === 'g1'))).toBe(true)
+})
+
 test('a result that is not kit passes through unchanged', async ($, on) => {
   const text = JSON.stringify({ id: 'g2', paneAction: 'form', formChunks: [[]] })
   const w = world(on, { reply: () => ({ text }) })
@@ -144,6 +175,20 @@ test('a spilled result reads the gate from rt gate list', async ($, on) => {
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await formOf(pane)).toMatchObject({ gateId: 'g7' })
   await pane.unmount()
+})
+
+test('a spilled result for a gate the form cannot draw sends it to the board and tells the agent to wait', async ($, on) => {
+  const row = { id: 'g7', kind: 'plan-review', questions: [{ id: 'pick', label: 'Pick', multi: false, options: [''] }], presentation: 'kit', status: 'open', nudge: { session: SESSION }, openedAt: 3 }
+  const w = world(on, {
+    reply: () => ({ text: 'Output too large; saved to /tmp/out.txt' }),
+    rt: argv => (argv[1] === 'gate' && argv[2] === 'list' ? ok(JSON.stringify({ ok: true, gates: [row] })) : { deny: 'unexpected' }),
+  })
+  await drawOn($, 'terminal')
+  const text = resultText(await ask($))
+  expect(text).toContain('Output too large; saved to /tmp/out.txt')
+  expect(text).toContain('rt gate wait g7')
+  expect(w.panes.size).toBe(0)
+  expect(w.toasts).toEqual(["Plan review can't show in the form: question pick has no option with a value. Answer it on the board."])
 })
 
 test('rt is tried on PATH first, then under ~/.local/bin', async ($, on) => {

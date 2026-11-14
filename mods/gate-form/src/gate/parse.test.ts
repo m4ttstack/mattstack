@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test'
 
 import type { Form } from '../../types'
-import { agentFields, answerOutcome, formFromRow, gateForm, readKitResult, spilledGate } from './parse'
-import { GATE_INSTRUCTION } from './reply'
+import { agentFields, answerOutcome, boardFields, formFromRow, gateForm, readKitResult, spilledGate, toForm } from './parse'
+import { BOARD_INSTRUCTION, GATE_INSTRUCTION } from './reply'
 
 const QUESTIONS = [
   { id: 'tier', label: 'Plan tier', multi: false, options: [{ value: 'std', label: 'Standard' }, { value: 'light', label: 'Light' }] },
@@ -77,4 +77,36 @@ test('an exit-0 answer is recorded unless it lost the race to another surface', 
   expect(answerOutcome(row('pane', 'sess-1'), 'sess-1')).toBe('recorded')
   expect(answerOutcome(row('pane', 'sess-2'), 'sess-1')).toBe('elsewhere')
   expect(answerOutcome(row('board'), 'sess-1')).toBe('elsewhere')
+})
+
+const kitWith = (options: unknown[]) => ({ ...KIT, kitForm: { questions: [{ id: 'pick', label: 'Pick', multi: false, options }] } })
+
+test('a gate keeps the first of two options with the same value, since either records the same answer', () => {
+  const form = gateForm(kitWith([{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }, { value: 'a', label: 'Alpha again' }]), 'k') as Form
+  expect(form.questions[0]!.options).toEqual([
+    { value: 'a', label: 'Alpha' },
+    { value: 'b', label: 'Beta' },
+  ])
+})
+
+test('a gate drops an option with no value', () => {
+  const form = gateForm(kitWith(['', 'yes', 'no']), 'k') as Form
+  expect(form.questions[0]!.options.map(o => o.value)).toEqual(['yes', 'no'])
+})
+
+test('a gate question whose every option is blank cannot be drawn', () => {
+  expect(gateForm(kitWith(['']), 'k')).toBe('question pick has no option with a value.')
+})
+
+test('the ask tool still refuses duplicate and blank options', () => {
+  expect(toForm('t', undefined, [{ id: 'pick', label: 'Pick', options: ['a', 'a'] }], 'ask')).toBe('question pick has option a twice.')
+  expect(toForm('t', undefined, [{ id: 'pick', label: 'Pick', options: [''] }], 'ask')).toBe('question pick has an option with no value.')
+})
+
+test('a gate the form cannot draw tells the agent to wait on the board instead', () => {
+  const fields = boardFields(KIT)
+  expect(fields.kitForm).toBeUndefined()
+  expect(fields).toMatchObject({ id: 'g1', paneAction: 'wait', subject: 'run:1' })
+  expect(fields.instruction).toBe(BOARD_INSTRUCTION('g1'))
+  expect(BOARD_INSTRUCTION('g1')).toContain('rt gate wait g1')
 })

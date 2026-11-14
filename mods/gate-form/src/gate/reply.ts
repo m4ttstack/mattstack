@@ -27,6 +27,12 @@ export function agentReply(form: Form, outcome: Outcome): string {
 export const GATE_INSTRUCTION = (gateId: string) =>
   `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`
 
-export const GATE_ANSWERED = (gateId: string) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`
+export const BOARD_INSTRUCTION = (gateId: string) =>
+  `The kit form can't draw this gate, so it waits on the board. Run \`rt gate wait ${gateId}\` as a background Bash task, then end your turn holding at gate \`${gateId}\`.`
+
+// The toast for a gate the form can't draw; the band above the prompt links to it on the board.
+export const BOARD_TOAST = (title: string, reason: string) => `${title} can't show in the form: ${reason} Answer it on the board.`
+
+export const GATE_ANSWERED =(gateId: string) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`
 
 export const GATE_ASIDE = (gateId: string) => `The user set gate ${gateId} aside to talk about it first. Don't present it again; it stays open in the kit form.`

@@ -468,6 +468,8 @@ function agentReply(form, outcome) {
 `);
 }
 var GATE_INSTRUCTION = (gateId) => `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`;
+var BOARD_INSTRUCTION = (gateId) => `The kit form can't draw this gate, so it waits on the board. Run \`rt gate wait ${gateId}\` as a background Bash task, then end your turn holding at gate \`${gateId}\`.`;
+var BOARD_TOAST = (title, reason) => `${title} can't show in the form: ${reason} Answer it on the board.`;
 var GATE_ANSWERED = (gateId) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`;
 var GATE_ASIDE = (gateId) => `The user set gate ${gateId} aside to talk about it first. Don't present it again; it stays open in the kit form.`;
 
@@ -484,18 +486,22 @@ function toOption(raw) {
     ...typeof raw.description === "string" && { description: raw.description }
   };
 }
-function toOptions(q) {
+function toOptions(q, source) {
+  const raws = Array.isArray(q.options) ? q.options : [];
   const options = [];
   const seen = new Set;
-  for (const raw of Array.isArray(q.options) ? q.options : []) {
+  for (const raw of raws) {
     const option = toOption(raw);
-    if (option.value === "")
-      return `question ${q.id} has an option with no value.`;
-    if (seen.has(option.value))
-      return `question ${q.id} has option ${option.value} twice.`;
+    const problem = option.value === "" ? `question ${q.id} has an option with no value.` : seen.has(option.value) ? `question ${q.id} has option ${option.value} twice.` : undefined;
+    if (problem && source !== "gate")
+      return problem;
+    if (problem)
+      continue;
     seen.add(option.value);
     options.push(option);
   }
+  if (raws.length > 0 && options.length === 0)
+    return `question ${q.id} has no option with a value.`;
   return options;
 }
 function toQuestion(q, seen, source) {
@@ -506,7 +512,7 @@ function toQuestion(q, seen, source) {
   if (typeof q.label !== "string")
     return `question ${q.id} needs a label.`;
   seen.add(q.id);
-  const options = toOptions(q);
+  const options = toOptions(q, source);
   if (typeof options === "string")
     return options;
   return {
@@ -574,6 +580,10 @@ function gateForm(fields, title) {
 function agentFields(fields) {
   const { kitForm: _, ...rest } = fields;
   return { ...rest, instruction: GATE_INSTRUCTION(String(fields.id)) };
+}
+function boardFields(fields) {
+  const { kitForm: _, ...rest } = fields;
+  return { ...rest, paneAction: "wait", instruction: BOARD_INSTRUCTION(String(fields.id)) };
 }
 function listedGates(stdout) {
   let parsed;
@@ -947,6 +957,10 @@ async function addBoard($, gate, supersededId) {
   watchGate($, gate.gateId);
   $.ui.invalidate("ui.render");
 }
+async function sendToBoard($, gate, reason, supersededId) {
+  await addBoard($, gate, supersededId);
+  $.ui.toast(BOARD_TOAST(kindTitle(gate.kind), reason));
+}
 async function openBoard($, gateId) {
   const gate = (await read($, boardAtom)).find((b) => b.gateId === gateId);
   if (!gate || !deck.address)
@@ -965,10 +979,15 @@ async function restore($) {
     return;
   const session = await $.session.id();
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const fresh = rows.filter((row) => row.presentation === "kit" && row.status === "open" && row.nudge?.session === session).sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0)).flatMap((row) => {
+  const fresh = [];
+  const undrawable = [];
+  for (const row of rows.filter((row) => row.presentation === "kit" && row.status === "open" && row.nudge?.session === session).sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0))) {
     const form = formFromRow(row);
-    return typeof form === "string" ? [] : [form];
-  });
+    if (typeof form === "string")
+      undrawable.push({ gate: { gateId: row.id, kind: typeof row.kind === "string" ? row.kind : "" }, reason: form });
+    else
+      fresh.push(form);
+  }
   const added = [];
   const forms = await writeForms($, (list) => fresh.reduce((acc, form) => {
     if (acc.some((f) => f.gateId === form.gateId))
@@ -976,6 +995,12 @@ async function restore($) {
     added.push(form);
     return addForm(acc, form);
   }, list));
+  const onBoard = (await read($, boardAtom)).map((b) => b.gateId);
+  const newlyOnBoard = undrawable.filter((u) => !onBoard.includes(u.gate.gateId) && !forms.some((f) => f.gateId === u.gate.gateId));
+  if (newlyOnBoard.length > 0)
+    await update($, boardAtom, (list) => newlyOnBoard.reduce((acc, u) => addBoardGate(acc, u.gate), list));
+  for (const u of newlyOnBoard)
+    $.ui.toast(BOARD_TOAST(kindTitle(u.gate.kind), u.reason));
   const ended = (gateId) => {
     const row = byId.get(gateId);
     return row ? rowEnd(row) : undefined;
@@ -1042,8 +1067,14 @@ async function takeGate($, e, next) {
   const title = typeof kind === "string" && kind.trim() !== "" ? kind : GATE_TITLE;
   if (kit.kind === "kit") {
     const form = gateForm(kit.fields, title);
-    if (typeof form === "string")
-      return out;
+    if (typeof form === "string") {
+      const gateId = kit.fields.id;
+      if (typeof gateId !== "string" || gateId === "")
+        return out;
+      const superseded = kit.fields.supersededId;
+      await sendToBoard($, { gateId, kind: typeof kind === "string" ? kind : "" }, form, typeof superseded === "string" ? superseded : undefined);
+      return { result: withText(out.result, JSON.stringify(boardFields(kit.fields))) };
+    }
     await openForm($, form, kit.fields.supersededId);
     await gateOpened($, form);
     return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) };
@@ -1059,9 +1090,15 @@ async function takeSpilled($, out, text) {
   } catch {
     row = undefined;
   }
-  const form = row && formFromRow(row);
-  if (!row || !form || typeof form === "string")
+  if (!row)
     return out;
+  const form = formFromRow(row);
+  if (typeof form === "string") {
+    await sendToBoard($, { gateId: row.id, kind: typeof row.kind === "string" ? row.kind : "" }, form);
+    return { result: withText(out.result, `${text}
+
+${BOARD_INSTRUCTION(row.id)}`) };
+  }
   await openForm($, form);
   await gateOpened($, form);
   return { result: withText(out.result, `${text}

@@ -4,10 +4,10 @@ import { addWheel, bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, 
 
 import type { BoardGate, Form, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
-import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, readBoardOnly } from './gate/board'
+import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, kindTitle, readBoardOnly } from './gate/board'
 import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm } from './gate/forms'
-import { agentFields, answerOutcome, formFromRow, gateForm, listedGates, readKitResult, spilledGate, toForm } from './gate/parse'
-import { GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
+import { agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, readKitResult, spilledGate, toForm } from './gate/parse'
+import { BOARD_INSTRUCTION, BOARD_TOAST, GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
 import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
 import { endNote, isSelf, rowEnd, waitFor, type GateEnd } from './gate/watch'
@@ -252,6 +252,13 @@ async function addBoard($: EngineInterface, gate: BoardGate, supersededId?: stri
   $.ui.invalidate('ui.render')
 }
 
+// A kit gate the form can't draw is open already, and the injector and the fork check keep the pane from answering it,
+// so it goes to the band like a board-only gate: never left open with nothing drawn.
+async function sendToBoard($: EngineInterface, gate: BoardGate, reason: string, supersededId?: string): Promise<void> {
+  await addBoard($, gate, supersededId)
+  $.ui.toast(BOARD_TOAST(kindTitle(gate.kind), reason))
+}
+
 async function openBoard($: EngineInterface, gateId: unknown): Promise<void> {
   const gate = (await read($, boardAtom)).find(b => b.gateId === gateId)
   if (!gate || !deck.address) return
@@ -271,13 +278,15 @@ async function restore($: EngineInterface): Promise<void> {
   if (!rows) return
   const session = await $.session.id()
   const byId = new Map(rows.map(row => [row.id, row]))
-  const fresh = rows
+  const fresh: Form[] = []
+  const undrawable: { gate: BoardGate; reason: string }[] = []
+  for (const row of rows
     .filter(row => row.presentation === 'kit' && row.status === 'open' && (row.nudge as { session?: unknown } | null)?.session === session)
-    .sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0))
-    .flatMap(row => {
-      const form = formFromRow(row)
-      return typeof form === 'string' ? [] : [form]
-    })
+    .sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0))) {
+    const form = formFromRow(row)
+    if (typeof form === 'string') undrawable.push({ gate: { gateId: row.id, kind: typeof row.kind === 'string' ? row.kind : '' }, reason: form })
+    else fresh.push(form)
+  }
   const added: Form[] = []
   const forms = await writeForms($, list =>
     fresh.reduce((acc, form) => {
@@ -286,6 +295,10 @@ async function restore($: EngineInterface): Promise<void> {
       return addForm(acc, form)
     }, list),
   )
+  const onBoard = (await read($, boardAtom)).map(b => b.gateId)
+  const newlyOnBoard = undrawable.filter(u => !onBoard.includes(u.gate.gateId) && !forms.some(f => f.gateId === u.gate.gateId))
+  if (newlyOnBoard.length > 0) await update($, boardAtom, list => newlyOnBoard.reduce((acc, u) => addBoardGate(acc, u.gate), list))
+  for (const u of newlyOnBoard) $.ui.toast(BOARD_TOAST(kindTitle(u.gate.kind), u.reason))
   const ended = (gateId: string) => {
     const row = byId.get(gateId)
     return row ? rowEnd(row) : undefined
@@ -342,7 +355,13 @@ async function takeGate($: EngineInterface, e: ToolCallInput, next: Next): Promi
   const title = typeof kind === 'string' && kind.trim() !== '' ? kind : GATE_TITLE
   if (kit.kind === 'kit') {
     const form = gateForm(kit.fields, title)
-    if (typeof form === 'string') return out
+    if (typeof form === 'string') {
+      const gateId = kit.fields.id
+      if (typeof gateId !== 'string' || gateId === '') return out
+      const superseded = kit.fields.supersededId
+      await sendToBoard($, { gateId, kind: typeof kind === 'string' ? kind : '' }, form, typeof superseded === 'string' ? superseded : undefined)
+      return { result: withText(out.result, JSON.stringify(boardFields(kit.fields))) as never }
+    }
     await openForm($, form, kit.fields.supersededId as string | null | undefined)
     await gateOpened($, form)
     return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) as never }
@@ -359,8 +378,12 @@ async function takeSpilled($: EngineInterface, out: ToolCallResult, text: string
   } catch {
     row = undefined
   }
-  const form = row && formFromRow(row)
-  if (!row || !form || typeof form === 'string') return out
+  if (!row) return out
+  const form = formFromRow(row)
+  if (typeof form === 'string') {
+    await sendToBoard($, { gateId: row.id, kind: typeof row.kind === 'string' ? row.kind : '' }, form)
+    return { result: withText(out.result, `${text}\n\n${BOARD_INSTRUCTION(row.id)}`) as never }
+  }
   await openForm($, form)
   await gateOpened($, form)
   return { result: withText(out.result, `${text}\n\n${GATE_INSTRUCTION(row.id)}`) as never }

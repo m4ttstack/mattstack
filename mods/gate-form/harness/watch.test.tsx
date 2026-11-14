@@ -200,10 +200,23 @@ test('a session start restores a form and a watcher for each of this session’s
   expect(w.state.lists).toBe(1)
 })
 
+test('a session start puts a kit gate the form cannot draw on the board, and toasts it once', async ($, on) => {
+  const rows = [kitRow('g5', { questions: [{ id: 'pick', label: 'Pick', multi: false, options: [''] }] })]
+  const w = world(on, { gates: () => rows })
+  await drawOn($, 'terminal')
+  expect(await eventually(async () => ((await bandRows($)) ?? []).join('\n').includes('Plan review is waiting on the board'))).toBe(true)
+  expect(await paneForm($)).toBeUndefined()
+  expect(w.toasts).toEqual(["Plan review can't show in the form: question pick has no option with a value. Answer it on the board."])
+  await startSession($)
+  await eventually(() => w.state.lists === 2)
+  await eventually(() => false, 10)
+  expect(w.toasts).toHaveLength(1)
+})
+
 test('restore picks up a kit gate whose takeover never drew a form', async ($, on) => {
   let listed: unknown[] = []
   const w = world(on, {
-    reply: () => ({ text: JSON.stringify(kitResult('g1', { kitForm: { questions: [], context: 'x' } })) }),
+    reply: () => ({ text: 'Output too large; saved to /tmp/out.txt' }),
     gates: () => listed,
   })
   await drawOn($, 'terminal')
