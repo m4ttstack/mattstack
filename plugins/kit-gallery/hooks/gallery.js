@@ -706,9 +706,7 @@ function choiceLines(choice, idx, spec, lead, under) {
   const isAt = idx === spec.cursor;
   if (choice.isWriteIn)
     return writeInRows(choice, isAt, lead, under, spec);
-  if (!isAt)
-    return [[...lead, sp(choice.label, { isLabel: true })], ...choice.description ? [[...under, sp(choice.description, DIM)]] : []];
-  return [...hang(lead, under, choice.label, spec.width, { bold: true, isLabel: true }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
+  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isAt && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 function writeInRows(choice, isAt, lead, under, spec) {
   const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
@@ -716,8 +714,8 @@ function writeInRows(choice, isAt, lead, under, spec) {
   if (isAt)
     return [label, [...under, ...inputField(typed, choice.description ?? "", spec.width - widthOf(under), spec.focused)]];
   if (typed !== "")
-    return [label, [...under, sp(`“${typed}”`)]];
-  return [label, ...choice.description ? [[...under, sp(choice.description, DIM)]] : []];
+    return [label, ...hang(under, under, `“${typed}”`, spec.width, {})];
+  return [label, ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 
 // packages/mod-kit/src/components/select-list.tsx

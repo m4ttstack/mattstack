@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, fitToRows, gridLook, hang, menu, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -74,6 +74,8 @@ function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
       width: view.width,
       focused: view.focused,
       ...(view.pressing && { pressing: true }),
+      // The page scrolls instead, so every choice is drawn.
+      maxShown: choices.length,
       actionFor: idx => ({ type: 'option', idx }),
     }),
   )
@@ -220,8 +222,45 @@ function tallestQuestion(form: Form, s: State, view: View): number {
   return tallest
 }
 
+const BAR_CELLS = 3
+// The brand bar and the blank row under it stay on top while the rest scrolls, as in human-todos.
+const FIXED_TOP = 2
+
+export type Fitted = { lines: L[]; top: number }
+
 // Every page is padded to the tallest question's height, room allowing, so the buttons keep their row as you page.
+// A page too tall for the pane scrolls between the brand bar and the nav rows instead, so nothing is cut: the window
+// follows the cursor's choice (`s.pageTop` is where it was), and a scroll bar runs down its right edge.
+export function fittedLines(form: Form, s: State, view: View, rows: number): Fitted {
+  const full = draw(form, s, view, true)
+  const room = rows - FIXED_TOP - full.foot.length
+  if (full.head.length - FIXED_TOP + full.page.length <= room) {
+    const pad = s.phase === 'active' && form.status === 'open' ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
+    return { lines: fitToRows(full, rows, () => full, pad), top: 0 }
+  }
+  const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) }
+  const narrow = draw(form, s, inner, true)
+  const region = [...narrow.head.slice(FIXED_TOP), ...narrow.page]
+  const windowRows = Math.max(1, rows - FIXED_TOP - narrow.foot.length)
+  const top = followCursor(region, s, windowRows)
+  const bar = scrollBar<Action>(windowRows, region.length, top)
+  // A choice's click is on the line itself (`withAction`), so the drawn line keeps it.
+  const shown = region.slice(top, top + windowRows).map((line, n): L => Object.assign([...clipLine(line, inner.width), ...(bar[n] ?? [])], line.action === undefined ? {} : { action: line.action }))
+  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top }
+}
+
+// The window over `region` that shows the cursor's choice whole, moving as little as it can from where it was.
+function followCursor(region: L[], s: State, windowRows: number): number {
+  const at = s.cursor[s.page]
+  const isCursor = (line: L) => line.action?.type === 'option' && line.action.idx === at
+  const first = s.onNav || at === undefined ? -1 : region.findIndex(isCursor)
+  let last = first
+  while (first >= 0 && last + 1 < region.length && isCursor(region[last + 1]!)) last += 1
+  const stops = first < 0 ? [] : [{ key: 'cursor', ids: ['choice'], main: 0, lines: [first], first, last }]
+  const prev = Math.min(s.pageTop ?? 0, maxScroll(region.length, windowRows))
+  return stops.length === 0 ? prev : revealOffset({ top: prev, total: region.length, windowRows, stops }, 0)
+}
+
 export function visibleLines(form: Form, s: State, view: View, rows: number): L[] {
-  const pad = s.phase === 'active' && form.status === 'open' ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
-  return fitToRows(draw(form, s, view, true), rows, () => draw(form, s, view, false), pad)
+  return fittedLines(form, s, view, rows).lines
 }

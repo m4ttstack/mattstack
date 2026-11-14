@@ -370,6 +370,15 @@ function menuHit(state, rows, hit) {
     return { state };
   return { state: { open: false, selected: hit.at }, picked: row.id };
 }
+// packages/mod-kit/src/widgets/scroll-bar.ts
+function scrollBar(rows, total, offset) {
+  if (total <= rows)
+    return Array.from({ length: rows }, () => [sp("   ")]);
+  const size = Math.max(1, Math.round(rows * rows / total));
+  const at = Math.min(Math.max(0, offset), total - rows);
+  const top = Math.round(at / (total - rows) * (rows - size));
+  return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
+}
 // packages/mod-kit/src/widgets/input-field.ts
 function inputField(value, placeholder, width, showCursor) {
   const room = width - 2;
@@ -426,9 +435,7 @@ function choiceLines(choice, idx, spec, lead, under) {
   const isAt = idx === spec.cursor;
   if (choice.isWriteIn)
     return writeInRows(choice, isAt, lead, under, spec);
-  if (!isAt)
-    return [[...lead, sp(choice.label, { isLabel: true })], ...choice.description ? [[...under, sp(choice.description, DIM)]] : []];
-  return [...hang(lead, under, choice.label, spec.width, { bold: true, isLabel: true }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
+  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isAt && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 function writeInRows(choice, isAt, lead, under, spec) {
   const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
@@ -436,8 +443,8 @@ function writeInRows(choice, isAt, lead, under, spec) {
   if (isAt)
     return [label, [...under, ...inputField(typed, choice.description ?? "", spec.width - widthOf(under), spec.focused)]];
   if (typed !== "")
-    return [label, [...under, sp(`“${typed}”`)]];
-  return [label, ...choice.description ? [[...under, sp(choice.description, DIM)]] : []];
+    return [label, ...hang(under, under, `“${typed}”`, spec.width, {})];
+  return [label, ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 // packages/mod-kit/src/widgets/tab-strip.ts
 function fillWindow(seed, first, count, room, cost) {
@@ -835,6 +842,38 @@ function reviewList(items, width) {
     return [[sp(SYMBOL.bar, GRAY)], ...entry];
   });
 }
+// packages/mod-kit/src/patterns/scroll-list.ts
+var maxScroll = (total, windowRows) => Math.max(0, total - windowRows);
+function revealOffset(view, index) {
+  const stop = view.stops[index];
+  const most = maxScroll(view.total, view.windowRows);
+  if (!stop)
+    return view.top;
+  if (stop.first < view.top)
+    return Math.max(0, stop.first);
+  if (stop.last > view.top + view.windowRows - 1)
+    return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1));
+  return view.top;
+}
+function clipLine(line, cells) {
+  const out = [];
+  let used = 0;
+  for (const span of line) {
+    const w = cellWidth(span.t);
+    if (used + w <= cells) {
+      out.push(span);
+      used += w;
+      continue;
+    }
+    const t = cutCells(span.t, cells - used);
+    if (t !== "")
+      out.push({ ...span, t });
+    used += cellWidth(t);
+    break;
+  }
+  out.push(sp(" ".repeat(Math.max(0, cells - used))));
+  return out;
+}
 // packages/mod-kit/src/components/buttons.tsx
 function buttonOf(props, ctx) {
   return { label: props.label ?? textOf(props.children), tone: props.tone, disabled: props.disabled, action: ctx.bind("press", () => props.onPress?.()) };
@@ -1044,7 +1083,7 @@ function moved(form, s, move) {
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
     return effect;
-  return { ...effect, state: { ...effect.state, onNav: undefined, navAt: "next" } };
+  return { ...effect, state: { ...effect.state, onNav: undefined, navAt: "next", pageTop: undefined } };
 }
 function perform(action, form, armed) {
   return settled(armed, performOn(action, form, armed));
@@ -1227,6 +1266,7 @@ function questionPage(q, s, i, base) {
     width: view.width,
     focused: view.focused,
     ...view.pressing && { pressing: true },
+    maxShown: choices.length,
     actionFor: (idx) => ({ type: "option", idx })
   }));
   return lines;
@@ -1355,9 +1395,34 @@ function tallestQuestion(form, s, view) {
   });
   return tallest;
 }
-function visibleLines(form, s, view, rows) {
-  const pad = s.phase === "active" && form.status === "open" ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
-  return fitToRows(draw(form, s, view, true), rows, () => draw(form, s, view, false), pad);
+var BAR_CELLS = 3;
+var FIXED_TOP = 2;
+function fittedLines(form, s, view, rows) {
+  const full = draw(form, s, view, true);
+  const room = rows - FIXED_TOP - full.foot.length;
+  if (full.head.length - FIXED_TOP + full.page.length <= room) {
+    const pad = s.phase === "active" && form.status === "open" ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
+    return { lines: fitToRows(full, rows, () => full, pad), top: 0 };
+  }
+  const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) };
+  const narrow = draw(form, s, inner, true);
+  const region = [...narrow.head.slice(FIXED_TOP), ...narrow.page];
+  const windowRows = Math.max(1, rows - FIXED_TOP - narrow.foot.length);
+  const top = followCursor(region, s, windowRows);
+  const bar = scrollBar(windowRows, region.length, top);
+  const shown = region.slice(top, top + windowRows).map((line, n) => Object.assign([...clipLine(line, inner.width), ...bar[n] ?? []], line.action === undefined ? {} : { action: line.action }));
+  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top };
+}
+function followCursor(region, s, windowRows) {
+  const at = s.cursor[s.page];
+  const isCursor = (line) => line.action?.type === "option" && line.action.idx === at;
+  const first = s.onNav || at === undefined ? -1 : region.findIndex(isCursor);
+  let last = first;
+  while (first >= 0 && last + 1 < region.length && isCursor(region[last + 1]))
+    last += 1;
+  const stops = first < 0 ? [] : [{ key: "cursor", ids: ["choice"], main: 0, lines: [first], first, last }];
+  const prev = Math.min(s.pageTop ?? 0, maxScroll(region.length, windowRows));
+  return stops.length === 0 ? prev : revealOffset({ top: prev, total: region.length, windowRows, stops }, 0);
 }
 
 // mods/gate-form/src/form.tsx
@@ -1381,10 +1446,13 @@ var form_default = kitClient((props, ui) => {
     ui.pressFor(() => apply(keyEffect(ev, form, ui.state)));
     return true;
   });
+  const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows);
+  if (fitted.top !== (ui.state.pageTop ?? 0))
+    ui.setState({ ...ui.state, pageTop: fitted.top });
   return /* @__PURE__ */ h(Panel, {
     width
   }, /* @__PURE__ */ h(Lines, {
-    lines: visibleLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows),
+    lines: fitted.lines,
     onAction: (action) => apply(perform(action, form, ui.state))
   }));
 }, {

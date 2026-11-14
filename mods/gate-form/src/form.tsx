@@ -3,7 +3,7 @@ import { Lines, Panel, kitClient } from '@mattstack/mod-kit'
 import type { Form } from '../types'
 import { keyEffect, perform, pressesButton, type Effect } from './form/input'
 import { afterAttempt, initial, type State } from './form/state'
-import { visibleLines, withTabInView } from './form/view'
+import { fittedLines, withTabInView } from './form/view'
 
 type Props = { form: Form; rows: number; cols: number; focused: boolean }
 
@@ -24,9 +24,11 @@ export default kitClient<Props, State>(
       ui.pressFor(() => apply(keyEffect(ev, form, ui.state)))
       return true
     })
+    const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows)
+    if (fitted.top !== (ui.state.pageTop ?? 0)) ui.setState({ ...ui.state, pageTop: fitted.top })
     return (
       <Panel width={width}>
-        <Lines lines={visibleLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows)} onAction={action => apply(perform(action, form, ui.state))} />
+        <Lines lines={fitted.lines} onAction={action => apply(perform(action, form, ui.state))} />
       </Panel>
     )
   },

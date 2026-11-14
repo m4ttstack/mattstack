@@ -29,6 +29,8 @@ export type State = {
   navAt: NavId
   // The form's failed-attempt count when this state sent its answer: a higher count means that send failed.
   sent?: number
+  // The first scrolled row in view while a page is too tall for the pane.
+  pageTop?: number
   // The run control that was sent, for the closed form to name.
   control?: string
 }

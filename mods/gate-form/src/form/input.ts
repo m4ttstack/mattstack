@@ -43,7 +43,7 @@ function moved(form: Form, s: State, move: MenuMove | undefined): Effect | undef
 // A new page starts with the keyboard on its answers and the nav row back on its forward button.
 function settled(before: State, effect: Effect | undefined): Effect | undefined {
   if (!effect || effect.state.page === before.page) return effect
-  return { ...effect, state: { ...effect.state, onNav: undefined, navAt: 'next' } }
+  return { ...effect, state: { ...effect.state, onNav: undefined, navAt: 'next', pageTop: undefined } }
 }
 
 export function perform(action: Action, form: Form, armed: State): Effect | undefined {

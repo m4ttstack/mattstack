@@ -20,7 +20,7 @@ export type SelectSpec<A> = {
   pressing?: boolean
 }
 
-// Clack's select and multiselect: a window of choices around the cursor, the focused one in full and the rest cut to a row each for label and description.
+// Clack's select and multiselect: a window of choices around the cursor, each wrapped in full, the focused one bold.
 export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
   const max = spec.maxShown ?? 8
   const total = spec.choices.length
@@ -57,8 +57,8 @@ function choiceRows<A>(choice: Choice, idx: number, spec: SelectSpec<A>): Line<A
 function choiceLines<A>(choice: Choice, idx: number, spec: SelectSpec<A>, lead: Span<A>[], under: Span<A>[]): Line<A>[] {
   const isAt = idx === spec.cursor
   if (choice.isWriteIn) return writeInRows(choice, isAt, lead, under, spec)
-  if (!isAt) return [[...lead, sp(choice.label, { isLabel: true })], ...(choice.description ? [[...under, sp(choice.description, DIM)]] : [])]
-  return [...hang(lead, under, choice.label, spec.width, { bold: true, isLabel: true }), ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
+  // Every choice wraps in full, label and description: a cut description hides what the choice means.
+  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...(isAt && { bold: true }) }), ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
 }
 
 // The label stays put; the row under it is the description until the choice is focused, then the line you type on,
@@ -67,6 +67,6 @@ function writeInRows<A>(choice: Choice, isAt: boolean, lead: Span<A>[], under: S
   const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...(isAt && { bold: true }) })]
   const typed = spec.writeIn
   if (isAt) return [label, [...under, ...inputField(typed, choice.description ?? '', spec.width - widthOf(under), spec.focused)]]
-  if (typed !== '') return [label, [...under, sp(`“${typed}”`)]]
-  return [label, ...(choice.description ? [[...under, sp(choice.description, DIM)]] : [])]
+  if (typed !== '') return [label, ...hang(under, under, `“${typed}”`, spec.width, {})]
+  return [label, ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
 }
