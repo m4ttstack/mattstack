@@ -3,6 +3,7 @@ import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
 import { UserActionableError } from "../../errors.ts";
 import { createForgeRepo } from "../create-repo.ts";
+import { realFetchProbes, startRedirectHosts } from "../../setup/__tests__/redirect-hosts.ts";
 
 type Reply = { status: number; body: string };
 type Fetch = (url: string, init?: Parameters<Probes["fetch"]>[1]) => Reply;
@@ -105,5 +106,52 @@ describe("createForgeRepo", () => {
 
     const offline = probes(() => ({ status: 0, body: "" }));
     expect((await failure(createForgeRepo(offline, { ...GITHUB, namespace: "janedoe" }))).message).toBe("rt could not reach GitHub to create the team repo");
+  });
+});
+
+describe("createForgeRepo on a GitLab host that redirects", () => {
+  const TOKEN = "fake-token-for-redirect-test";
+  const reply = (req: Request, path: string) =>
+    path.startsWith("/api/v4/namespaces/")
+      ? Response.json({ id: 42 })
+      : req.method === "POST"
+        ? Response.json({ http_url_to_repo: "https://gitlab.example.com/acme/widgets/mattstack-team-acme.git" }, { status: 201 })
+        : Response.json({}, { status: 404 });
+
+  for (const status of [302, 307]) {
+    test(`a ${status} to another origin sends it nothing and fails naming both origins, never the token`, async () => {
+      const hosts = startRedirectHosts({ status, reply });
+      try {
+        const err = await failure(createForgeRepo(realFetchProbes(), { ...GITLAB, host: hosts.host, token: TOKEN }));
+        expect(hosts.otherHits).toEqual([]);
+        const text = `${err.message} ${err.why ?? ""} ${err.log ?? ""}`;
+        expect(text).toContain(hosts.host);
+        expect(text).toContain(hosts.otherHost);
+        expect(text).not.toContain(TOKEN);
+      } finally {
+        hosts.stop();
+      }
+    });
+  }
+
+  test("a 307 on the project create alone sends the other origin nothing", async () => {
+    const hosts = startRedirectHosts({ status: 307, redirectWhen: (req) => req.method === "POST", reply });
+    try {
+      const err = await failure(createForgeRepo(realFetchProbes(), { ...GITLAB, host: hosts.host, token: TOKEN }));
+      expect(hosts.otherHits).toEqual([]);
+      expect(`${err.message} ${err.why ?? ""} ${err.log ?? ""}`).toContain(hosts.otherHost);
+    } finally {
+      hosts.stop();
+    }
+  });
+
+  test("a redirect on the same origin is still followed", async () => {
+    const hosts = startRedirectHosts({ status: 307, sameOrigin: true, reply });
+    try {
+      expect(await createForgeRepo(realFetchProbes(), { ...GITLAB, host: hosts.host, token: TOKEN })).toEqual({ remote: "https://gitlab.example.com/acme/widgets/mattstack-team-acme.git" });
+      expect(hosts.otherHits).toEqual([]);
+    } finally {
+      hosts.stop();
+    }
   });
 });

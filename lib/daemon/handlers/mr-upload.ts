@@ -28,6 +28,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync, type BigIntStats } from "fs";
 import { homedir, tmpdir } from "os";
 import { basename, extname, isAbsolute, join, relative, sep } from "path";
+import { fetchSameOrigin } from "@mattstack/glance";
 import { decodeRepo } from "../identity-decoder.ts";
 import { getGitLabContext, getRepoContext, isGitHubRepo, providerRequestHook } from "../freshness.ts";
 import { findBundledTool, whichWithWellKnownDirs } from "../../bundled-tool.ts";
@@ -387,7 +388,7 @@ export function createMrUploadHandlers(
   const gitlabTokenFn = seams.gitlabToken ?? (async () => (await loadSecrets()).gitlabToken);
   const worktreePathsFn = seams.worktreePaths ?? ((repoName: string) => loadRegistry(repoName).map((t) => t.path));
   const tempRootsFn = seams.tempRoots ?? (() => claudeTempRoots(typeof process.getuid === "function" ? process.getuid() : null));
-  const fetchFn = seams.fetchFn ?? fetch;
+  const fetchFn = seams.fetchFn ?? fetchSameOrigin;
   const workRootFn = seams.workRoot ?? workRoot;
   const isGitHubFn = seams.isGitHub ?? isGitHubRepo;
   const ghBinaryFn = seams.ghBinary ?? (() => findBundledTool("gh", whichWithWellKnownDirs()));
