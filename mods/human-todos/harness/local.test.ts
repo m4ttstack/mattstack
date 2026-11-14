@@ -85,12 +85,50 @@ test('start spawns the script after the pid line, in the item\'s cwd, and keeps 
   await clock.settle()
 
   expect(spawned).toEqual([{ argv: ['/bin/zsh', '-lc', `${PREFIX}make`], cwd: '/work' }])
-  expect(writes.map(w => w.path)).toHaveLength(2)
+  // The live log (written empty, then with the output), then the report's own copy of the whole output.
+  expect(writes.map(w => w.path)).toHaveLength(3)
   expect(writes[0]).toMatchObject({ text: '' })
   expect(writes[0]?.path).toMatch(/^\/home\/u\/Library\/Caches\/human-todos\/sess-1-1-[a-z0-9]+\.log$/)
   expect(writes[1]).toEqual({ path: writes[0]?.path, text: 'hello\n' })
+  expect(writes[2]?.path).toMatch(/^\/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
+  expect(writes[2]?.text).toBe('hello\n')
   expect(item('1')).toMatchObject({ status: 'done', exitCode: 0, outputTail: 'hello' })
-  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nhello\n```'])
+  expect(sent).toEqual([`[Human Todos] The user ran #1 "T" from the pane: exit 0. Output: ${writes[2]?.path}`])
+})
+
+test('a run with no output reports (no output) and writes no report file', async ($, on) => {
+  const { run1, writes, sent, clock } = await seeded($, on, [todo({})], { script: () => exits([pid(7)]) })
+  await run1('1')
+  await clock.settle()
+  expect(writes.some(w => w.path.includes('/runs/'))).toBe(false)
+  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0. Output: (no output)'])
+})
+
+test('a report that cannot save its output says so instead of a path', async ($, on) => {
+  let copies = 0
+  const { run1, sent, clock } = await seeded($, on, [todo({})], {
+    script: () => exits([pid(8), out('hi\n')]),
+    // The live log takes the output first; the report's copy is the second write of it.
+    write: text => {
+      if (text === 'hi\n' && copies++ > 0) throw new Error('disk full')
+    },
+  })
+  await run1('1')
+  await clock.settle()
+  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0. Output: (the output could not be saved)'])
+})
+
+test('the report folder keeps the newest 20 logs and removes the rest', async ($, on) => {
+  const folder = '/home/u/Library/Caches/human-todos/runs'
+  on('fs.list', (_, e) => {
+    if (e.path !== folder) return { value: [] }
+    return { value: Array.from({ length: 23 }, (_, n) => ({ name: `old-${String(n).padStart(2, '0')}.log`, kind: 'file' as const, size: 1, mtimeMs: 1000 + n, isLink: false })) }
+  })
+  const { run1, ran, clock } = await seeded($, on, [todo({})], { script: () => exits([pid(9), out('x\n')]) })
+  await run1('1')
+  await clock.settle()
+  const removal = ran.find(argv => argv[0] === 'rm' && argv.some(a => a.startsWith(`${folder}/`)))
+  expect(removal).toEqual(['rm', '-f', '--', `${folder}/old-02.log`, `${folder}/old-01.log`, `${folder}/old-00.log`])
 })
 
 test('XDG_CACHE_HOME, when set, holds the log instead of the home Library', async ($, on) => {
@@ -153,7 +191,8 @@ test('a non-zero exit fails the item and tells the agent the code', async ($, on
   await clock.settle()
 
   expect(item('1')).toMatchObject({ status: 'failed', exitCode: 2, outputTail: 'nope' })
-  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 2.\n```\nnope\n```'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user ran #1 "T" from the pane: exit 2\. Output: \/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
 })
 
 test('a child that breaks mid-run ends the item with exit -1 and the error after its output', async ($, on) => {
@@ -198,7 +237,8 @@ test('Stop signals the script and its children, then reports the run as stopped'
   expect(toasts).toEqual(['Stopping #1'])
   expect(ran).toEqual([killing(4242)])
   expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped', isStopping: false })
-  expect(sent).toEqual(['[Human Todos] The user stopped #1 "T" before it finished. It is open again.'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user stopped #1 "T" before it finished\. It is open again\. Output: (\(no output\)|\/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log)$/)
 })
 
 // A three-level tree under the script's shell: 100 > 101, 102; 102 > 103, 104.
@@ -254,7 +294,8 @@ test('Force stop kills the whole tree of a script that ignored Stop, and the run
   expect(ran).toEqual([killing(100), killing(100, 'KILL')])
   expect(tree.alive()).toEqual([])
   expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped', isStopping: false })
-  expect(sent).toEqual(['[Human Todos] The user stopped #1 "T" before it finished. It is open again.'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user stopped #1 "T" before it finished\. It is open again\. Output: (\(no output\)|\/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log)$/)
 })
 
 test('withdrawing a running item signals every process under its script', async ($, on) => {
@@ -337,7 +378,8 @@ test('two runs at once each have their own child, token and log, and one finishi
   expect(item('1')?.token).not.toBe(item('2')?.token)
   expect(item('1')?.logPath).not.toBe(item('2')?.logPath)
   expect(writes.filter(w => w.path === item('2')?.logPath).at(-1)?.text).toBe('second output\n')
-  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nfirst output\n```'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user ran #1 "T" from the pane: exit 0\. Output: \/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
 
   await press(pane, '2', 'stop')
   expect(ran).toEqual([killing(22)])

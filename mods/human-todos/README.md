@@ -33,7 +33,7 @@ Claude adds steps with the `add` tool, reads them with `list` and removes one it
 
 An `image` step lists its file names. Open shows every image in your default image app in one go.
 
-Claude hears about Done, Skip, a finished run (its exit code and the last 30 lines of output) and Stop. Copy, Open, Show, Open log, Run and Cancel send nothing.
+Claude hears about Done, Skip, a finished run and Stop. A run report is one line: the exit code and the path of a file holding the whole output, which Claude can read. The last 20 such files are kept. Copy, Open, Show, Open log, Run and Cancel send nothing.
 
 Run always asks first: press Run, then Confirm. Confirm shows the script and the folder it runs in. If a script ignores Stop, the pane offers Force stop, which ends it and everything it started.
 

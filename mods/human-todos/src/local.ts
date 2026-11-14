@@ -2,6 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Todo } from '../types'
 import { LIVE_LINES_LOCAL, clipLines, newToken } from './items'
+import { logFolder } from './logs'
 import { report } from './report'
 import { listTodos, patchTodo } from './store'
 
@@ -19,14 +20,6 @@ type Job = { pid?: number; isStopped: boolean; isGone: boolean }
 
 // One entry per live run, keyed by its token, so two runs never share a child, a log or a stop.
 const jobs = new Map<string, Job>()
-
-export async function logFolder($: EngineInterface): Promise<string> {
-  const cache = await $.env.get('XDG_CACHE_HOME')
-  if (cache) return `${cache}/human-todos`
-  const home = await $.env.get('HOME')
-  if (!home) throw new Error('no home folder for the log')
-  return `${home}/Library/Caches/human-todos`
-}
 
 // The spawned zsh is not a process group the plugin can address, so the tree is walked with pgrep.
 // It is collected before anything is signalled, leaves first, so no parent spawns into a half-killed tree.

@@ -610,18 +610,7 @@ function quote(text) {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
-// mods/human-todos/src/store.ts
-import { atom, read, update } from "claude-code";
-
-// mods/human-todos/src/local.ts
-var PID_LINE = /^__human_todo_pid__(\d+)$/;
-var FLUSH_MS = 1000;
-var WINDOW = 1024 * 1024;
-var SLACK = WINDOW;
-var TAIL_SCAN = 64 * 1024;
-var DROPPED = `[earlier output was dropped]
-`;
-var jobs = new Map;
+// mods/human-todos/src/logs.ts
 async function logFolder($) {
   const cache = await $.env.get("XDG_CACHE_HOME");
   if (cache)
@@ -631,207 +620,26 @@ async function logFolder($) {
     throw new Error("no home folder for the log");
   return `${home}/Library/Caches/human-todos`;
 }
-function signal($, pid, sig = "TERM") {
-  const walk = 'walk() { for c in $(pgrep -P "$1"); do walk "$c"; done; echo "$1"; }';
-  return $.process.run(["/bin/sh", "-c", `${walk}; kill -${sig} $(walk ${pid}) 2>/dev/null`]);
-}
-function scanStderr(held, text) {
-  const buffered = held + text;
-  const cut = buffered.lastIndexOf(`
-`) + 1;
-  let passed = "";
-  let pid;
-  for (const line of buffered.slice(0, cut).split(`
-`).slice(0, -1)) {
-    const marker = pid === undefined ? PID_LINE.exec(line) : null;
-    if (marker)
-      pid = Number(marker[1]);
-    else
-      passed += `${line}
-`;
-  }
-  const rest = buffered.slice(cut);
-  return pid === undefined ? { held: rest, passed } : { held: "", passed: passed + rest, pid };
-}
-function liveLines(output) {
-  return output.split(`
-`).filter((line) => line.trim() !== "").slice(-LIVE_LINES_LOCAL);
-}
-async function startLocal($, todo) {
-  let token = newToken();
-  while (jobs.has(token))
-    token = newToken();
-  const job = { isStopped: false, isGone: false };
-  jobs.set(token, job);
-  const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`;
-  const abandon = async () => {
-    jobs.delete(token);
-    await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
-      return;
-    });
-  };
-  await $.fs.write(logPath, "");
-  if (job.isGone)
-    return abandon();
-  if (todo.logPath)
-    await $.process.run(["rm", "-f", "--", todo.logPath]).catch(() => {
-      return;
-    });
-  if (job.isGone)
-    return abandon();
-  await patchTodo($, todo.id, { token, logPath, liveTail: [], isStopping: false });
-  const still = job.isGone ? undefined : (await listTodos($)).find((t) => t.id === todo.id);
-  if (job.isGone || still?.status !== "running" || still.token !== token) {
-    await abandon();
-    if (!job.isGone && still?.token === token)
-      await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => {
-        return;
-      });
+var KEPT_RUN_LOGS = 20;
+async function writeRunLog($, todoId, output) {
+  if (output.trim() === "")
     return;
-  }
-  let output = "";
-  let isTrimmed = false;
-  let held = "";
-  let revision = 0;
-  let written = 0;
-  let isWriteFailed = false;
-  const append = (text) => {
-    output += text;
-    if (output.length > WINDOW + SLACK) {
-      output = output.slice(-WINDOW);
-      isTrimmed = true;
-    }
-    revision += 1;
-  };
-  const kept = () => output.length > WINDOW ? output.slice(-WINDOW) : output;
-  const isCut = () => isTrimmed || output.length > WINDOW;
-  let queue = Promise.resolve();
-  const writeOut = async () => {
-    if (job.isGone || revision === written)
-      return;
-    written = revision;
-    try {
-      await $.fs.write(logPath, isCut() ? `${DROPPED}${kept()}` : output);
-    } catch {
-      if (!isWriteFailed)
-        $.ui.toast(`Could not save the output of #${todo.id}`);
-      isWriteFailed = true;
-    }
-    if (job.isGone)
-      return;
-    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output.slice(-TAIL_SCAN))) }).catch(() => {
-      return;
-    });
-  };
-  const flush = () => queue = queue.then(writeOut);
-  const ticker = $.clock.every(FLUSH_MS, () => {
-    flush();
-  });
-  const child = $.process.spawn({
-    argv: ["/bin/zsh", "-lc", `print -u2 "__human_todo_pid__$$"; ${todo.script ?? ""}`],
-    cwd: todo.cwd
-  });
-  let step;
+  const folder = `${await logFolder($)}/runs`;
+  const path = `${folder}/${await $.session.id()}-${todoId}-${await $.clock.now()}.log`;
+  await $.fs.write(path, output.endsWith(`
+`) ? output : `${output}
+`);
   try {
-    step = await child.next();
-  } catch (err) {
-    ticker.cancel();
-    jobs.delete(token);
-    await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
-      return;
-    });
-    await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => {
-      return;
-    });
-    throw err;
-  }
-  let exitCode = -1;
-  try {
-    while (!step.done) {
-      if (job.pid === undefined && step.value.stream === "stderr") {
-        const scanned = scanStderr(held, step.value.text);
-        held = scanned.held;
-        append(scanned.passed);
-        if (scanned.pid !== undefined) {
-          job.pid = scanned.pid;
-          if (job.isGone)
-            await signal($, job.pid);
-        }
-      } else {
-        append(step.value.text);
-      }
-      step = await child.next();
-    }
-    exitCode = step.value.code ?? (step.value.signal ? 130 : -1);
-  } catch (err) {
-    append(`
-${String(err)}`);
-  }
-  append(held);
-  ticker.cancel();
-  if (job.isGone)
-    return void jobs.delete(token);
-  await flush();
-  jobs.delete(token);
-  if (job.isGone)
-    return;
-  await report($, todo, job.isStopped ? { kind: "stopped", outputTail: kept() } : { kind: "ran", exitCode, outputTail: kept() });
+    const logs = (await $.fs.list(folder)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));
+    const old = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name)).slice(KEPT_RUN_LOGS);
+    if (old.length > 0)
+      await $.process.run(["rm", "-f", "--", ...old.map((entry) => `${folder}/${entry.name}`)]);
+  } catch {}
+  return path;
 }
-async function stopLocal($, todo) {
-  const job = todo.token ? jobs.get(todo.token) : undefined;
-  if (job?.pid === undefined) {
-    await patchTodo($, todo.id, { isStopping: false });
-    $.ui.toast("Still starting; try Stop again in a moment");
-    return;
-  }
-  job.isStopped = true;
-  try {
-    await signal($, job.pid);
-  } catch {
-    job.isStopped = false;
-    await patchTodo($, todo.id, { isStopping: false });
-    $.ui.toast(`Could not stop #${todo.id}`);
-  }
-}
-async function forceStopLocal($, todo) {
-  const job = todo.token ? jobs.get(todo.token) : undefined;
-  if (job?.pid === undefined)
-    return;
-  try {
-    await signal($, job.pid, "KILL");
-  } catch {
-    $.ui.toast(`Could not force stop #${todo.id}`);
-  }
-}
-async function showLocal(_$, _todo) {}
-async function releaseLocal($) {
-  const held = [...jobs.values()];
-  for (const job of held)
-    job.isGone = true;
-  let isFailed = false;
-  for (const job of held) {
-    if (job.pid === undefined)
-      continue;
-    await signal($, job.pid).catch(() => {
-      isFailed = true;
-    });
-  }
-  if (isFailed)
-    throw new Error("A local run could not be stopped");
-}
-async function cleanupLocal($, todo) {
-  const job = todo.token ? jobs.get(todo.token) : undefined;
-  try {
-    if (job) {
-      job.isGone = true;
-      if (job.pid !== undefined)
-        await signal($, job.pid);
-    }
-  } finally {
-    if (todo.logPath)
-      await $.process.run(["rm", "-f", "--", todo.logPath]);
-  }
-}
+
+// mods/human-todos/src/store.ts
+import { atom, read, update } from "claude-code";
 
 // mods/human-todos/src/herdr.ts
 var POLL_MS = 1000;
@@ -1325,8 +1133,10 @@ async function syncSpinner($) {
 
 // mods/human-todos/src/report.ts
 var SETTLED = { liveTail: undefined, isStopping: false };
-function settle(todo, outcome) {
+var outputLine = (log) => log === undefined ? "(no output)" : log ?? "(the output could not be saved)";
+function settle(todo, outcome, log) {
   const who = `#${todo.id} "${todo.title}"`;
+  const output = `Output: ${outputLine(log)}`;
   switch (outcome.kind) {
     case "done":
       return { patch: { status: "done" }, text: `${who}: the user marked it done.` };
@@ -1336,26 +1146,32 @@ function settle(todo, outcome) {
       const outputTail = tail(outcome.outputTail);
       return {
         patch: { ...SETTLED, status: outcome.exitCode === 0 ? "done" : "failed", exitCode: outcome.exitCode, outputTail },
-        text: `The user ran ${who} from the pane: exit ${outcome.exitCode}.
-\`\`\`
-${outputTail || "(no output)"}
-\`\`\``
+        text: `The user ran ${who} from the pane: exit ${outcome.exitCode}. ${output}`
       };
     }
     case "stopped":
       return {
         patch: { ...SETTLED, status: "open", outputTail: tail(outcome.outputTail), note: "Stopped" },
-        text: `The user stopped ${who} before it finished. It is open again.`
+        text: `The user stopped ${who} before it finished. It is open again. ${output}`
       };
     case "ended":
       return {
         patch: { ...SETTLED, status: "open", outputTail: tail(outcome.outputTail), note: "Ended without an exit code." },
-        text: `${who} ended in its tab without reporting an exit code (most likely stopped). It is open again.`
+        text: `${who} ended in its tab without reporting an exit code (most likely stopped). It is open again. ${output}`
       };
   }
 }
+async function savedOutput($, todo, outcome) {
+  if (!("outputTail" in outcome))
+    return;
+  try {
+    return await writeRunLog($, todo.id, outcome.outputTail);
+  } catch {
+    return null;
+  }
+}
 async function report($, todo, outcome) {
-  const { patch, text } = settle(todo, outcome);
+  const { patch, text } = settle(todo, outcome, await savedOutput($, todo, outcome));
   await patchTodo($, todo.id, patch);
   await syncSpinner($);
   const warn = () => {
@@ -1366,6 +1182,217 @@ async function report($, todo, outcome) {
     if (sent.drop !== undefined)
       warn();
   }).catch(warn);
+}
+
+// mods/human-todos/src/local.ts
+var PID_LINE = /^__human_todo_pid__(\d+)$/;
+var FLUSH_MS = 1000;
+var WINDOW = 1024 * 1024;
+var SLACK = WINDOW;
+var TAIL_SCAN = 64 * 1024;
+var DROPPED = `[earlier output was dropped]
+`;
+var jobs = new Map;
+function signal($, pid, sig = "TERM") {
+  const walk = 'walk() { for c in $(pgrep -P "$1"); do walk "$c"; done; echo "$1"; }';
+  return $.process.run(["/bin/sh", "-c", `${walk}; kill -${sig} $(walk ${pid}) 2>/dev/null`]);
+}
+function scanStderr(held, text) {
+  const buffered = held + text;
+  const cut = buffered.lastIndexOf(`
+`) + 1;
+  let passed = "";
+  let pid;
+  for (const line of buffered.slice(0, cut).split(`
+`).slice(0, -1)) {
+    const marker = pid === undefined ? PID_LINE.exec(line) : null;
+    if (marker)
+      pid = Number(marker[1]);
+    else
+      passed += `${line}
+`;
+  }
+  const rest = buffered.slice(cut);
+  return pid === undefined ? { held: rest, passed } : { held: "", passed: passed + rest, pid };
+}
+function liveLines(output) {
+  return output.split(`
+`).filter((line) => line.trim() !== "").slice(-LIVE_LINES_LOCAL);
+}
+async function startLocal($, todo) {
+  let token = newToken();
+  while (jobs.has(token))
+    token = newToken();
+  const job = { isStopped: false, isGone: false };
+  jobs.set(token, job);
+  const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`;
+  const abandon = async () => {
+    jobs.delete(token);
+    await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
+      return;
+    });
+  };
+  await $.fs.write(logPath, "");
+  if (job.isGone)
+    return abandon();
+  if (todo.logPath)
+    await $.process.run(["rm", "-f", "--", todo.logPath]).catch(() => {
+      return;
+    });
+  if (job.isGone)
+    return abandon();
+  await patchTodo($, todo.id, { token, logPath, liveTail: [], isStopping: false });
+  const still = job.isGone ? undefined : (await listTodos($)).find((t) => t.id === todo.id);
+  if (job.isGone || still?.status !== "running" || still.token !== token) {
+    await abandon();
+    if (!job.isGone && still?.token === token)
+      await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => {
+        return;
+      });
+    return;
+  }
+  let output = "";
+  let isTrimmed = false;
+  let held = "";
+  let revision = 0;
+  let written = 0;
+  let isWriteFailed = false;
+  const append = (text) => {
+    output += text;
+    if (output.length > WINDOW + SLACK) {
+      output = output.slice(-WINDOW);
+      isTrimmed = true;
+    }
+    revision += 1;
+  };
+  const kept = () => output.length > WINDOW ? output.slice(-WINDOW) : output;
+  const isCut = () => isTrimmed || output.length > WINDOW;
+  let queue = Promise.resolve();
+  const writeOut = async () => {
+    if (job.isGone || revision === written)
+      return;
+    written = revision;
+    try {
+      await $.fs.write(logPath, isCut() ? `${DROPPED}${kept()}` : output);
+    } catch {
+      if (!isWriteFailed)
+        $.ui.toast(`Could not save the output of #${todo.id}`);
+      isWriteFailed = true;
+    }
+    if (job.isGone)
+      return;
+    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output.slice(-TAIL_SCAN))) }).catch(() => {
+      return;
+    });
+  };
+  const flush = () => queue = queue.then(writeOut);
+  const ticker = $.clock.every(FLUSH_MS, () => {
+    flush();
+  });
+  const child = $.process.spawn({
+    argv: ["/bin/zsh", "-lc", `print -u2 "__human_todo_pid__$$"; ${todo.script ?? ""}`],
+    cwd: todo.cwd
+  });
+  let step;
+  try {
+    step = await child.next();
+  } catch (err) {
+    ticker.cancel();
+    jobs.delete(token);
+    await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
+      return;
+    });
+    await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => {
+      return;
+    });
+    throw err;
+  }
+  let exitCode = -1;
+  try {
+    while (!step.done) {
+      if (job.pid === undefined && step.value.stream === "stderr") {
+        const scanned = scanStderr(held, step.value.text);
+        held = scanned.held;
+        append(scanned.passed);
+        if (scanned.pid !== undefined) {
+          job.pid = scanned.pid;
+          if (job.isGone)
+            await signal($, job.pid);
+        }
+      } else {
+        append(step.value.text);
+      }
+      step = await child.next();
+    }
+    exitCode = step.value.code ?? (step.value.signal ? 130 : -1);
+  } catch (err) {
+    append(`
+${String(err)}`);
+  }
+  append(held);
+  ticker.cancel();
+  if (job.isGone)
+    return void jobs.delete(token);
+  await flush();
+  jobs.delete(token);
+  if (job.isGone)
+    return;
+  await report($, todo, job.isStopped ? { kind: "stopped", outputTail: kept() } : { kind: "ran", exitCode, outputTail: kept() });
+}
+async function stopLocal($, todo) {
+  const job = todo.token ? jobs.get(todo.token) : undefined;
+  if (job?.pid === undefined) {
+    await patchTodo($, todo.id, { isStopping: false });
+    $.ui.toast("Still starting; try Stop again in a moment");
+    return;
+  }
+  job.isStopped = true;
+  try {
+    await signal($, job.pid);
+  } catch {
+    job.isStopped = false;
+    await patchTodo($, todo.id, { isStopping: false });
+    $.ui.toast(`Could not stop #${todo.id}`);
+  }
+}
+async function forceStopLocal($, todo) {
+  const job = todo.token ? jobs.get(todo.token) : undefined;
+  if (job?.pid === undefined)
+    return;
+  try {
+    await signal($, job.pid, "KILL");
+  } catch {
+    $.ui.toast(`Could not force stop #${todo.id}`);
+  }
+}
+async function showLocal(_$, _todo) {}
+async function releaseLocal($) {
+  const held = [...jobs.values()];
+  for (const job of held)
+    job.isGone = true;
+  let isFailed = false;
+  for (const job of held) {
+    if (job.pid === undefined)
+      continue;
+    await signal($, job.pid).catch(() => {
+      isFailed = true;
+    });
+  }
+  if (isFailed)
+    throw new Error("A local run could not be stopped");
+}
+async function cleanupLocal($, todo) {
+  const job = todo.token ? jobs.get(todo.token) : undefined;
+  try {
+    if (job) {
+      job.isGone = true;
+      if (job.pid !== undefined)
+        await signal($, job.pid);
+    }
+  } finally {
+    if (todo.logPath)
+      await $.process.run(["rm", "-f", "--", todo.logPath]);
+  }
 }
 
 // mods/human-todos/src/runners.ts

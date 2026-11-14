@@ -222,7 +222,8 @@ test('the marker ends the run with its exit code and the output before it', asyn
 
   expect(item('1')).toMatchObject({ status: 'done', exitCode: 0, outputTail: 'building\ndone building' })
   expect(item('1')?.liveTail).toBeUndefined()
-  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nbuilding\ndone building\n```'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user ran #1 "T" from the pane: exit 0\. Output: \/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
   const reads = fake.ran('herdr pane read').length
   await clock.advance(3000)
   expect(fake.ran('herdr pane read')).toHaveLength(reads)
@@ -294,7 +295,8 @@ test('no marker and an idle shell on 2 consecutive polls ends the run without an
   await clock.advance(1000)
 
   expect(item('1')).toMatchObject({ status: 'open', note: 'Ended without an exit code.', outputTail: 'partial' })
-  expect(sent).toEqual(['[Human Todos] #1 "T" ended in its tab without reporting an exit code (most likely stopped). It is open again.'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] #1 "T" ended in its tab without reporting an exit code \(most likely stopped\)\. It is open again\. Output: (\(no output\)|\/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log)$/)
 })
 
 test('one idle poll followed by activity does not end the run', async ($, on) => {
@@ -360,7 +362,8 @@ test('Stop sends ctrl+c to the tab, and the marker that follows reports stopped'
   await clock.advance(1000)
 
   expect(item('1')).toMatchObject({ status: 'open', note: 'Stopped', outputTail: 'running\n^C' })
-  expect(sent).toEqual(['[Human Todos] The user stopped #1 "T" before it finished. It is open again.'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user stopped #1 "T" before it finished\. It is open again\. Output: (\(no output\)|\/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log)$/)
 })
 
 test('a Stop that herdr refuses puts the button back and says so', async ($, on) => {
