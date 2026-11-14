@@ -13,7 +13,7 @@ export const spawnCapture: SpawnCapture = async (argv, cwd, env) => {
 /**
  * Git against a pack checkout's origin: the user's own credentials and hooks
  * first, then rt's forge token on an auth failure. The retry runs with hooks
- * off, because the token rides in the environment every hook would inherit.
+ * off, since a hook would inherit the env that names rt's helper.
  */
 export async function runSkillsOrigin(
   args: string[],
@@ -25,7 +25,7 @@ export async function runSkillsOrigin(
     push: opts.push,
     auth: seams.auth,
     run: async (cwd, a, o) => {
-      const hooks = o.env?.RT_GIT_TOKEN ? ["-c", "core.hooksPath=/dev/null"] : [];
+      const hooks = o.retry ? ["-c", "core.hooksPath=/dev/null"] : [];
       const res = await spawn(["git", ...hooks, ...a], cwd, o.env);
       return { exitCode: res.code, stdout: res.stdout, stderr: res.stderr };
     },

@@ -583,7 +583,6 @@ async function runRebaseWithEscalation(
       result,
       mode,
       autoYes: args.includes("--agent"),
-      push: false,
     });
     process.exit(exitCode);
   }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, statSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -248,7 +248,6 @@ describe("runEscalationFlow (agent path)", () => {
       result,
       mode: "interactive",
       autoYes: true,
-      push: false,
       herdrRunner: runner,
     });
 
@@ -260,46 +259,33 @@ describe("runEscalationFlow (agent path)", () => {
     expect(io.stderr()).toBe("");
   }, 20_000);
 
-  for (const row of [
-    { name: "multiple lines", stderr: "\nfirst push line\nsecond push line\n", expected: "push output:\n  first push line\n  second push line\n" },
-    { name: "one line", stderr: "single push line\n", expected: "push output:\n  single push line\n" },
-    { name: "empty output", stderr: "", expected: "" },
-    { name: "whitespace-only output", stderr: "\n \t\n", expected: "" },
-  ]) {
-    test(`a failed push with ${row.name} keeps its title and formats its output`, async () => {
-      const repo = makeConflictRepo();
-      const result = await pausedConflict(repo);
-      writeFileSync(join(repo, "app.txt"), "merged change\n");
-      sh("git add app.txt", repo);
-      sh("GIT_EDITOR=true git -c user.email=t@t -c user.name=t rebase --continue", repo);
-      const realGit = Bun.which("git")!;
-      const bin = join(tmpRoot, "bin");
-      const stderrPath = join(tmpRoot, "push-stderr");
-      mkdirSync(bin);
-      writeFileSync(stderrPath, row.stderr);
-      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-      writeFileSync(join(bin, "git"), `#!/bin/sh
-if [ "$1" = "push" ]; then
-  cat ${quote(stderrPath)} >&2
-  exit 1
-fi
-exec ${quote(realGit)} "$@"
-`, { mode: 0o755 });
-      const savedPath = process.env.PATH;
-      process.env.PATH = `${bin}:${savedPath ?? ""}`;
-      try {
-        const { runner } = scriptedHerdr();
-        const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: true, herdrRunner: runner });
-        expect(code).toBe(1);
-        expect(io.stderr()).toBe("The rebase finished, but the push failed\n" + row.expected);
-        expect(io.stdout()).toBe("[running] An agent is resolving the conflicts  pane p1; Ctrl+C leaves it working\n");
-        expect(verifyRebaseCompleted(repo, "feature", "master")).toBe("completed");
-      } finally {
-        if (savedPath === undefined) delete process.env.PATH;
-        else process.env.PATH = savedPath;
-      }
-    }, 20_000);
+  async function resolvedByAgent(push: (branch: string) => Promise<out.FailureInput | null>) {
+    const repo = makeConflictRepo();
+    const result = await pausedConflict(repo);
+    writeFileSync(join(repo, "app.txt"), "merged change\n");
+    sh("git add app.txt", repo);
+    sh("GIT_EDITOR=true git -c user.email=t@t -c user.name=t rebase --continue", repo);
+    const { runner } = scriptedHerdr();
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push, herdrRunner: runner });
+    return { code, repo };
   }
+
+  test("a finished rebase pushes its branch through the push it was given", async () => {
+    const pushed: string[] = [];
+    const { code } = await resolvedByAgent(async (branch) => (pushed.push(branch), null));
+    expect(code).toBe(0);
+    expect(pushed).toEqual(["feature"]);
+    expect(io.lines()[1]).toBe("[ok] The agent resolved the conflicts  feature is rebased and pushed");
+  }, 20_000);
+
+  test("a failed push says the rebase is done, then draws the failure the push returned", async () => {
+    const { code, repo } = await resolvedByAgent(async () => ({ title: "Could not push feature", details: "fatal: could not read Username" }));
+    expect(code).toBe(1);
+    expect(io.stderr()).toStartWith("Could not push feature\n");
+    expect(io.stderr()).toContain("fatal: could not read Username");
+    expect(io.lines()).toEqual(["[running] An agent is resolving the conflicts  pane p1; Ctrl+C leaves it working", "[ok] The agent resolved the conflicts  feature is rebased"]);
+    expect(verifyRebaseCompleted(repo, "feature", "master")).toBe("completed");
+  }, 20_000);
 
   test("agent wait times out: reports and reads the pane, never the removed verb", async () => {
     const repo = makeConflictRepo();
@@ -316,7 +302,6 @@ exec ${quote(realGit)} "$@"
       result,
       mode: "interactive",
       autoYes: true,
-      push: false,
       herdrRunner: runner,
     });
 
@@ -336,7 +321,7 @@ exec ${quote(realGit)} "$@"
     const result = await pausedConflict(repo);
     sh("git rebase --abort", repo);
     const { runner } = scriptedHerdr({ "pane read": { stdout: "agent gave up" } });
-    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, herdrRunner: runner });
     expect(code).toBe(1);
     expect(io.stderr()).toBe(`The agent gave up and undid the rebase\npane: p1\nbackup: ${result.backupBranch}\nthe end of the pane:\n  agent gave up\n`);
   }, 20_000);
@@ -345,7 +330,7 @@ exec ${quote(realGit)} "$@"
     const repo = makeConflictRepo();
     const result = await pausedConflict(repo);
     const { runner } = scriptedHerdr({ "pane read": { stdout: "agent stopped" } });
-    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, herdrRunner: runner });
     expect(code).toBe(1);
     expect(io.stderr()).toBe(`The agent stopped, but the rebase is not finished\n  why: The rebase is still paused.\npane: p1\nbackup: ${result.backupBranch}\nthe end of the pane:\n  agent stopped\n`);
   }, 20_000);
@@ -354,7 +339,7 @@ exec ${quote(realGit)} "$@"
     const repo = makeConflictRepo();
     const result = { ...await pausedConflict(repo), backupBranch: null };
     const { runner } = scriptedHerdr({ "agent wait": { stdout: "", exitCode: 1 } });
-    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, herdrRunner: runner });
     expect(code).toBe(1);
     expect(io.stderr()).toBe("The agent did not finish in 10 minutes\n  why: Nothing was pushed.\npane: p1\n");
   }, 20_000);
@@ -374,7 +359,6 @@ exec ${quote(realGit)} "$@"
       result,
       mode: "interactive",
       autoYes: true,
-      push: false,
       herdrRunner: runner,
     });
 
@@ -390,7 +374,7 @@ exec ${quote(realGit)} "$@"
     const result = await pausedConflict(repo);
     const pane = Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join("\n") + "\n\x1b[2Jlast\n";
     const { runner } = scriptedHerdr({ "agent wait": { stdout: "", exitCode: 1 }, "pane read": { stdout: pane } });
-    await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, herdrRunner: runner });
     const shown = io.errLines().slice(io.errLines().indexOf("the end of the pane:") + 1);
     expect(shown).toHaveLength(40);
     expect(shown[0]).toBe("  line 462");
@@ -406,7 +390,7 @@ exec ${quote(realGit)} "$@"
       if (args[0] === "pane" && args[1] === "read") throw new Error("herdr socket closed");
       return scripted(args);
     };
-    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, herdrRunner: runner });
     expect(code).toBe(1);
     expect(io.errLines()[0]).toBe("The agent did not finish in 10 minutes");
     expect(io.stdout() + io.stderr()).not.toContain("Could not hand this to an agent");
@@ -419,7 +403,7 @@ exec ${quote(realGit)} "$@"
       if (args[0] === "workspace" && args[1] === "list") return { stdout: JSON.stringify({ result: { workspaces: [] } }), exitCode: 0 };
       throw new Error("herdr socket closed");
     };
-    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, herdrRunner: runner });
     expect(code).toBe(1);
     expect(io.lines()[0]).toBe("[warning] Could not hand this to an agent  herdr socket closed");
     expect(io.lines()[1]).toBe("[needs you] The rebase of feature onto master is paused  1 file to resolve");
@@ -435,7 +419,7 @@ describe("runEscalationFlow (--json)", () => {
     out.__test__.reset();
     out.__test__.setHuman(() => false);
     try {
-      const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "json", autoYes: false, push: true });
+      const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "json", autoYes: false });
       expect(code).toBe(3);
       expect(io.stdout()).toBe(JSON.stringify(buildConflictBundle(result, repo), null, 2) + "\n");
       expect(io.stderr()).toBe("");
