@@ -647,7 +647,7 @@ describe('plainReason', () => {
     );
     expect(plainReason('disabled', cfg)).toBe('Automatic asks are off');
     expect(plainReason('already-handled', cfg)).toBe('Already handled');
-    expect(plainReason('not-your-mr', cfg)).toBe("It isn't your MR");
+    expect(plainReason('not-your-mr', cfg)).toBe("It isn't yours");
   });
 
   test('a GitHub refusal says replies are not supported yet', () => {

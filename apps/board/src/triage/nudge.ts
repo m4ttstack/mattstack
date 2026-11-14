@@ -137,7 +137,7 @@ export function plainReason(reason: string, cfg: TriageConfig): string {
     case 'already-handled':
       return 'Already handled';
     case 'not-your-mr':
-      return "It isn't your MR";
+      return "It isn't yours";
     default:
       return 'Held back by a board limit';
   }
