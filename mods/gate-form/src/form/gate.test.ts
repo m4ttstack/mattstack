@@ -43,14 +43,14 @@ test('Submit is disabled until every question is answered', () => {
   expect(sent?.post).toEqual({ type: 'answer', formId: gate.id, answers: { tier: 'std', why: 'no' } })
 })
 
-test('More actions offers Pause run and Go back to stage ▸ with one row per stage', () => {
+test('More actions offers Pause run and a Go back to stage heading with one row per stage', () => {
   const s = atReview(gate)
   expect(screen(gate, s)).toContain('More actions ▾')
   const open = run(gate, s, { type: 'menu', hit: { type: 'toggle' } })!.state
   expect(screen(gate, open)).toContain('Pause run')
-  expect(screen(gate, open)).toContain('Go back to stage ▸')
-  const sub = run(gate, open, { type: 'menu', hit: { type: 'row', path: [1] } })!.state
-  for (const stage of ['plan', 'provision', 'implement']) expect(screen(gate, sub)).toContain(stage)
+  expect(screen(gate, open)).toContain('Go back to stage')
+  expect(screen(gate, open)).not.toContain('▸')
+  for (const stage of ['plan', 'provision', 'implement']) expect(screen(gate, open)).toContain(stage)
 })
 
 test('More actions is absent when the gate offers no run controls', () => {
@@ -58,27 +58,24 @@ test('More actions is absent when the gate offers no run controls', () => {
 })
 
 test('Pause run sends only next: hold', () => {
-  const picked = run(gate, atReview(gate), { type: 'menu', hit: { type: 'toggle' } }, { type: 'menu', hit: { type: 'row', path: [0] } })
+  const picked = run(gate, atReview(gate), { type: 'menu', hit: { type: 'toggle' } }, { type: 'menu', hit: { type: 'row', at: 0 } })
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'hold' } })
   expect(picked?.state.phase).toBe('submitted')
 })
 
-test('Go back to stage ▸ plan sends next: go-back with to: plan', () => {
-  const picked = run(gate, atReview(gate), { type: 'menu', hit: { type: 'toggle' } }, { type: 'menu', hit: { type: 'row', path: [1] } }, { type: 'menu', hit: { type: 'row', path: [1, 0] } })
+test('Go back to stage plan sends next: go-back with to: plan', () => {
+  const picked = run(gate, atReview(gate), { type: 'menu', hit: { type: 'toggle' } }, { type: 'menu', hit: { type: 'row', at: 2 } })
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'go-back', to: 'plan' } })
 })
 
-test('keyboard: right selects More actions, Enter opens it, arrows move, Enter picks', () => {
-  const picked = keys(gate, atReview(gate), 'right', 'return', 'down', 'return', 'down', 'return')
+test('keyboard: right selects More actions, Enter opens it, arrows move past the heading, Enter picks', () => {
+  const picked = keys(gate, atReview(gate), 'right', 'return', 'down', 'down', 'return')
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'go-back', to: 'provision' } })
 })
 
 test('keyboard: left closes the menu, then goes back to Submit, then to Back, which pages back', () => {
   const open = keys(gate, atReview(gate), 'right', 'return')!.state
   expect(open.menu.open).toBe(true)
-  const inSub = keys(gate, open, 'down', 'return')!.state
-  expect(inSub.menu.sub).toBe(0)
-  expect(keyEffect({ key: 'left' }, gate, inSub)!.state.menu).toEqual({ open: true, selected: 1 })
   const closed = keyEffect({ key: 'left' }, gate, open)!.state
   expect(keyEffect({ key: 'backspace' }, gate, open)!.state.menu.open).toBe(false)
   expect(closed.menu.open).toBe(false)
@@ -106,8 +103,8 @@ test('a failed answer puts the form back in play with its picks', () => {
 })
 
 for (const width of [76, 40]) {
-  test(`at ${width} columns every line fits with the menu and a sub-list open`, () => {
-    const open = run(gate, atReview(gate), { type: 'menu', hit: { type: 'toggle' } }, { type: 'menu', hit: { type: 'row', path: [1] } })!.state
+  test(`at ${width} columns every line fits with the menu open`, () => {
+    const open = run(gate, atReview(gate), { type: 'menu', hit: { type: 'toggle' } })!.state
     const lines = linesAt(gate, open, width)
     for (const line of lines) expect(widthOf(line), textOf(line)).toBeLessThanOrEqual(width)
     expect(lines.map(textOf).join('\n')).toContain('implement')

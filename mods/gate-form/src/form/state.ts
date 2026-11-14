@@ -84,7 +84,7 @@ export function menuRows(form: Form): MenuRow[] {
   const controls = form.controls
   if (!controls) return []
   const rows: MenuRow[] = controls.pause ? [{ id: PAUSE, label: 'Pause run' }] : []
-  if (controls.goBack.length > 0) rows.push({ id: 'go-back', label: 'Go back to stage', rows: controls.goBack.map(stage => ({ id: `${GO_BACK}${stage}`, label: stage })) })
+  if (controls.goBack.length > 0) rows.push({ id: 'go-back', label: 'Go back to stage', isHeading: true }, ...controls.goBack.map(stage => ({ id: `${GO_BACK}${stage}`, label: stage })))
   return rows
 }
 

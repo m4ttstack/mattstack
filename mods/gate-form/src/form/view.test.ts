@@ -31,11 +31,11 @@ test('the N chip on the tab strip scrolls one tab and keeps the page', () => {
   expect(effect?.state.page).toBe(2)
 })
 
-test('the review page has no hint line', () => {
+test('the review page hints at its buttons, not at pages', () => {
   const text = pageLines(demo.questions.length).map(textOf).join('\n')
   expect(text).toContain('Submit your answers?')
   expect(text).not.toContain('pages')
-  expect(text).not.toContain('click the form')
+  expect(text).toContain('enter presses')
 })
 
 test('a question page has the hint line', () => {

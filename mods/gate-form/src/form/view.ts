@@ -179,8 +179,8 @@ function errorLines(form: Form, view: View): L[] {
   return [[sp(' ')], ...hang(lead, [sp<Action>('   ')], form.error, view.width, WARN)]
 }
 
-function hint(form: Form, s: State, view: View): string | undefined {
-  if (!view.focused) return 'click the form to answer with the keyboard'
+// The same with or without focus: focus changes only how the selection is drawn, never what the form says.
+function hint(form: Form, s: State): string | undefined {
   const q = form.questions[s.page]
   if (!q) return '←→ buttons  enter presses'
   if (s.onNav) return '←→ buttons  ↑ answers  enter presses'
@@ -201,7 +201,7 @@ function draw(form: Form, s: State, view: View, withContext: boolean): Drawn<Act
   const q = form.questions[s.page]
   const accentBar = rail<Action>(ACCENT)
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view)
-  const keys = hint(form, s, view)
+  const keys = hint(form, s)
   const hintLines: L[] = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)]
   const foot: L[] = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(' ')], ...navRows(form, s, view)]
   return { head, page, foot }

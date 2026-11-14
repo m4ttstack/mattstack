@@ -289,10 +289,9 @@ test('in an 80-column pane the review page and its open menu fit the width', asy
   }
   await click('Submit')
   await click('More actions')
-  await click('Go back to stage')
   const rows = await rowsOf(pane, key)
   for (const row of rows) expect([...row].length, row).toBeLessThanOrEqual(78)
   const text = rows.join('\n')
-  for (const word of ['Pause run', 'Go back to stage ▸', 'plan', 'provision']) expect(text).toContain(word)
+  for (const word of ['Pause run', 'Go back to stage', 'plan', 'provision']) expect(text).toContain(word)
   await pane.unmount()
 })

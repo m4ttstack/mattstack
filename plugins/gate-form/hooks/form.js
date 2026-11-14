@@ -302,13 +302,29 @@ function buttonRow(left, right, width, indent) {
 }
 // packages/mod-kit/src/widgets/menu.ts
 var MORE_ACTIONS = "More actions ▾";
-var SUB_MARK = " ▸";
-var GAP = 2;
 var CONNECTOR = 2;
-var labelOf = (row) => row.rows ? `${row.label}${SUB_MARK}` : row.label;
+var GROUP_INDENT = 2;
 var cut2 = (text, room) => cellWidth(text) <= room ? text : `${cutCells(text, Math.max(0, room - 1))}…`;
 var closed = (state) => ({ open: false, selected: state.selected });
-var wrapAt = (n, count) => (n + count) % count;
+function groupedFlags(rows) {
+  let inGroup = false;
+  return rows.map((row) => {
+    if (row.isHeading) {
+      inGroup = true;
+      return false;
+    }
+    return inGroup;
+  });
+}
+function nextPickable(rows, from, step) {
+  for (let n = 1;n <= rows.length; n += 1) {
+    const at = ((from + step * n) % rows.length + rows.length) % rows.length;
+    if (!rows[at].isHeading)
+      return at;
+  }
+  return from;
+}
+var firstPickable = (rows) => Math.max(0, rows.findIndex((row) => !row.isHeading));
 function menu(spec) {
   const act = spec.actionFor ?? ((hit) => hit);
   const indent = spec.indent ?? 0;
@@ -317,79 +333,42 @@ function menu(spec) {
   if (!spec.open || spec.rows.length === 0)
     return [head];
   const width = spec.width ?? Number.POSITIVE_INFINITY;
-  const labels = spec.rows.map(labelOf);
-  const widest = Math.max(...labels.map(cellWidth));
+  const grouped = groupedFlags(spec.rows);
+  const widest = Math.max(...spec.rows.map((row, i) => cellWidth(row.label) + (grouped[i] ? GROUP_INDENT : 0)));
   const at = Math.max(0, Math.min(indent, width - CONNECTOR - widest));
   const room = Math.max(1, width - at - CONNECTOR);
-  const column = Math.min(widest, room);
   const lead = sp(" ".repeat(at));
-  const subs = spec.sub === undefined ? [] : spec.rows[spec.selected]?.rows ?? [];
-  const subWidest = Math.max(0, ...subs.map((row) => cellWidth(row.label)));
-  const isBeside = at + CONNECTOR + column + GAP + subWidest <= width;
-  const rowLine = (i) => {
-    const isLast = i === spec.rows.length - 1;
+  const rowLine = (row, i) => {
+    const connector = sp(i === spec.rows.length - 1 ? "└ " : "├ ", GRAY);
+    if (row.isHeading)
+      return [lead, connector, sp(cut2(row.label, room), DIM)];
+    const pad = grouped[i] ? sp(" ".repeat(GROUP_INDENT)) : undefined;
     const look = i === spec.selected ? { ...ACCENT, bold: true } : {};
-    const text = cut2(labels[i], column);
-    const label = sp(isBeside && subs.length > 0 ? padCells(text, column) : text, { ...look, action: act({ type: "row", path: [i] }) });
-    return [lead, sp(isLast ? "└ " : "├ ", GRAY), spec.pressing && i === spec.selected && spec.sub === undefined ? pressed(label) : label];
+    const label = sp(cut2(row.label, room - (pad ? GROUP_INDENT : 0)), { ...look, action: act({ type: "row", at: i }) });
+    return [lead, connector, ...pad ? [pad] : [], spec.pressing && i === spec.selected ? pressed(label) : label];
   };
-  const subSpan = (row, j, cells) => {
-    const span = sp(padCells(cut2(row.label, cells), cells), { ...j === spec.sub ? { ...ACCENT, bold: true } : {}, action: act({ type: "row", path: [spec.selected, j] }) });
-    return spec.pressing && j === spec.sub ? pressed(span) : span;
-  };
-  const lines = spec.rows.map((_, i) => rowLine(i));
-  if (subs.length > 0 && isBeside) {
-    const blank = sp(" ".repeat(CONNECTOR + column));
-    subs.forEach((row, j) => {
-      const k = spec.selected + j;
-      const left = lines[k] ?? [lead, blank];
-      lines[k] = [...left, sp(" ".repeat(GAP)), subSpan(row, j, subWidest)];
-    });
-  } else if (subs.length > 0) {
-    const isLastParent = spec.selected === spec.rows.length - 1;
-    const under = [lead, sp(isLastParent ? "  " : "│ ", GRAY), sp("  ")];
-    const cells = Math.max(1, Math.min(subWidest, width - at - CONNECTOR - 2));
-    lines.splice(spec.selected + 1, 0, ...subs.map((row, j) => [...under, subSpan(row, j, cells)]));
-  }
-  return [head, ...lines];
+  return [head, ...spec.rows.map(rowLine)];
 }
 function menuKey(state, rows, key) {
   const isEnter = key === "return" || key === "enter";
   if (!state.open)
-    return isEnter && rows.length > 0 ? { state: { open: true, selected: 0 } } : undefined;
-  if (key === "escape" || key === "esc" || key === "backspace")
+    return isEnter && rows.some((row) => !row.isHeading) ? { state: { open: true, selected: firstPickable(rows) } } : undefined;
+  if (key === "escape" || key === "esc" || key === "backspace" || key === "left")
     return { state: closed(state) };
-  const row = rows[state.selected];
-  const subs = row?.rows ?? [];
-  if (state.sub !== undefined) {
-    if (key === "up" || key === "down")
-      return { state: { ...state, sub: wrapAt(state.sub + (key === "up" ? -1 : 1), subs.length) } };
-    if (key === "left")
-      return { state: { open: true, selected: state.selected } };
-    if (isEnter)
-      return { state: closed(state), picked: subs[state.sub]?.id };
-    return;
-  }
   if (key === "up" || key === "down")
-    return { state: { open: true, selected: wrapAt(state.selected + (key === "up" ? -1 : 1), rows.length) } };
-  if ((isEnter || key === "right") && subs.length > 0)
-    return { state: { open: true, selected: state.selected, sub: 0 } };
-  if (key === "left")
-    return { state: closed(state) };
-  if (isEnter && row)
+    return { state: { open: true, selected: nextPickable(rows, state.selected, key === "up" ? -1 : 1) } };
+  const row = rows[state.selected];
+  if (isEnter && row && !row.isHeading)
     return { state: closed(state), picked: row.id };
   return;
 }
 function menuHit(state, rows, hit) {
   if (hit.type === "toggle")
-    return { state: state.open ? closed(state) : { open: true, selected: 0 } };
-  const [i = 0, j] = hit.path;
-  const row = rows[i];
-  if (j !== undefined)
-    return { state: { open: false, selected: i }, picked: row?.rows?.[j]?.id };
-  if (row?.rows && row.rows.length > 0)
-    return { state: { open: true, selected: i, sub: 0 } };
-  return { state: { open: false, selected: i }, picked: row?.id };
+    return { state: state.open ? closed(state) : { open: true, selected: firstPickable(rows) } };
+  const row = rows[hit.at];
+  if (!row || row.isHeading)
+    return { state };
+  return { state: { open: false, selected: hit.at }, picked: row.id };
 }
 // packages/mod-kit/src/widgets/input-field.ts
 function inputField(value, placeholder, width, showCursor) {
@@ -553,7 +532,7 @@ function lookOf(state, focused) {
   const held = state?.pressed;
   return { focused, hover, pressed: held === hover ? held : undefined };
 }
-var labelOf2 = (text) => text.split(SYMBOL.selectEdge).join("").trim();
+var labelOf = (text) => text.split(SYMBOL.selectEdge).join("").trim();
 function runOf(line, n) {
   const armed = JSON.stringify(line[n].action);
   const carries = (m) => line[m]?.action !== undefined && JSON.stringify(line[m].action) === armed;
@@ -563,7 +542,7 @@ function runOf(line, n) {
     first--;
   while (carries(last + 1))
     last++;
-  return { armed, label: labelOf2(line.slice(first, last + 1).map((s) => s.t).join("")) };
+  return { armed, label: labelOf(line.slice(first, last + 1).map((s) => s.t).join("")) };
 }
 function controlAt(line, x) {
   if (!line)
@@ -575,11 +554,11 @@ function controlAt(line, x) {
       return runOf(line, n);
     from = to;
   }
-  return line.action === undefined ? undefined : { armed: JSON.stringify(line.action), label: labelOf2(line.map((s) => s.t).join("")) };
+  return line.action === undefined ? undefined : { armed: JSON.stringify(line.action), label: labelOf(line.map((s) => s.t).join("")) };
 }
 function drawnAction(lines, held) {
   for (const line of lines) {
-    if (line.action !== undefined && JSON.stringify(line.action) === held.armed && labelOf2(line.map((s) => s.t).join("")) === held.label)
+    if (line.action !== undefined && JSON.stringify(line.action) === held.armed && labelOf(line.map((s) => s.t).join("")) === held.label)
       return line.action;
     for (let n = 0;n < line.length; n++) {
       const run = line[n].action === undefined ? undefined : runOf(line, n);
@@ -931,7 +910,7 @@ function menuRows(form) {
     return [];
   const rows = controls.pause ? [{ id: PAUSE, label: "Pause run" }] : [];
   if (controls.goBack.length > 0)
-    rows.push({ id: "go-back", label: "Go back to stage", rows: controls.goBack.map((stage) => ({ id: `${GO_BACK}${stage}`, label: stage })) });
+    rows.push({ id: "go-back", label: "Go back to stage", isHeading: true }, ...controls.goBack.map((stage) => ({ id: `${GO_BACK}${stage}`, label: stage })));
   return rows;
 }
 function controlAnswers(id) {
@@ -1338,9 +1317,7 @@ function errorLines(form, view) {
   const lead = [sp(SYMBOL.warn, WARN), sp("  ")];
   return [[sp(" ")], ...hang(lead, [sp("   ")], form.error, view.width, WARN)];
 }
-function hint(form, s, view) {
-  if (!view.focused)
-    return "click the form to answer with the keyboard";
+function hint(form, s) {
   const q = form.questions[s.page];
   if (!q)
     return "←→ buttons  enter presses";
@@ -1362,7 +1339,7 @@ function draw(form, s, view, withContext) {
   const q = form.questions[s.page];
   const accentBar = rail(ACCENT);
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
-  const keys = hint(form, s, view);
+  const keys = hint(form, s);
   const hintLines = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)];
   const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(" ")], ...navRows(form, s, view)];
   return { head, page, foot };
