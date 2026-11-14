@@ -4,8 +4,9 @@
  * and, when the author has something to do, the sentence posted under it.
  */
 
+import type { ForgeKind } from '../mr-ref.ts';
 import type { WaitReason } from './latch-state.ts';
-import { ARMED_COPY } from './markers.ts';
+import { armedCopy } from './markers.ts';
 
 export type BannerState =
   | 'armed'
@@ -123,6 +124,17 @@ export function allVariantKeys(): string[] {
   return [...BY_KEY.keys()];
 }
 
+/** The banners an ordinary GitHub cycle shows, uploaded together the first
+    time any of them is needed. Never more than ten: the upload verb's cap. */
+export const GITHUB_BANNER_SET: BannerVariant[] = [
+  { state: 'armed' },
+  { state: 'queued', wait: 'next-sweep' },
+  { state: 'running' },
+  { state: 'done-comments', count: null },
+  { state: 'done-approved' },
+  { state: 'approved' },
+];
+
 export function variantOfKey(key: string): BannerVariant | null {
   const v = BY_KEY.get(key);
   return v ? { ...v } : null;
@@ -142,7 +154,10 @@ export function bannerAlt(v: BannerVariant): string {
   return `${title}${/[.?!]$/.test(title) ? '' : '.'} ${sub}`;
 }
 
-export function copyFor(v: BannerVariant): VariantCopy {
+export function copyFor(
+  v: BannerVariant,
+  forge: ForgeKind = 'gitlab'
+): VariantCopy {
   switch (v.state) {
     case 'armed':
       return {
@@ -150,7 +165,7 @@ export function copyFor(v: BannerVariant): VariantCopy {
         sub: 'Resolve this thread to ask',
         accent: '#f08fb0',
         indicator: 'none',
-        sentence: ARMED_COPY,
+        sentence: armedCopy(forge),
       };
     case 'queued':
       return {

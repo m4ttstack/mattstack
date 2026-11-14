@@ -5,7 +5,7 @@
  * plus one function, never a change to the transport itself.
  */
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
-import type { PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
+import type { ApprovalRuleLite, PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -1208,6 +1208,15 @@ export interface Commands {
     data: { discussionId: string; noteId: number; verified: true };
   };
 
+  /** One file-level review thread on a GitHub pull request, on its first
+      changed file. A pull request with no changed files gets no thread and
+      answers `fallback: 'no-files'`. Refused as
+      `unsupported: mr:comment-file needs a GitHub repo` on GitLab. */
+  "mr:comment-file": {
+    payload: { repoName: string; iid: number; body: string };
+    data: { discussionId: string; noteId: number; path: string } | { fallback: "no-files" };
+  };
+
   /** Top-level MR note. `resolvable` (default true) opens a discussion a
       human can resolve; false posts a plain note and `discussionId` is null.
       `resolvable` in the reply is what the forge reports, so a GitHub pull
@@ -1297,6 +1306,14 @@ export interface Commands {
     payload: { repoName: string; iid: number; description: string; attachments: DescribeAttachment[]; runId?: string };
     data: DescribeWithAttachmentsResult;
   };
+  /** Uploads 1 to 10 images to a GitHub PR for a later comment to embed.
+      gh posts them in a holder comment, which is read back for each URL and
+      then deleted. Each file goes through mr:upload's checks first. `urls`
+      is keyed by each file's `name`. */
+  "mr:attach-upload": {
+    payload: { repoName: string; iid: number; files: DescribeAttachment[] };
+    data: { urls: Record<string, string> };
+  };
 
   "mr:fetch-job-detail": { payload: { repoName: string; iid: number; jobId: number; pipelineId?: number }; data: MrJobDetail };
   "mr:fetch-job-trace": { payload: { repoName: string; iid: number; jobId: number }; data: string };
@@ -1317,6 +1334,8 @@ export interface Commands {
   "project:labels": { payload: { repoName: string; search?: string }; data: { labels: ProjectLabel[] } };
   "pipeline:list": { payload: { repoName: string; ref?: string; sha?: string; iid?: number; limit?: number }; data: { pipelines: PipelineListRow[] } };
   "forge:get": { payload: { repoName: string; path: string; query?: Record<string, string | number | boolean>; page?: number; perPage?: number }; data: ForgeGetData };
+  /** One MR's or PR's code owner rules; `rules` is empty when glance has none or says why in `unknownReason`. */
+  "mr:owner-rules": { payload: { repoName: string; iid: number }; data: { rules: ApprovalRuleLite[]; unknownReason?: string } };
   /** The forge token's own login, and nothing else about that user. */
   "forge:self": { payload: { repoName: string }; data: { username: string } };
   /** One file's diff in an MR (GitLab) or PR (GitHub), read through the repo's own forge; iid is the MR iid or PR number. */
@@ -1596,6 +1615,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "discussions:reply",
   "discussions:diffs",
   "mr:comment-inline",
+  "mr:comment-file",
   "mr:comment",
   "mr:note-update",
   "mr:review-submit",
@@ -1604,6 +1624,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:update",
   "mr:upload",
   "mr:describe-with-attachments",
+  "mr:attach-upload",
   "mr:fetch-job-detail",
   "mr:fetch-job-trace",
   "mr:commit-parents",
@@ -1617,6 +1638,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "project:labels",
   "pipeline:list",
   "forge:get",
+  "mr:owner-rules",
   "forge:self",
   "forge:file-diff",
   "endpoint:claim",

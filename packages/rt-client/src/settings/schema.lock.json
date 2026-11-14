@@ -1128,6 +1128,21 @@
                   }
                 },
                 "additionalProperties": {}
+              },
+              "github": {
+                "title": "GitHub",
+                "description": "The team's GitHub team.",
+                "type": "object",
+                "properties": {
+                  "team": {
+                    "title": "GitHub team",
+                    "description": "Match this team to its CODEOWNERS entry",
+                    "placeholder": "@acme/web",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": {}
               }
             },
             "additionalProperties": {}

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
+import { ARM_HOLD_MS, armHeld } from '../latch/arm-hold.ts';
 import {
   casLatch as casLatchIn,
   putLatchRow,
@@ -8,8 +9,10 @@ import {
   type LatchRow,
 } from '../latch/latch-state.ts';
 import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
+import { noFilesFor } from '../latch/no-files.ts';
 import type { LatchGateway } from '../latch/post.ts';
 import type { ReviewState } from '../review-state.ts';
+import { getKvValue } from '../state/index.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import {
@@ -123,26 +126,27 @@ function harness(
   const launches: string[] = [];
   const noteBodies = new Map<number, string>();
   const gateway: LatchGateway = {
-    async uploadFile(_p, filename) {
+    forge: 'gitlab',
+    async uploadFiles(_mr, files) {
       calls.push('upload');
-      uploads.push(filename);
-      return { alt: '', url: '', full_path: '', markdown: IMG };
+      uploads.push(...files.map(f => f.filename));
+      return files.map(() => IMG);
     },
-    async createDiscussion() {
+    async createThread() {
       calls.push('createDiscussion');
-      return { id: 'new', notes: [{ id: 1 }] };
+      return { discussionId: 'new', rootNoteId: 1 };
     },
-    async updateNote(_p, _i, id, body) {
+    async updateNote(_mr, id, body) {
       calls.push(`updateNote:${id}`);
       noteBodies.set(id, body);
     },
-    async resolveDiscussion(_p, _i, id) {
+    async resolveDiscussion(_mr, id) {
       calls.push(`resolve:${id}`);
     },
-    async unresolveDiscussion(_p, _i, id) {
+    async unresolveDiscussion(_mr, id) {
       calls.push(`unresolve:${id}`);
     },
-    async createNote(_p, _i, body, d) {
+    async createNote(_mr, body, d) {
       calls.push(`reply:${d}`);
       replies.push(body);
       return { id: 9 };
@@ -245,6 +249,127 @@ describe('step 0: no latch', () => {
       replyDue: null,
       updatedAt: NOW,
     });
+  });
+
+  test('a PR with no changed files posts no latch until the next review', async () => {
+    const db = tempDb();
+    let review: ReviewState = { ...commented, runStartedAt: 7_000 };
+    const h = harness({
+      detail: detail(),
+      db,
+      readReviewStates: () => new Map([[MR, review]]),
+    });
+    h.deps.gateway.forge = 'github';
+    h.deps.gateway.createThread = async () => {
+      h.calls.push('createDiscussion');
+      return null;
+    };
+
+    const first = await runLatchPass(h.deps);
+    expect(first.posted).toBe(0);
+    expect(first.skipped).toBe(1);
+    expect(readLatchRow(MR, db)).toBeNull();
+    expect(noFilesFor(MR, 7_000, db)).toBe(true);
+    expect(h.audits).toEqual([
+      {
+        ts: NOW,
+        mrUrl: MR,
+        iid: 2317,
+        event: 'latch',
+        action: 'no-files',
+      },
+    ]);
+
+    expect((await runLatchPass(h.deps)).skipped).toBe(1);
+    expect(h.calls.filter(c => c === 'createDiscussion')).toHaveLength(1);
+    expect(h.audits).toHaveLength(1);
+
+    review = { ...review, runStartedAt: 8_000 };
+    await runLatchPass(h.deps);
+    expect(h.calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
+  });
+
+  test('a GitHub arm that throws holds the PR for an hour and audits once', async () => {
+    const db = tempDb();
+    let now = NOW;
+    const h = harness({ detail: detail(), db, now: () => now });
+    h.deps.gateway.forge = 'github';
+    h.deps.gateway.createThread = async () => {
+      h.calls.push('createDiscussion');
+      throw new Error('gh pr comment failed');
+    };
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      expect((await runLatchPass(h.deps)).failed).toBe(1);
+      expect(h.audits).toEqual([
+        {
+          ts: NOW,
+          mrUrl: MR,
+          iid: 2317,
+          event: 'latch',
+          action: 'arm-failed',
+          reason: 'gh pr comment failed',
+        },
+      ]);
+
+      h.calls.length = 0;
+      now = NOW + ARM_HOLD_MS - 1;
+      expect((await runLatchPass(h.deps)).skipped).toBe(1);
+      expect(h.calls).toEqual([]);
+      expect(h.audits).toHaveLength(1);
+
+      now = NOW + ARM_HOLD_MS;
+      await runLatchPass(h.deps);
+      expect(h.calls).toEqual(['createDiscussion']);
+      expect(h.audits).toHaveLength(2);
+    } finally {
+      console.error = origError;
+    }
+  });
+
+  test('a GitHub arm that posts clears its hold', async () => {
+    const db = tempDb();
+    let now = NOW;
+    let broken = true;
+    const h = harness({ detail: detail(), db, now: () => now });
+    h.deps.gateway.forge = 'github';
+    h.deps.gateway.createThread = async () => {
+      if (broken) throw new Error('gh pr comment failed');
+      return { discussionId: 'new', rootNoteId: 1 };
+    };
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      await runLatchPass(h.deps);
+    } finally {
+      console.error = origError;
+    }
+    expect(armHeld(h.deps.gateway, MR, NOW, db)).toBe(true);
+    broken = false;
+    now = NOW + ARM_HOLD_MS;
+    expect((await runLatchPass(h.deps)).posted).toBe(1);
+    expect(armHeld(h.deps.gateway, MR, NOW, db)).toBe(false);
+  });
+
+  test('a GitLab arm that throws writes no hold and retries on the next pass', async () => {
+    const db = tempDb();
+    const h = harness({ detail: detail(), db });
+    h.deps.gateway.createThread = async () => {
+      h.calls.push('createDiscussion');
+      throw new Error('gitlab 500');
+    };
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      expect((await runLatchPass(h.deps)).failed).toBe(1);
+      expect((await runLatchPass(h.deps)).failed).toBe(1);
+    } finally {
+      console.error = origError;
+    }
+    expect(h.calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
+    expect(h.audits).toEqual([]);
+    expect(getKvValue('latch-arm-hold', MR, null, db)).toBeNull();
   });
 
   test('posts nothing on an approve-outcome state', async () => {
@@ -515,11 +640,12 @@ describe('step 3: armed and resolved', () => {
         disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
       ),
       gateway: {
-        async uploadFile() {
-          return { alt: '', url: '', full_path: '', markdown: IMG };
+        forge: 'gitlab',
+        async uploadFiles() {
+          return [IMG];
         },
-        async createDiscussion() {
-          return { id: 'new', notes: [{ id: 1 }] };
+        async createThread() {
+          return { discussionId: 'new', rootNoteId: 1 };
         },
         async updateNote() {
           throw new Error('gitlab 500');
@@ -569,6 +695,61 @@ describe('step 3: armed and resolved', () => {
         message: 'The author asked for a follow-up review',
         mrUrl: MR,
       },
+    ]);
+  });
+});
+
+describe('notification refs', () => {
+  const GH = 'https://github.com/acme/web/pull/2317';
+
+  test('a GitHub dispatch names the PR with #', async () => {
+    const { deps, notifies } = harness({
+      fetchLatchMrs: async () => [{ ...facts, mrUrl: GH }],
+      readReviewStates: () => new Map([[GH, { ...commented, mrUrl: GH }]]),
+      detail: detail(
+        disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+    });
+    await runLatchPass(deps);
+    expect(notifies.map(n => n.title)).toEqual([
+      'Follow-up review started on #2317',
+    ]);
+  });
+
+  test('a GitHub stuck latch names the PR with #', async () => {
+    const db = tempDb();
+    putLatchRow(
+      row({
+        mrUrl: GH,
+        phase: 'running',
+        launchAt: NOW - 60_000,
+        variant: 'running',
+        failures: LATCH_MAX_FAILURES - 1,
+      }),
+      db
+    );
+    const { deps, stuckNotices } = harness({
+      db,
+      fetchLatchMrs: async () => [{ ...facts, mrUrl: GH }],
+      readReviewStates: () =>
+        new Map([
+          [
+            GH,
+            {
+              ...commented,
+              mrUrl: GH,
+              status: 'error',
+              outcome: undefined,
+              message: 'pane closed',
+            },
+          ],
+        ]),
+      readDetail: async () =>
+        detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
+    });
+    await runLatchPass(deps);
+    expect(stuckNotices.map(n => n.title)).toEqual([
+      'Follow-up review stuck on #2317',
     ]);
   });
 });
@@ -1785,9 +1966,9 @@ describe('error, retry and stuck', () => {
       readReviewStates: () => new Map([[MR, failed]]),
       detail: detail(disc('d1', runningBody(), '2026-09-01T10:00:00Z', true)),
     });
-    const upload = h.deps.gateway.uploadFile;
+    const upload = h.deps.gateway.uploadFiles;
     let broken = true;
-    h.deps.gateway.uploadFile = async (...args) => {
+    h.deps.gateway.uploadFiles = async (...args) => {
       if (broken) {
         broken = false;
         throw new Error('gitlab 500');
@@ -2044,9 +2225,9 @@ describe('error, retry and stuck', () => {
       ),
     });
     const update = h.deps.gateway.updateNote;
-    h.deps.gateway.updateNote = async (p, i, id, body) => {
+    h.deps.gateway.updateNote = async (mr, id, body) => {
       if (body.startsWith(SPENT)) throw new Error('gitlab 500');
-      return update(p, i, id, body);
+      return update(mr, id, body);
     };
     expect((await runLatchPass(h.deps)).failed).toBe(1);
     expect(h.replies).toEqual([STUCK_REPLY]);

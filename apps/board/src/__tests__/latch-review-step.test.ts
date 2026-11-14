@@ -1,17 +1,21 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 
 import type { MRDetail } from '@mattstack/glance';
+import { ARM_HOLD_MS, armHeld } from '../latch/arm-hold.ts';
 import {
   putLatchRow,
   readLatchRow,
   type LatchRow,
 } from '../latch/latch-state.ts';
 import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
+import { noFilesFor } from '../latch/no-files.ts';
 import type { LatchGateway } from '../latch/post.ts';
 import {
   applyReviewLatch,
   type ReviewLatchStep,
 } from '../latch/review-step.ts';
+import { getKvValue } from '../state/index.ts';
+import type { AuditEntry } from '../triage/audit.ts';
 import { removeTempDbs, tempDb } from './latch-temp-db.ts';
 
 afterAll(removeTempDbs);
@@ -66,25 +70,27 @@ function latchRow(over: Partial<LatchRow> = {}): LatchRow {
 function step(over: Partial<ReviewLatchStep>) {
   const calls: string[] = [];
   const replies: string[] = [];
+  const audits: AuditEntry[] = [];
   const gateway: LatchGateway = {
-    async uploadFile() {
+    forge: 'gitlab',
+    async uploadFiles(_mr, files) {
       calls.push('upload');
-      return { alt: '', url: '', full_path: '', markdown: IMG };
+      return files.map(() => IMG);
     },
-    async createDiscussion() {
+    async createThread() {
       calls.push('createDiscussion');
-      return { id: 'new', notes: [{ id: 1 }] };
+      return { discussionId: 'new', rootNoteId: 1 };
     },
-    async updateNote(_p, _i, id) {
+    async updateNote(_mr, id) {
       calls.push(`updateNote:${id}`);
     },
-    async resolveDiscussion(_p, _i, id) {
+    async resolveDiscussion(_mr, id) {
       calls.push(`resolve:${id}`);
     },
-    async unresolveDiscussion(_p, _i, id) {
+    async unresolveDiscussion(_mr, id) {
       calls.push(`unresolve:${id}`);
     },
-    async createNote(_p, _i, body, d) {
+    async createNote(_mr, body, d) {
       calls.push(`reply:${d}`);
       replies.push(body);
       return { id: 9 };
@@ -94,20 +100,27 @@ function step(over: Partial<ReviewLatchStep>) {
     outcome: 'comment',
     arm: true,
     reviewRunStartedAt: 2_000,
+    runStamp: 2_000,
+    appendAudit: entry => {
+      audits.push(entry);
+    },
     countNew: async () => 2,
     now: 5_000,
     self: 'matt',
     approvedBy: [],
     detail: detail(),
     gateway,
-    projectId: 42,
-    projectPath: 'acme/web',
+    mr: {
+      projectId: 42,
+      projectPath: 'acme/web',
+      iid: 2317,
+      rtRepo: 'acme-web',
+    },
     mrUrl: MR,
-    iid: 2317,
     db: tempDb(),
     ...over,
   };
-  return { s, calls, replies };
+  return { s, calls, replies, audits };
 }
 
 describe('applyReviewLatch', () => {
@@ -117,6 +130,88 @@ describe('applyReviewLatch', () => {
     });
     expect(await applyReviewLatch(s)).toBe('posted');
     expect(calls).toEqual(['upload', 'createDiscussion']);
+  });
+
+  test('a PR with no changed files posts no latch and remembers the run', async () => {
+    const db = tempDb();
+    const { s, calls, audits } = step({ db });
+    s.gateway.forge = 'github';
+    s.gateway.createThread = async () => {
+      calls.push('createDiscussion');
+      return null;
+    };
+    expect(await applyReviewLatch(s)).toBe('none');
+    expect(readLatchRow(MR, db)).toBeNull();
+    expect(noFilesFor(MR, 2_000, db)).toBe(true);
+    expect(audits).toEqual([
+      {
+        ts: 5_000,
+        mrUrl: MR,
+        iid: 2317,
+        event: 'latch',
+        action: 'no-files',
+      },
+    ]);
+
+    expect(await applyReviewLatch(s)).toBe('none');
+    expect(calls.filter(c => c === 'createDiscussion')).toHaveLength(1);
+    expect(audits).toHaveLength(1);
+
+    s.runStamp = 3_000;
+    s.reviewRunStartedAt = null;
+    await applyReviewLatch(s);
+    expect(calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
+    expect(noFilesFor(MR, 3_000, db)).toBe(true);
+  });
+
+  test('a GitHub arm that throws holds the PR for an hour and audits once', async () => {
+    const db = tempDb();
+    const { s, calls, audits } = step({ db });
+    s.gateway.forge = 'github';
+    s.gateway.createThread = async () => {
+      calls.push('createDiscussion');
+      throw new Error('gh pr comment failed');
+    };
+    await expect(applyReviewLatch(s)).rejects.toThrow('gh pr comment failed');
+    expect(audits).toEqual([
+      {
+        ts: 5_000,
+        mrUrl: MR,
+        iid: 2317,
+        event: 'latch',
+        action: 'arm-failed',
+        reason: 'gh pr comment failed',
+      },
+    ]);
+
+    calls.length = 0;
+    s.now = 5_000 + ARM_HOLD_MS - 1;
+    expect(await applyReviewLatch(s)).toBe('none');
+    expect(calls).toEqual([]);
+    expect(audits).toHaveLength(1);
+
+    s.now = 5_000 + ARM_HOLD_MS;
+    s.gateway.createThread = async () => {
+      calls.push('createDiscussion');
+      return { discussionId: 'new', rootNoteId: 1 };
+    };
+    expect(await applyReviewLatch(s)).toBe('posted');
+    expect(calls).toEqual(['createDiscussion']);
+    expect(armHeld(s.gateway, MR, 5_000, db)).toBe(false);
+  });
+
+  test('a GitLab arm that throws writes no hold', async () => {
+    const db = tempDb();
+    const { s, calls, audits } = step({ db });
+    s.gateway.createThread = async () => {
+      calls.push('createDiscussion');
+      throw new Error('gitlab 500');
+    };
+    await expect(applyReviewLatch(s)).rejects.toThrow('gitlab 500');
+    await expect(applyReviewLatch(s)).rejects.toThrow('gitlab 500');
+    expect(calls.filter(c => c === 'createDiscussion')).toHaveLength(2);
+    expect(audits).toEqual([]);
+    expect(getKvValue('latch-arm-hold', MR, null, db)).toBeNull();
   });
 
   test('a post records the latch as an armed row', async () => {
@@ -262,10 +357,10 @@ describe('applyReviewLatch', () => {
       outcome: 'approve',
       detail: detail(disc('mine', latchBody('running', IMG, 'r'), 'matt', 1)),
     });
-    const upload = s.gateway.uploadFile;
-    s.gateway.uploadFile = async (p, f, b, ct) => {
-      uploads.push(f);
-      return upload(p, f, b, ct);
+    const upload = s.gateway.uploadFiles;
+    s.gateway.uploadFiles = async (mr, files) => {
+      uploads.push(files[0]!.filename);
+      return upload(mr, files);
     };
     expect(await applyReviewLatch(s)).toBe('spent');
     expect(uploads).toEqual(['latch-2317-done-approved.gif']);

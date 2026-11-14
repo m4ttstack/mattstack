@@ -12,6 +12,7 @@ import {
   latchKindOf,
   type LatchKind,
 } from '@mattstack/rt-client';
+import { mrNoun, type ForgeKind } from '../mr-ref.ts';
 
 export {
   LATCH_MARKER,
@@ -23,11 +24,15 @@ export {
 };
 export type { LatchKind };
 
-export const ARMED_COPY = [
-  "**Addressed everything?** Resolve this thread and I'll take another pass over the MR.",
-  '',
-  "Leave it open while there's still work in flight.",
-].join('\n');
+export function armedCopy(forge: ForgeKind): string {
+  return [
+    `**Addressed everything?** Resolve this thread and I'll take another pass over the ${mrNoun(forge)}.`,
+    '',
+    "Leave it open while there's still work in flight.",
+  ].join('\n');
+}
+
+export const ARMED_COPY = armedCopy('gitlab');
 
 // Typed by LatchKind, not latch-state's LatchPhase: the client bundle reaches
 // this file, and latch-state pulls in bun:sqlite.
