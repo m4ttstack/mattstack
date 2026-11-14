@@ -5,15 +5,16 @@
  */
 
 import { parseRemoteUrl, resolveSshAlias } from "../../lib/enrich.ts";
-import { shellQuote } from "../../lib/herdr-launch.ts";
-import { rtSelfArgv } from "../../lib/rt-self.ts";
 import { createRealProbes } from "../../lib/setup/probes.ts";
 import { forgeFromHost, forgeFromRemote, hostFromRemote, readUserIntegrationOverrides } from "../../lib/setup/team-settings.ts";
 import { forgeTokenLookupForGit, mayOfferGitLabToken, mayOfferToken, type ForgeTokenLookup } from "../../lib/team/forge-token.ts";
 import { forgeTokenKey } from "../../lib/team/git-credential.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
+import { configParamsNameHelper } from "../../lib/worktree/fetch-auth.ts";
 import { runGit } from "../../lib/worktree/git-async.ts";
+
+export { configParamsNameHelper, helperEnv, rtSelfHelper } from "../../lib/worktree/fetch-auth.ts";
 
 export type Forge = "gitlab" | "github";
 
@@ -117,35 +118,6 @@ export function createOriginAuth(seams: OriginAuthSeams | null = defaultOriginAu
 }
 
 const PROMPT_GUARD = ["GIT_TERMINAL_PROMPT", "GIT_ASKPASS"] as const;
-
-export function rtSelfHelper(argv: string[] = rtSelfArgv()): string {
-  return `!${argv.map(shellQuote).join(" ")} git credential`;
-}
-
-/**
- * git reads `GIT_CONFIG_PARAMETERS` (a `git -c` above rt, such as an alias or
- * hook) after the `GIT_CONFIG_COUNT` pairs, so a helper named there would come
- * after rt's and get its token on approve. Matching loosely fails closed.
- */
-export function configParamsNameHelper(env: NodeJS.ProcessEnv): boolean {
-  return /credential\..*helper/is.test(env.GIT_CONFIG_PARAMETERS ?? "");
-}
-
-/** The empty value first clears every helper before it for the host, so git's `store` cannot hand rt's token to a keychain. */
-export function helperEnv(host: string, base: NodeJS.ProcessEnv, helper: string = rtSelfHelper()): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base };
-  const parsed = Number.parseInt(base.GIT_CONFIG_COUNT ?? "", 10);
-  const start = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  const key = `credential.https://${host}.helper`;
-  env[`GIT_CONFIG_KEY_${start}`] = key;
-  env[`GIT_CONFIG_VALUE_${start}`] = "";
-  env[`GIT_CONFIG_KEY_${start + 1}`] = key;
-  env[`GIT_CONFIG_VALUE_${start + 1}`] = helper;
-  env.GIT_CONFIG_COUNT = String(start + 2);
-  env.GIT_TERMINAL_PROMPT = "0";
-  env.GIT_ASKPASS = "";
-  return env;
-}
 
 /** An SSH origin's HTTPS URL, its host resolved through ssh config; null for a non-SSH URL or a host that is not a forge. */
 export async function sshToHttps(url: string): Promise<string | null> {

@@ -12,7 +12,7 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync("git", args, { cwd });
 }
 
-const seams: FetchAuthSeams = { confirmedHost: () => null, tokenFor: async () => "tok", forget: () => {} };
+const seams: FetchAuthSeams = { confirmedHost: () => null, tokenFor: async () => "tok_LEAKCHECK", forget: () => {}, helper: "!rt-helper" };
 
 type Spawned = { argv: string[]; cwd: string | undefined; env: Record<string, string> | undefined };
 
@@ -50,7 +50,7 @@ describe("runSkillsOrigin", () => {
     expect(spawned[0]!.env?.RT_GIT_TOKEN).toBeUndefined();
   });
 
-  test("the token retry turns hooks off, so no hook inherits the token", async () => {
+  test("the retry goes through rt's helper with hooks off and no token in its env", async () => {
     const { spawn, spawned } = spawner([{ code: 128, stderr: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" }, { code: 0, stderr: "" }]);
 
     const res = await runSkillsOrigin(["push"], { cwd: repo, push: true }, { auth: seams, spawn });
@@ -58,7 +58,8 @@ describe("runSkillsOrigin", () => {
     expect(res.code).toBe(0);
     expect(spawned).toHaveLength(2);
     const retry = spawned[1]!;
-    expect(retry.env?.RT_GIT_TOKEN).toBe("tok");
+    expect(Object.values(retry.env ?? {}).filter((v) => v.includes("tok_LEAKCHECK"))).toEqual([]);
+    expect(Object.values(retry.env ?? {})).toContain("!rt-helper");
     expect(retry.argv.slice(0, 3)).toEqual(["git", "-c", "core.hooksPath=/dev/null"]);
     expect(retry.argv.at(-1)).toBe("push");
     expect(retry.cwd).toBe(repo);
