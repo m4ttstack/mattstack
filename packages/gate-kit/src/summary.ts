@@ -239,26 +239,26 @@ export function answeredGateSummary(row: GateSummaryInput): GateSummary {
   const questionDetail: GateSummaryDetailRow[] = row.questions
     .filter(q => control === null || answers?.[q.id] !== undefined)
     .map(q => {
-    const raw = answers?.[q.id];
-    const unwrapped = raw !== undefined ? unwrapGateAnswer(raw) : null;
-    const value = unwrapped?.value;
-    const values =
-      value === undefined ? [] : Array.isArray(value) ? value : [value];
-    return {
-      id: q.id,
-      question: q.label,
-      answers:
-        unwrapped?.writeIn !== undefined
-          ? [{ text: `wrote in: "${unwrapped.writeIn}"` }]
-          : values.length > 0
-            ? values.map(v => displayForValue(v, q.options))
-            : [{ text: '(none)' }],
-      ...(unwrapped?.note !== undefined ? { note: unwrapped.note } : {}),
-      ...(unwrapped?.text !== undefined ? { text: unwrapped.text } : {}),
-      decidedBy,
-      at,
-    };
-  });
+      const raw = answers?.[q.id];
+      const unwrapped = raw !== undefined ? unwrapGateAnswer(raw) : null;
+      const value = unwrapped?.value;
+      const values =
+        value === undefined ? [] : Array.isArray(value) ? value : [value];
+      return {
+        id: q.id,
+        question: q.label,
+        answers:
+          unwrapped?.writeIn !== undefined
+            ? [{ text: `wrote in: "${unwrapped.writeIn}"` }]
+            : values.length > 0
+              ? values.map(v => displayForValue(v, q.options))
+              : [{ text: '(none)' }],
+        ...(unwrapped?.note !== undefined ? { note: unwrapped.note } : {}),
+        ...(unwrapped?.text !== undefined ? { text: unwrapped.text } : {}),
+        decidedBy,
+        at,
+      };
+    });
   const detail: GateSummaryDetailRow[] =
     control === null
       ? questionDetail
@@ -296,7 +296,8 @@ export function answeredGateSummary(row: GateSummaryInput): GateSummary {
       if (pairs.includes(q)) continue;
       const raw = answers?.[q.id];
       if (raw === undefined) {
-        if (control === null && q.multi && q.options.length === 0) markers.push('nothing posted');
+        if (control === null && q.multi && q.options.length === 0)
+          markers.push('nothing posted');
         continue;
       }
       const unwrapped = unwrapGateAnswer(raw);

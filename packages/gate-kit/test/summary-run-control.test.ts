@@ -1,11 +1,19 @@
 import { describe, expect, test } from 'vitest';
 
-import { answeredGateSummary, type GateSummaryInput } from '@mattstack/gate-kit';
+import {
+  answeredGateSummary,
+  type GateSummaryInput,
+} from '@mattstack/gate-kit';
 import type { GateQuestion } from '@mattstack/rt-client';
 
 const QUESTIONS: GateQuestion[] = [
   { id: 'tiers', label: 'Post which findings?', multi: true, options: [] },
-  { id: 'outcome', label: 'Verdict', multi: false, options: ['comment', 'approve'] },
+  {
+    id: 'outcome',
+    label: 'Verdict',
+    multi: false,
+    options: ['comment', 'approve'],
+  },
 ];
 
 const row = (
@@ -28,7 +36,9 @@ describe('answeredGateSummary run controls', () => {
   });
 
   test('a wrapped hold names the pause', () => {
-    const s = answeredGateSummary(row({ next: { value: 'hold', note: 'later' } }));
+    const s = answeredGateSummary(
+      row({ next: { value: 'hold', note: 'later' } })
+    );
     expect(s.chip).toContain('Paused the run');
   });
 
