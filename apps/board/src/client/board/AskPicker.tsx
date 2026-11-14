@@ -34,7 +34,7 @@ function narrowed(sections: AskSection[], query: string): AskSection[] {
 }
 
 const ROLE_ICON = {
-  'code owner': <Shield size={14} aria-hidden />,
+  'code owner': <Shield aria-hidden />,
   'your team': ICONS.people,
 } as const;
 

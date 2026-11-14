@@ -21,8 +21,6 @@ export interface AskSection {
   slack?: { channel?: string; posted?: string };
 }
 
-/** A block's header: `name` is shown, `role` is drawn as an icon beside it,
-    and `label` carries both in words for the tooltip and screen readers. */
 export interface AskSectionHeading {
   name: string;
   role?: 'code owner' | 'your team';
