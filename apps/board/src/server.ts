@@ -889,7 +889,15 @@ function asksPayload(snapshot: { mrs: BoardMR[] }, now: number = Date.now()) {
       ...(title ? { title } : {}),
       ...(sourceBranch ? { sourceBranch } : {}),
       ...(h && skipped && h.reason
-        ? { handled: { ...h, reasonText: plainReason(h.reason, cfg) } }
+        ? {
+            handled: {
+              ...h,
+              reasonText: plainReason(h.reason, cfg, {
+                iid: v.iid,
+                webUrl: v.mrUrl,
+              }),
+            },
+          }
         : {}),
     };
   };

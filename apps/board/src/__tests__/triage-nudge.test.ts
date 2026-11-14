@@ -647,7 +647,22 @@ describe('plainReason', () => {
     );
     expect(plainReason('disabled', cfg)).toBe('Automatic asks are off');
     expect(plainReason('already-handled', cfg)).toBe('Already handled');
-    expect(plainReason('not-your-mr', cfg)).toBe("It isn't yours");
+    expect(plainReason('not-your-mr', cfg)).toBe("It isn't your MR");
+  });
+
+  test('not-your-mr names the forge of the MR it is about', () => {
+    expect(
+      plainReason('not-your-mr', cfg, {
+        iid: 7,
+        webUrl: 'https://gitlab.example.com/acme/web/-/merge_requests/7',
+      })
+    ).toBe("It isn't your MR");
+    expect(
+      plainReason('not-your-mr', cfg, {
+        iid: 7,
+        webUrl: 'https://github.com/acme/web/pull/7',
+      })
+    ).toBe("It isn't your PR");
   });
 
   test('a GitHub refusal says replies are not supported yet', () => {
