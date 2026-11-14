@@ -140,6 +140,8 @@ export interface SyncBranchOptions {
   originAuth?: OriginAuth;
   fetchDeps?: FetchDeps;
   pushDeps?: PushDeps;
+  /** Hears how the fetch got in, so a push after this sync can start from the same env. */
+  onFetched?: (outcome: RemoteOutcome) => void;
 }
 
 /**
@@ -275,6 +277,7 @@ async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, t
       };
     }
   }
+  opts.onFetched?.(fetched);
 
   // 2. Check if diverged from origin/your-branch (GitLab rebase scenario)
   if (hasDivergedFromRemote(branch, cwd)) {
@@ -372,6 +375,24 @@ async function syncOne(cwd: string, opts: SyncBranchOptions, auth: OriginAuth, t
   return { branch, worktree: cwd, resetResult, rebaseResult, pushed, ...(pushFailure ? asError(pushFailure) : {}) };
 }
 
+/**
+ * The push after an escalated rebase runs once the sync's prompt guard is
+ * undone, so it sets the guard again, and starts from the env the sync's
+ * fetch got in with, as the sync's own push does.
+ */
+async function escalationPush(cwd: string, branch: string, from: RemoteOutcome | undefined, auth: OriginAuth, deps: PushDeps = defaultPushDeps(auth)): Promise<out.FailureInput | null> {
+  const pushArgs = ["push", "--force-with-lease", "origin", branch];
+  try {
+    await withPromptGuard(auth, cwd, { push: true }, () => pushOrigin(cwd, branch, pushArgs, from ?? { env: process.env, usedRtToken: false, forge: null, host: null }, deps));
+    syncLog.cmd(pushArgs, cwd, 0, "", "");
+    return null;
+  } catch (err) {
+    syncLog.cmd(pushArgs, cwd, 1, "", String(err));
+    if (err instanceof PushFailed || err instanceof PromptGuardFailed) return err.failure;
+    return { title: `Could not push ${branch}`, details: redactCredentials(errText(err)) };
+  }
+}
+
 // ─── Multi-worktree sync ─────────────────────────────────────────────────────
 
 /** rt declining to sync a stacked branch: never a failure. */
@@ -452,6 +473,9 @@ export interface SyncCommandDeps {
   isTTY?: boolean;
   /** Whether `rt git auth` would go ahead on a worktree; defaults to `defaultAuthPending`. */
   authPending?: (cwd: string) => Promise<boolean>;
+  originAuth?: OriginAuth;
+  /** The escalation's push; defaults to `defaultPushDeps(originAuth)`. */
+  pushDeps?: PushDeps;
 }
 
 /** 1 when any branch failed or was refused, so a caller checking the code never reads a partial sync as a whole one. */
@@ -630,10 +654,12 @@ export async function syncCommand(
   // syncLog.end() unrun and the SESSION block unterminated. Exit only after
   // the try/finally below has fully completed.
   let escalationExit: number | null = null;
-  const originAuth = createOriginAuth();
+  const originAuth = deps.originAuth ?? createOriginAuth();
+  let fetched: RemoteOutcome | undefined;
   try {
     summary = await (deps.syncBranch ?? syncBranch)(cwd, {
       originAuth,
+      onFetched: (outcome) => { fetched = outcome; },
       dryRun,
       quiet: mode === "json" && !args.includes("--progress"),
       onConflict: mode === "off" ? "abort" : "pause",
@@ -650,7 +676,7 @@ export async function syncCommand(
         result: summary.rebaseResult!,
         mode,
         autoYes: args.includes("--agent"),
-        push: true,
+        push: (branch) => escalationPush(cwd, branch, fetched, originAuth, deps.pushDeps),
       });
     }
   } finally {

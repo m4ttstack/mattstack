@@ -198,6 +198,9 @@ const UNFINISHED: Record<Exclude<RebaseVerdict, "completed" | "agent-aborted">, 
   "wrong-branch": "The worktree is on a different branch now.",
 };
 
+/** Pushes the rebased branch once the agent finished: the failure to draw, or null once it landed. */
+export type EscalationPush = (branch: string) => Promise<out.FailureInput | null>;
+
 /**
  * Turn a paused rebase into a resolution: JSON contract for agent callers,
  * or an interactive prompt (abort / hand to a herdr Claude pane / leave
@@ -210,7 +213,7 @@ export async function runEscalationFlow(opts: {
   result: RebaseResult;
   mode: "interactive" | "json";
   autoYes: boolean;
-  push: boolean;
+  push?: EscalationPush;
   herdrRunner?: HerdrRunner;
 }): Promise<number> {
   const { cwd, result } = opts;
@@ -316,21 +319,10 @@ export async function runEscalationFlow(opts: {
     syncLog.phase("escalation-verdict", { verdict });
 
     if (verdict === "completed") {
-      if (opts.push) {
-        const pushRes = spawnSync(
-          "git",
-          ["push", "--force-with-lease", "origin", bundle.branch],
-          { cwd, encoding: "utf8", stdio: "pipe" },
-        );
-        syncLog.cmd(`push --force-with-lease origin ${bundle.branch}`, cwd, pushRes.status ?? 1, pushRes.stdout ?? "", pushRes.stderr ?? "");
-        if (pushRes.status !== 0) {
-          const detail = (pushRes.stderr ?? "").trim();
-          out.fail(
-            { title: "The rebase finished, but the push failed" },
-            ...(detail ? [out.verbatim(detail.split("\n"), "push output")] : []),
-          );
-          return 1;
-        }
+      const pushFailure = opts.push ? await opts.push(bundle.branch) : null;
+      if (pushFailure) {
+        out.fail(pushFailure);
+        return 1;
       }
       out.print(out.line("done", "The agent resolved the conflicts", `${bundle.branch} is rebased${opts.push ? " and pushed" : ""}`));
       return 0;
