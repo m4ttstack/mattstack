@@ -13,7 +13,7 @@ export const spawnCapture: SpawnCapture = async (argv, cwd, env) => {
 /**
  * Git against a pack checkout's origin: the user's own credentials and hooks
  * first, then rt's forge token on an auth failure. The retry runs with hooks
- * off: the first attempt already ran them.
+ * off, since a hook would inherit the env that names rt's helper.
  */
 export async function runSkillsOrigin(
   args: string[],

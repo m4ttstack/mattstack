@@ -3,11 +3,11 @@ import { execFileSync } from "child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { BranchSyncResult } from "../../lib/mcp/git-tools.ts";
+import type { BranchSyncResult, GitToolDeps } from "../../lib/mcp/git-tools.ts";
 import type { StackGuardRunners } from "../../lib/stack-guard.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { createOriginAuth } from "../git/origin-auth.ts";
+import { createOriginAuth, helperEnv } from "../git/origin-auth.ts";
 import type { FetchDeps, PushDeps } from "../git/shared.ts";
 import { ctxFor, exitCodeOf, git, makeRepo, NO_USER, tokenSeams, trapExit } from "../git/__tests__/helpers.ts";
 import { syncBranch, syncCommand } from "../sync.ts";
@@ -24,17 +24,18 @@ beforeEach(() => {
 });
 afterEach(() => io.restore());
 
-function deps(answer: BranchSyncResult): { d: BranchSyncDeps; calls: { syncs: number } } {
-  const calls = { syncs: 0 };
-  return { calls, d: { sync: async () => { calls.syncs++; return answer; } } };
+function deps(answer: BranchSyncResult): { d: BranchSyncDeps; calls: { syncs: number; auths: number } } {
+  const calls = { syncs: 0, auths: 0 };
+  return { calls, d: { sync: async () => { calls.syncs++; return answer; }, auth: async () => { calls.auths++; return null; } } };
 }
 
-// rt sync retries a fetch or push that fails on auth through `rt git credential` itself, so this verb adds no retry of its own.
+// rt sync retries a fetch or push that fails on auth through `rt git credential` itself, so this verb retries only branch_sync's own preflight fetch.
 describe("branchSyncCommand", () => {
   test.each([
     ["a fetch that failed on auth", result({ kind: "error", oldHead: "a", newHead: "a", pushed: false, refusal: `Could not fetch from origin: the forge refused rt's token as well ${AUTH}` })],
     ["a push that failed on auth", result({ kind: "push-refused", pushed: false, refusal: `Could not push feat: the forge refused rt's token as well ${AUTH}` })],
     ["a synced branch", result({})],
+    ["a preflight fetch that failed on something other than auth", result({ kind: "error", oldHead: "a", newHead: "a", pushed: false, refusal: "git fetch origin failed: fatal: unable to access: Could not resolve host" })],
   ])("%s is reported as rt sync left it, from one run", async (_label, answer) => {
     const { d, calls } = deps(answer);
     await branchSyncCommand([], undefined, d);
@@ -43,7 +44,39 @@ describe("branchSyncCommand", () => {
   });
 });
 
-describe("rt sync --json, which branch_sync runs, needs no retry from outside", () => {
+describe("branchSyncCommand when the preflight fetch fails on auth", () => {
+  const preflightAuth = result({ kind: "error", oldHead: "a", newHead: "a", pushed: false, refusal: `git fetch origin failed: ${AUTH}` });
+  let repo: string;
+  beforeEach(() => {
+    repo = realpathSync(mkdtempSync(join(tmpdir(), "rt-branch-sync-pre-")));
+    execFileSync("git", ["init", "-q", repo], { stdio: "pipe" });
+  });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  test("runs branch_sync once more with git and rt sync carrying rt's helper, and no token", async () => {
+    const seen: Pick<GitToolDeps, "git" | "sync">[] = [];
+    const synced = result({});
+    const d: BranchSyncDeps = {
+      sync: async (_cwd, ds) => (seen.push(ds), seen.length === 1 ? preflightAuth : synced),
+      auth: async () => ({ env: helperEnv("gitlab.com", {}, "!rt-helper") as Record<string, string>, remote: "https://gitlab.com/acme/x.git", host: "gitlab.com" }),
+    };
+    await branchSyncCommand([], undefined, d);
+    expect(seen.length).toBe(2);
+    const helpers = await seen[1]!.git(["config", "--get-all", "credential.https://gitlab.com.helper"], repo);
+    expect(helpers.stdout).toBe("\n!rt-helper\n");
+    expect((await seen[0]!.git(["config", "--get-all", "credential.https://gitlab.com.helper"], repo)).stdout).toBe("");
+    expect(JSON.parse(io.stdout())).toEqual(synced);
+  });
+
+  test("with no token for origin, the failure is reported from one run", async () => {
+    const { d, calls } = deps(preflightAuth);
+    await branchSyncCommand([], undefined, d);
+    expect(calls).toEqual({ syncs: 1, auths: 1 });
+    expect(JSON.parse(io.stdout())).toEqual(preflightAuth);
+  });
+});
+
+describe("rt sync --json, which branch_sync runs, retries its own fetch and push", () => {
   let root: string;
   const savedLog = process.env.RT_SYNC_LOG_PATH;
   beforeEach(() => {

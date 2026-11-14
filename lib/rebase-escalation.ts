@@ -321,6 +321,7 @@ export async function runEscalationFlow(opts: {
     if (verdict === "completed") {
       const pushFailure = opts.push ? await opts.push(bundle.branch) : null;
       if (pushFailure) {
+        out.print(out.line("done", "The agent resolved the conflicts", `${bundle.branch} is rebased`));
         out.fail(pushFailure);
         return 1;
       }

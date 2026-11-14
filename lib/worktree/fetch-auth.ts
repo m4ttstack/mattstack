@@ -80,7 +80,11 @@ const AUTH_FAILURE_RE = /could not read (Username|Password)|terminal prompts dis
 
 export const isAuthFailure = (text: string): boolean => AUTH_FAILURE_RE.test(text);
 
-/** A token read is a keychain unlock plus a sops decrypt; freshen fetches every pool tree each pass. */
+/**
+ * A token read is a keychain unlock plus a sops decrypt; freshen fetches every
+ * pool tree each pass. The cache only decides whether to retry: the retry's
+ * `rt git credential` reads the token again at call time.
+ */
 const TOKEN_TTL_MS = 5 * 60_000;
 const tokenCache = new Map<string, { value: string; at: number }>();
 

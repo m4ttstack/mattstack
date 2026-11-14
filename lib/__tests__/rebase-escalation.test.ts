@@ -278,12 +278,12 @@ describe("runEscalationFlow (agent path)", () => {
     expect(io.lines()[1]).toBe("[ok] The agent resolved the conflicts  feature is rebased and pushed");
   }, 20_000);
 
-  test("a failed push draws the failure the push returned and leaves the rebase done", async () => {
+  test("a failed push says the rebase is done, then draws the failure the push returned", async () => {
     const { code, repo } = await resolvedByAgent(async () => ({ title: "Could not push feature", details: "fatal: could not read Username" }));
     expect(code).toBe(1);
     expect(io.stderr()).toStartWith("Could not push feature\n");
     expect(io.stderr()).toContain("fatal: could not read Username");
-    expect(io.stdout()).toBe("[running] An agent is resolving the conflicts  pane p1; Ctrl+C leaves it working\n");
+    expect(io.lines()).toEqual(["[running] An agent is resolving the conflicts  pane p1; Ctrl+C leaves it working", "[ok] The agent resolved the conflicts  feature is rebased"]);
     expect(verifyRebaseCompleted(repo, "feature", "master")).toBe("completed");
   }, 20_000);
 

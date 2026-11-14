@@ -9,7 +9,10 @@ const ROOT = resolve(import.meta.dir, "..", "..");
 const EXEMPTIONS = resolve(import.meta.dir, "token-env-exemptions.json");
 const SCAN_ROOTS = ["cli.ts", "commands", "lib"];
 
-const TOKEN_IN_ENV = [/\bgitWithToken\s*\(/, /\bRT_GIT_(TOKEN|USER|HOST)\b/, /\bGIT_(PASSWORD|TOKEN)\b/];
+const TOKEN_IN_ENV = [/\bgitWithToken\s*\(/, /\bRT_GIT_(TOKEN|USER|HOST)\b/, /\bGIT_(PASSWORD|TOKEN)\b/, /extraheader/i];
+
+/** A comment line is not counted, so trading one for a real call moves the count. */
+const COMMENT = /^\s*(\/\/|\/?\*)/;
 
 interface Exemption {
   file: string;
@@ -30,7 +33,7 @@ function collect(path: string): string[] {
 function tokenLines(file: string): number {
   return readFileSync(resolve(ROOT, file), "utf8")
     .split("\n")
-    .filter((line) => TOKEN_IN_ENV.some((re) => re.test(line))).length;
+    .filter((line) => !COMMENT.test(line) && TOKEN_IN_ENV.some((re) => re.test(line))).length;
 }
 
 const exemptions = JSON.parse(readFileSync(EXEMPTIONS, "utf8")) as Exemption[];

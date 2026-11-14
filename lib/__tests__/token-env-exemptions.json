@@ -27,7 +27,7 @@
   {
     "file": "lib/team/git-credential.ts",
     "reason": "Defines gitWithToken and its inline helper, which reads RT_GIT_TOKEN from env; goes once the last caller moves.",
-    "lines": 4
+    "lines": 3
   },
   {
     "file": "lib/team/invite.ts",

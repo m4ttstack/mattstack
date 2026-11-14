@@ -4,7 +4,8 @@ import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "os";
 import { join } from "path";
 import type { GitResult } from "../git-async.ts";
-import { originFetchAuth, poolCredentialHelper, runGitOrigin, type FetchAuthSeams } from "../fetch-auth.ts";
+import { rtSelfArgv } from "../../rt-self.ts";
+import { originFetchAuth, poolCredentialHelper, rtSelfHelper, runGitOrigin, type FetchAuthSeams } from "../fetch-auth.ts";
 
 let root: string;
 let repo: string;
@@ -135,11 +136,7 @@ describe("originFetchAuth", () => {
   });
 
   test("the default helper runs rt's CLI entry, never the daemon's, as `git credential`", () => {
-    const helper = poolCredentialHelper();
-    expect(helper.startsWith("!")).toBe(true);
-    expect(helper.endsWith(" git credential")).toBe(true);
-    expect(helper).toContain("cli.ts");
-    expect(helper).not.toContain("daemon.ts");
+    expect(poolCredentialHelper()).toBe(rtSelfHelper(rtSelfArgv({ main: join(import.meta.dir, "..", "..", "..", "cli.ts") })));
   });
 
   test("git's store after a successful auth never reaches the user's helpers", async () => {
@@ -264,7 +261,7 @@ describe("runGitOrigin", () => {
     expect(Object.values(env).filter((v) => v.includes("tok_rt"))).toEqual([]);
   });
 
-  test("the retry fetches for real through rt's helper", async () => {
+  test("a credential fill under the retry's env gets rt's token from the helper", async () => {
     git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
     const { calls, run } = scripted([AUTH_FAIL, OK]);
     await runGitOrigin(repo, ["fetch", "origin", "main"], { auth: seams("tok_rt"), run });
