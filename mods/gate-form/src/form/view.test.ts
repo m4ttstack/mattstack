@@ -82,3 +82,14 @@ test('the wheel scrolls a long page, and the cursor pulls the window back only o
   const moved = settle(keyEffect({ key: 'up' }, demo, top)!.state, -500)
   expect(moved.pageTop).toBeGreaterThan(0)
 })
+
+test('on a short pane the gate context is kept, wrapped in full, and the page scrolls up to it', () => {
+  const s = settle(goTo(demo, initial(demo), APPROACH), 0)
+  const flat = (lines: { t: string }[][]) => lines.map(textOf).join(' ').replace(/[│├└┌]/g, ' ').replace(/\s+/g, ' ')
+  const context = (demo.context ?? '').split('\n').filter(line => line.trim() !== '')
+  expect(context.length).toBeGreaterThan(0)
+  let seen = ''
+  for (let wheel = 0; wheel <= 40; wheel += 1) seen += ` ${flat(fittedLines(demo, { ...s, pageTop: 0, wheelAt: 0 }, VIEW, SHORT, wheel).lines)}`
+  for (const line of context) expect(seen.replace(/\s+/g, ' ')).toContain(line.replace(/^[-\s]+/, '').trim())
+  expect(flat(fittedLines(demo, s, VIEW, SHORT).lines)).toContain(context[0]!.trim())
+})

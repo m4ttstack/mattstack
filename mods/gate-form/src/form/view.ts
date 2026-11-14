@@ -189,10 +189,11 @@ function hint(form: Form, s: State): string | undefined {
   return choicesOf(q).length === 0 ? '←→ pages  ↓ buttons' : '←→ pages  ↑↓ move'
 }
 
-function draw(form: Form, s: State, view: View, withContext: boolean): Drawn<Action> {
+// The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
+function draw(form: Form, s: State, view: View): Drawn<Action> {
   const head: L[] = [brandBar<Action>('mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
   if (s.phase !== 'active' || form.status !== 'open') return { head, page: closedPage(form, s, view), foot: [] }
-  if (withContext && form.context) {
+  if (form.context) {
     const first = [sp<Action>(SYMBOL.bar, GRAY), sp('  '), sp(ICON.info, ACCENT), sp(' ')]
     const rest = [sp<Action>(SYMBOL.bar, GRAY), sp('    ')]
     head.push([sp(SYMBOL.bar, GRAY)], ...hang(first, rest, contextText(form.context), view.width))
@@ -235,14 +236,14 @@ export type Fitted = { lines: L[]; top: number; followed?: string; wheelAt?: num
 // follows the cursor's choice when it moves, the wheel (`wheel`, the pane's running total) moves it too, and a scroll
 // bar runs down its right edge.
 export function fittedLines(form: Form, s: State, view: View, rows: number, wheel?: number): Fitted {
-  const full = draw(form, s, view, true)
+  const full = draw(form, s, view)
   const room = rows - FIXED_TOP - full.foot.length
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
     const pad = s.phase === 'active' && form.status === 'open' ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...(wheel !== undefined && { wheelAt: wheel }) }
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) }
-  const narrow = draw(form, s, inner, true)
+  const narrow = draw(form, s, inner)
   const region = [...narrow.head.slice(FIXED_TOP), ...narrow.page]
   const windowRows = Math.max(1, rows - FIXED_TOP - narrow.foot.length)
   const turned = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt
