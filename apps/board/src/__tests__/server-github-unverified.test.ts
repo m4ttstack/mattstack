@@ -1,7 +1,8 @@
 /** A GitHub board whose team record carries no forge username owns nothing:
     the seat in settings is alice, yet she is not verified as the signed-in
     forge user, so every author write is refused before the daemon hears of it
-    and /data.json says the seat is unverified. */
+    and /data.json says the seat is unverified. A finished review waiting in
+    the fake journal from boot reaches no latch verb either. */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -9,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import { readDrafts, writeDraft } from '../draft-state.ts';
 import { openStateDb } from '../state/db.ts';
+import { setKvValue } from '../state/kv-blob.ts';
 import { bootBoardServer } from './board-server.ts';
 
 const HOST = 'https://github.test';
@@ -121,6 +123,29 @@ const db = openStateDb(dbPath);
 
 const prs = [fakePr(7, ALICE)];
 const writes: Array<{ cmd: string; body: Record<string, unknown> }> = [];
+const latchCalls: string[] = [];
+const LATCH_VERBS = new Set([
+  'forge:self',
+  'mr:attach-upload',
+  'mr:comment-file',
+  'discussions:resolve',
+]);
+const journal = [
+  {
+    id: 1,
+    topic: 'board/agent-status/review',
+    payload: {
+      mrUrl: prUrl(7),
+      iid: 7,
+      kind: 'review',
+      status: 'done',
+      outcome: 'comment',
+      appRoot: home,
+    },
+    emittedAt: Date.now(),
+  },
+];
+setKvValue('agent-status', 'cursor', 0, db);
 let daemon: ReturnType<typeof Bun.serve> | undefined;
 beforeAll(() => {
   daemon = Bun.serve({
@@ -148,6 +173,27 @@ beforeAll(() => {
       if (cmd === 'mr:action' || cmd === 'mr:comment') {
         writes.push({ cmd, body: (body ?? {}) as Record<string, unknown> });
         return Response.json({ ok: true });
+      }
+      if (cmd === 'events:head')
+        return Response.json({ ok: true, data: { cursor: journal.length } });
+      if (cmd === 'events:list') {
+        const after = (body as { after?: number } | null)?.after ?? 0;
+        return Response.json({
+          ok: true,
+          data: {
+            events: journal.filter(e => e.id > after),
+            cursor: journal.length,
+          },
+        });
+      }
+      if (cmd === 'discussions:read')
+        return Response.json({
+          ok: true,
+          data: { discussions: [], fetchedAt: Date.now() },
+        });
+      if (LATCH_VERBS.has(cmd)) {
+        latchCalls.push(cmd);
+        return Response.json({ ok: false, error: 'not expected' });
       }
       return Response.json({ ok: false, error: 'not implemented' });
     },
@@ -227,4 +273,19 @@ describe('a GitHub board with no recorded forge username', () => {
     expect(writes.slice(from)).toEqual([]);
     expect(readDrafts(db).find(d => d.mrUrl === prUrl(7))?.status).toBe('held');
   }, 15_000);
+
+  test('a finished review sends no latch verb and logs one line', async () => {
+    const line = `latch step skipped for ${prUrl(7)}`;
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && !server.output().includes(line))
+      await Bun.sleep(100);
+    const lines = server
+      .output()
+      .split('\n')
+      .filter(l => l.includes(line));
+    expect(lines).toEqual([
+      `${line}: no forge username is recorded for this team`,
+    ]);
+    expect(latchCalls).toEqual([]);
+  }, 30_000);
 });

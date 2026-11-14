@@ -232,10 +232,13 @@ import {
   skillBindRefusal,
   statusBinPath,
 } from './herdr.ts';
-import { reviewerLatches } from './latch/discussions.ts';
-import { latchGateway } from './latch/gateway.ts';
+import { boardLatchGateway } from './latch/board-gateway.ts';
+import { reviewerLatches, reviewerRequests } from './latch/discussions.ts';
+import { refreshedDiscussionCount } from './latch/github-gateway.ts';
+import { identityMismatchLine, verifyLatchIdentity } from './latch/identity.ts';
 import { fetchNewDiscussionCount } from './latch/land.ts';
 import { readLatchRow } from './latch/latch-state.ts';
+import { sendReReviewRequests } from './latch/rerequest.ts';
 import {
   acceptedReReview,
   isStaleSignal,
@@ -269,7 +272,11 @@ import {
 import { memoizeAsync } from './memoize-async.ts';
 import { parseMrActionBody } from './mr-action.ts';
 import { forgeWord, mrNoun, mrNouns, mrRef, onGitHub } from './mr-ref.ts';
-import { attachOwnerTeams, refreshOwnerTeams } from './owner-teams.ts';
+import {
+  attachOwnerTeams,
+  readGithubOwnerRules,
+  refreshOwnerTeams,
+} from './owner-teams.ts';
 import {
   acceptAsk,
   declineAsk,
@@ -465,6 +472,7 @@ import {
   type ThreadWriteResult,
   type ThreadWriteSend,
 } from './thread-write.ts';
+import { appendAudit } from './triage/audit.ts';
 import {
   loadPeerAsksAlwaysAllow,
   loadPeerAsksConfig,
@@ -1105,6 +1113,8 @@ async function enrichReviewerComments(mrs: BoardMR[]): Promise<void> {
           );
           if (ownedHere(m)) {
             m.reviewerLatches = reviewerLatches(detail, m.author.username);
+            if (config.forge.kind === 'github')
+              m.reviewerRequests = reviewerRequests(detail, m.author.username);
             m.respondTargets = respondTargets(
               detail,
               m.author.username,
@@ -1344,7 +1354,12 @@ async function withRowState(mrs: BoardMR[]) {
           ),
           readNotes()
         ),
-        { ...config, posts: mrUrl => readOwnerPosts(mrUrl) }
+        {
+          directory: config.directory,
+          ownTeam: config.ownTeam,
+          forge: config.forge.kind,
+          posts: mrUrl => readOwnerPosts(mrUrl),
+        }
       )
     ),
     memory
@@ -1408,8 +1423,8 @@ function mrPostText(mrs: BoardMR[], header: string | null = null): string {
   );
 }
 
-/** The MR's Code Owner rules from GitLab's live approval state, or why they
-    could not be read. */
+/** The MR's Code Owner rules from GitLab's live approval state (GitHub's
+    from the daemon), or why they could not be read. */
 async function readOwnerRules(
   mr: BoardMR
 ): Promise<
@@ -1419,7 +1434,6 @@ async function readOwnerRules(
   const projectPath = mr.webUrl
     ? projectPathFromWebUrl(mr.webUrl, config)
     : null;
-  if (config.forge.kind === 'github') return { ok: true, rules: [] };
   const repoName = projectPath ? daemonRepoField(config, projectPath) : null;
   if (!repoName) {
     return {
@@ -1428,6 +1442,8 @@ async function readOwnerRules(
       message: noRepoIdentity(config, `${projectPath ?? mr.webUrl}`),
     };
   }
+  if (config.forge.kind === 'github')
+    return readGithubOwnerRules(repoName, mr.iid);
   const res = await rtCommand<ForgeGetData>(
     'forge:get',
     {
@@ -1476,6 +1492,43 @@ function refreshOwnerTeamsInBackground(mrs: BoardMR[]): void {
     )
     .finally(() => {
       ownerTeamsRefreshing = false;
+    });
+}
+
+let reReviewRequesting = false;
+let reReviewSnapshot: BoardMR[] | null = null;
+
+/** GitHub only: GitLab's own latch resolve is the whole ask there. Writer
+    only, since a read-only board sharing the state root would send the same
+    ask again. One pass at a time, once per fresh snapshot: /data.json serves
+    the cached one on every client poll. */
+function sendReReviewRequestsInBackground(mrs: BoardMR[]): void {
+  if (config.forge.kind !== 'github' || !writer || reReviewRequesting) return;
+  if (mrs === reReviewSnapshot) return;
+  const self = forgeSelf.get();
+  if (!self) return;
+  const own = mrs.filter(ownedHere);
+  if (own.length === 0) return;
+  reReviewSnapshot = mrs;
+  reReviewRequesting = true;
+  void sendReReviewRequests(own, {
+    self,
+    forge: config.forge.kind,
+    verify: async (repoName, mr) =>
+      (await githubLatchSelf(
+        're-request',
+        mr.webUrl ?? '',
+        mr.iid,
+        repoName
+      )) !== null,
+  })
+    .catch(err =>
+      console.error(
+        `re-request step failed: ${err instanceof Error ? err.message : err}`
+      )
+    )
+    .finally(() => {
+      reReviewRequesting = false;
     });
 }
 
@@ -1840,6 +1893,39 @@ const forgeSelf = createForgeSelf({
   memoryUsername: () => readMemory().identity?.username ?? null,
   teamUsername: () => activeTeam().username,
 });
+
+/** The GitHub latch identity for one PR's repo, once the daemon's login is
+    confirmed to be it; null, logged (and audited on a mismatch), otherwise. */
+async function githubLatchSelf(
+  step: string,
+  mrUrl: string,
+  iid: number,
+  repoName: string
+): Promise<string | null> {
+  const self = forgeSelf.get();
+  if (!self) {
+    console.error(
+      `${step} skipped for ${mrUrl}: no forge username is recorded for this team`
+    );
+    return null;
+  }
+  if (!repoName) {
+    console.error(`${step} skipped for ${mrUrl}: no repo identity`);
+    return null;
+  }
+  const verdict = await verifyLatchIdentity(repoName, self);
+  if (verdict.ok) return self;
+  console.error(identityMismatchLine(repoName, self, verdict.login));
+  appendAudit({
+    ts: Date.now(),
+    mrUrl,
+    iid,
+    event: 'latch',
+    action: 'identity-mismatch',
+    reason: verdict.login ?? 'no login',
+  });
+  return null;
+}
 
 /** A GitHub board with no recorded forge username cannot tell whose seat
     this is, so it owns nothing; the fixture is inert and keeps its seat. */
@@ -2477,7 +2563,10 @@ const httpServer = Bun.serve({
           pruneFinishedSentNudges();
           pruneNudges(onBoard);
         }
-        if (!snapshot.fetchError) refreshOwnerTeamsInBackground(snapshot.mrs);
+        if (!snapshot.fetchError) {
+          refreshOwnerTeamsInBackground(snapshot.mrs);
+          sendReReviewRequestsInBackground(snapshot.mrs);
+        }
         refreshSlackPeople();
         const { mrs: mrsWithOrphans, orphans } = await withRowState(visibleMrs);
         return new Response(
@@ -5883,12 +5972,8 @@ async function handleAgentSignal(
   // Best-effort, like every other side effect here: the triage latch pass
   // reconciles anything a down or throwing board misses, so a failure must
   // never fail the agent's status write.
-  if (
-    config.forge.kind === 'gitlab' &&
-    signal.kind === 'review' &&
-    signal.status === 'done' &&
-    gitlabToken
-  ) {
+  const latchGw = boardLatchGateway(config, gitlabToken);
+  if (signal.kind === 'review' && signal.status === 'done' && latchGw) {
     try {
       // Arming honours board.reReview; landing and spending never do, since
       // a latch left running or armed on a team that switched re-review off
@@ -5909,16 +5994,24 @@ async function handleAgentSignal(
         // Latches belong to the reviewer whose token posted them. With no
         // resolvable identity this board cannot tell its own apart, so it
         // leaves the work to the triage pass rather than guess.
-        const self = await resolveDispatchIdentity(readMemory(), async () =>
-          (await gitlab()).validateToken()
-        );
+        const rtRepo = repoIdentityField(mr.rtRepo) ?? '';
+        const self =
+          config.forge.kind === 'github'
+            ? await githubLatchSelf('latch step', signal.mrUrl, mr.iid, rtRepo)
+            : await resolveDispatchIdentity(readMemory(), async () =>
+                (await gitlab()).validateToken()
+              );
         const detail = self ? await readLatchDetail(mr) : null;
         if (!self) {
-          console.error(
-            `latch step skipped for ${signal.mrUrl}: no gitlab identity for this token`
-          );
+          if (config.forge.kind === 'gitlab')
+            console.error(
+              `latch step skipped for ${signal.mrUrl}: no gitlab identity for this token`
+            );
         } else if (detail) {
-          const projectId = parseRepoId(mr.repositoryId);
+          const projectId =
+            config.forge.kind === 'gitlab'
+              ? parseRepoId(mr.repositoryId)
+              : null;
           // A lane no longer reading done was relaunched after this signal
           // was emitted, and one done with another outcome is a later run
           // than this replayed event: either way the signal cannot vouch for
@@ -5930,24 +6023,37 @@ async function handleAgentSignal(
             outcome,
             arm,
             reviewRunStartedAt: vouched ? runStamp(lane) : null,
+            runStamp: vouched ? runStamp(lane) : emittedAt,
+            appendAudit: entry => appendAudit(entry),
             countNew: launchAt =>
-              fetchNewDiscussionCount(
-                () =>
-                  new MRDetailFetcher(
-                    gitlabOnly(config),
-                    gitlabToken
-                  ).fetchDetail(projectId, mr.iid),
-                self,
-                launchAt
-              ),
+              config.forge.kind === 'github' ||
+              projectId === null ||
+              !gitlabToken
+                ? refreshedDiscussionCount(
+                    { rtRepo, iid: mr.iid },
+                    self,
+                    launchAt
+                  )
+                : fetchNewDiscussionCount(
+                    () =>
+                      new MRDetailFetcher(
+                        gitlabOnly(config),
+                        gitlabToken
+                      ).fetchDetail(projectId, mr.iid),
+                    self,
+                    launchAt
+                  ),
             self,
             approvedBy: mr.reviews.approvedBy.map(r => r.username),
             detail,
-            gateway: latchGateway(gitlabOnly(config), gitlabToken),
-            projectId,
-            projectPath: projectPathFromWebUrl(signal.mrUrl, config) ?? '',
+            gateway: latchGw,
+            mr: {
+              projectId,
+              projectPath: projectPathFromWebUrl(signal.mrUrl, config) ?? '',
+              iid: mr.iid,
+              rtRepo,
+            },
             mrUrl: signal.mrUrl,
-            iid: mr.iid,
           });
         }
       }
@@ -5978,35 +6084,49 @@ async function handleAgentSignal(
   // A picked re-review resolves its latch discussions once respond is done.
   // Runs after the close so no await separates the stale read from it.
   // Best-effort: a failure here must never fail the agent's status write.
-  if (signal.kind === 'respond' && gitlabToken && !stale) {
+  if (signal.kind === 'respond' && latchGw && !stale) {
     try {
       const pending = readRespondStates().get(signal.mrUrl)?.pendingReReview;
+      const projectPath = projectPathFromWebUrl(signal.mrUrl, config) ?? '';
+      const rtRepo = config.rtRepos[projectPath];
+      const target = {
+        projectId: null,
+        projectPath,
+        iid: signal.iid,
+        rtRepo: (rtRepo && repoIdentityField(rtRepo)) || '',
+      };
       if (pending?.length) {
+        const clearPick = () => {
+          const current = readRespondStates().get(signal.mrUrl);
+          if (current)
+            writeRespondState(respondFilePath(signal.mrUrl), {
+              status: current.status,
+              pendingReReview: [],
+            });
+        };
+        // An unverified login clears the pick the way a failed resolve does.
+        const unverified =
+          config.forge.kind === 'github' &&
+          signal.status === 'done' &&
+          (await githubLatchSelf(
+            're-review settle',
+            signal.mrUrl,
+            signal.iid,
+            target.rtRepo
+          )) === null;
         let resolvedAny = false;
-        await settleReReview(
-          signal.status,
-          pending,
-          async id => {
-            await latchGateway(
-              gitlabOnly(config),
-              gitlabToken
-            ).resolveDiscussion(
-              projectPathFromWebUrl(signal.mrUrl, config) ?? '',
-              signal.iid,
-              id
-            );
-            resolvedAny = true;
-          },
-          () => {
-            const current = readRespondStates().get(signal.mrUrl);
-            if (current)
-              writeRespondState(respondFilePath(signal.mrUrl), {
-                status: current.status,
-                pendingReReview: [],
-              });
-          },
-          msg => console.error(msg)
-        );
+        if (unverified) clearPick();
+        else
+          await settleReReview(
+            signal.status,
+            pending,
+            async id => {
+              await latchGw.resolveDiscussion(target, id);
+              resolvedAny = true;
+            },
+            clearPick,
+            msg => console.error(msg)
+          );
         // The row offers a re-review only while a latch is open: refresh it
         // now rather than after the snapshot TTL.
         if (resolvedAny) {

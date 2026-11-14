@@ -1,7 +1,11 @@
 import type { Database } from 'bun:sqlite';
 
 import { channelFromCodeownerSection } from '@mattstack/glance';
-import { teamForChannel, type TeamDirectory } from '@mattstack/rt-client';
+import {
+  rtCommand,
+  teamForChannel,
+  type TeamDirectory,
+} from '@mattstack/rt-client';
 import type { OwnerRule } from './codeowner-posts.ts';
 import { getKvValue, getStateDb, setKvValue } from './state/index.ts';
 
@@ -13,6 +17,8 @@ import { getKvValue, getStateDb, setKvValue } from './state/index.ts';
     owner's channel. */
 export interface OwnerTeam {
   team?: string;
+  /** A GitHub `@login` owner: one person, not a team. */
+  person?: string;
   channel?: string;
   section?: string;
   mine?: true;
@@ -45,17 +51,36 @@ function seenKey(mr: OwnMr): string {
   return `${mr.updatedAt ?? ''}|${approvers.join(',')}`;
 }
 
+/** A directory team's GitHub team as a comparable token. */
+const githubTeamToken = (value: string) =>
+  value.replace(/^@/, '').toLowerCase();
+
+function githubTeamFor(
+  directory: TeamDirectory | undefined,
+  token: string
+): string | undefined {
+  const want = githubTeamToken(token);
+  return Object.entries(directory?.teams ?? {}).find(
+    ([, entry]) =>
+      entry.github?.team && githubTeamToken(entry.github.team) === want
+  )?.[0];
+}
+
 /**
- * The owners of an MR's sections, in CODEOWNERS order. A section reaches its
- * team through the Slack channel in its name, the same join the Code Owner
- * posts use.
+ * The owners of an MR's sections, in CODEOWNERS order. On GitLab a section
+ * reaches its team through the Slack channel in its name, the same join the
+ * Code Owner posts use. On GitHub a rule's section is an owner token: a
+ * `@login` is a person, and an `@org/team` reaches its team through the
+ * directory's `github.team`.
  */
 export function ownerTeamsFromRules(
   rules: OwnerRule[],
   directory: TeamDirectory | undefined,
   ownTeam: string | null,
-  posts: Record<string, { permalink?: string | null }> = {}
+  posts: Record<string, { permalink?: string | null }> = {},
+  forge: 'gitlab' | 'github' = 'gitlab'
 ): OwnerTeam[] {
+  if (forge === 'github') return githubOwnerTeams(rules, directory, ownTeam);
   const byKey = new Map<string, OwnerTeam>();
   for (const rule of rules) {
     const channel = channelFromCodeownerSection(rule.section) ?? undefined;
@@ -79,6 +104,61 @@ export function ownerTeamsFromRules(
     });
   }
   return [...byKey.values()];
+}
+
+function githubOwnerTeams(
+  rules: OwnerRule[],
+  directory: TeamDirectory | undefined,
+  ownTeam: string | null
+): OwnerTeam[] {
+  const byKey = new Map<string, OwnerTeam>();
+  for (const rule of rules) {
+    const token = rule.section;
+    const person = token.startsWith('@') && !token.includes('/');
+    const team = person ? undefined : githubTeamFor(directory, token);
+    const key = team ? `team:${team}` : `section:${token}`;
+    const prior = byKey.get(key);
+    byKey.set(key, {
+      ...(team ? { team } : {}),
+      ...(person ? { person: token.slice(1) } : {}),
+      section: prior?.section ?? token,
+      ...(team && team === ownTeam ? { mine: true as const } : {}),
+      approved: (prior?.approved ?? true) && rule.approved,
+    });
+  }
+  return [...byKey.values()];
+}
+
+/** A GitHub PR's Code Owner rules from the daemon, or why they could not be
+    read. An unknown set (no CODEOWNERS file, say) reads as no owners. */
+export async function readGithubOwnerRules(
+  repoName: string,
+  iid: number,
+  command: typeof rtCommand = rtCommand
+): Promise<
+  | { ok: true; rules: OwnerRule[] }
+  | { ok: false; status: number; message: string }
+> {
+  const res = await command<{
+    rules: Array<{ type: string; section: string | null; approved: boolean }>;
+    unknownReason?: string;
+  }>('mr:owner-rules', { repoName, iid }, { timeoutMs: 30_000 });
+  if (!res.ok || !res.data) {
+    return {
+      ok: false,
+      status: 502,
+      message: `could not read code owners from GitHub: ${res.error ?? 'no answer'}`,
+    };
+  }
+  if (res.data.unknownReason) return { ok: true, rules: [] };
+  return {
+    ok: true,
+    rules: res.data.rules.flatMap(rule =>
+      rule.type === 'CODE_OWNER' && rule.section
+        ? [{ section: rule.section, approved: rule.approved === true }]
+        : []
+    ),
+  };
 }
 
 /**
@@ -115,6 +195,7 @@ export function attachOwnerTeams<T extends OwnMr>(
     directory?: TeamDirectory;
     ownTeam?: string | null;
     posts?: PostsByChannel;
+    forge?: 'gitlab' | 'github';
   },
   db: Database = getStateDb()
 ): Array<T & { ownerTeams?: OwnerTeam[] }> {
@@ -127,7 +208,8 @@ export function attachOwnerTeams<T extends OwnMr>(
       stored.rules,
       config.directory,
       config.ownTeam ?? null,
-      config.posts?.(mr.webUrl!)
+      config.posts?.(mr.webUrl!),
+      config.forge
     );
     return {
       ...mr,

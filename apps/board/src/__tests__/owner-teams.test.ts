@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   attachOwnerTeams,
   ownerTeamsFromRules,
+  readGithubOwnerRules,
   refreshOwnerTeams,
 } from '../owner-teams.ts';
 import { openStateDb } from '../state/db.ts';
@@ -83,6 +84,161 @@ describe('ownerTeamsFromRules', () => {
         o => o.team ?? o.channel ?? o.section
       )
     ).toEqual(['SpareParts', 'pod-ledger', 'sprockets']);
+  });
+});
+
+describe('ownerTeamsFromRules on GitHub', () => {
+  const github = (value: string) => ({
+    teams: {
+      web: { github: { team: value } },
+      api: { slack: { codeOwnersChannel: '#pod-api' } },
+    },
+  });
+
+  test.each(['acme/web', '@ACME/web', '@acme/WEB'])(
+    'github.team %p claims @acme/web without @ and in any case',
+    value => {
+      const rules = [{ section: '@acme/web', approved: false }];
+      expect(
+        ownerTeamsFromRules(rules, github(value), null, {}, 'github')
+      ).toEqual([{ team: 'web', section: '@acme/web', approved: false }]);
+    }
+  );
+
+  test('marks the active team and merges its tokens by approval', () => {
+    const rules = [
+      { section: '@acme/web', approved: true },
+      { section: '@acme/web', approved: false },
+    ];
+    expect(
+      ownerTeamsFromRules(rules, github('acme/web'), 'web', {}, 'github')
+    ).toEqual([
+      { team: 'web', section: '@acme/web', approved: false, mine: true },
+    ]);
+  });
+
+  test('a login owner is that person, the token kept as the section', () => {
+    const rules = [{ section: '@ellie-dev', approved: false }];
+    expect(
+      ownerTeamsFromRules(rules, github('acme/web'), null, {}, 'github')
+    ).toEqual([
+      { person: 'ellie-dev', section: '@ellie-dev', approved: false },
+    ]);
+  });
+
+  test('a team token no directory team claims stands as its own section', () => {
+    const rules = [{ section: '@acme/api', approved: false }];
+    expect(
+      ownerTeamsFromRules(rules, github('acme/web'), null, {}, 'github')
+    ).toEqual([{ section: '@acme/api', approved: false }]);
+  });
+
+  test('a section with a channel in its name stays a section on GitHub', () => {
+    const rules = [{ section: 'Api - #pod-api', approved: false }];
+    expect(
+      ownerTeamsFromRules(rules, github('acme/web'), null, {}, 'github')
+    ).toEqual([{ section: 'Api - #pod-api', approved: false }]);
+  });
+
+  test('keeps the token order', () => {
+    const rules = [
+      { section: '@ellie-dev', approved: false },
+      { section: '@acme/web', approved: false },
+      { section: '@acme/api', approved: true },
+    ];
+    expect(
+      ownerTeamsFromRules(rules, github('acme/web'), null, {}, 'github').map(
+        o => o.person ?? o.team ?? o.section
+      )
+    ).toEqual(['ellie-dev', 'web', '@acme/api']);
+  });
+
+  test('GitLab ignores github.team and reads @ sections as sections', () => {
+    const rules = [{ section: '@acme/web', approved: false }];
+    expect(ownerTeamsFromRules(rules, github('acme/web'), null)).toEqual([
+      { section: '@acme/web', approved: false },
+    ]);
+  });
+});
+
+describe('attachOwnerTeams on GitHub', () => {
+  test('reads stored rules through the forge it is given', async () => {
+    const db = memoryDb();
+    await refreshOwnerTeams([mr(7, 't1')], {
+      db,
+      readRules: async () => [{ section: '@ellie-dev', approved: false }],
+    });
+    const [row] = attachOwnerTeams(
+      [mr(7, 't1')],
+      { directory, ownTeam: null, forge: 'github' },
+      db
+    );
+    expect(row!.ownerTeams).toEqual([
+      { person: 'ellie-dev', section: '@ellie-dev', approved: false },
+    ]);
+  });
+});
+
+describe('readGithubOwnerRules', () => {
+  const reply = (r: unknown) => {
+    const calls: Array<{ verb: string; body: unknown }> = [];
+    const command = (async (verb: string, body: unknown) => {
+      calls.push({ verb, body });
+      return r;
+    }) as never;
+    return { calls, command };
+  };
+
+  test('asks mr:owner-rules and keeps only CODE_OWNER rules', async () => {
+    const { calls, command } = reply({
+      ok: true,
+      data: {
+        rules: [
+          { type: 'ANY_APPROVER', section: null, approved: false },
+          { type: 'CODE_OWNER', section: '@acme/web', approved: true },
+          { type: 'CODE_OWNER', section: null, approved: false },
+          { type: 'CODE_OWNER', section: '@ellie-dev', approved: false },
+        ],
+      },
+    });
+    expect(await readGithubOwnerRules('github.com/o/r', 7, command)).toEqual({
+      ok: true,
+      rules: [
+        { section: '@acme/web', approved: true },
+        { section: '@ellie-dev', approved: false },
+      ],
+    });
+    expect(calls).toEqual([
+      { verb: 'mr:owner-rules', body: { repoName: 'github.com/o/r', iid: 7 } },
+    ]);
+  });
+
+  test('an unknownReason reads as no owners', async () => {
+    const { command } = reply({
+      ok: true,
+      data: {
+        rules: [{ type: 'CODE_OWNER', section: '@acme/web', approved: false }],
+        unknownReason: 'no CODEOWNERS file',
+      },
+    });
+    expect(await readGithubOwnerRules('github.com/o/r', 7, command)).toEqual({
+      ok: true,
+      rules: [],
+    });
+  });
+
+  test('a daemon error is a 502', async () => {
+    const { command } = reply({ ok: false, error: 'rt daemon unreachable' });
+    const read = await readGithubOwnerRules('github.com/o/r', 7, command);
+    expect(read).toMatchObject({ ok: false, status: 502 });
+    expect(JSON.stringify(read)).toContain('rt daemon unreachable');
+  });
+
+  test('an empty reply is a 502, not an empty list', async () => {
+    const { command } = reply({ ok: true });
+    expect(
+      await readGithubOwnerRules('github.com/o/r', 7, command)
+    ).toMatchObject({ ok: false, status: 502 });
   });
 });
 

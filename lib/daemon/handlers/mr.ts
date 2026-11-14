@@ -22,6 +22,7 @@
  *   forge:get                - one guarded GET against the repo's own forge REST API (GitLab, or GitHub under the repo)
  *   forge:file-diff          - one file's diff in an MR or PR, from the repo's own forge (GitLab or GitHub)
  *   forge:self               - the repo token's own login (GitHub)
+ *   mr:owner-rules           - one MR's or PR's code owner rules, as glance reads them
  *
  * Every handler routes by `{ repoName, iid }`. If no provider can be built
  * for the repo (missing token, unparseable remote), the handler returns
@@ -42,7 +43,7 @@
 
 import { applyMRWriteback, getCurrentUserId, getRepoContext, resolveGitHubSelfLogin } from "../freshness.ts";
 import { parseIdentity } from "../../settings/identity.ts";
-import type { FetchPullRequestsWarning, MergeQueueEntry, PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
+import type { ApprovalRuleLite, FetchPullRequestsWarning, MergeQueueEntry, PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
 import { MergeReadBackFailedError, PartialCreateError, ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
 import type { MrCreateFailedStep, MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
@@ -163,6 +164,7 @@ export function createMRHandlers(
   & { "project:labels": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"project:labels">> }
   & { "pipeline:list": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"pipeline:list">> }
   & { "forge:get": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:get">> }
+  & { "mr:owner-rules": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:owner-rules">> }
   & { "forge:self": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:self">> }
   & { "forge:file-diff": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"forge:file-diff">> }
   & HandlerMap {
@@ -794,6 +796,24 @@ export function createMRHandlers(
         }, forgeOf(c));
       } catch (err) {
         return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:owner-rules": async (payload) => {
+      const p = payload as { iid?: unknown } | undefined;
+      if (typeof p?.iid !== "number") return { ok: false, error: "missing repoName/iid" };
+      if (!(Number.isInteger(p.iid) && p.iid > 0)) return { ok: false, error: '"iid" must be a positive integer' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      let forge: Forge = "gitlab";
+      try {
+        const c = await contextFor(decoded.repo);
+        forge = forgeOf(c);
+        const [row] = (await c.provider.fetchApprovalRules({ projectPath: c.projectPath, iids: [p.iid] })) as Array<{ iid: number; rules: ApprovalRuleLite[]; unknownReason?: string }>;
+        const found = row?.iid === p.iid ? row : undefined;
+        return { ok: true, data: { rules: found?.rules ?? [], ...(found?.unknownReason ? { unknownReason: found.unknownReason } : {}) } };
+      } catch (err) {
+        return { ok: false, error: forgeFailure(err, forge) };
       }
     },
 

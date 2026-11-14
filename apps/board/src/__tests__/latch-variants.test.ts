@@ -216,6 +216,32 @@ describe('copy', () => {
     }
   });
 
+  test('on GitHub the sentences name the PR, and GitLab keeps its copy', () => {
+    const DONE =
+      "Follow-up review done. Resolve this thread again when you've addressed the new comments.";
+    expect(copyFor({ state: 'armed' }, 'gitlab').sentence).toBe(
+      "**Addressed everything?** Resolve this thread and I'll take another pass over the MR.\n\nLeave it open while there's still work in flight."
+    );
+    expect(copyFor({ state: 'armed' }, 'github').sentence).toBe(
+      "**Addressed everything?** Resolve this thread and I'll take another pass over the PR.\n\nLeave it open while there's still work in flight."
+    );
+    // No forge word to swap: both forges read the same.
+    for (const forge of ['gitlab', 'github'] as const) {
+      expect(
+        copyFor({ state: 'done-comments', count: null }, forge).sentence
+      ).toBe(DONE);
+    }
+  });
+
+  test('the forge changes no banner strip', () => {
+    for (const key of allVariantKeys()) {
+      const v = variantOfKey(key)!;
+      const { sentence: _g, ...gitlab } = copyFor(v, 'gitlab');
+      const { sentence: _h, ...github } = copyFor(v, 'github');
+      expect(github).toEqual(gitlab);
+    }
+  });
+
   test('no posted copy names the latch', () => {
     for (const key of allVariantKeys()) {
       const c = copyFor(variantOfKey(key)!);
