@@ -39,6 +39,15 @@ export interface GateToolDeps {
   kitFormOn: () => boolean;
 }
 
+// An unreadable setting is off: the gate still opens, as a form or a wait.
+function kitFormReadsOn(deps: GateToolDeps): boolean {
+  try {
+    return deps.kitFormOn();
+  } catch {
+    return false;
+  }
+}
+
 export const realGateToolDeps: GateToolDeps = {
   ask: gateAsk,
   answer: gateAnswer,
@@ -235,7 +244,7 @@ export async function askGate(
   if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
   const paneId = await liveSelfPaneId(env);
   if (paneId) payload.paneId = paneId;
-  if (input.kitForm === true && deps.kitFormOn()) payload.kitForm = true;
+  if (input.kitForm === true && kitFormReadsOn(deps)) payload.kitForm = true;
   const res = await deps.ask(payload);
   if (!res.ok || !res.data) return fromResponse(res);
   const data = res.data;

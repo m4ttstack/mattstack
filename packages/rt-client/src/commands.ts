@@ -1382,7 +1382,9 @@ export interface Commands {
       meta?: Record<string, unknown>;
       agent?: string;
       origin?: { surface?: string; tabId?: string; worktree?: string };
-      /** Presents `kit` instead of `form` when a pane and a session are known. */
+      /** Presents `kit` instead of `form` when a pane and a session are known.
+          The daemon never reads `rt.gates.kitForm`: the caller sends this only
+          when the setting reads on (the gate_ask tool does). */
       kitForm?: boolean;
     };
     /** `formCapExceeded`/`formCapAdvisory` appear only when the pane could

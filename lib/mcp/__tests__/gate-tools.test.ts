@@ -1210,6 +1210,14 @@ describe("kit forms", () => {
     expect(JSON.stringify(withFlag)).toBe(JSON.stringify(without));
   });
 
+  test("a setting read that throws counts as off", async () => {
+    const f = fake({ kitOn: true });
+    f.deps.kitFormOn = () => { throw new Error("settings store unreadable"); };
+    const res = await askGate({ ...ASK, kitForm: true }, ENV, f.deps);
+    expect(res.error).toBeUndefined();
+    expect("kitForm" in f.asks[0]!).toBe(false);
+  });
+
   test("setting on without the flag sends no kitForm", async () => {
     const f = fake({ kitOn: true });
     await askGate(ASK, ENV, f.deps);
