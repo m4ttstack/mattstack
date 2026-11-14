@@ -247,7 +247,10 @@ functions below.
 
 ### `showPane`
 
-`showPane($, pane, title): Promise<void>`. Opens the pane.
+`showPane($, pane, title): Promise<boolean>`. Opens the pane with `focus`.
+It resolves to whether the pane was drawn. An open the person did not ask for
+(from a tool or a timer) waits undrawn below 144 columns, or 110 once the person
+has opened the pane themselves.
 
 ### `paneMessage`
 
@@ -275,10 +278,17 @@ under it) so a click anywhere in the pane focuses it.
 
 ### `bandAbovePrompt`
 
-`bandAbovePrompt($, e, rest, waiting, pane): Promise<RenderElement>`. Call it from your `ui.render`
-hook for the prompt's AbovePrompt slot when `waiting` is set and the pane is
-not placed: it returns `rest` with the reopen band above it. Falls back to the
-engine's `Button` where Client is unavailable. It writes `module="./band.tsx"`
+`bandAbovePrompt($, e, rest, waiting, pane, { engineShow? }): Promise<RenderElement>`.
+Call it from your `ui.render` hook for the prompt's AbovePrompt slot when
+`waiting` is set and the pane is not placed. It returns `rest` with the reopen
+band above it. Where Client is unavailable, it falls back to the engine's
+`Button`.
+
+With `engineShow`, the band's Show is the engine's own `Button` beside the
+Client. A Client's post counts as code, not as the person's press, so a pane
+reopened from the kit's own Show is still unasked and stays undrawn on a narrow
+terminal. The engine's press is asked, so it places the pane at any width. Pass
+`engineShow` for a pane your mod opens from a tool. It writes `module="./band.tsx"`
 itself, because a Client `module` must be a literal, so the mod needs a
 `band.tsx` and lists it in `mod.json` `clients`:
 

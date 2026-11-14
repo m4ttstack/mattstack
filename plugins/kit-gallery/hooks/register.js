@@ -1,7 +1,8 @@
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 async function showPane($, pane, title) {
-  await $.ui.open({ id: pane.id, title, focus: true });
+  const opened = await $.ui.open({ id: pane.id, title, focus: true });
   $.ui.invalidate("ui.render");
+  return opened.isPlaced;
 }
 async function paneMessage($, e, pane, waiting) {
   const message = e.data;
