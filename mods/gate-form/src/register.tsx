@@ -105,30 +105,42 @@ const failureText = (failure: unknown) =>
 
 // The pane's own answer: no doorbell rings for it, so the mod wakes the agent once rt has recorded it.
 // Lost to another surface, the form closes and that surface's doorbell wakes the agent.
+// The form counts as answering until its outcome is written, so its watcher, returning on the same write, never settles it too.
 async function answerGate($: EngineInterface, form: Form, answers: Record<string, unknown>): Promise<void> {
   const gateId = form.gateId ?? ''
+  answering.add(form.id)
+  let failed = false
+  try {
+    failed = !(await recordAnswer($, form, gateId, answers))
+  } finally {
+    answering.delete(form.id)
+    // A watcher that returned meanwhile left the form to this answer; a fresh wait on an ended gate returns at once and settles it.
+    if (failed) watchGate($, gateId)
+  }
+}
+
+// Whether rt recorded the answer (or another surface's won); false leaves the form open with the error.
+async function recordAnswer($: EngineInterface, form: Form, gateId: string, answers: Record<string, unknown>): Promise<boolean> {
   const session = await $.session.id()
   const args = ['gate', 'answer', gateId, '--answers', JSON.stringify(answers), '--by', 'pane', '--session', session]
   let error: string | undefined
   let outcome: 'recorded' | 'elsewhere' = 'recorded'
-  answering.add(form.id)
   try {
     const ran = await runRt($, args)
     if (ran.exitCode !== 0) error = `Not recorded: ${rtError(ran)}`
     else outcome = answerOutcome(ran.stdout, session)
   } catch (failure) {
     error = failureText(failure)
-  } finally {
-    answering.delete(form.id)
   }
   if (error !== undefined) {
     await writeForms($, list => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }))
-    return
+    return false
   }
   const patch: Partial<Form> = outcome === 'elsewhere' ? { status: 'answered', error: undefined, note: ELSEWHERE } : { status: 'answered', error: undefined }
   const forms = await writeForms($, list => patchForm(list, form.id, patch))
   if (outcome === 'recorded') await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
   await showCurrent($, forms)
+  return true
 }
 
 // A gate set aside stays open: the person comes back to it from the band.

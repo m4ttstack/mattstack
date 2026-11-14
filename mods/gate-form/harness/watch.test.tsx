@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ABOVE, PANE, QUESTIONS, SESSION, ask, boardResult, drawOn, eventually, formOf, kitResult, resultText, rowsOf, startSession, world, type Engine } from './world'
+import { ABOVE, PANE, QUESTIONS, SESSION, ask, boardResult, drawOn, eventually, formOf, kitResult, ok, resultText, rowsOf, startSession, world, type Engine } from './world'
 
 type Ui = Awaited<ReturnType<Engine['ui']['mount']>>
 
@@ -86,6 +86,67 @@ test('a gate closed elsewhere closes its form with the reason', async ($, on) =>
   await w.waits[0]!.end(JSON.stringify({ ok: true, status: 'closed', row: { id: 'g1', status: 'closed', answer: null, closedReason: 'superseded' } }))
   expect(await eventually(async () => (await paneForm($))?.status === 'cancelled')).toBe(true)
   expect((await paneForm($))?.note).toBe('Replaced by a newer gate')
+})
+
+const ticks = async (n: number) => {
+  for (let i = 0; i < n; i++) await new Promise(resolve => setTimeout(resolve, 1))
+}
+
+test('the pane’s own answer wakes the agent once, even when its watcher returns before the form is marked answered', async ($, on) => {
+  let armed = false
+  // The first read after rt has recorded the answer is the form write's: the watcher's wait ends there, and gets time to act.
+  on('state.get', async (_, e, next) => {
+    if (armed && (e as { key?: string }).key === 'form') {
+      armed = false
+      await waitsFor(w, 'g1')[0]!.end(answeredBy('g1', 'pane', SESSION))
+      await ticks(30)
+    }
+    return next(e)
+  })
+  const w = world(on, {
+    holdWaits: true,
+    rt: argv => {
+      if (argv[2] === 'answer') armed = true
+      return ok(JSON.stringify({ ok: true, conflict: false }))
+    },
+  })
+  await drawOn($, 'terminal')
+  await ask($)
+  await eventually(() => w.waits.length === 1)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  await pane.unmount()
+  await ticks(30)
+  expect(armed).toBe(false)
+  expect(w.sent).toEqual(['Gate g1 was answered in the kit form. Call gate_reconcile for it.'])
+})
+
+test('after an answer overruns, a new watch settles the pane’s own recorded answer and wakes the agent once', async ($, on) => {
+  const w = world(on, {
+    holdWaits: true,
+    rt: async argv => {
+      if (argv[2] !== 'answer') return { deny: 'unexpected' }
+      // The answer lands, and the watcher returns while rt is still running, then rt overruns its timeout.
+      await waitsFor(w, 'g1')[0]!.end(answeredBy('g1', 'pane', SESSION))
+      await w.clock.sleep(15_000)
+      return { deny: 'rt is still running at its timeout' }
+    },
+  })
+  await drawOn($, 'terminal')
+  await ask($)
+  await eventually(() => w.waits.length === 1)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const posting = pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  await w.clock.settle()
+  await w.clock.advance(15_000)
+  await posting
+  expect(await eventually(() => waitsFor(w, 'g1').length === 2)).toBe(true)
+  expect(w.sent).toEqual([])
+  await waitsFor(w, 'g1')[1]!.end(answeredBy('g1', 'pane', SESSION))
+  expect(await eventually(async () => (await formOf(pane))?.status === 'answered')).toBe(true)
+  await pane.unmount()
+  expect(w.sent).toEqual(['Gate g1 was answered in the kit form. Call gate_reconcile for it.'])
+  expect(w.ran.filter(argv => argv[2] === 'answer')).toHaveLength(1)
 })
 
 test('a wait that fails leaves the form open and is not started again', async ($, on) => {

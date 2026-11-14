@@ -877,11 +877,21 @@ async function readSetting($) {
 var failureText = (failure) => failure instanceof Error && failure.message === RT_OVERRAN ? `rt took longer than ${RT_TIMEOUT_MS / 1000}s, so the answer may already be recorded. Submit again to check.` : `Not recorded: rt could not run (${failure instanceof Error ? failure.message : String(failure)}).`;
 async function answerGate($, form, answers) {
   const gateId = form.gateId ?? "";
+  answering.add(form.id);
+  let failed = false;
+  try {
+    failed = !await recordAnswer($, form, gateId, answers);
+  } finally {
+    answering.delete(form.id);
+    if (failed)
+      watchGate($, gateId);
+  }
+}
+async function recordAnswer($, form, gateId, answers) {
   const session = await $.session.id();
   const args = ["gate", "answer", gateId, "--answers", JSON.stringify(answers), "--by", "pane", "--session", session];
   let error;
   let outcome = "recorded";
-  answering.add(form.id);
   try {
     const ran = await runRt($, args);
     if (ran.exitCode !== 0)
@@ -890,18 +900,17 @@ async function answerGate($, form, answers) {
       outcome = answerOutcome(ran.stdout, session);
   } catch (failure) {
     error = failureText(failure);
-  } finally {
-    answering.delete(form.id);
   }
   if (error !== undefined) {
     await writeForms($, (list) => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }));
-    return;
+    return false;
   }
   const patch = outcome === "elsewhere" ? { status: "answered", error: undefined, note: ELSEWHERE } : { status: "answered", error: undefined };
   const forms = await writeForms($, (list) => patchForm(list, form.id, patch));
   if (outcome === "recorded")
     await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
   await showCurrent($, forms);
+  return true;
 }
 async function setGateAside($, form) {
   await wake($, GATE_ASIDE(form.gateId ?? ""), `setting gate ${form.gateId} aside`);
