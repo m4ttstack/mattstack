@@ -116,17 +116,34 @@ export function agentFields(fields: Fields): Fields {
   return { ...rest, instruction: GATE_INSTRUCTION(String(fields.id)) }
 }
 
-export type GateRow = { id: string; kind?: unknown; questions?: unknown; context?: unknown; presentation?: unknown; status?: unknown; nudge?: unknown; openedAt?: unknown }
+export type GateRow = {
+  id: string
+  kind?: unknown
+  questions?: unknown
+  context?: unknown
+  presentation?: unknown
+  status?: unknown
+  nudge?: unknown
+  openedAt?: unknown
+  answer?: unknown
+  closedReason?: unknown
+}
 
-// The gate a spilled result opened: this session's newest open kit gate that has no form yet.
-export function spilledGate(stdout: string, session: string, known: string[]): GateRow | undefined {
+// The rows `rt gate list --json` printed, or undefined when it printed something else.
+export function listedGates(stdout: string): GateRow[] | undefined {
   let parsed: unknown
   try {
     parsed = JSON.parse(stdout)
   } catch {
     return undefined
   }
-  const gates = isObject(parsed) && Array.isArray(parsed.gates) ? (parsed.gates as GateRow[]) : []
+  if (!isObject(parsed) || !Array.isArray(parsed.gates)) return undefined
+  return (parsed.gates as unknown[]).filter((g): g is GateRow => isObject(g) && isText(g.id))
+}
+
+// The gate a spilled result opened: this session's newest open kit gate that has no form yet.
+export function spilledGate(stdout: string, session: string, known: string[]): GateRow | undefined {
+  const gates = listedGates(stdout) ?? []
   const mine = gates.filter(
     g => isObject(g) && isText(g.id) && g.presentation === 'kit' && g.status === 'open' && isObject(g.nudge) && g.nudge.session === session && !known.includes(g.id),
   )

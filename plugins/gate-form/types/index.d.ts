@@ -31,6 +31,9 @@ export type Form = {
   note?: string
 }
 
+// A board-only gate raised in this pane: the band above the prompt links to it on the board.
+export type BoardGate = { gateId: string; kind: string }
+
 export type LegacyForm = {
   id: string
   title: string
@@ -46,6 +49,7 @@ declare module 'claude-code' {
       forms: Shaped<Form[]>
       form: Shaped<LegacyForm | null>
       keysInForm: boolean
+      board: Shaped<BoardGate[]>
     }
   }
 }

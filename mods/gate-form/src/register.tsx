@@ -1,14 +1,17 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On, RenderSurface, ToolCallInput, ToolCallResult } from 'claude-code'
+import type { EngineInterface, On, RenderElement, RenderSurface, ToolCallInput, ToolCallResult } from 'claude-code'
 import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, registerPaneRedraw, showPane, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
-import type { Form, LegacyForm } from '../types'
+import type { BoardGate, Form, LegacyForm } from '../types'
+import { bellArgs } from './gate/bell'
+import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, readBoardOnly } from './gate/board'
 import { DEMO } from './gate/demo'
 import { addForm, currentForm, fitForm, fromLegacy, openCount, patchForm } from './gate/forms'
-import { agentFields, answerOutcome, formFromRow, gateForm, readKitResult, spilledGate, toForm } from './gate/parse'
+import { agentFields, answerOutcome, formFromRow, gateForm, listedGates, readKitResult, spilledGate, toForm } from './gate/parse'
 import { GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, toastReply, type Outcome } from './gate/reply'
 import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
+import { endNote, isSelf, rowEnd, waitFor, type GateEnd } from './gate/watch'
 
 const PANE = 'gate-form'
 const TOOL = 'ask'
@@ -21,6 +24,8 @@ const formsAtom = atom({ plugin: 'gate-form', key: 'forms' } as const, [] as For
 const legacyAtom = atom({ plugin: 'gate-form', key: 'form' } as const, null as LegacyForm | null, { shape: 'form-3' })
 // The engine reports the pane's focus but not its Client's, so a click or key in the form sets this and typing in the prompt clears it.
 const keysAtom = atom({ plugin: 'gate-form', key: 'keysInForm' } as const, false)
+// Board-only gates raised in this pane, oldest first, while they wait on the board.
+const boardAtom = atom({ plugin: 'gate-form', key: 'board' } as const, [] as BoardGate[], { shape: 'board-1' })
 // tool.call carries no surface, so the band, which draws every frame, records the one this session draws on.
 // A render hook may not write state, so this lives in the module; a reload forgets it until the next frame.
 const drawn: { surface?: RenderSurface } = {}
@@ -29,6 +34,13 @@ const drawn: { surface?: RenderSurface } = {}
 const setting: { isOn: boolean; reading?: Promise<void> } = { isOn: false }
 const ELSEWHERE = 'Already answered elsewhere'
 const SETTING_TIMEOUT_MS = 5_000
+const QUICK_TIMEOUT_MS = 5_000
+// One `rt gate wait` per gate; the children die with the module, so a session start watches again.
+const watching = new Set<string>()
+// Forms whose answer rt is recording: the pane's own answer settles them, never a watcher.
+const answering = new Set<string>()
+// The board's local address as deck last gave it; null when deck has none.
+const deck: { address?: string | null } = {}
 
 type FormMessage = { type: 'answer'; formId: string; answers?: Record<string, unknown> } | { type: 'chat'; formId: string; draft?: Record<string, unknown> }
 type Next = (e: ToolCallInput) => Promise<ToolCallResult>
@@ -99,12 +111,15 @@ async function answerGate($: EngineInterface, form: Form, answers: Record<string
   const args = ['gate', 'answer', gateId, '--answers', JSON.stringify(answers), '--by', 'pane', '--session', session]
   let error: string | undefined
   let outcome: 'recorded' | 'elsewhere' = 'recorded'
+  answering.add(form.id)
   try {
     const ran = await runRt($, args)
     if (ran.exitCode !== 0) error = `Not recorded: ${rtError(ran)}`
     else outcome = answerOutcome(ran.stdout, session)
   } catch (failure) {
     error = failureText(failure)
+  } finally {
+    answering.delete(form.id)
   }
   if (error !== undefined) {
     await writeForms($, list => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }))
@@ -142,6 +157,123 @@ async function openForm($: EngineInterface, form: Form, supersededId?: string | 
   await showPane($, GATE_PANE, shown?.title ?? form.title)
 }
 
+// The AskUserQuestion hook that rings herdr's bell never fires for a kit form, so opening one rings it. Outside herdr nothing rings.
+async function ringBell($: EngineInterface, form: Form): Promise<void> {
+  if ((await $.env.get('HERDR_ENV')) !== '1' || !(await $.env.get('HERDR_PANE_ID'))) return
+  await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => undefined)
+}
+
+// A gate ended on another surface: its form closes, or its band entry goes. That surface's doorbell wakes the agent;
+// only the pane's own answer, which rings none, wakes it from here, and only when no answer of this pane's is settling it.
+async function gateEnded($: EngineInterface, gateId: string, end: GateEnd): Promise<void> {
+  if ((await read($, boardAtom)).some(b => b.gateId === gateId)) await update($, boardAtom, list => list.filter(b => b.gateId !== gateId))
+  const open = (await readForms($)).filter(f => f.gateId === gateId && f.status === 'open' && !answering.has(f.id))
+  if (open.length > 0) {
+    const self = isSelf(end, await $.session.id())
+    const patch: Partial<Form> = self
+      ? { status: 'answered', error: undefined }
+      : { status: end.status === 'answered' ? 'answered' : 'cancelled', error: undefined, note: endNote(end) }
+    await writeForms($, list => list.map(f => (open.some(o => o.id === f.id) ? { ...f, ...patch } : f)))
+    if (self) await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`)
+  }
+  $.ui.invalidate('ui.render')
+}
+
+// Runs for as long as the gate waits, after the hook that started it has returned.
+function watchGate($: EngineInterface, gateId: string): void {
+  if (!setting.isOn || watching.has(gateId)) return
+  watching.add(gateId)
+  void (async () => {
+    try {
+      const end = await waitFor($, gateId)
+      if (end) await gateEnded($, gateId, end)
+    } catch {
+      // A module unloading mid-wait has nowhere left to write.
+    } finally {
+      watching.delete(gateId)
+    }
+  })()
+}
+
+async function gateOpened($: EngineInterface, form: Form): Promise<void> {
+  if (form.gateId) watchGate($, form.gateId)
+  void ringBell($, form)
+}
+
+async function readDeck($: EngineInterface): Promise<void> {
+  const home = await $.env.get('HOME')
+  for (const name of ['deck', `${home ?? ''}/.local/bin/deck`]) {
+    try {
+      const ran = await $.process.run([name, 'list', '--json'], { timeoutMs: QUICK_TIMEOUT_MS })
+      deck.address = ran.exitCode === 0 ? (boardAddress(ran.stdout) ?? null) : null
+      return
+    } catch {
+      deck.address = null
+    }
+  }
+}
+
+// The result is left as the tool gave it: the agent still waits with `rt gate wait`, and the band is only a shortcut.
+async function addBoard($: EngineInterface, gate: BoardGate, supersededId?: string): Promise<void> {
+  await readDeck($)
+  await update($, boardAtom, list => addBoardGate(list, gate, supersededId))
+  watchGate($, gate.gateId)
+  $.ui.invalidate('ui.render')
+}
+
+async function openBoard($: EngineInterface, gateId: unknown): Promise<void> {
+  const gate = (await read($, boardAtom)).find(b => b.gateId === gateId)
+  if (!gate || !deck.address) return
+  await $.process.run(['open', boardUrl(deck.address, gate.gateId)]).catch(() => $.ui.toast('Could not open the board'))
+}
+
+// Watchers die with the module, so a session start (a reload, a resume, a compaction) watches this session's gates again.
+// It also draws a kit gate whose takeover failed after the daemon opened it. Nothing comes back for a gate that ended.
+async function restore($: EngineInterface): Promise<void> {
+  let rows
+  try {
+    const ran = await runRt($, ['gate', 'list', '--json'])
+    rows = ran.exitCode === 0 ? listedGates(ran.stdout) : undefined
+  } catch {
+    rows = undefined
+  }
+  if (!rows) return
+  const session = await $.session.id()
+  const byId = new Map(rows.map(row => [row.id, row]))
+  const fresh = rows
+    .filter(row => row.presentation === 'kit' && row.status === 'open' && (row.nudge as { session?: unknown } | null)?.session === session)
+    .sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0))
+    .flatMap(row => {
+      const form = formFromRow(row)
+      return typeof form === 'string' ? [] : [form]
+    })
+  const added: Form[] = []
+  const forms = await writeForms($, list =>
+    fresh.reduce((acc, form) => {
+      if (acc.some(f => f.gateId === form.gateId)) return acc
+      added.push(form)
+      return addForm(acc, form)
+    }, list),
+  )
+  const ended = (gateId: string) => {
+    const row = byId.get(gateId)
+    return row ? rowEnd(row) : undefined
+  }
+  for (const form of forms.filter(f => f.status === 'open' && f.gateId)) {
+    const end = ended(form.gateId!)
+    if (end) await gateEnded($, form.gateId!, end)
+    else watchGate($, form.gateId!)
+  }
+  for (const gate of await read($, boardAtom)) {
+    const end = ended(gate.gateId)
+    if (end) await gateEnded($, gate.gateId, end)
+    else watchGate($, gate.gateId)
+  }
+  if ((await read($, boardAtom)).length > 0 && deck.address === undefined) await readDeck($)
+  for (const form of added) void ringBell($, form)
+  $.ui.invalidate('ui.render')
+}
+
 // Only a main-loop call on a surface that draws the form takes it; a hand-back opens nothing to draw.
 function canDraw(e: ToolCallInput): boolean {
   if (!setting.isOn) return false
@@ -172,6 +304,8 @@ async function takeGate($: EngineInterface, e: ToolCallInput, next: Next): Promi
   if (out.deny !== undefined || out.isError) return out
   const text = textOf(out)
   const kit = readKitResult(text)
+  const board = kit.kind === 'other' ? readBoardOnly(text) : undefined
+  if (board) await addBoard($, { gateId: board.gateId, kind: String((e as unknown as { kind?: unknown }).kind ?? '') }, board.supersededId)
   if (kit.kind === 'other') return out
   const kind = (e as unknown as { kind?: unknown }).kind
   const title = typeof kind === 'string' && kind.trim() !== '' ? kind : GATE_TITLE
@@ -179,6 +313,7 @@ async function takeGate($: EngineInterface, e: ToolCallInput, next: Next): Promi
     const form = gateForm(kit.fields, title)
     if (typeof form === 'string') return out
     await openForm($, form, kit.fields.supersededId as string | null | undefined)
+    await gateOpened($, form)
     return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) as never }
   }
   return takeSpilled($, out, text)
@@ -196,7 +331,32 @@ async function takeSpilled($: EngineInterface, out: ToolCallResult, text: string
   const form = row && formFromRow(row)
   if (!row || !form || typeof form === 'string') return out
   await openForm($, form)
+  await gateOpened($, form)
   return { result: withText(out.result, `${text}\n\n${GATE_INSTRUCTION(row.id)}`) as never }
+}
+
+// The newest board gate above the prompt, its button opening it on the board. A surface without Client gets the engine's own Button.
+function boardBand($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], rest: RenderElement, board: BoardGate[]) {
+  const newest = board.at(-1)!
+  const text = boardText(board)
+  const hasAddress = typeof deck.address === 'string'
+  const els = $.ui.resolve(e)
+  const { Box, Text, Button } = els
+  const Client = 'Client' in els ? els.Client : undefined
+  const band = Client ? (
+    <Client key="board-band" module="./board-band.tsx" props={{ text, gateId: newest.gateId, hasAddress }} />
+  ) : (
+    <Box flexDirection="row" gap={2}>
+      <Text wrap="truncate-end">{text}</Text>
+      {hasAddress ? <Button key="open-board" label="Open on board" onPress={() => openBoard($, newest.gateId)} /> : <Text dimColor>{NO_ADDRESS}</Text>}
+    </Box>
+  )
+  return (
+    <Box flexDirection="column">
+      {band}
+      {rest}
+    </Box>
+  )
 }
 
 // A function declaration, not a const arrow: a bundler keeps it one, and the engine's source check requires it.
@@ -208,6 +368,7 @@ export function register(on: On): void {
     await $.command.register({ name: 'gate-form-demo', description: 'Open the gate form with a demo gate' })
     // Not awaited, so a slow rt never holds the session's start; a gate call waits for it instead.
     setting.reading = readSetting($)
+    void setting.reading.then(() => (setting.isOn ? restore($) : undefined)).catch(() => undefined)
     return next(e)
   })
 
@@ -248,6 +409,8 @@ export function register(on: On): void {
   on('ui.message', async ($, e, next) => {
     if (isEngaged(e)) await setKeysInForm($, true)
     await paneMessage($, e, GATE_PANE, await waitingForm($))
+    const posted = e.data as { type?: unknown; gateId?: unknown } | null
+    if (posted?.type === 'open-board') await openBoard($, posted.gateId)
     if (e.requestId !== PANE) return next(e)
     const message = e.data as FormMessage
     if (message.type === 'answer') await settle($, message.formId, { status: 'answered', answers: message.answers ?? {} })
@@ -260,8 +423,12 @@ export function register(on: On): void {
     drawn.surface = e.surface
     if (e.props.hasSurvey) return next(e)
     const waiting = await waitingForm($)
-    if (!waiting || (await isPlaced($, GATE_PANE))) return next(e)
-    return bandAbovePrompt($, e, await next(e), waiting, GATE_PANE)
+    const formWaits = waiting !== undefined && !(await isPlaced($, GATE_PANE))
+    // Until deck has been asked, the band can't say whether the board can be opened, so it waits for the answer.
+    const board = setting.isOn && deck.address !== undefined ? await read($, boardAtom) : []
+    if (!formWaits && board.length === 0) return next(e)
+    const rest = formWaits ? await bandAbovePrompt($, e, await next(e), waiting, GATE_PANE) : await next(e)
+    return board.length > 0 ? boardBand($, e, rest, board) : rest
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

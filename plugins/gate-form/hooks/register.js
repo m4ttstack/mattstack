@@ -320,6 +320,71 @@ async function bandAbovePrompt($, e, rest, waiting, pane) {
 async function isPlaced($, pane) {
   return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
 }
+// mods/gate-form/src/gate/bell.ts
+var BODY_MAX = 140;
+function bellArgs(cwd, questions) {
+  const who = cwd.replace(/\/+$/, "").split("/").at(-1) || "claude";
+  let body = (questions[0]?.label ?? "").split(/\s+/).filter(Boolean).join(" ") || "needs an answer";
+  if (body.length > BODY_MAX)
+    body = `${body.slice(0, BODY_MAX - 3)}...`;
+  if (questions.length > 1)
+    body += `  (+${questions.length - 1} more)`;
+  return ["herdr", "notification", "show", `${who} needs you`, "--body", body, "--sound", "request"];
+}
+
+// mods/gate-form/src/gate/board.ts
+var NO_ADDRESS = "Board address not found";
+var KIND_TITLES = {
+  "review-post": "Review findings",
+  "respond-plan": "Respond plan",
+  "respond-post": "Respond replies"
+};
+function kindTitle(kind) {
+  if (KIND_TITLES[kind])
+    return KIND_TITLES[kind];
+  const words = kind.trim().replace(/[-_]+/g, " ");
+  return words === "" ? "A gate" : `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+}
+var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var local = (port) => typeof port === "number" && Number.isInteger(port) && port > 0 ? `http://localhost:${port}` : undefined;
+function boardAddress(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    const row = stdout.split(`
+`).map((line) => line.trim().split(/\s+/)).find((cells) => cells[0] === "board");
+    return row && /^\d+$/.test(row[1] ?? "") ? local(Number(row[1])) : undefined;
+  }
+  const apps = Array.isArray(parsed) ? parsed : isObject(parsed) && Array.isArray(parsed.apps) ? parsed.apps : [];
+  const board = apps.find((app) => isObject(app) && app.name === "board");
+  return board ? local(board.port) : undefined;
+}
+var boardUrl = (address, gateId) => `${address}/?gate=${encodeURIComponent(gateId)}`;
+function boardText(list) {
+  const newest = list.at(-1);
+  if (!newest)
+    return "";
+  const more = list.length - 1;
+  return `${kindTitle(newest.kind)} is waiting on the board${more > 0 ? `, ${more} more` : ""}`;
+}
+function readBoardOnly(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (!isObject(parsed) || parsed.boardOnly !== true || parsed.paneAction !== "wait" || typeof parsed.id !== "string" || parsed.id === "")
+    return;
+  return { gateId: parsed.id, ...typeof parsed.supersededId === "string" && { supersededId: parsed.supersededId } };
+}
+function addBoardGate(list, gate, supersededId) {
+  if (list.some((b) => b.gateId === gate.gateId))
+    return list;
+  return [...list.filter((b) => b.gateId !== supersededId), gate];
+}
+
 // mods/gate-form/src/gate/demo.ts
 var DEMO = {
   title: "respond-plan gate (demo)",
@@ -545,7 +610,7 @@ function toForm(title, context, raw, source) {
     source
   };
 }
-var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 function readKitResult(text) {
   let parsed;
   try {
@@ -553,10 +618,10 @@ function readKitResult(text) {
   } catch {
     return { kind: "spilled" };
   }
-  return isObject(parsed) && parsed.paneAction === "kit" ? { kind: "kit", fields: parsed } : { kind: "other" };
+  return isObject2(parsed) && parsed.paneAction === "kit" ? { kind: "kit", fields: parsed } : { kind: "other" };
 }
 function controlsOf(raw, questions) {
-  if (!isObject(raw) || questions.some((q) => q.id === "next"))
+  if (!isObject2(raw) || questions.some((q) => q.id === "next"))
     return;
   const pause = raw.pause === true;
   const goBack = Array.isArray(raw.goBack) ? raw.goBack.filter((s) => typeof s === "string" && s !== "") : [];
@@ -572,22 +637,27 @@ function gateFormOf(id, title, context, questions, controls) {
   return { ...form, gateId: id, ...allowed && { controls: allowed } };
 }
 function gateForm(fields, title) {
-  const kit = isObject(fields.kitForm) ? fields.kitForm : {};
+  const kit = isObject2(fields.kitForm) ? fields.kitForm : {};
   return gateFormOf(fields.id, title, kit.context, kit.questions, kit.controls);
 }
 function agentFields(fields) {
   const { kitForm: _, ...rest } = fields;
   return { ...rest, instruction: GATE_INSTRUCTION(String(fields.id)) };
 }
-function spilledGate(stdout, session, known) {
+function listedGates(stdout) {
   let parsed;
   try {
     parsed = JSON.parse(stdout);
   } catch {
     return;
   }
-  const gates = isObject(parsed) && Array.isArray(parsed.gates) ? parsed.gates : [];
-  const mine = gates.filter((g) => isObject(g) && isText(g.id) && g.presentation === "kit" && g.status === "open" && isObject(g.nudge) && g.nudge.session === session && !known.includes(g.id));
+  if (!isObject2(parsed) || !Array.isArray(parsed.gates))
+    return;
+  return parsed.gates.filter((g) => isObject2(g) && isText(g.id));
+}
+function spilledGate(stdout, session, known) {
+  const gates = listedGates(stdout) ?? [];
+  const mine = gates.filter((g) => isObject2(g) && isText(g.id) && g.presentation === "kit" && g.status === "open" && isObject2(g.nudge) && g.nudge.session === session && !known.includes(g.id));
   return mine.sort((a, b) => Number(b.openedAt ?? 0) - Number(a.openedAt ?? 0))[0];
 }
 function formFromRow(row) {
@@ -600,9 +670,9 @@ function answerOutcome(stdout, session) {
   } catch {
     return "recorded";
   }
-  if (!isObject(parsed) || parsed.conflict !== true)
+  if (!isObject2(parsed) || parsed.conflict !== true)
     return "recorded";
-  const answer = isObject(parsed.row) && isObject(parsed.row.answer) ? parsed.row.answer : {};
+  const answer = isObject2(parsed.row) && isObject2(parsed.row.answer) ? parsed.row.answer : {};
   return answer.by === "pane" && answer.session === session ? "recorded" : "elsewhere";
 }
 
@@ -682,6 +752,65 @@ var INPUT_SCHEMA = {
   required: ["questions"]
 };
 
+// mods/gate-form/src/gate/watch.ts
+var isObject3 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+function rowEnd(row) {
+  if (row.status === "answered") {
+    const answer = isObject3(row.answer) ? row.answer : {};
+    return { status: "answered", by: String(answer.by ?? ""), ...typeof answer.session === "string" && { session: answer.session } };
+  }
+  if (row.status === "closed")
+    return { status: "closed", ...typeof row.closedReason === "string" && { reason: row.closedReason } };
+  return;
+}
+function waitEnd(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return;
+  }
+  if (!isObject3(parsed) || parsed.ok !== true)
+    return;
+  return rowEnd({ ...isObject3(parsed.row) ? parsed.row : {}, status: parsed.status });
+}
+var isSelf = (end, session) => end.status === "answered" && end.by === "pane" && (end.session === undefined || end.session === session);
+var ANSWERED_ON = {
+  board: "Answered on the board",
+  console: "Answered in the console",
+  shepherd: "Answered by the shepherd",
+  pane: "Answered in another pane"
+};
+function endNote(end) {
+  if (end.status === "closed")
+    return end.reason === "superseded" ? "Replaced by a newer gate" : "Closed elsewhere";
+  return ANSWERED_ON[end.by] ?? "Answered elsewhere";
+}
+async function waitFor($, gateId) {
+  const home = await $.env.get("HOME");
+  for (const rt of ["rt", `${home ?? ""}/.local/bin/rt`]) {
+    const child = $.process.spawn({ argv: [rt, "gate", "wait", gateId], env: { CLAUDE_CODE_SESSION_ID: "" } });
+    let step;
+    try {
+      step = await child.next();
+    } catch {
+      continue;
+    }
+    let stdout = "";
+    try {
+      while (!step.done) {
+        if (step.value.stream === "stdout")
+          stdout += step.value.text;
+        step = await child.next();
+      }
+    } catch {
+      return;
+    }
+    return step.value.code === 0 ? waitEnd(stdout) : undefined;
+  }
+  return;
+}
+
 // mods/gate-form/src/register.tsx
 var PANE = "gate-form";
 var TOOL = "ask";
@@ -690,10 +819,15 @@ var FORM_BUDGET = 95000;
 var formsAtom = atom({ plugin: "gate-form", key: "forms" }, [], { shape: "forms-1" });
 var legacyAtom = atom({ plugin: "gate-form", key: "form" }, null, { shape: "form-3" });
 var keysAtom = atom({ plugin: "gate-form", key: "keysInForm" }, false);
+var boardAtom = atom({ plugin: "gate-form", key: "board" }, [], { shape: "board-1" });
 var drawn = {};
 var setting = { isOn: false };
 var ELSEWHERE = "Already answered elsewhere";
 var SETTING_TIMEOUT_MS = 5000;
+var QUICK_TIMEOUT_MS = 5000;
+var watching = new Set;
+var answering = new Set;
+var deck = {};
 var GATE_PANE = { id: PANE, label: "mattstack gate waiting" };
 async function readForms($) {
   const forms = await read($, formsAtom);
@@ -747,6 +881,7 @@ async function answerGate($, form, answers) {
   const args = ["gate", "answer", gateId, "--answers", JSON.stringify(answers), "--by", "pane", "--session", session];
   let error;
   let outcome = "recorded";
+  answering.add(form.id);
   try {
     const ran = await runRt($, args);
     if (ran.exitCode !== 0)
@@ -755,6 +890,8 @@ async function answerGate($, form, answers) {
       outcome = answerOutcome(ran.stdout, session);
   } catch (failure) {
     error = failureText(failure);
+  } finally {
+    answering.delete(form.id);
   }
   if (error !== undefined) {
     await writeForms($, (list) => patchForm(list, form.id, { error, attempt: (form.attempt ?? 0) + 1 }));
@@ -790,6 +927,116 @@ async function openForm($, form, supersededId) {
   const shown = currentForm(await readForms($));
   await showPane($, GATE_PANE, shown?.title ?? form.title);
 }
+async function ringBell($, form) {
+  if (await $.env.get("HERDR_ENV") !== "1" || !await $.env.get("HERDR_PANE_ID"))
+    return;
+  await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
+    return;
+  });
+}
+async function gateEnded($, gateId, end) {
+  if ((await read($, boardAtom)).some((b) => b.gateId === gateId))
+    await update($, boardAtom, (list) => list.filter((b) => b.gateId !== gateId));
+  const open = (await readForms($)).filter((f) => f.gateId === gateId && f.status === "open" && !answering.has(f.id));
+  if (open.length > 0) {
+    const self = isSelf(end, await $.session.id());
+    const patch = self ? { status: "answered", error: undefined } : { status: end.status === "answered" ? "answered" : "cancelled", error: undefined, note: endNote(end) };
+    await writeForms($, (list) => list.map((f) => open.some((o) => o.id === f.id) ? { ...f, ...patch } : f));
+    if (self)
+      await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`);
+  }
+  $.ui.invalidate("ui.render");
+}
+function watchGate($, gateId) {
+  if (!setting.isOn || watching.has(gateId))
+    return;
+  watching.add(gateId);
+  (async () => {
+    try {
+      const end = await waitFor($, gateId);
+      if (end)
+        await gateEnded($, gateId, end);
+    } catch {} finally {
+      watching.delete(gateId);
+    }
+  })();
+}
+async function gateOpened($, form) {
+  if (form.gateId)
+    watchGate($, form.gateId);
+  ringBell($, form);
+}
+async function readDeck($) {
+  const home = await $.env.get("HOME");
+  for (const name of ["deck", `${home ?? ""}/.local/bin/deck`]) {
+    try {
+      const ran = await $.process.run([name, "list", "--json"], { timeoutMs: QUICK_TIMEOUT_MS });
+      deck.address = ran.exitCode === 0 ? boardAddress(ran.stdout) ?? null : null;
+      return;
+    } catch {
+      deck.address = null;
+    }
+  }
+}
+async function addBoard($, gate, supersededId) {
+  await readDeck($);
+  await update($, boardAtom, (list) => addBoardGate(list, gate, supersededId));
+  watchGate($, gate.gateId);
+  $.ui.invalidate("ui.render");
+}
+async function openBoard($, gateId) {
+  const gate = (await read($, boardAtom)).find((b) => b.gateId === gateId);
+  if (!gate || !deck.address)
+    return;
+  await $.process.run(["open", boardUrl(deck.address, gate.gateId)]).catch(() => $.ui.toast("Could not open the board"));
+}
+async function restore($) {
+  let rows;
+  try {
+    const ran = await runRt($, ["gate", "list", "--json"]);
+    rows = ran.exitCode === 0 ? listedGates(ran.stdout) : undefined;
+  } catch {
+    rows = undefined;
+  }
+  if (!rows)
+    return;
+  const session = await $.session.id();
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const fresh = rows.filter((row) => row.presentation === "kit" && row.status === "open" && row.nudge?.session === session).sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0)).flatMap((row) => {
+    const form = formFromRow(row);
+    return typeof form === "string" ? [] : [form];
+  });
+  const added = [];
+  const forms = await writeForms($, (list) => fresh.reduce((acc, form) => {
+    if (acc.some((f) => f.gateId === form.gateId))
+      return acc;
+    added.push(form);
+    return addForm(acc, form);
+  }, list));
+  const ended = (gateId) => {
+    const row = byId.get(gateId);
+    return row ? rowEnd(row) : undefined;
+  };
+  for (const form of forms.filter((f) => f.status === "open" && f.gateId)) {
+    const end = ended(form.gateId);
+    if (end)
+      await gateEnded($, form.gateId, end);
+    else
+      watchGate($, form.gateId);
+  }
+  for (const gate of await read($, boardAtom)) {
+    const end = ended(gate.gateId);
+    if (end)
+      await gateEnded($, gate.gateId, end);
+    else
+      watchGate($, gate.gateId);
+  }
+  if ((await read($, boardAtom)).length > 0 && deck.address === undefined)
+    await readDeck($);
+  for (const form of added)
+    ringBell($, form);
+  $.ui.invalidate("ui.render");
+}
 function canDraw(e) {
   if (!setting.isOn)
     return false;
@@ -823,6 +1070,9 @@ async function takeGate($, e, next) {
     return out;
   const text = textOf(out);
   const kit = readKitResult(text);
+  const board = kit.kind === "other" ? readBoardOnly(text) : undefined;
+  if (board)
+    await addBoard($, { gateId: board.gateId, kind: String(e.kind ?? "") }, board.supersededId);
   if (kit.kind === "other")
     return out;
   const kind = e.kind;
@@ -832,6 +1082,7 @@ async function takeGate($, e, next) {
     if (typeof form === "string")
       return out;
     await openForm($, form, kit.fields.supersededId);
+    await gateOpened($, form);
     return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) };
   }
   return takeSpilled($, out, text);
@@ -849,9 +1100,37 @@ async function takeSpilled($, out, text) {
   if (!row || !form || typeof form === "string")
     return out;
   await openForm($, form);
+  await gateOpened($, form);
   return { result: withText(out.result, `${text}
 
 ${GATE_INSTRUCTION(row.id)}`) };
+}
+function boardBand($, e, rest, board) {
+  const newest = board.at(-1);
+  const text = boardText(board);
+  const hasAddress = typeof deck.address === "string";
+  const els = $.ui.resolve(e);
+  const { Box, Text, Button } = els;
+  const Client = "Client" in els ? els.Client : undefined;
+  const band = Client ? /* @__PURE__ */ h(Client, {
+    key: "board-band",
+    module: "./board-band.js",
+    props: { text, gateId: newest.gateId, hasAddress }
+  }) : /* @__PURE__ */ h(Box, {
+    flexDirection: "row",
+    gap: 2
+  }, /* @__PURE__ */ h(Text, {
+    wrap: "truncate-end"
+  }, text), hasAddress ? /* @__PURE__ */ h(Button, {
+    key: "open-board",
+    label: "Open on board",
+    onPress: () => openBoard($, newest.gateId)
+  }) : /* @__PURE__ */ h(Text, {
+    dimColor: true
+  }, NO_ADDRESS));
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, band, rest);
 }
 function register(on) {
   registerPaneRedraw(on);
@@ -859,6 +1138,9 @@ function register(on) {
     await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false });
     await $.command.register({ name: "gate-form-demo", description: "Open the gate form with a demo gate" });
     setting.reading = readSetting($);
+    setting.reading.then(() => setting.isOn ? restore($) : undefined).catch(() => {
+      return;
+    });
     return next(e);
   });
   on("command.run", { command: "gate-form-demo" }, async ($) => {
@@ -896,6 +1178,9 @@ function register(on) {
     if (isEngaged(e))
       await setKeysInForm($, true);
     await paneMessage($, e, GATE_PANE, await waitingForm($));
+    const posted = e.data;
+    if (posted?.type === "open-board")
+      await openBoard($, posted.gateId);
     if (e.requestId !== PANE)
       return next(e);
     const message = e.data;
@@ -910,9 +1195,12 @@ function register(on) {
     if (e.props.hasSurvey)
       return next(e);
     const waiting = await waitingForm($);
-    if (!waiting || await isPlaced($, GATE_PANE))
+    const formWaits = waiting !== undefined && !await isPlaced($, GATE_PANE);
+    const board = setting.isOn && deck.address !== undefined ? await read($, boardAtom) : [];
+    if (!formWaits && board.length === 0)
       return next(e);
-    return bandAbovePrompt($, e, await next(e), waiting, GATE_PANE);
+    const rest = formWaits ? await bandAbovePrompt($, e, await next(e), waiting, GATE_PANE) : await next(e);
+    return board.length > 0 ? boardBand($, e, rest, board) : rest;
   });
   on("ui.render", { component: "Pane", requestId: "gate-form" }, async ($, e) => {
     const els = $.ui.resolve(e);
