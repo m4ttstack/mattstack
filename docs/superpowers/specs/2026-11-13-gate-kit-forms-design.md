@@ -32,7 +32,7 @@ until Matt is happy with it.
 - With the setting on, every pane gate opened through `gate_ask` or `gate_open`
   shows whole in the kit form, with no chunking and no 4 × 4 limit.
 - Submit means continue. The form never asks `next`.
-- More actions ▾ offers Pause run and Go back to stage ▸, each only where it
+- More actions ▾ offers Pause run and Go back to stage, each only where it
   applies.
 - mattstack closes a kit form without sending any keypress.
 - With the setting off, without the mod, or where the mod can't draw, gates
@@ -133,8 +133,14 @@ Two things have to be true for a gate to use the kit form:
    - the call isn't from a subagent (`e.agentId` is unset)
    - for `gate_open`, the call isn't `handBack: true`
 
+   - `rt.gates.kitForm` reads true. The mod reads it once on
+     `session.start` (`rt settings get rt.gates.kitForm --json`) and on each
+     reload; any failure to read counts as off. This keeps a newer mod from
+     sending `kitForm` to an older plugin whose tool schema refuses it. After
+     changing the setting, run `/reload-plugins`.
+
 So a pane without the mod, a surface that can't draw, or the setting off all
-take today's path unchanged. The mod never reads settings.
+take today's path unchanged.
 
 ### What the gate tools and the daemon do
 
@@ -214,9 +220,10 @@ When `kitForm: true` comes in and the setting is on:
 ┃
 ┃ [ Submit ]  More actions ▾
 ┃              ├ Pause run
-┃              └ Go back to stage ▸  plan
-┃                                    provision
-┃                                    implement
+┃              │ Go back to stage
+┃              │   plan
+┃              │   provision
+┃              └   implement
 ```
 
 - **Submit** sends the site's own answers. It means continue, and it adds no
@@ -226,8 +233,11 @@ When `kitForm: true` comes in and the setting is on:
   `writeIn: true`. Typed text on those still means "change something", as
   after #1138.
 - **More actions ▾** is one quiet button beside Submit, worded as Matt picked:
-  **More actions**, **Pause run**, **Go back to stage ▸** opening a list of
-  stage names. No Abandon row (Matt's call).
+  **More actions**, **Pause run**, then a dim **Go back to stage** heading
+  with one indented row per earlier stage, in one flat list with no sub-list
+  (Matt's call in the live check). The cursor skips the heading, which shows
+  only when there are earlier stages. No Abandon row (Matt's call). A gate
+  that asks its own `next` question gets no More actions.
   - Rows `controls` doesn't allow are left out.
   - With no rows, the button is left out.
 - **A run control sends only the reserved keys:**
@@ -235,13 +245,28 @@ When `kitForm: true` comes in and the setting is on:
   | Row | Answers sent |
   |---|---|
   | Pause run | `{next: "hold"}` |
-  | Go back to stage ▸ `<stage>` | `{next: "go-back", to: "<stage>"}` |
+  | Go back to stage → `<stage>` | `{next: "go-back", to: "<stage>"}` |
 
-- **Keyboard.** More actions is a button like the others. Enter or a click
-  opens the menu, the arrows move through it, Enter picks a row, and Escape
-  closes it.
-- **The menu is a new kit widget,** in `@mattstack/mod-kit`, so other mods
-  can use it.
+- **Keyboard.** The form uses the kit's button grid, shared with Human Todos:
+  Down past the options reaches the button row, Left and Right move along it,
+  Enter presses the focused control and shows the press first. Submit starts
+  focused on the review page. More actions opens with Enter or a click, the
+  arrows move through it, Enter picks a row, and Left or Backspace closes it.
+  A Client never receives Escape, so Escape can't close it.
+- **Focus.** A click anywhere in the pane focuses it. The form can't take the
+  keyboard by itself when a gate opens: the engine grants focus only to a
+  pane the person opened. Focus changes only styling, never the text.
+- **Long pages** wrap every label, description and the context in full, and
+  scroll (arrows and the mouse wheel) when they don't fit; nothing is cut.
+- **After an answer** (Submit or a run control) the pane shows the next queued
+  form, or closes.
+- **A narrow terminal.** A pane opened from a tool result is placed only from
+  144 columns (110 once the person has opened one). Below that the band above
+  the prompt shows the waiting gate with the engine's own Show button, which
+  counts as the person's press and places the pane at any width.
+- **The menu, the grid and the scroll pieces are kit code** in
+  `@mattstack/mod-kit`, so other mods use them; Human Todos draws through the
+  same pieces.
 
 ### Run controls through the skills
 
@@ -276,14 +301,15 @@ When `kitForm: true` comes in and the setting is on:
     surface's answer as consumed before the agent reconciles.
   - When the gate is answered, closed or superseded elsewhere, the watcher
     returns. The mod closes that gate's form only (matching the id) and
-    shows "Answered on the board" (or the other surface).
+    shows the winning answer with "Answered on the board" (or the other
+    surface); with nothing else queued, the pane closes and the note becomes
+    a toast.
   - The doorbell still rings for answers from other surfaces, so the agent
     wakes as today.
 - **Reloads and resumes.**
   - Watchers die with the module. On `session.start` (which includes a
     reload, a resume and a compaction), the mod lists this session's open kit
     gates and reopens their forms and watchers.
-  - It checks again whenever a form is drawn after being hidden.
   - The compare-and-swap still refuses a stale answer.
 - **With the setting off,** Escape injection stays exactly as today for
   AskUserQuestion forms.
@@ -369,6 +395,18 @@ until turned on. The gate hook lives in gate-form.
   - reopening forms on `session.start`
   - the board-only band: shown for board-only kinds, the `?gate=<id>` URL from
     the deck address, cleared by the watcher
+
+## Also in this branch (from the live check)
+
+- Human Todos draws its list through the kit's grid, focus, press and scroll
+  pieces, with no change in behaviour.
+- Human Todos' band Show is the engine's own button, so it places the pane at
+  any width.
+- A Human Todos run report to the agent is one line ending
+  `Output: <path>`; the full output is saved to that log file (the newest 20
+  kept).
+- `gateAsk` in rt-client forwards `kitForm`; the unit tests had faked the
+  daemon call and missed that it was dropped.
 
 ## Open questions
 
