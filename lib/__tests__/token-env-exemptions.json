@@ -1,0 +1,77 @@
+[
+  {
+    "file": "lib/daemon/home-snapshot.ts",
+    "reason": "The home snapshot push passes spec.tokenFor()'s token to git through env, cached for the run. The follow-up decides whether rt git credential can serve it.",
+    "lines": 1
+  },
+  {
+    "file": "lib/home/init-exec.ts",
+    "reason": "The home repo clone passes exec.cloneToken()'s token to git through env; the follow-up decides whether rt git credential can serve it.",
+    "lines": 1
+  },
+  {
+    "file": "lib/setup/home-remote.ts",
+    "reason": "The home remote's first push passes rt's stored token, once access is confirmed, to git through env; moves to rt git credential in the follow-up.",
+    "lines": 1
+  },
+  {
+    "file": "lib/setup/steps/repos.ts",
+    "reason": "Setup's repo clone passes trustedForgeTokenFor()'s token to git through env; moves to rt git credential in the follow-up.",
+    "lines": 1
+  },
+  {
+    "file": "lib/team/data-branch-guard.ts",
+    "reason": "Reads rt's stored forge token itself and passes it to git through env; moves to rt git credential in the follow-up.",
+    "lines": 2
+  },
+  {
+    "file": "lib/team/git-credential.ts",
+    "reason": "Defines gitWithToken and its inline helper, which reads RT_GIT_TOKEN from env; goes once the last caller moves.",
+    "lines": 4
+  },
+  {
+    "file": "lib/team/invite.ts",
+    "reason": "The invite pull passes seams.forgeToken()'s token to git through env; moves to rt git credential in the follow-up.",
+    "lines": 1
+  },
+  {
+    "file": "lib/team/join.ts",
+    "reason": "Join's ls-remote, sparse clone and pulls pass seams.forgeToken()'s token to git through env; moves to rt git credential in the follow-up.",
+    "lines": 4
+  },
+  {
+    "file": "lib/team/main-pointer.ts",
+    "reason": "Passes git a token its caller hands in (a seam or option), through env; the follow-up decides whether rt git credential can serve it.",
+    "lines": 2
+  },
+  {
+    "file": "lib/team/org-data-branch.ts",
+    "reason": "The data branch fetches, lookup and pointer push pass a stored or caller-given token to git through env; moves to rt git credential in the follow-up.",
+    "lines": 4
+  },
+  {
+    "file": "lib/team/org-pull.ts",
+    "reason": "The org pull passes its token() seam's secret to git through env; the follow-up decides whether rt git credential can serve it.",
+    "lines": 1
+  },
+  {
+    "file": "lib/team/publish.ts",
+    "reason": "Team publish passes opts.token to git through env; the follow-up decides whether rt git credential can serve it.",
+    "lines": 1
+  },
+  {
+    "file": "lib/team/remote-head.ts",
+    "reason": "Passes git a token its caller hands in (a seam or option), through env; the follow-up decides whether rt git credential can serve it.",
+    "lines": 1
+  },
+  {
+    "file": "lib/team/repo-access.ts",
+    "reason": "The repo access probe passes the looked-up token to git through env; moves to rt git credential in the follow-up.",
+    "lines": 1
+  },
+  {
+    "file": "lib/team/trial-branch.ts",
+    "reason": "Reads rt's stored forge token itself and passes it to git through env; moves to rt git credential in the follow-up.",
+    "lines": 5
+  }
+]
