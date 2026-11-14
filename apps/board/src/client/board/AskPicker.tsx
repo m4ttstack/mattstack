@@ -1,6 +1,4 @@
 import { useRef, useState } from 'react';
-import { Shield } from 'lucide-react';
-
 import { ContextMenu, ICONS } from '@mattstack/tui-kit';
 import {
   askSectionHeading,
@@ -34,7 +32,7 @@ function narrowed(sections: AskSection[], query: string): AskSection[] {
 }
 
 const ROLE_ICON = {
-  'code owner': <Shield aria-hidden />,
+  'code owner': ICONS.shield,
   'your team': ICONS.people,
 } as const;
 

@@ -102,7 +102,11 @@ test('a heading shows the team name after a role icon, never a dot', async () =>
     heads.map(h => h.querySelector('.tui-menu-ask-role')?.getAttribute('title'))
   ).toEqual(['your team', 'code owner', 'code owner', 'code owner']);
   expect(
-    heads.every(h => h.querySelector('.tui-menu-ask-role svg') !== null)
+    heads.every(
+      h =>
+        h.querySelector('.tui-menu-ask-role svg')?.getAttribute('data-part') ===
+        'icon'
+    )
   ).toBe(true);
 });
 

@@ -45,6 +45,9 @@ const DECK_ICON_NAMES = [
   "rotate-ccw",
 ];
 
+/** Glyphs the board added after deck's, in Icon.tsx source order. */
+const BOARD_ICON_NAMES = ["shield"];
+
 function svgOf(container: HTMLElement): SVGSVGElement {
   const svg = container.querySelector("svg");
   if (!svg) throw new Error("no <svg> rendered");
@@ -218,6 +221,28 @@ describe("Icon (browser)", () => {
     );
 
     for (const name of DECK_ICON_NAMES) {
+      const svg = svgOf(screen.container.querySelector(`[data-testid="icon-${name}"]`) as HTMLElement);
+      const path = svg.querySelector("path") as SVGPathElement;
+      expect(path.getTotalLength(), `${name} renders an empty path`).toBeGreaterThan(0);
+    }
+  });
+
+  it("ships the board's glyphs, every entry rendering a non-empty glyph", async () => {
+    for (const name of BOARD_ICON_NAMES) {
+      expect(ICONS[name], `${name} missing from ICONS`).not.toBeUndefined();
+    }
+
+    const screen = await renderWithTheme(
+      <div>
+        {BOARD_ICON_NAMES.map((name) => (
+          <span key={name} data-testid={`icon-${name}`}>
+            {ICONS[name]}
+          </span>
+        ))}
+      </div>,
+    );
+
+    for (const name of BOARD_ICON_NAMES) {
       const svg = svgOf(screen.container.querySelector(`[data-testid="icon-${name}"]`) as HTMLElement);
       const path = svg.querySelector("path") as SVGPathElement;
       expect(path.getTotalLength(), `${name} renders an empty path`).toBeGreaterThan(0);
