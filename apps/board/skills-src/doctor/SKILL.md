@@ -475,7 +475,7 @@ that list as `options`, e.g.:
 
   | Value | Label | Description |
   |---|---|---|
-  | `keep the MR branch's handleSubmit` | Keep the MR's version | I resolve the conflict with the MR branch's handleSubmit and push. |
+  | `keep this branch's handleSubmit` | Keep this branch's version | I resolve the conflict with this branch's handleSubmit and push. |
   | `keep main's handleSubmit` | Keep main's version | I resolve the conflict with main's handleSubmit and push. |
   | `leave it to me in the pane` | Leave it to me | I stop and write an error naming the conflict. |
 

@@ -394,8 +394,8 @@ that the push check needs the MR's source branch.
 
 | Value                                                                                            | Label                | Description                                                          |
 | ------------------------------------------------------------------------------------------------ | -------------------- | -------------------------------------------------------------------- |
-| `take: you tell me the MR's source branch (mr_view refused, round <k>)`                          | Tell me the branch   | You name the MR's source branch and I use it for the push check.     |
-| `iterate: you fixed the cause, read the MR again (mr_view refused, round <k>)`                   | Fixed it, read again | You fixed what refused the read and I read the MR again.             |
+| `take: you tell me the MR's source branch (mr_view refused, round <k>)`                          | Tell me the branch   | You name the source branch and I use it for the push check.          |
+| `iterate: you fixed the cause, read the MR again (mr_view refused, round <k>)`                   | Fixed it, read again | You fixed what refused the read and I read it again.                 |
 | `hold: keep this pane open with nothing moved (mr_view refused, round <k>)`                      | Hold this pane       | I stop before reading the threads and the pane stays open.           |
 | `hand back: carry on without the source branch, fixed replies held (mr_view refused, round <k>)` | Carry on without it  | I carry on without the branch and hold any fixed thread at the push. |
 

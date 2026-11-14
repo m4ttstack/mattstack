@@ -1374,7 +1374,7 @@ the MR url.
 | Value | Label | Description |
 |---|---|---|
 | `take: you give the source and target branches in a note (mr_view refused, round <k>)` | Give the branches | You name both branches in a note and I review the diff between them. |
-| `iterate: you fixed the cause, read the MR again (mr_view refused, round <k>)` | Fixed it, read again | You fixed what refused the read and I read the MR again. |
+| `iterate: you fixed the cause, read the MR again (mr_view refused, round <k>)` | Fixed it, read again | You fixed what refused the read and I read it again. |
 | `hold: keep this pane open with the review not started (mr_view refused, round <k>)` | Hold this pane | I stop here before reviewing anything and the pane stays open. |
 | `hand back: write an error naming the refusal, nothing reviewed (mr_view refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
 
@@ -1397,7 +1397,7 @@ twice on the re-review read for !<iid>: <second error>`. Context: both
 
 | Value | Label | Description |
 |---|---|---|
-| `take: review the whole MR without the thread history, saying so in the summary (mr_threads refused on the re-review read, round <k>)` | Full review instead | I review the whole MR without the threads and the summary says so. |
+| `take: review the whole MR without the thread history, saying so in the summary (mr_threads refused on the re-review read, round <k>)` | Full review instead | I review every change without the threads and the summary says so. |
 | `iterate: you fixed the cause, read the threads again (mr_threads refused on the re-review read, round <k>)` | Fixed it, read again | You fixed what refused the read and I read the threads again. |
 | `hold: keep this pane open with the re-review not started (mr_threads refused on the re-review read, round <k>)` | Hold this pane | I stop here before reviewing anything and the pane stays open. |
 | `hand back: write an error naming the refusal, nothing reviewed (mr_threads refused on the re-review read, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
@@ -1453,7 +1453,7 @@ never a blind resubmit.
 | Value | Label | Description |
 |---|---|---|
 | `take: the review is up, posted or finished by you or by the failed call, then I apply the verdict (mr_review_submit refused, round <k>)` | Review is up | You post or finish the review yourself, or find the failed call already posted it, and I carry on to the verdict. |
-| `iterate: you fixed the cause and nothing from this review is on the MR, submit it again (mr_review_submit refused, round <k>)` | Nothing up, post again | You confirmed nothing from this review is on the MR and I submit it again. |
+| `iterate: you fixed the cause and nothing from this review is on the MR, submit it again (mr_review_submit refused, round <k>)` | Nothing up, post again | You confirmed nothing from this review is posted and I submit it again. |
 | `hold: keep this pane open and post nothing more (mr_review_submit refused, round <k>)` | Hold this pane | I stop here and post nothing more. |
 | `hand back: write an error naming the refusal (mr_review_submit refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
 
@@ -1499,7 +1499,7 @@ The review is posted; only the approval failed.
 
 | Value | Label | Description |
 |---|---|---|
-| `take: you approve !<iid> yourself, then I mark the review done (mr_approve refused, round <k>)` | Approve it yourself | You approve the MR and I mark the review done as approve. |
+| `take: you approve !<iid> yourself, then I mark the review done (mr_approve refused, round <k>)` | Approve it yourself | You approve it and I mark the review done as approve. |
 | `iterate: you fixed the cause, approve !<iid> again (mr_approve refused, round <k>)` | Fixed it, approve again | You fixed what refused the approval and I approve again. |
 | `hold: keep this pane open with the review posted and no approval (mr_approve refused, round <k>)` | Hold this pane | I stop here with the review posted and no approval. |
 | `hand back: write an error naming the refusal, the review stays posted (mr_approve refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |

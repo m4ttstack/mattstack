@@ -157,11 +157,12 @@ What this graph cannot show:
   `full: true` with no MR listed goes on to the lease check and the
   rebase: a rebase rewrites the commits every listed MR is built on. Any
   MR listed, whatever `full` says, is `error` with
-  `MR !<iid> is a stack parent (stacked on it: <children>); a rebase would strand the stack: needs a restack of the stack root`,
-  where `<children>` is each listed MR as `!<iid>`, comma separated,
+  `<this MR> is a stack parent (stacked on it: <children>); a rebase would strand the stack: needs a restack of the stack root`,
+  where `<this MR>` is `MR !<iid>` on GitLab and `PR #<iid>` on GitHub,
+  and `<children>` is each listed MR as `!<iid>` on GitLab or `#<iid>` on GitHub, comma separated,
   followed by `, and more` when `full` is false. A tool error, or no MR
   listed with `full: false`, is `error` with
-  `cannot prove MR !<iid> has no stacked children: the live target-branch query failed (<reason>)`,
+  `cannot prove <this MR> has no stacked children: the live target-branch query failed (<reason>)`,
   where `<reason>` is the tool's error quoted as written, or
   `partial list, no rows`. Neither retries
   nor escalates: nothing has moved yet, so a human relaunch costs
@@ -272,8 +273,8 @@ on !<iid>: <second error>`. Context: both `mr_view` errors, quoted.
 
 | Value                                                                             | Label                | Description                                                        |
 | --------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------ |
-| `take: you tell me the MR's state (conflicts, pipeline status) (mr_view refused)` | Tell me the MR state | You report conflicts and pipeline status and I diagnose from that. |
-| `iterate: you fixed the cause, read the MR again (mr_view refused)`               | Fixed it, read again | You fixed what refused the read and I read the MR again.           |
+| `take: you tell me the MR's state (conflicts, pipeline status) (mr_view refused)` | Tell me its state | You report conflicts and pipeline status and I diagnose from that. |
+| `iterate: you fixed the cause, read the MR again (mr_view refused)`               | Fixed it, read again | You fixed what refused the read and I read it again.               |
 | `hold: keep this pane open with nothing moved (mr_view refused)`                  | Hold this pane       | I stop with nothing moved and the pane stays open.                 |
 | `leave it to me in the pane`                                                      | Leave it to me       | I write an error naming the refusal and you take over.             |
 
