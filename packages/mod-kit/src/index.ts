@@ -28,6 +28,8 @@ export { bandClient } from './patterns/band-client'
 export { bandAbovePrompt, isPlaced, paneMessage, registerPaneRedraw, showPane } from './patterns/hideable-pane'
 export type { HideablePane, Waiting } from './patterns/hideable-pane'
 export { fitToRows, navRow, padToHeight, reviewList } from './patterns/page-shell'
+export { clipLine, ellipsize, isButtonInView, lineOfAction, maxScroll, revealButtonOffset, revealOffset, windowLines, wrappedButtons } from './patterns/scroll-list'
+export type { ListFocus, ScrollWindow, WindowSpec, WindowStop } from './patterns/scroll-list'
 export type { Drawn, NavSpec, ReviewItem } from './patterns/page-shell'
 
 export { kitClient } from './components/client'

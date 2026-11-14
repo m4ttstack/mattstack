@@ -324,6 +324,31 @@ The mod keeps the selection in its state. Enter calls
 `ui.pressFor(() => ...)`, so the button shows its press before it acts. See `mods/human-todos/src/pane/kit-view.tsx` and
 `mods/gate-form/src/form/input.ts`.
 
+### Scrolled lists: `windowLines` and friends
+
+These are for a list taller than its window. The Client draws one window of
+lines beside a `scrollBar`, with keyboard stops over its buttons, as in
+`mods/human-todos/src/pane/kit-layout.ts`. A `ScrollWindow` is
+`{ top, total, windowRows, stops }`. A `WindowStop` is a `GridRow` plus
+`lines` (the line each button is on) and `first`/`last` (the lines the stop
+covers).
+
+- `maxScroll(total, windowRows)` gives the deepest offset.
+- `revealOffset(view, index)` gives the offset that shows a stop whole.
+  `revealButtonOffset(view, index, col)` does the same for one of its
+  buttons. `isButtonInView(view, index, col)` says whether that button is on
+  screen, which Enter checks before it presses.
+- `windowLines(spec)` takes a `WindowSpec`
+  (`{ shown, top, width, gutter, bar, barCells, focus?, leadGlyph? }`) and draws the window's lines. Each line sits in its gutter, clipped, and ends in
+  its scroll bar cells. `focus` is a `ListFocus` (`{ selected, range, marked,
+  pressing }`). The selected action takes `gridLook`. While `marked`, the
+  stop's lines get the pink rail and its `leadGlyph` turns pink.
+- `wrappedButtons(lead, buttons, room, indent)` lays out a lead and buttons,
+  carried onto more rows as the room runs out.
+- `lineOfAction(lines, action)` finds the line that holds an action.
+- `clipLine(line, cells)` cuts and pads a line to exactly `cells`.
+  `ellipsize(text, cells)` cuts text with an ellipsis.
+
 ## Layout helpers (line builders)
 
 Used by `Lines`-based mods and by the components themselves. A line is an array
