@@ -13,6 +13,7 @@ export function TabBar({
   onPick,
   syncing,
   unknown,
+  forge = 'gitlab',
   trailing,
 }: {
   tabs: TabConfig[];
@@ -26,6 +27,9 @@ export function TabBar({
       Marked on every tab, active or not: the alarm must be visible from
       wherever the reader is. */
   unknown: string[];
+  /** Names the missing thing: a GitHub tab holds a CODEOWNERS owner, a GitLab
+      tab a section. */
+  forge?: 'gitlab' | 'github';
   /** Docked at the row's right end, outside the tablist. */
   trailing?: ReactNode;
 }) {
@@ -53,9 +57,13 @@ export function TabBar({
                 <Chip
                   intent="bad"
                   data-flag=""
-                  title="this tab's section is not in the project's CODEOWNERS"
+                  title={
+                    forge === 'github'
+                      ? "this tab's owner is not in the repo's CODEOWNERS file"
+                      : "this tab's section is not in the project's CODEOWNERS"
+                  }
                 >
-                  no such section
+                  {forge === 'github' ? 'no such owner' : 'no such section'}
                 </Chip>
               )}
             </Fragment>
@@ -64,7 +72,11 @@ export function TabBar({
             <Chip
               intent="warn"
               data-flag=""
-              title="rt hasn't finished backfilling this codeowner section... counts may be low"
+              title={
+                forge === 'github'
+                  ? "rt hasn't finished backfilling this owner... counts may be low"
+                  : "rt hasn't finished backfilling this codeowner section... counts may be low"
+              }
             >
               syncing
             </Chip>

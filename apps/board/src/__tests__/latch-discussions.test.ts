@@ -8,6 +8,7 @@ import {
   hasRequest,
   requestCarriers,
   reviewerLatches,
+  reviewerRequests,
 } from '../latch/discussions.ts';
 import { armedLatchBody, latchBody, spentLatchBody } from '../latch/markers.ts';
 
@@ -279,6 +280,63 @@ describe('reviewerLatches', () => {
     );
     expect(reviewerLatches(d, 'matt')).toEqual([
       { reviewer: 'kim', discussionId: 'new', requested: true },
+    ]);
+  });
+});
+
+describe('reviewerRequests', () => {
+  const one = (body: string, resolved: boolean) =>
+    reviewerRequests(
+      detail(disc('d1', body, '2026-01-01T00:00:00Z', resolved, 'kim')),
+      'matt'
+    );
+
+  test('an armed and open latch is not yet a request', () => {
+    expect(one(armedLatchBody(IMG), false)).toEqual([
+      { reviewer: 'kim', discussionId: 'd1', requested: false },
+    ]);
+  });
+
+  test('an armed and resolved latch is a request', () => {
+    expect(one(armedLatchBody(IMG), true)).toEqual([
+      { reviewer: 'kim', discussionId: 'd1', requested: true },
+    ]);
+  });
+
+  test('a queued, running or error latch is still a request', () => {
+    for (const kind of ['queued', 'running', 'error'] as const)
+      expect(one(latchBody(kind, IMG, 'x'), false)).toEqual([
+        { reviewer: 'kim', discussionId: 'd1', requested: true },
+      ]);
+  });
+
+  test('a spent latch gives no entry', () => {
+    expect(one(spentLatchBody(IMG), true)).toEqual([]);
+  });
+
+  test("the author's own latch gives no entry", () => {
+    const d = detail(
+      disc('mine', armedLatchBody(IMG), '2026-01-01T00:00:00Z', true, 'Matt')
+    );
+    expect(reviewerRequests(d, 'matt')).toEqual([]);
+  });
+
+  test("reads each reviewer's newest live latch, past a newer spent one", () => {
+    const d = detail(
+      disc('old', armedLatchBody(IMG), '2026-01-01T00:00:00Z', false, 'kim'),
+      disc(
+        'run',
+        latchBody('running', IMG, 'x'),
+        '2026-01-02T00:00:00Z',
+        false,
+        'kim'
+      ),
+      disc('gone', spentLatchBody(IMG), '2026-01-03T00:00:00Z', true, 'kim'),
+      disc('jo1', armedLatchBody(IMG), '2026-01-01T00:00:00Z', false, 'jo')
+    );
+    expect(reviewerRequests(d, 'matt')).toEqual([
+      { reviewer: 'jo', discussionId: 'jo1', requested: false },
+      { reviewer: 'kim', discussionId: 'run', requested: true },
     ]);
   });
 });

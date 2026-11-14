@@ -54,26 +54,27 @@ function harness(
   const noteBodies = new Map<number, string>();
   let counted = 0;
   const gateway: LatchGateway = {
-    async uploadFile(_p, filename) {
+    forge: 'gitlab',
+    async uploadFiles(_mr, files) {
       calls.push('upload');
-      uploads.push(filename);
-      return { alt: '', url: '', full_path: '', markdown: IMG };
+      uploads.push(...files.map(f => f.filename));
+      return files.map(() => IMG);
     },
-    async createDiscussion() {
+    async createThread() {
       calls.push('createDiscussion');
-      return { id: 'new', notes: [{ id: 1 }] };
+      return { discussionId: 'new', rootNoteId: 1 };
     },
-    async updateNote(_p, _i, id, body) {
+    async updateNote(_mr, id, body) {
       calls.push(`updateNote:${id}`);
       noteBodies.set(id, body);
     },
-    async resolveDiscussion(_p, _i, id) {
+    async resolveDiscussion(_mr, id) {
       calls.push(`resolve:${id}`);
     },
-    async unresolveDiscussion(_p, _i, id) {
+    async unresolveDiscussion(_mr, id) {
       calls.push(`unresolve:${id}`);
     },
-    async createNote(_p, _i, body, d) {
+    async createNote(_mr, body, d) {
       calls.push(`reply:${d}`);
       replies.push(body);
       return { id: 9 };
@@ -84,6 +85,7 @@ function harness(
       projectId: 42,
       projectPath: 'acme/web',
       iid: 2317,
+      rtRepo: 'acme-web',
       mrUrl: MR,
       discussionId: 'd1',
       rootNoteId: 1,
@@ -175,6 +177,23 @@ describe('landFollowUp', () => {
     expect(await h.land()).toBe('landed');
     expect(h.replies).toEqual([]);
     expect(readLatchRow(MR, h.db)?.replyDue).toBeNull();
+  });
+
+  test('a GitHub comment landing shows the uncounted done banner and the counted reply', async () => {
+    const h = harness();
+    h.input.gateway.forge = 'github';
+    expect(await h.land()).toBe('landed');
+    expect(h.uploads).toContain('latch-2317-done-comments-none.gif');
+    expect(h.uploads).not.toContain('latch-2317-done-comments-3.gif');
+    expect(h.replies).toEqual(['Follow-up review done: 3 new comments.']);
+    expect(readLatchRow(MR, h.db)?.variant).toBe('done-comments-none');
+  });
+
+  test('a GitLab comment landing keeps the counted done banner', async () => {
+    const h = harness();
+    await h.land();
+    expect(h.uploads).toEqual(['latch-2317-done-comments-3.gif']);
+    expect(readLatchRow(MR, h.db)?.variant).toBe('done-comments-3');
   });
 
   test('one new comment reads singular', async () => {

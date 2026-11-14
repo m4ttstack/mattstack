@@ -89,6 +89,42 @@ export function reviewerLatches(
   return out.sort((a, b) => a.reviewer.localeCompare(b.reviewer));
 }
 
+/** A reviewer's newest live latch on the author's MR, in any phase, and
+    whether it still carries the author's ask. */
+export interface ReviewerRequest {
+  reviewer: string;
+  discussionId: string;
+  requested: boolean;
+}
+
+/** One entry per reviewer, other than the MR's author, holding a live
+    latch. An errored latch still counts as asked: its follow-up is being
+    retried. */
+export function reviewerRequests(
+  detail: MRDetail,
+  author: string
+): ReviewerRequest[] {
+  const self = author.toLowerCase();
+  const reviewers = new Set<string>();
+  for (const d of detail.discussions) {
+    const root = d.notes[0];
+    const who = root?.author?.username;
+    if (!who || who.toLowerCase() === self) continue;
+    if (latchKindOf(root.body ?? '')) reviewers.add(who);
+  }
+  const out: ReviewerRequest[] = [];
+  for (const reviewer of reviewers) {
+    const live = findLatches(detail, reviewer).find(l => l.kind !== 'spent');
+    if (!live) continue;
+    out.push({
+      reviewer,
+      discussionId: live.discussionId,
+      requested: live.kind === 'armed' ? live.resolved : true,
+    });
+  }
+  return out.sort((a, b) => a.reviewer.localeCompare(b.reviewer));
+}
+
 export function canonicalLatch(latches: LatchRef[]): LatchRef | null {
   return latches[0] ?? null;
 }

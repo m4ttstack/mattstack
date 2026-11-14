@@ -3,14 +3,21 @@
     daemon verbs. The env keeps a GitLab token set, yet a GitHub team never
     reads it, so no write here may lean on one. The board is alice through
     the team record while the memory identity says zed, so a GitHub team
-    never answers with the memory one. */
+    never answers with the memory one. Agent-status events wait in the fake
+    journal from boot, each on a PR with its own re-review pick or review:
+    a drafting respond, an errored respond, a finished respond and a
+    finished review while the daemon's forge:self answers another login,
+    then a finished review and a finished respond once it answers alice. */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import { readDrafts, writeDraft } from '../draft-state.ts';
+import { readRespondStates, writeRespondState } from '../respond-state.ts';
+import { mintHandle } from '../state/agent-states.ts';
 import { openStateDb } from '../state/db.ts';
+import { setKvValue } from '../state/kv-blob.ts';
 import { readMemory, writeMemory } from '../triage/memory-store.ts';
 import { bootBoardServer } from './board-server.ts';
 
@@ -164,8 +171,63 @@ const prs = [
   fakePr(10, ALICE),
   fakePr(11, ALICE),
   fakePr(20, BOB),
+  fakePr(21, BOB),
+  fakePr(22, BOB),
 ];
 const writes: Array<{ cmd: string; body: Record<string, unknown> }> = [];
+
+const LATCH_VERBS = new Set([
+  'forge:self',
+  'mr:attach-upload',
+  'mr:comment-file',
+  'discussions:resolve',
+]);
+const latchCalls: Array<{ cmd: string; body: Record<string, unknown> }> = [];
+let forgeSelfAnswers = 0;
+
+const statusEvent = (id: number, payload: Record<string, unknown>) => ({
+  id,
+  topic: `board/agent-status/${payload.kind as string}`,
+  payload: { ...payload, appRoot: home },
+  emittedAt: Date.now(),
+});
+const respondEvent = (id: number, iid: number, status: string) =>
+  statusEvent(id, { mrUrl: prUrl(iid), iid, kind: 'respond', status });
+const journal = [
+  respondEvent(1, 9, 'drafting'),
+  respondEvent(2, 10, 'error'),
+  respondEvent(3, 8, 'done'),
+  statusEvent(4, {
+    mrUrl: prUrl(22),
+    iid: 22,
+    kind: 'review',
+    status: 'done',
+    outcome: 'comment',
+  }),
+  statusEvent(5, {
+    mrUrl: prUrl(21),
+    iid: 21,
+    kind: 'review',
+    status: 'done',
+    outcome: 'comment',
+  }),
+  respondEvent(6, 7, 'done'),
+];
+setKvValue('agent-status', 'cursor', 0, db);
+for (const iid of [7, 8, 9, 10])
+  writeRespondState(
+    mintHandle('respond', prUrl(iid), home),
+    {
+      mrUrl: prUrl(iid),
+      iid,
+      status: 'implementing',
+      pendingReReview: [`gh-review-thread-${iid}`],
+    },
+    1000,
+    db
+  );
+const pendingPick = (iid: number) =>
+  readRespondStates(db).get(prUrl(iid))?.pendingReReview ?? [];
 
 const MERGE_ANSWERS: Record<number, unknown> = {
   7: { ok: true },
@@ -233,6 +295,56 @@ beforeAll(() => {
       }
       if (cmd === 'mr:get')
         return Response.json({ ok: true, data: { mr: { state: 'opened' } } });
+      if (cmd === 'events:head')
+        return Response.json({ ok: true, data: { cursor: journal.length } });
+      if (cmd === 'events:list') {
+        const after = (body as { after?: number } | null)?.after ?? 0;
+        return Response.json({
+          ok: true,
+          data: {
+            events: journal.filter(e => e.id > after),
+            cursor: journal.length,
+          },
+        });
+      }
+      if (cmd === 'discussions:read')
+        return Response.json({
+          ok: true,
+          data: { discussions: [], fetchedAt: Date.now() },
+        });
+      if (LATCH_VERBS.has(cmd)) {
+        const call = (body ?? {}) as Record<string, unknown>;
+        latchCalls.push({ cmd, body: call });
+        if (cmd === 'forge:self')
+          return Response.json({
+            ok: true,
+            data: { username: forgeSelfAnswers++ < 2 ? 'ivasco' : 'Alice' },
+          });
+        if (cmd === 'mr:attach-upload') {
+          const files = call.files as Array<{ name: string }>;
+          return Response.json({
+            ok: true,
+            data: {
+              urls: Object.fromEntries(
+                files.map(f => [f.name, `${HOST}/u/${f.name}`])
+              ),
+            },
+          });
+        }
+        if (cmd === 'mr:comment-file')
+          return Response.json({
+            ok: true,
+            data: {
+              discussionId: 'gh-review-thread-900',
+              noteId: 900,
+              path: 'a.ts',
+            },
+          });
+        return Response.json({
+          ok: true,
+          data: { discussions: [], fetchedAt: Date.now() },
+        });
+      }
       return Response.json({ ok: false, error: 'not implemented' });
     },
   });
@@ -309,7 +421,16 @@ describe('a GitHub team', () => {
       await Bun.sleep(200);
     }
     expect(rows.map(r => r.webUrl).sort()).toEqual(
-      [prUrl(7), prUrl(8), prUrl(9), prUrl(10), prUrl(11), prUrl(20)].sort()
+      [
+        prUrl(7),
+        prUrl(8),
+        prUrl(9),
+        prUrl(10),
+        prUrl(11),
+        prUrl(20),
+        prUrl(21),
+        prUrl(22),
+      ].sort()
     );
     expect(rows.every(r => r.provider === 'github')).toBe(true);
     expect(
@@ -507,4 +628,76 @@ describe('a GitHub team', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, dismissed: true });
   }, 15_000);
+});
+
+describe('the re-review latch on a GitHub team', () => {
+  async function settled(done: () => boolean, ms = 20_000): Promise<void> {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline && !done()) await Bun.sleep(100);
+  }
+  test('a review done with comments checks the login, uploads, then posts the thread', async () => {
+    await settled(() => latchCalls.some(c => c.cmd === 'mr:comment-file'));
+    const order = latchCalls
+      .filter(c => c.cmd !== 'discussions:resolve')
+      .map(c => `${c.cmd} ${(c.body.iid as number | undefined) ?? ''}`.trim());
+    expect(order).toEqual([
+      'forge:self',
+      'forge:self',
+      'forge:self',
+      'mr:attach-upload 21',
+      'mr:comment-file 21',
+    ]);
+    const [check] = latchCalls;
+    expect(typeof check?.body.repoName).toBe('string');
+    expect(check?.body.repoName).not.toBe('');
+    const post = latchCalls.find(c => c.cmd === 'mr:comment-file');
+    expect(post?.body).toMatchObject({
+      iid: 21,
+      repoName: check?.body.repoName,
+    });
+  }, 30_000);
+
+  test('another login on the daemon sends no write and logs both logins once per step', async () => {
+    await settled(() => latchCalls.some(c => c.cmd === 'mr:comment-file'));
+    expect(latchCalls.filter(c => c.body.iid === 22)).toEqual([]);
+    const lines = server
+      .output()
+      .split('\n')
+      .filter(l => l.includes('ivasco'));
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line).toContain('alice');
+  }, 30_000);
+
+  test('a finished respond under another login clears the pick with no write', async () => {
+    await settled(() => latchCalls.some(c => c.cmd === 'discussions:resolve'));
+    expect(latchCalls.filter(c => c.body.iid === 8)).toEqual([]);
+    expect(pendingPick(8)).toEqual([]);
+  }, 30_000);
+
+  test('an errored respond clears the pick and a drafting one keeps it, with no login check', async () => {
+    await settled(() => latchCalls.some(c => c.cmd === 'discussions:resolve'));
+    expect(
+      latchCalls.filter(c => c.body.iid === 9 || c.body.iid === 10)
+    ).toEqual([]);
+    expect(pendingPick(10)).toEqual([]);
+    expect(pendingPick(9)).toEqual(['gh-review-thread-9']);
+    // The three checks are respond 8, review 22 and review 21.
+    expect(latchCalls.filter(c => c.cmd === 'forge:self')).toHaveLength(3);
+  }, 30_000);
+
+  test('a finished respond with a re-review pick resolves the latch thread', async () => {
+    await settled(() => latchCalls.some(c => c.cmd === 'discussions:resolve'));
+    expect(latchCalls.filter(c => c.cmd === 'discussions:resolve')).toEqual([
+      {
+        cmd: 'discussions:resolve',
+        body: expect.objectContaining({
+          iid: 7,
+          discussionId: 'gh-review-thread-7',
+          resolved: true,
+        }),
+      },
+    ]);
+    expect(latchCalls.filter(c => c.cmd === 'forge:self')).toHaveLength(3);
+    expect(pendingPick(7)).toEqual([]);
+  }, 30_000);
 });

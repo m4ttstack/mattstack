@@ -34,7 +34,9 @@ const owned = () => rows().filter(r => triageOwns(r, 'mkeller', 'mkeller'));
 const fresh = (): DispatchMemory => ({ identity: null, mrs: {} });
 
 test('the seat owns only its own PRs as the recorded username', () => {
-  expect(owned().map(r => r.iid)).toEqual([4102, 4103, 4105, 4106, 4107, 4108]);
+  expect(owned().map(r => r.iid)).toEqual([
+    4102, 4103, 4105, 4106, 4107, 4108, 4109, 4110,
+  ]);
 });
 
 test('a red PR fires pipeline-red with its workflow run id', () => {

@@ -9,6 +9,7 @@
  *   discussions:reply    - post a note into an existing thread
  *   discussions:diffs    - read the MR's file diffs
  *   mr:comment-inline    - post a new positioned (line-anchored) discussion
+ *   mr:comment-file      - post a new file-level review thread (GitHub only)
  *   mr:comment           - post a new top-level note (resolvable discussion or plain note)
  *   mr:note-update       - replace the body of an existing note
  *   mr:review-submit     - post one whole review with its comments, replies, approval and resolves
@@ -52,7 +53,7 @@ export type ThreadProvider = { baseURL: string }
   & Pick<GitProvider, "createComment" | "createInlineComment" | "replyToDiscussion" | "updateComment"
     | "deleteComment" | "submitReview" | "resolveDiscussion" | "unresolveDiscussion">
   & Partial<Pick<GitProvider, "fetchSingleMR">>
-  & Partial<Pick<GitHubProvider, "fetchPullRequestDiffs">>
+  & Partial<Pick<GitHubProvider, "fetchPullRequestDiffs" | "createFileComment">>
   & Partial<Pick<GitLabProvider, "restRequest" | "fetchReviewerStates">>;
 
 /** A missing `forge` reads as GitLab. */
@@ -78,6 +79,8 @@ export interface DiscussionHandlerSeams {
   readCached?: (repoName: string, iid: number) => { discussions: Discussion[]; fetchedAt: number } | undefined;
   selfUsername?: () => string | null;
 }
+
+const COMMENT_FILE_GITHUB_ONLY = "unsupported: mr:comment-file needs a GitHub repo";
 
 const ANCHOR_HINT = " (an unchanged line needs both line and oldLine; a removed line needs oldLine)";
 
@@ -198,6 +201,7 @@ export function createDiscussionHandlers(
   & { "discussions:diffs": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"discussions:diffs">> }
   & { "discussions:reply": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"discussions:reply">> }
   & { "mr:comment-inline": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment-inline">> }
+  & { "mr:comment-file": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment-file">> }
   & { "mr:comment": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:comment">> }
   & { "mr:note-update": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:note-update">> }
   & { "mr:review-submit": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:review-submit">> }
@@ -496,6 +500,38 @@ export function createDiscussionHandlers(
         };
       } catch (err) {
         return { ok: false, error: withAnchorHint(err) };
+      }
+    },
+
+    "mr:comment-file": async (payload) => {
+      const p = payload as { repoName?: string; iid?: number; body?: string } | undefined;
+      const iid  = p?.iid;
+      const body = p?.body;
+      if (!p?.repoName || typeof iid !== "number" || !Number.isInteger(iid) || iid <= 0 ||
+          typeof body !== "string" || !body.trim()) {
+        return { ok: false, error: "missing repoName/iid/body" };
+      }
+      const decoded = decodeRepo(payload);
+      if (!decoded.ok) {
+        return { ok: false, error: "repo must be a serialized identity" };
+      }
+      const repoName = decoded.repo;
+
+      const repoPath = ctx.repoIndex()[repoName];
+      try {
+        const repoCtx = await repoContextFn(repoName, repoPath);
+        const { createFileComment } = repoCtx.provider;
+        if (repoCtx.forge !== "github" || !createFileComment) return { ok: false, error: COMMENT_FILE_GITHUB_ONLY };
+        const created = await createFileComment.call(repoCtx.provider, repoCtx.projectPath, iid, body);
+        if (!created) return { ok: true, data: { fallback: "no-files" } };
+
+        // A refresh failure must never turn a landed thread into ok:false: the
+        // caller would retry and post it twice.
+        await refreshFn(repoName, iid).catch((err) =>
+          log.warn({ err, repoName, iid }, "mr:comment-file: post-comment discussions refresh failed"));
+        return { ok: true, data: created };
+      } catch (err) {
+        return { ok: false, error: String(err) };
       }
     },
 

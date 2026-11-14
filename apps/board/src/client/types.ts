@@ -292,6 +292,8 @@ export interface AskCardData {
     it last changed. */
 export interface OwnerTeam {
   team?: string;
+  /** A GitHub `@login` owner: one person, not a team. */
+  person?: string;
   channel?: string;
   section?: string;
   mine?: true;

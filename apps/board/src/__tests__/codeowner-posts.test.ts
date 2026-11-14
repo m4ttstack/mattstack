@@ -43,6 +43,21 @@ describe('ownerRulesFromApprovalState', () => {
 describe('planOwnersPost', () => {
   const none = { posted: {} };
 
+  test('GitHub owner tokens name no channel, so nothing is posted', () => {
+    const plan = planOwnersPost(
+      [
+        { section: '@acme/web', approved: false },
+        { section: '@ellie-dev', approved: false },
+      ],
+      none
+    );
+    expect(plan.channels).toEqual([]);
+    expect(plan.skipped.map(s => s.reason)).toEqual([
+      'no-channel',
+      'no-channel',
+    ]);
+  });
+
   test('an unapproved section with a channel is a post', () => {
     expect(
       planOwnersPost([{ section: 'Acme - #pod-acme', approved: false }], none)
