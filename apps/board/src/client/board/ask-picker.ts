@@ -21,6 +21,25 @@ export interface AskSection {
   slack?: { channel?: string; posted?: string };
 }
 
+/** A block's header: `name` is shown, `role` is drawn as an icon beside it,
+    and `label` carries both in words for the tooltip and screen readers. */
+export interface AskSectionHeading {
+  name: string;
+  role?: 'code owner' | 'your team';
+  label: string;
+}
+
+export function askSectionHeading(s: AskSection): AskSectionHeading {
+  if (s.role === 'mine' && !s.team)
+    return { name: 'your team', label: 'your team' };
+  const name = s.team!;
+  const role =
+    s.role === 'mine' ? 'your team' : s.role === 'owner' ? 'code owner' : null;
+  return role
+    ? { name, role, label: `${name}, ${role}` }
+    : { name, label: name };
+}
+
 export interface AskPickerModel {
   sections: AskSection[];
 }

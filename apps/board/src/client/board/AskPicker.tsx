@@ -1,7 +1,12 @@
 import { useRef, useState } from 'react';
+import { Shield } from 'lucide-react';
 
-import { ContextMenu } from '@mattstack/tui-kit';
-import type { AskPickerModel, AskSection } from './ask-picker.ts';
+import { ContextMenu, ICONS } from '@mattstack/tui-kit';
+import {
+  askSectionHeading,
+  type AskPickerModel,
+  type AskSection,
+} from './ask-picker.ts';
 import { ArrowOutGlyph, SearchIcon, SlackLogo } from './icons.tsx';
 import { MemberInvadr } from './MemberInvadr.tsx';
 
@@ -28,10 +33,10 @@ function narrowed(sections: AskSection[], query: string): AskSection[] {
     .filter(s => s.people.length > 0 || s.slack);
 }
 
-function heading(s: AskSection): string {
-  if (s.role === 'mine') return s.team ? `${s.team} · your team` : 'your team';
-  return s.role === 'owner' ? `${s.team} · code owner` : s.team!;
-}
+const ROLE_ICON = {
+  'code owner': <Shield size={14} aria-hidden />,
+  'your team': ICONS.people,
+} as const;
 
 const APPROVAL = {
   needs: { text: 'needs approval', hue: 'amber' },
@@ -100,7 +105,7 @@ export function AskPicker({
     );
 
   const section = (s: AskSection) => {
-    const label = heading(s);
+    const { name, role, label } = askSectionHeading(s);
     const badge =
       s.approval && s.approval !== 'checking' && APPROVAL[s.approval];
     return (
@@ -116,7 +121,14 @@ export function AskPicker({
         }
       >
         <div className="tui-menu-ask-team" aria-hidden="true">
-          <span title={label}>{label}</span>
+          <span className="tui-menu-ask-name" title={label}>
+            {role && (
+              <span className="tui-menu-ask-role" title={role}>
+                {ROLE_ICON[role]}
+              </span>
+            )}
+            <span className="tui-menu-ask-name-text">{name}</span>
+          </span>
           {badge ? (
             <span className="tui-phrase" data-hue={badge.hue}>
               {badge.text}

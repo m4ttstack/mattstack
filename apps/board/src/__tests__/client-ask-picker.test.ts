@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   askPickerModel,
+  askSectionHeading,
   type AskPickerModel,
 } from '../client/board/ask-picker.ts';
 import { boardPeople } from '../client/board/people.ts';
@@ -361,5 +362,50 @@ describe('askPickerModel', () => {
         env
       )
     ).toBeNull();
+  });
+});
+
+describe('askSectionHeading', () => {
+  const section = (team: string | null, role: 'mine' | 'owner' | 'other') => ({
+    team,
+    role,
+    people: [],
+  });
+
+  test('an owning team names the team; the role rides an icon and the label', () => {
+    expect(askSectionHeading(section('billing', 'owner'))).toEqual({
+      name: 'billing',
+      role: 'code owner',
+      label: 'billing, code owner',
+    });
+  });
+
+  test("the seat's own team names the team with the your team role", () => {
+    expect(askSectionHeading(section('checkout', 'mine'))).toEqual({
+      name: 'checkout',
+      role: 'your team',
+      label: 'checkout, your team',
+    });
+  });
+
+  test('a seat with no team of its own reads your team, with no icon', () => {
+    expect(askSectionHeading(section(null, 'mine'))).toEqual({
+      name: 'your team',
+      label: 'your team',
+    });
+  });
+
+  test('any other team is just its name', () => {
+    expect(askSectionHeading(section('ledger', 'other'))).toEqual({
+      name: 'ledger',
+      label: 'ledger',
+    });
+  });
+
+  test('no heading joins its parts with a dot', () => {
+    for (const role of ['mine', 'owner', 'other'] as const) {
+      const h = askSectionHeading(section('billing', role));
+      expect(`${h.name}${h.label}`).not.toContain('\u00b7');
+    }
   });
 });
