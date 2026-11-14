@@ -97,17 +97,17 @@ describe("originFetchAuth", () => {
     expect(Object.keys(auth!.env).filter((k) => k.startsWith("RT_GIT_"))).toEqual([]);
   });
 
-  test("rt's helper is the only one for the origin host, after any GIT_CONFIG pairs already in the env", async () => {
+  test("the env carries only rt's helper, after any GIT_CONFIG pairs already in the env, and never the repo selection", async () => {
     git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
-    const saved = { count: process.env.GIT_CONFIG_COUNT, k: process.env.GIT_CONFIG_KEY_0, v: process.env.GIT_CONFIG_VALUE_0 };
+    const saved = { count: process.env.GIT_CONFIG_COUNT, k: process.env.GIT_CONFIG_KEY_0, v: process.env.GIT_CONFIG_VALUE_0, dir: process.env.GIT_WORK_TREE };
     process.env.GIT_CONFIG_COUNT = "1";
     process.env.GIT_CONFIG_KEY_0 = "core.quotepath";
     process.env.GIT_CONFIG_VALUE_0 = "false";
+    process.env.GIT_WORK_TREE = join(root, "elsewhere");
     try {
       const auth = await originFetchAuth(repo, seams("tok_rt"));
-      expect(auth!.env).toMatchObject({
+      expect(auth!.env).toEqual({
         GIT_CONFIG_COUNT: "3",
-        GIT_CONFIG_KEY_0: "core.quotepath",
         GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
         GIT_CONFIG_VALUE_1: "",
         GIT_CONFIG_KEY_2: "credential.https://github.com.helper",
@@ -116,7 +116,7 @@ describe("originFetchAuth", () => {
         GIT_ASKPASS: "",
       });
     } finally {
-      for (const [k, v] of [["GIT_CONFIG_COUNT", saved.count], ["GIT_CONFIG_KEY_0", saved.k], ["GIT_CONFIG_VALUE_0", saved.v]] as const) {
+      for (const [k, v] of [["GIT_CONFIG_COUNT", saved.count], ["GIT_CONFIG_KEY_0", saved.k], ["GIT_CONFIG_VALUE_0", saved.v], ["GIT_WORK_TREE", saved.dir]] as const) {
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
       }

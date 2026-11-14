@@ -110,6 +110,10 @@ describe("rt sync --json, which branch_sync runs, retries its own fetch and push
     git(seed, "push", "-q", "origin", "main");
     git(clone, "fetch", "-q", "origin");
     git(clone, "remote", "set-url", "origin", "https://gitlab.com/acme/x.git");
+    // The default-branch probe's ls-remote is not behind the fetch fake; a closed
+    // local proxy fails it at once, so it falls back to the local ref offline.
+    // insteadOf would also rewrite get-url, which the https gate reads.
+    git(clone, "config", "http.proxy", "http://127.0.0.1:9");
     return clone;
   }
 

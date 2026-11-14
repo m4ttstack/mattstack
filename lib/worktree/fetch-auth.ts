@@ -28,6 +28,7 @@ export interface FetchAuthSeams {
 }
 
 export interface FetchAuth {
+  /** Only the helper's keys: the runner builds the rest of the child's env, repo selection removed. */
   env: Record<string, string>;
   remote: string;
   host: string;
@@ -58,22 +59,23 @@ export function configParamsNameHelper(env: NodeJS.ProcessEnv): boolean {
 
 /** The empty value first clears every helper before it for the host, so git's `store` cannot hand rt's token to a keychain. */
 export function helperEnv(host: string, base: NodeJS.ProcessEnv, helper: string = rtSelfHelper()): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base };
+  return { ...base, ...helperPairs(host, base, helper) };
+}
+
+/** Only the keys `helperEnv` adds to `base`, for a runner that builds the rest of the child's env itself. */
+function helperPairs(host: string, base: NodeJS.ProcessEnv, helper: string): Record<string, string> {
   const parsed = Number.parseInt(base.GIT_CONFIG_COUNT ?? "", 10);
   const start = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
   const key = `credential.https://${host}.helper`;
-  env[`GIT_CONFIG_KEY_${start}`] = key;
-  env[`GIT_CONFIG_VALUE_${start}`] = "";
-  env[`GIT_CONFIG_KEY_${start + 1}`] = key;
-  env[`GIT_CONFIG_VALUE_${start + 1}`] = helper;
-  env.GIT_CONFIG_COUNT = String(start + 2);
-  env.GIT_TERMINAL_PROMPT = "0";
-  env.GIT_ASKPASS = "";
-  return env;
-}
-
-function definedOnly(env: NodeJS.ProcessEnv): Record<string, string> {
-  return Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => e[1] !== undefined));
+  return {
+    [`GIT_CONFIG_KEY_${start}`]: key,
+    [`GIT_CONFIG_VALUE_${start}`]: "",
+    [`GIT_CONFIG_KEY_${start + 1}`]: key,
+    [`GIT_CONFIG_VALUE_${start + 1}`]: helper,
+    GIT_CONFIG_COUNT: String(start + 2),
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "",
+  };
 }
 
 const AUTH_FAILURE_RE = /could not read (Username|Password)|terminal prompts disabled|Authentication failed|HTTP Basic: Access denied|Invalid username or password|returned error: 40[13]/i;
@@ -133,7 +135,7 @@ export async function originFetchAuth(
     return null;
   }
   if (!token) return null;
-  return { env: definedOnly(helperEnv(host, process.env, seams.helper ?? poolCredentialHelper())), remote: url, host };
+  return { env: helperPairs(host, process.env, seams.helper ?? poolCredentialHelper()), remote: url, host };
 }
 
 /**
