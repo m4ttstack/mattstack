@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "./fakes.ts";
+import { realFetchProbes, startRedirectHosts } from "./redirect-hosts.ts";
 import { INTEGRATIONS, integrationDef, type ValidateCtx } from "../integrations.ts";
 import { UserActionableError } from "../../errors.ts";
 
@@ -362,4 +363,71 @@ describe("secrets never leak into results or argv", () => {
       for (const argv of p.calls.exec) expect(argv.join(" ")).not.toContain(SENTINEL);
     });
   }
+});
+
+describe("gitlab on a host that redirects", () => {
+  const TOKEN = "fake-token-for-redirect-test";
+  const reply = (_req: Request, path: string) =>
+    path.endsWith("/personal_access_tokens/self") ? Response.json({ scopes: ["api"], expires_at: "2027-01-01" }) : Response.json({});
+  const ctx = (host: string) => ({ host, team: { slug: "acme", remote: `https://${host}/mattstack/acme.git` } });
+
+  for (const status of [302, 307]) {
+    test(`validate: a ${status} to another origin sends it nothing and is an error naming both origins, never the token`, async () => {
+      const hosts = startRedirectHosts({ status, reply });
+      try {
+        const result = await INTEGRATIONS.gitlab.validate(realFetchProbes(), TOKEN, ctx(hosts.host));
+        expect(hosts.otherHits).toEqual([]);
+        expect(result.status).toBe("error");
+        expect(result.detail).toContain(hosts.host);
+        expect(result.detail).toContain(hosts.otherHost);
+        expect(result.detail).not.toContain(TOKEN);
+      } finally {
+        hosts.stop();
+      }
+    });
+  }
+
+  test("validate: a redirect on the token self-read alone sends the other origin nothing", async () => {
+    const hosts = startRedirectHosts({ redirectWhen: (_req, path) => path.endsWith("/personal_access_tokens/self"), reply });
+    try {
+      expect((await INTEGRATIONS.gitlab.validate(realFetchProbes(), TOKEN, ctx(hosts.host))).scopesSeen).toEqual([]);
+      expect(hosts.otherHits).toEqual([]);
+    } finally {
+      hosts.stop();
+    }
+  });
+
+  test("validate: a redirect on the project lookup alone sends the other origin nothing and is an error naming both hosts", async () => {
+    const hosts = startRedirectHosts({ redirectWhen: (_req, path) => path.startsWith("/api/v4/projects/"), reply });
+    try {
+      const result = await INTEGRATIONS.gitlab.validate(realFetchProbes(), TOKEN, ctx(hosts.host));
+      expect(hosts.otherHits).toEqual([]);
+      expect(result.status).toBe("error");
+      expect(result.detail).toContain(hosts.host);
+      expect(result.detail).toContain(hosts.otherHost);
+    } finally {
+      hosts.stop();
+    }
+  });
+
+  test("expiry: a redirect to another origin sends it nothing and reads no expiry", async () => {
+    const hosts = startRedirectHosts({ reply });
+    try {
+      expect(await INTEGRATIONS.gitlab.expiry!(realFetchProbes(), TOKEN, ctx(hosts.host))).toBeNull();
+      expect(hosts.otherHits).toEqual([]);
+    } finally {
+      hosts.stop();
+    }
+  });
+
+  test("a redirect on the same origin is still followed by validate and expiry", async () => {
+    const hosts = startRedirectHosts({ status: 307, sameOrigin: true, reply });
+    try {
+      expect(await INTEGRATIONS.gitlab.validate(realFetchProbes(), TOKEN, ctx(hosts.host))).toEqual({ status: "ready", detail: "GitLab token works", scopesSeen: ["api"] });
+      expect(await INTEGRATIONS.gitlab.expiry!(realFetchProbes(), TOKEN, ctx(hosts.host))).toEqual({ expiresAt: "2027-01-01" });
+      expect(hosts.otherHits).toEqual([]);
+    } finally {
+      hosts.stop();
+    }
+  });
 });

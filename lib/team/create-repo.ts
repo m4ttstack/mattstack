@@ -39,6 +39,13 @@ function answerLog(i: ForgeRepoRequest, step: string, res: Reply): string {
 
 function failed(i: ForgeRepoRequest, step: string, res: Reply): UserActionableError {
   const forge = TITLES[i.provider];
+  if (res.refusedRedirect) {
+    const { from, to } = res.refusedRedirect;
+    return new UserActionableError("create-repo-failed", `${forge} sent rt to another site, so rt stopped before sending the token there`, {}, {
+      why: `${from} redirected to ${to}.`,
+      log: `${step} for ${i.namespace}/${i.name}: ${from} redirected to ${to}`,
+    });
+  }
   if (res.status === 0) return new UserActionableError("create-repo-failed", `rt could not reach ${forge} to create the team repo`, {}, { log: `${step} for ${i.namespace}/${i.name} got no answer` });
   return new UserActionableError("create-repo-failed", `${forge} did not create the team repo`, {}, { log: answerLog(i, step, res) });
 }
@@ -88,7 +95,7 @@ function githubTaken(body: string): boolean {
 async function createOnGitlab(p: Probes, i: ForgeRepoRequest): Promise<{ remote: string }> {
   const headers = { "PRIVATE-TOKEN": i.token };
   const lookup = "GitLab namespace lookup";
-  const ns = await p.fetch(`https://${i.host}/api/v4/namespaces/${encodeURIComponent(i.namespace)}`, { headers, timeoutMs: FORGE_API_TIMEOUT_MS });
+  const ns = await p.fetch(`https://${i.host}/api/v4/namespaces/${encodeURIComponent(i.namespace)}`, { headers, timeoutMs: FORGE_API_TIMEOUT_MS, redirect: "same-origin" });
   if (ns.status === 404 || ns.status === 403) throw unseen(i, lookup, ns);
   const id = ns.status === 200 ? parsed(ns.body)?.["id"] : undefined;
   if (typeof id !== "number") throw failed(i, lookup, ns);
@@ -99,6 +106,7 @@ async function createOnGitlab(p: Probes, i: ForgeRepoRequest): Promise<{ remote:
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ name: i.name, path: i.name, namespace_id: id, visibility: "private" }),
     timeoutMs: FORGE_API_TIMEOUT_MS,
+    redirect: "same-origin",
   });
   if (res.status === 400 && gitlabTaken(res.body)) throw exists(i, `https://${i.host}/${i.namespace}/${i.name}.git`);
   if (res.status !== 201) throw failed(i, step, res);
