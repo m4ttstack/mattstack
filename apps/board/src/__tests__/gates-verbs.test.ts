@@ -105,6 +105,7 @@ function fakeIo(
           data: {
             id: 'gate-1',
             presentation: 'form',
+            boardOnly: false,
             subject: `mr:${MR_URL}`,
             supersededId: null,
           },
@@ -236,6 +237,7 @@ describe('gateOpen', () => {
         data: {
           id: 'gate-xyz',
           presentation: 'form',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
         },
@@ -290,6 +292,7 @@ describe('gateOpen', () => {
         data: {
           id: 'gate-survives',
           presentation: 'form',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
         },
@@ -400,6 +403,7 @@ describe("gateOpen: label and writer by kind's domain", () => {
         data: {
           id: 'gate-respond',
           presentation: 'form',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
         },
@@ -449,6 +453,7 @@ describe("gateOpen: label and writer by kind's domain", () => {
         data: {
           id: 'gate-doctor',
           presentation: 'form',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
         },
@@ -853,6 +858,7 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
         data: {
           id: 'g1',
           presentation: 'form',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
         },
@@ -890,6 +896,7 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
         data: {
           id: 'g2',
           presentation: 'wait',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
         },
@@ -919,6 +926,7 @@ describe('gateOpen W4 (origin, nudge, presentation, context)', () => {
         data: {
           id: 'g3',
           presentation: 'form',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
         },
@@ -968,6 +976,7 @@ describe('gateOpen result', () => {
         data: {
           id: 'g-om',
           presentation: 'form',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
           ...data,
@@ -1182,6 +1191,7 @@ describe('presentation parity (BOARD-31)', () => {
               sessionId: payload.sessionId,
               questions: payload.questions,
             }),
+            boardOnly: false,
             subject: `mr:${MR_URL}`,
             supersededId: null,
           },
@@ -1317,6 +1327,7 @@ describe('presentation parity (BOARD-31)', () => {
         data: {
           id: 'gate-oversized',
           presentation: 'form',
+          boardOnly: false,
           subject: `mr:${MR_URL}`,
           supersededId: null,
         },
