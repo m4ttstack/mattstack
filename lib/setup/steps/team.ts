@@ -14,6 +14,7 @@ import { discoverOrgs, parseOriginUrl } from "../team-settings.ts";
 import { publishTeam, withheldPublishHost } from "../../team/publish.ts";
 import { confirmedForgeHost } from "../../team/stored-forge-token.ts";
 import { forgeTokenFor } from "./forge-token.ts";
+import { isValidHostname } from "../host-validate.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import type { StepId } from "../contract.ts";
@@ -90,7 +91,7 @@ async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
     if (err instanceof UserActionableError) {
       logFailureDetail(err);
       const withheld = withheldPublishHost(created.remote, token, confirmedForgeHost(ctx.p));
-      if (withheld !== null && (err.code === "push-denied" || err.code === "team-pull-only")) {
+      if (withheld !== null && isValidHostname(withheld) && (err.code === "push-denied" || err.code === "team-pull-only")) {
         return { state: "failed", detail: err.message, remedy: `Confirm ${withheld} as your GitLab host, then Retry. Run rt setup gitlab connect --host ${withheld}` };
       }
       if (err.code === "push-denied") return { state: "failed", detail: err.message, remedy: "Check your push access to the team repo, then Retry" };

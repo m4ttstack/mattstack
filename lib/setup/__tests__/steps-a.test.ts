@@ -728,8 +728,8 @@ describe("team.create", () => {
     const oldRemedy = "Check your push access to the team repo, then Retry";
     const createIntent = { v: 1 as const, at: "", mode: "create" as const, team: { slug: "acme", name: "Acme", remote: gitlabRemote, others: false } };
 
-    function gitlabProbes(opts: { confirmedHost?: string; token?: boolean; failLsRemote?: boolean }) {
-      const base = gitExecFor(gitlabRemote);
+    function gitlabProbes(opts: { confirmedHost?: string; token?: boolean; failLsRemote?: boolean; remote?: string }) {
+      const base = gitExecFor(opts.remote ?? gitlabRemote);
       const p = adminProbes({
         home: "/fake-home",
         exec: async (argv, execOpts) => {
@@ -765,6 +765,14 @@ describe("team.create", () => {
 
     test("no GitLab token keeps today's remedy", async () => {
       const outcome = await teamCreateStep.run(makeCtx(gitlabProbes({ token: false }), { intent: createIntent }).ctx);
+      expect(outcome.state).toBe("failed");
+      expect((outcome as { remedy?: string }).remedy).toBe(oldRemedy);
+    });
+
+    test("a host with a port keeps today's remedy, since connect --host takes a bare hostname", async () => {
+      const remote = "https://gitlab.acme.dev:8443/acme/mattstack-team-acme.git";
+      const intent = { ...createIntent, team: { ...createIntent.team, remote } };
+      const outcome = await teamCreateStep.run(makeCtx(gitlabProbes({ remote }), { intent }).ctx);
       expect(outcome.state).toBe("failed");
       expect((outcome as { remedy?: string }).remedy).toBe(oldRemedy);
     });
