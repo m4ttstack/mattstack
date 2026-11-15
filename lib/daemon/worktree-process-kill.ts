@@ -197,8 +197,8 @@ export interface KillPlanInput {
   protectedPids: number[];
   /** True only for the merge reactor's dispose: agents inside target are stopped. */
   stopSessionsInside: boolean;
-  /** Non-agent processes inside target are targets even when an agent outside
-   *  the tree is their ancestor. Agents themselves are never targeted by this. */
+  /** Non-agent descendants inside target of an agent outside it are targets.
+   *  Agents, their ancestors and an inside agent's family are never targeted by this. */
   killDepartedChildren?: boolean;
 }
 
@@ -260,9 +260,11 @@ export function planWorktreeKill(input: KillPlanInput): {
   const spared = new Set<number>();
   for (const root of roots) {
     if (!attributed.has(root.pid) || !stopSessionsInside) {
+      const leftovers = input.killDepartedChildren && !attributed.has(root.pid)
+        ? new Set(descendantsOf(root.pid).filter(pid => attributed.has(pid) && !rootSet.has(pid)))
+        : new Set<number>();
       for (const pid of familyOf(root.pid)) {
-        if (input.killDepartedChildren && attributed.has(pid) && !rootSet.has(pid)) continue;
-        spared.add(pid);
+        if (!leftovers.has(pid)) spared.add(pid);
       }
     }
   }

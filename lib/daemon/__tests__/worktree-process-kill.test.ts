@@ -615,6 +615,22 @@ describe("killDepartedChildren", () => {
     expect(base(departed, departedCwds).targets).toEqual([]);
   });
 
+  test("killDepartedChildren spares the family of an agent still inside the tree", () => {
+    const table = [row(10, 1, "claude", "claude"), row(11, 10, "node", "node server.js")];
+    const r = base(table, [[10, T], [11, "/t/app"]], { killDepartedChildren: true });
+    expect(r.targets).toEqual([]);
+  });
+
+  test("killDepartedChildren spares an outside agent's ancestors", () => {
+    const table = [
+      row(5, 1, "launcher", "/opt/launcher --wrap"),
+      row(10, 5, "claude", "claude"),
+      row(11, 10, "node", "node server.js"),
+    ];
+    const r = base(table, [[5, "/t"], [10, "/other"], [11, "/t/app"]], { killDepartedChildren: true });
+    expect(r.targets.map(t => t.pid)).toEqual([11]);
+  });
+
   test("killDepartedChildren never targets an agent", () => {
     const r = base([row(12, 1, "claude", "claude")], [[12, T]], { killDepartedChildren: true });
     expect(r.targets.map(t => t.pid)).not.toContain(12);
