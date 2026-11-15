@@ -94,6 +94,10 @@ export function planReRequests(
     so an error path costs no request per snapshot. */
 export const REREQUEST_HOLD_MS = 60 * 60_000;
 
+/** How old an entry for a PR this board no longer lists (merged, closed)
+    may grow before it is deleted. Its thread can no longer be seen to end. */
+export const REREQUEST_PRUNE_MS = 30 * 24 * 60 * 60_000;
+
 /** In-process holds, kept for the board's lifetime across passes. */
 export interface ReRequestHolds {
   /** repoName to the time its identity may be checked again. */
@@ -148,6 +152,13 @@ export async function sendReReviewRequests(
     });
   const verified = new Map<string, Promise<boolean>>();
   const stored = listKvValues(LATCH_REREQUEST_NS, db);
+  const listed = mrs.flatMap(mr => (mr.webUrl ? [`${mr.webUrl}|`] : []));
+  for (const [key, memo] of stored) {
+    const at = (memo as Partial<ReRequestMemo> | null)?.at ?? 0;
+    if (at >= now() - REREQUEST_PRUNE_MS) continue;
+    if (listed.some(prefix => key.startsWith(prefix))) continue;
+    deleteKvValue(LATCH_REREQUEST_NS, key, db);
+  }
 
   for (const mr of mrs) {
     // Undefined means the discussions read failed: forgetting on it would

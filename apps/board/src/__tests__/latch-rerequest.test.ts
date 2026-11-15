@@ -10,6 +10,7 @@ import {
   LATCH_REREQUEST_NS,
   planReRequests,
   REREQUEST_HOLD_MS,
+  REREQUEST_PRUNE_MS,
   sendReReviewRequests,
   type ReRequestDeps,
 } from '../latch/rerequest.ts';
@@ -501,6 +502,79 @@ describe('sendReReviewRequests', () => {
     expect(daemon.actions()).toHaveLength(1);
   });
 
+  test('a renew another pass sent during the identity check is not sent again', async () => {
+    const db = tempDb();
+    setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: 1, over: true }, db);
+    const daemon = fakeDaemon();
+    await run(
+      [
+        pr(
+          URL_A,
+          5,
+          [req('ivasco', 'd1', true)],
+          [{ username: 'ivasco', reviewState: 'UNREVIEWED' }]
+        ),
+      ],
+      daemon,
+      db,
+      'github',
+      {
+        verify: async () => {
+          setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: 2 }, db);
+          return true;
+        },
+      }
+    );
+    expect(daemon.actions()).toEqual([]);
+  });
+
+  test('an unanswered renew writes a live entry, so it is never renewed twice', async () => {
+    const db = tempDb();
+    setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: 1, over: true }, db);
+    const daemon = fakeDaemon({
+      action: { ok: false, error: `${DAEMON_UNREACHABLE_PREFIX}/x: timed out` },
+    });
+    const mrs = [
+      pr(
+        URL_A,
+        5,
+        [req('ivasco', 'd1', true)],
+        [{ username: 'ivasco', reviewState: 'UNREVIEWED' }]
+      ),
+    ];
+    await run(mrs, daemon, db);
+    expect(listKvValues(LATCH_REREQUEST_NS, db).get(`${URL_A}|d1`)).toEqual({
+      at: expect.any(Number),
+    });
+    await run(mrs, daemon, db);
+    expect(daemon.actions()).toHaveLength(1);
+  });
+
+  test("an old entry for a PR the board no longer lists is pruned; a listed PR's is kept", async () => {
+    const db = tempDb();
+    const now = 10 * REREQUEST_PRUNE_MS;
+    const old = now - REREQUEST_PRUNE_MS - 1;
+    setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: old, over: true }, db);
+    setKvValue(LATCH_REREQUEST_NS, `${URL_B}|d2`, { at: old, over: true }, db);
+    setKvValue(LATCH_REREQUEST_NS, `${URL_B}|d3`, { at: now - 1 }, db);
+    const daemon = fakeDaemon();
+    await run(
+      [
+        pr(
+          URL_A,
+          5,
+          [req('ivasco', 'd1', false)],
+          [{ username: 'ivasco', reviewState: 'UNREVIEWED' }]
+        ),
+      ],
+      daemon,
+      db,
+      'github',
+      { now: () => now }
+    );
+    expect(keys(db).sort()).toEqual([`${URL_A}|d1`, `${URL_B}|d3`]);
+  });
+
   test('a re-armed latch ends its entry, so the next ask sends again', async () => {
     const db = tempDb();
     const daemon = fakeDaemon();
@@ -530,7 +604,7 @@ describe('sendReReviewRequests', () => {
   test('a spent or gone latch forgets its key', async () => {
     const db = tempDb();
     setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: 1 }, db);
-    setKvValue(LATCH_REREQUEST_NS, `${URL_B}|d9`, { at: 1 }, db);
+    setKvValue(LATCH_REREQUEST_NS, `${URL_B}|d9`, { at: Date.now() }, db);
     const daemon = fakeDaemon();
     await run([pr(URL_A, 5, [], [])], daemon, db);
     expect(keys(db)).toEqual([`${URL_B}|d9`]);

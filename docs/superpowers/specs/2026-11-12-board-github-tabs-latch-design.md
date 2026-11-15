@@ -490,7 +490,9 @@ PRs:
 - For each latch thread that reads armed and open, its live entry is
   rewritten as over, so the next request cycle on the same thread sends
   again and knows a request from this cycle may still be pending. For each
-  latch thread that is spent or gone, the entry is deleted.
+  latch thread that is spent or gone, the entry is deleted. An entry for a
+  PR the board no longer lists (merged or closed) is deleted once it is
+  30 days old.
 - A failed call writes nothing and is retried on the next snapshot. It is
   logged, never thrown. An unanswered call (`DAEMON_UNREACHABLE_PREFIX`)
   writes the kv entry anyway: the request may have landed, and a duplicate
@@ -576,9 +578,14 @@ thread index and a numeric root note id.
   submits a review, but a stuck follow-up only replies in the thread, so
   the request stays pending into the author's next ask, where a plain
   repeat would notify no one. The board renews it (remove, then request)
-  instead. Residual: an author who clicks GitHub's own button between
-  cycles, then asks through the latch, gets the reviewer two
-  notifications. Covered by fixture tests.
+  instead. Residuals: after a thread's first cycle the board cannot tell
+  GitHub's own re-request button from a request left pending, so an author
+  who clicks it and also asks through the latch gets the reviewer two
+  notifications. A renew whose request fails after the remove landed
+  leaves the reviewers with no pending request until the next pass after
+  the hour's hold, which sends a plain request. A request left pending by
+  a stuck follow-up from before this change is missed once, since its
+  entry was deleted then. Covered by fixture tests.
 - **An armed latch blocking merge** where a repo requires conversation
   resolution. Same as GitLab's "all threads must be resolved" today.
   Fallback: none needed for parity. Resolving the thread is the author's
