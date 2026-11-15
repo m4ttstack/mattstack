@@ -1312,6 +1312,19 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: { exempt: "agent-facing; run by the mattstack plugin's EnterWorktree check, never interactively" },
         args: [{ name: "Path", type: "text", placeholder: "/abs/path/to/tree", hint: "Absolute path of the worktree" }],
       },
+      "await-leave": {
+        description: "Wait until the worktree a session sits in is asked to be left or handed to someone else (one JSON line on stdout); never call directly",
+        module: "./commands/worktree-await-leave.ts",
+        fn: "awaitLeaveCommand",
+        hidden: true,
+        omitBehavior: { exempt: "agent-facing; run by the mattstack plugin's worktree mod, never interactively" },
+        args: [
+          { name: "Path", type: "text", placeholder: "/abs/path/to/tree", hint: "Folder the session is in, the worktree itself or any folder inside it" },
+          { name: "Session", flag: "--session", type: "text", placeholder: "session id", hint: "The Claude Code session id" },
+          { name: "Started", flag: "--started", type: "text", placeholder: "2026-11-14T10:00:00Z", hint: "When this run of the session began; earlier transcript entries tell whether the tree was reused since" },
+          { name: "Timeout", flag: "--timeout", type: "text", placeholder: "60", hint: "Seconds to wait before answering timeout (default 60)" },
+        ],
+      },
       hook: {
         description: "Set up Claude Code to use rt worktrees",
         subcommands: {
