@@ -58,8 +58,9 @@ test('a wait under way returns the pick as soon as it is made, and is pending wh
   const w = world(on, { setting: 'off' })
   const { id } = await askNoun($)
   const quiet = waitNoun($, id)
-  await w.clock.advance(8_000)
-  expect(await quiet).toEqual({ pending: true })
+  await w.clock.advance(5_000)
+  // Well under the 10 s a plugin noun call has, so a busy engine still delivers the answer.
+  expect(await Promise.race([quiet, Promise.resolve('still waiting')])).toEqual({ pending: true })
   const waiting = waitNoun($, id)
   await w.clock.settle()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })

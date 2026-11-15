@@ -39,4 +39,4 @@ let outcome = await $.gateForm.wait({ id })
 while ('pending' in outcome) outcome = await $.gateForm.wait({ id })
 ```
 
-`wait` answers within about 8 seconds. It returns the picked `value`, `timedOut` once `timeoutMs` has passed, or `closed`. One question shows at a time: a second ask waits until the first is answered.
+`wait` answers within about 5 seconds. It returns the picked `value`, `timedOut` once `timeoutMs` has passed, or `closed`. One question shows at a time: a second ask waits until the first is answered.

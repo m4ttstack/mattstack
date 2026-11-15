@@ -8,7 +8,7 @@ const WHY = 'PR #1144 merged'
 const POLL_MS = 60_000
 
 type Answer = Record<string, unknown>
-// 'pending-slow' answers pending after the 8 s a real wait holds the call.
+// 'pending-slow' answers pending after the 5 s a real wait holds the call.
 type WaitReply = Answer | 'reject' | 'pending-slow'
 
 interface WorldOptions {
@@ -60,7 +60,7 @@ function world(on: On, opts: WorldOptions = {}) {
       let reply = e.argv[1] === 'ask' ? { id: 'q1' } : (waits.shift() ?? { closed: true })
       if (reply === 'pending-slow') {
         waits.unshift(reply)
-        await clock.sleep(8_000)
+        await clock.sleep(5_000)
         reply = { pending: true }
       }
       const failed = reply === 'reject'

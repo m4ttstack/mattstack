@@ -51,7 +51,7 @@ export type GateFormAskArgs = { title: string; context?: string; label: string; 
 export type GateFormAskResult = { value: string } | { timedOut: true } | { closed: true }
 
 // A call on a plugin noun must answer within 10 s, so the question is a long poll: `ask` opens it (or queues it
-// behind an open one) and answers at once; `wait` answers within about 8 s, pending until there is an outcome.
+// behind an open one) and answers at once; `wait` answers within about 5 s, pending until there is an outcome.
 // Once `wait` has handed an outcome back the id is forgotten, so a later wait on it, like one on an id this
 // load never issued, answers `{ closed: true }`.
 export type GateForm = {

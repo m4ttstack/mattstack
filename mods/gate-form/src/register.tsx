@@ -50,7 +50,7 @@ const asked = new Map<string, Asked>()
 // Plugin forms waiting for the open one to end, oldest first: only one is open at a time.
 const queued: Form[] = []
 // Under the 10 s a call on a plugin noun has to answer in.
-const WAIT_MS = 8_000
+const WAIT_MS = 5_000
 const TIMED_OUT = 'No answer in time.'
 const CLOSED = 'Closed without an answer.'
 
