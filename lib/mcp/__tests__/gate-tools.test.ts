@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
+import type { GateQuestion, GateRow } from "../../../packages/rt-client/src/commands.ts";
 import { fitOpen } from "../../gates/ctx.ts";
 import type { DecisionRow } from "../../gates/record.ts";
 import { buildReviewSource } from "../../gates/review-source.ts";
@@ -1286,7 +1286,19 @@ describe("kit forms", () => {
       const res = await gateOpen(f).handler({ kind: "respond-plan", source: plan(), kitForm: true }, ENV);
       expect(f.asks[0]!.kitForm).toBe(true);
       expect(body(res)).toMatchObject({ paneAction: "kit", formChunks: [], mode: "structured", contextDropped: false, boardOnly: false });
-      expect(body(res).kitForm).toEqual({ questions: fit.questions, context: PLAN_GATE_LINE, controls: { pause: false, goBack: [] } });
+      const questions = (fit.questions as unknown as GateQuestion[]).map((q, i) => ({ ...q, context: fit.pane.questions[i]!.context }));
+      expect(body(res).kitForm).toEqual({ questions, context: PLAN_GATE_LINE, controls: { pause: false, goBack: [] } });
+    });
+
+    test("a kit question whose context the pane budget dropped goes out with no context", async () => {
+      const f = fake(KIT);
+      const fit = fitOpen(bigAdjudication());
+      const res = await gateOpen(f).handler({ kind: "respond-plan", source: bigAdjudication(), kitForm: true }, ENV);
+      expect(body(res).contextDropped).toBe(true);
+      const sent = (body(res).kitForm as { questions: GateQuestion[] }).questions;
+      expect(fit.pane.droppedContexts.length).toBeGreaterThan(0);
+      for (const id of fit.pane.droppedContexts) expect("context" in sent.find((q) => q.id === id)!).toBe(false);
+      for (const q of sent) if ("context" in q) expect(q.context).toBe(fit.pane.questions.find((p) => p.id === q.id)!.context as string);
     });
 
     test("setting off: the result matches a call without the flag", async () => {

@@ -271,12 +271,20 @@ export async function askGate(
   if (runErrors.length > 0) result.runErrors = runErrors;
   if (kit) {
     result.kitForm = {
-      questions,
+      questions: extra.proseById ? withPaneProse(questions, extra.proseById) : questions,
       ...(formContext !== undefined ? { context: formContext } : {}),
       controls: runControls(run),
     };
   }
   return ok(result);
+}
+
+/** Each question's context swapped for the pane's fitted prose, and left out where the budget dropped it. */
+function withPaneProse(questions: GateQuestion[], proseById: Record<string, string>): GateQuestion[] {
+  return questions.map(({ context: _, ...q }) => {
+    const prose = proseById[String(q.id)];
+    return prose ? { ...q, context: prose } : q;
+  });
 }
 
 /** A shepherd's worker gets no run controls: its shepherd redirects the run, never the worker's pane. */
