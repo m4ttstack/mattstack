@@ -118,6 +118,20 @@ test('a report that cannot save its output says so instead of a path', async ($,
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0. Output: (the output could not be saved)'])
 })
 
+test('a report prunes spills a day stale, and keeps fresh ones and the live logs', async ($, on) => {
+  const root = '/home/u/Library/Caches/human-todos'
+  const DAY = 24 * 60 * 60 * 1000
+  const entry = (name: string, mtimeMs: number) => ({ name, kind: 'file' as const, size: 1, mtimeMs, isLink: false })
+  on('fs.list', (_, e) => {
+    if (e.path !== root) return { value: [] }
+    return { value: [entry('sess-0-1-old.spill', 1_000_000 - 2 * DAY), entry('sess-0-2-new.spill', 1_000_000 - 60_000), entry('sess-0-3-old.log', 1_000_000 - 2 * DAY)] }
+  })
+  const { run1, ran, clock } = await seeded($, on, [todo({})], { script: () => exits([pid(9), out('x\n')]) })
+  await run1('1')
+  await clock.settle()
+  expect(ran.filter(argv => argv[0] === 'rm' && argv.some(a => a.startsWith(`${root}/sess-0-`)))).toEqual([['rm', '-f', '--', `${root}/sess-0-1-old.spill`]])
+})
+
 test('a session switch while the report saves its output leaves the new session\'s item of the same number alone', async ($, on) => {
   let copies = 0
   let switchTo: (() => void) | undefined

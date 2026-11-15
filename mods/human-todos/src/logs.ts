@@ -11,6 +11,8 @@ export async function logFolder($: EngineInterface): Promise<string> {
 
 // How many run reports keep their output file; older ones are removed as new ones are written.
 export const KEPT_RUN_LOGS = 20
+// A spill outlives its run when the module unloads or Claude exits mid-run; one untouched this long is pruned.
+const STALE_SPILL_MS = 24 * 60 * 60 * 1000
 
 export const DROPPED = '[earlier output was dropped]\n'
 
@@ -41,7 +43,11 @@ export async function writeRunLog($: EngineInterface, todoId: string, output: st
   try {
     const logs = (await $.fs.list(folder)).filter(entry => entry.kind === 'file' && entry.name.endsWith('.log'))
     const old = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name)).slice(KEPT_RUN_LOGS)
-    if (old.length > 0) await $.process.run(['rm', '-f', '--', ...old.map(entry => `${folder}/${entry.name}`)])
+    const root = await logFolder($)
+    const now = await $.clock.now()
+    const spills = (await $.fs.list(root)).filter(entry => entry.kind === 'file' && entry.name.endsWith('.spill') && now - entry.mtimeMs > STALE_SPILL_MS)
+    const gone = [...old.map(entry => `${folder}/${entry.name}`), ...spills.map(entry => `${root}/${entry.name}`)]
+    if (gone.length > 0) await $.process.run(['rm', '-f', '--', ...gone])
   } catch {
     // A prune that fails leaves extra files; the next report tries again.
   }

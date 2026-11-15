@@ -622,6 +622,7 @@ async function logFolder($) {
   return `${home}/Library/Caches/human-todos`;
 }
 var KEPT_RUN_LOGS = 20;
+var STALE_SPILL_MS = 24 * 60 * 60 * 1000;
 var DROPPED = `[earlier output was dropped]
 `;
 var JOIN_TIMEOUT_MS = 120000;
@@ -647,8 +648,12 @@ async function writeRunLog($, todoId, output, spill) {
   try {
     const logs = (await $.fs.list(folder)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));
     const old = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name)).slice(KEPT_RUN_LOGS);
-    if (old.length > 0)
-      await $.process.run(["rm", "-f", "--", ...old.map((entry) => `${folder}/${entry.name}`)]);
+    const root = await logFolder($);
+    const now = await $.clock.now();
+    const spills = (await $.fs.list(root)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".spill") && now - entry.mtimeMs > STALE_SPILL_MS);
+    const gone = [...old.map((entry) => `${folder}/${entry.name}`), ...spills.map((entry) => `${root}/${entry.name}`)];
+    if (gone.length > 0)
+      await $.process.run(["rm", "-f", "--", ...gone]);
   } catch {}
   return path;
 }
