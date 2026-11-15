@@ -1,25 +1,36 @@
 import { Lines, Panel, kitClient } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
-import { keyEffect, perform, type Effect } from './form/input'
-import { initial, type State } from './form/state'
-import { visibleLines, withTabInView } from './form/view'
+import { keyEffect, perform, pressesButton, type Effect } from './form/input'
+import { afterAttempt, initial, type State } from './form/state'
+import { fittedLines, withTabInView } from './form/view'
 
-type Props = { form: Form; rows: number; cols: number; focused: boolean }
+// `wheel`: the pane's running wheel total (kit `wheelTotal`), which scrolls a page too tall for the pane.
+type Props = { form: Form; rows: number; cols: number; focused: boolean; wheel?: number }
 
 export default kitClient<Props, State>(
   (props, ui) => {
     const { form } = props
+    const retried = afterAttempt(form, ui.state)
+    if (retried !== ui.state) ui.setState(retried)
     const width = Math.max(30, props.cols || ui.width)
     const apply = (effect: Effect | undefined) => {
-      if (!effect) return
+      if (!effect) return false
       if (effect.post !== undefined) ui.post(effect.post)
       ui.setState(effect.state.page === ui.state.page ? effect.state : withTabInView(form, effect.state, width))
+      return true
     }
-    ui.onKey(ev => apply(keyEffect(ev, form, ui.state)))
+    ui.onKey(ev => {
+      if (!pressesButton(ev, form, ui.state)) return apply(keyEffect(ev, form, ui.state))
+      ui.pressFor(() => apply(keyEffect(ev, form, ui.state)))
+      return true
+    })
+    const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows, props.wheel)
+    const s = ui.state
+    if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt) ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt })
     return (
       <Panel width={width}>
-        <Lines lines={visibleLines(form, ui.state, { width, focused: ui.focused }, props.rows)} onAction={action => apply(perform(action, form, ui.state))} />
+        <Lines lines={fitted.lines} onAction={action => apply(perform(action, form, ui.state))} />
       </Panel>
     )
   },

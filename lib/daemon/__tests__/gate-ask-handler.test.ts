@@ -122,14 +122,14 @@ describe("gate:ask", () => {
     expect(row.context).toBe(bigContext);
   });
 
-  test("(f) response shape {id, presentation, subject, supersededId}", async () => {
+  test("(f) response shape {id, presentation, boardOnly, subject, supersededId}", async () => {
     const { handlers } = harness({
       resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }),
     });
     const res = await handlers["gate:ask"]({ questions: twoOptionQuestion(), subject: "mr:https://x/1", context: "why this decision" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(Object.keys(res.data).sort()).toEqual(["id", "presentation", "subject", "supersededId"]);
+    expect(Object.keys(res.data).sort()).toEqual(["boardOnly", "id", "presentation", "subject", "supersededId"]);
     expect(res.data.supersededId).toBeNull();
   });
 
@@ -620,5 +620,71 @@ describe("gate:ask meta.stage", () => {
     });
     const res = await handlers["gate:ask"]({ questions: twoOptionQuestion(), subject: "mr:https://x/1", context: "why" });
     expect(store.get((res as any).data.id)!.meta).toBeNull();
+  });
+});
+
+describe("gate:ask kit presentation", () => {
+  const resolveSubject = () => ({ ok: true as const, subject: "mr:https://x/1" });
+  const base = { subject: "mr:https://x/1", sessionId: "sess-1", paneId: "w1:p1", context: "why this decision" };
+
+  test("kitForm with a pane and a session stores kit and a nudge, past the option cap", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({ ...base, questions: fiveOptionQuestion(), kitForm: true });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.presentation).toBe("kit");
+    expect(res.data.boardOnly).toBe(false);
+    expect(res.data.formCapExceeded).toBeUndefined();
+    expect(res.data.formCapAdvisory).toBeUndefined();
+    const row = store.get(res.data.id)!;
+    expect(row.origin?.presentation).toBe("kit");
+    expect(row.nudge).toEqual({ session: "sess-1" });
+  });
+
+  test("kitForm with no session is wait, with no nudge", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({ ...base, sessionId: undefined, questions: twoOptionQuestion(), kitForm: true });
+    expect(res.ok && res.data.presentation).toBe("wait");
+    if (!res.ok) return;
+    expect(store.get(res.data.id)!.nudge).toBeNull();
+  });
+
+  test("a board-only kind with kitForm is wait and reports boardOnly", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({ ...base, kind: "review-post", questions: twoOptionQuestion(), kitForm: true });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.presentation).toBe("wait");
+    expect(res.data.boardOnly).toBe(true);
+    expect(store.get(res.data.id)!.nudge ?? null).toBeNull();
+  });
+
+  test("a normal kind reports boardOnly false", async () => {
+    const { handlers } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({ ...base, questions: twoOptionQuestion() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.presentation).toBe("form");
+    expect(res.data.boardOnly).toBe(false);
+  });
+
+  test("a caller-supplied kit on gate:open is refused", async () => {
+    const { handlers } = harness();
+    const res = await handlers["gate:open"]({
+      subject: "mr:https://x/1", kind: "plan", questions: twoOptionQuestion(), context: "why",
+      pane: "w1:p1", nudge: { session: "sess-1" }, origin: { presentation: "kit", paneId: "w1:p1" },
+    });
+    expect(res).toEqual({ ok: false, error: 'presentation "kit" is set by gate:ask only' });
+  });
+
+  test("a kit smuggled through gate:ask's origin passthrough is dropped", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({
+      ...base, questions: twoOptionQuestion(),
+      origin: { presentation: "kit" } as never,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(store.get(res.data.id)!.origin?.presentation).toBe("form");
   });
 });

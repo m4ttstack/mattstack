@@ -3,13 +3,13 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { herdrRequest } from "../../herdr/client.ts";
 import { fakeHerdr, HerdrFakeError, type FakeHerdrHandler } from "../../herdr/__tests__/fake-herdr.ts";
-import { composerDraft, injectAfterTurn, injectIntoPane, pastesAsText } from "../inject.ts";
+import { composerDraft, injectAfterTurn, injectIntoPane, pastesAsText, setKitGateGuard } from "../inject.ts";
 import { bgSocketPath } from "../bg-service.ts";
 import { createPaneHandlers } from "../handlers/pane.ts";
 import { openStateDb } from "../../state/index.ts";
 
 const stops: Array<() => void> = [];
-afterEach(() => { for (const s of stops) s(); stops.length = 0; });
+afterEach(() => { setKitGateGuard(null); for (const s of stops) s(); stops.length = 0; });
 
 function on(handler: FakeHerdrHandler) {
   const { sock, seen, stop } = fakeHerdr(handler);
@@ -353,6 +353,14 @@ test("a failed prompt leaves the stash alone when the composer is not empty, sin
   const { herdr, seen } = draftPane(composerScreen(["❯\xa0keep me"]), "idle", () => new HerdrFakeError("agent_not_found", "gone"), composerScreen(["❯\xa0x"], GRAY("› stashed")));
   await injectIntoPane({ paneId: "w1:p1", text: "x", herdr });
   expect(seen.filter((s) => s.method === "pane.send_keys")).toHaveLength(1);
+});
+
+test("a kit gate opened while the draft was stashing refuses the prompt and pops the draft back", async () => {
+  const { herdr, seen } = draftPane(composerScreen(["❯\xa0keep me"]));
+  setKitGateGuard(() => (seen.some((s) => s.method === "pane.send_keys") ? "g1" : null));
+  const res = await injectIntoPane({ paneId: "w1:p1", text: "x", herdr });
+  expect(res).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "a kit form is open here" } });
+  expect(seen.map((s) => s.method)).toEqual(["agent.get", "pane.read", "pane.send_keys", "pane.read", "pane.read", "pane.send_keys"]);
 });
 
 test("never presses ctrl+s on an empty composer, where it would pop a stash into the prompt", async () => {

@@ -657,13 +657,15 @@ var Rail = kitComponent("Rail", (props, ctx) => {
 // packages/mod-kit/src/components/reopen-band.tsx
 var GAP = "  ";
 var ReopenBand = kitComponent("ReopenBand", (props, ctx) => {
-  const button = buttonSpan({ label: "Show", tone: "brand", action: ctx.bind("press", props.onOpen) });
+  const onOpen = props.onOpen;
+  const button = onOpen && buttonSpan({ label: "Show", tone: "brand", action: ctx.bind("press", onOpen) });
   const head = `${BRAND.glyph} ${props.label}`;
   const words = `${head}${GAP}${props.title}`;
-  const room = Math.max(0, ctx.width - cellWidth(button.t) - GAP.length);
+  const room = Math.max(0, ctx.width - (button ? cellWidth(button.t) + GAP.length : 0));
   const shown = cellWidth(words) <= room ? words : room > 0 ? `${cutCells(words, room - 1)}…` : "";
   const cut = Math.min(head.length + GAP.length, shown.length);
-  return [[sp(shown.slice(0, cut), { color: BRAND.pink, bold: true }), sp(shown.slice(cut)), sp(GAP), button]];
+  const text = [sp(shown.slice(0, cut), { color: BRAND.pink, bold: true }), sp(shown.slice(cut))];
+  return [button ? [...text, sp(GAP), button] : text];
 });
 // packages/mod-kit/src/widgets/select-list.ts
 function selectList(spec) {
@@ -695,11 +697,16 @@ function choiceRows(choice, idx, spec) {
   const lead = [bar, sp("  "), choiceMark(spec, idx), sp(" ")];
   const under = [bar, sp("    ")];
   const isAt = idx === spec.cursor;
+  const rows = choiceLines(choice, idx, spec, lead, under);
+  if (!isAt || !spec.pressing)
+    return rows;
+  return rows.map((line) => line.map((span) => span.isLabel ? pressed(span) : span));
+}
+function choiceLines(choice, idx, spec, lead, under) {
+  const isAt = idx === spec.cursor;
   if (choice.isWriteIn)
     return writeInRows(choice, isAt, lead, under, spec);
-  if (!isAt)
-    return [[...lead, sp(choice.label, { isLabel: true })], ...choice.description ? [[...under, sp(choice.description, DIM)]] : []];
-  return [...hang(lead, under, choice.label, spec.width, { bold: true, isLabel: true }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
+  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isAt && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 function writeInRows(choice, isAt, lead, under, spec) {
   const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
@@ -707,8 +714,8 @@ function writeInRows(choice, isAt, lead, under, spec) {
   if (isAt)
     return [label, [...under, ...inputField(typed, choice.description ?? "", spec.width - widthOf(under), spec.focused)]];
   if (typed !== "")
-    return [label, [...under, sp(`“${typed}”`)]];
-  return [label, ...choice.description ? [[...under, sp(choice.description, DIM)]] : []];
+    return [label, ...hang(under, under, `“${typed}”`, spec.width, {})];
+  return [label, ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 
 // packages/mod-kit/src/components/select-list.tsx
@@ -722,7 +729,8 @@ var SelectList = kitComponent("SelectList", (props, ctx) => selectList({
   width: ctx.width,
   focused: ctx.focused,
   actionFor: (idx) => ctx.bind(`pick:${idx}`, () => props.onPick?.(idx)),
-  ...props.maxShown !== undefined && { maxShown: props.maxShown }
+  ...props.maxShown !== undefined && { maxShown: props.maxShown },
+  ...props.pressing && { pressing: true }
 }));
 // packages/mod-kit/src/widgets/tab-strip.ts
 function fillWindow(seed, first, count, room, cost) {

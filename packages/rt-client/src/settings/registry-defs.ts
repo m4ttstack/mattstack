@@ -307,6 +307,14 @@ const ROWS: readonly SettingDef[] = [
     description: "Fold each case's screenshots in the evidence section rt writes into an MR or PR description, behind a summary that names the case, so reviewers scroll past them to the approvals and pipeline.",
   },
   {
+    key: "rt.gates.kitForm",
+    type: "boolean",
+    scopes: ["machine"],
+    default: false,
+    merge: "replace",
+    description: "Show pane gates in the gate-form mod's kit form instead of Claude Code's question form. Needs the gate-form plugin. Off by default while the kit form is a prototype.",
+  },
+  {
     key: "review.ruleSelector",
     type: "boolean",
     scopes: ["team", "user", "machine"],

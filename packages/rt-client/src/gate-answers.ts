@@ -49,6 +49,31 @@ function writeInError(question: GateQuestion, raw: GateWriteIn): string | null {
   return null;
 }
 
+export const RUN_CONTROL_NEXT = ["hold", "go-back"] as const;
+
+const hasQuestion = (questions: GateQuestion[], id: string): boolean => questions.some((q) => q.id === id);
+
+/** `next` and `to` answer the run, not a question, only on a gate with no `next` question of its own. */
+export function isRunControl(questions: GateQuestion[], answers: Record<string, unknown>): boolean {
+  if (hasQuestion(questions, "next") || !Object.prototype.hasOwnProperty.call(answers, "next")) return false;
+  return (RUN_CONTROL_NEXT as readonly unknown[]).includes(unwrapGateAnswerValue(answers.next));
+}
+
+function reservedKeyError(questions: GateQuestion[], answers: Record<string, unknown>): string | null {
+  const has = (k: string): boolean => Object.prototype.hasOwnProperty.call(answers, k);
+  if (hasQuestion(questions, "next")) return null;
+  if (has("next") && !isRunControl(questions, answers)) return "next must be hold or go-back";
+  if (has("to") && !hasQuestion(questions, "to") && unwrapGateAnswerValue(answers.next) !== "go-back") {
+    return "to is allowed only with next: go-back";
+  }
+  if (unwrapGateAnswerValue(answers.next) === "go-back") {
+    // run_resolve takes answers.to as it stands, so a wrapped stage is refused too.
+    const to = answers.to;
+    if (typeof to !== "string" || to.trim() === "") return "next: go-back needs to, the stage to go back to";
+  }
+  return null;
+}
+
 /** Option membership is required whenever a question declares options,
     checked against the unwrapped value (every element, for multi); an
     empty options array stays free-form. Every question id must appear as
@@ -58,9 +83,13 @@ export function validateGateAnswers(
   questions: GateQuestion[],
   answers: Record<string, unknown>,
 ): string | null {
+  const reservedError = reservedKeyError(questions, answers);
+  if (reservedError) return reservedError;
+  const runControl = isRunControl(questions, answers);
   const byId = new Map(questions.map((q) => [q.id, q]));
   for (const [qid, raw] of Object.entries(answers)) {
     const question = byId.get(qid);
+    if (!question && !hasQuestion(questions, "next") && (qid === "next" || qid === "to")) continue;
     if (!question) return `unknown question id: ${qid}`;
     if (isWriteIn(raw)) {
       const error = writeInError(question, raw);
@@ -82,6 +111,7 @@ export function validateGateAnswers(
       }
     }
   }
+  if (runControl) return null;
   const missing = questions
     .map((q) => q.id)
     .filter((id) => !Object.prototype.hasOwnProperty.call(answers, id));

@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
-import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
+import { bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { Todo } from '../types'
 import { PLUGIN, TITLE } from './items'
@@ -106,7 +106,7 @@ export function registerPane(on: On): void {
     if (await isPlaced($, TODO_PANE)) return next(e)
     const band = bandModel(await peekTodos($))
     if (!band) return next(e)
-    if (e.surface === 'terminal' || e.surface === 'desktop') return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE)
+    if (e.surface === 'terminal' || e.surface === 'desktop') return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE, { engineShow: true })
     const { waiting } = band
     const { Box, Text, Button } = $.ui.resolve(e)
     return (
@@ -144,13 +144,13 @@ export function registerPane(on: On): void {
     }
     const { Client } = $.ui.resolve(e)
     const width = paneColumns(e)
-    const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30
+    const bodyRows = paneRows(e)
     kitSizes.set(e.surface, { columns: width, bodyRows })
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
       width,
     }
-    return <Client key="human-todos-pane" module="./pane/kit-view.tsx" props={props} />
+    return <Client key="human-todos-pane" module="./pane/kit-view.tsx" height={bodyRows} props={props} />
   })
 }

@@ -128,6 +128,22 @@ describe("reconciler expectations: leave-blocked", () => {
     expect(store.get(gate.id)!.delivery).toMatchObject({ outcome: "stuck" });
   });
 
+  test("a kit gate is confirmed on its first sweep and never gets an Escape", async () => {
+    const gate = store.open({
+      subject: "gate:kit-1", kind: "clarify",
+      questions: [{ id: "q", label: "Pick", multi: false, options: ["a", "b"] }],
+      nudge: { session: "exp-s1" }, origin: { presentation: "kit" },
+    }).row;
+    store.answer(gate.id, { q: "a" }, "board");
+    reconciler.expect({ gateId: gate.id, hints: HINTS, expect: "leave-blocked", deadlineSweeps: 1, retriesLeft: 2 });
+    panesValue = [buildPane({ agentStatus: "blocked" })];
+
+    await reconciler.sweep();
+
+    expect(injectCalls).toHaveLength(0);
+    expect(store.get(gate.id)!.delivery).toMatchObject({ outcome: "confirmed" });
+  });
+
   test("a pane that consumed the answer and then closed is confirmed, not stuck", async () => {
     const gate = makeGate();
     store.answer(gate.id, { q: "a" }, "board");

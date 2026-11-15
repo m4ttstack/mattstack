@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
+import type { GateQuestion, GateRow } from "../../../packages/rt-client/src/commands.ts";
 import { fitOpen } from "../../gates/ctx.ts";
 import type { DecisionRow } from "../../gates/record.ts";
 import { buildReviewSource } from "../../gates/review-source.ts";
@@ -14,7 +14,7 @@ const ENV = { RT_RUNS_ROOT: "/runs", CLAUDE_CODE_SESSION_ID: "sess-1", HERDR_PAN
 const HERDR = { ...ENV, HERDR_ENV: "1" } as NodeJS.ProcessEnv;
 
 type Field = { key: string; value: string; at: number };
-type AskData = { id: string; presentation: "form" | "wait"; subject: string; supersededId: string | null };
+type AskData = { id: string; presentation: "form" | "wait" | "kit"; boardOnly: boolean; subject: string; supersededId: string | null; [k: string]: unknown };
 
 interface FakeOpts {
   spawnedBy?: string | null;
@@ -24,6 +24,9 @@ interface FakeOpts {
   answerRes?: { ok: boolean; data?: unknown; error?: string; [k: string]: unknown };
   waitRes?: { ok: boolean; data?: unknown; error?: string };
   failWrite?: (line: string) => string | undefined;
+  kitOn?: boolean;
+  manifest?: string[];
+  stages?: string[];
 }
 
 function fake(o: FakeOpts = {}) {
@@ -35,7 +38,7 @@ function fake(o: FakeOpts = {}) {
     ask: (async (p: Record<string, unknown>) => {
       log.push("ask");
       asks.push(p);
-      return { ok: true, data: { id: "g1", presentation: "form", subject: "mr:x", supersededId: null, ...o.askData } };
+      return { ok: true, data: { id: "g1", presentation: "form", boardOnly: false, subject: "mr:x", supersededId: null, ...o.askData } };
     }) as unknown as GateToolDeps["ask"],
     answer: (async (p: Record<string, unknown>) => {
       log.push("answer");
@@ -58,7 +61,8 @@ function fake(o: FakeOpts = {}) {
             out: JSON.stringify({
               ok: true,
               run: { id: "1", spawned_by: o.spawnedBy ?? null },
-              stages: [],
+              stages: (o.stages ?? []).map((name, i) => ({ run_id: "1", name, attempt: 1, status: "done", started_at: i })),
+              manifest: (o.manifest ?? []).map((stage, ordinal) => ({ ordinal, stage })),
               fields: (o.fields ?? []).map((f) => ({ run_id: "1", produced_by: "s", ...f })),
               decisions: (o.decisions ?? []).map((d) => ({ run_id: "1", ...d })),
             }),
@@ -76,6 +80,7 @@ function fake(o: FakeOpts = {}) {
     tempRoots: () => [],
     readFile: () => { throw new Error("unexpected read"); },
     writeFile: () => { throw new Error("unexpected write"); },
+    kitFormOn: () => o.kitOn === true,
   };
   return { deps, log, asks, answers, waits };
 }
@@ -92,6 +97,7 @@ function row(over: Partial<GateRow> = {}): GateRow {
 
 const q = (id: string, options: unknown[] = [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]) => ({ id, label: `Q ${id}`, multi: false, options });
 const ASK = { questions: [q("q1")], context: "ctx", kind: "respond-plan" };
+const NEXT_Q = q("next", [{ value: "proceed", label: "Proceed" }, { value: "hold", label: "Hold" }]) as GateRow["questions"][number];
 const RUN = { runDb: DB, stage: "s" };
 const body = (r: { body: unknown }) => r.body as Record<string, unknown>;
 
@@ -1119,7 +1125,7 @@ describe("gate_record", () => {
   });
 
   test("post with next hold decides nothing", async () => {
-    const holdRow = row({ answer: { answers: { "findings-1": ["F1"], outcome: "comment", next: "hold" }, by: "pane", answeredAt: 2000 } });
+    const holdRow = row({ questions: [NEXT_Q], answer: { answers: { "findings-1": ["F1"], outcome: "comment", next: "hold" }, by: "pane", answeredAt: 2000 } });
     const f = fake({ waitRes: { ok: true, data: { status: "answered", row: holdRow } } });
     const res = await record({ ...RUN, scope: "post", shape: "post", gateId: "g1" }, f);
     expect(f.log).toEqual(["snapshot", "wait"]);
@@ -1127,7 +1133,7 @@ describe("gate_record", () => {
   });
 
   test("the answers shape records a hold next as is", async () => {
-    const holdRow = row({ answer: { answers: { q1: "yes", next: "hold" }, by: "pane", answeredAt: 2000 } });
+    const holdRow = row({ questions: [NEXT_Q], answer: { answers: { q1: "yes", next: "hold" }, by: "pane", answeredAt: 2000 } });
     const f = fake({ waitRes: { ok: true, data: { status: "answered", row: holdRow } } });
     await record({ ...RUN, scope: "question", gateId: "g1" }, f);
     expect(f.log.at(-1)).toBe(recordLine("question", { q1: "yes", next: "hold" }, "pane"));
@@ -1176,5 +1182,177 @@ describe("gate_record", () => {
       expect(res.error).toBe(error);
       expect(f.log).toEqual([]);
     }
+  });
+});
+
+describe("kit forms", () => {
+  const KIT = { kitOn: true, askData: { presentation: "kit" as const } };
+  const wide = (id: string) => q(id, ["a", "b", "c", "d", "e", "f"]);
+  const STAGED = { manifest: ["plan", "design", "provision", "implement", "review"], stages: ["plan", "provision", "implement"] };
+  const IMPLEMENT = { runDb: DB, stage: "implement" };
+
+  test("setting on and kitForm: true passes the flag and returns the whole kit block", async () => {
+    const f = fake(KIT);
+    const questions = ["a", "b", "c", "d", "e"].map(wide);
+    const res = await askGate({ questions, context: "ctx", kitForm: true }, ENV, f.deps);
+    expect(f.asks[0]!.kitForm).toBe(true);
+    expect(body(res)).toMatchObject({ paneAction: "kit", formChunks: [], formContext: "ctx" });
+    expect(body(res).kitForm).toEqual({ questions, context: "ctx", controls: { pause: false, goBack: [] } });
+  });
+
+  test("setting off: the payload has no kitForm and the result matches a call without the flag", async () => {
+    const flagged = fake({ kitOn: false });
+    const plain = fake({ kitOn: false });
+    const withFlag = await askGate({ ...ASK, kitForm: true }, ENV, flagged.deps);
+    const without = await askGate(ASK, ENV, plain.deps);
+    expect(flagged.asks[0]).toEqual(plain.asks[0]!);
+    expect("kitForm" in flagged.asks[0]!).toBe(false);
+    expect(JSON.stringify(withFlag)).toBe(JSON.stringify(without));
+  });
+
+  test("a setting read that throws counts as off", async () => {
+    const f = fake({ kitOn: true });
+    f.deps.kitFormOn = () => { throw new Error("settings store unreadable"); };
+    const res = await askGate({ ...ASK, kitForm: true }, ENV, f.deps);
+    expect(res.error).toBeUndefined();
+    expect("kitForm" in f.asks[0]!).toBe(false);
+  });
+
+  test("setting on without the flag sends no kitForm", async () => {
+    const f = fake({ kitOn: true });
+    await askGate(ASK, ENV, f.deps);
+    expect("kitForm" in f.asks[0]!).toBe(false);
+  });
+
+  test("kitForm must be a boolean", async () => {
+    const f = fake(KIT);
+    const res = await askGate({ ...ASK, kitForm: "yes" }, ENV, f.deps);
+    expect(res.error).toBe('"kitForm" must be a boolean');
+    expect(f.log).toEqual([]);
+  });
+
+  test("a presentation other than kit leaves kitForm out of the result", async () => {
+    const res = await askGate({ ...ASK, kitForm: true }, ENV, fake({ kitOn: true }).deps);
+    expect(body(res).paneAction).toBe("form");
+    expect("kitForm" in body(res)).toBe(false);
+  });
+
+  test("under a run, a kit gate arms waiting-gate", async () => {
+    const f = fake(KIT);
+    const res = await askGate({ ...ASK, ...RUN, kitForm: true }, ENV, f.deps);
+    expect(f.log).toEqual(["snapshot", "field set gate respond-plan --stage s", "ask", "field set waiting-gate g1 --stage s"]);
+    expect(body(res).paneAction).toBe("kit");
+  });
+
+  test("controls offer pause and the run's started earlier stages in run order", async () => {
+    const res = await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, fake({ ...KIT, ...STAGED }).deps);
+    expect((body(res).kitForm as { controls: unknown }).controls).toEqual({ pause: true, goBack: ["plan", "provision"] });
+  });
+
+  test("the controls ride on the gate's meta, so a form rebuilt from the listed row keeps them", async () => {
+    const f = fake({ ...KIT, ...STAGED });
+    await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, f.deps);
+    expect(f.asks[0]!.meta).toEqual({ kitControls: { pause: true, goBack: ["plan", "provision"] } });
+    const off = fake({ ...STAGED });
+    await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, off.deps);
+    expect("meta" in off.asks[0]!).toBe(false);
+  });
+
+  test("controls are empty on a shepherd worker's run", async () => {
+    const res = await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, fake({ ...KIT, ...STAGED, spawnedBy: "herd:h1" }).deps);
+    expect((body(res).kitForm as { controls: unknown }).controls).toEqual({ pause: false, goBack: [] });
+  });
+
+  test("boardOnly passes through from the daemon", async () => {
+    const res = await askGate({ ...ASK, kitForm: true }, ENV, fake({ kitOn: true, askData: { presentation: "wait", boardOnly: true } }).deps);
+    expect(body(res).boardOnly).toBe(true);
+    const kit = await askGate({ ...ASK, kitForm: true }, ENV, fake(KIT).deps);
+    expect(body(kit).boardOnly).toBe(false);
+  });
+
+  test("runErrors, labelsTruncated and supersededId still appear on a kit result", async () => {
+    const f = fake({
+      kitOn: true,
+      askData: { presentation: "kit", supersededId: "g0" },
+      failWrite: (l) => (l.startsWith("field set waiting-gate") ? "disk full" : undefined),
+    });
+    const long = "x".repeat(260);
+    const res = await askGate({ questions: [q("q1", [{ value: "v", label: long }, "no"])], ...RUN, kitForm: true }, ENV, f.deps);
+    expect(body(res)).toMatchObject({
+      paneAction: "kit", supersededId: "g0", runErrors: ["disk full"],
+      labelsTruncated: [{ question: "q1", value: "v", field: "label" }],
+    });
+    const sent = (body(res).kitForm as { questions: { options: { label: string }[] }[] }).questions[0]!.options[0]!;
+    expect(Buffer.byteLength(sent.label, "utf8")).toBeLessThanOrEqual(200);
+  });
+
+  describe("gate_open", () => {
+    const gateOpen = (f: ReturnType<typeof fake>) => tool("gate_open", f.deps);
+
+    test("a kit gate carries the fitted pane prose as its context and keeps contextDropped", async () => {
+      const f = fake(KIT);
+      const fit = fitOpen(plan());
+      const res = await gateOpen(f).handler({ kind: "respond-plan", source: plan(), kitForm: true }, ENV);
+      expect(f.asks[0]!.kitForm).toBe(true);
+      expect(body(res)).toMatchObject({ paneAction: "kit", formChunks: [], mode: "structured", contextDropped: false, boardOnly: false });
+      const questions = (fit.questions as unknown as GateQuestion[]).map((q, i) => ({ ...q, context: fit.pane.questions[i]!.context }));
+      expect(body(res).kitForm).toEqual({ questions, context: PLAN_GATE_LINE, controls: { pause: false, goBack: [] } });
+    });
+
+    test("a kit question whose context the pane budget dropped goes out with no context", async () => {
+      const f = fake(KIT);
+      const fit = fitOpen(bigAdjudication());
+      const res = await gateOpen(f).handler({ kind: "respond-plan", source: bigAdjudication(), kitForm: true }, ENV);
+      expect(body(res).contextDropped).toBe(true);
+      const sent = (body(res).kitForm as { questions: GateQuestion[] }).questions;
+      expect(fit.pane.droppedContexts.length).toBeGreaterThan(0);
+      for (const id of fit.pane.droppedContexts) expect("context" in sent.find((q) => q.id === id)!).toBe(false);
+      for (const q of sent) if ("context" in q) expect(q.context).toBe(fit.pane.questions.find((p) => p.id === q.id)!.context as string);
+    });
+
+    test("setting off: the result matches a call without the flag", async () => {
+      const flagged = fake();
+      const plain = fake();
+      const withFlag = await gateOpen(flagged).handler({ kind: "respond-plan", source: plan(), kitForm: true }, ENV);
+      const without = await gateOpen(plain).handler({ kind: "respond-plan", source: plan() }, ENV);
+      expect(flagged.asks[0]).toEqual(plain.asks[0]!);
+      expect(JSON.stringify(withFlag)).toBe(JSON.stringify(without));
+    });
+
+    test("handBack with kitForm: true hands back as today and opens nothing", async () => {
+      const flagged = fake(KIT);
+      const plain = fake(KIT);
+      const withFlag = await gateOpen(flagged).handler({ kind: "respond-plan", source: plan(), handBack: true, kitForm: true }, ENV);
+      const without = await gateOpen(plain).handler({ kind: "respond-plan", source: plan(), handBack: true }, ENV);
+      expect(flagged.log).toEqual([]);
+      expect(JSON.stringify(withFlag)).toBe(JSON.stringify(without));
+    });
+  });
+
+  describe("a run-control answer", () => {
+    const held = (answers: Record<string, unknown>, questions = [q("q1")]) =>
+      row({ questions, answer: { answers, by: "pane", answeredAt: 2000 } } as Partial<GateRow>);
+
+    test("gate_reconcile on {next: hold} returns next and writes no decision for the scope", async () => {
+      const f = fake({ waitRes: { ok: true, data: { status: "answered", row: held({ next: "hold" }) } }, fields: [ARMED] });
+      const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+      expect(f.log).toEqual(["snapshot", "wait", CLEAR]);
+      expect(body(res)).toMatchObject({ status: "answered", recorded: false, next: "hold" });
+      expect(body(res).skipped).toContain("run control");
+    });
+
+    test("gate_answer on {next: go-back, to} records no decision", async () => {
+      const f = fake({ answerRes: { ok: true, data: { row: held({ next: "go-back", to: "plan" }) } }, fields: [ARMED] });
+      const res = await answerGate({ id: "g1", answers: { next: "go-back", to: "plan" }, ...RUN }, ENV, f.deps);
+      expect(f.log).toEqual(["snapshot", "answer", CLEAR]);
+      expect(body(res)).toMatchObject({ recorded: false, next: "go-back" });
+    });
+
+    test("a gate with its own next question still records a hold answer", async () => {
+      const f = fake({ waitRes: { ok: true, data: { status: "answered", row: held({ next: "hold" }, [NEXT_Q]) } } });
+      const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
+      expect(f.log).toContain(recordLine("question", { next: "hold" }, "pane"));
+      expect(body(res).recorded).toBe(true);
+    });
   });
 });

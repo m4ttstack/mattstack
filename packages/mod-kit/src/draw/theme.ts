@@ -113,10 +113,12 @@ export function pressed<S extends Style>(span: S): S {
 
 // The button the keyboard selected: its own look, with a pink bar in its left edge cell so the cell count stays.
 // The bar is a mark, so under the pointer it takes the button's hover and press fills and stays pink.
+// On a pink fill (a brand button) a pink bar would vanish, so it is white there.
 export function keySelected<A>(span: Span<A>): Span<A>[] {
   if (!span.t.startsWith(' ')) return [span]
+  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? 'white' : BRAND.pink
   return [
-    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
     { ...span, t: span.t.slice(1) },
   ]
 }

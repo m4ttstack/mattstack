@@ -102,3 +102,10 @@ test("worktreeActivityAt reads a linked worktree's gitdir through the .git file"
 test("worktreeActivityAt is null for a missing worktree", () => {
   expect(worktreeActivityAt("/nowhere/never/existed")).toBeNull();
 });
+
+test("livenessFrom answers openKitGate from the lookup it is given, and not at all without one", () => {
+  expect(livenessFrom([]).openKitGate).toBeUndefined();
+  const l = livenessFrom([], (session) => (session === "sess-1" ? "gate-1" : null));
+  expect(l.openKitGate?.("sess-1")).toBe("gate-1");
+  expect(l.openKitGate?.("sess-2")).toBeNull();
+});

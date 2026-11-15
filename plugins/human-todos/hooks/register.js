@@ -217,8 +217,9 @@ function pressed(span) {
 function keySelected(span) {
   if (!span.t.startsWith(" "))
     return [span];
+  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
     { ...span, t: span.t.slice(1) }
   ];
 }
@@ -237,6 +238,55 @@ function muted(span) {
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
+}
+// packages/mod-kit/src/widgets/scroll-bar.ts
+function scrollBar(rows, total, offset) {
+  if (total <= rows)
+    return Array.from({ length: rows }, () => [sp("   ")]);
+  const size = Math.max(1, Math.round(rows * rows / total));
+  const at = Math.min(Math.max(0, offset), total - rows);
+  const top = Math.round(at / (total - rows) * (rows - size));
+  return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
+}
+// packages/mod-kit/src/interact/focus.ts
+function isEngaged(e) {
+  return e.data?.type === "engaged";
+}
+// packages/mod-kit/src/interact/grid.ts
+function gridResolve(rows, sel) {
+  if (!sel)
+    return { at: 0, col: rows[0]?.main ?? 0, hasFallen: false };
+  const found = rows.findIndex((r) => r.key === sel.key);
+  if (found < 0) {
+    const at = Math.min(sel.at, rows.length - 1);
+    return { at, col: rows[at]?.main ?? 0, hasFallen: true };
+  }
+  const col = rows[found].ids.indexOf(sel.button);
+  return { at: found, col: col >= 0 ? col : rows[found].main, hasFallen: false };
+}
+function gridSelection(rows, spot) {
+  const row = rows[spot.at];
+  const button = row?.ids[spot.col];
+  return row && button !== undefined ? { key: row.key, button, at: spot.at } : undefined;
+}
+function gridMove(rows, here, ev, options = {}) {
+  if (rows.length === 0)
+    return { handled: false };
+  const tab = options.tabSteps === true && ev.key === "tab";
+  const step = ev.key === "up" || tab && ev.shift ? -1 : ev.key === "down" || tab ? 1 : 0;
+  if (step !== 0) {
+    const at = Math.min(Math.max(0, here.at + step), rows.length - 1);
+    return at === here.at ? { handled: true } : { handled: true, to: { at, col: rows[at].main } };
+  }
+  if (ev.key === "left" || ev.key === "right") {
+    const col = here.col + (ev.key === "left" ? -1 : 1);
+    return col >= 0 && col < (rows[here.at]?.ids.length ?? 0) ? { handled: true, to: { at: here.at, col } } : { handled: true };
+  }
+  return { handled: false };
+}
+function gridLook(span, focus) {
+  const base = focus.pressing ? pressed(span) : span;
+  return focus.marked ? keySelected(base) : [base];
 }
 // packages/mod-kit/src/widgets/buttons.ts
 var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
@@ -262,24 +312,12 @@ function buttonRow(left, right, width, indent) {
   line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
   return line;
 }
-// packages/mod-kit/src/widgets/scroll-bar.ts
-function scrollBar(rows, total, offset) {
-  if (total <= rows)
-    return Array.from({ length: rows }, () => [sp("   ")]);
-  const size = Math.max(1, Math.round(rows * rows / total));
-  const at = Math.min(Math.max(0, offset), total - rows);
-  const top = Math.round(at / (total - rows) * (rows - size));
-  return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
-}
-// packages/mod-kit/src/interact/focus.ts
-function isEngaged(e) {
-  return e.data?.type === "engaged";
-}
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
 async function showPane($, pane, title) {
-  await $.ui.open({ id: pane.id, title, focus: true });
+  const opened = await $.ui.open({ id: pane.id, title, focus: true });
   $.ui.invalidate("ui.render");
+  return opened.isPlaced;
 }
 async function paneMessage($, e, pane, waiting) {
   const message = e.data;
@@ -295,12 +333,25 @@ function registerPaneRedraw(on) {
     return closed;
   });
 }
-async function bandAbovePrompt($, e, rest, waiting, pane) {
+async function bandAbovePrompt($, e, rest, waiting, pane, options = {}) {
   const label = pane.label ?? DEFAULT_BAND_LABEL;
   const els = $.ui.resolve(e);
   const { Box, Text, Button } = els;
   const Client = "Client" in els ? els.Client : undefined;
-  const band = Client ? /* @__PURE__ */ h(Client, {
+  const show = /* @__PURE__ */ h(Button, {
+    key: `open-${pane.id}`,
+    label: "Show",
+    onPress: () => showPane($, pane, waiting.title)
+  });
+  const band = Client ? options.engineShow ? /* @__PURE__ */ h(Box, {
+    flexDirection: "row",
+    gap: 2
+  }, /* @__PURE__ */ h(Client, {
+    key: `band-${waiting.formId}`,
+    module: "./band.js",
+    flexGrow: 1,
+    props: { formId: waiting.formId, title: waiting.title, label, bareText: true }
+  }), show) : /* @__PURE__ */ h(Client, {
     key: `band-${waiting.formId}`,
     module: "./band.js",
     props: { formId: waiting.formId, title: waiting.title, label }
@@ -322,6 +373,102 @@ async function bandAbovePrompt($, e, rest, waiting, pane) {
 }
 async function isPlaced($, pane) {
   return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
+}
+function paneRows(e) {
+  return e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
+}
+var wheels = new Map;
+// packages/mod-kit/src/patterns/scroll-list.ts
+var maxScroll = (total, windowRows) => Math.max(0, total - windowRows);
+function revealOffset(view, index) {
+  const stop = view.stops[index];
+  const most = maxScroll(view.total, view.windowRows);
+  if (!stop)
+    return view.top;
+  if (stop.first < view.top)
+    return Math.max(0, stop.first);
+  if (stop.last > view.top + view.windowRows - 1)
+    return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1));
+  return view.top;
+}
+function isButtonInView(view, index, col) {
+  const line = view.stops[index]?.lines[col];
+  return line !== undefined && line >= view.top && line <= view.top + view.windowRows - 1;
+}
+function revealButtonOffset(view, index, col) {
+  const line = view.stops[index]?.lines[col];
+  if (line === undefined || isButtonInView(view, index, col))
+    return view.top;
+  return line < view.top ? line : Math.min(maxScroll(view.total, view.windowRows), line - view.windowRows + 1);
+}
+function lineOfAction(lines, action) {
+  const wanted = JSON.stringify(action);
+  return lines.findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+}
+var ellipsize = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
+function clipLine(line, cells) {
+  const out = [];
+  let used = 0;
+  for (const span of line) {
+    const w = cellWidth(span.t);
+    if (used + w <= cells) {
+      out.push(span);
+      used += w;
+      continue;
+    }
+    const t = cutCells(span.t, cells - used);
+    if (t !== "")
+      out.push({ ...span, t });
+    used += cellWidth(t);
+    break;
+  }
+  out.push(sp(" ".repeat(Math.max(0, cells - used))));
+  return out;
+}
+function wrappedButtons(lead, buttons, room, indent) {
+  const pad = sp(" ".repeat(indent));
+  let rest = buttons;
+  const out = [];
+  let withLead = lead.length > 0;
+  while (rest.length > 0) {
+    const leadIn = withLead ? 1 : 0;
+    const avail = Math.max(1, room - widthOf([pad, ...withLead ? lead : []]));
+    const draw = (some) => buttonRow(some, undefined, avail, leadIn);
+    let n = rest.length;
+    while (n > 0 && widthOf(draw(rest.slice(0, n))) > avail)
+      n--;
+    if (n === 0 && withLead) {
+      out.push([pad, ...lead]);
+      withLead = false;
+      continue;
+    }
+    n = Math.max(1, n);
+    out.push([pad, ...withLead ? lead : [], ...draw(rest.slice(0, n))]);
+    rest = rest.slice(n);
+    withLead = false;
+  }
+  return out;
+}
+function markLead(line, glyph) {
+  const at = line.findIndex((span) => span.t.startsWith(`${glyph} `));
+  if (at < 0)
+    return line;
+  const span = line[at];
+  return [...line.slice(0, at), { ...span, t: glyph, color: BRAND.pink }, { ...span, t: span.t.slice(glyph.length) }, ...line.slice(at + 1)];
+}
+function windowLines(spec) {
+  const focus = spec.focus ?? {};
+  const chosen = focus.selected === undefined ? undefined : JSON.stringify(focus.selected);
+  const range = focus.marked ? focus.range : undefined;
+  const rail = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(Math.max(0, spec.gutter - 1)))];
+  const plain = [sp(" ".repeat(spec.gutter))];
+  return spec.shown.map((line, n) => {
+    const at = spec.top + n;
+    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? gridLook(span, focus) : [span]) : line;
+    const lead = range && at === range.first && spec.leadGlyph ? markLead(lit, spec.leadGlyph) : lit;
+    const gutter = range && at >= range.first && at <= range.last ? rail : plain;
+    return [...clipLine([...gutter, ...lead], spec.width - spec.barCells), ...spec.bar[n] ?? []];
+  });
 }
 // mods/human-todos/src/items.ts
 var PLUGIN = "human-todos";
@@ -421,11 +568,11 @@ function wrapWords(text, width) {
   }
   return rows;
 }
-function clipLine(line) {
+function clipLine2(line) {
   return line.length > LINE_MAX ? `${line.slice(0, LINE_MAX - 1)}…` : line;
 }
 function clipLines(lines) {
-  return lines.map(clipLine);
+  return lines.map(clipLine2);
 }
 function tail(out, lines = 30) {
   const kept = clipLines(out.trimEnd().split(`
@@ -464,18 +611,7 @@ function quote(text) {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
-// mods/human-todos/src/store.ts
-import { atom, read, update } from "claude-code";
-
-// mods/human-todos/src/local.ts
-var PID_LINE = /^__human_todo_pid__(\d+)$/;
-var FLUSH_MS = 1000;
-var WINDOW = 1024 * 1024;
-var SLACK = WINDOW;
-var TAIL_SCAN = 64 * 1024;
-var DROPPED = `[earlier output was dropped]
-`;
-var jobs = new Map;
+// mods/human-todos/src/logs.ts
 async function logFolder($) {
   const cache = await $.env.get("XDG_CACHE_HOME");
   if (cache)
@@ -485,207 +621,45 @@ async function logFolder($) {
     throw new Error("no home folder for the log");
   return `${home}/Library/Caches/human-todos`;
 }
-function signal($, pid, sig = "TERM") {
-  const walk = 'walk() { for c in $(pgrep -P "$1"); do walk "$c"; done; echo "$1"; }';
-  return $.process.run(["/bin/sh", "-c", `${walk}; kill -${sig} $(walk ${pid}) 2>/dev/null`]);
-}
-function scanStderr(held, text) {
-  const buffered = held + text;
-  const cut = buffered.lastIndexOf(`
-`) + 1;
-  let passed = "";
-  let pid;
-  for (const line of buffered.slice(0, cut).split(`
-`).slice(0, -1)) {
-    const marker = pid === undefined ? PID_LINE.exec(line) : null;
-    if (marker)
-      pid = Number(marker[1]);
-    else
-      passed += `${line}
+var KEPT_RUN_LOGS = 20;
+var STALE_SPILL_MS = 24 * 60 * 60 * 1000;
+var DROPPED = `[earlier output was dropped]
 `;
-  }
-  const rest = buffered.slice(cut);
-  return pid === undefined ? { held: rest, passed } : { held: "", passed: passed + rest, pid };
-}
-function liveLines(output) {
-  return output.split(`
-`).filter((line) => line.trim() !== "").slice(-LIVE_LINES_LOCAL);
-}
-async function startLocal($, todo) {
-  let token = newToken();
-  while (jobs.has(token))
-    token = newToken();
-  const job = { isStopped: false, isGone: false };
-  jobs.set(token, job);
-  const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`;
-  const abandon = async () => {
-    jobs.delete(token);
-    await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
-      return;
-    });
-  };
-  await $.fs.write(logPath, "");
-  if (job.isGone)
-    return abandon();
-  if (todo.logPath)
-    await $.process.run(["rm", "-f", "--", todo.logPath]).catch(() => {
-      return;
-    });
-  if (job.isGone)
-    return abandon();
-  await patchTodo($, todo.id, { token, logPath, liveTail: [], isStopping: false });
-  const still = job.isGone ? undefined : (await listTodos($)).find((t) => t.id === todo.id);
-  if (job.isGone || still?.status !== "running" || still.token !== token) {
-    await abandon();
-    if (!job.isGone && still?.token === token)
-      await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => {
-        return;
-      });
-    return;
-  }
-  let output = "";
-  let isTrimmed = false;
-  let held = "";
-  let revision = 0;
-  let written = 0;
-  let isWriteFailed = false;
-  const append = (text) => {
-    output += text;
-    if (output.length > WINDOW + SLACK) {
-      output = output.slice(-WINDOW);
-      isTrimmed = true;
-    }
-    revision += 1;
-  };
-  const kept = () => output.length > WINDOW ? output.slice(-WINDOW) : output;
-  const isCut = () => isTrimmed || output.length > WINDOW;
-  let queue = Promise.resolve();
-  const writeOut = async () => {
-    if (job.isGone || revision === written)
-      return;
-    written = revision;
-    try {
-      await $.fs.write(logPath, isCut() ? `${DROPPED}${kept()}` : output);
-    } catch {
-      if (!isWriteFailed)
-        $.ui.toast(`Could not save the output of #${todo.id}`);
-      isWriteFailed = true;
-    }
-    if (job.isGone)
-      return;
-    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output.slice(-TAIL_SCAN))) }).catch(() => {
-      return;
-    });
-  };
-  const flush = () => queue = queue.then(writeOut);
-  const ticker = $.clock.every(FLUSH_MS, () => {
-    flush();
-  });
-  const child = $.process.spawn({
-    argv: ["/bin/zsh", "-lc", `print -u2 "__human_todo_pid__$$"; ${todo.script ?? ""}`],
-    cwd: todo.cwd
-  });
-  let step;
+var JOIN_TIMEOUT_MS = 120000;
+async function joinSpill($, spill, text, path) {
+  const argv = ["/bin/sh", "-c", 'mkdir -p -- "$(dirname -- "$2")" && cat -- "$1" - > "$2"', "sh", spill, path];
   try {
-    step = await child.next();
-  } catch (err) {
-    ticker.cancel();
-    jobs.delete(token);
-    await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
-      return;
-    });
-    await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => {
-      return;
-    });
-    throw err;
-  }
-  let exitCode = -1;
-  try {
-    while (!step.done) {
-      if (job.pid === undefined && step.value.stream === "stderr") {
-        const scanned = scanStderr(held, step.value.text);
-        held = scanned.held;
-        append(scanned.passed);
-        if (scanned.pid !== undefined) {
-          job.pid = scanned.pid;
-          if (job.isGone)
-            await signal($, job.pid);
-        }
-      } else {
-        append(step.value.text);
-      }
-      step = await child.next();
-    }
-    exitCode = step.value.code ?? (step.value.signal ? 130 : -1);
-  } catch (err) {
-    append(`
-${String(err)}`);
-  }
-  append(held);
-  ticker.cancel();
-  if (job.isGone)
-    return void jobs.delete(token);
-  await flush();
-  jobs.delete(token);
-  if (job.isGone)
-    return;
-  await report($, todo, job.isStopped ? { kind: "stopped", outputTail: kept() } : { kind: "ran", exitCode, outputTail: kept() });
-}
-async function stopLocal($, todo) {
-  const job = todo.token ? jobs.get(todo.token) : undefined;
-  if (job?.pid === undefined) {
-    await patchTodo($, todo.id, { isStopping: false });
-    $.ui.toast("Still starting; try Stop again in a moment");
-    return;
-  }
-  job.isStopped = true;
-  try {
-    await signal($, job.pid);
+    return (await $.process.run(argv, { stdin: text, timeoutMs: JOIN_TIMEOUT_MS })).exitCode === 0;
   } catch {
-    job.isStopped = false;
-    await patchTodo($, todo.id, { isStopping: false });
-    $.ui.toast(`Could not stop #${todo.id}`);
+    return false;
   }
 }
-async function forceStopLocal($, todo) {
-  const job = todo.token ? jobs.get(todo.token) : undefined;
-  if (job?.pid === undefined)
+async function writeRunLog($, todoId, output, spill) {
+  if (output.trim() === "" && spill === undefined)
     return;
+  const folder = `${await logFolder($)}/runs`;
+  const path = `${folder}/${await $.session.id()}-${todoId}-${await $.clock.now()}.log`;
+  const text = output.endsWith(`
+`) ? output : `${output}
+`;
+  if (typeof spill !== "string" || !await joinSpill($, spill, text, path)) {
+    await $.fs.write(path, spill === undefined ? text : `${DROPPED}${text}`);
+  }
   try {
-    await signal($, job.pid, "KILL");
-  } catch {
-    $.ui.toast(`Could not force stop #${todo.id}`);
-  }
+    const logs = (await $.fs.list(folder)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));
+    const old = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name)).slice(KEPT_RUN_LOGS);
+    const root = await logFolder($);
+    const now = await $.clock.now();
+    const spills = (await $.fs.list(root)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".spill") && now - entry.mtimeMs > STALE_SPILL_MS);
+    const gone = [...old.map((entry) => `${folder}/${entry.name}`), ...spills.map((entry) => `${root}/${entry.name}`)];
+    if (gone.length > 0)
+      await $.process.run(["rm", "-f", "--", ...gone]);
+  } catch {}
+  return path;
 }
-async function showLocal(_$, _todo) {}
-async function releaseLocal($) {
-  const held = [...jobs.values()];
-  for (const job of held)
-    job.isGone = true;
-  let isFailed = false;
-  for (const job of held) {
-    if (job.pid === undefined)
-      continue;
-    await signal($, job.pid).catch(() => {
-      isFailed = true;
-    });
-  }
-  if (isFailed)
-    throw new Error("A local run could not be stopped");
-}
-async function cleanupLocal($, todo) {
-  const job = todo.token ? jobs.get(todo.token) : undefined;
-  try {
-    if (job) {
-      job.isGone = true;
-      if (job.pid !== undefined)
-        await signal($, job.pid);
-    }
-  } finally {
-    if (todo.logPath)
-      await $.process.run(["rm", "-f", "--", todo.logPath]);
-  }
-}
+
+// mods/human-todos/src/store.ts
+import { atom, read, update } from "claude-code";
 
 // mods/human-todos/src/herdr.ts
 var POLL_MS = 1000;
@@ -1179,8 +1153,10 @@ async function syncSpinner($) {
 
 // mods/human-todos/src/report.ts
 var SETTLED = { liveTail: undefined, isStopping: false };
-function settle(todo, outcome) {
+var outputLine = (log) => log === undefined ? "(no output)" : log ?? "(the output could not be saved)";
+function settle(todo, outcome, log) {
   const who = `#${todo.id} "${todo.title}"`;
+  const output = `Output: ${outputLine(log)}`;
   switch (outcome.kind) {
     case "done":
       return { patch: { status: "done" }, text: `${who}: the user marked it done.` };
@@ -1190,26 +1166,36 @@ function settle(todo, outcome) {
       const outputTail = tail(outcome.outputTail);
       return {
         patch: { ...SETTLED, status: outcome.exitCode === 0 ? "done" : "failed", exitCode: outcome.exitCode, outputTail },
-        text: `The user ran ${who} from the pane: exit ${outcome.exitCode}.
-\`\`\`
-${outputTail || "(no output)"}
-\`\`\``
+        text: `The user ran ${who} from the pane: exit ${outcome.exitCode}. ${output}`
       };
     }
     case "stopped":
       return {
         patch: { ...SETTLED, status: "open", outputTail: tail(outcome.outputTail), note: "Stopped" },
-        text: `The user stopped ${who} before it finished. It is open again.`
+        text: `The user stopped ${who} before it finished. It is open again. ${output}`
       };
     case "ended":
       return {
         patch: { ...SETTLED, status: "open", outputTail: tail(outcome.outputTail), note: "Ended without an exit code." },
-        text: `${who} ended in its tab without reporting an exit code (most likely stopped). It is open again.`
+        text: `${who} ended in its tab without reporting an exit code (most likely stopped). It is open again. ${output}`
       };
   }
 }
+async function savedOutput($, todo, outcome) {
+  if (!("outputTail" in outcome))
+    return;
+  try {
+    return await writeRunLog($, todo.id, outcome.outputTail, "spill" in outcome ? outcome.spill : undefined);
+  } catch {
+    return null;
+  }
+}
 async function report($, todo, outcome) {
-  const { patch, text } = settle(todo, outcome);
+  const session = await $.session.id();
+  const log = await savedOutput($, todo, outcome);
+  if (await $.session.id() !== session)
+    return;
+  const { patch, text } = settle(todo, outcome, log);
   await patchTodo($, todo.id, patch);
   await syncSpinner($);
   const warn = () => {
@@ -1220,6 +1206,263 @@ async function report($, todo, outcome) {
     if (sent.drop !== undefined)
       warn();
   }).catch(warn);
+}
+
+// mods/human-todos/src/local.ts
+var PID_LINE = /^__human_todo_pid__(\d+)$/;
+var FLUSH_MS = 1000;
+var WINDOW = 1024 * 1024;
+var SLACK = WINDOW;
+var SPILL_CAP = 20 * 1024 * 1024;
+var TAIL_SCAN = 64 * 1024;
+var jobs = new Map;
+function signal($, pid, sig = "TERM") {
+  const walk = 'walk() { for c in $(pgrep -P "$1"); do walk "$c"; done; echo "$1"; }';
+  return $.process.run(["/bin/sh", "-c", `${walk}; kill -${sig} $(walk ${pid}) 2>/dev/null`]);
+}
+function scanStderr(held, text) {
+  const buffered = held + text;
+  const cut = buffered.lastIndexOf(`
+`) + 1;
+  let passed = "";
+  let pid;
+  for (const line of buffered.slice(0, cut).split(`
+`).slice(0, -1)) {
+    const marker = pid === undefined ? PID_LINE.exec(line) : null;
+    if (marker)
+      pid = Number(marker[1]);
+    else
+      passed += `${line}
+`;
+  }
+  const rest = buffered.slice(cut);
+  return pid === undefined ? { held: rest, passed } : { held: "", passed: passed + rest, pid };
+}
+function liveLines(output) {
+  return output.split(`
+`).filter((line) => line.trim() !== "").slice(-LIVE_LINES_LOCAL);
+}
+async function startLocal($, todo) {
+  let token = newToken();
+  while (jobs.has(token))
+    token = newToken();
+  const job = { isStopped: false, isGone: false };
+  jobs.set(token, job);
+  const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`;
+  const spillPath = logPath.replace(/\.log$/, ".spill");
+  const abandon = async () => {
+    jobs.delete(token);
+    await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
+      return;
+    });
+  };
+  await $.fs.write(logPath, "");
+  if (job.isGone)
+    return abandon();
+  if (todo.logPath)
+    await $.process.run(["rm", "-f", "--", todo.logPath]).catch(() => {
+      return;
+    });
+  if (job.isGone)
+    return abandon();
+  await patchTodo($, todo.id, { token, logPath, liveTail: [], isStopping: false });
+  const still = job.isGone ? undefined : (await listTodos($)).find((t) => t.id === todo.id);
+  if (job.isGone || still?.status !== "running" || still.token !== token) {
+    await abandon();
+    if (!job.isGone && still?.token === token)
+      await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => {
+        return;
+      });
+    return;
+  }
+  let output = "";
+  let isTrimmed = false;
+  let held = "";
+  let revision = 0;
+  let written = 0;
+  let isWriteFailed = false;
+  let spilled = Promise.resolve();
+  let isSpillFailed = false;
+  let spilledLength = 0;
+  let isSpillFull = false;
+  let endsLine = true;
+  const spill = (whole) => {
+    if (isSpillFull)
+      return;
+    const room = SPILL_CAP - spilledLength;
+    isSpillFull = whole.length > room;
+    const head = isSpillFull ? whole.slice(0, room) : whole;
+    spilledLength += head.length;
+    if (head !== "")
+      endsLine = head.endsWith(`
+`);
+    const text = isSpillFull ? `${head}${endsLine ? "" : `
+`}${DROPPED}` : head;
+    spilled = spilled.then(async () => {
+      if (isSpillFailed)
+        return;
+      const appended = await $.process.run(["/bin/sh", "-c", 'cat >> "$1"', "sh", spillPath], { stdin: text });
+      if (appended.exitCode !== 0)
+        isSpillFailed = true;
+    }).catch(() => {
+      isSpillFailed = true;
+    });
+  };
+  const cut = () => {
+    spill(output.slice(0, -WINDOW));
+    output = output.slice(-WINDOW);
+    isTrimmed = true;
+  };
+  const append = (text) => {
+    output += text;
+    if (output.length > WINDOW + SLACK)
+      cut();
+    revision += 1;
+  };
+  const kept = () => output.length > WINDOW ? output.slice(-WINDOW) : output;
+  const isCut = () => isTrimmed || output.length > WINDOW;
+  let queue = Promise.resolve();
+  const writeOut = async () => {
+    if (job.isGone || revision === written)
+      return;
+    written = revision;
+    try {
+      await $.fs.write(logPath, isCut() ? `${DROPPED}${kept()}` : output);
+    } catch {
+      if (!isWriteFailed)
+        $.ui.toast(`Could not save the output of #${todo.id}`);
+      isWriteFailed = true;
+    }
+    if (job.isGone)
+      return;
+    await patchTodo($, todo.id, { liveTail: clipLines(liveLines(output.slice(-TAIL_SCAN))) }).catch(() => {
+      return;
+    });
+  };
+  const flush = () => queue = queue.then(writeOut);
+  const ticker = $.clock.every(FLUSH_MS, () => {
+    flush();
+  });
+  const child = $.process.spawn({
+    argv: ["/bin/zsh", "-lc", `print -u2 "__human_todo_pid__$$"; ${todo.script ?? ""}`],
+    cwd: todo.cwd
+  });
+  let step;
+  try {
+    step = await child.next();
+  } catch (err) {
+    ticker.cancel();
+    jobs.delete(token);
+    await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
+      return;
+    });
+    await patchTodo($, todo.id, { token: undefined, logPath: undefined }).catch(() => {
+      return;
+    });
+    throw err;
+  }
+  let exitCode = -1;
+  try {
+    while (!step.done) {
+      if (job.pid === undefined && step.value.stream === "stderr") {
+        const scanned = scanStderr(held, step.value.text);
+        held = scanned.held;
+        append(scanned.passed);
+        if (scanned.pid !== undefined) {
+          job.pid = scanned.pid;
+          if (job.isGone)
+            await signal($, job.pid);
+        }
+      } else {
+        append(step.value.text);
+      }
+      step = await child.next();
+    }
+    exitCode = step.value.code ?? (step.value.signal ? 130 : -1);
+  } catch (err) {
+    append(`
+${String(err)}`);
+  }
+  append(held);
+  if (output.length > WINDOW)
+    cut();
+  ticker.cancel();
+  await spilled;
+  const dropSpill = async () => {
+    if (isTrimmed)
+      await $.process.run(["rm", "-f", "--", spillPath]).catch(() => {
+        return;
+      });
+  };
+  if (job.isGone) {
+    jobs.delete(token);
+    return dropSpill();
+  }
+  await flush();
+  jobs.delete(token);
+  if (job.isGone)
+    return dropSpill();
+  const saved = { outputTail: output, spill: isTrimmed ? isSpillFailed ? null : spillPath : undefined };
+  try {
+    await report($, todo, job.isStopped ? { kind: "stopped", ...saved } : { kind: "ran", exitCode, ...saved });
+  } finally {
+    await dropSpill();
+  }
+}
+async function stopLocal($, todo) {
+  const job = todo.token ? jobs.get(todo.token) : undefined;
+  if (job?.pid === undefined) {
+    await patchTodo($, todo.id, { isStopping: false });
+    $.ui.toast("Still starting; try Stop again in a moment");
+    return;
+  }
+  job.isStopped = true;
+  try {
+    await signal($, job.pid);
+  } catch {
+    job.isStopped = false;
+    await patchTodo($, todo.id, { isStopping: false });
+    $.ui.toast(`Could not stop #${todo.id}`);
+  }
+}
+async function forceStopLocal($, todo) {
+  const job = todo.token ? jobs.get(todo.token) : undefined;
+  if (job?.pid === undefined)
+    return;
+  try {
+    await signal($, job.pid, "KILL");
+  } catch {
+    $.ui.toast(`Could not force stop #${todo.id}`);
+  }
+}
+async function showLocal(_$, _todo) {}
+async function releaseLocal($) {
+  const held = [...jobs.values()];
+  for (const job of held)
+    job.isGone = true;
+  let isFailed = false;
+  for (const job of held) {
+    if (job.pid === undefined)
+      continue;
+    await signal($, job.pid).catch(() => {
+      isFailed = true;
+    });
+  }
+  if (isFailed)
+    throw new Error("A local run could not be stopped");
+}
+async function cleanupLocal($, todo) {
+  const job = todo.token ? jobs.get(todo.token) : undefined;
+  try {
+    if (job) {
+      job.isGone = true;
+      if (job.pid !== undefined)
+        await signal($, job.pid);
+    }
+  } finally {
+    if (todo.logPath)
+      await $.process.run(["rm", "-f", "--", todo.logPath]);
+  }
 }
 
 // mods/human-todos/src/runners.ts
@@ -1622,32 +1865,10 @@ var STYLE = {
   inactive: GRAY,
   plain: {}
 };
-var fit = (text, cells) => cellWidth(text) <= cells ? text : `${cutCells(text, Math.max(0, cells - 1))}…`;
 var roomOf = (width) => Math.max(1, width - GUTTER - BAR);
 function buttonLines(row, room) {
-  const indent = sp(" ".repeat(row.flush ? 0 : INDENT));
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
-  let rest = row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) }));
-  const out = [];
-  let withLead = lead.length > 0;
-  while (rest.length > 0) {
-    const leadIn = withLead ? 1 : 0;
-    const avail = Math.max(1, room - widthOf([indent, ...withLead ? lead : []]));
-    const draw = (buttons) => buttonRow(buttons, undefined, avail, leadIn);
-    let n = rest.length;
-    while (n > 0 && widthOf(draw(rest.slice(0, n))) > avail)
-      n--;
-    if (n === 0 && withLead) {
-      out.push([indent, ...lead]);
-      withLead = false;
-      continue;
-    }
-    n = Math.max(1, n);
-    out.push([indent, ...withLead ? lead : [], ...draw(rest.slice(0, n))]);
-    rest = rest.slice(n);
-    withLead = false;
-  }
-  return out;
+  return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, row.flush ? 0 : INDENT);
 }
 function rowLines(row, room) {
   switch (row.kind) {
@@ -1662,7 +1883,7 @@ function rowLines(row, room) {
     case "finished": {
       const mark = `${row.mark} `;
       const exit = row.exit === undefined ? "" : ` (exit ${row.exit})`;
-      const title = fit(row.title, room - cellWidth(mark) - cellWidth(exit));
+      const title = ellipsize(row.title, room - cellWidth(mark) - cellWidth(exit));
       return [[sp(mark, STYLE[row.tone]), sp(title, DIM), ...exit ? [sp(exit, DIM)] : []]];
     }
     case "buttons":
@@ -1686,7 +1907,7 @@ function kitLayout(model, width, bodyRows) {
   return { lines, spans, windowRows, rows };
 }
 function maxOffset(layout) {
-  return Math.max(0, layout.lines.length - layout.windowRows);
+  return maxScroll(layout.lines.length, layout.windowRows);
 }
 function stopMessage(stop, col) {
   const id = stop.ids[col];
@@ -1699,8 +1920,7 @@ function keyStops(model, layout) {
       return;
     const laid = layout.rows[r];
     for (const button of row.buttons) {
-      const wanted = JSON.stringify(messageOf(button));
-      const offsetInRow = layout.lines.slice(laid.first, laid.first + laid.count).findIndex((line) => line.some((span) => span.action !== undefined && JSON.stringify(span.action) === wanted));
+      const offsetInRow = lineOfAction(layout.lines.slice(laid.first, laid.first + laid.count), messageOf(button));
       const line = laid.first + Math.max(0, offsetInRow);
       const key = button.todoId ?? button.id;
       const stop = stops.get(key);
@@ -1731,71 +1951,11 @@ function kitView(model, width, bodyRows, offset) {
     stops: keyStops(model, layout)
   };
 }
-function revealOffset(view, index) {
-  const stop = view.stops[index];
-  const most = Math.max(0, view.total - view.windowRows);
-  if (!stop)
-    return view.top;
-  if (stop.first < view.top)
-    return Math.max(0, stop.first);
-  if (stop.last > view.top + view.windowRows - 1)
-    return Math.min(most, Math.min(stop.first, stop.last - view.windowRows + 1));
-  return view.top;
-}
-function isButtonInView(view, index, col) {
-  const line = view.stops[index]?.lines[col];
-  return line !== undefined && line >= view.top && line <= view.top + view.windowRows - 1;
-}
-function revealButtonOffset(view, index, col) {
-  const line = view.stops[index]?.lines[col];
-  if (line === undefined || isButtonInView(view, index, col))
-    return view.top;
-  return line < view.top ? line : Math.min(Math.max(0, view.total - view.windowRows), line - view.windowRows + 1);
-}
-function clip(line, cells) {
-  const out = [];
-  let used = 0;
-  for (const span of line) {
-    const w = cellWidth(span.t);
-    if (used + w <= cells) {
-      out.push(span);
-      used += w;
-      continue;
-    }
-    const t = cutCells(span.t, cells - used);
-    if (t !== "")
-      out.push({ ...span, t });
-    used += cellWidth(t);
-    break;
-  }
-  out.push(sp(" ".repeat(Math.max(0, cells - used))));
-  return out;
-}
-var RAIL = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(GUTTER - 1))];
-function markFirst(line) {
-  const at = line.findIndex((span) => span.t.startsWith("○ "));
-  if (at < 0)
-    return line;
-  const span = line[at];
-  return [...line.slice(0, at), { ...span, t: "○", color: BRAND.pink }, { ...span, t: span.t.slice(1) }, ...line.slice(at + 1)];
-}
 function viewLines(view, width, focus = {}) {
   const room = roomOf(width);
   const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
-  const chosen = focus.selected && JSON.stringify(focus.selected);
-  const range = focus.marked ? focus.range : undefined;
-  const look = (span) => {
-    const base = focus.pressing ? pressed(span) : span;
-    return focus.marked ? keySelected(base) : [base];
-  };
   const bar = scrollBar(view.windowRows, view.total, view.top);
-  return shown.map((line, n) => {
-    const at = view.top + n;
-    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? look(span) : [span]) : line;
-    const marked = range && at === range.first ? markFirst(lit) : lit;
-    const gutter = range && at >= range.first && at <= range.last ? RAIL : [sp(" ".repeat(GUTTER))];
-    return [...clip([...gutter, ...marked], width - BAR), ...bar[n] ?? []];
-  });
+  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus, leadGlyph: "○" });
 }
 
 // mods/human-todos/src/pane/plain-view.tsx
@@ -1980,7 +2140,7 @@ function registerPane(on) {
     if (!band)
       return next(e);
     if (e.surface === "terminal" || e.surface === "desktop")
-      return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE);
+      return bandAbovePrompt($, e, await next(e), { formId: PANE, title: band.title }, TODO_PANE, { engineShow: true });
     const { waiting } = band;
     const { Box, Text, Button } = $.ui.resolve(e);
     return /* @__PURE__ */ h(Box, {
@@ -2020,7 +2180,7 @@ function registerPane(on) {
     }
     const { Client } = $.ui.resolve(e);
     const width = paneColumns(e);
-    const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
+    const bodyRows = paneRows(e);
     kitSizes.set(e.surface, { columns: width, bodyRows });
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
@@ -2030,6 +2190,7 @@ function registerPane(on) {
     return /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",
       module: "./pane/kit-view.js",
+      height: bodyRows,
       props
     });
   });
