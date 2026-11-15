@@ -937,6 +937,86 @@ describe('GitHubProvider re-request and merge cleanup', () => {
       /^requestReReview: failed to fetch PR: 502/
     );
   });
+
+  /** Records every requested_reviewers call on PR 3, in order. */
+  function recordRenew(
+    opts: { pending?: string[]; read?: Response; remove?: Response } = {}
+  ): { calls: string[]; urls: string[] } {
+    const calls: string[] = [];
+    const { urls } = stubForge({
+      rest: (url, method, body) => {
+        if (!url.includes('/pulls/3/requested_reviewers')) return undefined;
+        if (method === 'GET') {
+          calls.push('GET');
+          return (
+            opts.read ??
+            jsonResponse({ users: (opts.pending ?? []).map((login) => ({ login })), teams: [] })
+          );
+        }
+        const names = (JSON.parse(body ?? '{}') as { reviewers: string[] }).reviewers;
+        calls.push(`${method} ${names.join(',')}`);
+        if (method === 'DELETE') return opts.remove ?? jsonResponse({});
+        return jsonResponse({});
+      }
+    });
+    return { calls, urls };
+  }
+
+  test('requestReReview without renew only posts, for a pending reviewer too', async () => {
+    const { calls } = recordRenew({ pending: ['ivasco'] });
+
+    await provider().requestReReview('o/r', 3, ['ivasco']);
+
+    expect(calls).toEqual(['POST ivasco']);
+  });
+
+  test('requestReReview with renew removes a pending request, then requests again', async () => {
+    const { calls } = recordRenew({ pending: ['IVasco', 'carol'] });
+
+    await provider().requestReReview('o/r', 3, ['ivasco', 'kim'], { renew: true });
+
+    expect(calls).toEqual(['GET', 'DELETE IVasco', 'POST ivasco,kim']);
+  });
+
+  test('requestReReview with renew and nobody pending only posts', async () => {
+    const { calls } = recordRenew({ pending: [] });
+
+    await provider().requestReReview('o/r', 3, ['ivasco'], { renew: true });
+
+    expect(calls).toEqual(['GET', 'POST ivasco']);
+  });
+
+  test('a failed remove still requests, and says why through onWarning', async () => {
+    const { calls } = recordRenew({
+      pending: ['ivasco'],
+      remove: jsonResponse({ message: 'Validation Failed' }, 422)
+    });
+    const warnings: string[] = [];
+
+    await provider().requestReReview('o/r', 3, ['ivasco'], {
+      renew: true,
+      onWarning: (message) => warnings.push(message)
+    });
+
+    expect(calls).toEqual(['GET', 'DELETE ivasco', 'POST ivasco']);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('ivasco');
+    expect(warnings[0]).toContain('422');
+  });
+
+  test('a failed read of pending requests still requests, and says why', async () => {
+    const { calls } = recordRenew({ read: jsonResponse({ message: 'Not Found' }, 404) });
+    const warnings: string[] = [];
+
+    await provider().requestReReview('o/r', 3, ['ivasco'], {
+      renew: true,
+      onWarning: (message) => warnings.push(message)
+    });
+
+    expect(calls).toEqual(['GET', 'POST ivasco']);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('404');
+  });
 });
 
 const mergedFill = (numbers: number[]) =>
