@@ -4,6 +4,7 @@ import { join, resolve } from "path";
 import { afterAll, describe, expect, test } from "bun:test";
 import type { SessionIdentity } from "../session-identity.ts";
 import {
+  agentSessionsInside,
   attributeCwds,
   killWorktreeProcesses,
   nestedExcludes,
@@ -586,5 +587,47 @@ describe("processLabel", () => {
   test("labels use argv0, not the truncated comm", () => {
     expect(processLabel(row(1, 0, ".loc", "/Users/x/.local/bin/claude --x"))).toBe("claude");
     expect(processLabel(row(1, 0, "-zsh", "-zsh"))).toBe("zsh");
+  });
+});
+
+describe("killDepartedChildren", () => {
+  const T = "/t";
+  const base = (table: KillCandidate[], cwds: [number, string][], extra: Partial<KillPlanInput> = {}) =>
+    planWorktreeKill({
+      target: T,
+      excludes: [],
+      table,
+      cwds: new Map(cwds),
+      protectedPids: [],
+      stopSessionsInside: false,
+      ...extra,
+    });
+  const departed = [row(10, 1, "claude", "claude"), row(11, 10, "node", "node server.js")];
+  const departedCwds: [number, string][] = [[10, "/other"], [11, "/t/app"]];
+
+  test("planWorktreeKill with killDepartedChildren targets a dev server whose parent agent sits outside the tree", () => {
+    const r = base(departed, departedCwds, { killDepartedChildren: true });
+    expect(r.targets.map(t => t.pid)).toEqual([11]);
+    expect(r.stoppedSessions).toEqual([]);
+  });
+
+  test("without killDepartedChildren the same child is spared", () => {
+    expect(base(departed, departedCwds).targets).toEqual([]);
+  });
+
+  test("killDepartedChildren never targets an agent", () => {
+    const r = base([row(12, 1, "claude", "claude")], [[12, T]], { killDepartedChildren: true });
+    expect(r.targets.map(t => t.pid)).not.toContain(12);
+  });
+});
+
+describe("agentSessionsInside", () => {
+  test("lists only agents whose own cwd is inside", async () => {
+    const run: NonNullable<KillWorktreeOptions["run"]> = async (argv) => {
+      if (argv[0] === "lsof") return { exitCode: 0, stdout: "p10\nfcwd\nn/t/app\np20\nfcwd\nn/other\n" };
+      return { exitCode: 0, stdout: "10 1 claude claude\n20 1 claude claude\n" };
+    };
+    const result = await agentSessionsInside("/t", { run, selfPids: [99999], identify: () => null });
+    expect(result).toEqual([{ pid: 10, label: "claude", cwd: "/t/app", identity: null }]);
   });
 });

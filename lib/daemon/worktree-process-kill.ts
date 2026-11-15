@@ -197,6 +197,9 @@ export interface KillPlanInput {
   protectedPids: number[];
   /** True only for the merge reactor's dispose: agents inside target are stopped. */
   stopSessionsInside: boolean;
+  /** Non-agent processes inside target are targets even when an agent outside
+   *  the tree is their ancestor. Agents themselves are never targeted by this. */
+  killDepartedChildren?: boolean;
 }
 
 /**
@@ -257,7 +260,10 @@ export function planWorktreeKill(input: KillPlanInput): {
   const spared = new Set<number>();
   for (const root of roots) {
     if (!attributed.has(root.pid) || !stopSessionsInside) {
-      for (const pid of familyOf(root.pid)) spared.add(pid);
+      for (const pid of familyOf(root.pid)) {
+        if (input.killDepartedChildren && attributed.has(pid) && !rootSet.has(pid)) continue;
+        spared.add(pid);
+      }
     }
   }
   for (const pid of protectedRoots) {
@@ -324,6 +330,9 @@ export interface KillWorktreeOptions {
   excludePaths?: string[];
   /** Stop agent sessions whose own cwd is inside the tree. Default false. */
   stopSessionsInside?: boolean;
+  /** Also kill non-agent processes inside the tree that belong to an agent
+   *  outside it (a departed session's leftovers). Default false. */
+  killDepartedChildren?: boolean;
   /** Resolves a stopped session's chat identity; called before its signal. */
   identify?: (pid: number) => SessionIdentity | null;
   /** Test seam for lsof and ps. */
@@ -359,28 +368,15 @@ function parseProcessTable(psOutput: string): ProcRow[] {
   return rows;
 }
 
-/**
- * Find and terminate the workload processes whose cwd is inside the worktree.
- * Discovery is done fresh (not from the scanner's 10s-old snapshot) so we act
- * on ground truth at park time.
- */
-export async function killWorktreeProcesses(
+async function readProcessSnapshot(
+  run: RunFn,
+  target: string,
   worktreePath: string,
-  opts: KillWorktreeOptions = {},
-): Promise<WorktreeKillResult> {
-  const run: RunFn = opts.run ?? ((argv, o) => runCapture(argv as [string, ...string[]], o));
-  const signal = opts.signal ?? ((pid, sig) => { process.kill(pid, sig); });
-  const identify = opts.identify ?? ((pid) => identifySession(pid));
-  const selfPids = opts.selfPids ?? [process.pid, process.ppid];
-  const none: WorktreeKillResult = { terminated: [], stoppedSessions: [] };
-
-  const target = safeRealpath(worktreePath);
-  const excludes = nestedExcludes(target, (opts.excludePaths ?? []).map(safeRealpath));
-
+): Promise<{ table: ProcRow[]; cwds: Map<number, string> } | null> {
   const lsof = await run(["lsof", "-d", "cwd", "-Fpn"], { timeoutMs: 10_000 });
   if (lsof.exitCode !== 0 && !lsof.stdout) {
     log.warn({ exitCode: lsof.exitCode, worktreePath }, "lsof failed; skipping worktree process kill");
-    return none;
+    return null;
   }
   const realpaths = new Map<string, string>();
   const cwds = new Map<number, string>();
@@ -405,16 +401,67 @@ export async function killWorktreeProcesses(
   // ancestors or descendants: unlike lsof, any ps failure skips the kill.
   if (ps.exitCode !== 0) {
     log.warn({ exitCode: ps.exitCode, worktreePath }, "ps failed; skipping worktree process kill");
-    return none;
+    return null;
   }
+
+  return { table: parseProcessTable(ps.stdout), cwds };
+}
+
+/**
+ * Agent sessions whose own cwd is inside the tree, identities resolved. Reads
+ * ps and lsof like the kill does but sends no signal.
+ */
+export async function agentSessionsInside(
+  path: string,
+  opts: Pick<KillWorktreeOptions, "excludePaths" | "identify" | "run" | "selfPids"> = {},
+): Promise<StoppedSession[]> {
+  const run: RunFn = opts.run ?? ((argv, o) => runCapture(argv as [string, ...string[]], o));
+  const identify = opts.identify ?? ((pid) => identifySession(pid));
+  const selfPids = opts.selfPids ?? [process.pid, process.ppid];
+  const target = safeRealpath(path);
+  const excludes = nestedExcludes(target, (opts.excludePaths ?? []).map(safeRealpath));
+  const snapshot = await readProcessSnapshot(run, target, path);
+  if (!snapshot) return [];
+  const plan = planWorktreeKill({
+    target,
+    excludes,
+    table: snapshot.table,
+    cwds: snapshot.cwds,
+    protectedPids: selfPids,
+    stopSessionsInside: true,
+  });
+  return plan.stoppedSessions.map(s => ({ ...s, identity: identify(s.pid) }));
+}
+
+/**
+ * Find and terminate the workload processes whose cwd is inside the worktree.
+ * Discovery is done fresh (not from the scanner's 10s-old snapshot) so we act
+ * on ground truth at park time.
+ */
+export async function killWorktreeProcesses(
+  worktreePath: string,
+  opts: KillWorktreeOptions = {},
+): Promise<WorktreeKillResult> {
+  const run: RunFn = opts.run ?? ((argv, o) => runCapture(argv as [string, ...string[]], o));
+  const signal = opts.signal ?? ((pid, sig) => { process.kill(pid, sig); });
+  const identify = opts.identify ?? ((pid) => identifySession(pid));
+  const selfPids = opts.selfPids ?? [process.pid, process.ppid];
+  const none: WorktreeKillResult = { terminated: [], stoppedSessions: [] };
+
+  const target = safeRealpath(worktreePath);
+  const excludes = nestedExcludes(target, (opts.excludePaths ?? []).map(safeRealpath));
+
+  const snapshot = await readProcessSnapshot(run, target, worktreePath);
+  if (!snapshot) return none;
 
   const plan = planWorktreeKill({
     target,
     excludes,
-    table: parseProcessTable(ps.stdout),
-    cwds,
+    table: snapshot.table,
+    cwds: snapshot.cwds,
     protectedPids: [...selfPids, ...(opts.callerPids ?? [])],
     stopSessionsInside: opts.stopSessionsInside ?? false,
+    killDepartedChildren: opts.killDepartedChildren ?? false,
   });
   if (plan.targets.length === 0) return none;
 
