@@ -279,14 +279,15 @@ only fail; after, the push is plain git.
   - `lib/setup/steps/team.ts` (`teamCreateRun`): when `publishTeam` throws a
     `UserActionableError` and `withheldPublishHost(created.remote, token,
     confirmedForgeHost(ctx.p))` names a host, the outcome is `failed` with
-    today's `detail` (`err.message`) and the remedy `Connect GitLab for
-    <host> with rt setup gitlab connect --host <host>, then Retry`. Two
+    today's `detail` (`err.message`) and the remedy `Confirm <host> as your
+    GitLab host, then Retry. Run rt setup gitlab connect --host <host>`. Two
     codes take it: `push-denied`, and `team-pull-only`, because on a private
     repo the first git call to ask for credentials is `remoteHead`'s
     `ls-remote`, which publish reports as `team-pull-only` before any push.
     Every other code, and every remote with no withheld host, keeps today's
-    remedy byte for byte. The wording is checked with rt:ui-copy and the
-    setup output rules during the build; the command stays the last words.
+    remedy byte for byte. The wording follows rt:ui-copy (a state, then
+    the fix) and the setup output rules: the command is the last words,
+    as in `steps/org.ts`'s "Run rt team publish".
   - Tests first, in `lib/setup/__tests__/steps-a.test.ts`: a create intent
     whose remote is an unconfirmed GitLab-shaped https host with a GitLab
     token held, git answering an auth failure, for both codes, asserting the
