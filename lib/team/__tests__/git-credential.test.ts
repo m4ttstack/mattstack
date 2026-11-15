@@ -227,6 +227,34 @@ describe("gitWithRtCredential", () => {
   });
 });
 
+describe("rtHelperHost", () => {
+  const key = (host: string) => `credential.https://${host}.helper`;
+
+  test("the real default pair returns its host", () => {
+    expect(rtHelperHost(gitWithRtCredential(["fetch"], true, {}, { remote: "https://gitlab.example.com/a/b.git" }).argv)).toBe("gitlab.example.com");
+  });
+
+  test("plain git returns null", () => {
+    expect(rtHelperHost(["git", "fetch"])).toBeNull();
+  });
+
+  test("two clears in a row throw", () => {
+    expect(() => rtHelperHost(["git", "-c", `${key("github.com")}=`, "-c", `${key("github.com")}=`, "fetch"])).toThrow();
+  });
+
+  test("a pair naming another helper throws", () => {
+    expect(() => rtHelperHost(["git", "-c", `${key("github.com")}=`, "-c", `${key("github.com")}=!osxkeychain`, "fetch"])).toThrow();
+  });
+
+  test("mismatched hosts throw", () => {
+    expect(() => rtHelperHost(["git", "-c", `${key("github.com")}=`, "-c", `${key("gitlab.com")}=!rt git credential`, "fetch"])).toThrow();
+  });
+
+  test("a half pair throws", () => {
+    expect(() => rtHelperHost(["git", "-c", `${key("github.com")}=`, "fetch"])).toThrow();
+  });
+});
+
 describe("credentialHelperReply", () => {
   const lookup = async (host: string) => (host === "github.com" ? "tok_rt" : null);
 
