@@ -430,13 +430,16 @@ async function actOnTree(
   // follow-up, so the edge is spent and the tree must not look disposable.
   if (outcome.refusal === "leaving") return "fired";
 
-  // "remove-failed" is mechanical and transient (a locked file, a busy
-  // directory)... the tree is still perfectly claimable, so it must NOT be
-  // advertised as disposable. Hold the edge and try again next pass.
-  if (outcome.refusal === "remove-failed") {
+  // "remove-failed" and "mark-failed" are mechanical and transient (a locked
+  // file, a busy directory, a registry write that did not land)... the tree
+  // is still perfectly claimable, so it must NOT be advertised as disposable.
+  // Hold the edge and try again next pass.
+  if (outcome.refusal === "remove-failed" || outcome.refusal === "mark-failed") {
     deps.log.warn(
-      { repo: deps.repoName, tree: rec.name, path: rec.path },
-      "auto-dispose: worktree removal failed; retrying next pass",
+      { repo: deps.repoName, tree: rec.name, path: rec.path, refusal: outcome.refusal },
+      outcome.refusal === "remove-failed"
+        ? "auto-dispose: worktree removal failed; retrying next pass"
+        : "auto-dispose: leaving mark failed to save; retrying next pass",
     );
     return "retry";
   }

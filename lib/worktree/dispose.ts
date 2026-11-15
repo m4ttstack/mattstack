@@ -22,6 +22,7 @@ import { hasFreshAttendantLease } from "./lease.ts";
 import { loadSyncConfig, matchRule } from "../sync-config.ts";
 import { deriveRepoIdentity } from "../settings/identity.ts";
 import { recordDepartures } from "./departures.ts";
+import { patchTree } from "./patch.ts";
 import {
   agentSessionsInside,
   killWorktreeProcesses,
@@ -306,10 +307,13 @@ export async function disposeTree(
     const leaving = rec.leaving;
     if (inside.length > 0 && !leaving) {
       const since = now.toISOString();
-      saveRegistry(
-        repoName,
-        loadRegistry(repoName).map((t) => (t.path === rec.path ? { ...t, leaving: { why, since } } : t)),
-      );
+      const marked = patchTree(repoName, rec.path, (t) => {
+        t.leaving = { why, since };
+      });
+      if (!marked) {
+        log.warn({ repo: repoName, tree: rec.name, path: rec.path }, "worktree leaving mark failed to save");
+        return refuse("mark-failed");
+      }
       recordDepartures(rec.path, insideIds, since);
       emit("worktree:leaving", { repo: repoName, tree: rec.name, path: rec.path, why });
       log.info({ repo: repoName, tree: rec.name, sessions: inside.length, why }, "worktree marked leaving");

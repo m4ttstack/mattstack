@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -6,6 +6,7 @@ import { join } from "path";
 import type { Logger } from "pino";
 import { setSetting } from "../../../settings/write.ts";
 import { closeStateDb } from "../../../state/index.ts";
+import * as registryModule from "../../../worktree/registry.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../../../worktree/registry.ts";
 import { changeMarker, changeNoun } from "../../../repo-label.ts";
 import type { WorktreeKillResult } from "../../worktree-process-kill.ts";
@@ -497,6 +498,30 @@ describe("held trees say why (RT-267)", () => {
       expect(find(rec.path)?.leaving?.why).toBe(`${changeNoun(repoName)} ${changeMarker(repoName)}83 merged`);
       expect(r.kills).toEqual([]);
       expect(r.bodies).toEqual([]);
+    });
+
+    test("a leaving mark that fails to save holds the merge edge, and the next pass marks the tree", async () => {
+      const rec = ephemeralTree(repo, repoName, "papa", "feat-papa");
+      const r = recorder();
+      const merged = { "feat-papa": { repoName, mr: { iid: 98, state: "merged" } } };
+      const realSave = registryModule.saveRegistry;
+      const failMark = spyOn(registryModule, "saveRegistry").mockImplementation((repo, trees) =>
+        trees.some((t) => t.leaving) ? false : realSave(repo, trees),
+      );
+      try {
+        await detect(merged, r.seams);
+      } finally {
+        failMark.mockRestore();
+      }
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.disposableReason).toBeUndefined();
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:98:merged`);
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving?.why).toBe(`${changeNoun(repoName)} ${changeMarker(repoName)}98 merged`);
+      expect(r.kills).toEqual([]);
     });
 
     test("a \"leaving\" refusal does not flip the tree to disposable", async () => {

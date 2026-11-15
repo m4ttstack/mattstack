@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -6,6 +6,7 @@ import { basename, dirname, join } from "path";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb, getBranchCacheStore, type CacheEntry } from "../../state/index.ts";
 import { branchOf } from "../../state/branch-cache.ts";
+import * as registryModule from "../registry.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../registry.ts";
 import { branchExistsLocalAsync, listWorktreesAsync, remoteRefExists } from "../git-async.ts";
 import { hasFreshAttendantLease } from "../lease.ts";
@@ -1208,6 +1209,31 @@ describe("disposeTree", () => {
       expect(existsSync(path)).toBe(false);
       expect(current()).toBeUndefined();
       expect(events.some((e) => e.type === "worktree:leaving")).toBe(false);
+    });
+
+    test("a leaving mark that fails to save asks nobody and is set by the next pass", async () => {
+      const { path, rec, deps, killOpts, state, current } = setup();
+      state.inside = [session(601, "s-1", path)];
+      const realSave = registryModule.saveRegistry;
+      const failMark = spyOn(registryModule, "saveRegistry").mockImplementation((repo, trees) =>
+        trees.some((t) => t.leaving) ? false : realSave(repo, trees),
+      );
+      let result;
+      try {
+        result = await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      } finally {
+        failMark.mockRestore();
+      }
+      expect(result).toEqual({ disposed: false, refusal: "mark-failed" });
+      expect(killOpts.length).toBe(0);
+      expect(current()?.leaving).toBeUndefined();
+      expect(departedAt(path, "s-1")).toBeNull();
+      expect(events.some((e) => e.type === "worktree:leaving")).toBe(false);
+
+      state.nowMs = t0 + 30_000;
+      expect(await disposeTree(deps, current()!, { auto: true, askSessions: { why } })).toEqual({ disposed: false, refusal: "leaving" });
+      expect(current()?.leaving).toEqual({ why, since: new Date(t0 + 30_000).toISOString() });
+      expect(departedAt(path, "s-1")).toBe(new Date(t0 + 30_000).toISOString());
     });
 
     test("a guard refusal (dirty) still wins before any mark is set", async () => {
