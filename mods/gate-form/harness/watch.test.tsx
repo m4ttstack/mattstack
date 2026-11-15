@@ -149,15 +149,55 @@ test('after an answer overruns, a new watch settles the pane’s own recorded an
   expect(w.ran.filter(argv => argv[2] === 'answer')).toHaveLength(1)
 })
 
-test('a wait that fails leaves the form open and is not started again', async ($, on) => {
+test('a wait that fails is started again after 1s, 5s and 15s while the form is open, then left with the form open', async ($, on) => {
+  const w = world(on, { holdWaits: true })
+  await drawOn($, 'terminal')
+  await ask($)
+  await eventually(() => w.waits.length === 1)
+  for (const [n, pause] of [[1, 1_000], [2, 5_000], [3, 15_000]] as const) {
+    await w.waits[n - 1]!.end('', 1)
+    await eventually(() => false, 10)
+    await w.clock.advance(pause - 1)
+    expect(w.waits).toHaveLength(n)
+    await w.clock.advance(1)
+    expect(await eventually(() => w.waits.length === n + 1)).toBe(true)
+  }
+  await w.waits[3]!.end('', 1)
+  await eventually(() => false, 10)
+  await w.clock.advance(60_000)
+  await eventually(() => false, 10)
+  expect(w.waits).toHaveLength(4)
+  expect(w.waits.every(x => x.argv.join(' ') === 'rt gate wait g1')).toBe(true)
+  expect((await paneForm($))?.status).toBe('open')
+})
+
+test('a retried wait that returns settles the form', async ($, on) => {
   const w = world(on, { holdWaits: true })
   await drawOn($, 'terminal')
   await ask($)
   await eventually(() => w.waits.length === 1)
   await w.waits[0]!.end('', 1)
   await eventually(() => false, 10)
+  await w.clock.advance(1_000)
+  await eventually(() => w.waits.length === 2)
+  await w.waits[1]!.end(answeredBy('g1', 'board'))
+  expect(await eventually(async () => (await paneForm($))?.status !== 'open')).toBe(true)
+})
+
+test('no retry starts once the form is no longer open', async ($, on) => {
+  const w = world(on, { holdWaits: true })
+  await drawOn($, 'terminal')
+  await ask($)
+  await eventually(() => w.waits.length === 1)
+  await w.waits[0]!.end('', 1)
+  await eventually(() => false, 10)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.post({ type: 'answer', formId: (await formOf(pane))!.id, answers: { tier: 'std', why: 'no' } })
+  await pane.unmount()
+  expect(await eventually(async () => (await paneForm($)) === undefined || (await paneForm($))?.status === 'answered')).toBe(true)
+  await w.clock.advance(1_000)
+  await eventually(() => false, 10)
   expect(w.waits).toHaveLength(1)
-  expect((await paneForm($))?.status).toBe('open')
 })
 
 test('with rt.gates.kitForm off, a session start lists nothing and nothing is watched', async ($, on) => {

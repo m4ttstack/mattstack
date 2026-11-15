@@ -50,7 +50,7 @@ export function endNote(end: GateEnd): string {
 
 // Waits for the gate to end through `rt gate wait`, on PATH first, then where mattstack installs it.
 // The session id is empty so the wait never stamps another surface's answer consumed before the agent reconciles.
-// Only a name that could not start moves on: a wait that ran and failed is never started again.
+// Only a name that could not start moves on to the next; a wait that ran and failed returns undefined.
 export async function waitFor($: EngineInterface, gateId: string): Promise<GateEnd | undefined> {
   const home = await $.env.get('HOME')
   for (const rt of ['rt', `${home ?? ''}/.local/bin/rt`]) {

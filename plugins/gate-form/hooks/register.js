@@ -795,6 +795,7 @@ var ASK_OFF = "The gate form is off. Turn on rt.gates.kitForm and run /reload-pl
 var SETTING_TIMEOUT_MS = 5000;
 var QUICK_TIMEOUT_MS = 5000;
 var watching = new Set;
+var WAIT_RETRY_MS = [1000, 5000, 15000];
 var answering = new Set;
 var deck = {};
 var GATE_PANE = { id: PANE, label: "mattstack gate waiting" };
@@ -952,18 +953,36 @@ function controlText(answers) {
     return typeof answers.to === "string" && answers.to !== "" ? `Went back to ${answers.to}` : "Went back a stage";
   return;
 }
-function watchGate($, gateId) {
+async function shownHere($, gateId) {
+  if ((await readForms($)).some((f) => f.gateId === gateId && f.status === "open"))
+    return true;
+  return (await read($, boardAtom)).some((b) => b.gateId === gateId);
+}
+function watchGate($, gateId, retry = 0) {
   if (!setting.isOn || watching.has(gateId))
     return;
   watching.add(gateId);
   (async () => {
+    let failed = false;
     try {
       const end = await waitFor($, gateId);
       if (end)
         await gateEnded($, gateId, end);
+      else
+        failed = true;
     } catch {} finally {
       watching.delete(gateId);
     }
+    const pause = WAIT_RETRY_MS[retry];
+    if (!failed || pause === undefined)
+      return;
+    try {
+      if (!await shownHere($, gateId))
+        return;
+      await $.clock.sleep(pause);
+      if (await shownHere($, gateId))
+        watchGate($, gateId, retry + 1);
+    } catch {}
   })();
 }
 async function gateOpened($, form) {

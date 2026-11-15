@@ -84,7 +84,7 @@ test('an rt that cannot start moves on to the one under ~/.local/bin', async () 
   expect(spawned.map(s => s.argv[0])).toEqual(['rt', '/home/t/.local/bin/rt'])
 })
 
-test('a wait that started and then failed is never started again', async () => {
+test('a wait that started and then failed returns nothing and tries no other rt', async () => {
   const { $, spawned } = fakeEngine(() => exits('rt gate: gate not found: g1', 1))
   expect(await waitFor($, 'g1')).toBeUndefined()
   expect(spawned).toHaveLength(1)

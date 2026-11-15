@@ -37,6 +37,8 @@ const SETTING_TIMEOUT_MS = 5_000
 const QUICK_TIMEOUT_MS = 5_000
 // One `rt gate wait` per gate; the children die with the module, so a session start watches again.
 const watching = new Set<string>()
+// The pause before each new `rt gate wait` after one failed; past the last, the gate waits for a session start.
+const WAIT_RETRY_MS = [1_000, 5_000, 15_000]
 // Forms whose answer rt is recording: the pane's own answer settles them, never a watcher.
 const answering = new Set<string>()
 // The board's local address as deck last gave it; null when deck has none.
@@ -224,18 +226,36 @@ function controlText(answers: Record<string, unknown>): string | undefined {
   return undefined
 }
 
-// Runs for as long as the gate waits, after the hook that started it has returned.
-function watchGate($: EngineInterface, gateId: string): void {
+// Whether this pane still shows the gate: an open form or a band entry, which a lost watcher would leave stale.
+async function shownHere($: EngineInterface, gateId: string): Promise<boolean> {
+  if ((await readForms($)).some(f => f.gateId === gateId && f.status === 'open')) return true
+  return (await read($, boardAtom)).some(b => b.gateId === gateId)
+}
+
+// Runs for as long as the gate waits, after the hook that started it has returned. A failed wait is started again
+// after each pause while this pane still shows the gate; the pause holds no watch, so any other start goes ahead.
+function watchGate($: EngineInterface, gateId: string, retry = 0): void {
   if (!setting.isOn || watching.has(gateId)) return
   watching.add(gateId)
   void (async () => {
+    let failed = false
     try {
       const end = await waitFor($, gateId)
       if (end) await gateEnded($, gateId, end)
+      else failed = true
     } catch {
       // A module unloading mid-wait has nowhere left to write.
     } finally {
       watching.delete(gateId)
+    }
+    const pause = WAIT_RETRY_MS[retry]
+    if (!failed || pause === undefined) return
+    try {
+      if (!(await shownHere($, gateId))) return
+      await $.clock.sleep(pause)
+      if (await shownHere($, gateId)) watchGate($, gateId, retry + 1)
+    } catch {
+      // As above: an unloaded module retries nothing.
     }
   })()
 }
