@@ -285,7 +285,12 @@ export function answeredGateSummary(row: GateSummaryInput): GateSummary {
   } else {
     const markers: string[] = [];
     const pairs = row.questions.filter(isPostPair);
-    const pairSummary = postPairSummary(pairs, answers);
+    // A run control leaves the rest of the gate unanswered, so only answered pairs are tallied.
+    const tallied =
+      control === null
+        ? pairs
+        : pairs.filter(q => answers?.[q.id] !== undefined);
+    const pairSummary = postPairSummary(tallied, answers);
     if (pairSummary !== null) fragments.push(pairSummary);
     outcome = compactOutcome(row.questions, answers, pairs, pairSummary);
     if (control !== null) {

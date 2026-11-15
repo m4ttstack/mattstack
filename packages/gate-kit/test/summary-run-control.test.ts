@@ -49,6 +49,40 @@ describe('answeredGateSummary run controls', () => {
     expect(JSON.stringify(s)).not.toContain('(none)');
   });
 
+  const PAIRS: GateQuestion[] = [
+    {
+      id: 'thread-1',
+      label: 'Thread 1',
+      multi: true,
+      options: ['post:thread-1', 'resolve:thread-1'],
+    },
+    {
+      id: 'thread-2',
+      label: 'Thread 2',
+      multi: true,
+      options: ['post:thread-2', 'resolve:thread-2'],
+    },
+  ];
+
+  test('a run control on a post-pair gate with no pair answered tallies no posting', () => {
+    const s = answeredGateSummary(row({ next: 'hold' }, PAIRS));
+    expect(s.chip).toContain('Paused the run');
+    expect(s.chip).not.toMatch(/posted|held/);
+    const back = answeredGateSummary(
+      row({ next: 'go-back', to: 'plan' }, PAIRS)
+    );
+    expect(back.chip).not.toMatch(/posted|held/);
+  });
+
+  test('a run control keeps the tally of the pairs that were answered', () => {
+    const s = answeredGateSummary(
+      row({ next: 'hold', 'thread-1': ['post:thread-1'] }, PAIRS)
+    );
+    expect(s.chip).toContain('Paused the run');
+    expect(s.chip).toContain('1 posted');
+    expect(s.chip).not.toContain('held');
+  });
+
   test('a gate with its own next question is not a run control', () => {
     const s = answeredGateSummary(
       row({ next: 'hold' }, [
