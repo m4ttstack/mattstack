@@ -161,8 +161,11 @@ Source families (the "Src" column):
   this change's files, so the gate goes into `publishTeam` itself
   (`lib/team/publish.ts`): it offers only when `opts.token !== null` and the
   token remote passes the helper's gate (`mayOfferGitLabToken` for a GitLab
-  key, else `mayOfferToken`, against `confirmedForgeHost(p)`). Every other
-  publish caller already passed that gate, so only Fu changes. Section 4
+  key, else `mayOfferToken`, against `confirmedForgeHost(p)`). The gated
+  token is computed once at the top of `publishTeam` and used for all four
+  of its token uses: `remoteHead` (line 135), `assertOriginTakesNewOrg`
+  (line 140), the push (line 148) and `publishPointer` (line 215). Every
+  other publish caller already passed that gate, so only Fu changes. Section 4
   covers the difference.
 - **P** `forgeTokenLookupFromPresence` over `realSecretPresence()`
   (`lib/setup/plan.ts:259`): store, then stage, then gh session, behind
@@ -243,7 +246,11 @@ faked secret seams, no real store):
 In both, today's path hands a token to a host the person never confirmed for
 it, which RT-526's anti-goals forbid. The helper's gate stops that. These are
 the only visible differences, and in each the old path could succeed only by
-offering a token where rt says it never will. My call.
+offering a token where rt says it never will. My call. The same gate also
+covers the reverse mismatch in `claimPendingAdmin` (a team declaring
+github.com or a confirmed GitLab host while its origin is on an unconfirmed
+GitLab-shaped host): today that token goes to the unconfirmed origin and can
+only fail; after, the push is plain git.
 
 - **Setup's team create publish** (`steps/team.ts:84`, Fu). The remote can be
   one the person typed (`intent.team.remote`, `RT_TEAM_REMOTE`). For an
