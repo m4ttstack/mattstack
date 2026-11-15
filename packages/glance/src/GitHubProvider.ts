@@ -3367,12 +3367,19 @@ export class GitHubProvider implements GitProvider {
     const route = `/repos/${projectPath}/pulls/${mrIid}/requested_reviewers`;
     const reason = (err: unknown) =>
       err instanceof RequestError ? `${err.status} ${err.message}` : String(err);
+    const warn = (message: string) => {
+      try {
+        onWarning?.(message);
+      } catch {
+        // A broken warning sink must not cost the request this method exists for.
+      }
+    };
     let pending: string[];
     try {
       const res = await this.octokit.request(`GET ${route}`);
       pending = ((res.data as { users?: GHUser[] }).users ?? []).map(u => u.login);
     } catch (err) {
-      onWarning?.(`requestReReview: could not read pending requests on #${mrIid}, requested anyway: ${reason(err)}`);
+      warn(`requestReReview: could not read pending requests on #${mrIid}, requested anyway: ${reason(err)}`);
       return;
     }
     const wanted = new Set(logins.map(l => l.toLowerCase()));
@@ -3381,7 +3388,7 @@ export class GitHubProvider implements GitProvider {
     try {
       await this.octokit.request(`DELETE ${route}`, { data: { reviewers: remove } });
     } catch (err) {
-      onWarning?.(
+      warn(
         `requestReReview: could not remove the pending request of ${remove.join(', ')} on #${mrIid}, requested anyway: ${reason(err)}`
       );
     }

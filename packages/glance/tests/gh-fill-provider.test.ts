@@ -1040,6 +1040,22 @@ describe('GitHubProvider re-request and merge cleanup', () => {
     expect(warnings[0]).toContain('422');
   });
 
+  test('an onWarning that throws does not stop the request', async () => {
+    const { calls } = recordRenew({
+      pending: ['ivasco'],
+      remove: jsonResponse({ message: 'Validation Failed' }, 422)
+    });
+
+    await provider().requestReReview('o/r', 3, ['ivasco'], {
+      renew: true,
+      onWarning: () => {
+        throw new Error('sink down');
+      }
+    });
+
+    expect(calls).toEqual(['GET', 'DELETE ivasco', 'POST ivasco']);
+  });
+
   test('a failed read of pending requests still requests, and says why', async () => {
     const { calls } = recordRenew({ read: jsonResponse({ message: 'Not Found' }, 404) });
     const warnings: string[] = [];
