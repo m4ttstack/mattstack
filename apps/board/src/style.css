@@ -8690,4 +8690,17 @@ a.tui-id-card-ref:focus-visible {
   opacity: 0.7;
   font-size: 0;
   vertical-align: middle;
+  align-self: center;
+}
+/* A flex gap already spaces these parents, so the dot's margin tops the
+   gap up to 6px instead of adding to it. */
+.tui-id-card-meta > .tui-sep {
+  margin: 0 1px;
+}
+.tui-diff-pin > .tui-sep {
+  margin: 0;
+}
+.tui-thread-verdict > .tui-sep,
+.tui-drawer-action > .tui-sep {
+  margin: 0 -2px;
 }
