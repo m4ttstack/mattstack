@@ -1322,6 +1322,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Path", type: "text", placeholder: "/abs/path/to/tree", hint: "Folder the session is in, the worktree itself or any folder inside it" },
           { name: "Session", flag: "--session", type: "text", placeholder: "session id", hint: "The Claude Code session id" },
           { name: "Started", flag: "--started", type: "text", placeholder: "2026-11-14T10:00:00Z", hint: "When this run of the session began; earlier transcript entries tell whether the tree was reused since" },
+          { name: "Start folder", flag: "--start-cwd", type: "text", placeholder: "/abs/path", hint: "Folder this run of the session began in; only that tree can have been reused while the session was away" },
           { name: "Timeout", flag: "--timeout", type: "text", placeholder: "60", hint: "Seconds to wait before answering timeout (default 60)" },
         ],
       },
