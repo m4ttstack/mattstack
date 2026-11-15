@@ -190,14 +190,18 @@ export async function awaitLeaveCommand(args: string[], _ctx?: unknown, override
   const deadline = Date.now() + seconds * 1000;
   const lastActive = started === undefined ? null : deps.lastActive(session, started);
   const absolute = resolve(path);
-  let main: { treePath: string; value: string | null } | null = null;
+  let cachedFor: string | undefined;
+  let cachedMain: string | null = null;
 
   for (;;) {
     const found = deps.findTree(absolute);
-    if (found && main?.treePath !== found.tree.path) main = { treePath: found.tree.path, value: deps.mainCheckoutFor(found) };
+    if (found && cachedFor !== found.tree.path) {
+      cachedFor = found.tree.path;
+      cachedMain = deps.mainCheckoutFor(found);
+    }
     const answer = leaveState({
       tree: found?.tree ?? null,
-      mainCheckout: main?.value ?? null,
+      mainCheckout: found ? cachedMain : null,
       departed: found ? deps.departedAt(found.tree.path, session) : null,
       lastActive,
     });
