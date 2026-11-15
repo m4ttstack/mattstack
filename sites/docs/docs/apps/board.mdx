@@ -542,7 +542,7 @@ These are registry keys, so you can read them with `rt settings get <key>`. The 
 | `board.gitlabHost` | GitLab host the board polls for MRs, on a GitLab team; shared by the whole team. |
 | `board.projects` | GitLab projects or GitHub repos the board tracks, shared by the whole team. |
 | `board.title` | Display title shown in the board's UI. |
-| `board.tabs` | The board's tabs; on GitLab, one tab can show the approval queue for a named codeowners section. That tab watches your team's code owners channel from the team directory, unless it names another. |
+| `board.tabs` | The board's tabs. A tab can show the approval queue for one code owner: a named codeowners section on GitLab, or one CODEOWNERS owner (`@org/team` or `@login`) on GitHub. That tab watches your team's code owners channel from the team directory, unless it names another. |
 | `board.ticketPrefixes` | Ticket prefixes that keep the authors tab to your team's tickets and link MR titles to Linear. Unset, it uses your team's Linear key from the team directory. |
 | `board.defaultMember` | Which member this developer's local board opens as. |
 | `board.hiddenMembers` | Usernames you hide from the authors tab's roster. |
