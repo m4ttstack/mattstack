@@ -1277,7 +1277,7 @@ describe('a later round', () => {
         '3'
       );
       expect(row.querySelector('.tui-review-skipped-hint')!.textContent).toBe(
-        'you chose not to raise these · tick one to bring it back'
+        'you chose not to raise these tick one to bring it back'
       );
       const boxes = [
         ...row.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),

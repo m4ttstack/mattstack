@@ -9,6 +9,7 @@ import { AgentGlyph } from '../icons.tsx';
 import { MemberInvadr } from '../MemberInvadr.tsx';
 import { MrLinks, mrRef } from '../MrLinks.tsx';
 import { usePeople } from '../people.ts';
+import { Sep } from '../Sep.tsx';
 import { askedPhrase, confirmLine, verbLabel, verbLane } from './ask-copy.ts';
 import { AskDeclineForm } from './AskDeclineForm.tsx';
 
@@ -87,7 +88,9 @@ export function AskCard({
         <MemberInvadr id={ask.from} className="tui-ask-avatar" />
         <span className="tui-ask-name">{first}</span>
         <span className="tui-ask-phrase">
-          {askedPhrase(ask.kind)} · <span className="tui-ask-iid">{ref}</span>
+          {askedPhrase(ask.kind)}
+          <Sep />
+          <span className="tui-ask-iid">{ref}</span>
         </span>
         <span className="tui-ask-age">
           {ago(new Date(ask.receivedAt).toISOString(), now)}

@@ -12,6 +12,7 @@ import { gateContext } from '../../gates/wait-meta.ts';
 import type { BoardMRWithReview, ExecutorState } from '../types.ts';
 import { AnsweredSheetBody } from './AnsweredSheet.tsx';
 import { boardsInConsole } from './boards-gate.ts';
+import { joinBullet } from './bullet.ts';
 import { cleanTitle, signOff } from './format.ts';
 import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import { useGateForm } from './GateForm.tsx';
@@ -26,6 +27,7 @@ import {
 } from './review-draft-seed.ts';
 import { isReviewSheetGate, paneContext } from './review-gate.ts';
 import { ReviewGateSheet, type AskQuestion } from './ReviewGateSheet.tsx';
+import { Sep } from './Sep.tsx';
 import { paneReason, PaneSheetBody, StageSheetBody } from './StageSheet.tsx';
 
 /** One pip per queued gate. */
@@ -383,8 +385,8 @@ function DecidedRow({ gate, mr }: { gate: GateRow; mr?: BoardMRWithReview }) {
   // 'board' is the `by` gates/answer.ts stamps on this board's own answers.
   const by =
     outcome !== null && gate.answeredBy && gate.answeredBy !== 'board'
-      ? ` · by ${gate.answeredBy}`
-      : '';
+      ? `by ${gate.answeredBy}`
+      : null;
   return (
     <li className="tui-triage-done-row">
       {mr && <span className="tui-triage-done-ref">{mrRef(mr)}</span>}
@@ -402,11 +404,16 @@ function DecidedRow({ gate, mr }: { gate: GateRow; mr?: BoardMRWithReview }) {
       )}
       <span
         className="tui-triage-done-outcome"
-        title={outcome === null ? undefined : `${outcome}${by}`}
+        title={outcome === null ? undefined : joinBullet([outcome, by])}
         data-pending={outcome === null ? 'true' : undefined}
       >
         {outcome ?? 'answered'}
-        {by && <span className="tui-triage-done-by">{by}</span>}
+        {by && (
+          <span className="tui-triage-done-by">
+            <Sep />
+            {by}
+          </span>
+        )}
       </span>
     </li>
   );

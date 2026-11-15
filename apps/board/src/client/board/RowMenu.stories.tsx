@@ -13,6 +13,7 @@ import type { BoardMRWithReview } from '../types.ts';
 import type { ActionEnv } from './row-actions.ts';
 import { rowStatus } from './row-status.ts';
 import { RowMenu } from './RowMenu.tsx';
+import { withSeps } from './Sep.tsx';
 
 const stage = (
   Story: () => ReactNode,
@@ -151,8 +152,7 @@ export const RunningFocus: Story = {
     return (
       <>
         <p style={{ margin: '0 16px', paddingTop: 520 }}>
-          lane line: {line.word}
-          {line.detail ? ` · ${line.detail}` : ''}
+          lane line: {withSeps([line.word, line.detail])}
         </p>
         {menu(running)}
       </>

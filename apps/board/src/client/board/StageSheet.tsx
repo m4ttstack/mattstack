@@ -18,6 +18,7 @@ import { MrCard } from './MrCard.tsx';
 import { mrRef } from './MrLinks.tsx';
 import { ReplyChoiceBody, SeverityPill, ThreadCard } from './RespondCards.tsx';
 import { subjectRef } from './RespondGateHeader.tsx';
+import { withSeps } from './Sep.tsx';
 import { useSheetKeys } from './sheet-keys.ts';
 import { sheetAnswers } from './sheet-payload.ts';
 import {
@@ -82,18 +83,14 @@ function dockRef(gate: GateRow, mr?: BoardMRWithReview): string {
 
 /** When and where the gate opened: the rail's meta line, which also keeps a
     context card with no prose from standing empty. */
-function openedMeta(gate: GateRow, mr?: BoardMRWithReview): string {
+function openedMeta(gate: GateRow, mr?: BoardMRWithReview): ReactNode {
   const { worktree, paneId } = gateOrigin(gate) ?? {};
-  const origin = [worktree?.split('/').filter(Boolean).pop(), paneId]
-    .filter(Boolean)
-    .join(' · ');
-  return [
+  return withSeps([
     mr ? null : gate.subject,
     `opened ${ago(new Date(gate.openedAt).toISOString(), Date.now())} ago`,
-    origin || null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+    worktree?.split('/').filter(Boolean).pop(),
+    paneId,
+  ]);
 }
 
 /** A multi's picks in its options' order: toggles record click order, but

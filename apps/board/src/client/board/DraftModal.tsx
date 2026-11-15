@@ -4,6 +4,7 @@ import { Modal } from '@mattstack/tui-kit';
 import { mrRef } from '../../mr-ref.ts';
 import type { BoardMRWithReview, DraftInfo } from '../types.ts';
 import { cleanTitle } from './format.ts';
+import { Sep } from './Sep.tsx';
 
 /** Drawer for one held outbound note. Shows the full body verbatim — exactly
     the text that would post — with the MR context, and holds the approval
@@ -67,7 +68,9 @@ function DraftModal({
     <Modal
       title={
         <>
-          ❯ held: {draft.kind} · {mrRef(mr)}
+          ❯ held: {draft.kind}
+          <Sep />
+          {mrRef(mr)}
         </>
       }
       ariaLabel={`held draft for ${mrRef(mr)}`}

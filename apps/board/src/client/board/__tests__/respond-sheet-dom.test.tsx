@@ -1724,7 +1724,7 @@ const outcomeOf = (card: HTMLElement) =>
 test('a reply-only thread Gate 2 does not offer posts with this step: its draft, no controls', async () => {
   await render(perThreadPostGate(), withFixPlan());
   const card = postCards()[3]!;
-  expect(outcomeOf(card)).toBe('reply · posts with this step');
+  expect(outcomeOf(card)).toBe('reply posts with this step');
   expect(caption(card)).toBe('will post as reply');
   expect(card.querySelector('.tui-composer-text')!.textContent).toBe(
     'fixed, with a test.'
@@ -1740,7 +1740,7 @@ test('a reply-only thread edited at Gate 1 shows its edit, marked in its strip',
     withFixPlan('fixed in the next push, with a test.')
   );
   const card = postCards()[3]!;
-  expect(outcomeOf(card)).toBe('reply · posts with this step');
+  expect(outcomeOf(card)).toBe('reply posts with this step');
   expect(card.querySelector('.tui-composer-text')!.textContent).toBe(
     'fixed in the next push, with a test.'
   );
@@ -1894,7 +1894,7 @@ test('a prose-flattened post sheet shows the Gate 1 reply-only thread as a card,
     'b.ts:2',
   ]);
   const replyOnly = cards[1]!;
-  expect(outcomeOf(replyOnly)).toBe('reply · posts with this step');
+  expect(outcomeOf(replyOnly)).toBe('reply posts with this step');
   expect(replyOnly.querySelector('.tui-composer-text')!.textContent).toBe(
     'fixed, with a test.'
   );
@@ -1915,7 +1915,7 @@ test('with the plan context flattened too, the reply-only card shows the Gate 1 
     { value: 'reply:r2', text: 'kept on purpose.' }
   );
   const edited = postCards()[1]!;
-  expect(outcomeOf(edited)).toBe('reply · posts with this step');
+  expect(outcomeOf(edited)).toBe('reply posts with this step');
   expect(edited.querySelector('.tui-composer-text')!.textContent).toBe(
     'kept on purpose.'
   );
@@ -1961,7 +1961,7 @@ test('on a prose-flattened post sheet, a reply-only thread keeps its plan place 
     'a.ts:1',
     'b.ts:2',
   ]);
-  expect(outcomeOf(postCards()[0]!)).toBe('reply · posts with this step');
+  expect(outcomeOf(postCards()[0]!)).toBe('reply posts with this step');
   expect(dockRows()).toEqual(['posta.ts:1', 'postb.ts:2']);
 });
 

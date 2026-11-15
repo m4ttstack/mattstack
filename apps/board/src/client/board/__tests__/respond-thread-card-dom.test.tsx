@@ -138,8 +138,9 @@ test('a thread@1 question renders claim, points, verdict and reply, never the ra
   expect(call.getAttribute('data-call')).toBe('valid');
   expect(call.textContent).toBe('valid');
   expect(card.querySelector('.tui-thread-verdict-note')!.textContent).toBe(
-    '· confirmed against the checkout'
+    'confirmed against the checkout'
   );
+  expect(card.querySelector('.tui-thread-verdict .tui-sep')).not.toBeNull();
   expect(card.querySelector('.tui-composer-k')!.textContent).toBe(
     'will post as reply'
   );

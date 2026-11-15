@@ -245,7 +245,7 @@ test('once the diff is in, full diff opens the whole file with every finding on 
   await React.act(async () => link.click());
   const modal = dialog()!;
   expect(modal.getAttribute('aria-label')).toBe('Full diff of lib/retry.ts');
-  expect(modal.textContent).toContain('!31 · +2 −1 · 2 findings on this file');
+  expect(modal.textContent).toContain('!31 +2 −1 2 findings on this file');
   expect(modal.textContent).toContain('fetched from GitLab');
   const open = modal.querySelector<HTMLAnchorElement>('a[href]')!;
   expect(open.textContent).toContain('open on GitLab');

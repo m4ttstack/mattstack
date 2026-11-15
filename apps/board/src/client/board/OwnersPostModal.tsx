@@ -7,6 +7,7 @@ import type { BoardMR } from '../../data.ts';
 import { postAction, type ActionResult } from '../api.ts';
 import { cleanTitle } from './format.ts';
 import { mrRef } from './MrLinks.tsx';
+import { Sep, withSeps } from './Sep.tsx';
 
 export type SlackPostPreview = OwnersPostPlan & {
   text: string;
@@ -153,7 +154,13 @@ function OwnersPostModal({
 
   return (
     <Modal
-      title={<>❯ post to slack · {mrRef(mr)}</>}
+      title={
+        <>
+          ❯ post to slack
+          <Sep />
+          {mrRef(mr)}
+        </>
+      }
       ariaLabel={`post ${mrRef(mr)} to slack`}
       onClose={onClose}
       className="tui-owners-modal"
@@ -187,8 +194,12 @@ function OwnersPostModal({
                   #{c.channel}
                   <span className="tui-owners-sections">
                     {c.sections.map(s => sectionLabel(s, c.channel)).join(', ')}
-                    {unchecked.has(c.channel) &&
-                      ' · could not check for an earlier post'}
+                    {unchecked.has(c.channel) && (
+                      <>
+                        <Sep />
+                        could not check for an earlier post
+                      </>
+                    )}
                   </span>
                 </>
               }
@@ -242,10 +253,10 @@ function OwnersPostModal({
         {error && <span className="tui-draft-error">{error}</span>}
         {outcome && (
           <span className="tui-draft-error">
-            {[
+            {withSeps([
               ...outcome.posted.map(p => `posted to #${p.channel}`),
               ...outcome.failed.map(f => `#${f.channel} failed: ${f.error}`),
-            ].join(' · ')}
+            ])}
           </span>
         )}
         <Button size="sm" intent="muted" onClick={onClose}>
