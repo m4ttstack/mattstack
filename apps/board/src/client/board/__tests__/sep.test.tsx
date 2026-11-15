@@ -21,7 +21,9 @@ describe('withSeps', () => {
 
   test('drops empty fragments so no dot is left dangling', () => {
     expect(
-      renderToStaticMarkup(<>{withSeps([null, 'a', '', false, 'b', undefined])}</>)
+      renderToStaticMarkup(
+        <>{withSeps([null, 'a', '', false, 'b', undefined])}</>
+      )
     ).toBe('a<span class="tui-sep"> </span>b');
   });
 
