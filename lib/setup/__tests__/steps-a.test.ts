@@ -565,8 +565,8 @@ describe("team.create", () => {
   });
 
   // The push runs before secrets.write drains the stage, on a machine whose
-  // git has no credential helper: the token the checklist collected must
-  // reach git from the store or the stage, and only through the environment.
+  // git has no credential helper: rt git credential reads the store or the
+  // stage for the token the checklist collected.
   test("the push names rt git credential for the staged forge token, never in argv or env", async () => {
     const remote = "https://github.com/acme/mattstack-team-personal.git";
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
@@ -719,6 +719,54 @@ describe("team.create", () => {
     const outcome = await teamCreateStep.run(ctx);
     expect(outcome.state).toBe("failed");
     expect((outcome as { remedy?: string }).remedy).toBe("Check your push access to the team repo, then Retry");
+  });
+
+  describe("a GitLab remote whose host the user has not confirmed", () => {
+    const gitlabRemote = "https://gitlab.acme.dev/acme/mattstack-team-acme.git";
+    const denied: ExecResult = { code: 128, stdout: "", stderr: "remote: HTTP Basic: Access denied" };
+    const connectRemedy = "Confirm gitlab.acme.dev as your GitLab host, then Retry. Run rt setup gitlab connect --host gitlab.acme.dev";
+    const oldRemedy = "Check your push access to the team repo, then Retry";
+    const createIntent = { v: 1 as const, at: "", mode: "create" as const, team: { slug: "acme", name: "Acme", remote: gitlabRemote, others: false } };
+
+    function gitlabProbes(opts: { confirmedHost?: string; token?: boolean; failLsRemote?: boolean }) {
+      const base = gitExecFor(gitlabRemote);
+      const p = adminProbes({
+        home: "/fake-home",
+        exec: async (argv, execOpts) => {
+          if (argv.includes("push")) return denied;
+          if (opts.failLsRemote && argv.includes("ls-remote")) return { code: 128, stdout: "", stderr: "fatal: unable to access" };
+          return base(argv, execOpts);
+        },
+        files: opts.confirmedHost ? { "/fake-home/.mattstack/user/settings.user.jsonc": JSON.stringify({ "rt.integrations": { forgeHost: opts.confirmedHost } }) } : {},
+      });
+      if (opts.token !== false) stageSecret(p, "rt", "gitlabToken", "glpat_fake");
+      return p;
+    }
+
+    test("push-denied names the connect command", async () => {
+      const outcome = await teamCreateStep.run(makeCtx(gitlabProbes({}), { intent: createIntent }).ctx);
+      expect(outcome.state).toBe("failed");
+      expect((outcome as { remedy?: string }).remedy).toBe(connectRemedy);
+    });
+
+    test("the ls-remote failure names the connect command too", async () => {
+      const outcome = await teamCreateStep.run(makeCtx(gitlabProbes({ failLsRemote: true }), { intent: createIntent }).ctx);
+      expect(outcome.state).toBe("failed");
+      expect((outcome as { remedy?: string }).remedy).toBe(connectRemedy);
+      expect((outcome as { detail?: string }).detail).toBe("rt could not check your pending changes");
+    });
+
+    test("a confirmed host keeps today's remedy", async () => {
+      const outcome = await teamCreateStep.run(makeCtx(gitlabProbes({ confirmedHost: "gitlab.acme.dev" }), { intent: createIntent }).ctx);
+      expect(outcome.state).toBe("failed");
+      expect((outcome as { remedy?: string }).remedy).toBe(oldRemedy);
+    });
+
+    test("no GitLab token keeps today's remedy", async () => {
+      const outcome = await teamCreateStep.run(makeCtx(gitlabProbes({ token: false }), { intent: createIntent }).ctx);
+      expect(outcome.state).toBe("failed");
+      expect((outcome as { remedy?: string }).remedy).toBe(oldRemedy);
+    });
   });
 
   test("a solo intent never makes team-of-one create a team", () => {

@@ -11,7 +11,8 @@ import { JoinKeyExchangeError, JoinPeeringStoreError, joinRedeem, realJoinRedeem
 import { personalStoreReady, readSecret, writeSecret } from "../../secrets/store.ts";
 import { join } from "path";
 import { discoverOrgs, parseOriginUrl } from "../team-settings.ts";
-import { publishTeam } from "../../team/publish.ts";
+import { publishTeam, withheldPublishHost } from "../../team/publish.ts";
+import { confirmedForgeHost } from "../../team/stored-forge-token.ts";
 import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
@@ -80,12 +81,18 @@ async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
     return { state: "partial", detail: "The org is created, but rt could not read your forge login, so it has no admin yet", remedy: "Connect your forge account in Setup, then Retry" };
   }
 
+  let token: string | null = null;
   try {
-    const published = await publishTeam(ctx.p, created.slug, null, { token: await forgeTokenFor(ctx, created.remote), tokenRemote: created.remote });
+    token = await forgeTokenFor(ctx, created.remote);
+    const published = await publishTeam(ctx.p, created.slug, null, { token, tokenRemote: created.remote });
     return { state: "done", detail: published.detail };
   } catch (err) {
     if (err instanceof UserActionableError) {
       logFailureDetail(err);
+      const withheld = withheldPublishHost(created.remote, token, confirmedForgeHost(ctx.p));
+      if (withheld !== null && (err.code === "push-denied" || err.code === "team-pull-only")) {
+        return { state: "failed", detail: err.message, remedy: `Confirm ${withheld} as your GitLab host, then Retry. Run rt setup gitlab connect --host ${withheld}` };
+      }
       if (err.code === "push-denied") return { state: "failed", detail: err.message, remedy: "Check your push access to the team repo, then Retry" };
       return { state: "failed", detail: err.message, ...remedyFrom(err) };
     }
