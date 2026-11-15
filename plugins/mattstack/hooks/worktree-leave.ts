@@ -28,20 +28,21 @@ type Choice = 'close' | 'leave' | 'stale'
 // In `$.state`, which outlives a reload while module variables start over: each start (a reload raises one) writes a fresh
 // token, and a watch whose token is no longer the stored one stops without acting.
 const WATCH = { plugin: 'mattstack', key: 'worktreeLeaveWatch' } as const
-// When this process's session started, kept across reloads so a reload does not move it later.
-const SINCE = { plugin: 'mattstack', key: 'worktreeLeaveSince' } as const
+
+// When and where the latest start found the session. Not kept in `$.state`: a reload restarts both later, which can only
+// miss a reused tree, never wrongly call a tree reused.
+let origin: { started: string; cwd: string | null } = { started: new Date().toISOString(), cwd: null }
 
 export const register: Register = on => {
   // A module takes one bare hook per event and slack-support.ts holds session.start's; a matcher every start meets keeps this one beside it.
   on('session.start', { isInteractive: [true, false] }, async ($, e, next) => {
-    const started = await next(e)
+    const result = await next(e)
+    origin = { started: new Date().toISOString(), cwd: await $.session.cwd().catch(() => null) }
     const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     await $.state.set(WATCH, token)
-    const since = (await $.state.get(SINCE)).value ?? new Date().toISOString()
-    await $.state.set(SINCE, since)
     // The session's start refuses commands from inside its hook, so the watch starts from a timer.
-    $.clock.after(0, () => void watch($, since, token).catch(() => undefined))
-    return started
+    $.clock.after(0, () => void watch($, token).catch(() => undefined))
+    return result
   })
 }
 
@@ -49,18 +50,19 @@ async function isCurrent($: EngineInterface, token: string): Promise<boolean> {
   return (await $.state.get(WATCH)).value === token
 }
 
-async function watch($: EngineInterface, since: string, token: string): Promise<void> {
+async function watch($: EngineInterface, token: string): Promise<void> {
   const left = { tree: null as string | null }
-  while (await isCurrent($, token)) {
+  for (;;) {
     try {
-      if ((await pass($, since, token, left)) === 'stop') return
+      if (!(await isCurrent($, token))) return
+      if ((await pass($, token, left)) === 'stop') return
     } catch {
       await wait($, IDLE_POLL_MS)
     }
   }
 }
 
-async function pass($: EngineInterface, since: string, token: string, left: { tree: string | null }): Promise<'again' | 'stop'> {
+async function pass($: EngineInterface, token: string, left: { tree: string | null }): Promise<'again' | 'stop'> {
   const cwd = await $.session.cwd()
   if (left.tree !== null && within(cwd, left.tree)) {
     await wait($, IDLE_POLL_MS)
@@ -69,7 +71,7 @@ async function pass($: EngineInterface, since: string, token: string, left: { tr
   left.tree = null
   // A /clear or an in-process /resume changes the id without raising a start.
   const session = await $.session.id()
-  const answer = await awaitLeave($, cwd, session, since)
+  const answer = await awaitLeave($, cwd, session)
   if (!(await isCurrent($, token))) return 'stop'
   if (answer === null || answer.state === 'none') {
     await wait($, IDLE_POLL_MS)
@@ -91,9 +93,10 @@ async function pass($: EngineInterface, since: string, token: string, left: { tr
 }
 
 // Only a parsed answer counts: an rt too old for the verb, or one not on this name, tries the next rt.
-async function awaitLeave($: EngineInterface, cwd: string, session: string, since: string): Promise<AwaitLeave | null> {
+async function awaitLeave($: EngineInterface, cwd: string, session: string): Promise<AwaitLeave | null> {
   const home = await $.env.get('HOME')
-  const args = ['worktree', 'await-leave', cwd, '--session', session, '--started', since, '--timeout', String(VERB_TIMEOUT_S)]
+  const startCwd = origin.cwd === null ? [] : ['--start-cwd', origin.cwd]
+  const args = ['worktree', 'await-leave', cwd, '--session', session, '--started', origin.started, ...startCwd, '--timeout', String(VERB_TIMEOUT_S)]
   for (const rt of ['rt', `${home ?? ''}/.local/bin/rt`]) {
     try {
       const { stdout } = await $.process.run([rt, ...args], { timeoutMs: RUN_TIMEOUT_MS })

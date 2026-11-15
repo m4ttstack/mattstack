@@ -22,8 +22,8 @@ interface WorldOptions {
   waits?: WaitReply[]
   // Each await-leave answer arrives only after the verb has waited a minute.
   answersLate?: boolean
-  // The first session.cwd read is refused, as a call on a torn-down hook would be.
-  cwdFailsOnce?: boolean
+  // How many session.cwd reads are refused first, as a call on a torn-down hook would be.
+  cwdFailures?: number
   // /exit is refused.
   exitDenied?: boolean
 }
@@ -31,7 +31,7 @@ interface WorldOptions {
 function world(on: On, opts: WorldOptions = {}) {
   const clock = mock.clock(on)
   const answers = [...(opts.answers ?? [])]
-  const state = { cwd: `${TREE}/src`, session: SESSION, cwdFailures: opts.cwdFailsOnce ? 1 : 0 }
+  const state = { cwd: `${TREE}/src`, session: SESSION, cwdFailures: opts.cwdFailures ?? 0 }
   const awaits: (readonly string[])[] = []
   const timeouts: (number | undefined)[] = []
   const tools: Record<string, unknown>[] = []
@@ -134,7 +134,7 @@ const start = ($: Engine, isInteractive = false) => $.session.start({ cwd: `${TR
 
 const LEAVING = { state: 'leaving', why: WHY, mainCheckout: MAIN }
 
-test('the watch runs await-leave on the session cwd with its id, start time and a 60 s timeout', async ($, on) => {
+test('the watch runs await-leave on the session cwd with its id, start time, start folder and a 60 s timeout', async ($, on) => {
   const w = world(on)
   await start($)
   await w.clock.settle()
@@ -144,8 +144,54 @@ test('the watch runs await-leave on the session cwd with its id, start time and 
   expect(argv.slice(1, 4)).toEqual(['worktree', 'await-leave', `${TREE}/src`])
   expect(argv.slice(4, 6)).toEqual(['--session', SESSION])
   expect(argv[6]).toBe('--started')
-  expect(argv.slice(8)).toEqual(['--timeout', '60'])
+  expect(Number.isFinite(Date.parse(argv[7]!))).toBe(true)
+  expect(argv.slice(8)).toEqual(['--start-cwd', `${TREE}/src`, '--timeout', '60'])
   expect(w.timeouts[0]).toBeGreaterThan(60_000)
+})
+
+test('every poll carries the folder the session started in, not the one it is in now', async ($, on) => {
+  const w = world(on, { answers: [{ state: 'none' }, { state: 'none' }] })
+  await start($)
+  await w.clock.settle()
+
+  w.state.cwd = '/elsewhere'
+  await w.clock.advance(POLL_MS)
+  const argv = w.awaits[1]!
+  expect(argv[3]).toBe('/elsewhere')
+  expect(argv.slice(8, 10)).toEqual(['--start-cwd', `${TREE}/src`])
+  expect(argv[7]).toBe(w.awaits[0]![7])
+})
+
+test('the start time and folder are not kept in $.state', async ($, on) => {
+  const keys: string[] = []
+  on('state.set', async (_, e, next) => {
+    keys.push((e as { key?: string }).key ?? '')
+    return next(e)
+  })
+  const w = world(on, { answers: [{ state: 'none' }] })
+  await start($)
+  await w.clock.settle()
+
+  expect(keys).toEqual(['worktreeLeaveWatch'])
+})
+
+test('a refused read of the watch token does not end the watch', async ($, on) => {
+  let refusals = 1
+  on('state.get', async (_, e, next) => {
+    if ((e as { key?: string }).key === 'worktreeLeaveWatch' && refusals > 0) {
+      refusals -= 1
+      return { deny: 'refused' }
+    }
+    return next(e)
+  })
+  const w = world(on, { answers: [{ state: 'reclaimed', mainCheckout: MAIN }], exitMoves: true })
+  await start($)
+  await w.clock.settle()
+  expect(w.awaits).toHaveLength(0)
+
+  await w.clock.advance(POLL_MS)
+  expect(w.awaits.length).toBeGreaterThan(0)
+  expect(w.logs).toEqual([`This worktree was reused: left the worktree; now in ${MAIN}`])
 })
 
 test('leaving and a Close pick runs /exit', { plugins: [GATE_FORM] }, async ($, on) => {
@@ -266,8 +312,6 @@ test('a second start stops the first watch, which never acts on the answer it wa
   expect(w.tools).toEqual([])
   expect(w.logs).toEqual([])
 
-  expect(w.awaits[1]?.[7]).toBe(w.awaits[0]?.[7])
-
   // From here only one watch polls: one more run a minute.
   await w.clock.advance(POLL_MS)
   expect(w.awaits).toHaveLength(3)
@@ -297,7 +341,7 @@ test('each pass reads the session id again, so a /clear is followed', async ($, 
 })
 
 test('a pass that fails waits a minute and the watch goes on', async ($, on) => {
-  const w = world(on, { answers: [{ state: 'reclaimed', mainCheckout: MAIN }], exitMoves: true, cwdFailsOnce: true })
+  const w = world(on, { answers: [{ state: 'reclaimed', mainCheckout: MAIN }], exitMoves: true, cwdFailures: 2 })
   await start($)
   await w.clock.settle()
   expect(w.awaits).toHaveLength(0)
