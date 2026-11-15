@@ -33,6 +33,7 @@ function stubProvider(methods: Record<string, (...args: any[]) => any> = {}, can
   for (const name of [
     "mergePullRequest", "rebasePullRequest", "approvePullRequest", "updatePullRequest", "createPullRequest",
     "addPullRequestLabels", "removePullRequestLabels", "fetchSingleMR", "fetchJobDetail", "fetchJobTrace",
+    "requestReReview",
   ]) provider[name] = record(name, methods[name]);
   return { provider, calls };
 }
@@ -41,13 +42,14 @@ function harness(methods: Record<string, (...args: any[]) => any> = {}, canRebas
   const { provider, calls } = stubProvider(methods, canRebase);
   const writebacks: unknown[] = [];
   const debugs: string[] = [];
-  const log = { warn() {}, info() {}, error() {}, debug(_o: unknown, msg: string) { debugs.push(msg); } } as any;
+  const warns: Array<{ obj: unknown; msg: string }> = [];
+  const log = { warn(obj: unknown, msg: string) { warns.push({ obj, msg }); }, info() {}, error() {}, debug(_o: unknown, msg: string) { debugs.push(msg); } } as any;
   const handlers = createMRHandlers({ cache: fakeStore({}), repoIndex: () => ({ [REPO]: "/tmp/repo" }), log }, () => {}, {
     getContext: async () => ({ forge: "github", provider, projectPath: "o/r", projectId: null }),
     writeback: (...args) => { writebacks.push(args); },
     retryDelayMs: 1,
   });
-  return { handlers, calls, writebacks, debugs, names: () => calls.map((c) => c.name) };
+  return { handlers, calls, writebacks, debugs, warns, names: () => calls.map((c) => c.name) };
 }
 
 describe("mr:action on GitHub", () => {
@@ -125,6 +127,31 @@ describe("mr:action on GitHub", () => {
       { name: "fetchSingleMR", args: ["o/r", 7, null] },
     ]);
     expect(h.writebacks).toEqual([[REPO, "o/r", prOf(7)]]);
+  });
+
+  test("requestReReview without renew passes only the reviewers", async () => {
+    const h = harness();
+    const res = await h.handlers["mr:action"]({ repoName: REPO, iid: 7, action: "requestReReview", args: [["ivasco"]] });
+    expect(res).toEqual({ ok: true });
+    expect(h.calls[0]).toEqual({ name: "requestReReview", args: ["o/r", 7, ["ivasco"]] });
+  });
+
+  test("requestReReview with renew passes it through and logs the provider's warning", async () => {
+    const h = harness({
+      requestReReview: async (_pp: string, _iid: number, _who: string[], opts: { onWarning?: (m: string) => void }) => {
+        opts.onWarning?.("requestReReview: could not remove the pending request of ivasco");
+      },
+    });
+    const res = await h.handlers["mr:action"]({
+      repoName: REPO, iid: 7, action: "requestReReview", args: [["ivasco"], { renew: true }],
+    });
+    expect(res).toEqual({ ok: true });
+    const call = h.calls[0]!;
+    expect(call.args.slice(0, 3)).toEqual(["o/r", 7, ["ivasco"]]);
+    expect((call.args[3] as { renew: boolean }).renew).toBe(true);
+    expect(h.warns).toEqual([
+      { obj: { repo: REPO, iid: 7 }, msg: "requestReReview: could not remove the pending request of ivasco" },
+    ]);
   });
 });
 

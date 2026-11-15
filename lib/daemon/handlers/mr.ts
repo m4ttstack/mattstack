@@ -273,7 +273,15 @@ export function createMRHandlers(
             case "retryPipeline":    await provider.retryPipeline(projectPath, args[0]);                  break;
             case "retryJob":         await provider.retryJob(projectPath, args[0]);                       break;
             case "toggleDraft":      returnedPr = await provider.updatePullRequest(projectPath, iid, { draft: args[0] }); break;
-            case "requestReReview":  await provider.requestReReview(projectPath, iid, args[0]);           break;
+            case "requestReReview": {
+              const renew = (args[1] as { renew?: unknown } | undefined)?.renew === true;
+              if (!renew) { await provider.requestReReview(projectPath, iid, args[0]); break; }
+              await provider.requestReReview(projectPath, iid, args[0], {
+                renew,
+                onWarning: (message) => ctx.log.warn({ repo: repoName, iid }, message),
+              });
+              break;
+            }
             default:
               return { ok: false, error: `unsupported action: ${action}` };
           }
