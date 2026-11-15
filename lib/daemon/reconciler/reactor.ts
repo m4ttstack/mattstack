@@ -426,8 +426,9 @@ async function actOnTree(
   const outcome = await disposeTree(disposeDepsFor(deps, appConfig), rec, { auto: true, askSessions: { why } });
   if (outcome.disposed) return "fired";
 
-  // The tree is marked leaving and stays claimed; drainLeavingTrees owns the
-  // follow-up, so the edge is spent and the tree must not look disposable.
+  // The tree is marked leaving and keeps its state; drainLeavingTrees owns
+  // the follow-up, so the edge is spent and a claimed tree must not look
+  // disposable.
   if (outcome.refusal === "leaving") return "fired";
 
   // "remove-failed" and "mark-failed" are mechanical and transient (a locked
@@ -448,28 +449,43 @@ async function actOnTree(
   return "fired";
 }
 
+/** A disposable tree already says it is the person's to look at, so dropping its mark needs no new event. */
+function dropLeavingMark(deps: ReactorDeps, rec: TreeRecord, reason: string): void {
+  patchTree(deps.repoName, rec.path, (r) => {
+    r.disposableReason = reason;
+    delete r.leaving;
+  });
+  deps.log.info(
+    { repo: deps.repoName, tree: rec.name, reason },
+    `worktree ${rec.name} is disposable: ${reason}`,
+  );
+}
+
 /**
- * Re-run the disposal of every claimed tree a merge marked leaving, once per
- * pass: the merge edge fires once, but the grace outlives it and a restart
- * must pick the countdown up from the stored mark. `skip` holds the paths the
- * merge edge already acted on in this pass.
+ * Re-run the disposal of every claimed or disposable tree a merge marked
+ * leaving, once per pass: the merge edge fires once, but the grace outlives
+ * it and a restart must pick the countdown up from the stored mark. `skip`
+ * holds the paths the merge edge already acted on in this pass.
  */
 export async function drainLeavingTrees(deps: ReactorDeps, skip: ReadonlySet<string> = new Set()): Promise<void> {
   const appConfig = loadWorktreeAppConfig();
   if (!appConfig.enabled) return;
   const disposeDeps = disposeDepsFor(deps, appConfig);
   for (const rec of loadRegistry(deps.repoName)) {
-    if (!rec.leaving || rec.state !== "claimed" || skip.has(rec.path)) continue;
+    if (!rec.leaving || (rec.state !== "claimed" && rec.state !== "disposable") || skip.has(rec.path)) continue;
     const leaving = rec.leaving;
     const outcome = await withTreeLock(rec.path, () =>
       disposeTree(disposeDeps, rec, { auto: true, askSessions: { why: leaving.why } }),
     );
     if (outcome === "busy" || outcome.disposed) continue;
-    // "remove-failed" and "changed" are transient: the mark stays and the next
-    // pass retries. Any other refusal is a guard the session tripped by
-    // working on, so the tree goes back to the person as disposable.
-    if (outcome.refusal === "leaving" || outcome.refusal === "remove-failed" || outcome.refusal === "changed") continue;
-    markDisposable(deps, rec, outcome.refusal);
+    // "remove-failed", "mark-failed" and "changed" are transient: the mark
+    // stays and the next pass retries. Any other refusal is a guard the
+    // session tripped by working on, so the tree goes back to the person as
+    // disposable.
+    const transient = ["leaving", "remove-failed", "mark-failed", "changed"];
+    if (transient.includes(outcome.refusal)) continue;
+    if (rec.state === "disposable") dropLeavingMark(deps, rec, outcome.refusal);
+    else markDisposable(deps, rec, outcome.refusal);
   }
 }
 

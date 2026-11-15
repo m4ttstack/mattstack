@@ -623,6 +623,67 @@ describe("held trees say why (RT-267)", () => {
       expect(r.kills).toEqual([]);
     });
 
+    function disposableTree(name: string, branch: string): TreeRecord {
+      const rec = ephemeralTree(repo, repoName, name, branch);
+      saveRegistry(
+        repoName,
+        loadRegistry(repoName).map((t) => (t.path === rec.path ? { ...t, state: "disposable", disposableReason: "MR closed without merge" } : t)),
+      );
+      return rec;
+    }
+
+    test("a merged disposable tree with a session inside is disposed by a later pass once the session leaves", async () => {
+      const rec = disposableTree("oscar", "feat-oscar");
+      const r = recorder();
+      const merged = { "feat-oscar": { repoName, mr: { iid: 99, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.state).toBe("disposable");
+      expect(find(rec.path)?.leaving).toBeDefined();
+      expect(r.kills).toEqual([]);
+
+      r.inside.sessions = [];
+      r.clockState.nowMs += 30_000;
+      await detect(merged, r.seams);
+
+      expect(find(rec.path)).toBeUndefined();
+      expect(r.kills).toHaveLength(1);
+      expect(r.kills[0]!.stopSessionsInside ?? false).toBe(false);
+    });
+
+    test("a merged disposable tree whose session stays past the grace is stopped and disposed", async () => {
+      const rec = disposableTree("lima", "feat-lima");
+      const r = recorder();
+      const merged = { "feat-lima": { repoName, mr: { iid: 100, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      r.clockState.nowMs += 181_000;
+      await detect(merged, r.seams);
+
+      expect(find(rec.path)).toBeUndefined();
+      expect(r.kills).toHaveLength(1);
+      expect(r.kills[0]!.stopSessionsInside).toBe(true);
+    });
+
+    test("a leaving disposable tree that turns dirty stays disposable and drops its mark", async () => {
+      const rec = disposableTree("kilo", "feat-kilo");
+      const r = recorder();
+      const merged = { "feat-kilo": { repoName, mr: { iid: 101, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.leaving).toBeDefined();
+
+      writeFileSync(join(rec.path, "scratch.txt"), "dirt\n");
+      r.clockState.nowMs += 181_000;
+      await detect(merged, r.seams);
+
+      const cur = find(rec.path);
+      expect(cur?.state).toBe("disposable");
+      expect(cur?.disposableReason).toBe("dirty");
+      expect(cur?.leaving).toBeUndefined();
+      expect(r.kills).toEqual([]);
+    });
+
     test("a reopened MR clears the leaving mark, so the grace never stops the session", async () => {
       const rec = ephemeralTree(repo, repoName, "sierra", "feat-sierra");
       const r = recorder();
