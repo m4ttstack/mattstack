@@ -3487,6 +3487,25 @@ describe("startSnapshot: pull", () => {
     handle.stop();
   });
 
+  for (const [forge, originUrl] of [
+    ["GitLab", "https://gitlab.com/acme/team.git"],
+    ["GitHub", "https://github.com/acme/team.git"],
+  ] as const) test(`${forge}: an empty token: plain fetch`, async () => {
+    const { fn, calls, optsLog } = makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders()]);
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    const handle = startSnapshot({ ...teamSpecFor(), originUrl, tokenFor: async () => "" }, specDeps);
+    await handle.ready;
+    await handle.pullNow();
+
+    const i = calls.findIndex((c) => gitVerb(c) === "fetch");
+    expect(i).toBeGreaterThan(-1);
+    expect(rtHelperHost(calls[i]!)).toBeNull();
+    expect(calls[i]!.some((arg) => arg.startsWith("credential."))).toBe(false);
+    expectNoToken((optsLog[i] as { env?: Record<string, string> }).env, "glpat-team");
+    handle.stop();
+  });
+
   test("after the token is revoked the cached offer still names the helper and never passes the old token", async () => {
     const { fn, calls, optsLog } = makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders()]);
     const { deps } = baseDeps({ exec: fn });
@@ -3496,17 +3515,15 @@ describe("startSnapshot: pull", () => {
     const handle = startSnapshot(spec, specDeps);
     await handle.ready;
     await handle.pullNow();
-    answer = "glpat-new";
+    answer = null;
     await handle.pullNow();
 
     const fetches = calls.map((c, i) => ({ c, i })).filter(({ c }) => gitVerb(c) === "fetch");
     expect(fetches.length).toBeGreaterThanOrEqual(2);
     for (const { c, i } of fetches) {
       expect(rtHelperHost(c)).toBe("gitlab.com");
-      for (const token of ["glpat-old", "glpat-new"]) {
-        expect(c.join(" ")).not.toContain(token);
-        expectNoToken((optsLog[i] as { env?: Record<string, string> }).env, token);
-      }
+      expect(c.join(" ")).not.toContain("glpat-old");
+      expectNoToken((optsLog[i] as { env?: Record<string, string> }).env, "glpat-old");
     }
     handle.stop();
   });

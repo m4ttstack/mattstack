@@ -91,8 +91,8 @@ async function currentOrigin(p: Probes, dir: string): Promise<string | null> {
  * or null when the token may be offered (or there is none). The gate in
  * `publishTeam` and the setup remedy both read it, so they cannot disagree.
  */
-export function withheldPublishHost(remote: string, token: string | null, confirmedHost: string | null): string | null {
-  if (token === null || !/^https:\/\//i.test(remote) || forgeTokenKey(remote) !== "gitlabToken") return null;
+export function withheldPublishHost(remote: string, token: string | null | undefined, confirmedHost: string | null): string | null {
+  if (!token || !/^https:\/\//i.test(remote) || forgeTokenKey(remote) !== "gitlabToken") return null;
   return mayOfferGitLabToken(remote, confirmedHost) ? null : hostFromRemote(remote);
 }
 
@@ -142,7 +142,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const activeRemote = remote ?? (await currentOrigin(p, dir)) ?? "";
   const tokenRemote = opts.tokenRemote ?? activeRemote;
   const confirmed = confirmedForgeHost(p);
-  const offerable = opts.token != null && withheldPublishHost(tokenRemote, opts.token, confirmed) === null && mayOfferToken(tokenRemote, confirmed);
+  const offerable = Boolean(opts.token) && withheldPublishHost(tokenRemote, opts.token, confirmed) === null && mayOfferToken(tokenRemote, confirmed);
   const token = offerable ? opts.token! : null;
   const inspectionFailure = () => new UserActionableError("team-pull-only", "rt could not check your pending changes", {}, { next: "rt team pull" });
   const destination = await p.exec(["git", "remote", "get-url", "--push", "--all", "origin"], { cwd: dir });
@@ -161,7 +161,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     thenRun: `rt team publish --team ${slug}`,
   });
   if (pending === null) throw base.sha !== null && !(await containsCommit(p, dir, base.sha, ref)) ? orgMoved() : inspectionFailure();
-  const cmd = gitWithRtCredential(["push", "-u", "origin", `${ref}:${ref}`], token !== null, { GIT_TERMINAL_PROMPT: "0" }, { remote: tokenRemote });
+  const cmd = gitWithRtCredential(["push", "-u", "origin", `${ref}:${ref}`], Boolean(token), { GIT_TERMINAL_PROMPT: "0" }, { remote: tokenRemote });
   const current = roleFor(p, slug);
   // Only a commit without the store reads as empty, as in the daemon's readStoreAt; any git failure stops the publish. Null: malformed.
   const show = async (rev: string | null): Promise<StoreFile | null> => {

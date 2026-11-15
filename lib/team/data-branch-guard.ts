@@ -78,7 +78,7 @@ export async function checkDataBranch(p: Probes, slug: string, opts: GuardOption
   const origin = await originFor(p, slug, opts);
   if (origin === null) return null;
   const { dir, branch, remote, token } = origin;
-  const lookup = gitWithRtCredential(["ls-remote", "--heads", "origin", `refs/heads/${branch}`], token !== null, ENV, { remote });
+  const lookup = gitWithRtCredential(["ls-remote", "--heads", "origin", `refs/heads/${branch}`], Boolean(token), ENV, { remote });
   const listed = await p.exec(lookup.argv, { cwd: dir, env: lookup.env, timeoutMs: ASK_TIMEOUT_MS });
   if (listed.code !== 0) return { kind: "unknown", branch, log: withoutUrls(`${listed.stdout}\n${listed.stderr}`.trim()) };
   const sha = listed.stdout.trim().split(/\s+/)[0] ?? "";
@@ -172,7 +172,7 @@ export async function restoreDataBranch(p: Probes, slug: string, opts: RestoreOp
   const plan: RestorePlan = { branch, sha: check.local, subject, ahead };
   if (!opts.push) return { plan, pushed: false, protect: null, pushList: "skipped" };
 
-  const push = gitWithRtCredential(["push", "-q", "origin", `${check.local}:refs/heads/${branch}`], token !== null, ENV, { remote });
+  const push = gitWithRtCredential(["push", "-q", "origin", `${check.local}:refs/heads/${branch}`], Boolean(token), ENV, { remote });
   const pushed = await p.exec(push.argv, { cwd: dir, env: push.env });
   if (pushed.code !== 0) {
     throw new UserActionableError("restore-push-failed", `rt could not push the ${branch} branch back`, {}, { why: "Check that you can push to the org repo.", log: withoutUrls(`${pushed.stdout}\n${pushed.stderr}`.trim()) });

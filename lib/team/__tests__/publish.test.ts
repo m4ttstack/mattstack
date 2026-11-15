@@ -75,6 +75,21 @@ describe("publishTeam", () => {
     expect(result.pushed).toBe(true);
   });
 
+  for (const remote of ["https://github.com/acme/repo.git", "https://gitlab.com/acme/repo.git"]) {
+    test(`an empty opts.token pushes with plain git on ${new URL(remote).host}`, async () => {
+      const p = probesWithZone({ home: "/home/x" });
+      const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+      p.exec = async (argv, opts) => {
+        seen.push({ argv, env: opts?.env });
+        return { code: 0, stdout: argv.includes("get-url") ? `${remote}\n` : argv.includes("symbolic-ref") ? "main\n" : "", stderr: "" };
+      };
+      const result = await publishTeam(p, "acme", remote, { token: "" });
+      const push = seen.find((c) => c.argv.includes("push"))!;
+      expect(rtHelperHost(push.argv)).toBeNull();
+      expect(result.pushed).toBe(true);
+    });
+  }
+
   test("falls back to remote add when set-url fails (no origin yet)", async () => {
     const p = probesWithZone({
       home: "/home/x",
@@ -697,6 +712,7 @@ describe("withheldPublishHost", () => {
     expect(withheldPublishHost("https://github.com/a/b.git", "glpat_fake", null)).toBeNull();
     expect(withheldPublishHost("http://gitlab.acme.dev/a/b.git", "glpat_fake", null)).toBeNull();
     expect(withheldPublishHost(GITLAB, null, null)).toBeNull();
+    expect(withheldPublishHost(GITLAB, "", null)).toBeNull();
   });
 });
 

@@ -231,7 +231,7 @@ export function realMintInviteSeams(): MintInviteSeams {
       }
       const known = await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${wanted}`], { cwd: dir });
       if (known.code !== 0) return { dataBranch };
-      const pull = gitWithRtCredential(["pull", "--rebase", "--autostash", "origin", wanted], token !== null, { GIT_TERMINAL_PROMPT: "0" }, { remote });
+      const pull = gitWithRtCredential(["pull", "--rebase", "--autostash", "origin", wanted], Boolean(token), { GIT_TERMINAL_PROMPT: "0" }, { remote });
       const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
       if (res.code === 0) return { dataBranch };
       const output = withoutUrls(`${res.stdout}\n${res.stderr}`.trim());

@@ -173,7 +173,7 @@ describe("setHomeRemote", () => {
       }
     });
 
-    test("with the rt link absent it sets no helper but the push still carries the token", async () => {
+    test("with the rt link absent it sets no helper but the push still names rt git credential", async () => {
       const { probes, envs, hooks } = setup("tok-123", { rtLink: false });
       await setHomeRemote(probes, { create: true }, hooks);
       expect(probes.calls.exec.some((a) => a.includes("config"))).toBe(false);

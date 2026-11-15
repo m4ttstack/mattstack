@@ -634,7 +634,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let loggedHold: string | null = null;
   let loggedGateError: string | null = null;
   let conflicted: { at: number; detail: string } | null = null;
-  /** `spec.tokenFor` is a keychain read plus a sops decrypt, so it is resolved once per pull interval rather than per git call. */
+  /** Caches the offer decision per pull interval, not the secret: `rt git credential` reads the token afresh on each authed call. */
   let cachedToken: { value: string | null; at: number } | null = null;
   /** Dedup key for remoteGit's token-read warn: a keychain that stays locked must warn once, not on every fetch and every push. */
   let lastLoggedTokenError: string | null = null;
@@ -733,7 +733,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       }
     }
     lastLoggedTokenError = null;
-    const cmd = gitWithRtCredential(args, cachedToken.value !== null, { ...(process.env as Record<string, string>), GIT_TERMINAL_PROMPT: "0" }, { remote: spec.originUrl ?? null });
+    const cmd = gitWithRtCredential(args, Boolean(cachedToken.value), { ...(process.env as Record<string, string>), GIT_TERMINAL_PROMPT: "0" }, { remote: spec.originUrl ?? null });
     return deps.exec(cmd.argv as [string, ...string[]], { cwd: deps.repoDir, timeoutMs, stderr: "pipe", env: cmd.env });
   }
 

@@ -96,7 +96,7 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
     case "cloneUserRepo": {
       log(`Cloning ${step.url}`);
       const clone = ["clone", "--", step.url, "user"];
-      const cmd = gitWithRtCredential(clone, ((await exec.cloneToken?.(step.url)) ?? null) !== null, {}, { remote: step.url });
+      const cmd = gitWithRtCredential(clone, Boolean(await exec.cloneToken?.(step.url)), {}, { remote: step.url });
       if (!cmd.offered) {
         await run(exec, cmd.argv);
         return;

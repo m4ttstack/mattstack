@@ -175,6 +175,16 @@ describe("executeInitPlan", () => {
     expect(runs[0]!.env).toBeUndefined();
   });
 
+  test("cloneUserRepo: an empty cloneToken: exactly one plain clone", async () => {
+    const seam = new FakeExecSeam({ cloneToken: async () => "" });
+
+    const result = await executeInitPlan([{ kind: "cloneUserRepo", url: REPO_URL }], seam, noopLog);
+
+    expect(result).toEqual({ ok: true });
+    const runs = seam.calls.filter((c) => c.kind === "run") as { cmd: string[]; env?: Record<string, string> }[];
+    expect(runs.map((r) => r.cmd)).toEqual([["git", "clone", "--", REPO_URL, "user"]]);
+  });
+
   test("cloneUserRepo: a failing clone aborts and reports it", async () => {
     const seam = new FakeExecSeam({ failRun: () => "fatal: could not read from remote repository" });
     const steps: InitStep[] = [{ kind: "cloneUserRepo", url: REPO_URL }];

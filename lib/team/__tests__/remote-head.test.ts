@@ -51,6 +51,15 @@ describe("remoteHead names rt git credential", () => {
     expect(seen[0]!.argv).toEqual(["git", "ls-remote", "--refs", "--", "https://github.com/acme/team.git", REF]);
   });
 
+  for (const remote of ["https://github.com/acme/team.git", "https://gitlab.com/acme/team.git"]) {
+    test(`an empty token: plain ls-remote on ${new URL(remote).host}`, async () => {
+      const { p, seen } = probesAnswering("");
+      await remoteHead(p, "/tmp/clone", remote, REF, "", remote);
+      expect(rtHelperHost(seen[0]!.argv)).toBeNull();
+      expect(seen[0]!.argv).toEqual(["git", "ls-remote", "--refs", "--", remote, REF]);
+    });
+  }
+
   test("a remote with no https host gets plain ls-remote even with a token", async () => {
     const { p, seen } = probesAnswering("");
     await remoteHead(p, "/tmp/clone", "origin", REF, "tok_rt", "git@github.com:acme/team.git");

@@ -117,7 +117,7 @@ export async function setHomeRemote(
       }
     }
   }
-  const git = gitWithRtCredential(["-C", repoDir, "push", "-u", "origin", "HEAD"], pushToken !== null, NO_PROMPT_ENV, { remote: url });
+  const git = gitWithRtCredential(["-C", repoDir, "push", "-u", "origin", "HEAD"], Boolean(pushToken), NO_PROMPT_ENV, { remote: url });
   const push = await p.exec(git.argv, { timeoutMs: 120_000, env: git.env });
   if (push.code !== 0) {
     const reason = withoutUrls(push.stderr.trim()) || `exit ${push.code}`;
