@@ -143,7 +143,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const tokenRemote = opts.tokenRemote ?? activeRemote;
   const confirmed = confirmedForgeHost(p);
   const offerable = Boolean(opts.token) && withheldPublishHost(tokenRemote, opts.token, confirmed) === null && mayOfferToken(tokenRemote, confirmed);
-  const token = offerable ? opts.token! : null;
+  const token = offerable && opts.token ? opts.token : null;
   const inspectionFailure = () => new UserActionableError("team-pull-only", "rt could not check your pending changes", {}, { next: "rt team pull" });
   const destination = await p.exec(["git", "remote", "get-url", "--push", "--all", "origin"], { cwd: dir });
   const urls = destination.stdout.trim().split("\n").filter(Boolean);
