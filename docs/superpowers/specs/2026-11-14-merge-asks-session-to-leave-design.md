@@ -128,6 +128,8 @@ the builder; the verb only reports `reclaimed`.
 
 ### Where the question is drawn
 
+Decided by Matt (2026-11-14): gate-form exposes the ask as a noun.
+
 The question uses the mod kit's form look (the gate forms' kit). The
 mattstack plugin already depends on `gate-form`. Builder's call between:
 gate-form adding a small noun to `$` for other plugins (a plugin contract,
