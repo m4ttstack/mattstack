@@ -2871,7 +2871,7 @@ function teamSpecFor(tokenValue: string | null = "glpat-team") {
 
 /**
  * Responders for the pull stage. `gitVerb` (line ~29 of this file) skips the
- * `-c` pairs `gitWithToken` and the rebase prepend, so `argv[1]` is never the
+ * `-c` pairs `gitWithRtCredential` and the rebase prepend, so `argv[1]` is never the
  * verb here. `ahead`/`behind` are `git rev-list --left-right --count
  * origin/main...HEAD` as "<behind>\t<ahead>". `rebase: "conflict"` makes the
  * rebase exit 1 AND creates `<FAKE_REPO_DIR>/.git/rebase-merge` (the engine
@@ -3702,7 +3702,7 @@ describe("startSnapshot: pull", () => {
 
   test("a rebase conflict cancels a standing push-retry timer too, so the ladder stops while suspended", async () => {
     const dirty = " M mattstack/settings.team.jsonc\0";
-    // `gitWithToken` prepends `-c` pairs, so defaultResponders' argv[1]-keyed
+    // `gitWithRtCredential` prepends `-c` pairs, so defaultResponders' argv[1]-keyed
     // push answer never matches a token-carrying push; this one has to.
     const failingPush: Responder = (argv) => gitVerb(argv) === "push" ? { stdout: "", stderr: "fatal: unable to access origin", exitCode: 1 } : undefined;
     const exec = makeSwitchableExec([failingPush, ...pullResponders({ behind: 0, ahead: 1 }), ...defaultResponders({ statusZ: dirty })]);

@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { credentialHelperReply, gitWithRtCredential, gitWithToken } from "../git-credential.ts";
+import { credentialHelperReply, gitWithRtCredential } from "../git-credential.ts";
 import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 
 let home: string;
@@ -21,17 +21,6 @@ function isolatedEnv(extra: Record<string, string> = {}): Record<string, string>
   };
 }
 
-function credentialFill(argvPrefix: string[], env: Record<string, string>): string {
-  const [cmd, ...rest] = argvPrefix;
-  const r = spawnSync(cmd!, [...rest, "credential", "fill"], {
-    cwd: repo,
-    env: isolatedEnv(env),
-    input: "protocol=https\nhost=github.com\npath=acme/app.git\n\n",
-    encoding: "utf8",
-  });
-  return r.stdout;
-}
-
 beforeEach(() => {
   home = realpathSync(mkdtempSync(join(tmpdir(), "rt-git-cred-")));
   repo = join(home, "repo");
@@ -40,89 +29,6 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(home, { recursive: true, force: true });
-});
-
-describe("gitWithToken", () => {
-  test("hands git the token through the inline helper and env, never argv", () => {
-    const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
-    expect(git.argv.join(" ")).not.toContain("tok_rt");
-    expect(credentialFill(git.argv, git.env)).toContain("password=tok_rt");
-  });
-
-  describe("scoped to one host", () => {
-    let log: string;
-    let globalConfig: string;
-
-    beforeEach(() => {
-      log = join(home, "helper.log");
-      globalConfig = join(home, "global.gitconfig");
-      const logger = join(home, "logger.sh");
-      writeFileSync(logger, `#!/bin/sh\necho "$1 $(cat | tr '\\n' ' ')" >> '${log}'\n`);
-      chmodSync(logger, 0o755);
-      writeFileSync(globalConfig, `[credential]\n\thelper = ${logger}\n`);
-    });
-
-    function run(argv: string[], env: Record<string, string>, sub: "fill" | "approve", input: string): string {
-      const [cmd, ...rest] = argv;
-      return spawnSync(cmd!, [...rest, "credential", sub], {
-        cwd: repo,
-        env: { ...isolatedEnv(env), GIT_CONFIG_GLOBAL: globalConfig },
-        input,
-        encoding: "utf8",
-      }).stdout;
-    }
-    const readLog = () => {
-      try {
-        return readFileSync(log, "utf8");
-      } catch {
-        return "";
-      }
-    };
-
-    test("the checked host gets rt's token and no other helper is consulted", () => {
-      const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
-      expect(run(git.argv, git.env, "fill", "protocol=https\nhost=github.com\n\n")).toContain("password=tok_rt");
-      expect(readLog()).toBe("");
-    });
-
-    test("a successful auth's store never hands the token to the user's helpers (a keychain would keep it)", () => {
-      const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
-      run(git.argv, git.env, "approve", "protocol=https\nhost=github.com\nusername=x-access-token\npassword=tok_rt\n\n");
-      expect(readLog()).not.toContain("tok_rt");
-    });
-
-    test("any other host (a submodule, a redirect) never gets the token", () => {
-      const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
-      expect(run(git.argv, git.env, "fill", "protocol=https\nhost=gitlab.com\n\n")).not.toContain("tok_rt");
-    });
-
-    test("cleartext http on the same host never gets the token", () => {
-      const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
-      expect(run(git.argv, git.env, "fill", "protocol=http\nhost=github.com\n\n")).not.toContain("tok_rt");
-    });
-  });
-
-  test.each([
-    ["an scp-style ssh remote", "git@github.com:acme/app.git"],
-    ["cleartext http", "http://github.com/acme/app.git"],
-    ["a local path", "/tmp/acme/app"],
-    ["no remote", null],
-  ])("%s gets no token and no helper", (_label, remote) => {
-    expect(gitWithToken(["fetch"], "tok_rt", { A: "1" }, { remote })).toEqual({ argv: ["git", "fetch"], env: { A: "1" } });
-  });
-
-  test("no call site offers a token through an unscoped credential.helper", () => {
-    const grep = spawnSync("git", ["grep", "-l", "-F", "credential.helper=", "--", "lib", "commands", ":!*__tests__*"], {
-      cwd: join(import.meta.dir, "..", "..", ".."),
-      encoding: "utf8",
-    });
-    expect(grep.status).toBe(1);
-    expect(grep.stdout).toBe("");
-  });
-
-  test("no token: plain git, nothing added", () => {
-    expect(gitWithToken(["fetch"], null, { A: "1" }, { remote: "https://github.com/acme/app.git" })).toEqual({ argv: ["git", "fetch"], env: { A: "1" } });
-  });
 });
 
 describe("gitWithRtCredential", () => {
@@ -220,6 +126,15 @@ describe("gitWithRtCredential", () => {
       const other = host === "github.com" ? "gitlab.com" : "github.com";
       expect(git(built.argv, built.env, "fill", `protocol=https\nhost=${other}\n\n`)).not.toContain("tok_rt");
     });
+  });
+
+  test("no call site offers a token through an unscoped credential.helper", () => {
+    const grep = spawnSync("git", ["grep", "-l", "-F", "credential.helper=", "--", "lib", "commands", ":!*__tests__*"], {
+      cwd: join(import.meta.dir, "..", "..", ".."),
+      encoding: "utf8",
+    });
+    expect(grep.status).toBe(1);
+    expect(grep.stdout).toBe("");
   });
 
   test("the guard pattern does not match the builder", () => {
