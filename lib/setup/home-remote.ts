@@ -7,7 +7,7 @@
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { linkPath } from "../deps/links.ts";
-import { gitWithToken } from "../team/git-credential.ts";
+import { gitWithRtCredential } from "../team/git-credential.ts";
 import { hasUrlCredentials, withoutUrls } from "../team/redact.ts";
 import { warn } from "../ui/warn.ts";
 import { createGitHubRepo, githubCreateAccess, readStoredGitHubToken } from "./github-signin.ts";
@@ -117,7 +117,7 @@ export async function setHomeRemote(
       }
     }
   }
-  const git = gitWithToken(["-C", repoDir, "push", "-u", "origin", "HEAD"], pushToken, NO_PROMPT_ENV, { remote: url });
+  const git = gitWithRtCredential(["-C", repoDir, "push", "-u", "origin", "HEAD"], pushToken !== null, NO_PROMPT_ENV, { remote: url });
   const push = await p.exec(git.argv, { timeoutMs: 120_000, env: git.env });
   if (push.code !== 0) {
     const reason = withoutUrls(push.stderr.trim()) || `exit ${push.code}`;

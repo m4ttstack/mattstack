@@ -10,16 +10,6 @@
     "lines": 1
   },
   {
-    "file": "lib/setup/home-remote.ts",
-    "reason": "The home remote's first push passes rt's stored token, once access is confirmed, to git through env; moves to rt git credential in the follow-up.",
-    "lines": 1
-  },
-  {
-    "file": "lib/setup/steps/repos.ts",
-    "reason": "Setup's repo clone passes trustedForgeTokenFor()'s token to git through env; moves to rt git credential in the follow-up.",
-    "lines": 1
-  },
-  {
     "file": "lib/team/git-credential.ts",
     "reason": "Defines gitWithToken and its inline helper, which reads RT_GIT_TOKEN from env; goes once the last caller moves.",
     "lines": 3

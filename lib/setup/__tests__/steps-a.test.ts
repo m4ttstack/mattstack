@@ -21,7 +21,7 @@ import { linkPath } from "../../deps/links.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { createRealProbes } from "../probes.ts";
 import type { ExecResult, Probes } from "../probes.ts";
-import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
+import { writeSecret, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../../secrets/store.ts";
 import { readTeamSecret, teamSopsYamlPath } from "../../secrets/team-store.ts";
 import { readTeamLocal, teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
@@ -1462,7 +1462,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     ]);
     for (const call of seen) {
       expect(call.env?.GIT_SSH_COMMAND).toContain("BatchMode=yes");
-      expect(call.env?.RT_GIT_TOKEN).toBeUndefined();
+      expectNoToken(call.env, "glpat_staged");
     }
   });
 
@@ -1584,7 +1584,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(p.calls.exec.some((argv) => argv.includes("config"))).toBe(false);
   });
 
-  test("repos.clone: a private tracked repo is cloned with the forge token rt holds (staged before secrets.write), through the env", async () => {
+  test("repos.clone: a private tracked repo is cloned naming rt git credential for the staged forge token, never in argv or env", async () => {
     setSetting("rt.repoRoots", [join(home, "code")], "machine");
     mkdirSync(join(home, "code"), { recursive: true });
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
@@ -1601,10 +1601,40 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome.state).toBe("done");
     const clone = seen.find((c) => c.argv.includes("clone"))!;
-    expect(clone.argv).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
+    expect(rtHelperHost(clone.argv)).toBe("gitlab.com");
     expect(clone.argv.join(" ")).not.toContain("glpat_staged");
-    expect(clone.env?.RT_GIT_TOKEN).toBe("glpat_staged");
+    expectNoToken(clone.env, "glpat_staged");
     expect(clone.env?.GIT_TERMINAL_PROMPT).toBe("0");
+  });
+
+  test.each([
+    ["github.com", "githubToken", "ghp_fake"],
+    ["gitlab.com", "gitlabToken", "glpat_fake"],
+  ])("repos.clone: a %s token, stored or only staged, names rt git credential and never rides in env", async (host, key, token) => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    mkdirSync(join(home, "code"), { recursive: true });
+    const snapshot = { slug: "acme", integrations: {}, trackingIdentities: [`${host}/acme/acme-dev`], marketplaces: [], plugins: [], remote: null };
+    for (const where of ["stored", "staged"]) {
+      const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+      const p = fakeProbes({
+        home,
+        exec: async (argv, opts) => {
+          seen.push({ argv, env: opts?.env });
+          return argv.includes("ls-remote") ? SSH_REFUSED : ok();
+        },
+      });
+      const secrets = fakeSecrets();
+      if (where === "stored") await writeSecret("rt", key, token, secrets);
+      else stageSecret(p, "rt", key, token);
+      const { ctx } = makeCtx(p, { snapshot, secrets });
+
+      expect((await reposCloneStep.run(ctx)).state).toBe("done");
+      const clone = seen.find((c) => c.argv.includes("clone") && !c.argv.includes("ls-remote"))!;
+      expect(rtHelperHost(clone.argv)).toBe(host);
+      expect(clone.argv.join(" ")).not.toContain(token);
+      expectNoToken(clone.env, token);
+      rmSync(join(home, "code", "acme-dev"), { recursive: true, force: true });
+    }
   });
 
   test("repos.clone: the stored token is withheld from a tracked identity on a host the user never confirmed — the clone still runs, tokenless", async () => {
@@ -1624,7 +1654,8 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
     const clone = seen.find((c) => c.argv.includes("clone"))!;
-    expect(clone.env?.RT_GIT_TOKEN).toBeUndefined();
+    expect(clone.argv.some((arg) => arg.startsWith("credential."))).toBe(false);
+    expectNoToken(clone.env, "glpat_staged");
   });
 
   test("repos.clone: a tracked identity on the user-confirmed host still gets the token", async () => {
@@ -1645,7 +1676,8 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
     const clone = seen.find((c) => c.argv.includes("clone"))!;
-    expect(clone.env?.RT_GIT_TOKEN).toBe("glpat_staged");
+    expect(rtHelperHost(clone.argv)).toBe("gitlab.corp.example");
+    expectNoToken(clone.env, "glpat_staged");
   });
 
   test("repos.clone: an already-present, genuinely-matching clone is skipped (idempotent re-run never re-clones)", async () => {

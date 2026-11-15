@@ -4,6 +4,7 @@ import { UserActionableError } from "../../errors.ts";
 import { isRestorableOrigin, setHomeRemote } from "../home-remote.ts";
 import type { ExecResult } from "../probes.ts";
 import { __test__, setWarningLog } from "../../ui/warn.ts";
+import { expectNoToken, rtHelperHost } from "../../team/__tests__/rt-credential-argv.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const HOME = "/fake-home";
@@ -60,6 +61,22 @@ describe("setHomeRemote", () => {
   test("a pushed remote reports the url, the remote change and created", async () => {
     const probes = fakeProbes({ home: HOME, dirs: { [GIT_DIR]: [] }, exec: async (argv) => (argv.includes("get-url") ? fail(2) : ok()) });
     expect(await setHomeRemote(probes, { url: URL })).toEqual({ url: URL, remote: "added", pushed: true, created: false });
+  });
+
+  test("a typed url pushes with plain git, no helper and no token env", async () => {
+    const envs: Array<Record<string, string> | undefined> = [];
+    const probes = fakeProbes({
+      home: HOME,
+      dirs: { [GIT_DIR]: [] },
+      exec: async (argv, opts) => {
+        envs.push(opts?.env);
+        return argv.includes("get-url") ? fail(2) : ok();
+      },
+    });
+    await setHomeRemote(probes, { url: URL }, { githubToken: async () => "tok-123" });
+    const push = probes.calls.exec.findIndex((a) => a.includes("push"));
+    expect(rtHelperHost(probes.calls.exec[push]!)).toBeNull();
+    expectNoToken(envs[push], "tok-123");
   });
 
   test("create refuses a home repo that already has an origin, and creates nothing", async () => {
@@ -119,7 +136,8 @@ describe("setHomeRemote", () => {
       const push = probes.calls.exec.findIndex((a) => a.includes("push"));
       expect(push).toBeGreaterThan(probes.calls.exec.indexOf(configs[1]!));
       expect(probes.calls.exec.flat().join(" ")).not.toContain("tok-123");
-      expect(envs[push]?.RT_GIT_TOKEN).toBe("tok-123");
+      expect(rtHelperHost(probes.calls.exec[push]!)).toBe("github.com");
+      expectNoToken(envs[push], "tok-123");
       expect(envs[push]?.GIT_TERMINAL_PROMPT).toBe("0");
     });
 
@@ -160,7 +178,8 @@ describe("setHomeRemote", () => {
       await setHomeRemote(probes, { create: true }, hooks);
       expect(probes.calls.exec.some((a) => a.includes("config"))).toBe(false);
       const push = probes.calls.exec.findIndex((a) => a.includes("push"));
-      expect(envs[push]?.RT_GIT_TOKEN).toBe("tok-123");
+      expect(rtHelperHost(probes.calls.exec[push]!)).toBe("github.com");
+      expectNoToken(envs[push], "tok-123");
     });
 
     test("a helper write failure is logged and the push still runs", async () => {
