@@ -66,6 +66,11 @@ function reservedKeyError(questions: GateQuestion[], answers: Record<string, unk
   if (has("to") && !hasQuestion(questions, "to") && unwrapGateAnswerValue(answers.next) !== "go-back") {
     return "to is allowed only with next: go-back";
   }
+  if (unwrapGateAnswerValue(answers.next) === "go-back") {
+    // run_resolve takes answers.to as it stands, so a wrapped stage is refused too.
+    const to = answers.to;
+    if (typeof to !== "string" || to.trim() === "") return "next: go-back needs to, the stage to go back to";
+  }
   return null;
 }
 

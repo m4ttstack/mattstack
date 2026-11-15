@@ -129,6 +129,20 @@ describe("reserved run-control answers", () => {
   test("go-back with a stage is accepted", () => {
     expect(validateGateAnswers([single], { next: "go-back", to: "plan" })).toBeNull();
   });
+  test("go-back without a string stage is refused before the gate is written", () => {
+    const needsTo = "next: go-back needs to, the stage to go back to";
+    expect(validateGateAnswers([single], { next: "go-back" })).toBe(needsTo);
+    expect(validateGateAnswers([single], { next: { value: "go-back", note: "x" } })).toBe(needsTo);
+    expect(validateGateAnswers([single], { next: "go-back", to: "" })).toBe(needsTo);
+    expect(validateGateAnswers([single], { next: "go-back", to: "  " })).toBe(needsTo);
+    expect(validateGateAnswers([single], { next: "go-back", to: ["plan"] })).toBe(needsTo);
+    expect(validateGateAnswers([single], { next: "go-back", to: 3 })).toBe(needsTo);
+    expect(validateGateAnswers([single], { next: "go-back", to: { value: "plan" } })).toBe(needsTo);
+  });
+  test("a gate with its own next question takes go-back as an ordinary answer", () => {
+    const ownGoBack: GateQuestion = { id: "next", label: "n", multi: false, options: ["go-back", "ship"] };
+    expect(validateGateAnswers([ownGoBack], { next: "go-back" })).toBeNull();
+  });
   test("to alone is refused", () => {
     expect(validateGateAnswers([single], { to: "plan" })).toBe("to is allowed only with next: go-back");
   });
