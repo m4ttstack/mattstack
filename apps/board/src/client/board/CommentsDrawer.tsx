@@ -326,7 +326,10 @@ function ReplyBox({
         }}
       />
       <div className="tui-cd-reply-foot">
-        <span className="tui-cd-reply-hint">⌘↵ sends · esc closes</span>
+        <span className="tui-cd-reply-hint">
+          <span>⌘↵ sends</span>
+          <span>esc closes</span>
+        </span>
         <Button
           type="button"
           size="sm"

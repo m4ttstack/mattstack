@@ -1626,6 +1626,9 @@ button.tui-status-more-verb:active {
   outline: none;
 }
 .tui-row-note-hint {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
   margin-top: 2px;
   font-size: 0.66rem;
   color: var(--text-4);
@@ -1884,6 +1887,9 @@ button.tui-status-more-verb:active {
   gap: 0.4rem;
 }
 .tui-cd-reply-hint {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
   margin-right: auto;
   font-size: 0.66rem;
   color: var(--text-4);
@@ -3649,6 +3655,9 @@ a.tui-id-card-ref:focus-visible {
   opacity: 0.8;
 }
 .tui-menu-note-hint {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 12px;
   font-family: var(--font-sans);
   font-size: 0.625rem;
   color: var(--text-4);
@@ -4792,7 +4801,7 @@ a.tui-id-card-ref:focus-visible {
   flex-wrap: wrap;
   justify-content: center;
   align-items: baseline;
-  gap: 8px;
+  gap: 16px;
   font-size: var(--gate-font-meta);
   color: var(--text-4);
 }
@@ -4856,12 +4865,8 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-allnone-group {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   margin-left: auto;
-}
-.tui-review-allnone-sep {
-  color: var(--text-4);
-  font-size: 12px;
 }
 /* rest at full strength (--text-1, a clickable control rather than small
    secondary text); hover = accent + underline; mousedown deepens; a no-op
@@ -6737,13 +6742,8 @@ a.tui-id-card-ref:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  column-gap: 12px;
   font-size: 12.5px;
-  color: var(--text-3);
-}
-.tui-review-skipped-meta > * + *::before {
-  content: '·';
-  margin: 0 6px;
-  font-weight: 400;
   color: var(--text-3);
 }
 .tui-review-skipped-path {

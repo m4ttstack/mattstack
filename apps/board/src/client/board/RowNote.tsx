@@ -65,7 +65,10 @@ export function RowNote({
           />
         </div>
         <div className="tui-row-note-hint">
-          ↵ saves · ⇧↵ newline · esc cancels · an empty save clears the note
+          <span>↵ saves</span>
+          <span>⇧↵ newline</span>
+          <span>esc cancels</span>
+          <span>an empty save clears the note</span>
         </div>
       </div>
     );

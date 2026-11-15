@@ -523,9 +523,8 @@ function PaneSheetBody({
               )}
               {others.length > 0 && (
                 <div className="tui-sheet-text-actions">
-                  {others.map((value, i) => (
+                  {others.map(value => (
                     <Fragment key={value}>
-                      {i > 0 && <span aria-hidden="true">·</span>}
                       <button
                         type="button"
                         className="tui-sheet-text-action"

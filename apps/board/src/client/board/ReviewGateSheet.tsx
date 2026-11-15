@@ -992,12 +992,6 @@ function ReviewGateSheet({
                                   >
                                     all
                                   </button>
-                                  <span
-                                    className="tui-review-allnone-sep"
-                                    aria-hidden="true"
-                                  >
-                                    ·
-                                  </span>
                                   <button
                                     type="button"
                                     className="tui-review-allnone"

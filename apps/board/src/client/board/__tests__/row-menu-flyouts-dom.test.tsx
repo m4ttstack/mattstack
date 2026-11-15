@@ -312,7 +312,7 @@ test('alt-click on a launch inside a flyout opens the note box first', async () 
   expect(menuLines()).toEqual([
     '# note for resume review !1419',
     '[note box]',
-    '↵ launch with note · ⇧↵ newline · esc back',
+    '↵ launch with note | ⇧↵ newline | esc back',
   ]);
   await typeNote('pick up at the tests');
   expect(harness.effects).toEqual([
