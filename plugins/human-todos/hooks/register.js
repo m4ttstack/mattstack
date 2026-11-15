@@ -1208,6 +1208,7 @@ var PID_LINE = /^__human_todo_pid__(\d+)$/;
 var FLUSH_MS = 1000;
 var WINDOW = 1024 * 1024;
 var SLACK = WINDOW;
+var SPILL_CAP = 20 * 1024 * 1024;
 var TAIL_SCAN = 64 * 1024;
 var jobs = new Map;
 function signal($, pid, sig = "TERM") {
@@ -1277,7 +1278,21 @@ async function startLocal($, todo) {
   let isWriteFailed = false;
   let spilled = Promise.resolve();
   let isSpillFailed = false;
-  const spill = (text) => {
+  let spilledLength = 0;
+  let isSpillFull = false;
+  let endsLine = true;
+  const spill = (whole) => {
+    if (isSpillFull)
+      return;
+    const room = SPILL_CAP - spilledLength;
+    isSpillFull = whole.length > room;
+    const head = isSpillFull ? whole.slice(0, room) : whole;
+    spilledLength += head.length;
+    if (head !== "")
+      endsLine = head.endsWith(`
+`);
+    const text = isSpillFull ? `${head}${endsLine ? "" : `
+`}${DROPPED}` : head;
     spilled = spilled.then(async () => {
       if (isSpillFailed)
         return;

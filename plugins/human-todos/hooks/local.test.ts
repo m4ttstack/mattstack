@@ -672,6 +672,27 @@ test('the report file holds the whole output of a run past the window: the spill
   expect(sent).toEqual([`[Human Todos] The user ran #1 "T" from the pane: exit 0. Output: ${joined?.argv[5]}`])
 })
 
+test('the spill keeps the first 20 MiB, then the dropped marker, and the report joins the last window after it', async ($, on) => {
+  const MIB = 1024 * 1024
+  const chunk = (n: number) => out(`${String(n % 10).repeat(9)}\n`.repeat(250_000))
+  const spills: string[] = []
+  let joined: string | undefined
+  const { run1, clock } = await seeded($, on, [todo({})], {
+    run: (argv, stdin) => {
+      if (argv[2] === 'cat >> "$1"') spills.push(stdin ?? '')
+      else if (argv[0] === '/bin/sh' && argv[2]?.includes('cat -- "$1" -')) joined = stdin
+    },
+    script: () => exits([pid(7), ...Array.from({ length: 9 }, (_, n) => chunk(n)), out('the newest line\n')]),
+  })
+
+  await run1('1')
+  await clock.settle()
+
+  const whole = `${Array.from({ length: 9 }, (_, n) => chunk(n).text).join('')}the newest line\n`
+  expect(spills.join('')).toBe(`${whole.slice(0, 20 * MIB)}[earlier output was dropped]\n`)
+  expect(joined).toBe(whole.slice(-MIB))
+})
+
 test('a join that fails or times out keeps the window in the report, marked as cut', async ($, on) => {
   const chunk = out('abcdefghi\n'.repeat(250_000))
   let timeoutMs: number | undefined

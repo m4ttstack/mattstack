@@ -12,6 +12,9 @@ const FLUSH_MS = 1000
 const WINDOW = 1024 * 1024
 // Output grows past the window before it is cut, so a chatty script costs one slice per window, not one per piece.
 const SLACK = WINDOW
+// The most of a run's start the spill keeps, so a chatty script can't fill the disk; past it the spill ends with
+// DROPPED and the report carries only the window after it.
+const SPILL_CAP = 20 * 1024 * 1024
 // The live tail needs only the last few lines, so it reads no further back than this.
 const TAIL_SCAN = 64 * 1024
 
@@ -84,7 +87,17 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   let isWriteFailed = false
   let spilled: Promise<void> = Promise.resolve()
   let isSpillFailed = false
-  const spill = (text: string) => {
+  let spilledLength = 0
+  let isSpillFull = false
+  let endsLine = true
+  const spill = (whole: string) => {
+    if (isSpillFull) return
+    const room = SPILL_CAP - spilledLength
+    isSpillFull = whole.length > room
+    const head = isSpillFull ? whole.slice(0, room) : whole
+    spilledLength += head.length
+    if (head !== '') endsLine = head.endsWith('\n')
+    const text = isSpillFull ? `${head}${endsLine ? '' : '\n'}${DROPPED}` : head
     spilled = spilled
       .then(async () => {
         if (isSpillFailed) return
