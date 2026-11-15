@@ -2,7 +2,10 @@
  * The author's board re-requests a GitHub reviewer whose latch carries an
  * ask, so GitHub notifies them. The reviewer's own board cannot: GitHub does
  * not notify anyone of their own act. One request per reviewer per request
- * cycle, remembered in kv under `<mrUrl>|<discussionId>`.
+ * cycle, remembered in kv under `<mrUrl>|<discussionId>`. A cycle's entry
+ * outlives the cycle, marked over, because only a submitted review clears
+ * GitHub's request: a request still pending from an earlier cycle notifies
+ * no one when repeated, so it is removed and requested again (renewed).
  */
 import type { Database } from 'bun:sqlite';
 
@@ -24,39 +27,66 @@ import { identityMismatchLine, verifyLatchIdentity } from './identity.ts';
 export const LATCH_REREQUEST_NS = 'latch-rerequest';
 
 export interface ReRequestPlan {
-  /** Reviewer usernames to re-request on GitHub. */
+  /** Reviewer usernames to request on GitHub. */
   send: string[];
-  /** Keys to record without a call: GitHub already holds the request. */
+  /** Reviewer usernames whose request, pending from an earlier cycle, is
+      removed and requested again. */
+  renew: string[];
+  /** Keys to record without a call: GitHub already holds this ask's request. */
   mark: string[];
-  /** Keys whose request cycle is over. */
+  /** Keys whose request cycle is over while their thread stays live. */
+  end: string[];
+  /** Keys whose thread is spent or gone. */
   forget: string[];
+}
+
+/** A kv entry with no `over` is the current cycle's, as entries written
+    before `over` existed read. */
+export interface ReRequestMemo {
+  at: number;
+  over?: boolean;
 }
 
 const keyOf = (mrUrl: string, discussionId: string) =>
   `${mrUrl}|${discussionId}`;
 
+const isLive = (memo: unknown) =>
+  memo !== null &&
+  memo !== undefined &&
+  (memo as Partial<ReRequestMemo>).over !== true;
+
 export function planReRequests(
   mrUrl: string,
   requests: ReviewerRequest[],
   reviewers: { username: string; reviewState: string | null }[],
-  sentKeys: string[]
+  stored: ReadonlyMap<string, unknown>
 ): ReRequestPlan {
-  const sent = new Set(sentKeys);
   const state = new Map(
     reviewers.map(r => [r.username.toLowerCase(), r.reviewState])
   );
-  const asked = new Set<string>();
-  const plan: ReRequestPlan = { send: [], mark: [], forget: [] };
+  const threads = new Set<string>();
+  const plan: ReRequestPlan = {
+    send: [],
+    renew: [],
+    mark: [],
+    end: [],
+    forget: [],
+  };
   for (const r of requests) {
-    if (!r.requested) continue;
     const key = keyOf(mrUrl, r.discussionId);
-    asked.add(key);
-    if (sent.has(key)) continue;
-    if (state.get(r.reviewer.toLowerCase()) === 'UNREVIEWED')
-      plan.mark.push(key);
-    else plan.send.push(r.reviewer);
+    threads.add(key);
+    const memo = stored.get(key);
+    if (!r.requested) {
+      if (isLive(memo)) plan.end.push(key);
+      continue;
+    }
+    if (isLive(memo)) continue;
+    const pending = state.get(r.reviewer.toLowerCase()) === 'UNREVIEWED';
+    if (!pending) plan.send.push(r.reviewer);
+    else if (memo === undefined) plan.mark.push(key);
+    else plan.renew.push(r.reviewer);
   }
-  plan.forget = sentKeys.filter(k => !asked.has(k));
+  plan.forget = [...stored.keys()].filter(k => !threads.has(k));
   return plan;
 }
 
@@ -117,7 +147,7 @@ export async function sendReReviewRequests(
       return verdict.ok;
     });
   const verified = new Map<string, Promise<boolean>>();
-  const stored = [...listKvValues(LATCH_REREQUEST_NS, db).keys()];
+  const stored = listKvValues(LATCH_REREQUEST_NS, db);
 
   for (const mr of mrs) {
     // Undefined means the discussions read failed: forgetting on it would
@@ -132,9 +162,11 @@ export async function sendReReviewRequests(
         username: r.username,
         reviewState: r.reviewState ?? null,
       })),
-      stored.filter(k => k.startsWith(`${mrUrl}|`))
+      new Map([...stored].filter(([k]) => k.startsWith(`${mrUrl}|`)))
     );
     for (const key of plan.forget) deleteKvValue(LATCH_REREQUEST_NS, key, db);
+    for (const key of plan.end)
+      setKvValue(LATCH_REREQUEST_NS, key, { at: now(), over: true }, db);
     for (const key of plan.mark)
       setKvValue(LATCH_REREQUEST_NS, key, { at: now() }, db);
     const keyFor = new Map(
@@ -142,10 +174,13 @@ export async function sendReReviewRequests(
         .filter(r => r.requested)
         .map(r => [r.reviewer, keyOf(mrUrl, r.discussionId)])
     );
-    const due = plan.send.filter(
-      who => !held(holds.refused, keyFor.get(who)!, now())
-    );
-    if (due.length === 0) continue;
+    const due = (who: string[]) =>
+      who.filter(w => !held(holds.refused, keyFor.get(w)!, now()));
+    const batches = [
+      { who: due(plan.send), renew: false },
+      { who: due(plan.renew), renew: true },
+    ].filter(b => b.who.length > 0);
+    if (batches.length === 0) continue;
 
     const repoName = repoIdentityField(mr.rtRepo);
     if (!repoName) {
@@ -163,31 +198,39 @@ export async function sendReReviewRequests(
       continue;
     }
 
-    // Another pass may have sent while this one awaited the identity check.
-    const send = due.filter(
-      who => getKvValue(LATCH_REREQUEST_NS, keyFor.get(who)!, null, db) === null
-    );
-    if (send.length === 0) continue;
-    const res = await command(
-      'mr:action',
-      { repoName, iid: mr.iid, action: 'requestReReview', args: [send] },
-      { timeoutMs: FORGE_WRITE_TIMEOUT_MS }
-    ).catch((err: unknown) => ({
-      ok: false as const,
-      error: err instanceof Error ? err.message : String(err),
-    }));
-    const who = send.join(', ');
-    if (!res.ok && !(res.error ?? '').startsWith(DAEMON_UNREACHABLE_PREFIX)) {
-      log(
-        `re-request of ${who} on ${mrUrl} refused: ${forgeReason(res.error ?? '') || 'no reason given'}`
+    for (const batch of batches) {
+      // Another pass may have sent while this one awaited.
+      const send = batch.who.filter(
+        w => !isLive(getKvValue(LATCH_REREQUEST_NS, keyFor.get(w)!, null, db))
       );
+      if (send.length === 0) continue;
+      const args: unknown[] = batch.renew ? [send, { renew: true }] : [send];
+      const res = await command(
+        'mr:action',
+        { repoName, iid: mr.iid, action: 'requestReReview', args },
+        { timeoutMs: FORGE_WRITE_TIMEOUT_MS }
+      ).catch((err: unknown) => ({
+        ok: false as const,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+      const who = send.join(', ');
+      if (!res.ok && !(res.error ?? '').startsWith(DAEMON_UNREACHABLE_PREFIX)) {
+        log(
+          `re-request of ${who} on ${mrUrl} refused: ${forgeReason(res.error ?? '') || 'no reason given'}`
+        );
+        for (const reviewer of send)
+          holds.refused.set(keyFor.get(reviewer)!, now() + REREQUEST_HOLD_MS);
+        continue;
+      }
+      if (!res.ok)
+        log(`re-request of ${who} on ${mrUrl} unanswered; it may still apply`);
       for (const reviewer of send)
-        holds.refused.set(keyFor.get(reviewer)!, now() + REREQUEST_HOLD_MS);
-      continue;
+        setKvValue(
+          LATCH_REREQUEST_NS,
+          keyFor.get(reviewer)!,
+          { at: now() },
+          db
+        );
     }
-    if (!res.ok)
-      log(`re-request of ${who} on ${mrUrl} unanswered; it may still apply`);
-    for (const reviewer of send)
-      setKvValue(LATCH_REREQUEST_NS, keyFor.get(reviewer)!, { at: now() }, db);
   }
 }

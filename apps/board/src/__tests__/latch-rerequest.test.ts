@@ -29,56 +29,98 @@ const req = (
 ): ReviewerRequest => ({ reviewer, discussionId, requested });
 
 describe('planReRequests', () => {
-  test('a requested reviewer who has reviewed, with no key, is sent', () => {
+  const live = { at: 1 };
+  const over = { at: 1, over: true };
+  const memo = (entries: Record<string, { at: number; over?: boolean }>) =>
+    new Map(Object.entries(entries));
+  const none = { send: [], renew: [], mark: [], end: [], forget: [] };
+
+  test('a requested reviewer who has reviewed, with no entry, is sent', () => {
     expect(
       planReRequests(
         URL_A,
         [req('ivasco', 'd1', true)],
         [{ username: 'ivasco', reviewState: 'COMMENTED' }],
-        []
+        memo({})
       )
-    ).toEqual({ send: ['ivasco'], mark: [], forget: [] });
+    ).toEqual({ ...none, send: ['ivasco'] });
   });
 
-  test('a requested reviewer already pending on GitHub is only marked', () => {
+  test('a requested reviewer already pending, with no entry, is only marked', () => {
     expect(
       planReRequests(
         URL_A,
         [req('ivasco', 'd1', true)],
         [{ username: 'ivasco', reviewState: 'UNREVIEWED' }],
-        []
+        memo({})
       )
-    ).toEqual({ send: [], mark: [`${URL_A}|d1`], forget: [] });
+    ).toEqual({ ...none, mark: [`${URL_A}|d1`] });
   });
 
-  test('a request whose key is set gives nothing', () => {
+  test('a request already sent for this ask gives nothing, pending or not', () => {
+    for (const reviewState of ['COMMENTED', 'UNREVIEWED'])
+      expect(
+        planReRequests(
+          URL_A,
+          [req('ivasco', 'd1', true)],
+          [{ username: 'ivasco', reviewState }],
+          memo({ [`${URL_A}|d1`]: live })
+        )
+      ).toEqual(none);
+  });
+
+  test('a reviewer still pending from an earlier cycle is renewed', () => {
+    expect(
+      planReRequests(
+        URL_A,
+        [req('ivasco', 'd1', true)],
+        [{ username: 'ivasco', reviewState: 'UNREVIEWED' }],
+        memo({ [`${URL_A}|d1`]: over })
+      )
+    ).toEqual({ ...none, renew: ['ivasco'] });
+  });
+
+  test('a reviewer who reviewed since an earlier cycle gets a plain request', () => {
     expect(
       planReRequests(
         URL_A,
         [req('ivasco', 'd1', true)],
         [{ username: 'ivasco', reviewState: 'COMMENTED' }],
-        [`${URL_A}|d1`]
+        memo({ [`${URL_A}|d1`]: over })
       )
-    ).toEqual({ send: [], mark: [], forget: [] });
+    ).toEqual({ ...none, send: ['ivasco'] });
   });
 
-  test('a key on a latch that is no longer requested is forgotten', () => {
+  test('an entry on a latch that is no longer requested is ended, once', () => {
+    const requests = [req('ivasco', 'd1', false)];
+    const reviewers = [{ username: 'ivasco', reviewState: 'UNREVIEWED' }];
     expect(
       planReRequests(
         URL_A,
-        [req('ivasco', 'd1', false)],
-        [{ username: 'ivasco', reviewState: 'COMMENTED' }],
-        [`${URL_A}|d1`]
+        requests,
+        reviewers,
+        memo({ [`${URL_A}|d1`]: live })
       )
-    ).toEqual({ send: [], mark: [], forget: [`${URL_A}|d1`] });
+    ).toEqual({ ...none, end: [`${URL_A}|d1`] });
+    expect(
+      planReRequests(
+        URL_A,
+        requests,
+        reviewers,
+        memo({ [`${URL_A}|d1`]: over })
+      )
+    ).toEqual(none);
   });
 
-  test('a key whose thread is gone is forgotten', () => {
-    expect(planReRequests(URL_A, [], [], [`${URL_A}|gone`])).toEqual({
-      send: [],
-      mark: [],
-      forget: [`${URL_A}|gone`],
-    });
+  test('an entry whose thread is spent or gone is forgotten, ended or not', () => {
+    expect(
+      planReRequests(
+        URL_A,
+        [],
+        [],
+        memo({ [`${URL_A}|gone`]: live, [`${URL_A}|spent`]: over })
+      )
+    ).toEqual({ ...none, forget: [`${URL_A}|gone`, `${URL_A}|spent`] });
   });
 
   test("matches the reviewer's state without regard to case", () => {
@@ -87,9 +129,9 @@ describe('planReRequests', () => {
         URL_A,
         [req('IVasco', 'd1', true)],
         [{ username: 'ivasco', reviewState: 'UNREVIEWED' }],
-        []
+        memo({})
       )
-    ).toEqual({ send: [], mark: [`${URL_A}|d1`], forget: [] });
+    ).toEqual({ ...none, mark: [`${URL_A}|d1`] });
   });
 });
 
@@ -348,10 +390,10 @@ describe('sendReReviewRequests', () => {
     expect(daemon.actions()).toHaveLength(1);
   });
 
-  test('after a stuck reply clears the request, nothing is sent', async () => {
+  test('after a stuck follow-up, the next ask removes the pending request and requests again', async () => {
     const db = tempDb();
-    setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: 1 }, db);
     const daemon = fakeDaemon();
+    const pending = [{ username: 'ivasco', reviewState: 'UNREVIEWED' }];
     await run(
       [
         pr(
@@ -364,11 +406,102 @@ describe('sendReReviewRequests', () => {
       daemon,
       db
     );
-    expect(daemon.calls).toEqual([]);
-    expect(keys(db)).toEqual([`${URL_A}|d1`]);
+    // The stuck reply leaves GitHub's request pending; the latch re-arms.
+    await run(
+      [pr(URL_A, 5, [req('ivasco', 'd1', false)], pending)],
+      daemon,
+      db
+    );
+    expect(listKvValues(LATCH_REREQUEST_NS, db).get(`${URL_A}|d1`)).toEqual({
+      at: expect.any(Number),
+      over: true,
+    });
+    await run([pr(URL_A, 5, [req('ivasco', 'd1', true)], pending)], daemon, db);
+    await run([pr(URL_A, 5, [req('ivasco', 'd1', true)], pending)], daemon, db);
+    expect(daemon.actions().map(c => c.payload.args)).toEqual([
+      [['ivasco']],
+      [['ivasco'], { renew: true }],
+    ]);
+    expect(listKvValues(LATCH_REREQUEST_NS, db).get(`${URL_A}|d1`)).toEqual({
+      at: expect.any(Number),
+    });
   });
 
-  test('a re-armed latch forgets its key, so the next ask sends again', async () => {
+  test('a request still pending within the same ask is not sent again', async () => {
+    const db = tempDb();
+    setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: 1 }, db);
+    const daemon = fakeDaemon();
+    await run(
+      [
+        pr(
+          URL_A,
+          5,
+          [req('ivasco', 'd1', true)],
+          [{ username: 'ivasco', reviewState: 'UNREVIEWED' }]
+        ),
+      ],
+      daemon,
+      db
+    );
+    expect(daemon.calls).toEqual([]);
+  });
+
+  test('plain and renewed reviewers on one PR go in one call each', async () => {
+    const db = tempDb();
+    setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d2`, { at: 1, over: true }, db);
+    const daemon = fakeDaemon();
+    await run(
+      [
+        pr(
+          URL_A,
+          5,
+          [req('ivasco', 'd1', true), req('kim', 'd2', true)],
+          [
+            { username: 'ivasco', reviewState: 'COMMENTED' },
+            { username: 'kim', reviewState: 'UNREVIEWED' },
+          ]
+        ),
+      ],
+      daemon,
+      db
+    );
+    expect(daemon.actions().map(c => c.payload.args)).toEqual([
+      [['ivasco']],
+      [['kim'], { renew: true }],
+    ]);
+    expect([...listKvValues(LATCH_REREQUEST_NS, db).entries()].sort()).toEqual([
+      [`${URL_A}|d1`, { at: expect.any(Number) }],
+      [`${URL_A}|d2`, { at: expect.any(Number) }],
+    ]);
+  });
+
+  test('a refused renew keeps the ended entry and holds its retry', async () => {
+    const db = tempDb();
+    setKvValue(LATCH_REREQUEST_NS, `${URL_A}|d1`, { at: 1, over: true }, db);
+    const daemon = fakeDaemon({
+      action: { ok: false, error: 'Error: requestReReview failed: 422 nope' },
+    });
+    const mrs = [
+      pr(
+        URL_A,
+        5,
+        [req('ivasco', 'd1', true)],
+        [{ username: 'ivasco', reviewState: 'UNREVIEWED' }]
+      ),
+    ];
+    const extra = { holds: createReRequestHolds(), now: () => 1_000 };
+    const lines = await run(mrs, daemon, db, 'github', extra);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('422 nope');
+    expect(listKvValues(LATCH_REREQUEST_NS, db).get(`${URL_A}|d1`)).toEqual({
+      at: 1,
+      over: true,
+    });
+    await run(mrs, daemon, db, 'github', extra);
+    expect(daemon.actions()).toHaveLength(1);
+  });
+
+  test('a re-armed latch ends its entry, so the next ask sends again', async () => {
     const db = tempDb();
     const daemon = fakeDaemon();
     const reviewers = [{ username: 'ivasco', reviewState: 'COMMENTED' }];
@@ -382,13 +515,16 @@ describe('sendReReviewRequests', () => {
       daemon,
       db
     );
-    expect(keys(db)).toEqual([]);
+    expect(keys(db)).toEqual([`${URL_A}|d1`]);
     await run(
       [pr(URL_A, 5, [req('ivasco', 'd1', true)], reviewers)],
       daemon,
       db
     );
-    expect(daemon.actions()).toHaveLength(2);
+    expect(daemon.actions().map(c => c.payload.args)).toEqual([
+      [['ivasco']],
+      [['ivasco']],
+    ]);
   });
 
   test('a spent or gone latch forgets its key', async () => {
