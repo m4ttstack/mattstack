@@ -20,19 +20,9 @@
     "lines": 1
   },
   {
-    "file": "lib/team/data-branch-guard.ts",
-    "reason": "Reads rt's stored forge token itself and passes it to git through env; moves to rt git credential in the follow-up.",
-    "lines": 2
-  },
-  {
     "file": "lib/team/git-credential.ts",
     "reason": "Defines gitWithToken and its inline helper, which reads RT_GIT_TOKEN from env; goes once the last caller moves.",
     "lines": 3
-  },
-  {
-    "file": "lib/team/invite.ts",
-    "reason": "The invite pull passes seams.forgeToken()'s token to git through env; moves to rt git credential in the follow-up.",
-    "lines": 1
   },
   {
     "file": "lib/team/join.ts",
@@ -50,11 +40,6 @@
     "lines": 4
   },
   {
-    "file": "lib/team/org-pull.ts",
-    "reason": "The org pull passes its token() seam's secret to git through env; the follow-up decides whether rt git credential can serve it.",
-    "lines": 1
-  },
-  {
     "file": "lib/team/publish.ts",
     "reason": "Team publish passes opts.token to git through env; the follow-up decides whether rt git credential can serve it.",
     "lines": 1
@@ -68,10 +53,5 @@
     "file": "lib/team/repo-access.ts",
     "reason": "The repo access probe passes the looked-up token to git through env; moves to rt git credential in the follow-up.",
     "lines": 1
-  },
-  {
-    "file": "lib/team/trial-branch.ts",
-    "reason": "Reads rt's stored forge token itself and passes it to git through env; moves to rt git credential in the follow-up.",
-    "lines": 5
   }
 ]

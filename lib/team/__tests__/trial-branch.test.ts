@@ -6,7 +6,8 @@ import { readTeamLocal } from "../team-local.ts";
 import { useBranch } from "../trial-branch.ts";
 import { cleanupOrgWorlds } from "./org-world.ts";
 import { approvedBranches } from "../approved-branch.ts";
-import { dataBranchWorld, layout3World } from "./data-branch-world.ts";
+import { behindHttps, dataBranchWorld, layout3World } from "./data-branch-world.ts";
+import { expectNoToken } from "./rt-credential-argv.ts";
 
 afterEach(cleanupOrgWorlds);
 
@@ -177,6 +178,34 @@ describe("useBranch", () => {
       expect(err.code).toBe("bad-branch-name");
     }
     expect(w.pushes).toEqual([]);
+  }, 30_000);
+});
+
+describe("useBranch names rt git credential", () => {
+  for (const [forge, url, host] of [
+    ["GitHub", "https://github.com/acme/mattstack-team-acme.git", "github.com"],
+    ["GitLab", "https://gitlab.com/acme/mattstack-team-acme.git", "gitlab.com"],
+  ] as const) {
+    test(`a stored ${forge} token makes every call to the forge name the helper, with no token in the env`, async () => {
+      const w = dataBranchWorld();
+      const git = behindHttps(w.p, url);
+      await useBranch(w.p, "acme", "try-it", { readToken: async () => "tok_rt" });
+      const calls = git.remoteCalls().filter((c) => c.host !== undefined);
+      expect(calls.map((c) => c.argv.find((a) => a === "ls-remote" || a === "fetch" || a === "push"))).toEqual(expect.arrayContaining(["ls-remote", "fetch", "push"]));
+      for (const call of calls) {
+        expect(call.host).toBe(host);
+        expectNoToken(call.env, "tok_rt");
+        expect(call.argv.join(" ")).not.toContain("tok_rt");
+      }
+    }, 30_000);
+  }
+
+  test("no stored token leaves git on its own credentials", async () => {
+    const w = dataBranchWorld();
+    const git = behindHttps(w.p, "https://github.com/acme/mattstack-team-acme.git");
+    await useBranch(w.p, "acme", "try-it", noToken);
+    expect(git.remoteCalls().length).toBeGreaterThan(0);
+    expect(git.remoteCalls().every((c) => c.host === null)).toBe(true);
   }, 30_000);
 });
 

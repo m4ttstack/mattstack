@@ -12,7 +12,7 @@ import { UserActionableError } from "../errors.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 import type { Probes } from "../setup/probes.ts";
 import { warn } from "../ui/warn.ts";
-import { gitWithToken } from "./git-credential.ts";
+import { gitWithRtCredential } from "./git-credential.ts";
 import { applyRoleCone } from "./org-cone.ts";
 import { ENV, heldCopy, moveBlocker, moveCloneToDataBranch, type HeldMove } from "./org-data-branch.ts";
 import { checkedOutBranch } from "./org-branch.ts";
@@ -64,10 +64,10 @@ async function validName(p: Probes, dir: string, name: string): Promise<boolean>
 /** Makes `name` on origin from the data branch's published tip, never from local commits that are not published. */
 async function createOnRemote(p: Probes, dir: string, name: string, dataBranch: string, token: string | null, remote: string): Promise<void> {
   const tracking = `refs/remotes/origin/${dataBranch}`;
-  const fetch = gitWithToken(["fetch", "-q", "origin", `+refs/heads/${dataBranch}:${tracking}`], token, ENV, { remote });
+  const fetch = gitWithRtCredential(["fetch", "-q", "origin", `+refs/heads/${dataBranch}:${tracking}`], token !== null, ENV, { remote });
   const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
   if (fetched.code !== 0) throw new UserActionableError("trial-branch-failed", `rt could not read the ${dataBranch} branch to start ${name} from it`, {}, { log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) });
-  const push = gitWithToken(["push", "-q", "origin", `${tracking}:refs/heads/${name}`], token, ENV, { remote });
+  const push = gitWithRtCredential(["push", "-q", "origin", `${tracking}:refs/heads/${name}`], token !== null, ENV, { remote });
   const pushed = await p.exec(push.argv, { cwd: dir, env: push.env });
   if (pushed.code !== 0) throw new UserActionableError("trial-branch-failed", `rt could not publish the ${name} branch`, {}, { why: "Check that you can push to the org repo.", log: withoutUrls(`${pushed.stdout}\n${pushed.stderr}`.trim()) });
 }
@@ -75,7 +75,7 @@ async function createOnRemote(p: Probes, dir: string, name: string, dataBranch: 
 /** A branch with no org store (the pointer a layout 4 org leaves on `main`) is never a usable data branch. */
 async function assertHoldsOrgData(p: Probes, dir: string, name: string, token: string | null, remote: string): Promise<void> {
   const tracking = `refs/remotes/origin/${name}`;
-  const fetch = gitWithToken(["fetch", "-q", "origin", `+refs/heads/${name}:${tracking}`], token, ENV, { remote });
+  const fetch = gitWithRtCredential(["fetch", "-q", "origin", `+refs/heads/${name}:${tracking}`], token !== null, ENV, { remote });
   const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
   if (fetched.code !== 0) throw new UserActionableError("trial-branch-failed", `rt could not read the ${name} branch`, {}, { log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) });
   const has = await p.exec(["git", "cat-file", "-e", `${tracking}:${ORG_STORE_REL}`], { cwd: dir, env: ENV });
@@ -90,7 +90,7 @@ async function assertHoldsOrgData(p: Probes, dir: string, name: string, token: s
  */
 async function publishedDataBranch(p: Probes, dir: string, token: string | null, remote: string): Promise<string | null> {
   const tracking = "refs/remotes/origin/main";
-  const fetch = gitWithToken(["fetch", "-q", "origin", `+refs/heads/main:${tracking}`], token, ENV, { remote });
+  const fetch = gitWithRtCredential(["fetch", "-q", "origin", `+refs/heads/main:${tracking}`], token !== null, ENV, { remote });
   const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
   if (fetched.code !== 0) throw new UserActionableError("trial-branch-failed", "rt could not read where the org keeps its data", {}, { log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) });
   const shown = await showMarkerAt((spec) => p.exec(["git", "show", spec], { cwd: dir, env: ENV }), tracking);
@@ -117,7 +117,7 @@ export async function useBranch(p: Probes, slug: string, name: string, opts: Tri
     warn("trial-branch", `could not read the forge token for ${withoutUrls(remote)}; using git's own credentials`, { context: { err: String(err) } });
   }
 
-  const listed = gitWithToken(["ls-remote", "--heads", "origin", `refs/heads/${name}`], token, ENV, { remote });
+  const listed = gitWithRtCredential(["ls-remote", "--heads", "origin", `refs/heads/${name}`], token !== null, ENV, { remote });
   const found = await p.exec(listed.argv, { cwd: dir, env: listed.env });
   if (found.code !== 0) throw new UserActionableError("trial-branch-failed", "rt could not look for that branch on the org repo", {}, { log: withoutUrls(`${found.stdout}\n${found.stderr}`.trim()) });
   const created = found.stdout.trim() === "";

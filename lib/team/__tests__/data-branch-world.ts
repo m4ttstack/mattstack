@@ -5,7 +5,9 @@ import { join } from "path";
 import { childEnv } from "../../subprocess.ts";
 import { ORG_STORE_REL } from "../../../packages/rt-client/src/settings/paths.ts";
 import { ORG_MARKER_REL, POINTER_REL, pointerText } from "../org-marker.ts";
+import type { Probes } from "../../setup/probes.ts";
 import { orgWorld } from "./org-world.ts";
+import { rtHelperHost } from "./rt-credential-argv.ts";
 
 const markerNaming = (dataBranch: string): string => `${JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch })}\n`;
 
@@ -61,4 +63,34 @@ export function layout3World(username = "dev1") {
   const w = orgWorld(username);
   const pushTrial = (branch: string) => pushOrphan(w.remote, branch, { store: orgStore(w.root) });
   return { ...w, pushTrial };
+}
+
+export interface SeenGit {
+  argv: string[];
+  env: Record<string, string> | undefined;
+  /** The helper host, null for plain git, undefined for a helper pair that is not rt's (a call another module still builds with gitWithToken). */
+  host: string | null | undefined;
+}
+
+/**
+ * Makes `origin` read as `url` to the code under test and records every git
+ * call with the helper host it named. A call that names the helper runs with
+ * the pair dropped, so it still reaches the world's local origin.
+ */
+export function behindHttps(p: Probes, url: string): { seen: SeenGit[]; remoteCalls: () => SeenGit[] } {
+  const seen: SeenGit[] = [];
+  const real = p.exec.bind(p);
+  p.exec = async (argv, opts) => {
+    if (argv.includes("get-url")) return { code: 0, stdout: `${url}\n`, stderr: "" };
+    let host: string | null | undefined;
+    try {
+      host = rtHelperHost(argv);
+    } catch {
+      host = undefined;
+    }
+    seen.push({ argv, env: opts?.env, host });
+    return real(host ? ["git", ...argv.slice(5)] : argv, opts);
+  };
+  const remoteCalls = () => seen.filter((c) => c.argv.some((a) => a === "fetch" || a === "push" || a === "ls-remote"));
+  return { seen, remoteCalls };
 }

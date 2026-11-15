@@ -2,7 +2,7 @@ import { isAbsolute, join, relative } from "path";
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import { assertTeamFolders } from "./team-names.ts";
 import { orgStoreFile } from "./org-store.ts";
-import { gitWithToken } from "./git-credential.ts";
+import { gitWithRtCredential } from "./git-credential.ts";
 import { withoutUrls } from "./redact.ts";
 import { publishTeam } from "./publish.ts";
 /**
@@ -231,7 +231,7 @@ export function realMintInviteSeams(): MintInviteSeams {
       }
       const known = await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${wanted}`], { cwd: dir });
       if (known.code !== 0) return { dataBranch };
-      const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", wanted], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
+      const pull = gitWithRtCredential(["pull", "--rebase", "--autostash", "origin", wanted], token !== null, { GIT_TERMINAL_PROMPT: "0" }, { remote });
       const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
       if (res.code === 0) return { dataBranch };
       const output = withoutUrls(`${res.stdout}\n${res.stderr}`.trim());

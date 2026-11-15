@@ -15,6 +15,7 @@ import { decodeCode, open } from "../invite-crypto.ts";
 import { readInviteRecords } from "../invite-records.ts";
 import { INVITE_TTL_DAYS, joinLink, joinLinkBase, mintInvite, pasteBlock, realMintInviteSeams, type MintInviteSeams } from "../invite.ts";
 import type { RelayClient } from "../relay-client.ts";
+import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 import { SWITCHBOARD_URL } from "../../../packages/rt-client/src/switchboard.ts";
 import type { setSetting } from "../../settings/write.ts";
 
@@ -934,16 +935,31 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
   });
 
 describe("real invite git seams", () => {
-  test("a known org pulls with rebase and autostash, credentials only in env", async () => {
-    const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+  for (const [forge, remote, host, token] of [
+    ["GitHub", "https://github.com/acme/widgets.git", "github.com", "private-token"],
+    ["GitLab", "https://gitlab.com/acme/mattstack-team-acme.git", "gitlab.com", "glpat_fake"],
+  ] as const) {
+    test(`a known org on ${forge} pulls with rebase and autostash, naming rt git credential`, async () => {
+      const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+      const p = probesWithRemote(remote);
+      p.exec = async (argv, opts) => { seen.push({ argv, env: opts?.env }); return { code: 0, stdout: argv.includes("symbolic-ref") ? "main\n" : "", stderr: "" }; };
+      await realMintInviteSeams().pullOrg(p, SLUG, remote, token);
+      expect(seen.map((call) => call.argv)).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
+      const pull = seen.find((call) => call.argv.includes("pull"))!;
+      expect(pull.argv.slice(-5)).toEqual(["pull", "--rebase", "--autostash", "origin", "main"]);
+      expect(rtHelperHost(pull.argv)).toBe(host);
+      expect(JSON.stringify(seen.map((call) => call.argv))).not.toContain(token);
+      expect(pull.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0" });
+      expectNoToken(pull.env, token);
+    });
+  }
+
+  test("a pull with no token leaves git on its own credentials", async () => {
+    const seen: string[][] = [];
     const p = probesWithRemote("https://github.com/acme/widgets.git");
-    p.exec = async (argv, opts) => { seen.push({ argv, env: opts?.env }); return { code: 0, stdout: argv.includes("symbolic-ref") ? "main\n" : "", stderr: "" }; };
-    await realMintInviteSeams().pullOrg(p, SLUG, "https://github.com/acme/widgets.git", "private-token");
-    expect(seen.map((call) => call.argv)).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
-    const pull = seen.find((call) => call.argv.includes("pull"))!;
-    expect(pull.argv.slice(-5)).toEqual(["pull", "--rebase", "--autostash", "origin", "main"]);
-    expect(JSON.stringify(seen.map((call) => call.argv))).not.toContain("private-token");
-    expect(pull.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0", RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com" });
+    p.exec = async (argv) => { seen.push(argv); return { code: 0, stdout: argv.includes("symbolic-ref") ? "main\n" : "", stderr: "" }; };
+    await realMintInviteSeams().pullOrg(p, SLUG, "https://github.com/acme/widgets.git", null);
+    expect(rtHelperHost(seen.find((argv) => argv.includes("pull"))!)).toBeNull();
   });
 
   test("a clone on another branch is refused before anything is pulled, since joiners clone main", async () => {

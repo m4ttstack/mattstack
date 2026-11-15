@@ -11,7 +11,7 @@ import type { PullResult } from "../daemon/home-snapshot.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 import type { Probes } from "../setup/probes.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
-import { gitWithToken } from "./git-credential.ts";
+import { gitWithRtCredential } from "./git-credential.ts";
 import { ORG_LAYOUT } from "./org-marker.ts";
 import { checkedOutBranch } from "./org-branch.ts";
 import { holdSentence } from "./org-layout.ts";
@@ -60,7 +60,7 @@ async function pullDirect(p: Probes, slug: string, token: (p: Probes, remote: st
       secret = null;
     }
   }
-  const fetch = gitWithToken(["-C", dir, "fetch", "-q", "origin", branch], secret, GIT_ENV, { remote });
+  const fetch = gitWithRtCredential(["-C", dir, "fetch", "-q", "origin", branch], secret !== null, GIT_ENV, { remote });
   const fetched = await p.exec(fetch.argv, { env: fetch.env, timeoutMs: PULL_TIMEOUT_MS });
   if (fetched.code !== 0) return { outcome: "failed", detail: firstLine(fetched.stderr, `git fetch exited ${fetched.code}`) };
 
