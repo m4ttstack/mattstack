@@ -225,6 +225,7 @@ test('a gate answered elsewhere credits its decider on the outcome line', async 
   expect(rows[0]!.querySelector('.tui-triage-done-by')?.textContent).toBe(
     ' by dana'
   );
+  expect(rows[0]!.querySelector('.tui-triage-done-by .tui-sep')).not.toBeNull();
   expect(rows[1]!.querySelector('.tui-triage-done-by')).toBeNull();
 });
 

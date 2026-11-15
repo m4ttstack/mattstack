@@ -426,6 +426,9 @@ test('an answered respond gate on a legacy respond row keeps its round meta', as
     respond: { status: 'done' },
   } as unknown as BoardMRWithReview);
   expect($('.tui-sheet-context-meta')?.textContent).toBe('round 2 both valid');
+  expect(
+    $('.tui-sheet-context-meta')!.querySelectorAll('.tui-sep').length
+  ).toBe(1);
 });
 
 test('an answered per-thread post shows the reply as posted, edited text included', async () => {

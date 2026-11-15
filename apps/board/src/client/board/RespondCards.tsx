@@ -97,10 +97,10 @@ function ThreadCard({
           {CALL_TEXT[verdict.call]}
         </span>
         {verdict.note && (
-          <>
+          <span className="tui-thread-verdict-tail">
             <Sep />
             <span className="tui-thread-verdict-note">{verdict.note}</span>
-          </>
+          </span>
         )}
       </div>
       {reply.kind === 'verbatim' && (

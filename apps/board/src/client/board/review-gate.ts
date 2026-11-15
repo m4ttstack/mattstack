@@ -150,9 +150,11 @@ export function severityTally(counts: Record<FindingSeverity, number>): string {
   return parts.length > 0 ? parts.join(', ') : 'no findings';
 }
 
-export function reviewMeta(review: ReviewCtx): string {
+/** Who reviewed, which round, and the prior tally, as separate fragments
+    so a sheet can draw a dot between them. */
+export function reviewMetaParts(review: ReviewCtx): string[] {
   const { reviewer, round, re_review, prior } = review;
-  return joinBullet([
+  return [
     reviewer,
     round !== undefined ? `round ${round}` : undefined,
     prior
@@ -160,7 +162,11 @@ export function reviewMeta(review: ReviewCtx): string {
       : re_review
         ? 're-review'
         : undefined,
-  ]);
+  ].filter((p): p is string => Boolean(p));
+}
+
+export function reviewMeta(review: ReviewCtx): string {
+  return joinBullet(reviewMetaParts(review));
 }
 
 export function reviewProse(review: ReviewCtx): string {

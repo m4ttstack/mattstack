@@ -6736,7 +6736,7 @@ a.tui-id-card-ref:focus-visible {
 .tui-review-skipped-row[data-restoring] {
   background: color-mix(in srgb, var(--fill-accent) 10%, transparent);
 }
-/* One line of facts under the title, dot-separated, in words: amber marks
+/* One line of facts under the title, spaced apart, in words: amber marks
    a severity worth noticing and a finding whose code has moved. */
 .tui-review-skipped-meta {
   display: flex;
@@ -8691,6 +8691,7 @@ a.tui-id-card-ref:focus-visible {
   font-size: 0;
   vertical-align: middle;
   align-self: center;
+  white-space: pre;
 }
 /* A flex gap already spaces these parents, so the dot's margin tops the
    gap up to 6px instead of adding to it. */
@@ -8700,7 +8701,9 @@ a.tui-id-card-ref:focus-visible {
 .tui-diff-pin > .tui-sep {
   margin: 0;
 }
-.tui-thread-verdict > .tui-sep,
+.tui-thread-verdict-tail > .tui-sep {
+  margin: 0 6px 0 -2px;
+}
 .tui-drawer-action > .tui-sep {
   margin: 0 -2px;
 }
