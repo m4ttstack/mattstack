@@ -157,9 +157,9 @@ Source families (the "Src" column):
   Gate: `mayOfferToken` against the same confirmed host, as the helper.
 - **Fu** `forgeTokenFor(ctx, remote)` with no host gate, at one git site:
   setup's team create publish (`steps/team.ts:84`, `opts.token` into
-  `publishTeam`). Same reads as F, but no gate. `steps/team.ts` is outside
-  this change's files, so the gate goes into `publishTeam` itself
-  (`lib/team/publish.ts`): it offers only when `opts.token !== null` and the
+  `publishTeam`). Same reads as F, but no gate. The gate goes into
+  `publishTeam` itself (`lib/team/publish.ts`), so every publish caller
+  gets it from one place: it offers only when `opts.token !== null` and the
   token remote passes the helper's gate (`mayOfferGitLabToken` for a GitLab
   key, else `mayOfferToken`, against `confirmedForgeHost(p)`). The gated
   token is computed once at the top of `publishTeam` and used for all four
@@ -259,13 +259,45 @@ only fail; after, the push is plain git.
   stored GitLab token, which can be a token for gitlab.com or for another
   confirmed host. After, `publishTeam`'s gate (section 2, Fu) makes the push
   plain git: no rt helper pair, so the person's own helpers for that host
-  answer, and the push fails with today's `push-denied` copy only if git
-  holds nothing there. A person whose token is for that host already
-  confirmed it, since setup offers a GitLab token field only for a confirmed
-  host, so their publish is unchanged. github.com and gitlab.com remotes are
-  unchanged. Pinned by equivalence test 2 (the gate row) and a
-  `publish.test.ts` case: a GitLab token, an unconfirmed GitLab-shaped
-  `tokenRemote`, and a plain argv with no helper pair.
+  answer, and the publish fails only if git holds nothing there. A person
+  whose token is for that host already confirmed it, since setup offers a
+  GitLab token field only for a confirmed host, so their publish is
+  unchanged. github.com and gitlab.com remotes are unchanged.
+
+  This can stop a publish that works today: a creator whose stored GitLab
+  token happens to be valid on a self-hosted host they never confirmed. The
+  shepherd ruled (gate 8634d45b, Matt's pick): tighten, and give that
+  failure a remedy that names the fix.
+
+  - `lib/team/publish.ts` exports the one rule both sides read:
+    `withheldPublishHost(remote, token, confirmedHost): string | null`,
+    the host when `token !== null`, the remote is https, its token key is
+    `gitlabToken` and `mayOfferGitLabToken` refuses it; else null.
+    `publishTeam`'s gate is `withheldPublishHost(...) === null` plus the
+    `mayOfferToken` check for a GitHub key, so the gate and the remedy can
+    never disagree.
+  - `lib/setup/steps/team.ts` (`teamCreateRun`): when `publishTeam` throws a
+    `UserActionableError` and `withheldPublishHost(created.remote, token,
+    confirmedForgeHost(ctx.p))` names a host, the outcome is `failed` with
+    today's `detail` (`err.message`) and the remedy `Connect GitLab for
+    <host> with rt setup gitlab connect --host <host>, then Retry`. Two
+    codes take it: `push-denied`, and `team-pull-only`, because on a private
+    repo the first git call to ask for credentials is `remoteHead`'s
+    `ls-remote`, which publish reports as `team-pull-only` before any push.
+    Every other code, and every remote with no withheld host, keeps today's
+    remedy byte for byte. The wording is checked with rt:ui-copy and the
+    setup output rules during the build; the command stays the last words.
+  - Tests first, in `lib/setup/__tests__/steps-a.test.ts`: a create intent
+    whose remote is an unconfirmed GitLab-shaped https host with a GitLab
+    token held, git answering an auth failure, for both codes, asserting the
+    new remedy; the same with the host confirmed, and with no token, asserting
+    today's remedy. The existing github.com `push-denied` test stays as is.
+    `commands/__tests__/setup-copy.test.ts` pins no step remedy, and no e2e
+    or pty file covers this string.
+
+  Pinned also by equivalence test 2 (the gate row) and a `publish.test.ts`
+  case: a GitLab token, an unconfirmed GitLab-shaped `tokenRemote`, and a
+  plain argv with no helper pair. The report and PR body name this change.
 - **The org identity step's publish** (`steps/org.ts:117` via
   `claimPendingAdmin`). It looks the token up by the team's declared forge
   host and offers it to the clone's origin. When a team declares a GitLab
@@ -312,12 +344,14 @@ through the environment.
   forge; no run of rt, the daemon or a built binary against the real HOME.
 - Run from the worktree root: targeted `bun test` for every touched file and
   its tests, `lib/__tests__/no-token-in-git-env.test.ts`, `bun run
-  typecheck`, `bun run purity`. No output string changes, so no e2e or pty
-  file is required; if one changes, its covering file runs.
+  typecheck`, `bun run purity`. The one output string added is the setup
+  remedy in section 4, which no e2e or pty file covers; if another changes,
+  its covering file runs.
 - `lib/__tests__/no-raw-output.test.ts` and the clean-code comment rule
   apply.
 - Write fence: `lib/team/`, `lib/setup/home-remote.ts`,
-  `lib/setup/steps/repos.ts`, `lib/daemon/home-snapshot.ts`,
+  `lib/setup/steps/repos.ts`, `lib/setup/steps/team.ts` (added by gate
+  8634d45b, for the section 4 remedy only), `lib/daemon/home-snapshot.ts`,
   `lib/home/init-exec.ts`, `commands/git/`, the helper's lib code
   (`lib/worktree/fetch-auth.ts`, only for the move and re-exports in section
   1), the exemptions list and guard test, those files' tests (they include
