@@ -57,7 +57,11 @@ async function savedOutput($: EngineInterface, todo: Todo, outcome: Outcome): Pr
 }
 
 export async function report($: EngineInterface, todo: Todo, outcome: Outcome): Promise<void> {
-  const { patch, text } = settle(todo, outcome, await savedOutput($, todo, outcome))
+  const session = await $.session.id()
+  const log = await savedOutput($, todo, outcome)
+  // patchTodo matches by id alone, so after a session switch it would settle the new session's item of the same number.
+  if ((await $.session.id()) !== session) return
+  const { patch, text } = settle(todo, outcome, log)
   await patchTodo($, todo.id, patch)
   await syncSpinner($)
   const warn = () => {

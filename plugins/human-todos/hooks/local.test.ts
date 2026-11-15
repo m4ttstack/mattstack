@@ -118,6 +118,25 @@ test('a report that cannot save its output says so instead of a path', async ($,
   expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0. Output: (the output could not be saved)'])
 })
 
+test('a session switch while the report saves its output leaves the new session\'s item of the same number alone', async ($, on) => {
+  let copies = 0
+  let switchTo: (() => void) | undefined
+  const { run1, sent, store, setSession, clock } = await seeded($, on, [todo({})], {
+    script: () => exits([pid(8), out('hi\n')]),
+    write: text => {
+      if (text === 'hi\n' && copies++ > 0) switchTo?.()
+    },
+  })
+  store.set('list:sess-2', { todos: [todo({ title: 'Other' })], nextId: 2, savedAt: 1_000_000 })
+  switchTo = () => setSession('sess-2')
+
+  await run1('1')
+  await clock.settle()
+
+  expect((store.get('list:sess-2') as { todos: Todo[] }).todos).toEqual([todo({ title: 'Other' })])
+  expect(sent).toEqual([])
+})
+
 test('the report folder keeps the newest 20 logs and removes the rest', async ($, on) => {
   const folder = '/home/u/Library/Caches/human-todos/runs'
   on('fs.list', (_, e) => {
