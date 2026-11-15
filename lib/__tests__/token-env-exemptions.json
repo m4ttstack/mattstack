@@ -30,11 +30,6 @@
     "lines": 4
   },
   {
-    "file": "lib/team/publish.ts",
-    "reason": "Team publish passes opts.token to git through env; the follow-up decides whether rt git credential can serve it.",
-    "lines": 1
-  },
-  {
     "file": "lib/team/repo-access.ts",
     "reason": "The repo access probe passes the looked-up token to git through env; moves to rt git credential in the follow-up.",
     "lines": 1

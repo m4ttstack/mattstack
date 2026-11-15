@@ -5,7 +5,9 @@
  * expired between create and Install).
  */
 
-import { gitWithToken } from "./git-credential.ts";
+import { forgeTokenKey, gitWithRtCredential } from "./git-credential.ts";
+import { mayOfferGitLabToken, mayOfferToken } from "./forge-token.ts";
+import { confirmedForgeHost } from "./stored-forge-token.ts";
 import { join } from "path";
 import { orgStoreChangeRefusal } from "../../packages/rt-client/src/settings/org-store-guard.ts";
 import { readTeamLocal } from "./team-local.ts";
@@ -14,7 +16,7 @@ import { parseStoreTextStrict, type StoreFile } from "../../packages/rt-client/s
 import { validateSlug } from "../secrets/store.ts";
 import { UserActionableError } from "../errors.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
-import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
+import { hostFromRemote, parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
 import { REPO_HIDDEN_PATTERN } from "./repo-access.ts";
 import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
@@ -84,7 +86,17 @@ async function currentOrigin(p: Probes, dir: string): Promise<string | null> {
   return raw !== null ? parseOriginUrl(raw) : null;
 }
 
-/** `opts.tokenRemote` is the remote `opts.token` was looked up for; the token is offered to its https host only. */
+/**
+ * The host whose GitLab token `rt git credential` would refuse for `remote`,
+ * or null when the token may be offered (or there is none). The gate in
+ * `publishTeam` and the setup remedy both read it, so they cannot disagree.
+ */
+export function withheldPublishHost(remote: string, token: string | null, confirmedHost: string | null): string | null {
+  if (token === null || !/^https:\/\//i.test(remote) || forgeTokenKey(remote) !== "gitlabToken") return null;
+  return mayOfferGitLabToken(remote, confirmedHost) ? null : hostFromRemote(remote);
+}
+
+/** `opts.tokenRemote` is the remote `opts.token` was looked up for; rt offers its helper for that https host only, where `rt git credential` would answer. */
 export async function publishTeam(p: Probes, slug: string, remote: string | null, opts: { token?: string | null; tokenRemote?: string | null } = {}): Promise<PublishTeamResult> {
   try {
     validateSlug(slug);
@@ -127,17 +139,21 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     }
   }
 
-  const activeRemote =remote ?? (await currentOrigin(p, dir)) ?? "";
+  const activeRemote = remote ?? (await currentOrigin(p, dir)) ?? "";
+  const tokenRemote = opts.tokenRemote ?? activeRemote;
+  const confirmed = confirmedForgeHost(p);
+  const offerable = opts.token != null && withheldPublishHost(tokenRemote, opts.token, confirmed) === null && mayOfferToken(tokenRemote, confirmed);
+  const token = offerable ? opts.token! : null;
   const inspectionFailure = () => new UserActionableError("team-pull-only", "rt could not check your pending changes", {}, { next: "rt team pull" });
   const destination = await p.exec(["git", "remote", "get-url", "--push", "--all", "origin"], { cwd: dir });
   const urls = destination.stdout.trim().split("\n").filter(Boolean);
   if (destination.code !== 0 || urls.length !== 1) throw inspectionFailure();
-  const head = () => remoteHead(p, dir, urls[0]!, ref, opts.token ?? null, opts.tokenRemote ?? activeRemote);
+  const head = () => remoteHead(p, dir, urls[0]!, ref, token, tokenRemote);
   const base = await head();
   if (!base.ok) throw inspectionFailure();
   if (deferredRefusal === null) await commitDataReadme(p, slug, dir, branch);
   const pointer = await pendingPointer(p, dir, branch);
-  if (pointer !== null) await assertOriginTakesNewOrg(p, dir, pointer, urls[0]!, opts.token ?? null, opts.tokenRemote ?? activeRemote);
+  if (pointer !== null) await assertOriginTakesNewOrg(p, dir, pointer, urls[0]!, token, tokenRemote);
   const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base.sha ? `${base.sha}..${ref}` : ref);
   const orgMoved = () => new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
     why: "Someone else pushed first, so pull their changes before you publish again.",
@@ -145,7 +161,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     thenRun: `rt team publish --team ${slug}`,
   });
   if (pending === null) throw base.sha !== null && !(await containsCommit(p, dir, base.sha, ref)) ? orgMoved() : inspectionFailure();
-  const cmd = gitWithToken(["push", "-u", "origin", `${ref}:${ref}`], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
+  const cmd = gitWithRtCredential(["push", "-u", "origin", `${ref}:${ref}`], token !== null, { GIT_TERMINAL_PROMPT: "0" }, { remote: tokenRemote });
   const current = roleFor(p, slug);
   // Only a commit without the store reads as empty, as in the daemon's readStoreAt; any git failure stops the publish. Null: malformed.
   const show = async (rev: string | null): Promise<StoreFile | null> => {
@@ -212,7 +228,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     throw classifyPushFailure(push, branch, tracked);
   }
 
-  await publishPointer(p, dir, opts.token ?? null, opts.tokenRemote ?? activeRemote);
+  await publishPointer(p, dir, token, tokenRemote);
   const publicRemote = stripUserinfo(activeRemote);
   const stdout = push.stdout.trim();
   return { remote: publicRemote, pushed: true, detail: stdout ? withoutUrls(stdout) : `pushed to ${publicRemote}` };

@@ -9,6 +9,7 @@ import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { DAEMON_SOCK_PATH } from "../../daemon-config.ts";
 import { logsDir, rtDir } from "../../rt-paths.ts";
+import { expectNoToken, rtHelperHost } from "../../team/__tests__/rt-credential-argv.ts";
 import { seedOrg, writeSharedStore } from "../../../packages/rt-client/test/org-fixture.ts";
 import { orgSettingsPath } from "../../rt-paths.ts";
 import { updateRepoIndex } from "../../repo-index.ts";
@@ -566,7 +567,7 @@ describe("team.create", () => {
   // The push runs before secrets.write drains the stage, on a machine whose
   // git has no credential helper: the token the checklist collected must
   // reach git from the store or the stage, and only through the environment.
-  test("the push offers the staged forge token through an inline helper, never in argv", async () => {
+  test("the push names rt git credential for the staged forge token, never in argv or env", async () => {
     const remote = "https://github.com/acme/mattstack-team-personal.git";
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     const base = gitExecFor(remote);
@@ -584,9 +585,9 @@ describe("team.create", () => {
     const outcome = await teamCreateStep.run(ctx);
     expect(outcome.state).toBe("done");
     const push = seen.find((c) => c.argv.includes("push"))!;
-    expect(push.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
+    expect(rtHelperHost(push.argv)).toBe("github.com");
     expect(push.argv.join(" ")).not.toContain("ghp_staged");
-    expect(push.env?.RT_GIT_TOKEN).toBe("ghp_staged");
+    expectNoToken(push.env, "ghp_staged");
   });
 
   test("idempotent re-run: a zone with a real matching clone on disk skips re-scaffolding entirely — proven by which exec calls the second run does NOT make", async () => {
