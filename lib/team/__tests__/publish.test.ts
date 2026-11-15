@@ -768,7 +768,10 @@ describe("publishTeam offers the token only where rt git credential would answer
   test("the reverse mismatch is plain git", async () => {
     const { authed } = await publishWith({ token: "glpat_fake", tokenRemote: "https://gitlab.acme.dev/acme/mattstack-team-acme.git" }, confirmed("git.acme.dev"));
     expect(authed.length).toBeGreaterThan(0);
-    for (const call of authed) expect(call.host).toBeNull();
+    for (const call of authed) {
+      expect(call.host).toBeNull();
+      expectNoToken(call.env, "glpat_fake");
+    }
   });
 });
 
@@ -812,7 +815,23 @@ describe("publishTeam's pending pointer push follows the same gate", () => {
     await publishTeam(w.p, "acme", null, { token: "glpat_fake", tokenRemote: "https://gitlab.acme.dev/acme/mattstack-team-acme.git" });
     const calls = remoteCalls(seen) as typeof seen;
     expect(calls.filter((c) => c.argv.includes("push"))).toHaveLength(2);
-    for (const call of calls) expect(call.host).toBeNull();
+    for (const call of calls) {
+      expect(call.host).toBeNull();
+      expectNoToken(call.env, "glpat_fake");
+    }
+  }, 30_000);
+
+  test("a GitLab token with a github.com origin names github.com's helper on both pushes and the ls-remote", async () => {
+    const { w, seen } = pointerWorld();
+    await publishTeam(w.p, "acme", null, { token: "glpat_fake", tokenRemote: "https://github.com/acme/mattstack-team-acme.git" });
+    const calls = remoteCalls(seen) as typeof seen;
+    expect(calls.filter((c) => c.argv.includes("push"))).toHaveLength(2);
+    expect(calls.some((c) => c.argv.includes("ls-remote"))).toBe(true);
+    for (const call of calls) {
+      expect(call.host).toBe("github.com");
+      expect(call.argv.join(" ")).not.toContain("glpat_fake");
+      expectNoToken(call.env, "glpat_fake");
+    }
   }, 30_000);
 
   test("every authed call, the pointer push included, names the confirmed host's helper", async () => {

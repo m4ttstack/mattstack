@@ -73,10 +73,10 @@ describe("setHomeRemote", () => {
         return argv.includes("get-url") ? fail(2) : ok();
       },
     });
-    await setHomeRemote(probes, { url: URL }, { githubToken: async () => "tok-123" });
+    await setHomeRemote(probes, { url: URL }, { githubToken: async () => "tok_rt" });
     const push = probes.calls.exec.findIndex((a) => a.includes("push"));
     expect(rtHelperHost(probes.calls.exec[push]!)).toBeNull();
-    expectNoToken(envs[push], "tok-123");
+    expectNoToken(envs[push], "tok_rt");
   });
 
   test("create refuses a home repo that already has an origin, and creates nothing", async () => {
@@ -123,7 +123,7 @@ describe("setHomeRemote", () => {
     }
 
     test("creates over REST with rt's token and pushes through it", async () => {
-      const { probes, envs, hooks } = setup("tok-123");
+      const { probes, envs, hooks } = setup("tok_rt");
       const seen: string[] = [];
       const result = await setHomeRemote(probes, { create: true }, { ...hooks, onCreated: (u) => seen.push(u) });
       expect(result).toEqual({ url: CLONE, remote: "added", pushed: true, created: true });
@@ -135,9 +135,9 @@ describe("setHomeRemote", () => {
       expect(configs[0]!.slice(0, 3)).toEqual(["git", "-C", USER_REPO]);
       const push = probes.calls.exec.findIndex((a) => a.includes("push"));
       expect(push).toBeGreaterThan(probes.calls.exec.indexOf(configs[1]!));
-      expect(probes.calls.exec.flat().join(" ")).not.toContain("tok-123");
+      expect(probes.calls.exec.flat().join(" ")).not.toContain("tok_rt");
       expect(rtHelperHost(probes.calls.exec[push]!)).toBe("github.com");
-      expectNoToken(envs[push], "tok-123");
+      expectNoToken(envs[push], "tok_rt");
       expect(envs[push]?.GIT_TERMINAL_PROMPT).toBe("0");
     });
 
@@ -174,12 +174,12 @@ describe("setHomeRemote", () => {
     });
 
     test("with the rt link absent it sets no helper but the push still names rt git credential", async () => {
-      const { probes, envs, hooks } = setup("tok-123", { rtLink: false });
+      const { probes, envs, hooks } = setup("tok_rt", { rtLink: false });
       await setHomeRemote(probes, { create: true }, hooks);
       expect(probes.calls.exec.some((a) => a.includes("config"))).toBe(false);
       const push = probes.calls.exec.findIndex((a) => a.includes("push"));
       expect(rtHelperHost(probes.calls.exec[push]!)).toBe("github.com");
-      expectNoToken(envs[push], "tok-123");
+      expectNoToken(envs[push], "tok_rt");
     });
 
     test("a helper write failure is logged and the push still runs", async () => {
@@ -187,12 +187,12 @@ describe("setHomeRemote", () => {
       __test__.reset();
       setWarningLog((_module, message) => lines.push(message), { quiet: true });
       try {
-        const { probes, hooks } = setup("tok-123", { helperFails: true });
+        const { probes, hooks } = setup("tok_rt", { helperFails: true });
         const result = await setHomeRemote(probes, { create: true }, hooks);
         expect(result.pushed).toBe(true);
         expect(probes.calls.exec.some((a) => a.includes("push"))).toBe(true);
         expect(lines.join("\n")).toContain("could not lock config file");
-        expect(lines.join("\n")).not.toContain("tok-123");
+        expect(lines.join("\n")).not.toContain("tok_rt");
       } finally {
         __test__.reset();
       }

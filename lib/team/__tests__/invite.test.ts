@@ -936,7 +936,7 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
 
 describe("real invite git seams", () => {
   for (const [forge, remote, host, token] of [
-    ["GitHub", "https://github.com/acme/widgets.git", "github.com", "private-token"],
+    ["GitHub", "https://github.com/acme/widgets.git", "github.com", "tok_rt"],
     ["GitLab", "https://gitlab.com/acme/mattstack-team-acme.git", "gitlab.com", "glpat_fake"],
   ] as const) {
     test(`a known org on ${forge} pulls with rebase and autostash, naming rt git credential`, async () => {

@@ -117,6 +117,7 @@ describe("probeTeamRepoAccess", () => {
     ["absent", { kind: "absent" }],
     ["unreadable", { kind: "unreadable", reason: "locked" }],
     ["withheld", { kind: "withheld", host: "github.com" }],
+    ["empty-token", { kind: "token", token: "" }],
   ] as const)("a %s lookup runs plain git", async (_name, lookup) => {
     const seen: string[][] = [];
     const exec = git((argv) => {
@@ -153,14 +154,11 @@ describe("probeTeamRepoAccess - a withheld token", () => {
 
   test("sends no token to the host it was withheld from", async () => {
     const seen: string[][] = [];
-    const envs: Record<string, string>[] = [];
-    const exec = git((argv, opts) => {
+    const exec = git((argv) => {
       seen.push(argv);
-      envs.push((opts?.env ?? {}) as Record<string, string>);
       return { code: 128, stdout: "", stderr: "fatal: could not read Username" };
     });
     await probeTeamRepoAccess(fakeProbes({ exec }), "https://gitlab.evil.example/acme/team.git", { kind: "withheld", host: "gitlab.evil.example" });
     expect(rtHelperHost(seen[0]!)).toBeNull();
-    expectNoToken(envs[0], "tok_rt");
   });
 });

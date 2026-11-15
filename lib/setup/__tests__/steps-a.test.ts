@@ -721,7 +721,7 @@ describe("team.create", () => {
     expect((outcome as { remedy?: string }).remedy).toBe("Check your push access to the team repo, then Retry");
   });
 
-  describe("a GitLab remote whose host the user has not confirmed", () => {
+  describe("a self-hosted GitLab remote", () => {
     const gitlabRemote = "https://gitlab.acme.dev/acme/mattstack-team-acme.git";
     const denied: ExecResult = { code: 128, stdout: "", stderr: "remote: HTTP Basic: Access denied" };
     const connectRemedy = "Confirm gitlab.acme.dev as your GitLab host, then Retry. Run rt setup gitlab connect --host gitlab.acme.dev";
@@ -747,6 +747,7 @@ describe("team.create", () => {
       const outcome = await teamCreateStep.run(makeCtx(gitlabProbes({}), { intent: createIntent }).ctx);
       expect(outcome.state).toBe("failed");
       expect((outcome as { remedy?: string }).remedy).toBe(connectRemedy);
+      expect((outcome as { detail?: string }).detail).toBe("The forge would not let rt push to the team repo");
     });
 
     test("the ls-remote failure names the connect command too", async () => {
@@ -1654,7 +1655,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
     const clone = seen.find((c) => c.argv.includes("clone"))!;
-    expect(clone.argv.some((arg) => arg.startsWith("credential."))).toBe(false);
+    expect(rtHelperHost(clone.argv)).toBeNull();
     expectNoToken(clone.env, "glpat_staged");
   });
 

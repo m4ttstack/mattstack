@@ -112,6 +112,12 @@ describe("pullOrgClone", () => {
   test("no daemon, the token looked up is the stored one for the clone's origin, and git is told to ask rt for it", async () => {
     const asked: string[] = [];
     const p = probes(git());
+    const envs: (Record<string, string> | undefined)[] = [];
+    const real = p.exec.bind(p);
+    p.exec = (argv, opts) => {
+      if (subcommand(argv, "fetch")) envs.push(opts?.env);
+      return real(argv, opts);
+    };
     await pullOrgClone(p, SLUG, {
       token: async (_p, remote) => {
         asked.push(remote);
@@ -122,6 +128,8 @@ describe("pullOrgClone", () => {
     const fetch = p.calls.exec.find((argv) => subcommand(argv, "fetch"))!;
     expect(rtHelperHost(fetch)).toBe("github.com");
     expect(fetch.join(" ")).not.toContain("tok_rt");
+    expect(envs).toHaveLength(1);
+    expectNoToken(envs[0], "tok_rt");
   });
 
   test("a GitLab origin names the helper for the GitLab host, with no token in the env", async () => {
@@ -142,6 +150,12 @@ describe("pullOrgClone", () => {
 
   test("no stored token leaves git on its own credentials", async () => {
     const p = probes(git());
+    await pullOrgClone(p, SLUG, noToken);
+    expect(rtHelperHost(p.calls.exec.find((argv) => subcommand(argv, "fetch"))!)).toBeNull();
+  });
+
+  test("no stored token leaves a GitLab origin on git's own credentials", async () => {
+    const p = probes(git(), () => null, `[remote "origin"]\n\turl = https://gitlab.com/acme/mattstack-team-acme.git\n`);
     await pullOrgClone(p, SLUG, noToken);
     expect(rtHelperHost(p.calls.exec.find((argv) => subcommand(argv, "fetch"))!)).toBeNull();
   });

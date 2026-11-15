@@ -129,7 +129,7 @@ describe("executeInitPlan", () => {
   ] as const) {
     test(`cloneUserRepo: a token rt holds on ${forge} is asked for by git through rt's helper, never argv or env`, async () => {
       const asked: string[] = [];
-      const seam = new FakeExecSeam({ cloneToken: async (u) => (asked.push(u), "gho_fake") });
+      const seam = new FakeExecSeam({ cloneToken: async (u) => (asked.push(u), "tok_rt") });
 
       const result = await executeInitPlan([{ kind: "cloneUserRepo", url }], seam, noopLog);
 
@@ -140,8 +140,8 @@ describe("executeInitPlan", () => {
       const call = runs[0]!;
       expect(rtHelperHost(call.cmd)).toBe(host);
       expect(call.cmd.slice(-4)).toEqual(["clone", "--", url, "user"]);
-      expect(call.cmd.join(" ")).not.toContain("gho_fake");
-      expectNoToken(call.env, "gho_fake");
+      expect(call.cmd.join(" ")).not.toContain("tok_rt");
+      expectNoToken(call.env, "tok_rt");
     });
   }
 

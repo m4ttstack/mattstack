@@ -164,10 +164,12 @@ describe("the data branch guard names rt git credential", () => {
     });
   }
 
-  test("no stored token leaves the lookup on git's own credentials", async () => {
-    const w = world();
-    const git = behindHttps(w.p, "https://github.com/acme/mattstack-team-acme.git");
-    await checkDataBranch(w.p, "acme", noToken);
-    expect(git.remoteCalls()[0]!.host).toBeNull();
-  });
+  for (const [name, url] of forges) {
+    test(`no stored token leaves the ${name} lookup on git's own credentials`, async () => {
+      const w = world();
+      const git = behindHttps(w.p, url);
+      await checkDataBranch(w.p, "acme", noToken);
+      expect(git.remoteCalls()[0]!.host).toBeNull();
+    });
+  }
 });

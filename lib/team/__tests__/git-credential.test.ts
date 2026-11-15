@@ -125,6 +125,7 @@ describe("gitWithRtCredential", () => {
 
       const other = host === "github.com" ? "gitlab.com" : "github.com";
       expect(git(built.argv, built.env, "fill", `protocol=https\nhost=${other}\n\n`)).not.toContain("tok_rt");
+      expect(readLog()).toContain(`host=${other}`);
     });
   });
 
@@ -151,6 +152,19 @@ describe("rtHelperHost", () => {
 
   test("plain git returns null", () => {
     expect(rtHelperHost(["git", "fetch"])).toBeNull();
+  });
+
+  test("a plain call with its own -c returns null", () => {
+    expect(rtHelperHost(["git", "-c", "http.lowSpeedLimit=1000", "clone", "--", "https://github.com/a/b.git"])).toBeNull();
+  });
+
+  test("a helper value containing .helper= does not shift the host", () => {
+    const argv = ["git", "-c", `${key("github.com")}=`, "-c", `${key("github.com")}=!/opt/a.helper=b/rt git credential`, "fetch"];
+    expect(rtHelperHost(argv)).toBe("github.com");
+  });
+
+  test("a malformed credential key still throws", () => {
+    expect(() => rtHelperHost(["git", "-c", "credential.helper=", "fetch"])).toThrow();
   });
 
   test("two clears in a row throw", () => {

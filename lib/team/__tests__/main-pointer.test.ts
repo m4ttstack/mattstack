@@ -110,31 +110,36 @@ describe("readMainPointer", () => {
         seen.push({ argv, env: opts?.env });
         return { code: 0, stdout: argv.includes("show") ? '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}' : "", stderr: "" };
       };
-      expect(await readMainPointer({ exec }, remote, "private-token")).toEqual({ dataBranch: "mattstack", layout: 4 });
+      expect(await readMainPointer({ exec }, remote, "tok_rt")).toEqual({ dataBranch: "mattstack", layout: 4 });
       const fetch = seen.find((c) => c.argv.includes("fetch"))!;
       const show = seen.find((c) => c.argv.includes("show"))!;
       expect(show.argv.slice(0, 5)).toEqual(fetch.argv.slice(0, 5));
       expect(rtHelperHost(fetch.argv)).toBe(host);
       expect(rtHelperHost(show.argv)).toBe(host);
       for (const call of [fetch, show]) {
-        expectNoToken(call.env, "private-token");
+        expectNoToken(call.env, "tok_rt");
         expect(call.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0" });
-        expect(JSON.stringify(call.argv)).not.toContain("private-token");
+        expect(JSON.stringify(call.argv)).not.toContain("tok_rt");
       }
     });
   }
 
-  test("no token leaves the fetch and the show on plain git", async () => {
-    const seen: string[][] = [];
-    const exec = async (argv: string[]) => {
-      seen.push(argv);
-      return { code: 0, stdout: argv.includes("show") ? '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}' : "", stderr: "" };
-    };
-    await readMainPointer({ exec }, "https://github.com/acme/widgets.git", null);
-    const calls = seen.filter((a) => a.includes("fetch") || a.includes("show"));
-    expect(calls).toHaveLength(2);
-    for (const argv of calls) expect(rtHelperHost(argv)).toBeNull();
-  });
+  for (const [forge, remote] of [
+    ["GitHub", "https://github.com/acme/widgets.git"],
+    ["GitLab", "https://gitlab.com/acme/widgets.git"],
+  ] as const) {
+    test(`no token leaves the ${forge} fetch and the show on plain git`, async () => {
+      const seen: string[][] = [];
+      const exec = async (argv: string[]) => {
+        seen.push(argv);
+        return { code: 0, stdout: argv.includes("show") ? '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}' : "", stderr: "" };
+      };
+      await readMainPointer({ exec }, remote, null);
+      const calls = seen.filter((a) => a.includes("fetch") || a.includes("show"));
+      expect(calls).toHaveLength(2);
+      for (const argv of calls) expect(rtHelperHost(argv)).toBeNull();
+    });
+  }
 
   test("reads the root pointer, alone or beside the old folder file", async () => {
     const pointer = (branch: string) => `// header\n{"role":"org","org":"acme","layout":4,"dataBranch":"${branch}"}`;
