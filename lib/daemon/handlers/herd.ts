@@ -152,7 +152,7 @@ const refPane = (bare: string | undefined, hidden: boolean): string | undefined 
     presentation (default "wait") rather than call gatePresentation, which
     assumes shape gate:open has not yet validated; gate:open's own question
     check runs right after and is what actually refuses them. */
-const herdOrigin = (paneRef: string | undefined, session: string, questions: GateQuestion[]): { paneId: string; presentation: "form" | "wait" } | undefined =>
+const herdOrigin = (paneRef: string | undefined, session: string, questions: GateQuestion[]): { paneId: string; presentation: "form" | "wait" | "kit" } | undefined =>
   paneRef
     ? { paneId: paneRef, presentation: Array.isArray(questions) && questions.every(isValidQuestion) ? gatePresentation({ paneId: paneRef, sessionId: session, questions }) : "wait" }
     : undefined;
@@ -805,8 +805,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (read.bare === null || read.paneState === "gone") return undelivered("pane-gone");
       if (read.paneState === "dead") return undelivered("not-claude");
       if (read.paneState === "working") return undelivered("pane-busy");
-      // A blocked pane is showing a modal: typing would answer it.
-      if (read.paneState === "modal" || read.gates.some((g) => g.origin?.presentation === "form")) return undelivered("form-open");
+      // A blocked pane is showing a modal: typing would answer it. A kit gate's
+      // form is drawn over an idle pane, so the pane state cannot show it.
+      if (read.paneState === "modal" || read.gates.some((g) => g.origin?.presentation === "form" || g.origin?.presentation === "kit")) return undelivered("form-open");
 
       const inject = deps.inject ?? injectIntoPane;
       const typed = await inject({

@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test'
 
-import { BRAND, SCROLL, SYMBOL, cellWidth } from '@mattstack/mod-kit'
+import { BRAND, SCROLL, SYMBOL, cellWidth, isButtonInView, revealButtonOffset, revealOffset } from '@mattstack/mod-kit'
 
 import type { Todo } from '../../types'
-import { BAR_ROWS, isButtonInView, kitLayout, kitView, maxOffset, modelWidth, revealButtonOffset, revealOffset, viewLines } from './kit-layout'
+import { BAR_ROWS, kitLayout, kitView, maxOffset, modelWidth, viewLines } from './kit-layout'
 import type { KitFocus } from './kit-layout'
 import { paneModel } from './model'
 import type { PaneModel } from './model'

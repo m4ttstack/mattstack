@@ -243,6 +243,15 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
+function keySelected(span) {
+  if (!span.t.startsWith(" "))
+    return [span];
+  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
+  return [
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
+    { ...span, t: span.t.slice(1) }
+  ];
+}
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -267,8 +276,9 @@ function isEngaged(e) {
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
 async function showPane($, pane, title) {
-  await $.ui.open({ id: pane.id, title, focus: true });
+  const opened = await $.ui.open({ id: pane.id, title, focus: true });
   $.ui.invalidate("ui.render");
+  return opened.isPlaced;
 }
 async function paneMessage($, e, pane, waiting) {
   const message = e.data;
@@ -284,12 +294,25 @@ function registerPaneRedraw(on) {
     return closed;
   });
 }
-async function bandAbovePrompt($, e, rest, waiting, pane) {
+async function bandAbovePrompt($, e, rest, waiting, pane, options = {}) {
   const label = pane.label ?? DEFAULT_BAND_LABEL;
   const els = $.ui.resolve(e);
   const { Box, Text, Button } = els;
   const Client = "Client" in els ? els.Client : undefined;
-  const band = Client ? /* @__PURE__ */ h(Client, {
+  const show = /* @__PURE__ */ h(Button, {
+    key: `open-${pane.id}`,
+    label: "Show",
+    onPress: () => showPane($, pane, waiting.title)
+  });
+  const band = Client ? options.engineShow ? /* @__PURE__ */ h(Box, {
+    flexDirection: "row",
+    gap: 2
+  }, /* @__PURE__ */ h(Client, {
+    key: `band-${waiting.formId}`,
+    module: "./band.js",
+    flexGrow: 1,
+    props: { formId: waiting.formId, title: waiting.title, label, bareText: true }
+  }), show) : /* @__PURE__ */ h(Client, {
     key: `band-${waiting.formId}`,
     module: "./band.js",
     props: { formId: waiting.formId, title: waiting.title, label }
@@ -312,175 +335,114 @@ async function bandAbovePrompt($, e, rest, waiting, pane) {
 async function isPlaced($, pane) {
   return (await $.ui.panes()).some((p) => p.id === pane.id && p.isPlaced);
 }
-// mods/gate-form/src/gate/demo.ts
-var DEMO = {
-  title: "respond-plan gate (demo)",
-  context: ["Review round 2 on !482 found 7 threads. Pick which to fix in this pass.", "", "Important:", "- 2 threads are blocking", "- CodeRabbit flagged the cache key twice"].join(`
-`),
-  questions: [
-    {
-      id: "threads",
-      label: "Which threads should this pass fix?",
-      multi: true,
-      context: "Each option is one review thread, newest first.",
-      options: [
-        { value: "t1", label: "Cache key ignores the repo identity (Recommended)", description: "blocking, lib/cache.ts:41" },
-        { value: "t2", label: "Retry loop never backs off", description: "blocking, lib/retry.ts:88" },
-        { value: "t3", label: "Rename fetchAll to listAll", description: "non-blocking" },
-        { value: "t4", label: "Missing test for an empty page", description: "non-blocking" },
-        { value: "t5", label: "Log line leaks the token prefix", description: "question" },
-        { value: "t6", label: "Prefer a Map over a plain object", description: "non-blocking" },
-        { value: "t7", label: "Typo in the README", description: "non-blocking" }
-      ]
-    },
-    {
-      id: "approach",
-      label: "How should the cache key change?",
-      writeIn: true,
-      options: [
-        { value: "identity", label: "Key on the serialized identity (Recommended)", description: "matches every other store" },
-        { value: "path", label: "Key on the host/path form", description: "what the settings resolver uses" },
-        { value: "hash", label: "Hash the remote URL", description: "stable across renames, opaque in logs" },
-        { value: "both", label: "Write both, read identity first", description: "a one-release migration" },
-        { value: "drop", label: "Drop the cache", description: "every read goes to the forge" },
-        { value: "later", label: "Leave it for a follow-up", description: "file a ticket instead" }
-      ]
-    },
-    { id: "note", label: "Anything the fixer should know?" },
-    {
-      id: "notify",
-      label: "Post a reply on each fixed thread?",
-      options: [
-        { value: "yes", label: "Yes", description: "a short note on each thread naming the fix" },
-        { value: "no", label: "No", description: "resolve the threads without a reply" }
-      ]
-    },
-    {
-      id: "checks",
-      header: "checks",
-      label: "Which checks should run before pushing?",
-      multi: true,
-      options: [
-        { value: "unit", label: "Unit tests for the touched files", description: "about a minute" },
-        { value: "e2e", label: "The e2e suite", description: "slow, needs the preload" },
-        { value: "types", label: "Type-check", description: "tsc over the workspace" },
-        { value: "lint", label: "Lint", description: "biome and the import walls" },
-        { value: "purity", label: "Purity scan", description: "no private slugs in fixtures" }
-      ]
-    },
-    {
-      id: "reviewer",
-      header: "reviewer",
-      label: "Who should re-review once the fixes are pushed?",
-      context: "More than eight choices, so the list scrolls.",
-      options: [
-        { value: "coderabbit", label: "CodeRabbit (Recommended)", description: "reviews every push on its own" },
-        { value: "opus", label: "An Opus subagent", description: "when CodeRabbit is rate limited" },
-        { value: "author", label: "The thread authors", description: "each person who opened a thread" },
-        { value: "owner", label: "The code owner", description: "from CODEOWNERS" },
-        { value: "pair", label: "Whoever paired on it" },
-        { value: "lead", label: "The team lead" },
-        { value: "qa", label: "QA", description: "for the behaviour change" },
-        { value: "security", label: "Security", description: "the token prefix thread" },
-        { value: "docs", label: "Docs", description: "the README thread" },
-        { value: "none", label: "Nobody", description: "merge once CI is green" }
-      ]
-    },
-    {
-      id: "scope",
-      header: "scope",
-      label: "How big should this pass be?",
-      writeIn: true,
-      options: [
-        { value: "blocking", label: "Blocking threads only", description: "the smallest diff that unblocks the merge" },
-        { value: "picked", label: "Everything picked above (Recommended)", description: "one push, one review round" },
-        { value: "split", label: "Split into two MRs", description: "blocking now, the rest as a follow-up" }
-      ]
-    },
-    { id: "summary", header: "summary", label: "One line for the MR comment that lists the fixes?" },
-    {
-      id: "next",
-      label: "Happy with this, or should something change?",
-      options: [
-        { value: "proceed", label: "Looks good, continue (Recommended)", description: "Move on to the next step" },
-        { value: "iterate", label: "Change something", description: "Say what to change, then redo this step" },
-        { value: "go-back", label: "Redo an earlier step", description: "Return to a step that needs redoing" },
-        { value: "hold", label: "Pause", description: "Stop until you resume this run" },
-        { value: "abandon", label: "Abandon", description: "End this run for good" }
-      ]
-    }
-  ]
-};
+function paneRows(e) {
+  return e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30;
+}
+var wheels = new Map;
+function addWheel($, paneId, by) {
+  wheels.set(paneId, (wheels.get(paneId) ?? 0) + by);
+  $.ui.invalidate("ui.render");
+}
+var wheelTotal = (paneId) => wheels.get(paneId) ?? 0;
+// mods/gate-form/src/gate/bell.ts
+var BODY_MAX = 140;
+function bellArgs(cwd, questions) {
+  const who = cwd.replace(/\/+$/, "").split("/").at(-1) || "claude";
+  let body = (questions[0]?.label ?? "").split(/\s+/).filter(Boolean).join(" ") || "needs an answer";
+  if (body.length > BODY_MAX)
+    body = `${body.slice(0, BODY_MAX - 3)}...`;
+  if (questions.length > 1)
+    body += `  (+${questions.length - 1} more)`;
+  return ["herdr", "notification", "show", `${who} needs you`, "--body", body, "--sound", "request"];
+}
 
-// mods/gate-form/src/gate/parse.ts
-var DEFAULT_TITLE = "Questions";
-var counter = 0;
-var isText = (v) => typeof v === "string" && v.trim() !== "";
-function toOption(raw) {
-  if (typeof raw === "string")
-    return { value: raw, label: raw };
-  return {
-    value: String(raw.value ?? raw.label ?? ""),
-    label: String(raw.label ?? raw.value ?? ""),
-    ...typeof raw.description === "string" && { description: raw.description }
-  };
+// mods/gate-form/src/gate/board.ts
+var NO_ADDRESS = "Board address not found";
+var KIND_TITLES = {
+  "review-post": "Review findings",
+  "respond-plan": "Respond plan",
+  "respond-post": "Respond replies"
+};
+function kindTitle(kind) {
+  if (KIND_TITLES[kind])
+    return KIND_TITLES[kind];
+  const words = kind.trim().replace(/[-_]+/g, " ");
+  return words === "" ? "A gate" : `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 }
-function toOptions(q) {
-  const options = [];
-  const seen = new Set;
-  for (const raw of Array.isArray(q.options) ? q.options : []) {
-    const option = toOption(raw);
-    if (option.value === "")
-      return `question ${q.id} has an option with no value.`;
-    if (seen.has(option.value))
-      return `question ${q.id} has option ${option.value} twice.`;
-    seen.add(option.value);
-    options.push(option);
+var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var local = (port) => typeof port === "number" && Number.isInteger(port) && port > 0 ? `http://localhost:${port}` : undefined;
+function boardAddress(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    const row = stdout.split(`
+`).map((line) => line.trim().split(/\s+/)).find((cells) => cells[0] === "board");
+    return row && /^\d+$/.test(row[1] ?? "") ? local(Number(row[1])) : undefined;
   }
-  return options;
+  const apps = Array.isArray(parsed) ? parsed : isObject(parsed) && Array.isArray(parsed.apps) ? parsed.apps : [];
+  const board = apps.find((app) => isObject(app) && app.name === "board");
+  return board ? local(board.port) : undefined;
 }
-function toQuestion(q, seen) {
-  if (typeof q?.id !== "string" || q.id === "")
-    return "every question needs a string id.";
-  if (seen.has(q.id))
-    return `question id ${q.id} is used twice.`;
-  if (typeof q.label !== "string")
-    return `question ${q.id} needs a label.`;
-  seen.add(q.id);
-  const options = toOptions(q);
-  if (typeof options === "string")
-    return options;
-  return {
-    id: q.id,
-    header: isText(q.header) ? q.header : q.id,
-    label: q.label,
-    multi: q.multi === true,
-    writeIn: q.writeIn === true,
-    ...isText(q.context) && { context: q.context },
-    options
-  };
+var boardUrl = (address, gateId) => `${address}/?gate=${encodeURIComponent(gateId)}`;
+function boardText(list) {
+  const newest = list.at(-1);
+  if (!newest)
+    return "";
+  const more = list.length - 1;
+  return `${kindTitle(newest.kind)} is waiting on the board${more > 0 ? `, ${more} more` : ""}`;
 }
-function toForm(title, context, raw, replyTo) {
-  if (!Array.isArray(raw) || raw.length === 0)
-    return "questions must be a non-empty array.";
-  const seen = new Set;
-  const questions = [];
-  for (const q of raw) {
-    const question = toQuestion(q, seen);
-    if (typeof question === "string")
-      return question;
-    questions.push(question);
+function readBoardOnly(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return;
   }
-  counter += 1;
-  return {
-    id: `f${Date.now().toString(36)}${counter}`,
-    title: isText(title) ? title : DEFAULT_TITLE,
-    ...isText(context) && { context },
-    questions,
-    status: "open",
-    replyTo
-  };
+  if (!isObject(parsed) || parsed.boardOnly !== true || parsed.paneAction !== "wait" || typeof parsed.id !== "string" || parsed.id === "")
+    return;
+  return { gateId: parsed.id, ...typeof parsed.supersededId === "string" && { supersededId: parsed.supersededId } };
 }
+function addBoardGate(list, gate, supersededId) {
+  if (list.some((b) => b.gateId === gate.gateId))
+    return list;
+  return [...list.filter((b) => b.gateId !== supersededId), gate];
+}
+
+// mods/gate-form/src/gate/forms.ts
+function currentForm(list) {
+  return list.find((f) => f.status === "open") ?? list.at(-1);
+}
+var openCount = (list) => list.filter((f) => f.status === "open").length;
+function addForm(list, form, supersededId) {
+  const replaces = (f) => f.gateId === undefined ? form.gateId === undefined && f.source === form.source : f.gateId === form.gateId || f.gateId === supersededId;
+  const at = list.findIndex(replaces);
+  const kept = list.filter((f, i) => i === at || !replaces(f) && f.status === "open");
+  return at < 0 ? [...kept, form] : kept.map((f) => replaces(f) ? form : f);
+}
+function patchForm(list, formId, patch) {
+  return list.map((f) => f.id === formId ? { ...f, ...patch } : f);
+}
+function fitForm(form, budget) {
+  const fits = (f) => JSON.stringify(f).length <= budget;
+  if (fits(form))
+    return form;
+  const plain = { ...form, questions: form.questions.map((q) => ({ ...q, options: q.options.map(({ description: _, ...o }) => o) })) };
+  if (fits(plain))
+    return plain;
+  const bare = { ...plain, questions: plain.questions.map(({ context: _, ...q }) => q) };
+  if (fits(bare))
+    return bare;
+  const { context: _, ...rest } = bare;
+  return rest;
+}
+function fromLegacy(old) {
+  if (!old || old.replyTo !== "agent")
+    return [];
+  const { replyTo: _, ...rest } = old;
+  return [{ ...rest, source: "ask", questions: old.questions.map((q) => ({ ...q, other: true })) }];
+}
+var knownForms = (list) => list.filter((f) => f.source === "gate" || f.source === "ask");
 
 // mods/gate-form/src/gate/reply.ts
 var REPLY_TAG = "[gate-form] ";
@@ -505,10 +467,211 @@ function agentReply(form, outcome) {
   ].join(`
 `);
 }
-function toastReply(form, outcome) {
-  if (outcome.status === "chat")
-    return `Set "${form.title}" aside to chat about it`;
-  return `Submitted "${form.title}": ${Object.keys(outcome.answers).length} of ${form.questions.length} questions answered`;
+var GATE_INSTRUCTION = (gateId) => `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`;
+var BOARD_INSTRUCTION = (gateId) => `The kit form can't draw this gate, so it waits on the board. Run \`rt gate wait ${gateId}\` as a background Bash task, then end your turn holding at gate \`${gateId}\`.`;
+var BOARD_TOAST = (title, reason) => `${title} can't show in the form: ${reason} Answer it on the board.`;
+var GATE_ANSWERED = (gateId) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`;
+var GATE_ASIDE = (gateId) => `The user set gate ${gateId} aside to talk about it first. Don't present it again; it stays open in the kit form.`;
+
+// mods/gate-form/src/gate/parse.ts
+var DEFAULT_TITLE = "Questions";
+var counter = 0;
+var isText = (v) => typeof v === "string" && v.trim() !== "";
+function toOption(raw) {
+  if (typeof raw === "string")
+    return { value: raw, label: raw };
+  return {
+    value: String(raw.value ?? raw.label ?? ""),
+    label: String(raw.label ?? raw.value ?? ""),
+    ...typeof raw.description === "string" && { description: raw.description }
+  };
+}
+function toOptions(q, source) {
+  const raws = Array.isArray(q.options) ? q.options : [];
+  const options = [];
+  const seen = new Set;
+  for (const raw of raws) {
+    const option = toOption(raw);
+    const problem = option.value === "" ? `question ${q.id} has an option with no value.` : seen.has(option.value) ? `question ${q.id} has option ${option.value} twice.` : undefined;
+    if (problem && source !== "gate")
+      return problem;
+    if (problem)
+      continue;
+    seen.add(option.value);
+    options.push(option);
+  }
+  if (raws.length > 0 && options.length === 0)
+    return `question ${q.id} has no option with a value.`;
+  return options;
+}
+function toQuestion(q, seen, source) {
+  if (typeof q?.id !== "string" || q.id === "")
+    return "every question needs a string id.";
+  if (seen.has(q.id))
+    return `question id ${q.id} is used twice.`;
+  if (typeof q.label !== "string")
+    return `question ${q.id} needs a label.`;
+  seen.add(q.id);
+  const options = toOptions(q, source);
+  if (typeof options === "string")
+    return options;
+  return {
+    id: q.id,
+    header: isText(q.header) ? q.header : q.id,
+    label: q.label,
+    multi: q.multi === true,
+    writeIn: q.writeIn === true,
+    other: source !== "gate" || q.writeIn === true,
+    ...isText(q.context) && { context: q.context },
+    options
+  };
+}
+function toForm(title, context, raw, source) {
+  if (!Array.isArray(raw) || raw.length === 0)
+    return "questions must be a non-empty array.";
+  const seen = new Set;
+  const questions = [];
+  for (const q of raw) {
+    const question = toQuestion(q, seen, source);
+    if (typeof question === "string")
+      return question;
+    questions.push(question);
+  }
+  counter += 1;
+  return {
+    id: `f${Date.now().toString(36)}${counter}`,
+    title: isText(title) ? title : DEFAULT_TITLE,
+    ...isText(context) && { context },
+    questions,
+    status: "open",
+    source
+  };
+}
+var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+function readKitResult(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { kind: "spilled" };
+  }
+  return isObject2(parsed) && parsed.paneAction === "kit" ? { kind: "kit", fields: parsed } : { kind: "other" };
+}
+function controlsOf(raw, questions) {
+  if (!isObject2(raw) || questions.some((q) => q.id === "next"))
+    return;
+  const pause = raw.pause === true;
+  const goBack = Array.isArray(raw.goBack) ? raw.goBack.filter((s) => typeof s === "string" && s !== "") : [];
+  return pause || goBack.length > 0 ? { pause, goBack } : undefined;
+}
+function gateFormOf(id, title, context, questions, controls) {
+  if (!isText(id))
+    return "the gate result has no id.";
+  const form = toForm(title, context, questions, "gate");
+  if (typeof form === "string")
+    return form;
+  const allowed = controlsOf(controls, form.questions);
+  return { ...form, gateId: id, ...allowed && { controls: allowed } };
+}
+function gateForm(fields, title) {
+  const kit = isObject2(fields.kitForm) ? fields.kitForm : {};
+  return gateFormOf(fields.id, title, kit.context, kit.questions, kit.controls);
+}
+function agentFields(fields) {
+  const { kitForm: _, ...rest } = fields;
+  return { ...rest, instruction: GATE_INSTRUCTION(String(fields.id)) };
+}
+function boardFields(fields) {
+  const { kitForm: _, ...rest } = fields;
+  return { ...rest, paneAction: "wait", instruction: BOARD_INSTRUCTION(String(fields.id)) };
+}
+function listedGates(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return;
+  }
+  if (!isObject2(parsed) || !Array.isArray(parsed.gates))
+    return;
+  return parsed.gates.filter((g) => isObject2(g) && isText(g.id));
+}
+function spillPaths(text) {
+  const found = [...text.matchAll(/(?:^|[\s:"'`(])(\/[^\s"'`<>()[\]{},;]+)/g)].map((m) => m[1].replace(/[.:]+$/, ""));
+  return [...new Set(found)].filter((p) => p.length > 1 && !p.endsWith("/"));
+}
+function savedResult(fileText) {
+  const parse = (text) => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return;
+    }
+  };
+  const parsed = parse(fileText);
+  const blocks = Array.isArray(parsed) ? parsed : isObject2(parsed) && Array.isArray(parsed.content) ? parsed.content : undefined;
+  if (!blocks)
+    return isObject2(parsed) ? parsed : undefined;
+  const inner = parse(blocks.map((b) => isObject2(b) && typeof b.text === "string" ? b.text : "").join(""));
+  return isObject2(inner) ? inner : undefined;
+}
+var shapeOf = (questions) => JSON.stringify((Array.isArray(questions) ? questions : []).map((q) => isObject2(q) ? [q.id, q.label] : null));
+function spilledGate(stdout, session, known, call) {
+  const kind = isText(call.kind) ? call.kind.trim() : "question";
+  const gates = listedGates(stdout) ?? [];
+  const mine = gates.filter((g) => g.presentation === "kit" && g.status === "open" && isObject2(g.nudge) && g.nudge.session === session && !known.includes(g.id) && g.kind === kind && (!isText(call.subject) || g.subject === call.subject.trim()) && (!Array.isArray(call.questions) || shapeOf(g.questions) === shapeOf(call.questions)));
+  return mine.sort((a, b) => Number(b.openedAt ?? 0) - Number(a.openedAt ?? 0))[0];
+}
+function formFromRow(row) {
+  const controls = isObject2(row.meta) ? row.meta.kitControls : undefined;
+  return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, controls);
+}
+function answerOutcome(stdout, session) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return "recorded";
+  }
+  if (!isObject2(parsed) || parsed.conflict !== true)
+    return "recorded";
+  const answer = isObject2(parsed.row) && isObject2(parsed.row.answer) ? parsed.row.answer : {};
+  return answer.by === "pane" && answer.session === session ? "recorded" : "elsewhere";
+}
+
+// mods/gate-form/src/gate/rt.ts
+var RT_TIMEOUT_MS = 15000;
+var START_FAILURE_MS = 2000;
+var RT_OVERRAN = "rt overran";
+async function runRt($, args, timeoutMs = RT_TIMEOUT_MS) {
+  const home = await $.env.get("HOME");
+  const names = ["rt", `${home ?? ""}/.local/bin/rt`];
+  let failure;
+  for (const rt of names) {
+    const started = await $.clock.now();
+    try {
+      return await $.process.run([rt, ...args], { timeoutMs });
+    } catch (error) {
+      if (await $.clock.now() - started >= START_FAILURE_MS)
+        throw new Error(RT_OVERRAN);
+      failure = error;
+    }
+  }
+  throw failure;
+}
+function rtError(ran) {
+  const said = (ran.stderr.trim() || ran.stdout.trim()).replace(/^rt gate: /, "");
+  return said || `rt exited ${ran.exitCode}`;
+}
+function settingIsOn(ran) {
+  if (ran.exitCode !== 0)
+    return false;
+  try {
+    const parsed = JSON.parse(ran.stdout);
+    return parsed.ok === true && parsed.value === true;
+  } catch {
+    return false;
+  }
 }
 
 // mods/gate-form/src/gate/schema.ts
@@ -552,60 +715,526 @@ var INPUT_SCHEMA = {
   required: ["questions"]
 };
 
+// mods/gate-form/src/gate/watch.ts
+var isObject3 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+function rowEnd(row) {
+  if (row.status === "answered") {
+    const answer = isObject3(row.answer) ? row.answer : {};
+    return {
+      status: "answered",
+      by: String(answer.by ?? ""),
+      ...typeof answer.session === "string" && { session: answer.session },
+      ...isObject3(answer.answers) && { answers: answer.answers }
+    };
+  }
+  if (row.status === "closed")
+    return { status: "closed", ...typeof row.closedReason === "string" && { reason: row.closedReason } };
+  return;
+}
+function waitEnd(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return;
+  }
+  if (!isObject3(parsed) || parsed.ok !== true)
+    return;
+  return rowEnd({ ...isObject3(parsed.row) ? parsed.row : {}, status: parsed.status });
+}
+var isSelf = (end, session) => end.status === "answered" && end.by === "pane" && (end.session === undefined || end.session === session);
+var ANSWERED_ON = {
+  board: "Answered on the board",
+  console: "Answered in the console",
+  shepherd: "Answered by the shepherd",
+  pane: "Answered in another pane"
+};
+function endNote(end) {
+  if (end.status === "closed")
+    return end.reason === "superseded" ? "Replaced by a newer gate" : "Closed elsewhere";
+  return ANSWERED_ON[end.by] ?? "Answered elsewhere";
+}
+async function waitFor($, gateId) {
+  const home = await $.env.get("HOME");
+  for (const rt of ["rt", `${home ?? ""}/.local/bin/rt`]) {
+    const child = $.process.spawn({ argv: [rt, "gate", "wait", gateId], env: { CLAUDE_CODE_SESSION_ID: "" } });
+    let step;
+    try {
+      step = await child.next();
+    } catch {
+      continue;
+    }
+    let stdout = "";
+    try {
+      while (!step.done) {
+        if (step.value.stream === "stdout")
+          stdout += step.value.text;
+        step = await child.next();
+      }
+    } catch {
+      return;
+    }
+    return step.value.code === 0 ? waitEnd(stdout) : undefined;
+  }
+  return;
+}
+
 // mods/gate-form/src/register.tsx
 var PANE = "gate-form";
 var TOOL = "ask";
-var formAtom = atom({ plugin: "gate-form", key: "form" }, null, { shape: "form-3" });
+var GATE_TITLE = "Decision gate";
+var FORM_BUDGET = 95000;
+var formsAtom = atom({ plugin: "gate-form", key: "forms" }, [], { shape: "forms-1" });
+var legacyAtom = atom({ plugin: "gate-form", key: "form" }, null, { shape: "form-3" });
 var keysAtom = atom({ plugin: "gate-form", key: "keysInForm" }, false);
-async function waitingForm($) {
-  const form = await read($, formAtom);
-  return form && form.status === "open" ? { formId: form.id, title: form.title } : undefined;
-}
+var boardAtom = atom({ plugin: "gate-form", key: "board" }, [], { shape: "board-1" });
+var drawn = {};
+var setting = { isOn: false };
+var ELSEWHERE = "Already answered elsewhere";
+var ASK_OFF = "The gate form is off. Turn on rt.gates.kitForm and run /reload-plugins to use it.";
+var SETTING_TIMEOUT_MS = 5000;
+var QUICK_TIMEOUT_MS = 5000;
+var watching = new Set;
+var WAIT_RETRY_MS = [1000, 5000, 15000];
+var answering = new Set;
+var deck = {};
 var GATE_PANE = { id: PANE, label: "mattstack gate waiting" };
+async function readForms($) {
+  const forms = knownForms(await read($, formsAtom));
+  return forms.length > 0 ? forms : fromLegacy(await read($, legacyAtom));
+}
+async function writeForms($, change) {
+  const legacy = fromLegacy(await read($, legacyAtom));
+  let written = [];
+  await update($, formsAtom, (stored) => {
+    const list = knownForms(stored);
+    return written = change(list.length > 0 || legacy.length === 0 ? list : legacy);
+  });
+  if (legacy.length > 0)
+    await update($, legacyAtom, () => null);
+  return written;
+}
+async function waitingForm($) {
+  const forms = await readForms($);
+  const form = currentForm(forms);
+  if (!form || form.status !== "open")
+    return;
+  const more = openCount(forms) - 1;
+  return { formId: form.id, title: more > 0 ? `${form.title}, ${more} more waiting` : form.title };
+}
 async function setKeysInForm($, value) {
   if (await read($, keysAtom) !== value)
     await update($, keysAtom, () => value);
 }
-async function settle($, formId, outcome) {
-  const form = await read($, formAtom);
-  if (!form || form.id !== formId || form.status !== "open")
-    return;
-  const status = outcome.status === "answered" ? "answered" : "cancelled";
-  await update($, formAtom, (f) => f && f.id === formId ? { ...f, status } : f);
-  if (form.replyTo === "toast")
-    return $.ui.toast(toastReply(form, outcome));
-  const warn = () => $.ui.toast(`Could not send the answers for ${formId} to Claude`);
-  $.prompt.submit({ text: agentReply(form, outcome) }).then((sent) => {
+async function wake($, text, what, recovery) {
+  const warn = () => $.ui.toast(`Could not tell Claude about ${what}${recovery ? `. ${recovery}` : ""}`);
+  $.prompt.submit({ text }).then((sent) => {
     if (sent.drop !== undefined)
       warn();
   }).catch(warn);
 }
+async function wakeAnswered($, gateId) {
+  await wake($, GATE_ANSWERED(gateId), `the answer to gate ${gateId}`, `Ask it to run gate_reconcile ${gateId}.`);
+}
+async function showCurrent($, forms, note) {
+  const next = currentForm(forms);
+  if (next?.status === "open") {
+    await showPane($, GATE_PANE, next.title);
+    return;
+  }
+  if (note)
+    $.ui.toast(note);
+  await $.ui.close({ id: PANE });
+  $.ui.invalidate("ui.render");
+}
+async function readSetting($) {
+  try {
+    setting.isOn = settingIsOn(await runRt($, ["settings", "get", "rt.gates.kitForm", "--json"], SETTING_TIMEOUT_MS));
+  } catch {
+    setting.isOn = false;
+  }
+}
+var failureText = (failure) => failure instanceof Error && failure.message === RT_OVERRAN ? `rt took longer than ${RT_TIMEOUT_MS / 1000}s, so the answer may already be recorded. Submit again to check.` : `Not recorded: rt could not run (${failure instanceof Error ? failure.message : String(failure)}).`;
+async function answerGate($, form, answers) {
+  const gateId = form.gateId ?? "";
+  answering.add(form.id);
+  let failed = true;
+  try {
+    failed = !await recordAnswer($, form, gateId, answers);
+  } catch (failure) {
+    await markFailed($, form, `Not recorded: ${failure instanceof Error ? failure.message : String(failure)}`).catch(() => {
+      return;
+    });
+  } finally {
+    answering.delete(form.id);
+    if (failed)
+      watchGate($, gateId);
+  }
+}
+async function markFailed($, form, error) {
+  await writeForms($, (list) => list.map((f) => f.id === form.id && f.status === "open" ? { ...f, error, attempt: (form.attempt ?? 0) + 1 } : f));
+}
+async function recordAnswer($, form, gateId, answers) {
+  const session = await $.session.id();
+  const args = ["gate", "answer", gateId, "--answers", JSON.stringify(answers), "--by", "pane", "--session", session];
+  let error;
+  let outcome = "recorded";
+  try {
+    const ran = await runRt($, args);
+    if (ran.exitCode !== 0)
+      error = `Not recorded: ${rtError(ran)}`;
+    else
+      outcome = answerOutcome(ran.stdout, session);
+  } catch (failure) {
+    error = failureText(failure);
+  }
+  if (error !== undefined) {
+    await markFailed($, form, error);
+    return false;
+  }
+  const patch = outcome === "elsewhere" ? { status: "answered", error: undefined, note: ELSEWHERE } : { status: "answered", error: undefined };
+  const forms = await writeForms($, (list) => patchForm(list, form.id, patch));
+  if (outcome === "recorded")
+    await wakeAnswered($, gateId);
+  await showCurrent($, forms, outcome === "elsewhere" ? ELSEWHERE : undefined);
+  return true;
+}
+async function setGateAside($, form) {
+  await wake($, GATE_ASIDE(form.gateId ?? ""), `setting gate ${form.gateId} aside`);
+  await $.ui.close({ id: PANE });
+}
+async function settle($, formId, outcome) {
+  const form = (await readForms($)).find((f) => f.id === formId);
+  if (!form || form.status !== "open")
+    return;
+  if (form.source === "gate") {
+    if (outcome.status === "answered")
+      return answerGate($, form, outcome.answers);
+    return setGateAside($, form);
+  }
+  const status = outcome.status === "answered" ? "answered" : "cancelled";
+  const forms = await writeForms($, (list) => patchForm(list, formId, { status }));
+  await wake($, agentReply(form, outcome), `the answers for ${formId}`);
+  await showCurrent($, forms);
+}
+async function openForm($, form, supersededId) {
+  await writeForms($, (list) => addForm(list, form, supersededId));
+  const shown = currentForm(await readForms($));
+  const title = shown?.title ?? form.title;
+  if (!await showPane($, GATE_PANE, title))
+    $.ui.toast(`${title} is waiting: press Show above the prompt`);
+}
+async function ringBell($, form) {
+  if (await $.env.get("HERDR_ENV") !== "1" || !await $.env.get("HERDR_PANE_ID"))
+    return;
+  await $.process.run(bellArgs(await $.session.cwd(), form.questions), { timeoutMs: QUICK_TIMEOUT_MS }).catch(() => {
+    return;
+  });
+}
+async function gateEnded($, gateId, end) {
+  if ((await read($, boardAtom)).some((b) => b.gateId === gateId))
+    await update($, boardAtom, (list) => list.filter((b) => b.gateId !== gateId));
+  const open = (await readForms($)).filter((f) => f.gateId === gateId && f.status === "open" && !answering.has(f.id));
+  if (open.length === 0)
+    return $.ui.invalidate("ui.render");
+  const self = isSelf(end, await $.session.id());
+  const won = end.status === "answered" ? end.answers : undefined;
+  const note = self ? undefined : [endNote(end), won && controlText(won)].filter(Boolean).join(". ");
+  const patch = self ? { status: "answered", error: undefined } : { status: end.status === "answered" ? "answered" : "cancelled", error: undefined, note, ...won && { won } };
+  const forms = await writeForms($, (list) => list.map((f) => open.some((o) => o.id === f.id) ? { ...f, ...patch } : f));
+  if (self)
+    await wakeAnswered($, gateId);
+  await showCurrent($, forms, note && `${open[0].title}: ${note}`);
+}
+function controlText(answers) {
+  if (answers.next === "hold")
+    return "Paused the run";
+  if (answers.next === "go-back")
+    return typeof answers.to === "string" && answers.to !== "" ? `Went back to ${answers.to}` : "Went back a stage";
+  return;
+}
+async function shownHere($, gateId) {
+  if ((await readForms($)).some((f) => f.gateId === gateId && f.status === "open"))
+    return true;
+  return (await read($, boardAtom)).some((b) => b.gateId === gateId);
+}
+function watchGate($, gateId, retry = 0) {
+  if (!setting.isOn || watching.has(gateId))
+    return;
+  watching.add(gateId);
+  (async () => {
+    let failed = false;
+    try {
+      const end = await waitFor($, gateId);
+      if (end)
+        await gateEnded($, gateId, end);
+      else
+        failed = true;
+    } catch {} finally {
+      watching.delete(gateId);
+    }
+    const pause = WAIT_RETRY_MS[retry];
+    if (!failed || pause === undefined)
+      return;
+    try {
+      if (!await shownHere($, gateId))
+        return;
+      await $.clock.sleep(pause);
+      if (await shownHere($, gateId))
+        watchGate($, gateId, retry + 1);
+    } catch {}
+  })();
+}
+async function gateOpened($, form) {
+  if (form.gateId)
+    watchGate($, form.gateId);
+  ringBell($, form);
+}
+async function readDeck($) {
+  const home = await $.env.get("HOME");
+  for (const name of ["deck", `${home ?? ""}/.local/bin/deck`]) {
+    try {
+      const ran = await $.process.run([name, "list", "--json"], { timeoutMs: QUICK_TIMEOUT_MS });
+      deck.address = ran.exitCode === 0 ? boardAddress(ran.stdout) ?? null : null;
+      return;
+    } catch {
+      deck.address = null;
+    }
+  }
+}
+async function addBoard($, gate, supersededId) {
+  await readDeck($);
+  await update($, boardAtom, (list) => addBoardGate(list, gate, supersededId));
+  watchGate($, gate.gateId);
+  $.ui.invalidate("ui.render");
+}
+async function sendToBoard($, gate, reason, supersededId) {
+  await addBoard($, gate, supersededId);
+  $.ui.toast(BOARD_TOAST(kindTitle(gate.kind), reason));
+}
+async function openBoard($, gateId) {
+  const gate = (await read($, boardAtom)).find((b) => b.gateId === gateId);
+  if (!gate || !deck.address)
+    return;
+  await $.process.run(["open", boardUrl(deck.address, gate.gateId)]).catch(() => $.ui.toast("Could not open the board"));
+}
+async function restore($) {
+  let rows;
+  try {
+    const ran = await runRt($, ["gate", "list", "--json"]);
+    rows = ran.exitCode === 0 ? listedGates(ran.stdout) : undefined;
+  } catch {
+    rows = undefined;
+  }
+  const listed = rows ?? [];
+  const session = rows ? await $.session.id() : "";
+  const byId = new Map(listed.map((row) => [row.id, row]));
+  const fresh = [];
+  const undrawable = [];
+  for (const row of listed.filter((row) => row.presentation === "kit" && row.status === "open" && row.nudge?.session === session).sort((a, b) => Number(a.openedAt ?? 0) - Number(b.openedAt ?? 0))) {
+    const form = formFromRow(row);
+    if (typeof form === "string")
+      undrawable.push({ gate: { gateId: row.id, kind: typeof row.kind === "string" ? row.kind : "" }, reason: form });
+    else
+      fresh.push(form);
+  }
+  const added = [];
+  const forms = await writeForms($, (list) => fresh.reduce((acc, form) => {
+    if (acc.some((f) => f.gateId === form.gateId))
+      return acc;
+    added.push(form);
+    return addForm(acc, form);
+  }, list));
+  const onBoard = (await read($, boardAtom)).map((b) => b.gateId);
+  const newlyOnBoard = undrawable.filter((u) => !onBoard.includes(u.gate.gateId) && !forms.some((f) => f.gateId === u.gate.gateId));
+  if (newlyOnBoard.length > 0)
+    await update($, boardAtom, (list) => newlyOnBoard.reduce((acc, u) => addBoardGate(acc, u.gate), list));
+  for (const u of newlyOnBoard)
+    $.ui.toast(BOARD_TOAST(kindTitle(u.gate.kind), u.reason));
+  const ended = (gateId) => {
+    const row = byId.get(gateId);
+    return row ? rowEnd(row) : undefined;
+  };
+  for (const form of forms.filter((f) => f.status === "open" && f.gateId)) {
+    const end = ended(form.gateId);
+    if (end)
+      await gateEnded($, form.gateId, end);
+    else
+      watchGate($, form.gateId);
+  }
+  for (const gate of await read($, boardAtom)) {
+    const end = ended(gate.gateId);
+    if (end)
+      await gateEnded($, gate.gateId, end);
+    else
+      watchGate($, gate.gateId);
+  }
+  if ((await read($, boardAtom)).length > 0)
+    await readDeck($);
+  for (const form of added)
+    ringBell($, form);
+  $.ui.invalidate("ui.render");
+}
+function canDraw(e) {
+  if (!setting.isOn)
+    return false;
+  const surface = drawn.surface;
+  const args = e;
+  return e.agentId === undefined && args.handBack !== true && (surface === "terminal" || surface === "desktop");
+}
+var textOf = (out) => {
+  if (typeof out.text === "string")
+    return out.text;
+  const result = out.result;
+  if (typeof result === "string")
+    return result;
+  const blocks = Array.isArray(result) ? result : result?.content ?? [];
+  return (Array.isArray(blocks) ? blocks : []).map((b) => typeof b.text === "string" ? b.text : "").join("");
+};
+function withText(result, text) {
+  if (Array.isArray(result))
+    return [{ type: "text", text }];
+  if (result && typeof result === "object" && "content" in result)
+    return { ...result, content: [{ type: "text", text }], structuredContent: undefined };
+  return text;
+}
+async function takeGate($, e, next) {
+  if (setting.reading)
+    await setting.reading;
+  if (!canDraw(e))
+    return next(e);
+  const out = await next({ ...e, kitForm: true });
+  if (out.deny !== undefined || out.isError)
+    return out;
+  const text = textOf(out);
+  const kit = readKitResult(text);
+  const board = kit.kind === "other" ? readBoardOnly(text) : undefined;
+  if (board)
+    await addBoard($, { gateId: board.gateId, kind: String(e.kind ?? "") }, board.supersededId);
+  if (kit.kind === "other")
+    return out;
+  const kind = e.kind;
+  const title = typeof kind === "string" && kind.trim() !== "" ? kind : GATE_TITLE;
+  const kindText = typeof kind === "string" ? kind : "";
+  if (kit.kind === "kit") {
+    const gateId = kit.fields.id;
+    if (typeof gateId !== "string" || gateId === "")
+      return out;
+    const shown = await showKitGate($, gateForm(kit.fields, title), { gateId, kind: kindText }, supersededOf(kit.fields));
+    return { result: withText(out.result, JSON.stringify(shown === "form" ? agentFields(kit.fields) : boardFields(kit.fields))) };
+  }
+  return takeSpilled($, e, out, text, title, kindText);
+}
+var supersededOf = (fields) => typeof fields.supersededId === "string" ? fields.supersededId : undefined;
+async function showKitGate($, form, gate, supersededId) {
+  if (typeof form === "string") {
+    await sendToBoard($, gate, form, supersededId);
+    return "board";
+  }
+  await openForm($, form, supersededId);
+  await gateOpened($, form);
+  return "form";
+}
+async function takeSpilled($, e, out, text, title, kindText) {
+  const saved = await readSpill($, text);
+  if (saved && saved.paneAction !== "kit")
+    return out;
+  let gateId;
+  let form;
+  let supersededId;
+  if (saved && typeof saved.id === "string" && saved.id !== "") {
+    gateId = saved.id;
+    form = gateForm(saved, title);
+    supersededId = supersededOf(saved);
+  } else {
+    const row = await matchingGate($, e);
+    if (!row)
+      return out;
+    gateId = row.id;
+    form = formFromRow(row);
+  }
+  const shown = await showKitGate($, form, { gateId, kind: kindText }, supersededId);
+  return { result: withText(out.result, `${text}
+
+${shown === "form" ? GATE_INSTRUCTION(gateId) : BOARD_INSTRUCTION(gateId)}`) };
+}
+async function readSpill($, text) {
+  for (const path of spillPaths(text)) {
+    try {
+      const saved = savedResult(await $.fs.read(path));
+      if (saved)
+        return saved;
+    } catch {}
+  }
+  return;
+}
+async function matchingGate($, e) {
+  const known = (await readForms($)).flatMap((f) => f.gateId ? [f.gateId] : []);
+  try {
+    const ran = await runRt($, ["gate", "list", "--open", "--json"]);
+    return ran.exitCode === 0 ? spilledGate(ran.stdout, await $.session.id(), known, e) : undefined;
+  } catch {
+    return;
+  }
+}
+function boardBand($, e, rest, board) {
+  const newest = board.at(-1);
+  const text = boardText(board);
+  const hasAddress = typeof deck.address === "string";
+  const els = $.ui.resolve(e);
+  const { Box, Text, Button } = els;
+  const Client = "Client" in els ? els.Client : undefined;
+  const band = Client ? /* @__PURE__ */ h(Client, {
+    key: "board-band",
+    module: "./board-band.js",
+    props: { text, gateId: newest.gateId, hasAddress }
+  }) : /* @__PURE__ */ h(Box, {
+    flexDirection: "row",
+    gap: 2
+  }, /* @__PURE__ */ h(Text, {
+    wrap: "truncate-end"
+  }, text), hasAddress ? /* @__PURE__ */ h(Button, {
+    key: "open-board",
+    label: "Open on board",
+    onPress: () => openBoard($, newest.gateId)
+  }) : /* @__PURE__ */ h(Text, {
+    dimColor: true
+  }, NO_ADDRESS));
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, band, rest);
+}
+async function turnOn($) {
+  await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false }).catch(() => {
+    return;
+  });
+  await restore($);
+}
 function register(on) {
   registerPaneRedraw(on);
   on("session.start", async ($, e, next) => {
-    await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA, isDeferred: false });
-    await $.command.register({ name: "gate-form-demo", description: "Open the gate form with a demo gate" });
+    setting.reading = readSetting($);
+    setting.reading.then(() => setting.isOn ? turnOn($) : undefined).catch(() => {
+      return;
+    });
     return next(e);
   });
-  on("command.run", { command: "gate-form-demo" }, async ($) => {
-    const form = toForm(DEMO.title, DEMO.context, DEMO.questions, "toast");
-    if (typeof form === "string")
-      return { text: form };
-    await update($, formAtom, () => form);
-    await showPane($, GATE_PANE, form.title);
-    return { text: "Demo gate form opened." };
-  });
   on("tool.call", { tool: "mcp__gate-form__ask" }, async ($, e) => {
+    if (setting.reading)
+      await setting.reading;
+    if (!setting.isOn)
+      return { deny: ASK_OFF };
     const args = e;
-    const form = toForm(args.title, args.context, args.questions, "agent");
+    const form = toForm(args.title, args.context, args.questions, "ask");
     if (typeof form === "string")
       return { deny: form };
-    await update($, formAtom, () => form);
-    await showPane($, GATE_PANE, form.title);
+    await openForm($, form);
     return {
       result: `Form ${form.id} is open in the pane with ${form.questions.length} questions. End your turn now: the user's answers arrive as your next input, as JSON keyed by question id.`
     };
   });
+  on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_ask" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));
+  on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_open" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));
   on("prompt.edit", async ($, e, next) => {
     await setKeysInForm($, false);
     return next(e);
@@ -622,6 +1251,9 @@ function register(on) {
     if (isEngaged(e))
       await setKeysInForm($, true);
     await paneMessage($, e, GATE_PANE, await waitingForm($));
+    const posted = e.data;
+    if (posted?.type === "open-board")
+      await openBoard($, posted.gateId);
     if (e.requestId !== PANE)
       return next(e);
     const message = e.data;
@@ -632,18 +1264,28 @@ function register(on) {
     return next(e);
   });
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    drawn.surface = e.surface;
     if (e.props.hasSurvey)
       return next(e);
     const waiting = await waitingForm($);
-    if (!waiting || await isPlaced($, GATE_PANE))
+    const formWaits = waiting !== undefined && !await isPlaced($, GATE_PANE);
+    const board = setting.isOn && deck.address !== undefined ? await read($, boardAtom) : [];
+    if (!formWaits && board.length === 0)
       return next(e);
-    return bandAbovePrompt($, e, await next(e), waiting, GATE_PANE);
+    const rest = formWaits ? await bandAbovePrompt($, e, await next(e), waiting, GATE_PANE, { engineShow: true }) : await next(e);
+    return board.length > 0 ? boardBand($, e, rest, board) : rest;
+  });
+  on("ui.scroll", { component: "Pane", requestId: "gate-form" }, async ($, e, next) => {
+    if (e.contentRows > e.bodyRows)
+      return next(e);
+    addWheel($, PANE, e.by);
+    return {};
   });
   on("ui.render", { component: "Pane", requestId: "gate-form" }, async ($, e) => {
     const els = $.ui.resolve(e);
     const { Box, Text, Button } = els;
     const Client = "Client" in els ? els.Client : undefined;
-    const form = await read($, formAtom);
+    const form = currentForm(await readForms($));
     if (!form)
       return /* @__PURE__ */ h(Text, {
         dimColor: true
@@ -652,8 +1294,10 @@ function register(on) {
       return /* @__PURE__ */ h(Text, {
         dimColor: true
       }, "This screen can't draw the form yet. Answer in the terminal.");
-    const rows = Math.max(8, (e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 30) - 3);
+    const body = paneRows(e);
+    const rows = Math.max(8, body - 3);
     const focused = e.props.isFocused || await read($, keysAtom);
+    const height = Math.max(1, form.status === "open" ? body : body - 2);
     return /* @__PURE__ */ h(Box, {
       flexDirection: "column",
       paddingX: 1,
@@ -661,7 +1305,8 @@ function register(on) {
     }, /* @__PURE__ */ h(Client, {
       key: `form-${form.id}`,
       module: "./form.js",
-      props: { form, rows, cols: (e.props.bodyColumns ?? 60) - 2, focused }
+      height,
+      props: { form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused, wheel: wheelTotal(PANE) }
     }), form.status === "open" ? null : /* @__PURE__ */ h(Box, {
       flexDirection: "row",
       gap: 1

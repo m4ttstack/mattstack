@@ -48,6 +48,17 @@ describe("gateAsk", () => {
     expect(res.ok).toBe(true);
     expect(seen).toEqual([{ cmd: "gate:ask", payload }]);
   });
+
+  test("forwards kitForm when set and omits it when not passed", async () => {
+    const { sock, seen, stop } = fakeDaemon({
+      "gate:ask": { ok: true, data: { id: "gt-1", presentation: "kit", boardOnly: false, subject: "run:1", supersededId: null } },
+    });
+    stops.push(stop);
+    await gateAsk({ questions: row.questions, kitForm: true }, { sockPath: sock });
+    await gateAsk({ questions: row.questions }, { sockPath: sock });
+    expect(seen[0]!.payload).toEqual({ questions: row.questions, kitForm: true });
+    expect(seen[1]!.payload).toEqual({ questions: row.questions });
+  });
 });
 
 describe("gateForkCheck", () => {

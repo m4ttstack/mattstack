@@ -261,6 +261,23 @@ describe("watchdog sensors: chat and gates", () => {
     expect(answeredCalls).toEqual([NOW]);
   });
 
+  test("openKitGate is true only for an open kit-presentation gate nudging this session", () => {
+    const kit = (id: string, session: string, over: Partial<GateRow> = {}) =>
+      gate({ id, nudge: { session }, origin: { paneId: "w1:p1", presentation: "kit" }, ...over });
+    const gates = [
+      kit("g-kit", "sess-a"),
+      kit("g-kit-b", "sess-b"),
+      gate({ id: "g-form", nudge: { session: "sess-c" }, origin: { paneId: "w1:p1", presentation: "form" } }),
+      gate({ id: "g-wait", nudge: { session: "sess-d" } }),
+    ];
+    const { sensors, listCalls } = fx({ gates });
+    expect(sensors.openKitGate("sess-a")).toBe(true);
+    expect(sensors.openKitGate("sess-c")).toBe(false);
+    expect(sensors.openKitGate("sess-d")).toBe(false);
+    expect(sensors.openKitGate("sess-none")).toBe(false);
+    expect(listCalls.at(-1)).toEqual({ open: true });
+  });
+
   test("herds lists active herds only", () => {
     const { sensors } = fx({ herds: [herd(), herd({ id: "old", status: "wrapped" })] });
     expect(sensors.herds().map((h) => h.id)).toEqual(["demo-1"]);

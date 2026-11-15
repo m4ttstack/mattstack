@@ -34,6 +34,8 @@ flowchart TB
     boards_to_open{A boards@1 context in an attended session, with a board not yet opened?}
     open_board[/open <board path>/]
     present_pane_form
+    kit_form_open
+    trigger_kit_answer([Trigger: the kit form's answer arrives as your next input])
     form_result{Gate form result?}
     map_answer
     gate_answer[/"gate_answer {id, answers, runDb?, stage?}"/]
@@ -51,6 +53,11 @@ flowchart TB
     trigger_doorbell([Trigger: a doorbell push arrives])
     gate_reconcile[/"gate_reconcile {id, runDb?, stage?}"/]
     reconcile_status{gate_reconcile status?}
+    run_control_answer{"A run control (next hold or go-back)?"}
+    run_resolve_hold[/"run_resolve {runDb, stage, next: hold, note?, decidedBy}"/]
+    run_resolve_redirect[/"run_resolve {runDb, stage, next: redirect, to: <answers.to>, note?, decidedBy}"/]
+    run_resolve_result{run_resolve result?}
+    run_hold_refusal[/"run_hold {runDb, stage, reason: <the refusal>, decidedBy: pane}"/]
     write_in_to_act{"A write-in to act on (actOnWriteIn)?"}
     act_write_in
     stop_no_invented_answer[STOP: never invent an answer or re-ask a closed gate]:::stop
@@ -60,6 +67,8 @@ flowchart TB
     late_signal(((Late gate signal discarded)))
     path_ended(((Path ended per the verb's policy)))
     write_in_new_gate(((Write-in acted on: a new gate opens)))
+    run_held(((Held: end the turn naming run and stage)))
+    run_redirected(((Redirected: follow the stage file of the stage run_resolve's next names)))
     act_on_answer(((Act on the gate answer at the site))):::done
     trigger_site_reaches --> build_questions
     build_questions --> gate_ask
@@ -81,12 +90,15 @@ flowchart TB
     present_form_no_registry --> no_registry_under_run
     no_registry_under_run -->|yes| gate_record
     no_registry_under_run -->|no| write_in_to_act
-    gate_record --> write_in_to_act
+    gate_record --> run_control_answer
     trigger_site_opened --> pane_action
-    pane_action -->|form| boards_to_open
+    pane_action -->|form or kit| boards_to_open
     boards_to_open -->|yes: the next board| open_board
-    boards_to_open -->|no, or every board opened| present_pane_form
+    boards_to_open -->|"no, or every board opened: paneAction form"| present_pane_form
+    boards_to_open -->|"no, or every board opened: paneAction kit"| kit_form_open
     open_board --> boards_to_open
+    kit_form_open --> end_turn_holding
+    trigger_kit_answer --> gate_reconcile
     pane_action -->|wait| rt_gate_wait
     present_pane_form --> form_result
     form_result -->|answered| map_answer
@@ -94,7 +106,7 @@ flowchart TB
     form_result -->|cancelled| hold_under_run
     map_answer --> gate_answer
     gate_answer --> gate_answer_result
-    gate_answer_result -->|this answer won| write_in_to_act
+    gate_answer_result -->|this answer won| run_control_answer
     gate_answer_result -->|conflict: true| say_surface
     gate_answer_result -->|refused: not an option| remap_under_run
     gate_answer_result -->|refused: closed or not found| stop_no_invented_answer
@@ -103,12 +115,22 @@ flowchart TB
     run_budget_remap --> resubmitted_once
     resubmitted_once -->|no| map_answer
     resubmitted_once -->|yes| hold_under_run
-    say_surface --> write_in_to_act
+    say_surface --> run_control_answer
+    run_control_answer -->|"yes: next hold"| run_resolve_hold
+    run_control_answer -->|"yes: next go-back"| run_resolve_redirect
+    run_control_answer -->|no| write_in_to_act
+    run_resolve_hold --> run_resolve_result
+    run_resolve_redirect --> run_resolve_result
+    run_resolve_result -->|applied hold| run_held
+    run_resolve_result -->|applied redirect| run_redirected
+    run_resolve_result -->|refused| run_hold_refusal
+    run_hold_refusal --> run_held
     hold_under_run -->|yes| run_field_set
     hold_under_run -->|no| held_no_run
     run_field_set --> rt_gate_wait
     rt_gate_wait --> end_turn_holding
-    end_turn_holding -.-> trigger_wait_finished
+    end_turn_holding -.->|a wait runs| trigger_wait_finished
+    end_turn_holding -.->|the kit form shows the gate| trigger_kit_answer
     trigger_wait_finished --> gate_reconcile
     gate_reconcile --> reconcile_status
     trigger_human_words --> gate_reconcile

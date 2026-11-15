@@ -129,7 +129,7 @@ export function readGateOpenFile(path: string): GateOpenFile {
     : { questionsJson: JSON.stringify(questions), context };
 }
 
-export type GatePresentation = 'form' | 'wait';
+export type GatePresentation = 'form' | 'wait' | 'kit';
 export interface GateOpenResult {
   gateId: string;
   presentation: GatePresentation;

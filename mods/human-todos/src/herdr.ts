@@ -2,7 +2,7 @@ import type { EngineInterface, Timer } from 'claude-code'
 
 import type { Todo } from '../types'
 import { LIVE_LINES_HERDR, TITLE, clipLines, fileName, newToken, quote } from './items'
-import { logFolder } from './local'
+import { logFolder } from './logs'
 import { report } from './report'
 import type { Outcome } from './report'
 import { getWorkspace, listTodos, patchTodo, setWorkspace } from './store'

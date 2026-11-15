@@ -374,6 +374,7 @@ export const SCHEMAS = {
   "mattstack.colorScheme": z.enum(["auto", "light", "dark"]),
   "chat.slackSupport.defaultRepo": z.string().min(1),
   "chat.slackSupport.trigger": z.string().regex(/\S/),
+  "rt.gates.kitForm": z.boolean(),
   "agent.persona": z.looseObject({
     name: z.string().regex(/\S/).meta({ title: "Name", description: "What the agent calls itself in every Slack message." }),
     emoji: z.string().regex(/\S/).meta({ title: "Emoji", description: "Shown beside the name in the prefix of every Slack message." }),

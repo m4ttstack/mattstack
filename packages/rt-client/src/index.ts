@@ -119,7 +119,7 @@ export { COMMAND_NAMES, GATE_BY_PANE, gateOptionValue, gateOptionLabel } from ".
 export { GATE_FORM_OPTION_CAP, gatePresentation } from "./gate-presentation.ts";
 export { normalizeGateOptions, normalizeGateQuestions } from "./gate-options.ts";
 export type { GateOptionObject } from "./gate-options.ts";
-export { unwrapGateAnswerValue, validateGateAnswers } from "./gate-answers.ts";
+export { RUN_CONTROL_NEXT, isRunControl, unwrapGateAnswerValue, validateGateAnswers } from "./gate-answers.ts";
 export type { GateAnswerWire } from "./gate-answers.ts";
 export type {
   Discussion,

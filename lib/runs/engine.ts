@@ -66,6 +66,11 @@ export function readManifest(db: Database): ManifestStage[] {
   }));
 }
 
+/** The manifest stages before `index` that have started, in run order. */
+export function earlierStages(manifest: readonly { stage: string }[], index: number, started: (stage: string) => boolean): string[] {
+  return manifest.slice(0, Math.max(index, 0)).filter((m) => started(m.stage)).map((m) => m.stage);
+}
+
 export function writeManifest(db: Database, stages: ManifestInput[], packRoot: string | null): void {
   db.transaction(() => {
     db.run("DELETE FROM manifest");
@@ -201,10 +206,7 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
       if (!row) return mismatch();
 
       const earlier = (): string[] =>
-        manifest
-          .slice(0, index)
-          .filter((m) => db.query("SELECT 1 FROM stages WHERE name = ? LIMIT 1").get(m.stage))
-          .map((m) => m.stage);
+        earlierStages(manifest, index, (stage) => db.query("SELECT 1 FROM stages WHERE name = ? LIMIT 1").get(stage) != null);
       const failed = (at: Position, reason: string | null, detailPath: string | null, missing?: string[]): Ok<NextResult> => ({
         ok: true,
         ended: "failed",

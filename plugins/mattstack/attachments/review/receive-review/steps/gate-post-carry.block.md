@@ -15,8 +15,9 @@ draws it (the doorbell, then reconcile); the board's answer routes as
 `respond-post next answer?` draws.
 
 A `next` of `hold` or `iterate` routes as `respond-post next answer?`
-draws, but only a hand-back or a future surface can send one: the daemon
-refuses an answer key the gate did not ask.
+draws. Only a hand-back sends `iterate`: the daemon refuses an answer key
+the gate did not ask, except the run controls `hold` and `go-back`, which
+gate-protocol's Run control routes under a run.
 
 A paragraph that lists the replies and waits is not this gate. Neither
 `gate_answer` nor `gate_reconcile` records it: `gate_record {..., gateId:

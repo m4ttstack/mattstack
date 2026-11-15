@@ -23,8 +23,16 @@ export function agentReply(form: Form, outcome: Outcome): string {
   ].join('\n')
 }
 
-// The demo's reply: what happened in words, since nobody reads the answers but the person who gave them.
-export function toastReply(form: Form, outcome: Outcome): string {
-  if (outcome.status === 'chat') return `Set "${form.title}" aside to chat about it`
-  return `Submitted "${form.title}": ${Object.keys(outcome.answers).length} of ${form.questions.length} questions answered`
-}
+// The agent's result for a gate the kit form took over; the compiled gate-protocol skill reads the answer as its next input.
+export const GATE_INSTRUCTION = (gateId: string) =>
+  `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`
+
+export const BOARD_INSTRUCTION = (gateId: string) =>
+  `The kit form can't draw this gate, so it waits on the board. Run \`rt gate wait ${gateId}\` as a background Bash task, then end your turn holding at gate \`${gateId}\`.`
+
+// The toast for a gate the form can't draw; the band above the prompt links to it on the board.
+export const BOARD_TOAST = (title: string, reason: string) => `${title} can't show in the form: ${reason} Answer it on the board.`
+
+export const GATE_ANSWERED =(gateId: string) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`
+
+export const GATE_ASIDE = (gateId: string) => `The user set gate ${gateId} aside to talk about it first. Don't present it again; it stays open in the kit form.`

@@ -156,6 +156,28 @@ to 8 and the list windows around the cursor ("N more"). `writeIn` is the text of
 the "Something else" row. `cursorIsChoice` draws the single-select cursor as
 chosen.
 
+### `Menu`
+
+`<Menu rows state onChange? onPick? label? indent? isSelected? pressing?>`
+(props type `MenuProps`). It draws one quiet button, `More actions ▾` unless
+`label` says otherwise. Open, its rows hang under it in one flat list with `├`
+and `└`.
+
+- Rows are `{ id, label, isHeading? }` (`MenuRow`). A heading is a dim label
+  that is never selected or picked. The rows after it hang indented under it,
+  up to the next heading. Any other row is picked by its `id`.
+- The menu holds no state. The Client keeps `state` (`{ open, selected }`,
+  `MenuState`) and takes each change through `onChange`.
+- `indent` is the column the button starts at, so the rows hang under a button
+  drawn inside a row.
+- For the keyboard, pass each key through `menuKey(state, rows, key)`. Enter
+  opens it on the first pickable row. The arrows move, skipping headings and
+  wrapping. Enter picks. Left or Backspace closes it.
+- Escape also closes it where a host delivers it, but a Client never receives
+  Escape: the engine keeps it for returning the focus.
+- `menuKey` returns `{ state, picked? }` (`MenuMove`), or undefined for a key
+  it leaves alone.
+
 ### `InputField`
 
 `<InputField value placeholder? width? cursor?>`. A filled text field. `cursor`
@@ -225,7 +247,10 @@ functions below.
 
 ### `showPane`
 
-`showPane($, pane, title): Promise<void>`. Opens the pane.
+`showPane($, pane, title): Promise<boolean>`. Opens the pane with `focus`.
+It resolves to whether the pane was drawn. An open the person did not ask for
+(from a tool or a timer) waits undrawn below 144 columns, or 110 once the person
+has opened the pane themselves.
 
 ### `paneMessage`
 
@@ -244,12 +269,40 @@ The mod reads its own state into this plain object.
 
 `isPlaced($, pane): Promise<boolean>`. Whether the pane is on screen.
 
+### `addWheel` and `wheelTotal`
+
+A Client that draws only the rows that fit leaves the engine nothing to
+scroll, so the wheel has to reach the Client through the hooks module:
+
+1. The mod's own `ui.scroll` hook for its pane calls
+   `addWheel($, paneId, e.by)` and answers `{}`. The hook's matcher must be a
+   string literal, so the kit can't register it.
+2. The render hook passes `wheelTotal(paneId)` (a running total) in the
+   Client's props.
+3. The Client scrolls by the change in that total since it last looked.
+
+See gate-form's `fittedLines`.
+
+### `paneRows`
+
+`paneRows(e): number` gives the pane body's height in rows, from a `Pane`
+render event. A `Client` is only as tall as what it draws, so a click below
+its last line misses it. Pass `height={paneRows(e)}` (less any rows drawn
+under it) so a click anywhere in the pane focuses it.
+
 ### `bandAbovePrompt`
 
-`bandAbovePrompt($, e, rest, waiting, pane): Promise<RenderElement>`. Call it from your `ui.render`
-hook for the prompt's AbovePrompt slot when `waiting` is set and the pane is
-not placed: it returns `rest` with the reopen band above it. Falls back to the
-engine's `Button` where Client is unavailable. It writes `module="./band.tsx"`
+`bandAbovePrompt($, e, rest, waiting, pane, { engineShow? }): Promise<RenderElement>`.
+Call it from your `ui.render` hook for the prompt's AbovePrompt slot when
+`waiting` is set and the pane is not placed. It returns `rest` with the reopen
+band above it. Where Client is unavailable, it falls back to the engine's
+`Button`.
+
+With `engineShow`, the band's Show is the engine's own `Button` beside the
+Client. A Client's post counts as code, not as the person's press, so a pane
+reopened from the kit's own Show is still unasked and stays undrawn on a narrow
+terminal. The engine's press is asked, so it places the pane at any width. Pass
+`engineShow` for a pane your mod opens from a tool. It writes `module="./band.tsx"`
 itself, because a Client `module` must be a literal, so the mod needs a
 `band.tsx` and lists it in `mod.json` `clients`:
 
@@ -284,6 +337,54 @@ The mod sets it when `isEngaged` is true, clears it in its `prompt.edit`,
 `prompt.submit` and `ui.focus` hooks, and combines it with the pane's focus.
 See `mods/gate-form/src/register.tsx`.
 
+### `gridMove`, `gridResolve`, `gridSelection` and `gridLook`
+
+Keyboard moves over a grid of buttons: up and down between rows, left and
+right along one. A row is a `GridRow` (`{ key, ids, main }`, where `main`
+is the button a move onto the row lands on).
+
+- `gridResolve(rows, sel)` gives the `GridSpot` (`{ at, col }`) a stored
+  `GridSelection` (`{ key, button, at }`) lands on now, plus `hasFallen` when
+  its row has gone. A gone button falls to its row's `main`.
+- `gridMove(rows, here, ev, { tabSteps? })` returns `{ handled, to? }`. Every
+  arrow is handled, even at an end; `to` is set only when the selection moves.
+  With `tabSteps`, Tab and Shift+Tab step rows.
+- `gridSelection(rows, spot)` turns a spot back into a selection to store.
+
+- `gridLook(span, { marked?, pressing? })` draws the selected button: pressed
+  while `pressing` (pass `ui.keyPressing`), with the `keySelected` edge while
+  `marked` (pass `ui.keyboard`, or true where the mod always shows the
+  selection). The edge is pink, or white on a pink (brand) fill.
+
+The mod keeps the selection in its state. Enter calls
+`ui.pressFor(() => ...)`, so the button shows its press before it acts. See `mods/human-todos/src/pane/kit-view.tsx` and
+`mods/gate-form/src/form/input.ts`.
+
+### Scrolled lists: `windowLines` and friends
+
+These are for a list taller than its window. The Client draws one window of
+lines beside a `scrollBar`, with keyboard stops over its buttons, as in
+`mods/human-todos/src/pane/kit-layout.ts`. A `ScrollWindow` is
+`{ top, total, windowRows, stops }`. A `WindowStop` is a `GridRow` plus
+`lines` (the line each button is on) and `first`/`last` (the lines the stop
+covers).
+
+- `maxScroll(total, windowRows)` gives the deepest offset.
+- `revealOffset(view, index)` gives the offset that shows a stop whole.
+  `revealButtonOffset(view, index, col)` does the same for one of its
+  buttons. `isButtonInView(view, index, col)` says whether that button is on
+  screen, which Enter checks before it presses.
+- `windowLines(spec)` takes a `WindowSpec`
+  (`{ shown, top, width, gutter, bar, barCells, focus?, leadGlyph? }`) and draws the window's lines. Each line sits in its gutter, clipped, and ends in
+  its scroll bar cells. `focus` is a `ListFocus` (`{ selected, range, marked,
+  pressing }`). The selected action takes `gridLook`. While `marked`, the
+  stop's lines get the pink rail and its `leadGlyph` turns pink.
+- `wrappedButtons(lead, buttons, room, indent)` lays out a lead and buttons,
+  carried onto more rows as the room runs out.
+- `lineOfAction(lines, action)` finds the line that holds an action.
+- `clipLine(line, cells)` cuts and pads a line to exactly `cells`.
+  `ellipsize(text, cells)` cuts text with an ellipsis.
+
 ## Layout helpers (line builders)
 
 Used by `Lines`-based mods and by the components themselves. A line is an array
@@ -298,7 +399,7 @@ of spans; a span may carry an action.
 
 Types: `Drawn`, `NavSpec`, `ReviewItem`.
 
-### `brandBar`, `buttonRow`, `buttonSpan`, `selectList`, `inputField`, `tabStrip`, `textCursor`
+### `brandBar`, `buttonRow`, `buttonSpan`, `selectList`, `inputField`, `tabStrip`, `textCursor`, `menu`
 
 The line builders under the components. A component's `toLines` calls the
 matching builder. Reach for them when you build lines by hand for `<Lines>`.
@@ -308,6 +409,7 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `selectList(spec)` with `SelectSpec` and `Choice`
 - `inputField(value, placeholder, width, showCursor)` and `textCursor(value, placeholder, showCursor)`
 - `tabStrip(spec)` with `Tab` and `TabStripSpec`, and `revealTab`
+- `menu(spec)` with `MenuSpec` and `MenuHit` (a click: `toggle`, or a row's index `at`), `menuHit(state, rows, hit)` for a click and `menuKey` for a key, and `MORE_ACTIONS`, the button's label
 - `scrollBar(rows, total, offset)`: a scroll bar for a window of `rows` over `total`, one three-cell line per row (a blank, the track or thumb, a blank). Blank lines when the list fits. Colours in `SCROLL`.
 
 ## Draw layer

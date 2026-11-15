@@ -29,7 +29,7 @@ afterAll(() => {
 
 const GATE_ROW = { id: "g1", questions: [{ id: "next", label: "Next?", multi: false, options: [{ value: "ship", label: "Ship" }, "hold"] }, { id: "free", label: "Notes", multi: false, options: [] }] };
 
-function fake(opts: { statusError?: string; statusData?: unknown; pluginListError?: string; answerResult?: unknown; parkedGate?: boolean; gatesError?: string } = {}) {
+function fake(opts: { statusError?: string; statusData?: unknown; pluginListError?: string; answerResult?: unknown; parkedGate?: boolean; gatesError?: string; gateRow?: typeof GATE_ROW } = {}) {
   const tempRoots = [FAKE_TEMP_ROOT];
   // A failed plugin listing leaves only the temp root, as the real resolver does.
   const readRoots = opts.pluginListError
@@ -50,7 +50,7 @@ function fake(opts: { statusError?: string; statusData?: unknown; pluginListErro
     gates: (async (a: { includeParked?: boolean }) => {
       calls.push({ fn: "gates", a, o: undefined });
       if (opts.gatesError) return { ok: false, error: opts.gatesError };
-      return { ok: true, data: { gates: opts.parkedGate && !a.includeParked ? [] : [GATE_ROW] } };
+      return { ok: true, data: { gates: opts.parkedGate && !a.includeParked ? [] : [opts.gateRow ?? GATE_ROW] } };
     }) as any,
     answer: (async (a: any, o: unknown) => {
       calls.push({ fn: "answer", a, o });
@@ -453,6 +453,31 @@ describe("herd respawn, gate answer and park, diagnose, nudge, lanes", () => {
     const { tool, destructive } = fake();
     const r = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { free: "ok", bogus: "x" } }, SESSION);
     expect(r.body).toEqual({ status: "refused", invalid: [{ question: "next", got: null, validValues: ["ship", "hold"] }, { question: "bogus", got: "x", validValues: [] }] });
+    expect(destructive()).toEqual([]);
+  });
+  test("herd_gate_answer accepts a reserved run control on a gate with no next question", async () => {
+    const gateRow = { id: "g1", questions: [GATE_ROW.questions[1]!] } as typeof GATE_ROW;
+    const hold = fake({ gateRow });
+    const r = await hold.tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "hold" } }, SESSION);
+    expect(r.body).toMatchObject({ status: "recorded", gate: "g1" });
+    expect(hold.calls.find((c) => c.fn === "answer")!.a.answers).toEqual({ next: "hold" });
+    const back = fake({ gateRow });
+    const b = await back.tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "go-back", to: "plan" } }, SESSION);
+    expect(b.body).toMatchObject({ status: "recorded" });
+  });
+  test("herd_gate_answer refuses a bad reserved key on a gate with no next question", async () => {
+    const gateRow = { id: "g1", questions: [GATE_ROW.questions[1]!] } as typeof GATE_ROW;
+    const { tool, destructive } = fake({ gateRow });
+    const bad = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "abandon", free: "ok" } }, SESSION);
+    expect(bad.body).toEqual({ status: "refused", invalid: [{ question: "next", got: "abandon", validValues: [] }] });
+    const to = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { to: "plan", free: "ok" } }, SESSION);
+    expect(to.body).toEqual({ status: "refused", invalid: [{ question: "to", got: "plan", validValues: [] }] });
+    expect(destructive()).toEqual([]);
+  });
+  test("herd_gate_answer on a gate with its own next question still checks next's options", async () => {
+    const { tool, destructive } = fake();
+    const r = await tool("herd_gate_answer").handler({ herd: "hd-1", gate: "g1", answers: { next: "go-back", to: "plan", free: "ok" } }, SESSION);
+    expect(r.body).toEqual({ status: "refused", invalid: [{ question: "next", got: "go-back", validValues: ["ship", "hold"] }, { question: "to", got: "plan", validValues: [] }] });
     expect(destructive()).toEqual([]);
   });
   test("herd_gate_answer records by shepherd with this session", async () => {

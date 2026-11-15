@@ -6,7 +6,7 @@
  */
 import {
   gateAnswer, gateOptionValue, gatePark, herdAttend, herdClose, herdDiagnose, herdFollowUp, herdGates, herdLanes, herdList, herdMilestone, herdNudge,
-  herdRespawn, herdResume, herdSpawn, herdStart, herdStatus, herdWrapUp, validateGateAnswers,
+  herdRespawn, herdResume, herdSpawn, herdStart, herdStatus, herdWrapUp, isRunControl, validateGateAnswers,
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
 import { existsSync, readFileSync } from "fs";
@@ -105,11 +105,23 @@ async function herdGate(herd: string, gate: string, gates: typeof herdGates, inc
 /** Each question checked alone, so every bad answer is reported at once rather than only the first. */
 function invalidAnswers(row: GateRow, answers: Record<string, unknown>): Array<{ question: string; got: unknown; validValues: string[] }> {
   const invalid: Array<{ question: string; got: unknown; validValues: string[] }> = [];
+  const runControl = isRunControl(row.questions, answers);
+  const reserved = row.questions.some((q) => q.id === "next") ? [] : ["next", "to"].filter((k) => !row.questions.some((q) => q.id === k) && Object.prototype.hasOwnProperty.call(answers, k));
   for (const q of row.questions) {
-    const one = Object.prototype.hasOwnProperty.call(answers, q.id) ? { [q.id]: answers[q.id] } : {};
+    const given = Object.prototype.hasOwnProperty.call(answers, q.id);
+    if (runControl && !given) continue;
+    const one = given ? { [q.id]: answers[q.id] } : {};
     if (validateGateAnswers([q], one)) invalid.push({ question: q.id, got: answers[q.id] ?? null, validValues: q.options.map(gateOptionValue) });
   }
+  if (reserved.length > 0) {
+    const error = validateGateAnswers([], Object.fromEntries(reserved.map((k) => [k, answers[k]])));
+    if (error) {
+      const key = error.startsWith("to ") ? "to" : "next";
+      invalid.push({ question: key, got: answers[key], validValues: [] });
+    }
+  }
   for (const k of Object.keys(answers)) {
+    if (reserved.includes(k)) continue;
     if (!row.questions.some((q) => q.id === k)) invalid.push({ question: k, got: answers[k], validValues: [] });
   }
   return invalid;

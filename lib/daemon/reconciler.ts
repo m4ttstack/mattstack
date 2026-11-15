@@ -310,8 +310,11 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
         // the pane may have closed (a review that posted and exited) or be
         // blocked on its NEXT form, and an Escape sent then would cancel that
         // form. Only an unconsumed answer needs the pane watched.
-        const consumed = deps.store.get(pe.gateId)?.consumedAt != null;
-        if (consumed || (paneLive && !(await formOnScreen(pane)))) {
+        const row = deps.store.get(pe.gateId);
+        const consumed = row?.consumedAt != null;
+        // A mod draws and closes a kit gate itself: no keypress may reach its pane.
+        const kit = (row?.origin as { presentation?: string } | null | undefined)?.presentation === "kit";
+        if (consumed || kit || (paneLive && !(await formOnScreen(pane)))) {
           deps.store.markDelivery(pe.gateId, "confirmed");
           deps.emit("reconciler.delivery", { gateId: pe.gateId, outcome: "confirmed" });
           continue;

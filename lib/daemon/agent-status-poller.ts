@@ -36,6 +36,7 @@ export function startAgentStatusPoller(opts: {
   intervalMs?: number;
   probe?: () => Promise<AgentEntry[] | null>;
   list?: (liveness: RunLiveness) => RunSummary[];
+  openKitGate?: (session: string) => string | null;
 }): AgentStatusPollerHandle {
   const probe = opts.probe ?? (() => probeAgents());
   const list = opts.list ?? ((liveness: RunLiveness) => listRuns(undefined, liveness));
@@ -55,7 +56,7 @@ export function startAgentStatusPoller(opts: {
     primeLivenessCache(entries);
     let runs: RunSummary[];
     try {
-      runs = list(livenessFrom(entries));
+      runs = list(livenessFrom(entries, opts.openKitGate));
     } catch (err) {
       opts.log.warn({ err }, "agent-status poller could not list runs");
       return;
