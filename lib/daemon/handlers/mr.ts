@@ -278,7 +278,7 @@ export function createMRHandlers(
               if (!renew) { await provider.requestReReview(projectPath, iid, args[0]); break; }
               await provider.requestReReview(projectPath, iid, args[0], {
                 renew,
-                onWarning: (message) => ctx.log.warn({ repo: repoName, iid }, message),
+                onWarning: (message: string) => ctx.log.warn({ repo: repoName, iid }, message),
               });
               break;
             }
