@@ -36,7 +36,7 @@
 
 **Files:**
 - Modify: `lib/team/git-credential.ts` (add builder, move `rtSelfHelper`, `poolCredentialHelper`, `CLI_ENTRY`; keep `gitWithToken` until Task 10)
-- Modify: `lib/worktree/fetch-auth.ts:36-49` (delete the moved code, `export { rtSelfHelper, poolCredentialHelper } from "../team/git-credential.ts"`)
+- Modify: `lib/worktree/fetch-auth.ts:39-49` (delete the moved code, keep `type GitRunner` at line 37; `import { poolCredentialHelper, rtSelfHelper } from "../team/git-credential.ts"` since lines 61 and 138 still call them, plus `export { poolCredentialHelper, rtSelfHelper }`; drop the now unused `join`, `shellQuote` and `rtSelfArgv` imports)
 - Create: `lib/team/__tests__/rt-credential-argv.ts` (test helper, no tests in it)
 - Test: `lib/team/__tests__/git-credential.test.ts`
 
@@ -75,8 +75,8 @@
 - Consumes: `gitCredentialReply(op, input, deps)` (`commands/git/credential.ts`), `forgeTokenLookup` / `tokenOrNull` / `mayOfferToken` / `mayOfferGitLabToken` / `storedTokenRefusal` / `tokenLookupRemoteForHost` (`lib/team/forge-token.ts`).
 
 - [ ] **Step 1: Write the tests** (spec section 2, equivalence tests 1 and 2). These pin today's behaviour, so they pass on first run; a failure means the spec's claim is wrong: stop and report it, do not adjust the assertion.
-  - Reads: a fake store, stage and gh session as `ForgeTokenSeams`. For each of {stored only, staged only, gh session only, none} x {`https://github.com/acme/app.git`, `https://gitlab.com/acme/app.git`}: the token from `tokenOrNull(await forgeTokenLookup(remote, seams))` (the S, F and P reads all reduce to this call with different seams; P passes `readStaged: () => null` over a presence that already folded the stage, so also run P's shape: `readStored` answering stored-then-staged, `readStaged: () => null`) equals the password in `gitCredentialReply("get", "protocol=https\nhost=<host>\n\n", { confirmedHost: () => null, lookupStored: (r) => tokenOrNull(forgeTokenLookup(r, seams)) })`, or both are empty. The gh-only GitLab row yields nothing on both sides.
-  - Gates: a table over hosts {`github.com`, `gitlab.com`, `git.acme.dev` confirmed, `gitlab.acme.dev` unconfirmed, `example.org` unrecognised} with confirmed host `git.acme.dev`, plus the row "github.com remote while only a GitLab token is held". For each row: the helper offers (non-empty `gitCredentialReply` with a lookup that answers any key) iff `mayOfferToken(remote, confirmed)` is true (the F, P, join and init-exec gates), and iff S's `storedTokenRefusal(remote, confirmed) === null` for a GitLab-keyed remote. The Fu row ("no gate") disagrees only on `gitlab.acme.dev`: assert that disagreement explicitly, with a comment-free test name `Fu offers to an unconfirmed GitLab-shaped host and the helper does not (section 4)`.
+  - Reads: a fake store, stage and gh session as `ForgeTokenSeams`. For each of {stored only, staged only, gh session only, none} x {`https://github.com/acme/app.git`, `https://gitlab.com/acme/app.git`}: the token from `tokenOrNull(await forgeTokenLookup(remote, seams))` (the S, F and P reads all reduce to this call with different seams; P passes `readStaged: () => null` over a presence that already folded the stage, so also run P's shape: `readStored` answering stored-then-staged, `readStaged: () => null`) equals the password in `gitCredentialReply("get", "protocol=https\nhost=<host>\n\n", { confirmedHost: () => null, lookupStored: async (r) => tokenOrNull(await forgeTokenLookup(r, seams)) })`, or both are empty. The gh-only GitLab row yields nothing on both sides.
+  - Gates: a table over hosts {`github.com`, `gitlab.com`, `gitlab.acme.dev` confirmed, `gitlab.other.dev` unconfirmed (GitLab-shaped), `example.org` unrecognised} with confirmed host `gitlab.acme.dev`, plus the row "github.com remote while only a GitLab token is held". (A host must contain `gitlab.` for `forgeTokenKey` to name `gitlabToken`; a non-GitLab-shaped confirmed host would skip the GitLab path.) For each row: the helper offers (non-empty `gitCredentialReply` with a lookup that answers any key) iff `mayOfferToken(remote, confirmed)` is true (the F, P, join and init-exec gates), and iff S's `storedTokenRefusal(remote, confirmed) === null` for a GitLab-keyed remote. The Fu row ("no gate") disagrees only on `gitlab.other.dev`: assert that disagreement explicitly, with a comment-free test name `Fu offers to an unconfirmed GitLab-shaped host and the helper does not (section 4)`.
 
 - [ ] **Step 2: Run** `bun test lib/team/__tests__/rt-credential-equivalence.test.ts`. Expected: PASS.
 
@@ -96,7 +96,7 @@
 - [ ] **Step 2: Run** the four test files. Expected: FAIL on the helper assertions.
 - [ ] **Step 3: Replace** each `gitWithToken(args, token, ENV, { remote })` with `gitWithRtCredential(args, token !== null, ENV, { remote })` (org-pull: `secret !== null`), keeping every lookup and gate above it. Drop the four exemption entries.
 - [ ] **Step 4: Run** the four test files, `lib/__tests__/no-token-in-git-env.test.ts`, `commands/__tests__/team.test.ts`, `bun run typecheck`. Expected: PASS.
-- [ ] **Step 5: Commit** the eight named files: `trial branch, data branch guard, org pull and invite name rt git credential`.
+- [ ] **Step 5: Commit** the nine named files: `trial branch, data branch guard, org pull and invite name rt git credential`.
 
 ### Task 4: Helpers that take a token from their caller
 
@@ -110,7 +110,7 @@
 - Produces: unchanged signatures. `remoteHead(p, dir, target, ref, token: string | null, remote: string | null)`, `assertOriginTakesNewOrg(..., token, remote)` and `publishPointer(...)` keep `token: string | null`; the token is now only the offer signal. Task 5 relies on this.
 
 - [ ] **Step 1: Tests first.** Switch existing env assertions as in Task 3. New `remote-head.test.ts` with a fake `p.exec` that records argv and env and answers `ls-remote` output: `a token on a GitHub remote names the helper for github.com`, `a token on a GitLab remote names the helper for gitlab.com`, `no token: plain ls-remote`, `the env holds no token` (`expectNoToken`), and the existing parse cases (`no row: sha null`, `two rows: not ok`, `a row for another ref: not ok`).
-- [ ] **Step 2: Run** the three test files. Expected: FAIL.
+- [ ] **Step 2: Run** the four test files. Expected: FAIL.
 - [ ] **Step 3: Replace** each `gitWithToken(..., token, ...)` with `gitWithRtCredential(..., token !== null, ...)`. Drop three exemption entries.
 - [ ] **Step 4: Run** the four test files above plus `lib/team/__tests__/publish.test.ts`, `lib/team/__tests__/join.test.ts`, the guard, `bun run typecheck`. Expected: PASS except `publish.test.ts` / `join.test.ts` cases that still read `RT_GIT_TOKEN` from these helpers' calls: switch those assertions here (helper host plus `expectNoToken`), not their production code.
 - [ ] **Step 5: Commit** the named files: `org data branch, main pointer and remote head name rt git credential`.
@@ -120,7 +120,7 @@
 **Files:**
 - Modify: `lib/team/publish.ts:8,135,140,148,215`
 - Modify: `lib/__tests__/token-env-exemptions.json` (drop `lib/team/publish.ts`)
-- Test: `lib/team/__tests__/publish.test.ts`, `commands/__tests__/team.test.ts`, `lib/team/__tests__/rt-credential-equivalence.test.ts`
+- Test: `lib/team/__tests__/publish.test.ts`, `commands/__tests__/team.test.ts`, `lib/team/__tests__/rt-credential-equivalence.test.ts`, `lib/setup/__tests__/steps-a.test.ts:568-590` (the setup create publish push test)
 
 **Interfaces:**
 - Consumes: Tasks 1 and 4; `confirmedForgeHost(p)` (`lib/team/stored-forge-token.ts`); `forgeTokenKey`, `mayOfferToken`, `mayOfferGitLabToken`, `hostFromRemote`.
@@ -132,10 +132,10 @@
   - Same remote with `gitlab.acme.dev` confirmed: all of them name the helper for `gitlab.acme.dev`.
   - `a GitLab token with a github.com origin names github.com's helper` (section 4, org identity): `token: "glpat_fake"`, `tokenRemote: "https://github.com/acme/mattstack-team-acme.git"`: helper host `github.com` on every authed call.
   - `the reverse mismatch is plain git`: token held, `tokenRemote` on unconfirmed `gitlab.acme.dev` while the confirmed host is `git.acme.dev`: plain argv.
-  - Existing cases that read `RT_GIT_TOKEN` switch to `rtHelperHost` plus `expectNoToken`; `commands/__tests__/team.test.ts` likewise.
+  - Existing cases that read `RT_GIT_TOKEN` switch to `rtHelperHost` plus `expectNoToken`; `commands/__tests__/team.test.ts` likewise; `steps-a.test.ts`'s `the push offers the staged forge token through an inline helper, never in argv` becomes `rtHelperHost(push.argv) === "github.com"` plus `expectNoToken(push.env, "ghp_staged")`, renamed to `the push names rt git credential for the staged forge token, never in argv or env`.
   - Equivalence test 2 gains a `publishTeam` row: its gate agrees with the helper on every host.
 - [ ] **Step 2: Run** `bun test lib/team/__tests__/publish.test.ts`. Expected: FAIL.
-- [ ] **Step 3: Implement.** At the top of `publishTeam`, once `activeRemote` is known: `const tokenRemote = opts.tokenRemote ?? activeRemote; const token = opts.token != null && (forgeTokenKey(tokenRemote) === "gitlabToken" ? mayOfferGitLabToken(tokenRemote, confirmedForgeHost(p)) : mayOfferToken(tokenRemote, confirmedForgeHost(p))) ? opts.token : null;` and use `token` / `tokenRemote` in all four places (remoteHead line 135, assertOriginTakesNewOrg line 140, the push line 148 as `gitWithRtCredential(..., token !== null, ...)`, publishPointer line 215). Write `withheldPublishHost` beside it. Drop the exemption entry.
+- [ ] **Step 3: Implement.** At the top of `publishTeam`, once `activeRemote` is known, build the gate from `withheldPublishHost` so gate and remedy cannot disagree: `const tokenRemote = opts.tokenRemote ?? activeRemote; const confirmed = confirmedForgeHost(p); const offerable = opts.token != null && withheldPublishHost(tokenRemote, opts.token, confirmed) === null && mayOfferToken(tokenRemote, confirmed); const token = offerable ? opts.token : null;` (`mayOfferToken` covers the GitHub key, `http://` and unrecognised hosts; `withheldPublishHost` covers the GitLab key, including never to github.com since a github.com remote is GitHub-keyed) and use `token` / `tokenRemote` in all four places (remoteHead line 135, assertOriginTakesNewOrg line 140, the push line 148 as `gitWithRtCredential(..., token !== null, ...)`, publishPointer line 215). Write `withheldPublishHost` beside it. Drop the exemption entry.
 - [ ] **Step 4: Run** `publish.test.ts`, `commands/__tests__/team.test.ts`, `rt-credential-equivalence.test.ts`, `lib/team/__tests__/create.test.ts`, `lib/setup/__tests__/steps-a.test.ts`, the guard, `bun run typecheck`. Expected: PASS.
 - [ ] **Step 5: Commit** the named files: `publish offers rt's token only where rt git credential would answer`.
 
@@ -155,7 +155,7 @@
   - `no GitLab token keeps today's remedy`: no token held, push-denied: same old remedy.
   - The line 709 github.com test stays unchanged and passing.
 - [ ] **Step 2: Run** `bun test lib/setup/__tests__/steps-a.test.ts`. Expected: the two new-remedy tests FAIL, the rest PASS.
-- [ ] **Step 3: Implement** in `teamCreateRun`: hoist `const token = await forgeTokenFor(ctx, created.remote);` above the `try`, pass it to `publishTeam`, and in the `UserActionableError` branch before the existing `push-denied` line: `const withheld = withheldPublishHost(created.remote, token, confirmedForgeHost(ctx.p)); if (withheld !== null && (err.code === "push-denied" || err.code === "team-pull-only")) return { state: "failed", detail: err.message, remedy: \`Confirm ${withheld} as your GitLab host, then Retry. Run rt setup gitlab connect --host ${withheld}\` };`. Everything else unchanged.
+- [ ] **Step 3: Implement** in `teamCreateRun`: declare `let token: string | null = null;` above the `try` and assign `token = await forgeTokenFor(ctx, created.remote);` inside it (so a throw from the lookup still reaches the catch as today), pass it to `publishTeam`, and in the `UserActionableError` branch before the existing `push-denied` line: `const withheld = withheldPublishHost(created.remote, token, confirmedForgeHost(ctx.p)); if (withheld !== null && (err.code === "push-denied" || err.code === "team-pull-only")) return { state: "failed", detail: err.message, remedy: \`Confirm ${withheld} as your GitLab host, then Retry. Run rt setup gitlab connect --host ${withheld}\` };`. Everything else unchanged.
 - [ ] **Step 4: Run** `steps-a.test.ts`, `lib/setup/__tests__/steps-team-log.test.ts`, `commands/__tests__/setup-copy.test.ts`, `bun run typecheck`. Expected: PASS with no snapshot update.
 - [ ] **Step 5: Commit** `lib/setup/steps/team.ts lib/setup/__tests__/steps-a.test.ts`: `setup create names rt setup gitlab connect when publish withholds the token`.
 
@@ -211,5 +211,6 @@
 - [ ] **Step 1: Delete** the old builder and its tests; set exemptions to `[]`.
 - [ ] **Step 2: Run** `bun test lib/__tests__/no-token-in-git-env.test.ts lib/team/__tests__/git-credential.test.ts lib/skills/__tests__/origin-git.test.ts` and `git grep -n "gitWithToken\|RT_GIT_TOKEN\|RT_GIT_HOST\|RT_GIT_USER" -- lib commands cli.ts`. Expected: tests PASS; grep prints only `lib/skills/__tests__/origin-git.test.ts` lines asserting undefined.
 - [ ] **Step 3: Docs.** Invoke rt:docs. Edit a `sites/docs/` page only if it says rt passes the token through the environment; otherwise record "no docs change" for the report.
-- [ ] **Step 4: Full targeted verification** from the worktree root: `bun test` over every test file named in Tasks 1 to 10, then `bun run typecheck` and `bun run purity`. Expected: all PASS. Paste the counts into the SDD ledger.
+- [ ] **Step 4: Full targeted verification** from the worktree root: `bun test` over every test file named in Tasks 1 to 10 plus `lib/__tests__/no-raw-output.test.ts`, then `bun run typecheck` and `bun run purity`. Expected: all PASS. Paste the counts into the SDD ledger.
 - [ ] **Step 5: Commit** the named files: `remove gitWithToken; no forge token reaches git through env`.
+- [ ] **Step 6: Report notes** (for the controller's report and PR body, not code): add a `Notes` entry to `.superpowers/report-draft.md` naming the section 4 tightening and its new remedy, the org identity edge, the `branch_sync` preflight retry (outside the fence) and `originFetchAuth`'s `get-url` inheriting `GIT_DIR` (ruled out of scope; no test written here), and setup create's `creatorUsername` (`create.ts:102`) sending the ungated GitLab token to an unconfirmed host through `glab api user` (today's behaviour, outside git, worth its own ticket).

@@ -335,7 +335,8 @@ through the environment.
   decides at ask time, so the worst case is a missed or useless retry, not a
   token sent to the wrong host. The spec review ruled it out of scope (it is
   the pool's retry wiring, not the token-in-env goal). Listed in the report
-  for its own ticket, with a test that sets `GIT_DIR` to a second repo.
+  for its own ticket; that ticket's fix carries the test that sets `GIT_DIR`
+  to a second repo. This change writes no test for it.
 
 ## Constraints
 
