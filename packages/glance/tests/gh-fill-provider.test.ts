@@ -986,6 +986,42 @@ describe('GitHubProvider re-request and merge cleanup', () => {
     expect(calls).toEqual(['GET', 'POST ivasco']);
   });
 
+  test('requestReReview with renew and no names removes nothing', async () => {
+    const calls: string[] = [];
+    stubForge({
+      fill: () => ({ 3: nodeFor(3) }),
+      rest: (url, method, body) => {
+        if (!url.includes('/pulls/3/requested_reviewers')) return undefined;
+        calls.push(method === 'GET' ? 'GET' : `${method} ${(JSON.parse(body ?? '{}') as { reviewers: string[] }).reviewers.join(',')}`);
+        return jsonResponse({ users: [{ login: 'bob' }], teams: [] });
+      }
+    });
+
+    await provider().requestReReview('o/r', 3, undefined, { renew: true });
+
+    expect(calls).toEqual(['POST bob']);
+  });
+
+  test('a request that fails after the remove throws, with the remove already sent', async () => {
+    const calls: string[] = [];
+    stubForge({
+      rest: (url, method, body) => {
+        if (!url.includes('/pulls/3/requested_reviewers')) return undefined;
+        if (method === 'GET') {
+          calls.push('GET');
+          return jsonResponse({ users: [{ login: 'ivasco' }], teams: [] });
+        }
+        calls.push(`${method} ${(JSON.parse(body ?? '{}') as { reviewers: string[] }).reviewers.join(',')}`);
+        return method === 'POST' ? jsonResponse({ message: 'Validation Failed' }, 422) : jsonResponse({});
+      }
+    });
+
+    await expect(provider().requestReReview('o/r', 3, ['ivasco'], { renew: true })).rejects.toThrow(
+      /requestReReview/
+    );
+    expect(calls).toEqual(['GET', 'DELETE ivasco', 'POST ivasco']);
+  });
+
   test('a failed remove still requests, and says why through onWarning', async () => {
     const { calls } = recordRenew({
       pending: ['ivasco'],

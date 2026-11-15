@@ -10,8 +10,11 @@
   again: a live test showed a repeat request for a still-pending reviewer
   records no `review_requested` event and notifies no one, while remove then
   request does both. A failed read or remove never blocks the request and
-  is reported through `onWarning`. Without `renew` the call is a plain
-  request, as before. GitLab ignores both options.
+  is reported through `onWarning`. Renew applies only to the names given:
+  without `reviewerUsernames` it removes nothing. A request that fails
+  after the remove landed leaves those reviewers with no pending request.
+  Without `renew` the call is a plain request, as before. GitLab ignores
+  both options.
 
 ## 0.33.3
 

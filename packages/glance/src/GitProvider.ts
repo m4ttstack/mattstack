@@ -899,7 +899,9 @@ export interface GitProvider {
    * pending gets no new notification from a repeat request, so renew removes
    * that request first and then requests again. A failed read or remove
    * never blocks the request; it is reported through `options.onWarning`.
-   * GitLab ignores both options.
+   * Renew applies only to the names given, so without `reviewerUsernames` it
+   * removes nothing. A request that fails after the remove landed leaves
+   * those reviewers with no pending request. GitLab ignores both options.
    */
   requestReReview(
     projectPath: string,

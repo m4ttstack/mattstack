@@ -3296,6 +3296,10 @@ export class GitHubProvider implements GitProvider {
     reviewerUsernames?: string[],
     options: RequestReReviewOptions = {}
   ): Promise<void> {
+    // Renew removes only requests the caller named: with no names it would
+    // drop every hand-made pending request on the PR.
+    const renew = options.renew === true && !!reviewerUsernames?.length;
+
     // With no usernames given, everyone on the PR's reviewer list: pending
     // requests and past reviewers alike, since GitHub drops a request once
     // its review lands.
@@ -3331,7 +3335,7 @@ export class GitHubProvider implements GitProvider {
       }
     }
 
-    if (options.renew) {
+    if (renew) {
       await this.removePendingRequests(projectPath, mrIid, reviewerUsernames, options.onWarning);
     }
 
