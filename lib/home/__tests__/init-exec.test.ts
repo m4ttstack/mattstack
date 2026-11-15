@@ -5,6 +5,7 @@ import { join } from "path";
 import { createRealExecSeam, executeInitPlan, type ExecResult, type ExecSeam } from "../init-exec.ts";
 import { buildInitPlan, STATE_DIR_NAMES, type InitStep } from "../init-plan.ts";
 import * as isolation from "../../../packages/rt-client/src/test-isolation.ts";
+import { expectNoToken, rtHelperHost } from "../../team/__tests__/rt-credential-argv.ts";
 
 const REPO_URL = "https://github.com/m4ttheweric/mattstack-home";
 
@@ -122,34 +123,56 @@ describe("executeInitPlan", () => {
     ]);
   });
 
-  test("cloneUserRepo: a token rt holds reaches git through the environment, never argv", async () => {
-    const asked: string[] = [];
-    const seam = new FakeExecSeam({ cloneToken: async (url) => (asked.push(url), "gho_fake") });
+  for (const [forge, url, host] of [
+    ["GitHub", REPO_URL, "github.com"],
+    ["GitLab", "https://gitlab.com/acme/mattstack-home.git", "gitlab.com"],
+  ] as const) {
+    test(`cloneUserRepo: a token rt holds on ${forge} is asked for by git through rt's helper, never argv or env`, async () => {
+      const asked: string[] = [];
+      const seam = new FakeExecSeam({ cloneToken: async (u) => (asked.push(u), "gho_fake") });
 
-    const result = await executeInitPlan([{ kind: "cloneUserRepo", url: REPO_URL }], seam, noopLog);
+      const result = await executeInitPlan([{ kind: "cloneUserRepo", url }], seam, noopLog);
 
-    expect(result).toEqual({ ok: true });
-    expect(asked).toEqual([REPO_URL]);
-    const call = seam.calls[0] as { cmd: string[]; env?: Record<string, string> };
-    expect(call.cmd.slice(-4)).toEqual(["clone", "--", REPO_URL, "user"]);
-    expect(call.cmd.join(" ")).not.toContain("gho_fake");
-    expect(call.env?.RT_GIT_TOKEN).toBe("gho_fake");
-    expect(call.env?.RT_GIT_HOST).toBe("github.com");
-  });
+      expect(result).toEqual({ ok: true });
+      expect(asked).toEqual([url]);
+      const runs = seam.calls.filter((c) => c.kind === "run") as { cmd: string[]; env?: Record<string, string> }[];
+      expect(runs).toHaveLength(1);
+      const call = runs[0]!;
+      expect(rtHelperHost(call.cmd)).toBe(host);
+      expect(call.cmd.slice(-4)).toEqual(["clone", "--", url, "user"]);
+      expect(call.cmd.join(" ")).not.toContain("gho_fake");
+      expectNoToken(call.env, "gho_fake");
+    });
+  }
 
   test("cloneUserRepo: a clone rt's token cannot make falls back to git's own credentials", async () => {
+    const logs: string[] = [];
     const seam = new FakeExecSeam({
       cloneToken: async () => "gho_other_account",
       failRun: (cmd) => (cmd.includes("-c") ? "remote: Repository not found." : undefined),
     });
 
-    const result = await executeInitPlan([{ kind: "cloneUserRepo", url: REPO_URL }], seam, noopLog);
+    const result = await executeInitPlan([{ kind: "cloneUserRepo", url: REPO_URL }], seam, (line) => logs.push(line));
 
     expect(result).toEqual({ ok: true });
     const runs = seam.calls.filter((c) => c.kind === "run") as { cmd: string[]; env?: Record<string, string> }[];
     expect(runs).toHaveLength(2);
+    expect(rtHelperHost(runs[0]!.cmd)).toBe("github.com");
     expect(runs[1]!.cmd).toEqual(["git", "clone", "--", REPO_URL, "user"]);
     expect(runs[1]!.env).toBeUndefined();
+    expect(logs).toContain("rt's GitHub token could not clone it, so trying git's own credentials");
+  });
+
+  test("cloneUserRepo: with no token rt holds, exactly one plain clone runs", async () => {
+    const seam = new FakeExecSeam({ cloneToken: async () => null });
+
+    const result = await executeInitPlan([{ kind: "cloneUserRepo", url: REPO_URL }], seam, noopLog);
+
+    expect(result).toEqual({ ok: true });
+    const runs = seam.calls.filter((c) => c.kind === "run") as { cmd: string[]; env?: Record<string, string> }[];
+    expect(runs.map((r) => r.cmd)).toEqual([["git", "clone", "--", REPO_URL, "user"]]);
+    expect(rtHelperHost(runs[0]!.cmd)).toBeNull();
+    expect(runs[0]!.env).toBeUndefined();
   });
 
   test("cloneUserRepo: a failing clone aborts and reports it", async () => {

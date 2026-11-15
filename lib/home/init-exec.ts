@@ -11,7 +11,7 @@ import { existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync, writeFileSyn
 import { join } from "path";
 import type { InitStep } from "./init-plan.ts";
 import { assertNotRealStoreInTest } from "../../packages/rt-client/src/test-isolation.ts";
-import { gitWithToken } from "../team/git-credential.ts";
+import { gitWithRtCredential } from "../team/git-credential.ts";
 import { mayOfferToken } from "../team/forge-token.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import { readUserIntegrationOverrides } from "../setup/team-settings.ts";
@@ -96,12 +96,12 @@ async function runStep(step: InitStep, exec: ExecSeam, log: StepLog): Promise<vo
     case "cloneUserRepo": {
       log(`Cloning ${step.url}`);
       const clone = ["clone", "--", step.url, "user"];
-      const cmd = gitWithToken(clone, (await exec.cloneToken?.(step.url)) ?? null, {}, { remote: step.url });
-      if (Object.keys(cmd.env).length === 0) {
+      const cmd = gitWithRtCredential(clone, ((await exec.cloneToken?.(step.url)) ?? null) !== null, {}, { remote: step.url });
+      if (!cmd.offered) {
         await run(exec, cmd.argv);
         return;
       }
-      if ((await exec.run(cmd.argv, { env: cmd.env })).code === 0) return;
+      if ((await exec.run(cmd.argv)).code === 0) return;
       // rt's token can belong to another account than the one git's own helpers hold for this repo.
       log("rt's GitHub token could not clone it, so trying git's own credentials");
       await run(exec, ["git", ...clone]);

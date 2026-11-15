@@ -1,15 +1,5 @@
 [
   {
-    "file": "lib/daemon/home-snapshot.ts",
-    "reason": "The home snapshot push passes spec.tokenFor()'s token to git through env, cached for the run. The follow-up decides whether rt git credential can serve it.",
-    "lines": 1
-  },
-  {
-    "file": "lib/home/init-exec.ts",
-    "reason": "The home repo clone passes exec.cloneToken()'s token to git through env; the follow-up decides whether rt git credential can serve it.",
-    "lines": 1
-  },
-  {
     "file": "lib/team/git-credential.ts",
     "reason": "Defines gitWithToken and its inline helper, which reads RT_GIT_TOKEN from env; goes once the last caller moves.",
     "lines": 3
