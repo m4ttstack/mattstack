@@ -4,8 +4,9 @@
 
 PRs #1136 (RT-526) and #1142 (RT-573) gave rt a git credential helper,
 `rt git credential`, that reads rt's forge token when git asks for it, and
-moved sync, the pool fetch and the escalation push onto it. 28 calls in 15
-files still hand git the token through `gitWithToken`
+moved sync, the pool fetch and the escalation push onto it. 26 calls in 14
+files (the ticket says about 28; the guard counts 29 lines with the 3 in the
+definition file) still hand git the token through `gitWithToken`
 (`lib/team/git-credential.ts`): an inline shell helper that reads the token
 from `RT_GIT_TOKEN` in git's environment. Any process git starts (a hook, a
 credential helper, a remote helper, a pre-push script) inherits that
@@ -86,12 +87,20 @@ export function gitWithRtCredential(
   offer: boolean,
   env: Record<string, string>,
   opts: { remote: string | null; helper?: string },
-): { argv: string[]; env: Record<string, string> };
+): { argv: string[]; env: Record<string, string>; offered: boolean };
 ```
 
 - When `offer` is false, or `opts.remote` is not `https://` with a host
-  (`hostFromRemote`), it returns `{ argv: ["git", ...args], env }`: the same
-  plain call `gitWithToken` made for a null token or a non-https remote.
+  (`hostFromRemote`), it returns `{ argv: ["git", ...args], env, offered:
+  false }`: the same plain call `gitWithToken` made for a null token or a
+  non-https remote.
+- `offered` is true exactly when the helper pair was added. A caller that
+  branches on whether rt offered its token reads `offered`, never the env:
+  `home/init-exec.ts:100` today tests `Object.keys(cmd.env).length === 0`,
+  which would always read "not offered" once the env stops carrying the
+  token and would drop its retry with git's own credentials. It moves to
+  `!cmd.offered`, keeping the try-rt-then-git's-own fallback; its existing
+  `gho_other_account` case (`init-exec.test.ts`) pins that.
 - Otherwise it returns `git -c credential.https://<host>.helper= -c
   credential.https://<host>.helper=<helper> ...args` with `env` unchanged.
   The empty value clears every helper before it for that host (system,
@@ -108,7 +117,12 @@ export function gitWithRtCredential(
   this avoids an import cycle); fetch-auth re-exports both so its callers do
   not change. Tests pass `helper` explicitly.
 - argv carries the helper's path, never the token. The env carries nothing
-  new. The helper's argv is quoted with `shellQuote` as today.
+  new. The helper's argv is quoted with `shellQuote` as today. `shellQuote`
+  comes from `lib/herdr-launch.ts`, which imports `lib/ui/out.ts` and
+  `lib/subprocess.ts`; `git-credential.ts` is imported low in the graph
+  (`forge-token.ts` and others), so the builder confirms no import cycle
+  forms (a `bun test` of `forge-token` and `git-credential` plus `bun run
+  typecheck`) or takes a dependency-free quote function instead.
 
 The name and signature differ from `gitWithToken` on purpose: the guard test
 matches `gitWithToken(`, and the boolean makes a token argument a type error.
@@ -131,7 +145,8 @@ Source families (the "Src" column):
   `storedTokenRefusal` (GitLab hosts must pass `mayOfferGitLabToken`) then
   `forgeTokenLookupForGit(p, remote)`. Same lookup as the helper. Gate: for a
   GitLab host, identical to the helper's; github.com passes both.
-- **F** `forgeTokenFor(ctx, remote)` / `trustedForgeTokenFor`
+- **F** `trustedForgeTokenFor(ctx, remote)`, and `forgeTokenFor` behind a
+  caller's own `mayOfferToken` (join, `join.ts:610`)
   (`lib/setup/steps/forge-token.ts`): `forgeTokenLookup` with
   `readSecret(..., ctx.secrets)`, `readStagedSecret(ctx.p)` and the gh
   session. In production `ctx.secrets` is `{ createRealAgeKeySeam(),
@@ -139,6 +154,11 @@ Source families (the "Src" column):
   seams. During Install, before `secrets.write` drains the stage, a token the
   person entered exists only in the stage file, which the helper reads in the
   same HOME. After the drain it is in the store, which the helper reads too.
+  Gate: `mayOfferToken` against the same confirmed host, as the helper.
+- **Fu** `forgeTokenFor(ctx, remote)` with no host gate, at one git site:
+  setup's team create publish (`steps/team.ts:84`, `opts.token` into
+  `publishTeam`). Same reads as F, but the helper's gate applies where the
+  caller applied none. Section 4 covers the difference.
 - **P** `forgeTokenLookupFromPresence` over `realSecretPresence()`
   (`lib/setup/plan.ts:259`): store, then stage, then gh session, behind
   `withholdFromUntrustedHost` (`mayOfferToken`). Same reads as the helper.
@@ -162,7 +182,7 @@ Source families (the "Src" column):
 | `daemon/home-snapshot.ts` 734 | 1 | S (`teamSnapshotSpec`: `opts.readToken ?? storedForgeToken`); the home spec has no `tokenFor` and stays plain | daemon | `home-snapshot.test.ts` (`readToken`) |
 | `home/init-exec.ts` 99 | 1 | `mayOfferToken(url, forgeHost)` then S (`exec.cloneToken`) | CLI, setup restore | `init-exec.test.ts` (`cloneToken`) |
 | `team/org-pull.ts` 63 | 1 | S (`seams.token ?? storedForgeToken`) | CLI, setup | `org-pull.test.ts` (`token`) |
-| `team/publish.ts` 148 | 1 | `opts.token`: S from `rt team publish` (`commands/team.ts:744`), invite, rename, share-pack; F from setup (`steps/team.ts:84`); the org identity step's `trustedForgeTokenFor(ctx, tokenLookupRemoteForHost(declared.host))` via `claimPendingAdmin` (`create.ts:157`) | CLI, setup | `publish.test.ts`, `commands/__tests__/team.test.ts` |
+| `team/publish.ts` 148 | 1 | `opts.token`: S from `rt team publish` (`commands/team.ts:744`), invite, rename, share-pack; Fu from setup's team create (`steps/team.ts:84`); the org identity step's `trustedForgeTokenFor(ctx, tokenLookupRemoteForHost(declared.host))` via `claimPendingAdmin` (`create.ts:157`) | CLI, setup | `publish.test.ts`, `commands/__tests__/team.test.ts` |
 | `team/remote-head.ts` 10 | 1 | handed in by publish and rename (S) | CLI, setup | none today; new `lib/team/__tests__/remote-head.test.ts` (GitHub and GitLab remotes) |
 
 `ctx.identity.token` (`lib/setup/apply.ts:62`) is a test seam; production
@@ -172,13 +192,19 @@ never sets it.
 `lib/team/__tests__/git-credential.test.ts` or a sibling, isolated HOME,
 faked secret seams, no real store):
 
-1. For each of: token stored; token staged only (the join and setup Install
-   case); GitHub with only a gh session; nothing held; and a GitLab host that
-   is not confirmed (and github.com asked with only a GitLab token held), `S`
-   and `F` over the same faked store, stage and gh session return the same
-   token as `gitCredentialReply("get", ...)` does for that host (or both
-   return nothing). Covers GitHub and GitLab.
-2. The builder end to end with real git and no network: `git <built argv>
+1. Reads: for each of token stored, token staged only (the join and setup
+   Install case), GitHub with only a gh session, and nothing held, `S`, `F`
+   and `P` over the same faked store, stage and gh session return the same
+   token as `gitCredentialReply("get", ...)` does for that host (or all
+   return nothing). GitHub and GitLab.
+2. Gates: a matrix of each gate in the table (S's `storedTokenRefusal`, the
+   `mayOfferToken` gates of F, P, join and init-exec, and Fu's none) against
+   the helper's gate, across github.com, gitlab.com, a confirmed GitLab host,
+   an unconfirmed GitLab-shaped host, an unrecognised host, and github.com
+   asked while only a GitLab token is held. Every row agrees except Fu on the
+   unconfirmed GitLab-shaped host, which the test pins as the section 4
+   tightening.
+3. The builder end to end with real git and no network: `git <built argv>
    credential fill` in a temp repo, with `helper` set to a stub script that
    prints a fixed fake credential, and a global config (temp HOME) that names
    a second helper for the same host. The fill returns the stub's answer, the
@@ -206,15 +232,31 @@ faked secret seams, no real store):
 - git asks only after a 401, as with the inline helper, so the number of
   network round trips does not change.
 
-### 4. One gate edge, called out
+### 4. Two gate edges where the helper is stricter
 
-The org identity step (`steps/org.ts:117`) looks its token up by the team's
-declared forge host, and publish then offers it to the clone's origin. If a
-team declares a GitLab host while its origin is on github.com, today rt would
-offer the GitLab token to github.com, which fails authentication. After, the
-helper asks for github.com's own token (or none). The design treats this as
-covered by the existing anti-goal "never a GitLab token to github.com" (from
-RT-526), not a behaviour change: the old path could only fail there. My call.
+In both, today's path hands a token to a host the person never confirmed for
+it, which RT-526's anti-goals forbid. The helper's gate stops that. These are
+the only visible differences, and in each the old path could succeed only by
+offering a token where rt says it never will. My call; both are pinned by
+equivalence test 2.
+
+- **Setup's team create publish** (`steps/team.ts:84`, Fu). The remote can be
+  one the person typed (`intent.team.remote`, `RT_TEAM_REMOTE`). For an
+  https remote on a GitLab-shaped host other than gitlab.com that the person
+  has not confirmed with `rt setup gitlab connect --host`, today git gets the
+  stored GitLab token, which can be a token for gitlab.com or for another
+  confirmed host. After, the helper answers nothing and the push runs with
+  git's own credentials, failing with today's `push-denied` copy if git has
+  none. A person whose token is for that host already confirmed it, since
+  setup offers a GitLab token field only for a confirmed host, so their
+  publish is unchanged. github.com and gitlab.com remotes are unchanged.
+- **The org identity step's publish** (`steps/org.ts:117` via
+  `claimPendingAdmin`). It looks the token up by the team's declared forge
+  host and offers it to the clone's origin. When a team declares a GitLab
+  host while its origin is on github.com, today rt offers the GitLab token to
+  github.com, which fails. After, the helper answers with github.com's own
+  token (stored, staged or the gh login), so that publish can now succeed.
+  A person can see this: a publish that failed now works.
 
 ### 5. The exemptions list and the guard
 
@@ -236,14 +278,13 @@ through the environment.
 - `branch_sync` has no retry for its preflight fetch: `lib/mcp/git-tools.ts`
   is outside this change's files. Listed in the report, not fixed.
 - `originFetchAuth`'s `git remote get-url` inherits `GIT_DIR`
-  (`lib/worktree/fetch-auth.ts`): under a hook or any caller that exports
-  `GIT_DIR` or `GIT_WORK_TREE`, the lookup reads that repo's origin instead
-  of `cwd`'s, so rt could decide to offer its token based on another repo's
-  remote. The fix is small and sits in the module that builds rt's helper env:
-  run that one `get-url` with `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR` and
-  `GIT_INDEX_FILE` removed from its env, plus a test that sets `GIT_DIR` to a
-  second repo. Included if the spec review agrees it belongs here; otherwise
-  listed in the report.
+  (`lib/worktree/fetch-auth.ts`): under a caller that exports `GIT_DIR` or
+  `GIT_WORK_TREE`, the lookup reads that repo's origin instead of `cwd`'s, so
+  the helper pair can be scoped to the wrong host. The helper's own gate still
+  decides at ask time, so the worst case is a missed or useless retry, not a
+  token sent to the wrong host. The spec review ruled it out of scope (it is
+  the pool's retry wiring, not the token-in-env goal). Listed in the report
+  for its own ticket, with a test that sets `GIT_DIR` to a second repo.
 
 ## Constraints
 
@@ -260,9 +301,12 @@ through the environment.
 - Write fence: `lib/team/`, `lib/setup/home-remote.ts`,
   `lib/setup/steps/repos.ts`, `lib/daemon/home-snapshot.ts`,
   `lib/home/init-exec.ts`, `commands/git/`, the helper's lib code
-  (`lib/worktree/fetch-auth.ts` for the move in section 1 and the `GIT_DIR`
-  fix), the exemptions list and guard test, those files' tests, and
-  `sites/docs/` git auth pages. `lib/skills/__tests__/origin-git.test.ts`
+  (`lib/worktree/fetch-auth.ts`, only for the move and re-exports in section
+  1), the exemptions list and guard test, those files' tests (they include
+  `commands/__tests__/team.test.ts`, `lib/setup/__tests__/steps-a.test.ts`,
+  `lib/setup/__tests__/validators-access.test.ts` and
+  `lib/setup/__tests__/home-remote.test.ts`, which read `RT_GIT_TOKEN` today),
+  and `sites/docs/` git auth pages. `lib/skills/__tests__/origin-git.test.ts`
   asserts `RT_GIT_TOKEN` is undefined and keeps passing untouched.
 
 ## Left to the builder
