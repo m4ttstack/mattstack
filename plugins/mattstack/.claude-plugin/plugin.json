@@ -8,6 +8,7 @@
   "license": "MIT",
   "strictLint": true,
   "dependencies": ["human-todos", "gate-form"],
+  "types": "./types/index.d.ts",
   "skills": [
     "./skills",
     "./skills/review",

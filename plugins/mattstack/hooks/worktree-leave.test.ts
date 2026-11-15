@@ -8,7 +8,8 @@ const WHY = 'PR #1144 merged'
 const POLL_MS = 60_000
 
 type Answer = Record<string, unknown>
-type WaitReply = Answer | 'reject'
+// 'pending-slow' answers pending after the 8 s a real wait holds the call.
+type WaitReply = Answer | 'reject' | 'pending-slow'
 
 interface WorldOptions {
   // What each await-leave run prints, in order; past the list the verb waits out its timeout.
@@ -19,12 +20,18 @@ interface WorldOptions {
   cdQueued?: boolean
   // What each gateForm.wait answers in turn, for a test that loads GATE_FORM; past the list, closed.
   waits?: WaitReply[]
+  // Each await-leave answer arrives only after the verb has waited a minute.
+  answersLate?: boolean
+  // The first session.cwd read is refused, as a call on a torn-down hook would be.
+  cwdFailsOnce?: boolean
+  // /exit is refused.
+  exitDenied?: boolean
 }
 
 function world(on: On, opts: WorldOptions = {}) {
   const clock = mock.clock(on)
   const answers = [...(opts.answers ?? [])]
-  const state = { cwd: `${TREE}/src` }
+  const state = { cwd: `${TREE}/src`, session: SESSION, cwdFailures: opts.cwdFailsOnce ? 1 : 0 }
   const awaits: (readonly string[])[] = []
   const timeouts: (number | undefined)[] = []
   const tools: Record<string, unknown>[] = []
@@ -36,15 +43,26 @@ function world(on: On, opts: WorldOptions = {}) {
   const waited = { count: 0 }
 
   mock.env(on, { HOME: '/home/alex' })
-  on('session.id', () => ({ value: SESSION }))
+  on('session.id', () => ({ value: state.session }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
-  on('session.cwd', () => ({ value: state.cwd }))
+  on('session.cwd', () => {
+    if (state.cwdFailures > 0) {
+      state.cwdFailures -= 1
+      return { deny: 'refused' }
+    }
+    return { value: state.cwd }
+  })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('process.run', async (_, e) => {
     if (e.argv[0] === FAKE_GATE_FORM) {
       if (e.argv[1] === 'wait') waited.count += 1
       if (e.argv[1] === 'ask') asked.push(JSON.parse(e.argv[2] ?? '{}') as Record<string, unknown>)
-      const reply = e.argv[1] === 'ask' ? { id: 'q1' } : (waits.shift() ?? { closed: true })
+      let reply = e.argv[1] === 'ask' ? { id: 'q1' } : (waits.shift() ?? { closed: true })
+      if (reply === 'pending-slow') {
+        waits.unshift(reply)
+        await clock.sleep(8_000)
+        reply = { pending: true }
+      }
       const failed = reply === 'reject'
       return { value: { exitCode: failed ? 1 : 0, stdout: failed ? '' : JSON.stringify(reply), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
@@ -56,6 +74,7 @@ function world(on: On, opts: WorldOptions = {}) {
     let stdout = ''
     if (isAwait) {
       const next = answers.shift()
+      if (next && opts.answersLate) await clock.sleep(POLL_MS)
       if (next) stdout = JSON.stringify(next)
       else {
         await clock.sleep(POLL_MS)
@@ -71,6 +90,7 @@ function world(on: On, opts: WorldOptions = {}) {
   })
   on('command.run', (_, e) => {
     commands.push({ command: e.command, args: e.args })
+    if (e.command === 'exit' && opts.exitDenied) throw new Error('refused')
     if (e.command === 'cd' && !opts.cdQueued) state.cwd = e.args
     return {}
   })
@@ -110,8 +130,7 @@ const GATE_FORM = {
   },
 }
 
-const start = ($: Engine) =>
-  $.session.start({ cwd: `${TREE}/src`, surface: 'terminal', isInteractive: false })
+const start = ($: Engine, isInteractive = false) => $.session.start({ cwd: `${TREE}/src`, surface: 'terminal', isInteractive })
 
 const LEAVING = { state: 'leaving', why: WHY, mainCheckout: MAIN }
 
@@ -234,13 +253,80 @@ test('none sleeps 60 s and asks again from the cwd it reads then', async ($, on)
   expect(w.awaits[1]![3]).toBe('/elsewhere')
 })
 
-test('a second session.start does not start a second watch', async ($, on) => {
-  const w = world(on)
+test('a second start stops the first watch, which never acts on the answer it was waiting for', async ($, on) => {
+  const w = world(on, { answers: [{ state: 'reclaimed', mainCheckout: MAIN }, { state: 'none' }], answersLate: true, exitMoves: true })
   await start($)
+  await w.clock.settle()
+  await start($)
+  await w.clock.settle()
+  expect(w.awaits).toHaveLength(2)
+
+  // The first watch's reclaimed answer arrives after the second start; the second watch's none keeps it polling.
+  await w.clock.advance(POLL_MS)
+  expect(w.tools).toEqual([])
+  expect(w.logs).toEqual([])
+
+  expect(w.awaits[1]?.[7]).toBe(w.awaits[0]?.[7])
+
+  // From here only one watch polls: one more run a minute.
+  await w.clock.advance(POLL_MS)
+  expect(w.awaits).toHaveLength(3)
+  await w.clock.advance(POLL_MS)
+  expect(w.awaits).toHaveLength(4)
+  expect(w.tools).toEqual([])
+})
+
+test('an interactive start watches too', async ($, on) => {
+  const w = world(on, { answers: [{ state: 'reclaimed', mainCheckout: MAIN }], exitMoves: true })
+  await start($, true)
+  await w.clock.settle()
+
+  expect(w.awaits[0]?.[3]).toBe(`${TREE}/src`)
+  expect(w.logs).toEqual([`This worktree was reused: left the worktree; now in ${MAIN}`])
+})
+
+test('each pass reads the session id again, so a /clear is followed', async ($, on) => {
+  const w = world(on, { answers: [{ state: 'none' }, { state: 'none' }] })
+  await start($)
+  await w.clock.settle()
+  expect(w.awaits[0]?.[5]).toBe(SESSION)
+
+  w.state.session = '33333333-3333-4333-8333-333333333333'
+  await w.clock.advance(POLL_MS)
+  expect(w.awaits[1]?.[5]).toBe('33333333-3333-4333-8333-333333333333')
+})
+
+test('a pass that fails waits a minute and the watch goes on', async ($, on) => {
+  const w = world(on, { answers: [{ state: 'reclaimed', mainCheckout: MAIN }], exitMoves: true, cwdFailsOnce: true })
+  await start($)
+  await w.clock.settle()
+  expect(w.awaits).toHaveLength(0)
+
+  await w.clock.advance(POLL_MS)
+  expect(w.awaits.length).toBeGreaterThan(0)
+  expect(w.logs).toEqual([`This worktree was reused: left the worktree; now in ${MAIN}`])
+})
+
+test('a refused /exit falls through to leaving', { plugins: [GATE_FORM] }, async ($, on) => {
+  const w = world(on, { answers: [LEAVING], exitMoves: true, exitDenied: true, waits: [{ value: 'close' }] })
   await start($)
   await w.clock.settle()
 
-  expect(w.awaits).toHaveLength(1)
+  expect(w.commands).toEqual([{ command: 'exit', args: '' }])
+  expect(w.tools).toEqual([expect.objectContaining({ tool: 'ExitWorktree', action: 'keep' })])
+  expect(w.logs).toEqual([`${WHY}: left the worktree; now in ${MAIN}`])
+})
+
+test('a question that stays pending past its deadline counts as timed out and leaves', { plugins: [GATE_FORM] }, async ($, on) => {
+  const w = world(on, { answers: [LEAVING], exitMoves: true, waits: ['pending-slow'] })
+  await start($)
+  await w.clock.settle()
+  await w.clock.advance(120_000)
+  expect(w.tools).toEqual([])
+
+  await w.clock.advance(40_000)
+  expect(w.tools).toEqual([expect.objectContaining({ tool: 'ExitWorktree', action: 'keep' })])
+  expect(w.logs).toEqual([`${WHY}: left the worktree; now in ${MAIN}`])
 })
 
 test('after leaving, the tree it left is not watched again while the move is queued', async ($, on) => {
@@ -248,6 +334,10 @@ test('after leaving, the tree it left is not watched again while the move is que
   await start($)
   await w.clock.settle()
   expect(w.logs).toHaveLength(1)
+
+  expect(w.logs).toEqual([`This worktree was reused: leaving the worktree; moving to ${MAIN}`])
+  expect(w.appended[0]!.text).toContain(`moving to ${MAIN}`)
+  expect(w.appended[0]!.text).not.toContain('is now')
 
   await w.clock.advance(3 * POLL_MS)
   expect(w.awaits).toHaveLength(1)
