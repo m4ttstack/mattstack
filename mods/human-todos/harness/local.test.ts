@@ -36,8 +36,8 @@ type Setup = {
   env?: Record<string, string>
   // Answers the child for a script (the text after the pid line); it may hold on the test's clock.
   script: (script: string) => Child
-  // Answers a command run beneath the plugin (the kill, the log removal).
-  run?: (argv: readonly string[]) => void
+  // Answers a command run beneath the plugin (the kill, the log removal), with the text it was handed on stdin.
+  run?: (argv: readonly string[], stdin?: string) => void
   // Sees each log write; it may throw to refuse one, or hold it until a promise settles.
   write?: (text: string) => void | Promise<unknown>
 }
@@ -54,7 +54,7 @@ async function seeded($: Engine, on: On, list: Todo[], { env = {}, script, run, 
   })
   on('process.run', (_, e) => {
     ran.push([...e.argv])
-    run?.(e.argv)
+    run?.(e.argv, e.init?.stdin)
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('fs.write', async (_, e) => {
@@ -616,6 +616,59 @@ test('output past 4 MiB rolls: the log keeps its last 1 MiB, under the write lim
   expect(writes.at(-1)?.text.startsWith('[earlier output was dropped]\n')).toBe(true)
   expect(writes.at(-1)?.text.endsWith('the newest line\n')).toBe(true)
   expect(item('1')?.liveTail?.at(-1)).toBe('the newest line')
+})
+
+test('the report file holds the whole output of a run past the window: the spilled start joined to the kept end', async ($, on) => {
+  const chunk = (n: number) => out(`${String(n).repeat(9)}\n`.repeat(200_000))
+  const spills: string[] = []
+  let joined: { argv: readonly string[]; stdin?: string } | undefined
+  const { run1, ran, sent, item, clock } = await seeded($, on, [todo({})], {
+    run: (argv, stdin) => {
+      if (argv[2] === 'cat >> "$1"') spills.push(stdin ?? '')
+      else if (argv[0] === '/bin/sh' && argv[2]?.includes('cat -- "$1" -')) joined = { argv, stdin }
+    },
+    script: async function* () {
+      yield pid(7)
+      yield chunk(1)
+      await clock.sleep(1000)
+      yield chunk(2)
+      await clock.sleep(1000)
+      yield out(`${chunk(3).text}the newest line\n`)
+      return { code: 0, signal: null }
+    },
+  })
+
+  await run1('1')
+  await clock.sleeping()
+  await clock.advance(3000)
+  await clock.settle()
+
+  const whole = `${chunk(1).text}${chunk(2).text}${chunk(3).text}the newest line\n`
+  const spillPath = joined?.argv[4]
+  expect(spillPath).toMatch(/^\/home\/u\/Library\/Caches\/human-todos\/sess-1-1-[a-z0-9]+\.spill$/)
+  expect(joined?.argv[5]).toMatch(/^\/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
+  expect(spills.join('') + (joined?.stdin ?? '')).toBe(whole)
+  expect(ran.at(-1)).toEqual(['rm', '-f', '--', spillPath!])
+  expect(item('1')).toMatchObject({ status: 'done', exitCode: 0 })
+  expect(sent).toEqual([`[Human Todos] The user ran #1 "T" from the pane: exit 0. Output: ${joined?.argv[5]}`])
+})
+
+test('a spill that cannot be written leaves a report that says its start was dropped', async ($, on) => {
+  const big = out('abcdefghi\n'.repeat(250_000))
+  const { run1, writes, sent, clock } = await seeded($, on, [todo({})], {
+    run: argv => {
+      if (argv[2] === 'cat >> "$1"') throw new Error('disk full')
+    },
+    script: () => exits([pid(7), big]),
+  })
+
+  await run1('1')
+  await clock.settle()
+
+  const report = writes.find(w => w.path.includes('/runs/'))
+  expect(report?.text.startsWith('[earlier output was dropped]\n')).toBe(true)
+  expect(report?.text.endsWith('abcdefghi\n')).toBe(true)
+  expect(sent).toEqual([`[Human Todos] The user ran #1 "T" from the pane: exit 0. Output: ${report?.path}`])
 })
 
 test('a long line in the output reaches the live tail and the report clipped', async ($, on) => {

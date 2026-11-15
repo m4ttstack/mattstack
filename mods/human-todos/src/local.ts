@@ -2,19 +2,18 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Todo } from '../types'
 import { LIVE_LINES_LOCAL, clipLines, newToken } from './items'
-import { logFolder } from './logs'
+import { DROPPED, logFolder } from './logs'
 import { report } from './report'
 import { listTodos, patchTodo } from './store'
 
 const PID_LINE = /^__human_todo_pid__(\d+)$/
 const FLUSH_MS = 1000
-// $.fs.write refuses 4 MiB, so the log keeps a rolling window well under it.
+// $.fs.write refuses 4 MiB, so the log keeps a rolling window well under it; what rolls out goes to a spill file for the report.
 const WINDOW = 1024 * 1024
 // Output grows past the window before it is cut, so a chatty script costs one slice per window, not one per piece.
 const SLACK = WINDOW
 // The live tail needs only the last few lines, so it reads no further back than this.
 const TAIL_SCAN = 64 * 1024
-const DROPPED = '[earlier output was dropped]\n'
 
 type Job = { pid?: number; isStopped: boolean; isGone: boolean }
 
@@ -58,6 +57,7 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   const job: Job = { isStopped: false, isGone: false }
   jobs.set(token, job)
   const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`
+  const spillPath = logPath.replace(/\.log$/, '.spill')
   const abandon = async () => {
     jobs.delete(token)
     await $.process.run(['rm', '-f', '--', logPath]).catch(() => undefined)
@@ -82,12 +82,27 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
   let revision = 0
   let written = 0
   let isWriteFailed = false
+  let spilled: Promise<void> = Promise.resolve()
+  let isSpillFailed = false
+  const spill = (text: string) => {
+    spilled = spilled
+      .then(async () => {
+        if (isSpillFailed) return
+        const appended = await $.process.run(['/bin/sh', '-c', 'cat >> "$1"', 'sh', spillPath], { stdin: text })
+        if (appended.exitCode !== 0) isSpillFailed = true
+      })
+      .catch(() => {
+        isSpillFailed = true
+      })
+  }
+  const cut = () => {
+    spill(output.slice(0, -WINDOW))
+    output = output.slice(-WINDOW)
+    isTrimmed = true
+  }
   const append = (text: string) => {
     output += text
-    if (output.length > WINDOW + SLACK) {
-      output = output.slice(-WINDOW)
-      isTrimmed = true
-    }
+    if (output.length > WINDOW + SLACK) cut()
     revision += 1
   }
   const kept = () => (output.length > WINDOW ? output.slice(-WINDOW) : output)
@@ -147,13 +162,26 @@ export async function startLocal($: EngineInterface, todo: Todo): Promise<void> 
     append(`\n${String(err)}`)
   }
   append(held)
+  if (output.length > WINDOW) cut()
   ticker.cancel()
+  await spilled
+  const dropSpill = async () => {
+    if (isTrimmed) await $.process.run(['rm', '-f', '--', spillPath]).catch(() => undefined)
+  }
   // The job stays listed until the report, so leaving the session meanwhile still silences it.
-  if (job.isGone) return void jobs.delete(token)
+  if (job.isGone) {
+    jobs.delete(token)
+    return dropSpill()
+  }
   await flush()
   jobs.delete(token)
-  if (job.isGone) return
-  await report($, todo, job.isStopped ? { kind: 'stopped', outputTail: kept() } : { kind: 'ran', exitCode, outputTail: kept() })
+  if (job.isGone) return dropSpill()
+  const saved = { outputTail: output, spill: isTrimmed ? (isSpillFailed ? null : spillPath) : undefined }
+  try {
+    await report($, todo, job.isStopped ? { kind: 'stopped', ...saved } : { kind: 'ran', exitCode, ...saved })
+  } finally {
+    await dropSpill()
+  }
 }
 
 export async function stopLocal($: EngineInterface, todo: Todo): Promise<void> {

@@ -12,13 +12,23 @@ export async function logFolder($: EngineInterface): Promise<string> {
 // How many run reports keep their output file; older ones are removed as new ones are written.
 export const KEPT_RUN_LOGS = 20
 
+export const DROPPED = '[earlier output was dropped]\n'
+
 // Writes a finished run's whole output for the agent's report and returns its path; undefined when there was no output.
-// `$.fs` has no remove, so older reports go with `rm`. A failed write or prune is reported by the caller, never thrown.
-export async function writeRunLog($: EngineInterface, todoId: string, output: string): Promise<string | undefined> {
-  if (output.trim() === '') return undefined
+// `spill` is a file holding the output that came before `output`, or null when that earlier output was lost.
+// `$.fs` has no append or remove, so a spill is joined with `cat` and older reports go with `rm`.
+// A failed write or prune is reported by the caller, never thrown.
+export async function writeRunLog($: EngineInterface, todoId: string, output: string, spill?: string | null): Promise<string | undefined> {
+  if (output.trim() === '' && spill === undefined) return undefined
   const folder = `${await logFolder($)}/runs`
   const path = `${folder}/${await $.session.id()}-${todoId}-${await $.clock.now()}.log`
-  await $.fs.write(path, output.endsWith('\n') ? output : `${output}\n`)
+  const text = output.endsWith('\n') ? output : `${output}\n`
+  if (typeof spill === 'string') {
+    const joined = await $.process.run(['/bin/sh', '-c', 'mkdir -p -- "$(dirname -- "$2")" && cat -- "$1" - > "$2"', 'sh', spill, path], { stdin: text })
+    if (joined.exitCode !== 0) throw new Error(`could not join the run's output: ${joined.stderr}`)
+  } else {
+    await $.fs.write(path, spill === null ? `${DROPPED}${text}` : text)
+  }
   try {
     const logs = (await $.fs.list(folder)).filter(entry => entry.kind === 'file' && entry.name.endsWith('.log'))
     const old = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name)).slice(KEPT_RUN_LOGS)

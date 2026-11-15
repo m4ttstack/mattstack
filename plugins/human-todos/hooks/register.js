@@ -622,14 +622,23 @@ async function logFolder($) {
   return `${home}/Library/Caches/human-todos`;
 }
 var KEPT_RUN_LOGS = 20;
-async function writeRunLog($, todoId, output) {
-  if (output.trim() === "")
+var DROPPED = `[earlier output was dropped]
+`;
+async function writeRunLog($, todoId, output, spill) {
+  if (output.trim() === "" && spill === undefined)
     return;
   const folder = `${await logFolder($)}/runs`;
   const path = `${folder}/${await $.session.id()}-${todoId}-${await $.clock.now()}.log`;
-  await $.fs.write(path, output.endsWith(`
+  const text = output.endsWith(`
 `) ? output : `${output}
-`);
+`;
+  if (typeof spill === "string") {
+    const joined = await $.process.run(["/bin/sh", "-c", 'mkdir -p -- "$(dirname -- "$2")" && cat -- "$1" - > "$2"', "sh", spill, path], { stdin: text });
+    if (joined.exitCode !== 0)
+      throw new Error(`could not join the run's output: ${joined.stderr}`);
+  } else {
+    await $.fs.write(path, spill === null ? `${DROPPED}${text}` : text);
+  }
   try {
     const logs = (await $.fs.list(folder)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));
     const old = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name)).slice(KEPT_RUN_LOGS);
@@ -1166,7 +1175,7 @@ async function savedOutput($, todo, outcome) {
   if (!("outputTail" in outcome))
     return;
   try {
-    return await writeRunLog($, todo.id, outcome.outputTail);
+    return await writeRunLog($, todo.id, outcome.outputTail, "spill" in outcome ? outcome.spill : undefined);
   } catch {
     return null;
   }
@@ -1191,8 +1200,6 @@ var FLUSH_MS = 1000;
 var WINDOW = 1024 * 1024;
 var SLACK = WINDOW;
 var TAIL_SCAN = 64 * 1024;
-var DROPPED = `[earlier output was dropped]
-`;
 var jobs = new Map;
 function signal($, pid, sig = "TERM") {
   const walk = 'walk() { for c in $(pgrep -P "$1"); do walk "$c"; done; echo "$1"; }';
@@ -1227,6 +1234,7 @@ async function startLocal($, todo) {
   const job = { isStopped: false, isGone: false };
   jobs.set(token, job);
   const logPath = `${await logFolder($)}/${await $.session.id()}-${todo.id}-${token}.log`;
+  const spillPath = logPath.replace(/\.log$/, ".spill");
   const abandon = async () => {
     jobs.delete(token);
     await $.process.run(["rm", "-f", "--", logPath]).catch(() => {
@@ -1258,12 +1266,28 @@ async function startLocal($, todo) {
   let revision = 0;
   let written = 0;
   let isWriteFailed = false;
+  let spilled = Promise.resolve();
+  let isSpillFailed = false;
+  const spill = (text) => {
+    spilled = spilled.then(async () => {
+      if (isSpillFailed)
+        return;
+      const appended = await $.process.run(["/bin/sh", "-c", 'cat >> "$1"', "sh", spillPath], { stdin: text });
+      if (appended.exitCode !== 0)
+        isSpillFailed = true;
+    }).catch(() => {
+      isSpillFailed = true;
+    });
+  };
+  const cut = () => {
+    spill(output.slice(0, -WINDOW));
+    output = output.slice(-WINDOW);
+    isTrimmed = true;
+  };
   const append = (text) => {
     output += text;
-    if (output.length > WINDOW + SLACK) {
-      output = output.slice(-WINDOW);
-      isTrimmed = true;
-    }
+    if (output.length > WINDOW + SLACK)
+      cut();
     revision += 1;
   };
   const kept = () => output.length > WINDOW ? output.slice(-WINDOW) : output;
@@ -1331,14 +1355,30 @@ async function startLocal($, todo) {
 ${String(err)}`);
   }
   append(held);
+  if (output.length > WINDOW)
+    cut();
   ticker.cancel();
-  if (job.isGone)
-    return void jobs.delete(token);
+  await spilled;
+  const dropSpill = async () => {
+    if (isTrimmed)
+      await $.process.run(["rm", "-f", "--", spillPath]).catch(() => {
+        return;
+      });
+  };
+  if (job.isGone) {
+    jobs.delete(token);
+    return dropSpill();
+  }
   await flush();
   jobs.delete(token);
   if (job.isGone)
-    return;
-  await report($, todo, job.isStopped ? { kind: "stopped", outputTail: kept() } : { kind: "ran", exitCode, outputTail: kept() });
+    return dropSpill();
+  const saved = { outputTail: output, spill: isTrimmed ? isSpillFailed ? null : spillPath : undefined };
+  try {
+    await report($, todo, job.isStopped ? { kind: "stopped", ...saved } : { kind: "ran", exitCode, ...saved });
+  } finally {
+    await dropSpill();
+  }
 }
 async function stopLocal($, todo) {
   const job = todo.token ? jobs.get(todo.token) : undefined;

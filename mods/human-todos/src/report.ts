@@ -6,10 +6,11 @@ import { writeRunLog } from './logs'
 import { syncSpinner } from './spinner'
 import { patchTodo } from './store'
 
+// `spill` is the output a local run held before `outputTail`, as writeRunLog takes it.
 export type Outcome =
   | { kind: 'done' | 'skipped' }
-  | { kind: 'ran'; exitCode: number; outputTail: string }
-  | { kind: 'stopped'; outputTail: string }
+  | { kind: 'ran'; exitCode: number; outputTail: string; spill?: string | null }
+  | { kind: 'stopped'; outputTail: string; spill?: string | null }
   | { kind: 'ended'; outputTail: string }
 
 const SETTLED = { liveTail: undefined, isStopping: false }
@@ -49,7 +50,7 @@ export function settle(todo: Todo, outcome: Outcome, log?: string | null): { pat
 async function savedOutput($: EngineInterface, todo: Todo, outcome: Outcome): Promise<string | null | undefined> {
   if (!('outputTail' in outcome)) return undefined
   try {
-    return await writeRunLog($, todo.id, outcome.outputTail)
+    return await writeRunLog($, todo.id, outcome.outputTail, 'spill' in outcome ? outcome.spill : undefined)
   } catch {
     return null
   }
