@@ -833,7 +833,7 @@ test('the decision card reads readiness, summary, counts, and the re-review line
     container.querySelector('.tui-sheet-context-reasoning')!.textContent
   ).toContain('One important finding carried over; the rest are cleanups.');
   expect(container.querySelector('.tui-sheet-context-meta')!.textContent).toBe(
-    'renee · round 2 · 3 addressed, 1 waiting on author'
+    'renee • round 2 • 3 addressed, 1 waiting on author'
   );
   const railPills = [
     ...container.querySelectorAll('.tui-sheet-context-card .tui-review-sev'),

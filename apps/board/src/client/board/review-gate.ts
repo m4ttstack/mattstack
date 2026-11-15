@@ -5,6 +5,7 @@ import {
 } from '@mattstack/gate-kit';
 import type { GateRow } from '../../gates/store.ts';
 import { gateContext } from '../../gates/wait-meta.ts';
+import { joinBullet } from './bullet.ts';
 import {
   parseGateCtx,
   type CarryoverCtx,
@@ -151,7 +152,7 @@ export function severityTally(counts: Record<FindingSeverity, number>): string {
 
 export function reviewMeta(review: ReviewCtx): string {
   const { reviewer, round, re_review, prior } = review;
-  return [
+  return joinBullet([
     reviewer,
     round !== undefined ? `round ${round}` : undefined,
     prior
@@ -159,15 +160,13 @@ export function reviewMeta(review: ReviewCtx): string {
       : re_review
         ? 're-review'
         : undefined,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  ]);
 }
 
 export function reviewProse(review: ReviewCtx): string {
   const meta = reviewMeta(review);
   return [
-    `**${readinessProse(review.readiness)}** · ${severityTally(review.findings)}`,
+    `**${readinessProse(review.readiness)}** • ${severityTally(review.findings)}`,
     ...(meta ? [meta] : []),
     review.summary,
   ].join('\n\n');
