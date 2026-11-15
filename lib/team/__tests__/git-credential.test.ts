@@ -3,7 +3,8 @@ import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { credentialHelperReply, gitWithToken } from "../git-credential.ts";
+import { credentialHelperReply, gitWithRtCredential, gitWithToken } from "../git-credential.ts";
+import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 
 let home: string;
 let repo: string;
@@ -121,6 +122,108 @@ describe("gitWithToken", () => {
 
   test("no token: plain git, nothing added", () => {
     expect(gitWithToken(["fetch"], null, { A: "1" }, { remote: "https://github.com/acme/app.git" })).toEqual({ argv: ["git", "fetch"], env: { A: "1" } });
+  });
+});
+
+describe("gitWithRtCredential", () => {
+  const pair = (host: string, helper: string) => [
+    "git",
+    "-c",
+    `credential.https://${host}.helper=`,
+    "-c",
+    `credential.https://${host}.helper=${helper}`,
+  ];
+
+  test.each([
+    ["github.com", "https://github.com/acme/app.git", "github.com"],
+    ["a GitLab host", "https://gitlab.example.com/acme/app.git", "gitlab.example.com"],
+    ["an upper-case scheme and host", "HTTPS://GitLab.Example.com/acme/app.git", "gitlab.example.com"],
+    ["a remote with userinfo", "https://oauth2@gitlab.com/acme/app.git", "gitlab.com"],
+  ])("offer true on https %s: helper pair for the host, env unchanged, offered true", (_label, remote, host) => {
+    expect(gitWithRtCredential(["fetch"], true, { A: "1" }, { remote, helper: "!stub" })).toEqual({
+      argv: [...pair(host, "!stub"), "fetch"],
+      env: { A: "1" },
+      offered: true,
+    });
+  });
+
+  test.each([
+    ["an scp-style ssh remote", "git@github.com:acme/app.git"],
+    ["cleartext http", "http://github.com/acme/app.git"],
+    ["a local path", "/tmp/acme/app"],
+    ["no remote", null],
+  ])("%s gets plain git and offered false", (_label, remote) => {
+    expect(gitWithRtCredential(["fetch"], true, { A: "1" }, { remote, helper: "!stub" })).toEqual({ argv: ["git", "fetch"], env: { A: "1" }, offered: false });
+  });
+
+  test("offer false on https: plain git, offered false", () => {
+    expect(gitWithRtCredential(["fetch"], false, { A: "1" }, { remote: "https://github.com/acme/app.git", helper: "!stub" })).toEqual({
+      argv: ["git", "fetch"],
+      env: { A: "1" },
+      offered: false,
+    });
+  });
+
+  test("the default helper is rt git credential from rt's CLI entry", () => {
+    const { argv } = gitWithRtCredential(["fetch"], true, {}, { remote: "https://github.com/a/b.git" });
+    expect(rtHelperHost(argv)).toBe("github.com");
+    expect(argv[4]).toEndWith(" git credential");
+    expect(argv[4]).toContain("cli.ts");
+  });
+
+  describe("with real git and no network", () => {
+    let stub: string;
+    let log: string;
+    let globalConfig: string;
+
+    beforeEach(() => {
+      stub = join(home, "stub-helper.sh");
+      log = join(home, "helper.log");
+      globalConfig = join(home, "global.gitconfig");
+      writeFileSync(stub, "#!/bin/sh\ncat >/dev/null\necho username=x-access-token\necho password=tok_rt\n");
+      chmodSync(stub, 0o755);
+      const logger = join(home, "logger.sh");
+      writeFileSync(logger, `#!/bin/sh\necho "$1 $(cat | tr '\\n' ' ')" >> '${log}'\n`);
+      chmodSync(logger, 0o755);
+      writeFileSync(globalConfig, `[credential]\n\thelper = ${logger}\n`);
+    });
+
+    function git(argv: string[], env: Record<string, string>, sub: "fill" | "approve", input: string): string {
+      const [cmd, ...rest] = argv;
+      return spawnSync(cmd!, [...rest, "credential", sub], {
+        cwd: repo,
+        env: { ...isolatedEnv(env), GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_PARAMETERS: `'credential.helper=${join(home, "logger.sh")}'` },
+        input,
+        encoding: "utf8",
+      }).stdout;
+    }
+    const readLog = () => {
+      try {
+        return readFileSync(log, "utf8");
+      } catch {
+        return "";
+      }
+    };
+
+    test.each([
+      ["gitlab.example.com", "https://gitlab.example.com/acme/app.git"],
+      ["github.com", "https://github.com/acme/app.git"],
+    ])("the helper answers %s, approve reaches no other helper, another host gets nothing", (host, remote) => {
+      const built = gitWithRtCredential([], true, {}, { remote, helper: `!${stub}` });
+      expectNoToken(built.env, "tok_rt");
+      expect(built.argv.join(" ")).not.toContain("tok_rt");
+
+      expect(git(built.argv, built.env, "fill", `protocol=https\nhost=${host}\n\n`)).toContain("password=tok_rt");
+      git(built.argv, built.env, "approve", `protocol=https\nhost=${host}\nusername=x-access-token\npassword=tok_rt\n\n`);
+      expect(readLog()).toBe("");
+
+      const other = host === "github.com" ? "gitlab.com" : "github.com";
+      expect(git(built.argv, built.env, "fill", `protocol=https\nhost=${other}\n\n`)).not.toContain("tok_rt");
+    });
+  });
+
+  test("the guard pattern does not match the builder", () => {
+    expect(/\bgitWithToken\s*\(/.test("gitWithRtCredential(")).toBe(false);
   });
 });
 

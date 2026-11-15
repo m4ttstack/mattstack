@@ -6,8 +6,10 @@
  * never the URL (echoed into stderr and .git/config).
  */
 
+import { join } from "path";
+import { shellQuote } from "../herdr-launch.ts";
+import { rtSelfArgv } from "../rt-self.ts";
 import { forgeFromRemote, hostFromRemote } from "../setup/team-settings.ts";
-
 
 export interface GitWithToken {
   argv: string[];
@@ -38,6 +40,39 @@ export function gitWithToken(args: string[], token: string | null, env: Record<s
     argv: ["git", "-c", `${key}=`, "-c", `${key}=${HOST_HELPER}`, ...args],
     env: { ...env, RT_GIT_USER: "x-access-token", RT_GIT_TOKEN: token, RT_GIT_HOST: host },
   };
+}
+
+export interface GitWithRtCredential {
+  argv: string[];
+  env: Record<string, string>;
+  offered: boolean;
+}
+
+/** The daemon's own entry is lib/daemon.ts from source, so Bun.main there is not the CLI. */
+const CLI_ENTRY = join(import.meta.dir, "..", "..", "cli.ts");
+
+export function rtSelfHelper(argv: string[] = rtSelfArgv()): string {
+  return `!${argv.map(shellQuote).join(" ")} git credential`;
+}
+
+/** `rt git credential` from rt's CLI entry, which the daemon and the CLI both reach. */
+export function poolCredentialHelper(): string {
+  return rtSelfHelper(rtSelfArgv({ main: CLI_ENTRY }));
+}
+
+/**
+ * `git <args>` that names `rt git credential` as the only helper for `remote`'s
+ * https host, so git asks rt for the token itself and it never rides in argv or
+ * the child's env. The empty value first clears every other helper for that
+ * host, so git's `store` cannot hand the token to a keychain. `offer` false, or
+ * a remote with no https host (ssh, a local path, cleartext http), gets plain
+ * git. `env` passes through unchanged.
+ */
+export function gitWithRtCredential(args: string[], offer: boolean, env: Record<string, string>, opts: { remote: string | null; helper?: string }): GitWithRtCredential {
+  const host = opts.remote && /^https:\/\//i.test(opts.remote) ? hostFromRemote(opts.remote) : null;
+  if (!offer || !host) return { argv: ["git", ...args], env, offered: false };
+  const key = `credential.https://${host}.helper`;
+  return { argv: ["git", "-c", `${key}=`, "-c", `${key}=${opts.helper ?? poolCredentialHelper()}`, ...args], env, offered: true };
 }
 
 /**
