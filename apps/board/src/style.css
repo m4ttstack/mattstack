@@ -8676,3 +8676,18 @@ a.tui-id-card-ref:focus-visible {
 .dark .tui-row-spot {
   box-shadow: 0 0 0 200vmax color-mix(in srgb, black 45%, transparent);
 }
+
+/* The drawn separator dot. font-size 0 hides the word-break space inside
+   it; a typed middot renders about one pixel wide and is never used. */
+.tui-sep {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 3px;
+  height: 3px;
+  margin: 0 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+  font-size: 0;
+  vertical-align: middle;
+}
