@@ -124,6 +124,15 @@ describe('boardMrLink', () => {
 describe('doctorStuckNotice', () => {
   const MR = 'https://gitlab.example.com/acme/webapp/-/merge_requests/45';
 
+  test('a GitHub PR is titled by its # ref', () => {
+    expect(
+      doctorStuckNotice(
+        { iid: 45, mrUrl: 'https://github.com/acme/webapp/pull/45' },
+        null
+      ).title
+    ).toBe('Auto-fix stuck on #45');
+  });
+
   test('titles the MR, shows the diagnosis snippet and links its board row', () => {
     expect(
       doctorStuckNotice(

@@ -125,7 +125,10 @@ async function accept(
     return {
       ok: false,
       status: 409,
-      message: plainReason(decision.reason, deps.cfg),
+      message: plainReason(decision.reason, deps.cfg, {
+        iid: n.iid,
+        webUrl: n.mrUrl,
+      }),
     };
   }
   // The claim comes before the launch: a triage pass in another process

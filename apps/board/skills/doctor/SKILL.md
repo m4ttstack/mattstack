@@ -18,7 +18,7 @@ metadata:
 
 Pointers here are `@keys`. Resolve them once per run: if you already hold a `skills_resolve` map that covers `skills:board:doctor` and whose folder sits in the same plugin version folder as the loaded skill's own directory, use it; otherwise call `skills_resolve {id: "skills:board:doctor", dir: "<the loaded skill's own directory>"}` and use the path it returns for each key, in anything you hand a subagent or a tool too. If it fails, stop and say so; never look for the file another way.
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-575 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-577 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -476,12 +476,14 @@ Bad ones are vague: `"couldn't fix"`, `"needs human"`, `"CI still red"`.
 A short list of concrete, executable choices exists: open the gate with
 that list as `options`, e.g.:
 
+In the gate labels, options, waits and errors this example spells out, `<MR>` is `MR` on GitLab and `PR` on GitHub, and `<ref>` is `!<iid>` on GitLab and `#<iid>` on GitHub.
+
 - `"rebase conflict in app/routes/foo.ts: both sides modified handleSubmit"`
   with options:
 
   | Value | Label | Description |
   |---|---|---|
-  | `keep the MR branch's handleSubmit` | Keep the MR's version | I resolve the conflict with the MR branch's handleSubmit and push. |
+  | `keep the <MR> branch's handleSubmit` | Keep the <MR>'s version | I resolve the conflict with the <MR> branch's handleSubmit and push. |
   | `keep main's handleSubmit` | Keep main's version | I resolve the conflict with main's handleSubmit and push. |
   | `leave it to me in the pane` | Leave it to me | I stop and write an error naming the conflict. |
 

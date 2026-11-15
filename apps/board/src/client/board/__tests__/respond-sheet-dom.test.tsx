@@ -2095,3 +2095,18 @@ test('the dock reset ticks the re-review asks again', async () => {
     reReview: ['d-bo'],
   });
 });
+
+test("the status card names the forge's noun: mr status on GitLab, pr status on GitHub", async () => {
+  const title = () =>
+    $('[data-card="mr-status"] .tui-sheet-card-title')!.textContent;
+  await render(planGate());
+  expect(title()).toBe('mr status');
+  await React.act(async () => root.unmount());
+  root = createRoot(container);
+  await render(planGate(), {
+    ...MR,
+    provider: 'github',
+    webUrl: 'https://github.com/demo/app/pull/87',
+  } as BoardMRWithReview);
+  expect(title()).toBe('pr status');
+});

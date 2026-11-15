@@ -1746,6 +1746,7 @@ export function Board() {
         dataSyncedAt: data.dataSyncedAt,
         syncError: data.syncError,
         now,
+        forge: boardForge,
       })
     : null;
   useStaleTabTitle(freshness !== null);
@@ -2479,7 +2480,7 @@ export function Board() {
               only={ownersPost.only}
               onPosted={channels => {
                 addToast(
-                  `posted !${ownersPost.mr.iid} to ${channels.map(c => `#${c}`).join(', ')}`
+                  `posted ${mrRef(ownersPost.mr)} to ${channels.map(c => `#${c}`).join(', ')}`
                 );
                 setOwnersPost(null);
                 load();

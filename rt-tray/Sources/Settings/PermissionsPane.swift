@@ -9,7 +9,7 @@ struct PermissionsPane: View {
     init(env: SettingsEnvironment) { self.env = env; self.readiness = env.readiness }
 
     private var rows: [(String, String, String, Bool, String)] {  // id, title, why, required, settings target
-        [(PermissionRowOverlay.fdaRow, "Full Disk Access", "Reads your repositories' git state so the daemon can show branch and MR status.", true, "fda"),
+        [(PermissionRowOverlay.fdaRow, "Full Disk Access", "Reads your repositories' git state so the daemon can show branch, MR and PR status.", true, "fda"),
          (PermissionRowOverlay.loginItemsRow, "Background services", "rt daemon and deck run in the background as login items.", true, "login-items"),
          (PermissionRowOverlay.notificationsRow, "Notifications", "Pipeline and review alerts; works without this.", false, "notifications")]
     }

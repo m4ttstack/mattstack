@@ -19,6 +19,7 @@ import {
 import type { GateItemDisplay } from '@mattstack/gate-kit/react';
 import { Button, Chip } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
+import { mrNoun } from '../../mr-ref.ts';
 import { approvalSlots, personApproved } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import {
@@ -421,7 +422,9 @@ function MrStatusCard({ mr }: { mr: BoardMRWithReview }) {
   ];
   return (
     <div className="tui-sheet-card" data-card="mr-status">
-      <span className="tui-sheet-card-title">mr status</span>
+      <span className="tui-sheet-card-title">
+        {mrNoun(mr).toLowerCase()} status
+      </span>
       <div className="tui-sheet-card-list">
         {rows.map(r => (
           <div className="tui-sheet-card-row" key={r.key}>

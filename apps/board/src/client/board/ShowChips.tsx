@@ -58,7 +58,7 @@ export function ShowChips({ show }: { show: ShowMenuModel }) {
                   onChange={() => show.toggle(item)}
                 />
                 <span className="tui-show-chip-label">
-                  {showLabel(item, show.channel, show.prs)}
+                  {showLabel(item, show.channel, show.prs, show.forge)}
                 </span>
                 <span className="tui-show-chip-count">{show.counts[item]}</span>
               </label>

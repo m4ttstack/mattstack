@@ -348,3 +348,32 @@ test('a partly failed post names the channels that did not go', async () => {
     '#pod-docs failed: slack chat.postMessage: not_in_channel'
   );
 });
+
+test('the dialog names a GitHub PR by its # ref, a GitLab MR by its ! ref', async () => {
+  await open({}, { initial: PREVIEW });
+  expect(
+    document.querySelector('[aria-label="post !1418 to slack"]')
+  ).not.toBeNull();
+  await React.act(async () => root.unmount());
+  root = createRoot(container);
+  await React.act(async () => {
+    root.render(
+      <OwnersPostModal
+        mr={
+          {
+            ...mr,
+            provider: 'github',
+            webUrl: 'https://github.com/acme/webapp/pull/1418',
+          } as BoardMRWithReview
+        }
+        post={async () => ok({})}
+        onPosted={() => {}}
+        onClose={() => {}}
+        initial={PREVIEW}
+      />
+    );
+  });
+  expect(
+    document.querySelector('[aria-label="post #1418 to slack"]')
+  ).not.toBeNull();
+});

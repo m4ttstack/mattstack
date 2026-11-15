@@ -3709,6 +3709,24 @@ a.tui-id-card-ref:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tui-menu-ask-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.tui-menu-ask-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tui-menu-ask-role {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.tui-menu-ask-role svg {
+  width: 12px;
+  height: 12px;
+}
 .tui-menu-ask-team > :not(:first-child) {
   flex-shrink: 0;
 }
