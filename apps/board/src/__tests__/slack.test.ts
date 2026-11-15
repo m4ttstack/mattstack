@@ -11,6 +11,7 @@ import {
   extractMrUrls,
   findOwnerPost,
   matchReviewMessage,
+  reactToMR,
   readIndex,
   readOwnerPosts,
   readOwnerPostsLeft,
@@ -20,6 +21,7 @@ import {
   slackSweepTargets,
   sweepSlackRefs,
   syncIndex,
+  unreactFromMR,
   verifyFoundRefs,
   writeIndex,
   writeOwnerPostsLeft,
@@ -46,6 +48,26 @@ afterEach(() => {
 function msg(ts: string, text: string, user = 'U1'): SlackMessage {
   return { ts, user, text };
 }
+
+describe('react with no resolved message', () => {
+  const PR = 'https://github.com/acme/webapp/pull/4821';
+  test('names the MR on GitLab', async () => {
+    await expect(reactToMR('t', URL_A, 'eyes', 0, db)).rejects.toThrow(
+      'no resolved slack message for this MR'
+    );
+    await expect(unreactFromMR('t', URL_A, 'eyes', 0, db)).rejects.toThrow(
+      'no resolved slack message for this MR'
+    );
+  });
+  test('names the PR on GitHub', async () => {
+    await expect(reactToMR('t', PR, 'eyes', 0, db)).rejects.toThrow(
+      'no resolved slack message for this PR'
+    );
+    await expect(unreactFromMR('t', PR, 'eyes', 0, db)).rejects.toThrow(
+      'no resolved slack message for this PR'
+    );
+  });
+});
 
 describe('buildPermalink', () => {
   test('strips the dot from ts and builds the archive url', () => {
