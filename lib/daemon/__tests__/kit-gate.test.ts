@@ -103,14 +103,14 @@ describe("the injector's kit-gate guard", () => {
     expect(seen).toEqual([]);
   });
 
-  test("a gate lookup that throws lets the text through, with a warning", async () => {
+  test("a gate lookup that throws lets the text through, with a warning at each of its two checks", async () => {
     const warned: unknown[] = [];
     setKitGateGuard(() => {
       throw new Error("gates.db is locked");
     }, { warn: (obj: unknown) => warned.push(obj) } as never);
     const { herdr } = pane();
     expect(await injectIntoPane({ paneId: "w1:p1", text: "hello", herdr })).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "accepted" } });
-    expect(warned).toHaveLength(1);
+    expect(warned).toHaveLength(2);
   });
 
   test("with no guard installed nothing changes", async () => {

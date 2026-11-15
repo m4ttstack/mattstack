@@ -174,6 +174,10 @@ export async function injectIntoPane(opts: InjectOptions): Promise<{ ok: true; d
   if (probe.result.agent.agent_status === "blocked") return ok("refused", "at a prompt");
   const working = probe.result.agent.agent_status === "working";
   const stashed = await stashDraft(herdr, paneId, sockPath);
+  if (kitGateBlocks(targetRef)) {
+    if (stashed) await restoreDraft(herdr, paneId, sockPath);
+    return ok("refused", "a kit form is open here");
+  }
 
   const submit = async () => {
     if (working) {
