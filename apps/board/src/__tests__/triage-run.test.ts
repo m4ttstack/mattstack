@@ -250,6 +250,35 @@ describe('runTriage', () => {
     ]);
   });
 
+  test('a GitHub PR out of tries is named by its # ref', async () => {
+    const d = deps({
+      fetchOwnMrs: async () => [
+        {
+          mrUrl: 'https://github.com/acme/webapp/pull/1',
+          iid: 1,
+          pipelineId: 100,
+          pipelineState: 'failed',
+          needsRebase: false,
+          author: 'matt',
+          sourceBranch: 'feat',
+          targetBranch: 'master',
+          isStacked: false,
+        } satisfies OwnMrFacts,
+      ],
+      memory: {
+        identity: null,
+        mrs: {
+          'https://github.com/acme/webapp/pull/1': {
+            ...emptyMrMemory('1970-01-12'),
+            attemptsToday: 3,
+          },
+        },
+      },
+    });
+    await runTriage(d);
+    expect(d.notifyCalls.map(c => c.title)).toEqual(['Auto-fix stopped on #1']);
+  });
+
   test('an in-flight doctor on the MR skips without consuming budget', async () => {
     const inflight = new Map([
       [

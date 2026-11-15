@@ -1,5 +1,5 @@
 import { FORGE_NOT_YET } from '../config.ts';
-import { mrRef } from '../mr-ref.ts';
+import { mrNoun, mrRef, type MrLinkTarget } from '../mr-ref.ts';
 import type {
   AskKind,
   NudgeOutcomePayload,
@@ -106,7 +106,11 @@ export function decideRequest(
 
 /** A decideRequest reason code as the short phrase a desktop notification
     shows. A code this does not know gets a generic phrase, never itself. */
-export function plainReason(reason: string, cfg: TriageConfig): string {
+export function plainReason(
+  reason: string,
+  cfg: TriageConfig,
+  mr?: MrLinkTarget
+): string {
   switch (reason) {
     case 'stale':
       return `The ask is over ${NUDGE_FRESH_MS / 3_600_000} hours old`;
@@ -137,7 +141,7 @@ export function plainReason(reason: string, cfg: TriageConfig): string {
     case 'already-handled':
       return 'Already handled';
     case 'not-your-mr':
-      return "It isn't your MR";
+      return `It isn't your ${mrNoun(mr)}`;
     default:
       return 'Held back by a board limit';
   }
@@ -338,7 +342,10 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
         result: outcome,
         reason: decision.reason,
       });
-      const why = plainReason(decision.reason, deps.cfg);
+      const why = plainReason(decision.reason, deps.cfg, {
+        iid: nudge.iid,
+        webUrl: nudge.mrUrl,
+      });
       await deps.notify(
         `${ASK_COPY[kind].noun} request skipped on ${mrRef({ iid: nudge.iid, webUrl: nudge.mrUrl })}`,
         `${nudge.from} asked; ${lowerFirst(why)}`,

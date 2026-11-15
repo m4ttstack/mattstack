@@ -100,7 +100,7 @@ Every item here needs a local board. Each row links to what that agent does. The
 | <BoardIcon name="agent" lane="doctor" /> | call doctor (CI only) | Launches the doctor on failing CI or conflicts. See [Doctor](#doctor). Reads plain "call doctor" when auto-doctor may fix code. | Your own MR, with failing CI or conflicts. |
 | <BoardIcon name="agent" lane="doctor" /> | focus doctor | Shows the running doctor's pane. | The doctor is running and its pane is open. |
 | <BoardIcon name="agent" lane="doctor" /> | redo doctor | Starts a new doctor run from scratch, after you confirm. See [Redo](#redo). | The doctor finished, or its pane closed while it ran, and the MR still has failing CI or conflicts. |
-| <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target, and a doctor skill is set up for the tab you are on. |
+| <BoardIcon name="agent" lane="doctor" /> | rebase | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target, and a doctor skill is set up for the tab you are on. |
 | <BoardIcon name="agentCloud" /> | request review from… | Opens a list of people to ask for a review, on your team and others. See [Picking who to ask](#picking-who-to-ask). | Your own MR, when there is someone left to ask. Otherwise it sits greyed in **all agent actions**. |
 | <BoardIcon name="agentCloud" /> | ask dev2's agent for a follow-up review | Asks a teammate whose review left comments to review again. Reads **retry dev2's agent review** when their agent's last review hit an error. See [Asks between boards](#asks-between-boards). | Your own MR, one item per such teammate. |
 | <BoardIcon name="agentCloud" /> | ask dev1's agent to respond | Asks the author's agent to answer your review (GitLab only). See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
@@ -199,14 +199,14 @@ A reviewer board's re-review thread (see [Asking for a re-review through the MR]
 
 To let it do more, change those settings. `cleanApiRebase` lets it start a rebase on the server. The `checkout` tier with `mechanicalLint` or `codeFix` lets it fix code and push, usually through a team pack's doctor skill. If it needs a decision, it asks on the board. The board closes its pane when it is done.
 
-**rebase locally** first tries `rt sync`, which rebases the branch onto its target in a local checkout with no agent; a clean rebase ends with a toast. On a conflict, it launches the doctor with one job: finish the paused rebase, resolve the conflicts and force-push with lease. Any other stop shows **sync stopped** on the row with rt's reason. It needs a doctor skill: the `doctorSkill` setting, or a `board:doctor` binding in the pack of the board tab you are on, else your team's pack. Without one, the item is hidden; **rebase on target** in the **gitlab** flyout rebases on the server instead.
+**rebase** first tries `rt sync`, which rebases the branch onto its target in a local checkout with no agent; a clean rebase ends with a toast. On a conflict, it launches the doctor with one job: finish the paused rebase, resolve the conflicts and force-push with lease. Any other stop shows **sync stopped** on the row with rt's reason. It needs a doctor skill: the `doctorSkill` setting, or a `board:doctor` binding in the pack of the board tab you are on, else your team's pack. Without one, the item is hidden.
 
 #### When a work run owns the branch
 
 A pipeline's work run may already be working on the MR's branch, or on its parent's branch in a stack. A doctor there would push over the run's agent, so the board hands the problem to that agent instead:
 
 - **Auto-doctor** starts no doctor. It tells the run's agent what the MR needs: a CI fix or a rebase. The row's status line reads "handed to worker". If the run ends first, auto-doctor takes over again.
-- **call doctor**, **redo doctor** and **rebase locally** ask first, naming the run and its stage. **Ring worker** sends the agent the same message and starts no doctor. **Launch doctor anyway** starts the doctor. **Cancel** does neither.
+- **call doctor**, **redo doctor** and **rebase** ask first, naming the run and its stage. **Ring worker** sends the agent the same message and starts no doctor. **Launch doctor anyway** starts the doctor. **Cancel** does neither.
 - A bulk doctor leaves those MRs out and names them in its summary, for example "skipped !2, fred's run is active".
 
 ### gitlab
@@ -216,7 +216,6 @@ Everything but **open in gitlab** needs a local board, and everything but **open
 | Icon | Label | What it does |
 | --- | --- | --- |
 | <BoardIcon name="merge" /> | merge | Merges the MR on GitLab, after a second click on "really merge?". It sends no squash or delete-branch choice, so the project's own merge settings decide, the same as GitLab's button. Greyed with GitLab's reason when it cannot merge yet, such as "pipeline must pass", "needs approval" or "open threads". |
-| <BoardIcon name="branch" /> | rebase on target | Asks GitLab to rebase the branch on its target, on GitLab's side. Nothing changes on this Mac. Greyed "up to date" when it already is. |
 | <BoardIcon name="autoMerge" /> | set auto-merge | Turns on GitLab's merge when the pipeline succeeds. Greyed "draft" or "not mergeable yet" when GitLab does not offer it. |
 | <BoardIcon name="autoMerge" /> | cancel auto-merge | Turns it off again. Takes the place of set auto-merge while auto-merge is on. |
 | <BoardIcon name="draft" /> | mark as draft / mark ready | Adds `Draft: ` to the MR's title, or removes it. |
@@ -225,7 +224,7 @@ Everything but **open in gitlab** needs a local board, and everything but **open
 
 On a GitHub team this flyout is **github**, and its last two items read **open in github** and **refresh from github**. Auto-merge is GitHub's, and mark as draft uses GitHub's draft state. In a repo with a merge queue, a merge joins the queue instead of landing at once.
 
-For rebasing your branch in a local checkout instead, see **rebase locally** under [agent actions](#agent-actions).
+To rebase your branch onto its target, see **rebase** under [agent actions](#agent-actions).
 
 ### slack
 
@@ -290,8 +289,8 @@ Checking a row swaps the tabs for a selection bar. To open the bulk menu, check 
 
 The bulk menu is titled "N selected". It offers only what every checked MR's own menu offers:
 
-- **agent actions**: review, follow-up review, redo, call doctor and request review from….
-- **gitlab** (**github** on a GitHub team): rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
+- **agent actions**: review, follow-up review, redo, call doctor, rebase and request review from….
+- **gitlab** (**github** on a GitHub team): set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
 - **slack**: the three Slack reactions.
 
 An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, follow-up reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".

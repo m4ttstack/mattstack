@@ -650,6 +650,21 @@ describe('plainReason', () => {
     expect(plainReason('not-your-mr', cfg)).toBe("It isn't your MR");
   });
 
+  test('not-your-mr names the forge of the MR it is about', () => {
+    expect(
+      plainReason('not-your-mr', cfg, {
+        iid: 7,
+        webUrl: 'https://gitlab.example.com/acme/web/-/merge_requests/7',
+      })
+    ).toBe("It isn't your MR");
+    expect(
+      plainReason('not-your-mr', cfg, {
+        iid: 7,
+        webUrl: 'https://github.com/acme/web/pull/7',
+      })
+    ).toBe("It isn't your PR");
+  });
+
   test('a GitHub refusal says replies are not supported yet', () => {
     expect(plainReason(FORGE_NOT_YET, cfg)).toBe(
       "Replies on GitHub aren't supported yet"

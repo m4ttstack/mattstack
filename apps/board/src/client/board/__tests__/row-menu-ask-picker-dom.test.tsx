@@ -52,8 +52,8 @@ const search = () =>
   picker()?.querySelector<HTMLInputElement>('input.tui-menu-ask-search') ??
   null;
 const headings = () =>
-  [...(picker()?.querySelectorAll('.tui-menu-ask-team') ?? [])].map(
-    h => h.textContent
+  [...(picker()?.querySelectorAll('[role="group"]') ?? [])].map(g =>
+    g.getAttribute('aria-label')
   );
 
 async function typeSearch(text: string): Promise<void> {
@@ -74,10 +74,10 @@ test('one list: your team, the owning teams still to approve, then the rest', as
   await clickItem('request review from…');
   expect(search()).not.toBeNull();
   expect(headings()).toEqual([
-    'widgets · your team',
-    'gadgets · code ownerneeds approval',
-    'ledger · code ownerneeds approval',
-    'billing · code ownerapproved',
+    'widgets, your team',
+    'gadgets, code owner, needs approval',
+    'ledger, code owner, needs approval',
+    'billing, code owner, approved',
   ]);
   expect(itemTexts()).toEqual([
     'kim',
@@ -86,6 +86,28 @@ test('one list: your team, the owning teams still to approve, then the rest', as
     'post in #pod-ledger…',
     'Ines Duarte',
   ]);
+});
+
+test('a heading shows the team name after a role icon, never a dot', async () => {
+  await openMenu(owned(), env);
+  await clickItem('request review from…');
+  const heads = [...(picker()?.querySelectorAll('.tui-menu-ask-team') ?? [])];
+  expect(heads.map(h => h.textContent)).toEqual([
+    'widgets',
+    'gadgetsneeds approval',
+    'ledgerneeds approval',
+    'billingapproved',
+  ]);
+  expect(
+    heads.map(h => h.querySelector('.tui-menu-ask-role')?.getAttribute('title'))
+  ).toEqual(['your team', 'code owner', 'code owner', 'code owner']);
+  expect(
+    heads.every(
+      h =>
+        h.querySelector('.tui-menu-ask-role svg')?.getAttribute('data-part') ===
+        'icon'
+    )
+  ).toBe(true);
 });
 
 test('owners with no team follow in order: a channel by its name, a section with no channel to post in', async () => {
@@ -98,9 +120,9 @@ test('owners with no team follow in order: a channel by its name, a section with
   );
   await clickItem('request review from…');
   expect(headings().slice(2, 5)).toEqual([
-    'ledger · code ownerneeds approval',
-    '#intake-auto · code ownerneeds approval',
-    'SpareParts · code ownerneeds approval',
+    'ledger, code owner, needs approval',
+    '#intake-auto, code owner, needs approval',
+    'SpareParts, code owner, needs approval',
   ]);
   expect(itemTexts().slice(3, 6)).toEqual([
     'post in #pod-ledger…',
@@ -119,7 +141,7 @@ test('my team owning a section badges the your-team heading', async () => {
     env
   );
   await clickItem('request review from…');
-  expect(headings()[0]).toBe('widgets · your teamneeds approval');
+  expect(headings()[0]).toBe('widgets, your team, needs approval');
 });
 
 test('a person goes straight on to the ask', async () => {
@@ -159,7 +181,7 @@ test('the search narrows every section and keeps their headings', async () => {
   await openMenu(owned(), env);
   await clickItem('request review from…');
   await typeSearch('sa');
-  expect(headings()).toEqual(['gadgets · code ownerneeds approval']);
+  expect(headings()).toEqual(['gadgets, code owner, needs approval']);
   expect(itemTexts()).toEqual(['Sam Whitlow']);
   await typeSearch('ledger');
   expect(itemTexts()).toEqual(['post in #pod-ledger…']);

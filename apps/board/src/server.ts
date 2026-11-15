@@ -889,7 +889,15 @@ function asksPayload(snapshot: { mrs: BoardMR[] }, now: number = Date.now()) {
       ...(title ? { title } : {}),
       ...(sourceBranch ? { sourceBranch } : {}),
       ...(h && skipped && h.reason
-        ? { handled: { ...h, reasonText: plainReason(h.reason, cfg) } }
+        ? {
+            handled: {
+              ...h,
+              reasonText: plainReason(h.reason, cfg, {
+                iid: v.iid,
+                webUrl: v.mrUrl,
+              }),
+            },
+          }
         : {}),
     };
   };
@@ -4521,9 +4529,12 @@ const httpServer = Bun.serve({
             status: 502,
           });
         if (result.closed === 0)
-          return new Response('no open or parked review gate on this MR', {
-            status: 404,
-          });
+          return new Response(
+            `no open or parked review gate on this ${boardNoun()}`,
+            {
+              status: 404,
+            }
+          );
         return new Response(JSON.stringify({ ok: true, ...result }), {
           headers: { 'content-type': 'application/json' },
         });

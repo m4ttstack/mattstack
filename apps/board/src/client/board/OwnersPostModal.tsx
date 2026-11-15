@@ -6,6 +6,7 @@ import type { OwnerSkip, OwnersPostPlan } from '../../codeowner-posts.ts';
 import type { BoardMR } from '../../data.ts';
 import { postAction, type ActionResult } from '../api.ts';
 import { cleanTitle } from './format.ts';
+import { mrRef } from './MrLinks.tsx';
 
 export type SlackPostPreview = OwnersPostPlan & {
   text: string;
@@ -152,8 +153,8 @@ function OwnersPostModal({
 
   return (
     <Modal
-      title={<>❯ post to slack · !{mr.iid}</>}
-      ariaLabel={`post !${mr.iid} to slack`}
+      title={<>❯ post to slack · {mrRef(mr)}</>}
+      ariaLabel={`post ${mrRef(mr)} to slack`}
       onClose={onClose}
       className="tui-owners-modal"
     >
