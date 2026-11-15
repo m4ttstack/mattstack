@@ -10,7 +10,7 @@ import { basename } from "path";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { warn } from "../ui/warn.ts";
-import { gitWithToken } from "./git-credential.ts";
+import { gitWithRtCredential } from "./git-credential.ts";
 import { checkedOutBranch, knownDataBranch } from "./org-branch.ts";
 import { applyRoleCone } from "./org-cone.ts";
 import { gateVerdict, headHoldsOrgStore, showMarkerAt } from "./org-layout.ts";
@@ -150,7 +150,7 @@ export async function moveCloneToDataBranch(p: Pick<Probes, "exec">, dir: string
   const ready = await blockerOn(p, dir, current, opts.carry ?? true, opts.leave ?? false);
   if (ready.kind !== "ready") return ready;
   const refspec = dataBranchRefspec(branch);
-  const fetch = gitWithToken(["fetch", "-q", "origin", refspec], token, ENV, { remote });
+  const fetch = gitWithRtCredential(["fetch", "-q", "origin", refspec], token !== null, ENV, { remote });
   const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
   if (fetched.code !== 0) return { kind: "failed", log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) };
   const existed = (await p.exec(["git", "rev-parse", "--verify", "-q", `refs/heads/${branch}`], { cwd: dir, env: ENV })).code === 0;
@@ -229,7 +229,7 @@ export async function convergeDataBranch(
   let target = recorded;
   if (target === null) {
     const tracking = `refs/remotes/origin/${branch}`;
-    const fetch = gitWithToken(["fetch", "-q", "origin", `+refs/heads/${branch}:${tracking}`], token, ENV, { remote });
+    const fetch = gitWithRtCredential(["fetch", "-q", "origin", `+refs/heads/${branch}:${tracking}`], token !== null, ENV, { remote });
     const fetched = await p.exec(fetch.argv, { cwd: dir, env: fetch.env });
     if (fetched.code !== 0) return { kind: "unchecked", log: withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim()) };
     const shown = await showMarkerAt((spec) => p.exec(["git", "show", spec], { cwd: dir, env: ENV }), tracking);
@@ -319,7 +319,7 @@ const notEmpty = (log: string) => new UserActionableError("remote-not-empty", "T
  */
 export async function assertOriginTakesNewOrg(p: Probes, dir: string, pointer: PendingPointer, target: string, token: string | null, remote: string | null): Promise<void> {
   const heads = [`refs/heads/${POINTER_BRANCH}`, `refs/heads/${pointer.dataBranch}`];
-  const lookup = gitWithToken(["ls-remote", "--refs", "--", target, ...heads], token, ENV, { remote });
+  const lookup = gitWithRtCredential(["ls-remote", "--refs", "--", target, ...heads], token !== null, ENV, { remote });
   const listed = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
   if (listed.code !== 0) {
     throw new UserActionableError("push-failed", "rt could not check that the team repo is empty", {}, { log: withoutUrls(`${listed.stdout}\n${listed.stderr}`.trim()) });
@@ -348,7 +348,7 @@ export async function publishPointer(p: Pick<Probes, "exec" | "readFile">, dir: 
   // Narrowed before the push, so the push leaves no tracking ref for main behind.
   const narrowed = await p.exec(["git", "config", "--replace-all", "remote.origin.fetch", dataBranchRefspec(pointer.dataBranch)], { cwd: dir, env: ENV });
   if (narrowed.code !== 0) throw failed(narrowed.stderr);
-  const push = gitWithToken(["push", "-q", "origin", `refs/heads/${POINTER_BRANCH}:refs/heads/${POINTER_BRANCH}`], token, ENV, { remote });
+  const push = gitWithRtCredential(["push", "-q", "origin", `refs/heads/${POINTER_BRANCH}:refs/heads/${POINTER_BRANCH}`], token !== null, ENV, { remote });
   const pushed = await p.exec(push.argv, { cwd: dir, env: push.env });
   if (pushed.code !== 0) {
     const log = withoutUrls(`${pushed.stdout}\n${pushed.stderr}`.trim());

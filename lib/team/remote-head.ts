@@ -1,5 +1,5 @@
 import type { Probes } from "../setup/probes.ts";
-import { gitWithToken } from "./git-credential.ts";
+import { gitWithRtCredential } from "./git-credential.ts";
 import { GIT_OBJECT_ID } from "./publish-history.ts";
 import { withoutUrls } from "./redact.ts";
 
@@ -7,7 +7,7 @@ export type RemoteHead = { ok: true; sha: string | null } | { ok: false; log: st
 
 /** The sha `target` (a remote name or url) holds for `ref`, null when it has no such branch. */
 export async function remoteHead(p: Probes, dir: string, target: string, ref: string, token: string | null, remote: string | null): Promise<RemoteHead> {
-  const lookup = gitWithToken(["ls-remote", "--refs", "--", target, ref], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
+  const lookup = gitWithRtCredential(["ls-remote", "--refs", "--", target, ref], token !== null, { GIT_TERMINAL_PROMPT: "0" }, { remote });
   const res = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
   const log = () => withoutUrls(`${res.stdout}\n${res.stderr}`.trim());
   if (res.code !== 0) return { ok: false, log: log() };

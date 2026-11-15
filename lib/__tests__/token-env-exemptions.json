@@ -30,23 +30,8 @@
     "lines": 4
   },
   {
-    "file": "lib/team/main-pointer.ts",
-    "reason": "Passes git a token its caller hands in (a seam or option), through env; the follow-up decides whether rt git credential can serve it.",
-    "lines": 2
-  },
-  {
-    "file": "lib/team/org-data-branch.ts",
-    "reason": "The data branch fetches, lookup and pointer push pass a stored or caller-given token to git through env; moves to rt git credential in the follow-up.",
-    "lines": 4
-  },
-  {
     "file": "lib/team/publish.ts",
     "reason": "Team publish passes opts.token to git through env; the follow-up decides whether rt git credential can serve it.",
-    "lines": 1
-  },
-  {
-    "file": "lib/team/remote-head.ts",
-    "reason": "Passes git a token its caller hands in (a seam or option), through env; the follow-up decides whether rt git credential can serve it.",
     "lines": 1
   },
   {

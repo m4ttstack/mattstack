@@ -190,9 +190,28 @@ describe("useBranch names rt git credential", () => {
       const w = dataBranchWorld();
       const git = behindHttps(w.p, url);
       await useBranch(w.p, "acme", "try-it", { readToken: async () => "tok_rt" });
-      const calls = git.remoteCalls().filter((c) => c.host !== undefined);
+      const calls = git.remoteCalls();
       expect(calls.map((c) => c.argv.find((a) => a === "ls-remote" || a === "fetch" || a === "push"))).toEqual(expect.arrayContaining(["ls-remote", "fetch", "push"]));
       for (const call of calls) {
+        expect(call.host).toBe(host);
+        expectNoToken(call.env, "tok_rt");
+        expect(call.argv.join(" ")).not.toContain("tok_rt");
+      }
+    }, 30_000);
+  }
+
+  for (const [forge, url, host] of [
+    ["GitHub", "https://github.com/acme/mattstack-team-acme.git", "github.com"],
+    ["GitLab", "https://gitlab.com/acme/mattstack-team-acme.git", "gitlab.com"],
+  ] as const) {
+    test(`a stored ${forge} token names the helper when the branch is already on the remote`, async () => {
+      const w = dataBranchWorld();
+      w.pushUnrelated("mattstack-layout-5");
+      const git = behindHttps(w.p, url);
+      await useBranch(w.p, "acme", "mattstack-layout-5", { readToken: async () => "tok_rt" });
+      const fetches = git.remoteCalls().filter((c) => c.argv.includes("fetch"));
+      expect(fetches.length).toBeGreaterThanOrEqual(2);
+      for (const call of git.remoteCalls()) {
         expect(call.host).toBe(host);
         expectNoToken(call.env, "tok_rt");
         expect(call.argv.join(" ")).not.toContain("tok_rt");

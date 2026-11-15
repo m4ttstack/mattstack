@@ -4,10 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createRealProbes, execWithTimeout, type Probes } from "../../setup/probes.ts";
-import { convergeDataBranch, heldCopy, moveBlocker, moveCloneToDataBranch, MOVED_DONE, publishPointer, rememberDataBranch } from "../org-data-branch.ts";
+import { assertOriginTakesNewOrg, convergeDataBranch, heldCopy, moveBlocker, moveCloneToDataBranch, MOVED_DONE, publishPointer, rememberDataBranch } from "../org-data-branch.ts";
 import { readTeamLocal, updateTeamLocal } from "../team-local.ts";
+import { behindHttps, type SeenGit } from "./data-branch-world.ts";
+import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 
 const p = { exec: execWithTimeout };
+const FORGES = [
+  ["GitHub", "https://github.com/acme/team.git", "github.com"],
+  ["GitLab", "https://gitlab.com/acme/team.git", "gitlab.com"],
+] as const;
 const MARKER = '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}';
 const LEGACY_MARKER = '{"role":"org","org":"acme","layout":3}';
 const TEAM_FILE = "mattstack/teams/widgets/settings.team.jsonc";
@@ -410,6 +416,32 @@ describe("convergeDataBranch", () => {
     expect(await convergeDataBranch(probes(), clone, noToken)).toEqual({ kind: "moved", branch: "mattstack" });
   });
 
+  for (const [forge, url, host] of FORGES) {
+    test(`a stored ${forge} token names the helper for the check fetch and the move, with no token in the env`, async () => {
+      pointMain();
+      const pr = probes();
+      const git = behindHttps(pr, url);
+      expect(await convergeDataBranch(pr, clone, { readToken: async () => "tok_rt" })).toEqual({ kind: "moved", branch: "mattstack" });
+      const fetches = git.seen.filter((c) => c.argv.includes("fetch"));
+      expect(fetches.length).toBeGreaterThanOrEqual(2);
+      for (const call of fetches) {
+        expect(call.host).toBe(host);
+        expectNoToken(call.env, "tok_rt");
+        expect(call.argv.join(" ")).not.toContain("tok_rt");
+      }
+    });
+  }
+
+  test("no stored token leaves the fetches on plain git", async () => {
+    pointMain();
+    const pr = probes();
+    const git = behindHttps(pr, FORGES[0][1]);
+    await convergeDataBranch(pr, clone, noToken);
+    const fetches = git.seen.filter((c) => c.argv.includes("fetch"));
+    expect(fetches.length).toBeGreaterThanOrEqual(2);
+    expect(fetches.every((c) => c.host === null)).toBe(true);
+  });
+
   test("a copy that moved before this release has its branch and origin's tip remembered, once", async () => {
     await moveCloneToDataBranch(p, clone, "mattstack", null, origin);
     expect(recorded().dataBranch).toBeUndefined();
@@ -454,5 +486,79 @@ describe("convergeDataBranch", () => {
     expect(MOVED_DONE("mattstack")).toBe("Moved your copy of the org to the mattstack branch");
     expect(MOVED_DONE("mattstack", 2)).toBe("Moved your copy of the org to the mattstack branch, with your 2 unpublished commits");
     expect(MOVED_DONE("mattstack", 1)).toBe("Moved your copy of the org to the mattstack branch, with your 1 unpublished commit");
+  });
+});
+
+/** Runs each git call against the local fixtures with rt's helper pair dropped, and records the host the pair named. */
+function recordingProbes(): { p: Probes; seen: SeenGit[] } {
+  const real = createRealProbes();
+  const seen: SeenGit[] = [];
+  const exec: Probes["exec"] = async (argv, opts) => {
+    const host = rtHelperHost(argv);
+    seen.push({ argv, env: opts?.env, host });
+    return real.exec(host ? ["git", ...argv.slice(5)] : argv, opts);
+  };
+  return { p: { ...real, exec }, seen };
+}
+
+describe("the helpers that take a token from their caller name rt git credential", () => {
+  for (const [forge, url, host] of FORGES) {
+    const named = (seen: SeenGit[], verb: string) => seen.filter((c) => c.argv.includes(verb));
+
+    test(`moveCloneToDataBranch offers ${forge}'s helper for its fetch, with no token in the env`, async () => {
+      const { p: rec, seen } = recordingProbes();
+      expect(await moveCloneToDataBranch(rec, clone, "mattstack", "tok_rt", url)).toEqual({ kind: "moved", branch: "mattstack" });
+      const fetches = named(seen, "fetch");
+      expect(fetches).toHaveLength(1);
+      expect(fetches[0]!.host).toBe(host);
+      expectNoToken(fetches[0]!.env, "tok_rt");
+      expect(fetches[0]!.argv.join(" ")).not.toContain("tok_rt");
+    });
+
+    test(`assertOriginTakesNewOrg offers ${forge}'s helper for its ls-remote, with no token in the env`, async () => {
+      const empty = join(root, `empty-${n++}.git`);
+      git(root, "init", "-q", "--bare", "-b", "main", empty);
+      const { p: rec, seen } = recordingProbes();
+      await assertOriginTakesNewOrg(rec, clone, { dataBranch: "mattstack", sha: "a".repeat(40) }, empty, "tok_rt", url);
+      const lookups = named(seen, "ls-remote");
+      expect(lookups).toHaveLength(1);
+      expect(lookups[0]!.host).toBe(host);
+      expectNoToken(lookups[0]!.env, "tok_rt");
+      expect(lookups[0]!.argv.join(" ")).not.toContain("tok_rt");
+    });
+
+    test(`publishPointer offers ${forge}'s helper for its push, with no token in the env`, async () => {
+      git(seed, "checkout", "-q", "--orphan", "pointer");
+      git(seed, "rm", "-rqf", "--cached", ".");
+      git(seed, "clean", "-fdxq");
+      put(seed, "mattstack/mattstack.jsonc", MARKER);
+      git(seed, "add", "-A");
+      git(seed, "commit", "-q", "-m", "pointer");
+      git(seed, "push", "-q", "origin", "pointer");
+      git(clone, "fetch", "-q", "origin", "mattstack", "pointer");
+      git(clone, "checkout", "-q", "-B", "mattstack", "origin/mattstack");
+      git(clone, "branch", "-f", "main", "origin/pointer");
+      const fresh = join(root, `fresh-${n++}.git`);
+      git(root, "init", "-q", "--bare", "-b", "main", fresh);
+      git(clone, "remote", "set-url", "origin", fresh);
+      git(clone, "push", "-q", "origin", "mattstack");
+      const { p: rec, seen } = recordingProbes();
+      expect(await publishPointer(rec, clone, "tok_rt", url)).toBe(true);
+      const pushes = named(seen, "push");
+      expect(pushes).toHaveLength(1);
+      expect(pushes[0]!.host).toBe(host);
+      expectNoToken(pushes[0]!.env, "tok_rt");
+      expect(pushes[0]!.argv.join(" ")).not.toContain("tok_rt");
+    });
+  }
+
+  test("no token leaves each call on plain git", async () => {
+    const { p: rec, seen } = recordingProbes();
+    await moveCloneToDataBranch(rec, clone, "mattstack", null, FORGES[0][1]);
+    expect(seen.filter((c) => c.argv.includes("fetch")).every((c) => c.host === null)).toBe(true);
+    const empty = join(root, `empty-${n++}.git`);
+    git(root, "init", "-q", "--bare", "-b", "main", empty);
+    await assertOriginTakesNewOrg(rec, clone, { dataBranch: "mattstack", sha: "a".repeat(40) }, empty, null, FORGES[0][1]);
+    expect(seen.filter((c) => c.argv.includes("ls-remote")).every((c) => c.host === null)).toBe(true);
   });
 });

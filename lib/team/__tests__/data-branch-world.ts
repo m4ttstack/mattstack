@@ -68,8 +68,8 @@ export function layout3World(username = "dev1") {
 export interface SeenGit {
   argv: string[];
   env: Record<string, string> | undefined;
-  /** The helper host, null for plain git, undefined for a helper pair that is not rt's (a call another module still builds with gitWithToken). */
-  host: string | null | undefined;
+  /** The helper host, null for plain git. */
+  host: string | null;
 }
 
 /**
@@ -82,12 +82,7 @@ export function behindHttps(p: Probes, url: string): { seen: SeenGit[]; remoteCa
   const real = p.exec.bind(p);
   p.exec = async (argv, opts) => {
     if (argv.includes("get-url")) return { code: 0, stdout: `${url}\n`, stderr: "" };
-    let host: string | null | undefined;
-    try {
-      host = rtHelperHost(argv);
-    } catch {
-      host = undefined;
-    }
+    const host = rtHelperHost(argv);
     seen.push({ argv, env: opts?.env, host });
     return real(host ? ["git", ...argv.slice(5)] : argv, opts);
   };
