@@ -21,7 +21,9 @@ import { findByPath, loadRegistry, saveRegistry, type TreeRecord } from "./regis
 import { hasFreshAttendantLease } from "./lease.ts";
 import { loadSyncConfig, matchRule } from "../sync-config.ts";
 import { deriveRepoIdentity } from "../settings/identity.ts";
+import { recordDepartures } from "./departures.ts";
 import {
+  agentSessionsInside,
   killWorktreeProcesses,
   type KillWorktreeOptions,
   type WorktreeKillResult,
@@ -32,6 +34,9 @@ import type { RunningRunScan } from "../runs/store.ts";
 
 /** Merge-reactor disposals ignore claims younger than this (stale-event protection). */
 const GRACE_MS = 10 * 60_000;
+
+/** How long a merged tree waits for its sessions to leave before they are stopped: the 2-minute question plus slack for the exit to land. */
+export const LEAVE_GRACE_MS = 180_000;
 
 // ─── Dirty classification (harvested from parking-lot.ts, execSync → runGit) ──
 
@@ -146,6 +151,10 @@ export interface DisposeDeps {
   killWorktree?: (path: string, opts: KillWorktreeOptions) => Promise<WorktreeKillResult>;
   /** Test seam for the trash rename; defaults to `retireTree`. */
   retireTree?: typeof retireTree;
+  /** Test seam for the read-only agent lookup; defaults to `agentSessionsInside`. */
+  agentsInside?: typeof agentSessionsInside;
+  /** Test seam for the leaving mark's clock. */
+  clock?: () => Date;
 }
 
 /** The chat line for an agent session that was stopped because its tree was disposed. */
@@ -203,8 +212,12 @@ export async function disposeTree(
     auto?: boolean;
     acceptDirty?: boolean;
     requireRetention?: boolean;
-    /** Set only by the merge reactor: stop agent sessions still inside the tree and announce it. */
+    /** Stop agent sessions still inside the tree and announce it. */
     stopSessions?: { why: string };
+    /** Set only by the merge reactor: mark the tree leaving and wait for its
+        sessions to go, stopping them after LEAVE_GRACE_MS. Refuses "leaving"
+        while it waits. */
+    askSessions?: { why: string };
   },
 ): Promise<DisposeOutcome> {
   const { repoName, repoPath, emit, log } = deps;
@@ -282,12 +295,45 @@ export async function disposeTree(
 
   if (opts.requireRetention === true && !(await retentionAvailable(rec.path))) return refuse("no-trash");
 
+  const excludePaths = registry.filter((t) => t.path !== rec.path).map((t) => t.path);
+  let stopSessions = opts.stopSessions;
+  let killDepartedChildren: true | undefined;
+  if (opts.askSessions && deps.killProcesses) {
+    const why = opts.askSessions.why;
+    const now = (deps.clock ?? (() => new Date()))();
+    const inside = await (deps.agentsInside ?? agentSessionsInside)(rec.path, { excludePaths });
+    const insideIds = inside.flatMap((s) => (s.identity ? [s.identity.sessionId] : []));
+    const leaving = rec.leaving;
+    if (inside.length > 0 && !leaving) {
+      const since = now.toISOString();
+      saveRegistry(
+        repoName,
+        loadRegistry(repoName).map((t) => (t.path === rec.path ? { ...t, leaving: { why, since } } : t)),
+      );
+      recordDepartures(rec.path, insideIds, since);
+      emit("worktree:leaving", { repo: repoName, tree: rec.name, path: rec.path, why });
+      log.info({ repo: repoName, tree: rec.name, sessions: inside.length, why }, "worktree marked leaving");
+      return refuse("leaving");
+    }
+    if (inside.length > 0 && leaving) {
+      const sinceMs = Date.parse(leaving.since);
+      // An unreadable mark counts as expired: waiting on it would hold the tree forever.
+      if (!Number.isNaN(sinceMs) && now.getTime() - sinceMs < LEAVE_GRACE_MS) {
+        recordDepartures(rec.path, insideIds, now.toISOString());
+        return refuse("leaving");
+      }
+      stopSessions = { why };
+    }
+    killDepartedChildren = true;
+  }
+
   let stoppedSessions: WorktreeKillResult["stoppedSessions"] = [];
   if (deps.killProcesses) {
     const killed = await (deps.killWorktree ?? killWorktreeProcesses)(rec.path, {
       callerPids: deps.callerPids,
-      excludePaths: registry.filter((t) => t.path !== rec.path).map((t) => t.path),
-      stopSessionsInside: opts.stopSessions !== undefined,
+      excludePaths,
+      stopSessionsInside: stopSessions !== undefined,
+      ...(killDepartedChildren ? { killDepartedChildren } : {}),
     });
     const { terminated } = killed;
     stoppedSessions = killed.stoppedSessions;
@@ -315,13 +361,13 @@ export async function disposeTree(
   }
 
   const announceStopped = async (trashPath: string | null, refusal?: string): Promise<void> => {
-    if (!opts.stopSessions || !deps.notify) return;
+    if (!stopSessions || !deps.notify) return;
     for (const s of stoppedSessions) {
       if (!s.identity) continue;
       const body = stoppedSessionNotice({
         name: sessionDisplayName(s.pid, s.label, s.identity),
         tree: rec.name,
-        why: opts.stopSessions.why,
+        why: stopSessions.why,
         trashPath,
         ...(refusal ? { refusal } : {}),
       });
