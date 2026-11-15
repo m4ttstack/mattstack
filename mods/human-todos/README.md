@@ -57,7 +57,7 @@ The first key only shows where the selection is; the next one moves or presses. 
 
 With [herdr](https://github.com/herdrdev/herdr) installed, Run opens a tab for the script on a herdr server you do not have on screen, so nothing appears in your own herdr. That is mattstack's background server, `mattstack-bg`, when it is running; otherwise the plugin's own `human-todos` server, which it starts when it needs it and never stops. The pane shows the run's last lines, and Show opens everything it has printed so far in your text editor. To watch a run live, attach to its server: `herdr session attach human-todos` (or `mattstack-bg`). On that server every session shares one workspace, named Human Todos, and each tab is named after the session's repo, then the step: `mattstack #3 Deploy`.
 
-Without herdr, or when its server will not start, the plugin runs the script itself and shows the last 15 lines, with an Open log button for the full output. herdr is optional.
+Without herdr, or when its server will not start, the plugin runs the script itself and shows the last 15 lines, with an Open log button for the latest output. The report Claude gets names a log file with the whole run. herdr is optional.
 
 Open, Open log, Show and the log folder (`~/Library/Caches/human-todos`, unless `XDG_CACHE_HOME` is set) are macOS only: they use `open` and the Library cache folder.
 
