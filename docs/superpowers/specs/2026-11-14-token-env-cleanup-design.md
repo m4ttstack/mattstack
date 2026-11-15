@@ -157,8 +157,13 @@ Source families (the "Src" column):
   Gate: `mayOfferToken` against the same confirmed host, as the helper.
 - **Fu** `forgeTokenFor(ctx, remote)` with no host gate, at one git site:
   setup's team create publish (`steps/team.ts:84`, `opts.token` into
-  `publishTeam`). Same reads as F, but the helper's gate applies where the
-  caller applied none. Section 4 covers the difference.
+  `publishTeam`). Same reads as F, but no gate. `steps/team.ts` is outside
+  this change's files, so the gate goes into `publishTeam` itself
+  (`lib/team/publish.ts`): it offers only when `opts.token !== null` and the
+  token remote passes the helper's gate (`mayOfferGitLabToken` for a GitLab
+  key, else `mayOfferToken`, against `confirmedForgeHost(p)`). Every other
+  publish caller already passed that gate, so only Fu changes. Section 4
+  covers the difference.
 - **P** `forgeTokenLookupFromPresence` over `realSecretPresence()`
   (`lib/setup/plan.ts:259`): store, then stage, then gh session, behind
   `withholdFromUntrustedHost` (`mayOfferToken`). Same reads as the helper.
@@ -203,7 +208,8 @@ faked secret seams, no real store):
    an unconfirmed GitLab-shaped host, an unrecognised host, and github.com
    asked while only a GitLab token is held. Every row agrees except Fu on the
    unconfirmed GitLab-shaped host, which the test pins as the section 4
-   tightening.
+   tightening and which `publishTeam`'s gate now turns into "no offer", the
+   same answer as the helper.
 3. The builder end to end with real git and no network: `git <built argv>
    credential fill` in a temp repo, with `helper` set to a stub script that
    prints a fixed fake credential, and a global config (temp HOME) that names
@@ -237,26 +243,31 @@ faked secret seams, no real store):
 In both, today's path hands a token to a host the person never confirmed for
 it, which RT-526's anti-goals forbid. The helper's gate stops that. These are
 the only visible differences, and in each the old path could succeed only by
-offering a token where rt says it never will. My call; both are pinned by
-equivalence test 2.
+offering a token where rt says it never will. My call.
 
 - **Setup's team create publish** (`steps/team.ts:84`, Fu). The remote can be
   one the person typed (`intent.team.remote`, `RT_TEAM_REMOTE`). For an
   https remote on a GitLab-shaped host other than gitlab.com that the person
   has not confirmed with `rt setup gitlab connect --host`, today git gets the
   stored GitLab token, which can be a token for gitlab.com or for another
-  confirmed host. After, the helper answers nothing and the push runs with
-  git's own credentials, failing with today's `push-denied` copy if git has
-  none. A person whose token is for that host already confirmed it, since
-  setup offers a GitLab token field only for a confirmed host, so their
-  publish is unchanged. github.com and gitlab.com remotes are unchanged.
+  confirmed host. After, `publishTeam`'s gate (section 2, Fu) makes the push
+  plain git: no rt helper pair, so the person's own helpers for that host
+  answer, and the push fails with today's `push-denied` copy only if git
+  holds nothing there. A person whose token is for that host already
+  confirmed it, since setup offers a GitLab token field only for a confirmed
+  host, so their publish is unchanged. github.com and gitlab.com remotes are
+  unchanged. Pinned by equivalence test 2 (the gate row) and a
+  `publish.test.ts` case: a GitLab token, an unconfirmed GitLab-shaped
+  `tokenRemote`, and a plain argv with no helper pair.
 - **The org identity step's publish** (`steps/org.ts:117` via
   `claimPendingAdmin`). It looks the token up by the team's declared forge
   host and offers it to the clone's origin. When a team declares a GitLab
   host while its origin is on github.com, today rt offers the GitLab token to
   github.com, which fails. After, the helper answers with github.com's own
   token (stored, staged or the gh login), so that publish can now succeed.
-  A person can see this: a publish that failed now works.
+  A person can see this: a publish that failed now works. Pinned by a
+  `publish.test.ts` case: `tokenRemote` on github.com with a token in hand,
+  asserting the helper pair is named for github.com only.
 
 ### 5. The exemptions list and the guard
 
