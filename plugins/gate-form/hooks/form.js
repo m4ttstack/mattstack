@@ -931,13 +931,15 @@ function initial(form) {
 var canSubmit = (form, s) => form.source !== "gate" || unansweredCount(s) === 0;
 var PAUSE = "pause";
 var GO_BACK = "go-back:";
+var canChat = (form) => form.source !== "plugin";
 var isReview = (form, s) => s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
   const ids = s.page > 0 ? ["back", "next"] : ["next"];
   if (isReview(form, s) && menuRows(form).length > 0)
     ids.push("more");
-  ids.push("chat");
+  if (canChat(form))
+    ids.push("chat");
   return ids;
 }
 function navAtOf(form, s) {
@@ -1068,6 +1070,8 @@ function send(form, s) {
   return canSubmit(form, s) ? post(form, s, answersOf(form, s)) : undefined;
 }
 function chat(form, s) {
+  if (!canChat(form))
+    return;
   if (!s.chatArmed)
     return { state: { ...s, chatArmed: true } };
   const state = form.source === "gate" ? disarm(s) : { ...disarm(s), phase: "chat" };
@@ -1079,6 +1083,13 @@ function moved(form, s, move) {
   const state = { ...s, menu: move.state };
   const control = move.picked === undefined ? undefined : controlAnswers(move.picked);
   return control ? post(form, state, control.answers, control.label) : { state };
+}
+function pickNow(form, s) {
+  const q = form.questions[s.page];
+  const value = q && choicesOf(q)[s.cursor[s.page]]?.value;
+  if (form.source !== "plugin" || !q || value === undefined)
+    return;
+  return post(form, s, { [q.id]: value });
 }
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
@@ -1103,8 +1114,10 @@ function performOn(action, form, armed) {
       return { state: goTo(form, s, action.page) };
     case "advance":
       return { state: advance(form, s) };
-    case "option":
-      return { state: clickChoice(form, s, action.idx) };
+    case "option": {
+      const clicked = clickChoice(form, s, action.idx);
+      return pickNow(form, clicked) ?? { state: clicked };
+    }
     case "send":
       return send(form, s);
     case "menu":
@@ -1174,7 +1187,7 @@ function questionKey(ev, form, s) {
   const isSpace = key === " " || key === "space";
   const typing = isTyping(form, s);
   if (isEnter(ev))
-    return { state: confirm(form, s) };
+    return pickNow(form, s) ?? { state: confirm(form, s) };
   if (key === "left" || key === "right")
     return { state: goTo(form, s, s.page + (key === "left" ? -1 : 1)) };
   if (key === "up" || key === "down")
@@ -1334,7 +1347,7 @@ function navRows(form, s, view) {
   const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
   const submit = { label: unansweredCount(s) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) };
   const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : submit;
-  const aside = s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
+  const aside = !canChat(form) ? undefined : s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
   const line = buttonRow(rows.length === 0 ? [back, next] : [back, next, more], aside, view.width);

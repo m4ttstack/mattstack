@@ -69,6 +69,9 @@ export const canSubmit = (form: Form, s: State) => form.source !== 'gate' || una
 const PAUSE = 'pause'
 const GO_BACK = 'go-back:'
 
+// A plugin form's caller waits on a pick, not on a talk with the agent.
+export const canChat = (form: Form) => form.source !== 'plugin'
+
 export const isReview = (form: Form, s: State) => s.page === form.questions.length
 export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)
 
@@ -76,7 +79,7 @@ export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(fo
 export function navIds(form: Form, s: State): NavId[] {
   const ids: NavId[] = s.page > 0 ? ['back', 'next'] : ['next']
   if (isReview(form, s) && menuRows(form).length > 0) ids.push('more')
-  ids.push('chat')
+  if (canChat(form)) ids.push('chat')
   return ids
 }
 

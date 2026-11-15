@@ -2,7 +2,7 @@ import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, bu
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canSubmit, choicesOf, cursorIsChoice, isOnNav, isPicked, menuRows, navAtOf, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { canChat, canSubmit, choicesOf, cursorIsChoice, isOnNav, isPicked, menuRows, navAtOf, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 // `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
@@ -156,7 +156,9 @@ function navRows(form: Form, s: State, view: View): L[] {
   const forward = (label: string): Button<Action> => ({ label, action: { type: 'advance' }, tone: 'secondary' })
   const submit: Button<Action> = { label: unansweredCount(s) === 0 || form.source === 'gate' ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }
   const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : submit
-  const aside: Button<Action> = s.chatArmed
+  const aside: Button<Action> | undefined = !canChat(form)
+    ? undefined
+    : s.chatArmed
     ? { label: `${ICON.chat} Press again to chat`, action: { type: 'chat' }, tone: 'caution' }
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }
   const rows = page === n ? menuRows(form) : []

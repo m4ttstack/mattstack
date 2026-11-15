@@ -21,7 +21,8 @@ export type Form = {
   context?: string
   questions: FormQuestion[]
   status: 'open' | 'answered' | 'cancelled'
-  source: 'gate' | 'ask'
+  // A plugin form is another plugin's one-pick question, asked through `$.gateForm`.
+  source: 'gate' | 'ask' | 'plugin'
   gateId?: string
   controls?: Controls
   // What the person reads about the last answer, which may not be recorded; `attempt` counts the failures so the Client knows to take the form back.
@@ -45,7 +46,24 @@ export type LegacyForm = {
   replyTo: 'agent' | 'toast'
 }
 
+export type GateFormAskArgs = { title: string; context?: string; label: string; options: { value: string; label: string; description?: string }[]; timeoutMs: number }
+
+export type GateFormAskResult = { value: string } | { timedOut: true } | { closed: true }
+
+// A call on a plugin noun must answer within 10 s, so the question is a long poll: `ask` opens it (or queues it
+// behind an open one) and answers at once; `wait` answers within about 8 s, pending until there is an outcome.
+// Once `wait` has handed an outcome back the id is forgotten, so a later wait on it, like one on an id this
+// load never issued, answers `{ closed: true }`.
+export type GateForm = {
+  ask: (args: GateFormAskArgs) => Promise<{ id: string }>
+  wait: (args: { id: string }) => Promise<GateFormAskResult | { pending: true }>
+}
+
 declare module 'claude-code' {
+  interface EngineInterface {
+    gateForm: GateForm
+  }
+
   interface PluginState {
     'gate-form': {
       forms: Shaped<Form[]>
