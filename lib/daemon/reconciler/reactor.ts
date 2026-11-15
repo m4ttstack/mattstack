@@ -449,6 +449,9 @@ async function actOnTree(
   return "fired";
 }
 
+/** Refusals the drain waits out with the mark in place: the grace still running, or a transient failure the next pass retries. */
+const DRAIN_KEEPS_MARK = new Set(["leaving", "remove-failed", "mark-failed", "changed"]);
+
 /** A disposable tree already says it is the person's to look at, so dropping its mark needs no new event. */
 function dropLeavingMark(deps: ReactorDeps, rec: TreeRecord, reason: string): void {
   patchTree(deps.repoName, rec.path, (r) => {
@@ -478,12 +481,9 @@ export async function drainLeavingTrees(deps: ReactorDeps, skip: ReadonlySet<str
       disposeTree(disposeDeps, rec, { auto: true, askSessions: { why: leaving.why } }),
     );
     if (outcome === "busy" || outcome.disposed) continue;
-    // "remove-failed", "mark-failed" and "changed" are transient: the mark
-    // stays and the next pass retries. Any other refusal is a guard the
-    // session tripped by working on, so the tree goes back to the person as
-    // disposable.
-    const transient = ["leaving", "remove-failed", "mark-failed", "changed"];
-    if (transient.includes(outcome.refusal)) continue;
+    // Any refusal but these is a guard the session tripped by working on, so
+    // the tree goes back to the person as disposable.
+    if (DRAIN_KEEPS_MARK.has(outcome.refusal)) continue;
     if (rec.state === "disposable") dropLeavingMark(deps, rec, outcome.refusal);
     else markDisposable(deps, rec, outcome.refusal);
   }
