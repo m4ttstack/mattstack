@@ -9,8 +9,8 @@ import { gitUsable } from "../setup/home-git.ts";
 import type { Probes } from "../setup/probes.ts";
 import { forgeFromRemote, hostFromRemote } from "../setup/team-settings.ts";
 import { parseForgeRemote, splitOwnerRepo } from "./forge.ts";
-import { gitWithToken } from "./git-credential.ts";
-import { tokenOrNull, type ForgeTokenLookup } from "./forge-token.ts";
+import { gitWithRtCredential } from "./git-credential.ts";
+import type { ForgeTokenLookup } from "./forge-token.ts";
 import { withoutUrls } from "./redact.ts";
 
 export type RepoAccessVerdict = { kind: "ok" | "no-clt" | "no-account" | "denied" | "unreachable" | "indeterminate"; detail: string; invitation?: string };
@@ -45,7 +45,7 @@ export async function probeTeamRepoAccess(p: Probes, remote: string, lookup: For
     return { kind: "no-clt", detail: "needs Apple's Command Line Tools first" };
   }
 
-  const cmd = gitWithToken(["ls-remote", "--exit-code", remote, "HEAD"], tokenOrNull(lookup), GIT_ENV, { remote });
+  const cmd = gitWithRtCredential(["ls-remote", "--exit-code", remote, "HEAD"], lookup.kind === "token", GIT_ENV, { remote });
   const res = await p.exec(cmd.argv, { timeoutMs: LS_REMOTE_TIMEOUT_MS, env: cmd.env });
   if (res.code === 0) return { kind: "ok", detail: "reachable" };
   if (res.code === 2) return { kind: "ok", detail: "empty repo (will be initialized)" };

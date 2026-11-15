@@ -23,15 +23,5 @@
     "file": "lib/team/git-credential.ts",
     "reason": "Defines gitWithToken and its inline helper, which reads RT_GIT_TOKEN from env; goes once the last caller moves.",
     "lines": 3
-  },
-  {
-    "file": "lib/team/join.ts",
-    "reason": "Join's ls-remote, sparse clone and pulls pass seams.forgeToken()'s token to git through env; moves to rt git credential in the follow-up.",
-    "lines": 4
-  },
-  {
-    "file": "lib/team/repo-access.ts",
-    "reason": "The repo access probe passes the looked-up token to git through env; moves to rt git credential in the follow-up.",
-    "lines": 1
   }
 ]

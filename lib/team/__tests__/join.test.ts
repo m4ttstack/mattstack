@@ -25,6 +25,7 @@ import { SWITCHBOARD_URL } from "../../../packages/rt-client/src/switchboard.ts"
 import { readTeamLocal, teamLocalPath, updateTeamLocal } from "../team-local.ts";
 import { ORG_CLONE_FOLDERS } from "../org-clone.ts";
 import * as isolation from "../../../packages/rt-client/src/test-isolation.ts";
+import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 
 const HOME = "/home";
 const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
@@ -501,15 +502,17 @@ describe("joinDryRun", () => {
   });
 
   test("the probe is offered rt's token, so a private repo is a verdict rather than a deferral", async () => {
-    const envs: Record<string, string>[] = [];
-    const exec = gitAnswers((argv, opts) => { envs.push((opts?.env ?? {}) as Record<string, string>); return ok(); });
+    const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+    const exec = gitAnswers((argv, opts) => { seen.push({ argv, env: opts?.env }); return ok(); });
     const p = fakeProbes({
       exec,
       home: "/home/joiner",
       files: { "/home/joiner/.mattstack/rt/setup-staging/rt.json": JSON.stringify({ githubToken: "gho_x" }) },
     });
     await joinDryRun(p, relayWith(POINTER), CODE);
-    expect(envs.some((e) => e.RT_GIT_TOKEN === "gho_x")).toBe(true);
+    const probe = seen.find((c) => c.argv.includes("ls-remote"))!;
+    expect(rtHelperHost(probe.argv)).toBe("github.com");
+    expectNoToken(probe.env, "gho_x");
   });
 });
 
@@ -713,6 +716,52 @@ describe("joinRedeem", () => {
     });
   });
 
+  describe("every git call of a join names rt git credential for the pointer's host", () => {
+    const POINTERS = [
+      ["github.com", REMOTE],
+      ["gitlab.com", "https://gitlab.com/acme/widgets.git"],
+    ] as const;
+
+    /** main holds no pointer and origin lists the mattstack branch, so the join runs ls-remote, clone, the cone and, with a roster that lacks the joiner, a pull. */
+    async function joinWith(remote: string, forgeToken: JoinRedeemSeams["forgeToken"], token: string) {
+      const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+      const p = redeemProbes({
+        files: { [ORG_STORE]: rosterWith("dev1") },
+        exec: (argv, opts) => {
+          seen.push({ argv, env: opts?.env });
+          if (argv.includes("show")) return { code: 128, stdout: "", stderr: "fatal: path does not exist in 'FETCH_HEAD'" };
+          if (argv.includes("ls-remote")) return { code: 0, stdout: `${"a".repeat(40)}\trefs/heads/mattstack\n`, stderr: "" };
+          if (argv.includes("pull")) p.writeFile(ORG_STORE, rosterWith("dev2"));
+          return ok();
+        },
+      });
+      const relay = fakeRelay({ fetch: relayServing({ ...POINTER, remote }) });
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams({ forgeToken }).seams);
+      expect(result.access).toBe("ok");
+      for (const c of seen) expect(c.argv.join(" ")).not.toContain(token);
+      for (const c of seen) expectNoToken(c.env, token);
+      const call = (sub: string) => seen.find((c) => c.argv.includes(sub))!;
+      return { ls: call("ls-remote"), clone: call("clone"), sparse: call("sparse-checkout"), pull: call("pull") };
+    }
+
+    test.each(POINTERS)("a token from the seam reaches ls-remote, the clone, the cone and the pull on %s", async (host, remote) => {
+      const { ls, clone, sparse, pull } = await joinWith(remote, async () => "tok_rt", "tok_rt");
+      for (const c of [ls, clone, sparse, pull]) expect(rtHelperHost(c.argv)).toBe(host);
+    });
+
+    test.each(POINTERS)("a seam with no token gives all four plain git on %s", async (_host, remote) => {
+      const { ls, clone, sparse, pull } = await joinWith(remote, async () => null, "tok_rt");
+      for (const c of [ls, clone, sparse, pull]) expect(rtHelperHost(c.argv)).toBeNull();
+    });
+
+    test("a pointer on an unconfirmed host gives all four plain git and never asks the seam", async () => {
+      let asked = 0;
+      const { ls, clone, sparse, pull } = await joinWith("https://gitlab.evil.example/acme/widgets.git", async () => { asked++; return "tok_rt"; }, "tok_rt");
+      for (const c of [ls, clone, sparse, pull]) expect(rtHelperHost(c.argv)).toBeNull();
+      expect(asked).toBe(0);
+    });
+  });
+
   test("a sparse checkout that fails removes the half-made clone and fails like a failed clone, before the invite is used", async () => {
     const p = redeemProbes({
       exec: (argv) => {
@@ -733,7 +782,7 @@ describe("joinRedeem", () => {
     expect(readIntent(p)?.mode).toBe("join");
   });
 
-  test("the sparse checkout carries the same token and git env as the clone", async () => {
+  test("the sparse checkout names the same helper and git env as the clone", async () => {
     const calls: { argv: string[]; opts?: Parameters<Probes["exec"]>[1] }[] = [];
     const p = redeemProbes({
       exec: (argv, opts) => {
@@ -741,13 +790,14 @@ describe("joinRedeem", () => {
         return { code: 0, stdout: "", stderr: "" };
       },
     });
-    const { seams } = baseJoinRedeemSeams({ forgeToken: async () => "glpat-secret" });
+    const { seams } = baseJoinRedeemSeams({ forgeToken: async () => "tok_rt" });
 
     await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
     const sparse = calls.find((c) => c.argv.includes("sparse-checkout"))!;
-    expect(sparse.argv.join(" ")).not.toContain("glpat-secret");
-    expect(sparse.opts?.env?.RT_GIT_TOKEN).toBe("glpat-secret");
+    expect(sparse.argv.join(" ")).not.toContain("tok_rt");
+    expect(rtHelperHost(sparse.argv)).toBe("github.com");
+    expectNoToken(sparse.opts?.env, "tok_rt");
     expect(sparse.opts?.env?.GIT_TERMINAL_PROMPT).toBe("0");
     expect(sparse.opts?.env?.GIT_PROTOCOL_FROM_USER).toBe("0");
   });
@@ -770,7 +820,7 @@ describe("joinRedeem", () => {
     expect(clone.opts?.env?.GIT_PROTOCOL_FROM_USER).toBe("0");
   });
 
-  test("a forge token rt holds is offered to the clone through the env, never argv, and to the forge-login check", async () => {
+  test("a forge token rt holds is offered to the clone through rt git credential, never argv or env, and to the forge-login check", async () => {
     const calls: { argv: string[]; opts?: Parameters<Probes["exec"]>[1] }[] = [];
     const p = redeemProbes({
       exec: (argv, opts) => {
@@ -779,16 +829,16 @@ describe("joinRedeem", () => {
       },
     });
     const relay = fakeRelay();
-    const { seams, calls: seamCalls } = baseJoinRedeemSeams({ forgeToken: async () => "glpat-secret" });
+    const { seams, calls: seamCalls } = baseJoinRedeemSeams({ forgeToken: async () => "tok_rt" });
 
     await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
 
     const clone = calls.find((c) => c.argv.includes("clone"))!;
-    expect(clone.argv.join(" ")).not.toContain("glpat-secret");
-    expect(clone.argv).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
-    expect(clone.opts?.env?.RT_GIT_TOKEN).toBe("glpat-secret");
+    expect(clone.argv.join(" ")).not.toContain("tok_rt");
+    expect(rtHelperHost(clone.argv)).toBe("github.com");
+    expectNoToken(clone.opts?.env, "tok_rt");
     expect(clone.opts?.env?.GIT_TERMINAL_PROMPT).toBe("0");
-    expect(seamCalls.forgeLogin[0]?.[3]).toBe("glpat-secret");
+    expect(seamCalls.forgeLogin[0]?.[3]).toBe("tok_rt");
   });
 
   test("the stored token is withheld from a pointer remote on a host the user never confirmed: the token seam is not consulted, the clone and forge-login run tokenless", async () => {
@@ -814,7 +864,8 @@ describe("joinRedeem", () => {
     expect(result.access).toBe("ok");
     expect(tokenReads).toEqual([]);
     const clone = calls.find((c) => c.argv.includes("clone"))!;
-    expect(clone.opts?.env?.RT_GIT_TOKEN).toBeUndefined();
+    expect(rtHelperHost(clone.argv)).toBeNull();
+    expectNoToken(clone.opts?.env, "glpat-secret");
     expect(seamCalls.forgeLogin[0]?.[3]).toBeNull();
   });
 
@@ -837,7 +888,8 @@ describe("joinRedeem", () => {
 
     expect(result.access).toBe("ok");
     const clone = calls.find((c) => c.argv.includes("clone"))!;
-    expect(clone.opts?.env?.RT_GIT_TOKEN).toBe("glpat-secret");
+    expect(rtHelperHost(clone.argv)).toBe("gitlab.corp.example");
+    expectNoToken(clone.opts?.env, "glpat-secret");
     expect(seamCalls.forgeLogin[0]?.[3]).toBe("glpat-secret");
   });
 
@@ -882,7 +934,8 @@ describe("joinRedeem", () => {
     expect(result.access).toBe("ok");
     // The clone target (github.com) is unspoofable, so the clone keeps its token.
     const clone = calls.find((c) => c.argv.includes("clone"))!;
-    expect(clone.opts?.env?.RT_GIT_TOKEN).toBe("ghp-secret");
+    expect(rtHelperHost(clone.argv)).toBe("github.com");
+    expectNoToken(clone.opts?.env, "ghp-secret");
     expect(seamCalls.forgeLogin[0]?.[2]).toBe("gitlab.evil.example");
     expect(seamCalls.forgeLogin[0]?.[3]).toBeNull();
   });

@@ -3,6 +3,7 @@ import { probeTeamRepoAccess } from "../repo-access.ts";
 import { resetCltCacheForTests } from "../../setup/home-git.ts";
 import { fakeProbes, ok } from "../../setup/__tests__/fakes.ts";
 import type { ExecScript } from "../../setup/__tests__/fakes.ts";
+import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 
 const REMOTE = "https://github.com/acme/team.git";
 const ABSENT = { kind: "absent" } as const;
@@ -94,7 +95,10 @@ describe("probeTeamRepoAccess", () => {
     expect(v.kind).toBe("unreachable");
   });
 
-  test("the token reaches git through the credential helper, never argv or the url", async () => {
+  test.each([
+    ["github.com", "https://github.com/acme/team.git", "tok_rt"],
+    ["gitlab.com", "https://gitlab.com/acme/team.git", "glpat_fake"],
+  ])("a token lookup names rt git credential for %s, never argv, env or the url", async (host, remote, token) => {
     const seen: string[][] = [];
     const envs: Record<string, string>[] = [];
     const exec: ExecScript = (argv, opts) => {
@@ -103,9 +107,24 @@ describe("probeTeamRepoAccess", () => {
       envs.push((opts?.env ?? {}) as Record<string, string>);
       return ok();
     };
-    await probeTeamRepoAccess(fakeProbes({ exec }), REMOTE, TOKEN);
-    expect(seen[0]!.join(" ")).not.toContain("gho_x");
-    expect(envs[0]!.RT_GIT_TOKEN).toBe("gho_x");
+    await probeTeamRepoAccess(fakeProbes({ exec }), remote, { kind: "token", token });
+    expect(rtHelperHost(seen[0]!)).toBe(host);
+    expect(seen[0]!.join(" ")).not.toContain(token);
+    expectNoToken(envs[0], token);
+  });
+
+  test.each([
+    ["absent", { kind: "absent" }],
+    ["unreadable", { kind: "unreadable", reason: "locked" }],
+    ["withheld", { kind: "withheld", host: "github.com" }],
+  ] as const)("a %s lookup runs plain git", async (_name, lookup) => {
+    const seen: string[][] = [];
+    const exec = git((argv) => {
+      seen.push(argv);
+      return ok();
+    });
+    await probeTeamRepoAccess(fakeProbes({ exec }), REMOTE, lookup);
+    expect(rtHelperHost(seen[0]!)).toBeNull();
   });
 
   test("the probe runs with prompts off and no protocol the remote itself names", async () => {
@@ -133,12 +152,15 @@ describe("probeTeamRepoAccess - a withheld token", () => {
   });
 
   test("sends no token to the host it was withheld from", async () => {
+    const seen: string[][] = [];
     const envs: Record<string, string>[] = [];
     const exec = git((argv, opts) => {
+      seen.push(argv);
       envs.push((opts?.env ?? {}) as Record<string, string>);
       return { code: 128, stdout: "", stderr: "fatal: could not read Username" };
     });
     await probeTeamRepoAccess(fakeProbes({ exec }), "https://gitlab.evil.example/acme/team.git", { kind: "withheld", host: "gitlab.evil.example" });
-    expect(envs[0]!.RT_GIT_TOKEN).toBeUndefined();
+    expect(rtHelperHost(seen[0]!)).toBeNull();
+    expectNoToken(envs[0], "tok_rt");
   });
 });

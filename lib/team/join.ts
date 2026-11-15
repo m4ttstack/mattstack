@@ -37,7 +37,7 @@ import { setSetting } from "../settings/write.ts";
 import { orgStoreFile } from "./org-store.ts";
 import { HANDLE_PATTERN } from "./invite.ts";
 import { forgeLogin } from "./forge.ts";
-import { gitWithToken } from "./git-credential.ts";
+import { gitWithRtCredential } from "./git-credential.ts";
 import { readMainPointer } from "./main-pointer.ts";
 import { ORG_CLONE_FOLDERS } from "./org-clone.ts";
 import { applyRoleCone } from "./org-cone.ts";
@@ -634,7 +634,7 @@ export async function joinRedeem(
         // A pointer naming no branch is a layout 3 org, whose data is on main.
         if (main !== null) branch = main.dataBranch;
         else {
-          const lookup = gitWithToken(["ls-remote", "--heads", pointer.remote, `refs/heads/${DEFAULT_DATA_BRANCH}`], token, GIT_ENV, { remote: pointer.remote });
+          const lookup = gitWithRtCredential(["ls-remote", "--heads", pointer.remote, `refs/heads/${DEFAULT_DATA_BRANCH}`], token !== null, GIT_ENV, { remote: pointer.remote });
           const listed = await recording.exec(lookup.argv, { env: lookup.env });
           if (listed.code !== 0) throw new UserActionableError("main-pointer-unreadable", "rt could not look for the org's data branch", {}, { log: withoutUrls(listed.stderr) });
           if (listed.stdout.trim() === "") {
@@ -651,13 +651,13 @@ export async function joinRedeem(
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
       return gitAccessResult(pointer, lastGit ?? { code: 1, stdout: "", stderr: err.log ?? "" });
     }
-    const git = gitWithToken(["clone", "--sparse", ...(branch ? ["--single-branch", "--branch", branch] : []), pointer.remote, dir], token, GIT_ENV, { remote: pointer.remote });
+    const git = gitWithRtCredential(["clone", "--sparse", ...(branch ? ["--single-branch", "--branch", branch] : []), pointer.remote, dir], token !== null, GIT_ENV, { remote: pointer.remote });
     const clone = await p.exec(git.argv, { env: git.env });
     if (clone.code !== 0) {
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
       return gitAccessResult(pointer, clone);
     }
-    const cone = gitWithToken(["sparse-checkout", "set", "--cone", ...ORG_CLONE_FOLDERS], token, GIT_ENV, { remote: pointer.remote });
+    const cone = gitWithRtCredential(["sparse-checkout", "set", "--cone", ...ORG_CLONE_FOLDERS], token !== null, GIT_ENV, { remote: pointer.remote });
     const sparse = await p.exec(cone.argv, { cwd: dir, env: cone.env });
     if (sparse.code !== 0) {
       // A clone without its org folders would read as already cloned on the next join, so it goes.
@@ -691,7 +691,7 @@ export async function joinRedeem(
   const unchecked = alreadyCloned ? await followDataBranch(p, dir, token) : null;
 
   if (!rosterLists(p, pointer.team, pointer.username)) {
-    const pull = gitWithToken(["pull", "--ff-only"], token, GIT_ENV, { remote: pointer.remote });
+    const pull = gitWithRtCredential(["pull", "--ff-only"], token !== null, GIT_ENV, { remote: pointer.remote });
     await p.exec(pull.argv, { cwd: dir, env: pull.env });
     if (!rosterLists(p, pointer.team, pointer.username)) {
       if (unchecked !== null) {
