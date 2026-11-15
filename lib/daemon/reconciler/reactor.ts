@@ -123,6 +123,9 @@ export interface ReactorDeps {
   notify?: DisposeDeps["notify"];
   /** Test seam passed to disposeTree; unset, dispose uses the real kill. */
   killWorktree?: DisposeDeps["killWorktree"];
+  /** Test seams passed to disposeTree for the leaving mark. */
+  agentsInside?: DisposeDeps["agentsInside"];
+  clock?: DisposeDeps["clock"];
 }
 
 function jobHold(deps: ReactorDeps, rec: TreeRecord): string | null {
@@ -349,6 +352,37 @@ async function autoReturnMain(
   return "fired";
 }
 
+/**
+ * disposeTree's joinedMr looks up by the BARE branch (its own contract,
+ * unaware of the composite `${identity}:${branch}` keys this repo's
+ * cache map now carries): hand it a bare-keyed, this-repo-only view so a
+ * same-named branch in another repo can never shadow the real entry.
+ */
+function bareKeyedCache(deps: ReactorDeps): Record<string, ReactorCacheEntry> {
+  const scoped: Record<string, ReactorCacheEntry> = {};
+  for (const [key, entry] of Object.entries(deps.cacheEntries)) {
+    if (entry.repoName && entry.repoName !== deps.repoName) continue;
+    scoped[branchOf(key)] = entry;
+  }
+  return scoped;
+}
+
+function disposeDepsFor(deps: ReactorDeps, appConfig: WorktreeAppConfig): DisposeDeps {
+  return {
+    repoName: deps.repoName,
+    repoPath: deps.repoPath,
+    cacheEntries: bareKeyedCache(deps) as Record<string, { mr: any; repoName?: string }>,
+    emit: deps.emit,
+    log: deps.log,
+    killProcesses: appConfig.killProcesses,
+    findRunningRun: deps.findRunningRun,
+    ...(deps.notify ? { notify: deps.notify } : {}),
+    ...(deps.killWorktree ? { killWorktree: deps.killWorktree } : {}),
+    ...(deps.agentsInside ? { agentsInside: deps.agentsInside } : {}),
+    ...(deps.clock ? { clock: deps.clock } : {}),
+  };
+}
+
 /** React to one terminal MR state on one registered tree. Caller holds the tree lock. */
 async function actOnTree(
   deps: ReactorDeps,
@@ -379,15 +413,7 @@ async function actOnTree(
     return "fired";
   }
 
-  // disposeTree's joinedMr looks up by the BARE branch (its own contract,
-  // unaware of the composite `${identity}:${branch}` keys this repo's
-  // cache map now carries): hand it a bare-keyed, this-repo-only view so a
-  // same-named branch in another repo can never shadow the real entry.
-  const scopedEntries: Record<string, ReactorCacheEntry> = {};
-  for (const [key, entry] of Object.entries(deps.cacheEntries)) {
-    if (entry.repoName && entry.repoName !== deps.repoName) continue;
-    scopedEntries[branchOf(key)] = entry;
-  }
+  const scopedEntries = bareKeyedCache(deps);
 
   const iid = scopedEntries[branch]?.mr?.iid;
   const noun = changeNoun(deps.repoName);
@@ -396,22 +422,12 @@ async function actOnTree(
       ? `${noun} ${changeMarker(deps.repoName)}${iid} merged`
       : `${noun} for ${branch} merged`;
 
-  const outcome = await disposeTree(
-    {
-      repoName: deps.repoName,
-      repoPath: deps.repoPath,
-      cacheEntries: scopedEntries as Record<string, { mr: any; repoName?: string }>,
-      emit: deps.emit,
-      log: deps.log,
-      killProcesses: appConfig.killProcesses,
-      findRunningRun: deps.findRunningRun,
-      ...(deps.notify ? { notify: deps.notify } : {}),
-      ...(deps.killWorktree ? { killWorktree: deps.killWorktree } : {}),
-    },
-    rec,
-    { auto: true, stopSessions: { why } },
-  );
+  const outcome = await disposeTree(disposeDepsFor(deps, appConfig), rec, { auto: true, askSessions: { why } });
   if (outcome.disposed) return "fired";
+
+  // The tree is marked leaving and stays claimed; drainLeavingTrees owns the
+  // follow-up, so the edge is spent and the tree must not look disposable.
+  if (outcome.refusal === "leaving") return "fired";
 
   // "remove-failed" is mechanical and transient (a locked file, a busy
   // directory)... the tree is still perfectly claimable, so it must NOT be
@@ -426,6 +442,30 @@ async function actOnTree(
 
   markDisposable(deps, rec, outcome.refusal);
   return "fired";
+}
+
+/**
+ * Re-run the disposal of every claimed tree a merge marked leaving, once per
+ * pass: the merge edge fires once, but the grace outlives it and a restart
+ * must pick the countdown up from the stored mark. `skip` holds the paths the
+ * merge edge already acted on in this pass.
+ */
+export async function drainLeavingTrees(deps: ReactorDeps, skip: ReadonlySet<string> = new Set()): Promise<void> {
+  const appConfig = loadWorktreeAppConfig();
+  if (!appConfig.enabled) return;
+  const disposeDeps = disposeDepsFor(deps, appConfig);
+  for (const rec of loadRegistry(deps.repoName)) {
+    if (!rec.leaving || rec.state !== "claimed" || skip.has(rec.path)) continue;
+    const leaving = rec.leaving;
+    const outcome = await withTreeLock(rec.path, () =>
+      disposeTree(disposeDeps, rec, { auto: true, askSessions: { why: leaving.why } }),
+    );
+    if (outcome === "busy" || outcome.disposed || outcome.refusal === "leaving") continue;
+    deps.log.debug?.(
+      { repo: deps.repoName, tree: rec.name, refusal: outcome.refusal },
+      "reactor: leaving tree not disposed this pass",
+    );
+  }
 }
 
 /** Worst outcome wins: any retry re-arms the edge, otherwise any fire records it. */
@@ -543,6 +583,7 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
     if (!key.startsWith(prefix)) nextMrState[key] = value;
   }
 
+  const actedPaths = new Set<string>();
   for (const [mapKey, entry] of Object.entries(cacheEntries)) {
     // Unattributed entries (older caches predate repoName) may join any repo;
     // an entry attributed elsewhere never does.
@@ -624,6 +665,7 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
 
     let reaction: Reaction = "done";
     for (const rec of trees) {
+      actedPaths.add(rec.path);
       const result = await withTreeLock(rec.path, () => actOnTree(deps, rec, branch, cur, appConfig));
       // A locked tree is someone else's in-flight work; come back next pass.
       reaction = worse(reaction, result === "busy" ? "retry" : result);
@@ -634,6 +676,7 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
   }
 
   saveReactorState({ mrState: nextMrState, fired: [...fired] }, log);
+  await drainLeavingTrees(deps, actedPaths);
 }
 
 export const __test__ = {

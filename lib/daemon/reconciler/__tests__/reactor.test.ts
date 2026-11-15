@@ -451,7 +451,7 @@ describe("held trees say why (RT-267)", () => {
     expect(find(rec.path)?.heldReason).toBeUndefined();
   });
 
-  describe("merged-MR dispose stops sessions left inside (RT-555)", () => {
+  describe("a merged MR asks sessions inside to leave", () => {
     const session = {
       pid: 4321,
       label: "claude",
@@ -460,43 +460,140 @@ describe("held trees say why (RT-267)", () => {
     };
 
     function recorder() {
-      const kills: { path: string; stopSessionsInside?: boolean }[] = [];
+      const kills: { path: string; stopSessionsInside?: boolean; killDepartedChildren?: boolean }[] = [];
       const bodies: { room: string; body: string }[] = [];
-      const killWorktree = async (path: string, opts: { stopSessionsInside?: boolean }): Promise<WorktreeKillResult> => {
-        kills.push({ path, stopSessionsInside: opts.stopSessionsInside });
-        return { terminated: [], stoppedSessions: opts.stopSessionsInside ? [session] : [] };
+      const clockState = { nowMs: Date.now() };
+      const inside = { sessions: [session] as (typeof session)[], calls: 0 };
+      const killWorktree = async (
+        path: string,
+        opts: { stopSessionsInside?: boolean; killDepartedChildren?: boolean },
+      ): Promise<WorktreeKillResult> => {
+        kills.push({ path, stopSessionsInside: opts.stopSessionsInside, killDepartedChildren: opts.killDepartedChildren });
+        return { terminated: [], stoppedSessions: opts.stopSessionsInside ? inside.sessions : [] };
       };
       const notify = async (post: { room: string; body: string }) => {
         bodies.push(post);
       };
-      return { kills, bodies, killWorktree, notify };
+      const agentsInside = async () => {
+        inside.calls++;
+        return inside.sessions;
+      };
+      const clock = () => new Date(clockState.nowMs);
+      const seams = { killWorktree, notify, agentsInside: agentsInside as ReactorDeps["agentsInside"], clock };
+      return { kills, bodies, clockState, inside, seams };
     }
 
-    test("a merged-MR dispose stops sessions with the change named", async () => {
+    beforeEach(() => {
       setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
+    });
+
+    test("a merge with a session inside leaves the tree claimed and marked, without a kill", async () => {
       const rec = ephemeralTree(repo, repoName, "zulu", "feat-zulu");
       const r = recorder();
 
-      await detect({ "feat-zulu": { repoName, mr: { iid: 83, state: "merged" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      await detect({ "feat-zulu": { repoName, mr: { iid: 83, state: "merged" } } }, r.seams);
 
-      expect(r.kills.find((k) => k.path === rec.path)?.stopSessionsInside).toBe(true);
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving?.why).toBe(`${changeNoun(repoName)} ${changeMarker(repoName)}83 merged`);
+      expect(r.kills).toEqual([]);
+      expect(r.bodies).toEqual([]);
+    });
+
+    test("a \"leaving\" refusal does not flip the tree to disposable", async () => {
+      const rec = ephemeralTree(repo, repoName, "yankee", "feat-yankee");
+      const r = recorder();
+
+      await detect({ "feat-yankee": { repoName, mr: { iid: 87, state: "merged" } } }, r.seams);
+
+      const cur = find(rec.path);
+      expect(cur?.state).toBe("claimed");
+      expect(cur?.disposableReason).toBeUndefined();
+      expect(cur?.heldReason).toBeUndefined();
+    });
+
+    test("a later pass with the merge edge already spent still disposes once the session has left", async () => {
+      const rec = ephemeralTree(repo, repoName, "xena", "feat-xena");
+      const r = recorder();
+      const merged = { "feat-xena": { repoName, mr: { iid: 88, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      expect(__test__.loadReactorState().fired).toContain(`disposed:${repoName}:88:merged`);
+      expect(find(rec.path)).toBeDefined();
+
+      r.inside.sessions = [];
+      r.clockState.nowMs += 30_000;
+      await detect(merged, r.seams);
+
+      expect(find(rec.path)).toBeUndefined();
+      expect(r.kills).toHaveLength(1);
+      expect(r.kills[0]!.killDepartedChildren).toBe(true);
+      expect(r.kills[0]!.stopSessionsInside ?? false).toBe(false);
+    });
+
+    test("after a daemon restart the grace counts from leaving.since", async () => {
+      const rec = ephemeralTree(repo, repoName, "whisky", "feat-whisky");
+      const why = `${changeNoun(repoName)} ${changeMarker(repoName)}89 merged`;
+      saveRegistry(
+        repoName,
+        loadRegistry(repoName).map((t) =>
+          t.path === rec.path ? { ...t, leaving: { why, since: new Date(Date.now() - 200_000).toISOString() } } : t,
+        ),
+      );
+      __test__.saveReactorState(
+        { mrState: { [`${repoName}:feat-whisky`]: "merged" }, fired: [`disposed:${repoName}:89:merged`] },
+        fakeLog(),
+      );
+      const r = recorder();
+      delete (r.seams as Partial<typeof r.seams>).clock;
+
+      await detect({ "feat-whisky": { repoName, mr: { iid: 89, state: "merged" } } }, r.seams);
+
+      expect(find(rec.path)).toBeUndefined();
+      expect(r.kills).toHaveLength(1);
+      expect(r.kills[0]!.stopSessionsInside).toBe(true);
       expect(r.bodies).toHaveLength(1);
-      expect(r.bodies[0]!.room).toBe("r");
-      expect(r.bodies[0]!.body).toContain(`${changeNoun(repoName)} ${changeMarker(repoName)}83 merged`);
+      expect(r.bodies[0]!.body).toContain(why);
+    });
+
+    test("a pass that acts on the merge edge does not dispose the same tree again in the drain", async () => {
+      ephemeralTree(repo, repoName, "victor", "feat-victor");
+      const r = recorder();
+
+      await detect({ "feat-victor": { repoName, mr: { iid: 90, state: "merged" } } }, r.seams);
+
+      expect(r.inside.calls).toBe(1);
+    });
+
+    test("a tree still inside the grace stays marked across passes", async () => {
+      const rec = ephemeralTree(repo, repoName, "uniform", "feat-uniform");
+      const r = recorder();
+      const merged = { "feat-uniform": { repoName, mr: { iid: 91, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      const since = find(rec.path)?.leaving?.since;
+      r.clockState.nowMs += 60_000;
+      await detect(merged, r.seams);
+
+      expect(find(rec.path)?.leaving?.since).toBe(since);
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(r.kills).toEqual([]);
     });
 
     test("a closed MR never reaches the session stop", async () => {
-      setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
       const closedTree = ephemeralTree(repo, repoName, "alpha2", "feat-closed");
       const mergedTree = ephemeralTree(repo, repoName, "bravo2", "feat-control");
       const r = recorder();
 
-      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "opened" } } }, { killWorktree: r.killWorktree, notify: r.notify });
-      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "closed" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "opened" } } }, r.seams);
+      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "closed" } } }, r.seams);
       expect(r.kills.filter((k) => k.path === closedTree.path)).toEqual([]);
 
-      await detect({ "feat-control": { repoName, mr: { iid: 95, state: "merged" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      const merged = { "feat-control": { repoName, mr: { iid: 95, state: "merged" } } };
+      await detect(merged, r.seams);
+      r.clockState.nowMs += 181_000;
+      await detect(merged, r.seams);
       expect(r.kills.find((k) => k.path === mergedTree.path)?.stopSessionsInside).toBe(true);
+      expect(r.kills.filter((k) => k.path === closedTree.path)).toEqual([]);
     });
   });
 
