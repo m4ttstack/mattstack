@@ -1249,6 +1249,15 @@ describe("kit forms", () => {
     expect((body(res).kitForm as { controls: unknown }).controls).toEqual({ pause: true, goBack: ["plan", "provision"] });
   });
 
+  test("the controls ride on the gate's meta, so a form rebuilt from the listed row keeps them", async () => {
+    const f = fake({ ...KIT, ...STAGED });
+    await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, f.deps);
+    expect(f.asks[0]!.meta).toEqual({ kitControls: { pause: true, goBack: ["plan", "provision"] } });
+    const off = fake({ ...STAGED });
+    await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, off.deps);
+    expect("meta" in off.asks[0]!).toBe(false);
+  });
+
   test("controls are empty on a shepherd worker's run", async () => {
     const res = await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, fake({ ...KIT, ...STAGED, spawnedBy: "herd:h1" }).deps);
     expect((body(res).kitForm as { controls: unknown }).controls).toEqual({ pause: false, goBack: [] });

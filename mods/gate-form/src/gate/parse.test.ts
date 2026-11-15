@@ -89,10 +89,17 @@ test('a spill pointer’s paths are read for the saved result, bare or in conten
   expect(savedResult('plain words')).toBeUndefined()
 })
 
-test('a listed gate opens a form with no run controls', () => {
+test('a listed gate with no stored controls opens a form with no run controls', () => {
   const form = formFromRow(ROW) as Form
   expect(form).toMatchObject({ source: 'gate', gateId: 'g9', title: 'plan-review', context: 'Row context' })
   expect(form.controls).toBeUndefined()
+})
+
+test('a listed gate keeps the run controls its kit form opened with', () => {
+  const meta = { stage: 'implement', kitControls: { pause: true, goBack: ['plan', 'provision'] } }
+  expect((formFromRow({ ...ROW, meta }) as Form).controls).toEqual({ pause: true, goBack: ['plan', 'provision'] })
+  expect((formFromRow({ ...ROW, meta: { kitControls: { pause: false, goBack: [] } } }) as Form).controls).toBeUndefined()
+  expect((formFromRow({ ...ROW, meta: { kitControls: 'pause' } }) as Form).controls).toBeUndefined()
 })
 
 test('an exit-0 answer is recorded unless it lost the race to another surface', () => {

@@ -200,6 +200,14 @@ test('a session start restores a form and a watcher for each of this session’s
   expect(w.state.lists).toBe(1)
 })
 
+test('a restored form keeps the run controls stored on its gate', async ($, on) => {
+  const controls = { pause: true, goBack: ['plan'] }
+  world(on, { gates: () => [kitRow('g5', { meta: { stage: 'implement', kitControls: controls } })] })
+  await drawOn($, 'terminal')
+  expect(await eventually(async () => (await paneForm($))?.gateId === 'g5')).toBe(true)
+  expect((await paneForm($))?.controls).toEqual(controls)
+})
+
 test('a session start puts a kit gate the form cannot draw on the board, and toasts it once', async ($, on) => {
   const rows = [kitRow('g5', { questions: [{ id: 'pick', label: 'Pick', multi: false, options: [''] }] })]
   const w = world(on, { gates: () => rows })

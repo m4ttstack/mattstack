@@ -244,7 +244,12 @@ export async function askGate(
   if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
   const paneId = await liveSelfPaneId(env);
   if (paneId) payload.paneId = paneId;
-  if (input.kitForm === true && kitFormReadsOn(deps)) payload.kitForm = true;
+  const controls = runControls(run);
+  if (input.kitForm === true && kitFormReadsOn(deps)) {
+    payload.kitForm = true;
+    // The gate-form mod rebuilds a form from the listed row after a restart; the row is the only place it can read these.
+    payload.meta = { kitControls: controls };
+  }
   const res = await deps.ask(payload);
   if (!res.ok || !res.data) return fromResponse(res);
   const data = res.data;
@@ -273,7 +278,7 @@ export async function askGate(
     result.kitForm = {
       questions: extra.proseById ? withPaneProse(questions, extra.proseById) : questions,
       ...(formContext !== undefined ? { context: formContext } : {}),
-      controls: runControls(run),
+      controls,
     };
   }
   return ok(result);

@@ -140,6 +140,7 @@ export type GateRow = {
   openedAt?: unknown
   answer?: unknown
   closedReason?: unknown
+  meta?: unknown
 }
 
 // The rows `rt gate list --json` printed, or undefined when it printed something else.
@@ -199,9 +200,10 @@ export function spilledGate(stdout: string, session: string, known: string[], ca
   return mine.sort((a, b) => Number(b.openedAt ?? 0) - Number(a.openedAt ?? 0))[0]
 }
 
-// A listed gate carries no run controls, so its form has no More actions.
+// A listed gate carries the run controls its kit form opened with in meta.kitControls; a gate without them gets no More actions.
 export function formFromRow(row: GateRow): Form | string {
-  return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, undefined)
+  const controls = isObject(row.meta) ? row.meta.kitControls : undefined
+  return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, controls)
 }
 
 // What `rt gate answer` exiting 0 means: recorded, unless it lost the race, when its winning row says by whom.

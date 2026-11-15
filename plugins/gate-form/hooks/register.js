@@ -623,7 +623,8 @@ function spilledGate(stdout, session, known, call) {
   return mine.sort((a, b) => Number(b.openedAt ?? 0) - Number(a.openedAt ?? 0))[0];
 }
 function formFromRow(row) {
-  return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, undefined);
+  const controls = isObject2(row.meta) ? row.meta.kitControls : undefined;
+  return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, controls);
 }
 function answerOutcome(stdout, session) {
   let parsed;
