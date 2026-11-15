@@ -407,7 +407,7 @@ export function buildListPayload(args: string[]): Commands["gate:list"]["payload
     to reach into `origin` or special-case a null owner. */
 export function withGateTokens(
   gates: GateRow[],
-): Array<GateRow & { presentation: "form" | "wait"; owner: string }> {
+): Array<GateRow & { presentation: "form" | "wait" | "kit"; owner: string }> {
   return gates.map((g) => ({ ...g, presentation: g.origin?.presentation ?? "wait", owner: g.owner ?? "human" }));
 }
 

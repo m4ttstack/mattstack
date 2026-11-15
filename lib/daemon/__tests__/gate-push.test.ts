@@ -290,6 +290,12 @@ describe("gate-push escape injection (W4)", () => {
     }
   });
 
+  test("a kit gate answered from the board rings the doorbell and never injects Escape", async () => {
+    const { push, store, events } = w4Harness();
+    await push.onAnswered(answeredFormGate(store, "board", { presentation: "kit", paneId: "pane-7" }));
+    expect(events).toEqual(["deliver"]);
+  });
+
   test("form with no origin.paneId falls back to the top-level pane for the Escape", async () => {
     const { push, store, events } = w4Harness();
     await push.onAnswered(answeredFormGate(store, "console", { presentation: "form" }));
@@ -509,6 +515,11 @@ describe("GATE_SUBSCRIPTION_PHRASE", () => {
   test("subscription phrase names presentation and owner", () => {
     expect(GATE_SUBSCRIPTION_PHRASE({ id: "g", status: "open", origin: { presentation: "form" }, owner: "herd:h-1" } as any))
       .toBe("[gate] g is now open (form, owner herd:h-1); re-read the gate registry.");
+  });
+
+  test("names a kit gate as shown in the kit form", () => {
+    expect(GATE_SUBSCRIPTION_PHRASE({ id: "g", status: "open", origin: { presentation: "kit" }, owner: "herd:h-1" } as any))
+      .toBe("[gate] g is now open (shown in the kit form, owner herd:h-1); re-read the gate registry.");
   });
 
   test("falls back to wait and human when origin/owner are absent", () => {

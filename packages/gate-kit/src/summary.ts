@@ -2,6 +2,7 @@
 // lands.
 // eslint-disable-next-line no-restricted-imports
 import type { GATE_BY_PANE } from '@mattstack/rt-client';
+import { isRunControl, unwrapGateAnswerValue } from '@mattstack/rt-client/gate';
 import { domainForKind } from './kinds';
 import { displayForValue, type GateOptionDisplay } from './options';
 import { unwrapGateAnswer, type GateAnswers } from './payload';
@@ -208,6 +209,14 @@ function subjectRef(subject: string | undefined): string | null {
   return null;
 }
 
+function runControlText(answers: GateAnswers): string {
+  if (unwrapGateAnswerValue(answers.next) === 'hold') return 'Paused the run';
+  const to = unwrapGateAnswerValue(answers.to);
+  return typeof to === 'string' && to !== ''
+    ? `Went back to ${to}`
+    : 'Went back a stage';
+}
+
 /**
  * One compact line plus structured detail for a gate that is past answering
  * (answered, superseded, closed). The chip is derived from option LABELS,
@@ -220,30 +229,49 @@ function subjectRef(subject: string | undefined): string | null {
  */
 export function answeredGateSummary(row: GateSummaryInput): GateSummary {
   const answers = row.answer?.answers;
+  const control =
+    answers !== undefined && isRunControl(row.questions, answers)
+      ? runControlText(answers)
+      : null;
   const decidedBy = row.answer?.by ?? null;
   const at = row.answer?.answeredAt ?? null;
 
-  const detail: GateSummaryDetailRow[] = row.questions.map(q => {
-    const raw = answers?.[q.id];
-    const unwrapped = raw !== undefined ? unwrapGateAnswer(raw) : null;
-    const value = unwrapped?.value;
-    const values =
-      value === undefined ? [] : Array.isArray(value) ? value : [value];
-    return {
-      id: q.id,
-      question: q.label,
-      answers:
-        unwrapped?.writeIn !== undefined
-          ? [{ text: `wrote in: "${unwrapped.writeIn}"` }]
-          : values.length > 0
-            ? values.map(v => displayForValue(v, q.options))
-            : [{ text: '(none)' }],
-      ...(unwrapped?.note !== undefined ? { note: unwrapped.note } : {}),
-      ...(unwrapped?.text !== undefined ? { text: unwrapped.text } : {}),
-      decidedBy,
-      at,
-    };
-  });
+  const questionDetail: GateSummaryDetailRow[] = row.questions
+    .filter(q => control === null || answers?.[q.id] !== undefined)
+    .map(q => {
+      const raw = answers?.[q.id];
+      const unwrapped = raw !== undefined ? unwrapGateAnswer(raw) : null;
+      const value = unwrapped?.value;
+      const values =
+        value === undefined ? [] : Array.isArray(value) ? value : [value];
+      return {
+        id: q.id,
+        question: q.label,
+        answers:
+          unwrapped?.writeIn !== undefined
+            ? [{ text: `wrote in: "${unwrapped.writeIn}"` }]
+            : values.length > 0
+              ? values.map(v => displayForValue(v, q.options))
+              : [{ text: '(none)' }],
+        ...(unwrapped?.note !== undefined ? { note: unwrapped.note } : {}),
+        ...(unwrapped?.text !== undefined ? { text: unwrapped.text } : {}),
+        decidedBy,
+        at,
+      };
+    });
+  const detail: GateSummaryDetailRow[] =
+    control === null
+      ? questionDetail
+      : [
+          {
+            id: 'next',
+            question: 'Run',
+            answers: [{ text: control }],
+            decidedBy,
+            at,
+          },
+          ...questionDetail,
+        ];
 
   const head = [domainForKind(row.kind) ?? row.kind, subjectRef(row.subject)]
     .filter((part): part is string => part !== null)
@@ -257,14 +285,24 @@ export function answeredGateSummary(row: GateSummaryInput): GateSummary {
   } else {
     const markers: string[] = [];
     const pairs = row.questions.filter(isPostPair);
-    const pairSummary = postPairSummary(pairs, answers);
+    // A run control leaves the rest of the gate unanswered, so only answered pairs are tallied.
+    const tallied =
+      control === null
+        ? pairs
+        : pairs.filter(q => answers?.[q.id] !== undefined);
+    const pairSummary = postPairSummary(tallied, answers);
     if (pairSummary !== null) fragments.push(pairSummary);
     outcome = compactOutcome(row.questions, answers, pairs, pairSummary);
+    if (control !== null) {
+      fragments.unshift(control);
+      outcome = control;
+    }
     for (const q of row.questions) {
       if (pairs.includes(q)) continue;
       const raw = answers?.[q.id];
       if (raw === undefined) {
-        if (q.multi && q.options.length === 0) markers.push('nothing posted');
+        if (control === null && q.multi && q.options.length === 0)
+          markers.push('nothing posted');
         continue;
       }
       const unwrapped = unwrapGateAnswer(raw);

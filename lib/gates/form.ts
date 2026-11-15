@@ -82,9 +82,10 @@ export function formChunks(questions: GateQuestion[], proseById: Record<string, 
   return chunks;
 }
 
-export type PaneAction = "form" | "wait";
+export type PaneAction = "form" | "wait" | "kit";
 
-export function paneActionFor(presentation: "form" | "wait", o: { herdr: boolean; spawned: boolean }): PaneAction {
+export function paneActionFor(presentation: "form" | "wait" | "kit", o: { herdr: boolean; spawned: boolean }): PaneAction {
+  if (presentation === "kit") return "kit";
   return presentation === "wait" && (o.herdr || o.spawned) ? "wait" : "form";
 }
 

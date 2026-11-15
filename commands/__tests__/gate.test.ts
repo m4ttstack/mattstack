@@ -136,6 +136,10 @@ describe("withGateTokens", () => {
     expect(a).toMatchObject({ presentation: "form", owner: "herd:h-1" });
     expect(b).toMatchObject({ presentation: "wait", owner: "human" });
   });
+  test("passes a kit presentation through", () => {
+    const [row] = withGateTokens([fakeRow({ origin: { presentation: "kit" } })]);
+    expect(row!.presentation).toBe("kit");
+  });
   test("questions echo verbatim: option descriptions and per-question context survive into list --json", () => {
     const questions = [{
       id: "q1", label: "go?", multi: false, context: "why this one",

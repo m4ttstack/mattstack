@@ -47,7 +47,7 @@ describe("buildGateAskPayload", () => {
 });
 
 describe("gateAskOutput", () => {
-  const data = { id: "g1", presentation: "form" as const, subject: "mr:x", supersededId: null };
+  const data = { id: "g1", presentation: "form" as const, boardOnly: false, subject: "mr:x", supersededId: null };
 
   test("a normal ask prints the four fields and no omitted key", () => {
     expect(gateAskOutput(data)).toEqual({

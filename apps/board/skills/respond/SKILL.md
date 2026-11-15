@@ -642,7 +642,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: block:gate-protocol source=mattstack:gate-protocol path=attachments/gate-protocol/index.block.md lines=9-126 -->
+<!-- part: block:gate-protocol source=mattstack:gate-protocol path=attachments/gate-protocol/index.block.md lines=9-148 -->
 The daemon's gate registry is the single arbiter; under a run the gate
 tools record the decision.
 
@@ -672,6 +672,8 @@ digraph gate_protocol {
     boards_to_open [label="A boards@1 context in an attended session, with a board not yet opened?" shape=diamond];
     open_board [label="open <board path>" shape=plaintext];
     present_pane_form [label="Present the in-pane gate form" shape=box];
+    kit_form_open [label="The gate shows in the kit form" shape=box];
+    trigger_kit_answer [label="Trigger: the kit form's answer arrives as your next input" shape=ellipse];
     form_result [label="Gate form result?" shape=diamond];
     map_answer [label="Map the gate answer to exact option values" shape=box];
     gate_answer [label="gate_answer {id, answers, runDb?, stage?}" shape=plaintext];
@@ -689,6 +691,11 @@ digraph gate_protocol {
     trigger_doorbell [label="Trigger: a doorbell push arrives" shape=ellipse];
     gate_reconcile [label="gate_reconcile {id, runDb?, stage?}" shape=plaintext];
     reconcile_status [label="gate_reconcile status?" shape=diamond];
+    run_control_answer [label="A run control (next hold or go-back)?" shape=diamond];
+    run_resolve_hold [label="run_resolve {runDb, stage, next: hold, note?, decidedBy}" shape=plaintext];
+    run_resolve_redirect [label="run_resolve {runDb, stage, next: redirect, to: <answers.to>, note?, decidedBy}" shape=plaintext];
+    run_resolve_result [label="run_resolve result?" shape=diamond];
+    run_hold_refusal [label="run_hold {runDb, stage, reason: <the refusal>, decidedBy: pane}" shape=plaintext];
     write_in_to_act [label="A write-in to act on (actOnWriteIn)?" shape=diamond];
     act_write_in [label="Act on a write-in" shape=box];
     stop_no_invented_answer [label="STOP: never invent an answer or re-ask a closed gate" shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -698,6 +705,8 @@ digraph gate_protocol {
     late_signal [label="Late gate signal discarded" shape=doublecircle];
     path_ended [label="Path ended per the verb's policy" shape=doublecircle];
     write_in_new_gate [label="Write-in acted on: a new gate opens" shape=doublecircle];
+    run_held [label="Held: end the turn naming run and stage" shape=doublecircle];
+    run_redirected [label="Redirected: follow the stage file of the stage run_resolve's next names" shape=doublecircle];
     act_on_answer [label="Act on the gate answer at the site" shape=doublecircle style=filled fillcolor=lightgreen];
 
     trigger_site_reaches -> build_questions;
@@ -720,12 +729,15 @@ digraph gate_protocol {
     present_form_no_registry -> no_registry_under_run;
     no_registry_under_run -> gate_record [label="yes"];
     no_registry_under_run -> write_in_to_act [label="no"];
-    gate_record -> write_in_to_act;
+    gate_record -> run_control_answer;
     trigger_site_opened -> pane_action;
-    pane_action -> boards_to_open [label="form"];
+    pane_action -> boards_to_open [label="form or kit"];
     boards_to_open -> open_board [label="yes: the next board"];
-    boards_to_open -> present_pane_form [label="no, or every board opened"];
+    boards_to_open -> present_pane_form [label="no, or every board opened: paneAction form"];
+    boards_to_open -> kit_form_open [label="no, or every board opened: paneAction kit"];
     open_board -> boards_to_open;
+    kit_form_open -> end_turn_holding;
+    trigger_kit_answer -> gate_reconcile;
     pane_action -> rt_gate_wait [label="wait"];
     present_pane_form -> form_result;
     form_result -> map_answer [label="answered"];
@@ -733,7 +745,7 @@ digraph gate_protocol {
     form_result -> hold_under_run [label="cancelled"];
     map_answer -> gate_answer;
     gate_answer -> gate_answer_result;
-    gate_answer_result -> write_in_to_act [label="this answer won"];
+    gate_answer_result -> run_control_answer [label="this answer won"];
     gate_answer_result -> say_surface [label="conflict: true"];
     gate_answer_result -> remap_under_run [label="refused: not an option"];
     gate_answer_result -> stop_no_invented_answer [label="refused: closed or not found"];
@@ -742,12 +754,22 @@ digraph gate_protocol {
     run_budget_remap -> resubmitted_once;
     resubmitted_once -> map_answer [label="no"];
     resubmitted_once -> hold_under_run [label="yes"];
-    say_surface -> write_in_to_act;
+    say_surface -> run_control_answer;
+    run_control_answer -> run_resolve_hold [label="yes: next hold"];
+    run_control_answer -> run_resolve_redirect [label="yes: next go-back"];
+    run_control_answer -> write_in_to_act [label="no"];
+    run_resolve_hold -> run_resolve_result;
+    run_resolve_redirect -> run_resolve_result;
+    run_resolve_result -> run_held [label="applied hold"];
+    run_resolve_result -> run_redirected [label="applied redirect"];
+    run_resolve_result -> run_hold_refusal [label="refused"];
+    run_hold_refusal -> run_held;
     hold_under_run -> run_field_set [label="yes"];
     hold_under_run -> held_no_run [label="no"];
     run_field_set -> rt_gate_wait;
     rt_gate_wait -> end_turn_holding;
-    end_turn_holding -> trigger_wait_finished [style=dashed];
+    end_turn_holding -> trigger_wait_finished [label="a wait runs" style=dashed];
+    end_turn_holding -> trigger_kit_answer [label="the kit form shows the gate" style=dashed];
     trigger_wait_finished -> gate_reconcile;
     gate_reconcile -> reconcile_status;
     trigger_human_words -> gate_reconcile;
@@ -765,7 +787,7 @@ digraph gate_protocol {
 }
 ```
 
-<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-34 -->
+<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-35 -->
 ### Build the gate's questions and context
 
 Open before anything that depends on the answer. A question is `{"id",
@@ -787,9 +809,10 @@ not your own.
 - **The questions are the site's table, and only those.** A gate asks no
   navigation question: an answer with no `next` reads as `proceed`, and a
   write-in is the way to ask for a change (`Act on a write-in`). The
-  daemon refuses an answer key the gate did not ask, so a `next` (`hold`,
-  `iterate`, `go-back`, `abandon`) reaches a site only through a hand-back
-  or a future surface; the site's `Read next` lines still route it.
+  daemon refuses an answer key the gate did not ask, except the kit form's
+  run controls, `next: hold` and `next: go-back` with `to`, which Run
+  control routes. Any other `next` (`iterate`, `abandon`) reaches a site
+  only through a hand-back; the site's `Read next` lines still route it.
 - **A gate with no question to show opens nothing.** Print its one
   sentence of context and take the site's `proceed` edge.
 - **Write-ins** go only on a decision question whose free text you can act
@@ -849,6 +872,15 @@ after the last. Dismissed: another surface answered, and the doorbell is
 your next input. Cancelled: the gate stays open; never re-present it
 yourself.
 
+<!-- part: block:gate-protocol/kit-form-open source=mattstack:gate-protocol path=attachments/gate-protocol/kit-form-open.block.md lines=5-11 -->
+### The gate shows in the kit form
+
+The `paneAction: kit` branch. The gate shows in the kit form. Never
+present it; end your turn holding at the gate. The answer arrives as your
+next input; call `gate_reconcile`. Under a run the gate tool has already
+armed `waiting-gate`, and the kit form watches the gate, so the turn ends
+with no `rt gate wait` and no field write.
+
 <!-- part: block:gate-protocol/map-answer source=mattstack:gate-protocol path=attachments/gate-protocol/map-answer.block.md lines=5-13 -->
 ### Map the gate answer to exact option values
 
@@ -884,6 +916,29 @@ words in hand lose to it. `open` with words: map them and let
 `gate_answer`'s CAS decide; with none, end the turn again (the wait and
 marker stand). A daemon-unreachable refusal takes the daemon-down branch,
 quoting it.
+
+<!-- part: block:gate-protocol/run-control-answer source=mattstack:gate-protocol path=attachments/gate-protocol/run-control-answer.block.md lines=6-26 -->
+### A run control (next hold or go-back)?
+
+The kit form's Pause run answers `{next: hold}`, and its Go back to stage
+answers `{next: go-back, to: <stage>}`. Read `next` off the result. It is a
+run control only on a gate that asks no `next` question of its own; there,
+at every run gate, the answer goes to `run_resolve` with the result's
+`decidedBy` and the answer's note, when it carries one:
+
+| `next` | `run_resolve` |
+|---|---|
+| `hold` | `{next: hold}` |
+| `go-back` | `{next: redirect, to: <answers.to>}` |
+
+The site's own questions are not acted on, and the gate is not decided:
+`gate_reconcile` recorded no gate decision, so none is recorded, and the
+site's own hold and go-back edges are not taken. A refused `run_resolve`
+holds the run with `run_hold`, the refusal as its reason.
+
+On a gate that asks its own `next` question, `hold` or `go-back` is an
+ordinary answer to that question: it is not a run control, nothing goes to
+`run_resolve`, and the site's own edge for that answer runs.
 
 <!-- part: block:gate-protocol/write-in-to-act source=mattstack:gate-protocol path=attachments/gate-protocol/write-in-to-act.block.md lines=6-12 -->
 ### A write-in to act on (actOnWriteIn)?
@@ -980,9 +1035,11 @@ decides what either changes. A `writeIn: true` question may instead take
 Verify-only: it never carries the answer, only "re-read the registry",
 which is `gate_reconcile`.
 
-<!-- part: block:gate-protocol/red-flags source=mattstack:gate-protocol path=attachments/gate-protocol/red-flags.block.md lines=5-9 -->
+<!-- part: block:gate-protocol/red-flags source=mattstack:gate-protocol path=attachments/gate-protocol/red-flags.block.md lines=5-11 -->
 ### Red flags
 
 | Thought | Reality |
 |---|---|
 | "The doorbell says what they picked" | Call `gate_reconcile`. |
+| "The site hands a Go back to the orchestrator, or holds with `run_hold`" | A run control from the kit form goes to `run_resolve` at the gate (Run control). |
+| "`kit` has no edge I know; I'll arm the wait myself" | The `kit` branch ends the turn with nothing launched. |

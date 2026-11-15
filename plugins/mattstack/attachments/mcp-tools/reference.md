@@ -147,7 +147,7 @@ List gates in all statuses unless open is true, optionally filtered by subject p
 ### gate_ask
 
 <!-- mcp-lint: allow -->
-Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: the top-level context and every question's context are stored whole, with no size limit. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId, paneAction, formChunks}; then act on the result's paneAction, which says form or wait for this pane. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words. Under a run, pass runDb and stage. formChunks hold the questions 4 to a form.
+Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: the top-level context and every question's context are stored whole, with no size limit. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, boardOnly, subject, supersededId, paneAction, formChunks}; then act on the result's paneAction, which says form or wait for this pane (kit: the gate-form mod draws the gate and its result tells you what to do). form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words. Under a run, pass runDb and stage. formChunks hold the questions 4 to a form.
 
 ```json
 {
@@ -231,6 +231,10 @@ Open a decision gate with the daemon-side ceremony: subject resolves from this s
     "subject": {
       "type": "string"
     },
+    "kitForm": {
+      "type": "boolean",
+      "description": "Set by the gate-form mod; never pass it yourself."
+    },
     "runDb": {
       "type": "string",
       "description": "The run's runDb, under a pipeline run; the gate's run fields and decision are written there."
@@ -298,6 +302,10 @@ Build and validate a structured gate from a gate-ctx@1 source (source inline, so
       "type": "string",
       "description": "With handBack: also write the open to this path under the Claude Code temp root."
     },
+    "kitForm": {
+      "type": "boolean",
+      "description": "Set by the gate-form mod; never pass it yourself."
+    },
     "runDb": {
       "type": "string",
       "description": "The run's runDb, under a pipeline run; the gate's run fields and decision are written there."
@@ -321,7 +329,7 @@ Build and validate a structured gate from a gate-ctx@1 source (source inline, so
 ### gate_reconcile
 
 <!-- mcp-lint: allow -->
-The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: "answered", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the scope whose extra.gate-source.<scope> names this gate, else the gate's kind) with the answer's by as the decider, unless the gate is stale (the scope's extra.gate-source.<scope> names a later gate), a decision on that scope already landed since the gate opened (alreadyReconciled), or record is false (the default on a review gate, which records its review shape with gate_record); it clears waiting-gate when it names this gate. closed: returns {status: "closed", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: "open"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.
+The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: "answered", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the scope whose extra.gate-source.<scope> names this gate, else the gate's kind) with the answer's by as the decider, unless the gate is stale (the scope's extra.gate-source.<scope> names a later gate), a decision on that scope already landed since the gate opened (alreadyReconciled), the answer is only a run control (next hold or go-back on a gate with no next question of its own, returned in next for the skill to apply with run_resolve: hold as next hold, go-back as next redirect with answers.to as to), or record is false (the default on a review gate, which records its review shape with gate_record); it clears waiting-gate when it names this gate. closed: returns {status: "closed", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: "open"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.
 
 ```json
 {

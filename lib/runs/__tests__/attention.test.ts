@@ -193,6 +193,31 @@ describe("liveness evidence keeps a silent-but-driven run out of the stale band"
     expect(a.needs).toBe(false);
   });
 
+  test("an open kit gate for the run's session reads waiting on you, not stale, however long the silence", () => {
+    const a = computeAttention(run(), [stage({ started_at: OLD })],
+      [oldField("worktree", WT), oldField("claude-session", "sess-1")], [], NOW,
+      liveness({ agentFor: () => ({ status: "idle", pane: "w8S:pF" }), openKitGate: (id) => (id === "sess-1" ? "gate-9" : null) }));
+    expect(a.needs).toBe(true);
+    expect(a.reason).toBe("blocked");
+    expect(a.evidence).toContain("gate-9");
+    expect(a.evidence).toContain("w8S:pF");
+  });
+
+  test("an open kit gate still reads at gate when the idle agent is not found", () => {
+    const a = computeAttention(run(), [stage({ started_at: NOW - 40 * 60_000 })],
+      [oldField("claude-session", "sess-1")], [], NOW,
+      liveness({ openKitGate: () => "gate-9" }));
+    expect(a.reason).toBe("blocked");
+    expect(a.evidence).toContain("gate-9");
+  });
+
+  test("a kit gate for another session leaves the run stale", () => {
+    const a = computeAttention(run(), [stage({ started_at: OLD })],
+      [oldField("worktree", WT), oldField("claude-session", "sess-1")], [], NOW,
+      liveness({ openKitGate: (id) => (id === "sess-other" ? "gate-9" : null) }));
+    expect(a.reason).toBe("stale");
+  });
+
   test("liveness with no worktree field falls back to the plain silence evidence", () => {
     const a = computeAttention(run(), [stage({ started_at: OLD })], [], [], NOW, liveness());
     expect(a.needs).toBe(true);
