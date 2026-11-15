@@ -624,6 +624,15 @@ async function logFolder($) {
 var KEPT_RUN_LOGS = 20;
 var DROPPED = `[earlier output was dropped]
 `;
+var JOIN_TIMEOUT_MS = 120000;
+async function joinSpill($, spill, text, path) {
+  const argv = ["/bin/sh", "-c", 'mkdir -p -- "$(dirname -- "$2")" && cat -- "$1" - > "$2"', "sh", spill, path];
+  try {
+    return (await $.process.run(argv, { stdin: text, timeoutMs: JOIN_TIMEOUT_MS })).exitCode === 0;
+  } catch {
+    return false;
+  }
+}
 async function writeRunLog($, todoId, output, spill) {
   if (output.trim() === "" && spill === undefined)
     return;
@@ -632,12 +641,8 @@ async function writeRunLog($, todoId, output, spill) {
   const text = output.endsWith(`
 `) ? output : `${output}
 `;
-  if (typeof spill === "string") {
-    const joined = await $.process.run(["/bin/sh", "-c", 'mkdir -p -- "$(dirname -- "$2")" && cat -- "$1" - > "$2"', "sh", spill, path], { stdin: text });
-    if (joined.exitCode !== 0)
-      throw new Error(`could not join the run's output: ${joined.stderr}`);
-  } else {
-    await $.fs.write(path, spill === null ? `${DROPPED}${text}` : text);
+  if (typeof spill !== "string" || !await joinSpill($, spill, text, path)) {
+    await $.fs.write(path, spill === undefined ? text : `${DROPPED}${text}`);
   }
   try {
     const logs = (await $.fs.list(folder)).filter((entry) => entry.kind === "file" && entry.name.endsWith(".log"));

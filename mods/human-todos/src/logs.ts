@@ -14,20 +14,29 @@ export const KEPT_RUN_LOGS = 20
 
 export const DROPPED = '[earlier output was dropped]\n'
 
+// Joining a capped spill is quick, but well past `$.process.run`'s 30 s default on a slow disk.
+const JOIN_TIMEOUT_MS = 120_000
+
+async function joinSpill($: EngineInterface, spill: string, text: string, path: string): Promise<boolean> {
+  const argv = ['/bin/sh', '-c', 'mkdir -p -- "$(dirname -- "$2")" && cat -- "$1" - > "$2"', 'sh', spill, path]
+  try {
+    return (await $.process.run(argv, { stdin: text, timeoutMs: JOIN_TIMEOUT_MS })).exitCode === 0
+  } catch {
+    return false
+  }
+}
+
 // Writes a finished run's whole output for the agent's report and returns its path; undefined when there was no output.
 // `spill` is a file holding the output that came before `output`, or null when that earlier output was lost.
 // `$.fs` has no append or remove, so a spill is joined with `cat` and older reports go with `rm`.
-// A failed write or prune is reported by the caller, never thrown.
+// A join that fails keeps the window, marked as cut. A failed write or prune is reported by the caller, never thrown.
 export async function writeRunLog($: EngineInterface, todoId: string, output: string, spill?: string | null): Promise<string | undefined> {
   if (output.trim() === '' && spill === undefined) return undefined
   const folder = `${await logFolder($)}/runs`
   const path = `${folder}/${await $.session.id()}-${todoId}-${await $.clock.now()}.log`
   const text = output.endsWith('\n') ? output : `${output}\n`
-  if (typeof spill === 'string') {
-    const joined = await $.process.run(['/bin/sh', '-c', 'mkdir -p -- "$(dirname -- "$2")" && cat -- "$1" - > "$2"', 'sh', spill, path], { stdin: text })
-    if (joined.exitCode !== 0) throw new Error(`could not join the run's output: ${joined.stderr}`)
-  } else {
-    await $.fs.write(path, spill === null ? `${DROPPED}${text}` : text)
+  if (typeof spill !== 'string' || !(await joinSpill($, spill, text, path))) {
+    await $.fs.write(path, spill === undefined ? text : `${DROPPED}${text}`)
   }
   try {
     const logs = (await $.fs.list(folder)).filter(entry => entry.kind === 'file' && entry.name.endsWith('.log'))
