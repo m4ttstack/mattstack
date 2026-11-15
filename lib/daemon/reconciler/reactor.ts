@@ -217,6 +217,7 @@ function markDisposable(deps: ReactorDeps, rec: TreeRecord, reason: string): voi
     r.state = "disposable";
     r.disposableReason = reason;
     delete r.heldReason;
+    delete r.leaving;
   });
   deps.emit("worktree:disposable", {
     repo: deps.repoName,
@@ -460,11 +461,12 @@ export async function drainLeavingTrees(deps: ReactorDeps, skip: ReadonlySet<str
     const outcome = await withTreeLock(rec.path, () =>
       disposeTree(disposeDeps, rec, { auto: true, askSessions: { why: leaving.why } }),
     );
-    if (outcome === "busy" || outcome.disposed || outcome.refusal === "leaving") continue;
-    deps.log.debug?.(
-      { repo: deps.repoName, tree: rec.name, refusal: outcome.refusal },
-      "reactor: leaving tree not disposed this pass",
-    );
+    if (outcome === "busy" || outcome.disposed) continue;
+    // "remove-failed" and "changed" are transient: the mark stays and the next
+    // pass retries. Any other refusal is a guard the session tripped by
+    // working on, so the tree goes back to the person as disposable.
+    if (outcome.refusal === "leaving" || outcome.refusal === "remove-failed" || outcome.refusal === "changed") continue;
+    markDisposable(deps, rec, outcome.refusal);
   }
 }
 
@@ -479,9 +481,10 @@ function worse(a: Reaction, b: Reaction): Reaction {
 async function resumeTrees(deps: ReactorDeps, branch: string): Promise<void> {
   for (const rec of findByBranch(loadRegistry(deps.repoName), branch)) {
     if (rec.kind !== "ephemeral") continue;
-    if (rec.state === "claimed" && rec.heldReason !== undefined) {
+    if (rec.state === "claimed" && (rec.heldReason !== undefined || rec.leaving !== undefined)) {
       patchTree(deps.repoName, rec.path, (r) => {
         delete r.heldReason;
+        delete r.leaving;
       });
       continue;
     }
@@ -491,6 +494,7 @@ async function resumeTrees(deps: ReactorDeps, branch: string): Promise<void> {
         r.state = "claimed";
         delete r.disposableReason;
         delete r.heldReason;
+        delete r.leaving;
       });
       deps.log.info(
         { repo: deps.repoName, tree: rec.name, branch },
@@ -665,8 +669,8 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
 
     let reaction: Reaction = "done";
     for (const rec of trees) {
-      actedPaths.add(rec.path);
       const result = await withTreeLock(rec.path, () => actOnTree(deps, rec, branch, cur, appConfig));
+      if (result !== "busy") actedPaths.add(rec.path);
       // A locked tree is someone else's in-flight work; come back next pass.
       reaction = worse(reaction, result === "busy" ? "retry" : result);
     }

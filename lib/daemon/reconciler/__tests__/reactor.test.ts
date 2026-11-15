@@ -579,8 +579,45 @@ describe("held trees say why (RT-267)", () => {
       expect(r.kills).toEqual([]);
     });
 
+    test("a leaving tree that turns dirty becomes disposable and drops its mark", async () => {
+      const rec = ephemeralTree(repo, repoName, "tango", "feat-tango");
+      const r = recorder();
+      const merged = { "feat-tango": { repoName, mr: { iid: 96, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.leaving).toBeDefined();
+
+      writeFileSync(join(rec.path, "scratch.txt"), "dirt\n");
+      r.clockState.nowMs += 30_000;
+      await detect(merged, r.seams);
+
+      const cur = find(rec.path);
+      expect(cur?.state).toBe("disposable");
+      expect(cur?.disposableReason).toBe("dirty");
+      expect(cur?.leaving).toBeUndefined();
+      expect(r.kills).toEqual([]);
+    });
+
+    test("a reopened MR clears the leaving mark, so the grace never stops the session", async () => {
+      const rec = ephemeralTree(repo, repoName, "sierra", "feat-sierra");
+      const r = recorder();
+
+      await detect({ "feat-sierra": { repoName, mr: { iid: 97, state: "opened" } } }, r.seams);
+      await detect({ "feat-sierra": { repoName, mr: { iid: 97, state: "merged" } } }, r.seams);
+      expect(find(rec.path)?.leaving).toBeDefined();
+
+      await detect({ "feat-sierra": { repoName, mr: { iid: 97, state: "opened" } } }, r.seams);
+      expect(find(rec.path)?.leaving).toBeUndefined();
+
+      r.clockState.nowMs += 181_000;
+      await detect({ "feat-sierra": { repoName, mr: { iid: 97, state: "opened" } } }, r.seams);
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(r.kills).toEqual([]);
+    });
+
     test("a closed MR never reaches the session stop", async () => {
-      const closedTree = ephemeralTree(repo, repoName, "alpha2", "feat-closed");
+      const closedTree =ephemeralTree(repo, repoName, "alpha2", "feat-closed");
       const mergedTree = ephemeralTree(repo, repoName, "bravo2", "feat-control");
       const r = recorder();
 
