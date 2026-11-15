@@ -85,7 +85,7 @@ const STATUS_PRIORITY: RunAgent["status"][] = ["blocked", "working", "idle", "do
 
 /** The pure matcher behind getRunLiveness — also used by the status poller,
     which brings its own probe result. */
-export function livenessFrom(entries: AgentEntry[]): RunLiveness {
+export function livenessFrom(entries: AgentEntry[], openKitGate?: (session: string) => string | null): RunLiveness {
   const agentOf = (e: AgentEntry): RunAgent => ({ status: e.status, pane: e.pane });
   return {
     agentFor(session: string | null, worktree: string | null): RunAgent | null {
@@ -111,6 +111,7 @@ export function livenessFrom(entries: AgentEntry[]): RunLiveness {
       );
     },
     worktreeActiveAt: worktreeActivityAt,
+    ...(openKitGate && { openKitGate }),
   };
 }
 
@@ -169,9 +170,10 @@ export function primeLivenessCache(entries: AgentEntry[], now: number = Date.now
 export async function getRunLiveness(
   exec: typeof runCapture = runCapture,
   now: number = Date.now(),
+  openKitGate?: (session: string) => string | null,
 ): Promise<RunLiveness> {
   if (!agentCache || now - agentCache.at > AGENT_CACHE_TTL_MS) {
     agentCache = { at: now, entries: (await probeAgents(exec)) ?? [] };
   }
-  return livenessFrom(agentCache.entries);
+  return livenessFrom(agentCache.entries, openKitGate);
 }

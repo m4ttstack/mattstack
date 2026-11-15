@@ -158,8 +158,9 @@ for (const surface of SURFACES) {
     expect(shownBand[0]).toContain('Human Todos waiting')
     expect(shownBand[0]).toContain('1 to-do')
 
+    // Show is the engine's Button, so the press is the person's and places the pane at any width.
     const before = opened.length
-    await click(band, 'Show')
+    await band.press({ key: 'open-human-todos' })
     expect(opened.slice(before)).toEqual(['human-todos'])
     expect(await band.find({ type: 'Client' })).toBeUndefined()
     await pane.unmount()

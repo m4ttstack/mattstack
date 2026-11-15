@@ -1,42 +1,26 @@
-import { BrandBar, Lines, Panel, kitClient, sp } from '@mattstack/mod-kit'
-import type { PointerState } from '@mattstack/mod-kit'
+import { BrandBar, Lines, Panel, gridMove, gridResolve, gridSelection, isButtonInView, kitClient, revealButtonOffset, revealOffset, sp } from '@mattstack/mod-kit'
+import type { GridSelection, PointerState } from '@mattstack/mod-kit'
 
 import { TITLE } from '../items'
-import { isButtonInView, revealButtonOffset, revealOffset, stopMessage, viewLines } from './kit-layout'
-import type { KitView, ViewStop } from './kit-layout'
+import { stopMessage, viewLines } from './kit-layout'
+import type { KitView } from './kit-layout'
 import type { PaneButton, PaneMessage } from './model'
 
 type Props = { view: KitView; focused: boolean; width: number }
-// The selection is keyed by stop and button id, so it follows its item through redraws;
-// `at` is where it was, for when that item is gone.
-type Selection = { key: string; button: PaneButton['id']; at: number }
-type State = PointerState & { sel?: Selection }
-
-// The stop and button the selection lands on now: its own. Once its button has gone (Run became Confirm, Confirm became Stop),
-// the item's filled button; once its item has gone, the nearest item left, on its filled button.
-function resolve(stops: ViewStop[], sel: Selection | undefined): { at: number; col: number; hasFallen: boolean } {
-  if (!sel) return { at: 0, col: stops[0]?.main ?? 0, hasFallen: false }
-  const found = stops.findIndex(s => s.key === sel.key)
-  if (found < 0) {
-    const at = Math.min(sel.at, stops.length - 1)
-    return { at, col: stops[at]?.main ?? 0, hasFallen: true }
-  }
-  const col = stops[found]!.ids.indexOf(sel.button)
-  return { at: found, col: col >= 0 ? col : stops[found]!.main, hasFallen: false }
-}
+// Once its button has gone (Run became Confirm, Confirm became Stop), the selection falls to the item's filled button.
+type State = PointerState & { sel?: GridSelection<PaneButton['id']> }
 
 export default kitClient<Props, State>(
   (props, ui) => {
     const { view } = props
     const { stops } = view
-    const here = resolve(stops, ui.state.sel)
+    const here = gridResolve(stops, ui.state.sel)
     const current = stops[here.at] && stopMessage(stops[here.at]!, here.col)
 
     const mark = (at: number, col: number) => {
-      const stop = stops[at]
-      const button = stop?.ids[col]
-      if (!stop || !button) return false
-      ui.setState({ ...ui.state, sel: { key: stop.key, button, at } })
+      const sel = gridSelection(stops, { at, col })
+      if (!sel) return false
+      ui.setState({ ...ui.state, sel })
       return true
     }
     const reveal = (at: number) => {
@@ -69,15 +53,9 @@ export default kitClient<Props, State>(
     ui.onKey(ev => {
       if (!ui.focused || stops.length === 0) return false
       // Tab and Shift+Tab step between items as ↓ and ↑ do, stopping at the ends as gate-form's pages do.
-      const step = ev.key === 'up' || (ev.key === 'tab' && ev.shift) ? -1 : ev.key === 'down' || ev.key === 'tab' ? 1 : 0
-      if (step !== 0) {
-        const at = Math.min(Math.max(0, here.at + step), stops.length - 1)
-        if (at !== here.at) select(at, stops[at]!.main)
-        return true
-      }
-      if (ev.key === 'left' || ev.key === 'right') {
-        const col = here.col + (ev.key === 'left' ? -1 : 1)
-        if (col >= 0 && col < (stops[here.at]?.ids.length ?? 0)) select(here.at, col)
+      const move = gridMove(stops, here, ev, { tabSteps: true })
+      if (move.handled) {
+        if (move.to) select(move.to.at, move.to.col)
         return true
       }
       if ((ev.key === 'return' || ev.key === 'enter') && current) {

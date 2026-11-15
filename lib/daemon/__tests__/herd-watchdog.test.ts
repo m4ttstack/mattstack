@@ -24,6 +24,7 @@ function sensors(over: Partial<WatchdogSensors> = {}): WatchdogSensors {
     unreadDmMentionsFor: () => 0,
     openHumanGates: () => [],
     unconsumedAnswered: () => [],
+    openKitGate: () => false,
     ...over,
   };
 }
@@ -77,6 +78,27 @@ describe("evaluateJob", () => {
     expect(evaluateJob(job({ status: "at-gate" }), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "gate g-2 answered 2m ago and unconsumed" });
     const dm = sensors({ ...idleFor(3), unreadDmMentionsFor: () => 2 });
     expect(evaluateJob(job({ status: "at-gate" }), dm, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "idle 3m with 2 unread DM/mentions" });
+  });
+
+  test("an open kit gate for the job's session is awaiting an answer: healthy at any idle length, whatever the job's status", () => {
+    const s = sensors({ ...idleFor(20), openKitGate: (sess) => sess === "sess-a" });
+    expect(evaluateJob(job(), s, cfg)).toEqual({ kind: "healthy" });
+    expect(evaluateJob(job({ status: "at-gate" }), s, cfg)).toEqual({ kind: "healthy" });
+  });
+
+  test("an open kit gate never pokes, even with an unread DM or an unconsumed answer", () => {
+    const s = sensors({ ...idleFor(20), openKitGate: () => true, unreadDmMentionsFor: () => 2, unconsumedAnswered: () => [{ id: "g-3", ageMs: 9 * MIN }] });
+    expect(evaluateJob(job(), s, cfg)).toEqual({ kind: "healthy" });
+  });
+
+  test("a kit gate for another session does not exempt this job", () => {
+    const s = sensors({ ...idleFor(20), openKitGate: (sess) => sess === "sess-other" });
+    expect(evaluateJob(job(), s, cfg)).toMatchObject({ kind: "wedged", path: "backstop" });
+  });
+
+  test("a job with no recorded session cannot match a kit gate", () => {
+    const s = sensors({ ...idleFor(20), openKitGate: () => true });
+    expect(evaluateJob(job({ agentSession: null }), s, cfg)).toMatchObject({ kind: "wedged", path: "backstop" });
   });
 
   test("(e) idle 5m with nothing pending is healthy", () => {
@@ -284,6 +306,18 @@ describe("evaluateShepherd", () => {
   test("(a) an open human gate older than shepherdFastMins while the shepherd is idle is wedged on the fast path", () => {
     const s = sensors({ ...shepherdIdle, openHumanGates: (prefix) => (prefix === "herd:demo-1/" ? [{ id: "g-9", ageMs: 6 * MIN }] : []) });
     expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
+  });
+
+  test("a shepherd with an open kit gate is awaiting an answer: healthy however wedged it otherwise reads", () => {
+    const s = sensors({
+      ...shepherdIdle,
+      openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }],
+      unreadDmMentionsFor: () => 2,
+      openKitGate: (session) => session === "sess-s",
+    });
+    expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "healthy" });
+    const other = sensors({ ...shepherdIdle, openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }], openKitGate: (session) => session === "sess-other" });
+    expect(evaluateShepherd(herd(), other, cfg)).toMatchObject({ kind: "wedged" });
   });
 
   test("an open human gate younger than shepherdFastMins is healthy", () => {
@@ -743,6 +777,13 @@ describe("HerdWatchdog ladder", () => {
     await r.tick();
     expect(r.pokes).toHaveLength(0);
     expect(r.notes).toEqual(["watchdog: demo-1/@shepherd: human gate g-9 open 6m unanswered; strike 1, flagged 0m ago. Check on it."]);
+  });
+
+  test("a wedged-looking shepherd with an open kit gate is never poked and never escalated", async () => {
+    const r = rig({ jobs: [], sensors: { ...shepherdWedged(), unreadDmMentionsFor: () => 3, openKitGate: (session) => session === "sess-s" } });
+    for (const mins of [0, 5, 5, 5, 5]) await r.tick(mins);
+    expect(r.pokes).toEqual([]);
+    expect(r.notes).toEqual([]);
   });
 
   test("(f) a shepherd poked twice without effect = notifyHuman", async () => {

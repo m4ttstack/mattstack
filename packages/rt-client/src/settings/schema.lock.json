@@ -1436,6 +1436,13 @@
       }
     }
   },
+  "rt.gates.kitForm": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "boolean"
+    }
+  },
   "rt.gitStatus": {
     "storeVersion": 1,
     "schema": {

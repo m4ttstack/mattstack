@@ -1,8 +1,13 @@
+import type { MenuRow, MenuState } from '@mattstack/mod-kit'
+
 import type { Form, FormOption, FormQuestion } from '../../types'
 
 export const WRITE_IN = '__other__'
 
 export type Phase = 'active' | 'submitted' | 'chat'
+
+// `next` is the nav row's forward button: Next, Review or Submit.
+export type NavId = 'back' | 'next' | 'more' | 'chat'
 
 export type State = {
   page: number
@@ -17,15 +22,29 @@ export type State = {
   pressed?: string
   tabsFrom: number
   chatArmed?: true
+  menu: MenuState
+  // The keyboard is on the nav row rather than the page's answers; the review page has only the nav row.
+  onNav?: true
+  // Which of the nav row's buttons the keyboard is on.
+  navAt: NavId
+  // The form's failed-attempt count when this state sent its answer: a higher count means that send failed.
+  sent?: number
+  // The first scrolled row in view while a page is too tall for the pane.
+  pageTop?: number
+  // The cursor the scrolled window last moved to show, and the pane's wheel total it last took (view.ts `Fitted`).
+  followed?: string
+  wheelAt?: number
+  // The run control that was sent, for the closed form to name.
+  control?: string
 }
 
 const isRecommended = (o: FormOption) => /\(recommended\)\s*$/i.test(o.label)
 const replaceAt = <T>(list: T[], i: number, value: T): T[] => list.map((old, k) => (k === i ? value : old))
 const markAnswered = (s: State, i: number) => replaceAt(s.answered, i, true)
 
-// Every question with options ends in a write-in row.
+// A question with options ends in a write-in row where it takes typed text.
 export function choicesOf(q: FormQuestion): FormOption[] {
-  if (q.options.length === 0) return q.options
+  if (q.options.length === 0 || !q.other) return q.options
   return [...q.options, { value: WRITE_IN, label: 'Something else', description: 'Write in your answer' }]
 }
 
@@ -39,7 +58,53 @@ export function initial(form: Form): State {
     moved: form.questions.map(() => false),
     phase: 'active',
     tabsFrom: 0,
+    menu: { open: false, selected: 0 },
+    navAt: 'next',
   }
+}
+
+// The daemon refuses a gate answer that leaves a question out.
+export const canSubmit = (form: Form, s: State) => form.source !== 'gate' || unansweredCount(s) === 0
+
+const PAUSE = 'pause'
+const GO_BACK = 'go-back:'
+
+export const isReview = (form: Form, s: State) => s.page === form.questions.length
+export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)
+
+// The nav row's buttons the keyboard can rest on: a disabled Back is skipped, while a disabled Submit stays, as Enter on it does nothing.
+export function navIds(form: Form, s: State): NavId[] {
+  const ids: NavId[] = s.page > 0 ? ['back', 'next'] : ['next']
+  if (isReview(form, s) && menuRows(form).length > 0) ids.push('more')
+  ids.push('chat')
+  return ids
+}
+
+// The nav row's button the keyboard is on, or `next` when its own has gone.
+export function navAtOf(form: Form, s: State): NavId {
+  return navIds(form, s).includes(s.navAt) ? s.navAt : 'next'
+}
+
+export function menuRows(form: Form): MenuRow[] {
+  const controls = form.controls
+  if (!controls) return []
+  const rows: MenuRow[] = controls.pause ? [{ id: PAUSE, label: 'Pause run' }] : []
+  if (controls.goBack.length > 0) rows.push({ id: 'go-back', label: 'Go back to stage', isHeading: true }, ...controls.goBack.map(stage => ({ id: `${GO_BACK}${stage}`, label: stage })))
+  return rows
+}
+
+// A run control answers the run with the reserved keys only.
+export function controlAnswers(id: string): { answers: Record<string, string>; label: string } | undefined {
+  if (id === PAUSE) return { answers: { next: 'hold' }, label: 'Asked to pause the run.' }
+  if (!id.startsWith(GO_BACK)) return undefined
+  const to = id.slice(GO_BACK.length)
+  return { answers: { next: 'go-back', to }, label: `Asked to go back to stage ${to}.` }
+}
+
+// After an answer that was not recorded, the form is answerable again with every pick kept.
+export function afterAttempt(form: Form, s: State): State {
+  if (s.phase !== 'submitted' || form.status !== 'open' || (form.attempt ?? 0) <= (s.sent ?? 0)) return s
+  return { ...s, phase: 'active', sent: form.attempt, control: undefined }
 }
 
 export const unansweredCount = (s: State) => s.answered.filter(a => !a).length

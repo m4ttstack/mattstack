@@ -174,7 +174,8 @@ test('Confirm on the local runner runs the script and reports exit 0 with its ou
 
   expect(spawned.map(s => s.argv)).toEqual([['/bin/zsh', '-lc', 'print -u2 "__human_todo_pid__$$"; ls -la']])
   expect(await state($)).toMatch(/^#1 \[done\]/)
-  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nhello\n```'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user ran #1 "T" from the pane: exit 0\. Output: \/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
   await pane.unmount()
 })
 
@@ -196,7 +197,8 @@ test('a script that exits non-zero fails the item and reports the exit code and 
   await press(pane, '1', 'confirm')
 
   expect(await state($)).toMatch(/^#1 \[failed\]/)
-  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 3.\n```\na\nboom\n```'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user ran #1 "T" from the pane: exit 3\. Output: \/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
   await pane.unmount()
 })
 
@@ -218,7 +220,8 @@ test('Confirm shows the item running at once and the report follows when the run
   await clock.sleeping()
   await clock.advance(500)
   expect(await state($)).toMatch(/^#1 \[done\]/)
-  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nlate\n```'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user ran #1 "T" from the pane: exit 0\. Output: \/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
   await pane.unmount()
 })
 
@@ -643,7 +646,8 @@ test('with the pane closed and nothing drawn, a finished run is still reported',
   await clock.sleeping()
   await clock.advance(1000)
 
-  expect(sent).toEqual(['[Human Todos] The user ran #1 "T" from the pane: exit 0.\n```\nok\n```'])
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatch(/^\[Human Todos\] The user ran #1 "T" from the pane: exit 0\. Output: \/home\/u\/Library\/Caches\/human-todos\/runs\/sess-1-1-\d+\.log$/)
 })
 
 test('Stop during the herdr probe cancels the run: the item is open again and nothing launches', async ($, on) => {

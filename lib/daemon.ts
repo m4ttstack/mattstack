@@ -104,6 +104,8 @@ import { startPollers } from "./daemon/pollers.ts";
 import { startHomeSnapshot } from "./daemon/home-snapshot.ts";
 import { startTeamSnapshots } from "./daemon/team-snapshots.ts";
 import { startAgentStatusPoller } from "./daemon/agent-status-poller.ts";
+import { openKitGateFor, openKitGateForPane } from "./daemon/kit-gate.ts";
+import { setKitGateGuard } from "./daemon/inject.ts";
 import { startNotifyBridge, parseEventBridgeRules, type EventBridgeRule } from "./notify-bridge.ts";
 import { herdrRequest, herdrSocketPath } from "./herdr/client.ts";
 import type { HerdrSnapshot } from "./daemon/handlers/pane.ts";
@@ -699,6 +701,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         mkdirSync(RT_DIR, { recursive: true });
         eventsBus = createEventsBus({ dbPath: join(RT_DIR, "events.db"), log });
         gatesStore = createGatesStore({ dbPath: join(RT_DIR, "gates.db"), log, runExists: runDirExists });
+        setKitGateGuard(openKitGateForPane(gatesStore), log);
         herdStore = createHerdStore({ dbPath: join(RT_DIR, "herds.db"), log });
         bgClaims = createBgClaimsStore({ dbPath: join(RT_DIR, "bg-claims.db"), log });
         // Session id -> socket resolution goes through the claude-registry
@@ -754,6 +757,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         // assigned) must surface as ITS OWN error, not a masking TypeError
         // from stop() reaching into an undefined variable.
         eventsBus?.close();
+        setKitGateGuard(null);
         gatesStore?.close_();
         herdStore?.close_();
         bgClaims?.close_();
@@ -1251,6 +1255,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             emit("event", { id, topic, payload, emittedAt });
           },
           log: loggerHandle.childLogger("agent-status"),
+          openKitGate: openKitGateFor(gatesStore),
         });
 
         // Fills the run outcome cache (MR state, CI, a review's posted label)

@@ -25,3 +25,18 @@ describe("gatePresentation", () => {
     expect(gatePresentation({ paneId: "w1:p1", sessionId: "s", questions: [q(0)] })).toBe("form");
   });
 });
+
+describe("gatePresentation kit", () => {
+  test("kit with pane + session is kit, past the option cap", () => {
+    expect(gatePresentation({ paneId: "p", sessionId: "s", questions: [q(5)], kit: true })).toBe("kit");
+  });
+  test("the same call without kit is wait", () => {
+    expect(gatePresentation({ paneId: "p", sessionId: "s", questions: [q(5)] })).toBe("wait");
+  });
+  test("kit with no session is wait", () => {
+    expect(gatePresentation({ paneId: "p", questions: [q(2)], kit: true })).toBe("wait");
+  });
+  test("kit with no pane is wait", () => {
+    expect(gatePresentation({ sessionId: "s", questions: [q(2)], kit: true })).toBe("wait");
+  });
+});

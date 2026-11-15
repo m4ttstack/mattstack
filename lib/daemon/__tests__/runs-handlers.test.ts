@@ -28,6 +28,21 @@ describe("runs handlers", () => {
     expect(missing.ok).toBe(false);
   });
 
+  test("runs:list and runs:get read a run at an open kit gate as waiting, not stale", async () => {
+    const dir = root();
+    const long = Date.now() - 2 * 60 * 60_000;
+    const fields = [{ key: "claude-session", value: "sess-kit", at: long }];
+    seedRun(dir, "remote:alpha", "20260821-010101-kitg", long, 2, { fields });
+    const plain = createRunsHandlers({ log } as any, noEmit);
+    expect(((await (plain["runs:list"] as any)({})) as any).data.runs[0].attention.reason).toBe("stale");
+
+    const h = createRunsHandlers({ log } as any, noEmit, { openKitGate: (session) => (session === "sess-kit" ? "gate-1" : null) });
+    const list = (await (h["runs:list"] as any)({})) as any;
+    expect(list.data.runs[0].attention).toMatchObject({ needs: true, reason: "blocked" });
+    const get = (await (h["runs:get"] as any)({ runId: "20260821-010101-kitg" })) as any;
+    expect(get.data.run.attention.reason).toBe("blocked");
+  });
+
   test("runs:get without runId is a validation error", async () => {
     const h = createRunsHandlers({ log } as any, noEmit);
     const getHandler = h["runs:get"] as any;

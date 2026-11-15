@@ -188,3 +188,10 @@ describe("dropContextsToFit", () => {
     expect(r.open).toEqual(open);
   });
 });
+
+describe("paneActionFor kit", () => {
+  test("a kit presentation is a kit pane action wherever the pane runs", () => {
+    expect(paneActionFor("kit", { herdr: true, spawned: true })).toBe("kit");
+    expect(paneActionFor("kit", { herdr: false, spawned: false })).toBe("kit");
+  });
+});

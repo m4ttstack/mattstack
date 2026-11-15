@@ -160,6 +160,28 @@ describe("gate:fork-check never counts a pane-attention gate", () => {
   });
 });
 
+describe("gate:fork-check never counts a kit gate", () => {
+  test("a kit gate gate:ask filed from this pane denies by pane and by session", async () => {
+    const { handlers, store } = harness(runSession("r1"));
+    const asked = await handlers["gate:ask"]({
+      questions: questions(), sessionId: SESSION, paneId: PANE, context: "the plan under decision", kitForm: true,
+    });
+    expect(asked.ok).toBe(true);
+    if (!asked.ok) return;
+    expect(store.get(asked.data.id)!.origin?.presentation).toBe("kit");
+    const res = await handlers["gate:fork-check"]({ sessionIds: [SESSION], paneId: PANE });
+    expect(res).toEqual({ ok: true, data: { allow: false, subject: "run:r1" } });
+  });
+
+  test("filed under the launch subject or this worktree's run, it denies", async () => {
+    const { handlers, open } = harness();
+    open(LAUNCH, { origin: { presentation: "kit", paneId: PANE }, nudge: SESSION });
+    open("run:r1", { origin: { presentation: "kit", paneId: PANE, worktree: "/wt/eomer" }, nudge: SESSION });
+    const res = await handlers["gate:fork-check"]({ paneId: PANE, subject: LAUNCH, worktrees: ["/wt/eomer"] });
+    expect(res).toEqual({ ok: true, data: { allow: false } });
+  });
+});
+
 describe("gate:fork-check launch subject rule", () => {
   test("an open gate on the launch subject allows, without walking run DBs", async () => {
     const { handlers, open, seen } = harness(runSession("r1"));

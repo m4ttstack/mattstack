@@ -88,7 +88,7 @@ export const GATE_CLOSED_PHRASE = (id: string, reason: GateRow["closedReason"]) 
     only, so a shepherd reading the doorbell already knows whether Escape
     fires and who is on the hook to answer -- never the opener-set subject. */
 export const GATE_SUBSCRIPTION_PHRASE = (row: Pick<GateRow, "id" | "status" | "origin" | "owner" | "answer">) => {
-  const presentation = row.origin?.presentation ?? "wait";
+  const presentation = row.origin?.presentation === "kit" ? "shown in the kit form" : row.origin?.presentation ?? "wait";
   const owner = row.owner ?? "human";
   const by = row.status === "answered" && row.answer ? ` by ${safeSurface(row.answer.by)}` : "";
   return `[gate] ${row.id} is now ${row.status}${by} (${presentation}, owner ${owner}); re-read the gate registry.`;
