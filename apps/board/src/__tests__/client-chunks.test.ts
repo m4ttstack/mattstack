@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   clientChunkResponse,
+  fixedUrlResponse,
   lazyChunks,
   parseChunkManifest,
   withEarlierChunks,
@@ -115,4 +116,11 @@ test('a rebuild keeps the chunks an open page may still ask for', () => {
       'chunk-new.js': 'new',
     },
   });
+});
+
+test('a fixed-url asset revalidates on every load', async () => {
+  const res = fixedUrlResponse('.a{}', 'text/css; charset=utf-8');
+  expect(res.headers.get('content-type')).toBe('text/css; charset=utf-8');
+  expect(res.headers.get('cache-control')).toBe('no-cache');
+  expect(await res.text()).toBe('.a{}');
 });
