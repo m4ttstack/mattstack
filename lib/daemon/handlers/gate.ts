@@ -368,6 +368,24 @@ type GateSiblingHandlers =
   & { "gate:unsubscribe": (payload: unknown) => Promise<CommandResult<"gate:unsubscribe">> }
   & { "gate:subscriptions": (payload: unknown) => Promise<CommandResult<"gate:subscriptions">> };
 
+const MODE_DECIDER_PREFIX = "mode:";
+
+/** Shape and answer checks for gate:ask's `preAnswer`, run before any row exists so a refusal leaves nothing behind. */
+function parsePreAnswer(
+  raw: unknown,
+  questions: GateQuestion[],
+): { ok: true; preAnswer: { answers: GateAnswer["answers"]; by: string } | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, preAnswer: undefined };
+  if (!isPlainObject(raw)) return { ok: false, error: "preAnswer must be an object with answers and by" };
+  const by = typeof raw.by === "string" ? raw.by.trim() : "";
+  if (!by.startsWith(MODE_DECIDER_PREFIX)) return { ok: false, error: `preAnswer by must start with ${MODE_DECIDER_PREFIX}` };
+  const answers = raw.answers;
+  if (!isPlainObject(answers)) return { ok: false, error: "preAnswer must be an object with answers and by" };
+  const validationError = validateGateAnswers(questions, answers);
+  if (validationError) return { ok: false, error: validationError };
+  return { ok: true, preAnswer: { answers: answers as GateAnswer["answers"], by } };
+}
+
 export function createGateHandlers(
   store: GatesStore,
   bus: EventsBus,
@@ -471,7 +489,7 @@ export function createGateHandlers(
   };
 
   /** `internal` is true only for the daemon's own opens, the one path that may name a gate's id or open a `slack-open` gate. */
-  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false) => {
+  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false, skipPush = false) => {
     const payload = rawPayload as Commands["gate:open"]["payload"] | undefined;
     const subject = typeof payload?.subject === "string" ? payload.subject.trim() : "";
     const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
@@ -573,7 +591,7 @@ export function createGateHandlers(
       }
     }
 
-    firePush(push.onOpened(row), { verb: "gate:open", gateId: row.id });
+    if (!skipPush) firePush(push.onOpened(row), { verb: "gate:open", gateId: row.id });
 
     return { ok: true as const, data: { id: row.id, supersededId } };
   };
@@ -791,6 +809,9 @@ export function createGateHandlers(
     if (!Array.isArray(questions) || questions.length === 0 || !questions.every(isValidQuestion)) {
       return { ok: false as const, error: "invalid questions" };
     }
+    const preAnswerResult = parsePreAnswer(payload?.preAnswer, questions);
+    if (!preAnswerResult.ok) return preAnswerResult;
+    const preAnswer = preAnswerResult.preAnswer;
     const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim() ? payload.sessionId.trim() : undefined;
     const paneId = typeof payload?.paneId === "string" && payload.paneId.trim() ? payload.paneId.trim() : undefined;
     const explicitSubject = typeof payload?.subject === "string" && payload.subject.trim() ? payload.subject.trim() : undefined;
@@ -800,13 +821,13 @@ export function createGateHandlers(
 
     const kind = typeof payload?.kind === "string" && payload.kind.trim() ? payload.kind.trim() : "question";
     const boardOnly = BOARD_ONLY_KINDS.has(kind);
-    const presentation = boardOnly ? "wait" : gatePresentation({ paneId, sessionId, questions, kit: payload?.kitForm === true });
+    const presentation = boardOnly || preAnswer ? "wait" : gatePresentation({ paneId, sessionId, questions, kit: payload?.kitForm === true });
     // Only when a form was otherwise POSSIBLE: a pane-less ask waits for its
     // own reason, and an advisory there would teach the wrong lesson. The
     // gate still opens either way -- an over-cap wait gate is legitimate
     // (remote cards render any option count) -- the caller just learns WHY
     // the in-pane form never appeared, which no skill prose reached.
-    const overCap = paneId && sessionId && !boardOnly && presentation !== "kit"
+    const overCap = paneId && sessionId && !boardOnly && !preAnswer && presentation !== "kit"
       ? questions.filter((q) => q.options.length > GATE_FORM_OPTION_CAP)
       : [];
 
@@ -822,7 +843,7 @@ export function createGateHandlers(
       Object.entries(rawOrigin).filter(([key]) => !CEREMONY_ORIGIN_KEYS.has(key)),
     );
     const derivedOrigin: GateOrigin = { presentation };
-    if (paneId) derivedOrigin.paneId = paneId;
+    if (paneId && !preAnswer) derivedOrigin.paneId = paneId;
     if (resolved.runId) derivedOrigin.runId = resolved.runId;
     const runWorktree = resolved.runWorktree ?? (resolved.runId ? deps.runWorktree?.(resolved.runId) ?? undefined : undefined);
     if (runWorktree) derivedOrigin.worktree = runWorktree;
@@ -835,11 +856,28 @@ export function createGateHandlers(
       ...(isPlainObject(payload?.meta) ? { meta: payload!.meta } : {}),
       ...(typeof payload?.agent === "string" && payload.agent.trim() ? { agent: payload.agent } : {}),
       ...(context !== undefined ? { context } : {}),
-      ...(paneId ? { pane: paneId } : {}),
+      ...(paneId && !preAnswer ? { pane: paneId } : {}),
       ...((presentation === "form" || presentation === "kit") && sessionId ? { nudge: { session: sessionId } } : {}),
       origin,
-    }, false, true);
+    }, false, true, preAnswer !== undefined);
     if (!opened.ok) return opened;
+    if (preAnswer) {
+      // Answered in-store rather than through gate:answer: its owner guard refuses a herd-owned gate, and nothing here may reach a pane or shepherd.
+      const answered = store.answer(opened.data.id, preAnswer.answers, preAnswer.by, {});
+      if (!answered.ok) return { ok: false as const, error: "preAnswer: the gate closed before it could be answered" };
+      const row = answered.row;
+      emitGateEvent(`gate/answered/${row.id}`, {
+        id: row.id, subject: row.subject, kind: row.kind,
+        answers: row.answer?.answers, by: preAnswer.by, paneId: row.pane,
+      }, Date.now());
+      return {
+        ok: true as const,
+        data: {
+          id: row.id, presentation, boardOnly, subject: resolved.subject, supersededId: opened.data.supersededId,
+          preAnswered: true as const, row,
+        },
+      };
+    }
     return {
       ok: true as const,
       data: {

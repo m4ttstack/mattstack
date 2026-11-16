@@ -668,7 +668,7 @@ export function gateAsk(
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["gate:ask"]["data"]>> {
   const payload: Record<string, unknown> = { questions: a.questions };
-  for (const k of ["context", "kind", "subject", "sessionId", "paneId", "meta", "agent", "origin", "kitForm"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  for (const k of ["context", "kind", "subject", "sessionId", "paneId", "meta", "agent", "origin", "kitForm", "preAnswer"] as const) if (a[k] !== undefined) payload[k] = a[k];
   return rtCommand<Commands["gate:ask"]["data"]>("gate:ask", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 

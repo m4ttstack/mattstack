@@ -1386,6 +1386,10 @@ export interface Commands {
           The daemon never reads `rt.gates.kitForm`: the caller sends this only
           when the setting reads on (the gate_ask tool does). */
       kitForm?: boolean;
+      /** Opens the gate already answered, never delivered to a pane or a
+          shepherd. `by` is the decider and must start with `mode:`; the
+          answers get gate:answer's own validation. */
+      preAnswer?: { answers: GateAnswer["answers"]; by: string };
     };
     /** `formCapExceeded`/`formCapAdvisory` appear only when the pane could
         have presented an in-pane form and one or more questions exceeded
@@ -1397,6 +1401,9 @@ export interface Commands {
       id: string; presentation: "form" | "wait" | "kit"; boardOnly: boolean; subject: string; supersededId: string | null;
       formCapExceeded?: Array<{ question: string; options: number }>;
       formCapAdvisory?: string;
+      /** Set only when `preAnswer` was given: the gate is already answered and `row` is its settled row. */
+      preAnswered?: true;
+      row?: GateRow;
     };
   };
   /** The AskUserQuestion hook's verdict for the calling pane: allow only
