@@ -12,11 +12,11 @@
 
 ## Global Constraints
 
-- Mode values, exactly: `every-gate`, `worktree`, `draft-mr`, `checkpoint-free`. Default `every-gate`.
+- Mode values, exactly: `chatty`, `normal`, `quiet`, `yolo`. Default `chatty`.
 - Reach values, exactly: `worktree`, `draft`, `teammates`, `public`. `public` never answers itself in any mode.
-- Mode allows: `worktree` -> {worktree}; `draft-mr` -> {worktree, draft}; `checkpoint-free` -> {worktree, draft, teammates}; `every-gate` -> {}.
-- A mode's decider string is `mode:<mode>` (e.g. `mode:draft-mr`), on both the gate answer's `by` and the run's gate@1 decision.
-- Run field for the per-run override: `gate-mode`. It wins over the setting. An unknown value reads as `every-gate`.
+- Mode allows: `normal` -> {worktree}; `quiet` -> {worktree, draft}; `yolo` -> {worktree, draft, teammates}; `chatty` -> {}.
+- A mode's decider string is `mode:<mode>` (e.g. `mode:quiet`), on both the gate answer's `by` and the run's gate@1 decision.
+- Run field for the per-run override: `gate-mode`. It wins over the setting. An unknown value reads as `chatty`.
 - The repo is public: no team, pack, ticket or employer names in code, tests, fixtures, commits or PR text.
 - Run `bun test` from the repo root only (AGENTS.md); run only the targeted test files you touch.
 - Any edit under `plugins/mattstack` loads superpowers:writing-skills and mattstack:editing-skills first, bumps `plugins/mattstack/.claude-plugin/plugin.json`'s version, and an edit under `attachments/gate-protocol` also runs `bun run skills:expand:board` and commits `apps/board/skills`.
@@ -31,7 +31,7 @@
 - A herd worker's gate (owner `herd:<id>`) in a mode that allows it: the pre-answered open must succeed and must not push to the shepherd.
 - The daemon receiving `preAnswer` with a `by` that is not `mode:*`, or answers that fail validation: must refuse the open, never open an unanswered gate silently.
 
-Also tested in their tasks: a gate with one unrecommended question asks; a `gate-mode` typo reads as `every-gate`.
+Also tested in their tasks: a gate with one unrecommended question asks; a `gate-mode` typo reads as `chatty`.
 
 ---
 
@@ -60,13 +60,13 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 - Test: the settings registry tests the rt:settings skill names
 
 **Interfaces:**
-- Produces: setting `rt.work.gateMode` (string enum of the four modes, scopes `["user", "machine"]`, default `"every-gate"`, merge `replace`); setting `rt.work.gateModeShadow` (boolean, scopes `["user", "machine"]`, default `false`, merge `replace`).
+- Produces: setting `rt.work.gateMode` (string enum of the four modes, scopes `["user", "machine"]`, default `"chatty"`, merge `replace`); setting `rt.work.gateModeShadow` (boolean, scopes `["user", "machine"]`, default `false`, merge `replace`).
 
 - [ ] **Step 1:** Load the rt:settings skill and follow its procedure for adding a key.
-- [ ] **Step 2: Write the failing test** asserting `getSetting("rt.work.gateMode").value === "every-gate"` and `getSetting("rt.work.gateModeShadow").value === false` with no stores set, and that writing `"draft_mr"` is refused by the schema.
+- [ ] **Step 2: Write the failing test** asserting `getSetting("rt.work.gateMode").value === "chatty"` and `getSetting("rt.work.gateModeShadow").value === false` with no stores set, and that writing `"quite"` is refused by the schema.
 - [ ] **Step 3:** Run it; expect FAIL (unknown key).
 - [ ] **Step 4:** Add both defs. Descriptions (plain copy, rt:ui-copy):
-  - `rt.work.gateMode`: "How much a work run stops to ask you. every-gate asks at every gate; worktree, draft-mr and checkpoint-free let more gates go ahead on the agent's recommendation. A run can set its own mode."
+  - `rt.work.gateMode`: "How much a work run stops to ask you. chatty asks at every gate; normal, quiet and yolo let more gates go ahead on the agent's recommendation. A run can set its own mode."
   - `rt.work.gateModeShadow`: "Record what your gate mode would have picked while every gate still asks you. For trying a mode before trusting it."
 - [ ] **Step 5:** Update the schema lock as the skill directs; run the test and the registry lock test; expect PASS.
 - [ ] **Step 6: Commit** `settings: add rt.work.gateMode and rt.work.gateModeShadow`.
@@ -80,9 +80,9 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 **Interfaces:**
 - Consumes: `GateQuestion` from `packages/rt-client/src/index.ts`; `DecisionRow` from `lib/gates/record.ts`.
 - Produces:
-  - `type GateMode = "every-gate" | "worktree" | "draft-mr" | "checkpoint-free"`
+  - `type GateMode = "chatty" | "worktree" | "quiet" | "yolo"`
   - `type Reach = "worktree" | "draft" | "teammates" | "public"`
-  - `parseMode(v: unknown): GateMode` (unknown -> `"every-gate"`)
+  - `parseMode(v: unknown): GateMode` (unknown -> `"chatty"`)
   - `parseReach(v: unknown): Reach | null`
   - `modeAllows(mode: GateMode, reach: Reach): boolean`
   - `effectiveMode(runFieldValue: string | undefined, settingValue: unknown): GateMode`
@@ -93,11 +93,11 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
   - `digestSince(decisions: DecisionRow[]): number` (newest `decided_at` among gate@1 decisions whose `decided_by` does not start with `mode:`, else 0)
 
 - [ ] **Step 1: Write the failing tests** (one `test` each; build questions with a small `q(id, options, multi?)` helper):
-  - `every-gate never answers`: mode every-gate, reach worktree, all recommended -> `kind: "ask"`.
-  - `draft-mr answers a worktree gate`: options `[{value:"direct-tdd",label:"direct-tdd (Recommended)"},{value:"superpowers",label:"Superpowers"}]` plus `next` with `proceed` recommended -> `{kind:"answer", answers:{tier:"direct-tdd", next:"proceed"}}`.
+  - `chatty never answers`: mode chatty, reach worktree, all recommended -> `kind: "ask"`.
+  - `quiet answers a worktree gate`: options `[{value:"direct-tdd",label:"direct-tdd (Recommended)"},{value:"superpowers",label:"Superpowers"}]` plus `next` with `proceed` recommended -> `{kind:"answer", answers:{tier:"direct-tdd", next:"proceed"}}`.
   - `lowercase suffix counts`: label `"Post reply (recommended)"` is recommended.
   - `recommended flag counts`: `{value:"x",label:"x",recommended:true}`.
-  - `draft-mr asks on teammates reach`, `public never answers in checkpoint-free`, `undeclared reach asks` (reach null).
+  - `quiet asks on teammates reach`, `public never answers in yolo`, `undeclared reach asks` (reach null).
   - `one question without a recommendation asks`.
   - `hand-back recommendation asks`: a question whose recommended value is `handback` (also `abandon`, `iterate`, `go-back`, `hold`) -> ask (Review Focus 3).
   - `a gate with no next question answers`: one recommended question, no `next` -> `kind: "answer"`, and `"next" in answers === false` (Review Focus 1).
@@ -108,8 +108,8 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
   - `needsOperator asks` with reason containing the given text.
   - `boards context asks`: context containing `boards@1`.
   - `review pipeline asks`: pipeline `review`.
-  - `effectiveMode`: run field `worktree` beats setting `draft-mr`; run field `draft_mr` -> `every-gate`; no run field -> setting; bad setting -> `every-gate`.
-  - `modeDigest`: two `mode:draft-mr` gate@1 decisions after `sinceAt` and one `pane` gate@1 decision -> string listing exactly the two scopes with their selections, one line each; none after `sinceAt` -> `null`; a non-gate@1 decision (`execution-strategy@1`) is never listed.
+  - `effectiveMode`: run field `normal` beats setting `quiet`; run field `quite` -> `chatty`; no run field -> setting; bad setting -> `chatty`.
+  - `modeDigest`: two `mode:quiet` gate@1 decisions after `sinceAt` and one `pane` gate@1 decision -> string listing exactly the two scopes with their selections, one line each; none after `sinceAt` -> `null`; a non-gate@1 decision (`execution-strategy@1`) is never listed.
   - `digestSince`: newest `decided_at` among gate@1 decisions not decided by `mode:*`; an `execution-strategy@1` decision by `stage-plan` after a mode decision does not move it (Review Focus 2).
 - [ ] **Step 2:** `bun test lib/gates/__tests__/mode.test.ts`; expect FAIL (module missing).
 - [ ] **Step 3:** Implement `lib/gates/mode.ts`. Forward-only rule: the stop verbs are `handback`, `hand-back`, `abandon`, `iterate`, `go-back`, `hold`, matched on the recommended option's value before any `:` (values like `iterate: ...` count). A `next` question is optional: when present it must recommend `proceed` or `done`; when absent the rule passes. The answers contain exactly the questions the gate asked, never an added `next`. Options may be strings or objects (`GateOption`). Digest line shape: `- <scope>: <key>=<value>, ...` under a first line `Decided without you since your last answer:`.
@@ -129,7 +129,7 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 - Side effects of a pre-answered open, exactly: the row is written and answered; the `gate/opened` and `gate/answered` events are emitted (the feed in phase 2 reads `gate/answered` with a `mode:` by). No `push.onOpened`, no `push.onAnswered`, no `firePostAnswerEffects` (so no `dispatchGuarantee`, nothing resumed). `openGate` gains a `skipPush` option for this.
 
 - [ ] **Step 1: Write the failing tests** (the harness passes no `push` today; inject a spy `push` with `onOpened`/`onAnswered` and a spy guarantee dispatcher):
-  - `preAnswer opens an answered gate with no delivery`: response `preAnswered: true`, `row.status === "answered"`, `row.answer.by === "mode:draft-mr"`, `row.nudge` absent; `onOpened`, `onAnswered` and the guarantee dispatcher never called; both events emitted.
+  - `preAnswer opens an answered gate with no delivery`: response `preAnswered: true`, `row.status === "answered"`, `row.answer.by === "mode:quiet"`, `row.nudge` absent; `onOpened`, `onAnswered` and the guarantee dispatcher never called; both events emitted.
   - `preAnswer on a herd-owned subject answers without pushing to the shepherd` (owner `herd:h1`, no session) (Review Focus 4).
   - `preAnswer with by "pane" is refused` with error `preAnswer by must start with mode:` and no row created (Review Focus 5).
   - `preAnswer with an answer that is not an option is refused` with the existing validation error and no row created.
@@ -151,21 +151,21 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 - If `run.decision` fails after the daemon has answered the gate, the answered result still returns, with the failure in `runErrors`.
 - Produces:
   - `RunSnapshot.pipeline: string | null` (from the snapshot body's `run.pipeline`).
-  - `GateToolDeps.gateMode: () => { mode: unknown; shadow: unknown }` (real: `getSetting("rt.work.gateMode").value`, `getSetting("rt.work.gateModeShadow").value`; a throw reads as every-gate, no shadow).
+  - `GateToolDeps.gateMode: () => { mode: unknown; shadow: unknown }` (real: `getSetting("rt.work.gateMode").value`, `getSetting("rt.work.gateModeShadow").value`; a throw reads as chatty, no shadow).
   - `GateToolDeps.headCommit: (worktree: string) => Promise<string | null>` (real: `git -C <worktree> rev-parse HEAD` via `childEnv()`; null on failure).
   - `gate_ask` / `gate_open` inputs `reach?: string` (one of the four) and `needsOperator?: string`.
   - Auto-answered result: `{ id, paneAction: "answered", status: "answered", decidedBy: "mode:<mode>", answers, next, writeIn: [], actOnWriteIn: false }`.
   - Gate `meta` keys written on every run gate: `reach`, `headCommit`; on a shadow open also `shadowAnswer` and `shadowMode`.
 
 - [ ] **Step 1: Write the failing tests** (use the file's existing fake deps; add `gateMode` and `headCommit` fakes):
-  - `draft-mr auto-answers a worktree gate under a work run`: `ask` receives `preAnswer.by === "mode:draft-mr"`; `run.decision` called with scope and the answers and by `mode:draft-mr`; result `paneAction === "answered"`; no `waiting-gate` field write.
+  - `quiet auto-answers a worktree gate under a work run`: `ask` receives `preAnswer.by === "mode:quiet"`; `run.decision` called with scope and the answers and by `mode:quiet`; result `paneAction === "answered"`; no `waiting-gate` field write.
   - `run field gate-mode beats the setting`.
   - `shadow opens normally and records the would-be answer in meta`: `ask` has no `preAnswer`, `meta.shadowAnswer` equals the answers, result `paneAction` is not `answered`.
   - `needsOperator prefixes the context`: context sent starts with `Needs you: ` + the reason.
   - `no runDb never auto-answers`.
   - `meta carries reach and headCommit` on an asking gate.
   - `an invalid reach input is refused` with `"reach" must be one of worktree, draft, teammates, public`.
-  - `gate_open forwards reach and needsOperator`: a `gate_open` with `reach: "worktree"` under draft-mr auto-answers; one with `needsOperator` shows `Needs you: ` at the start of the returned `formContext`.
+  - `gate_open forwards reach and needsOperator`: a `gate_open` with `reach: "worktree"` under quiet auto-answers; one with `needsOperator` shows `Needs you: ` at the start of the returned `formContext`.
   - `a failed run decision after a pre-answer returns runErrors`.
 - [ ] **Step 2:** `bun test lib/mcp/__tests__/gate-tools.test.ts`; expect FAIL.
 - [ ] **Step 3:** In `askGate`, after the run resolves and the questions are shaped: read the run's `gate-mode` field and `worktree` field from `run.snapshot.fields`, compute the decision; on `answer` and not shadow, send `preAnswer` and record the decision with `run.decision(scope, normalizeAnswers(answers), by)`, then return the answered result; on `answer` with shadow, open normally with the shadow meta; merge `reach`/`headCommit` into `payload.meta` beside `kitControls`.
@@ -199,11 +199,11 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 
 **Interfaces:**
 - Produces:
-  - `run_start` input `gateMode?: string`; when absent, `run_start` reads env `RT_GATE_MODE`. A valid value writes run field `gate-mode` after the run starts. An invalid explicit `gateMode` is refused before the run starts with `"gateMode" must be one of every-gate, worktree, draft-mr, checkpoint-free`; an invalid `RT_GATE_MODE` is ignored (no field written).
+  - `run_start` input `gateMode?: string`; when absent, `run_start` reads env `RT_GATE_MODE`. A valid value writes run field `gate-mode` after the run starts. An invalid explicit `gateMode` is refused before the run starts with `"gateMode" must be one of chatty, normal, quiet, yolo`; an invalid `RT_GATE_MODE` is ignored (no field written).
   - `herd_spawn` input `gateMode?: string` (same validation and refusal); the daemon puts it in the worker's env as `RT_GATE_MODE` beside `HERD_ID`, so the worker's `run_start` picks it up with no skill change.
   - The work verb's invocation is unchanged: a solo run uses the setting or `run_field_set gate-mode`; the console launcher passes `gateMode` in phase 3.
 
-- [ ] **Step 1: Write the failing tests:** `run_start` valid value writes the field; invalid value refuses and starts nothing; env `RT_GATE_MODE=worktree` with no input writes `worktree`; env `bogus` writes nothing; `herd_spawn` with `gateMode` puts `RT_GATE_MODE` in the spawned worker's env; invalid `gateMode` refuses the spawn.
+- [ ] **Step 1: Write the failing tests:** `run_start` valid value writes the field; invalid value refuses and starts nothing; env `RT_GATE_MODE=normal` with no input writes `normal`; env `bogus` writes nothing; `herd_spawn` with `gateMode` puts `RT_GATE_MODE` in the spawned worker's env; invalid `gateMode` refuses the spawn.
 - [ ] **Step 2:** Run; expect FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run; expect PASS. Regenerate the MCP reference.
@@ -223,7 +223,7 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 - [ ] **Step 1:** Load superpowers:writing-skills and mattstack:editing-skills. Take the RED baseline the writing-skills skill requires: a gated verb given an `answered` result today has no branch for it.
 - [ ] **Step 2:** Add to the flowchart: `pane_action -->|answered: decided by a mode| answered_by_mode` and `answered_by_mode --> act_on_answer`. The block says: the gate is already answered and recorded; act on `answers` at the site; never open it again, never present it.
 - [ ] **Step 3:** Carry reach through the protocol: the `gate_ask` node becomes `gate_ask {questions, kind: <scope>, context?, subject?, runDb?, stage?, reach?, needsOperator?}`; `build-questions.block.md` and `runs-integration.block.md` say a site names its reach as "Runs integration with kind `<scope>`, reach `<reach>`" and that the walk passes it as `reach`; a site that names none passes none.
-- [ ] **Step 4:** In each generic pipeline gate site, name reach per open: plan, clarify, evidence plan, self-review, CI fix, close -> `worktree`; ship -> `draft` while the MR is a draft, `teammates` when a force-push would hit a ready MR; mark-ready -> `teammates`; evidence boards and redaction -> `public`; off-script and failure opens -> none. The close report site lists the run's `mode:` decisions (from `run_snapshot`) when the run's mode is `checkpoint-free`, since no gate is left to carry the digest.
+- [ ] **Step 4:** In each generic pipeline gate site, name reach per open: plan, clarify, evidence plan, self-review, CI fix, close -> `worktree`; ship -> `draft` while the MR is a draft, `teammates` when a force-push would hit a ready MR; mark-ready -> `teammates`; evidence boards and redaction -> `public`; off-script and failure opens -> none. The close report site lists the run's `mode:` decisions (from `run_snapshot`) when the run's mode is `yolo`, since no gate is left to carry the digest.
 - [ ] **Step 5:** Add `needsOperator` guidance to the plan and evidence-plan sites (and any site whose questions carry domain or product choices): set it, with a one-line reason, when a recommendation turns on a product or people call (what a ticket's author or PM meant, a flag key or value from a conversation, a follow-up ticket, scope beyond the ticket), even when the step has a recommendation.
 - [ ] **Step 6:** `bun run skills:expand:board`; `bun cli.ts skills check --pack-dir "$PWD/plugins/mattstack" --mattstack-dir "$(mktemp -d)/mattstack" --strict` (the form `.github/workflows/checks.yml:440` runs, with a scratch dir for `--mattstack-dir`); expect clean.
 - [ ] **Step 7:** GREEN check per writing-skills.
@@ -240,6 +240,6 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 
 ### Task 9: End-to-end check on a scratch run
 
-- [ ] **Step 1:** Under an isolated HOME (AGENTS.md), start the daemon from this worktree, start a run with `gateMode: "draft-mr"`, open a plan gate with `reach: "worktree"` and a recommended tier: expect `paneAction: "answered"` and a gate row answered by `mode:draft-mr`.
+- [ ] **Step 1:** Under an isolated HOME (AGENTS.md), start the daemon from this worktree, start a run with `gateMode: "quiet"`, open a plan gate with `reach: "worktree"` and a recommended tier: expect `paneAction: "answered"` and a gate row answered by `mode:quiet`.
 - [ ] **Step 2:** Open a mark-ready gate with `reach: "teammates"`: expect it to ask, with the digest line for the plan decision in its context.
 - [ ] **Step 3:** Record the commands and outputs in the PR body. No commit.

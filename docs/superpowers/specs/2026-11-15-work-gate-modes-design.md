@@ -69,10 +69,10 @@ One setting, user scope, with a per-run override:
 
 | Mode | Gates that may answer themselves |
 |---|---|
-| `every-gate` | none (today's behavior; the default) |
-| `worktree` | reach `worktree` |
-| `draft-mr` | reach `worktree` and `draft` |
-| `checkpoint-free` | reach `worktree`, `draft` and `teammates` |
+| `chatty` | none (today's behavior; the default) |
+| `normal` | reach `worktree` |
+| `quiet` | reach `worktree` and `draft` |
+| `yolo` | reach `worktree`, `draft` and `teammates` |
 
 A gate's **reach** is how far its outcome travels:
 
@@ -167,12 +167,12 @@ board, shepherd) sees an answered gate.
 Every gate that reaches the operator in a run opens with what the mode
 decided since the operator last answered a gate in that run: the step, the
 question, the option taken, and for self-review the findings fixed and
-waived. The gate where the mode stops (mark-ready under `draft-mr`, ship
-under `worktree`) therefore carries the run's full list. Because the digest
+waived. The gate where the mode stops (mark-ready under `quiet`, ship
+under `normal`) therefore carries the run's full list. Because the digest
 belongs on every asking gate, it is a gate-protocol feature: rt supplies the
 decisions (run snapshot, `mode:` decider, since the last human answer) and
 the shared gate protocol renders them, rather than each step rendering its
-own. Under `checkpoint-free`, the full list goes into the run's close
+own. Under `yolo`, the full list goes into the run's close
 report.
 
 ## Phase 2: live feed, Pause and Redo
@@ -320,7 +320,7 @@ direction; confirm.)
 ## Decided with the operator
 
 - Scope is work runs only; review and respond runs are separate.
-- The operator's chosen everyday line is `draft-mr`.
+- The operator's chosen everyday line is `quiet`.
 - Modes are an rt setting with a per-run override, not a one-off rollout.
 - Decisions answer instantly, and also post to a live feed.
 - The feed can Pause and Redo; on Redo the worker decides what to do with
