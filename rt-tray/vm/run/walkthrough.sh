@@ -409,7 +409,10 @@ cp -R "$VM_ROOT/run/guest" "$VM_RUN_DIR/in/guest"; cp "$VM_ROOT/../../scripts/e2
 START_BIN="$GUEST_BIN"
 if [ -n "$START_REF" ]; then
   mkdir -p "$VM_RUN_DIR/in/start-src"
-  git -C "$VM_ROOT/../.." archive "$START_REF" rt-tray/vm/run/guest | tar -x -C "$VM_RUN_DIR/in/start-src" \
+  # Through a file, never a pipe: bsdtar stops at the archive's end marker, git
+  # takes SIGPIPE on the padding after it, and pipefail fails the copy.
+  { git -C "$VM_ROOT/../.." archive --format=tar -o "$VM_RUN_DIR/in/start-src.tar" "$START_REF" rt-tray/vm/run/guest \
+    && tar -xf "$VM_RUN_DIR/in/start-src.tar" -C "$VM_RUN_DIR/in/start-src" && rm -f "$VM_RUN_DIR/in/start-src.tar"; } \
     || { vm_phase_end preflight fail "could not read the guest scripts at $START_REF"; exit 1; }
   mv "$VM_RUN_DIR/in/start-src/rt-tray/vm/run/guest" "$VM_RUN_DIR/in/guest/start"; rm -rf "$VM_RUN_DIR/in/start-src"
   START_BIN="$GUEST_BIN/start"
