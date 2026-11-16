@@ -59,6 +59,8 @@ function leftover({ left, firstError }: Rollback): string {
   return firstError === undefined ? '' : `; pending comments could not be listed, so one may still be on the MR${cause}`;
 }
 
+const isTimeout = (err: unknown): boolean => (err as { name?: unknown } | null)?.name === 'TimeoutError';
+
 /**
  * One GitLab review as one sequence: refuse on the caller's own pending
  * comments, create every comment and reply as a pending comment, publish
@@ -108,12 +110,27 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
     return deleteAll(ids);
   };
 
+  /**
+   * A timed-out create may still have landed. Creates run one at a time, so a
+   * pending comment missing from `created` is this one, and only a create
+   * that left nothing behind is sent again.
+   */
+  const create = async (body: string, opts: Parameters<GitLabReviewDeps['mutator']['createDraftNote']>[3]) => {
+    try {
+      return await mutator.createDraftNote(project, iid, body, opts);
+    } catch (err) {
+      if (!isTimeout(err)) throw err;
+      const landed = (await mutator.listDraftNotes(project, iid)).find((d) => !created.includes(d.id));
+      return landed ?? (await mutator.createDraftNote(project, iid, body, opts));
+    }
+  };
+
   const badAnchors: Array<{ index: number; path: string; line: number }> = [];
   try {
     if (review.comments.length > 0) {
       const refs = await mutator.fetchDiffRefs(project, iid);
       for (const [index, c] of review.comments.entries()) {
-        const d = await mutator.createDraftNote(project, iid, c.body, { position: buildTextPosition(c, refs) });
+        const d = await create(c.body, { position: buildTextPosition(c, refs) });
         created.push(d.id);
         if (d.line_code === null) badAnchors.push({ index, path: c.path, line: (c.line ?? c.oldLine) as number });
       }
@@ -121,7 +138,7 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
     if (badAnchors.length === 0) {
       for (const r of review.replies) {
         if (r.body === undefined) continue;
-        const d = await mutator.createDraftNote(project, iid, r.body, {
+        const d = await create(r.body, {
           inReplyToDiscussionId: r.discussionId,
           resolveDiscussion: r.resolve
         });
@@ -129,7 +146,7 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
       }
     }
   } catch (err) {
-    throw new Error(`review not posted: ${String(err)}${leftover(await rollback())}`);
+    throw new Error(`review not posted: ${String(err)}${leftover(await rollback()) || '; rolled back, nothing was posted'}`);
   }
   if (badAnchors.length > 0) {
     const rb = await rollback();

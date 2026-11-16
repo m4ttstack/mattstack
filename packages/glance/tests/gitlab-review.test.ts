@@ -191,7 +191,53 @@ describe('submitGitLabReview', () => {
       if (body === 'c2') throw new Error('socket hang up');
       return d;
     };
-    await expect(submitGitLabReview(f.deps, INPUT)).rejects.toThrow(/review not posted: Error: socket hang up$/);
+    await expect(submitGitLabReview(f.deps, INPUT)).rejects.toThrow(/review not posted: Error: socket hang up; rolled back, nothing was posted$/);
+    expect(f.pending()).toEqual([]);
+  });
+
+  const timeout = () => Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' });
+
+  test('a create that times out before landing is retried once and the review posts', async () => {
+    const f = fake();
+    const create = f.deps.mutator.createDraftNote;
+    let tries = 0;
+    f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+      if (body === 'c2' && tries++ === 0) throw timeout();
+      return create(p, i, body, opts);
+    };
+    const out = await submitGitLabReview(f.deps, INPUT);
+    expect(out.published).toBe(true);
+    expect(f.log.filter((l) => l === 'comment:src/b.ts:9')).toHaveLength(1);
+  });
+
+  test('a create that lands and then times out is kept, not posted twice', async () => {
+    const f = fake();
+    const create = f.deps.mutator.createDraftNote;
+    let tries = 0;
+    f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+      const d = await create(p, i, body, opts);
+      if (body === 'c2' && tries++ === 0) throw timeout();
+      return d;
+    };
+    let published: string[] = [];
+    const publish = f.deps.mutator.publishDraftNotes;
+    f.deps.mutator.publishDraftNotes = async (p, i, o) => {
+      published = f.pending().map((d) => d.note);
+      return publish(p, i, o);
+    };
+    const out = await submitGitLabReview(f.deps, INPUT);
+    expect(out.published).toBe(true);
+    expect(published.filter((n) => n === 'c2')).toHaveLength(1);
+  });
+
+  test('a create that times out twice rolls back and says nothing was posted', async () => {
+    const f = fake();
+    const create = f.deps.mutator.createDraftNote;
+    f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+      if (body === 'c2') throw timeout();
+      return create(p, i, body, opts);
+    };
+    await expect(submitGitLabReview(f.deps, INPUT)).rejects.toThrow(/review not posted: .*timed out.*; rolled back, nothing was posted$/);
     expect(f.pending()).toEqual([]);
   });
 
