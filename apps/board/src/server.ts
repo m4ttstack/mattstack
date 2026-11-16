@@ -55,6 +55,7 @@ import { IS_PACKAGED } from './app-root.ts';
 import { SnapshotCache } from './cache.ts';
 import {
   clientChunkResponse,
+  fixedUrlResponse,
   getClientAssets,
   watchClientAssets,
   withEarlierChunks,
@@ -2362,31 +2363,26 @@ const httpServer = Bun.serve({
         });
       }
       case '/':
-        return new Response(shell, {
-          headers: { 'content-type': 'text/html; charset=utf-8' },
-        });
+        return fixedUrlResponse(shell, 'text/html; charset=utf-8');
       // tui-kit's tokens + page canvas, bundled out of client/main.tsx. Linked
       // ahead of /style.css: the token block lives in @layer soribashi.tokens,
       // and canvas.css is unlayered but earlier, so the board's own unlayered
       // rules still win every conflict.
       case '/app.css':
-        return new Response(clientAssets.appCss, {
-          headers: { 'content-type': 'text/css; charset=utf-8' },
-        });
+        return fixedUrlResponse(clientAssets.appCss, 'text/css; charset=utf-8');
       case '/style.css': {
         const css = IS_PACKAGED ? styleCss : readFileSync(cssPath, 'utf-8');
-        return new Response(css, {
-          headers: { 'content-type': 'text/css; charset=utf-8' },
-        });
+        return fixedUrlResponse(css, 'text/css; charset=utf-8');
       }
       case '/favicon.svg':
         return new Response(favicon, {
           headers: { 'content-type': 'image/svg+xml; charset=utf-8' },
         });
       case '/app.js':
-        return new Response(clientAssets.appJs, {
-          headers: { 'content-type': 'text/javascript; charset=utf-8' },
-        });
+        return fixedUrlResponse(
+          clientAssets.appJs,
+          'text/javascript; charset=utf-8'
+        );
     }
     const chunk = clientChunkResponse(pathname, clientAssets.chunks);
     if (chunk) return chunk;

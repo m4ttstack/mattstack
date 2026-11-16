@@ -24,6 +24,15 @@ export function lazyChunks(
 /** A request for one of the bundle's code-split chunks: the chunk, cached
     for good since its name is its content hash, or a 404. Null for every
     other path. */
+/** The shell and the assets it links by a fixed name (/app.js, /app.css,
+    /style.css): without a validator header a webview may reuse a stale copy
+    across deploys, so a merged UI fix never reaches it. */
+export function fixedUrlResponse(body: string, contentType: string): Response {
+  return new Response(body, {
+    headers: { 'content-type': contentType, 'cache-control': 'no-cache' },
+  });
+}
+
 export function clientChunkResponse(
   pathname: string,
   chunks: ClientChunks
