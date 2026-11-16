@@ -17,7 +17,7 @@ import { DATA_README, DATA_README_REL, markerState, ORG_LAYOUT, POINTER_REL, poi
 import { checkedOutBranch } from "./org-branch.ts";
 import { dataBranchRefspec, DEFAULT_DATA_BRANCH, POINTER_BRANCH } from "./org-data-branch.ts";
 import { publishTeam } from "./publish.ts";
-import { storedForgeToken } from "./stored-forge-token.ts";
+import { confirmedForgeHost, storedForgeToken } from "./stored-forge-token.ts";
 import { dirname, join } from "path";
 import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey, renderSopsYamlFor } from "../home/age-key.ts";
 import { TEAM_PATH_REGEX } from "../secrets/team-store.ts";
@@ -29,7 +29,7 @@ import { readIntent, writeIntent } from "../setup/intent.ts";
 import { gitUsable } from "../setup/home-git.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { forgeFromHost, forgeFromRemote, parseOriginUrl, probeUserSettingsReader, readUserIntegrationOverrides, stripUserinfo } from "../setup/team-settings.ts";
-import { mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
+import { mayOfferTokenToHost, storedTokenRefusal, tokenLookupRemoteForHost } from "./forge-token.ts";
 import { createForgeRepo, githubTokenLogin, hostMismatch } from "./create-repo.ts";
 import { withoutUrls } from "./redact.ts";
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
@@ -99,6 +99,8 @@ async function creatorUsername(p: Probes, slug: string, remote: string, seams: C
   if (recorded) return recorded;
   const forge = forgeFromRemote(remote);
   if (!forge) return p.env.USER ?? null;
+  // The token seam setup passes is not gated, and glab would hand it to whatever host the remote names.
+  if (storedTokenRefusal(remote, confirmedForgeHost(p)) !== null) return null;
   return seams.forgeLogin(p, forge.provider, forge.host, await seams.forgeToken(p, remote));
 }
 
