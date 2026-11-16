@@ -19,7 +19,7 @@ describe('pickerWorktrees', () => {
       wt('/golden/gl-x', 'rt/golden'),
       wt('/u/.cache/gitq/work/abc/gitq-1', null),
       wt('/pool/.trash/old', 'feature/old'),
-      wt('/pool/bill', 'cv-3979-overview'),
+      wt('/pool/bill', 'feature/overview-tab'),
     ];
     expect(pickerWorktrees(rows, all).map((r) => r.name)).toEqual(['hogwarts', 'bill']);
   });
