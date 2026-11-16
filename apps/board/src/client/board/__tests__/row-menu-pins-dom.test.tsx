@@ -228,7 +228,7 @@ test('alt-click on a launch opens the note box and Enter launches with the note'
     [
       "# note for review !1418",
       "[note box]",
-      "↵ launch with note · ⇧↵ newline · esc back",
+      "↵ launch with note | ⇧↵ newline | esc back",
     ]
   `);
   await typeNote('focus on the migration');

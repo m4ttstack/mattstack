@@ -263,8 +263,8 @@ test('the previous-gate control calls onBack, the next-gate control calls onNext
 });
 
 test('the next-gate title rides the count tooltip', async () => {
-  await renderModal(twoQuestions(), '!52 · add retry to the fetch queue');
+  await renderModal(twoQuestions(), '!52 • add retry to the fetch queue');
   expect($('.tui-gate-queue-pos')?.getAttribute('title')).toBe(
-    'next: !52 · add retry to the fetch queue'
+    'next: !52 • add retry to the fetch queue'
   );
 });

@@ -65,7 +65,7 @@ export function historyOutcome(view: Pick<AskCardData, 'kind' | 'handled'>): {
   }
   const done = DONE[view.kind];
   return {
-    text: h?.reason === 'always-allowed' ? `${done} · always allowed` : done,
+    text: h?.reason === 'always-allowed' ? `${done} • always allowed` : done,
     tone: 'ok',
   };
 }

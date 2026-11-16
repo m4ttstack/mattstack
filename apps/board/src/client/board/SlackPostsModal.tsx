@@ -2,6 +2,7 @@ import { ListGroup, Modal } from '@mattstack/tui-kit';
 import type { BoardMRWithReview } from '../types.ts';
 import { ago, cleanTitle, getSlackMarks } from './format.ts';
 import { mrRef } from './MrLinks.tsx';
+import { Sep, withSeps } from './Sep.tsx';
 import { slackLadder } from './slack-ladder.ts';
 import type { SlackPostLink } from './slack-posts.ts';
 
@@ -24,7 +25,13 @@ function SlackPostsModal({
     mr.ownerTeams?.find(t => t.channel === channel)?.team;
   return (
     <Modal
-      title={<>❯ open in slack · {mrRef(mr)}</>}
+      title={
+        <>
+          ❯ open in slack
+          <Sep />
+          {mrRef(mr)}
+        </>
+      }
       ariaLabel={`open ${mrRef(mr)} in slack`}
       onClose={onClose}
       className="tui-owners-modal"
@@ -51,7 +58,7 @@ function SlackPostsModal({
                   {who && <span className="tui-owners-sections">{who}</span>}
                 </>
               }
-              value={[stage, when].filter(Boolean).join(' · ') || undefined}
+              value={stage || when ? withSeps([stage, when]) : undefined}
               onClick={() => {
                 onOpen(post.permalink);
                 onClose();

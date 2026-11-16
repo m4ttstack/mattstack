@@ -425,9 +425,10 @@ test('an answered respond gate on a legacy respond row keeps its round meta', as
     ...MR,
     respond: { status: 'done' },
   } as unknown as BoardMRWithReview);
-  expect($('.tui-sheet-context-meta')?.textContent).toBe(
-    'round 2 · both valid'
-  );
+  expect($('.tui-sheet-context-meta')?.textContent).toBe('round 2 both valid');
+  expect(
+    $('.tui-sheet-context-meta')!.querySelectorAll('.tui-sep').length
+  ).toBe(1);
 });
 
 test('an answered per-thread post shows the reply as posted, edited text included', async () => {
@@ -535,7 +536,7 @@ test('an answered respond post names each thread once and docks what was picked 
       r.querySelector('.tui-sheet-card-text')?.textContent,
     ])
   ).toEqual([
-    ['post · resolve', 'queue/enqueue.ts:88'],
+    ['post • resolve', 'queue/enqueue.ts:88'],
     ['post', 'queue/retry.ts:12'],
     ['hold', 'queue/backoff.ts:4'],
     ['post', 'Overview comment'],

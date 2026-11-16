@@ -45,7 +45,7 @@ describe('ask copy', () => {
       tone: 'ok',
     });
     expect(h({ result: 'launched', reason: 'always-allowed' })).toEqual({
-      text: 'reviewed · always allowed',
+      text: 'reviewed • always allowed',
       tone: 'ok',
     });
     expect(h({ result: 'launched' })).toEqual({ text: 'reviewed', tone: 'ok' });

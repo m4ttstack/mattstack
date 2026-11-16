@@ -55,6 +55,7 @@ import {
 import { CommentAuthor } from './PersonLead.tsx';
 import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
 import { SEVERITY_LABEL } from './review-gate.ts';
+import { Sep, withSeps } from './Sep.tsx';
 
 /** A diff that fails to load or render leaves the file header standing. */
 class DiffBoundary extends Component<
@@ -213,14 +214,12 @@ function FullDiffModal({
               {diff.path}
             </span>
             <span className="tui-diff-modal-sub">
-              {[
+              {withSeps([
                 mrRef,
                 `+${stats.additions} −${stats.deletions}`,
                 findings,
                 `fetched from ${forge}`,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+              ])}
             </span>
           </span>
           {diff.webUrl && (
@@ -262,9 +261,12 @@ function FullDiffModal({
                       <AgentGlyph />
                       <span className="tui-diff-pin-title">{p.title}</span>
                       {p.id === current && (
-                        <span className="tui-diff-pin-here">
-                          · you came from here
-                        </span>
+                        <>
+                          <Sep />
+                          <span className="tui-diff-pin-here">
+                            you came from here
+                          </span>
+                        </>
                       )}
                     </div>
                   )
@@ -471,7 +473,7 @@ export function CodeSection({
   );
 }
 
-/** "edited · reset to draft", or who wrote the text. */
+/** "edited, reset to draft", or who wrote the text. */
 export function DraftMeta({
   edited,
   label,

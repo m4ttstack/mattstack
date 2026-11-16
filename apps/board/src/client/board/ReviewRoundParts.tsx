@@ -6,6 +6,7 @@ import type { CarryoverCall, SkippedEntry } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { sendableTexts } from './respond-post.ts';
 import { SEVERITY_LABEL, type CarryoverPick } from './review-gate.ts';
+import { withSeps } from './Sep.tsx';
 import { ThreadReplyCard } from './ThreadReplyCard.tsx';
 
 /** Every label names who has to act; none says "open" or "unresolved". */
@@ -177,7 +178,10 @@ export function SkippedEarlier({
         <span className="tui-review-skipped-hint">
           {restoring > 0
             ? `${restoring} coming back this round`
-            : 'you chose not to raise these · tick one to bring it back'}
+            : withSeps([
+                'you chose not to raise these',
+                'tick one to bring it back',
+              ])}
         </span>
       </DisclosureHead>
       <Disclosure open={open}>

@@ -1,10 +1,13 @@
 import type { BoardMRWithReview } from '../types.ts';
 import type { PlanCtx, PostCtx } from './gate-ctx.ts';
 import { onGitHub } from './MrLinks.tsx';
+import { Sep, withSeps } from './Sep.tsx';
 
 export interface HeaderChip {
   key: string;
   text: string;
+  /** Drawn after a dot, e.g. a fix's sha. */
+  detail?: string;
   hue: 'grey' | 'amber' | 'green';
 }
 
@@ -49,7 +52,8 @@ export function headerChips(
       ctx.fixes.forEach((fix, i) =>
         chips.push({
           key: `fix-${i}`,
-          text: `fix pushed · ${fix.sha}`,
+          text: 'fix pushed',
+          detail: fix.sha,
           hue: 'green',
         })
       );
@@ -173,7 +177,7 @@ export function RespondCtxFacts({
   return (
     <>
       {meta.length > 0 && (
-        <p className="tui-sheet-context-meta">{meta.join(' · ')}</p>
+        <p className="tui-sheet-context-meta">{withSeps(meta)}</p>
       )}
       <div className="tui-respond-chips">
         {headerChips(ctx, posting, mix).map(chip => (
@@ -184,6 +188,12 @@ export function RespondCtxFacts({
             data-chip={chip.key}
           >
             {chip.text}
+            {chip.detail && (
+              <>
+                <Sep />
+                {chip.detail}
+              </>
+            )}
           </span>
         ))}
       </div>

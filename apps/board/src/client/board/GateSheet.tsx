@@ -17,7 +17,7 @@ export interface GateSheetQueue {
   canNext: boolean;
   onPrev: () => void;
   onNext: () => void;
-  /** "!ref · title" of the gate after this one; omit on the last. */
+  /** "!ref • title" of the gate after this one; omit on the last. */
   nextPeek?: string;
 }
 
