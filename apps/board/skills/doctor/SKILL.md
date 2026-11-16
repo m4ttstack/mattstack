@@ -813,9 +813,9 @@ is already answered and recorded, with the result's `decidedBy` reading
 is this value; a call whose graph node writes its own decider
 (`decidedBy: stage-plan`) keeps it. Act on the result's `answers` and
 `next` at the site, exactly as if the human had picked them: the site's
-`Read next` and Selection lines route them. Never open the gate again, never present it
-(no form, no AskUserQuestion, no wait), and never call `gate_answer` or
-`gate_reconcile` on it.
+`Read next` and Selection lines route them. Never open the gate again,
+never present it (no form, no AskUserQuestion, no wait), and never call
+`gate_answer` or `gate_reconcile` on it.
 
 <!-- part: block:gate-protocol/boards-to-open source=mattstack:gate-protocol path=attachments/gate-protocol/boards-to-open.block.md lines=5-11 -->
 ### A boards@1 context in an attended session, with a board not yet opened?

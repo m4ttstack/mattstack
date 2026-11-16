@@ -166,7 +166,7 @@ flowchart TB
     conflict_rounds_spent -->|no| resolve_conflict_files
     conflict_rounds_spent -->|yes: reopen| run_budget_gate_reopenings
     run_budget_gate_reopenings --> gate_reopenings_spent
-    gate_reopenings_spent -->|no: reopen with what was quoted| gate_ship
+    gate_reopenings_spent -->|no: reopen with what was quoted| mr_field_set
     gate_reopenings_spent -->|yes: a failure| rebase_in_progress
     resolve_conflict_files --> continue_result
     continue_result -->|another commit conflicted| run_budget_conflict_rounds
