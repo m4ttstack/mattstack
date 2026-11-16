@@ -796,13 +796,13 @@ describe("the creator", () => {
       };
     };
 
-    test("on a self-hosted GitLab host this Mac never confirmed, rt neither reads its token nor asks glab, and defers the roles", async () => {
+    test("on a self-hosted GitLab host this Mac never confirmed, rt never reads its token, and glab answers with its own login", async () => {
       const p = gitAwareFakeProbes(HOME);
       const forge = recording();
       const result = await createTeam(p, { ...GITHUB, remote: "https://gitlab.example.com/acme/repo.git" }, new FakeAgeKeySeam(), forge.seams);
       expect(forge.asked).toEqual([]);
-      expect(forge.logins).toEqual([]);
-      expect(result.rolesDeferred).toBe(true);
+      expect(forge.logins).toEqual([{ host: "gitlab.example.com", token: null }]);
+      expect(result.rolesDeferred).toBeUndefined();
     });
 
     test("on the confirmed self-hosted GitLab host, glab gets the stored token as before", async () => {

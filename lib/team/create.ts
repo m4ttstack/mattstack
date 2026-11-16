@@ -100,8 +100,8 @@ async function creatorUsername(p: Probes, slug: string, remote: string, seams: C
   const forge = forgeFromRemote(remote);
   if (!forge) return p.env.USER ?? null;
   // The token seam setup passes is not gated, and glab would hand it to whatever host the remote names.
-  if (storedTokenRefusal(remote, confirmedForgeHost(p)) !== null) return null;
-  return seams.forgeLogin(p, forge.provider, forge.host, await seams.forgeToken(p, remote));
+  const withheld = storedTokenRefusal(remote, confirmedForgeHost(p)) !== null;
+  return seams.forgeLogin(p, forge.provider, forge.host, withheld ? null : await seams.forgeToken(p, remote));
 }
 
 /** False when the paths held nothing new to commit. */
