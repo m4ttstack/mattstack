@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, FILL, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -177,16 +177,18 @@ function navRows(form: Form, s: State, view: View): L[] {
   return [marked(line), ...hung.slice(1)]
 }
 
-// The options as buttons, the first primary, with the focused one marked.
+// The options as buttons, the first primary in the accent fill (the brand bar already carries the brand colour),
+// with the focused one marked; the hint follows the buttons it describes.
 function confirmFoot(form: Form, s: State, view: View): L[] {
   const at = s.cursor[0]!
-  const buttons: Button<Action>[] = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: 'option', idx }, tone: idx === 0 ? 'brand' : 'secondary' }))
-  const line = buttonRow(buttons, undefined, view.width)
+  const buttons: Button<Action>[] = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: 'option', idx }, tone: 'secondary' }))
+  const plain = buttonRow(buttons, undefined, view.width)
+  const line: L = plain.map((span, k) => (k === 1 ? { ...span, ...FILL.current } : span))
   const span = 1 + 2 * at
   const row: L = view.focused ? [...line.slice(0, span), ...gridLook(line[span]!, { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line
-  const bar = rail<Action>(ACCENT)
   const gap: L[] = form.context ? [[sp(SYMBOL.bar, ACCENT)]] : []
-  return [...gap, ...hang(bar, bar, hint(form, s)!, view.width, DIM), [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(' ')], row]
+  const indent = [sp<Action>(' '.repeat(widthOf([plain[0]!])))]
+  return [...gap, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(' ')], row, ...hang(indent, indent, hint(form, s)!, view.width, DIM)]
 }
 
 // The keys stay on the options, so Submit is never marked; Enter presses it from there.

@@ -1411,13 +1411,14 @@ function navRows(form, s, view) {
 }
 function confirmFoot(form, s, view) {
   const at = s.cursor[0];
-  const buttons = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: "option", idx }, tone: idx === 0 ? "brand" : "secondary" }));
-  const line = buttonRow(buttons, undefined, view.width);
+  const buttons = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: "option", idx }, tone: "secondary" }));
+  const plain = buttonRow(buttons, undefined, view.width);
+  const line = plain.map((span, k) => k === 1 ? { ...span, ...FILL.current } : span);
   const span = 1 + 2 * at;
   const row = view.focused ? [...line.slice(0, span), ...gridLook(line[span], { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line;
-  const bar = rail(ACCENT);
   const gap = form.context ? [[sp(SYMBOL.bar, ACCENT)]] : [];
-  return [...gap, ...hang(bar, bar, hint(form, s), view.width, DIM), [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(" ")], row];
+  const indent = [sp(" ".repeat(widthOf([plain[0]])))];
+  return [...gap, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(" ")], row, ...hang(indent, indent, hint(form, s), view.width, DIM)];
 }
 function submitRow(form, s, view) {
   return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);

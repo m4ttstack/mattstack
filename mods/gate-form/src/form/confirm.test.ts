@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test'
 
+import { FILL } from '@mattstack/mod-kit'
+
 import type { Form } from '../../types'
 import { pluginForm } from '../gate/parse'
 import { keyEffect, perform } from './input'
@@ -33,20 +35,39 @@ test('a confirm draws the title, the context and the options as one row of butto
   expect(text).toContain('←→ choose   enter presses')
 })
 
-test('the first option is the primary button and has focus', () => {
+test('the first option is the primary button, in the accent fill, and has focus', () => {
   const row = buttonRow(form, initial(form))
-  const exit = row.findIndex(span => span.t.includes('Exit worktree'))
-  const close = row.findIndex(span => span.t.includes('Close session'))
+  const exit = row.find(span => span.t.includes('Exit worktree'))
+  const close = row.find(span => span.t.includes('Close session'))
   expect(initial(form).cursor[0]).toBe(0)
-  expect(row[exit]?.bg).not.toEqual(row[close]?.bg)
-  expect(row.slice(0, exit).some(span => span.t.includes('▎'))).toBe(true)
+  expect(exit?.bg).toBe(FILL.current.bg)
+  expect(close?.bg).toBe(FILL.secondary.bg)
+  expect(row.slice(0, row.indexOf(exit!)).some(span => span.t.includes('▎'))).toBe(true)
 })
 
-test('with no context, the title is followed straight by the hint, with no separator', () => {
+test('focus moves the ▎ mark, not the colours', () => {
+  const row = buttonRow(form, keyEffect({ key: 'right' }, form, initial(form))!.state)
+  const exit = row.findIndex(span => span.t.includes('Exit worktree'))
+  const close = row.findIndex(span => span.t.includes('Close session'))
+  expect(row[exit]?.bg).toBe(FILL.current.bg)
+  expect(row[close]?.bg).toBe(FILL.secondary.bg)
+  expect(row.slice(exit + 1, close).some(span => span.t.includes('▎'))).toBe(true)
+  expect(row.slice(0, exit).some(span => span.t.includes('▎'))).toBe(false)
+})
+
+test('the order is title, context, buttons, then the hint', () => {
+  const lines = linesOf(form, initial(form)).map(textOf)
+  const at = (word: string) => lines.findIndex(l => l.includes(word))
+  expect(at('MR !267 merged')).toBeLessThan(at('rt is cleaning up'))
+  expect(at('rt is cleaning up')).toBeLessThan(at('Close session'))
+  expect(at('Close session')).toBeLessThan(at('←→ choose'))
+})
+
+test('with no context, the title is followed straight by the rail end, with no separator', () => {
   const lines = linesOf(bare, initial(bare)).map(textOf)
   const title = lines.findIndex(l => l.includes('MR !267 merged'))
   expect(lines[title + 1]!.trim()).toBe('│')
-  expect(lines[title + 2]).toContain('←→ choose')
+  expect(lines[title + 2]!.trim()).toBe('└')
   expect(lines.join('\n')).not.toContain('├')
 })
 
