@@ -29,10 +29,18 @@ export function syncChildEnv(base: Record<string, string | undefined>, cwd: stri
 }
 
 /** `env` adds keys to the child's environment for this one call. */
-export type GitRunner = (args: string[], cwd: string, env?: Record<string, string>) => Promise<{ code: number; stdout: string; stderr: string }>;
+export type GitRunner = (args: string[], cwd: string, opts?: { env?: Record<string, string>; timeoutMs?: number }) => Promise<{ code: number; stdout: string; stderr: string; timedOut?: boolean }>;
 
-export const gitRunnerWith = (extra: Record<string, string>): GitRunner => async (args, cwd, env) => {
-  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra, ...env }) });
+const GIT_TIMEOUT_MS = 120_000;
+// A repo's pre-push hook runs inside the push and can lint for minutes.
+const PUSH_TIMEOUT_MS = 900_000;
+
+export const gitRunnerWith = (extra: Record<string, string>): GitRunner => async (args, cwd, opts) => {
+  // runCapture drops its captured output on a timeout, so the lines are kept
+  // as they arrive to say what was running when the deadline hit.
+  const lines: string[] = [];
+  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: opts?.timeoutMs ?? GIT_TIMEOUT_MS, onStderrLine: (l) => lines.push(l), env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra, ...opts?.env }) });
+  if (r.timedOut) return { code: r.exitCode, stdout: r.stdout, stderr: lines.join("\n"), timedOut: true };
   return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
 
@@ -157,7 +165,11 @@ export async function gitPush(
   const head = await git(["rev-parse", "--verify", "HEAD"], cwd);
   if (head.code !== 0) return err(`git rev-parse --verify HEAD failed: ${detail(head)}`);
   const before = openMr ? await priorPipeline(openMr, branch) : {};
-  const r = await git(args, cwd);
+  const r = await git(args, cwd, { timeoutMs: PUSH_TIMEOUT_MS });
+  if (r.timedOut) {
+    const sofar = detail(r);
+    return err(`git push timed out after ${PUSH_TIMEOUT_MS / 1000}s, with a pre-push hook possibly still running; nothing is known to have reached the remote${sofar ? `. Last output: ${sofar}` : ""}`);
+  }
   if (r.code !== 0) return err(`git push failed: ${detail(r)}`);
   const tracking = opts.sha && opts.setUpstream ? await writeUpstream(cwd, git, branch, remote, remoteBranch) : {};
   return ok({ pushed: true, branch, sha: opts.sha || head.stdout.trim(), forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...before, ...tracking });
@@ -275,7 +287,7 @@ async function fetchOrigin(cwd: string, git: GitRunner, fetchAuth: (cwd: string)
   const first = await git(["fetch", "origin"], cwd);
   if (first.code === 0 || !isAuthFailure(first.stderr + first.stdout)) return first;
   const auth = await fetchAuth(cwd);
-  return auth ? git(["fetch", "origin"], cwd, auth.env) : first;
+  return auth ? git(["fetch", "origin"], cwd, { env: auth.env }) : first;
 }
 
 export async function branchSyncPreflight(

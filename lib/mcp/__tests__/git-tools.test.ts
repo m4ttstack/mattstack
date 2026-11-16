@@ -289,6 +289,55 @@ describe("gitPush", () => {
   });
 });
 
+describe("gitPush and a slow pre-push hook", () => {
+  const PUSH = "push --no-follow-tags --recurse-submodules=no --end-of-options origin HEAD:refs/heads/feat/x";
+  test("gives the push its own long timeout and leaves the other git calls alone", async () => {
+    const timeouts: Record<string, number | undefined> = {};
+    const scripted = fakeGit({ ...onFeature, [PUSH]: {} });
+    const git: GitRunner = async (args, cwd, opts) => {
+      timeouts[args.join(" ")] = opts?.timeoutMs;
+      return scripted(args, cwd);
+    };
+    const r = await gitPush("/t", {}, git);
+    expect(r.ok, r.error).toBe(true);
+    expect(timeouts[PUSH]).toBeGreaterThanOrEqual(600_000);
+    expect(timeouts["rev-parse --verify HEAD"]).toBeUndefined();
+  });
+  test("a push that times out says so and keeps what the hook printed", async () => {
+    const scripted = fakeGit(onFeature);
+    const git: GitRunner = async (args, cwd) =>
+      args.join(" ") === PUSH ? { code: -1, stdout: "", stderr: "lintBranch: running lint:diff", timedOut: true } : scripted(args, cwd);
+    const r = await gitPush("/t", {}, git);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/^git push timed out after \d+s/);
+    expect(r.error).toContain("pre-push hook");
+    expect(r.error).toContain("lintBranch: running lint:diff");
+  });
+  test("realGitRunner keeps the stderr a hook printed before the deadline", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "git-push-slow-hook-"));
+    try {
+      const origin = join(dir, "origin.git");
+      const work = join(dir, "work");
+      const id = ["-c", "user.email=t@example.com", "-c", "user.name=t"];
+      const steps: [string[], string][] = [
+        [["init", "-q", "--bare", "-b", "develop", origin], dir],
+        [["init", "-q", "-b", "develop", work], dir],
+        [[...id, "commit", "-q", "--allow-empty", "-m", "a"], work],
+        [["remote", "add", "origin", origin], work],
+      ];
+      for (const [args, cwd] of steps) expect((await realGitRunner(args, cwd)).code, args.join(" ")).toBe(0);
+      const hook = join(work, ".git", "hooks", "pre-push");
+      await Bun.write(hook, "#!/bin/sh\necho 'hook started' >&2\nsleep 3\n");
+      execFileSync("chmod", ["+x", hook]);
+      const r = await realGitRunner(["push", "origin", "HEAD:refs/heads/x"], work, { timeoutMs: 1500 });
+      expect(r.timedOut).toBe(true);
+      expect(r.stderr).toContain("hook started");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("git_push reports what it pushed", () => {
   const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [], hasGitEntry: () => false, ignoredBy: () => false };
   const PUSH = "push --no-follow-tags --recurse-submodules=no --end-of-options origin HEAD:refs/heads/feat/x";
@@ -965,9 +1014,9 @@ describe("branchSyncPreflight", () => {
     /** fakeGit, but each `fetch origin` answers the next outcome in turn, and records the env it ran under. */
     function fetchesInTurn(outcomes: Array<{ code?: number; stderr?: string }>, envs: Array<Record<string, string> | undefined>): GitRunner {
       const rest = fakeGit({ ...base, [COUNT]: { stdout: "0\t1\n" } });
-      return async (args, cwd, env) => {
+      return async (args, cwd, opts) => {
         if (args.join(" ") !== "fetch origin") return rest(args, cwd);
-        envs.push(env);
+        envs.push(opts?.env);
         const hit = outcomes.shift() ?? { code: 1, stderr: "fetched too often" };
         return { code: hit.code ?? 0, stdout: "", stderr: hit.stderr ?? "" };
       };
