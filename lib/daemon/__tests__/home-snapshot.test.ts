@@ -17,6 +17,7 @@ import type { Probes } from "../../setup/probes.ts";
 import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings, type MovedOutcome, type SnapshotSpec } from "../home-snapshot.ts";
 import type { GateVerdict } from "../../team/org-layout.ts";
 import { pullBlockedSentence } from "../../team/unpublished-packs.ts";
+import { expectNoToken, rtHelperHost } from "../../team/__tests__/rt-credential-argv.ts";
 
 // ─── test doubles ────────────────────────────────────────────────────────────
 
@@ -2870,7 +2871,7 @@ function teamSpecFor(tokenValue: string | null = "glpat-team") {
 
 /**
  * Responders for the pull stage. `gitVerb` (line ~29 of this file) skips the
- * `-c` pairs `gitWithToken` and the rebase prepend, so `argv[1]` is never the
+ * `-c` pairs `gitWithRtCredential` and the rebase prepend, so `argv[1]` is never the
  * verb here. `ahead`/`behind` are `git rev-list --left-right --count
  * origin/main...HEAD` as "<behind>\t<ahead>". `rebase: "conflict"` makes the
  * rebase exit 1 AND creates `<FAKE_REPO_DIR>/.git/rebase-merge` (the engine
@@ -3419,17 +3420,111 @@ describe("startSnapshot: pull", () => {
     rmSync(join(FAKE_REPO_DIR, ".git", "rebase-merge"), { recursive: true, force: true });
   });
 
-  test("fetch and push carry the token through the env, never argv", async () => {
+  for (const [forge, originUrl, host] of [
+    ["GitLab", "https://gitlab.com/acme/team.git", "gitlab.com"],
+    ["GitHub", "https://github.com/acme/team.git", "github.com"],
+  ] as const) {
+    test(`${forge}: fetch and push name rt's helper for the origin's host, with no token in argv or env`, async () => {
+      const { fn, calls, optsLog } = makeFakeExec([...pullResponders({ behind: 0, ahead: 1 }), ...defaultResponders({ statusZ: " M mattstack/settings.team.jsonc\0" })]);
+      const { deps, timers } = baseDeps({ exec: fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot({ ...teamSpecFor("glpat-team"), originUrl }, specDeps);
+      await handle.ready;
+      await handle.pullNow();
+      await handle.runNow("manual");
+      timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+      await flushAsync();
+
+      for (const verb of ["fetch", "push"]) {
+        const i = calls.findIndex((c) => gitVerb(c) === verb);
+        expect(i).toBeGreaterThan(-1);
+        expect(rtHelperHost(calls[i]!)).toBe(host);
+        expect(calls[i]!.join(" ")).not.toContain("glpat-team");
+        expectNoToken((optsLog[i] as { env?: Record<string, string> }).env, "glpat-team");
+      }
+      handle.stop();
+    });
+  }
+
+  test("a token read of null gives plain git for fetch and push", async () => {
+    const { fn, calls, optsLog } = makeFakeExec([...pullResponders({ behind: 0, ahead: 1 }), ...defaultResponders({ statusZ: " M mattstack/settings.team.jsonc\0" })]);
+    const { deps, timers } = baseDeps({ exec: fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    const handle = startSnapshot(teamSpecFor(null), specDeps);
+    await handle.ready;
+    await handle.pullNow();
+    await handle.runNow("manual");
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+
+    for (const verb of ["fetch", "push"]) {
+      const i = calls.findIndex((c) => gitVerb(c) === verb);
+      expect(i).toBeGreaterThan(-1);
+      expect(rtHelperHost(calls[i]!)).toBeNull();
+      expect(calls[i]!.some((arg) => arg.startsWith("credential."))).toBe(false);
+      expectNoToken((optsLog[i] as { env?: Record<string, string> }).env, "glpat-team");
+    }
+    handle.stop();
+  });
+
+  test("the token is read once per pull interval, however many git calls run inside it", async () => {
+    const { fn, calls } = makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders()]);
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    let reads = 0;
+    let at = 1_000_000;
+    const spec = { ...teamSpecFor(), tokenFor: async () => (reads++, "glpat-team") };
+    const handle = startSnapshot(spec, { ...specDeps, now: () => at });
+    await handle.ready;
+    await handle.pullNow();
+    await handle.pullNow();
+    expect(calls.filter((c) => gitVerb(c) === "fetch").length).toBeGreaterThanOrEqual(2);
+    expect(reads).toBe(1);
+
+    at += 301_000;
+    await handle.pullNow();
+    expect(reads).toBe(2);
+    handle.stop();
+  });
+
+  for (const [forge, originUrl] of [
+    ["GitLab", "https://gitlab.com/acme/team.git"],
+    ["GitHub", "https://github.com/acme/team.git"],
+  ] as const) test(`${forge}: an empty token: plain fetch`, async () => {
     const { fn, calls, optsLog } = makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders()]);
     const { deps } = baseDeps({ exec: fn });
     const { repoDir: _r, ...specDeps } = deps;
-    const handle = startSnapshot(teamSpecFor("glpat-team"), specDeps);
+    const handle = startSnapshot({ ...teamSpecFor(), originUrl, tokenFor: async () => "" }, specDeps);
     await handle.ready;
     await handle.pullNow();
+
     const i = calls.findIndex((c) => gitVerb(c) === "fetch");
-    expect(calls[i]).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
-    expect(calls[i]!.join(" ")).not.toContain("glpat-team");
-    expect((optsLog[i] as { env?: Record<string, string> }).env?.RT_GIT_TOKEN).toBe("glpat-team");
+    expect(i).toBeGreaterThan(-1);
+    expect(rtHelperHost(calls[i]!)).toBeNull();
+    expect(calls[i]!.some((arg) => arg.startsWith("credential."))).toBe(false);
+    expectNoToken((optsLog[i] as { env?: Record<string, string> }).env, "glpat-team");
+    handle.stop();
+  });
+
+  test("after the token is revoked the cached offer still names the helper and never passes the old token", async () => {
+    const { fn, calls, optsLog } = makeFakeExec([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders()]);
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _r, ...specDeps } = deps;
+    let answer: string | null = "glpat-old";
+    const spec = { ...teamSpecFor(), tokenFor: async () => answer };
+    const handle = startSnapshot(spec, specDeps);
+    await handle.ready;
+    await handle.pullNow();
+    answer = null;
+    await handle.pullNow();
+
+    const fetches = calls.map((c, i) => ({ c, i })).filter(({ c }) => gitVerb(c) === "fetch");
+    expect(fetches.length).toBeGreaterThanOrEqual(2);
+    for (const { c, i } of fetches) {
+      expect(rtHelperHost(c)).toBe("gitlab.com");
+      expect(c.join(" ")).not.toContain("glpat-old");
+      expectNoToken((optsLog[i] as { env?: Record<string, string> }).env, "glpat-old");
+    }
     handle.stop();
   });
 
@@ -3607,7 +3702,7 @@ describe("startSnapshot: pull", () => {
 
   test("a rebase conflict cancels a standing push-retry timer too, so the ladder stops while suspended", async () => {
     const dirty = " M mattstack/settings.team.jsonc\0";
-    // `gitWithToken` prepends `-c` pairs, so defaultResponders' argv[1]-keyed
+    // `gitWithRtCredential` prepends `-c` pairs, so defaultResponders' argv[1]-keyed
     // push answer never matches a token-carrying push; this one has to.
     const failingPush: Responder = (argv) => gitVerb(argv) === "push" ? { stdout: "", stderr: "fatal: unable to access origin", exitCode: 1 } : undefined;
     const exec = makeSwitchableExec([failingPush, ...pullResponders({ behind: 0, ahead: 1 }), ...defaultResponders({ statusZ: dirty })]);

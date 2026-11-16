@@ -6,6 +6,7 @@ import type { ExecScript } from "./fakes.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import type { SetupIntent } from "../intent.ts";
 import type { Action } from "../contract.ts";
+import { expectNoToken, rtHelperHost } from "../../team/__tests__/rt-credential-argv.ts";
 
 function baseTeam(overrides: Partial<TeamSnapshot> = {}): TeamSnapshot {
   return { slug: "acme", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null, ...overrides };
@@ -165,7 +166,7 @@ describe("accessRows — access.team-repo", () => {
   // rt keeps the forge token in its own store (or the setup stage), not in
   // git's credential helper, so a clean machine's probe found no credential
   // and the required row could never clear before Install.
-  test("a connected forge token is offered to ls-remote through an inline helper, never in argv or the URL", async () => {
+  test("a connected forge token is offered to ls-remote through rt git credential, never in argv, env or the URL", async () => {
     const team = baseTeam({ remote: "https://github.com/acme/repo.git", integrations: { forge: { host: "github.com", provider: "github" } } });
     let seen: { argv: string[]; env?: Record<string, string> } | undefined;
     const exec: ExecScript = (argv, opts) => {
@@ -176,8 +177,8 @@ describe("accessRows — access.team-repo", () => {
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, secrets), "access.team-repo");
     expect(r.status).toBe("ready");
     expect(seen!.argv.join(" ")).not.toContain("ghp_secret");
-    expect(seen!.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
-    expect(seen!.env?.RT_GIT_TOKEN).toBe("ghp_secret");
+    expect(rtHelperHost(seen!.argv)).toBe("github.com");
+    expectNoToken(seen!.env, "ghp_secret");
     expect(seen!.env?.GIT_TERMINAL_PROMPT).toBe("0");
   });
 
@@ -187,7 +188,7 @@ describe("accessRows — access.team-repo", () => {
     const exec: ExecScript = (argv) => { seen = argv; return ok(); };
     const secrets = { has: async () => null };
     await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, secrets), "access.team-repo");
-    expect(seen.join(" ")).not.toContain("credential.helper");
+    expect(rtHelperHost(seen)).toBeNull();
   });
 
   test("intent.join.pointer.remote is used when there's no intent.team", async () => {
@@ -218,14 +219,18 @@ describe("accessRows — access.team-repo", () => {
   test("a gh login alone reaches the team repo, with its token handed to git", async () => {
     const github = "https://github.com/acme/mattstack.git";
     const team = baseTeam({ remote: github });
-    const offered: (string | undefined)[] = [];
+    const offered: (string | null)[] = [];
+    const envs: (Record<string, string> | undefined)[] = [];
     const exec = gitAnswers((argv, opts) => {
       if (argv[0] === "gh") return ok("gho_session\n");
-      offered.push(opts?.env?.RT_GIT_TOKEN);
-      return opts?.env?.RT_GIT_TOKEN ? ok() : { code: 128, stdout: "", stderr: "fatal: could not read Username for 'https://github.com'" };
+      const host = rtHelperHost(argv);
+      offered.push(host);
+      envs.push(opts?.env);
+      return host ? ok() : { code: 128, stdout: "", stderr: "fatal: could not read Username for 'https://github.com'" };
     });
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, { has: async () => null }), "access.team-repo");
-    expect(offered).toEqual(["gho_session"]);
+    expect(offered).toEqual(["github.com"]);
+    for (const env of envs) expectNoToken(env, "gho_session");
     expect(r.status).toBe("ready");
   });
 
@@ -391,7 +396,7 @@ describe("accessRows — access.repo.<slug>", () => {
     expect(r.status).toBe("needs-you");
   });
 
-  test("a tracked repo is probed with rt's stored forge token through the inline helper, never argv", async () => {
+  test("a tracked repo is probed with rt's stored forge token through rt git credential, never argv or env", async () => {
     const team = baseTeam({ trackingIdentities: ["gitlab.com/acme/repo"] });
     let seen: { argv: string[]; env?: Record<string, string> } | undefined;
     const exec = gitAnswers((argv, opts) => {
@@ -402,8 +407,8 @@ describe("accessRows — access.repo.<slug>", () => {
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, secrets), "access.repo.gitlab.com-acme-repo");
     expect(r.status).toBe("ready");
     expect(seen!.argv.join(" ")).not.toContain("glpat_secret");
-    expect(seen!.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
-    expect(seen!.env?.RT_GIT_TOKEN).toBe("glpat_secret");
+    expect(rtHelperHost(seen!.argv)).toBe("gitlab.com");
+    expectNoToken(seen!.env, "glpat_secret");
     expect(r.detail).not.toContain("glpat_secret");
   });
 
@@ -418,13 +423,15 @@ describe("accessRows — access.repo.<slug>", () => {
 
   test("a refusal with rt's token is retried once bare, and git's own credential can still clear the row", async () => {
     const team = baseTeam({ trackingIdentities: ["gitlab.com/acme/repo"] });
-    const attempts: (string | undefined)[] = [];
-    const exec = gitAnswers((_argv, opts) => {
-      attempts.push(opts?.env?.RT_GIT_TOKEN);
-      return opts?.env?.RT_GIT_TOKEN ? { code: 128, stdout: "", stderr: "remote: HTTP Basic: Access denied. 403" } : ok();
+    const attempts: (string | null)[] = [];
+    const exec = gitAnswers((argv, opts) => {
+      expectNoToken(opts?.env, "glpat_narrow");
+      const host = rtHelperHost(argv);
+      attempts.push(host);
+      return host ? { code: 128, stdout: "", stderr: "remote: HTTP Basic: Access denied. 403" } : ok();
     });
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, { has: async () => "glpat_narrow" }), "access.repo.gitlab.com-acme-repo");
-    expect(attempts).toEqual(["glpat_narrow", undefined]);
+    expect(attempts).toEqual(["gitlab.com", null]);
     expect(r.status).toBe("ready");
   });
 
@@ -449,20 +456,22 @@ describe("accessRows — access.repo.<slug>", () => {
       return { code: 128, stdout: "", stderr: "fatal: could not read Username for 'https://gitlab.example.com'" };
     });
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, { has: async () => "glpat_secret" }), "access.repo.gitlab.example.com-acme-repo");
-    expect(seen!.env?.RT_GIT_TOKEN).toBeUndefined();
+    expect(rtHelperHost(seen!.argv)).toBeNull();
+    expectNoToken(seen!.env, "glpat_secret");
     expect(r.detail).toContain("not confirmed");
   });
 
   test("a tracked repo on the self-hosted forge the user confirmed receives the token", async () => {
     const team = baseTeam({ trackingIdentities: ["gitlab.example.com/acme/repo"] });
-    let seen: Record<string, string> | undefined;
-    const exec = gitAnswers((_argv, opts) => {
-      seen = opts?.env;
+    let seen: { argv: string[]; env?: Record<string, string> } | undefined;
+    const exec = gitAnswers((argv, opts) => {
+      seen = { argv, env: opts?.env };
       return ok();
     });
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, { forgeHost: "gitlab.example.com" }, { has: async () => "glpat_secret" }), "access.repo.gitlab.example.com-acme-repo");
     expect(r.status).toBe("ready");
-    expect(seen?.RT_GIT_TOKEN).toBe("glpat_secret");
+    expect(rtHelperHost(seen!.argv)).toBe("gitlab.example.com");
+    expectNoToken(seen!.env, "glpat_secret");
   });
 
   test("the same answer on access.team-repo still asks the user to connect an account", async () => {
