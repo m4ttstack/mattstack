@@ -134,7 +134,8 @@ async function ask($: EngineInterface, why: string, token: string): Promise<Choi
   try {
     ;({ id } = await $.gateForm.ask({
       title: why,
-      label: 'Your worktree is being cleaned up.',
+      context: `${why}, so rt is cleaning up this worktree. Choose what this session does next. With no answer in 2 minutes, it moves out of the worktree and keeps working.`,
+      label: 'What should this session do?',
       options: [
         { value: 'close', label: 'Close session' },
         { value: 'leave', label: 'Exit worktree and continue' },
