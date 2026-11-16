@@ -336,6 +336,7 @@ export const ENUMS: Record<string, readonly string[]> = {
   "rt.logLevel": ["trace", "debug", "info", "warn", "error"],
   "rt.ui.background": ["auto", "dark", "light"],
   "boxscore.defaultRange": ["7d", "30d", "90d"],
+  "rt.work.gateMode": ["chatty", "normal", "quiet", "yolo"],
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
