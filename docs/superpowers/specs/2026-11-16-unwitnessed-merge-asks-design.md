@@ -53,6 +53,11 @@ hydrated before the MR branched) passes the ancestor check with no commits
 of its own. An MR always has commits, so its source head is never a bare
 main commit, and a tree sitting on it is the tree that pushed it.
 
+Known limit: the `HEAD` match also fits a later tree that checked out the
+merged head (the remote branch kept after merge, or a fast-forward). That
+costs at most an unwanted leave question; no work is lost, since the dirty
+guard and the trash still apply.
+
 A tree whose `HEAD` is behind `mr.sha` (someone else pushed to the branch and
 the session never pulled) is not proven and keeps today's quiet hold. No
 regression, only a missed ask.
