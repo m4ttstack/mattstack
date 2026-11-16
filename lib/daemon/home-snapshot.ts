@@ -43,7 +43,7 @@ import {
   renameLegacyOutOfTheWay,
   setKvValue,
 } from "../state/index.ts";
-import { gitWithToken } from "../team/git-credential.ts";
+import { gitWithRtCredential } from "../team/git-credential.ts";
 import { unpublishedPaths } from "../team/publish-history.ts";
 import { isOrgAdmin, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { ORG_STORE_REL, orgStoreInScope, roleFromBase, storeReader } from "../team/org-store-scope.ts";
@@ -634,8 +634,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let loggedHold: string | null = null;
   let loggedGateError: string | null = null;
   let conflicted: { at: number; detail: string } | null = null;
-  /** `spec.tokenFor` is a keychain read plus a sops decrypt, so it is resolved once per pull interval rather than per git call. */
-  let cachedToken: { value: string | null; at: number } | null = null;
+  /** Caches the offer decision per pull interval, not the secret: `rt git credential` reads the token afresh on each authed call. */
+  let cachedToken: { offer: boolean; at: number } | null = null;
   /** Dedup key for remoteGit's token-read warn: a keychain that stays locked must warn once, not on every fetch and every push. */
   let lastLoggedTokenError: string | null = null;
 
@@ -703,8 +703,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
   /**
    * `runCapture` REPLACES the child's environment when `env` is given
-   * (lib/subprocess.ts), so the token vars ride on top of a full copy of
-   * process.env or git loses PATH and HOME. A spec without `tokenFor` (home)
+   * (lib/subprocess.ts), so a full copy of process.env goes with it or git
+   * loses PATH and HOME. The cached token read only decides whether git is
+   * told to ask `rt git credential`; the helper reads the token afresh, so the
+   * token itself never enters argv or env. A spec without `tokenFor` (home)
    * keeps today's plain exec, env untouched.
    *
    * Never throws. `spec.tokenFor` is the one throw source in the fetch/push
@@ -720,7 +722,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     const ttlMs = (spec.pull?.intervalSec ?? 300) * 1000;
     if (!cachedToken || deps.now() - cachedToken.at > ttlMs) {
       try {
-        cachedToken = { value: await spec.tokenFor(), at: deps.now() };
+        cachedToken = { offer: Boolean(await spec.tokenFor()), at: deps.now() };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (message !== lastLoggedTokenError) {
@@ -731,7 +733,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       }
     }
     lastLoggedTokenError = null;
-    const cmd = gitWithToken(args, cachedToken.value, { ...(process.env as Record<string, string>), GIT_TERMINAL_PROMPT: "0" }, { remote: spec.originUrl ?? null });
+    const cmd = gitWithRtCredential(args, cachedToken.offer, { ...(process.env as Record<string, string>), GIT_TERMINAL_PROMPT: "0" }, { remote: spec.originUrl ?? null });
     return deps.exec(cmd.argv as [string, ...string[]], { cwd: deps.repoDir, timeoutMs, stderr: "pipe", env: cmd.env });
   }
 

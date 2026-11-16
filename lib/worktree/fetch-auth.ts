@@ -10,14 +10,13 @@
  * never argv, a URL, config or an env var.
  */
 
-import { join } from "path";
-import { shellQuote } from "../herdr-launch.ts";
-import { rtSelfArgv } from "../rt-self.ts";
 import { createRealProbes } from "../setup/probes.ts";
 import { hostFromRemote, readUserIntegrationOverrides } from "../setup/team-settings.ts";
-import { forgeTokenKey } from "../team/git-credential.ts";
+import { forgeTokenKey, poolCredentialHelper, rtSelfHelper } from "../team/git-credential.ts";
 import { forgeTokenLookupForGit, mayOfferGitLabToken, mayOfferToken, tokenOrNull } from "../team/forge-token.ts";
 import { runGit, type GitResult } from "./git-async.ts";
+
+export { poolCredentialHelper, rtSelfHelper };
 
 export interface FetchAuthSeams {
   confirmedHost: () => string | null;
@@ -35,18 +34,6 @@ export interface FetchAuth {
 }
 
 type GitRunner = (cwd: string, args: string[], opts: { timeoutMs?: number; signal?: AbortSignal; env?: Record<string, string>; retry?: boolean }) => Promise<GitResult>;
-
-/** The daemon's own entry is lib/daemon.ts from source, so Bun.main there is not the CLI. */
-const CLI_ENTRY = join(import.meta.dir, "..", "..", "cli.ts");
-
-export function rtSelfHelper(argv: string[] = rtSelfArgv()): string {
-  return `!${argv.map(shellQuote).join(" ")} git credential`;
-}
-
-/** `rt git credential` from rt's CLI entry, which the daemon and the CLI both reach. */
-export function poolCredentialHelper(): string {
-  return rtSelfHelper(rtSelfArgv({ main: CLI_ENTRY }));
-}
 
 /**
  * git reads `GIT_CONFIG_PARAMETERS` (a `git -c` above rt, such as an alias or

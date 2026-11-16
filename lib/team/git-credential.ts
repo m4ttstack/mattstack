@@ -1,43 +1,48 @@
 /**
  * rt keeps forge tokens in its own store (or the setup stage before Install),
- * not in git's credential helper — so a fresh machine's git has nothing to
- * offer a private remote. This hands a token to git through an inline
- * credential helper that reads the environment: never argv (visible in ps),
- * never the URL (echoed into stderr and .git/config).
+ * not in git's credential helper, so a fresh machine's git has nothing to
+ * offer a private remote. `gitWithRtCredential` names `rt git credential` as
+ * the helper for one https host, so git asks rt for the token itself: it never
+ * rides in argv (visible in ps), the URL (echoed into stderr and .git/config)
+ * or a child's environment.
  */
 
+import { join } from "path";
+import { shellQuote } from "../herdr-launch.ts";
+import { rtSelfArgv } from "../rt-self.ts";
 import { forgeFromRemote, hostFromRemote } from "../setup/team-settings.ts";
 
-
-export interface GitWithToken {
+export interface GitWithRtCredential {
   argv: string[];
   env: Record<string, string>;
+  offered: boolean;
+}
+
+/** The daemon's own entry is lib/daemon.ts from source, so Bun.main there is not the CLI. */
+const CLI_ENTRY = join(import.meta.dir, "..", "..", "cli.ts");
+
+export function rtSelfHelper(argv: string[] = rtSelfArgv()): string {
+  return `!${argv.map(shellQuote).join(" ")} git credential`;
+}
+
+/** `rt git credential` from rt's CLI entry, which the daemon and the CLI both reach. */
+export function poolCredentialHelper(): string {
+  return rtSelfHelper(rtSelfArgv({ main: CLI_ENTRY }));
 }
 
 /**
- * Answers only `get` for https on `$RT_GIT_HOST`, so a submodule, a redirect
- * or a push URL on another host never receives the token, and git's `store`
- * after a successful auth is a no-op.
+ * `git <args>` that names `rt git credential` as the only helper for `remote`'s
+ * https host, so git asks rt for the token itself and it never rides in argv or
+ * the child's env. The empty value first clears every other helper for that
+ * host, so git's `store` cannot hand the token to a keychain. `offer` false, or
+ * a remote with no https host (ssh, a local path, cleartext http), gets plain
+ * git. `env` passes through unchanged.
  */
-const HOST_HELPER =
-  '!f() { test "$1" = get || return 0; p=; h=; while IFS= read -r l && test -n "$l"; do case "$l" in protocol=*) p=${l#protocol=};; host=*) h=${l#host=};; esac; done; test "$p" = https && test "$h" = "$RT_GIT_HOST" || return 0; echo username=$RT_GIT_USER; echo password=$RT_GIT_TOKEN; }; f';
-
-/**
- * `git <args>` with `token` offered to `remote`'s https host only; `env`
- * merges over the caller's own. rt's helper is the only one for that host, so
- * no other helper can substitute a credential or be handed rt's token by
- * git's `store` (Apple git's system osxkeychain would keep it), and every
- * other host keeps the user's own helpers. A remote with no https host (ssh,
- * a local path, cleartext http) gets no token at all.
- */
-export function gitWithToken(args: string[], token: string | null, env: Record<string, string>, opts: { remote: string | null }): GitWithToken {
+export function gitWithRtCredential(args: string[], offer: boolean, env: Record<string, string>, opts: { remote: string | null; helper?: string }): GitWithRtCredential {
   const host = opts.remote && /^https:\/\//i.test(opts.remote) ? hostFromRemote(opts.remote) : null;
-  if (!token || !host) return { argv: ["git", ...args], env };
+  if (!offer || !host) return { argv: ["git", ...args], env, offered: false };
   const key = `credential.https://${host}.helper`;
-  return {
-    argv: ["git", "-c", `${key}=`, "-c", `${key}=${HOST_HELPER}`, ...args],
-    env: { ...env, RT_GIT_USER: "x-access-token", RT_GIT_TOKEN: token, RT_GIT_HOST: host },
-  };
+  return { argv: ["git", "-c", `${key}=`, "-c", `${key}=${opts.helper ?? poolCredentialHelper()}`, ...args], env, offered: true };
 }
 
 /**

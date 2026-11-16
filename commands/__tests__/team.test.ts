@@ -22,6 +22,7 @@ import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { joinLink, joinLinkBase, pasteBlock } from "../../lib/team/invite.ts";
 import { readTeamLocal, writeTeamLocal, teamLocalPath, updateTeamLocal, type TeamLocalRecord } from "../../lib/team/team-local.ts";
 import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
+import { expectNoToken, rtHelperHost } from "../../lib/team/__tests__/rt-credential-argv.ts";
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 const FAKE_PRIVATE_KEY = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ";
@@ -453,7 +454,7 @@ describe("teamPublish", () => {
     });
   });
 
-  test("the push carries the forge token rt holds for the remote, through the env", async () => {
+  test("the push names rt git credential for the forge token rt holds for the remote, never in argv or env", async () => {
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     const probes = fakeProbes({
       home: "/home/x",
@@ -469,8 +470,8 @@ describe("teamPublish", () => {
     await teamPublish(["--team", "acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps);
 
     const push = seen.find((c) => c.argv.includes("push"))!;
-    expect(push.argv).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
-    expect(push.env?.RT_GIT_TOKEN).toBe("ghp-secret");
+    expect(rtHelperHost(push.argv)).toBe("github.com");
+    expectNoToken(push.env, "ghp-secret");
     expect(push.argv.join(" ")).not.toContain("ghp-secret");
   });
 

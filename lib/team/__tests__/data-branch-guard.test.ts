@@ -5,7 +5,8 @@ import type { ForgeAccessSeams } from "../forge-access-apply.ts";
 import type { OrgForgeAccess, PushList } from "../forge-access.ts";
 import { checkDataBranch, checkMainForOrgData, restoreDataBranch } from "../data-branch-guard.ts";
 import { readTeamLocal, updateTeamLocal } from "../team-local.ts";
-import { dataBranchWorld } from "./data-branch-world.ts";
+import { behindHttps, dataBranchWorld } from "./data-branch-world.ts";
+import { expectNoToken } from "./rt-credential-argv.ts";
 import { cleanupOrgWorlds } from "./org-world.ts";
 
 afterEach(() => cleanupOrgWorlds());
@@ -133,4 +134,42 @@ describe("restoreDataBranch", () => {
     await expect(restoreDataBranch(w.p, "acme", { ...noToken, push: true, forgeAccessSeams: forge().seams })).rejects.toMatchObject({ code: "restore-behind" });
     expect(w.atOrigin("for-each-ref", "refs/heads/mattstack").trim()).toBe("");
   });
+});
+
+describe("the data branch guard names rt git credential", () => {
+  const forges = [
+    ["GitHub", "https://github.com/acme/mattstack-team-acme.git", "github.com"],
+    ["GitLab", "https://gitlab.com/acme/mattstack-team-acme.git", "gitlab.com"],
+  ] as const;
+
+  for (const [name, url, host] of forges) {
+    test(`the ${name} lookup of the data branch names the helper, with no token in the env`, async () => {
+      const w = world();
+      const git = behindHttps(w.p, url);
+      expect((await checkDataBranch(w.p, "acme", { readToken: async () => "tok_rt" }))?.kind).toBe("present");
+      const [lookup] = git.remoteCalls();
+      expect(lookup!.argv).toContain("ls-remote");
+      expect(lookup!.host).toBe(host);
+      expectNoToken(lookup!.env, "tok_rt");
+    });
+
+    test(`the ${name} push that restores the branch names the helper, with no token in the env`, async () => {
+      const w = world();
+      w.deleteOnOrigin();
+      const git = behindHttps(w.p, url);
+      await restoreDataBranch(w.p, "acme", { readToken: async () => "tok_rt", push: true, forgeAccessSeams: forge().seams });
+      const push = git.remoteCalls().find((c) => c.argv.includes("push"))!;
+      expect(push.host).toBe(host);
+      expectNoToken(push.env, "tok_rt");
+    });
+  }
+
+  for (const [name, url] of forges) {
+    test(`no stored token leaves the ${name} lookup on git's own credentials`, async () => {
+      const w = world();
+      const git = behindHttps(w.p, url);
+      await checkDataBranch(w.p, "acme", noToken);
+      expect(git.remoteCalls()[0]!.host).toBeNull();
+    });
+  }
 });

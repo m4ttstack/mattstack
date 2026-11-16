@@ -469,15 +469,30 @@ After each snapshot, on a GitHub board, a background step
 (`sendReReviewRequests`, beside `refreshOwnerTeamsInBackground`) walks own
 PRs:
 
-- For each `requested` entry whose reviewer's `reviewState` is not
-  `UNREVIEWED`, and whose `latch-rerequest` kv entry (keyed
-  `<mrUrl>|<discussionId>`) is absent, it calls `mr:action {action:
-  'requestReReview', args: [[reviewer]]}` and then writes the kv entry. A
-  reviewer already `UNREVIEWED` (the author clicked GitHub's own button)
-  gets the kv entry written without a call.
-- For each latch thread that reads armed and open, or spent, or is gone,
-  it deletes its `latch-rerequest` entry, so the next request cycle on the
-  same thread sends again.
+- Each `requested` entry is checked against its `latch-rerequest` kv entry
+  (keyed `<mrUrl>|<discussionId>`, value `{at, over?}`):
+  - A live entry (no `over`, which is also how an entry written before
+    `over` existed reads) means this ask's request went out: nothing.
+  - No entry and a reviewer not `UNREVIEWED`: `mr:action {action:
+    'requestReReview', args: [[reviewer]]}`, then a live entry.
+  - No entry and a reviewer already `UNREVIEWED` (the author clicked
+    GitHub's own button): a live entry, no call.
+  - An entry marked over and a reviewer not `UNREVIEWED`: the plain
+    request, then a live entry.
+  - An entry marked over and a reviewer still `UNREVIEWED`: the request is
+    left pending from an earlier cycle, so the board renews it with
+    `args: [[reviewer], {renew: true}]`, then a live entry. glance reads the
+    PR's pending requests, removes the reviewer's, then requests again. A
+    live test on 2026-11-14 showed a repeat request for a pending reviewer
+    adds no ReviewRequestedEvent and notifies no one, while remove then
+    request adds one and notifies. A failed read or remove is logged by the
+    daemon and the request still goes.
+- For each latch thread that reads armed and open, its live entry is
+  rewritten as over, so the next request cycle on the same thread sends
+  again and knows a request from this cycle may still be pending. For each
+  latch thread that is spent or gone, the entry is deleted. An entry for a
+  PR the board no longer lists (merged or closed) is deleted once it is
+  30 days old.
 - A failed call writes nothing and is retried on the next snapshot. It is
   logged, never thrown. An unanswered call (`DAEMON_UNREACHABLE_PREFIX`)
   writes the kv entry anyway: the request may have landed, and a duplicate
@@ -557,12 +572,20 @@ thread index and a numeric root note id.
 
 ### Open risks and their fallbacks
 
-- **A reply clearing a pending re-request.** Any review by the reviewer
-  clears GitHub's request. The finished reply follows the follow-up review,
-  which already cleared it legitimately, so only the stuck reply clears one
-  early. Fallback: accepted, because the stuck path already sends the
-  reviewer a desktop notification, and the `latch-rerequest` entry stops
-  the author's board re-sending in that cycle. Covered by a fixture test.
+- **A request left pending after a stuck follow-up.** Only a submitted
+  review clears GitHub's request; a thread reply, a body edit, an
+  unresolve or a resolve does not (live test, 2026-11-14). The normal path
+  submits a review, but a stuck follow-up only replies in the thread, so
+  the request stays pending into the author's next ask, where a plain
+  repeat would notify no one. The board renews it (remove, then request)
+  instead. Residuals: after a thread's first cycle the board cannot tell
+  GitHub's own re-request button from a request left pending, so an author
+  who clicks it and also asks through the latch gets the reviewer two
+  notifications. A renew whose request fails after the remove landed
+  leaves the reviewers with no pending request until the next pass after
+  the hour's hold, which sends a plain request. A request left pending by
+  a stuck follow-up from before this change is missed once, since its
+  entry was deleted then. Covered by fixture tests.
 - **An armed latch blocking merge** where a repo requires conversation
   resolution. Same as GitLab's "all threads must be resolved" today.
   Fallback: none needed for parity. Resolving the thread is the author's
@@ -603,9 +626,10 @@ All fixtures, no live forge, isolated HOME.
   or no answer skips every GitHub latch write for that repo and audits
   `identity-mismatch` once per run.
 - **Re-request.** `reviewerRequests` per phase. `sendReReviewRequests`
-  sends once per cycle, skips an `UNREVIEWED` reviewer, forgets on re-arm
-  and on spend, does not re-send after a stuck reply clears the request,
-  and keeps its entry on an unanswered call.
+  sends once per cycle, skips an `UNREVIEWED` reviewer on a first cycle,
+  marks its entry over on re-arm and deletes it on spend, renews a request
+  still pending from an earlier cycle, and keeps its entry on an
+  unanswered call.
 - **Tabs.** `sectionKey`; GitHub demand carries lowercased owners; the
   GitHub known owners survive the read; tag matching, `filterByTab` and
   `sectionStatus` are case-insensitive on GitHub and exact on GitLab;

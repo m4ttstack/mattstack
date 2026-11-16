@@ -18,7 +18,8 @@ import type {
   FetchPullRequestsWarning,
   ByBranchReadOptions,
   GitProvider,
-  MRState
+  MRState,
+  RequestReReviewOptions
 } from './GitProvider.ts';
 import { parseUpdatedAfter, requireProjectPath, warningTarget } from './GitProvider.ts';
 import type {
@@ -3292,8 +3293,13 @@ export class GitHubProvider implements GitProvider {
   async requestReReview(
     projectPath: string,
     mrIid: number,
-    reviewerUsernames?: string[]
+    reviewerUsernames?: string[],
+    options: RequestReReviewOptions = {}
   ): Promise<void> {
+    // Renew removes only requests the caller named: with no names it would
+    // drop every hand-made pending request on the PR.
+    const renew = options.renew === true && !!reviewerUsernames?.length;
+
     // With no usernames given, everyone on the PR's reviewer list: pending
     // requests and past reviewers alike, since GitHub drops a request once
     // its review lands.
@@ -3329,6 +3335,10 @@ export class GitHubProvider implements GitProvider {
       }
     }
 
+    if (renew) {
+      await this.removePendingRequests(projectPath, mrIid, reviewerUsernames, options.onWarning);
+    }
+
     try {
       await this.octokit.request(
         `POST /repos/${projectPath}/pulls/${mrIid}/requested_reviewers`,
@@ -3339,6 +3349,48 @@ export class GitHubProvider implements GitProvider {
         throw ghError('requestReReview', err, 'statusText');
       }
       throw err;
+    }
+  }
+
+  /**
+   * Removes the still-pending requests among `logins`, so the request that
+   * follows is a fresh one GitHub notifies (a repeat request for a pending
+   * reviewer records nothing and notifies no one). Never throws: a failure
+   * here must not cost the request itself.
+   */
+  private async removePendingRequests(
+    projectPath: string,
+    mrIid: number,
+    logins: string[],
+    onWarning?: (message: string) => void
+  ): Promise<void> {
+    const route = `/repos/${projectPath}/pulls/${mrIid}/requested_reviewers`;
+    const reason = (err: unknown) =>
+      err instanceof RequestError ? `${err.status} ${err.message}` : String(err);
+    const warn = (message: string) => {
+      try {
+        onWarning?.(message);
+      } catch {
+        // A broken warning sink must not cost the request this method exists for.
+      }
+    };
+    let pending: string[];
+    try {
+      const res = await this.octokit.request(`GET ${route}`);
+      pending = ((res.data as { users?: GHUser[] }).users ?? []).map(u => u.login);
+    } catch (err) {
+      warn(`requestReReview: could not read pending requests on #${mrIid}, requested anyway: ${reason(err)}`);
+      return;
+    }
+    const wanted = new Set(logins.map(l => l.toLowerCase()));
+    const remove = pending.filter(login => wanted.has(login.toLowerCase()));
+    if (!remove.length) return;
+    try {
+      await this.octokit.request(`DELETE ${route}`, { data: { reviewers: remove } });
+    } catch (err) {
+      warn(
+        `requestReReview: could not remove the pending request of ${remove.join(', ')} on #${mrIid}, requested anyway: ${reason(err)}`
+      );
     }
   }
 
