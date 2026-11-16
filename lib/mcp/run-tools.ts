@@ -188,7 +188,9 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
   async function recordGateMode(body: object, gateMode: string | undefined, env: NodeJS.ProcessEnv): Promise<object> {
     const runDb = (body as { runDb?: unknown }).runDb;
     if (gateMode === undefined || typeof runDb !== "string") return body;
-    const set = await write("field", ["set", "gate-mode", gateMode, "--stage", "start"], { runDb }, env);
+    const setField = () => write("field", ["set", "gate-mode", gateMode, "--stage", "start"], { runDb }, env);
+    let set = await setField();
+    if (!set.ok) set = await setField();
     return set.ok ? body : { ...body, warning: `gate-mode was not recorded on the new run: ${set.error}` };
   }
 

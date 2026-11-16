@@ -112,6 +112,20 @@ describe("run_start", () => {
       const res = await tool(deps, "run_start").handler({ ...input, gateMode: "quiet" }, RUNS_ROOT_ENV);
       expect(res.ok).toBe(true);
       expect(res.body).toMatchObject({ ok: true, runId: "x", runDb: "/runs/repo/id/state.db", warning: expect.stringContaining("locked") });
+      expect(fieldCalls(calls)).toHaveLength(2);
+    });
+    test("a field write that fails once is retried and leaves no warning", async () => {
+      const calls: Call[] = [];
+      const { deps } = fakeDeps(START);
+      deps.write = async (verb, args, env, cwd) => {
+        calls.push({ verb, args, env: env ?? {}, cwd: cwd ?? "" });
+        if (verb !== "field") return { out: START, code: 0 };
+        return fieldCalls(calls).length === 1 ? { out: '{"ok":false,"error":"locked"}', code: 1 } : { out: '{"ok":true}', code: 0 };
+      };
+      const res = await tool(deps, "run_start").handler({ ...input, gateMode: "quiet" }, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(true);
+      expect(fieldCalls(calls)).toHaveLength(2);
+      expect((res.body as Record<string, unknown>).warning).toBeUndefined();
     });
     test("an invalid RT_GATE_MODE is ignored and writes nothing", async () => {
       const { deps, calls } = fakeDeps(START, 0, { RT_GATE_MODE: "bogus" });
