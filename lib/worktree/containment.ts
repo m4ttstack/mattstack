@@ -197,7 +197,9 @@ export async function mergedMrIsTreeHead(treePath: string, branch: string | null
     if (!head || head !== mergedSha) return false;
     if (!branch) return true;
     const ref = await runGit(treePath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]);
-    if (ref.exitCode !== 0 || ref.stdout.trim() === head) return true;
+    if (ref.exitCode === 1) return true;
+    if (ref.exitCode !== 0) return false;
+    if (ref.stdout.trim() === head) return true;
     return await isAncestorAsync(treePath, `refs/heads/${branch}`, mergedSha);
   } catch {
     return false;
