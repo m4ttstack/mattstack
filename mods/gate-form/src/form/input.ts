@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isOnNav, isReview, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -88,6 +88,7 @@ function gridOf(form: Form, s: State): GridRow<string>[] {
   const q = form.questions[s.page]
   const choices = q ? choicesOf(q) : []
   const above: GridRow<string>[] = !q ? [] : choices.length === 0 ? [{ key: 'text', ids: ['text'], main: 0 }] : choices.map((_, i) => ({ key: `choice-${i}`, ids: ['choice'], main: 0 }))
+  if (isSinglePage(form)) return above
   const ids = navIds(form, s)
   return [...above, { key: 'nav', ids, main: Math.max(0, ids.indexOf('next')) }]
 }
@@ -106,7 +107,7 @@ function gridKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
   const move = gridMove(rows, here, ev)
   if (!move.handled) return undefined
   if (!move.to) return { state: s }
-  const nav = rows.length - 1
+  const nav = isSinglePage(form) ? -1 : rows.length - 1
   if (move.to.at === nav) return { state: { ...s, onNav: true, navAt: rows[nav]!.ids[move.to.col] as NavId } }
   if (here.at === nav) return { state: { ...s, onNav: undefined } }
   return { state: moveCursor(form, s, move.to.at - here.at) }
@@ -140,9 +141,20 @@ export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean
   return !(navAtOf(form, s) === 'next' && isReview(form, s) && !canSubmit(form, s))
 }
 
+// On the review page ←→ still change page (→ has none to go to), so Tab moves between its buttons.
+function reviewKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
+  if (ev.key === 'left') return { state: goTo(form, s, s.page - 1) }
+  if (ev.key === 'right') return { state: s }
+  if (ev.key !== 'tab') return undefined
+  const ids = navIds(form, s)
+  const at = ids.indexOf(navAtOf(form, s))
+  return { state: { ...s, navAt: ids[(at + (ev.shift ? -1 : 1) + ids.length) % ids.length]! } }
+}
+
 function navKey(ev: ClientKeyEvent, form: Form, armed: State, s: State): Effect | undefined {
   if (s.menu.open) return moved(form, s, menuKey(s.menu, menuRows(form), ev.key)) ?? { state: s }
-  return isEnter(ev) ? pressNav(ev, form, armed, s) : gridKey(ev, form, s)
+  if (isEnter(ev)) return pressNav(ev, form, armed, s)
+  return (isReview(form, s) ? reviewKey(ev, form, s) : undefined) ?? gridKey(ev, form, s)
 }
 
 function questionKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
@@ -165,6 +177,7 @@ export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect 
   if (ev.ctrl && (ev.key === 'x' || ev.key === 'c')) return chat(form, armed)
   const s = disarm(armed)
   // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
-  if (ev.key === 'tab') return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })
+  if (ev.key === 'tab' && isSinglePage(form)) return { state: s }
+  if (ev.key === 'tab' && !isReview(form, s)) return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })
   return settled(s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s))
 }

@@ -932,10 +932,11 @@ var canSubmit = (form, s) => form.source !== "gate" || unansweredCount(s) === 0;
 var PAUSE = "pause";
 var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
-var isReview = (form, s) => s.page === form.questions.length;
+var isSinglePage = (form) => form.source === "plugin";
+var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
-  const ids = s.page > 0 ? ["back", "next"] : ["next"];
+  const ids = s.page > 0 && !isReview(form, s) ? ["back", "next"] : ["next"];
   if (isReview(form, s) && menuRows(form).length > 0)
     ids.push("more");
   if (canChat(form))
@@ -1000,7 +1001,8 @@ function answersOf(form, s) {
   return out;
 }
 function goTo(form, s, page) {
-  return { ...s, page: Math.max(0, Math.min(form.questions.length, page)) };
+  const last = isSinglePage(form) ? 0 : form.questions.length;
+  return { ...s, page: Math.max(0, Math.min(last, page)) };
 }
 function cursorIsChoice(q, s, i) {
   const option = choicesOf(q)[s.cursor[i]];
@@ -1128,6 +1130,8 @@ function gridOf(form, s) {
   const q = form.questions[s.page];
   const choices = q ? choicesOf(q) : [];
   const above = !q ? [] : choices.length === 0 ? [{ key: "text", ids: ["text"], main: 0 }] : choices.map((_, i) => ({ key: `choice-${i}`, ids: ["choice"], main: 0 }));
+  if (isSinglePage(form))
+    return above;
   const ids = navIds(form, s);
   return [...above, { key: "nav", ids, main: Math.max(0, ids.indexOf("next")) }];
 }
@@ -1146,7 +1150,7 @@ function gridKey(ev, form, s) {
     return;
   if (!move.to)
     return { state: s };
-  const nav = rows.length - 1;
+  const nav = isSinglePage(form) ? -1 : rows.length - 1;
   if (move.to.at === nav)
     return { state: { ...s, onNav: true, navAt: rows[nav].ids[move.to.col] } };
   if (here.at === nav)
@@ -1177,10 +1181,23 @@ function pressesButton(ev, form, s) {
   }
   return !(navAtOf(form, s) === "next" && isReview(form, s) && !canSubmit(form, s));
 }
+function reviewKey(ev, form, s) {
+  if (ev.key === "left")
+    return { state: goTo(form, s, s.page - 1) };
+  if (ev.key === "right")
+    return { state: s };
+  if (ev.key !== "tab")
+    return;
+  const ids = navIds(form, s);
+  const at = ids.indexOf(navAtOf(form, s));
+  return { state: { ...s, navAt: ids[(at + (ev.shift ? -1 : 1) + ids.length) % ids.length] } };
+}
 function navKey(ev, form, armed, s) {
   if (s.menu.open)
     return moved(form, s, menuKey(s.menu, menuRows(form), ev.key)) ?? { state: s };
-  return isEnter(ev) ? pressNav(ev, form, armed, s) : gridKey(ev, form, s);
+  if (isEnter(ev))
+    return pressNav(ev, form, armed, s);
+  return (isReview(form, s) ? reviewKey(ev, form, s) : undefined) ?? gridKey(ev, form, s);
 }
 function questionKey(ev, form, s) {
   const { key } = ev;
@@ -1209,7 +1226,9 @@ function keyEffect(ev, form, armed) {
   if (ev.ctrl && (ev.key === "x" || ev.key === "c"))
     return chat(form, armed);
   const s = disarm(armed);
-  if (ev.key === "tab")
+  if (ev.key === "tab" && isSinglePage(form))
+    return { state: s };
+  if (ev.key === "tab" && !isReview(form, s))
     return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) });
   return settled(s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s));
 }
@@ -1336,9 +1355,8 @@ function withTabInView(form, s, width) {
   return { ...s, tabsFrom: revealTab(tabList(form, s), s.page, width, s.tabsFrom) };
 }
 var MORE = { type: "menu", hit: { type: "toggle" } };
-function spanAt2(id, line) {
-  const left = { back: 0, next: 1, more: 2 };
-  return id === "chat" ? line.length - 1 : 1 + 2 * left[id];
+function spanAt2(id, left, line) {
+  return id === "chat" ? line.length - 1 : 1 + 2 * left.indexOf(id);
 }
 function navRows(form, s, view) {
   const n = form.questions.length;
@@ -1350,11 +1368,12 @@ function navRows(form, s, view) {
   const aside = !canChat(form) ? undefined : s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
-  const line = buttonRow(rows.length === 0 ? [back, next] : [back, next, more], aside, view.width);
+  const left = [...page === n ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
+  const line = buttonRow(left.map(([, button]) => button), aside, view.width);
   const marked = (row) => {
     if (!view.focused || !isOnNav(form, s))
       return row;
-    const at = spanAt2(navAtOf(form, s), row);
+    const at = spanAt2(navAtOf(form, s), left.map(([id]) => id), row);
     return [...row.slice(0, at), ...gridLook(row[at], { marked: true, pressing: view.pressing && !s.menu.open }), ...row.slice(at + 1)];
   };
   if (rows.length === 0)
@@ -1372,8 +1391,12 @@ function errorLines(form, view) {
 }
 function hint(form, s) {
   const q = form.questions[s.page];
-  if (!q)
-    return "←→ buttons  enter presses";
+  if (isSinglePage(form))
+    return "↑↓ move  enter picks";
+  if (!q) {
+    const others = navIds(form, s).length > 1 ? "   tab buttons" : "";
+    return `← back${others}   enter ${navAtOf(form, s) === "next" ? "submit" : "presses"}`;
+  }
   if (s.onNav)
     return "←→ buttons  ↑ answers  enter presses";
   return choicesOf(q).length === 0 ? "←→ pages  ↓ buttons" : "←→ pages  ↑↓ move";
@@ -1382,19 +1405,22 @@ function draw(form, s, view) {
   const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
   if (s.phase !== "active" || form.status !== "open")
     return { head, page: closedPage(form, s, view), foot: [] };
+  const gap = [sp(SYMBOL.bar, GRAY)];
+  head.push(gap);
   if (form.context) {
-    const first = [sp(SYMBOL.bar, GRAY), sp("  "), sp(ICON.info, ACCENT), sp(" ")];
-    const rest = [sp(SYMBOL.bar, GRAY), sp("    ")];
-    head.push([sp(SYMBOL.bar, GRAY)], ...hang(first, rest, contextText(form.context), view.width));
+    const indent = [sp(SYMBOL.bar, GRAY), sp("  ")];
+    const divider = [sp(`├${"─".repeat(Math.max(4, view.width - 2))}`, GRAY)];
+    head.push(...hang(indent, indent, contextText(form.context), view.width), gap, divider, gap);
   }
-  const divider = [sp(`├${"─".repeat(Math.max(4, view.width - 2))}`, GRAY)];
-  head.push([sp(SYMBOL.bar, GRAY)], [sp(SYMBOL.bar, GRAY)], divider, [sp(SYMBOL.bar, GRAY)], tabs(form, s, view), [sp(SYMBOL.bar, GRAY)]);
+  if (!isSinglePage(form))
+    head.push(tabs(form, s, view), gap);
   const q = form.questions[s.page];
   const accentBar = rail(ACCENT);
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
   const keys = hint(form, s);
   const hintLines = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)];
-  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(" ")], ...navRows(form, s, view)];
+  const nav = isSinglePage(form) ? [] : [[sp(" ")], ...navRows(form, s, view)];
+  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), ...nav];
   return { head, page, foot };
 }
 function tallestQuestion(form, s, view) {

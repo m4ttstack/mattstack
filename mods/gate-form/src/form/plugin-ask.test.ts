@@ -8,7 +8,7 @@ import { visibleLines } from './view'
 
 const ARGS = {
   title: 'PR #1144 merged',
-  context: 'This worktree is being cleaned up.',
+  context: 'PR #1144 merged, so rt is cleaning up this worktree. Choose what this session does next.',
   label: 'What should this session do?',
   options: [
     { value: 'close', label: 'Close session' },
@@ -59,4 +59,30 @@ test('ask arguments a form cannot draw are refused with the reason', () => {
   expect(pluginForm({ ...ARGS, title: '' })).toBeString()
   expect(pluginForm({ ...ARGS, timeoutMs: 0 })).toBeString()
   expect(pluginForm(null)).toBeString()
+})
+
+test('a plugin form is one page: no tab strip, no review page, no nav row, no page hint', () => {
+  const page = screen(initial(form))
+  for (const gone of ['Submit', 'Choice', 'Review', 'Back', '←→', 'pages']) expect(page).not.toContain(gone)
+  expect(page).toContain('↑↓ move  enter picks')
+  expect(page).toContain('rt is cleaning up this worktree')
+  expect(keyEffect({ key: 'right' }, form, initial(form))!.state.page).toBe(0)
+  expect(keyEffect({ key: 'tab' }, form, initial(form))!.state).toEqual(initial(form))
+})
+
+test('up and down move between the options only', () => {
+  const down = keyEffect({ key: 'down' }, form, initial(form))!.state
+  expect(down.cursor[0]).toBe(1)
+  expect(down.onNav).toBeUndefined()
+  expect(keyEffect({ key: 'down' }, form, down)!.state.cursor[0]).toBe(1)
+  expect(keyEffect({ key: 'up' }, form, down)!.state.cursor[0]).toBe(0)
+})
+
+test('with no context, nothing sits between the title and the question, and no divider is drawn', () => {
+  const bare = pluginForm({ ...ARGS, context: undefined }) as Form
+  const lines = visibleLines(bare, initial(bare), { width: 70, focused: true }, 80).map(textOf)
+  const title = lines.findIndex(line => line.includes('PR #1144 merged'))
+  expect(lines[title + 1]!.trim()).toBe('│')
+  expect(lines[title + 2]).toContain('What should this session do?')
+  expect(lines.join('\n')).not.toContain('├')
 })

@@ -2,7 +2,7 @@ import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, bu
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canChat, canSubmit, choicesOf, cursorIsChoice, isOnNav, isPicked, menuRows, navAtOf, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { canChat, canSubmit, choicesOf, cursorIsChoice, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 // `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
@@ -143,9 +143,8 @@ export function withTabInView(form: Form, s: State, width: number): State {
 const MORE: Action = { type: 'menu', hit: { type: 'toggle' } }
 
 // Where each nav button's span sits in buttonRow's line: the indent, then each left button and its gap, the right button last.
-function spanAt(id: NavId, line: L): number {
-  const left: Record<Exclude<NavId, 'chat'>, number> = { back: 0, next: 1, more: 2 }
-  return id === 'chat' ? line.length - 1 : 1 + 2 * left[id]
+function spanAt(id: NavId, left: NavId[], line: L): number {
+  return id === 'chat' ? line.length - 1 : 1 + 2 * left.indexOf(id)
 }
 
 // The nav row, and under it the More actions rows while that menu is open (the review page only).
@@ -163,10 +162,11 @@ function navRows(form: Form, s: State, view: View): L[] {
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }
   const rows = page === n ? menuRows(form) : []
   const more: Button<Action> = { label: MORE_ACTIONS, action: MORE, tone: 'quiet' }
-  const line = buttonRow(rows.length === 0 ? [back, next] : [back, next, more], aside, view.width)
+  const left: [NavId, Button<Action>][] = [...(page === n ? [] : [['back', back] as [NavId, Button<Action>]]), ['next', next], ...(rows.length === 0 ? [] : [['more', more] as [NavId, Button<Action>]])]
+  const line = buttonRow(left.map(([, button]) => button), aside, view.width)
   const marked = (row: L): L => {
     if (!view.focused || !isOnNav(form, s)) return row
-    const at = spanAt(navAtOf(form, s), row)
+    const at = spanAt(navAtOf(form, s), left.map(([id]) => id), row)
     return [...row.slice(0, at), ...gridLook(row[at]!, { marked: true, pressing: view.pressing && !s.menu.open }), ...row.slice(at + 1)]
   }
   if (rows.length === 0) return [marked(line)]
@@ -186,7 +186,11 @@ function errorLines(form: Form, view: View): L[] {
 // The same with or without focus: focus changes only how the selection is drawn, never what the form says.
 function hint(form: Form, s: State): string | undefined {
   const q = form.questions[s.page]
-  if (!q) return '←→ buttons  enter presses'
+  if (isSinglePage(form)) return '↑↓ move  enter picks'
+  if (!q) {
+    const others = navIds(form, s).length > 1 ? '   tab buttons' : ''
+    return `← back${others}   enter ${navAtOf(form, s) === 'next' ? 'submit' : 'presses'}`
+  }
   if (s.onNav) return '←→ buttons  ↑ answers  enter presses'
   return choicesOf(q).length === 0 ? '←→ pages  ↓ buttons' : '←→ pages  ↑↓ move'
 }
@@ -195,20 +199,22 @@ function hint(form: Form, s: State): string | undefined {
 function draw(form: Form, s: State, view: View): Drawn<Action> {
   const head: L[] = [brandBar<Action>(form.source === 'plugin' ? 'mattstack' : 'mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
   if (s.phase !== 'active' || form.status !== 'open') return { head, page: closedPage(form, s, view), foot: [] }
+  const gap: L = [sp(SYMBOL.bar, GRAY)]
+  head.push(gap)
   if (form.context) {
-    const first = [sp<Action>(SYMBOL.bar, GRAY), sp('  '), sp(ICON.info, ACCENT), sp(' ')]
-    const rest = [sp<Action>(SYMBOL.bar, GRAY), sp('    ')]
-    head.push([sp(SYMBOL.bar, GRAY)], ...hang(first, rest, contextText(form.context), view.width))
+    const indent = [sp<Action>(SYMBOL.bar, GRAY), sp('  ')]
+    const divider: L = [sp(`├${'─'.repeat(Math.max(4, view.width - 2))}`, GRAY)]
+    head.push(...hang(indent, indent, contextText(form.context), view.width), gap, divider, gap)
   }
-  const divider: L = [sp(`├${'─'.repeat(Math.max(4, view.width - 2))}`, GRAY)]
-  head.push([sp(SYMBOL.bar, GRAY)], [sp(SYMBOL.bar, GRAY)], divider, [sp(SYMBOL.bar, GRAY)], tabs(form, s, view), [sp(SYMBOL.bar, GRAY)])
+  if (!isSinglePage(form)) head.push(tabs(form, s, view), gap)
 
   const q = form.questions[s.page]
   const accentBar = rail<Action>(ACCENT)
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view)
   const keys = hint(form, s)
   const hintLines: L[] = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)]
-  const foot: L[] = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(' ')], ...navRows(form, s, view)]
+  const nav: L[] = isSinglePage(form) ? [] : [[sp(' ')], ...navRows(form, s, view)]
+  const foot: L[] = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), ...nav]
   return { head, page, foot }
 }
 

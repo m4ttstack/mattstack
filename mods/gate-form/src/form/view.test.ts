@@ -35,7 +35,7 @@ test('the review page hints at its buttons, not at pages', () => {
   const text = pageLines(sample.questions.length).map(textOf).join('\n')
   expect(text).toContain('Submit your answers?')
   expect(text).not.toContain('pages')
-  expect(text).toContain('enter presses')
+  expect(text).toContain('← back   tab buttons   enter submit')
 })
 
 test('a question page has the hint line', () => {

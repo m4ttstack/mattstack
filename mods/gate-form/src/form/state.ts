@@ -72,12 +72,16 @@ const GO_BACK = 'go-back:'
 // A plugin form's caller waits on a pick, not on a talk with the agent.
 export const canChat = (form: Form) => form.source !== 'plugin'
 
-export const isReview = (form: Form, s: State) => s.page === form.questions.length
+// A plugin form's one question is its only page: a pick answers it, so there is no review page or nav row.
+export const isSinglePage = (form: Form) => form.source === 'plugin'
+
+export const isReview = (form: Form, s: State) => !isSinglePage(form) && s.page === form.questions.length
 export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)
 
 // The nav row's buttons the keyboard can rest on: a disabled Back is skipped, while a disabled Submit stays, as Enter on it does nothing.
+// The review page has no Back: ← pages back there, as on every page.
 export function navIds(form: Form, s: State): NavId[] {
-  const ids: NavId[] = s.page > 0 ? ['back', 'next'] : ['next']
+  const ids: NavId[] = s.page > 0 && !isReview(form, s) ? ['back', 'next'] : ['next']
   if (isReview(form, s) && menuRows(form).length > 0) ids.push('more')
   if (canChat(form)) ids.push('chat')
   return ids
@@ -145,7 +149,8 @@ export function answersOf(form: Form, s: State): Record<string, unknown> {
 
 // Navigation only: arrows, Tab and the tab strip look around without answering anything.
 export function goTo(form: Form, s: State, page: number): State {
-  return { ...s, page: Math.max(0, Math.min(form.questions.length, page)) }
+  const last = isSinglePage(form) ? 0 : form.questions.length
+  return { ...s, page: Math.max(0, Math.min(last, page)) }
 }
 
 // A single choice draws its cursor as the chosen ●, so Next takes that option as the answer.
