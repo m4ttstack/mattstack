@@ -102,6 +102,17 @@ describe("run_start", () => {
       await tool(deps, "run_start").handler({ ...input, gateMode: "yolo" }, RUNS_ROOT_ENV);
       expect(fieldCalls(calls)[0]!.args[2]).toBe("yolo");
     });
+    test("a failed field write keeps the run and adds a warning", async () => {
+      const calls: Call[] = [];
+      const { deps } = fakeDeps(START);
+      deps.write = async (verb, args, env, cwd) => {
+        calls.push({ verb, args, env: env ?? {}, cwd: cwd ?? "" });
+        return verb === "field" ? { out: '{"ok":false,"error":"locked"}', code: 1 } : { out: START, code: 0 };
+      };
+      const res = await tool(deps, "run_start").handler({ ...input, gateMode: "quiet" }, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(true);
+      expect(res.body).toMatchObject({ ok: true, runId: "x", runDb: "/runs/repo/id/state.db", warning: expect.stringContaining("locked") });
+    });
     test("an invalid RT_GATE_MODE is ignored and writes nothing", async () => {
       const { deps, calls } = fakeDeps(START, 0, { RT_GATE_MODE: "bogus" });
       const res = await tool(deps, "run_start").handler(input, RUNS_ROOT_ENV);
@@ -437,6 +448,53 @@ describe("run_enter", () => {
     deps.isPackRoot = () => false;
     expect((await run({})).error).toContain("plugin.json");
     expect(calls).toEqual([]);
+  });
+  describe("gateMode", () => {
+    const STARTED = '{"ok":true,"mode":"started","runId":"x","runDb":"/runs/r/id/state.db"}';
+    const enter = (deps: RunToolDeps, input: Record<string, unknown> = {}) => tool(deps, "run_enter").handler({ flags: FLAGS, skillDir: SKILL, ...input }, RUNS_ROOT_ENV);
+    const withEnv = (out: string, procEnv: NodeJS.ProcessEnv) => {
+      const { deps, calls } = fakeDeps(undefined, 0, procEnv);
+      deps.engine = async () => ({ out, code: 0 });
+      return { deps, calls };
+    };
+    test("a fresh run with RT_GATE_MODE writes the field", async () => {
+      const { deps, calls } = withEnv(STARTED, { RT_GATE_MODE: "quiet" });
+      const res = await enter(deps);
+      expect(res.ok).toBe(true);
+      expect(calls.map((c) => c.verb)).toEqual(["field"]);
+      expect(calls[0]!.args).toEqual(["set", "gate-mode", "quiet", "--stage", "start"]);
+    });
+    test("an explicit gateMode on a fresh run wins over the env", async () => {
+      const { deps, calls } = withEnv(STARTED, { RT_GATE_MODE: "quiet" });
+      await enter(deps, { gateMode: "yolo" });
+      expect(calls[0]!.args[2]).toBe("yolo");
+    });
+    test("a resumed or inherited run writes nothing", async () => {
+      for (const mode of ["resumed", "inherited", "candidates"]) {
+        const { deps, calls } = withEnv(`{"ok":true,"mode":"${mode}","runDb":"/runs/r/id/state.db"}`, { RT_GATE_MODE: "quiet" });
+        await enter(deps, { gateMode: "yolo" });
+        expect(calls, mode).toEqual([]);
+      }
+    });
+    test("an invalid gateMode refuses and starts nothing", async () => {
+      const { deps, calls } = fakeEngine();
+      const res = await enter(deps, { gateMode: "bogus" });
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe('"gateMode" must be one of chatty, normal, quiet, yolo');
+      expect(calls).toEqual([]);
+    });
+    test("an invalid RT_GATE_MODE is ignored", async () => {
+      const { deps, calls } = withEnv(STARTED, { RT_GATE_MODE: "bogus" });
+      expect((await enter(deps)).ok).toBe(true);
+      expect(calls).toEqual([]);
+    });
+    test("a failed field write keeps the run and adds a warning", async () => {
+      const { deps } = withEnv(STARTED, { RT_GATE_MODE: "quiet" });
+      deps.write = async () => ({ out: '{"ok":false,"error":"locked"}', code: 1 });
+      const res = await enter(deps);
+      expect(res.ok).toBe(true);
+      expect(res.body).toMatchObject({ mode: "started", runId: "x", warning: expect.stringContaining("locked") });
+    });
   });
   test("an engine error envelope becomes the error message", async () => {
     const { deps } = fakeEngine('{"ok":false,"error":"no run x in repo r"}', 2);

@@ -1725,6 +1725,20 @@ describe("herd:spawn {tree} and herd:respawn", () => {
     expect(res.data).toMatchObject({ worktree: t1.path, branch: "br-t1", tree: "t1", launch: { model: "opus", effort: "high", account: "2" } });
   });
 
+  test("respawn passes gateMode as RT_GATE_MODE, does not remember it, and refuses an invalid one", async () => {
+    const t1 = claimedTree("t1");
+    const { h, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1", gateMode: "quiet" })).ok).toBe(true);
+    expect(agentCalls[0].env.RT_GATE_MODE).toBe("quiet");
+    const bad = await h["herd:respawn"]({ herd, job: "job-a", gateMode: "bogus" });
+    expect(bad).toEqual({ ok: false, error: '"gateMode" must be one of chatty, normal, quiet, yolo' });
+    expect(agentCalls).toHaveLength(1);
+    expect((await h["herd:respawn"]({ herd, job: "job-a", gateMode: "yolo" })).ok).toBe(true);
+    expect(agentCalls[1].env.RT_GATE_MODE).toBe("yolo");
+    expect((await h["herd:respawn"]({ herd, job: "job-a" })).ok).toBe(true);
+    expect("RT_GATE_MODE" in agentCalls[2].env).toBe(false);
+  });
+
   test("respawn overrides one setting and keeps the others", async () => {
     const t1 = claimedTree("t1");
     const { h, store, agentCalls, herd } = await started([t1]);

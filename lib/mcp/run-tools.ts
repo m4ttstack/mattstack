@@ -184,6 +184,14 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     return err(message);
   }
 
+  /** A failed write never undoes a run that already exists, so it comes back as a warning on the success body. */
+  async function recordGateMode(body: object, gateMode: string | undefined, env: NodeJS.ProcessEnv): Promise<object> {
+    const runDb = (body as { runDb?: unknown }).runDb;
+    if (gateMode === undefined || typeof runDb !== "string") return body;
+    const set = await write("field", ["set", "gate-mode", gateMode, "--stage", "start"], { runDb }, env);
+    return set.ok ? body : { ...body, warning: `gate-mode was not recorded on the new run: ${set.error}` };
+  }
+
   return [
     {
       name: "run_start",
@@ -208,12 +216,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         const r = await deps.write("run-start", prepared.args, env, prepared.packRoot);
         const body = parseOut(r.out) as { ok?: boolean; error?: string } | null;
         if (r.code !== 0 || !body?.ok) return err(body?.error ?? `rt runs run-start failed (exit ${r.code})`);
-        if (prepared.gateMode !== undefined && typeof (body as { runDb?: unknown }).runDb === "string") {
-          const runDb = (body as { runDb: string }).runDb;
-          const set = await write("field", ["set", "gate-mode", prepared.gateMode, "--stage", "start"], { runDb }, env);
-          if (!set.ok) return err(`run started (runDb ${runDb}) but gate-mode was not recorded: ${set.error}`);
-        }
-        return ok(body);
+        return ok(await recordGateMode(body, prepared.gateMode, env));
       },
     },
     {
@@ -343,6 +346,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
           fresh: { type: "boolean", description: "Start a new run without listing candidates." },
           ticket: { type: "string" },
           spawnedBy: { type: "string" },
+          gateMode: { type: "string", description: "chatty, normal, quiet or yolo: recorded only when this call starts a new run; a resumed run keeps its own. Omitted, RT_GATE_MODE in the environment applies." },
         },
         required: ["flags", "skillDir"],
         additionalProperties: false,
@@ -354,7 +358,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         if (typeof input.stage === "string" && !/^\S+$/.test(input.stage)) return err('"stage" must be a single token with no whitespace');
         const prepared = prepareStart(input, deps);
         if ("error" in prepared) return err(prepared.error);
-        const { args, packRoot } = prepared;
+        const { args, packRoot, gateMode } = prepared;
         if (typeof input.resume === "string" && !isPathComponent(input.resume)) return err('"resume" must be a run id, a single path component');
         let handedRunDb: string | undefined;
         if (typeof input.runDb === "string") {
@@ -373,7 +377,8 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         if (typeof input.fresh === "boolean") op.fresh = input.fresh;
         const r = await deps.engine(op, env, packRoot);
         if (r.code !== 0) return err(engineFailure(r, "run_enter"));
-        return ok(parseOut(r.out) ?? { ok: true });
+        const entered = (parseOut(r.out) ?? { ok: true }) as { mode?: unknown };
+        return ok(entered.mode === "started" ? await recordGateMode(entered, gateMode, env) : entered);
       },
     },
     {

@@ -1669,6 +1669,10 @@ Start, resume or inherit a pipeline run and return where it stands, or the candi
     },
     "spawnedBy": {
       "type": "string"
+    },
+    "gateMode": {
+      "type": "string",
+      "description": "chatty, normal, quiet or yolo: recorded only when this call starts a new run; a resumed run keeps its own. Omitted, RT_GATE_MODE in the environment applies."
     }
   },
   "required": [
@@ -2775,7 +2779,7 @@ Start a herd (room, workspace, gate subscription) for this shepherd session. rep
 ### herd_spawn
 
 <!-- mcp-lint: allow -->
-Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. A spawn into a tree another job already holds is a guest (a reviewer): it ticks the host's reviewerRounds budget and returns it as reviewerRound {host, key, budget}. Only the herd's shepherd session may call it. Takes minutes.
+Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. gateMode (chatty, normal, quiet or yolo) is not stored on the job: a respawn must pass it again, while a worker resuming its run keeps the run's recorded mode. A spawn into a tree another job already holds is a guest (a reviewer): it ticks the host's reviewerRounds budget and returns it as reviewerRound {host, key, budget}. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
 {
@@ -2803,7 +2807,7 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
     },
     "gateMode": {
       "type": "string",
-      "description": "chatty, normal, quiet or yolo; the worker's run starts in this gate mode."
+      "description": "chatty, normal, quiet or yolo; the worker's new run starts in this gate mode (it reaches the worker as RT_GATE_MODE)."
     },
     "disposable": {
       "type": "boolean"
@@ -2823,7 +2827,7 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
 ### herd_respawn
 
 <!-- mcp-lint: allow -->
-Relaunch a job's agent in its existing worktree (no provisioning). brief, account, model and effort follow herd_spawn's rules; omitted, the job's stored brief and launch settings are reused. Only the herd's shepherd session may call it. Takes minutes.
+Relaunch a job's agent in its existing worktree (no provisioning). brief, account, model, effort and gateMode follow herd_spawn's rules (gateMode is not stored, so pass it again); omitted, the job's stored brief and launch settings are reused. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
 {
@@ -2851,7 +2855,7 @@ Relaunch a job's agent in its existing worktree (no provisioning). brief, accoun
     },
     "gateMode": {
       "type": "string",
-      "description": "chatty, normal, quiet or yolo; the worker's run starts in this gate mode."
+      "description": "chatty, normal, quiet or yolo; the worker's new run starts in this gate mode (it reaches the worker as RT_GATE_MODE)."
     }
   },
   "required": [
