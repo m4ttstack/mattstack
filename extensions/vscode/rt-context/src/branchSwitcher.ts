@@ -218,9 +218,13 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     let daemonHit = false;
     try {
       const repoIdentity = repoForge.remoteUrl ? repoIdentityOfRemote(repoForge.remoteUrl) : null;
-      const response = await daemonQuery(
-        repoIdentity ? `/api/cache?repoIdentity=${encodeURIComponent(repoIdentity)}` : '/api/cache',
-      );
+      let response = repoIdentity
+        ? await daemonQuery(`/api/cache?repoIdentity=${encodeURIComponent(repoIdentity)}`)
+        : null;
+      // An identity the daemon wrote differently (a url.insteadOf rewrite) misses every row, so fall
+      // back to the unscoped read, as readDaemonCacheEntry does; on GitHub the forge check drops another repo's PR.
+      const scopedHit = response?.ok && localBranchNames.some((b) => response!.data?.[b]);
+      if (!scopedHit) response = await daemonQuery('/api/cache');
       if (response?.ok && response.data) {
         const allEntries = response.data as Record<string, any>;
         let hitCount = 0;
@@ -388,7 +392,7 @@ async function handleLinearCreate(
   const apiKey = await getSecret('linearApiKey');
   if (!apiKey) {
     vscode.window.showErrorMessage(
-      'Linear API key not set. Run "RT Context: Set Linear API Key" first.',
+      'RT Context has no Linear API key. Set it from a terminal: rt secrets set rt linearApiKey',
     );
     return;
   }

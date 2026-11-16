@@ -96,6 +96,29 @@ export function activate(context: vscode.ExtensionContext) {
   waitForGitAndStart(context);
 
   context.subscriptions.push(onDaemonRefresh(() => scheduleUpdate(context)));
+
+  void noticeEditorTokens(context);
+}
+
+const EDITOR_TOKENS: Record<string, string> = {
+  'rtContext.linearApiKey': 'linearApiKey',
+  'rtContext.gitlabToken': 'gitlabToken',
+};
+
+/** Tokens the old Set commands saved in the editor are no longer read; say how to move them until they are forgotten. */
+async function noticeEditorTokens(context: vscode.ExtensionContext): Promise<void> {
+  const found: string[] = [];
+  for (const editorKey of Object.keys(EDITOR_TOKENS)) {
+    if (await context.secrets.get(editorKey)) found.push(editorKey);
+  }
+  if (!found.length) return;
+  const commands = found.map((k) => `rt secrets set rt ${EDITOR_TOKENS[k]}`).join(' and ');
+  const forget = 'Forget the editor copies';
+  const picked = await vscode.window.showWarningMessage(
+    `RT Context no longer reads tokens saved in the editor. Move them to rt with ${commands}.`,
+    forget,
+  );
+  if (picked === forget) await Promise.all(found.map((k) => context.secrets.delete(k)));
 }
 
 export function deactivate() {

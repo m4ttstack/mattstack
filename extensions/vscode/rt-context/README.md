@@ -22,7 +22,7 @@ Clicking the status bar item opens the linked Linear ticket.
 
 ### Worktree switcher
 
-Click the **Worktrees** button in the status bar to see the repo's worktrees at a glance. It lists the same trees `rt cd` offers: the main checkout first, then the rest A to Z, without rt's spare, golden or gitq trees.
+Click the **Worktrees** button in the status bar to see the repo's worktrees at a glance. It uses `rt cd`'s rule and order: the main checkout first, then the rest A to Z, hiding spare (`on-deck/`) trees, the golden tree, gitq slots, trashed trees and folders that are gone.
 
 - Each worktree shows its folder name, branch, and Linear ticket info
 - **Select a worktree** to open it in a new window

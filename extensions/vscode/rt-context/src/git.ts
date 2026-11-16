@@ -142,19 +142,29 @@ export async function findDesktopStash(cwd: string, branch: string): Promise<Des
   return findDesktopStashIn(await stashList(cwd), branch);
 }
 
-/** Resolved at the moment of use: another worktree may have pushed or dropped a stash since this one was found. */
-async function liveStashRef(cwd: string, stash: DesktopStashEntry): Promise<string> {
+/**
+ * `git stash drop` takes only a `stash@{n}`, so the index is looked up just
+ * before the drop. Another worktree pushing a stash in the milliseconds
+ * between the two can still shift it; that window is narrowed, not closed.
+ */
+async function dropBySha(cwd: string, stash: DesktopStashEntry): Promise<void> {
   const ref = stashRefFor(await stashList(cwd), stash.sha);
   if (!ref) throw new Error(`the stash for '${stash.branchName}' is no longer there`);
-  return ref;
+  await execFileAsync('git', ['stash', 'drop', ref], { cwd });
 }
 
+/** Applies by sha, so only this stash's changes can land here; a conflict leaves the stash in place, as `pop` would. */
 export async function popStash(cwd: string, stash: DesktopStashEntry): Promise<void> {
-  await execFileAsync('git', ['stash', 'pop', await liveStashRef(cwd, stash)], { cwd });
+  await execFileAsync('git', ['stash', 'apply', stash.sha], { cwd });
+  try {
+    await dropBySha(cwd, stash);
+  } catch {
+    // The changes are applied; a stash something else already dropped needs nothing more.
+  }
 }
 
 export async function dropStash(cwd: string, stash: DesktopStashEntry): Promise<void> {
-  await execFileAsync('git', ['stash', 'drop', await liveStashRef(cwd, stash)], { cwd });
+  await dropBySha(cwd, stash);
 }
 
 /** Detect whether origin/main or origin/master exists. Returns the ref or null. */

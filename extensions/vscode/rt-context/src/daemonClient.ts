@@ -38,10 +38,20 @@ export async function daemonQuery(
   }
 }
 
-/** Runs `onRefresh` after each daemon cache refresh (its `status` broadcast), reconnecting until disposed. */
+/**
+ * Runs `onRefresh` after each daemon cache refresh (its `status` broadcast),
+ * reconnecting until disposed. The port is read once here, so a port change
+ * takes a window reload. An extension host with no global WebSocket gets no
+ * live updates rather than a failed activation.
+ */
 export function onDaemonRefresh(onRefresh: () => void): vscode.Disposable {
-  const stop = subscribe((type) => {
-    if (type === 'status') onRefresh();
-  }, { wsUrl: daemonWsUrl() });
-  return new vscode.Disposable(stop);
+  try {
+    const stop = subscribe((type) => {
+      if (type === 'status') onRefresh();
+    }, { wsUrl: daemonWsUrl() });
+    return new vscode.Disposable(stop);
+  } catch (err) {
+    console.warn(`[rt-context] no live updates from the rt daemon: ${err instanceof Error ? err.message : String(err)}`);
+    return new vscode.Disposable(() => {});
+  }
 }
