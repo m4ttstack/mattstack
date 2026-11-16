@@ -225,6 +225,8 @@ export { daemonHealth } from "./health.ts";
 
 export { repoNameForPath } from "./repos.ts";
 
+export { extractLinearId } from "./linear-id.ts";
+
 export {
   isTrashPath,
   isPickableWorktree,

@@ -68,3 +68,21 @@ describe("cache:read: bare-branch output", () => {
     expect(res.data.main.linearId).toBe("B");
   });
 });
+
+describe("cache:read: a whole-cache read scoped to one repo", () => {
+  test("returns that repo's entries, with rows written for no repo filling only the gaps", async () => {
+    const handlers = makeCtx({
+      [composeKey("remote:host%2Fa", "main")]: { linearId: "A", ticket: null, mr: null, fetchedAt: 1 },
+      [composeKey("remote:host%2Fb", "main")]: { linearId: "B", ticket: null, mr: null, fetchedAt: 2 },
+      [composeKey("remote:host%2Fb", "only-b")]: { linearId: "B2", ticket: null, mr: null, fetchedAt: 2 },
+      main: { linearId: "BARE-MAIN", ticket: null, mr: null, fetchedAt: 3 },
+      legacy: { linearId: "BARE", ticket: null, mr: null, fetchedAt: 3 },
+    });
+
+    const res = await handlers["cache:read"]!({ repoIdentity: "remote:host%2Fa" }) as any;
+
+    expect(Object.keys(res.data).sort()).toEqual(["legacy", "main"]);
+    expect(res.data.main.linearId).toBe("A");
+    expect(res.data.legacy.linearId).toBe("BARE");
+  });
+});

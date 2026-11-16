@@ -1,5 +1,28 @@
 import * as path from 'path';
+import { existsSync } from 'fs';
+import { isPickableWorktree } from '@mattstack/rt-client';
 import type { WorktreeEntry } from './types';
+
+/**
+ * The trees `rt cd` offers, in its order: git's first row (the main checkout)
+ * first and exempt from the folder check, the rest through rt-client's shared
+ * pickable rule and sorted A to Z by branch, else folder. The window's own
+ * tree always stays so the picker can mark it current.
+ */
+export function pickerWorktrees(
+  entries: WorktreeEntry[],
+  exists: (p: string) => boolean = existsSync,
+): WorktreeEntry[] {
+  const keep = (wt: WorktreeEntry, has: (p: string) => boolean) =>
+    wt.isCurrent || isPickableWorktree({ path: wt.dirPath, branch: wt.branch }, has);
+  const [main, ...rest] = entries;
+  if (!main) return [];
+  const label = (wt: WorktreeEntry) => wt.branch || wt.name;
+  const kept = rest
+    .filter((wt) => keep(wt, exists))
+    .sort((a, b) => label(a).localeCompare(label(b), undefined, { sensitivity: 'base' }));
+  return keep(main, () => true) ? [main, ...kept] : kept;
+}
 
 /**
  * Parse `git worktree list --porcelain` into WorktreeEntry[].

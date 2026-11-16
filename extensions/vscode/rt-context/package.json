@@ -22,14 +22,6 @@
   "contributes": {
     "commands": [
       {
-        "command": "rtContext.setLinearApiKey",
-        "title": "RT Context: Set Linear API Key"
-      },
-      {
-        "command": "rtContext.setGitlabToken",
-        "title": "RT Context: Set GitLab Token"
-      },
-      {
         "command": "rtContext.openTicket",
         "title": "RT Context: Open Linear Ticket"
       },
@@ -50,14 +42,6 @@
         "title": "RT Context: Reset Workspace File Preference"
       }
     ],
-    "menus": {
-      "commandPalette": [
-        {
-          "command": "rtContext.setGitlabToken",
-          "when": "rtContext.forge != 'github'"
-        }
-      ]
-    },
     "configuration": {
       "title": "RT Context",
       "properties": {
