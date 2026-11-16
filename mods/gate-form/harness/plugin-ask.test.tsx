@@ -153,30 +153,29 @@ const CONFIRM = {
   timeoutMs: 120_000,
 }
 
-test('a confirm ask resolves with the button pressed from the keyboard', { plugins: [CONSUMER] }, async ($, on) => {
+test("a confirm's answers are plain engine Buttons, the first autoFocus, each numbered as a hotkey while the pane holds the keys", { plugins: [CONSUMER] }, async ($, on) => {
   world(on, { setting: 'off' })
   await startSession($)
   const { id } = await askNoun($, CONFIRM)
-  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await pane.key({ key: 'right' })
-  await pane.key({ key: 'return' })
-  // Enter shows its press before it answers.
-  await pane.advance(200)
-  expect(await waitNoun($, id)).toEqual({ value: 'close' })
-  await pane.unmount()
+  const focused = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const exit = (await focused.find({ type: 'Button', key: `confirm-${id}:0` }))!
+  const close = (await focused.find({ type: 'Button', key: `confirm-${id}:1` }))!
+  expect(exit.text).toBe('Exit worktree and continue')
+  expect(exit.props).toMatchObject({ plain: true, hotkey: '1', autoFocus: true })
+  expect(close.props).toMatchObject({ plain: true, hotkey: '2' })
+  expect(close.props.autoFocus).toBeUndefined()
+  await focused.unmount()
+  const unfocused = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: false }, surface: 'terminal' })
+  expect((await unfocused.find({ type: 'Button', key: `confirm-${id}:0` }))!.props.hotkey).toBeUndefined()
+  await unfocused.unmount()
 })
 
-test('a confirm ask resolves with the button clicked', { plugins: [CONSUMER] }, async ($, on) => {
+test('a confirm ask resolves with the Button pressed', { plugins: [CONSUMER] }, async ($, on) => {
   world(on, { setting: 'off' })
   await startSession($)
   const { id } = await askNoun($, CONFIRM)
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const rows = await rowsOf(pane, (await pane.find({ type: 'Client' }))!.key!)
-  const y = rows.findIndex(r => r.includes('Exit worktree'))
-  expect(y).toBeGreaterThan(-1)
-  const x = [...rows[y]!.slice(0, rows[y]!.indexOf('Exit worktree'))].length + 1
-  await pane.pointer({ type: 'down', x, y, button: 'left' })
-  await pane.pointer({ type: 'up', x, y, button: 'left' })
-  expect(await waitNoun($, id)).toEqual({ value: 'leave' })
+  await pane.press({ key: `confirm-${id}:1` })
+  expect(await waitNoun($, id)).toEqual({ value: 'close' })
   await pane.unmount()
 })
