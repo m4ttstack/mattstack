@@ -248,7 +248,7 @@ function keySelected(span) {
     return [span];
   const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
     { ...span, t: span.t.slice(1) }
   ];
 }

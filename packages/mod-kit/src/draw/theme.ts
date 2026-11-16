@@ -118,7 +118,7 @@ export function keySelected<A>(span: Span<A>): Span<A>[] {
   if (!span.t.startsWith(' ')) return [span]
   const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? 'white' : BRAND.pink
   return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
     { ...span, t: span.t.slice(1) },
   ]
 }
