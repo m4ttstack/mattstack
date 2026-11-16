@@ -170,6 +170,7 @@ import { releaseEndpointsForWorktree } from "./daemon/handlers/endpoint.ts";
 import type { HandlerContext } from "./daemon/handlers/types.ts";
 import type { PortEntry } from "./port-scanner.ts";
 import { runUnits, stopUnits, type DaemonUnit } from "./daemon/lifecycle.ts";
+import { startLoopLagMonitor } from "./daemon/loop-lag.ts";
 
 // Legacy state migration (RT-46). Must run BEFORE the logger's first write can
 // create the new rt dir and turn a clean rename of a real legacy tree into a
@@ -1154,6 +1155,14 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           { bootDelayMs: 60_000, intervalMs: 15 * 60_000 },
           log,
         ));
+        startLoopLagMonitor({
+          intervalMs: 1_000,
+          thresholdMs: 2_000,
+          now: Date.now,
+          setInterval: (fn, ms) => { const h = setInterval(fn, ms); h.unref?.(); return h; },
+          clearInterval: (h) => clearInterval(h as ReturnType<typeof setInterval>),
+          log: loggerHandle.childLogger("loop-lag"),
+        });
         const usageLog = loggerHandle.childLogger("usage-limits");
         let lastUsageProblems = "";
         sweepHandles.push(scheduleSweep(

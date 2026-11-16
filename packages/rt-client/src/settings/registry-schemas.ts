@@ -21,6 +21,7 @@ const role = z.looseObject({
   preserveEnv: z.array(z.string()).optional(),
   env: stringMap.optional(),
   hook: z.string().optional(),
+  failClosed: z.boolean().optional(),
 });
 
 const interceptMatch = z.looseObject({

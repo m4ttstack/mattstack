@@ -13,9 +13,9 @@ import {
   writePeerReview,
   type PeerReviewState,
 } from '../peer/peer-reviews.ts';
+import { isDaemonTimeout } from '@mattstack/rt-client';
 import {
   createReminder,
-  isDaemonTimeout,
   REMIND_EVERY_MS,
   remindText,
   type DmResult,
@@ -245,7 +245,7 @@ test('a daemon timeout records the reminder, since Slack may have it, and still 
 test("only rt-client's abort reads as a timeout", () => {
   expect(
     isDaemonTimeout(
-      'rt daemon unreachable at /tmp/rt.sock: The operation timed out.'
+      'rt daemon unreachable at /tmp/rt.sock: chat:slack-dm timed out after 15s; the daemon may be busy rather than down'
     )
   ).toBe(true);
   expect(

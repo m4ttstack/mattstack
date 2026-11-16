@@ -58,6 +58,7 @@ export interface RoleConfig {
   preserveEnv: string[]; // caller env vars to protect; trailing * = prefix match
   env: Record<string, string>; // templates: ${port}, ${roles.<name>.port}
   hook?: string; // command string, run by the interceptor, fail-open
+  failClosed?: boolean; // a failed claim stops the start instead of running portless
 }
 
 export interface ArgInject {
@@ -140,6 +141,7 @@ function sanitizeRole(raw: unknown): RoleConfig | null {
   if (typeof r.hook === "string" && r.hook.length > 0) {
     role.hook = r.hook;
   }
+  if (r.failClosed === true) role.failClosed = true;
   return role;
 }
 

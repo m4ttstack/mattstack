@@ -34,6 +34,7 @@ import {
   paneSend,
   readDiscussions,
   readProjectMRs,
+  isDaemonTimeout,
   rtCommand,
   setSetting,
   subscribe,
@@ -348,7 +349,7 @@ import {
   reviewPresenceRecipients,
   reviewSyncEnvelopes,
 } from './peer/presence.ts';
-import { createReminder, isDaemonTimeout } from './peer/remind.ts';
+import { createReminder } from './peer/remind.ts';
 import {
   makePeering,
   startPeeringWhenTokenLoads,
