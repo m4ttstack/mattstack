@@ -7,7 +7,7 @@ label: Fix and next
 # Gate self-review: fix and next, after the draft
 
 Run gate-protocol's Runs integration with `gate_ask {questions, kind:
-self-review, context, runDb, stage}`, `context` quoting the draft's
+self-review, context, runDb, stage, reach: "worktree"}`, `context` quoting the draft's
 Issues and, when the Assessment has one, its `Unanswered rules:` line, and
 one question:
 

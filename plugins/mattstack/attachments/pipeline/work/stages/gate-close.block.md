@@ -12,9 +12,9 @@ board frame map's notes): list every field whose key starts with `board-`
 from `run_snapshot`'s fields. `run_field_get` needs the exact key, and at
 close the iids are unknown.
 
-When the run's mode is `yolo` (a decision in `run_snapshot`'s decisions
-reads `mode:yolo` as its decider), no asking gate is left to carry what
-the mode decided, so this report carries it: above the form, list every
-decision whose decider starts `mode:`, each with its stage, its question
-and the option taken. When this gate itself comes back
-`paneAction: answered`, print that list as the run's last message.
+When this gate comes back `paneAction: answered`, no form showed the
+report, so print it as the run's last message: the MR link, its state,
+the `ci` verdict and the `board-` notes, then every decision in
+`run_snapshot`'s decisions whose decider starts `mode:`, each with its
+stage, its question and the option taken (no gate is left to carry the
+digest). A close that asks already carries the digest above its form.

@@ -34,6 +34,8 @@ flowchart TB
     stack_parent_read{Stack parent read?}
     run_field_get_target[/"run_field_get {key: shipTarget}"/]
     target_matches_fresh{shipTarget matches the fresh target?}
+    mr_field_set{Run's mr set before the ship gate?}
+    mr_view_state[/"mr_view {mrUrl: <mr>} (draft or ready, for the gate's reach)"/]
     gate_ship
     run_field_set_target[/"run_field_set {key: shipTarget, value: <resolved target>, stage}"/]
     run_field_set_target_iterate[/"run_field_set {key: shipTarget, value: -, stage} (iterate)"/]
@@ -123,7 +125,10 @@ flowchart TB
     stack_parent_read -->|"no: the default branch (an unreadable store or error says so)"| run_field_get_target
     run_field_get_target --> target_matches_fresh
     target_matches_fresh -->|yes: the earlier Proceed stands| dirty_answer
-    target_matches_fresh -->|no| gate_ship
+    target_matches_fresh -->|no| mr_field_set
+    mr_field_set -->|yes| mr_view_state
+    mr_field_set -->|no| gate_ship
+    mr_view_state --> gate_ship
     gate_ship -->|proceed| run_field_set_target
     gate_ship -->|iterate| run_field_set_target_iterate
     gate_ship -->|hold| run_field_set_target_hold
