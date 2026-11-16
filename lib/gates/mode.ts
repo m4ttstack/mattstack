@@ -1,6 +1,6 @@
 import type { GateQuestion } from "../../packages/rt-client/src/commands.ts";
 import { gateOptionLabel, gateOptionValue } from "../../packages/rt-client/src/gate-options.ts";
-import { type DecisionRow, answerValue } from "./record.ts";
+import { type DecisionRow, answerValue, splitVerb } from "./record.ts";
 
 export type GateMode = "chatty" | "normal" | "quiet" | "yolo";
 export type Reach = "worktree" | "draft" | "teammates" | "public";
@@ -47,7 +47,8 @@ type AutoAnswer =
   | { kind: "answer"; answers: Record<string, string | string[]> }
   | { kind: "ask"; reason: string };
 
-const stopVerb = (value: string): boolean => STOP_VERBS.has(value.split(":")[0]!.trim());
+const verbOf = (value: string): string => splitVerb(value.replace(RECOMMENDED_SUFFIX, "").trim().toLowerCase()).verb.trim();
+const stopVerb = (value: string): boolean => STOP_VERBS.has(verbOf(value));
 
 export function autoAnswerDecision(i: {
   mode: GateMode;
@@ -71,7 +72,8 @@ export function autoAnswerDecision(i: {
     const rec = recommendedValues(q);
     if (rec.length === 0) return ask(`question ${q.id} has no recommendation`);
     if (rec.some(stopVerb)) return ask(`question ${q.id} recommends stopping`);
-    if (q.id === "next" && !rec.every((v) => v === "proceed" || v === "done")) {
+    if (!q.multi && rec.length > 1) return ask(`question ${q.id} has more than one recommendation`);
+    if (q.id === "next" && !rec.every((v) => ["proceed", "done"].includes(verbOf(v)))) {
       return ask("next does not recommend proceed or done");
     }
     answers[q.id] = q.multi ? rec : rec[0]!;

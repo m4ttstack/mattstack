@@ -57,6 +57,21 @@ describe("autoAnswerDecision", () => {
       expect(autoAnswerDecision({ ...base, questions: [q("a", [{ value: v, label: "x", recommended: true }])] }).kind).toBe("ask");
     }
   });
+  test("a stop verb behind the suffix or in another case asks", () => {
+    expect(autoAnswerDecision({ ...base, questions: [q("a", ["hold (Recommended)", "proceed"])] }).kind).toBe("ask");
+    expect(autoAnswerDecision({ ...base, questions: [q("a", ["abandon (Recommended)", "proceed"])] }).kind).toBe("ask");
+    expect(autoAnswerDecision({ ...base, questions: [q("a", [{ value: "Hold", label: "x", recommended: true }])] }).kind).toBe("ask");
+  });
+  test("a suffixed string next answers with the raw value", () => {
+    expect(autoAnswerDecision({ ...base, questions: [q("next", ["proceed (Recommended)", "hold"])] })).toEqual({
+      kind: "answer",
+      answers: { next: "proceed (Recommended)" },
+    });
+  });
+  test("two recommendations on a single-select ask", () => {
+    const two = q("a", [{ value: "x", label: "x", recommended: true }, { value: "y", label: "y", recommended: true }]);
+    expect(autoAnswerDecision({ ...base, questions: [two] }).kind).toBe("ask");
+  });
   test("a stop verb before a colon asks", () => {
     expect(autoAnswerDecision({ ...base, questions: [q("a", [{ value: "iterate: more", label: "x", recommended: true }])] }).kind).toBe("ask");
   });
