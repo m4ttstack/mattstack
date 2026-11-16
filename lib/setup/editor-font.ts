@@ -17,10 +17,12 @@ export function nextTerminalFont(input: {
   value?: string;
   reason: "has-nerd" | "member-undid" | "appended" | "seeded";
 } {
-  const { terminal, editor, lastWritten } = input;
+  const { lastWritten } = input;
+  const terminal = input.terminal?.trim() || undefined;
+  const editor = input.editor?.trim() || undefined;
   if (terminal !== undefined && hasNerdFont(terminal)) return { action: "keep", reason: "has-nerd" };
   if (lastWritten !== undefined && terminal !== lastWritten) return { action: "keep", reason: "member-undid" };
   const seeded = terminal === undefined;
-  const base = (seeded ? (editor ?? EDITOR_DEFAULT_FONT) : terminal).trim();
+  const base = (seeded ? (editor ?? EDITOR_DEFAULT_FONT) : terminal).replace(/[\s,]+$/, "");
   return { action: "write", value: `${base}, '${NERD_FAMILY}'`, reason: seeded ? "seeded" : "appended" };
 }

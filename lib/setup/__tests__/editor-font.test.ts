@@ -37,6 +37,36 @@ describe("nextTerminalFont", () => {
       reason: "seeded",
     });
   });
+  test("an empty terminal seeds from the editor", () => {
+    expect(nextTerminalFont({ terminal: "", editor: "SF Mono", lastWritten: undefined })).toEqual({
+      action: "write",
+      value: `SF Mono, ${NERD}`,
+      reason: "seeded",
+    });
+  });
+  test("a whitespace terminal with an empty editor seeds from the default", () => {
+    expect(nextTerminalFont({ terminal: "   ", editor: " ", lastWritten: undefined })).toEqual({
+      action: "write",
+      value: `Menlo, Monaco, 'Courier New', monospace, ${NERD}`,
+      reason: "seeded",
+    });
+  });
+  test("strips a trailing comma from the base", () => {
+    expect(nextTerminalFont({ terminal: "Fira Code,", editor: undefined, lastWritten: undefined }).value).toBe(
+      `Fira Code, ${NERD}`,
+    );
+  });
+  test("trims surrounding whitespace", () => {
+    expect(nextTerminalFont({ terminal: "  Fira Code  ", editor: undefined, lastWritten: undefined }).value).toBe(
+      `Fira Code, ${NERD}`,
+    );
+  });
+  test("a quoted mixed-case NF family counts as Nerd", () => {
+    expect(nextTerminalFont({ terminal: "'FiraCode NF'", editor: undefined, lastWritten: undefined })).toEqual({
+      action: "keep",
+      reason: "has-nerd",
+    });
+  });
   test("keeps a font that already has a Nerd Font", () => {
     expect(nextTerminalFont({ terminal: "Hack Nerd Font", editor: undefined, lastWritten: undefined })).toEqual({
       action: "keep",
