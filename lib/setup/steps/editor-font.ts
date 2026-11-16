@@ -26,7 +26,8 @@ async function editorFontRun(ctx: ApplyContext, appDirs?: string[]): Promise<Ste
     const font = await installNerdFont(ctx.p, (line) => ctx.log(ID, line));
     if (!font.ok) {
       if (ctx.update) return { state: "skipped", detail: font.detail };
-      return { state: "failed", detail: font.detail, remedy: "Check your connection, then run rt setup apply --only editor.terminal-font" };
+      if (ctx.only === ID) return { state: "failed", detail: font.detail, remedy: "Check your connection, then try again" };
+      return { state: "partial", detail: font.detail };
     }
   }
 
@@ -43,8 +44,8 @@ async function editorFontRun(ctx: ApplyContext, appDirs?: string[]): Promise<Ste
   const failed = results.filter((r) => r.outcome === "failed");
   const added = wrote.length > 0 ? `Added the Nerd Font to the terminal in ${names(wrote.map((r) => r.editor))}` : "";
   if (failed.length > 0) {
-    const why = failed.map((r) => `${r.editor}: ${r.detail ?? "write failed"}`).join("; ");
-    return { state: "partial", detail: [added, `Could not update ${names(failed.map((r) => r.editor))} (${why})`].filter(Boolean).join(". ") };
+    const couldNot = failed.map((r) => `Could not update ${r.editor} (${r.detail ?? "write failed"})`);
+    return { state: "partial", detail: [added, ...couldNot].filter(Boolean).join(". ") };
   }
   return { state: "done", detail: added };
 }

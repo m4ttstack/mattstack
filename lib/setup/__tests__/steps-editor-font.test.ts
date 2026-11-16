@@ -114,13 +114,26 @@ describe("editor.terminal-font step", () => {
     });
   });
 
-  test("a full run whose font download fails edits no editor and names the retry", async () => {
+  test("a full run whose font download fails is partial, edits no editor and names no command", async () => {
     install("Visual Studio Code.app", "code");
     const code = seed("Code", `{}\n`);
     const { ctx } = makeCtx(confined(fetchFails as (argv: string[]) => ExecResult));
     const outcome = await runEditorFont(ctx, [apps]);
+    expect(outcome.state).toBe("partial");
+    expect(outcome.detail).toContain("Downloading the font failed");
+    expect(outcome.remedy).toBeUndefined();
+    expect(readFileSync(code, "utf8")).toBe(`{}\n`);
+  });
+
+  test("an --only run of the step whose font download fails is failed with a plain try-again remedy", async () => {
+    install("Visual Studio Code.app", "code");
+    const code = seed("Code", `{}\n`);
+    const { ctx } = makeCtx(confined(fetchFails as (argv: string[]) => ExecResult), { only: "editor.terminal-font" });
+    const outcome = await runEditorFont(ctx, [apps]);
     expect(outcome.state).toBe("failed");
-    expect(outcome).toMatchObject({ remedy: expect.stringContaining("rt setup apply --only editor.terminal-font") });
+    expect(outcome.detail).toContain("Downloading the font failed");
+    expect(outcome.remedy).toBeDefined();
+    expect(outcome.remedy).not.toContain("rt ");
     expect(readFileSync(code, "utf8")).toBe(`{}\n`);
   });
 
@@ -164,7 +177,7 @@ describe("editor.terminal-font step", () => {
     const outcome = await runEditorFont(makeCtx(p).ctx, [apps]);
     expect(outcome.state).toBe("partial");
     expect(outcome.detail).toContain("Added the Nerd Font to the terminal in VS Code");
-    expect(outcome.detail).toContain("Could not update Cursor (Cursor: EACCES: permission denied)");
+    expect(outcome.detail).toContain("Could not update Cursor (EACCES: permission denied)");
   });
 });
 
