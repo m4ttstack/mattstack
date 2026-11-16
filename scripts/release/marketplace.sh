@@ -191,19 +191,26 @@ PY
 # invoking user's plugin config. CLAUDE_CONFIG_DIR outranks HOME for the CLI (a
 # cswap session exports it), so it is unset explicitly -- HOME alone let this
 # step register the temp stage in the real profile and delete it on exit.
-if command -v claude >/dev/null 2>&1; then
+# RT_MARKETPLACE_CLAUDE replaces the binary: under a scratch HOME the real CLI
+# reaches for a login keychain that is not there, and macOS raises a modal
+# "Keychain Not Found" dialog, so the tests point it at a stub.
+CLAUDE_BIN="${RT_MARKETPLACE_CLAUDE:-claude}"
+if command -v "$CLAUDE_BIN" >/dev/null 2>&1; then
     # Outside $STAGE: anything left under it is committed and published.
     VHOME="$(mktemp -d "${TMPDIR:-/tmp}/mattstack-marketplace-home.XXXXXX")"
     trap 'rm -rf "$STAGE" "$VHOME"' EXIT
-    if VOUT="$(env -u CLAUDE_CONFIG_DIR HOME="$VHOME" claude plugin marketplace add "$STAGE" 2>&1)"; then
+    if VOUT="$(env -u CLAUDE_CONFIG_DIR HOME="$VHOME" "$CLAUDE_BIN" plugin marketplace add "$STAGE" 2>&1)"; then
         echo "✓ claude accepts the staged catalog"
     else
         printf '%s\n' "$VOUT" >&2
         echo "✗ claude plugin marketplace add rejected the staged catalog" >&2
         exit 1
     fi
+elif [ -n "${RT_MARKETPLACE_CLAUDE:-}" ]; then
+    echo "✗ RT_MARKETPLACE_CLAUDE=$RT_MARKETPLACE_CLAUDE is not a command" >&2
+    exit 1
 else
-    echo "  note: claude not on PATH — structural validation only"
+    echo "  note: $CLAUDE_BIN not on PATH — structural validation only"
 fi
 
 # RT_MARKETPLACE_REPO takes "owner/name" or any git URL/path; the latter is how

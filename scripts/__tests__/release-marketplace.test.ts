@@ -7,16 +7,25 @@ import { BASE_PLUGINS } from "../../lib/setup/base-plugins.ts";
 
 // Everything here is offline: the only remotes are local bare repos, so the
 // suite exercises the real push and the real `git ls-remote` re-pin without a
-// network. `claude` is used when it happens to be on PATH — the script's own
-// structural checks are what run in CI.
+// network. The `claude` validator is always a stub: the real CLI under a
+// scratch HOME raises macOS's modal "Keychain Not Found" dialog.
 
 const ROOT = join(import.meta.dir, "..", "..");
 const SCRIPT = join(ROOT, "scripts", "release", "marketplace.sh");
 
 let TMP: string;
+let CLAUDE_STUB: string;
+let CLAUDE_LOG: string;
 
 beforeAll(() => {
   TMP = mkdtempSync(join(tmpdir(), "rt-marketplace-test-"));
+  CLAUDE_STUB = join(TMP, "claude-stub");
+  CLAUDE_LOG = join(TMP, "claude-stub.log");
+  writeFileSync(
+    CLAUDE_STUB,
+    `#!/bin/sh\nprintf '%s|%s\\n' "$HOME" "$*" >> "${CLAUDE_LOG}"\n[ -n "$STUB_CLAUDE_REJECT" ] && { echo "stub: catalog rejected"; exit 1; }\nexit 0\n`,
+    { mode: 0o755 },
+  );
 });
 afterAll(() => {
   rmSync(TMP, { recursive: true, force: true });
@@ -58,7 +67,12 @@ function run(args: string[], env: Record<string, string> = {}): { code: number; 
   const res = spawnSync("bash", [SCRIPT, ...args], {
     encoding: "utf8",
     // A path no fetch can reach, so a test that names no remote never touches GitHub.
-    env: { ...process.env, RT_MARKETPLACE_REPO: "/nonexistent/mattstack-marketplace", ...env },
+    env: {
+      ...process.env,
+      RT_MARKETPLACE_REPO: "/nonexistent/mattstack-marketplace",
+      RT_MARKETPLACE_CLAUDE: CLAUDE_STUB,
+      ...env,
+    },
   });
   return { code: res.status ?? -1, out: `${res.stdout ?? ""}${res.stderr ?? ""}` };
 }
@@ -83,6 +97,30 @@ describe("marketplace.sh validation", () => {
     const r = run(["--dry-run", sourceDir([urlPlugin("fast-browser")])]);
     expect(r.out).toContain("staged and validated");
     expect(r.code).toBe(0);
+  });
+
+  test("runs the claude validator on the staged catalog under a scratch HOME", () => {
+    rmSync(CLAUDE_LOG, { force: true });
+    const r = run(["--dry-run", sourceDir([urlPlugin("fast-browser")])]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("claude accepts the staged catalog");
+    const [home, args] = readFileSync(CLAUDE_LOG, "utf8").trim().split("|");
+    expect(home).not.toBe(process.env.HOME);
+    expect(home).toContain("mattstack-marketplace-home.");
+    expect(args).toMatch(/^plugin marketplace add .*mattstack-marketplace\./);
+  });
+
+  test("a catalog the claude validator rejects fails the run", () => {
+    const r = run(["--dry-run", sourceDir([urlPlugin("fast-browser")])], { STUB_CLAUDE_REJECT: "1" });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("stub: catalog rejected");
+    expect(r.out).toContain("claude plugin marketplace add rejected the staged catalog");
+  });
+
+  test("a validator override that is not a command fails instead of skipping validation", () => {
+    const r = run(["--dry-run", sourceDir([urlPlugin("fast-browser")])], { RT_MARKETPLACE_CLAUDE: join(TMP, "no-such-claude") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("is not a command");
   });
 
   test("rejects a url source whose sha is not a full 40-char commit", () => {
