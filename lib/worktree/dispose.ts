@@ -302,6 +302,7 @@ export async function disposeTree(
     const why = opts.askSessions.why;
     const now = (deps.clock ?? (() => new Date()))();
     const inside = await (deps.agentsInside ?? agentSessionsInside)(rec.path, { excludePaths });
+    if (inside === null) return refuse("processes-unreadable", "could not list the processes inside this worktree");
     const insideIds = inside.flatMap((s) => (s.identity ? [s.identity.sessionId] : []));
     const leaving = rec.leaving;
     if (inside.length > 0 && !leaving) {

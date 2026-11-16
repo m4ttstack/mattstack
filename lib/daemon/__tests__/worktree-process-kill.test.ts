@@ -599,4 +599,12 @@ describe("agentSessionsInside", () => {
     const result = await agentSessionsInside("/t", { run, selfPids: [99999], identify: () => null });
     expect(result).toEqual([{ pid: 10, label: "claude", cwd: "/t/app", identity: null }]);
   });
+
+  test("a process table that cannot be read is null, not empty", async () => {
+    const run: NonNullable<KillWorktreeOptions["run"]> = async (argv) => {
+      if (argv[0] === "lsof") return { exitCode: 0, stdout: "p10\nfcwd\nn/t/app\n" };
+      return { exitCode: 1, stdout: "" };
+    };
+    expect(await agentSessionsInside("/t", { run, selfPids: [99999], identify: () => null })).toBeNull();
+  });
 });

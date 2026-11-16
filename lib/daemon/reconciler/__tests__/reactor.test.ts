@@ -524,6 +524,36 @@ describe("held trees say why (RT-267)", () => {
       expect(r.kills).toEqual([]);
     });
 
+    test("a process table that cannot be read holds the merge edge and keeps the tree claimed", async () => {
+      const rec = ephemeralTree(repo, repoName, "quebec", "feat-quebec");
+      const r = recorder();
+      const merged = { "feat-quebec": { repoName, mr: { iid: 97, state: "merged" } } };
+      const seams = { ...r.seams, agentsInside: (async () => null) as ReactorDeps["agentsInside"] };
+
+      await detect(merged, seams);
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.disposableReason).toBeUndefined();
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:97:merged`);
+      expect(r.kills).toEqual([]);
+    });
+
+    test("a leaving tree whose process table cannot be read keeps its mark", async () => {
+      const rec = ephemeralTree(repo, repoName, "romeo2", "feat-romeo2");
+      const r = recorder();
+      const merged = { "feat-romeo2": { repoName, mr: { iid: 95, state: "merged" } } };
+      await detect(merged, r.seams);
+      const leaving = find(rec.path)?.leaving;
+      expect(leaving).toBeDefined();
+
+      r.clockState.nowMs += 30_000;
+      await detect(merged, { ...r.seams, agentsInside: (async () => null) as ReactorDeps["agentsInside"] });
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving).toEqual(leaving);
+      expect(r.kills).toEqual([]);
+    });
+
     test("a \"leaving\" refusal does not flip the tree to disposable", async () => {
       const rec = ephemeralTree(repo, repoName, "yankee", "feat-yankee");
       const r = recorder();

@@ -1248,6 +1248,16 @@ describe("disposeTree", () => {
       expect(departedAt(path, "s-1")).toBe(new Date(t0 + 30_000).toISOString());
     });
 
+    test("a process table that cannot be read refuses and kills nothing", async () => {
+      const { path, rec, deps, killOpts, current } = setup();
+      deps.agentsInside = async () => null;
+      const result = await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      expect(result).toMatchObject({ disposed: false, refusal: "processes-unreadable" });
+      expect(killOpts.length).toBe(0);
+      expect(existsSync(path)).toBe(true);
+      expect(current()?.state).toBe("claimed");
+    });
+
     test("a guard refusal (dirty) still wins before any mark is set", async () => {
       const { path, rec, deps, killOpts, state, current } = setup();
       writeFileSync(join(path, "gen.txt"), "alpha\nbeta\ngamma\n");

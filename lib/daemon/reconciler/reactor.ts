@@ -384,6 +384,12 @@ function disposeDepsFor(deps: ReactorDeps, appConfig: WorktreeAppConfig): Dispos
   };
 }
 
+const TRANSIENT_REFUSALS = new Map([
+  ["remove-failed", "worktree removal failed"],
+  ["mark-failed", "leaving mark failed to save"],
+  ["processes-unreadable", "could not list the processes inside the tree"],
+]);
+
 /** React to one terminal MR state on one registered tree. Caller holds the tree lock. */
 async function actOnTree(
   deps: ReactorDeps,
@@ -431,16 +437,15 @@ async function actOnTree(
   // disposable.
   if (outcome.refusal === "leaving") return "fired";
 
-  // "remove-failed" and "mark-failed" are mechanical and transient (a locked
-  // file, a busy directory, a registry write that did not land)... the tree
-  // is still perfectly claimable, so it must NOT be advertised as disposable.
-  // Hold the edge and try again next pass.
-  if (outcome.refusal === "remove-failed" || outcome.refusal === "mark-failed") {
+  // These are mechanical and transient (a locked file, a busy directory, a
+  // registry write that did not land, a process table that did not read)...
+  // the tree is still perfectly claimable, so it must NOT be advertised as
+  // disposable. Hold the edge and try again next pass.
+  const transient = TRANSIENT_REFUSALS.get(outcome.refusal);
+  if (transient) {
     deps.log.warn(
       { repo: deps.repoName, tree: rec.name, path: rec.path, refusal: outcome.refusal },
-      outcome.refusal === "remove-failed"
-        ? "auto-dispose: worktree removal failed; retrying next pass"
-        : "auto-dispose: leaving mark failed to save; retrying next pass",
+      `auto-dispose: ${transient}; retrying next pass`,
     );
     return "retry";
   }
@@ -450,7 +455,7 @@ async function actOnTree(
 }
 
 /** Refusals the drain waits out with the mark in place: the grace still running, or a transient failure the next pass retries. */
-const DRAIN_KEEPS_MARK = new Set(["leaving", "remove-failed", "mark-failed", "changed"]);
+const DRAIN_KEEPS_MARK = new Set(["leaving", "changed", ...TRANSIENT_REFUSALS.keys()]);
 
 /** A disposable tree already says it is the person's to look at, so dropping its mark needs no new event. */
 function dropLeavingMark(deps: ReactorDeps, rec: TreeRecord, reason: string): void {

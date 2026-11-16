@@ -400,19 +400,20 @@ async function readProcessSnapshot(
 
 /**
  * Agent sessions whose own cwd is inside the tree, identities resolved. Reads
- * ps and lsof like the kill does but sends no signal.
+ * ps and lsof like the kill does but sends no signal. Null when the process
+ * table could not be read.
  */
 export async function agentSessionsInside(
   path: string,
   opts: Pick<KillWorktreeOptions, "excludePaths" | "identify" | "run" | "selfPids"> = {},
-): Promise<StoppedSession[]> {
+): Promise<StoppedSession[] | null> {
   const run: RunFn = opts.run ?? ((argv, o) => runCapture(argv as [string, ...string[]], o));
   const identify = opts.identify ?? ((pid) => identifySession(pid));
   const selfPids = opts.selfPids ?? [process.pid, process.ppid];
   const target = safeRealpath(path);
   const excludes = nestedExcludes(target, (opts.excludePaths ?? []).map(safeRealpath));
   const snapshot = await readProcessSnapshot(run, target, path);
-  if (!snapshot) return [];
+  if (!snapshot) return null;
   const plan = planWorktreeKill({
     target,
     excludes,
