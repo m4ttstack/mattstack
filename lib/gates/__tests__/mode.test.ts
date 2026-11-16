@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { GateOption, GateQuestion } from "../../../packages/rt-client/src/commands.ts";
+import { validateGateAnswers } from "../../../packages/rt-client/src/gate-answers.ts";
 import type { DecisionRow } from "../record.ts";
 import {
   autoAnswerDecision,
@@ -106,6 +107,21 @@ describe("autoAnswerDecision", () => {
   });
   test("review pipeline asks", () => {
     expect(autoAnswerDecision({ ...base, pipeline: "review", questions: [tier] }).kind).toBe("ask");
+  });
+  test("receive-review and standalone self-review pipelines ask", () => {
+    for (const pipeline of ["receive-review", "self-review"]) {
+      expect(autoAnswerDecision({ ...base, mode: "yolo", pipeline, questions: [tier] }).kind, pipeline).toBe("ask");
+    }
+  });
+  test("a run whose pipeline cannot be read asks", () => {
+    expect(autoAnswerDecision({ ...base, mode: "yolo", pipeline: null, questions: [tier] }).kind).toBe("ask");
+  });
+  test("a suffixed string answer validates against the daemon's answer check", () => {
+    const questions = [q("next", ["proceed (Recommended)", "hold"])];
+    const r = autoAnswerDecision({ ...base, questions });
+    expect(r.kind).toBe("answer");
+    if (r.kind !== "answer") return;
+    expect(validateGateAnswers(questions, r.answers)).toBeNull();
   });
 });
 

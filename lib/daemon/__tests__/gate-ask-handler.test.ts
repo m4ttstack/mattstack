@@ -858,6 +858,25 @@ describe("gate:ask preAnswer", () => {
     expect(store.list({}).gates).toHaveLength(0);
   });
 
+  test("preAnswer by chatty is refused, since chatty never answers", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({
+      ...base, questions: twoOptionQuestion(), preAnswer: { answers: { q1: "yes" }, by: "mode:chatty" },
+    });
+    expect(res).toEqual({ ok: false, error: "preAnswer by must name a mode that answers gates" });
+    expect(store.list({}).gates).toHaveLength(0);
+  });
+
+  test("preAnswer is refused for a gate whose context opens boards", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({
+      ...base, context: JSON.stringify({ schema: "gate-ctx@1", boards: { schema: "boards@1" } }),
+      questions: twoOptionQuestion(), preAnswer: { answers: { q1: "yes" }, by: "mode:yolo" },
+    });
+    expect(res).toEqual({ ok: false, error: "preAnswer is not allowed for a gate that opens boards" });
+    expect(store.list({}).gates).toHaveLength(0);
+  });
+
   test("preAnswer by must name one of the four gate modes", async () => {
     const { handlers, store } = harness({ resolveSubject });
     for (const by of ["mode:", "mode:bogus", "mode:Quiet"]) {
@@ -867,7 +886,7 @@ describe("gate:ask preAnswer", () => {
       expect(res).toEqual({ ok: false, error: "preAnswer by must name a gate mode" });
     }
     expect(store.list({}).gates).toHaveLength(0);
-    for (const mode of ["chatty", "normal", "quiet", "yolo"]) {
+    for (const mode of ["normal", "quiet", "yolo"]) {
       const res = await handlers["gate:ask"]({
         ...base, subject: `mr:https://x/${mode}`, questions: twoOptionQuestion(),
         preAnswer: { answers: { q1: "yes" }, by: `mode:${mode}` },

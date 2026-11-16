@@ -35,8 +35,11 @@ export function effectiveMode(runFieldValue: string | undefined, settingValue: u
   return parseMode(runFieldValue !== undefined ? runFieldValue : settingValue);
 }
 
+const NON_WORK_PIPELINES = new Set(["review", "receive-review", "self-review"]);
+
+/** A self-review inherited inside a work run carries the work run's pipeline, so only a standalone one reads as self-review. */
 export function isWorkPipeline(pipeline: string | null): boolean {
-  return pipeline !== "review" && pipeline !== "receive-review";
+  return pipeline !== null && !NON_WORK_PIPELINES.has(pipeline);
 }
 
 export function recommendedValues(q: GateQuestion): string[] {

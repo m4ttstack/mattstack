@@ -381,6 +381,7 @@ const MODE_DECIDER_PREFIX = "mode:";
 function parsePreAnswer(
   raw: unknown,
   questions: GateQuestion[],
+  context: unknown,
 ): { ok: true; preAnswer: { answers: GateAnswer["answers"]; by: string } | undefined } | { ok: false; error: string } {
   if (raw === undefined) return { ok: true, preAnswer: undefined };
   if (!isPlainObject(raw)) return { ok: false, error: "preAnswer must be an object with answers and by" };
@@ -388,6 +389,10 @@ function parsePreAnswer(
   if (!by.startsWith(MODE_DECIDER_PREFIX)) return { ok: false, error: `preAnswer by must start with ${MODE_DECIDER_PREFIX}` };
   const mode = by.slice(MODE_DECIDER_PREFIX.length);
   if (parseMode(mode) !== mode) return { ok: false, error: "preAnswer by must name a gate mode" };
+  if (mode === "chatty") return { ok: false, error: "preAnswer by must name a mode that answers gates" };
+  if (typeof context === "string" && context.includes("boards@1")) {
+    return { ok: false, error: "preAnswer is not allowed for a gate that opens boards" };
+  }
   const answers = raw.answers;
   if (!isPlainObject(answers)) return { ok: false, error: "preAnswer must be an object with answers and by" };
   const validationError = validateGateAnswers(questions, answers);
@@ -819,7 +824,7 @@ export function createGateHandlers(
     if (!Array.isArray(questions) || questions.length === 0 || !questions.every(isValidQuestion)) {
       return { ok: false as const, error: "invalid questions" };
     }
-    const preAnswerResult = parsePreAnswer(payload?.preAnswer, questions);
+    const preAnswerResult = parsePreAnswer(payload?.preAnswer, questions, payload?.context);
     if (!preAnswerResult.ok) return preAnswerResult;
     const preAnswer = preAnswerResult.preAnswer;
     const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim() ? payload.sessionId.trim() : undefined;
