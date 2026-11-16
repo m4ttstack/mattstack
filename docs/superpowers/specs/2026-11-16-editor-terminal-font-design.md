@@ -35,9 +35,14 @@ fixes this by hand, and most never find out why the boxes appear.
 
 - Font: **JetBrainsMono NL Nerd Font**, family name `JetBrainsMonoNL Nerd
   Font`.
-- Installed when missing by downloading the pinned Nerd Fonts release zip
-  (`JetBrainsMono.zip`, pinned version and sha256) and copying only the
-  `JetBrainsMonoNLNerdFont-*.ttf` files into `~/Library/Fonts`. My call:
+- Installed when missing by downloading the pinned Nerd Fonts release
+  archive (`JetBrainsMono.tar.xz` from v3.5.1, 6 MB, sha256
+  `04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf`),
+  unpacking it with the system `tar`, and copying only the 16
+  `JetBrainsMonoNLNerdFont-*.ttf` files into `~/Library/Fonts`. The release's
+  `JetBrainsMono.zip` holds the same files at 127 MB (Matt's call: the
+  tar.xz). The download redirects from `github.com` to
+  `release-assets.githubusercontent.com`. My call:
   setup deliberately installs nothing through Homebrew today
   (`lib/setup/tools-install.ts`), and a user font dir needs no admin.
 - Detection: any `JetBrainsMonoNLNerdFont-*.ttf` in `~/Library/Fonts` or
@@ -54,7 +59,7 @@ fixes this by hand, and most never find out why the boxes appear.
 | Antigravity IDE | `Antigravity IDE.app` | `~/Library/Application Support/Antigravity IDE/User/settings.json` |
 
 Detected with the existing `EDITOR_PATTERNS` / `detectEditors()`
-(`lib/editors.ts`); an editor not installed, or with no settings file yet,
+(`lib/editors.ts`), which gains an `Antigravity IDE.app` entry; an editor not installed, or with no settings file yet,
 is skipped (a missing file is created with just this key).
 
 For each editor, `terminal.integrated.fontFamily`:

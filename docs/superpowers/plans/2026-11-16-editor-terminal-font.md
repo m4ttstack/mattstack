@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Font family name, verbatim: `JetBrainsMonoNL Nerd Font`; files `JetBrainsMonoNLNerdFont-*.ttf`.
-- Font installed into `~/Library/Fonts` from the pinned Nerd Fonts release `JetBrainsMono.zip` (pinned version + sha256); never Homebrew.
+- Font installed into `~/Library/Fonts` from the pinned Nerd Fonts release `https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz` (6 MB, sha256 `04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf`), unpacked with the system `tar -xJf`; never Homebrew, never the 127 MB zip. The download redirects to `release-assets.githubusercontent.com`; allow exactly that host and `github.com`.
 - Font detected only by `JetBrainsMonoNLNerdFont-*.ttf` in `~/Library/Fonts` or `/Library/Fonts`.
 - Already-Nerd value: any family containing `Nerd Font` or ending ` NF` (case-insensitive) is left alone.
 - Set value: append `, 'JetBrainsMonoNL Nerd Font'`. Unset value: `editor.fontFamily` if set, else `Menlo, Monaco, 'Courier New', monospace`, then the append.
@@ -57,8 +57,8 @@
 
 **Files:**
 - Modify: `lib/setup/editor-font.ts`
-- Modify: `lib/editors.ts` (add a `settingsDir` per supported editor, or a separate table beside `EDITOR_PATTERNS`)
-- Modify: `lib/setup/tools-install.ts` (pinned font zip entry beside `VENDOR_INSTALLERS`; host allowlist gets `github.com`'s release host if not already)
+- Modify: `lib/editors.ts` (add an `Antigravity IDE.app` entry to `EDITOR_PATTERNS`; add a `settingsDir` per supported editor, or a separate table beside `EDITOR_PATTERNS`)
+- Modify: `lib/setup/tools-install.ts` (pinned font archive entry beside `VENDOR_INSTALLERS`, with its own host allowlist: `github.com` and `release-assets.githubusercontent.com`; `VENDOR_ALLOWED_HOSTS` stays as it is, since it gates fetch-and-run scripts)
 - Modify: `lib/setup/state.ts` (`SetupState.editorFontWritten?: Record<string, string>`, settings path → value rt wrote; parse tolerates it missing)
 - Test: `lib/setup/__tests__/editor-font.test.ts`
 
@@ -66,11 +66,11 @@
 - Consumes: Task 1.
 - Produces:
   - `export function nerdFontInstalled(p: Probes): boolean`
-  - `export async function installNerdFont(p: Probes, log: (line: string) => void): Promise<{ ok: true } | { ok: false; detail: string }>` (download pinned zip, verify sha256, copy only `JetBrainsMonoNLNerdFont-*.ttf` into `~/Library/Fonts`, clean temp)
+  - `export async function installNerdFont(p: Probes, log: (line: string) => void): Promise<{ ok: true } | { ok: false; detail: string }>` (download the pinned tar.xz, verify sha256, unpack with `tar -xJf` through `p.exec` into a temp dir, copy only `JetBrainsMonoNLNerdFont-*.ttf` into `~/Library/Fonts`, clean temp)
   - `export type EditorFontResult = { editor: string; path: string; outcome: "written" | "kept" | "member-undid" | "unreadable" | "not-installed"; value?: string }`
   - `export function applyEditorFonts(p: Probes, written: Record<string, string>): EditorFontResult[]` (per supported editor: skip if app not installed; read settings, `parse` with errors; parse errors → `unreadable`, untouched; else `nextTerminalFont`; write via `modify`/`applyEdits` + atomic replace; create `User/settings.json` when missing)
 
-- [ ] **Step 1: Write failing tests** (temp-dir `Probes`): comments and trailing commas survive the edit byte-for-byte except the one key; an unparseable file is left untouched and reported `unreadable`; a missing `User/` dir gets a new `settings.json` holding only the key; an editor whose app is absent is `not-installed`; `installNerdFont` with a fake fetch serving a zip of two `JetBrainsMonoNLNerdFont-*.ttf` plus one other font copies only the two; a sha256 mismatch returns `{ ok: false }` and copies nothing.
+- [ ] **Step 1: Write failing tests** (temp-dir `Probes`): comments and trailing commas survive the edit byte-for-byte except the one key; an unparseable file is left untouched and reported `unreadable`; a missing `User/` dir gets a new `settings.json` holding only the key; an editor whose app is absent is `not-installed`; `installNerdFont` with a fake fetch serving a tar.xz of two `JetBrainsMonoNLNerdFont-*.ttf` plus one other font copies only the two; a sha256 mismatch returns `{ ok: false }` and copies nothing.
 - [ ] **Step 2: Run** the test file. Expected: new tests FAIL.
 - [ ] **Step 3: Implement** the exports; reuse `detectEditors`/`EDITOR_PATTERNS` for "installed"; reuse the vendor download helper's fetch + host allowlist.
 - [ ] **Step 4: Run** the test file and `bunx tsc --noEmit -p .`. Expected: PASS, exit 0.
