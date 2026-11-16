@@ -597,7 +597,7 @@ async function handleSwitchBranch(
         );
         if (confirm !== 'Overwrite') return;
         try {
-          await dropStash(cwd, existingStash.name);
+          await dropStash(cwd, existingStash);
         } catch {
           // If drop fails, continue anyway — push will still work
         }
@@ -664,7 +664,7 @@ async function handleSwitchBranch(
     );
     if (action === 'Restore') {
       try {
-        await popStash(cwd, targetStash.name);
+        await popStash(cwd, targetStash);
         vscode.window.showInformationMessage(`Restored stashed changes on '${targetBranch}'.`);
       } catch (err) {
         vscode.window.showWarningMessage(

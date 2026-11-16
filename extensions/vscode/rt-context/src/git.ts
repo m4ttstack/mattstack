@@ -5,6 +5,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { BranchInfo, WorktreeEntry, GitExtensionExports, GitAPI, GitRepository } from './types';
 import { parseWorktreePorcelain } from './worktreeParse';
+import { STASH_LIST_FORMAT, desktopStashMessage, findDesktopStashIn, stashRefFor, type DesktopStashEntry } from './stashParse';
 import { repoIdentityFromRemote } from './repoIdentity';
 
 const execFileAsync = promisify(execFile);
@@ -110,24 +111,6 @@ export async function listLocalBranches(cwd: string): Promise<string[]> {
 
 // ── Stash helpers (GitHub Desktop-compatible) ──
 
-/**
- * GitHub Desktop stash marker format.
- * Using the exact same format means stashes are interoperable between
- * this extension and GitHub Desktop.
- * @see https://github.com/desktop/desktop/blob/development/app/src/lib/git/stash.ts
- */
-const DESKTOP_STASH_MARKER = '!!GitHub_Desktop';
-const DESKTOP_STASH_RE = /!!GitHub_Desktop<(.+)>$/;
-
-export interface DesktopStashEntry {
-  name: string;       // e.g. "stash@{0}"
-  branchName: string; // the branch the stash was created for
-}
-
-function createDesktopStashMessage(branchName: string): string {
-  return `${DESKTOP_STASH_MARKER}<${branchName}>`;
-}
-
 export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
   try {
     const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd });
@@ -143,40 +126,36 @@ export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
  * GitHub Desktop's "Stashed Changes" panel.
  */
 export async function stashChanges(cwd: string, branch: string): Promise<void> {
-  const message = createDesktopStashMessage(branch);
-  await execFileAsync('git', ['stash', 'push', '-u', '-m', message], { cwd });
+  await execFileAsync('git', ['stash', 'push', '-u', '-m', desktopStashMessage(branch)], { cwd });
 }
 
-/**
- * Find the most recent GitHub Desktop-tagged stash entry for a branch.
- * Returns null if no matching stash exists.
- */
-export async function findDesktopStash(cwd: string, branch: string): Promise<DesktopStashEntry | null> {
+async function stashList(cwd: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', ['stash', 'list'], { cwd });
-    for (const line of stdout.split('\n')) {
-      const match = DESKTOP_STASH_RE.exec(line);
-      if (match && match[1] === branch) {
-        const nameMatch = /^(stash@\{\d+\})/.exec(line);
-        if (nameMatch) {
-          return { name: nameMatch[1]!, branchName: branch };
-        }
-      }
-    }
+    const { stdout } = await execFileAsync('git', ['stash', 'list', STASH_LIST_FORMAT], { cwd });
+    return stdout;
   } catch {
-    // No stashes or stash list failed
+    return '';
   }
-  return null;
 }
 
-/** Pop a specific stash entry by name (e.g. "stash@{0}"). */
-export async function popStash(cwd: string, stashName: string): Promise<void> {
-  await execFileAsync('git', ['stash', 'pop', stashName], { cwd });
+/** The newest GitHub Desktop-tagged stash for a branch, or null. */
+export async function findDesktopStash(cwd: string, branch: string): Promise<DesktopStashEntry | null> {
+  return findDesktopStashIn(await stashList(cwd), branch);
 }
 
-/** Drop a specific stash entry by name without applying it. */
-export async function dropStash(cwd: string, stashName: string): Promise<void> {
-  await execFileAsync('git', ['stash', 'drop', stashName], { cwd });
+/** Resolved at the moment of use: another worktree may have pushed or dropped a stash since this one was found. */
+async function liveStashRef(cwd: string, stash: DesktopStashEntry): Promise<string> {
+  const ref = stashRefFor(await stashList(cwd), stash.sha);
+  if (!ref) throw new Error(`the stash for '${stash.branchName}' is no longer there`);
+  return ref;
+}
+
+export async function popStash(cwd: string, stash: DesktopStashEntry): Promise<void> {
+  await execFileAsync('git', ['stash', 'pop', await liveStashRef(cwd, stash)], { cwd });
+}
+
+export async function dropStash(cwd: string, stash: DesktopStashEntry): Promise<void> {
+  await execFileAsync('git', ['stash', 'drop', await liveStashRef(cwd, stash)], { cwd });
 }
 
 /** Detect whether origin/main or origin/master exists. Returns the ref or null. */
