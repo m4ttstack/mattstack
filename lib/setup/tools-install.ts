@@ -43,6 +43,22 @@ export const VENDOR_INSTALLERS: Record<string, { url: string; shell: "sh" | "bas
 /** The only hosts a hardcoded VENDOR_INSTALLERS entry may point at — closes the door on a future entry (or a typo) silently widening what rt will fetch-and-run. */
 const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai", "bun.sh"]);
 
+export interface NerdFontArchive {
+  url: string;
+  sha256: string;
+  /** Matched against each unpacked file's basename; nothing else in the archive is copied. */
+  fileGlob: string;
+  /** Separate from VENDOR_ALLOWED_HOSTS: this archive is only unpacked, never run. The release download redirects to release-assets.githubusercontent.com. */
+  allowedHosts: readonly string[];
+}
+
+export const NERD_FONT_ARCHIVE: NerdFontArchive = {
+  url: "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz",
+  sha256: "04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf",
+  fileGlob: "JetBrainsMonoNLNerdFont-*.ttf",
+  allowedHosts: ["github.com", "release-assets.githubusercontent.com"],
+};
+
 /** Where a vendor script installs `tool`. The board runs Claude Code from this exact path, since launchd's PATH has no claude on it. */
 export function vendorBinPath(home: string, tool: string): string {
   return join(home, ".local", "bin", tool);

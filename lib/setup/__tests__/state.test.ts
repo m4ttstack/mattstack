@@ -31,6 +31,17 @@ describe("updateSetupState", () => {
     expect(readSetupState(p).marketplaces).toEqual(["core"]);
   });
 
+  test("round-trips editorFontWritten, and drops one that is not a map of strings", () => {
+    const p = fakeProbes();
+    const written = { "/fake-home/Library/Application Support/Cursor/User/settings.json": "Menlo, 'JetBrainsMonoNL Nerd Font'" };
+    updateSetupState(p, (s) => ({ ...s, editorFontWritten: written }));
+    expect(readSetupState(p).editorFontWritten).toEqual(written);
+    for (const bad of [["x"], { a: 1 }, "x", null]) {
+      const q = fakeProbes({ files: { "/fake-home/.mattstack/rt/setup-state.json": JSON.stringify({ v: 2, editorFontWritten: bad }) } });
+      expect(readSetupState(q).editorFontWritten).toBeUndefined();
+    }
+  });
+
   test("sets lastApplyAt when the patch adds it", () => {
     const p = fakeProbes();
     const result = updateSetupState(p, (s) => ({ ...s, lastApplyAt: "2026-08-21T00:00:00.000Z" }));

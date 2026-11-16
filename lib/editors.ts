@@ -33,6 +33,18 @@ export const EDITOR_PATTERNS: Array<{ appName: string; cliBinary: string; displa
   { appName: "Windsurf.app", cliBinary: "windsurf", displayName: "Windsurf", extensionsDir: ".windsurf/extensions" },
 ];
 
+/**
+ * The editors whose terminal font setup edits, each found by its own CLI and
+ * keeping user settings in `~/Library/Application Support/<settingsDir>/User/settings.json`.
+ * Antigravity IDE is here and not in EDITOR_PATTERNS: no extension install has been tried against it.
+ */
+export const TERMINAL_FONT_EDITORS: Array<{ displayName: string; appName: string; cliBinary: string; settingsDir: string }> = [
+  { displayName: "VS Code", appName: "Visual Studio Code.app", cliBinary: "code", settingsDir: "Code" },
+  { displayName: "Cursor", appName: "Cursor.app", cliBinary: "cursor", settingsDir: "Cursor" },
+  { displayName: "Antigravity", appName: "Antigravity.app", cliBinary: "antigravity", settingsDir: "Antigravity" },
+  { displayName: "Antigravity IDE", appName: "Antigravity IDE.app", cliBinary: "antigravity-ide", settingsDir: "Antigravity IDE" },
+];
+
 export type DetectedEditorWithExtensions = DetectedEditor & { extensionsDir: string | null };
 
 /** The same scan as `detectEditors`, through an injected `exists`, so a caller holding Probes never reads the real machine in a test. */

@@ -22,6 +22,7 @@ import { skillsMaterializeStep, skillsLinkStep, boardKeysStep, boardCwdsStep, bo
 import { pluginsInstallStep } from "./plugins.ts";
 import { linearMcpStep } from "./linear-mcp.ts";
 import { claudePermissionsStep } from "./claude-permissions.ts";
+import { editorFontStep } from "./editor-font.ts";
 import { fastbrowserSetupStep, herdrIntegrationStep, extensionInstallStep, servicesStartStep, snapshotPushStep } from "./tools.ts";
 import { verifyStep } from "./verify.ts";
 import { appsRestartStep } from "./apps-restart.ts";
@@ -84,6 +85,7 @@ export const STEPS: StepDef[] = [
   pluginsInstallStep,
   linearMcpStep,
   claudePermissionsStep,
+  editorFontStep,
   fastbrowserSetupStep,
   herdrIntegrationStep,
   extensionInstallStep,

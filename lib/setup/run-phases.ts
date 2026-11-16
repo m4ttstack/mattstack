@@ -29,6 +29,7 @@ export const STEP_PHASES: Readonly<Record<StepId, StepPhase>> = {
   "plugins.install": { weight: 6, paused: "Couldn't install Claude plugins" },
   "linear.mcp": { weight: 1, paused: "Couldn't connect Linear" },
   "claude.permissions": { weight: 1, paused: "Couldn't set up Claude" },
+  "editor.terminal-font": { weight: 2, paused: "Couldn't set up your editor's terminal font" },
   "fastbrowser.setup": { weight: 4, paused: "Couldn't set up Fast Browser" },
   "herdr.integration": { weight: 1, paused: "Couldn't set up herdr" },
   "extension.install": { weight: 2, paused: "Couldn't install editor extensions" },

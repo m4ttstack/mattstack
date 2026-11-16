@@ -38,6 +38,8 @@ export interface SetupState {
   orgMarketplaceMoves?: PendingMarketplaceMove[];
   /** The `board.cwds` value rt wrote last: Install replaces that value, never one the member set by hand. */
   boardCwdsWritten?: Partial<BoardCwds>;
+  /** Per editor settings file, the `terminal.integrated.fontFamily` value rt wrote last: a different value there now is the member's, and stays. */
+  editorFontWritten?: Record<string, string>;
   /** `board.cwds` changed since the board last restarted, so `board.restart` has something to do. */
   boardRestartPending?: boolean;
   /** An `--only` run changed something since the served apps last restarted; `rt setup finish` restarts them only while this is set. */
@@ -109,6 +111,7 @@ export function parseSetupState(raw: string | null, legacy: LegacyFinishSignals)
   // a field existed (e.g. forcedLinks) still backfills that field to [],
   // rather than leaving it undefined for every caller to guard against.
   const state: SetupState = { ...EMPTY_STATE, ...(parsed ?? {}), v: 2 };
+  if ("editorFontWritten" in state && !isStringMap(state.editorFontWritten)) delete state.editorFontWritten;
   const version = typeof parsed?.v === "number" ? parsed.v : 1;
   // A pending team choice means a run is mid-setup, and lastApplyAt is
   // stamped by every run (a failed join, an --only retry, an update).
@@ -116,6 +119,10 @@ export function parseSetupState(raw: string | null, legacy: LegacyFinishSignals)
   if (typeof state.lastApplyAt === "string" && state.lastApplyAt !== "") state.finishedAt = state.lastApplyAt;
   else if (legacy.daemonInstalled) state.finishedAt = legacy.now().toISOString();
   return state;
+}
+
+function isStringMap(value: unknown): value is Record<string, string> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((v) => typeof v === "string");
 }
 
 /** The `v` a stored file was written with; 1 for one that predates the field or is not a JSON object. */
