@@ -13,10 +13,12 @@ import { mrRef } from './MrLinks.tsx';
 import type { Candidate, RowStatus, Verb } from './row-status.ts';
 import { RowSpotlight } from './RowSpotlight.tsx';
 import {
+  closeSyncDrawer,
   liveSyncLines,
+  openSyncDrawer,
   shownSyncLog,
   subscribeSyncLines,
-  takeAutoOpen,
+  syncDrawerOpen,
   tidySyncLog,
 } from './sync-lines.ts';
 import { syncSteps, type SyncView } from './sync-steps.ts';
@@ -210,11 +212,10 @@ function SyncLogWord({
   handoff?: { onFocus: () => void };
 }) {
   const url = mr.webUrl ?? '';
-  const [open, setOpen] = useState(() => takeAutoOpen(url));
-  useEffect(() => {
-    if (takeAutoOpen(url)) setOpen(true);
-  }, [url, lines.length]);
-  const close = () => setOpen(false);
+  const open = useSyncExternalStore(subscribeSyncLines, () =>
+    syncDrawerOpen(url)
+  );
+  const close = () => closeSyncDrawer(url);
   const drawer = useLingering(open ? true : null);
   return (
     <>
@@ -226,7 +227,7 @@ function SyncLogWord({
         onMouseDown={e => e.stopPropagation()}
         onClick={e => {
           e.stopPropagation();
-          setOpen(true);
+          openSyncDrawer(url);
         }}
       >
         {word}

@@ -79,6 +79,7 @@ beforeEach(() => {
 afterEach(async () => {
   await React.act(async () => root.unmount());
   container.remove();
+  (await import('../sync-lines.ts')).resetSyncDrawerForTests();
 });
 
 async function render(status: RowStatus, c: RowContext) {
@@ -655,6 +656,59 @@ test('a sync opens its drawer for whoever started it, the word and pips follow t
   // The drawer sits in a portal on body, so only React's bubbling could
   // carry a click from it to the row.
   expect(rowClicks).toEqual([]);
+});
+
+test('a second sync replaces the open drawer rather than stacking on it, and its word reopens the first', async () => {
+  const { startSyncLines } = await import('../sync-lines.ts');
+  const row = (iid: number) =>
+    ({
+      ...MR,
+      iid,
+      webUrl: `https://gitlab.example.com/acme/webapp/-/merge_requests/${iid}`,
+      sourceBranch: `feat-${iid}`,
+      doctor: { status: 'syncing' },
+    }) as unknown as BoardMRWithReview;
+  const a = row(1);
+  const b = row(2);
+  const status: RowStatus = {
+    line: {
+      tone: 'work',
+      word: 'syncing…',
+      spin: true,
+      syncLog: [],
+      verbs: [],
+    },
+    more: [],
+    bar: null,
+  };
+  await React.act(async () => {
+    root.render(
+      <>
+        <div data-row="a">
+          <StatusLine mr={a} status={status} ctx={ctx()} />
+        </div>
+        <div data-row="b">
+          <StatusLine mr={b} status={status} ctx={ctx()} />
+        </div>
+      </>
+    );
+  });
+  const drawers = () =>
+    [
+      ...document.querySelectorAll(
+        '[data-part="sidedrawer"]:not([data-closing])'
+      ),
+    ].map(d => d.getAttribute('aria-label'));
+  await React.act(async () => startSyncLines(a.webUrl!));
+  expect(drawers()).toEqual(['rt sync for !1']);
+  await React.act(async () => startSyncLines(b.webUrl!));
+  expect(drawers()).toEqual(['rt sync for !2']);
+  await React.act(async () => {
+    container
+      .querySelector<HTMLButtonElement>('[data-row="a"] .tui-status-word-log')!
+      .click();
+  });
+  expect(drawers()).toEqual(['rt sync for !1']);
 });
 
 async function renderForgeRow(

@@ -85,7 +85,9 @@ export function tidySyncLog(
 
 type Listener = () => void;
 const live = new Map<string, readonly string[]>();
-const autoOpen = new Set<string>();
+/** One sync drawer at a time, board-wide: each row draws its own, so a
+    per-row flag let a second sync stack its drawer on the first. */
+let openDrawer: string | null = null;
 const listeners = new Set<Listener>();
 
 function emit(): void {
@@ -104,7 +106,7 @@ export function liveSyncLines(mrUrl: string): readonly string[] | undefined {
 /** A click on "rebase": a fresh log, opened for whoever clicked. */
 export function startSyncLines(mrUrl: string): void {
   live.set(mrUrl, []);
-  autoOpen.add(mrUrl);
+  openDrawer = mrUrl;
   emit();
 }
 
@@ -119,8 +121,23 @@ export function pushSyncLine(mrUrl: string, line: string): void {
   emit();
 }
 
-export function takeAutoOpen(mrUrl: string): boolean {
-  return autoOpen.delete(mrUrl);
+export function syncDrawerOpen(mrUrl: string): boolean {
+  return openDrawer === mrUrl;
+}
+
+export function openSyncDrawer(mrUrl: string): void {
+  openDrawer = mrUrl;
+  emit();
+}
+
+export function closeSyncDrawer(mrUrl: string): void {
+  if (openDrawer !== mrUrl) return;
+  openDrawer = null;
+  emit();
+}
+
+export function resetSyncDrawerForTests(): void {
+  openDrawer = null;
 }
 
 /** What the popover shows: the saved log with the streamed lines it does
