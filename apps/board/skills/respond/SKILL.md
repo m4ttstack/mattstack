@@ -642,7 +642,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: block:gate-protocol source=mattstack:gate-protocol path=attachments/gate-protocol/index.block.md lines=9-148 -->
+<!-- part: block:gate-protocol source=mattstack:gate-protocol path=attachments/gate-protocol/index.block.md lines=9-151 -->
 The daemon's gate registry is the single arbiter; under a run the gate
 tools record the decision.
 
@@ -656,7 +656,7 @@ digraph gate_protocol {
     trigger_site_reaches [label="Trigger: a site reaches its gate" shape=ellipse];
     build_questions [label="Build the gate's questions and context" shape=box];
     trigger_site_opened [label="Trigger: a site opened its gate with gate_open" shape=ellipse];
-    gate_ask [label="gate_ask {questions, kind: <scope>, context?, subject?, runDb?, stage?}" shape=plaintext];
+    gate_ask [label="gate_ask {questions, kind: <scope>, context?, subject?, runDb?, stage?, reach?, needsOperator?}" shape=plaintext];
     gate_ask_result [label="gate_ask result?" shape=diamond];
     ask_under_run [label="Under a run (gate_ask fix)?" shape=diamond];
     run_budget_fix [label="run_budget {key: gate-fix:<scope>, limit: 2, stage}" shape=plaintext];
@@ -669,6 +669,7 @@ digraph gate_protocol {
     no_registry_under_run [label="Under a run (no-registry answer)?" shape=diamond];
     gate_record [label="gate_record {runDb, stage, scope, shape: answers, answers, decidedBy: pane}" shape=plaintext];
     pane_action [label="paneAction?" shape=diamond];
+    answered_by_mode [label="Take the mode's answer" shape=box];
     boards_to_open [label="A boards@1 context in an attended session, with a board not yet opened?" shape=diamond];
     open_board [label="open <board path>" shape=plaintext];
     present_pane_form [label="Present the in-pane gate form" shape=box];
@@ -739,6 +740,8 @@ digraph gate_protocol {
     kit_form_open -> end_turn_holding;
     trigger_kit_answer -> gate_reconcile;
     pane_action -> rt_gate_wait [label="wait"];
+    pane_action -> answered_by_mode [label="answered: decided by a mode"];
+    answered_by_mode -> act_on_answer;
     present_pane_form -> form_result;
     form_result -> map_answer [label="answered"];
     form_result -> trigger_doorbell [label="dismissed" style=dashed];
@@ -787,13 +790,22 @@ digraph gate_protocol {
 }
 ```
 
-<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-35 -->
+<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-44 -->
 ### Build the gate's questions and context
 
 Open before anything that depends on the answer. A question is `{"id",
 "label", "multi", "options"}`, plus `"writeIn": true` where the site marks
 `(write-in)`; `kind` is the gate's scope. Pass `subject` only for a subject
 not your own.
+
+- **Reach** is how far the gate's outcome travels: `worktree`, `draft`,
+  `teammates` or `public`. A site names it as "Runs integration with kind
+  `<scope>`, reach `<reach>`", or in its own words for one open; pass that
+  value as `reach`. A site that names none passes none, and that gate
+  always asks.
+- **needsOperator** is a one-line reason, passed only where the site's
+  guidance says a recommendation turns on a product or people call. The
+  gate then asks in every mode and shows the reason.
 
 - **Context** is a VERBATIM QUOTE of the material under decision (the
   brief's task, the plan section, the failing output), never a fresh
@@ -827,10 +839,11 @@ A site opening a structured gate calls `gate_open` itself and enters here.
 Its result carries what `gate_ask`'s does (see gate_ask result?), and under
 a run it has already written `gate` and, on `wait`, armed `waiting-gate`.
 
-<!-- part: block:gate-protocol/gate-ask-result source=mattstack:gate-protocol path=attachments/gate-protocol/gate-ask-result.block.md lines=5-11 -->
+<!-- part: block:gate-protocol/gate-ask-result source=mattstack:gate-protocol path=attachments/gate-protocol/gate-ask-result.block.md lines=5-12 -->
 ### gate_ask result?
 
-**ok:** keep `id`, `paneAction`, `formContext` and `formChunks`;
+**ok:** keep `id`, `paneAction`, `formContext` and `formChunks`, and on
+`answered` also `answers`, `next` and `decidedBy`;
 `labelsTruncated` lists labels the tool shortened, so never shorten one
 yourself. **`runErrors`:** the gate is open but a run write failed: quote it
 in one line and carry on at `paneAction?`, never re-asking the gate or
@@ -851,6 +864,20 @@ too.
 
 Form-only, with no other gate call: the answer is the decision (no CAS),
 `decidedBy` `pane`, and under a run `gate_record` records it.
+
+<!-- part: block:gate-protocol/answered-by-mode source=mattstack:gate-protocol path=attachments/gate-protocol/answered-by-mode.block.md lines=5-16 -->
+### Take the mode's answer
+
+The `paneAction: answered` branch: the run's gate mode covered the reach
+this site declared and took every question's recommended option. The gate
+is already answered and recorded, with the result's `decidedBy` reading
+`mode:<mode>`. Where a site passes "the gate result's `decidedBy`" (a
+hold, a hand-back), that is this value; a call whose graph node writes
+its own decider (`decidedBy: stage-plan`) keeps it. Act on the result's `answers` and `next` at the site,
+exactly as if the human had picked them: the site's `Read next` and
+Selection lines route them. Never open the gate again, never present it
+(no form, no AskUserQuestion, no wait), and never call `gate_answer` or
+`gate_reconcile` on it.
 
 <!-- part: block:gate-protocol/boards-to-open source=mattstack:gate-protocol path=attachments/gate-protocol/boards-to-open.block.md lines=5-11 -->
 ### A boards@1 context in an attended session, with a board not yet opened?
@@ -966,11 +993,14 @@ Attendance comes from the invocation context, never from asking: under a
 run, `spawnedBy` set means unattended; with no run, the launch instruction
 says (a pane a surface launched is unattended).
 
-<!-- part: block:gate-protocol/runs-integration source=mattstack:gate-protocol path=attachments/gate-protocol/runs-integration.block.md lines=5-22 -->
+<!-- part: block:gate-protocol/runs-integration source=mattstack:gate-protocol path=attachments/gate-protocol/runs-integration.block.md lines=5-25 -->
 ### Runs integration
 
 A site that says "run gate-protocol's Runs integration with kind `<k>` and
-these questions" enters at the trigger and walks every branch. Under a run
+these questions" enters at the trigger and walks every branch. A site that
+says "Runs integration with kind `<k>`, reach `<reach>`" also passes
+`reach: "<reach>"` on its `gate_ask` or `gate_open`; a site that names no
+reach passes none. Under a run
 every gate tool call passes `runDb` and the site's `stage`: the tools
 bracket the gate, arm `waiting-gate` on a wait, record the answers map
 (`decidedBy` the CAS winner) and clear the marker. Without them the stop
@@ -991,7 +1021,7 @@ tool.
 
 A host STOP opens it through the graph: scope `off-script:<site>:<n>` (`n`
 from 1 within the site's attempt), `context` quoting the refusal or the
-line asking for the move.
+line asking for the move. It names no reach.
 
 | Question | Options |
 |---|---|

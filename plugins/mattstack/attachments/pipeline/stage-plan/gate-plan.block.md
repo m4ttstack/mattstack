@@ -10,9 +10,15 @@ props:
 
 # Gate plan (table below)
 
-Walk gate-protocol's Runs integration with kind `plan`, `runDb` and
-`stage: "plan"`; the gate tools record the answers. One sentence above the
-form: the printed tier and why.
+Walk gate-protocol's Runs integration with kind `plan`, reach
+`worktree`, `runDb` and `stage: "plan"`; the gate tools record the
+answers. One sentence above the form: the printed tier and why.
+
+Pass `needsOperator`, with a one-line reason, when a recommendation turns
+on a product or people call: what the ticket's author or product owner
+meant, a flag key or value that came from a conversation, a follow-up
+ticket, or scope beyond the ticket. Pass it even when the step has a
+recommendation.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|

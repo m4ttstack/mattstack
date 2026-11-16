@@ -9,6 +9,15 @@ Open before anything that depends on the answer. A question is `{"id",
 `(write-in)`; `kind` is the gate's scope. Pass `subject` only for a subject
 not your own.
 
+- **Reach** is how far the gate's outcome travels: `worktree`, `draft`,
+  `teammates` or `public`. A site names it as "Runs integration with kind
+  `<scope>`, reach `<reach>`", or in its own words for one open; pass that
+  value as `reach`. A site that names none passes none, and that gate
+  always asks.
+- **needsOperator** is a one-line reason, passed only where the site's
+  guidance says a recommendation turns on a product or people call. The
+  gate then asks in every mode and shows the reason.
+
 - **Context** is a VERBATIM QUOTE of the material under decision (the
   brief's task, the plan section, the failing output), never a fresh
   summary, and never sent empty. Lay it out as Markdown that reads the same

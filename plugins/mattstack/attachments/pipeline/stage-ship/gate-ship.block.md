@@ -10,6 +10,12 @@ props:
 
 # Gate ship (table below)
 
+Reach `draft` while the run's `mr` is unset or `mr_view` shows it a
+draft, a re-ship that pushes with force-with-lease after a CI fix round
+included. Reach `teammates` once `mr_view` shows `mr` ready: any push,
+a force-with-lease one above all, then lands on a branch teammates
+review.
+
 One sentence above the form: the branch, the commits about to go, whether
 the tree is dirty, and the resolved target (the stack parent, the default
 branch, or "the stack could not be read, so the default branch"), so

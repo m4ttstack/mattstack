@@ -18,7 +18,7 @@ flowchart TB
     trigger_site_reaches([Trigger: a site reaches its gate])
     build_questions
     trigger_site_opened([Trigger: a site opened its gate with gate_open])
-    gate_ask[/"gate_ask {questions, kind: <scope>, context?, subject?, runDb?, stage?}"/]
+    gate_ask[/"gate_ask {questions, kind: <scope>, context?, subject?, runDb?, stage?, reach?, needsOperator?}"/]
     gate_ask_result{gate_ask result?}
     ask_under_run{"Under a run (gate_ask fix)?"}
     run_budget_fix[/"run_budget {key: gate-fix:<scope>, limit: 2, stage}"/]
@@ -31,6 +31,7 @@ flowchart TB
     no_registry_under_run{"Under a run (no-registry answer)?"}
     gate_record[/"gate_record {runDb, stage, scope, shape: answers, answers, decidedBy: pane}"/]
     pane_action{paneAction?}
+    answered_by_mode
     boards_to_open{A boards@1 context in an attended session, with a board not yet opened?}
     open_board[/open <board path>/]
     present_pane_form
@@ -100,6 +101,8 @@ flowchart TB
     kit_form_open --> end_turn_holding
     trigger_kit_answer --> gate_reconcile
     pane_action -->|wait| rt_gate_wait
+    pane_action -->|answered: decided by a mode| answered_by_mode
+    answered_by_mode --> act_on_answer
     present_pane_form --> form_result
     form_result -->|answered| map_answer
     form_result -.->|dismissed| trigger_doorbell
