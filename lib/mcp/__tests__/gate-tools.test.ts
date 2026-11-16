@@ -55,6 +55,7 @@ function fake(o: FakeOpts = {}) {
       return o.waitRes ?? { ok: true, data: { status: "answered", row: row() } };
     }) as unknown as GateToolDeps["wait"],
     runDeps: {
+      env: {},
       write: async (verb, args) => {
         const line = [verb, ...args].join(" ");
         log.push(line);

@@ -35,6 +35,7 @@ import type { TrustOutcome } from "../trust-accept.ts";
 import { BG_SESSION } from "../bg-service.ts";
 import { paneStatusSnapshot, paneStatuses } from "../pane-statuses.ts";
 import { injectIntoPane } from "../inject.ts";
+import { GATE_MODE_ERROR, parseMode } from "../../gates/mode.ts";
 import { opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
 import type { BgService } from "../bg-service.ts";
 import type { BgClaimsStore } from "../bg-claims-store.ts";
@@ -356,7 +357,7 @@ export function createHerdHandlers(deps: HerdDeps) {
   /** The launch spawn and respawn share; they differ only in where the worktree comes from. */
   async function launchJob(
     herd: HerdRow, name: string,
-    o: { worktree: string; branch: string | null; tree: string | null; disposable: boolean; prompt: string; model: string | null; effort: string | null; account: string | null },
+    o: { worktree: string; branch: string | null; tree: string | null; disposable: boolean; prompt: string; model: string | null; effort: string | null; account: string | null; gateMode?: string },
   ): Promise<{ ok: true; data: Omit<Commands["herd:spawn"]["data"], "wasOnDeck"> } | { ok: false; error: string }> {
     const herdId = herd.id;
     const { worktree, branch, tree } = o;
@@ -386,7 +387,7 @@ export function createHerdHandlers(deps: HerdDeps) {
       ...(o.model && { model: o.model }), ...(o.effort && { effort: o.effort }), ...(o.account && { account: o.account }),
       label: name, caller: `herd:${herdId}`, workspace: herd.workspace, tab: name, handle: workerId,
       subject: herdSubject(herdId, name),
-      env: { HERD_ID: herdId, HERD_JOB: name, HERD_ROOM: herd.room },
+      env: { HERD_ID: herdId, HERD_JOB: name, HERD_ROOM: herd.room, ...(o.gateMode && { RT_GATE_MODE: o.gateMode }) },
       ...(herd.herdrSocket && { herdrSocket: herd.herdrSocket }),
       // Longer than agent:start's own interactive default: a herd worker's
       // pane is mid worktree-provision when the dialog paints, and the old
@@ -678,6 +679,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       const treeName = str(p?.tree);
       if (treeName && str(p?.dir)) return { ok: false, error: "pass tree or dir, not both" };
 
+      const gateMode = str(p?.gateMode);
+      if (gateMode !== undefined && parseMode(gateMode) !== gateMode) return { ok: false, error: GATE_MODE_ERROR };
+
       const prompt = resolveBrief(herdId, name, str(p?.brief));
       if (!prompt.ok) return prompt;
 
@@ -706,7 +710,7 @@ export function createHerdHandlers(deps: HerdDeps) {
       const disposable = p?.disposable ?? prior?.disposable ?? false;
       const launched = await launchJob(herd, name, {
         worktree, branch, tree, disposable, prompt: prompt.text,
-        model: str(p?.model) ?? null, effort: str(p?.effort) ?? null, account: str(p?.account) ?? null,
+        model: str(p?.model) ?? null, effort: str(p?.effort) ?? null, account: str(p?.account) ?? null, gateMode,
       });
       if (!launched.ok) return launched;
       // Settled only once a new worker exists to re-ask: a failed launch leaves the old session's gates pending.
@@ -730,13 +734,15 @@ export function createHerdHandlers(deps: HerdDeps) {
       const admitted = admitTree(registry.load(hit.repoName).find((t) => t.name === hit.tree), hit.tree);
       if (!admitted.ok) return { ok: false, error: `job "${name}" worktree ${job.worktree}: ${admitted.error}` };
 
+      const gateMode = str(p?.gateMode);
+      if (gateMode !== undefined && parseMode(gateMode) !== gateMode) return { ok: false, error: GATE_MODE_ERROR };
       const prompt = resolveBrief(herdId, name, str(p?.brief));
       if (!prompt.ok) return prompt;
       const launch = {
         model: str(p?.model) ?? job.model, effort: str(p?.effort) ?? job.effort, account: str(p?.account) ?? job.account,
       };
       const launched = await launchJob(herd, name, {
-        worktree: job.worktree, branch: job.branch, tree: job.tree, disposable: job.disposable, prompt: prompt.text, ...launch,
+        worktree: job.worktree, branch: job.branch, tree: job.tree, disposable: job.disposable, prompt: prompt.text, ...launch, gateMode,
       });
       if (!launched.ok) return launched;
       const settled = await settleSessionGates(herdId, job);

@@ -14,7 +14,7 @@ const RUNS_ROOT = "/runs";
 const DB = `${RUNS_ROOT}/repo/id/state.db`;
 const RUNS_ROOT_ENV = { RT_RUNS_ROOT: RUNS_ROOT } as NodeJS.ProcessEnv;
 
-function fakeDeps(out = '{"ok":true}', code = 0): { deps: RunToolDeps; calls: Call[] } {
+function fakeDeps(out = '{"ok":true}', code = 0, procEnv: NodeJS.ProcessEnv = {}): { deps: RunToolDeps; calls: Call[] } {
   const calls: Call[] = [];
   return {
     calls,
@@ -24,6 +24,7 @@ function fakeDeps(out = '{"ok":true}', code = 0): { deps: RunToolDeps; calls: Ca
       realpath: (p) => p.replace("/link/", "/real/"),
       isPackRoot: () => true,
       engine: async () => ({ out: "{}", code: 0 }),
+      env: procEnv,
     },
   };
 }
@@ -70,6 +71,43 @@ describe("run_start", () => {
     expect(res.body).toEqual({ ok: true, runId: "x", runDb: "/db" });
     expect(calls[0]!.verb).toBe("run-start");
     expect(calls[0]!.args).toEqual(["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack", "--skill-dir", "/real/pack/skills/work", "--ticket", "T-1", "--spawned-by", "board"]);
+  });
+  describe("gateMode", () => {
+    const START = '{"ok":true,"runId":"x","runDb":"/runs/repo/id/state.db"}';
+    const input = { flags: "--repo r --work-type w --pipeline p", skillDir: "/link/pack/skills/work" };
+    const fieldCalls = (calls: Call[]) => calls.filter((c) => c.verb === "field");
+
+    test("a valid gateMode writes the gate-mode field after the run starts", async () => {
+      const { deps, calls } = fakeDeps(START);
+      const res = await tool(deps, "run_start").handler({ ...input, gateMode: "quiet" }, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(true);
+      expect(calls.map((c) => c.verb)).toEqual(["run-start", "field"]);
+      expect(calls[1]!.args).toEqual(["set", "gate-mode", "quiet", "--stage", "start"]);
+      expect(calls[1]!.env.RT_RUN_DB).toBe("/runs/repo/id/state.db");
+    });
+    test("an invalid gateMode refuses before the run starts", async () => {
+      const { deps, calls } = fakeDeps(START);
+      const res = await tool(deps, "run_start").handler({ ...input, gateMode: "bogus" }, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe('"gateMode" must be one of chatty, normal, quiet, yolo');
+      expect(calls).toEqual([]);
+    });
+    test("RT_GATE_MODE applies when no gateMode is passed", async () => {
+      const { deps, calls } = fakeDeps(START, 0, { RT_GATE_MODE: "normal" });
+      await tool(deps, "run_start").handler(input, RUNS_ROOT_ENV);
+      expect(fieldCalls(calls)[0]!.args).toEqual(["set", "gate-mode", "normal", "--stage", "start"]);
+    });
+    test("an explicit gateMode wins over RT_GATE_MODE", async () => {
+      const { deps, calls } = fakeDeps(START, 0, { RT_GATE_MODE: "normal" });
+      await tool(deps, "run_start").handler({ ...input, gateMode: "yolo" }, RUNS_ROOT_ENV);
+      expect(fieldCalls(calls)[0]!.args[2]).toBe("yolo");
+    });
+    test("an invalid RT_GATE_MODE is ignored and writes nothing", async () => {
+      const { deps, calls } = fakeDeps(START, 0, { RT_GATE_MODE: "bogus" });
+      const res = await tool(deps, "run_start").handler(input, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(true);
+      expect(fieldCalls(calls)).toEqual([]);
+    });
   });
   test("refuses a quoted flag string without calling write", async () => {
     const { deps, calls } = fakeDeps();

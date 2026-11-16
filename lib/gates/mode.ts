@@ -17,6 +17,8 @@ const STOP_VERBS = new Set(["handback", "hand-back", "abandon", "iterate", "go-b
 const RECOMMENDED_SUFFIX = /\(\s*recommended\s*\)\s*$/i;
 const MODE_DECIDER = "mode:";
 
+export const GATE_MODE_ERROR = '"gateMode" must be one of chatty, normal, quiet, yolo';
+
 export function parseMode(v: unknown): GateMode {
   return MODES.find((m) => m === v) ?? "chatty";
 }

@@ -10,6 +10,7 @@ import {
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
 import { existsSync, readFileSync } from "fs";
+import { GATE_MODE_ERROR, parseMode } from "../gates/mode.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
 import { runRtVerb } from "./rt-verb.ts";
 import { checkOptional, checkRequired, checkStringArray, err, fromResponse, ok, requireWorkerEnv, resolveSoleHerd, type McpToolDef } from "./shared.ts";
@@ -78,6 +79,7 @@ function launchInputs(input: Record<string, unknown>, readRoots: () => ReadRoots
       return { error: `${k} must be a plain token (letters, digits, . _ @ : [ ] -, not starting with -); got ${JSON.stringify(input[k])}` };
     }
   }
+  if (typeof input.gateMode === "string" && parseMode(input.gateMode) !== input.gateMode) return { error: GATE_MODE_ERROR };
   if (typeof input.brief !== "string") return {};
   // herd:spawn and herd:respawn take the brief TEXT (the CLI reads --brief <file> itself), so the file is read here, after confinement.
   const rr = readRoots();
@@ -187,14 +189,14 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
     {
       name: "herd_spawn",
       description: "Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with \"-\"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. A spawn into a tree another job already holds is a guest (a reviewer): it ticks the host's reviewerRounds budget and returns it as reviewerRound {host, key, budget}. Only the herd's shepherd session may call it. Takes minutes.",
-      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, disposable: { type: "boolean" }, tree: { type: "string", description: "A registered tree's name; never a directory." } }, required: ["job"], additionalProperties: false },
+      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, gateMode: { type: "string", description: "chatty, normal, quiet or yolo; the worker's run starts in this gate mode." }, disposable: { type: "boolean" }, tree: { type: "string", description: "A registered tree's name; never a directory." } }, required: ["job"], additionalProperties: false },
       shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /(?<![\w-])rt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_follow_up, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone, herd_respawn, herd_gate_answer, herd_gate_park, herd_diagnose, herd_nudge, herd_lanes" }],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         // The server does not enforce additionalProperties, and a caller-chosen dir would land the worker in a folder whose
         // .claude/settings.json the caller wrote, with the daemon auto-accepting its trust dialog.
         if ("dir" in input) return err("dir is not accepted: herd_spawn always provisions the job's own worktree");
-        const bad = checkRequired(input, [{ name: "job", type: "string" }]) ?? checkOptional(input, [{ name: "brief", type: "string" }, { name: "model", type: "string" }, { name: "effort", type: "string" }, { name: "account", type: "string" }, { name: "disposable", type: "boolean" }, { name: "tree", type: "string" }]);
+        const bad = checkRequired(input, [{ name: "job", type: "string" }]) ?? checkOptional(input, [{ name: "brief", type: "string" }, { name: "model", type: "string" }, { name: "effort", type: "string" }, { name: "account", type: "string" }, { name: "gateMode", type: "string" }, { name: "disposable", type: "boolean" }, { name: "tree", type: "string" }]);
         if (bad) return err(bad);
         const launch = launchInputs(input, deps.readRoots);
         if ("error" in launch) return err(launch.error);
@@ -207,7 +209,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         }
         const payload: Commands["herd:spawn"]["payload"] = { herd: h.herd, job };
         if (launch.brief !== undefined) payload.brief = launch.brief;
-        for (const k of ["model", "effort", "account", "tree"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
+        for (const k of ["model", "effort", "account", "gateMode", "tree"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
         if (typeof input.disposable === "boolean") payload.disposable = input.disposable;
         return fromResponse(await deps.spawn(payload, { timeoutMs: SPAWN_TIMEOUT_MS }));
       },
@@ -215,12 +217,12 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
     {
       name: "herd_respawn",
       description: "Relaunch a job's agent in its existing worktree (no provisioning). brief, account, model and effort follow herd_spawn's rules; omitted, the job's stored brief and launch settings are reused. Only the herd's shepherd session may call it. Takes minutes.",
-      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" } }, required: ["job"], additionalProperties: false },
+      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, gateMode: { type: "string", description: "chatty, normal, quiet or yolo; the worker's run starts in this gate mode." } }, required: ["job"], additionalProperties: false },
       shellForms: { none: NO_CLI_TWIN },
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         if ("dir" in input) return err("dir is not accepted: herd_respawn reuses the job's own worktree");
-        const bad = checkRequired(input, [{ name: "job", type: "string" }]) ?? checkOptional(input, [{ name: "brief", type: "string" }, { name: "model", type: "string" }, { name: "effort", type: "string" }, { name: "account", type: "string" }]);
+        const bad = checkRequired(input, [{ name: "job", type: "string" }]) ?? checkOptional(input, [{ name: "brief", type: "string" }, { name: "model", type: "string" }, { name: "effort", type: "string" }, { name: "account", type: "string" }, { name: "gateMode", type: "string" }]);
         if (bad) return err(bad);
         const launch = launchInputs(input, deps.readRoots);
         if ("error" in launch) return err(launch.error);
@@ -228,7 +230,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         if ("error" in h) return err(h.error);
         const payload: Commands["herd:respawn"]["payload"] = { herd: h.herd, job: input.job as string };
         if (launch.brief !== undefined) payload.brief = launch.brief;
-        for (const k of ["model", "effort", "account"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
+        for (const k of ["model", "effort", "account", "gateMode"] as const) if (typeof input[k] === "string") payload[k] = input[k] as string;
         return fromResponse(await deps.respawn(payload, { timeoutMs: SPAWN_TIMEOUT_MS }));
       },
     },

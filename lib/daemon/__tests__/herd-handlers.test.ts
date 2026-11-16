@@ -1199,6 +1199,23 @@ describe("herd:spawn", () => {
     expect(statSync(join(dir, "herds", herd, "job-a")).mode & 0o777).toBe(0o700);
   });
 
+  test("a gateMode goes into the worker's env as RT_GATE_MODE; none leaves the key out", async () => {
+    const { h, agentCalls, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t", gateMode: "quiet" });
+    if (!res.ok) throw new Error(res.error);
+    expect(agentCalls[0].env.RT_GATE_MODE).toBe("quiet");
+    const plain = await h["herd:spawn"]({ herd, job: "job-b", brief: "b", dir: "/t" });
+    if (!plain.ok) throw new Error(plain.error);
+    expect("RT_GATE_MODE" in agentCalls[1].env).toBe(false);
+  });
+
+  test("an invalid gateMode refuses the spawn before any agent starts", async () => {
+    const { h, agentCalls, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t", gateMode: "bogus" });
+    expect(res).toEqual({ ok: false, error: '"gateMode" must be one of chatty, normal, quiet, yolo' });
+    expect(agentCalls).toEqual([]);
+  });
+
   test("a spawned worker gets a chat session file, so the chat_* MCP tools resolve its handle", async () => {
     const { h, herd } = await started();
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });

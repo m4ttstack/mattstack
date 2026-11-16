@@ -1399,6 +1399,10 @@ Start a pipeline run and get back its runDb. flags is the compiled run-start fla
     },
     "spawnedBy": {
       "type": "string"
+    },
+    "gateMode": {
+      "type": "string",
+      "description": "chatty, normal, quiet or yolo: how far this run answers its own gates. Omitted, RT_GATE_MODE in the environment applies; unset, the rt.work.gateMode setting does."
     }
   },
   "required": [
@@ -2797,6 +2801,10 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
     "account": {
       "type": "string"
     },
+    "gateMode": {
+      "type": "string",
+      "description": "chatty, normal, quiet or yolo; the worker's run starts in this gate mode."
+    },
     "disposable": {
       "type": "boolean"
     },
@@ -2840,6 +2848,10 @@ Relaunch a job's agent in its existing worktree (no provisioning). brief, accoun
     },
     "account": {
       "type": "string"
+    },
+    "gateMode": {
+      "type": "string",
+      "description": "chatty, normal, quiet or yolo; the worker's run starts in this gate mode."
     }
   },
   "required": [
