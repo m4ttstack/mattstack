@@ -184,6 +184,27 @@ export async function mergedMrCoversTips(treePath: string, branch: string | null
 }
 
 /**
+ * A git-only proof that this tree produced the merged MR: HEAD is the MR's
+ * source head exactly, and the tree's branch ref (when it differs from HEAD)
+ * holds nothing the MR never saw. Exact equality, not ancestry: a tree merely
+ * behind the head could be a different lifecycle of a reused branch name.
+ */
+export async function mergedMrIsTreeHead(treePath: string, branch: string | null, mr: MrHead | null): Promise<boolean> {
+  const mergedSha = mergedShaOf(mr);
+  if (!mergedSha) return false;
+  try {
+    const head = await headSha(treePath);
+    if (!head || head !== mergedSha) return false;
+    if (!branch) return true;
+    const ref = await runGit(treePath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]);
+    if (ref.exitCode !== 0 || ref.stdout.trim() === head) return true;
+    return await isAncestorAsync(treePath, `refs/heads/${branch}`, mergedSha);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The one "is this work safe to drop" rule: triage offers Dispose on it and
  * dispose's containment guard refuses on it, so the two can never disagree.
  * Every tip dispose drops must be on the default branch, on origin/<branch>,

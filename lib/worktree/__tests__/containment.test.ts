@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import { mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { __test__, containmentOf, patchIdenticalToMr } from "../containment.ts";
+import { __test__, containmentOf, mergedMrIsTreeHead, patchIdenticalToMr } from "../containment.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
 const sh = (cmd: string, cwd?: string) => execSync(cmd, { cwd, shell: "/bin/zsh", stdio: "pipe" }).toString().trim();
@@ -262,4 +262,53 @@ test("the patch-id memo never grows past its cap", () => {
   for (let i = 0; i < __test__.PATCH_MEMO_MAX + 10; i++) __test__.remember(`k${i}`, true);
   expect(__test__.memoSize()).toBe(__test__.PATCH_MEMO_MAX);
   __test__.clearMemo();
+});
+
+describe("mergedMrIsTreeHead", () => {
+  let repo: string;
+  beforeEach(() => ({ repo } = repoWithOrigin()));
+
+  test("HEAD at the merged MR's source head is proven", async () => {
+    sh("git checkout -q -b feat", repo);
+    commit(repo, "a.txt", "a\n");
+    const sha = commit(repo, "b.txt", "b\n");
+    expect(await mergedMrIsTreeHead(repo, "feat", { state: "merged", sha })).toBe(true);
+  });
+
+  test("a HEAD behind the MR's head is not proven", async () => {
+    sh("git checkout -q -b feat", repo);
+    const a = commit(repo, "a.txt", "a\n");
+    const mrSha = commit(repo, "b.txt", "b\n");
+    sh(`git reset -q --hard ${a}`, repo);
+    expect(await mergedMrIsTreeHead(repo, "feat", { state: "merged", sha: mrSha })).toBe(false);
+  });
+
+  test("a HEAD with commits the MR never saw is not proven", async () => {
+    sh("git checkout -q -b feat", repo);
+    const mrSha = commit(repo, "a.txt", "a\n");
+    commit(repo, "b.txt", "b\n");
+    expect(await mergedMrIsTreeHead(repo, "feat", { state: "merged", sha: mrSha })).toBe(false);
+  });
+
+  test("a branch ref ahead of a detached HEAD at the MR's head is not proven", async () => {
+    sh("git checkout -q -b feat", repo);
+    const a = commit(repo, "a.txt", "a\n");
+    commit(repo, "b.txt", "b\n");
+    sh(`git checkout -q --detach ${a}`, repo);
+    expect(await mergedMrIsTreeHead(repo, "feat", { state: "merged", sha: a })).toBe(false);
+  });
+
+  test("no sha, a closed MR, or a null MR is not proven", async () => {
+    sh("git checkout -q -b feat", repo);
+    const sha = commit(repo, "a.txt", "a\n");
+    expect(await mergedMrIsTreeHead(repo, "feat", { state: "merged" })).toBe(false);
+    expect(await mergedMrIsTreeHead(repo, "feat", { state: "closed", sha })).toBe(false);
+    expect(await mergedMrIsTreeHead(repo, "feat", null)).toBe(false);
+  });
+
+  test("a missing tree path is not proven", async () => {
+    sh("git checkout -q -b feat", repo);
+    const sha = commit(repo, "a.txt", "a\n");
+    expect(await mergedMrIsTreeHead(join(repo, "gone"), "feat", { state: "merged", sha })).toBe(false);
+  });
 });
