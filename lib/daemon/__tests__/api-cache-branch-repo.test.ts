@@ -100,3 +100,27 @@ describe("GET /api/cache/:branch with a repo identity", () => {
     });
   });
 });
+
+describe("GET /api/cache with a repo identity", () => {
+  test("lists only that repo's entries, keyed by bare branch", async () => {
+    const { calls, handleCommand } = sharedBranchCache();
+    await withApiServer(handleCommand, async (port) => {
+      for (const [repo, want] of [[REPO_A, "A"], [REPO_B, "B"]] as const) {
+        const res = await fetch(`http://127.0.0.1:${port}/api/cache?repoIdentity=${encodeURIComponent(repo)}`);
+        const body = await res.json() as any;
+        expect(Object.keys(body.data)).toEqual(["main"]);
+        expect(body.data.main.linearId).toBe(want);
+      }
+      expect(calls.map((c) => c.payload)).toEqual([{ repoIdentity: REPO_A }, { repoIdentity: REPO_B }]);
+    });
+  });
+
+  test("an identity that is not a serialized wire lists nothing", async () => {
+    const { calls, handleCommand } = sharedBranchCache();
+    await withApiServer(handleCommand, async (port) => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/cache?repoIdentity=${encodeURIComponent("github.com/o/b")}`);
+      expect(await res.json()).toEqual({ ok: true, data: {} });
+      expect(calls).toEqual([]);
+    });
+  });
+});

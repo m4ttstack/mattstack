@@ -26,7 +26,7 @@ function buildApiIndex(port: number) {
   endpoints: [
     { method: "GET",  path: "/api/status",        description: "Daemon health, uptime, memory, cache stats" },
     { method: "GET",  path: "/api/ports",          description: "Listening ports grouped by repo/worktree" },
-    { method: "GET",  path: "/api/cache",           description: "All branch cache entries (MR or PR, Linear, pipeline)" },
+    { method: "GET",  path: "/api/cache",           description: "All branch cache entries (MR or PR, Linear, pipeline); ?repoIdentity=<serialized identity> keeps that repo's" },
     { method: "GET",  path: "/api/cache/:branch",   description: "Single branch cache entry; ?repoIdentity=<serialized identity> picks that repo's entry" },
     { method: "GET",  path: "/api/repos",           description: "Tracked repos with worktrees and watched status" },
     { method: "GET",  path: "/api/processes/system", description: "All repo-associated processes with CPU, memory, ports, runaway status" },
@@ -467,6 +467,17 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
         // Self-describing root
         if (url.pathname === "/" || url.pathname === "") {
           return Response.json(buildApiIndex(port), { headers: corsHeaders });
+        }
+
+        if (url.pathname === "/api/cache" && req.method === "GET") {
+          const repoIdentity = repoIdentityQueryParam(url);
+          if (repoIdentity !== null) {
+            if (parseIdentity(repoIdentity) === null) {
+              return Response.json({ ok: true, data: {} }, { headers: corsHeaders });
+            }
+            const result = await handleCommand("cache:read", { repoIdentity }, req.signal);
+            return Response.json(result, { headers: corsHeaders });
+          }
         }
 
         // Single branch lookup: /api/cache/:branch
