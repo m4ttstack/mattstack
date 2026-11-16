@@ -206,6 +206,9 @@ if command -v "$CLAUDE_BIN" >/dev/null 2>&1; then
         echo "✗ claude plugin marketplace add rejected the staged catalog" >&2
         exit 1
     fi
+elif [ -n "${RT_MARKETPLACE_CLAUDE:-}" ]; then
+    echo "✗ RT_MARKETPLACE_CLAUDE=$RT_MARKETPLACE_CLAUDE is not a command" >&2
+    exit 1
 else
     echo "  note: $CLAUDE_BIN not on PATH — structural validation only"
 fi

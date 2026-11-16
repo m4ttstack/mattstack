@@ -117,6 +117,12 @@ describe("marketplace.sh validation", () => {
     expect(r.out).toContain("claude plugin marketplace add rejected the staged catalog");
   });
 
+  test("a validator override that is not a command fails instead of skipping validation", () => {
+    const r = run(["--dry-run", sourceDir([urlPlugin("fast-browser")])], { RT_MARKETPLACE_CLAUDE: join(TMP, "no-such-claude") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("is not a command");
+  });
+
   test("rejects a url source whose sha is not a full 40-char commit", () => {
     const r = run(["--dry-run", sourceDir([urlPlugin("fast-browser", undefined, "abc1234")])]);
     expect(r.code).not.toBe(0);
