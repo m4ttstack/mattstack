@@ -112,9 +112,10 @@ gate answers itself only when all of these hold:
    recommended set), and no question needs a write-in to be answered. A
    recommendation is either form the pipelines use today: `recommended:
    true` on the option, or a label ending "(Recommended)" in any case;
-5. the recommendation moves the run forward: the step's continue question
-   recommends proceed or done, and no question recommends hand back,
-   abandon, iterate, go back or hold;
+5. the recommendation moves the run forward: no question recommends hand
+   back, abandon, iterate, go back or hold, and a `next` question, if the
+   gate has one, recommends proceed or done (most work gates have none; the
+   protocol reads a missing `next` as proceed);
 6. the gate does not carry a "needs the operator" flag;
 7. its context is not an evidence-board context, and its reach is not
    `public`.
@@ -128,8 +129,9 @@ stops never answers itself. One CI gate therefore behaves both ways: a
 recommended "fix and re-push" may answer itself, a recommended "hand back"
 after a timeout asks.
 
-The answer is the recommended option for every question, plus `proceed`
-for the step's continue question. It is written to the gates table as a
+The answer is the recommended option for every question the gate asked,
+and nothing else (the daemon refuses a key the gate did not ask). It is
+written to the gates table as a
 normal answered gate, so every surface that reads gates (pane, console,
 board, shepherd) sees an answered gate.
 
