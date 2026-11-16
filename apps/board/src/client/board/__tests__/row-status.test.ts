@@ -785,8 +785,8 @@ describe('rowStatus: gates', () => {
     ]);
   });
 
-  test('a plainly answered gate is a quiet answered line with the answers as detail', () => {
-    const [line] = candidateLines(
+  test('a plainly answered gate offers no Decision line', () => {
+    const lines = candidateLines(
       mr({
         gates: [
           gate({
@@ -799,58 +799,7 @@ describe('rowStatus: gates', () => {
       NONE,
       ME
     );
-    expect(line).toMatchObject({
-      tone: 'quiet',
-      word: 'answered',
-      detail: 'Minor, comment',
-      verbs: [],
-    });
-  });
-
-  test('an answer wrapped with a note unwraps to its value, not [object Object]', () => {
-    const [line] = candidateLines(
-      mr({
-        gates: [
-          gate({
-            status: 'answered',
-            answers: {
-              tiers: { value: 'Minor', note: 'small nit' },
-              outcome: 'leave-parent',
-            },
-          }),
-        ] as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(line).toMatchObject({
-      tone: 'quiet',
-      word: 'answered',
-      detail: 'Minor, leave-parent',
-      verbs: [],
-    });
-  });
-
-  test('a write-in answer reads as "wrote in: ..." in the detail', () => {
-    const [line] = candidateLines(
-      mr({
-        gates: [
-          gate({
-            status: 'answered',
-            answers: { approach: { writeIn: 'split it' }, next: 'proceed' },
-          }),
-        ] as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(line).toMatchObject({
-      tone: 'quiet',
-      word: 'answered',
-      detail: 'wrote in: "split it", proceed',
-    });
+    expect(lines.some(l => l.source === 'Decision')).toBe(false);
   });
 });
 
