@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
-import { gitWithToken } from "./git-credential.ts";
+import { gitWithRtCredential } from "./git-credential.ts";
 import { MISSING_PATH_RE, showMarkerAt } from "./org-layout.ts";
 import { ORG_MARKER_REL, parseMarker } from "./org-marker.ts";
 import { withoutUrls } from "./redact.ts";
@@ -44,7 +44,7 @@ export async function readMainBranch(p: Pick<Probes, "exec">, remote: string, to
   try {
     const init = await p.exec(["git", "init", "-q", "--bare", scratch], { env });
     if (init.code !== 0) throw unreadable(withoutUrls(`${init.stdout}\n${init.stderr}`.trim()));
-    const fetch = gitWithToken(["-C", scratch, "fetch", "-q", "--depth", "1", "--filter=blob:none", remote, "main"], token, env, { remote });
+    const fetch = gitWithRtCredential(["-C", scratch, "fetch", "-q", "--depth", "1", "--filter=blob:none", remote, "main"], Boolean(token), env, { remote });
     const fetched = await p.exec(fetch.argv, { env: fetch.env, ...bound });
     if (fetched.code !== 0) {
       const output = withoutUrls(`${fetched.stdout}\n${fetched.stderr}`.trim());
@@ -55,7 +55,7 @@ export async function readMainBranch(p: Pick<Probes, "exec">, remote: string, to
     if (listed.code !== 0) throw unreadable(withoutUrls(`${listed.stdout}\n${listed.stderr}`.trim()));
     const orgFiles = listed.stdout.split("\n").filter((path) => path !== "" && path !== ORG_MARKER_REL);
     const shown = await showMarkerAt(async (spec) => {
-      const show = gitWithToken(["-C", scratch, "show", spec], token, env, { remote });
+      const show = gitWithRtCredential(["-C", scratch, "show", spec], Boolean(token), env, { remote });
       return p.exec(show.argv, { env: show.env, ...bound });
     }, "FETCH_HEAD");
     if (shown.code !== 0) {

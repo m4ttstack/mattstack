@@ -833,8 +833,11 @@ test('the decision card reads readiness, summary, counts, and the re-review line
     container.querySelector('.tui-sheet-context-reasoning')!.textContent
   ).toContain('One important finding carried over; the rest are cleanups.');
   expect(container.querySelector('.tui-sheet-context-meta')!.textContent).toBe(
-    'renee · round 2 · 3 addressed, 1 waiting on author'
+    'renee round 2 3 addressed, 1 waiting on author'
   );
+  expect(
+    container.querySelectorAll('.tui-sheet-context-meta .tui-sep').length
+  ).toBe(2);
   const railPills = [
     ...container.querySelectorAll('.tui-sheet-context-card .tui-review-sev'),
   ].map(p => p.textContent);
@@ -1277,8 +1280,11 @@ describe('a later round', () => {
         '3'
       );
       expect(row.querySelector('.tui-review-skipped-hint')!.textContent).toBe(
-        'you chose not to raise these · tick one to bring it back'
+        'you chose not to raise these tick one to bring it back'
       );
+      expect(
+        row.querySelectorAll('.tui-review-skipped-hint .tui-sep').length
+      ).toBe(1);
       const boxes = [
         ...row.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
       ];

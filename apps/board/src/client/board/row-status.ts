@@ -128,7 +128,7 @@ export function statusReasons(mr: BoardMR): string {
   if (b.hasMergeError)
     reasons.push(`merge error: ${b.mergeError ?? 'unknown'}`);
   return reasons.length
-    ? `blocked:\n${reasons.map(r => `· ${r}`).join('\n')}`
+    ? `blocked:\n${reasons.map(r => `• ${r}`).join('\n')}`
     : 'blocked';
 }
 
@@ -547,7 +547,7 @@ function withWho(line: Candidate, who: string | null): Candidate {
   if (!who) return line;
   return {
     ...line,
-    detail: line.detail ? `${who} · ${line.detail}` : who,
+    detail: line.detail ? `${who} • ${line.detail}` : who,
   };
 }
 
@@ -652,7 +652,7 @@ function respondLine(
     spin: true,
     detail: who
       ? r.message
-        ? `${phase} · ${r.message}`
+        ? `${phase} • ${r.message}`
         : phase
       : r.message || undefined,
     verbs: [{ kind: 'focus', label: 'focus', domain: 'respond' }],

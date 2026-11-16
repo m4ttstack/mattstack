@@ -9,6 +9,7 @@ import { gateItems } from '@mattstack/gate-kit/react';
 import { Button } from '@mattstack/tui-kit';
 import type { GateRow } from '../../gates/store.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import { joinBullet } from './bullet.ts';
 import { ago } from './format.ts';
 import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import { AnsweredChip, type GateFormState } from './GateForm.tsx';
@@ -142,14 +143,12 @@ function AnsweredSheetBody({
           ? { text: 'none', intent: 'muted' }
           : pick
             ? {
-                text: [
+                text: joinBullet([
                   picked.includes(pick.post) ? 'post' : 'hold',
                   pick.resolve && picked.includes(pick.resolve)
                     ? 'resolve'
                     : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · '),
+                ]),
                 intent: picked.includes(pick.post) ? 'ok' : 'muted',
               }
             : d

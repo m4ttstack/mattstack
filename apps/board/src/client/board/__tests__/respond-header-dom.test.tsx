@@ -144,7 +144,7 @@ test('the sheet heading names the person; its timeline carries the response roun
   expect($('.tui-sheet-round-n')!.textContent).toBe('Respond to john');
   expect(roundChip().textContent).toBe('Round 2');
   expect($('.tui-sheet-context-meta')!.textContent).toContain(
-    'round 2 \u00b7 revise 1'
+    'round 2 revise 1'
   );
 });
 
@@ -195,15 +195,16 @@ test('an open plan@1 gate opens the respond sheet: threads left; MR card, decisi
     'add retry to the fetch queue'
   );
   expect(card.querySelector('.tui-id-card-branch')!.textContent).toBe(
-    '· feature/demo-12-retry'
+    'feature/demo-12-retry'
   );
+  expect(card.querySelectorAll('.tui-sep').length).toBe(1);
   const context = $('.tui-sheet-rail .tui-sheet-context-card')!;
   expect(context.querySelector('.tui-id-card-lead')!.textContent).toBe(
     'renee reviewed your merge request'
   );
   expect(context.querySelector('.tui-person-name')!.textContent).toBe('renee');
   expect(context.querySelector('.tui-sheet-context-meta')!.textContent).toBe(
-    'round 1 · both valid · fresh-context adjudicated'
+    'round 1 both valid · fresh-context adjudicated'
   );
   expect($('.tui-sheet-main .tui-mr-card')).toBeNull();
   expect($('.tui-sheet-rail [data-card="responses"]')).not.toBeNull();
@@ -419,7 +420,10 @@ const post = (over: Partial<PostCtx> = {}): PostCtx => ({
 });
 
 const chips = (ctx: PlanCtx | PostCtx) =>
-  headerChips(ctx).map(c => [c.text, c.hue]);
+  headerChips(ctx).map(c => [
+    [c.text, c.detail].filter(Boolean).join(' '),
+    c.hue,
+  ]);
 
 test('plan chips: threads and blocking; the round and adjudication ride the meta line', () => {
   const ctx = plan({ adjudication: 'both valid', round: 2 });
@@ -465,8 +469,8 @@ test('post chips: replies, then one chip per fix', () => {
     chips(post({ fixes: [{ sha: 'ab12cd3' }, { sha: 'ef45ab6' }], round: 1 }))
   ).toEqual([
     ['2 replies', 'grey'],
-    ['fix pushed · ab12cd3', 'green'],
-    ['fix pushed · ef45ab6', 'green'],
+    ['fix pushed ab12cd3', 'green'],
+    ['fix pushed ef45ab6', 'green'],
   ]);
 });
 

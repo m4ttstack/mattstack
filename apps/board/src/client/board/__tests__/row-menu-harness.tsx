@@ -225,7 +225,8 @@ export async function openSub(title: string): Promise<void> {
 }
 
 /** The open menu, top to bottom: `# label`, item text, `---` separator,
-    `[a | b]` for a row of toggles, `> title` for a flyout. */
+    `[a | b]` for a row of toggles, `> title` for a flyout, `a | b` for the
+    note box's separate key hints. */
 export function menuLines(): string[] {
   const menu = rootMenu();
   if (!menu) return [];
@@ -238,6 +239,8 @@ export function menuLines(): string[] {
     if (part === 'contextmenu-sub')
       return `> ${el.querySelector(OPENER)?.firstElementChild?.textContent ?? ''}`;
     if (el.tagName === 'TEXTAREA') return '[note box]';
+    if (el.classList.contains('tui-menu-note-hint'))
+      return [...el.children].map(c => c.textContent).join(' | ');
     return el.textContent ?? '';
   });
 }

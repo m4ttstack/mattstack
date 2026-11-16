@@ -101,7 +101,7 @@ export function markAnswered(
 
 export function entryPeek(entry: QueueEntry): string {
   return entry.mr
-    ? `${mrRef(entry.mr)} · ${cleanTitle(entry.mr.title)}`
+    ? `${mrRef(entry.mr)} • ${cleanTitle(entry.mr.title)}`
     : entry.gate.label;
 }
 
@@ -120,7 +120,7 @@ export function bannerCopy(entries: QueueEntry[], now: number): BannerCopy {
     : now - opened < 60_000
       ? 'just opened'
       : `waiting ${ago(new Date(opened).toISOString(), now)}`;
-  const item = waited ? `${entryPeek(first)} · ${waited}` : entryPeek(first);
+  const item = waited ? `${entryPeek(first)} • ${waited}` : entryPeek(first);
   return entries.length === 1
     ? { title: '1 decision is waiting on you', detail: item }
     : {

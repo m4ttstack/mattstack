@@ -1240,12 +1240,12 @@ test('several people: one picker item, an option per person, sorted by name', ()
       {
         value: 'darryl',
         label: 'darryl',
-        hint: 'round 3 · nothing open · redo',
+        hint: 'round 3 • nothing open • redo',
       },
       {
         value: 'john',
         label: 'John',
-        hint: 'round 2 · 3 threads · 2 comments',
+        hint: 'round 2 • 3 threads • 2 comments',
       },
       { value: 'priya', label: 'Priya', hint: '2 comments' },
     ],

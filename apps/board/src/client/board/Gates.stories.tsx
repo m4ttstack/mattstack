@@ -152,7 +152,7 @@ function Face({
             mr={entry.mr}
             position={2}
             states={['done', 'active', 'todo', 'todo']}
-            nextPeek="!831 · keep station pins when the map re-centers"
+            nextPeek="!831 • keep station pins when the map re-centers"
             onClose={noop}
             onNext={noop}
             onBack={noop}

@@ -176,6 +176,7 @@ import {
   type PendingRun,
 } from './RunActiveConfirmDialog.tsx';
 import { SelectionBar } from './SelectionBar.tsx';
+import { Sep } from './Sep.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
 import { ShowChips } from './ShowChips.tsx';
 import { Sidebar } from './Sidebar.tsx';
@@ -2147,7 +2148,8 @@ export function Board() {
 
             {data.switchboardTokenMissing && (
               <div className="tui-banner" data-intent="bad" role="alert">
-                ⚠ no switchboard token, so peer asks can't reach this board ·{' '}
+                ⚠ no switchboard token, so peer asks can't reach this board
+                <Sep />
                 {data.canInvite ? (
                   <>
                     run <code>rt team peer</code> to connect it

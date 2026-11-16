@@ -22,6 +22,7 @@ import type { GateRow } from '../../gates/store.ts';
 import { mrNoun } from '../../mr-ref.ts';
 import { approvalSlots, personApproved } from '../../view.ts';
 import type { BoardMRWithReview } from '../types.ts';
+import { joinBullet } from './bullet.ts';
 import {
   parseGateCtx,
   type PlanCtx,
@@ -823,22 +824,16 @@ function RespondSheetBody({
     : revising
       ? 'send back for revision'
       : plan
-        ? ['submit', ...tally].join(' · ')
+        ? joinBullet(['submit', ...tally])
         : perThread
-          ? [
-              [
+          ? joinBullet([
+              joinBullet([
                 posting + withStep > 0 ? `post ${posting + withStep}` : null,
                 resolving > 0 ? `resolve ${resolving}` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ') || 'hold all',
+              ]) || 'hold all',
               dockPick,
-            ]
-              .filter(Boolean)
-              .join(' · ')
-          : [`post ${repliesPicked + withStep}`, dockPick]
-              .filter(Boolean)
-              .join(' · ');
+            ])
+          : joinBullet([`post ${repliesPicked + withStep}`, dockPick]);
   const runPerson = mr?.respond?.person?.toLowerCase();
   const latches = plan
     ? []

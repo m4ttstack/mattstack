@@ -4,6 +4,7 @@ import { Markdown, Modal } from '@mattstack/tui-kit';
 import type { BoardMRWithReview } from '../types.ts';
 import { cleanTitle } from './format.ts';
 import { mrRef } from './MrLinks.tsx';
+import { Sep } from './Sep.tsx';
 
 /** Modal that fetches and renders an agent's written report markdown for an
     MR -- the review's write-up or the respond fill's adjudication, whichever
@@ -42,7 +43,9 @@ function ReportModal({
     <Modal
       title={
         <>
-          ❯ {kindLabel} · {mrRef(mr)}
+          ❯ {kindLabel}
+          <Sep />
+          {mrRef(mr)}
         </>
       }
       ariaLabel={`${kindLabel} for ${mrRef(mr)}`}

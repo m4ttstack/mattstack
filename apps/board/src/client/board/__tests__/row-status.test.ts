@@ -1138,7 +1138,7 @@ describe('rowStatus: respond lane', () => {
     );
     expect(line).toMatchObject({
       word: 'responding to Darryl',
-      detail: 'drafting replies · 3 of 5',
+      detail: 'drafting replies • 3 of 5',
     });
   });
 
@@ -1208,7 +1208,7 @@ describe('rowStatus: respond lane', () => {
     );
     expect(failed).toMatchObject({
       word: 'response failed',
-      detail: 'Darryl · pane died',
+      detail: 'Darryl • pane died',
     });
     expect(failed!.verbs[0]).toEqual({
       kind: 'restart-respond',
@@ -1237,7 +1237,7 @@ describe('rowStatus: respond lane', () => {
     expect(line).toMatchObject({
       tone: 'warn',
       word: 'replies posted',
-      detail: 'Darryl · reviewer came back',
+      detail: 'Darryl • reviewer came back',
     });
     expect(line!.verbs[0]).toEqual({
       kind: 'restart-respond',
@@ -2367,7 +2367,7 @@ describe('statusPhrase: the pill says what the status group says', () => {
       blockers: { any: true, awaitingApprovals: true },
     });
     expect(statusPhrase(wide)).toEqual({ text: '19/83 approved', hue: 'cyan' });
-    expect(statusReasons(wide)).toBe('blocked:\n· awaiting approvals (19/83)');
+    expect(statusReasons(wide)).toBe('blocked:\n• awaiting approvals (19/83)');
   });
 
   test('an untouched MR is amber', () => {
