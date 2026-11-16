@@ -75,6 +75,10 @@ export function gateRounds(
   return { round: responseRound >= 2 ? responseRound : undefined, revise };
 }
 
+/** Gates opened before the respond verb parted its adjudication with a
+    semicolon are stored with a typed middle dot instead. */
+const ADJUDICATION_PARTS = /\s*[;·]\s*/;
+
 /** The round and the adjudication, the context's prose facts; they read as
     a meta line rather than chips. */
 export function headerMeta(
@@ -85,7 +89,7 @@ export function headerMeta(
   return [
     round !== undefined ? `round ${round}` : undefined,
     revise !== undefined ? `revise ${revise}` : undefined,
-    ctx.adjudication,
+    ...(ctx.adjudication?.split(ADJUDICATION_PARTS) ?? []),
   ].filter((m): m is string => Boolean(m));
 }
 

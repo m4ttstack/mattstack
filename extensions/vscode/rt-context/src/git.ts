@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { BranchInfo, WorktreeEntry, GitExtensionExports, GitAPI, GitRepository } from './types';
 import { parseWorktreePorcelain } from './worktreeParse';
+import { STASH_LIST_FORMAT, desktopStashMessage, findDesktopStashIn, stashRefFor, type DesktopStashEntry } from './stashParse';
 import { repoIdentityFromRemote } from './repoIdentity';
 
 const execFileAsync = promisify(execFile);
@@ -110,24 +110,6 @@ export async function listLocalBranches(cwd: string): Promise<string[]> {
 
 // ── Stash helpers (GitHub Desktop-compatible) ──
 
-/**
- * GitHub Desktop stash marker format.
- * Using the exact same format means stashes are interoperable between
- * this extension and GitHub Desktop.
- * @see https://github.com/desktop/desktop/blob/development/app/src/lib/git/stash.ts
- */
-const DESKTOP_STASH_MARKER = '!!GitHub_Desktop';
-const DESKTOP_STASH_RE = /!!GitHub_Desktop<(.+)>$/;
-
-export interface DesktopStashEntry {
-  name: string;       // e.g. "stash@{0}"
-  branchName: string; // the branch the stash was created for
-}
-
-function createDesktopStashMessage(branchName: string): string {
-  return `${DESKTOP_STASH_MARKER}<${branchName}>`;
-}
-
 export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
   try {
     const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd });
@@ -143,40 +125,46 @@ export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
  * GitHub Desktop's "Stashed Changes" panel.
  */
 export async function stashChanges(cwd: string, branch: string): Promise<void> {
-  const message = createDesktopStashMessage(branch);
-  await execFileAsync('git', ['stash', 'push', '-u', '-m', message], { cwd });
+  await execFileAsync('git', ['stash', 'push', '-u', '-m', desktopStashMessage(branch)], { cwd });
+}
+
+async function stashList(cwd: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('git', ['stash', 'list', STASH_LIST_FORMAT], { cwd });
+    return stdout;
+  } catch {
+    return '';
+  }
+}
+
+/** The newest GitHub Desktop-tagged stash for a branch, or null. */
+export async function findDesktopStash(cwd: string, branch: string): Promise<DesktopStashEntry | null> {
+  return findDesktopStashIn(await stashList(cwd), branch);
 }
 
 /**
- * Find the most recent GitHub Desktop-tagged stash entry for a branch.
- * Returns null if no matching stash exists.
+ * `git stash drop` takes only a `stash@{n}`, so the index is looked up just
+ * before the drop. Another worktree pushing a stash in the milliseconds
+ * between the two can still shift it; that window is narrowed, not closed.
  */
-export async function findDesktopStash(cwd: string, branch: string): Promise<DesktopStashEntry | null> {
+async function dropBySha(cwd: string, stash: DesktopStashEntry): Promise<void> {
+  const ref = stashRefFor(await stashList(cwd), stash.sha);
+  if (!ref) throw new Error(`the stash for '${stash.branchName}' is no longer there`);
+  await execFileAsync('git', ['stash', 'drop', ref], { cwd });
+}
+
+/** Applies by sha, so only this stash's changes can land here; a conflict leaves the stash in place, as `pop` would. */
+export async function popStash(cwd: string, stash: DesktopStashEntry): Promise<void> {
+  await execFileAsync('git', ['stash', 'apply', stash.sha], { cwd });
   try {
-    const { stdout } = await execFileAsync('git', ['stash', 'list'], { cwd });
-    for (const line of stdout.split('\n')) {
-      const match = DESKTOP_STASH_RE.exec(line);
-      if (match && match[1] === branch) {
-        const nameMatch = /^(stash@\{\d+\})/.exec(line);
-        if (nameMatch) {
-          return { name: nameMatch[1]!, branchName: branch };
-        }
-      }
-    }
+    await dropBySha(cwd, stash);
   } catch {
-    // No stashes or stash list failed
+    // The changes are applied; a stash something else already dropped needs nothing more.
   }
-  return null;
 }
 
-/** Pop a specific stash entry by name (e.g. "stash@{0}"). */
-export async function popStash(cwd: string, stashName: string): Promise<void> {
-  await execFileAsync('git', ['stash', 'pop', stashName], { cwd });
-}
-
-/** Drop a specific stash entry by name without applying it. */
-export async function dropStash(cwd: string, stashName: string): Promise<void> {
-  await execFileAsync('git', ['stash', 'drop', stashName], { cwd });
+export async function dropStash(cwd: string, stash: DesktopStashEntry): Promise<void> {
+  await dropBySha(cwd, stash);
 }
 
 /** Detect whether origin/main or origin/master exists. Returns the ref or null. */
@@ -302,24 +290,6 @@ export async function getRepoRootName(): Promise<string> {
   }
 
   return path.basename(cwd);
-}
-
-/**
- * Resolve the rt per-repo data directory for the given repo.
- * Mirrors the CLI's deriveRepoName logic.
- */
-export function resolveDataDir(repo: GitRepository): string | null {
-  const remoteUrl = getRemoteUrl(repo);
-  if (!remoteUrl) return null;
-
-  const repoName = remoteUrl
-    .replace(/^git@[^:]+:/, "")
-    .replace(/^https?:\/\/[^/]+\//, "")
-    .replace(/\.git$/, "")
-    .split("/")
-    .pop() || "unknown";
-
-  return path.join(homedir(), ".mattstack", "rt", "repos", repoName);
 }
 
 /**

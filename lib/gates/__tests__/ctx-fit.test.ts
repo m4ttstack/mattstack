@@ -195,7 +195,7 @@ describe("prose flattening: exact text", () => {
   const plan = proseOpen(load(PLAN));
   test("prose gate line", () =>
     expect(plan.context).toBe(
-      "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback · fresh-context adjudicated",
+      "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback; fresh-context adjudicated",
     ));
   test("prose thread with points and a direction", () =>
     expect(qctx(plan, 0)).toBe(`[BLOCKING] renee: the retry queue re-enqueues a job that already failed permanently.

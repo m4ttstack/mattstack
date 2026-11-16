@@ -1,6 +1,6 @@
 {"context": {"gate-ctx": "plan@1", "reviewer": "renee", "round": 1,
              "threads": {"total": 2, "blocking": 1},
-             "adjudication": "1 valid, 1 pushback · fresh-context adjudicated"},
+             "adjudication": "1 valid, 1 pushback; fresh-context adjudicated"},
  "questions": [
   {"id": "thread-1", "label": "queue/enqueue.ts:88", "multi": false,
    "context": {"gate-ctx": "thread@1", "author": "renee", "severity": "blocking",

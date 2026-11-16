@@ -89,7 +89,7 @@ check "and is still stored structured" structured "$(printf '%s' "$OUT" | jq -r 
 
 # --- prose flattening: exact text ---
 run "$PLAN" prose
-check "prose gate line" "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback · fresh-context adjudicated" \
+check "prose gate line" "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback; fresh-context adjudicated" \
   "$(printf '%s' "$OUT" | jq -r .context)"
 check "prose thread with points and a direction" "[BLOCKING] renee: the retry queue re-enqueues a job that already failed permanently.
 - permanent failures carry retryable: false, but enqueue() never reads it

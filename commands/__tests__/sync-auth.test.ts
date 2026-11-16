@@ -31,7 +31,7 @@ type Result = { ok: true } | { ok: false; output: string };
 let root: string;
 let io: CapturedOut;
 const saved: Record<string, string | undefined> = {};
-const ENV_KEYS = ["RT_SYNC_LOG_PATH", "GIT_TERMINAL_PROMPT", "GIT_ASKPASS", "RT_SYNC_AUTH_MARK"] as const;
+const ENV_KEYS = ["RT_SYNC_LOG_PATH", "GIT_TERMINAL_PROMPT", "GIT_ASKPASS", "RT_SYNC_AUTH_MARK", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"] as const;
 
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-auth-")));
@@ -40,6 +40,10 @@ beforeEach(() => {
   delete process.env.GIT_TERMINAL_PROMPT;
   delete process.env.GIT_ASKPASS;
   delete process.env.RT_SYNC_AUTH_MARK;
+  // The assertions name rt's helper pairs by index, which the preload's helper reset would shift.
+  delete process.env.GIT_CONFIG_COUNT;
+  delete process.env.GIT_CONFIG_KEY_0;
+  delete process.env.GIT_CONFIG_VALUE_0;
   io = captureOut();
   out.__test__.reset();
   out.__test__.setHuman(() => false);

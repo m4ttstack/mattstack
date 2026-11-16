@@ -1321,7 +1321,7 @@
             "tabId": "w18:t1",
             "worktree": "webapp"
           },
-          "context": "{\"gate-ctx\":\"plan@1\",\"reviewer\":\"pat\",\"round\":2,\"threads\":{\"total\":2,\"blocking\":1},\"adjudication\":\"both valid · fresh-context adjudicated\"}",
+          "context": "{\"gate-ctx\":\"plan@1\",\"reviewer\":\"pat\",\"round\":2,\"threads\":{\"total\":2,\"blocking\":1},\"adjudication\":\"both valid; fresh-context adjudicated\"}",
           "questions": [
             {
               "id": "thread-1",

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { extractLinearId } from './branchParser';
 import { fetchTicketsBatch, fetchMyTodoTickets } from './linear';
 import { fetchMRInfoBatch } from './gitlab';
-import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityToStore } from './forge';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote, repoIdentityToStore } from './forge';
 import { resolveRepoForge } from './repoForge';
 import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache, branchListCache } from './cache';
@@ -24,7 +24,6 @@ import {
   checkoutBranch,
   getGitApi,
   findWorkspaceRepo,
-  resolveDataDir,
   resolveRepoIdentity,
 } from './git';
 import type { BranchInfo, GitRepository } from './types';
@@ -48,14 +47,12 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
   // Use cached branch list for instant picker open; refresh in background
   const cached = branchListCache.get();
   let branches: BranchInfo[] = [];
-  let branchNames: string[] = [];
 
   function applyBranchList(allBranches: BranchInfo[], worktreeBranchNames: string[]) {
     const worktreeSet = new Set(worktreeBranchNames);
     branches = allBranches.filter(
       (b) => b.name === currentBranch || !worktreeSet.has(b.name),
     );
-    branchNames = branches.map((b) => b.name);
   }
 
   if (cached) {
@@ -214,17 +211,22 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     const freshWtNames = [...freshWorktreeSet];
     branchListCache.set(freshBranches, freshWtNames);
     applyBranchList(freshBranches, freshWtNames);
-    branchNames = branches.map((b) => b.name);
 
     const localBranchNames = branches.filter((b) => b.isLocal).map((b) => b.name);
 
     // 2. Try daemon cache first — one request for all branches
     let daemonHit = false;
     try {
-      const response = await daemonQuery('/api/cache');
+      const repoIdentity = repoForge.remoteUrl ? repoIdentityOfRemote(repoForge.remoteUrl) : null;
+      let response = repoIdentity
+        ? await daemonQuery(`/api/cache?repoIdentity=${encodeURIComponent(repoIdentity)}`)
+        : null;
+      // An identity the daemon wrote differently (a url.insteadOf rewrite) misses every row, so fall
+      // back to the unscoped read, as readDaemonCacheEntry does; on GitHub the forge check drops another repo's PR.
+      const scopedHit = response?.ok && localBranchNames.some((b) => response!.data?.[b]);
+      if (!scopedHit) response = await daemonQuery('/api/cache');
       if (response?.ok && response.data) {
         const allEntries = response.data as Record<string, any>;
-        const localSet = new Set(localBranchNames);
         let hitCount = 0;
         for (const branch of localBranchNames) {
           const entry = allEntries[branch];
@@ -273,8 +275,8 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     const fetchableBranches = localBranchNames.filter((b) => !SKIP_MR_BRANCHES.has(b));
 
     const [gitlabToken, apiKey] = await Promise.all([
-      repoForge.forge === 'github' ? null : getSecret(context, 'gitlabToken'),
-      getSecret(context, 'linearApiKey'),
+      repoForge.forge === 'github' ? null : getSecret('gitlabToken'),
+      getSecret('linearApiKey'),
     ]);
     const remoteUrl = repoForge.remoteUrl;
 
@@ -387,10 +389,10 @@ async function handleLinearCreate(
   currentBranch: string | null,
   maxLen: number,
 ): Promise<void> {
-  const apiKey = await getSecret(context, 'linearApiKey');
+  const apiKey = await getSecret('linearApiKey');
   if (!apiKey) {
     vscode.window.showErrorMessage(
-      'Linear API key not set. Run "RT Context: Set Linear API Key" first.',
+      'RT Context has no Linear API key. Set it from a terminal: rt secrets set rt linearApiKey',
     );
     return;
   }
@@ -405,8 +407,7 @@ async function handleLinearCreate(
     return;
   }
 
-  const dataDir = resolveDataDir(repo);
-  const namingConfig = dataDir ? loadBranchNamingConfig(dataDir, resolveRepoIdentity(repo)) : null;
+  const namingConfig = loadBranchNamingConfig(resolveRepoIdentity(repo));
 
   const ticketItems = tickets
     .map((t) => {
@@ -597,7 +598,7 @@ async function handleSwitchBranch(
         );
         if (confirm !== 'Overwrite') return;
         try {
-          await dropStash(cwd, existingStash.name);
+          await dropStash(cwd, existingStash);
         } catch {
           // If drop fails, continue anyway — push will still work
         }
@@ -664,7 +665,7 @@ async function handleSwitchBranch(
     );
     if (action === 'Restore') {
       try {
-        await popStash(cwd, targetStash.name);
+        await popStash(cwd, targetStash);
         vscode.window.showInformationMessage(`Restored stashed changes on '${targetBranch}'.`);
       } catch (err) {
         vscode.window.showWarningMessage(

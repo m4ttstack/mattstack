@@ -277,7 +277,7 @@ export const respondPlan: GalleryGate = {
       reviewer: 'renee',
       round: 1,
       threads: { total: 5, blocking: 2 },
-      adjudication: 'all valid · fresh-context adjudicated',
+      adjudication: 'all valid; fresh-context adjudicated',
     }),
     questions: [
       planThread(
@@ -487,7 +487,7 @@ export const respondPlanSecondRound: GalleryGate = {
       reviewer: 'john',
       round: 3,
       threads: { total: 2, blocking: 1 },
-      adjudication: 'both valid · fresh-context adjudicated',
+      adjudication: 'both valid; fresh-context adjudicated',
     }),
     questions: respondPlan.gate.questions
       ?.slice(0, 2)
@@ -610,7 +610,7 @@ export const respondPlanTwoThreads: GalleryGate = {
       reviewer: 'renee',
       round: 1,
       threads: { total: 2, blocking: 1 },
-      adjudication: 'both valid · fresh-context adjudicated',
+      adjudication: 'both valid; fresh-context adjudicated',
     }),
     questions: [
       planThread(
