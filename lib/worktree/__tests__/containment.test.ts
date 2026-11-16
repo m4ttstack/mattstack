@@ -290,6 +290,15 @@ describe("mergedMrIsTreeHead", () => {
     expect(await mergedMrIsTreeHead(repo, "feat", { state: "merged", sha: mrSha })).toBe(false);
   });
 
+  test("a detached HEAD at the MR's head with the branch ref behind it, inside the MR, is proven", async () => {
+    sh("git checkout -q -b feat", repo);
+    const a = commit(repo, "a.txt", "a\n");
+    const mrSha = commit(repo, "b.txt", "b\n");
+    sh(`git checkout -q --detach ${mrSha}`, repo);
+    sh(`git branch -f feat ${a}`, repo);
+    expect(await mergedMrIsTreeHead(repo, "feat", { state: "merged", sha: mrSha })).toBe(true);
+  });
+
   test("a branch ref ahead of a detached HEAD at the MR's head is not proven", async () => {
     sh("git checkout -q -b feat", repo);
     const a = commit(repo, "a.txt", "a\n");

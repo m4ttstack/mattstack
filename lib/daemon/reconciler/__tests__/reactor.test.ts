@@ -381,7 +381,7 @@ describe("held trees say why (RT-267)", () => {
   test("stale orphans are left running when killProcesses is off", async () => {
     const rec = ephemeralTree(repo, repoName, "sierra", "feat-sierra");
     const stopped: number[][] = [];
-    await detect({ "feat-sierra": { repoName, mr: { iid: 87, state: "merged", sha: mergedHeadAheadOf(rec.path) } } }, {
+    await detect({ "feat-sierra": { repoName, mr: { iid: 87, state: "merged", sha: headOf(rec.path) } } }, {
       liveCwds: async () => new Set([rec.path]), treeHolders: staleOrphan, stopProcesses: (pids) => stopped.push(pids),
     });
     expect(stopped).toEqual([]);
@@ -458,6 +458,19 @@ describe("held trees say why (RT-267)", () => {
     await detect(merged);
     expect(find(rec.path)?.state).toBe("disposable");
     expect(find(rec.path)?.heldReason).toBeUndefined();
+  });
+
+  test("a proven tree with a live cwd is held, not disposed, when killProcesses is off", async () => {
+    const rec = ephemeralTree(repo, repoName, "zulu2", "feat-zulu2");
+
+    await detect({ "feat-zulu2": { repoName, mr: { iid: 107, state: "merged", sha: headOf(rec.path) } } }, {
+      liveCwds: async () => new Set([rec.path]),
+      treeHolders: async () => [],
+    });
+
+    expect(find(rec.path)?.heldReason).toBeDefined();
+    expect(existsSync(rec.path)).toBe(true);
+    expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:107:merged`);
   });
 
   describe("a merged MR asks sessions inside to leave", () => {
@@ -792,10 +805,7 @@ describe("held trees say why (RT-267)", () => {
     test("an unwitnessed merge ahead of the tree holds it without asking", async () => {
       const rec = ephemeralTree(repo, repoName, "uniform2", "feat-uniform2");
       const r = recorder();
-      writeFileSync(join(rec.path, "later.txt"), "ahead\n");
-      sh(`git add -A && git ${GIT_ID} commit -q -m later`, rec.path);
-      const mrSha = headOf(rec.path);
-      sh("git reset -q --hard HEAD~1", rec.path);
+      const mrSha = mergedHeadAheadOf(rec.path);
 
       await detect({ "feat-uniform2": { repoName, mr: { iid: 103, state: "merged", sha: mrSha } } }, {
         ...r.seams,
@@ -805,6 +815,40 @@ describe("held trees say why (RT-267)", () => {
       expect(find(rec.path)?.leaving).toBeUndefined();
       expect(find(rec.path)?.heldReason).toBeDefined();
       expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:103:merged`);
+    });
+
+    test("a proven tree claimed inside the dispose grace stays held, not marked disposable", async () => {
+      const rec = ephemeralTree(repo, repoName, "whiskey2", "feat-whiskey2");
+      const r = recorder();
+      const claimedAt = new Date().toISOString();
+      saveRegistry(repoName, loadRegistry(repoName).map((t) => (t.path === rec.path ? { ...t, claimedAt } : t)));
+
+      await detect({ "feat-whiskey2": { repoName, mr: { iid: 105, state: "merged", sha: headOf(rec.path) } } }, {
+        ...r.seams,
+        liveCwds: async () => new Set([rec.path]),
+        treeHolders: async () => [],
+      });
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.heldReason).toBeDefined();
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:105:merged`);
+    });
+
+    test("a proven tree that already carries a leaving mark is not announced again", async () => {
+      const rec = ephemeralTree(repo, repoName, "xray2", "feat-xray2");
+      const r = recorder();
+      const why = `${changeNoun(repoName)} ${changeMarker(repoName)}106 merged`;
+      saveRegistry(
+        repoName,
+        loadRegistry(repoName).map((t) => (t.path === rec.path ? { ...t, leaving: { why, since: new Date().toISOString() } } : t)),
+      );
+      const lines: string[] = [];
+      const log = { ...fakeLog(), info: (_: unknown, msg?: string) => void lines.push(String(msg)) } as unknown as Logger;
+
+      await detect({ "feat-xray2": { repoName, mr: { iid: 106, state: "merged", sha: headOf(rec.path) } } }, { ...r.seams, log });
+
+      expect(lines.filter((m) => m.includes("tree is at the MR's head"))).toEqual([]);
     });
 
     test("a proven unwitnessed tree is asked even when the live-cwd snapshot fails", async () => {

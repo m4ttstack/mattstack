@@ -34,7 +34,7 @@ import { RETENTION_MS, reapTrashDir, retentionAvailable, retireTree, stripTrashD
 import type { RunningRunScan } from "../runs/store.ts";
 
 /** Merge-reactor disposals ignore claims younger than this (stale-event protection). */
-const GRACE_MS = 10 * 60_000;
+export const GRACE_MS = 10 * 60_000;
 
 /** How long a merged tree waits for its sessions to leave before they are stopped: the 2-minute question plus slack for the exit to land. */
 export const LEAVE_GRACE_MS = 180_000;

@@ -28,7 +28,7 @@ import {
 } from "../../worktree/git-async.ts";
 import { withTreeLock } from "../../worktree/locks.ts";
 import { branchOf } from "../../state/branch-cache.ts";
-import { classifyDirtyAsync, disposeTree, type DisposeDeps } from "../../worktree/dispose.ts";
+import { classifyDirtyAsync, disposeTree, GRACE_MS, type DisposeDeps } from "../../worktree/dispose.ts";
 import { changeMarker, changeNoun } from "../../repo-label.ts";
 import { mergedMrCoversTips, mergedMrIsTreeHead } from "../../worktree/containment.ts";
 import { loadWorktreeAppConfig, type WorktreeAppConfig } from "../../worktree/config.ts";
@@ -568,6 +568,12 @@ function gcFiredLedger(repoName: string, fired: Set<string>, liveIds: Set<string
   }
 }
 
+function claimedWithinGrace(rec: TreeRecord): boolean {
+  if (!rec.claimedAt) return false;
+  const claimedMs = Date.parse(rec.claimedAt);
+  return !Number.isNaN(claimedMs) && Date.now() - claimedMs < GRACE_MS;
+}
+
 /**
  * Detect `opened → merged|closed` MR transitions for one repo and react.
  *
@@ -664,9 +670,13 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
     // gate; actOnTree records its hold.
     let skippedLive = false;
     const proven = new Set<TreeRecord>();
-    if (!witnessed) {
+    // Proof is only worth taking when disposeTree can actually ask: with
+    // killProcesses off it never asks, and a tree it did not hold would be
+    // trashed under a live session. A claim inside the dispose grace is
+    // refused there before any ask, so it keeps the gated path too.
+    if (!witnessed && appConfig.killProcesses) {
       for (const r of trees) {
-        if (r.disposal === "job") continue;
+        if (r.disposal === "job" || claimedWithinGrace(r)) continue;
         if (await mergedMrIsTreeHead(r.path, r.branch ?? null, entry.mr)) proven.add(r);
       }
     }
@@ -693,7 +703,7 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
       }
     }
     for (const r of trees) {
-      if (proven.has(r)) {
+      if (proven.has(r) && !r.leaving) {
         log.info(
           { repo: repoName, branch, tree: r.name },
           "reactor: unwitnessed merge; tree is at the MR's head, asking sessions to leave",
