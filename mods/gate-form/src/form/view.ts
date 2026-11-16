@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, numberedRows, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -177,12 +177,10 @@ function navRows(form: Form, s: State, view: View): L[] {
   return [marked(line), ...hung.slice(1)]
 }
 
-// The options as numbered rows, the finishing first option on top, where the keys start.
-// A confirm has no question section, so its rail stays the unfocused gray all the way down.
-function confirmFoot(form: Form, s: State, view: View): L[] {
-  const labels = (form.questions[0]?.options ?? []).map(option => option.label)
-  const rows = numberedRows<Action>({ labels, selected: s.cursor[0]!, focused: view.focused, pressing: view.pressing, actionFor: idx => ({ type: 'option', idx }) })
-  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(' ')], ...rows]
+// A confirm's Client draws only its head; the answers under it are the engine's Buttons (register.tsx), which take a
+// focused pane's keys at once. Its rail stays the unfocused gray all the way down, having no question section.
+function confirmFoot(form: Form, view: View): L[] {
+  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view)]
 }
 
 // The keys stay on the options, so Submit is never marked; Enter presses it from there.
@@ -219,7 +217,7 @@ function draw(form: Form, s: State, view: View): Drawn<Action> {
     const divider: L = [sp(`├${'─'.repeat(Math.max(4, view.width - 2))}`, GRAY)]
     head.push(...hang(indent, indent, contextText(form.context), view.width), ...(isConfirm(form) ? [] : [gap, divider, gap]))
   }
-  if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, s, view) }
+  if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, view) }
   if (!isSinglePage(form)) head.push(tabs(form, s, view), gap)
 
   const q = form.questions[s.page]

@@ -86,18 +86,16 @@ const PRESS_FILL: Record<string, string> = {
 }
 
 // A quiet button: a light label on a faint fill at rest (never the disabled grey), a brighter fill and a white label under the pointer.
-// A quiet control with no fill of its own (an unselected numbered row) lights only to `faint` under the pointer, a step
-// below `rest`, so a selected row still outranks a hovered one: faint, then rest, then hover.
-export const QUIET = { label: '#e0e0e0', rest: '#363636', hover: '#4a4a4a', press: '#404040', muted: '#999999', faint: '#2e2e2e', faintPress: '#292929' }
+export const QUIET = { label: '#e0e0e0', rest: '#363636', hover: '#4a4a4a', press: '#404040', muted: '#999999' }
 
 function hoverOf<S extends Style>(span: S): S {
-  if (span.quiet) return span.bg ? { ...span, bg: QUIET.hover, color: 'white' } : { ...span, bg: QUIET.faint }
+  if (span.quiet) return { ...span, bg: QUIET.hover, color: 'white' }
   if (span.chip) return { ...span, bg: span.chip }
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: '#404040', dim: false }
 }
 
 function pressOf<S extends Style>(span: S): S {
-  if (span.quiet) return span.bg ? { ...span, bg: QUIET.press, color: 'white' } : { ...span, bg: QUIET.faintPress }
+  if (span.quiet) return { ...span, bg: QUIET.press, color: 'white' }
   if (span.chip) return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip }
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: '#353535', dim: false }
 }

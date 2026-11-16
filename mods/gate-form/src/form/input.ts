@@ -1,5 +1,5 @@
 import type { ClientKeyEvent, JsonValue } from 'claude-code'
-import { gridMove, menuHit, menuKey, numberedRowsKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
+import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
 import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
@@ -43,29 +43,6 @@ function moved(form: Form, s: State, move: MenuMove | undefined): Effect | undef
   return control ? post(form, state, control.answers, control.label) : { state }
 }
 
-// A confirm's press is its answer.
-function press(form: Form, s: State, idx: number): Effect | undefined {
-  const option = form.questions[0]?.options[idx]
-  return option && post(form, { ...s, cursor: [idx] }, { [form.questions[0]!.id]: option.value })
-}
-
-// The kit's numbered rows own a confirm's keys; a pick is the answer.
-function confirmMove(ev: ClientKeyEvent, form: Form, s: State) {
-  return isConfirm(form) ? numberedRowsKey(s.cursor[0]!, form.questions[0]?.options.length ?? 0, ev) : undefined
-}
-
-function confirmKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
-  const move = confirmMove(ev, form, s)
-  if (!move) return undefined
-  return move.picked === undefined ? { state: { ...s, cursor: [move.selected] } } : press(form, s, move.picked)
-}
-
-// A number key moves the keys onto its row first, so the press shows on the row it answers.
-export function aimKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
-  const move = s.phase === 'active' ? confirmMove(ev, form, s) : undefined
-  return move?.picked === undefined ? undefined : { state: { ...s, cursor: [move.selected] } }
-}
-
 // A new page starts with the keyboard on its answers and the nav row back on its forward button.
 function settled(before: State, effect: Effect | undefined): Effect | undefined {
   if (!effect || effect.state.page === before.page) return effect
@@ -90,7 +67,6 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
     case 'advance':
       return { state: advance(form, s) }
     case 'option': {
-      if (isConfirm(form)) return press(form, s, action.idx)
       return { state: clickChoice(form, s, action.idx) }
     }
     case 'send':
@@ -150,7 +126,7 @@ const isEnter = (ev: ClientKeyEvent) => ev.key === 'return' || ev.key === 'enter
 // the key acts, as a click would.
 export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean {
   if (s.phase !== 'active') return false
-  if (isConfirm(form)) return confirmMove(ev, form, s)?.picked !== undefined
+  if (isConfirm(form)) return false
   if (!isEnter(ev)) return false
   if (s.menu.open) return true
   if (isSinglePage(form)) return canSubmit(form, s)
@@ -196,7 +172,8 @@ export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect 
   if (armed.phase !== 'active') return undefined
   if (ev.ctrl && (ev.key === 'x' || ev.key === 'c')) return chat(form, armed)
   const s = disarm(armed)
-  if (isConfirm(form)) return confirmKey(ev, form, s)
+  // A confirm's answers are the engine's Buttons, drawn by the hooks module, which take the keys themselves.
+  if (isConfirm(form)) return undefined
   // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
   if (ev.key === 'tab' && isSinglePage(form)) return { state: s }
   if (ev.key === 'tab' && !isReview(form, s)) return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })

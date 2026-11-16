@@ -217,17 +217,17 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999", faint: "#2e2e2e", faintPress: "#292929" };
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
 function hoverOf(span) {
   if (span.quiet)
-    return span.bg ? { ...span, bg: QUIET.hover, color: "white" } : { ...span, bg: QUIET.faint };
+    return { ...span, bg: QUIET.hover, color: "white" };
   if (span.chip)
     return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressOf(span) {
   if (span.quiet)
-    return span.bg ? { ...span, bg: QUIET.press, color: "white" } : { ...span, bg: QUIET.faintPress };
+    return { ...span, bg: QUIET.press, color: "white" };
   if (span.chip)
     return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
@@ -380,34 +380,6 @@ function scrollBar(rows, total, offset) {
   const at = Math.min(Math.max(0, offset), total - rows);
   const top = Math.round(at / (total - rows) * (rows - size));
   return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
-}
-// packages/mod-kit/src/widgets/numbered-rows.ts
-function numberedRows(spec) {
-  const lead = sp(" ".repeat(spec.indent ?? 3));
-  const widest = Math.max(0, ...spec.labels.map(cellWidth));
-  return spec.labels.map((label, idx) => {
-    const isKeyed = idx === spec.selected;
-    const look = isKeyed ? { quiet: true, bg: QUIET.rest, color: QUIET.label } : { quiet: true };
-    const action = spec.actionFor(idx);
-    const number = sp(` ${spec.focused ? idx + 1 : " "}`, { ...look, dim: true, action });
-    const text = sp(`  ${label}${" ".repeat(widest - cellWidth(label) + 2)}`, { ...look, action });
-    if (!isKeyed)
-      return [lead, number, text];
-    const [n, t] = spec.pressing ? [pressed(number), pressed(text)] : [number, text];
-    return [lead, ...keySelected(n), t];
-  });
-}
-function numberedRowsKey(selected, count, ev) {
-  if (ev.key === "return" || ev.key === "enter")
-    return { selected, picked: selected };
-  if (!ev.ctrl && !ev.meta && /^[1-9]$/.test(ev.key)) {
-    const at = Number(ev.key) - 1;
-    return at < count ? { selected: at, picked: at } : undefined;
-  }
-  const back = ev.key === "up" || ev.key === "tab" && ev.shift === true;
-  if (!back && ev.key !== "down" && ev.key !== "tab")
-    return;
-  return { selected: Math.max(0, Math.min(count - 1, selected + (back ? -1 : 1))) };
 }
 // packages/mod-kit/src/widgets/input-field.ts
 function inputField(value, placeholder, width, showCursor) {
@@ -1129,23 +1101,6 @@ function moved(form, s, move) {
   const control = move.picked === undefined ? undefined : controlAnswers(move.picked);
   return control ? post(form, state, control.answers, control.label) : { state };
 }
-function press(form, s, idx) {
-  const option = form.questions[0]?.options[idx];
-  return option && post(form, { ...s, cursor: [idx] }, { [form.questions[0].id]: option.value });
-}
-function confirmMove(ev, form, s) {
-  return isConfirm(form) ? numberedRowsKey(s.cursor[0], form.questions[0]?.options.length ?? 0, ev) : undefined;
-}
-function confirmKey(ev, form, s) {
-  const move = confirmMove(ev, form, s);
-  if (!move)
-    return;
-  return move.picked === undefined ? { state: { ...s, cursor: [move.selected] } } : press(form, s, move.picked);
-}
-function aimKey(ev, form, s) {
-  const move = s.phase === "active" ? confirmMove(ev, form, s) : undefined;
-  return move?.picked === undefined ? undefined : { state: { ...s, cursor: [move.selected] } };
-}
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
     return effect;
@@ -1170,8 +1125,6 @@ function performOn(action, form, armed) {
     case "advance":
       return { state: advance(form, s) };
     case "option": {
-      if (isConfirm(form))
-        return press(form, s, action.idx);
       return { state: clickChoice(form, s, action.idx) };
     }
     case "send":
@@ -1228,7 +1181,7 @@ function pressesButton(ev, form, s) {
   if (s.phase !== "active")
     return false;
   if (isConfirm(form))
-    return confirmMove(ev, form, s)?.picked !== undefined;
+    return false;
   if (!isEnter(ev))
     return false;
   if (s.menu.open)
@@ -1287,7 +1240,7 @@ function keyEffect(ev, form, armed) {
     return chat(form, armed);
   const s = disarm(armed);
   if (isConfirm(form))
-    return confirmKey(ev, form, s);
+    return;
   if (ev.key === "tab" && isSinglePage(form))
     return { state: s };
   if (ev.key === "tab" && !isReview(form, s))
@@ -1445,10 +1398,8 @@ function navRows(form, s, view) {
   const hung = menu({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: (hit) => ({ type: "menu", hit }) });
   return [marked(line), ...hung.slice(1)];
 }
-function confirmFoot(form, s, view) {
-  const labels = (form.questions[0]?.options ?? []).map((option) => option.label);
-  const rows = numberedRows({ labels, selected: s.cursor[0], focused: view.focused, pressing: view.pressing, actionFor: (idx) => ({ type: "option", idx }) });
-  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(" ")], ...rows];
+function confirmFoot(form, view) {
+  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view)];
 }
 function submitRow(form, s, view) {
   return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
@@ -1483,7 +1434,7 @@ function draw(form, s, view) {
     head.push(...hang(indent, indent, contextText(form.context), view.width), ...isConfirm(form) ? [] : [gap, divider, gap]);
   }
   if (isConfirm(form))
-    return { head, page: [], foot: confirmFoot(form, s, view) };
+    return { head, page: [], foot: confirmFoot(form, view) };
   if (!isSinglePage(form))
     head.push(tabs(form, s, view), gap);
   const q = form.questions[s.page];
@@ -1558,7 +1509,6 @@ var form_default = kitClient((props, ui) => {
   ui.onKey((ev) => {
     if (!pressesButton(ev, form, ui.state))
       return apply(keyEffect(ev, form, ui.state));
-    apply(aimKey(ev, form, ui.state));
     ui.pressFor(() => apply(keyEffect(ev, form, ui.state)));
     return true;
   });

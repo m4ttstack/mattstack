@@ -220,17 +220,17 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999", faint: "#2e2e2e", faintPress: "#292929" };
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
 function hoverOf(span) {
   if (span.quiet)
-    return span.bg ? { ...span, bg: QUIET.hover, color: "white" } : { ...span, bg: QUIET.faint };
+    return { ...span, bg: QUIET.hover, color: "white" };
   if (span.chip)
     return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressOf(span) {
   if (span.quiet)
-    return span.bg ? { ...span, bg: QUIET.press, color: "white" } : { ...span, bg: QUIET.faintPress };
+    return { ...span, bg: QUIET.press, color: "white" };
   if (span.chip)
     return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };
@@ -346,6 +346,23 @@ function addWheel($, paneId, by) {
   $.ui.invalidate("ui.render");
 }
 var wheelTotal = (paneId) => wheels.get(paneId) ?? 0;
+// packages/mod-kit/src/patterns/hotkey-choices.tsx
+function hotkeyChoices(els, spec) {
+  const { Box, Text, Button } = els;
+  const lead = " ".repeat(spec.indent ?? 3);
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, spec.choices.map((choice, idx) => /* @__PURE__ */ h(Box, {
+    key: `${spec.key}-row-${idx}`,
+    flexDirection: "row"
+  }, /* @__PURE__ */ h(Text, null, lead), /* @__PURE__ */ h(Button, {
+    key: `${spec.key}:${idx}`,
+    plain: true,
+    hotkey: spec.focused && idx < 9 ? String(idx + 1) : undefined,
+    autoFocus: idx === 0 ? true : undefined,
+    onPress: choice.onPress
+  }, choice.label))));
+}
 // mods/gate-form/src/gate/bell.ts
 var BODY_MAX = 140;
 function bellArgs(cwd, questions) {
@@ -1408,6 +1425,18 @@ function register(on) {
     const rows = Math.max(8, body - 3);
     const focused = e.props.isFocused || await read($, keysAtom);
     const height = Math.max(1, form.status === "open" ? body : body - 2);
+    if (form.confirm && form.status === "open") {
+      const answers = (form.questions[0]?.options ?? []).map((option) => ({ label: option.label, onPress: () => void settle($, form.id, { status: "answered", answers: { [PLUGIN_QUESTION]: option.value } }) }));
+      return /* @__PURE__ */ h(Box, {
+        flexDirection: "column",
+        paddingX: 1,
+        gap: 1
+      }, /* @__PURE__ */ h(Client, {
+        key: `form-${form.id}`,
+        module: "./form.js",
+        props: { form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused, wheel: wheelTotal(PANE) }
+      }), hotkeyChoices(els, { key: `confirm-${form.id}`, choices: answers, focused: e.props.isFocused === true }));
+    }
     return /* @__PURE__ */ h(Box, {
       flexDirection: "column",
       paddingX: 1,

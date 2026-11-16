@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, RenderElement, RenderSurface, Timer, ToolCallInput, ToolCallResult } from 'claude-code'
-import { addWheel, bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, showPane, wheelTotal, type HideablePane, type Waiting } from '@mattstack/mod-kit'
+import { addWheel, bandAbovePrompt, hotkeyChoices, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, showPane, wheelTotal, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
 import type { BoardGate, Form, GateFormAskResult, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
@@ -659,6 +659,16 @@ export function register(on: On): void {
     const focused = e.props.isFocused || (await read($, keysAtom))
     // The Close row and the gap above it take two of the body's rows.
     const height = Math.max(1, form.status === 'open' ? body : body - 2)
+    if (form.confirm && form.status === 'open') {
+      const answers = (form.questions[0]?.options ?? []).map(option => ({ label: option.label, onPress: () => void settle($, form.id, { status: 'answered', answers: { [PLUGIN_QUESTION]: option.value } }) }))
+      // The head is only as tall as it draws, so the answers sit one row under it.
+      return (
+        <Box flexDirection="column" paddingX={1} gap={1}>
+          <Client key={`form-${form.id}`} module="./form.tsx" props={{ form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused, wheel: wheelTotal(PANE) }} />
+          {hotkeyChoices(els, { key: `confirm-${form.id}`, choices: answers, focused: e.props.isFocused === true })}
+        </Box>
+      )
+    }
     return (
       <Box flexDirection="column" paddingX={1} gap={1}>
         <Client key={`form-${form.id}`} module="./form.tsx" height={height} props={{ form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused, wheel: wheelTotal(PANE) }} />

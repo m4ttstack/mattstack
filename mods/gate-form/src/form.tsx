@@ -1,7 +1,7 @@
 import { Lines, Panel, kitClient } from '@mattstack/mod-kit'
 
 import type { Form } from '../types'
-import { aimKey, keyEffect, perform, pressesButton, type Effect } from './form/input'
+import { keyEffect, perform, pressesButton, type Effect } from './form/input'
 import { afterAttempt, initial, type State } from './form/state'
 import { fittedLines, withTabInView } from './form/view'
 
@@ -22,7 +22,6 @@ export default kitClient<Props, State>(
     }
     ui.onKey(ev => {
       if (!pressesButton(ev, form, ui.state)) return apply(keyEffect(ev, form, ui.state))
-      apply(aimKey(ev, form, ui.state))
       ui.pressFor(() => apply(keyEffect(ev, form, ui.state)))
       return true
     })

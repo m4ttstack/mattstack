@@ -310,6 +310,18 @@ itself, because a Client `module` must be a literal, so the mod needs a
 export { bandClient as default } from '@mattstack/mod-kit'
 ```
 
+### `hotkeyChoices`
+
+`hotkeyChoices(els, { key, choices, focused, indent? }): RenderElement`, with
+`choices` as `{ label, onPress }[]`. Call it from a `Pane` render hook to draw
+answers as the engine's own plain Buttons, one per row (`1: label`). A pane
+opened with `focus` hands its keys to engine elements the moment it appears,
+while a Client gets keys only after a click, so the first answer is
+`autoFocus` and each carries its number as a hotkey. Pass the render's
+`isFocused` as `focused`: the numbers show only while the pane holds the keys.
+The engine draws the focus and the pointer (it inverts the Button), so these
+take no kit colours.
+
 ### `bandClient`
 
 The Client behind `bandAbovePrompt`: a `kitClient` that draws a `ReopenBand` in
@@ -399,7 +411,7 @@ of spans; a span may carry an action.
 
 Types: `Drawn`, `NavSpec`, `ReviewItem`.
 
-### `brandBar`, `buttonRow`, `buttonSpan`, `selectList`, `inputField`, `tabStrip`, `textCursor`, `menu`, `numberedRows`
+### `brandBar`, `buttonRow`, `buttonSpan`, `selectList`, `inputField`, `tabStrip`, `textCursor`, `menu`
 
 The line builders under the components. A component's `toLines` calls the
 matching builder. Reach for them when you build lines by hand for `<Lines>`.
@@ -407,7 +419,6 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `brandBar(label, width, hide?)`
 - `buttonRow(left, right, width, indent?)` (`indent` replaces the row's own lead-in, in cells) and `buttonSpan(button, pad?)`, with `Button` data `{ label, action, tone?, disabled? }` and `ButtonTone`
 - `selectList(spec)` with `SelectSpec` and `Choice`
-- `numberedRows(spec)` with `NumberedRowsSpec`: numbered answers one per row, as a confirm draws them. Every row lights under the pointer; the keyed row rests on the quiet fill with the ▎ edge, and `pressing` draws it pressed. The numbers show only while `focused`. `numberedRowsKey(selected, count, key)` is its keys: ↑↓ and Tab move, Enter or a row's number picks (`NumberedRowsMove`)
 - `inputField(value, placeholder, width, showCursor)` and `textCursor(value, placeholder, showCursor)`
 - `tabStrip(spec)` with `Tab` and `TabStripSpec`, and `revealTab`
 - `menu(spec)` with `MenuSpec` and `MenuHit` (a click: `toggle`, or a row's index `at`), `menuHit(state, rows, hit)` for a click and `menuKey` for a key, and `MORE_ACTIONS`, the button's label
