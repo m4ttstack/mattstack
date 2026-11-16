@@ -201,7 +201,7 @@ test('leaving and a Close pick runs /exit', { plugins: [GATE_FORM] }, async ($, 
 
   expect(w.asked[0]).toMatchObject({
     title: WHY,
-    context: `${WHY}, so rt is cleaning up this worktree. Choose what this session does next. With no answer in 2 minutes, it moves out of the worktree and keeps working.`,
+    context: 'rt is cleaning up this worktree. No answer in 2 minutes moves this session out.',
     label: 'What should this session do?',
     options: [
       { value: 'close', label: 'Close session' },
