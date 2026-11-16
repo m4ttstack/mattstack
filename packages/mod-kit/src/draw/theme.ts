@@ -136,7 +136,9 @@ const MUTED: Record<string, string> = { cyan: '#62a4b0', green: '#72b072', yello
 
 const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#9e5270', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#884465', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#334659', color: '#b8b8b8' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#323232', color: '#b8b8b8' }, [SCROLL.track]: { bg: '#353535' }, [SCROLL.thumb]: { bg: '#646464' } }
 
+// A mark (the ▎ edge) keeps its own hue a step down, so an unfocused pane still shows where the keys were.
 export function muted<S extends Style>(span: S): S {
+  if (span.mark) return { ...span, color: MUTED[span.mark] ?? span.mark, dim: false }
   if (span.quiet) return { ...span, color: QUIET.muted, dim: false }
   if (span.bg) return { ...span, ...(MUTED_FILL[span.bg] ?? { bg: '#4a4a4a', color: '#b8b8b8' }), dim: false }
   if (span.color) return { ...span, color: MUTED[span.color] ?? span.color, dim: false }

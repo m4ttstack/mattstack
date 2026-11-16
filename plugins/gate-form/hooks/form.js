@@ -258,6 +258,8 @@ var rail = (style) => [sp(SYMBOL.bar, style), sp("  ")];
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
 var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
+  if (span.mark)
+    return { ...span, color: MUTED[span.mark] ?? span.mark, dim: false };
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
@@ -384,7 +386,7 @@ function numberedRows(spec) {
   const lead = sp(" ".repeat(spec.indent ?? 3));
   const widest = Math.max(0, ...spec.labels.map(cellWidth));
   return spec.labels.map((label, idx) => {
-    const isKeyed = spec.focused && idx === spec.selected;
+    const isKeyed = idx === spec.selected;
     const look = isKeyed ? { quiet: true, bg: QUIET.rest, color: QUIET.label } : { quiet: true };
     const action = spec.actionFor(idx);
     const number = sp(` ${idx + 1}`, { ...look, dim: true, action });
@@ -1442,7 +1444,7 @@ function navRows(form, s, view) {
 }
 function confirmFoot(form, s, view) {
   const labels = (form.questions[0]?.options ?? []).map((option) => option.label);
-  const rows = numberedRows({ labels, selected: s.cursor[0], focused: view.focused, pressing: view.pressing, actionFor: (idx) => ({ type: "option", idx }) });
+  const rows = numberedRows({ labels, selected: s.cursor[0], pressing: view.pressing, actionFor: (idx) => ({ type: "option", idx }) });
   return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(" ")], ...rows];
 }
 function submitRow(form, s, view) {

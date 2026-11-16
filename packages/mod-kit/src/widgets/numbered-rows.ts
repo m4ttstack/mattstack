@@ -4,10 +4,8 @@ import { QUIET, keySelected, pressed } from '../draw/theme'
 
 export type NumberedRowsSpec<A> = {
   labels: string[]
-  // The row the keys are on.
+  // The row the keys are on. It stays marked when the pane loses focus; the unfocused look mutes it.
   selected: number
-  // Without focus no row is marked, as a pane the keys are not in shows no selection.
-  focused: boolean
   // A key's activation of the selected row is showing (KitUi `keyPressing`): that row draws pressed, as a click's would.
   pressing?: boolean
   indent?: number
@@ -20,7 +18,7 @@ export function numberedRows<A>(spec: NumberedRowsSpec<A>): Line<A>[] {
   const lead = sp<A>(' '.repeat(spec.indent ?? 3))
   const widest = Math.max(0, ...spec.labels.map(cellWidth))
   return spec.labels.map((label, idx): Line<A> => {
-    const isKeyed = spec.focused && idx === spec.selected
+    const isKeyed = idx === spec.selected
     const look = isKeyed ? { quiet: true, bg: QUIET.rest, color: QUIET.label } : { quiet: true }
     const action = spec.actionFor(idx)
     const number: Span<A> = sp(` ${idx + 1}`, { ...look, dim: true, action })
