@@ -18,6 +18,7 @@ import { remoteDefault } from "./remote-default.ts";
 import { checkOptional, err, MR_TARGET_PROPS, ok, type McpToolDef, type ToolResult } from "./shared.ts";
 import { checkRegisteredTree, gitChildEnv, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 import { changeNoun } from "../repo-label.ts";
+import { isAuthFailure, originFetchAuth, type FetchAuth } from "../worktree/fetch-auth.ts";
 
 export { gitChildEnv };
 
@@ -27,10 +28,11 @@ export function syncChildEnv(base: Record<string, string | undefined>, cwd: stri
   return gitChildEnv(base, { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), RT_BATCH: "1", RT_SKIP_SETUP: "1" });
 }
 
-export type GitRunner = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
+/** `env` adds keys to the child's environment for this one call. */
+export type GitRunner = (args: string[], cwd: string, env?: Record<string, string>) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-export const gitRunnerWith = (extra: Record<string, string>): GitRunner => async (args, cwd) => {
-  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra }) });
+export const gitRunnerWith = (extra: Record<string, string>): GitRunner => async (args, cwd, env) => {
+  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: 120_000, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra, ...env }) });
   return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
 
@@ -268,7 +270,20 @@ function porcelainPaths(stdout: string): string[] {
   return stdout.split("\n").filter((l) => l.length > 3).map((l) => l.slice(3).split(" -> ").at(-1)!);
 }
 
-export async function branchSyncPreflight(cwd: string, git: GitRunner, exists: (p: string) => boolean = existsSync): Promise<{ ok: true; diverged: boolean } | { ok: false; error: string; dirty?: string[] }> {
+/** rt sync's own fetch retries an auth failure once through rt's credential helper; the preflight fetch runs first, so it must too. */
+async function fetchOrigin(cwd: string, git: GitRunner, fetchAuth: (cwd: string) => Promise<FetchAuth | null>): Promise<{ code: number; stdout: string; stderr: string }> {
+  const first = await git(["fetch", "origin"], cwd);
+  if (first.code === 0 || !isAuthFailure(first.stderr + first.stdout)) return first;
+  const auth = await fetchAuth(cwd);
+  return auth ? git(["fetch", "origin"], cwd, auth.env) : first;
+}
+
+export async function branchSyncPreflight(
+  cwd: string,
+  git: GitRunner,
+  exists: (p: string) => boolean = existsSync,
+  fetchAuth: (cwd: string) => Promise<FetchAuth | null> = originFetchAuth,
+): Promise<{ ok: true; diverged: boolean } | { ok: false; error: string; dirty?: string[] }> {
   const rebasing = await rebaseInProgress(cwd, git, exists);
   if ("error" in rebasing) return { ok: false, error: rebasing.error };
   if (rebasing.inProgress) return { ok: false, error: "a rebase is in progress; finish it with git rebase --continue or git_rebase {abort: true}" };
@@ -298,7 +313,7 @@ export async function branchSyncPreflight(cwd: string, git: GitRunner, exists: (
   const redirect = await pushDestinationRedirected(cwd, git, branch);
   if (!redirect.ok) return { ok: false, error: redirect.error };
 
-  const fetched = await git(["fetch", "origin"], cwd);
+  const fetched = await fetchOrigin(cwd, git, fetchAuth);
   if (fetched.code !== 0) return { ok: false, error: `git fetch origin failed: ${detail(fetched)}` };
   const shadowed = await shadowedRemoteName(cwd, git, branch, [`origin/${branch}`, `origin/${defaultBranch}`]);
   if (shadowed !== null) return { ok: false, error: shadowed };

@@ -90,6 +90,22 @@ describe("originFetchAuth", () => {
     expect(readLog()).toBe("");
   });
 
+  test("with GIT_DIR naming another repo, as inside a hook, it reads the tree's own origin", async () => {
+    git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
+    const other = join(root, "other");
+    git(root, "init", "-q", "-b", "main", other);
+    git(other, "remote", "add", "origin", "https://gitlab.example.com/elsewhere/repo.git");
+    const saved = process.env.GIT_DIR;
+    process.env.GIT_DIR = join(other, ".git");
+    try {
+      const auth = await originFetchAuth(repo, seams("tok_rt"));
+      expect(auth?.remote).toBe("https://github.com/acme/app.git");
+    } finally {
+      if (saved === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = saved;
+    }
+  });
+
   test("the token reaches git only through the helper: no env value carries it", async () => {
     git(repo, "remote", "add", "origin", "https://github.com/acme/app.git");
     const auth = await originFetchAuth(repo, seams("tok_rt"));
