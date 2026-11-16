@@ -397,6 +397,18 @@ function numberedRows(spec) {
     return [lead, ...keySelected(n), t];
   });
 }
+function numberedRowsKey(selected, count, ev) {
+  if (ev.key === "return" || ev.key === "enter")
+    return { selected, picked: selected };
+  if (!ev.ctrl && !ev.meta && /^[1-9]$/.test(ev.key)) {
+    const at = Number(ev.key) - 1;
+    return at < count ? { selected: at, picked: at } : undefined;
+  }
+  const back = ev.key === "up" || ev.key === "tab" && ev.shift === true;
+  if (!back && ev.key !== "down" && ev.key !== "tab")
+    return;
+  return { selected: Math.max(0, Math.min(count - 1, selected + (back ? -1 : 1))) };
+}
 // packages/mod-kit/src/widgets/input-field.ts
 function inputField(value, placeholder, width, showCursor) {
   const room = width - 2;
@@ -1121,27 +1133,18 @@ function press(form, s, idx) {
   const option = form.questions[0]?.options[idx];
   return option && post(form, { ...s, cursor: [idx] }, { [form.questions[0].id]: option.value });
 }
-function confirmKey(ev, form, s) {
-  if (isEnter(ev))
-    return press(form, s, s.cursor[0]);
-  const numbered = numberedRow(ev, form);
-  if (numbered !== undefined)
-    return press(form, s, numbered);
-  const back = ev.key === "up" || ev.key === "tab" && ev.shift;
-  if (!back && ev.key !== "down" && ev.key !== "tab")
-    return;
-  const last = (form.questions[0]?.options.length ?? 1) - 1;
-  return { state: { ...s, cursor: [Math.max(0, Math.min(last, s.cursor[0] + (back ? -1 : 1)))] } };
+function confirmMove(ev, form, s) {
+  return isConfirm(form) ? numberedRowsKey(s.cursor[0], form.questions[0]?.options.length ?? 0, ev) : undefined;
 }
-function numberedRow(ev, form) {
-  if (!isConfirm(form) || ev.ctrl || ev.meta || !/^[1-9]$/.test(ev.key))
+function confirmKey(ev, form, s) {
+  const move = confirmMove(ev, form, s);
+  if (!move)
     return;
-  const idx = Number(ev.key) - 1;
-  return idx < (form.questions[0]?.options.length ?? 0) ? idx : undefined;
+  return move.picked === undefined ? { state: { ...s, cursor: [move.selected] } } : press(form, s, move.picked);
 }
 function aimKey(ev, form, s) {
-  const idx = numberedRow(ev, form);
-  return idx === undefined || s.phase !== "active" ? undefined : { state: { ...s, cursor: [idx] } };
+  const move = s.phase === "active" ? confirmMove(ev, form, s) : undefined;
+  return move?.picked === undefined ? undefined : { state: { ...s, cursor: [move.selected] } };
 }
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
@@ -1225,7 +1228,7 @@ function pressesButton(ev, form, s) {
   if (s.phase !== "active")
     return false;
   if (isConfirm(form))
-    return isEnter(ev) || numberedRow(ev, form) !== undefined;
+    return confirmMove(ev, form, s)?.picked !== undefined;
   if (!isEnter(ev))
     return false;
   if (s.menu.open)
