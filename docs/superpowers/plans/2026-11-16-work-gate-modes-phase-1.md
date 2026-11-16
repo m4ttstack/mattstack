@@ -37,7 +37,7 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 
 ## File Structure
 
-- Create `lib/gates/mode.ts`: types `GateMode`, `Reach`; `parseMode`, `modeAllows`, `effectiveMode`, `isWorkPipeline`, `recommendedValues`, `autoAnswerDecision`, `modeDigest`. Pure; no I/O.
+- Create `lib/gates/mode.ts`: types `GateMode`, `Reach`; `parseMode`, `parseReach`, `modeAllows`, `effectiveMode`, `isWorkPipeline`, `recommendedValues`, `autoAnswerDecision`, `modeDigest`, `digestSince`. Pure; no I/O.
 - Create `lib/gates/__tests__/mode.test.ts`.
 - Modify `packages/rt-client/src/settings/registry-defs.ts`, `registry-schemas.ts`, `schema.lock.json`: two settings.
 - Modify `packages/rt-client/src/commands.ts` (`gate:ask` payload), `packages/rt-client/src/client.ts:671` (passthrough list).
@@ -45,7 +45,7 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 - Modify `lib/daemon/__tests__/gate-ask-handler.test.ts`.
 - Modify `lib/mcp/gate-tools.ts`: `RunSnapshot.pipeline`, `GateToolDeps.gateMode`/`headCommit`, `askGate` auto path, digest, `reach`/`needsOperator` inputs; `lib/mcp/tools.ts` (`gate_ask` schema).
 - Modify `lib/mcp/__tests__/gate-tools.test.ts`.
-- Modify `lib/mcp/run-tools.ts` (`run_start` optional `gateMode`).
+- Modify `lib/mcp/run-tools.ts` (`run_start` optional `gateMode`), `lib/mcp/herd-tools.ts` (`herd_spawn` `gateMode`), `lib/daemon/handlers/herd.ts` (worker env `RT_GATE_MODE`), `packages/rt-client/src/commands.ts` (`herd:spawn` payload).
 - Modify `plugins/mattstack/attachments/gate-protocol/index.block.md` and add `answered-by-mode.block.md`; modify the generic work pipeline's gate blocks to declare `reach`.
 - Team pack (separate org repo): its work pipeline's gate blocks declare `reach` (Task 8).
 
@@ -98,8 +98,8 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
   - `lowercase suffix counts`: label `"Post reply (recommended)"` is recommended.
   - `recommended flag counts`: `{value:"x",label:"x",recommended:true}`.
   - `draft-mr asks on teammates reach`, `public never answers in checkpoint-free`, `undeclared reach asks` (reach null).
-  - `one question without a recommendation asks` (Review Focus 1).
-  - `hand-back recommendation asks`: a question whose recommended value is `handback` (also `abandon`, `iterate`, `go-back`, `hold`) -> ask (Review Focus 2).
+  - `one question without a recommendation asks`.
+  - `hand-back recommendation asks`: a question whose recommended value is `handback` (also `abandon`, `iterate`, `go-back`, `hold`) -> ask (Review Focus 3).
   - `a gate with no next question answers`: one recommended question, no `next` -> `kind: "answer"`, and `"next" in answers === false` (Review Focus 1).
   - `a next question, when present, must recommend proceed or done`: `next` recommending `iterate` -> ask.
   - `string options are read`: options `["proceed", "hold"]` with no recommendation -> ask; `recommendedValues` returns `[]` for string options with no suffix and the value for `"proceed (Recommended)"`.
@@ -108,7 +108,7 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
   - `needsOperator asks` with reason containing the given text.
   - `boards context asks`: context containing `boards@1`.
   - `review pipeline asks`: pipeline `review`.
-  - `effectiveMode`: run field `worktree` beats setting `draft-mr`; run field `draft_mr` -> `every-gate` (Review Focus 3); no run field -> setting; bad setting -> `every-gate`.
+  - `effectiveMode`: run field `worktree` beats setting `draft-mr`; run field `draft_mr` -> `every-gate`; no run field -> setting; bad setting -> `every-gate`.
   - `modeDigest`: two `mode:draft-mr` gate@1 decisions after `sinceAt` and one `pane` gate@1 decision -> string listing exactly the two scopes with their selections, one line each; none after `sinceAt` -> `null`; a non-gate@1 decision (`execution-strategy@1`) is never listed.
   - `digestSince`: newest `decided_at` among gate@1 decisions not decided by `mode:*`; an `execution-strategy@1` decision by `stage-plan` after a mode decision does not move it (Review Focus 2).
 - [ ] **Step 2:** `bun test lib/gates/__tests__/mode.test.ts`; expect FAIL (module missing).
@@ -134,7 +134,7 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
   - `preAnswer with by "pane" is refused` with error `preAnswer by must start with mode:` and no row created (Review Focus 5).
   - `preAnswer with an answer that is not an option is refused` with the existing validation error and no row created.
 - [ ] **Step 2:** Run the file; expect FAIL.
-- [ ] **Step 3:** In `gateAsk`: validate `preAnswer` (by prefix `mode:`, `validateGateAnswers` against the questions) before opening; open with presentation `wait`, no `paneId`, no `nudge`, `skipPush: true`; then `store.answer(id, answers, by, {})` and emit `gate/answered` only. Rebuild `packages/rt-client` (`bun run --cwd packages/rt-client build`) since its `dist/` is consumed (workspace-packages rule).
+- [ ] **Step 3:** In `gateAsk`: validate `preAnswer` (by prefix `mode:`, `validateGateAnswers` against the questions) before opening; open with presentation `wait`, no `paneId`, no `nudge`, `skipPush: true`; then `store.answer(id, answers, by, {})` and emit `gate/answered` after the answer (`openGate` already emitted `gate/opened`). Rebuild `packages/rt-client` (`bun run --cwd packages/rt-client build`) since its `dist/` is consumed (workspace-packages rule).
 - [ ] **Step 4:** Run the file; expect PASS.
 - [ ] **Step 5: Commit** `daemon: gate:ask can open a gate already answered by a mode`.
 
@@ -180,8 +180,7 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 - Test: `lib/mcp/__tests__/gate-tools.test.ts`
 
 **Interfaces:**
-- Consumes: Task 2's `modeDigest`.
-- Consumes: Task 2's `digestSince`.
+- Consumes: Task 2's `modeDigest` and `digestSince`.
 - Produces: an asking gate under a run gets the digest prepended to its `context` (and to a passed `formContext`), followed by a blank line, with `sinceAt = digestSince(run.snapshot.decisions)`.
 
 - [ ] **Step 1: Write the failing tests:** `asking gate shows decisions since the last human answer` (two mode decisions after a pane decision appear; one before it does not); `a later execution-strategy decision does not hide them`; `no mode decisions leaves context unchanged`; `an auto-answered gate carries no digest`; `a gate_open with formContext shows the digest in formContext`.
@@ -195,6 +194,7 @@ Also tested in their tasks: a gate with one unrecommended question asks; a `gate
 **Files:**
 - Modify: `lib/mcp/run-tools.ts` (`run_start`, ~line 182)
 - Modify: `lib/mcp/herd-tools.ts` (`herd_spawn`) and `lib/daemon/handlers/herd.ts` (the worker env built ~line 389)
+- Modify: `packages/rt-client/src/commands.ts:1464` (`herd:spawn` payload gains `gateMode?: string`; `herd:respawn` and `herd_respawn` take the same optional `gateMode`), then `bun run --cwd packages/rt-client build`
 - Test: `lib/mcp/__tests__/run-tools.test.ts`, the herd tools and herd handler tests
 
 **Interfaces:**
