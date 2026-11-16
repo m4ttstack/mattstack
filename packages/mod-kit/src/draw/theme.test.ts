@@ -114,4 +114,14 @@ describe('keySelected', () => {
     const span = sp('Done', { action: 'done' })
     expect(keySelected(span)).toEqual([span])
   })
+
+  test('the edge never takes the dim of the span it marks', () => {
+    const [edge] = keySelected(sp(' 1', { dim: true, bg: QUIET.rest }))
+    expect(edge).toMatchObject({ t: SYMBOL.selectEdge, color: BRAND.pink, dim: false })
+  })
+
+  test('unfocused, the edge keeps its own hue a step down instead of the quiet grey', () => {
+    const [edge] = keySelected(buttonSpan({ label: 'Skip', action: 'skip', tone: 'quiet' }))
+    expect(muted(edge!)).toMatchObject({ color: muted<Style>({ color: BRAND.pink }).color, bg: QUIET.rest })
+  })
 })

@@ -310,6 +310,18 @@ itself, because a Client `module` must be a literal, so the mod needs a
 export { bandClient as default } from '@mattstack/mod-kit'
 ```
 
+### `hotkeyChoices`
+
+`hotkeyChoices(els, { key, choices, focused, indent? }): RenderElement`, with
+`choices` as `{ label, onPress }[]`. Call it from a `Pane` render hook to draw
+answers as the engine's own plain Buttons, one per row (`1: label`). A pane
+opened with `focus` hands its keys to engine elements the moment it appears,
+while a Client gets keys only after a click, so the first answer is
+`autoFocus` and each carries its number as a hotkey. Pass the render's
+`isFocused` as `focused`: the numbers show only while the pane holds the keys.
+The engine draws the focus and the pointer (it inverts the Button), so these
+take no kit colours.
+
 ### `bandClient`
 
 The Client behind `bandAbovePrompt`: a `kitClient` that draws a `ReopenBand` in

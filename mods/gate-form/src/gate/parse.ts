@@ -1,4 +1,5 @@
 import type { Controls, Form, FormOption, FormQuestion } from '../../types'
+import { WRITE_IN } from '../form/state'
 import { BOARD_INSTRUCTION, GATE_INSTRUCTION } from './reply'
 
 const DEFAULT_TITLE = 'Questions'
@@ -82,12 +83,20 @@ export const PLUGIN_QUESTION = 'choice'
 
 // `$.gateForm.ask`'s arguments to a one-pick form, or the reason they can't be one.
 export function pluginForm(raw: unknown): Form | string {
-  const args = (raw ?? {}) as { title?: unknown; context?: unknown; label?: unknown; options?: unknown; timeoutMs?: unknown }
+  const args = (raw ?? {}) as { title?: unknown; context?: unknown; kind?: unknown; label?: unknown; options?: unknown; timeoutMs?: unknown }
   if (!isText(args.title)) return 'title must be a non-empty string.'
   if (typeof args.timeoutMs !== 'number' || !(args.timeoutMs > 0)) return 'timeoutMs must be a positive number of milliseconds.'
+  if (args.kind !== undefined && args.kind !== 'choice' && args.kind !== 'confirm') return "kind must be 'choice' or 'confirm'."
+  const confirm = args.kind === 'confirm'
   if (!Array.isArray(args.options) || args.options.length === 0) return 'options must be a non-empty array.'
-  const question = { id: PLUGIN_QUESTION, header: 'Choice', label: args.label, options: args.options }
-  return toForm(args.title, args.context, [question], 'plugin')
+  if (confirm && (args.options.length < 2 || args.options.length > 3)) return 'a confirm takes 2 or 3 options.'
+  // The form keeps this value for its write-in row, so an option carrying it could never be chosen.
+  if (args.options.some(option => (option as { value?: unknown } | null)?.value === WRITE_IN)) return `option value ${WRITE_IN} is reserved.`
+  // A confirm draws no question line, so its label is only a name for the answer.
+  const label = confirm && args.label === undefined ? args.title : args.label
+  const question = { id: PLUGIN_QUESTION, header: 'Choice', label, options: args.options }
+  const form = toForm(args.title, args.context, [question], 'plugin')
+  return typeof form === 'string' || !confirm ? form : { ...form, confirm: true }
 }
 
 type Fields = Record<string, unknown>

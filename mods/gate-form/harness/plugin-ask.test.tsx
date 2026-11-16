@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PANE, formOf, resultText, startSession, world, type Engine, type On } from './world'
+import { PANE, formOf, resultText, rowsOf, startSession, world, type Engine, type On } from './world'
 
 const ARGS = {
   title: 'PR #1144 merged',
@@ -139,5 +139,43 @@ test('a plugin form left open by an earlier load is closed on session start', as
   expect(await formOf(pane)).toMatchObject({ id: 'f-stale' })
   expect((await formOf(pane))!.status).not.toBe('open')
   expect(seeded).toBe(false)
+  await pane.unmount()
+})
+
+const CONFIRM = {
+  title: 'MR !267 merged',
+  kind: 'confirm',
+  context: 'rt is cleaning up this worktree. No answer in 2 minutes moves this session out.',
+  options: [
+    { value: 'leave', label: 'Exit worktree and continue' },
+    { value: 'close', label: 'Close session' },
+  ],
+  timeoutMs: 120_000,
+}
+
+test("a confirm's answers are plain engine Buttons, the first autoFocus, each numbered as a hotkey while the pane holds the keys", { plugins: [CONSUMER] }, async ($, on) => {
+  world(on, { setting: 'off' })
+  await startSession($)
+  const { id } = await askNoun($, CONFIRM)
+  const focused = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const exit = (await focused.find({ type: 'Button', key: `confirm-${id}:0` }))!
+  const close = (await focused.find({ type: 'Button', key: `confirm-${id}:1` }))!
+  expect(exit.text).toBe('Exit worktree and continue')
+  expect(exit.props).toMatchObject({ plain: true, hotkey: '1', autoFocus: true })
+  expect(close.props).toMatchObject({ plain: true, hotkey: '2' })
+  expect(close.props.autoFocus).toBeUndefined()
+  await focused.unmount()
+  const unfocused = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: false }, surface: 'terminal' })
+  expect((await unfocused.find({ type: 'Button', key: `confirm-${id}:0` }))!.props.hotkey).toBeUndefined()
+  await unfocused.unmount()
+})
+
+test('a confirm ask resolves with the Button pressed', { plugins: [CONSUMER] }, async ($, on) => {
+  world(on, { setting: 'off' })
+  await startSession($)
+  const { id } = await askNoun($, CONFIRM)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.press({ key: `confirm-${id}:1` })
+  expect(await waitNoun($, id)).toEqual({ value: 'close' })
   await pane.unmount()
 })

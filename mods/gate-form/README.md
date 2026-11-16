@@ -39,4 +39,10 @@ let outcome = await $.gateForm.wait({ id })
 while ('pending' in outcome) outcome = await $.gateForm.wait({ id })
 ```
 
+For a yes/no style question, pass `kind: 'confirm'` with 2 or 3 options and no `label`. The options show as numbered rows under the title and `context`, with the keys on the first, so put the action that finishes first. A click, Enter on the keyed row, or a row's number is the answer.
+
+```ts
+await $.gateForm.ask({ title, context, kind: 'confirm', options: [primary, other], timeoutMs })
+```
+
 `wait` answers within about 5 seconds. It returns the picked `value`, `timedOut` once `timeoutMs` has passed, or `closed`. One question shows at a time: a second ask waits until the first is answered.
