@@ -135,10 +135,8 @@ button.
 ### `Button` and `ButtonRow`
 
 `<Button tone? disabled? onPress?>label</Button>`. Tones: `primary`,
-`secondary`, `neutral`, `caution`, `brand`, `solid` (the finishing action,
-monochrome), `solidMuted` (its quieter companion), and `quiet` (a faint fill
-that brightens under the pointer). `solid` and `solidMuted` follow the
-person's light or dark theme. Alone it is a row of one button.
+`secondary`, `neutral`, `caution`, `brand`, and `quiet` (a faint fill that
+brightens under the pointer). Alone it is a row of one button.
 
 `<ButtonRow right?>`: children are the left buttons. `right` is one button
 pushed to the right edge.
@@ -401,7 +399,7 @@ of spans; a span may carry an action.
 
 Types: `Drawn`, `NavSpec`, `ReviewItem`.
 
-### `brandBar`, `buttonRow`, `buttonSpan`, `selectList`, `inputField`, `tabStrip`, `textCursor`, `menu`
+### `brandBar`, `buttonRow`, `buttonSpan`, `selectList`, `inputField`, `tabStrip`, `textCursor`, `menu`, `numberedRows`
 
 The line builders under the components. A component's `toLines` calls the
 matching builder. Reach for them when you build lines by hand for `<Lines>`.
@@ -409,6 +407,7 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `brandBar(label, width, hide?)`
 - `buttonRow(left, right, width, indent?)` (`indent` replaces the row's own lead-in, in cells) and `buttonSpan(button, pad?)`, with `Button` data `{ label, action, tone?, disabled? }` and `ButtonTone`
 - `selectList(spec)` with `SelectSpec` and `Choice`
+- `numberedRows(spec)` with `NumberedRowsSpec`: numbered answers one per row, as a confirm draws them. Every row lights under the pointer; the keyed row rests on the quiet fill with the ▎ edge, and `pressing` draws it pressed
 - `inputField(value, placeholder, width, showCursor)` and `textCursor(value, placeholder, showCursor)`
 - `tabStrip(spec)` with `Tab` and `TabStripSpec`, and `revealTab`
 - `menu(spec)` with `MenuSpec` and `MenuHit` (a click: `toggle`, or a row's index `at`), `menuHit(state, rows, hit)` for a click and `menuKey` for a key, and `MORE_ACTIONS`, the button's label

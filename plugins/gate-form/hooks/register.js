@@ -196,9 +196,7 @@ var FILL = {
   current: { bg: "#3aa8b8", color: "black" },
   disabled: { bg: "#262626", color: "#5c5c5c" },
   field: { bg: "#2c2c2c", color: "white" },
-  brand: { bg: BRAND.pink, color: BRAND.plum },
-  solid: { bg: "text", color: "inverseText" },
-  solidMuted: { bg: "subtle", color: "text" }
+  brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
 var PLACEHOLDER = { color: "#7a7a7a" };
@@ -223,10 +221,7 @@ var PRESS_FILL = {
   [FILL.current.bg]: "#3394a2"
 };
 var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
-var PRESS_THEMED = { [FILL.solid.bg]: { bg: "inactive", color: "inverseText" }, [FILL.solidMuted.bg]: { bg: "inactive", color: "inverseText" } };
 function hoverOf(span) {
-  if (span.bg && PRESS_THEMED[span.bg])
-    return span;
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
   if (span.chip)
@@ -234,8 +229,6 @@ function hoverOf(span) {
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressOf(span) {
-  if (span.bg && PRESS_THEMED[span.bg])
-    return { ...span, ...PRESS_THEMED[span.bg] };
   if (span.quiet)
     return { ...span, bg: QUIET.press, color: "white" };
   if (span.chip)
@@ -266,7 +259,7 @@ var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var rail = (style) => [sp(SYMBOL.bar, style), sp("  ")];
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" }, [FILL.solid.bg]: { bg: "inactive", color: "inverseText" }, [FILL.solidMuted.bg]: { bg: "subtle", color: "inactive" } };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };

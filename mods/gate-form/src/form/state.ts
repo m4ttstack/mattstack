@@ -86,12 +86,6 @@ export const isSinglePage = (form: Form) => form.source === 'plugin'
 
 export const isConfirm = (form: Form) => form.confirm === true
 
-// A confirm's buttons left to right, as option indexes: the others, then the finishing first option at the right edge.
-export function confirmOrder(form: Form): number[] {
-  const count = form.questions[0]?.options.length ?? 0
-  return [...Array.from({ length: Math.max(0, count - 1) }, (_, k) => k + 1), 0]
-}
-
 export const isReview = (form: Form, s: State) => !isSinglePage(form) && s.page === form.questions.length
 export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)
 

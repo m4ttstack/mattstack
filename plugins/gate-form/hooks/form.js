@@ -193,9 +193,7 @@ var FILL = {
   current: { bg: "#3aa8b8", color: "black" },
   disabled: { bg: "#262626", color: "#5c5c5c" },
   field: { bg: "#2c2c2c", color: "white" },
-  brand: { bg: BRAND.pink, color: BRAND.plum },
-  solid: { bg: "text", color: "inverseText" },
-  solidMuted: { bg: "subtle", color: "text" }
+  brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
 var PLACEHOLDER = { color: "#7a7a7a" };
@@ -220,10 +218,7 @@ var PRESS_FILL = {
   [FILL.current.bg]: "#3394a2"
 };
 var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
-var PRESS_THEMED = { [FILL.solid.bg]: { bg: "inactive", color: "inverseText" }, [FILL.solidMuted.bg]: { bg: "inactive", color: "inverseText" } };
 function hoverOf(span) {
-  if (span.bg && PRESS_THEMED[span.bg])
-    return span;
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
   if (span.chip)
@@ -231,8 +226,6 @@ function hoverOf(span) {
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressOf(span) {
-  if (span.bg && PRESS_THEMED[span.bg])
-    return { ...span, ...PRESS_THEMED[span.bg] };
   if (span.quiet)
     return { ...span, bg: QUIET.press, color: "white" };
   if (span.chip)
@@ -263,7 +256,7 @@ var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var rail = (style) => [sp(SYMBOL.bar, style), sp("  ")];
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" }, [FILL.solid.bg]: { bg: "inactive", color: "inverseText" }, [FILL.solidMuted.bg]: { bg: "subtle", color: "inactive" } };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
@@ -284,7 +277,7 @@ function brandBar(label, width, hide) {
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, solid: FILL.solid, solidMuted: FILL.solidMuted, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 2 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
@@ -385,6 +378,22 @@ function scrollBar(rows, total, offset) {
   const at = Math.min(Math.max(0, offset), total - rows);
   const top = Math.round(at / (total - rows) * (rows - size));
   return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
+}
+// packages/mod-kit/src/widgets/numbered-rows.ts
+function numberedRows(spec) {
+  const lead = sp(" ".repeat(spec.indent ?? 3));
+  const widest = Math.max(0, ...spec.labels.map(cellWidth));
+  return spec.labels.map((label, idx) => {
+    const isKeyed = spec.focused && idx === spec.selected;
+    const look = isKeyed ? { quiet: true, bg: QUIET.rest, color: QUIET.label } : { quiet: true };
+    const action = spec.actionFor(idx);
+    const number = sp(` ${idx + 1}`, { ...look, dim: true, action });
+    const text = sp(`  ${label}${" ".repeat(widest - cellWidth(label) + 2)}`, { ...look, action });
+    if (!isKeyed)
+      return [lead, number, text];
+    const [n, t] = spec.pressing ? [pressed(number), pressed(text)] : [number, text];
+    return [lead, ...keySelected(n), t];
+  });
 }
 // packages/mod-kit/src/widgets/input-field.ts
 function inputField(value, placeholder, width, showCursor) {
@@ -949,10 +958,6 @@ var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
-function confirmOrder(form) {
-  const count = form.questions[0]?.options.length ?? 0;
-  return [...Array.from({ length: Math.max(0, count - 1) }, (_, k) => k + 1), 0];
-}
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
@@ -1117,12 +1122,24 @@ function press(form, s, idx) {
 function confirmKey(ev, form, s) {
   if (isEnter(ev))
     return press(form, s, s.cursor[0]);
-  const back = ev.key === "left" || ev.key === "tab" && ev.shift;
-  if (!back && ev.key !== "right" && ev.key !== "tab")
+  const numbered = numberedRow(ev, form);
+  if (numbered !== undefined)
+    return press(form, s, numbered);
+  const back = ev.key === "up" || ev.key === "tab" && ev.shift;
+  if (!back && ev.key !== "down" && ev.key !== "tab")
     return;
-  const order = confirmOrder(form);
-  const at = Math.max(0, Math.min(order.length - 1, order.indexOf(s.cursor[0]) + (back ? -1 : 1)));
-  return { state: { ...s, cursor: [order[at]] } };
+  const last = (form.questions[0]?.options.length ?? 1) - 1;
+  return { state: { ...s, cursor: [Math.max(0, Math.min(last, s.cursor[0] + (back ? -1 : 1)))] } };
+}
+function numberedRow(ev, form) {
+  if (!isConfirm(form) || ev.ctrl || ev.meta || !/^[1-9]$/.test(ev.key))
+    return;
+  const idx = Number(ev.key) - 1;
+  return idx < (form.questions[0]?.options.length ?? 0) ? idx : undefined;
+}
+function aimKey(ev, form, s) {
+  const idx = numberedRow(ev, form);
+  return idx === undefined || s.phase !== "active" ? undefined : { state: { ...s, cursor: [idx] } };
 }
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
@@ -1203,11 +1220,13 @@ function pressNav(ev, form, armed, s) {
 }
 var isEnter = (ev) => ev.key === "return" || ev.key === "enter";
 function pressesButton(ev, form, s) {
-  if (s.phase !== "active" || !isEnter(ev))
+  if (s.phase !== "active")
+    return false;
+  if (isConfirm(form))
+    return isEnter(ev) || numberedRow(ev, form) !== undefined;
+  if (!isEnter(ev))
     return false;
   if (s.menu.open)
-    return true;
-  if (isConfirm(form))
     return true;
   if (isSinglePage(form))
     return canSubmit(form, s);
@@ -1422,14 +1441,9 @@ function navRows(form, s, view) {
   return [marked(line), ...hung.slice(1)];
 }
 function confirmFoot(form, s, view) {
-  const options = form.questions[0]?.options ?? [];
-  const order = confirmOrder(form);
-  const buttons = order.map((idx) => ({ label: options[idx].label, action: { type: "option", idx }, tone: idx === 0 ? "solid" : "solidMuted" }));
-  const line = buttonRow(buttons, undefined, view.width);
-  const span = 1 + 2 * order.indexOf(s.cursor[0]);
-  const row = view.focused ? [...line.slice(0, span), ...gridLook(line[span], { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line;
-  const indent = [sp(" ".repeat(widthOf([line[0]])))];
-  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(" ")], row, ...hang(indent, indent, hint(form, s), view.width, DIM)];
+  const labels = (form.questions[0]?.options ?? []).map((option) => option.label);
+  const rows = numberedRows({ labels, selected: s.cursor[0], focused: view.focused, pressing: view.pressing, actionFor: (idx) => ({ type: "option", idx }) });
+  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(" ")], ...rows];
 }
 function submitRow(form, s, view) {
   return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
@@ -1442,8 +1456,6 @@ function errorLines(form, view) {
 }
 function hint(form, s) {
   const q = form.questions[s.page];
-  if (isConfirm(form))
-    return "←→ choose";
   if (isSinglePage(form))
     return "↑↓ choose  enter submit";
   if (!q) {
@@ -1541,6 +1553,7 @@ var form_default = kitClient((props, ui) => {
   ui.onKey((ev) => {
     if (!pressesButton(ev, form, ui.state))
       return apply(keyEffect(ev, form, ui.state));
+    apply(aimKey(ev, form, ui.state));
     ui.pressFor(() => apply(keyEffect(ev, form, ui.state)));
     return true;
   });

@@ -1,8 +1,8 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, numberedRows, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canChat, canSubmit, choicesOf, confirmOrder, cursorIsChoice, isConfirm, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { canChat, canSubmit, choicesOf, cursorIsChoice, isConfirm, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 // `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
@@ -177,18 +177,12 @@ function navRows(form: Form, s: State, view: View): L[] {
   return [marked(line), ...hung.slice(1)]
 }
 
-// One group of buttons, the finishing first option last in solid and the others before it in solidMuted, with the
-// focused one marked; the hint follows the buttons it describes.
+// The options as numbered rows, the finishing first option on top, where the keys start.
 // A confirm has no question section, so its rail stays the unfocused gray all the way down.
 function confirmFoot(form: Form, s: State, view: View): L[] {
-  const options = form.questions[0]?.options ?? []
-  const order = confirmOrder(form)
-  const buttons = order.map((idx): Button<Action> => ({ label: options[idx]!.label, action: { type: 'option', idx }, tone: idx === 0 ? 'solid' : 'solidMuted' }))
-  const line = buttonRow(buttons, undefined, view.width)
-  const span = 1 + 2 * order.indexOf(s.cursor[0]!)
-  const row: L = view.focused ? [...line.slice(0, span), ...gridLook(line[span]!, { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line
-  const indent = [sp<Action>(' '.repeat(widthOf([line[0]!])))]
-  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(' ')], row, ...hang(indent, indent, hint(form, s)!, view.width, DIM)]
+  const labels = (form.questions[0]?.options ?? []).map(option => option.label)
+  const rows = numberedRows<Action>({ labels, selected: s.cursor[0]!, focused: view.focused, pressing: view.pressing, actionFor: idx => ({ type: 'option', idx }) })
+  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(' ')], ...rows]
 }
 
 // The keys stay on the options, so Submit is never marked; Enter presses it from there.
@@ -205,7 +199,6 @@ function errorLines(form: Form, view: View): L[] {
 // The same with or without focus: focus changes only how the selection is drawn, never what the form says.
 function hint(form: Form, s: State): string | undefined {
   const q = form.questions[s.page]
-  if (isConfirm(form)) return '←→ choose'
   if (isSinglePage(form)) return '↑↓ choose  enter submit'
   if (!q) {
     const others = navIds(form, s).length > 1 ? '   tab buttons' : ''

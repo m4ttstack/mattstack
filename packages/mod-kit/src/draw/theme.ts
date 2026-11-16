@@ -44,9 +44,6 @@ export const BRAND = { pink: '#FF6B9D', pinkDeep: '#e9578b', plum: '#161224', gl
 // `neutral` for a side action, `caution` for one that asks to be pressed again,
 // `chip` for small marks like the tab strip's scroll counts, `current` for the tab you're on,
 // `field` for a box you type in, `brand` for a mattstack call to action.
-// `solid` is the finishing action in monochrome and `solidMuted` its quieter companion: their fills are the engine's
-// theme keys, so they follow the person's light or dark theme. solidMuted keeps the theme's own text colour on a low fill,
-// since a mid-grey fill with a dark label reads as disabled.
 export const FILL = {
   primary: { bg: '#2f9e5b', color: 'black' },
   secondary: { bg: '#2b4a6b', color: 'white' },
@@ -57,8 +54,6 @@ export const FILL = {
   disabled: { bg: '#262626', color: '#5c5c5c' },
   field: { bg: '#2c2c2c', color: 'white' },
   brand: { bg: BRAND.pink, color: BRAND.plum },
-  solid: { bg: 'text', color: 'inverseText' },
-  solidMuted: { bg: 'subtle', color: 'text' },
 }
 
 // A scroll bar's column, drawn as background colour: the track runs the window's height, the thumb sits on it.
@@ -93,19 +88,13 @@ const PRESS_FILL: Record<string, string> = {
 // A quiet button: a light label on a faint fill at rest (never the disabled grey), a brighter fill and a white label under the pointer.
 export const QUIET = { label: '#e0e0e0', rest: '#363636', hover: '#4a4a4a', press: '#404040', muted: '#999999' }
 
-// The theme's keys are too far apart for a hover step, so a theme-key fill keeps its look under the pointer and only a
-// press dims it to `inactive`.
-const PRESS_THEMED: Record<string, Style> = { [FILL.solid.bg]: { bg: 'inactive', color: 'inverseText' }, [FILL.solidMuted.bg]: { bg: 'inactive', color: 'inverseText' } }
-
 function hoverOf<S extends Style>(span: S): S {
-  if (span.bg && PRESS_THEMED[span.bg]) return span
   if (span.quiet) return { ...span, bg: QUIET.hover, color: 'white' }
   if (span.chip) return { ...span, bg: span.chip }
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: '#404040', dim: false }
 }
 
 function pressOf<S extends Style>(span: S): S {
-  if (span.bg && PRESS_THEMED[span.bg]) return { ...span, ...PRESS_THEMED[span.bg] }
   if (span.quiet) return { ...span, bg: QUIET.press, color: 'white' }
   if (span.chip) return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip }
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: '#353535', dim: false }
@@ -145,7 +134,7 @@ export const rail = <A = never>(style: Style): Span<A>[] => [sp(SYMBOL.bar, styl
 // dimColor does nothing on a span that names a colour, so the unfocused look steps each level down to an explicit shade, keeping their order. Dark terminals only for now.
 const MUTED: Record<string, string> = { cyan: '#62a4b0', green: '#72b072', yellow: '#baa75c', red: '#c46e6e', gray: '#6e6e6e', [BRAND.pink]: '#b05680' }
 
-const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#9e5270', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#884465', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#334659', color: '#b8b8b8' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#323232', color: '#b8b8b8' }, [SCROLL.track]: { bg: '#353535' }, [SCROLL.thumb]: { bg: '#646464' }, [FILL.solid.bg]: { bg: 'inactive', color: 'inverseText' }, [FILL.solidMuted.bg]: { bg: 'subtle', color: 'inactive' } }
+const MUTED_FILL: Record<string, Style> = { [BRAND.pink]: { bg: '#9e5270', color: '#1f1a2b' }, [BRAND.pinkDeep]: { bg: '#884465', color: '#1f1a2b' }, [FILL.secondary.bg]: { bg: '#334659', color: '#b8b8b8' }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: '#323232', color: '#b8b8b8' }, [SCROLL.track]: { bg: '#353535' }, [SCROLL.thumb]: { bg: '#646464' } }
 
 export function muted<S extends Style>(span: S): S {
   if (span.quiet) return { ...span, color: QUIET.muted, dim: false }

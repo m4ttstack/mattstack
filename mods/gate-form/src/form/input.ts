@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, confirmOrder, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -49,14 +49,28 @@ function press(form: Form, s: State, idx: number): Effect | undefined {
   return option && post(form, { ...s, cursor: [idx] }, { [form.questions[0]!.id]: option.value })
 }
 
-// ←→ and Tab move between a confirm's buttons in the order they are drawn; Enter presses the focused one.
+// ↑↓ and Tab move between a confirm's rows and stop at the ends; Enter or a row's number answers.
 function confirmKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
   if (isEnter(ev)) return press(form, s, s.cursor[0]!)
-  const back = ev.key === 'left' || (ev.key === 'tab' && ev.shift)
-  if (!back && ev.key !== 'right' && ev.key !== 'tab') return undefined
-  const order = confirmOrder(form)
-  const at = Math.max(0, Math.min(order.length - 1, order.indexOf(s.cursor[0]!) + (back ? -1 : 1)))
-  return { state: { ...s, cursor: [order[at]!] } }
+  const numbered = numberedRow(ev, form)
+  if (numbered !== undefined) return press(form, s, numbered)
+  const back = ev.key === 'up' || (ev.key === 'tab' && ev.shift)
+  if (!back && ev.key !== 'down' && ev.key !== 'tab') return undefined
+  const last = (form.questions[0]?.options.length ?? 1) - 1
+  return { state: { ...s, cursor: [Math.max(0, Math.min(last, s.cursor[0]! + (back ? -1 : 1)))] } }
+}
+
+// The confirm row a number key names, when there is one.
+function numberedRow(ev: ClientKeyEvent, form: Form): number | undefined {
+  if (!isConfirm(form) || ev.ctrl || ev.meta || !/^[1-9]$/.test(ev.key)) return undefined
+  const idx = Number(ev.key) - 1
+  return idx < (form.questions[0]?.options.length ?? 0) ? idx : undefined
+}
+
+// A number key moves the keys onto its row first, so the press shows on the row it answers.
+export function aimKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
+  const idx = numberedRow(ev, form)
+  return idx === undefined || s.phase !== 'active' ? undefined : { state: { ...s, cursor: [idx] } }
 }
 
 // A new page starts with the keyboard on its answers and the nav row back on its forward button.
@@ -142,9 +156,10 @@ const isEnter = (ev: ClientKeyEvent) => ev.key === 'return' || ev.key === 'enter
 // Enter on something it activates (an enabled nav button, a More actions row, a choice) shows the press before
 // the key acts, as a click would.
 export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean {
-  if (s.phase !== 'active' || !isEnter(ev)) return false
+  if (s.phase !== 'active') return false
+  if (isConfirm(form)) return isEnter(ev) || numberedRow(ev, form) !== undefined
+  if (!isEnter(ev)) return false
   if (s.menu.open) return true
-  if (isConfirm(form)) return true
   if (isSinglePage(form)) return canSubmit(form, s)
   if (!isOnNav(form, s)) {
     const q = form.questions[s.page]
