@@ -13,13 +13,15 @@ export function pickerWorktrees(
   entries: WorktreeEntry[],
   exists: (p: string) => boolean = existsSync,
 ): WorktreeEntry[] {
+  const keep = (wt: WorktreeEntry, has: (p: string) => boolean) =>
+    wt.isCurrent || isPickableWorktree({ path: wt.dirPath, branch: wt.branch }, has);
   const [main, ...rest] = entries;
   if (!main) return [];
   const label = (wt: WorktreeEntry) => wt.branch || wt.name;
   const kept = rest
-    .filter((wt) => wt.isCurrent || isPickableWorktree({ path: wt.dirPath, branch: wt.branch }, exists))
+    .filter((wt) => keep(wt, exists))
     .sort((a, b) => label(a).localeCompare(label(b), undefined, { sensitivity: 'base' }));
-  return [main, ...kept];
+  return keep(main, () => true) ? [main, ...kept] : kept;
 }
 
 /**

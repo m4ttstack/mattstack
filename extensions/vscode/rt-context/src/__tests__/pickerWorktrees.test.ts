@@ -40,6 +40,11 @@ describe('pickerWorktrees', () => {
     expect(pickerWorktrees(rows, exists).map((r) => r.name)).toEqual(['main', 'here']);
   });
 
+  test('applies the shared rule to the first row too, skipping only its folder check', () => {
+    const rows = [wt('/golden/gl-x', 'rt/golden'), wt('/pool/bill', 'feature/b')];
+    expect(pickerWorktrees(rows, all).map((r) => r.name)).toEqual(['bill']);
+  });
+
   test('keeps the current window tree even when rt would hide it', () => {
     const rows = [wt('/r/main', 'main'), wt('/pool/arthur', 'on-deck/arthur', true)];
     expect(pickerWorktrees(rows, all).map((r) => r.name)).toEqual(['main', 'arthur']);
