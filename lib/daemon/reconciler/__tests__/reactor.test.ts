@@ -6,6 +6,7 @@ import { join } from "path";
 import type { Logger } from "pino";
 import { setSetting } from "../../../settings/write.ts";
 import { closeStateDb } from "../../../state/index.ts";
+import * as locksModule from "../../../worktree/locks.ts";
 import * as registryModule from "../../../worktree/registry.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../../../worktree/registry.ts";
 import { changeMarker, changeNoun } from "../../../repo-label.ts";
@@ -849,6 +850,51 @@ describe("held trees say why (RT-267)", () => {
       await detect({ "feat-xray2": { repoName, mr: { iid: 106, state: "merged", sha: headOf(rec.path) } } }, { ...r.seams, log });
 
       expect(lines.filter((m) => m.includes("tree is at the MR's head"))).toEqual([]);
+    });
+
+    test("an unwitnessed merge whose tree lock is busy stays unwitnessed, then asks once the lock frees", async () => {
+      const rec = ephemeralTree(repo, repoName, "yankee2", "feat-yankee2");
+      const r = recorder();
+      const merged = { "feat-yankee2": { repoName, mr: { iid: 108, state: "merged", sha: headOf(rec.path) } } };
+      const release = locksModule.tryLockTree(rec.path)!;
+      try {
+        await detect(merged, r.seams);
+      } finally {
+        release();
+      }
+
+      expect(__test__.loadReactorState().mrState[`${repoName}:feat-yankee2`]).toBe("merged");
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:108:merged`);
+      expect(find(rec.path)?.leaving).toBeUndefined();
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.leaving).toBeDefined();
+    });
+
+    test("a tree that gains a commit between the proof and the lock is not asked this pass", async () => {
+      const rec = ephemeralTree(repo, repoName, "zulu3", "feat-zulu3");
+      const r = recorder();
+      const merged = { "feat-zulu3": { repoName, mr: { iid: 109, state: "merged", sha: headOf(rec.path) } } };
+      const realLock = locksModule.withTreeLock;
+      const advance = spyOn(locksModule, "withTreeLock").mockImplementation(((path: string, fn: () => Promise<unknown>) => {
+        writeFileSync(join(rec.path, "pushed-late.txt"), "late\n");
+        sh(`git add -A && git ${GIT_ID} commit -q -m late`, rec.path);
+        return realLock(path, fn);
+      }) as typeof locksModule.withTreeLock);
+      try {
+        await detect(merged, { ...r.seams, liveCwds: async () => new Set([rec.path]) });
+      } finally {
+        advance.mockRestore();
+      }
+
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(__test__.loadReactorState().mrState[`${repoName}:feat-zulu3`]).toBe("merged");
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:109:merged`);
+
+      await detect(merged, { ...r.seams, liveCwds: async () => new Set([rec.path]) });
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.heldReason).toBeDefined();
     });
 
     test("a proven unwitnessed tree is asked even when the live-cwd snapshot fails", async () => {

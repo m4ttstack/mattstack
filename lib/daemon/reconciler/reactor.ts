@@ -723,14 +723,26 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
 
     let reaction: Reaction = "done";
     for (const rec of trees) {
-      const result = await withTreeLock(rec.path, () => actOnTree(deps, rec, branch, cur, appConfig));
+      // The proof ran before the lock: a commit that landed since leaves the
+      // tree unproven, so it waits for the next pass and its gate.
+      const result = await withTreeLock(rec.path, async () => {
+        if (proven.has(rec) && !(await mergedMrIsTreeHead(rec.path, rec.branch ?? null, entry.mr ?? null))) return "stale" as const;
+        return actOnTree(deps, rec, branch, cur, appConfig);
+      });
+      if (result === "stale") {
+        reaction = worse(reaction, "retry");
+        continue;
+      }
       if (result !== "busy") actedPaths.add(rec.path);
       // A locked tree is someone else's in-flight work; come back next pass.
       reaction = worse(reaction, result === "busy" ? "retry" : result);
     }
 
-    if (reaction === "retry") nextMrState[mrKey] = "opened";
-    else if (reaction === "fired" && !skippedLive) fired.add(fireKey);
+    // An unwitnessed retry stays unwitnessed: re-arming the edge would make
+    // the next pass skip the proof and the live-cwd gate.
+    if (reaction === "retry") {
+      if (witnessed) nextMrState[mrKey] = "opened";
+    } else if (reaction === "fired" && !skippedLive) fired.add(fireKey);
   }
 
   saveReactorState({ mrState: nextMrState, fired: [...fired] }, log);
