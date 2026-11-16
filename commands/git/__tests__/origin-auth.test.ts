@@ -173,7 +173,8 @@ describe("helperEnv with real git", () => {
     chmodSync(fakeRt, 0o755);
     const globalConfig = join(root, "global.gitconfig");
     writeFileSync(globalConfig, `[credential]\n\thelper = !'${logger}'\n`);
-    const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
+    // GIT_CONFIG_COUNT 0 drops the preload's env-level helper reset, which would clear the global helper too.
+    const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_COUNT: "0", GIT_TERMINAL_PROMPT: "0" };
     return { env, rt: `!'${fakeRt}'`, log: () => (existsSync(logFile) ? readFileSync(logFile, "utf8") : "") };
   }
 
