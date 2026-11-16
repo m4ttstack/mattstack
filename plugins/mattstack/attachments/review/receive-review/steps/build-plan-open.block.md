@@ -22,7 +22,7 @@ never `mktemp -d`, and spell its path out literally from then on. Write
 ```json
 {"context": {"gate-ctx": "plan@1", "reviewer": "<primary reviewer>",
              "threads": {"total": 2, "blocking": 1},
-             "adjudication": "<tally> · fresh-context adjudicated"},
+             "adjudication": "<tally>; fresh-context adjudicated"},
  "questions": [
    {"id": "thread-1", "label": "<file>:<line>", "multi": false,
     "context": {"gate-ctx": "thread@1", "author": "<reviewer>", "severity": "<severity>",
@@ -50,7 +50,7 @@ gate.
 |---|---|
 | `reviewer` | one name: the author with the most unresolved threads, ties to the first to appear; any other reviewer shows on their own threads' `author` |
 | `threads` | `total`: the thread-question count; `blocking`: how many threads carry severity `blocking` |
-| `adjudication` | `all valid` when every verdict is `valid`, else `<count> <verdict>` per verdict word in first-appearance order, comma-joined; then ` · fresh-context adjudicated` |
+| `adjudication` | `all valid` when every verdict is `valid`, else `<count> <verdict>` per verdict word in first-appearance order, comma-joined; then `; fresh-context adjudicated`, after a semicolon so the board can part the two |
 | `round` | only when the caller supplies it; otherwise omit the key |
 | `author` | the author of the thread's opening note |
 | `severity` | the reviewer's own words, never the verdict: an explicit softener (nit, optional, non-blocking, minor, suggestion) is `non-blocking`; a question that asks for no change is `question`; a thread with no ask (a summary, an FYI) is `none`; any other change request is `blocking` |

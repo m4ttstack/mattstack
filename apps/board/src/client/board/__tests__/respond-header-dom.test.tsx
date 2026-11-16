@@ -203,9 +203,9 @@ test('an open plan@1 gate opens the respond sheet: threads left; MR card, decisi
     'renee reviewed your merge request'
   );
   expect(context.querySelector('.tui-person-name')!.textContent).toBe('renee');
-  expect(context.querySelector('.tui-sheet-context-meta')!.textContent).toBe(
-    'round 1 both valid · fresh-context adjudicated'
-  );
+  const meta = context.querySelector('.tui-sheet-context-meta')!;
+  expect(meta.textContent).toBe('round 1 both valid fresh-context adjudicated');
+  expect(meta.querySelectorAll('.tui-sep').length).toBe(2);
   expect($('.tui-sheet-main .tui-mr-card')).toBeNull();
   expect($('.tui-sheet-rail [data-card="responses"]')).not.toBeNull();
   expect($('.tui-sheet-rail [data-card="mr-status"]')).not.toBeNull();
@@ -447,6 +447,23 @@ test('headerMeta with a response round: round from 2, revise counts the wrapper 
     adj,
   ]);
   expect(headerMeta(plan({ adjudication: adj }), 2)).toEqual(['round 2', adj]);
+});
+
+test('headerMeta parts the adjudication at its semicolon', () => {
+  const ctx = plan({
+    adjudication: '1 valid, 1 pushback; fresh-context adjudicated',
+    round: 1,
+  });
+  expect(headerMeta(ctx)).toEqual([
+    'round 1',
+    '1 valid, 1 pushback',
+    'fresh-context adjudicated',
+  ]);
+});
+
+test('headerMeta parts a stored adjudication at its typed dot', () => {
+  const ctx = plan({ adjudication: 'both valid · fresh-context adjudicated' });
+  expect(headerMeta(ctx)).toEqual(['both valid', 'fresh-context adjudicated']);
 });
 
 test('plan chips name the items the way the heading does', () => {
