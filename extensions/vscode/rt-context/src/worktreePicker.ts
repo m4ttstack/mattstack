@@ -5,6 +5,7 @@ import { extractLinearId } from './branchParser';
 import { branchCache } from './cache';
 import { fetchBranchData, openLinearUrl } from './statusBar';
 import { listWorktrees, getGitApi, findWorkspaceRepo } from './git';
+import { pickerWorktrees } from './worktreeParse';
 import { resolveRepoForge } from './repoForge';
 import { forgeWords, ownBranchData } from './forge';
 
@@ -104,7 +105,7 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
   const repoForge = resolveRepoForge(repo);
   const w = forgeWords(repoForge.forge);
   const cwd = repo.rootUri.fsPath;
-  const worktrees = await listWorktrees(cwd);
+  const worktrees = pickerWorktrees(await listWorktrees(cwd));
 
   if (!worktrees.length) {
     vscode.window.showInformationMessage('No worktrees found.');
