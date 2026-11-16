@@ -839,15 +839,16 @@ A site opening a structured gate calls `gate_open` itself and enters here.
 Its result carries what `gate_ask`'s does (see gate_ask result?), and under
 a run it has already written `gate` and, on `wait`, armed `waiting-gate`.
 
-<!-- part: block:gate-protocol/gate-ask-result source=mattstack:gate-protocol path=attachments/gate-protocol/gate-ask-result.block.md lines=5-12 -->
+<!-- part: block:gate-protocol/gate-ask-result source=mattstack:gate-protocol path=attachments/gate-protocol/gate-ask-result.block.md lines=5-13 -->
 ### gate_ask result?
 
 **ok:** keep `id`, `paneAction`, `formContext` and `formChunks`, and on
 `answered` also `answers`, `next` and `decidedBy`;
 `labelsTruncated` lists labels the tool shortened, so never shorten one
-yourself. **`runErrors`:** the gate is open but a run write failed: quote it
-in one line and carry on at `paneAction?`, never re-asking the gate or
-writing that field yourself.
+yourself. **`runErrors`:** a run write failed: quote it in one line and
+carry on at `paneAction?`, never re-asking the gate or writing that field
+yourself. On `answered` the gate is already answered, and "Take the mode's
+answer" records the run decision that did not save.
 
 <!-- part: block:gate-protocol/fix-refusal source=mattstack:gate-protocol path=attachments/gate-protocol/fix-refusal.block.md lines=5-12 -->
 ### Fix what the gate_ask refusal names
@@ -865,19 +866,22 @@ too.
 Form-only, with no other gate call: the answer is the decision (no CAS),
 `decidedBy` `pane`, and under a run `gate_record` records it.
 
-<!-- part: block:gate-protocol/answered-by-mode source=mattstack:gate-protocol path=attachments/gate-protocol/answered-by-mode.block.md lines=5-16 -->
+<!-- part: block:gate-protocol/answered-by-mode source=mattstack:gate-protocol path=attachments/gate-protocol/answered-by-mode.block.md lines=5-19 -->
 ### Take the mode's answer
 
 The `paneAction: answered` branch: the run's gate mode covered the reach
 this site declared and took every question's recommended option. The gate
-is already answered and recorded, with the result's `decidedBy` reading
-`mode:<mode>`. Where a site passes "the gate result's `decidedBy`", that
-is this value; a call whose graph node writes its own decider
-(`decidedBy: stage-plan`) keeps it. Act on the result's `answers` and
-`next` at the site, exactly as if the human had picked them: the site's
-`Read next` and Selection lines route them. Never open the gate again,
-never present it (no form, no AskUserQuestion, no wait), and never call
-`gate_answer` or `gate_reconcile` on it.
+is already answered, with the result's `decidedBy` reading `mode:<mode>`.
+Where a site passes "the gate result's `decidedBy`", that is this value; a
+call whose graph node writes its own decider (`decidedBy: stage-plan`)
+keeps it. When the result carries `runErrors`, the run decision did not
+save: call `gate_reconcile {id, runDb, stage}` once (adding the `scope`
+the open passed, when it passed one), which records the answer as the
+run's decision under the same `mode:<mode>` decider, then go on. Act on
+the result's `answers` and `next` at the site, exactly as if the human had
+picked them: the site's `Read next` and Selection lines route them. Never
+open the gate again, never present it (no form, no AskUserQuestion, no
+wait), and never call `gate_answer` on it.
 
 <!-- part: block:gate-protocol/boards-to-open source=mattstack:gate-protocol path=attachments/gate-protocol/boards-to-open.block.md lines=5-11 -->
 ### A boards@1 context in an attended session, with a board not yet opened?

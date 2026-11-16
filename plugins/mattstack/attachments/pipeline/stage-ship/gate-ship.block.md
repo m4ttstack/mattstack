@@ -11,11 +11,13 @@ props:
 # Gate ship (table below)
 
 Reach comes from the MR state read just before this gate (`mr_view`
-on the run's `mr`). Reach `draft` while `mr` is unset or that read shows
-a draft, a re-ship that pushes with force-with-lease after a CI fix round
-included. Reach `teammates` when the read shows the MR ready, or when the
+on the run's `mr`) and from the recommended `open_as` option. Reach
+`teammates` when the recommended `open_as` is **Push and open ready**,
+even while `mr` is unset, when the read shows the MR ready, or when the
 read failed: any push, a force-with-lease one above all, then lands on a
-branch teammates review.
+branch teammates review. Otherwise reach `draft`: `mr` is unset or the
+read shows a draft, a re-ship that pushes with force-with-lease after a
+CI fix round included.
 
 One sentence above the form: the branch, the commits about to go, whether
 the tree is dirty, and the resolved target (the stack parent, the default

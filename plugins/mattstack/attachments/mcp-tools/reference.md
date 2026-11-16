@@ -247,7 +247,7 @@ Open a decision gate with the daemon-side ceremony: subject resolves from this s
     },
     "needsOperator": {
       "type": "string",
-      "description": "A short reason the decision turns on a product or people call. The gate then asks in every mode, and its context opens with \"Needs you: <reason>\"."
+      "description": "A short reason the decision turns on a product or people call. The gate then asks in every mode; the pane's form opens with \"Needs you: <reason>\", and so does a plain-text context."
     },
     "runDb": {
       "type": "string",
@@ -332,7 +332,7 @@ Build and validate a structured gate from a gate-ctx@1 source (source inline, so
     },
     "needsOperator": {
       "type": "string",
-      "description": "A short reason the decision turns on a product or people call. The gate then asks in every mode, and its context opens with \"Needs you: <reason>\"."
+      "description": "A short reason the decision turns on a product or people call. The gate then asks in every mode; the pane's form opens with \"Needs you: <reason>\", and so does a plain-text context."
     },
     "runDb": {
       "type": "string",

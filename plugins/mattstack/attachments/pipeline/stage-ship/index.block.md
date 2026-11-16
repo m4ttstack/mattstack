@@ -124,8 +124,8 @@ flowchart TB
     stack_parent_read -->|yes: the stack parent| run_field_get_target
     stack_parent_read -->|"no: the default branch (an unreadable store or error says so)"| run_field_get_target
     run_field_get_target --> target_matches_fresh
-    target_matches_fresh -->|yes: the earlier Proceed stands| dirty_answer
-    target_matches_fresh -->|no| mr_field_set
+    target_matches_fresh -->|"yes, and a person decided it: the earlier Proceed stands"| dirty_answer
+    target_matches_fresh -->|"no, or a mode's Proceed"| mr_field_set
     mr_field_set -->|yes| mr_view_state
     mr_field_set -->|no| gate_ship
     mr_view_state --> gate_ship
