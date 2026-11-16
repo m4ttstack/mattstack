@@ -27,6 +27,9 @@ interface FakeOpts {
   kitOn?: boolean;
   manifest?: string[];
   stages?: string[];
+  pipeline?: string | null;
+  gateMode?: { mode?: unknown; shadow?: unknown } | (() => never);
+  head?: string | null;
 }
 
 function fake(o: FakeOpts = {}) {
@@ -34,6 +37,7 @@ function fake(o: FakeOpts = {}) {
   const asks: Record<string, unknown>[] = [];
   const answers: Record<string, unknown>[] = [];
   const waits: Record<string, unknown>[] = [];
+  const heads: string[] = [];
   const deps: GateToolDeps = {
     ask: (async (p: Record<string, unknown>) => {
       log.push("ask");
@@ -60,7 +64,7 @@ function fake(o: FakeOpts = {}) {
           return {
             out: JSON.stringify({
               ok: true,
-              run: { id: "1", spawned_by: o.spawnedBy ?? null },
+              run: { id: "1", spawned_by: o.spawnedBy ?? null, pipeline: o.pipeline === undefined ? "feature" : o.pipeline },
               stages: (o.stages ?? []).map((name, i) => ({ run_id: "1", name, attempt: 1, status: "done", started_at: i })),
               manifest: (o.manifest ?? []).map((stage, ordinal) => ({ ordinal, stage })),
               fields: (o.fields ?? []).map((f) => ({ run_id: "1", produced_by: "s", ...f })),
@@ -81,8 +85,17 @@ function fake(o: FakeOpts = {}) {
     readFile: () => { throw new Error("unexpected read"); },
     writeFile: () => { throw new Error("unexpected write"); },
     kitFormOn: () => o.kitOn === true,
+    gateMode: () => {
+      const g = o.gateMode;
+      if (typeof g === "function") return g();
+      return { mode: g?.mode, shadow: g?.shadow };
+    },
+    headCommit: async (worktree) => {
+      heads.push(worktree);
+      return o.head === undefined ? "abc123" : o.head;
+    },
   };
-  return { deps, log, asks, answers, waits };
+  return { deps, log, asks, answers, waits, heads };
 }
 
 function row(over: Partial<GateRow> = {}): GateRow {
@@ -161,7 +174,10 @@ describe("askGate with a run", () => {
     const res = await askGate({ ...ASK, ...RUN }, ENV, f.deps);
     expect(res.ok).toBe(true);
     expect(f.log).toEqual(["snapshot", "field set gate respond-plan --stage s", "ask"]);
-    expect(f.asks[0]).toEqual({ questions: [q("q1")], context: "ctx", kind: "respond-plan", sessionId: "sess-1", paneId: "pane-1" });
+    expect(f.asks[0]).toEqual({
+      questions: [q("q1")], context: "ctx", kind: "respond-plan", sessionId: "sess-1", paneId: "pane-1",
+      meta: { reach: null, headCommit: null },
+    });
   });
 
   test("scope wins over kind, and kind defaults to question", async () => {
@@ -1252,10 +1268,10 @@ describe("kit forms", () => {
   test("the controls ride on the gate's meta, so a form rebuilt from the listed row keeps them", async () => {
     const f = fake({ ...KIT, ...STAGED });
     await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, f.deps);
-    expect(f.asks[0]!.meta).toEqual({ kitControls: { pause: true, goBack: ["plan", "provision"] } });
+    expect(f.asks[0]!.meta).toEqual({ kitControls: { pause: true, goBack: ["plan", "provision"] }, reach: null, headCommit: null });
     const off = fake({ ...STAGED });
     await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, off.deps);
-    expect("meta" in off.asks[0]!).toBe(false);
+    expect("kitControls" in (off.asks[0]!.meta as object)).toBe(false);
   });
 
   test("controls are empty on a shepherd worker's run", async () => {
@@ -1353,6 +1369,144 @@ describe("kit forms", () => {
       const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
       expect(f.log).toContain(recordLine("question", { next: "hold" }, "pane"));
       expect(body(res).recorded).toBe(true);
+    });
+  });
+});
+
+describe("gate modes", () => {
+  const recQ = (id: string) => q(id, [{ value: "yes", label: "Yes", recommended: true }, { value: "no", label: "No" }]);
+  const WT: Field = { key: "worktree", value: "/trees/w1", at: 1 };
+  const modeField = (value: string): Field => ({ key: "gate-mode", value, at: 1 });
+  const GATE = { questions: [recQ("q1")], context: "ctx", kind: "ci:ship:1", reach: "worktree", ...RUN };
+  const QUIET = { gateMode: { mode: "quiet" }, fields: [WT] };
+  const preAnswered = (by: string) => ({
+    askData: { preAnswered: true, row: row({ answer: { answers: { q1: "yes" }, by, answeredAt: 2000 } }) },
+  });
+
+  test("quiet auto-answers a worktree gate under a work run", async () => {
+    const f = fake({ ...QUIET, ...preAnswered("mode:quiet") });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(res.ok).toBe(true);
+    expect(f.asks[0]!.preAnswer).toEqual({ answers: { q1: "yes" }, by: "mode:quiet" });
+    expect(f.log).toContain(recordLine("ci:ship:1", { q1: "yes" }, "mode:quiet"));
+    expect(f.log.some((l) => l.startsWith("field set waiting-gate"))).toBe(false);
+    expect(body(res)).toEqual({
+      id: "g1", paneAction: "answered", status: "answered", decidedBy: "mode:quiet",
+      answers: { q1: "yes" }, next: null, writeIn: [], actOnWriteIn: false,
+    });
+  });
+
+  test("run field gate-mode beats the setting", async () => {
+    const quietRun = fake({ gateMode: { mode: "chatty" }, fields: [WT, modeField("quiet")], ...preAnswered("mode:quiet") });
+    await askGate(GATE, HERDR, quietRun.deps);
+    expect(quietRun.asks[0]!.preAnswer).toEqual({ answers: { q1: "yes" }, by: "mode:quiet" });
+    const chattyRun = fake({ gateMode: { mode: "yolo" }, fields: [WT, modeField("chatty")] });
+    await askGate(GATE, HERDR, chattyRun.deps);
+    expect("preAnswer" in chattyRun.asks[0]!).toBe(false);
+  });
+
+  test("shadow opens normally and records the would-be answer in meta", async () => {
+    const f = fake({ gateMode: { mode: "quiet", shadow: true }, fields: [WT] });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+    expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "abc123", shadowAnswer: { q1: "yes" }, shadowMode: "quiet" });
+    expect(body(res).paneAction).not.toBe("answered");
+    expect(f.log.some((l) => l.startsWith("decision record"))).toBe(false);
+  });
+
+  test("needsOperator prefixes the context", async () => {
+    const f = fake(QUIET);
+    const res = await askGate({ ...GATE, needsOperator: "which flag key the PM meant" }, HERDR, f.deps);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+    expect(f.asks[0]!.context).toStartWith("Needs you: which flag key the PM meant");
+    expect(f.asks[0]!.context).toEndWith("ctx");
+    expect(body(res).formContext).toStartWith("Needs you: which flag key the PM meant");
+  });
+
+  test("no runDb never auto-answers", async () => {
+    const f = fake(QUIET);
+    const { runDb: _, stage: __, ...noRun } = GATE;
+    const res = await askGate(noRun, HERDR, f.deps);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+    expect("meta" in f.asks[0]!).toBe(false);
+    expect(body(res).paneAction).not.toBe("answered");
+  });
+
+  test("meta carries reach and headCommit on an asking gate", async () => {
+    const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], head: "deadbeef" });
+    await askGate(GATE, HERDR, f.deps);
+    expect(f.heads).toEqual(["/trees/w1"]);
+    expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "deadbeef" });
+  });
+
+  test("an undeclared reach and a missing worktree record null", async () => {
+    const f = fake({ gateMode: { mode: "quiet" } });
+    const { reach: _, ...noReach } = GATE;
+    await askGate(noReach, HERDR, f.deps);
+    expect(f.heads).toEqual([]);
+    expect(f.asks[0]!.meta).toEqual({ reach: null, headCommit: null });
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+  });
+
+  test("an invalid reach input is refused", async () => {
+    const f = fake(QUIET);
+    const res = await askGate({ ...GATE, reach: "everyone" }, HERDR, f.deps);
+    expect(res.error).toBe('"reach" must be one of worktree, draft, teammates, public');
+    expect(f.log).toEqual([]);
+  });
+
+  test("a setting read that throws reads as chatty with no shadow", async () => {
+    const f = fake({ gateMode: () => { throw new Error("settings store unreadable"); }, fields: [WT] });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(res.ok).toBe(true);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+    expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "abc123" });
+  });
+
+  test("a review pipeline always asks", async () => {
+    const f = fake({ ...QUIET, pipeline: "review" });
+    await askGate(GATE, HERDR, f.deps);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+  });
+
+  test("a daemon that did not pre-answer leaves the gate open as usual", async () => {
+    const f = fake({ ...QUIET, askData: { presentation: "wait" } });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(f.asks[0]!.preAnswer).toBeDefined();
+    expect(body(res).paneAction).toBe("wait");
+    expect(f.log).toContain("field set waiting-gate g1 --stage s");
+    expect(f.log.some((l) => l.startsWith("decision record"))).toBe(false);
+  });
+
+  test("a failed run decision after a pre-answer returns runErrors", async () => {
+    const f = fake({ ...QUIET, ...preAnswered("mode:quiet"), failWrite: (l) => (l.startsWith("decision record") ? "disk full" : undefined) });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(res.ok).toBe(true);
+    expect(body(res)).toMatchObject({ paneAction: "answered", status: "answered", runErrors: ["disk full"] });
+  });
+
+  describe("gate_open", () => {
+    const SOURCE = { questions: [{ id: "q1", multi: false, options: ["go (Recommended)", "stop"] }] };
+
+    test("gate_open forwards reach and needsOperator", async () => {
+      const answered = fake({ ...QUIET, ...preAnswered("mode:quiet") });
+      const res = await tool("gate_open", answered.deps).handler({ kind: "ci:ship:1", source: SOURCE, reach: "worktree", ...RUN }, HERDR);
+      expect(answered.asks[0]!.preAnswer).toEqual({ answers: { q1: "go (Recommended)" }, by: "mode:quiet" });
+      expect(body(res).paneAction).toBe("answered");
+
+      const flagged = fake(QUIET);
+      const asked = await tool("gate_open", flagged.deps).handler(
+        { kind: "ci:ship:1", source: SOURCE, reach: "worktree", needsOperator: "a product call", ...RUN }, HERDR,
+      );
+      expect("preAnswer" in flagged.asks[0]!).toBe(false);
+      expect(body(asked).formContext).toStartWith("Needs you: a product call");
+    });
+
+    test("gate_open refuses an invalid reach before anything opens", async () => {
+      const f = fake(QUIET);
+      const res = await tool("gate_open", f.deps).handler({ kind: "ci:ship:1", source: SOURCE, reach: "world", ...RUN }, HERDR);
+      expect(res.error).toBe('"reach" must be one of worktree, draft, teammates, public');
+      expect(f.log).toEqual([]);
     });
   });
 });

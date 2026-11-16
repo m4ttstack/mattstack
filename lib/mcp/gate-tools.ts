@@ -13,7 +13,9 @@ import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/s
 import { boardsBudgetError, checkSource, fitOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
 import { flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
 import { isObject, tojson, utf8Bytes } from "../gates/jq.ts";
+import { autoAnswerDecision, effectiveMode, parseReach, type GateMode } from "../gates/mode.ts";
 import { buildReviewSource, reviewSourceErrors } from "../gates/review-source.ts";
+import { childEnv, runCapture } from "../subprocess.ts";
 import { earlierStages } from "../runs/engine.ts";
 import {
   actOnWriteIn, decisionForGate, nextOf, normalizeAnswers, postSelection, respondPlanSelection, respondPostSelection,
@@ -37,6 +39,24 @@ export interface GateToolDeps {
   readFile: (p: string) => string;
   writeFile: (p: string, s: string) => void;
   kitFormOn: () => boolean;
+  gateMode: () => { mode: unknown; shadow: unknown };
+  headCommit: (worktree: string) => Promise<string | null>;
+}
+
+// An unreadable setting is chatty with no shadow: the gate still asks.
+function gateModeSettings(deps: GateToolDeps): { mode: unknown; shadow: boolean } {
+  try {
+    const g = deps.gateMode();
+    return { mode: g.mode, shadow: g.shadow === true };
+  } catch {
+    return { mode: undefined, shadow: false };
+  }
+}
+
+async function gitHead(worktree: string): Promise<string | null> {
+  const r = await runCapture(["git", "-C", worktree, "rev-parse", "HEAD"], { env: childEnv() });
+  const sha = r.stdout.trim();
+  return r.exitCode === 0 && sha !== "" ? sha : null;
 }
 
 // An unreadable setting is off: the gate still opens, as a form or a wait.
@@ -58,10 +78,13 @@ export const realGateToolDeps: GateToolDeps = {
   readFile: (p) => readFileSync(p, "utf8"),
   writeFile: (p, s) => writeFileSync(p, s),
   kitFormOn: () => getSetting("rt.gates.kitForm").value === true,
+  gateMode: () => ({ mode: getSetting("rt.work.gateMode").value, shadow: getSetting("rt.work.gateModeShadow").value }),
+  headCommit: gitHead,
 };
 
 export interface RunSnapshot {
   run: { spawned_by: string | null };
+  pipeline: string | null;
   fields: { key: string; value: string; at: number }[];
   decisions: DecisionRow[];
   /** Stage names in manifest order. */
@@ -100,6 +123,18 @@ export const GATE_RUN_PROPS = {
   scope: { type: "string", description: "The decision scope on the run; defaults to the gate's kind." },
 };
 
+export const GATE_MODE_PROPS = {
+  reach: {
+    type: "string",
+    enum: ["worktree", "draft", "teammates", "public"],
+    description: "Under a run, who this gate's answer reaches. A work run's gate mode answers the gate itself with its recommended options when the mode covers this reach; an undeclared reach always asks, and public never answers itself.",
+  },
+  needsOperator: {
+    type: "string",
+    description: "A short reason the decision turns on a product or people call. The gate then asks in every mode, and its context opens with \"Needs you: <reason>\".",
+  },
+};
+
 export const KIT_FORM_PROP = { type: "boolean", description: "Set by the gate-form mod; never pass it yourself." };
 
 export const RECORD_PROP_DESCRIPTION =
@@ -120,10 +155,11 @@ function runHandler(defs: ReturnType<typeof runToolDefs>, name: string) {
 }
 
 function snapshotOf(body: unknown): RunSnapshot {
-  const b = (body ?? {}) as { run?: { spawned_by?: unknown } | null; fields?: unknown[]; decisions?: unknown[]; manifest?: unknown[]; stages?: unknown[] };
+  const b = (body ?? {}) as { run?: { spawned_by?: unknown; pipeline?: unknown } | null; fields?: unknown[]; decisions?: unknown[]; manifest?: unknown[]; stages?: unknown[] };
   const spawned = b.run?.spawned_by;
   return {
     run: { spawned_by: typeof spawned === "string" && spawned !== "" ? spawned : null },
+    pipeline: typeof b.run?.pipeline === "string" ? b.run.pipeline : null,
     fields: (b.fields ?? []).map((f) => {
       const r = f as { key: string; value: string; at: number };
       return { key: r.key, value: r.value, at: r.at };
@@ -200,6 +236,26 @@ function scopeError(input: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+const REACH_ERROR = '"reach" must be one of worktree, draft, teammates, public';
+
+function modeInputError(input: Record<string, unknown>): string | undefined {
+  if (input.reach !== undefined && parseReach(input.reach) === null) return REACH_ERROR;
+  return checkOptional(input, [{ name: "needsOperator", type: "string" }]) ?? undefined;
+}
+
+function isStructured(context: string): boolean {
+  try {
+    return isObject(JSON.parse(context));
+  } catch {
+    return false;
+  }
+}
+
+function prefixed(prefix: string | undefined, text: string | undefined): string | undefined {
+  if (prefix === undefined) return text;
+  return text === undefined || text === "" ? prefix : `${prefix}\n\n${text}`;
+}
+
 /** The shared open path (gate_ask and gate_open). */
 export async function askGate(
   input: Record<string, unknown>,
@@ -209,7 +265,8 @@ export async function askGate(
 ): Promise<ToolResult> {
   const bad = checkRequired(input, [{ name: "questions", type: "array" }])
     ?? checkOptional(input, [{ name: "kitForm", type: "boolean" }])
-    ?? scopeError(input);
+    ?? scopeError(input)
+    ?? modeInputError(input);
   if (bad) return err(bad);
 
   let run: RunHandle | null;
@@ -233,8 +290,35 @@ export async function askGate(
   const { questions, truncated } = shaped
     ? truncateOptionText(raw)
     : { questions: raw as GateQuestion[], truncated: [] as TruncatedText[] };
+  const context = typeof input.context === "string" ? input.context : undefined;
+  const reason = typeof input.needsOperator === "string" && input.needsOperator.trim() !== "" ? input.needsOperator.trim() : undefined;
+  const needsYou = reason === undefined ? undefined : `Needs you: ${reason}`;
+
+  let mode: GateMode = "chatty";
+  let modeAnswers: AnswersMap | null = null;
+  let shadow = false;
+  let headCommit: string | null = null;
+  const reach = parseReach(input.reach);
+  if (run) {
+    const settings = gateModeSettings(deps);
+    mode = effectiveMode(fieldValue(run, "gate-mode"), settings.mode);
+    shadow = settings.shadow;
+    if (shaped) {
+      const decided = autoAnswerDecision({ mode, pipeline: run.snapshot.pipeline, reach, needsOperator: reason, context, questions: raw });
+      if (decided.kind === "answer") modeAnswers = decided.answers;
+    }
+    const worktree = fieldValue(run, "worktree");
+    if (worktree) headCommit = await deps.headCommit(worktree);
+  }
+  const preAnswer = modeAnswers && !shadow ? { answers: modeAnswers, by: `mode:${mode}` } : null;
+
   const payload: Commands["gate:ask"]["payload"] = { questions };
-  if (input.context !== undefined) payload.context = input.context as string;
+  if (input.context !== undefined) {
+    // A structured context keeps its JSON whole for the board; the reason reaches the pane through formContext.
+    payload.context = context !== undefined && !isStructured(context) ? prefixed(needsYou, context)! : input.context as string;
+  } else if (needsYou !== undefined) {
+    payload.context = needsYou;
+  }
   if (input.kind !== undefined) payload.kind = input.kind as string;
   // No RT_GATE_SUBJECT read (contract C13): the var carries an agent:<id>
   // fallback on every rt-agent launch and would shadow the daemon
@@ -245,14 +329,31 @@ export async function askGate(
   const paneId = await liveSelfPaneId(env);
   if (paneId) payload.paneId = paneId;
   const controls = runControls(run);
-  if (input.kitForm === true && kitFormReadsOn(deps)) {
+  const meta: Record<string, unknown> = {};
+  if (input.kitForm === true && !preAnswer && kitFormReadsOn(deps)) {
     payload.kitForm = true;
     // The gate-form mod rebuilds a form from the listed row after a restart; the row is the only place it can read these.
-    payload.meta = { kitControls: controls };
+    meta.kitControls = controls;
   }
+  if (run) {
+    meta.reach = reach;
+    meta.headCommit = headCommit;
+    if (modeAnswers && shadow) {
+      meta.shadowAnswer = modeAnswers;
+      meta.shadowMode = mode;
+    }
+  }
+  if (Object.keys(meta).length > 0) payload.meta = meta;
+  if (preAnswer) payload.preAnswer = preAnswer;
   const res = await deps.ask(payload);
   if (!res.ok || !res.data) return fromResponse(res);
   const data = res.data;
+
+  if (run && preAnswer && data.preAnswered === true) {
+    const fields = answerFieldsOf(preAnswer.answers, preAnswer.by);
+    const failed = await run.decision(scope, fields.answers, preAnswer.by);
+    return ok({ id: data.id, paneAction: "answered", status: "answered", ...fields, ...(failed ? { runErrors: [failed] } : {}) });
+  }
 
   const paneAction = paneActionFor(data.presentation, { herdr: env.HERDR_ENV === "1", spawned: run?.snapshot.run.spawned_by != null });
   const runErrors: string[] = [];
@@ -266,9 +367,9 @@ export async function askGate(
     }
   }
 
-  const formContext = "formContext" in extra
+  const formContext = prefixed(needsYou, "formContext" in extra
     ? extra.formContext
-    : typeof input.context === "string" ? flattenContext(input.context, { level: "gate" }) : undefined;
+    : context !== undefined ? flattenContext(context, { level: "gate" }) : undefined);
   const kit = paneAction === "kit";
   const result: Record<string, unknown> = { ...data, paneAction, formChunks: shaped && !kit ? formChunks(questions, extra.proseById) : [] };
   if (formContext !== undefined) result.formContext = formContext;
@@ -573,7 +674,8 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
       { name: "outPath", type: "string" }, { name: "runDb", type: "string" }, { name: "stage", type: "string" },
       { name: "kitForm", type: "boolean" },
     ])
-    ?? scopeError(input);
+    ?? scopeError(input)
+    ?? modeInputError(input);
   if (bad) return err(bad);
   const kind = (input.kind as string).trim();
   if (kind === "") return err('"kind" must be a non-empty string');
@@ -603,6 +705,8 @@ export async function openGate(input: Record<string, unknown>, env: NodeJS.Proce
   if (input.subject !== undefined) askInput.subject = input.subject;
   if (input.scope !== undefined) askInput.scope = input.scope;
   if (input.kitForm !== undefined) askInput.kitForm = input.kitForm;
+  if (input.reach !== undefined) askInput.reach = input.reach;
+  if (input.needsOperator !== undefined) askInput.needsOperator = input.needsOperator;
   const asked = await askGate(askInput, env, deps, { run, proseById, formContext, contextDropped: fit.pane.contextDropped });
   if (!asked.ok) return asked;
 
@@ -752,7 +856,7 @@ export async function recordGate(input: Record<string, unknown>, env: NodeJS.Pro
   return ok(await recordAnswered(run, data.row, { ...o, source: given ?? ownCards, upsert: true }));
 }
 
-const GATE_OPEN_DESCRIPTION = "Build and validate a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. A boards@1 source with more than 12 boards, or one whose boards do not fit the pane prose budget, is refused. The gate stores the context whole and untrimmed (structured, or prose for a legacy findings file); only the prose a Claude Code pane's form shows has a budget (8192 UTF-8 bytes): optional parts are trimmed first, then whole question contexts are left out largest first, then the gate context, and board-only fields never reach it. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: \"post\" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits and trimmed (of the pane prose), contextDropped (the pane form left some context out), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}: open is the whole stored open with option text truncated as gate_ask does; formContext and formChunks are the fitted pane prose, droppedContexts the questions it left out. outPath also writes the open, in gate-ctx.sh fit's output shape (its pane key the pane prose), to a temp-root file.";
+const GATE_OPEN_DESCRIPTION = "Build and validate a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer itself (a work run's gate mode may open it already answered, as gate_ask says): the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. A boards@1 source with more than 12 boards, or one whose boards do not fit the pane prose budget, is refused. The gate stores the context whole and untrimmed (structured, or prose for a legacy findings file); only the prose a Claude Code pane's form shows has a budget (8192 UTF-8 bytes): optional parts are trimmed first, then whole question contexts are left out largest first, then the gate context, and board-only fields never reach it. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: \"post\" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits and trimmed (of the pane prose), contextDropped (the pane form left some context out), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}: open is the whole stored open with option text truncated as gate_ask does; formContext and formChunks are the fitted pane prose, droppedContexts the questions it left out. outPath also writes the open, in gate-ctx.sh fit's output shape (its pane key the pane prose), to a temp-root file.";
 
 const GATE_RECONCILE_DESCRIPTION = "The one call for every re-entry to a gate: a finished background rt gate wait, a doorbell, or words typed at a held gate. It re-reads the gate for up to 2 seconds with this session's id (stamping the pane's read as rt gate wait does); rt gate wait itself stays background Bash, since no tool blocks past its timeout. answered: returns {status: \"answered\", row, answers, decidedBy, writeIn, next, actOnWriteIn} and, under a run (runDb and stage), records the normalized answers map as a gate@1 decision on scope (default the scope whose extra.gate-source.<scope> names this gate, else the gate's kind) with the answer's by as the decider, unless the gate is stale (the scope's extra.gate-source.<scope> names a later gate), a decision on that scope already landed since the gate opened (alreadyReconciled), the answer is only a run control (next hold or go-back on a gate with no next question of its own, returned in next for the skill to apply with run_resolve: hold as next hold, go-back as next redirect with answers.to as to), or record is false (the default on a review gate, which records its review shape with gate_record); it clears waiting-gate when it names this gate. closed: returns {status: \"closed\", closedReason, supersededBy}, clears waiting-gate and never invents an answer. Still open after 2 seconds: {status: \"open\"}, nothing written and waiting-gate left armed. The skill owns the gate and decides what to do next.";
 
@@ -782,6 +886,7 @@ export function gateToolDefs(deps: GateToolDeps = realGateToolDeps): McpToolDef[
           handBack: { type: "boolean", description: "Build and fit only; open nothing." },
           outPath: { type: "string", description: "With handBack: also write the open to this path under the Claude Code temp root." },
           kitForm: KIT_FORM_PROP,
+          ...GATE_MODE_PROPS,
           ...GATE_RUN_PROPS,
         },
         required: ["kind"],
