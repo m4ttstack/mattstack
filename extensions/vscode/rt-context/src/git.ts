@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { BranchInfo, WorktreeEntry, GitExtensionExports, GitAPI, GitRepository } from './types';
@@ -281,24 +280,6 @@ export async function getRepoRootName(): Promise<string> {
   }
 
   return path.basename(cwd);
-}
-
-/**
- * Resolve the rt per-repo data directory for the given repo.
- * Mirrors the CLI's deriveRepoName logic.
- */
-export function resolveDataDir(repo: GitRepository): string | null {
-  const remoteUrl = getRemoteUrl(repo);
-  if (!remoteUrl) return null;
-
-  const repoName = remoteUrl
-    .replace(/^git@[^:]+:/, "")
-    .replace(/^https?:\/\/[^/]+\//, "")
-    .replace(/\.git$/, "")
-    .split("/")
-    .pop() || "unknown";
-
-  return path.join(homedir(), ".mattstack", "rt", "repos", repoName);
 }
 
 /**

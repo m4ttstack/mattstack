@@ -22,7 +22,7 @@ Clicking the status bar item opens the linked Linear ticket.
 
 ### Worktree switcher
 
-Click the **Worktrees** button in the status bar to see all your worktrees at a glance:
+Click the **Worktrees** button in the status bar to see the repo's worktrees at a glance. It lists the same trees `rt cd` offers: the main checkout first, then the rest A to Z, without rt's spare, golden or gitq trees.
 
 - Each worktree shows its folder name, branch, and Linear ticket info
 - **Select a worktree** to open it in a new window
@@ -54,14 +54,14 @@ rt extension install
 
 ## Setup
 
-### Configure API keys
+### API keys
 
-Open the command palette and run:
+The extension reads your Linear API key and GitLab token from rt's encrypted secrets, through the rt daemon. Set them from a terminal:
 
-- **RT Context: Set Linear API Key**: enables ticket title and status lookup
-- **RT Context: Set GitLab Token**: enables MR title fallback for branches without a Linear ID. Shown on GitLab and other hosts, not on GitHub repos
-
-Both keys are stored securely in the editor's secret storage and shared with the rt CLI.
+```bash
+rt secrets set rt linearApiKey   # ticket titles and status
+rt secrets set rt gitlabToken    # MR lookups for branches without a Linear ID in the name
+```
 
 ## Commands
 
@@ -70,8 +70,6 @@ Both keys are stored securely in the editor's secret storage and shared with the
 | `RT Context: Show All Worktrees` | Open the worktree switcher |
 | `RT Context: Open Linear Ticket` | Open the current branch's Linear ticket |
 | `RT Context: Switch Branch` | Switch to a different branch |
-| `RT Context: Set Linear API Key` | Store your Linear personal API key |
-| `RT Context: Set GitLab Token` | Store your GitLab personal access token |
 | `RT Context: Refresh` | Clear caches and refresh the status bar |
 | `RT Context: Reset Workspace File Preference` | Forget the saved `.code-workspace` file choice |
 
@@ -85,7 +83,9 @@ Both keys are stored securely in the editor's secret storage and shared with the
 
 ## How it works
 
-The extension uses the VS Code Git extension API to read the current branch, matching the repository to the workspace folder by `rootUri` so it picks the correct branch in multi-worktree setups. The worktree switcher shells out to `git worktree list` to discover all worktrees, since the Git API only exposes repositories open in the current window.
+The extension uses the VS Code Git extension API to read the current branch, matching the repository to the workspace folder by `rootUri` so it picks the correct branch in multi-worktree setups. The worktree switcher shells out to `git worktree list`, since the Git API only exposes repositories open in the current window, then keeps the trees rt-client's shared rule says a person can pick.
+
+Ticket and MR or PR data comes from the rt daemon's cache, scoped to this repo, on 127.0.0.1 at the port the daemon binds (`RT_API_PORT`, then the `rt.apiPort` setting, then 9401). When the cache has no entry for a branch, the extension asks Linear and GitLab itself, with the tokens the daemon gives it. With the daemon down, it shows the worktree, the branch and any ticket id in the branch name, without titles or links.
 
 ## License
 

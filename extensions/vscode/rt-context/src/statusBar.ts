@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { existsSync } from 'fs';
 import { extractLinearId } from './branchParser';
 import { fetchTicket, type LinearTicket } from './linear';
@@ -24,7 +24,6 @@ let currentTicketUrl: string | null = null;
 let currentMrUrl: string | null = null;
 let currentWorktreePath: string | null = null;
 let currentForge: Forge | null = null;
-let publishedForgeContext: string | undefined;
 const updates = createUpdateGate();
 let updateTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -42,10 +41,6 @@ export function getCurrentForge(): Forge | null { return currentForge; }
 
 function setForge(forge: Forge | null) {
   currentForge = forge;
-  const value = forge ?? 'none';
-  if (value === publishedForgeContext) return;
-  publishedForgeContext = value;
-  void vscode.commands.executeCommand('setContext', 'rtContext.forge', value);
 }
 
 // ── Initialization ──
@@ -337,7 +332,7 @@ async function fetchBranchDataDirect(
 
   // Fetch MR info
   if (shouldLookupMR) {
-    const gitlabToken = await getSecret(context, 'gitlabToken');
+    const gitlabToken = await getSecret('gitlabToken');
     if (gitlabToken) {
       const { remoteUrl } = repoForge;
       if (remoteUrl) {
@@ -362,7 +357,7 @@ async function fetchBranchDataDirect(
   // Fetch Linear ticket
   let ticket: LinearTicket | null = null;
   if (linearId) {
-    const apiKey = await getSecret(context, 'linearApiKey');
+    const apiKey = await getSecret('linearApiKey');
     if (apiKey) {
       try {
         ticket = await fetchTicket(apiKey, linearId);
@@ -427,7 +422,7 @@ const LINEAR_APP_PATH = '/Applications/Linear.app';
 
 export function openLinearUrl(url: string) {
   if (process.platform === 'darwin' && existsSync(LINEAR_APP_PATH)) {
-    exec(`open -a Linear "${url}"`);
+    execFile('open', ['-a', 'Linear', url]);
   } else {
     vscode.env.openExternal(vscode.Uri.parse(url));
   }

@@ -24,7 +24,6 @@ import {
   checkoutBranch,
   getGitApi,
   findWorkspaceRepo,
-  resolveDataDir,
   resolveRepoIdentity,
 } from './git';
 import type { BranchInfo, GitRepository } from './types';
@@ -272,8 +271,8 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     const fetchableBranches = localBranchNames.filter((b) => !SKIP_MR_BRANCHES.has(b));
 
     const [gitlabToken, apiKey] = await Promise.all([
-      repoForge.forge === 'github' ? null : getSecret(context, 'gitlabToken'),
-      getSecret(context, 'linearApiKey'),
+      repoForge.forge === 'github' ? null : getSecret('gitlabToken'),
+      getSecret('linearApiKey'),
     ]);
     const remoteUrl = repoForge.remoteUrl;
 
@@ -386,7 +385,7 @@ async function handleLinearCreate(
   currentBranch: string | null,
   maxLen: number,
 ): Promise<void> {
-  const apiKey = await getSecret(context, 'linearApiKey');
+  const apiKey = await getSecret('linearApiKey');
   if (!apiKey) {
     vscode.window.showErrorMessage(
       'Linear API key not set. Run "RT Context: Set Linear API Key" first.',
@@ -404,8 +403,7 @@ async function handleLinearCreate(
     return;
   }
 
-  const dataDir = resolveDataDir(repo);
-  const namingConfig = dataDir ? loadBranchNamingConfig(dataDir, resolveRepoIdentity(repo)) : null;
+  const namingConfig = loadBranchNamingConfig(resolveRepoIdentity(repo));
 
   const ticketItems = tickets
     .map((t) => {

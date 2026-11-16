@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { branchCache, branchListCache } from './cache';
-import { showCantSaveSecretMessage } from './secrets';
 import {
   initStatusBar,
   waitForGitAndStart,
@@ -56,7 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
         items.push({
           label: '$(folder-opened) Open in Finder',
           action: () => {
-            exec(`open "${worktreePath}"`);
+            execFile('open', [worktreePath]);
           },
         });
       }
@@ -79,17 +78,6 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('rtContext.switchBranch', () =>
       showBranchSwitcher(context),
     ),
-
-    // RT-32: the extension can't save secrets anymore — show the directed
-    // `rt secrets set` message immediately rather than prompting for a
-    // token it would only throw away.
-    vscode.commands.registerCommand('rtContext.setLinearApiKey', () => {
-      showCantSaveSecretMessage('linearApiKey');
-    }),
-
-    vscode.commands.registerCommand('rtContext.setGitlabToken', () => {
-      showCantSaveSecretMessage('gitlabToken');
-    }),
 
     vscode.commands.registerCommand('rtContext.refresh', () => {
       branchCache.clear();
