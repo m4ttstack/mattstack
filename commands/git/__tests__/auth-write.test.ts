@@ -519,7 +519,8 @@ function credentialFakes(): { otherHelper: string; otherLog: () => string } {
 function fillThenApprove(repo: string): string {
   const empty = join(root, "empty.gitconfig");
   writeFileSync(empty, "");
-  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: empty, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" };
+  // GIT_CONFIG_COUNT 0 drops the preload's env-level helper reset, which would clear the clone's helpers too.
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_COUNT: "0", GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" };
   const fill = spawnSync("git", ["credential", "fill"], { cwd: repo, env, encoding: "utf8", input: "protocol=https\nhost=gitlab.com\n\n" });
   spawnSync("git", ["credential", "approve"], { cwd: repo, env, encoding: "utf8", input: `${fill.stdout}\n` });
   return fill.stdout;
