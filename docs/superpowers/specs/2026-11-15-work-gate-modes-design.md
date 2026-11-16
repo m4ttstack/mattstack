@@ -23,6 +23,14 @@ The goal is for work runs to interrupt the operator only where the operator
 adds something, and to make every decision taken without them visible and
 reversible.
 
+A second finding shapes phase 3. A herd today opens with several rounds of
+questions from the shepherd (strategy, model and effort, account), then each
+worker asks its own plan, clarify and evidence-plan questions. The operator
+wants these combined into one moment: an agent does the analysis, raises one
+form with every question and its recommendation, the operator answers once,
+and the work goes. The interaction pattern is the board's: a UI launches
+agents into Claude Code panes, and the agents raise gates back to the UI.
+
 ## Goals
 
 - An rt setting picks how much a work run interrupts the operator, as one
@@ -42,8 +50,8 @@ reversible.
   review and respond runs). Their gates are untouched by this design.
 - Making the agent's recommendations better. This design trusts the
   recommendation the step already writes.
-- A Linear ticket picker. It is a later launcher and only needs to pass a
-  per-run mode.
+- Changing how board-launched review and respond runs ask. The operator
+  ruled those out of gate modes on 2026-11-15.
 
 ## Anti-goals (this fails even if it works if...)
 
@@ -98,14 +106,27 @@ gate answers itself only when all of these hold:
 
 1. it is opened under a run of a work pipeline;
 2. the run's effective mode allows the gate's reach;
-3. the gate's reach is declared (see below); an undeclared reach never
-   answers itself;
-4. every question has exactly one option marked `recommended: true`
-   (multi-select questions: the recommended set), and no question needs a
-   write-in to be answered;
-5. the gate does not carry a "needs the operator" flag;
-6. its kind is not a failure, off-script, doctor or escalation kind, and its
-   context is not an evidence-board context.
+3. the gate's reach is declared on this open (see below); an undeclared
+   reach never answers itself;
+4. every question has a recommended option (multi-select questions: the
+   recommended set), and no question needs a write-in to be answered. A
+   recommendation is either form the pipelines use today: `recommended:
+   true` on the option, or a label ending "(Recommended)" in any case;
+5. the recommendation moves the run forward: the step's continue question
+   recommends proceed or done, and no question recommends hand back,
+   abandon, iterate, go back or hold;
+6. the gate does not carry a "needs the operator" flag;
+7. its context is not an evidence-board context, and its reach is not
+   `public`.
+
+Kinds have no registry (a work gate's kind is the scope string the pack
+writes, such as `ci:<stage>:<attempt>` or `off-script:<site>:<n>`), so rt
+does not keep a list of kind names. Failure, off-script and hand-back cases
+are kept with the operator by rules 3 and 5: the pack declares no reach on
+off-script and failure opens, and a gate whose recommendation hands back or
+stops never answers itself. One CI gate therefore behaves both ways: a
+recommended "fix and re-push" may answer itself, a recommended "hand back"
+after a timeout asks.
 
 The answer is the recommended option for every question, plus `proceed`
 for the step's continue question. It is written to the gates table as a
@@ -125,23 +146,32 @@ board, shepherd) sees an answered gate.
 
 - `gate_ask` / `gate_open` take two new optional inputs: `reach` (one of the
   four values) and `needsOperator` (a short reason string).
-- The pack's work pipeline sets `reach` on each gate it opens. Where it
-  lives in the pack (stage fill text versus a manifest field) is the
-  builder's call; the rule is that each work gate declares one.
+- The pack's work pipeline sets `reach` on each gate it opens, per open, not
+  per gate kind. Both the generic work pipeline in this repo and the audited
+  team pack (in its own org repo) get labels in this plan; without the team
+  pack's labels the operator's runs would not change. Where the label lives
+  in a pack (stage fill text versus a manifest field) is the builder's call.
+- `ship` declares `draft` while the MR is still a draft, including a
+  re-ship that force-pushes with lease after a CI fix round. Once the MR is
+  marked ready, a ship that would force-push declares `teammates`.
 - A step sets `needsOperator` when its decision turns on a product or
   people call (what a PM meant, a flag key from a conversation, a
   follow-up ticket), even when it has a recommendation. The step's
   guidance says when; the gate then asks in every mode, and the form shows
   the reason.
 
-## The mark-ready digest
+## The digest
 
-The gate where a mode stops (mark-ready under `draft-mr`, ship under
-`worktree`) opens with a digest of every decision the mode made in this run:
-the step, the question, the option taken, and for self-review the findings
-fixed and waived. rt supplies the decisions (run snapshot, filtered on a
-`mode:` decider); the pack's step renders them into the gate context. Under
-`checkpoint-free`, the digest goes into the run's close report instead.
+Every gate that reaches the operator in a run opens with what the mode
+decided since the operator last answered a gate in that run: the step, the
+question, the option taken, and for self-review the findings fixed and
+waived. The gate where the mode stops (mark-ready under `draft-mr`, ship
+under `worktree`) therefore carries the run's full list. Because the digest
+belongs on every asking gate, it is a gate-protocol feature: rt supplies the
+decisions (run snapshot, `mode:` decider, since the last human answer) and
+the shared gate protocol renders them, rather than each step rendering its
+own. Under `checkpoint-free`, the full list goes into the run's close
+report.
 
 ## Phase 2: live feed, Pause and Redo
 
@@ -151,11 +181,73 @@ fixed and waived. rt supplies the decisions (run snapshot, filtered on a
 - **Pause.** A feed row's Pause holds the run at its next step (today's
   `hold` run control).
 - **Redo.** A feed row's Redo sends the run back to that gate's step with the
-  operator's note (today's `go-back` run control), and resets the branch to
-  the commit recorded when the gate opened. Steps that change code commit
-  before opening their gate, so that commit is a clean rewind point.
-- **Redo past ship** would rewrite a pushed branch. It asks for confirmation
-  first ("this rewrites the pushed draft branch"), never silently.
+  operator's note (today's `go-back` run control) and the commit recorded
+  when the gate opened. The worker decides what to do with code written
+  since (revert, rework or keep), with normal commits. rt gains no branch
+  reset verb; history keeps what happened. Steps that change code commit
+  before opening their gate, so the recorded commit is a clear reference
+  point.
+
+## Phase 3: start work from the console, one launch moment
+
+The console becomes where the operator starts and watches work herds. It
+replaces the shepherd's role for work herds: the shepherd's opening
+questions move into one launch gate, its lane watching moves to the console,
+and cross-lane problems go to a helper agent started on demand.
+
+### The ticket picker
+
+- A "Start work" entry on the console's Runs page lists the team's Linear
+  project tickets the operator could take (Todo, assigned to them or
+  unassigned), by priority. It opens instantly.
+- The daemon keeps that list fresh in the background, and also keeps a
+  ranked suggestion fresh: the existing pick-tickets ranking (ready or needs
+  a decision, size, someone else's lane, a parallel batch of 4-6) run as one
+  bounded agent call. "Suggest a batch" pre-ticks the latest suggested batch
+  with its flags. Refresh cadence must be measured against Linear's rate
+  limits before it is set.
+- Ticking one ticket or several and pressing Start starts a herd. A single
+  ticket is a herd of one, so there is one launch path, through rt's
+  existing herd verbs.
+
+### The launch gate
+
+1. Start opens an analysis agent in a Claude Code pane. It reads each
+   ticket, and enough of the code, to recommend per ticket: approach
+   (direct-tdd, superpowers, trivial), evidence plan, open product
+   questions, model and effort, account, and gate mode (defaulting to the
+   operator's setting).
+2. It raises one launch gate covering every ticket in the batch. The gate
+   is drawn with the kit gate form (the gate-form mod), which has no
+   four-question cap, and is listed in the console's Gates view like any
+   gate, so it can be answered from either place.
+3. After the answer, the herd's workers spawn with their plan already
+   decided: each work run starts past its plan, clarify and evidence-plan
+   gates, with those decisions recorded as the operator's launch answers.
+4. A worker that reads the code and finds its launch plan wrong does not
+   re-plan quietly. It raises an exception gate (needs the operator)
+   naming what it found.
+
+### Watching and helping
+
+- The herd's lanes are runs on the console's Runs page. Their gates arrive
+  in the Gates view, filtered by each run's mode, with the phase 2 feed,
+  Pause and Redo.
+- The console shows the daemon's stuck-worker verdicts with Nudge and
+  Respawn, and offers wrap-up (close panes, dispose trees) once each lane's
+  merge state is final.
+- A problem that spans lanes (a broken base branch, port or database
+  contention, wedged installs) gets a "Get help" action: it starts an agent
+  in a pane with the herd's context, which fixes or coordinates and then
+  exits. No agent sits in the shepherd's seat for the life of the herd.
+
+### Boundary
+
+Judgment stays with agents: the analysis agent recommends, workers do the
+work, the helper agent handles cross-lane problems. The console starts
+agents, shows their gates and offers deterministic controls, which is the
+board's existing pattern for review runs. (My reading of the operator's
+direction; confirm.)
 
 ## Approaches considered
 
@@ -176,14 +268,33 @@ fixed and waived. rt supplies the decisions (run snapshot, filtered on a
 - The operator's chosen everyday line is `draft-mr`.
 - Modes are an rt setting with a per-run override, not a one-off rollout.
 - Decisions answer instantly, and also post to a live feed.
-- The feed can Pause and Redo.
+- The feed can Pause and Redo; on Redo the worker decides what to do with
+  code written since, and rt gains no branch reset.
 - rt decides at gate open (approach A).
+- Combine questions into single moments. The herd opens with one launch
+  gate that covers setup and every ticket's plan.
+- The picker and the herd's lanes live in the console.
+- The ticket list opens instantly; Suggest pre-ticks a ranked batch; the
+  daemon keeps both fresh in the background.
+- Cross-lane problems go to an on-demand helper agent, not a standing
+  shepherd.
 
-## Left to the builder (marked as my calls)
+## My calls (marked for review)
 
 - The four mode names and the reach vocabulary above.
 - The shadow switch being separate from the mode.
-- The digest at the stopping gate and its fallback to the close report.
+- Reach declared per open; both the generic pipeline and the team pack get
+  labels.
+- Forward-only recommendations (rule 5) instead of a kind denylist.
+- Re-ship may force-push a draft; after mark-ready a force-push asks.
+- The digest on every asking gate, as a gate-protocol feature.
 - Recording the head commit at gate open rather than committing per gate.
-- Confirmation before Redo past ship.
-- Setting key name, where the pack declares reach, and the exact field names.
+- A single ticket is a herd of one.
+- The boundary paragraph in phase 3.
+
+## Left to the builder
+
+- Setting key name, where a pack declares reach, and exact field names.
+- How the analysis agent's launch answers are handed to each worker's run.
+- The daemon's refresh cadence for the ticket list and suggestion, once
+  measured.
