@@ -211,7 +211,7 @@ describe("editor.terminal-font row", () => {
     seed("Cursor", "{ not json");
     const r = editorFontRow(confined(), [apps]);
     expect(r.status).toBe("ready");
-    expect(r.detail).toContain("Cursor");
+    expect(r.detail).toBe("Could not read settings for Cursor, so rt left it alone");
   });
 
   test("missing never blocks Install or Finish after expectations", () => {

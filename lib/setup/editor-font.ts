@@ -7,6 +7,11 @@ import { NERD_FONT_ARCHIVE, type NerdFontArchive } from "./tools-install.ts";
 export const NERD_FAMILY = "JetBrainsMonoNL Nerd Font";
 export const EDITOR_DEFAULT_FONT = "Menlo, Monaco, 'Courier New', monospace";
 
+export function joinNames(list: string[]): string {
+  if (list.length <= 1) return list.join("");
+  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+}
+
 export function hasNerdFont(family: string): boolean {
   return family.split(",").some((part) => {
     const name = part.trim().replace(/^['"]+|['"]+$/g, "").trim().toLowerCase();

@@ -6,22 +6,17 @@
  * the row's Add font tries again.
  */
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
-import { applyEditorFonts, installNerdFont, nerdFontInstalled, planEditorFonts } from "../editor-font.ts";
+import { applyEditorFonts, installNerdFont, joinNames, nerdFontInstalled, planEditorFonts } from "../editor-font.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 const ID = "editor.terminal-font";
 
-function names(list: string[]): string {
-  if (list.length <= 1) return list.join("");
-  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
-}
-
 async function editorFontRun(ctx: ApplyContext, appDirs?: string[]): Promise<StepOutcome> {
   const written = readSetupState(ctx.p).editorFontWritten ?? {};
   const plan = planEditorFonts(ctx.p, written, appDirs);
   if (plan.every((r) => r.outcome === "not-installed")) return { state: "skipped", detail: "No supported editor is installed" };
-  if (!plan.some((r) => r.outcome === "written")) return { state: "done", detail: "Every editor terminal already has a Nerd Font" };
+  if (!plan.some((r) => r.outcome === "written")) return { state: "done", detail: "Nothing to change in your editor terminals" };
 
   if (!nerdFontInstalled(ctx.p)) {
     const font = await installNerdFont(ctx.p, (line) => ctx.log(ID, line));
@@ -43,7 +38,7 @@ async function editorFontRun(ctx: ApplyContext, appDirs?: string[]): Promise<Ste
   }
 
   const failed = results.filter((r) => r.outcome === "failed");
-  const added = wrote.length > 0 ? `Added the Nerd Font to the terminal in ${names(wrote.map((r) => r.editor))}` : "";
+  const added = wrote.length > 0 ? `Added the Nerd Font to the terminal in ${joinNames(wrote.map((r) => r.editor))}` : "";
   if (failed.length > 0) {
     const couldNot = failed.map((r) => `Could not update ${r.editor} (${r.detail ?? "write failed"})`);
     return { state: "partial", detail: [added, ...couldNot].filter(Boolean).join(". ") };

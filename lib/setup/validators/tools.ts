@@ -18,7 +18,7 @@
 
 import { isBrokenLauncher, resolveTool } from "../../deps/resolve.ts";
 import { detectEditors } from "../../editors.ts";
-import { planEditorFonts } from "../editor-font.ts";
+import { joinNames, planEditorFonts } from "../editor-font.ts";
 import { readSetupState } from "../state.ts";
 import { BACKUP_TOOLS as BACKUP_TOOL_NAMES } from "../../state/backup-tools.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
@@ -422,19 +422,19 @@ export function editorFontRow(p: Probes, appDirs?: string[]): Row {
     id: "editor.terminal-font",
     kind: "tool" as const,
     title: "Editor terminal font",
-    why: "Adds a Nerd Font to your editor's terminal so rt's icons draw.",
+    why: "Adds a Nerd Font to your editor's terminal so rt's icons show.",
     required: false,
     optionalNote: "Works without this; some icons in the editor's terminal show as boxes.",
     recheck: "on-activate" as const,
   };
   const plan = planEditorFonts(p, readSetupState(p).editorFontWritten ?? {}, appDirs);
-  if (plan.every((r) => r.outcome === "not-installed")) return row({ ...base, status: "skipped", detail: "No supported editor installed" });
+  if (plan.every((r) => r.outcome === "not-installed")) return row({ ...base, status: "skipped", detail: "No supported editor is installed" });
   const toWrite = plan.filter((r) => r.outcome === "written").map((r) => r.editor);
   if (toWrite.length > 0) {
-    return row({ ...base, status: "missing", detail: `No Nerd Font in the terminal for ${toWrite.join(", ")}`, action: applyStepAction("Add font", "editor.terminal-font") });
+    return row({ ...base, status: "missing", detail: `No Nerd Font in the terminal for ${joinNames(toWrite)}`, action: applyStepAction("Add font", "editor.terminal-font") });
   }
   const unreadable = plan.filter((r) => r.outcome === "unreadable").map((r) => r.editor);
-  if (unreadable.length > 0) return row({ ...base, status: "ready", detail: `Could not read settings for ${unreadable.join(", ")}, so rt left them alone` });
+  if (unreadable.length > 0) return row({ ...base, status: "ready", detail: `Could not read settings for ${joinNames(unreadable)}, so rt left ${unreadable.length === 1 ? "it" : "them"} alone` });
   return row({ ...base, status: "ready", detail: "Terminal fonts include a Nerd Font" });
 }
 
