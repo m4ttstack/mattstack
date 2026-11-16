@@ -7,6 +7,7 @@ import { execWithTimeout } from "../../setup/probes.ts";
 import { childEnv } from "../../subprocess.ts";
 import { readMainBranch, readMainPointer } from "../main-pointer.ts";
 import { ORG_MARKER_REL, POINTER_REL } from "../org-marker.ts";
+import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 
 const p = { exec: execWithTimeout };
 const roots: string[] = [];
@@ -99,21 +100,46 @@ describe("readMainPointer", () => {
     expect(await readMainPointer(p, `file://${origin}`, null)).toEqual({ dataBranch: "mattstack", layout: 4 });
   });
 
-  test("the show that lazily fetches the marker carries the same credentials as the fetch", async () => {
-    const remote = "https://github.com/acme/widgets.git";
-    const seen: { argv: string[]; env?: Record<string, string> }[] = [];
-    const exec = async (argv: string[], opts?: { env?: Record<string, string> }) => {
-      seen.push({ argv, env: opts?.env });
-      return { code: 0, stdout: argv.includes("show") ? '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}' : "", stderr: "" };
-    };
-    expect(await readMainPointer({ exec }, remote, "private-token")).toEqual({ dataBranch: "mattstack", layout: 4 });
-    const fetch = seen.find((c) => c.argv.includes("fetch"))!;
-    const show = seen.find((c) => c.argv.includes("show"))!;
-    expect(show.argv.slice(0, 5)).toEqual(fetch.argv.slice(0, 5));
-    expect(show.argv.some((a) => a.startsWith("credential.https://github.com.helper="))).toBe(true);
-    expect(show.env).toMatchObject({ RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com", RT_GIT_USER: "x-access-token", GIT_TERMINAL_PROMPT: "0" });
-    expect(JSON.stringify(show.argv)).not.toContain("private-token");
-  });
+  for (const [forge, remote, host] of [
+    ["GitHub", "https://github.com/acme/widgets.git", "github.com"],
+    ["GitLab", "https://gitlab.com/acme/widgets.git", "gitlab.com"],
+  ] as const) {
+    test(`the show that lazily fetches the marker names the same ${forge} helper as the fetch, with no token in the env`, async () => {
+      const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+      const exec = async (argv: string[], opts?: { env?: Record<string, string> }) => {
+        seen.push({ argv, env: opts?.env });
+        return { code: 0, stdout: argv.includes("show") ? '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}' : "", stderr: "" };
+      };
+      expect(await readMainPointer({ exec }, remote, "tok_rt")).toEqual({ dataBranch: "mattstack", layout: 4 });
+      const fetch = seen.find((c) => c.argv.includes("fetch"))!;
+      const show = seen.find((c) => c.argv.includes("show"))!;
+      expect(show.argv.slice(0, 5)).toEqual(fetch.argv.slice(0, 5));
+      expect(rtHelperHost(fetch.argv)).toBe(host);
+      expect(rtHelperHost(show.argv)).toBe(host);
+      for (const call of [fetch, show]) {
+        expectNoToken(call.env, "tok_rt");
+        expect(call.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0" });
+        expect(JSON.stringify(call.argv)).not.toContain("tok_rt");
+      }
+    });
+  }
+
+  for (const [forge, remote] of [
+    ["GitHub", "https://github.com/acme/widgets.git"],
+    ["GitLab", "https://gitlab.com/acme/widgets.git"],
+  ] as const) {
+    test(`no token leaves the ${forge} fetch and the show on plain git`, async () => {
+      const seen: string[][] = [];
+      const exec = async (argv: string[]) => {
+        seen.push(argv);
+        return { code: 0, stdout: argv.includes("show") ? '{"role":"org","org":"acme","layout":4,"dataBranch":"mattstack"}' : "", stderr: "" };
+      };
+      await readMainPointer({ exec }, remote, null);
+      const calls = seen.filter((a) => a.includes("fetch") || a.includes("show"));
+      expect(calls).toHaveLength(2);
+      for (const argv of calls) expect(rtHelperHost(argv)).toBeNull();
+    });
+  }
 
   test("reads the root pointer, alone or beside the old folder file", async () => {
     const pointer = (branch: string) => `// header\n{"role":"org","org":"acme","layout":4,"dataBranch":"${branch}"}`;

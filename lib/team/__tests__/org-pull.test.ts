@@ -4,6 +4,7 @@ import { fakeProbes, type ExecScript } from "../../setup/__tests__/fakes.ts";
 import type { ExecResult } from "../../setup/probes.ts";
 import { orgDirUnder } from "../../rt-paths.ts";
 import { pullOrgClone } from "../org-pull.ts";
+import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 
 const HOME = "/fake-home";
 const SLUG = "acme";
@@ -25,10 +26,10 @@ function git(over: (argv: string[]) => ExecResult | null = () => null): ExecScri
   };
 }
 
-function probes(exec: ExecScript, daemon: (cmd: string) => unknown = () => null) {
+function probes(exec: ExecScript, daemon: (cmd: string) => unknown = () => null, config = GIT_CONFIG) {
   return fakeProbes({
     home: HOME,
-    files: { [join(DIR, ".git", "config")]: GIT_CONFIG },
+    files: { [join(DIR, ".git", "config")]: config },
     exec,
     daemon: async (cmd) => daemon(cmd) as never,
   });
@@ -108,17 +109,60 @@ describe("pullOrgClone", () => {
     expect(pull.detail).not.toContain("github.com");
   });
 
-  test("no daemon, the token offered to git is the stored one for the clone's origin", async () => {
+  test("no daemon, the token looked up is the stored one for the clone's origin, and git is told to ask rt for it", async () => {
     const asked: string[] = [];
     const p = probes(git());
+    const envs: (Record<string, string> | undefined)[] = [];
+    const real = p.exec.bind(p);
+    p.exec = (argv, opts) => {
+      if (subcommand(argv, "fetch")) envs.push(opts?.env);
+      return real(argv, opts);
+    };
     await pullOrgClone(p, SLUG, {
       token: async (_p, remote) => {
         asked.push(remote);
-        return "tok";
+        return "tok_rt";
       },
     });
     expect(asked).toEqual([REMOTE]);
     const fetch = p.calls.exec.find((argv) => subcommand(argv, "fetch"))!;
-    expect(fetch.join(" ")).not.toContain("tok");
+    expect(rtHelperHost(fetch)).toBe("github.com");
+    expect(fetch.join(" ")).not.toContain("tok_rt");
+    expect(envs).toHaveLength(1);
+    expectNoToken(envs[0], "tok_rt");
+  });
+
+  test("a GitLab origin names the helper for the GitLab host, with no token in the env", async () => {
+    const p = probes(git(), () => null, `[remote "origin"]\n\turl = https://gitlab.com/acme/mattstack-team-acme.git\n`);
+    const envs: (Record<string, string> | undefined)[] = [];
+    const real = p.exec.bind(p);
+    p.exec = (argv, opts) => {
+      if (subcommand(argv, "fetch")) envs.push(opts?.env);
+      return real(argv, opts);
+    };
+    await pullOrgClone(p, SLUG, { token: async () => "glpat_fake" });
+    const fetch = p.calls.exec.find((argv) => subcommand(argv, "fetch"))!;
+    expect(rtHelperHost(fetch)).toBe("gitlab.com");
+    expect(fetch.join(" ")).not.toContain("glpat_fake");
+    expect(envs).toHaveLength(1);
+    expectNoToken(envs[0], "glpat_fake");
+  });
+
+  test("no stored token leaves git on its own credentials", async () => {
+    const p = probes(git());
+    await pullOrgClone(p, SLUG, noToken);
+    expect(rtHelperHost(p.calls.exec.find((argv) => subcommand(argv, "fetch"))!)).toBeNull();
+  });
+
+  test("no stored token leaves a GitLab origin on git's own credentials", async () => {
+    const p = probes(git(), () => null, `[remote "origin"]\n\turl = https://gitlab.com/acme/mattstack-team-acme.git\n`);
+    await pullOrgClone(p, SLUG, noToken);
+    expect(rtHelperHost(p.calls.exec.find((argv) => subcommand(argv, "fetch"))!)).toBeNull();
+  });
+
+  test("a token lookup that throws leaves git on its own credentials", async () => {
+    const p = probes(git());
+    await pullOrgClone(p, SLUG, { token: async () => { throw new Error("no store"); } });
+    expect(rtHelperHost(p.calls.exec.find((argv) => subcommand(argv, "fetch"))!)).toBeNull();
   });
 });

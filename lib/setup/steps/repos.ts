@@ -15,7 +15,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import { linkPath } from "../../deps/links.ts";
-import { gitWithToken } from "../../team/git-credential.ts";
+import { gitWithRtCredential } from "../../team/git-credential.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
@@ -175,7 +175,7 @@ async function cloneInto(ctx: ApplyContext, identity: string, dest: string): Pro
 
   const remote = `https://${identity}.git`;
   const token = await trustedForgeTokenFor(ctx, remote);
-  const git = gitWithToken([...CLONE_STALL_ARGS, "clone", "--progress", remote, dest], token, CLONE_ENV, { remote });
+  const git = gitWithRtCredential([...CLONE_STALL_ARGS, "clone", "--progress", remote, dest], Boolean(token), CLONE_ENV, { remote });
   const result = await p.execStreaming(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS, onStderr: progressReader(ctx) });
   const rt = linkPath(p.home, "rt");
   if (result.code === 0 && token && p.exists(rt)) {

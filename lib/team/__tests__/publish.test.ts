@@ -5,12 +5,13 @@ import { tmpdir } from "os";
 import { childEnv, runCapture } from "../../subprocess.ts";
 import { afterEach, describe, spyOn, test, expect } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { publishTeam } from "../publish.ts";
+import { publishTeam, withheldPublishHost } from "../publish.ts";
 import { teamLocalPath } from "../team-local.ts";
 import { UserActionableError } from "../../errors.ts";
 import { cleanupOrgWorlds, orgWorld } from "./org-world.ts";
 import { dataBranchWorld } from "./data-branch-world.ts";
-import { DATA_BRANCH_WARNING, DATA_README, DATA_README_REL } from "../org-marker.ts";
+import { DATA_BRANCH_WARNING, DATA_README, DATA_README_REL, ORG_MARKER_REL } from "../org-marker.ts";
+import { expectNoToken, rtHelperHost } from "./rt-credential-argv.ts";
 
 const DIR = "/home/x/.mattstack/orgs/acme";
 
@@ -58,8 +59,8 @@ describe("publishTeam", () => {
   });
 
   // Install pushes before git has any credential of its own on a fresh
-  // machine; the token rt holds rides in the environment, never argv.
-  test("with a token: push goes through an inline credential helper, token only in env", async () => {
+  // machine; git asks rt git credential for the token, so it never rides in argv or env.
+  test("with a token: the push names rt git credential, the token in neither argv nor env", async () => {
     const p = probesWithZone({ home: "/home/x" });
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     p.exec = async (argv, opts) => {
@@ -68,11 +69,26 @@ describe("publishTeam", () => {
     };
     const result = await publishTeam(p, "acme", "https://github.com/acme/repo.git", { token: "ghp_secret" });
     const push = seen.find((c) => c.argv.includes("push"))!;
-    expect(push.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
+    expect(rtHelperHost(push.argv)).toBe("github.com");
     expect(push.argv.join(" ")).not.toContain("ghp_secret");
-    expect(push.env?.RT_GIT_TOKEN).toBe("ghp_secret");
+    expectNoToken(push.env, "ghp_secret");
     expect(result.pushed).toBe(true);
   });
+
+  for (const remote of ["https://github.com/acme/repo.git", "https://gitlab.com/acme/repo.git"]) {
+    test(`an empty opts.token pushes with plain git on ${new URL(remote).host}`, async () => {
+      const p = probesWithZone({ home: "/home/x" });
+      const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+      p.exec = async (argv, opts) => {
+        seen.push({ argv, env: opts?.env });
+        return { code: 0, stdout: argv.includes("get-url") ? `${remote}\n` : argv.includes("symbolic-ref") ? "main\n" : "", stderr: "" };
+      };
+      const result = await publishTeam(p, "acme", remote, { token: "" });
+      const push = seen.find((c) => c.argv.includes("push"))!;
+      expect(rtHelperHost(push.argv)).toBeNull();
+      expect(result.pushed).toBe(true);
+    });
+  }
 
   test("falls back to remote add when set-url fails (no origin yet)", async () => {
     const p = probesWithZone({
@@ -682,4 +698,152 @@ describe("a pending org store change passes the org store guard", () => {
     await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
     expect(w.pushes).toHaveLength(1);
   }, 15_000);
+});
+
+describe("withheldPublishHost", () => {
+  const GITLAB = "https://gitlab.acme.dev/a/b.git";
+  test("a GitLab token for an unconfirmed GitLab-shaped host names the host", () => {
+    expect(withheldPublishHost(GITLAB, "glpat_fake", null)).toBe("gitlab.acme.dev");
+    expect(withheldPublishHost("HTTPS://Gitlab.Acme.Dev/a/b.git", "glpat_fake", "git.acme.dev")).toBe("gitlab.acme.dev");
+  });
+  test("a confirmed host, gitlab.com, github.com, cleartext http and no token name nothing", () => {
+    expect(withheldPublishHost(GITLAB, "glpat_fake", "gitlab.acme.dev")).toBeNull();
+    expect(withheldPublishHost("https://gitlab.com/a/b.git", "glpat_fake", null)).toBeNull();
+    expect(withheldPublishHost("https://github.com/a/b.git", "glpat_fake", null)).toBeNull();
+    expect(withheldPublishHost("http://gitlab.acme.dev/a/b.git", "glpat_fake", null)).toBeNull();
+    expect(withheldPublishHost(GITLAB, null, null)).toBeNull();
+    expect(withheldPublishHost(GITLAB, "", null)).toBeNull();
+  });
+});
+
+describe("publishTeam offers the token only where rt git credential would answer", () => {
+  const USER_SETTINGS = "/home/x/.mattstack/user/settings.user.jsonc";
+  const confirmed = (host: string) => ({ [USER_SETTINGS]: JSON.stringify({ "rt.integrations": { forgeHost: host } }) });
+
+  /** Publishes with the helper pair recorded on every call that carries a token. */
+  async function publishWith(opts: { token: string; tokenRemote: string }, files: Record<string, string> = {}) {
+    const p = probesWithZone({ home: "/home/x", files });
+    const real = p.exec.bind(p);
+    const seen: { argv: string[]; env?: Record<string, string>; host: string | null }[] = [];
+    p.exec = async (argv, o) => {
+      seen.push({ argv, env: o?.env, host: rtHelperHost(argv) });
+      return real(argv, o);
+    };
+    await publishTeam(p, "acme", opts.tokenRemote, opts);
+    const authed = seen.filter((c) => c.argv.some((a) => a === "push" || a === "ls-remote"));
+    return { authed, seen };
+  }
+
+  test("setup create's publish to an unconfirmed GitLab-shaped host is plain git", async () => {
+    const { authed } = await publishWith({ token: "glpat_fake", tokenRemote: "https://gitlab.acme.dev/acme/mattstack-team-acme.git" });
+    expect(authed.some((c) => c.argv.includes("push"))).toBe(true);
+    expect(authed.some((c) => c.argv.includes("ls-remote"))).toBe(true);
+    for (const call of authed) {
+      expect(call.host).toBeNull();
+      expectNoToken(call.env, "glpat_fake");
+    }
+  });
+
+  test("the same remote with gitlab.acme.dev confirmed names the helper for that host", async () => {
+    const { authed } = await publishWith({ token: "glpat_fake", tokenRemote: "https://gitlab.acme.dev/acme/mattstack-team-acme.git" }, confirmed("gitlab.acme.dev"));
+    expect(authed.some((c) => c.argv.includes("push"))).toBe(true);
+    expect(authed.some((c) => c.argv.includes("ls-remote"))).toBe(true);
+    for (const call of authed) {
+      expect(call.host).toBe("gitlab.acme.dev");
+      expect(call.argv.join(" ")).not.toContain("glpat_fake");
+      expectNoToken(call.env, "glpat_fake");
+    }
+  });
+
+  test("a GitLab token with a github.com origin names github.com's helper", async () => {
+    const { authed } = await publishWith({ token: "glpat_fake", tokenRemote: "https://github.com/acme/mattstack-team-acme.git" });
+    expect(authed.some((c) => c.argv.includes("push"))).toBe(true);
+    for (const call of authed) {
+      expect(call.host).toBe("github.com");
+      expect(call.argv.join(" ")).not.toContain("glpat_fake");
+      expectNoToken(call.env, "glpat_fake");
+    }
+  });
+
+  test("the reverse mismatch is plain git", async () => {
+    const { authed } = await publishWith({ token: "glpat_fake", tokenRemote: "https://gitlab.acme.dev/acme/mattstack-team-acme.git" }, confirmed("git.acme.dev"));
+    expect(authed.length).toBeGreaterThan(0);
+    for (const call of authed) {
+      expect(call.host).toBeNull();
+      expectNoToken(call.env, "glpat_fake");
+    }
+  });
+});
+
+describe("publishTeam's pending pointer push follows the same gate", () => {
+  afterEach(() => cleanupOrgWorlds());
+
+  /** A data branch clone holding a pointer `main` that no origin has yet, as rt team create leaves it. */
+  function pointerWorld() {
+    const w = orgWorld("dev1");
+    w.git("checkout", "-q", "-b", "mattstack");
+    writeFileSync(join(w.root, ORG_MARKER_REL), `${JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" })}\n`);
+    w.git("add", "-A");
+    w.git("commit", "-q", "-m", "data branch");
+    w.git("checkout", "-q", "--orphan", "pointer");
+    w.git("rm", "-rqf", "--cached", ".");
+    w.git("clean", "-fdxq");
+    mkdirSync(dirname(join(w.root, ORG_MARKER_REL)), { recursive: true });
+    writeFileSync(join(w.root, ORG_MARKER_REL), `${JSON.stringify({ role: "org", org: "acme", layout: 4, dataBranch: "mattstack" })}\n`);
+    w.git("add", "-A");
+    w.git("commit", "-q", "-m", "pointer");
+    w.git("branch", "-f", "main", "pointer");
+    w.git("checkout", "-q", "mattstack");
+    w.git("branch", "-q", "-D", "pointer");
+    const fresh = join(w.home, "fresh.git");
+    execFileSync("git", ["init", "--bare", "-q", "-b", "main", fresh], { env: childEnv() });
+    w.git("remote", "set-url", "origin", fresh);
+    const seen: { argv: string[]; env?: Record<string, string>; host: string | null }[] = [];
+    const real = w.p.exec.bind(w.p);
+    w.p.exec = async (argv, opts) => {
+      const host = rtHelperHost(argv);
+      seen.push({ argv, env: opts?.env, host });
+      return real(host ? ["git", ...argv.slice(5)] : argv, opts);
+    };
+    return { w, seen };
+  }
+
+  const remoteCalls = (seen: { argv: string[] }[]) => seen.filter((c) => c.argv.some((a) => a === "push" || a === "ls-remote"));
+
+  test("every authed call, the pointer push included, is plain git on an unconfirmed GitLab-shaped host", async () => {
+    const { w, seen } = pointerWorld();
+    await publishTeam(w.p, "acme", null, { token: "glpat_fake", tokenRemote: "https://gitlab.acme.dev/acme/mattstack-team-acme.git" });
+    const calls = remoteCalls(seen) as typeof seen;
+    expect(calls.filter((c) => c.argv.includes("push"))).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.host).toBeNull();
+      expectNoToken(call.env, "glpat_fake");
+    }
+  }, 30_000);
+
+  test("a GitLab token with a github.com origin names github.com's helper on both pushes and the ls-remote", async () => {
+    const { w, seen } = pointerWorld();
+    await publishTeam(w.p, "acme", null, { token: "glpat_fake", tokenRemote: "https://github.com/acme/mattstack-team-acme.git" });
+    const calls = remoteCalls(seen) as typeof seen;
+    expect(calls.filter((c) => c.argv.includes("push"))).toHaveLength(2);
+    expect(calls.some((c) => c.argv.includes("ls-remote"))).toBe(true);
+    for (const call of calls) {
+      expect(call.host).toBe("github.com");
+      expect(call.argv.join(" ")).not.toContain("glpat_fake");
+      expectNoToken(call.env, "glpat_fake");
+    }
+  }, 30_000);
+
+  test("every authed call, the pointer push included, names the confirmed host's helper", async () => {
+    const { w, seen } = pointerWorld();
+    mkdirSync(join(w.home, ".mattstack", "user"), { recursive: true });
+    writeFileSync(join(w.home, ".mattstack", "user", "settings.user.jsonc"), JSON.stringify({ "rt.integrations": { forgeHost: "gitlab.acme.dev" } }));
+    await publishTeam(w.p, "acme", null, { token: "glpat_fake", tokenRemote: "https://gitlab.acme.dev/acme/mattstack-team-acme.git" });
+    const calls = remoteCalls(seen) as typeof seen;
+    expect(calls.filter((c) => c.argv.includes("push"))).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.host).toBe("gitlab.acme.dev");
+      expectNoToken(call.env, "glpat_fake");
+    }
+  }, 30_000);
 });
