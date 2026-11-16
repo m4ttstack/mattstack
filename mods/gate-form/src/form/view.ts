@@ -193,7 +193,7 @@ function hint(form: Form, s: State): string | undefined {
 
 // The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
 function draw(form: Form, s: State, view: View): Drawn<Action> {
-  const head: L[] = [brandBar<Action>('mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
+  const head: L[] = [brandBar<Action>(form.source === 'plugin' ? 'mattstack' : 'mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
   if (s.phase !== 'active' || form.status !== 'open') return { head, page: closedPage(form, s, view), foot: [] }
   if (form.context) {
     const first = [sp<Action>(SYMBOL.bar, GRAY), sp('  '), sp(ICON.info, ACCENT), sp(' ')]

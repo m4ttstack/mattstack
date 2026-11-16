@@ -1379,7 +1379,7 @@ function hint(form, s) {
   return choicesOf(q).length === 0 ? "←→ pages  ↓ buttons" : "←→ pages  ↑↓ move";
 }
 function draw(form, s, view) {
-  const head = [brandBar("mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
+  const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
   if (s.phase !== "active" || form.status !== "open")
     return { head, page: closedPage(form, s, view), foot: [] };
   if (form.context) {
