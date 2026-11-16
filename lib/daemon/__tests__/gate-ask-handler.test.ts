@@ -33,7 +33,6 @@ function harness(opts: {
   runWorktree?: (runId: string) => string | null;
   runCurrentStage?: (runId: string) => string | null;
   push?: GatePush;
-  reconciler?: NonNullable<Parameters<typeof createGateHandlers>[3]>["reconciler"];
 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "rt-gate-ask-handler-"));
   dirs.push(dir);
@@ -47,7 +46,6 @@ function harness(opts: {
     runWorktree: opts.runWorktree,
     runCurrentStage: opts.runCurrentStage,
     push: opts.push,
-    reconciler: opts.reconciler,
   });
   return { handlers, store, events };
 }
@@ -701,25 +699,21 @@ describe("gate:ask preAnswer", () => {
   const base = { subject: "mr:https://x/1", sessionId: "sess-1", paneId: "w1:p1", context: "why this decision" };
 
   function spies() {
-    const calls = { onOpened: 0, onAnswered: 0, executorFor: 0 };
+    const calls = { onOpened: 0, onAnswered: 0, onClosed: 0 };
     const push: GatePush = {
       onAnswered: async () => { calls.onAnswered++; },
       onOpened: async () => { calls.onOpened++; },
-      onClosed: async () => {},
+      onClosed: async () => { calls.onClosed++; },
       retryDeadPanes: async () => ({ retried: 0, delivered: 0, gaveUp: 0, reNudged: 0 }),
     };
-    const reconciler = {
-      executorFor: () => { calls.executorFor++; return { state: "gone" as const }; },
-      expect: () => {}, clear: () => {}, dismissed: () => {}, agentIdFor: () => null,
-    } as unknown as NonNullable<Parameters<typeof createGateHandlers>[3]>["reconciler"];
-    return { calls, push, reconciler };
+    return { calls, push };
   }
 
   const settle = () => new Promise((r) => setTimeout(r, 10));
 
   test("preAnswer opens an answered gate with no delivery", async () => {
-    const { calls, push, reconciler } = spies();
-    const { handlers, store, events } = harness({ resolveSubject, push, reconciler });
+    const { calls, push } = spies();
+    const { handlers, store, events } = harness({ resolveSubject, push });
     const res = await handlers["gate:ask"]({
       ...base, questions: twoOptionQuestion(),
       preAnswer: { answers: { q1: "yes" }, by: "mode:quiet" },
@@ -735,18 +729,18 @@ describe("gate:ask preAnswer", () => {
     expect(row.nudge ?? null).toBeNull();
     expect(row.pane ?? null).toBeNull();
     await settle();
-    expect(calls).toEqual({ onOpened: 0, onAnswered: 0, executorFor: 0 });
+    expect(calls).toEqual({ onOpened: 0, onAnswered: 0, onClosed: 0 });
     const topics = events.map((e) => e.topic);
     expect(topics).toEqual([`gate/opened/${row.id}`, `gate/answered/${row.id}`]);
     expect(events[1]!.payload.by).toBe("mode:quiet");
   });
 
   test("preAnswer on a herd-owned subject answers without pushing to the shepherd", async () => {
-    const { calls, push, reconciler } = spies();
+    const { calls, push } = spies();
     const { handlers, store } = harness({
       resolveSubject: () => ({ ok: true, subject: "run:r1", runId: "r1" }),
       runSpawnedBy: () => "herd:h1",
-      push, reconciler,
+      push,
     });
     const res = await handlers["gate:ask"]({
       questions: twoOptionQuestion(), sessionId: "sess-1", context: "why this decision",
@@ -759,7 +753,7 @@ describe("gate:ask preAnswer", () => {
     expect(row.status).toBe("answered");
     expect(row.answer?.by).toBe("mode:yolo");
     await settle();
-    expect(calls).toEqual({ onOpened: 0, onAnswered: 0, executorFor: 0 });
+    expect(calls).toEqual({ onOpened: 0, onAnswered: 0, onClosed: 0 });
   });
 
   test("preAnswer with by \"pane\" is refused", async () => {
@@ -800,5 +794,70 @@ describe("gate:ask preAnswer", () => {
     if (!res.ok) return;
     expect(res.data.preAnswered).toBeUndefined();
     expect(res.data.row).toBeUndefined();
+  });
+
+  test("a pre-answer that supersedes the asking pane's own gate does not interrupt that pane", async () => {
+    const { calls, push } = spies();
+    const { handlers, store } = harness({ resolveSubject, push });
+    const first = await handlers["gate:ask"]({ ...base, questions: twoOptionQuestion() });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.data.presentation).toBe("form");
+    const res = await handlers["gate:ask"]({
+      ...base, questions: twoOptionQuestion(),
+      preAnswer: { answers: { q1: "yes" }, by: "mode:quiet" },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.supersededId).toBe(first.data.id);
+    expect(store.get(first.data.id)!.status).toBe("closed");
+    await settle();
+    expect(calls.onClosed).toBe(0);
+  });
+
+  test("a pre-answer that supersedes another pane's gate still releases that pane", async () => {
+    const { calls, push } = spies();
+    const { handlers } = harness({ resolveSubject, push });
+    const first = await handlers["gate:ask"]({ ...base, sessionId: "sess-9", paneId: "w9:p9", questions: twoOptionQuestion() });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.data.presentation).toBe("form");
+    const res = await handlers["gate:ask"]({
+      ...base, questions: twoOptionQuestion(),
+      preAnswer: { answers: { q1: "yes" }, by: "mode:quiet" },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.supersededId).toBe(first.data.id);
+    await settle();
+    expect(calls.onClosed).toBe(1);
+  });
+
+  test("preAnswer is refused for a board-only kind, with no row created", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({
+      ...base, kind: "review-post", questions: twoOptionQuestion(),
+      preAnswer: { answers: { q1: "yes" }, by: "mode:yolo" },
+    });
+    expect(res).toEqual({ ok: false, error: "preAnswer is not allowed for board-only kinds" });
+    expect(store.list({}).gates).toHaveLength(0);
+  });
+
+  test("preAnswer by must name one of the four gate modes", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    for (const by of ["mode:", "mode:bogus", "mode:Quiet"]) {
+      const res = await handlers["gate:ask"]({
+        ...base, questions: twoOptionQuestion(), preAnswer: { answers: { q1: "yes" }, by },
+      });
+      expect(res).toEqual({ ok: false, error: "preAnswer by must name a gate mode" });
+    }
+    expect(store.list({}).gates).toHaveLength(0);
+    for (const mode of ["chatty", "normal", "quiet", "yolo"]) {
+      const res = await handlers["gate:ask"]({
+        ...base, subject: `mr:https://x/${mode}`, questions: twoOptionQuestion(),
+        preAnswer: { answers: { q1: "yes" }, by: `mode:${mode}` },
+      });
+      expect(res.ok).toBe(true);
+    }
   });
 });

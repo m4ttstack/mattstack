@@ -20,6 +20,7 @@ import { GATE_FORM_OPTION_CAP, gatePresentation } from "../../../packages/rt-cli
 
 const FORM_CAP_ADVISORY = `the in-pane form caps a question at ${GATE_FORM_OPTION_CAP} options, so this gate presents as wait; split an oversized selection into <id>-1, <id>-2, ... questions whose answers read as one union`;
 import { resolveGateSubject, type GateSubjectResult } from "../gate-subject.ts";
+import { parseMode } from "../../gates/mode.ts";
 import { SLACK_OPEN_ANSWERERS, SLACK_OPEN_KIND, SLACK_OPEN_OPEN_REFUSAL, SLACK_OPEN_REFUSAL } from "../../slack/request.ts";
 
 /**
@@ -184,15 +185,21 @@ function isValidNudge(v: unknown): v is { session: string } {
     resolution gate-push injects with) first, falling back to nudge.session
     when either side has no pane; with nothing comparable on either axis,
     the two gates are treated as different panes and the push proceeds. */
-function sameOpenerPane(a: GateRow, b: GateRow): boolean {
-  const paneA = a.origin?.paneId || a.pane;
+function sameOpenerPane(a: OpenerIdentity, b: GateRow): boolean {
   const paneB = b.origin?.paneId || b.pane;
-  if (paneA && paneB) return paneA === paneB;
-  const sessionA = a.nudge?.session;
+  if (a.paneId && paneB) return a.paneId === paneB;
   const sessionB = b.nudge?.session;
-  if (sessionA && sessionB) return sessionA === sessionB;
+  if (a.sessionId && sessionB) return a.sessionId === sessionB;
   return false;
 }
+
+/** The pane and session a gate was opened from; a pre-answered gate stores neither, so its caller names them here. */
+interface OpenerIdentity { paneId?: string; sessionId?: string }
+
+const openerOf = (row: GateRow): OpenerIdentity => ({
+  paneId: row.origin?.paneId || row.pane || undefined,
+  sessionId: row.nudge?.session,
+});
 
 /** Herd-spawned runs own their gates; everything else (no origin, no runId,
     an unknown run, or a legacy spawner like "shepherdr") falls back to the
@@ -379,6 +386,8 @@ function parsePreAnswer(
   if (!isPlainObject(raw)) return { ok: false, error: "preAnswer must be an object with answers and by" };
   const by = typeof raw.by === "string" ? raw.by.trim() : "";
   if (!by.startsWith(MODE_DECIDER_PREFIX)) return { ok: false, error: `preAnswer by must start with ${MODE_DECIDER_PREFIX}` };
+  const mode = by.slice(MODE_DECIDER_PREFIX.length);
+  if (parseMode(mode) !== mode) return { ok: false, error: "preAnswer by must name a gate mode" };
   const answers = raw.answers;
   if (!isPlainObject(answers)) return { ok: false, error: "preAnswer must be an object with answers and by" };
   const validationError = validateGateAnswers(questions, answers);
@@ -489,7 +498,7 @@ export function createGateHandlers(
   };
 
   /** `internal` is true only for the daemon's own opens, the one path that may name a gate's id or open a `slack-open` gate. */
-  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false, skipPush = false) => {
+  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false, opts: { skipPush?: boolean; opener?: OpenerIdentity } = {}) => {
     const payload = rawPayload as Commands["gate:open"]["payload"] | undefined;
     const subject = typeof payload?.subject === "string" ? payload.subject.trim() : "";
     const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
@@ -586,12 +595,12 @@ export function createGateHandlers(
       // on the superseded gate never gets an answer, so it needs the same
       // doorbell-then-Escape delivery onAnswered gives a real answer.
       const supersededRow = store.get(supersededId);
-      if (supersededRow && !sameOpenerPane(row, supersededRow)) {
+      if (supersededRow && !sameOpenerPane(opts.opener ?? openerOf(row), supersededRow)) {
         firePush(push.onClosed(supersededRow), { verb: "gate:open", gateId: supersededRow.id });
       }
     }
 
-    if (!skipPush) firePush(push.onOpened(row), { verb: "gate:open", gateId: row.id });
+    if (!opts.skipPush) firePush(push.onOpened(row), { verb: "gate:open", gateId: row.id });
 
     return { ok: true as const, data: { id: row.id, supersededId } };
   };
@@ -821,6 +830,7 @@ export function createGateHandlers(
 
     const kind = typeof payload?.kind === "string" && payload.kind.trim() ? payload.kind.trim() : "question";
     const boardOnly = BOARD_ONLY_KINDS.has(kind);
+    if (preAnswer && boardOnly) return { ok: false as const, error: "preAnswer is not allowed for board-only kinds" };
     const presentation = boardOnly || preAnswer ? "wait" : gatePresentation({ paneId, sessionId, questions, kit: payload?.kitForm === true });
     // Only when a form was otherwise POSSIBLE: a pane-less ask waits for its
     // own reason, and an advisory there would teach the wrong lesson. The
@@ -859,7 +869,7 @@ export function createGateHandlers(
       ...(paneId && !preAnswer ? { pane: paneId } : {}),
       ...((presentation === "form" || presentation === "kit") && sessionId ? { nudge: { session: sessionId } } : {}),
       origin,
-    }, false, true, preAnswer !== undefined);
+    }, false, true, preAnswer ? { skipPush: true, opener: { paneId, sessionId } } : {});
     if (!opened.ok) return opened;
     if (preAnswer) {
       // Answered in-store rather than through gate:answer: its owner guard refuses a herd-owned gate, and nothing here may reach a pane or shepherd.
