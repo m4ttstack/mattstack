@@ -232,6 +232,7 @@ import {
   skillBindRefusal,
   statusBinPath,
 } from './herdr.ts';
+import { joinErrors } from './join-errors.ts';
 import { boardLatchGateway } from './latch/board-gateway.ts';
 import { reviewerLatches, reviewerRequests } from './latch/discussions.ts';
 import { refreshedDiscussionCount } from './latch/github-gateway.ts';
@@ -1024,7 +1025,7 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
         tags.set(entry.pr.id, entry.codeownerSections);
     }
   }
-  if (errors.length) throw new Error(errors.join(' · '));
+  if (errors.length) throw new Error(joinErrors(errors));
   return {
     prs: [...byId.values()],
     ...aggregateSyncScope(reads, config.forge.kind),
@@ -2126,7 +2127,7 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
         tags.set(entry.pr.id, entry.codeownerSections);
     }
   }
-  if (errors.length) throw new Error(errors.join(' · '));
+  if (errors.length) throw new Error(joinErrors(errors));
   const mrs = buildBoard(out, config, undefined, tags, windows);
   await enrichReviewerComments(mrs);
   return mrs;

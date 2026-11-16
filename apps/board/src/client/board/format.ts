@@ -22,6 +22,7 @@ import type {
   SentNudgeInfo,
   ThreadStatus,
 } from '../types.ts';
+import { joinBullet } from './bullet.ts';
 import type { SlackStage } from './slack-ladder.ts';
 
 const GROUP_LABEL: Record<GroupKey, string> = {
@@ -436,9 +437,10 @@ function respondChoices(
       name: t.name,
       nextRound,
       open,
-      hint: [nextRound > 1 && `round ${nextRound}`, counts.join(' · ')]
-        .filter(Boolean)
-        .join(' · '),
+      hint: joinBullet([
+        nextRound > 1 && `round ${nextRound}`,
+        joinBullet(counts),
+      ]),
     });
   }
   for (const [username, round] of Object.entries(rounds)) {
@@ -449,7 +451,7 @@ function respondChoices(
       name: username,
       nextRound,
       open: 0,
-      hint: `round ${nextRound} · nothing open · redo`,
+      hint: `round ${nextRound} • nothing open • redo`,
     });
   }
   return choices.sort((a, b) => a.name.localeCompare(b.name));

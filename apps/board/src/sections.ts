@@ -42,5 +42,5 @@ export function unknownSectionNotice(
 ): string {
   if (forge === 'github')
     return `no CODEOWNERS owner "${section}"${suggestion ? `. Did you mean "${suggestion}"?` : ''}`;
-  return `no CODEOWNERS section "${section}"${suggestion ? ` · did you mean "${suggestion}"?` : ''}`;
+  return `no CODEOWNERS section "${section}"${suggestion ? `; did you mean "${suggestion}"?` : ''}`;
 }

@@ -3,6 +3,7 @@ import { ago, cleanTitle } from './format.ts';
 import { MrLinks, mrRef, onGitHub } from './MrLinks.tsx';
 import { usePeople } from './people.ts';
 import { PersonLead } from './PersonLead.tsx';
+import { Sep } from './Sep.tsx';
 
 /** A review gate's identity card: the invader, the author and where the MR
     merges, and its links share the top line; the title, the age and diff
@@ -22,15 +23,21 @@ export function MrCard({ mr }: { mr: BoardMRWithReview }) {
       <p className="tui-id-card-meta">
         <span>{ago(mr.createdAt, Date.now())}</span>
         {mr.diff && (
-          <span className="tui-mr-card-diff">
-            · <span className="tui-mr-card-diff-add">+{mr.diff.additions}</span>
-            <span className="tui-mr-card-diff-del">-{mr.diff.deletions}</span>
-          </span>
+          <>
+            <Sep />
+            <span className="tui-mr-card-diff">
+              <span className="tui-mr-card-diff-add">+{mr.diff.additions}</span>
+              <span className="tui-mr-card-diff-del">-{mr.diff.deletions}</span>
+            </span>
+          </>
         )}
         {mr.sourceBranch && (
-          <span className="tui-id-card-branch" title={mr.sourceBranch}>
-            · {mr.sourceBranch}
-          </span>
+          <>
+            <Sep />
+            <span className="tui-id-card-branch" title={mr.sourceBranch}>
+              {mr.sourceBranch}
+            </span>
+          </>
         )}
       </p>
     </div>

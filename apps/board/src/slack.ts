@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 
+import { mrNoun } from './mr-ref.ts';
 import type { ReactedBy } from './slack-emoji.ts';
 import {
   getKvValue,
@@ -1063,7 +1064,9 @@ export async function reactToMR(
 ): Promise<SlackRef> {
   const ref = readSlackRef(mrUrl, db);
   if (!ref || ref.status !== 'found' || !ref.channelId) {
-    throw new Error('no resolved slack message for this MR');
+    throw new Error(
+      `no resolved slack message for this ${mrNoun(undefined, mrUrl)}`
+    );
   }
   const next = { ...ref };
   if (ref.multi && !ref.messageTs) {
@@ -1107,7 +1110,9 @@ export async function unreactFromMR(
 ): Promise<SlackRef> {
   const ref = readSlackRef(mrUrl, db);
   if (!ref || ref.status !== 'found' || !ref.channelId || !ref.messageTs) {
-    throw new Error('no resolved slack message for this MR');
+    throw new Error(
+      `no resolved slack message for this ${mrNoun(undefined, mrUrl)}`
+    );
   }
   await removeReaction(token, ref.channelId, ref.messageTs, emoji);
   const next = {

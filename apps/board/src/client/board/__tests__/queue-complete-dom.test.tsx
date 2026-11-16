@@ -217,11 +217,15 @@ test('a gate answered elsewhere credits its decider on the outcome line', async 
   ]);
   const rows = [...container.querySelectorAll('.tui-triage-done-row')];
   expect(rows[0]!.querySelector('.tui-triage-done-outcome')?.textContent).toBe(
-    '1 fix, approve · by dana'
+    '1 fix, approve by dana'
   );
+  expect(
+    rows[0]!.querySelector('.tui-triage-done-outcome')?.getAttribute('title')
+  ).toBe('1 fix, approve • by dana');
   expect(rows[0]!.querySelector('.tui-triage-done-by')?.textContent).toBe(
-    ' · by dana'
+    ' by dana'
   );
+  expect(rows[0]!.querySelector('.tui-triage-done-by .tui-sep')).not.toBeNull();
   expect(rows[1]!.querySelector('.tui-triage-done-by')).toBeNull();
 });
 

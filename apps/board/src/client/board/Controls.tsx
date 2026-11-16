@@ -14,6 +14,7 @@ import type { GroupKey, ShowItem, ViewState } from '../../view.ts';
 import type { ThemeMode } from '../types.ts';
 import { GROUP_LABEL, SORT_LABEL } from './format.ts';
 import { SlackLogo } from './icons.tsx';
+import { Sep } from './Sep.tsx';
 
 // Lucide path data; tui-kit's ICONS has no layers, sort or chevron-down.
 const LAYERS_ICON =
@@ -231,7 +232,8 @@ function Controls({
                     onClick={() => show.toggle(item)}
                   >
                     {on ? '✓' : '+'}{' '}
-                    {showLabel(item, show.channel, show.prs, show.forge)} ·{' '}
+                    {showLabel(item, show.channel, show.prs, show.forge)}
+                    <Sep />
                     {show.counts[item]}
                   </button>
                 );
