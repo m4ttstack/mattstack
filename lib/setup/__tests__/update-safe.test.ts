@@ -15,6 +15,7 @@ const UPDATE_SAFE: StepId[] = [
   "intercepts.install",
   "plugins.install",
   "claude.permissions",
+  "editor.terminal-font",
   "fastbrowser.setup",
   "herdr.integration",
   "extension.install",
