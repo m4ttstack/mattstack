@@ -202,13 +202,14 @@ test('leaving and a Close pick runs /exit', { plugins: [GATE_FORM] }, async ($, 
   expect(w.asked[0]).toMatchObject({
     title: WHY,
     context: 'rt is cleaning up this worktree. No answer in 2 minutes moves this session out.',
-    label: 'What should this session do?',
+    kind: 'confirm',
     options: [
-      { value: 'close', label: 'Close session' },
       { value: 'leave', label: 'Exit worktree and continue' },
+      { value: 'close', label: 'Close session' },
     ],
     timeoutMs: 120_000,
   })
+  expect(w.asked[0]).not.toHaveProperty('label')
   expect(w.commands).toEqual([{ command: 'exit', args: '' }])
   expect(w.tools).toEqual([])
   await w.clock.advance(5 * POLL_MS)

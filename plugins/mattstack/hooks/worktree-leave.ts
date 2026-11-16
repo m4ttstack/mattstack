@@ -128,17 +128,17 @@ function parse(stdout: string): AwaitLeave | null {
   return null
 }
 
-// A gate-form without the noun (missing, or older than 0.6.0) makes the call throw, which leaves without asking.
+// A gate-form without the noun, or without confirm (older than 0.6.1), makes the call throw, which leaves without asking.
 async function ask($: EngineInterface, why: string, token: string): Promise<Choice> {
   let id: string
   try {
     ;({ id } = await $.gateForm.ask({
       title: why,
       context: 'rt is cleaning up this worktree. No answer in 2 minutes moves this session out.',
-      label: 'What should this session do?',
+      kind: 'confirm',
       options: [
-        { value: 'close', label: 'Close session' },
         { value: 'leave', label: 'Exit worktree and continue' },
+        { value: 'close', label: 'Close session' },
       ],
       timeoutMs: QUESTION_TIMEOUT_MS,
     }))
