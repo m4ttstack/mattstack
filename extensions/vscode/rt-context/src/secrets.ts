@@ -60,7 +60,7 @@ export async function getSecret(
     case 'unset':
       break; // normal — key was never set anywhere; no warning
     case 'daemon-down':
-      warnOnce('daemon-down', 'rt daemon unreachable at :9401 — falling back to VS Code\'s local secret store');
+      warnOnce('daemon-down', 'rt daemon unreachable — falling back to VS Code\'s local secret store');
       break;
     case 'gate-failed':
       warnOnce(

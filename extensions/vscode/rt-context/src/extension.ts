@@ -13,7 +13,7 @@ import {
   getCurrentWorktreePath,
   openLinearUrl,
 } from './statusBar';
-import { connectWebSocket, disconnectWebSocket, onDaemonEvent } from './daemonClient';
+import { onDaemonRefresh } from './daemonClient';
 import { showBranchSwitcher } from './branchSwitcher';
 import { showAllWorktrees } from './worktreePicker';
 import { forgeWords } from './forge';
@@ -107,20 +107,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   waitForGitAndStart(context);
 
-  // Connect to daemon WebSocket for live updates
-  connectWebSocket();
-  context.subscriptions.push(
-    onDaemonEvent((event) => {
-      if (event.type === 'status') {
-        // Daemon refreshed its cache — update status bar with fresh data
-        scheduleUpdate(context);
-      }
-    }),
-  );
+  context.subscriptions.push(onDaemonRefresh(() => scheduleUpdate(context)));
 }
 
 export function deactivate() {
   clearUpdateTimer();
-  disconnectWebSocket();
   branchCache.clear();
 }
