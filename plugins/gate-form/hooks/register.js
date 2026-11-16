@@ -554,10 +554,17 @@ function pluginForm(raw) {
     return "title must be a non-empty string.";
   if (typeof args.timeoutMs !== "number" || !(args.timeoutMs > 0))
     return "timeoutMs must be a positive number of milliseconds.";
+  if (args.kind !== undefined && args.kind !== "choice" && args.kind !== "confirm")
+    return "kind must be 'choice' or 'confirm'.";
+  const confirm = args.kind === "confirm";
   if (!Array.isArray(args.options) || args.options.length === 0)
     return "options must be a non-empty array.";
-  const question = { id: PLUGIN_QUESTION, header: "Choice", label: args.label, options: args.options };
-  return toForm(args.title, args.context, [question], "plugin");
+  if (confirm && (args.options.length < 2 || args.options.length > 3))
+    return "a confirm takes 2 or 3 options.";
+  const label = confirm && args.label === undefined ? args.title : args.label;
+  const question = { id: PLUGIN_QUESTION, header: "Choice", label, options: args.options };
+  const form = toForm(args.title, args.context, [question], "plugin");
+  return typeof form === "string" || !confirm ? form : { ...form, confirm: true };
 }
 var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 function readKitResult(text) {

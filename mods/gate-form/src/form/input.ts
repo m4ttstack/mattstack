@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -43,6 +43,21 @@ function moved(form: Form, s: State, move: MenuMove | undefined): Effect | undef
   return control ? post(form, state, control.answers, control.label) : { state }
 }
 
+// A confirm's press is its answer.
+function press(form: Form, s: State, idx: number): Effect | undefined {
+  const option = form.questions[0]?.options[idx]
+  return option && post(form, { ...s, cursor: [idx] }, { [form.questions[0]!.id]: option.value })
+}
+
+// ←→ and Tab move between a confirm's buttons; Enter presses the focused one.
+function confirmKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
+  if (isEnter(ev)) return press(form, s, s.cursor[0]!)
+  const back = ev.key === 'left' || (ev.key === 'tab' && ev.shift)
+  if (!back && ev.key !== 'right' && ev.key !== 'tab') return undefined
+  const last = (form.questions[0]?.options.length ?? 1) - 1
+  return { state: { ...s, cursor: [Math.max(0, Math.min(last, s.cursor[0]! + (back ? -1 : 1)))] } }
+}
+
 // A new page starts with the keyboard on its answers and the nav row back on its forward button.
 function settled(before: State, effect: Effect | undefined): Effect | undefined {
   if (!effect || effect.state.page === before.page) return effect
@@ -67,6 +82,7 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
     case 'advance':
       return { state: advance(form, s) }
     case 'option': {
+      if (isConfirm(form)) return press(form, s, action.idx)
       return { state: clickChoice(form, s, action.idx) }
     }
     case 'send':
@@ -127,6 +143,7 @@ const isEnter = (ev: ClientKeyEvent) => ev.key === 'return' || ev.key === 'enter
 export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean {
   if (s.phase !== 'active' || !isEnter(ev)) return false
   if (s.menu.open) return true
+  if (isConfirm(form)) return true
   if (isSinglePage(form)) return canSubmit(form, s)
   if (!isOnNav(form, s)) {
     const q = form.questions[s.page]
@@ -170,6 +187,7 @@ export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect 
   if (armed.phase !== 'active') return undefined
   if (ev.ctrl && (ev.key === 'x' || ev.key === 'c')) return chat(form, armed)
   const s = disarm(armed)
+  if (isConfirm(form)) return confirmKey(ev, form, s)
   // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
   if (ev.key === 'tab' && isSinglePage(form)) return { state: s }
   if (ev.key === 'tab' && !isReview(form, s)) return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })

@@ -51,7 +51,7 @@ export function choicesOf(q: FormQuestion): FormOption[] {
 export function initial(form: Form): State {
   return {
     page: 0,
-    cursor: form.questions.map(q => Math.max(0, q.options.findIndex(isRecommended))),
+    cursor: form.questions.map(q => (isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended)))),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ''),
     answered: form.questions.map(() => false),
@@ -83,6 +83,8 @@ export const canChat = (form: Form) => form.source !== 'plugin'
 
 // A plugin form's one question is its only page, with Submit under the options in place of a review page.
 export const isSinglePage = (form: Form) => form.source === 'plugin'
+
+export const isConfirm = (form: Form) => form.confirm === true
 
 export const isReview = (form: Form, s: State) => !isSinglePage(form) && s.page === form.questions.length
 export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)

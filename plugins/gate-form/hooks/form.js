@@ -917,7 +917,7 @@ function choicesOf(q) {
 function initial(form) {
   return {
     page: 0,
-    cursor: form.questions.map((q) => Math.max(0, q.options.findIndex(isRecommended))),
+    cursor: form.questions.map((q) => isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended))),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
     answered: form.questions.map(() => false),
@@ -941,6 +941,7 @@ var PAUSE = "pause";
 var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
+var isConfirm = (form) => form.confirm === true;
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
@@ -1098,6 +1099,19 @@ function moved(form, s, move) {
   const control = move.picked === undefined ? undefined : controlAnswers(move.picked);
   return control ? post(form, state, control.answers, control.label) : { state };
 }
+function press(form, s, idx) {
+  const option = form.questions[0]?.options[idx];
+  return option && post(form, { ...s, cursor: [idx] }, { [form.questions[0].id]: option.value });
+}
+function confirmKey(ev, form, s) {
+  if (isEnter(ev))
+    return press(form, s, s.cursor[0]);
+  const back = ev.key === "left" || ev.key === "tab" && ev.shift;
+  if (!back && ev.key !== "right" && ev.key !== "tab")
+    return;
+  const last = (form.questions[0]?.options.length ?? 1) - 1;
+  return { state: { ...s, cursor: [Math.max(0, Math.min(last, s.cursor[0] + (back ? -1 : 1)))] } };
+}
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
     return effect;
@@ -1122,6 +1136,8 @@ function performOn(action, form, armed) {
     case "advance":
       return { state: advance(form, s) };
     case "option": {
+      if (isConfirm(form))
+        return press(form, s, action.idx);
       return { state: clickChoice(form, s, action.idx) };
     }
     case "send":
@@ -1179,6 +1195,8 @@ function pressesButton(ev, form, s) {
     return false;
   if (s.menu.open)
     return true;
+  if (isConfirm(form))
+    return true;
   if (isSinglePage(form))
     return canSubmit(form, s);
   if (!isOnNav(form, s)) {
@@ -1232,6 +1250,8 @@ function keyEffect(ev, form, armed) {
   if (ev.ctrl && (ev.key === "x" || ev.key === "c"))
     return chat(form, armed);
   const s = disarm(armed);
+  if (isConfirm(form))
+    return confirmKey(ev, form, s);
   if (ev.key === "tab" && isSinglePage(form))
     return { state: s };
   if (ev.key === "tab" && !isReview(form, s))
@@ -1389,6 +1409,16 @@ function navRows(form, s, view) {
   const hung = menu({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: (hit) => ({ type: "menu", hit }) });
   return [marked(line), ...hung.slice(1)];
 }
+function confirmFoot(form, s, view) {
+  const at = s.cursor[0];
+  const buttons = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: "option", idx }, tone: idx === 0 ? "brand" : "secondary" }));
+  const line = buttonRow(buttons, undefined, view.width);
+  const span = 1 + 2 * at;
+  const row = view.focused ? [...line.slice(0, span), ...gridLook(line[span], { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line;
+  const bar = rail(ACCENT);
+  const gap = form.context ? [[sp(SYMBOL.bar, ACCENT)]] : [];
+  return [...gap, ...hang(bar, bar, hint(form, s), view.width, DIM), [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(" ")], row];
+}
 function submitRow(form, s, view) {
   return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
 }
@@ -1400,6 +1430,8 @@ function errorLines(form, view) {
 }
 function hint(form, s) {
   const q = form.questions[s.page];
+  if (isConfirm(form))
+    return "←→ choose   enter presses";
   if (isSinglePage(form))
     return "↑↓ choose  enter submit";
   if (!q) {
@@ -1419,8 +1451,10 @@ function draw(form, s, view) {
   if (form.context) {
     const indent = [sp(SYMBOL.bar, GRAY), sp("  ")];
     const divider = [sp(`├${"─".repeat(Math.max(4, view.width - 2))}`, GRAY)];
-    head.push(...hang(indent, indent, contextText(form.context), view.width), gap, divider, gap);
+    head.push(...hang(indent, indent, contextText(form.context), view.width), ...isConfirm(form) ? [] : [gap, divider, gap]);
   }
+  if (isConfirm(form))
+    return { head, page: [], foot: confirmFoot(form, s, view) };
   if (!isSinglePage(form))
     head.push(tabs(form, s, view), gap);
   const q = form.questions[s.page];
@@ -1449,7 +1483,7 @@ function fittedLines(form, s, view, rows, wheel) {
   const full = draw(form, s, view);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
-    const pad = s.phase === "active" && form.status === "open" ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
+    const pad = s.phase === "active" && form.status === "open" && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...wheel !== undefined && { wheelAt: wheel } };
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) };

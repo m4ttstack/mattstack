@@ -23,6 +23,8 @@ export type Form = {
   status: 'open' | 'answered' | 'cancelled'
   // A plugin form is another plugin's one-pick question, asked through `$.gateForm`.
   source: 'gate' | 'ask' | 'plugin'
+  // A plugin form drawn as a confirm dialog: its options are a row of buttons, and a press is the answer.
+  confirm?: true
   gateId?: string
   controls?: Controls
   // What the person reads about the last answer, which may not be recorded; `attempt` counts the failures so the Client knows to take the form back.
@@ -46,7 +48,16 @@ export type LegacyForm = {
   replyTo: 'agent' | 'toast'
 }
 
-export type GateFormAskArgs = { title: string; context?: string; label: string; options: { value: string; label: string; description?: string }[]; timeoutMs: number }
+// `choice` (the default) draws the options as radio rows under `label`, with Submit; `confirm` draws 2 or 3 options
+// as buttons under the context, with no question line, the first one primary and focused.
+export type GateFormAskArgs = {
+  title: string
+  context?: string
+  kind?: 'choice' | 'confirm'
+  label?: string
+  options: { value: string; label: string; description?: string }[]
+  timeoutMs: number
+}
 
 export type GateFormAskResult = { value: string } | { timedOut: true } | { closed: true }
 

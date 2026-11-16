@@ -2,7 +2,7 @@ import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, bu
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canChat, canSubmit, choicesOf, cursorIsChoice, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { canChat, canSubmit, choicesOf, cursorIsChoice, isConfirm, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 // `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
@@ -177,6 +177,18 @@ function navRows(form: Form, s: State, view: View): L[] {
   return [marked(line), ...hung.slice(1)]
 }
 
+// The options as buttons, the first primary, with the focused one marked.
+function confirmFoot(form: Form, s: State, view: View): L[] {
+  const at = s.cursor[0]!
+  const buttons: Button<Action>[] = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: 'option', idx }, tone: idx === 0 ? 'brand' : 'secondary' }))
+  const line = buttonRow(buttons, undefined, view.width)
+  const span = 1 + 2 * at
+  const row: L = view.focused ? [...line.slice(0, span), ...gridLook(line[span]!, { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line
+  const bar = rail<Action>(ACCENT)
+  const gap: L[] = form.context ? [[sp(SYMBOL.bar, ACCENT)]] : []
+  return [...gap, ...hang(bar, bar, hint(form, s)!, view.width, DIM), [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(' ')], row]
+}
+
 // The keys stay on the options, so Submit is never marked; Enter presses it from there.
 function submitRow(form: Form, s: State, view: View): L {
   return buttonRow([{ label: 'Submit', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }], undefined, view.width)
@@ -191,6 +203,7 @@ function errorLines(form: Form, view: View): L[] {
 // The same with or without focus: focus changes only how the selection is drawn, never what the form says.
 function hint(form: Form, s: State): string | undefined {
   const q = form.questions[s.page]
+  if (isConfirm(form)) return '←→ choose   enter presses'
   if (isSinglePage(form)) return '↑↓ choose  enter submit'
   if (!q) {
     const others = navIds(form, s).length > 1 ? '   tab buttons' : ''
@@ -209,8 +222,9 @@ function draw(form: Form, s: State, view: View): Drawn<Action> {
   if (form.context) {
     const indent = [sp<Action>(SYMBOL.bar, GRAY), sp('  ')]
     const divider: L = [sp(`├${'─'.repeat(Math.max(4, view.width - 2))}`, GRAY)]
-    head.push(...hang(indent, indent, contextText(form.context), view.width), gap, divider, gap)
+    head.push(...hang(indent, indent, contextText(form.context), view.width), ...(isConfirm(form) ? [] : [gap, divider, gap]))
   }
+  if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, s, view) }
   if (!isSinglePage(form)) head.push(tabs(form, s, view), gap)
 
   const q = form.questions[s.page]
@@ -252,7 +266,7 @@ export function fittedLines(form: Form, s: State, view: View, rows: number, whee
   const full = draw(form, s, view)
   const room = rows - FIXED_TOP - full.foot.length
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
-    const pad = s.phase === 'active' && form.status === 'open' ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
+    const pad = s.phase === 'active' && form.status === 'open' && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...(wheel !== undefined && { wheelAt: wheel }) }
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) }

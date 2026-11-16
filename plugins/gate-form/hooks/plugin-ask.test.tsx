@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PANE, formOf, resultText, startSession, world, type Engine, type On } from './world'
+import { PANE, formOf, resultText, rowsOf, startSession, world, type Engine, type On } from './world'
 
 const ARGS = {
   title: 'PR #1144 merged',
@@ -139,5 +139,44 @@ test('a plugin form left open by an earlier load is closed on session start', as
   expect(await formOf(pane)).toMatchObject({ id: 'f-stale' })
   expect((await formOf(pane))!.status).not.toBe('open')
   expect(seeded).toBe(false)
+  await pane.unmount()
+})
+
+const CONFIRM = {
+  title: 'MR !267 merged',
+  kind: 'confirm',
+  context: 'rt is cleaning up this worktree. No answer in 2 minutes moves this session out.',
+  options: [
+    { value: 'leave', label: 'Exit worktree and continue' },
+    { value: 'close', label: 'Close session' },
+  ],
+  timeoutMs: 120_000,
+}
+
+test('a confirm ask resolves with the button pressed from the keyboard', { plugins: [CONSUMER] }, async ($, on) => {
+  world(on, { setting: 'off' })
+  await startSession($)
+  const { id } = await askNoun($, CONFIRM)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.key({ key: 'right' })
+  await pane.key({ key: 'return' })
+  // Enter shows its press before it answers.
+  await pane.advance(200)
+  expect(await waitNoun($, id)).toEqual({ value: 'close' })
+  await pane.unmount()
+})
+
+test('a confirm ask resolves with the button clicked', { plugins: [CONSUMER] }, async ($, on) => {
+  world(on, { setting: 'off' })
+  await startSession($)
+  const { id } = await askNoun($, CONFIRM)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rows = await rowsOf(pane, (await pane.find({ type: 'Client' }))!.key!)
+  const y = rows.findIndex(r => r.includes('Exit worktree'))
+  expect(y).toBeGreaterThan(-1)
+  const x = [...rows[y]!.slice(0, rows[y]!.indexOf('Exit worktree'))].length + 1
+  await pane.pointer({ type: 'down', x, y, button: 'left' })
+  await pane.pointer({ type: 'up', x, y, button: 'left' })
+  expect(await waitNoun($, id)).toEqual({ value: 'leave' })
   await pane.unmount()
 })
