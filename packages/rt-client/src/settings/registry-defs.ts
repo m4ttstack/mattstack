@@ -315,6 +315,22 @@ const ROWS: readonly SettingDef[] = [
     description: "Show pane gates in the gate-form mod's kit form instead of Claude Code's question form. Needs the gate-form plugin. Off by default while the kit form is a prototype.",
   },
   {
+    key: "rt.work.gateMode",
+    type: "string",
+    scopes: ["user", "machine"],
+    default: "chatty",
+    merge: "replace",
+    description: "How much a work run stops to ask you. chatty asks at every gate; normal, quiet and yolo let more gates go ahead on the agent's recommendation. A run can set its own mode.",
+  },
+  {
+    key: "rt.work.gateModeShadow",
+    type: "boolean",
+    scopes: ["user", "machine"],
+    default: false,
+    merge: "replace",
+    description: "Record what your gate mode would have picked while every gate still asks you. For trying a mode before trusting it.",
+  },
+  {
     key: "review.ruleSelector",
     type: "boolean",
     scopes: ["team", "user", "machine"],

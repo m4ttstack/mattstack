@@ -448,8 +448,10 @@ describe("settings/registry", () => {
         "rt.notify.sounds",
         "review.ruleSelector",
         "rt.gates.kitForm",
+        "rt.work.gateMode",
+        "rt.work.gateModeShadow",
       ];
-      expect(suiteKeys).toHaveLength(109);
+      expect(suiteKeys).toHaveLength(111);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
