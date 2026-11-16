@@ -4,10 +4,10 @@ import { FILL, QUIET } from '../draw/theme'
 
 // Every button is a block; its tone picks the fill. A disabled one keeps its place and shape but takes no clicks.
 // A `quiet` one has no fill until the pointer is over it, for the actions beside the one that matters.
-export type ButtonTone = 'primary' | 'secondary' | 'neutral' | 'caution' | 'brand' | 'quiet'
+export type ButtonTone = 'primary' | 'secondary' | 'neutral' | 'caution' | 'brand' | 'solid' | 'solidMuted' | 'quiet'
 export type Button<A> = { label: string; action: A; tone?: ButtonTone; disabled?: boolean }
 
-const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } }
+const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, solid: FILL.solid, solidMuted: FILL.solidMuted, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } }
 
 type Spacing = { indent: number; pad: number; gap: number }
 const ROOMY: Spacing = { indent: 3, pad: 2, gap: 2 }

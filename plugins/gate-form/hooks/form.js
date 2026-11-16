@@ -193,7 +193,9 @@ var FILL = {
   current: { bg: "#3aa8b8", color: "black" },
   disabled: { bg: "#262626", color: "#5c5c5c" },
   field: { bg: "#2c2c2c", color: "white" },
-  brand: { bg: BRAND.pink, color: BRAND.plum }
+  brand: { bg: BRAND.pink, color: BRAND.plum },
+  solid: { bg: "text", color: "inverseText" },
+  solidMuted: { bg: "subtle", color: "text" }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
 var PLACEHOLDER = { color: "#7a7a7a" };
@@ -218,7 +220,10 @@ var PRESS_FILL = {
   [FILL.current.bg]: "#3394a2"
 };
 var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
+var PRESS_THEMED = { [FILL.solid.bg]: { bg: "inactive", color: "inverseText" }, [FILL.solidMuted.bg]: { bg: "inactive", color: "inverseText" } };
 function hoverOf(span) {
+  if (span.bg && PRESS_THEMED[span.bg])
+    return span;
   if (span.quiet)
     return { ...span, bg: QUIET.hover, color: "white" };
   if (span.chip)
@@ -226,6 +231,8 @@ function hoverOf(span) {
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressOf(span) {
+  if (span.bg && PRESS_THEMED[span.bg])
+    return { ...span, ...PRESS_THEMED[span.bg] };
   if (span.quiet)
     return { ...span, bg: QUIET.press, color: "white" };
   if (span.chip)
@@ -256,7 +263,7 @@ var WARN = { color: "yellow" };
 var DIM = { dim: true };
 var rail = (style) => [sp(SYMBOL.bar, style), sp("  ")];
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
-var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
+var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" }, [FILL.solid.bg]: { bg: "inactive", color: "inverseText" }, [FILL.solidMuted.bg]: { bg: "subtle", color: "inactive" } };
 function muted(span) {
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
@@ -277,7 +284,7 @@ function brandBar(label, width, hide) {
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, solid: FILL.solid, solidMuted: FILL.solidMuted, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 2 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
@@ -942,6 +949,10 @@ var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
+function confirmOrder(form) {
+  const count = form.questions[0]?.options.length ?? 0;
+  return [...Array.from({ length: Math.max(0, count - 1) }, (_, k) => k + 1), 0];
+}
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
@@ -1109,8 +1120,9 @@ function confirmKey(ev, form, s) {
   const back = ev.key === "left" || ev.key === "tab" && ev.shift;
   if (!back && ev.key !== "right" && ev.key !== "tab")
     return;
-  const last = (form.questions[0]?.options.length ?? 1) - 1;
-  return { state: { ...s, cursor: [Math.max(0, Math.min(last, s.cursor[0] + (back ? -1 : 1)))] } };
+  const order = confirmOrder(form);
+  const at = Math.max(0, Math.min(order.length - 1, order.indexOf(s.cursor[0]) + (back ? -1 : 1)));
+  return { state: { ...s, cursor: [order[at]] } };
 }
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
@@ -1410,14 +1422,14 @@ function navRows(form, s, view) {
   return [marked(line), ...hung.slice(1)];
 }
 function confirmFoot(form, s, view) {
-  const at = s.cursor[0];
-  const buttons = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: "option", idx }, tone: idx === 0 ? "primary" : "secondary" }));
+  const options = form.questions[0]?.options ?? [];
+  const order = confirmOrder(form);
+  const buttons = order.map((idx) => ({ label: options[idx].label, action: { type: "option", idx }, tone: idx === 0 ? "solid" : "solidMuted" }));
   const line = buttonRow(buttons, undefined, view.width);
-  const span = 1 + 2 * at;
+  const span = 1 + 2 * order.indexOf(s.cursor[0]);
   const row = view.focused ? [...line.slice(0, span), ...gridLook(line[span], { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line;
-  const gap = form.context ? [[sp(SYMBOL.bar, GRAY)]] : [];
   const indent = [sp(" ".repeat(widthOf([line[0]])))];
-  return [...gap, [sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(" ")], row, ...hang(indent, indent, hint(form, s), view.width, DIM)];
+  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(" ")], row, ...hang(indent, indent, hint(form, s), view.width, DIM)];
 }
 function submitRow(form, s, view) {
   return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
@@ -1431,7 +1443,7 @@ function errorLines(form, view) {
 function hint(form, s) {
   const q = form.questions[s.page];
   if (isConfirm(form))
-    return "←→ choose   enter presses";
+    return "←→ choose";
   if (isSinglePage(form))
     return "↑↓ choose  enter submit";
   if (!q) {

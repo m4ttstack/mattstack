@@ -12,7 +12,8 @@ function luminance(hex: string): number {
   return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
 }
 
-const FILLS: [string, string][] = [...Object.entries(FILL).map(([name, tone]): [string, string] => [name, tone.bg]), ['BRAND.pink', BRAND.pink], ['BRAND.pinkDeep', BRAND.pinkDeep]]
+// The theme-key fills (solid, solidMuted) have no hex of their own; they are checked against each theme below.
+const FILLS: [string, string][] = [...Object.entries(FILL).filter(([, tone]) => tone.bg.startsWith('#')).map(([name, tone]): [string, string] => [name, tone.bg]), ['BRAND.pink', BRAND.pink], ['BRAND.pinkDeep', BRAND.pinkDeep]]
 // `disabled` and `field` are not pressable controls, so they have no hover or press shade.
 const PRESSABLE = FILLS.filter(([name]) => name !== 'disabled' && name !== 'field')
 
@@ -113,5 +114,42 @@ describe('keySelected', () => {
   test('a span with no blank edge is left as it is', () => {
     const span = sp('Done', { action: 'done' })
     expect(keySelected(span)).toEqual([span])
+  })
+})
+
+// Claude Code's built-in dark and light themes, for the keys the solid tones use.
+const THEMES: Record<'dark' | 'light', Record<string, string>> = {
+  dark: { text: '#ffffff', inverseText: '#000000', inactive: '#999999', subtle: '#505050' },
+  light: { text: '#000000', inverseText: '#ffffff', inactive: '#666666', subtle: '#afafaf' },
+}
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi! + 0.05) / (lo! + 0.05)
+}
+
+describe('solid tones', () => {
+  const solid = buttonSpan({ label: 'Go', action: 'go', tone: 'solid' })
+  const soft = buttonSpan({ label: 'Not now', action: 'no', tone: 'solidMuted' })
+  const looks = { solid, solidMuted: soft, 'solid pressed': pressed(solid), 'solidMuted pressed': pressed(soft), 'solid unfocused': muted(solid), 'solidMuted unfocused': muted(soft) }
+
+  for (const [scheme, keys] of Object.entries(THEMES)) {
+    test.each(Object.entries(looks))(`%s reads at 4.5:1 or better on ${scheme}`, (_name, look) => {
+      expect(contrast(keys[look.bg as string]!, keys[look.color as string]!)).toBeGreaterThanOrEqual(4.5)
+    })
+  }
+
+  test('solid is white on dark and near-black on light; solidMuted is a step toward gray in both', () => {
+    expect(THEMES.dark[solid.bg as string]).toBe('#ffffff')
+    expect(luminance(THEMES.light[solid.bg as string]!)).toBeLessThan(0.01)
+    expect(luminance(THEMES.dark[soft.bg as string]!)).toBeLessThan(luminance(THEMES.dark[solid.bg as string]!))
+    expect(luminance(THEMES.light[soft.bg as string]!)).toBeGreaterThan(luminance(THEMES.light[solid.bg as string]!))
+  })
+
+  test('under the pointer the label underlines; a press and an unfocused pane step the fill down', () => {
+    for (const span of [solid, soft]) {
+      expect(hovered(span)).toMatchObject({ bg: span.bg, underline: true })
+      expect(pressed(span).bg).not.toBe(span.bg)
+      expect(muted(span).bg).not.toBe(span.bg)
+    }
   })
 })

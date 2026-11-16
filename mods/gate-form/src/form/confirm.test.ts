@@ -35,24 +35,26 @@ test('a confirm draws the title, the context and the options as one row of butto
   expect(text).toContain('←→ choose   enter presses')
 })
 
-test('the first option is the primary button and has focus', () => {
+test('the finishing option sits on the right in solid, the other on the left in solidMuted, and it has focus', () => {
   const row = buttonRow(form, initial(form))
-  const exit = row.find(span => span.t.includes('Exit worktree'))
-  const close = row.find(span => span.t.includes('Close session'))
+  const exit = row.findIndex(span => span.t.includes('Exit worktree'))
+  const close = row.findIndex(span => span.t.includes('Close session'))
   expect(initial(form).cursor[0]).toBe(0)
-  expect(exit?.bg).toBe(FILL.primary.bg)
-  expect(close?.bg).toBe(FILL.secondary.bg)
-  expect(row.slice(0, row.indexOf(exit!)).some(span => span.t.includes('▎'))).toBe(true)
+  expect(close).toBeLessThan(exit)
+  expect(row[exit]?.bg).toBe(FILL.solid.bg)
+  expect(row[close]?.bg).toBe(FILL.solidMuted.bg)
+  expect(row.slice(close + 1, exit).some(span => span.t.includes('▎'))).toBe(true)
+  expect(row.slice(0, close).some(span => span.t.includes('▎'))).toBe(false)
 })
 
 test('focus moves the ▎ mark, not the colours', () => {
-  const row = buttonRow(form, keyEffect({ key: 'right' }, form, initial(form))!.state)
+  const row = buttonRow(form, keyEffect({ key: 'left' }, form, initial(form))!.state)
   const exit = row.findIndex(span => span.t.includes('Exit worktree'))
   const close = row.findIndex(span => span.t.includes('Close session'))
-  expect(row[exit]?.bg).toBe(FILL.primary.bg)
-  expect(row[close]?.bg).toBe(FILL.secondary.bg)
-  expect(row.slice(exit + 1, close).some(span => span.t.includes('▎'))).toBe(true)
-  expect(row.slice(0, exit).some(span => span.t.includes('▎'))).toBe(false)
+  expect(row[exit]?.bg).toBe(FILL.solid.bg)
+  expect(row[close]?.bg).toBe(FILL.solidMuted.bg)
+  expect(row.slice(0, close).some(span => span.t.includes('▎'))).toBe(true)
+  expect(row.slice(close + 1, exit).some(span => span.t.includes('▎'))).toBe(false)
 })
 
 test('the order is title, context, buttons, then the hint', () => {
@@ -71,19 +73,20 @@ test('with no context, the title is followed straight by the rail end, with no s
   expect(lines.join('\n')).not.toContain('├')
 })
 
-test('arrows and Tab move focus between the buttons and stop at the ends', () => {
-  const right = keyEffect({ key: 'right' }, form, initial(form))!.state
-  expect(right.cursor[0]).toBe(1)
-  expect(keyEffect({ key: 'right' }, form, right)!.state.cursor[0]).toBe(1)
-  expect(keyEffect({ key: 'left' }, form, right)!.state.cursor[0]).toBe(0)
-  expect(keyEffect({ key: 'tab' }, form, initial(form))!.state.cursor[0]).toBe(1)
-  expect(keyEffect({ key: 'tab', shift: true }, form, right)!.state.cursor[0]).toBe(0)
+test('arrows and Tab move focus left to right as drawn and stop at the ends', () => {
+  const left = keyEffect({ key: 'left' }, form, initial(form))!.state
+  expect(left.cursor[0]).toBe(1)
+  expect(keyEffect({ key: 'left' }, form, left)!.state.cursor[0]).toBe(1)
+  expect(keyEffect({ key: 'right' }, form, left)!.state.cursor[0]).toBe(0)
+  expect(keyEffect({ key: 'right' }, form, initial(form))!.state.cursor[0]).toBe(0)
+  expect(keyEffect({ key: 'tab', shift: true }, form, initial(form))!.state.cursor[0]).toBe(1)
+  expect(keyEffect({ key: 'tab' }, form, left)!.state.cursor[0]).toBe(0)
 })
 
 test('Enter presses the focused button and sends its value', () => {
   expect(keyEffect({ key: 'return' }, form, initial(form))?.post).toEqual(answer('leave'))
-  const right = keyEffect({ key: 'right' }, form, initial(form))!.state
-  const pressed = keyEffect({ key: 'return' }, form, right)
+  const left = keyEffect({ key: 'left' }, form, initial(form))!.state
+  const pressed = keyEffect({ key: 'return' }, form, left)
   expect(pressed?.post).toEqual(answer('close'))
   expect(pressed?.state.phase).toBe('submitted')
 })

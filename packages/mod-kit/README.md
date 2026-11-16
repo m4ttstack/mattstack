@@ -135,8 +135,10 @@ button.
 ### `Button` and `ButtonRow`
 
 `<Button tone? disabled? onPress?>label</Button>`. Tones: `primary`,
-`secondary`, `neutral`, `caution`, `brand`, and `quiet` (a faint fill that
-brightens under the pointer). Alone it is a row of one button.
+`secondary`, `neutral`, `caution`, `brand`, `solid` (the finishing action,
+monochrome), `solidMuted` (its quieter companion), and `quiet` (a faint fill
+that brightens under the pointer). `solid` and `solidMuted` follow the
+person's light or dark theme. Alone it is a row of one button.
 
 `<ButtonRow right?>`: children are the left buttons. `right` is one button
 pushed to the right edge.

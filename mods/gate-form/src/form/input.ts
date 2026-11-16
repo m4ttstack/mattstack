@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, confirmOrder, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -49,13 +49,14 @@ function press(form: Form, s: State, idx: number): Effect | undefined {
   return option && post(form, { ...s, cursor: [idx] }, { [form.questions[0]!.id]: option.value })
 }
 
-// ←→ and Tab move between a confirm's buttons; Enter presses the focused one.
+// ←→ and Tab move between a confirm's buttons in the order they are drawn; Enter presses the focused one.
 function confirmKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
   if (isEnter(ev)) return press(form, s, s.cursor[0]!)
   const back = ev.key === 'left' || (ev.key === 'tab' && ev.shift)
   if (!back && ev.key !== 'right' && ev.key !== 'tab') return undefined
-  const last = (form.questions[0]?.options.length ?? 1) - 1
-  return { state: { ...s, cursor: [Math.max(0, Math.min(last, s.cursor[0]! + (back ? -1 : 1)))] } }
+  const order = confirmOrder(form)
+  const at = Math.max(0, Math.min(order.length - 1, order.indexOf(s.cursor[0]!) + (back ? -1 : 1)))
+  return { state: { ...s, cursor: [order[at]!] } }
 }
 
 // A new page starts with the keyboard on its answers and the nav row back on its forward button.
