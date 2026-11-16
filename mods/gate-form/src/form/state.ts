@@ -63,8 +63,17 @@ export function initial(form: Form): State {
   }
 }
 
-// The daemon refuses a gate answer that leaves a question out.
-export const canSubmit = (form: Form, s: State) => form.source !== 'gate' || unansweredCount(s) === 0
+// The daemon refuses a gate answer that leaves a question out; a one-page form needs its option chosen.
+export function canSubmit(form: Form, s: State): boolean {
+  if (isSinglePage(form)) return chosenValue(form, s) !== undefined
+  return form.source !== 'gate' || unansweredCount(s) === 0
+}
+
+// The one-page form's chosen option: the cursor, once it counts as a choice.
+export function chosenValue(form: Form, s: State): string | undefined {
+  const q = form.questions[0]
+  return q && cursorIsChoice(q, s, 0) ? choicesOf(q)[s.cursor[0]!]?.value : undefined
+}
 
 const PAUSE = 'pause'
 const GO_BACK = 'go-back:'
@@ -72,7 +81,7 @@ const GO_BACK = 'go-back:'
 // A plugin form's caller waits on a pick, not on a talk with the agent.
 export const canChat = (form: Form) => form.source !== 'plugin'
 
-// A plugin form's one question is its only page: a pick answers it, so there is no review page or nav row.
+// A plugin form's one question is its only page, with Submit under the options in place of a review page.
 export const isSinglePage = (form: Form) => form.source === 'plugin'
 
 export const isReview = (form: Form, s: State) => !isSinglePage(form) && s.page === form.questions.length

@@ -928,7 +928,15 @@ function initial(form) {
     navAt: "next"
   };
 }
-var canSubmit = (form, s) => form.source !== "gate" || unansweredCount(s) === 0;
+function canSubmit(form, s) {
+  if (isSinglePage(form))
+    return chosenValue(form, s) !== undefined;
+  return form.source !== "gate" || unansweredCount(s) === 0;
+}
+function chosenValue(form, s) {
+  const q = form.questions[0];
+  return q && cursorIsChoice(q, s, 0) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
+}
 var PAUSE = "pause";
 var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
@@ -1069,7 +1077,11 @@ function post(form, s, answers, control) {
   return { state: { ...s, phase: "submitted", sent: form.attempt ?? 0, control }, post: { type: "answer", formId: form.id, answers } };
 }
 function send(form, s) {
-  return canSubmit(form, s) ? post(form, s, answersOf(form, s)) : undefined;
+  if (!canSubmit(form, s))
+    return;
+  if (!isSinglePage(form))
+    return post(form, s, answersOf(form, s));
+  return post(form, s, { [form.questions[0].id]: chosenValue(form, s) });
 }
 function chat(form, s) {
   if (!canChat(form))
@@ -1085,13 +1097,6 @@ function moved(form, s, move) {
   const state = { ...s, menu: move.state };
   const control = move.picked === undefined ? undefined : controlAnswers(move.picked);
   return control ? post(form, state, control.answers, control.label) : { state };
-}
-function pickNow(form, s) {
-  const q = form.questions[s.page];
-  const value = q && choicesOf(q)[s.cursor[s.page]]?.value;
-  if (form.source !== "plugin" || !q || value === undefined)
-    return;
-  return post(form, s, { [q.id]: value });
 }
 function settled(before, effect) {
   if (!effect || effect.state.page === before.page)
@@ -1117,8 +1122,7 @@ function performOn(action, form, armed) {
     case "advance":
       return { state: advance(form, s) };
     case "option": {
-      const clicked = clickChoice(form, s, action.idx);
-      return pickNow(form, clicked) ?? { state: clicked };
+      return { state: clickChoice(form, s, action.idx) };
     }
     case "send":
       return send(form, s);
@@ -1175,6 +1179,8 @@ function pressesButton(ev, form, s) {
     return false;
   if (s.menu.open)
     return true;
+  if (isSinglePage(form))
+    return canSubmit(form, s);
   if (!isOnNav(form, s)) {
     const q = form.questions[s.page];
     return q !== undefined && choicesOf(q).length > 0;
@@ -1204,7 +1210,7 @@ function questionKey(ev, form, s) {
   const isSpace = key === " " || key === "space";
   const typing = isTyping(form, s);
   if (isEnter(ev))
-    return pickNow(form, s) ?? { state: confirm(form, s) };
+    return isSinglePage(form) ? send(form, s) ?? { state: s } : { state: confirm(form, s) };
   if (key === "left" || key === "right")
     return { state: goTo(form, s, s.page + (key === "left" ? -1 : 1)) };
   if (key === "up" || key === "down")
@@ -1383,6 +1389,9 @@ function navRows(form, s, view) {
   const hung = menu({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: (hit) => ({ type: "menu", hit }) });
   return [marked(line), ...hung.slice(1)];
 }
+function submitRow(form, s, view) {
+  return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
+}
 function errorLines(form, view) {
   if (form.status !== "open" || !form.error)
     return [];
@@ -1392,7 +1401,7 @@ function errorLines(form, view) {
 function hint(form, s) {
   const q = form.questions[s.page];
   if (isSinglePage(form))
-    return "↑↓ move  enter picks";
+    return "↑↓ choose  enter submit";
   if (!q) {
     const others = navIds(form, s).length > 1 ? "   tab buttons" : "";
     return `← back${others}   enter ${navAtOf(form, s) === "next" ? "submit" : "presses"}`;
@@ -1419,7 +1428,7 @@ function draw(form, s, view) {
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
   const keys = hint(form, s);
   const hintLines = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)];
-  const nav = isSinglePage(form) ? [] : [[sp(" ")], ...navRows(form, s, view)];
+  const nav = [[sp(" ")], ...isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view)];
   const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), ...nav];
   return { head, page, foot };
 }

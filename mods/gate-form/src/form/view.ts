@@ -177,6 +177,11 @@ function navRows(form: Form, s: State, view: View): L[] {
   return [marked(line), ...hung.slice(1)]
 }
 
+// The keys stay on the options, so Submit is never marked; Enter presses it from there.
+function submitRow(form: Form, s: State, view: View): L {
+  return buttonRow([{ label: 'Submit', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }], undefined, view.width)
+}
+
 function errorLines(form: Form, view: View): L[] {
   if (form.status !== 'open' || !form.error) return []
   const lead = [sp<Action>(SYMBOL.warn, WARN), sp('  ')]
@@ -186,7 +191,7 @@ function errorLines(form: Form, view: View): L[] {
 // The same with or without focus: focus changes only how the selection is drawn, never what the form says.
 function hint(form: Form, s: State): string | undefined {
   const q = form.questions[s.page]
-  if (isSinglePage(form)) return '↑↓ move  enter picks'
+  if (isSinglePage(form)) return '↑↓ choose  enter submit'
   if (!q) {
     const others = navIds(form, s).length > 1 ? '   tab buttons' : ''
     return `← back${others}   enter ${navAtOf(form, s) === 'next' ? 'submit' : 'presses'}`
@@ -213,7 +218,7 @@ function draw(form: Form, s: State, view: View): Drawn<Action> {
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view)
   const keys = hint(form, s)
   const hintLines: L[] = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)]
-  const nav: L[] = isSinglePage(form) ? [] : [[sp(' ')], ...navRows(form, s, view)]
+  const nav: L[] = [[sp(' ')], ...(isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view))]
   const foot: L[] = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), ...nav]
   return { head, page, foot }
 }
