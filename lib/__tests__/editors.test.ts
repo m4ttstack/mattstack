@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { detectEditors, EDITOR_PATTERNS } from "../editors.ts";
+import { detectEditors, EDITOR_PATTERNS, TERMINAL_FONT_EDITORS } from "../editors.ts";
 
 describe("EDITOR_PATTERNS", () => {
   test("covers the known VS Code-family editors", () => {
@@ -18,6 +18,18 @@ describe("EDITOR_PATTERNS", () => {
       expect(pattern.cliBinary.length).toBeGreaterThan(0);
       expect(pattern.displayName.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("TERMINAL_FONT_EDITORS", () => {
+  test("Antigravity IDE is scanned for the terminal font only, never as an extension editor", () => {
+    expect(EDITOR_PATTERNS.map((p) => p.appName)).not.toContain("Antigravity IDE.app");
+    expect(TERMINAL_FONT_EDITORS.find((e) => e.displayName === "Antigravity IDE")).toEqual({
+      displayName: "Antigravity IDE",
+      appName: "Antigravity IDE.app",
+      cliBinary: "antigravity-ide",
+      settingsDir: "Antigravity IDE",
+    });
   });
 });
 

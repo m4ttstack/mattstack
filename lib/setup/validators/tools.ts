@@ -433,9 +433,15 @@ export function editorFontRow(p: Probes, appDirs?: string[]): Row {
   if (toWrite.length > 0) {
     return row({ ...base, status: "missing", detail: `No Nerd Font in the terminal for ${joinNames(toWrite)}`, action: applyStepAction("Add font", "editor.terminal-font") });
   }
-  const unreadable = plan.filter((r) => r.outcome === "unreadable").map((r) => r.editor);
-  if (unreadable.length > 0) return row({ ...base, status: "ready", detail: `Could not read settings for ${joinNames(unreadable)}, so rt left ${unreadable.length === 1 ? "it" : "them"} alone` });
-  return row({ ...base, status: "ready", detail: "Terminal fonts include a Nerd Font" });
+  const editorsWith = (outcome: string) => plan.filter((r) => r.outcome === outcome).map((r) => r.editor);
+  const leftAlone = (names: string[]) => `rt left ${names.length === 1 ? "it" : "them"} alone`;
+  const unreadable = editorsWith("unreadable");
+  const undone = editorsWith("member-undid");
+  const notes = [
+    ...(unreadable.length > 0 ? [`Could not read settings for ${joinNames(unreadable)}, so ${leftAlone(unreadable)}`] : []),
+    ...(undone.length > 0 ? [`You changed the terminal font in ${joinNames(undone)}, so ${leftAlone(undone)}`] : []),
+  ];
+  return row({ ...base, status: "ready", detail: notes.length > 0 ? notes.join(". ") : "Terminal fonts include a Nerd Font" });
 }
 
 // ─── tool.chrome / tool.chrome-signin ──────────────────────────────────────

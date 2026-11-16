@@ -58,14 +58,18 @@ fixes this by hand, and most never find out why the boxes appear.
 | Antigravity | `Antigravity.app` | `~/Library/Application Support/Antigravity/User/settings.json` |
 | Antigravity IDE | `Antigravity IDE.app` | `~/Library/Application Support/Antigravity IDE/User/settings.json` |
 
-Detected with the existing `EDITOR_PATTERNS` through `detectEditorsVia`
-(`lib/editors.ts`) over the setup `Probes`, so tests never read the real
-`/Applications`; the list gains an `Antigravity IDE.app` entry; an editor not installed, or with no settings file yet,
-is skipped (a missing file is created with just this key).
+Detected by each editor's own CLI (`TERMINAL_FONT_EDITORS` in
+`lib/editors.ts`) over the setup `Probes`, so tests never read the real
+`/Applications`. Antigravity IDE is in that list only, not `EDITOR_PATTERNS`,
+so no extension install runs against it. An editor not installed is skipped;
+one with no settings file yet gets a file holding just this key. A
+`settings.json` linked to a missing file is unreadable and left alone.
 
 For each editor, `terminal.integrated.fontFamily`:
 
 - already names a Nerd Font (any `Nerd Font` or ` NF` family): leave it.
+- unset, with `editor.fontFamily` naming a Nerd Font the terminal inherits:
+  leave it.
 - set to something else: append `, 'JetBrainsMonoNL Nerd Font'`.
 - unset: set it to the editor's effective text font plus the fallback,
   i.e. `editor.fontFamily` when set, else the editor default
@@ -94,11 +98,13 @@ wrote, the member changed it: rt leaves it alone and never re-adds it.
   is a quiet `skipped` on `rt setup update`, `partial` on a full, `--from` or
   resumed run (so it never stops the run), and `failed` only on the row's own
   `--only` run. The next version's update run, a full apply, or the row's Add
-  font tries again.
+  font tries again. The `--only` remedy names the connection only when the
+  download itself failed.
 - One row, `editor.terminal-font`, optional (never `required`, never
   blocks Install or Finish), grouped beside `tool.editor`, with no
   `ROW_TARGETS` entry (an `install` target would make the row required). `ready` when every installed editor's terminal font includes a
-  Nerd Font; `missing` with a run action (`setup apply --only
+  Nerd Font, naming any editor rt left alone (unreadable settings, or a font
+  the member changed); `missing` with a run action (`setup apply --only
   editor.terminal-font`) otherwise; `skipped` when no supported editor is
   installed. Copy in command-description style; snapshots updated.
 - Child output and paths go through `ctx.log` / `ctx.redact`.

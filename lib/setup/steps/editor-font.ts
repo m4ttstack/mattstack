@@ -22,7 +22,7 @@ async function editorFontRun(ctx: ApplyContext, appDirs?: string[]): Promise<Ste
     const font = await installNerdFont(ctx.p, (line) => ctx.log(ID, line));
     if (!font.ok) {
       if (ctx.update) return { state: "skipped", detail: font.detail };
-      if (ctx.only === ID) return { state: "failed", detail: font.detail, remedy: "Check your connection, then try again" };
+      if (ctx.only === ID) return { state: "failed", detail: font.detail, remedy: font.reason === "download" ? "Check your connection, then try again" : "Try again later" };
       return { state: "partial", detail: font.detail };
     }
   }

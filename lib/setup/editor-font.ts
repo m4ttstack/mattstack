@@ -1,6 +1,6 @@
 import { applyEdits, findNodeAtLocation, modify, parse, parseTree, type ParseError } from "jsonc-parser";
-import { basename, dirname, join, resolve } from "path";
-import { detectEditorsVia, TERMINAL_FONT_EDITORS } from "../editors.ts";
+import { dirname, join, resolve } from "path";
+import { TERMINAL_FONT_EDITORS } from "../editors.ts";
 import type { Probes } from "./probes.ts";
 import { NERD_FONT_ARCHIVE, type NerdFontArchive } from "./tools-install.ts";
 
@@ -32,6 +32,7 @@ export function nextTerminalFont(input: {
   const terminal = input.terminal?.trim() || undefined;
   const editor = input.editor?.trim() || undefined;
   if (terminal !== undefined && hasNerdFont(terminal)) return { action: "keep", reason: "has-nerd" };
+  if (terminal === undefined && editor !== undefined && hasNerdFont(editor)) return { action: "keep", reason: "has-nerd" };
   if (lastWritten !== undefined && terminal !== lastWritten) return { action: "keep", reason: "member-undid" };
   const seeded = terminal === undefined;
   const base = (seeded ? (editor ?? EDITOR_DEFAULT_FONT) : terminal).replace(/[\s,]+$/, "");
@@ -69,7 +70,9 @@ export async function installNerdFont(
   p: Probes,
   log: (line: string) => void,
   pin: NerdFontArchive = NERD_FONT_ARCHIVE,
-): Promise<{ ok: true } | { ok: false; detail: string }> {
+): Promise<{ ok: true } | { ok: false; reason: "download" | "other"; detail: string }> {
+  const other = (detail: string) => ({ ok: false as const, reason: "other" as const, detail });
+  const download = (detail: string) => ({ ok: false as const, reason: "download" as const, detail });
   let host: string;
   try {
     const url = new URL(pin.url);
@@ -77,7 +80,7 @@ export async function installNerdFont(
   } catch {
     host = "";
   }
-  if (!pin.allowedHosts.includes(host)) return { ok: false, detail: `The font download points at a host rt does not allow (${host || pin.url})` };
+  if (!pin.allowedHosts.includes(host)) return other(`The font download points at a host rt does not allow (${host || pin.url})`);
 
   const work = join(p.env.TMPDIR || "/tmp", `rt-nerd-font-${process.pid}`);
   try {
@@ -86,31 +89,31 @@ export async function installNerdFont(
     const file = join(work, "JetBrainsMono.tar.xz");
     log("Downloading JetBrainsMono Nerd Font");
     const fetched = await p.exec(["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", pin.url, "-o", file], { timeoutMs: DOWNLOAD_TIMEOUT_MS });
-    if (fetched.code === 124) return { ok: false, detail: "Downloading the font did not finish in time" };
-    if (fetched.code !== 0) return { ok: false, detail: `Downloading the font failed (exit ${fetched.code}): ${firstLine(fetched.stderr || fetched.stdout)}` };
+    if (fetched.code === 124) return download("Downloading the font did not finish in time");
+    if (fetched.code !== 0) return download(`Downloading the font failed (exit ${fetched.code}): ${firstLine(fetched.stderr || fetched.stdout)}`);
 
     log("Checking the download");
     const sum = await p.exec(["shasum", "-a", "256", file], { timeoutMs: STEP_TIMEOUT_MS });
     const got = sum.stdout.trim().split(/\s+/)[0] ?? "";
-    if (sum.code !== 0 || got !== pin.sha256) return { ok: false, detail: "The font download did not match its pinned sha256, so nothing was installed" };
+    if (sum.code !== 0 || got !== pin.sha256) return other("The font download did not match its pinned sha256, so nothing was installed");
 
     log("Unpacking the font");
     const unpacked = join(work, "unpacked");
     p.mkdirp(unpacked);
     const untar = await p.exec(["tar", "-xJf", file, "-C", unpacked], { timeoutMs: STEP_TIMEOUT_MS });
-    if (untar.code !== 0) return { ok: false, detail: `Unpacking the font failed: ${firstLine(untar.stderr || untar.stdout)}` };
+    if (untar.code !== 0) return other(`Unpacking the font failed: ${firstLine(untar.stderr || untar.stdout)}`);
 
     const fonts = findFonts(p, unpacked, new Bun.Glob(pin.fileGlob));
-    if (fonts.length === 0) return { ok: false, detail: `The font download held no ${pin.fileGlob} files` };
+    if (fonts.length === 0) return other(`The font download held no ${pin.fileGlob} files`);
 
     log("Installing the font into ~/Library/Fonts");
     const dest = join(p.home, "Library", "Fonts");
     p.mkdirp(dest);
     const copied = await p.exec(["cp", ...fonts, dest], { timeoutMs: STEP_TIMEOUT_MS });
-    if (copied.code !== 0) return { ok: false, detail: `Copying the font into ~/Library/Fonts failed: ${firstLine(copied.stderr || copied.stdout)}` };
+    if (copied.code !== 0) return other(`Copying the font into ~/Library/Fonts failed: ${firstLine(copied.stderr || copied.stdout)}`);
     return { ok: true };
   } catch (err) {
-    return { ok: false, detail: `Installing the font failed: ${firstLine(err instanceof Error ? err.message : String(err))}` };
+    return other(`Installing the font failed: ${firstLine(err instanceof Error ? err.message : String(err))}`);
   } finally {
     await p.exec(["rm", "-rf", work], { timeoutMs: STEP_TIMEOUT_MS }).catch(() => undefined);
   }
@@ -140,7 +143,7 @@ function resolveLinks(p: Probes, path: string): string {
   return current;
 }
 
-const BOM = "﻿";
+const BOM = "\uFEFF";
 
 /**
  * Sets the terminal key without reformatting anything else: an existing key
@@ -177,7 +180,9 @@ function inspect(p: Probes, editor: FontEditor, installed: Set<string>, written:
   if (!installed.has(editor.appName)) return { result: { ...base, outcome: "not-installed" } };
 
   const target = resolveLinks(p, path);
-  const raw = p.exists(target) ? p.readFile(target) : "";
+  const present = p.exists(target);
+  if (!present && target !== path) return { result: { ...base, outcome: "unreadable" } };
+  const raw = present ? p.readFile(target) : "";
   if (raw === null) return { result: { ...base, outcome: "unreadable" } };
   const bom = raw.startsWith(BOM);
   const text = bom ? raw.slice(1) : raw;
@@ -199,7 +204,9 @@ function inspect(p: Probes, editor: FontEditor, installed: Set<string>, written:
 }
 
 function inspectAll(p: Probes, written: Record<string, string>, appDirs: string[]): Inspected[] {
-  const installed = new Set(detectEditorsVia(p.exists, appDirs).map((e) => basename(e.appPath)));
+  const installed = new Set(
+    TERMINAL_FONT_EDITORS.filter((e) => appDirs.some((dir) => p.exists(join(dir, e.appName, "Contents/Resources/app/bin", e.cliBinary)))).map((e) => e.appName),
+  );
   return TERMINAL_FONT_EDITORS.map((editor) => inspect(p, editor, installed, written));
 }
 

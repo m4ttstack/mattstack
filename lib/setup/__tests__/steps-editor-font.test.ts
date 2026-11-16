@@ -134,6 +134,16 @@ describe("editor.terminal-font step", () => {
     expect(readFileSync(code, "utf8")).toBe(`{}\n`);
   });
 
+  test("an --only run whose font fails for another reason is failed with a try-later remedy", async () => {
+    install("Visual Studio Code.app", "code");
+    const code = seed("Code", `{}\n`);
+    const badSum = (argv: string[]): ExecResult => (argv[0] === "shasum" ? { code: 0, stdout: `${"0".repeat(64)}  x\n`, stderr: "" } : { code: 0, stdout: "", stderr: "" });
+    const { ctx } = makeCtx(confined(badSum), { only: "editor.terminal-font" });
+    const outcome = await runEditorFont(ctx, [apps]);
+    expect(outcome).toEqual({ state: "failed", detail: expect.stringContaining("sha256"), remedy: "Try again later" });
+    expect(readFileSync(code, "utf8")).toBe(`{}\n`);
+  });
+
   test("an update run whose font download fails is skipped and writes nothing", async () => {
     install("Visual Studio Code.app", "code");
     const code = seed("Code", `{}\n`);
@@ -198,12 +208,24 @@ describe("editor.terminal-font row", () => {
     expect(editorFontRow(confined(), [apps])).toMatchObject({ status: "skipped", required: false });
   });
 
-  test("a member undo still reads ready", async () => {
+  test("a member undo reads ready and says rt left the editor alone", async () => {
     install("Visual Studio Code.app", "code");
     placeFont();
     await runEditorFont(makeCtx(confined()).ctx, [apps]);
     writeFileSync(settingsPath("Code"), `{ "terminal.integrated.fontFamily": "Fira Code" }`);
-    expect(editorFontRow(confined(), [apps]).status).toBe("ready");
+    const r = editorFontRow(confined(), [apps]);
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("You changed the terminal font in VS Code, so rt left it alone");
+  });
+
+  test("member undos in two editors are named together", async () => {
+    install("Visual Studio Code.app", "code");
+    install("Cursor.app", "cursor");
+    placeFont();
+    await runEditorFont(makeCtx(confined()).ctx, [apps]);
+    writeFileSync(settingsPath("Code"), `{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    writeFileSync(settingsPath("Cursor"), `{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    expect(editorFontRow(confined(), [apps]).detail).toBe("You changed the terminal font in VS Code and Cursor, so rt left them alone");
   });
 
   test("an unreadable settings file reads ready and names the editor", () => {

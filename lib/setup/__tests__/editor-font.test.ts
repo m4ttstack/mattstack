@@ -102,6 +102,16 @@ describe("nextTerminalFont", () => {
       reason: "member-undid",
     });
   });
+  test("an unset terminal inheriting a Nerd Font editor font is kept", () => {
+    expect(nextTerminalFont({ terminal: undefined, editor: "Hack Nerd Font Mono", lastWritten: undefined })).toEqual({
+      action: "keep",
+      reason: "has-nerd",
+    });
+    expect(nextTerminalFont({ terminal: " ", editor: "Menlo, 'FiraCode NF'", lastWritten: undefined })).toEqual({
+      action: "keep",
+      reason: "has-nerd",
+    });
+  });
   test("keeps the value rt wrote", () => {
     const written = `Menlo, ${NERD}`;
     expect(nextTerminalFont({ terminal: written, editor: undefined, lastWritten: written })).toEqual({
@@ -180,7 +190,7 @@ describe("installNerdFont", () => {
   test("a sha256 mismatch installs nothing", async () => {
     const p = probes();
     const res = await installNerdFont(p, () => {}, pin({ sha256: "0".repeat(64) }));
-    expect(res.ok).toBe(false);
+    expect(res).toEqual({ ok: false, reason: "other", detail: expect.stringContaining("sha256") });
     expect(existsSync(join(root, "home", "Library", "Fonts"))).toBe(false);
     expect(p.argv.some((a) => a[0] === "tar")).toBe(false);
     expect(readdirSync(join(root, "tmp"))).toEqual([]);
@@ -189,14 +199,14 @@ describe("installNerdFont", () => {
   test("a url off the font hosts runs nothing", async () => {
     const p = probes();
     const res = await installNerdFont(p, () => {}, pin({ url: "https://evil.example/JetBrainsMono.tar.xz" }));
-    expect(res.ok).toBe(false);
+    expect(res).toEqual({ ok: false, reason: "other", detail: expect.stringContaining("evil.example") });
     expect(p.argv).toEqual([]);
   });
 
   test("a probe that throws is reported as a failure, not thrown", async () => {
     const p: Probes = { ...probes(), mkdirp: () => { throw new Error("EACCES: permission denied"); } };
     const res = await installNerdFont(p, () => {}, pin());
-    expect(res).toEqual({ ok: false, detail: expect.stringContaining("EACCES: permission denied") });
+    expect(res).toEqual({ ok: false, reason: "other", detail: expect.stringContaining("EACCES: permission denied") });
   });
 
   test("an empty TMPDIR falls back to /tmp, in a directory only this run uses", async () => {
@@ -210,10 +220,15 @@ describe("installNerdFont", () => {
     expect(removed[1]).toBe(removed[0]);
   });
 
+  test("a download that times out is a download failure", async () => {
+    const res = await installNerdFont(probes(124), () => {}, pin());
+    expect(res).toEqual({ ok: false, reason: "download", detail: "Downloading the font did not finish in time" });
+  });
+
   test("a failed download reports it and installs nothing", async () => {
     const p = probes(6);
     const res = await installNerdFont(p, () => {}, pin());
-    expect(res).toEqual({ ok: false, detail: expect.stringContaining("Downloading") });
+    expect(res).toEqual({ ok: false, reason: "download", detail: expect.stringContaining("Downloading") });
     expect(existsSync(join(root, "home", "Library", "Fonts"))).toBe(false);
   });
 });
@@ -368,6 +383,20 @@ describe("planEditorFonts / applyEditorFonts", () => {
     expect(only(applyEditorFonts(p(), {}, [apps]), "Antigravity")).toEqual({ editor: "Antigravity", path, outcome: "kept" });
   });
 
+  test("an unset terminal whose editor font names a Nerd Font is kept and gets no file", () => {
+    install("Cursor.app", "cursor");
+    const before = `{ "editor.fontFamily": "Hack Nerd Font Mono" }`;
+    const path = seed("Cursor", before);
+    expect(only(planEditorFonts(p(), {}, [apps]), "Cursor")).toEqual({ editor: "Cursor", path, outcome: "kept" });
+    expect(only(applyEditorFonts(p(), {}, [apps]), "Cursor").outcome).toBe("kept");
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  test("Antigravity IDE is found by its own CLI", () => {
+    install("Antigravity IDE.app", "antigravity-ide");
+    expect(only(planEditorFonts(p(), {}, [apps]), "Antigravity IDE").outcome).toBe("written");
+  });
+
   test("planEditorFonts reports what it would write and writes nothing", () => {
     install("Cursor.app", "cursor");
     install("Visual Studio Code.app", "code");
@@ -420,5 +449,16 @@ describe("planEditorFonts / applyEditorFonts", () => {
     applyEditorFonts(p(), {}, [apps]);
     expect(lstatSync(path).isSymbolicLink()).toBe(true);
     expect(readFileSync(target, "utf8")).toContain(`Fira Code, ${NERD}`);
+  });
+
+  test("a settings.json linked to a missing file is unreadable and nothing is written", () => {
+    install("Cursor.app", "cursor");
+    const target = join(root, "dotfiles", "gone", "settings.json");
+    const path = settingsPath("Cursor");
+    mkdirSync(join(path, ".."), { recursive: true });
+    symlinkSync(target, path);
+    expect(only(applyEditorFonts(p(), {}, [apps]), "Cursor").outcome).toBe("unreadable");
+    expect(existsSync(join(root, "dotfiles"))).toBe(false);
+    expect(lstatSync(path).isSymbolicLink()).toBe(true);
   });
 });
