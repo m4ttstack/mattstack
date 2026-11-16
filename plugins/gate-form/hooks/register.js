@@ -220,17 +220,17 @@ var PRESS_FILL = {
   [FILL.chip.bg]: "#333333",
   [FILL.current.bg]: "#3394a2"
 };
-var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999" };
+var QUIET = { label: "#e0e0e0", rest: "#363636", hover: "#4a4a4a", press: "#404040", muted: "#999999", faint: "#2e2e2e", faintPress: "#292929" };
 function hoverOf(span) {
   if (span.quiet)
-    return { ...span, bg: QUIET.hover, color: "white" };
+    return span.bg ? { ...span, bg: QUIET.hover, color: "white" } : { ...span, bg: QUIET.faint };
   if (span.chip)
     return { ...span, bg: span.chip };
   return span.bg ? { ...span, bg: HOVER_FILL[span.bg] ?? span.bg } : { ...span, bg: "#404040", dim: false };
 }
 function pressOf(span) {
   if (span.quiet)
-    return { ...span, bg: QUIET.press, color: "white" };
+    return span.bg ? { ...span, bg: QUIET.press, color: "white" } : { ...span, bg: QUIET.faintPress };
   if (span.chip)
     return { ...span, bg: PRESS_FILL[span.chip] ?? span.chip };
   return span.bg ? { ...span, bg: PRESS_FILL[span.bg] ?? span.bg } : { ...span, bg: "#353535", dim: false };

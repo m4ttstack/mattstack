@@ -42,8 +42,8 @@ has: the `QUIET` fills, the `keySelected` ▎ edge and `keyPressing`.
 | State | Keyed row | Other rows |
 |---|---|---|
 | Opens | Keys on row 1: `QUIET.rest` fill, ▎ edge, `QUIET.label` | No fill, default text |
-| Hover | Row under the pointer: `QUIET.hover` fill, white label. The keyed row keeps its edge | |
-| Mouse down | `QUIET.press` fill, white label | |
+| Hover | `QUIET.hover` fill, white label, edge kept | `QUIET.faint` (`#2e2e2e`): fainter than the keyed row's rest, so the ramp is faint, rest, hover |
+| Mouse down | `QUIET.press` fill, white label | `QUIET.faintPress` (`#292929`) |
 | Enter or a digit | That row draws pressed (`keyPressing`), then answers | |
 | Pane unfocused | No edge, keeps `QUIET.rest`, label `QUIET.muted` | Labels via `muted()` |
 | Disabled | Not needed: a confirm row is never disabled | |
