@@ -39,7 +39,7 @@ let outcome = await $.gateForm.wait({ id })
 while ('pending' in outcome) outcome = await $.gateForm.wait({ id })
 ```
 
-For a yes/no style question, pass `kind: 'confirm'` with 2 or 3 options and no `label`. The options show as a row of buttons under the title and `context`, the first one highlighted and selected. Pressing a button is the answer.
+For a yes/no style question, pass `kind: 'confirm'` with 2 or 3 options and no `label`. The options show as numbered rows under the title and `context`, with the keys on the first, so put the action that finishes first. A click, Enter on the keyed row, or a row's number is the answer.
 
 ```ts
 await $.gateForm.ask({ title, context, kind: 'confirm', options: [primary, other], timeoutMs })
