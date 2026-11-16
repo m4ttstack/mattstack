@@ -30,7 +30,7 @@ import { withTreeLock } from "../../worktree/locks.ts";
 import { branchOf } from "../../state/branch-cache.ts";
 import { classifyDirtyAsync, disposeTree, type DisposeDeps } from "../../worktree/dispose.ts";
 import { changeMarker, changeNoun } from "../../repo-label.ts";
-import { mergedMrCoversTips } from "../../worktree/containment.ts";
+import { mergedMrCoversTips, mergedMrIsTreeHead } from "../../worktree/containment.ts";
 import { loadWorktreeAppConfig, type WorktreeAppConfig } from "../../worktree/config.ts";
 import { killWorktreeProcesses } from "../worktree-process-kill.ts";
 import { hasLiveCwdInside, liveProcessCwds } from "./stale-claims.ts";
@@ -657,18 +657,30 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
     // tree (a reused branch name, a fresh ledger), so it gets the same
     // liveness gate the stale-claim sweep applies: a tree someone is sitting
     // in is deferred, and the fired key stays unspent so the dispose happens
-    // once the session ends. A witnessed edge keeps its existing guards,
-    // except for a released job tree: its worker may still be sitting in it.
-    // A job tree still held skips the gate; actOnTree records its hold.
+    // once the session ends. A tree proven to sit at the merged MR's head is
+    // the MR's own, so it skips the gate and is asked to leave. A witnessed
+    // edge keeps its existing guards, except for a released job tree: its
+    // worker may still be sitting in it. A job tree still held skips the
+    // gate; actOnTree records its hold.
     let skippedLive = false;
+    const proven = new Set<TreeRecord>();
+    if (!witnessed) {
+      for (const r of trees) {
+        if (r.disposal === "job") continue;
+        if (await mergedMrIsTreeHead(r.path, r.branch ?? null, entry.mr)) proven.add(r);
+      }
+    }
     const gated = trees.filter(
-      (r) => r.kind === "ephemeral" && (!witnessed || r.disposal === "job") && jobHold(deps, r) === null,
+      (r) =>
+        r.kind === "ephemeral" && (!witnessed || r.disposal === "job") && !proven.has(r) && jobHold(deps, r) === null,
     );
     if (gated.length > 0) {
       const cwds = await liveCwdsOnce();
       const alive = cwds === null ? gated : gated.filter((r) => hasLiveCwdInside(cwds, r.path));
-      if (cwds === null && !witnessed) continue;
-      if (alive.length > 0) {
+      if (cwds === null && !witnessed) {
+        skippedLive = true;
+        trees = trees.filter((r) => !gated.includes(r));
+      } else if (alive.length > 0) {
         skippedLive = true;
         trees = trees.filter((r) => !alive.includes(r));
         if (cwds !== null) {
@@ -678,6 +690,14 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
             "reactor: dispose deferred; live process cwd inside the tree",
           );
         }
+      }
+    }
+    for (const r of trees) {
+      if (proven.has(r)) {
+        log.info(
+          { repo: repoName, branch, tree: r.name },
+          "reactor: unwitnessed merge; tree is at the MR's head, asking sessions to leave",
+        );
       }
     }
 

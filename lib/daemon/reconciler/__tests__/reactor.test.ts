@@ -355,11 +355,19 @@ describe("held trees say why (RT-267)", () => {
 
   const staleOrphan = async () => [{ pid: 75703, ppid: 1, command: "xctest", fullCommand: "/x/xctest", elapsedMs: 58 * HOUR }];
   const headOf = (path: string) => execSync(`git -C ${path} rev-parse HEAD`, { encoding: "utf8" }).trim();
+  /** An MR head one commit ahead of the tree: the merge covers the tree, but the tree is not proven to be its source. */
+  const mergedHeadAheadOf = (path: string) => {
+    writeFileSync(join(path, "ahead.txt"), "ahead\n");
+    sh(`git add -A && git ${GIT_ID} commit -q -m ahead`, path);
+    const sha = headOf(path);
+    sh("git reset -q --hard HEAD~1", path);
+    return sha;
+  };
 
   test("a merged tree held only by stale orphans stops them and disposes on the next pass", async () => {
     setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
     const rec = ephemeralTree(repo, repoName, "quebec", "feat-quebec");
-    const merged = { "feat-quebec": { repoName, mr: { iid: 85, state: "merged", sha: headOf(rec.path) } } };
+    const merged = { "feat-quebec": { repoName, mr: { iid: 85, state: "merged", sha: mergedHeadAheadOf(rec.path) } } };
     const stopped: number[][] = [];
 
     await detect(merged, { liveCwds: async () => new Set([rec.path]), treeHolders: staleOrphan, stopProcesses: (pids) => stopped.push(pids) });
@@ -373,7 +381,7 @@ describe("held trees say why (RT-267)", () => {
   test("stale orphans are left running when killProcesses is off", async () => {
     const rec = ephemeralTree(repo, repoName, "sierra", "feat-sierra");
     const stopped: number[][] = [];
-    await detect({ "feat-sierra": { repoName, mr: { iid: 87, state: "merged", sha: headOf(rec.path) } } }, {
+    await detect({ "feat-sierra": { repoName, mr: { iid: 87, state: "merged", sha: mergedHeadAheadOf(rec.path) } } }, {
       liveCwds: async () => new Set([rec.path]), treeHolders: staleOrphan, stopProcesses: (pids) => stopped.push(pids),
     });
     expect(stopped).toEqual([]);
@@ -747,6 +755,71 @@ describe("held trees say why (RT-267)", () => {
       await detect(merged, r.seams);
       expect(r.kills.find((k) => k.path === mergedTree.path)?.stopSessionsInside).toBe(true);
       expect(r.kills.filter((k) => k.path === closedTree.path)).toEqual([]);
+    });
+
+    test("an unwitnessed merge at the tree's head asks the session inside to leave", async () => {
+      const rec = ephemeralTree(repo, repoName, "sierra2", "feat-sierra2");
+      const r = recorder();
+
+      await detect({ "feat-sierra2": { repoName, mr: { iid: 101, state: "merged", sha: headOf(rec.path) } } }, {
+        ...r.seams,
+        liveCwds: async () => new Set([rec.path]),
+      });
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving?.why).toBe(`${changeNoun(repoName)} ${changeMarker(repoName)}101 merged`);
+      expect(find(rec.path)?.heldReason).toBeUndefined();
+      expect(r.kills).toEqual([]);
+      expect(__test__.loadReactorState().fired).toContain(`disposed:${repoName}:101:merged`);
+    });
+
+    test("an unwitnessed merge on a reused branch name holds the tree without asking", async () => {
+      const rec = ephemeralTree(repo, repoName, "tango2", "feat-tango2");
+      const r = recorder();
+      const baseSha = execSync(`git -C ${rec.path} rev-parse HEAD~1`, { encoding: "utf8" }).trim();
+
+      await detect({ "feat-tango2": { repoName, mr: { iid: 102, state: "merged", sha: baseSha } } }, {
+        ...r.seams,
+        liveCwds: async () => new Set([rec.path]),
+      });
+
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.heldReason).toBeDefined();
+      expect(r.kills).toEqual([]);
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:102:merged`);
+    });
+
+    test("an unwitnessed merge ahead of the tree holds it without asking", async () => {
+      const rec = ephemeralTree(repo, repoName, "uniform2", "feat-uniform2");
+      const r = recorder();
+      writeFileSync(join(rec.path, "later.txt"), "ahead\n");
+      sh(`git add -A && git ${GIT_ID} commit -q -m later`, rec.path);
+      const mrSha = headOf(rec.path);
+      sh("git reset -q --hard HEAD~1", rec.path);
+
+      await detect({ "feat-uniform2": { repoName, mr: { iid: 103, state: "merged", sha: mrSha } } }, {
+        ...r.seams,
+        liveCwds: async () => new Set([rec.path]),
+      });
+
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.heldReason).toBeDefined();
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:103:merged`);
+    });
+
+    test("a proven unwitnessed tree is asked even when the live-cwd snapshot fails", async () => {
+      const rec = ephemeralTree(repo, repoName, "victor2", "feat-victor2");
+      const r = recorder();
+
+      await detect({ "feat-victor2": { repoName, mr: { iid: 104, state: "merged", sha: headOf(rec.path) } } }, {
+        ...r.seams,
+        liveCwds: async () => {
+          throw new Error("lsof unavailable");
+        },
+      });
+
+      expect(find(rec.path)?.leaving).toBeDefined();
+      expect(__test__.loadReactorState().fired).toContain(`disposed:${repoName}:104:merged`);
     });
   });
 
