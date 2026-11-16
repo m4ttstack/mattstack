@@ -133,7 +133,7 @@ function timestampOf(line: string): string | null {
   }
 }
 
-interface FoundTree {
+export interface FoundTree {
   repoName: string;
   tree: TreeRecord;
 }
@@ -171,10 +171,15 @@ function findTreeFrom(path: string): FoundTree | null {
   }
 }
 
-function mainCheckoutFor({ repoName, tree }: FoundTree): string | null {
+export function mainCheckoutFor({ repoName, tree }: FoundTree): string | null {
   const main = loadRegistry(repoName).find((t) => t.kind === "main");
   if (main) return main.path;
-  return listWorktreeRoots(tree.path, { env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0" }), timeoutMs: 10_000 })[0] ?? null;
+  return (
+    listWorktreeRoots(tree.path, {
+      env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(tree.path) }),
+      timeoutMs: 10_000,
+    })[0] ?? null
+  );
 }
 
 const REAL_DEPS: AwaitLeaveDeps = {

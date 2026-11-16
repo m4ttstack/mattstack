@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { execFileSync } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
-import { awaitLeaveCommand, leaveState, readLastActive, type AwaitLeaveDeps } from "../worktree-await-leave.ts";
+import { awaitLeaveCommand, leaveState, mainCheckoutFor, readLastActive, type AwaitLeaveDeps } from "../worktree-await-leave.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../../lib/worktree/registry.ts";
 import { recordDepartures } from "../../lib/worktree/departures.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -325,6 +326,23 @@ describe("awaitLeaveCommand", () => {
       expect(code).toBe(2);
       expect(cap.stdout()).toBe("");
       expect(cap.stderr()).toContain("rt worktree await-leave");
+    }
+  });
+});
+
+describe("mainCheckoutFor", () => {
+  test("a tree with no .git of its own inside another repo finds no main checkout", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "await-leave-ceiling-")));
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" });
+    try {
+      git(root, "init");
+      git(root, "commit", "--allow-empty", "-m", "init");
+      const treePath = join(root, "pool", "stale-tree");
+      mkdirSync(treePath, { recursive: true });
+      expect(mainCheckoutFor({ repoName: "gh-acme-no-main", tree: tree({ path: treePath }) })).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
