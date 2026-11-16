@@ -28,9 +28,9 @@ import {
 } from "../../worktree/git-async.ts";
 import { withTreeLock } from "../../worktree/locks.ts";
 import { branchOf } from "../../state/branch-cache.ts";
-import { classifyDirtyAsync, disposeTree, type DisposeDeps } from "../../worktree/dispose.ts";
+import { classifyDirtyAsync, disposeTree, GRACE_MS, type DisposeDeps } from "../../worktree/dispose.ts";
 import { changeMarker, changeNoun } from "../../repo-label.ts";
-import { mergedMrCoversTips } from "../../worktree/containment.ts";
+import { mergedMrCoversTips, mergedMrIsTreeHead } from "../../worktree/containment.ts";
 import { loadWorktreeAppConfig, type WorktreeAppConfig } from "../../worktree/config.ts";
 import { killWorktreeProcesses } from "../worktree-process-kill.ts";
 import { hasLiveCwdInside, liveProcessCwds } from "./stale-claims.ts";
@@ -568,6 +568,12 @@ function gcFiredLedger(repoName: string, fired: Set<string>, liveIds: Set<string
   }
 }
 
+function claimedWithinGrace(rec: TreeRecord): boolean {
+  if (!rec.claimedAt) return false;
+  const claimedMs = Date.parse(rec.claimedAt);
+  return !Number.isNaN(claimedMs) && Date.now() - claimedMs < GRACE_MS;
+}
+
 /**
  * Detect `opened → merged|closed` MR transitions for one repo and react.
  *
@@ -657,18 +663,34 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
     // tree (a reused branch name, a fresh ledger), so it gets the same
     // liveness gate the stale-claim sweep applies: a tree someone is sitting
     // in is deferred, and the fired key stays unspent so the dispose happens
-    // once the session ends. A witnessed edge keeps its existing guards,
-    // except for a released job tree: its worker may still be sitting in it.
-    // A job tree still held skips the gate; actOnTree records its hold.
+    // once the session ends. A tree proven to sit at the merged MR's head is
+    // the MR's own, so it skips the gate and is asked to leave. A witnessed
+    // edge keeps its existing guards, except for a released job tree: its
+    // worker may still be sitting in it. A job tree still held skips the
+    // gate; actOnTree records its hold.
     let skippedLive = false;
+    const proven = new Set<TreeRecord>();
+    // Proof is only worth taking when disposeTree can actually ask: with
+    // killProcesses off it never asks, and a tree it did not hold would be
+    // trashed under a live session. A claim inside the dispose grace is
+    // refused there before any ask, so it keeps the gated path too.
+    if (!witnessed && appConfig.killProcesses) {
+      for (const r of trees) {
+        if (r.disposal === "job" || claimedWithinGrace(r)) continue;
+        if (await mergedMrIsTreeHead(r.path, r.branch ?? null, entry.mr)) proven.add(r);
+      }
+    }
     const gated = trees.filter(
-      (r) => r.kind === "ephemeral" && (!witnessed || r.disposal === "job") && jobHold(deps, r) === null,
+      (r) =>
+        r.kind === "ephemeral" && (!witnessed || r.disposal === "job") && !proven.has(r) && jobHold(deps, r) === null,
     );
     if (gated.length > 0) {
       const cwds = await liveCwdsOnce();
       const alive = cwds === null ? gated : gated.filter((r) => hasLiveCwdInside(cwds, r.path));
-      if (cwds === null && !witnessed) continue;
-      if (alive.length > 0) {
+      if (cwds === null && !witnessed) {
+        skippedLive = true;
+        trees = trees.filter((r) => !gated.includes(r));
+      } else if (alive.length > 0) {
         skippedLive = true;
         trees = trees.filter((r) => !alive.includes(r));
         if (cwds !== null) {
@@ -678,6 +700,14 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
             "reactor: dispose deferred; live process cwd inside the tree",
           );
         }
+      }
+    }
+    for (const r of trees) {
+      if (proven.has(r) && !r.leaving) {
+        log.info(
+          { repo: repoName, branch, tree: r.name },
+          "reactor: unwitnessed merge; tree is at the MR's head, asking sessions to leave",
+        );
       }
     }
 
@@ -693,14 +723,26 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
 
     let reaction: Reaction = "done";
     for (const rec of trees) {
-      const result = await withTreeLock(rec.path, () => actOnTree(deps, rec, branch, cur, appConfig));
+      // The proof ran before the lock: a commit that landed since leaves the
+      // tree unproven, so it waits for the next pass and its gate.
+      const result = await withTreeLock(rec.path, async () => {
+        if (proven.has(rec) && !(await mergedMrIsTreeHead(rec.path, rec.branch ?? null, entry.mr ?? null))) return "stale" as const;
+        return actOnTree(deps, rec, branch, cur, appConfig);
+      });
+      if (result === "stale") {
+        reaction = worse(reaction, "retry");
+        continue;
+      }
       if (result !== "busy") actedPaths.add(rec.path);
       // A locked tree is someone else's in-flight work; come back next pass.
       reaction = worse(reaction, result === "busy" ? "retry" : result);
     }
 
-    if (reaction === "retry") nextMrState[mrKey] = "opened";
-    else if (reaction === "fired" && !skippedLive) fired.add(fireKey);
+    // An unwitnessed retry stays unwitnessed: re-arming the edge would make
+    // the next pass skip the proof and the live-cwd gate.
+    if (reaction === "retry") {
+      if (witnessed) nextMrState[mrKey] = "opened";
+    } else if (reaction === "fired" && !skippedLive) fired.add(fireKey);
   }
 
   saveReactorState({ mrState: nextMrState, fired: [...fired] }, log);

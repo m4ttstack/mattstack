@@ -6,6 +6,7 @@ import { join } from "path";
 import type { Logger } from "pino";
 import { setSetting } from "../../../settings/write.ts";
 import { closeStateDb } from "../../../state/index.ts";
+import * as locksModule from "../../../worktree/locks.ts";
 import * as registryModule from "../../../worktree/registry.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../../../worktree/registry.ts";
 import { changeMarker, changeNoun } from "../../../repo-label.ts";
@@ -355,11 +356,19 @@ describe("held trees say why (RT-267)", () => {
 
   const staleOrphan = async () => [{ pid: 75703, ppid: 1, command: "xctest", fullCommand: "/x/xctest", elapsedMs: 58 * HOUR }];
   const headOf = (path: string) => execSync(`git -C ${path} rev-parse HEAD`, { encoding: "utf8" }).trim();
+  /** An MR head one commit ahead of the tree: the merge covers the tree, but the tree is not proven to be its source. */
+  const mergedHeadAheadOf = (path: string) => {
+    writeFileSync(join(path, "ahead.txt"), "ahead\n");
+    sh(`git add -A && git ${GIT_ID} commit -q -m ahead`, path);
+    const sha = headOf(path);
+    sh("git reset -q --hard HEAD~1", path);
+    return sha;
+  };
 
   test("a merged tree held only by stale orphans stops them and disposes on the next pass", async () => {
     setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
     const rec = ephemeralTree(repo, repoName, "quebec", "feat-quebec");
-    const merged = { "feat-quebec": { repoName, mr: { iid: 85, state: "merged", sha: headOf(rec.path) } } };
+    const merged = { "feat-quebec": { repoName, mr: { iid: 85, state: "merged", sha: mergedHeadAheadOf(rec.path) } } };
     const stopped: number[][] = [];
 
     await detect(merged, { liveCwds: async () => new Set([rec.path]), treeHolders: staleOrphan, stopProcesses: (pids) => stopped.push(pids) });
@@ -450,6 +459,19 @@ describe("held trees say why (RT-267)", () => {
     await detect(merged);
     expect(find(rec.path)?.state).toBe("disposable");
     expect(find(rec.path)?.heldReason).toBeUndefined();
+  });
+
+  test("a proven tree with a live cwd is held, not disposed, when killProcesses is off", async () => {
+    const rec = ephemeralTree(repo, repoName, "zulu2", "feat-zulu2");
+
+    await detect({ "feat-zulu2": { repoName, mr: { iid: 107, state: "merged", sha: headOf(rec.path) } } }, {
+      liveCwds: async () => new Set([rec.path]),
+      treeHolders: async () => [],
+    });
+
+    expect(find(rec.path)?.heldReason).toBeDefined();
+    expect(existsSync(rec.path)).toBe(true);
+    expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:107:merged`);
   });
 
   describe("a merged MR asks sessions inside to leave", () => {
@@ -747,6 +769,147 @@ describe("held trees say why (RT-267)", () => {
       await detect(merged, r.seams);
       expect(r.kills.find((k) => k.path === mergedTree.path)?.stopSessionsInside).toBe(true);
       expect(r.kills.filter((k) => k.path === closedTree.path)).toEqual([]);
+    });
+
+    test("an unwitnessed merge at the tree's head asks the session inside to leave", async () => {
+      const rec = ephemeralTree(repo, repoName, "sierra2", "feat-sierra2");
+      const r = recorder();
+
+      await detect({ "feat-sierra2": { repoName, mr: { iid: 101, state: "merged", sha: headOf(rec.path) } } }, {
+        ...r.seams,
+        liveCwds: async () => new Set([rec.path]),
+      });
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving?.why).toBe(`${changeNoun(repoName)} ${changeMarker(repoName)}101 merged`);
+      expect(find(rec.path)?.heldReason).toBeUndefined();
+      expect(r.kills).toEqual([]);
+      expect(__test__.loadReactorState().fired).toContain(`disposed:${repoName}:101:merged`);
+    });
+
+    test("an unwitnessed merge on a reused branch name holds the tree without asking", async () => {
+      const rec = ephemeralTree(repo, repoName, "tango2", "feat-tango2");
+      const r = recorder();
+      const baseSha = execSync(`git -C ${rec.path} rev-parse HEAD~1`, { encoding: "utf8" }).trim();
+
+      await detect({ "feat-tango2": { repoName, mr: { iid: 102, state: "merged", sha: baseSha } } }, {
+        ...r.seams,
+        liveCwds: async () => new Set([rec.path]),
+      });
+
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.heldReason).toBeDefined();
+      expect(r.kills).toEqual([]);
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:102:merged`);
+    });
+
+    test("an unwitnessed merge ahead of the tree holds it without asking", async () => {
+      const rec = ephemeralTree(repo, repoName, "uniform2", "feat-uniform2");
+      const r = recorder();
+      const mrSha = mergedHeadAheadOf(rec.path);
+
+      await detect({ "feat-uniform2": { repoName, mr: { iid: 103, state: "merged", sha: mrSha } } }, {
+        ...r.seams,
+        liveCwds: async () => new Set([rec.path]),
+      });
+
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.heldReason).toBeDefined();
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:103:merged`);
+    });
+
+    test("a proven tree claimed inside the dispose grace stays held, not marked disposable", async () => {
+      const rec = ephemeralTree(repo, repoName, "whiskey2", "feat-whiskey2");
+      const r = recorder();
+      const claimedAt = new Date().toISOString();
+      saveRegistry(repoName, loadRegistry(repoName).map((t) => (t.path === rec.path ? { ...t, claimedAt } : t)));
+
+      await detect({ "feat-whiskey2": { repoName, mr: { iid: 105, state: "merged", sha: headOf(rec.path) } } }, {
+        ...r.seams,
+        liveCwds: async () => new Set([rec.path]),
+        treeHolders: async () => [],
+      });
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.heldReason).toBeDefined();
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:105:merged`);
+    });
+
+    test("a proven tree that already carries a leaving mark is not announced again", async () => {
+      const rec = ephemeralTree(repo, repoName, "xray2", "feat-xray2");
+      const r = recorder();
+      const why = `${changeNoun(repoName)} ${changeMarker(repoName)}106 merged`;
+      saveRegistry(
+        repoName,
+        loadRegistry(repoName).map((t) => (t.path === rec.path ? { ...t, leaving: { why, since: new Date().toISOString() } } : t)),
+      );
+      const lines: string[] = [];
+      const log = { ...fakeLog(), info: (_: unknown, msg?: string) => void lines.push(String(msg)) } as unknown as Logger;
+
+      await detect({ "feat-xray2": { repoName, mr: { iid: 106, state: "merged", sha: headOf(rec.path) } } }, { ...r.seams, log });
+
+      expect(lines.filter((m) => m.includes("tree is at the MR's head"))).toEqual([]);
+    });
+
+    test("an unwitnessed merge whose tree lock is busy stays unwitnessed, then asks once the lock frees", async () => {
+      const rec = ephemeralTree(repo, repoName, "yankee2", "feat-yankee2");
+      const r = recorder();
+      const merged = { "feat-yankee2": { repoName, mr: { iid: 108, state: "merged", sha: headOf(rec.path) } } };
+      const release = locksModule.tryLockTree(rec.path)!;
+      try {
+        await detect(merged, r.seams);
+      } finally {
+        release();
+      }
+
+      expect(__test__.loadReactorState().mrState[`${repoName}:feat-yankee2`]).toBe("merged");
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:108:merged`);
+      expect(find(rec.path)?.leaving).toBeUndefined();
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.leaving).toBeDefined();
+    });
+
+    test("a tree that gains a commit between the proof and the lock is not asked this pass", async () => {
+      const rec = ephemeralTree(repo, repoName, "zulu3", "feat-zulu3");
+      const r = recorder();
+      const merged = { "feat-zulu3": { repoName, mr: { iid: 109, state: "merged", sha: headOf(rec.path) } } };
+      const realLock = locksModule.withTreeLock;
+      const advance = spyOn(locksModule, "withTreeLock").mockImplementation(((path: string, fn: () => Promise<unknown>) => {
+        writeFileSync(join(rec.path, "pushed-late.txt"), "late\n");
+        sh(`git add -A && git ${GIT_ID} commit -q -m late`, rec.path);
+        return realLock(path, fn);
+      }) as typeof locksModule.withTreeLock);
+      try {
+        await detect(merged, { ...r.seams, liveCwds: async () => new Set([rec.path]) });
+      } finally {
+        advance.mockRestore();
+      }
+
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(__test__.loadReactorState().mrState[`${repoName}:feat-zulu3`]).toBe("merged");
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:109:merged`);
+
+      await detect(merged, { ...r.seams, liveCwds: async () => new Set([rec.path]) });
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.heldReason).toBeDefined();
+    });
+
+    test("a proven unwitnessed tree is asked even when the live-cwd snapshot fails", async () => {
+      const rec = ephemeralTree(repo, repoName, "victor2", "feat-victor2");
+      const r = recorder();
+
+      await detect({ "feat-victor2": { repoName, mr: { iid: 104, state: "merged", sha: headOf(rec.path) } } }, {
+        ...r.seams,
+        liveCwds: async () => {
+          throw new Error("lsof unavailable");
+        },
+      });
+
+      expect(find(rec.path)?.leaving).toBeDefined();
+      expect(__test__.loadReactorState().fired).toContain(`disposed:${repoName}:104:merged`);
     });
   });
 
