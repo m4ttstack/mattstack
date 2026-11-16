@@ -312,6 +312,11 @@ export interface FetchProjectOptions {
   signal?: AbortSignal;
 }
 
+export interface RequestReReviewOptions {
+  renew?: boolean;
+  onWarning?: (message: string) => void;
+}
+
 /**
  * Provider-agnostic interface for a Git hosting service.
  *
@@ -889,8 +894,21 @@ export interface GitProvider {
    * would believe reviewers were re-pinged when none were. This contract is
    * shared code's responsibility to keep in sync across providers; do not
    * let one provider throw here while the other resolves.
+   *
+   * `options.renew` is GitHub only: a reviewer whose request is still
+   * pending gets no new notification from a repeat request, so renew removes
+   * that request first and then requests again. A failed read or remove
+   * never blocks the request; it is reported through `options.onWarning`.
+   * Renew applies only to the names given, so without `reviewerUsernames` it
+   * removes nothing. A request that fails after the remove landed leaves
+   * those reviewers with no pending request. GitLab ignores both options.
    */
-  requestReReview(projectPath: string, mrIid: number, reviewerUsernames?: string[]): Promise<void>;
+  requestReReview(
+    projectPath: string,
+    mrIid: number,
+    reviewerUsernames?: string[],
+    options?: RequestReReviewOptions
+  ): Promise<void>;
 
   // ── REST pass-through (used by note mutations, job traces, etc.) ────────
 

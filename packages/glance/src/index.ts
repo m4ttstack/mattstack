@@ -119,6 +119,7 @@ export type {
   FetchProjectOptions,
   FetchProjectPipelinesOptions,
   FetchUserEventsOptions,
+  RequestReReviewOptions,
 } from './GitProvider.ts';
 // `warningTarget` is exported because `FetchPullRequestsWarning.target`'s
 // documentation tells a consumer to match on it by building the string with

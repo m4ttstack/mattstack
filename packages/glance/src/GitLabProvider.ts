@@ -11,6 +11,7 @@ import type {
   FetchProjectPipelinesOptions,
   FetchUserEventsOptions,
   MRState,
+  RequestReReviewOptions,
 } from './GitProvider.ts';
 import { parseUpdatedAfter, requireProjectPath } from './GitProvider.ts';
 import { gitlabReadiness } from './readiness.ts';
@@ -2682,7 +2683,12 @@ export class GitLabProvider implements GitProvider {
    * re-request from, and resolving anyway would recreate the exact
    * silent-success shape this method used to have. Throw instead.
    */
-  async requestReReview(projectPath: string, mrIid: number, reviewerUsernames?: string[]): Promise<void> {
+  async requestReReview(
+    projectPath: string,
+    mrIid: number,
+    reviewerUsernames?: string[],
+    _options?: RequestReReviewOptions
+  ): Promise<void> {
     let currentReviewerIds: number[];
     try {
       const mr = (await this.gb.MergeRequests.show(projectPath, mrIid)) as unknown as {
