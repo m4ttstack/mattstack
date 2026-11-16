@@ -31,6 +31,11 @@ process.env.RT_GH_TOKEN_FALLBACK = "off";
 // settings, sops store and keychain by default; suites inject their own seams.
 process.env.RT_POOL_FORGE_TOKEN = "off";
 
+// Apple git's system gitconfig names the osxkeychain credential helper, and
+// under the scratch HOME below macOS finds no login keychain for it and raises
+// a modal "Keychain Not Found" dialog. Global config already lives under HOME.
+process.env.GIT_CONFIG_NOSYSTEM = "1";
+
 // rt-ui asks the terminal for its background on auto; a test run must never
 // write that query to the developer's terminal. lib/ui/background.ts and
 // rt-ui both honor this, and no suite's reset clears it.
