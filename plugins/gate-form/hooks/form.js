@@ -389,7 +389,7 @@ function numberedRows(spec) {
     const isKeyed = idx === spec.selected;
     const look = isKeyed ? { quiet: true, bg: QUIET.rest, color: QUIET.label } : { quiet: true };
     const action = spec.actionFor(idx);
-    const number = sp(` ${idx + 1}`, { ...look, dim: true, action });
+    const number = sp(` ${spec.focused ? idx + 1 : " "}`, { ...look, dim: true, action });
     const text = sp(`  ${label}${" ".repeat(widest - cellWidth(label) + 2)}`, { ...look, action });
     if (!isKeyed)
       return [lead, number, text];
@@ -1447,7 +1447,7 @@ function navRows(form, s, view) {
 }
 function confirmFoot(form, s, view) {
   const labels = (form.questions[0]?.options ?? []).map((option) => option.label);
-  const rows = numberedRows({ labels, selected: s.cursor[0], pressing: view.pressing, actionFor: (idx) => ({ type: "option", idx }) });
+  const rows = numberedRows({ labels, selected: s.cursor[0], focused: view.focused, pressing: view.pressing, actionFor: (idx) => ({ type: "option", idx }) });
   return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(" ")], ...rows];
 }
 function submitRow(form, s, view) {

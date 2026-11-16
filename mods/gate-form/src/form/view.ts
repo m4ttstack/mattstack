@@ -181,7 +181,7 @@ function navRows(form: Form, s: State, view: View): L[] {
 // A confirm has no question section, so its rail stays the unfocused gray all the way down.
 function confirmFoot(form: Form, s: State, view: View): L[] {
   const labels = (form.questions[0]?.options ?? []).map(option => option.label)
-  const rows = numberedRows<Action>({ labels, selected: s.cursor[0]!, pressing: view.pressing, actionFor: idx => ({ type: 'option', idx }) })
+  const rows = numberedRows<Action>({ labels, selected: s.cursor[0]!, focused: view.focused, pressing: view.pressing, actionFor: idx => ({ type: 'option', idx }) })
   return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(' ')], ...rows]
 }
 

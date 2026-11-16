@@ -6,6 +6,8 @@ export type NumberedRowsSpec<A> = {
   labels: string[]
   // The row the keys are on. It stays marked when the pane loses focus; the unfocused look mutes it.
   selected: number
+  // The numbers show only while the pane has the keys: without them a number reads as a key that does nothing.
+  focused: boolean
   // A key's activation of the selected row is showing (KitUi `keyPressing`): that row draws pressed, as a click's would.
   pressing?: boolean
   indent?: number
@@ -21,7 +23,7 @@ export function numberedRows<A>(spec: NumberedRowsSpec<A>): Line<A>[] {
     const isKeyed = idx === spec.selected
     const look = isKeyed ? { quiet: true, bg: QUIET.rest, color: QUIET.label } : { quiet: true }
     const action = spec.actionFor(idx)
-    const number: Span<A> = sp(` ${idx + 1}`, { ...look, dim: true, action })
+    const number: Span<A> = sp(` ${spec.focused ? idx + 1 : ' '}`, { ...look, dim: true, action })
     const text: Span<A> = sp(`  ${label}${' '.repeat(widest - cellWidth(label) + 2)}`, { ...look, action })
     if (!isKeyed) return [lead, number, text]
     const [n, t] = spec.pressing ? [pressed(number), pressed(text)] : [number, text]
