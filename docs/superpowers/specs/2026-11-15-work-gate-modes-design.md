@@ -206,27 +206,66 @@ and cross-lane problems go to a helper agent started on demand.
   bounded agent call. "Suggest a batch" pre-ticks the latest suggested batch
   with its flags. Refresh cadence must be measured against Linear's rate
   limits before it is set.
+- Start work picks a repo first. A per-repo setting names that repo's
+  Linear project (and so its workspace). One batch is one repo and one herd.
 - Ticking one ticket or several and pressing Start starts a herd. A single
   ticket is a herd of one, so there is one launch path, through rt's
   existing herd verbs.
+- The background suggestion reruns only when the ticket list changed, at
+  most hourly, on Sonnet and the operator's default account.
+
+### Herd ownership
+
+Today a herd belongs to the Claude Code session that started it: the herd
+row stores its session and chat handle, the daemon subscribes that session
+to the herd's gates, and every control tool refuses a caller that is not
+that session. A console-started herd is instead owned by the operator:
+
+- rt gains an operator owner for a herd beside the session owner. The
+  console calls the daemon's herd verbs directly as the operator. Agents in
+  the herd cannot call its controls.
+- The Get help agent gets a narrow grant on the herd it was started for:
+  read the herd, post in its room. Whether it may also nudge or pause a lane
+  is the builder's call, defaulting to no.
+- With no shepherd session subscribed, the console's Gates view is the
+  inbox. When a gate needs the operator and the console is not open, the
+  operator is notified (desktop notification or tray badge; the builder
+  picks, following the existing gate notification routing).
+- Session-owned herds (shepherdr) keep working unchanged.
 
 ### The launch gate
 
-1. Start opens an analysis agent in a Claude Code pane. It reads each
-   ticket, and enough of the code, to recommend per ticket: approach
-   (direct-tdd, superpowers, trivial), evidence plan, open product
-   questions, model and effort, account, and gate mode (defaulting to the
-   operator's setting).
+1. Start opens an analysis agent in a Claude Code pane. It shows on the
+   Runs page as a launch run. It reads each ticket, and enough of the code,
+   to recommend per ticket: approach (direct-tdd, superpowers, trivial),
+   evidence plan, open product questions, model and effort, account, and
+   gate mode (defaulting to the operator's setting). It honors the team
+   pack's shepherd hooks (intake, method file, provisioning) and folds the
+   pack's own plan questions into the launch gate.
+   For a ticket it recommends the superpowers path, it also asks that
+   ticket's first round of brainstorm questions in the launch gate.
 2. It raises one launch gate covering every ticket in the batch. The gate
    is drawn with the kit gate form (the gate-form mod), which has no
    four-question cap, and is listed in the console's Gates view like any
-   gate, so it can be answered from either place.
-3. After the answer, the herd's workers spawn with their plan already
-   decided: each work run starts past its plan, clarify and evidence-plan
-   gates, with those decisions recorded as the operator's launch answers.
+   gate, so it can be answered from either place. The launch gate always
+   asks, in every mode.
+3. After the answer, the console starts the herd's workers with their plan
+   already decided: each work run starts past its plan, clarify and
+   evidence-plan gates, with those decisions recorded as the operator's
+   launch answers.
 4. A worker that reads the code and finds its launch plan wrong does not
    re-plan quietly. It raises an exception gate (needs the operator)
    naming what it found.
+
+### Superpowers tickets
+
+- A direct-tdd or trivial ticket runs straight from launch to its mode's
+  stopping gate.
+- A superpowers ticket's worker starts its brainstorm from the launch
+  answers. Follow-up brainstorm questions, the spec approval and the plan
+  approval still reach the operator, and they always ask in every mode
+  (marked needs the operator), because brainstorm questions usually carry a
+  recommendation and a mode would otherwise answer them.
 
 ### Watching and helping
 
@@ -240,6 +279,20 @@ and cross-lane problems go to a helper agent started on demand.
   contention, wedged installs) gets a "Get help" action: it starts an agent
   in a pane with the herd's context, which fixes or coordinates and then
   exits. No agent sits in the shepherd's seat for the life of the herd.
+
+### The shepherd's other duties
+
+| Duty today | In the first version |
+|---|---|
+| Lane overlap: shared files, branch drift | Console shows it per lane, with Get help |
+| A new account when one runs out mid-run | A daemon rule picks the next account |
+| Moving Linear tickets on | Stays in the work pipeline |
+| Asking whether to merge a lane | Stays at mark-ready and on the board |
+| Integration jobs | Not in the first version |
+| Reviewer-guest rounds | Not in the first version |
+
+Both shepherdr skills (generic and team pack) stay for now. Whether to
+retire them for work herds is decided once the console has proven itself.
 
 ### Boundary
 
@@ -278,6 +331,10 @@ direction; confirm.)
   daemon keeps both fresh in the background.
 - Cross-lane problems go to an on-demand helper agent, not a standing
   shepherd.
+- Console-started herds are owned by the operator through the console.
+- The shepherd's other duties are placed as in the table above.
+- Superpowers tickets: first-round brainstorm questions in the launch
+  gate; follow-ups, spec and plan approvals still ask, in every mode.
 
 ## My calls (marked for review)
 
@@ -291,6 +348,13 @@ direction; confirm.)
 - Recording the head commit at gate open rather than committing per gate.
 - A single ticket is a herd of one.
 - The boundary paragraph in phase 3.
+- Phase 3 launches team-pack herds, honoring the pack's shepherd hooks;
+  both shepherdr skills stay for now.
+- One batch is one repo; a per-repo setting names its Linear project.
+- The launch gate always asks; the analysis agent shows as a launch run.
+- The suggestion reruns on list change, at most hourly, on Sonnet.
+- The Get help agent may read the herd and post in its room, not control
+  lanes, unless the builder finds it needs to.
 
 ## Left to the builder
 
