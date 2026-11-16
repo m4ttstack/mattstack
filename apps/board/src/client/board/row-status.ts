@@ -86,6 +86,9 @@ export interface Candidate {
   settled?: true;
   /** The author's repair (a rebase, a ci fix), which outranks settled notes. */
   repair?: true;
+  /** When the lane last wrote this line; between two equal-ranked lines
+      that both carry one, the newer leads the row. */
+  at?: number;
   /** A local sync's saved output: the word opens it, and streamed lines
       join it while the sync runs. */
   syncLog?: readonly string[];
@@ -708,7 +711,11 @@ function settled(
   now: number
 ): Candidate | null {
   if (updatedAt !== undefined && now - updatedAt > DONE_TTL) return null;
-  return { ...line, settled: true };
+  return {
+    ...line,
+    settled: true,
+    ...(updatedAt !== undefined ? { at: updatedAt } : {}),
+  };
 }
 
 /** A live run's worker was rung in place of a doctor. The server sends only
@@ -799,6 +806,7 @@ function doctorStatusLine(
         tone: 'go',
         word: DOCTOR_LABEL[d.status],
         detail: d.message || undefined,
+        at: d.updatedAt,
         // Until the push's own pipeline replaces the one it found, a ci
         // failure on the row is the old branch's, so it must not outrank this.
         ...(d.pipelineAtSync && mr.pipeline?.id === d.pipelineAtSync
@@ -1168,6 +1176,10 @@ export function candidateLines(
   return standing?.repair && !handed ? [...lines, standing] : lines;
 }
 
+function newerFirst(a: Candidate, b: Candidate): number {
+  return a.at !== undefined && b.at !== undefined ? b.at - a.at : 0;
+}
+
 const TONE_RANK: Record<Tone, number> = {
   bad: 0,
   warn: 1,
@@ -1194,7 +1206,12 @@ export function rowStatus(
     repairs && l.settled ? TONE_RANK.clear + 1 : TONE_RANK[l.rankAs ?? l.tone];
   const ranked = lines
     .map((line, index) => ({ line, index }))
-    .sort((a, b) => rank(a.line) - rank(b.line) || a.index - b.index);
+    .sort(
+      (a, b) =>
+        rank(a.line) - rank(b.line) ||
+        newerFirst(a.line, b.line) ||
+        a.index - b.index
+    );
   const [first, ...rest] = ranked;
   const line = first!.line;
   return {

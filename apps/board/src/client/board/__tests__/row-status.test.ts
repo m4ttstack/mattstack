@@ -2719,3 +2719,28 @@ describe('rowStatus: a local sync that pushed', () => {
     expect(s.more.map(l => l.word)).toContain('synced');
   });
 });
+
+describe('rowStatus: equal-ranked lines', () => {
+  const row = (respondAt: number, syncAt: number) =>
+    own({
+      respond: {
+        status: 'done',
+        posted: 3,
+        threads: 3,
+        reportReady: true,
+        updatedAt: respondAt,
+      },
+      doctor: { status: 'synced', message: 'rebased', updatedAt: syncAt },
+    });
+
+  test('a sync newer than the response leads the row', () => {
+    const s = rowStatus(row(NOW - 60_000, NOW), NOW, NONE, ME);
+    expect(s.line.word).toBe('synced');
+  });
+
+  test('a response newer than the sync leads the row', () => {
+    const s = rowStatus(row(NOW, NOW - 60_000), NOW, NONE, ME);
+    expect(s.line.word).not.toBe('synced');
+    expect(s.more.map(l => l.word)).toContain('synced');
+  });
+});
