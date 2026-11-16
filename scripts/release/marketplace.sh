@@ -120,8 +120,14 @@ TREE_NAMES="$(python3 -c 'import json,sys; [print(p["source"][len("./plugins/"):
     || { echo "✗ cannot read plugin sources from $CATALOG" >&2; exit 1; }
 for name in $TREE_NAMES; do
     if [ ! -d "$STAGE/plugins/$name" ] && [ -n "$(git -C "$TREE_ROOT" ls-tree -d HEAD -- "plugins/$name")" ]; then
-        git -C "$TREE_ROOT" archive --format=tar HEAD -- "plugins/$name" | tar -xf - -C "$STAGE" \
-            || { echo "✗ cannot copy plugins/$name from $TREE_ROOT" >&2; exit 1; }
+        # Through a file, never a pipe: bsdtar stops reading at the archive's
+        # end marker, git takes SIGPIPE writing the padding after it, and
+        # pipefail turns that into a failed copy.
+        ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/mattstack-marketplace-tree.XXXXXX")"
+        { git -C "$TREE_ROOT" archive --format=tar -o "$ARCHIVE" HEAD -- "plugins/$name" \
+            && tar -xf "$ARCHIVE" -C "$STAGE"; } \
+            || { rm -f "$ARCHIVE"; echo "✗ cannot copy plugins/$name from $TREE_ROOT" >&2; exit 1; }
+        rm -f "$ARCHIVE"
     fi
 done
 
