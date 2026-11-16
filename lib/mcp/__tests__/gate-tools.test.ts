@@ -1485,6 +1485,69 @@ describe("gate modes", () => {
     expect(body(res)).toMatchObject({ paneAction: "answered", status: "answered", runErrors: ["disk full"] });
   });
 
+  describe("digest", () => {
+    const dec = (scope: string, by: string, at: number, contract = "gate@1"): DecisionRow =>
+      ({ contract, scope, selection: '{"q1":"yes"}', decided_by: by, decided_at: at });
+    const DIGEST_HEAD = "Decided without you since your last answer:";
+    const ASKS = { ...GATE, needsOperator: "a product call" };
+
+    test("asking gate shows decisions since the last human answer", async () => {
+      const decisions = [dec("old", "mode:quiet", 1), dec("human", "pane", 5), dec("a", "mode:quiet", 6), dec("b", "mode:quiet", 7)];
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions });
+      const res = await askGate(GATE, HERDR, f.deps);
+      const ctx = f.asks[0]!.context as string;
+      expect(ctx).toBe(`${DIGEST_HEAD}\n- a: q1=yes\n- b: q1=yes\n\nctx`);
+      expect(ctx).not.toContain("- old:");
+      expect(body(res).formContext).toBe(ctx);
+    });
+
+    test("Needs you comes first, then the digest, then the context", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate(ASKS, HERDR, f.deps);
+      expect(f.asks[0]!.context).toBe(`Needs you: a product call\n\n${DIGEST_HEAD}\n- a: q1=yes\n\nctx`);
+    });
+
+    test("a later execution-strategy decision does not hide them", async () => {
+      const decisions = [dec("a", "mode:quiet", 6), dec("strategy", "pane", 9, "execution-strategy@1")];
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions });
+      await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toContain("- a: q1=yes");
+    });
+
+    test("no mode decisions leaves context unchanged", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("human", "pane", 5)] });
+      const res = await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toBe("ctx");
+      expect(body(res).formContext).toBe("ctx");
+    });
+
+    test("an auto-answered gate carries no digest", async () => {
+      const f = fake({ ...QUIET, ...preAnswered("mode:quiet"), decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toBe("ctx");
+    });
+
+    test("a shadow open is an asking gate and gets the digest", async () => {
+      const f = fake({ gateMode: { mode: "quiet", shadow: true }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toStartWith(DIGEST_HEAD);
+    });
+
+    test("a passed formContext carries the digest", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      const res = await askGate(GATE, HERDR, f.deps, { formContext: "pane prose" });
+      expect(body(res).formContext).toBe(`${DIGEST_HEAD}\n- a: q1=yes\n\npane prose`);
+    });
+
+    test("a structured stored context stays unprefixed while formContext carries the digest", async () => {
+      const structured = JSON.stringify({ schema: "gate-ctx@1", title: "t" });
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      const res = await askGate({ ...GATE, context: structured }, HERDR, f.deps, { formContext: "pane prose" });
+      expect(f.asks[0]!.context).toBe(structured);
+      expect(body(res).formContext).toBe(`${DIGEST_HEAD}\n- a: q1=yes\n\npane prose`);
+    });
+  });
+
   describe("gate_open", () => {
     const SOURCE = { questions: [{ id: "q1", multi: false, options: ["go (Recommended)", "stop"] }] };
 

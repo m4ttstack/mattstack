@@ -13,7 +13,7 @@ import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/s
 import { boardsBudgetError, checkSource, fitOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
 import { flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
 import { isObject, tojson, utf8Bytes } from "../gates/jq.ts";
-import { autoAnswerDecision, effectiveMode, parseReach, type GateMode } from "../gates/mode.ts";
+import { autoAnswerDecision, digestSince, effectiveMode, modeDigest, parseReach, type GateMode } from "../gates/mode.ts";
 import { buildReviewSource, reviewSourceErrors } from "../gates/review-source.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
 import { earlierStages } from "../runs/engine.ts";
@@ -311,13 +311,15 @@ export async function askGate(
     if (worktree) headCommit = await deps.headCommit(worktree);
   }
   const preAnswer = modeAnswers && !shadow ? { answers: modeAnswers, by: `mode:${mode}` } : null;
+  const digest = run && !preAnswer ? modeDigest(run.snapshot.decisions, digestSince(run.snapshot.decisions)) : null;
+  const lead = [needsYou, digest].filter((part): part is string => part != null).join("\n\n") || undefined;
 
   const payload: Commands["gate:ask"]["payload"] = { questions };
   if (input.context !== undefined) {
-    // A structured context keeps its JSON whole for the board; the reason reaches the pane through formContext.
-    payload.context = context !== undefined && !isStructured(context) ? prefixed(needsYou, context)! : input.context as string;
-  } else if (needsYou !== undefined) {
-    payload.context = needsYou;
+    // A structured context keeps its JSON whole for the board; the reason and digest reach the pane through formContext.
+    payload.context = context !== undefined && !isStructured(context) ? prefixed(lead, context)! : input.context as string;
+  } else if (lead !== undefined) {
+    payload.context = lead;
   }
   if (input.kind !== undefined) payload.kind = input.kind as string;
   // No RT_GATE_SUBJECT read (contract C13): the var carries an agent:<id>
@@ -367,7 +369,7 @@ export async function askGate(
     }
   }
 
-  const formContext = prefixed(needsYou, "formContext" in extra
+  const formContext = prefixed(lead, "formContext" in extra
     ? extra.formContext
     : context !== undefined ? flattenContext(context, { level: "gate" }) : undefined);
   const kit = paneAction === "kit";
