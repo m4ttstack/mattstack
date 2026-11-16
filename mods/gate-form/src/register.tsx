@@ -1,12 +1,12 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On, RenderElement, RenderSurface, ToolCallInput, ToolCallResult } from 'claude-code'
+import type { EngineInterface, On, RenderElement, RenderSurface, Timer, ToolCallInput, ToolCallResult } from 'claude-code'
 import { addWheel, bandAbovePrompt, isEngaged, isPlaced, paneMessage, paneRows, registerPaneRedraw, showPane, wheelTotal, type HideablePane, type Waiting } from '@mattstack/mod-kit'
 
-import type { BoardGate, Form, LegacyForm } from '../types'
+import type { BoardGate, Form, GateFormAskResult, LegacyForm } from '../types'
 import { bellArgs } from './gate/bell'
 import { NO_ADDRESS, addBoardGate, boardAddress, boardText, boardUrl, kindTitle, readBoardOnly } from './gate/board'
 import { addForm, currentForm, fitForm, fromLegacy, knownForms, openCount, patchForm } from './gate/forms'
-import { agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, readKitResult, savedResult, spillPaths, spilledGate, toForm, type GateCall } from './gate/parse'
+import { PLUGIN_QUESTION, agentFields, answerOutcome, boardFields, formFromRow, gateForm, listedGates, pluginForm, readKitResult, savedResult, spillPaths, spilledGate, toForm, type GateCall } from './gate/parse'
 import { BOARD_INSTRUCTION, BOARD_TOAST, GATE_ANSWERED, GATE_ASIDE, GATE_INSTRUCTION, agentReply, type Outcome } from './gate/reply'
 import { RT_OVERRAN, RT_TIMEOUT_MS, rtError, runRt, settingIsOn } from './gate/rt'
 import { INPUT_SCHEMA, TOOL_DESCRIPTION } from './gate/schema'
@@ -43,6 +43,16 @@ const WAIT_RETRY_MS = [1_000, 5_000, 15_000]
 const answering = new Set<string>()
 // The board's local address as deck last gave it; null when deck has none.
 const deck: { address?: string | null } = {}
+
+// `$.gateForm` asks this load issued, by form id, until `wait` collects the outcome; a reload forgets them all.
+type Asked = { outcome?: GateFormAskResult; wakes: (() => void)[]; timer?: Timer }
+const asked = new Map<string, Asked>()
+// Plugin forms waiting for the open one to end, oldest first: only one is open at a time.
+const queued: Form[] = []
+// Under the 10 s a call on a plugin noun has to answer in.
+const WAIT_MS = 5_000
+const TIMED_OUT = 'No answer in time.'
+const CLOSED = 'Closed without an answer.'
 
 type FormMessage = { type: 'answer'; formId: string; answers?: Record<string, unknown> } | { type: 'chat'; formId: string; draft?: Record<string, unknown> }
 type Next = (e: ToolCallInput) => Promise<ToolCallResult>
@@ -178,6 +188,7 @@ async function setGateAside($: EngineInterface, form: Form): Promise<void> {
 async function settle($: EngineInterface, formId: string, outcome: Outcome): Promise<void> {
   const form = (await readForms($)).find(f => f.id === formId)
   if (!form || form.status !== 'open') return
+  if (form.source === 'plugin') return settlePlugin($, form, outcome)
   if (form.source === 'gate') {
     if (outcome.status === 'answered') return answerGate($, form, outcome.answers)
     return setGateAside($, form)
@@ -186,6 +197,74 @@ async function settle($: EngineInterface, formId: string, outcome: Outcome): Pro
   const forms = await writeForms($, list => patchForm(list, formId, { status }))
   await wake($, agentReply(form, outcome), `the answers for ${formId}`)
   await showCurrent($, forms)
+}
+
+// The timeout runs from the ask, queued or not, so the caller hears back within the time it gave.
+async function askPlugin($: EngineInterface, args: unknown): Promise<{ value: { id: string } } | { deny: string }> {
+  const form = pluginForm(args)
+  if (typeof form === 'string') return { deny: form }
+  const entry: Asked = { wakes: [] }
+  asked.set(form.id, entry)
+  entry.timer = $.clock.after((args as { timeoutMs: number }).timeoutMs, () => void endAsk($, form.id, { timedOut: true }, TIMED_OUT).catch(() => undefined))
+  const isAsking = (await readForms($)).some(f => f.source === 'plugin' && f.status === 'open' && asked.has(f.id))
+  if (isAsking || queued.length > 0) queued.push(form)
+  else await openAsk($, form)
+  return { value: { id: form.id } }
+}
+
+async function waitAsk($: EngineInterface, id: string): Promise<GateFormAskResult | { pending: true }> {
+  const entry = asked.get(id)
+  if (!entry) return { closed: true }
+  if (!entry.outcome) {
+    const stop = new AbortController()
+    await Promise.race([new Promise<void>(resolve => entry.wakes.push(resolve)), $.clock.sleep(WAIT_MS, { signal: stop.signal }).catch(() => undefined)])
+    stop.abort()
+  }
+  if (!entry.outcome) return { pending: true }
+  asked.delete(id)
+  return entry.outcome
+}
+
+// Records the outcome for the caller's `wait`, closes the form, and opens the next queued one.
+// A form with no ask behind it, left from an earlier load, only closes.
+async function endAsk($: EngineInterface, id: string, outcome: GateFormAskResult, note?: string): Promise<void> {
+  const entry = asked.get(id)
+  if (entry?.outcome) return
+  if (entry) {
+    entry.outcome = outcome
+    entry.timer?.cancel()
+    for (const wake of entry.wakes.splice(0)) wake()
+  }
+  const at = queued.findIndex(f => f.id === id)
+  if (at >= 0) {
+    queued.splice(at, 1)
+    return
+  }
+  const status: Form['status'] = 'value' in outcome ? 'answered' : 'cancelled'
+  const forms = await writeForms($, list => patchForm(list, id, { status, ...(note && { note }) }))
+  const next = queued.shift()
+  if (next) await openAsk($, next)
+  else await showCurrent($, forms)
+}
+
+// A pane that can't be placed leaves the form stored, waiting above the prompt, and the ask's timer running.
+async function openAsk($: EngineInterface, form: Form): Promise<void> {
+  await openForm($, form).catch(() => undefined)
+}
+
+// A plugin form is answered here, never by the agent: no prompt is sent for it.
+async function settlePlugin($: EngineInterface, form: Form, outcome: Outcome): Promise<void> {
+  const value = outcome.status === 'answered' ? outcome.answers[PLUGIN_QUESTION] : undefined
+  await (typeof value === 'string' ? endAsk($, form.id, { value }) : endAsk($, form.id, { closed: true }, CLOSED))
+}
+
+// A plugin form stored by an earlier load has no caller left to answer, so a session start closes it.
+async function closeOrphans($: EngineInterface): Promise<void> {
+  const isOrphan = (f: Form) => f.source === 'plugin' && f.status === 'open' && !asked.has(f.id)
+  if (!(await readForms($)).some(isOrphan)) return
+  const forms = await writeForms($, list => list.map(f => (isOrphan(f) ? { ...f, status: 'cancelled' as const, note: CLOSED } : f)))
+  if (openCount(forms) === 0) await $.ui.close({ id: PANE })
+  $.ui.invalidate('ui.render')
 }
 
 async function openForm($: EngineInterface, form: Form, supersededId?: string | null): Promise<void> {
@@ -489,11 +568,21 @@ async function turnOn($: EngineInterface): Promise<void> {
 export function register(on: On): void {
   registerPaneRedraw(on)
 
+  // Other plugins ask through `$.gateForm` whatever rt.gates.kitForm says: their question is not a gate.
+  // This module's own hooks below answer each call; the functions here only stand beneath them.
+  on('engine.create', async ($, e, next) => {
+    const built = await next(e)
+    return { ...built, gateForm: { ask: async () => ({ id: '' }), wait: async () => ({ closed: true as const }) } }
+  })
+  on('gateForm.ask', ($, e) => askPlugin($, e))
+  on('gateForm.wait', ($, e) => waitAsk($, e.id).then(value => ({ value })))
+
   // With rt.gates.kitForm off the mod registers nothing: an always-listed ask tool would invite agents to use it for any question.
   on('session.start', async ($, e, next) => {
     // Not awaited, so a slow rt never holds the session's start; a gate call waits for it, and the tool is listed from the next prompt.
     setting.reading = readSetting($)
     void setting.reading.then(() => (setting.isOn ? turnOn($) : undefined)).catch(() => undefined)
+    await closeOrphans($).catch(() => undefined)
     return next(e)
   })
 

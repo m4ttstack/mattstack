@@ -93,3 +93,10 @@ test('on a short pane the gate context is kept, wrapped in full, and the page sc
   for (const line of context) expect(seen.replace(/\s+/g, ' ')).toContain(line.replace(/^[-\s]+/, '').trim())
   expect(flat(fittedLines(sample, s, VIEW, SHORT).lines)).toContain(context[0]!.trim())
 })
+
+test('a plugin form is headed mattstack, a gate or ask form mattstack decision gate', () => {
+  const header = (form: Form) => textOf(visibleLines(form, initial(form), VIEW, ROWS)[0]!)
+  expect(header({ ...sample, source: 'plugin' })).toContain('mattstack')
+  expect(header({ ...sample, source: 'plugin' })).not.toContain('decision gate')
+  expect(header(sample)).toContain('mattstack decision gate')
+})

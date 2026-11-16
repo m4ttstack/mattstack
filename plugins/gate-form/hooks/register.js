@@ -442,7 +442,7 @@ function fromLegacy(old) {
   const { replyTo: _, ...rest } = old;
   return [{ ...rest, source: "ask", questions: old.questions.map((q) => ({ ...q, other: true })) }];
 }
-var knownForms = (list) => list.filter((f) => f.source === "gate" || f.source === "ask");
+var knownForms = (list) => list.filter((f) => f.source === "gate" || f.source === "ask" || f.source === "plugin");
 
 // mods/gate-form/src/gate/reply.ts
 var REPLY_TAG = "[gate-form] ";
@@ -521,7 +521,7 @@ function toQuestion(q, seen, source) {
     label: q.label,
     multi: q.multi === true,
     writeIn: q.writeIn === true,
-    other: source !== "gate" || q.writeIn === true,
+    other: source === "ask" || q.writeIn === true,
     ...isText(q.context) && { context: q.context },
     options
   };
@@ -546,6 +546,18 @@ function toForm(title, context, raw, source) {
     status: "open",
     source
   };
+}
+var PLUGIN_QUESTION = "choice";
+function pluginForm(raw) {
+  const args = raw ?? {};
+  if (!isText(args.title))
+    return "title must be a non-empty string.";
+  if (typeof args.timeoutMs !== "number" || !(args.timeoutMs > 0))
+    return "timeoutMs must be a positive number of milliseconds.";
+  if (!Array.isArray(args.options) || args.options.length === 0)
+    return "options must be a non-empty array.";
+  const question = { id: PLUGIN_QUESTION, header: "Choice", label: args.label, options: args.options };
+  return toForm(args.title, args.context, [question], "plugin");
 }
 var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 function readKitResult(text) {
@@ -798,6 +810,11 @@ var watching = new Set;
 var WAIT_RETRY_MS = [1000, 5000, 15000];
 var answering = new Set;
 var deck = {};
+var asked = new Map;
+var queued = [];
+var WAIT_MS = 5000;
+var TIMED_OUT = "No answer in time.";
+var CLOSED = "Closed without an answer.";
 var GATE_PANE = { id: PANE, label: "mattstack gate waiting" };
 async function readForms($) {
   const forms = knownForms(await read($, formsAtom));
@@ -907,6 +924,8 @@ async function settle($, formId, outcome) {
   const form = (await readForms($)).find((f) => f.id === formId);
   if (!form || form.status !== "open")
     return;
+  if (form.source === "plugin")
+    return settlePlugin($, form, outcome);
   if (form.source === "gate") {
     if (outcome.status === "answered")
       return answerGate($, form, outcome.answers);
@@ -916,6 +935,79 @@ async function settle($, formId, outcome) {
   const forms = await writeForms($, (list) => patchForm(list, formId, { status }));
   await wake($, agentReply(form, outcome), `the answers for ${formId}`);
   await showCurrent($, forms);
+}
+async function askPlugin($, args) {
+  const form = pluginForm(args);
+  if (typeof form === "string")
+    return { deny: form };
+  const entry = { wakes: [] };
+  asked.set(form.id, entry);
+  entry.timer = $.clock.after(args.timeoutMs, () => void endAsk($, form.id, { timedOut: true }, TIMED_OUT).catch(() => {
+    return;
+  }));
+  const isAsking = (await readForms($)).some((f) => f.source === "plugin" && f.status === "open" && asked.has(f.id));
+  if (isAsking || queued.length > 0)
+    queued.push(form);
+  else
+    await openAsk($, form);
+  return { value: { id: form.id } };
+}
+async function waitAsk($, id) {
+  const entry = asked.get(id);
+  if (!entry)
+    return { closed: true };
+  if (!entry.outcome) {
+    const stop = new AbortController;
+    await Promise.race([new Promise((resolve) => entry.wakes.push(resolve)), $.clock.sleep(WAIT_MS, { signal: stop.signal }).catch(() => {
+      return;
+    })]);
+    stop.abort();
+  }
+  if (!entry.outcome)
+    return { pending: true };
+  asked.delete(id);
+  return entry.outcome;
+}
+async function endAsk($, id, outcome, note) {
+  const entry = asked.get(id);
+  if (entry?.outcome)
+    return;
+  if (entry) {
+    entry.outcome = outcome;
+    entry.timer?.cancel();
+    for (const wake of entry.wakes.splice(0))
+      wake();
+  }
+  const at = queued.findIndex((f) => f.id === id);
+  if (at >= 0) {
+    queued.splice(at, 1);
+    return;
+  }
+  const status = "value" in outcome ? "answered" : "cancelled";
+  const forms = await writeForms($, (list) => patchForm(list, id, { status, ...note && { note } }));
+  const next = queued.shift();
+  if (next)
+    await openAsk($, next);
+  else
+    await showCurrent($, forms);
+}
+async function openAsk($, form) {
+  await openForm($, form).catch(() => {
+    return;
+  });
+}
+async function settlePlugin($, form, outcome) {
+  const value = outcome.status === "answered" ? outcome.answers[PLUGIN_QUESTION] : undefined;
+  await (typeof value === "string" ? endAsk($, form.id, { value }) : endAsk($, form.id, { closed: true }, CLOSED));
+}
+async function closeOrphans($) {
+  const isOrphan = (f) => f.source === "plugin" && f.status === "open" && !asked.has(f.id);
+  if (!(await readForms($)).some(isOrphan))
+    return;
+  const forms = await writeForms($, (list) => list.map((f) => isOrphan(f) ? { ...f, status: "cancelled", note: CLOSED } : f));
+  if (openCount(forms) === 0)
+    await $.ui.close({ id: PANE });
+  $.ui.invalidate("ui.render");
 }
 async function openForm($, form, supersededId) {
   await writeForms($, (list) => addForm(list, form, supersededId));
@@ -1212,9 +1304,18 @@ async function turnOn($) {
 }
 function register(on) {
   registerPaneRedraw(on);
+  on("engine.create", async ($, e, next) => {
+    const built = await next(e);
+    return { ...built, gateForm: { ask: async () => ({ id: "" }), wait: async () => ({ closed: true }) } };
+  });
+  on("gateForm.ask", ($, e) => askPlugin($, e));
+  on("gateForm.wait", ($, e) => waitAsk($, e.id).then((value) => ({ value })));
   on("session.start", async ($, e, next) => {
     setting.reading = readSetting($);
     setting.reading.then(() => setting.isOn ? turnOn($) : undefined).catch(() => {
+      return;
+    });
+    await closeOrphans($).catch(() => {
       return;
     });
     return next(e);

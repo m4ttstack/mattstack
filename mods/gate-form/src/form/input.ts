@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canSubmit, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isOnNav, isReview, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isOnNav, isReview, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -27,7 +27,8 @@ function send(form: Form, s: State): Effect | undefined {
 }
 
 // The first press arms it; the second sets the form aside. A gate set aside stays open and answerable.
-function chat(form: Form, s: State): Effect {
+function chat(form: Form, s: State): Effect | undefined {
+  if (!canChat(form)) return undefined
   if (!s.chatArmed) return { state: { ...s, chatArmed: true } }
   const state = form.source === 'gate' ? disarm(s) : { ...disarm(s), phase: 'chat' as const }
   return { state, post: { type: 'chat', formId: form.id, draft: answersOf(form, s) as JsonValue } }
@@ -38,6 +39,14 @@ function moved(form: Form, s: State, move: MenuMove | undefined): Effect | undef
   const state = { ...s, menu: move.state }
   const control = move.picked === undefined ? undefined : controlAnswers(move.picked)
   return control ? post(form, state, control.answers, control.label) : { state }
+}
+
+// A plugin form's one question is answered by the pick itself, with no review page.
+function pickNow(form: Form, s: State): Effect | undefined {
+  const q = form.questions[s.page]
+  const value = q && choicesOf(q)[s.cursor[s.page]!]?.value
+  if (form.source !== 'plugin' || !q || value === undefined) return undefined
+  return post(form, s, { [q.id]: value })
 }
 
 // A new page starts with the keyboard on its answers and the nav row back on its forward button.
@@ -63,8 +72,10 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
       return { state: goTo(form, s, action.page) }
     case 'advance':
       return { state: advance(form, s) }
-    case 'option':
-      return { state: clickChoice(form, s, action.idx) }
+    case 'option': {
+      const clicked = clickChoice(form, s, action.idx)
+      return pickNow(form, clicked) ?? { state: clicked }
+    }
     case 'send':
       return send(form, s)
     case 'menu':
@@ -138,7 +149,7 @@ function questionKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefin
   const { key } = ev
   const isSpace = key === ' ' || key === 'space'
   const typing = isTyping(form, s)
-  if (isEnter(ev)) return { state: confirm(form, s) }
+  if (isEnter(ev)) return pickNow(form, s) ?? { state: confirm(form, s) }
   if (key === 'left' || key === 'right') return { state: goTo(form, s, s.page + (key === 'left' ? -1 : 1)) }
   if (key === 'up' || key === 'down') return gridKey(ev, form, s)
   if (isSpace && form.questions[s.page]?.multi && !typing) return { state: toggleAtCursor(form, s) }

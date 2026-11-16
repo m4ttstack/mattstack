@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -6,6 +6,7 @@ import { join } from "path";
 import type { Logger } from "pino";
 import { setSetting } from "../../../settings/write.ts";
 import { closeStateDb } from "../../../state/index.ts";
+import * as registryModule from "../../../worktree/registry.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../../../worktree/registry.ts";
 import { changeMarker, changeNoun } from "../../../repo-label.ts";
 import type { WorktreeKillResult } from "../../worktree-process-kill.ts";
@@ -451,7 +452,7 @@ describe("held trees say why (RT-267)", () => {
     expect(find(rec.path)?.heldReason).toBeUndefined();
   });
 
-  describe("merged-MR dispose stops sessions left inside (RT-555)", () => {
+  describe("a merged MR asks sessions inside to leave", () => {
     const session = {
       pid: 4321,
       label: "claude",
@@ -462,41 +463,290 @@ describe("held trees say why (RT-267)", () => {
     function recorder() {
       const kills: { path: string; stopSessionsInside?: boolean }[] = [];
       const bodies: { room: string; body: string }[] = [];
-      const killWorktree = async (path: string, opts: { stopSessionsInside?: boolean }): Promise<WorktreeKillResult> => {
+      const clockState = { nowMs: Date.now() };
+      const inside = { sessions: [session] as (typeof session)[], calls: 0 };
+      const killWorktree = async (
+        path: string,
+        opts: { stopSessionsInside?: boolean },
+      ): Promise<WorktreeKillResult> => {
         kills.push({ path, stopSessionsInside: opts.stopSessionsInside });
-        return { terminated: [], stoppedSessions: opts.stopSessionsInside ? [session] : [] };
+        return { terminated: [], stoppedSessions: opts.stopSessionsInside ? inside.sessions : [] };
       };
       const notify = async (post: { room: string; body: string }) => {
         bodies.push(post);
       };
-      return { kills, bodies, killWorktree, notify };
+      const agentsInside = async () => {
+        inside.calls++;
+        return inside.sessions;
+      };
+      const clock = () => new Date(clockState.nowMs);
+      const seams = { killWorktree, notify, agentsInside: agentsInside as ReactorDeps["agentsInside"], clock };
+      return { kills, bodies, clockState, inside, seams };
     }
 
-    test("a merged-MR dispose stops sessions with the change named", async () => {
+    beforeEach(() => {
       setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
+    });
+
+    test("a merge with a session inside leaves the tree claimed and marked, without a kill", async () => {
       const rec = ephemeralTree(repo, repoName, "zulu", "feat-zulu");
       const r = recorder();
 
-      await detect({ "feat-zulu": { repoName, mr: { iid: 83, state: "merged" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      await detect({ "feat-zulu": { repoName, mr: { iid: 83, state: "merged" } } }, r.seams);
 
-      expect(r.kills.find((k) => k.path === rec.path)?.stopSessionsInside).toBe(true);
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving?.why).toBe(`${changeNoun(repoName)} ${changeMarker(repoName)}83 merged`);
+      expect(r.kills).toEqual([]);
+      expect(r.bodies).toEqual([]);
+    });
+
+    test("a leaving mark that fails to save holds the merge edge, and the next pass marks the tree", async () => {
+      const rec = ephemeralTree(repo, repoName, "papa", "feat-papa");
+      const r = recorder();
+      const merged = { "feat-papa": { repoName, mr: { iid: 98, state: "merged" } } };
+      const realSave = registryModule.saveRegistry;
+      const failMark = spyOn(registryModule, "saveRegistry").mockImplementation((repo, trees) =>
+        trees.some((t) => t.leaving) ? false : realSave(repo, trees),
+      );
+      try {
+        await detect(merged, r.seams);
+      } finally {
+        failMark.mockRestore();
+      }
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving).toBeUndefined();
+      expect(find(rec.path)?.disposableReason).toBeUndefined();
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:98:merged`);
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving?.why).toBe(`${changeNoun(repoName)} ${changeMarker(repoName)}98 merged`);
+      expect(r.kills).toEqual([]);
+    });
+
+    test("a process table that cannot be read holds the merge edge and keeps the tree claimed", async () => {
+      const rec = ephemeralTree(repo, repoName, "quebec", "feat-quebec");
+      const r = recorder();
+      const merged = { "feat-quebec": { repoName, mr: { iid: 97, state: "merged" } } };
+      const seams = { ...r.seams, agentsInside: (async () => null) as ReactorDeps["agentsInside"] };
+
+      await detect(merged, seams);
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.disposableReason).toBeUndefined();
+      expect(__test__.loadReactorState().fired).not.toContain(`disposed:${repoName}:97:merged`);
+      expect(r.kills).toEqual([]);
+    });
+
+    test("a leaving tree whose process table cannot be read keeps its mark", async () => {
+      const rec = ephemeralTree(repo, repoName, "romeo2", "feat-romeo2");
+      const r = recorder();
+      const merged = { "feat-romeo2": { repoName, mr: { iid: 95, state: "merged" } } };
+      await detect(merged, r.seams);
+      const leaving = find(rec.path)?.leaving;
+      expect(leaving).toBeDefined();
+
+      r.clockState.nowMs += 30_000;
+      await detect(merged, { ...r.seams, agentsInside: (async () => null) as ReactorDeps["agentsInside"] });
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(find(rec.path)?.leaving).toEqual(leaving);
+      expect(r.kills).toEqual([]);
+    });
+
+    test("a \"leaving\" refusal does not flip the tree to disposable", async () => {
+      const rec = ephemeralTree(repo, repoName, "yankee", "feat-yankee");
+      const r = recorder();
+
+      await detect({ "feat-yankee": { repoName, mr: { iid: 87, state: "merged" } } }, r.seams);
+
+      const cur = find(rec.path);
+      expect(cur?.state).toBe("claimed");
+      expect(cur?.disposableReason).toBeUndefined();
+      expect(cur?.heldReason).toBeUndefined();
+    });
+
+    test("a later pass with the merge edge already spent still disposes once the session has left", async () => {
+      const rec = ephemeralTree(repo, repoName, "xena", "feat-xena");
+      const r = recorder();
+      const merged = { "feat-xena": { repoName, mr: { iid: 88, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      expect(__test__.loadReactorState().fired).toContain(`disposed:${repoName}:88:merged`);
+      expect(find(rec.path)).toBeDefined();
+
+      r.inside.sessions = [];
+      r.clockState.nowMs += 30_000;
+      await detect(merged, r.seams);
+
+      expect(find(rec.path)).toBeUndefined();
+      expect(r.kills).toHaveLength(1);
+      expect(r.kills[0]).not.toHaveProperty("killDepartedChildren");
+      expect(r.kills[0]!.stopSessionsInside ?? false).toBe(false);
+    });
+
+    test("after a daemon restart the grace counts from leaving.since", async () => {
+      const rec = ephemeralTree(repo, repoName, "whisky", "feat-whisky");
+      const why = `${changeNoun(repoName)} ${changeMarker(repoName)}89 merged`;
+      saveRegistry(
+        repoName,
+        loadRegistry(repoName).map((t) =>
+          t.path === rec.path ? { ...t, leaving: { why, since: new Date(Date.now() - 200_000).toISOString() } } : t,
+        ),
+      );
+      __test__.saveReactorState(
+        { mrState: { [`${repoName}:feat-whisky`]: "merged" }, fired: [`disposed:${repoName}:89:merged`] },
+        fakeLog(),
+      );
+      const r = recorder();
+      delete (r.seams as Partial<typeof r.seams>).clock;
+
+      await detect({ "feat-whisky": { repoName, mr: { iid: 89, state: "merged" } } }, r.seams);
+
+      expect(find(rec.path)).toBeUndefined();
+      expect(r.kills).toHaveLength(1);
+      expect(r.kills[0]!.stopSessionsInside).toBe(true);
       expect(r.bodies).toHaveLength(1);
-      expect(r.bodies[0]!.room).toBe("r");
-      expect(r.bodies[0]!.body).toContain(`${changeNoun(repoName)} ${changeMarker(repoName)}83 merged`);
+      expect(r.bodies[0]!.body).toContain(why);
+    });
+
+    test("a pass that acts on the merge edge does not dispose the same tree again in the drain", async () => {
+      ephemeralTree(repo, repoName, "victor", "feat-victor");
+      const r = recorder();
+
+      await detect({ "feat-victor": { repoName, mr: { iid: 90, state: "merged" } } }, r.seams);
+
+      expect(r.inside.calls).toBe(1);
+    });
+
+    test("a tree still inside the grace stays marked across passes", async () => {
+      const rec = ephemeralTree(repo, repoName, "uniform", "feat-uniform");
+      const r = recorder();
+      const merged = { "feat-uniform": { repoName, mr: { iid: 91, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      const since = find(rec.path)?.leaving?.since;
+      r.clockState.nowMs += 60_000;
+      await detect(merged, r.seams);
+
+      expect(find(rec.path)?.leaving?.since).toBe(since);
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(r.kills).toEqual([]);
+    });
+
+    test("a leaving tree that turns dirty becomes disposable and drops its mark", async () => {
+      const rec = ephemeralTree(repo, repoName, "tango", "feat-tango");
+      const r = recorder();
+      const merged = { "feat-tango": { repoName, mr: { iid: 96, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.leaving).toBeDefined();
+
+      writeFileSync(join(rec.path, "scratch.txt"), "dirt\n");
+      r.clockState.nowMs += 30_000;
+      await detect(merged, r.seams);
+
+      const cur = find(rec.path);
+      expect(cur?.state).toBe("disposable");
+      expect(cur?.disposableReason).toBe("dirty");
+      expect(cur?.leaving).toBeUndefined();
+      expect(r.kills).toEqual([]);
+    });
+
+    function disposableTree(name: string, branch: string): TreeRecord {
+      const rec = ephemeralTree(repo, repoName, name, branch);
+      saveRegistry(
+        repoName,
+        loadRegistry(repoName).map((t) => (t.path === rec.path ? { ...t, state: "disposable", disposableReason: "MR closed without merge" } : t)),
+      );
+      return rec;
+    }
+
+    test("a merged disposable tree with a session inside is disposed by a later pass once the session leaves", async () => {
+      const rec = disposableTree("oscar", "feat-oscar");
+      const r = recorder();
+      const merged = { "feat-oscar": { repoName, mr: { iid: 99, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.state).toBe("disposable");
+      expect(find(rec.path)?.leaving).toBeDefined();
+      expect(r.kills).toEqual([]);
+
+      r.inside.sessions = [];
+      r.clockState.nowMs += 30_000;
+      await detect(merged, r.seams);
+
+      expect(find(rec.path)).toBeUndefined();
+      expect(r.kills).toHaveLength(1);
+      expect(r.kills[0]!.stopSessionsInside ?? false).toBe(false);
+    });
+
+    test("a merged disposable tree whose session stays past the grace is stopped and disposed", async () => {
+      const rec = disposableTree("lima", "feat-lima");
+      const r = recorder();
+      const merged = { "feat-lima": { repoName, mr: { iid: 100, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      r.clockState.nowMs += 181_000;
+      await detect(merged, r.seams);
+
+      expect(find(rec.path)).toBeUndefined();
+      expect(r.kills).toHaveLength(1);
+      expect(r.kills[0]!.stopSessionsInside).toBe(true);
+    });
+
+    test("a leaving disposable tree that turns dirty stays disposable and drops its mark", async () => {
+      const rec = disposableTree("kilo", "feat-kilo");
+      const r = recorder();
+      const merged = { "feat-kilo": { repoName, mr: { iid: 101, state: "merged" } } };
+
+      await detect(merged, r.seams);
+      expect(find(rec.path)?.leaving).toBeDefined();
+
+      writeFileSync(join(rec.path, "scratch.txt"), "dirt\n");
+      r.clockState.nowMs += 181_000;
+      await detect(merged, r.seams);
+
+      const cur = find(rec.path);
+      expect(cur?.state).toBe("disposable");
+      expect(cur?.disposableReason).toBe("dirty");
+      expect(cur?.leaving).toBeUndefined();
+      expect(r.kills).toEqual([]);
+    });
+
+    test("a reopened MR clears the leaving mark, so the grace never stops the session", async () => {
+      const rec = ephemeralTree(repo, repoName, "sierra", "feat-sierra");
+      const r = recorder();
+
+      await detect({ "feat-sierra": { repoName, mr: { iid: 97, state: "opened" } } }, r.seams);
+      await detect({ "feat-sierra": { repoName, mr: { iid: 97, state: "merged" } } }, r.seams);
+      expect(find(rec.path)?.leaving).toBeDefined();
+
+      await detect({ "feat-sierra": { repoName, mr: { iid: 97, state: "opened" } } }, r.seams);
+      expect(find(rec.path)?.leaving).toBeUndefined();
+
+      r.clockState.nowMs += 181_000;
+      await detect({ "feat-sierra": { repoName, mr: { iid: 97, state: "opened" } } }, r.seams);
+
+      expect(find(rec.path)?.state).toBe("claimed");
+      expect(r.kills).toEqual([]);
     });
 
     test("a closed MR never reaches the session stop", async () => {
-      setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
-      const closedTree = ephemeralTree(repo, repoName, "alpha2", "feat-closed");
+      const closedTree =ephemeralTree(repo, repoName, "alpha2", "feat-closed");
       const mergedTree = ephemeralTree(repo, repoName, "bravo2", "feat-control");
       const r = recorder();
 
-      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "opened" } } }, { killWorktree: r.killWorktree, notify: r.notify });
-      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "closed" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "opened" } } }, r.seams);
+      await detect({ "feat-closed": { repoName, mr: { iid: 94, state: "closed" } } }, r.seams);
       expect(r.kills.filter((k) => k.path === closedTree.path)).toEqual([]);
 
-      await detect({ "feat-control": { repoName, mr: { iid: 95, state: "merged" } } }, { killWorktree: r.killWorktree, notify: r.notify });
+      const merged = { "feat-control": { repoName, mr: { iid: 95, state: "merged" } } };
+      await detect(merged, r.seams);
+      r.clockState.nowMs += 181_000;
+      await detect(merged, r.seams);
       expect(r.kills.find((k) => k.path === mergedTree.path)?.stopSessionsInside).toBe(true);
+      expect(r.kills.filter((k) => k.path === closedTree.path)).toEqual([]);
     });
   });
 
