@@ -193,6 +193,23 @@ describe("installNerdFont", () => {
     expect(p.argv).toEqual([]);
   });
 
+  test("a probe that throws is reported as a failure, not thrown", async () => {
+    const p: Probes = { ...probes(), mkdirp: () => { throw new Error("EACCES: permission denied"); } };
+    const res = await installNerdFont(p, () => {}, pin());
+    expect(res).toEqual({ ok: false, detail: expect.stringContaining("EACCES: permission denied") });
+  });
+
+  test("an empty TMPDIR falls back to /tmp, in a directory only this run uses", async () => {
+    const argv: string[][] = [];
+    const exec: Probes["exec"] = async (cmd) => (argv.push(cmd), { code: 6, stdout: "", stderr: "offline" });
+    const p: Probes = { ...probes(), env: { TMPDIR: "" }, exec, execStreaming: exec, mkdirp: () => {} };
+    await installNerdFont(p, () => {}, pin());
+    const removed = argv.filter((a) => a[0] === "rm").map((a) => a[2]);
+    expect(removed.length).toBe(2);
+    expect(removed[0]).toBe(`/tmp/rt-nerd-font-${process.pid}`);
+    expect(removed[1]).toBe(removed[0]);
+  });
+
   test("a failed download reports it and installs nothing", async () => {
     const p = probes(6);
     const res = await installNerdFont(p, () => {}, pin());
@@ -251,7 +268,66 @@ describe("planEditorFonts / applyEditorFonts", () => {
     const before = `{\n\t// mine\n\t"editor.fontFamily": "SF Mono"\n}\n`;
     const path = seed("Cursor", before);
     applyEditorFonts(p(), {}, [apps]);
-    expect(readFileSync(path, "utf8")).toBe(`{\n\t// mine\n\t"editor.fontFamily": "SF Mono",\n\t"terminal.integrated.fontFamily": "SF Mono, ${NERD}"\n}\n`);
+    expect(readFileSync(path, "utf8")).toBe(`{\n\t"terminal.integrated.fontFamily": "SF Mono, ${NERD}",\n\t// mine\n\t"editor.fontFamily": "SF Mono"\n}\n`);
+  });
+
+  describe("an unset key goes in as the first property and every other byte stays", () => {
+    const KEY = `"terminal.integrated.fontFamily": ${JSON.stringify(`${EDITOR_DEFAULT_FONT}, ${NERD}`)}`;
+    const cases: [string, string, string][] = [
+      [
+        "a compact last value with a trailing comment",
+        `{\n  "editor.fontSize": 13,\n  "x": {"b":1,"c":[1,2]} // c\n}\n`,
+        `{\n  ${KEY},\n  "editor.fontSize": 13,\n  "x": {"b":1,"c":[1,2]} // c\n}\n`,
+      ],
+      ["a one-line file", `{"a":1,"b":2}`, `{\n    ${KEY},"a":1,"b":2}`],
+      ["a CRLF file", `{\r\n  "a": 1\r\n}\r\n`, `{\r\n  ${KEY},\r\n  "a": 1\r\n}\r\n`],
+      ["a tab-indented file", `{\n\t"x": [\n\t\t1\n\t]\n}\n`, `{\n\t${KEY},\n\t"x": [\n\t\t1\n\t]\n}\n`],
+      ["an empty object", `{}`, `{\n    ${KEY}\n}`],
+      ["an empty object with a space and a newline after", `{ }\n`, `{\n    ${KEY}\n}\n`],
+      ["an object holding only a comment", `{\n  // nothing yet\n}\n`, `{\n    ${KEY}\n  // nothing yet\n}\n`],
+      [
+        "a first indented line deeper than the properties",
+        `{\n    // four-space comment\n  "[markdown]": {\n      "a": 1\n  }\n}\n`,
+        `{\n  ${KEY},\n    // four-space comment\n  "[markdown]": {\n      "a": 1\n  }\n}\n`,
+      ],
+      ["a comment holding a brace before the object", `// {\n{\n  "a": 1\n}\n`, `// {\n{\n  ${KEY},\n  "a": 1\n}\n`],
+    ];
+    for (const [name, before, after] of cases) {
+      test(name, () => {
+        install("Cursor.app", "cursor");
+        const path = seed("Cursor", before);
+        expect(only(applyEditorFonts(p(), {}, [apps]), "Cursor").outcome).toBe("written");
+        expect(readFileSync(path, "utf8")).toBe(after);
+      });
+    }
+  });
+
+  test("a key set to a non-string is replaced in place, never duplicated", () => {
+    install("Cursor.app", "cursor");
+    const path = seed("Cursor", `{ "a": 1, "terminal.integrated.fontFamily": null }`);
+    applyEditorFonts(p(), {}, [apps]);
+    expect(readFileSync(path, "utf8")).toBe(`{ "a": 1, "terminal.integrated.fontFamily": ${JSON.stringify(`${EDITOR_DEFAULT_FONT}, ${NERD}`)} }`);
+  });
+
+  test("a one-line file with the key set changes only the value", () => {
+    install("Cursor.app", "cursor");
+    const path = seed("Cursor", `{"terminal.integrated.fontFamily":"Fira Code","x":{"y":1}}`);
+    applyEditorFonts(p(), {}, [apps]);
+    expect(readFileSync(path, "utf8")).toBe(`{"terminal.integrated.fontFamily":"Fira Code, ${NERD}","x":{"y":1}}`);
+  });
+
+  test("a file starting with a UTF-8 BOM is read and keeps its BOM", () => {
+    install("Cursor.app", "cursor");
+    const path = seed("Cursor", `\uFEFF{\n  "terminal.integrated.fontFamily": "Fira Code"\n}\n`);
+    expect(only(applyEditorFonts(p(), {}, [apps]), "Cursor").outcome).toBe("written");
+    expect(readFileSync(path, "utf8")).toBe(`\uFEFF{\n  "terminal.integrated.fontFamily": "Fira Code, ${NERD}"\n}\n`);
+  });
+
+  test("a BOM file with the key unset gets it after the brace and keeps its BOM", () => {
+    install("Cursor.app", "cursor");
+    const path = seed("Cursor", `\uFEFF{\n  "a": 1\n}\n`);
+    applyEditorFonts(p(), {}, [apps]);
+    expect(readFileSync(path, "utf8")).toBe(`\uFEFF{\n  "terminal.integrated.fontFamily": ${JSON.stringify(`${EDITOR_DEFAULT_FONT}, ${NERD}`)},\n  "a": 1\n}\n`);
   });
 
   test("an unparseable file is left untouched and reported unreadable", () => {

@@ -1,4 +1,4 @@
-import { applyEdits, modify, parse, type FormattingOptions, type ParseError } from "jsonc-parser";
+import { applyEdits, findNodeAtLocation, modify, parse, parseTree, type ParseError } from "jsonc-parser";
 import { basename, dirname, join, resolve } from "path";
 import { detectEditorsVia, TERMINAL_FONT_EDITORS } from "../editors.ts";
 import type { Probes } from "./probes.ts";
@@ -74,9 +74,9 @@ export async function installNerdFont(
   }
   if (!pin.allowedHosts.includes(host)) return { ok: false, detail: `The font download points at a host rt does not allow (${host || pin.url})` };
 
-  const work = join(p.env.TMPDIR ?? "/tmp", "rt-nerd-font");
-  await p.exec(["rm", "-rf", work], { timeoutMs: STEP_TIMEOUT_MS });
+  const work = join(p.env.TMPDIR || "/tmp", `rt-nerd-font-${process.pid}`);
   try {
+    await p.exec(["rm", "-rf", work], { timeoutMs: STEP_TIMEOUT_MS });
     p.mkdirp(work);
     const file = join(work, "JetBrainsMono.tar.xz");
     log("Downloading JetBrainsMono Nerd Font");
@@ -104,8 +104,10 @@ export async function installNerdFont(
     const copied = await p.exec(["cp", ...fonts, dest], { timeoutMs: STEP_TIMEOUT_MS });
     if (copied.code !== 0) return { ok: false, detail: `Copying the font into ~/Library/Fonts failed: ${firstLine(copied.stderr || copied.stdout)}` };
     return { ok: true };
+  } catch (err) {
+    return { ok: false, detail: `Installing the font failed: ${firstLine(err instanceof Error ? err.message : String(err))}` };
   } finally {
-    await p.exec(["rm", "-rf", work], { timeoutMs: STEP_TIMEOUT_MS });
+    await p.exec(["rm", "-rf", work], { timeoutMs: STEP_TIMEOUT_MS }).catch(() => undefined);
   }
 }
 
@@ -133,15 +135,36 @@ function resolveLinks(p: Probes, path: string): string {
   return current;
 }
 
-function formattingOf(text: string): FormattingOptions {
+const BOM = "﻿";
+
+/**
+ * Sets the terminal key without reformatting anything else: an existing key
+ * has only its value replaced, and an absent one goes in as the first
+ * property, since jsonc-parser's own insert re-lays out its neighbours.
+ */
+function withTerminalFont(text: string, value: string): string {
+  const root = parseTree(text, [], { allowTrailingComma: true });
+  if (root === undefined || root.type !== "object") throw new Error("settings.json does not hold an object");
+  if (findNodeAtLocation(root, [TERMINAL_KEY]) !== undefined) return applyEdits(text, modify(text, [TERMINAL_KEY], value, {}));
+
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const indent = text.match(/^([ \t]+)\S/m)?.[1];
-  if (indent?.startsWith("\t")) return { insertSpaces: false, tabSize: 1, eol };
-  return { insertSpaces: true, tabSize: indent ? indent.length : 4, eol };
+  const entry = `${JSON.stringify(TERMINAL_KEY)}: ${JSON.stringify(value)}`;
+  const open = root.offset + 1;
+  const close = root.offset + root.length - 1;
+  const fallback = /^\t/m.test(text) ? "\t" : "    ";
+  const first = root.children?.[0];
+  if (first === undefined) {
+    const inner = text.slice(open, close);
+    return `${text.slice(0, open)}${eol}${fallback}${entry}${inner.trim() === "" ? eol : inner}${text.slice(close)}`;
+  }
+  const lineStart = text.lastIndexOf("\n", first.offset - 1) + 1;
+  const lead = text.slice(lineStart, first.offset);
+  const indent = lineStart > open && /^[ \t]*$/.test(lead) ? lead : fallback;
+  return `${text.slice(0, open)}${eol}${indent}${entry},${text.slice(open)}`;
 }
 
 type FontEditor = (typeof TERMINAL_FONT_EDITORS)[number];
-type Inspected = { result: EditorFontResult; target?: string; text?: string };
+type Inspected = { result: EditorFontResult; target?: string; text?: string; bom?: boolean };
 
 function inspect(p: Probes, editor: FontEditor, installed: Set<string>, written: Record<string, string>): Inspected {
   const path = join(p.home, "Library", "Application Support", editor.settingsDir, "User", "settings.json");
@@ -149,8 +172,10 @@ function inspect(p: Probes, editor: FontEditor, installed: Set<string>, written:
   if (!installed.has(editor.appName)) return { result: { ...base, outcome: "not-installed" } };
 
   const target = resolveLinks(p, path);
-  const text = p.exists(target) ? p.readFile(target) : "";
-  if (text === null) return { result: { ...base, outcome: "unreadable" } };
+  const raw = p.exists(target) ? p.readFile(target) : "";
+  if (raw === null) return { result: { ...base, outcome: "unreadable" } };
+  const bom = raw.startsWith(BOM);
+  const text = bom ? raw.slice(1) : raw;
 
   let terminal: string | undefined;
   let editorFont: string | undefined;
@@ -164,7 +189,7 @@ function inspect(p: Probes, editor: FontEditor, installed: Set<string>, written:
   }
 
   const next = nextTerminalFont({ terminal, editor: editorFont, lastWritten: written[path] });
-  if (next.action === "write") return { result: { ...base, outcome: "written", value: next.value }, target, text };
+  if (next.action === "write") return { result: { ...base, outcome: "written", value: next.value }, target, text, bom };
   return { result: { ...base, outcome: next.reason === "member-undid" ? "member-undid" : "kept" } };
 }
 
@@ -180,14 +205,12 @@ export function planEditorFonts(p: Probes, written: Record<string, string>, appD
 
 /** `written` maps each settings path to the value rt last wrote there, so a value the member changed since is never rewritten. */
 export function applyEditorFonts(p: Probes, written: Record<string, string>, appDirs: string[] = defaultAppDirs(p.home)): EditorFontResult[] {
-  return inspectAll(p, written, appDirs).map(({ result, target, text }) => {
+  return inspectAll(p, written, appDirs).map(({ result, target, text, bom }) => {
     if (result.outcome !== "written" || target === undefined || text === undefined || result.value === undefined) return result;
-    const next =
-      text.trim() === ""
-        ? `{\n    ${JSON.stringify(TERMINAL_KEY)}: ${JSON.stringify(result.value)}\n}\n`
-        : applyEdits(text, modify(text, [TERMINAL_KEY], result.value, { formattingOptions: formattingOf(text) }));
     const tmp = `${target}.rt-${process.pid}.tmp`;
     try {
+      const edited = text.trim() === "" ? `{\n    ${JSON.stringify(TERMINAL_KEY)}: ${JSON.stringify(result.value)}\n}\n` : withTerminalFont(text, result.value);
+      const next = bom ? BOM + edited : edited;
       p.mkdirp(dirname(target));
       const mode = p.fileMode(target);
       p.writeFile(tmp, next);

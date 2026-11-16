@@ -121,7 +121,7 @@ describe("editor.terminal-font step", () => {
     const outcome = await runEditorFont(ctx, [apps]);
     expect(outcome.state).toBe("partial");
     expect(outcome.detail).toContain("Downloading the font failed");
-    expect(outcome.remedy).toBeUndefined();
+    expect("remedy" in outcome).toBe(false);
     expect(readFileSync(code, "utf8")).toBe(`{}\n`);
   });
 
@@ -130,10 +130,7 @@ describe("editor.terminal-font step", () => {
     const code = seed("Code", `{}\n`);
     const { ctx } = makeCtx(confined(fetchFails as (argv: string[]) => ExecResult), { only: "editor.terminal-font" });
     const outcome = await runEditorFont(ctx, [apps]);
-    expect(outcome.state).toBe("failed");
-    expect(outcome.detail).toContain("Downloading the font failed");
-    expect(outcome.remedy).toBeDefined();
-    expect(outcome.remedy).not.toContain("rt ");
+    expect(outcome).toEqual({ state: "failed", detail: expect.stringContaining("Downloading the font failed"), remedy: "Check your connection, then try again" });
     expect(readFileSync(code, "utf8")).toBe(`{}\n`);
   });
 
