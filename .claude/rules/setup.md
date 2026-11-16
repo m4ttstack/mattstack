@@ -154,6 +154,10 @@ step update-safe only when it is idempotent, never calls `ctx.need`, and
 never overwrites a value the user chose; under `ctx.update` it also leaves
 alone what the member undid since rt put it there (a disabled or removed
 plugin, an editor setup-state has no record of).
+`editor.terminal-font` appends a fallback after the member's own fonts, which
+counts as leaving their value alone. Its record is per settings file, so an
+editor it never wrote gets the fallback, and a value changed since rt wrote it
+is the member's.
 `lib/setup/__tests__/update-safe.test.ts` pins the set. Add a one-time fix as a `MigrationDef` in
 `lib/setup/migrations/index.ts` with a dated id that is never renamed; a
 migration changes only this Mac and never writes the org or team stores (a

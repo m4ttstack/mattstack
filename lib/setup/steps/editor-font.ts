@@ -2,7 +2,8 @@
  * `editor.terminal-font` adds JetBrainsMonoNL Nerd Font as a fallback to each
  * installed VS Code-family editor's terminal font, installing the font first
  * only when some editor would be written. An update run treats a failed
- * download as a quiet skip, retried at the next launch.
+ * download as a quiet skip; the next version's update run, a full apply, or
+ * the row's Add font tries again.
  */
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { applyEditorFonts, installNerdFont, nerdFontInstalled, planEditorFonts } from "../editor-font.ts";

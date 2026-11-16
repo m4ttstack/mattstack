@@ -58,8 +58,9 @@ fixes this by hand, and most never find out why the boxes appear.
 | Antigravity | `Antigravity.app` | `~/Library/Application Support/Antigravity/User/settings.json` |
 | Antigravity IDE | `Antigravity IDE.app` | `~/Library/Application Support/Antigravity IDE/User/settings.json` |
 
-Detected with the existing `EDITOR_PATTERNS` / `detectEditors()`
-(`lib/editors.ts`), which gains an `Antigravity IDE.app` entry; an editor not installed, or with no settings file yet,
+Detected with the existing `EDITOR_PATTERNS` through `detectEditorsVia`
+(`lib/editors.ts`) over the setup `Probes`, so tests never read the real
+`/Applications`; the list gains an `Antigravity IDE.app` entry; an editor not installed, or with no settings file yet,
 is skipped (a missing file is created with just this key).
 
 For each editor, `terminal.integrated.fontFamily`:
@@ -71,9 +72,12 @@ For each editor, `terminal.integrated.fontFamily`:
   `Menlo, Monaco, 'Courier New', monospace`, then `, 'JetBrainsMonoNL Nerd
   Font'`, so the terminal's look does not change.
 
-The edit goes through `jsonc-parser` `modify` + `applyEdits` (already a
-dependency, used by `packages/rt-client/src/settings/write.ts`), so comments
-and formatting survive; written atomically.
+An existing value is replaced through `jsonc-parser` `modify` +
+`applyEdits` (already a dependency, used by
+`packages/rt-client/src/settings/write.ts`). An absent key goes in by hand as
+the first property, right after the root `{`, in the file's own line ending
+and indent, since `modify`'s insert reformats its neighbours. Every other byte
+survives, a leading BOM included; written atomically.
 
 ### Respecting an undo
 
@@ -86,11 +90,14 @@ wrote, the member changed it: rt leaves it alone and never re-adds it.
 - One step, `editor.terminal-font` (a `StepDef` in `lib/setup/steps/`),
   registered in `STEPS`/`STEP_IDS`, `updateSafe: true` for the editor edit
   (idempotent, honours the undo, no prompts). The font download runs in the
-  same step but only when the font is missing; on `rt setup update` a
-  failed or offline download is a quiet `skipped`, retried next launch.
+  same step but only when the font is missing. A failed or offline download
+  is a quiet `skipped` on `rt setup update`, `partial` on a full, `--from` or
+  resumed run (so it never stops the run), and `failed` only on the row's own
+  `--only` run. The next version's update run, a full apply, or the row's Add
+  font tries again.
 - One row, `editor.terminal-font`, optional (never `required`, never
-  blocks Install or Finish), grouped beside `tool.editor`, target
-  `install`. `ready` when every installed editor's terminal font includes a
+  blocks Install or Finish), grouped beside `tool.editor`, with no
+  `ROW_TARGETS` entry (an `install` target would make the row required). `ready` when every installed editor's terminal font includes a
   Nerd Font; `missing` with a run action (`setup apply --only
   editor.terminal-font`) otherwise; `skipped` when no supported editor is
   installed. Copy in command-description style; snapshots updated.
