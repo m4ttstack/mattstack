@@ -54,7 +54,7 @@ function gateModeSettings(deps: GateToolDeps): { mode: unknown; shadow: boolean 
 }
 
 async function gitHead(worktree: string): Promise<string | null> {
-  const r = await runCapture(["git", "-C", worktree, "rev-parse", "HEAD"], { env: childEnv() });
+  const r = await runCapture(["git", "-C", worktree, "rev-parse", "HEAD"], { env: childEnv(), timeoutMs: 5000 });
   const sha = r.stdout.trim();
   return r.exitCode === 0 && sha !== "" ? sha : null;
 }
@@ -131,7 +131,7 @@ export const GATE_MODE_PROPS = {
   },
   needsOperator: {
     type: "string",
-    description: "A short reason the decision turns on a product or people call. The gate then asks in every mode, and its context opens with \"Needs you: <reason>\".",
+    description: "A short reason the decision turns on a product or people call. The gate then asks in every mode; the pane's form opens with \"Needs you: <reason>\", and so does a plain-text context.",
   },
 };
 
@@ -240,7 +240,10 @@ const REACH_ERROR = '"reach" must be one of worktree, draft, teammates, public';
 
 function modeInputError(input: Record<string, unknown>): string | undefined {
   if (input.reach !== undefined && parseReach(input.reach) === null) return REACH_ERROR;
-  return checkOptional(input, [{ name: "needsOperator", type: "string" }]) ?? undefined;
+  const bad = checkOptional(input, [{ name: "needsOperator", type: "string" }]);
+  if (bad) return bad;
+  if (typeof input.needsOperator === "string" && input.needsOperator.trim() === "") return '"needsOperator" must be a non-empty reason';
+  return undefined;
 }
 
 function isStructured(context: string): boolean {
@@ -291,7 +294,7 @@ export async function askGate(
     ? truncateOptionText(raw)
     : { questions: raw as GateQuestion[], truncated: [] as TruncatedText[] };
   const context = typeof input.context === "string" ? input.context : undefined;
-  const reason = typeof input.needsOperator === "string" && input.needsOperator.trim() !== "" ? input.needsOperator.trim() : undefined;
+  const reason = typeof input.needsOperator === "string" ? input.needsOperator.trim() : undefined;
   const needsYou = reason === undefined ? undefined : `Needs you: ${reason}`;
 
   let mode: GateMode = "chatty";
@@ -318,8 +321,6 @@ export async function askGate(
   if (input.context !== undefined) {
     // A structured context keeps its JSON whole for the board; the reason and digest reach the pane through formContext.
     payload.context = context !== undefined && !isStructured(context) ? prefixed(lead, context)! : input.context as string;
-  } else if (lead !== undefined) {
-    payload.context = lead;
   }
   if (input.kind !== undefined) payload.kind = input.kind as string;
   // No RT_GATE_SUBJECT read (contract C13): the var carries an agent:<id>
@@ -353,7 +354,8 @@ export async function askGate(
 
   if (run && preAnswer && data.preAnswered === true) {
     const fields = answerFieldsOf(preAnswer.answers, preAnswer.by);
-    const failed = await run.decision(scope, fields.answers, preAnswer.by);
+    const failed = await run.decision(scope, fields.answers, preAnswer.by)
+      && await run.decision(scope, fields.answers, preAnswer.by);
     return ok({ id: data.id, paneAction: "answered", status: "answered", ...fields, ...(failed ? { runErrors: [failed] } : {}) });
   }
 

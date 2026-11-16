@@ -1484,6 +1484,42 @@ describe("gate modes", () => {
     const res = await askGate(GATE, HERDR, f.deps);
     expect(res.ok).toBe(true);
     expect(body(res)).toMatchObject({ paneAction: "answered", status: "answered", runErrors: ["disk full"] });
+    expect(f.log.filter((l) => l.startsWith("decision record"))).toHaveLength(2);
+  });
+
+  test("a run decision that fails once after a pre-answer is retried and reports no runErrors", async () => {
+    let failures = 0;
+    const f = fake({
+      ...QUIET, ...preAnswered("mode:quiet"),
+      failWrite: (l) => (l.startsWith("decision record") && failures++ === 0 ? "disk full" : undefined),
+    });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(f.log.filter((l) => l.startsWith("decision record"))).toHaveLength(2);
+    expect(body(res).runErrors).toBeUndefined();
+    expect(body(res)).toMatchObject({ paneAction: "answered", status: "answered", decidedBy: "mode:quiet" });
+  });
+
+  test("a blank needsOperator is refused before anything opens, on gate_ask and gate_open", async () => {
+    for (const blank of ["", "   "]) {
+      const asked = fake(QUIET);
+      const res = await askGate({ ...GATE, needsOperator: blank }, HERDR, asked.deps);
+      expect(res.error).toBe('"needsOperator" must be a non-empty reason');
+      expect(asked.log).toEqual([]);
+      const opened = fake(QUIET);
+      const source = { questions: [{ id: "q1", multi: false, options: ["go (Recommended)", "stop"] }] };
+      const res2 = await tool("gate_open", opened.deps).handler({ kind: "ci:ship:1", source, reach: "worktree", needsOperator: blank, ...RUN }, HERDR);
+      expect(res2.error).toBe('"needsOperator" must be a non-empty reason');
+      expect(opened.log).toEqual([]);
+    }
+  });
+
+  test("with no caller context, the reason and digest reach formContext only, never the stored context", async () => {
+    const decisions: DecisionRow[] = [{ contract: "gate@1", scope: "a", selection: '{"q1":"yes"}', decided_by: "mode:quiet", decided_at: 6 }];
+    const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions });
+    const { context: _, ...noContext } = GATE;
+    const res = await askGate({ ...noContext, needsOperator: "a product call" }, HERDR, f.deps);
+    expect("context" in f.asks[0]!).toBe(false);
+    expect(body(res).formContext).toBe("Needs you: a product call\n\nDecided without you since your last answer:\n- a: q1=yes");
   });
 
   describe("digest", () => {
