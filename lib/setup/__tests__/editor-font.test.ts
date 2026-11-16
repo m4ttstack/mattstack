@@ -1,5 +1,22 @@
-import { describe, expect, test } from "bun:test";
-import { hasNerdFont, nextTerminalFont } from "../editor-font";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "child_process";
+import { createHash } from "crypto";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import {
+  applyEditorFonts,
+  EDITOR_DEFAULT_FONT,
+  type EditorFontResult,
+  hasNerdFont,
+  installNerdFont,
+  nerdFontInstalled,
+  nextTerminalFont,
+  planEditorFonts,
+} from "../editor-font";
+import { createRealProbes, type Probes } from "../probes";
+import { NERD_FONT_ARCHIVE, type NerdFontArchive } from "../tools-install";
+import { fakeProbes, realFsProbes } from "./fakes";
 
 const NERD = "'JetBrainsMonoNL Nerd Font'";
 
@@ -91,5 +108,220 @@ describe("nextTerminalFont", () => {
       action: "keep",
       reason: "has-nerd",
     });
+  });
+});
+
+describe("nerdFontInstalled", () => {
+  test("true only when a JetBrainsMonoNLNerdFont-*.ttf sits in a fonts dir", () => {
+    const withFont = fakeProbes({ home: "/h", dirs: { "/h/Library/Fonts": ["JetBrainsMonoNLNerdFont-Regular.ttf"] } });
+    expect(nerdFontInstalled(withFont)).toBe(true);
+    const systemFont = fakeProbes({ home: "/h", dirs: { "/Library/Fonts": ["JetBrainsMonoNLNerdFont-Bold.ttf"] } });
+    expect(nerdFontInstalled(systemFont)).toBe(true);
+    const otherFont = fakeProbes({ home: "/h", dirs: { "/h/Library/Fonts": ["JetBrainsMonoNerdFont-Regular.ttf", "JetBrainsMonoNLNerdFont-Regular.otf"] } });
+    expect(nerdFontInstalled(otherFont)).toBe(false);
+  });
+});
+
+describe("installNerdFont", () => {
+  let root: string;
+  let archive: string;
+  let sha: string;
+  const PIN_URL = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz";
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "rt-nerd-font-")));
+    const src = join(root, "src");
+    mkdirSync(join(src, "nested"), { recursive: true });
+    writeFileSync(join(src, "JetBrainsMonoNLNerdFont-Regular.ttf"), "regular");
+    writeFileSync(join(src, "nested", "JetBrainsMonoNLNerdFont-Bold.ttf"), "bold");
+    writeFileSync(join(src, "JetBrainsMonoNerdFont-Regular.ttf"), "ligatures");
+    archive = join(root, "fixture.tar.xz");
+    execFileSync("tar", ["-cJf", archive, "-C", src, "."]);
+    sha = createHash("sha256").update(readFileSync(archive)).digest("hex");
+    mkdirSync(join(root, "home"));
+    mkdirSync(join(root, "tmp"));
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function probes(curlCode = 0): Probes & { argv: string[][] } {
+    const real = createRealProbes();
+    const argv: string[][] = [];
+    const exec: Probes["exec"] = async (cmd, opts) => {
+      argv.push(cmd);
+      if (cmd[0] === "curl") {
+        if (curlCode !== 0) return { code: curlCode, stdout: "", stderr: "curl: (6) Could not resolve host" };
+        copyFileSync(archive, cmd[cmd.indexOf("-o") + 1]!);
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      return real.exec(cmd, opts);
+    };
+    return { ...real, home: join(root, "home"), env: { TMPDIR: join(root, "tmp") }, exec, execStreaming: exec, argv };
+  }
+  const pin = (over: Partial<NerdFontArchive> = {}): NerdFontArchive => ({ ...NERD_FONT_ARCHIVE, url: PIN_URL, sha256: sha, ...over });
+  const fonts = () => readdirSync(join(root, "home", "Library", "Fonts")).sort();
+
+  test("the real pin is the tar.xz from the v3.5.1 release, gated on its own hosts", () => {
+    expect(NERD_FONT_ARCHIVE.url).toBe(PIN_URL);
+    expect(NERD_FONT_ARCHIVE.sha256).toBe("04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf");
+    expect([...NERD_FONT_ARCHIVE.allowedHosts].sort()).toEqual(["github.com", "release-assets.githubusercontent.com"]);
+  });
+
+  test("copies only the JetBrainsMonoNLNerdFont files into ~/Library/Fonts and cleans its temp dir", async () => {
+    const p = probes();
+    const lines: string[] = [];
+    expect(await installNerdFont(p, (l) => lines.push(l), pin())).toEqual({ ok: true });
+    expect(fonts()).toEqual(["JetBrainsMonoNLNerdFont-Bold.ttf", "JetBrainsMonoNLNerdFont-Regular.ttf"]);
+    expect(readFileSync(join(root, "home", "Library", "Fonts", "JetBrainsMonoNLNerdFont-Bold.ttf"), "utf8")).toBe("bold");
+    expect(readdirSync(join(root, "tmp"))).toEqual([]);
+    expect(p.argv.find((a) => a[0] === "curl")).toEqual(expect.arrayContaining(["--proto", "=https", "--proto-redir", "=https", PIN_URL]));
+    expect(lines.length).toBeGreaterThan(0);
+  });
+
+  test("a sha256 mismatch installs nothing", async () => {
+    const p = probes();
+    const res = await installNerdFont(p, () => {}, pin({ sha256: "0".repeat(64) }));
+    expect(res.ok).toBe(false);
+    expect(existsSync(join(root, "home", "Library", "Fonts"))).toBe(false);
+    expect(p.argv.some((a) => a[0] === "tar")).toBe(false);
+    expect(readdirSync(join(root, "tmp"))).toEqual([]);
+  });
+
+  test("a url off the font hosts runs nothing", async () => {
+    const p = probes();
+    const res = await installNerdFont(p, () => {}, pin({ url: "https://evil.example/JetBrainsMono.tar.xz" }));
+    expect(res.ok).toBe(false);
+    expect(p.argv).toEqual([]);
+  });
+
+  test("a failed download reports it and installs nothing", async () => {
+    const p = probes(6);
+    const res = await installNerdFont(p, () => {}, pin());
+    expect(res).toEqual({ ok: false, detail: expect.stringContaining("Downloading") });
+    expect(existsSync(join(root, "home", "Library", "Fonts"))).toBe(false);
+  });
+});
+
+describe("planEditorFonts / applyEditorFonts", () => {
+  let root: string;
+  let home: string;
+  let apps: string;
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), "rt-editor-font-")));
+    home = join(root, "home");
+    apps = join(root, "Applications");
+    mkdirSync(home);
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function install(app: string, cli: string): void {
+    const bin = join(apps, app, "Contents", "Resources", "app", "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, cli), "");
+  }
+  const settingsPath = (dir: string) => join(home, "Library", "Application Support", dir, "User", "settings.json");
+  function seed(dir: string, text: string): string {
+    const path = settingsPath(dir);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, text);
+    return path;
+  }
+  const p = () => realFsProbes(home);
+  const only = (results: EditorFontResult[], editor: string) => results.find((r) => r.editor === editor)!;
+
+  test("lists every supported editor, and one whose app is absent is not-installed and gets no file", () => {
+    install("Visual Studio Code.app", "code");
+    const results = applyEditorFonts(p(), {}, [apps]);
+    expect(results.map((r) => r.editor)).toEqual(["VS Code", "Cursor", "Antigravity", "Antigravity IDE"]);
+    expect(only(results, "Cursor")).toEqual({ editor: "Cursor", path: settingsPath("Cursor"), outcome: "not-installed" });
+    expect(existsSync(settingsPath("Cursor"))).toBe(false);
+  });
+
+  test("an edit changes only the one value; comments and trailing commas survive byte for byte", () => {
+    install("Cursor.app", "cursor");
+    const before = `{\n  // my font\n  "editor.fontSize": 13,\n  "terminal.integrated.fontFamily": "Fira Code", // keep me\n  /* block */\n  "x": [1, 2,],\n}\n`;
+    const path = seed("Cursor", before);
+    const results = applyEditorFonts(p(), {}, [apps]);
+    expect(only(results, "Cursor")).toEqual({ editor: "Cursor", path, outcome: "written", value: `Fira Code, ${NERD}` });
+    expect(readFileSync(path, "utf8")).toBe(before.replace(`"Fira Code"`, JSON.stringify(`Fira Code, ${NERD}`)));
+  });
+
+  test("an unset key is seeded from editor.fontFamily, keeping comments and the file's tab indent", () => {
+    install("Cursor.app", "cursor");
+    const before = `{\n\t// mine\n\t"editor.fontFamily": "SF Mono"\n}\n`;
+    const path = seed("Cursor", before);
+    applyEditorFonts(p(), {}, [apps]);
+    expect(readFileSync(path, "utf8")).toBe(`{\n\t// mine\n\t"editor.fontFamily": "SF Mono",\n\t"terminal.integrated.fontFamily": "SF Mono, ${NERD}"\n}\n`);
+  });
+
+  test("an unparseable file is left untouched and reported unreadable", () => {
+    install("Cursor.app", "cursor");
+    const broken = `{ "terminal.integrated.fontFamily": "Fira Code" "x": 1 }`;
+    const path = seed("Cursor", broken);
+    expect(only(applyEditorFonts(p(), {}, [apps]), "Cursor").outcome).toBe("unreadable");
+    expect(readFileSync(path, "utf8")).toBe(broken);
+  });
+
+  test("a file holding a non-object is unreadable", () => {
+    install("Cursor.app", "cursor");
+    const path = seed("Cursor", "[1, 2]");
+    expect(only(applyEditorFonts(p(), {}, [apps]), "Cursor").outcome).toBe("unreadable");
+    expect(readFileSync(path, "utf8")).toBe("[1, 2]");
+  });
+
+  test("a missing User dir gets a new settings.json holding only the key", () => {
+    install("Antigravity IDE.app", "antigravity");
+    const result = only(applyEditorFonts(p(), {}, [apps]), "Antigravity IDE");
+    const value = `${EDITOR_DEFAULT_FONT}, ${NERD}`;
+    expect(result).toEqual({ editor: "Antigravity IDE", path: settingsPath("Antigravity IDE"), outcome: "written", value });
+    expect(readFileSync(settingsPath("Antigravity IDE"), "utf8")).toBe(`{\n    "terminal.integrated.fontFamily": ${JSON.stringify(value)}\n}\n`);
+  });
+
+  test("a value the member changed after rt wrote it is left alone", () => {
+    install("Cursor.app", "cursor");
+    const before = `{ "terminal.integrated.fontFamily": "Menlo" }`;
+    const path = seed("Cursor", before);
+    const results = applyEditorFonts(p(), { [path]: `Menlo, ${NERD}` }, [apps]);
+    expect(only(results, "Cursor").outcome).toBe("member-undid");
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  test("a value that already names a Nerd Font is kept", () => {
+    install("Antigravity.app", "antigravity");
+    const path = seed("Antigravity", `{ "terminal.integrated.fontFamily": "Hack Nerd Font" }`);
+    expect(only(applyEditorFonts(p(), {}, [apps]), "Antigravity")).toEqual({ editor: "Antigravity", path, outcome: "kept" });
+  });
+
+  test("planEditorFonts reports what it would write and writes nothing", () => {
+    install("Cursor.app", "cursor");
+    install("Visual Studio Code.app", "code");
+    const path = seed("Cursor", `{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    const results = planEditorFonts(p(), {}, [apps]);
+    expect(only(results, "Cursor")).toEqual({ editor: "Cursor", path, outcome: "written", value: `Fira Code, ${NERD}` });
+    expect(only(results, "VS Code").outcome).toBe("written");
+    expect(readFileSync(path, "utf8")).toBe(`{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    expect(existsSync(settingsPath("Code"))).toBe(false);
+  });
+
+  test("a rewrite keeps the file's mode and leaves no temp file behind", () => {
+    install("Cursor.app", "cursor");
+    const path = seed("Cursor", `{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    chmodSync(path, 0o600);
+    applyEditorFonts(p(), {}, [apps]);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(readdirSync(join(path, ".."))).toEqual(["settings.json"]);
+  });
+
+  test("a symlinked settings.json is edited through the link, which stays a link", () => {
+    install("Cursor.app", "cursor");
+    const target = join(root, "dotfiles", "settings.json");
+    mkdirSync(join(target, ".."), { recursive: true });
+    writeFileSync(target, `{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    const path = settingsPath("Cursor");
+    mkdirSync(join(path, ".."), { recursive: true });
+    symlinkSync(target, path);
+    applyEditorFonts(p(), {}, [apps]);
+    expect(lstatSync(path).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, "utf8")).toContain(`Fira Code, ${NERD}`);
   });
 });

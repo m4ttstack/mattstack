@@ -30,7 +30,16 @@ export const EDITOR_PATTERNS: Array<{ appName: string; cliBinary: string; displa
   { appName: "Visual Studio Code - Insiders.app", cliBinary: "code-insiders", displayName: "VS Code Insiders", extensionsDir: ".vscode-insiders/extensions" },
   { appName: "VSCodium.app", cliBinary: "codium", displayName: "VSCodium", extensionsDir: ".vscode-oss/extensions" },
   { appName: "Antigravity.app", cliBinary: "antigravity", displayName: "Antigravity", extensionsDir: ".antigravity/extensions" },
+  { appName: "Antigravity IDE.app", cliBinary: "antigravity", displayName: "Antigravity IDE", extensionsDir: null },
   { appName: "Windsurf.app", cliBinary: "windsurf", displayName: "Windsurf", extensionsDir: ".windsurf/extensions" },
+];
+
+/** The editors whose terminal font setup edits, keyed by their EDITOR_PATTERNS `appName`; each keeps user settings in `~/Library/Application Support/<settingsDir>/User/settings.json`. */
+export const TERMINAL_FONT_EDITORS: Array<{ displayName: string; appName: string; settingsDir: string }> = [
+  { displayName: "VS Code", appName: "Visual Studio Code.app", settingsDir: "Code" },
+  { displayName: "Cursor", appName: "Cursor.app", settingsDir: "Cursor" },
+  { displayName: "Antigravity", appName: "Antigravity.app", settingsDir: "Antigravity" },
+  { displayName: "Antigravity IDE", appName: "Antigravity IDE.app", settingsDir: "Antigravity IDE" },
 ];
 
 export type DetectedEditorWithExtensions = DetectedEditor & { extensionsDir: string | null };
