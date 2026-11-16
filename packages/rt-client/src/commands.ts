@@ -1205,7 +1205,8 @@ export interface Commands {
       rejects stays rejected, and after a second degrade both stray notes
       are deleted and the call fails. `verified: true` means the check ran. */
   "mr:comment-inline": {
-    payload: { repoName: string; iid: number; body: string; path: string; line: number; oldPath?: string; oldLine?: number };
+    /** `line` or `oldLine`: a removed line has only an old-side number. */
+    payload: { repoName: string; iid: number; body: string; path: string; line?: number; oldPath?: string; oldLine?: number };
     data: { discussionId: string; noteId: number; verified: true };
   };
 

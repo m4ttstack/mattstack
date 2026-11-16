@@ -364,13 +364,19 @@ describe("mcpTools", () => {
     const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
     const res = await tool.handler({ repoName: "rt", iid: 1, body: "x", path: "a.ts" }, {} as NodeJS.ProcessEnv);
     expect(res.ok).toBe(false);
-    expect(res.error).toBe('"line" is required');
+    expect(res.error).toBe('"line" or "oldLine" is required');
+  });
+
+  test("mr_comment_inline takes oldLine alone for a removed line", async () => {
+    const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+    const res = await tool.handler({ repoName: "rt", iid: 1, body: "x", path: "a.ts", oldLine: 144 }, {} as NodeJS.ProcessEnv);
+    expect(res.error ?? "").not.toContain('"line"');
   });
 
   test("mr_comment_inline schema requires the position fields, offers mrUrl and forbids extras", () => {
     const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
     const schema = tool.inputSchema as { required?: string[]; additionalProperties?: boolean; properties?: Record<string, unknown> };
-    expect(schema.required).toEqual(["body", "path", "line"]);
+    expect(schema.required).toEqual(["body", "path"]);
     expect(schema.additionalProperties).toBe(false);
     expect(Object.keys(schema.properties ?? {}).sort()).toEqual(
       ["repoName", "iid", "mrUrl", "body", "path", "line", "oldPath", "oldLine"].sort(),

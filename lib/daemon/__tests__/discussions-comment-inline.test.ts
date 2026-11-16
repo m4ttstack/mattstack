@@ -94,6 +94,26 @@ describe("mr:comment-inline", () => {
     expect(calls).toEqual([["42", 7, "nice catch", { path: "src/foo.ts", line: 42 }]]);
   });
 
+  test("a removed line, given as oldLine alone, anchors on the old side only", async () => {
+    const calls: unknown[][] = [];
+    const seams = makeSeams({
+      createInlineComment: async (...a) => { calls.push(a); return inlineResult("d1", 101, "DiffNote"); },
+      deleteComment: async () => { throw new Error("should not be called"); },
+    });
+
+    const h = createDiscussionHandlers(fakeCtx, () => {}, seams);
+    const res = await h["mr:comment-inline"]!(basePayload({ line: undefined, oldLine: 144 }));
+
+    expect(res).toEqual({ ok: true, data: { discussionId: "d1", noteId: 101, verified: true } });
+    expect(calls).toEqual([["42", 7, "nice catch", { path: "src/foo.ts", oldLine: 144 }]]);
+  });
+
+  test("a payload with neither line nor oldLine is refused", async () => {
+    const h = createDiscussionHandlers(fakeCtx, () => {}, makeSeams(neverCalled));
+    const res = await h["mr:comment-inline"]!(basePayload({ line: undefined }));
+    expect(res.ok).toBe(false);
+  });
+
   test("degrade then clean on retry deletes the first note and succeeds on the second", async () => {
     const deleted: unknown[][] = [];
     let createCalls = 0;

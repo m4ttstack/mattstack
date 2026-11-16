@@ -652,7 +652,7 @@ Replace the body of an existing MR note or thread comment by its noteId (from mr
 ### mr_comment_inline
 
 <!-- mcp-lint: allow -->
-Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: on GitLab the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
+Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: on GitLab the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so for a removed line pass oldLine alone, with no line. Use mr_reply_thread to reply to an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree. On GitHub, MR here means the PR, and mrUrl may be the PR's https://github.com/<owner>/<repo>/pull/<number> URL; its repo must be registered with rt too.
 
 ```json
 {
@@ -688,8 +688,7 @@ Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-
   },
   "required": [
     "body",
-    "path",
-    "line"
+    "path"
   ],
   "additionalProperties": false
 }

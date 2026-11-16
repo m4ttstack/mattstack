@@ -428,7 +428,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_comment_inline",
-      description: `Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: on GitLab the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
+      description: `Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: on GitLab the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so for a removed line pass oldLine alone, with no line. Use mr_reply_thread to reply to an existing thread. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -439,7 +439,7 @@ export function mcpTools(): McpToolDef[] {
           oldPath: { type: "string" },
           oldLine: { type: "number" },
         },
-        required: ["body", "path", "line"],
+        required: ["body", "path"],
         additionalProperties: false,
       },
       shellForms: { none: "inline notes have no glab verb; a glab api call hits the glab catch-all on mr_view" },
@@ -447,9 +447,9 @@ export function mcpTools(): McpToolDef[] {
         const bad = checkRequired(input, [
           { name: "body", type: "string" },
           { name: "path", type: "string" },
-          { name: "line", type: "number" },
-        ]) ?? checkOptional(input, [{ name: "oldPath", type: "string" }, { name: "oldLine", type: "number" }]);
+        ]) ?? checkOptional(input, [{ name: "line", type: "number" }, { name: "oldPath", type: "string" }, { name: "oldLine", type: "number" }]);
         if (bad) return err(bad);
+        if (input.line === undefined && input.oldLine === undefined) return err('"line" or "oldLine" is required');
         const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const payload: Commands["mr:comment-inline"]["payload"] = {
@@ -457,8 +457,8 @@ export function mcpTools(): McpToolDef[] {
           iid: target.iid,
           body: input.body as string,
           path: input.path as string,
-          line: input.line as number,
         };
+        if (input.line !== undefined) payload.line = input.line as number;
         if (input.oldPath !== undefined) payload.oldPath = input.oldPath as string;
         if (input.oldLine !== undefined) payload.oldLine = input.oldLine as number;
         const res = await rtCommand<Commands["mr:comment-inline"]["data"]>("mr:comment-inline", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
