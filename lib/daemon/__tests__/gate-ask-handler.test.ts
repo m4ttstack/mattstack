@@ -735,6 +735,21 @@ describe("gate:ask preAnswer", () => {
     expect(events[1]!.payload.by).toBe("mode:quiet");
   });
 
+  test("a pre-answered gate's opened event carries preAnswered; an asking gate's does not", async () => {
+    const { handlers, events } = harness({ resolveSubject });
+    const asked = await handlers["gate:ask"]({ ...base, subject: "mr:https://x/2", questions: twoOptionQuestion() });
+    expect(asked.ok).toBe(true);
+    const res = await handlers["gate:ask"]({
+      ...base, questions: twoOptionQuestion(),
+      preAnswer: { answers: { q1: "yes" }, by: "mode:quiet" },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok || !asked.ok) return;
+    const opened = (id: string) => events.find((e) => e.topic === `gate/opened/${id}`)!;
+    expect(opened(res.data.id).payload.preAnswered).toBe(true);
+    expect(opened(asked.data.id).payload.preAnswered).toBeUndefined();
+  });
+
   test("preAnswer on a herd-owned subject answers without pushing to the shepherd", async () => {
     const { calls, push } = spies();
     const { handlers, store } = harness({

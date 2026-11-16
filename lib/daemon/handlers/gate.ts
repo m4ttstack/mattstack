@@ -498,7 +498,7 @@ export function createGateHandlers(
   };
 
   /** `internal` is true only for the daemon's own opens, the one path that may name a gate's id or open a `slack-open` gate. */
-  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false, opts: { skipPush?: boolean; opener?: OpenerIdentity } = {}) => {
+  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false, opts: { skipPush?: boolean; opener?: OpenerIdentity; preAnswered?: boolean } = {}) => {
     const payload = rawPayload as Commands["gate:open"]["payload"] | undefined;
     const subject = typeof payload?.subject === "string" ? payload.subject.trim() : "";
     const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
@@ -579,6 +579,7 @@ export function createGateHandlers(
       id: row.id, subject: row.subject, kind: row.kind, questions: row.questions,
       meta: row.meta, agent: row.agent, paneId: row.pane, label,
       context: row.context, origin: row.origin, owner: row.owner,
+      ...(opts.preAnswered ? { preAnswered: true as const } : {}),
     };
     emitGateEvent(`gate/opened/${row.id}`, eventPayload, emittedAt);
 
@@ -869,7 +870,7 @@ export function createGateHandlers(
       ...(paneId && !preAnswer ? { pane: paneId } : {}),
       ...((presentation === "form" || presentation === "kit") && sessionId ? { nudge: { session: sessionId } } : {}),
       origin,
-    }, false, true, preAnswer ? { skipPush: true, opener: { paneId, sessionId } } : {});
+    }, false, true, preAnswer ? { skipPush: true, opener: { paneId, sessionId }, preAnswered: true } : {});
     if (!opened.ok) return opened;
     if (preAnswer) {
       // Answered in-store rather than through gate:answer: its owner guard refuses a herd-owned gate, and nothing here may reach a pane or shepherd.
