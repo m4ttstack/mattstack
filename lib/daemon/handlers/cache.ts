@@ -10,7 +10,7 @@
  */
 
 import type { HandlerContext, HandlerMap, CacheEntry, CommandResult } from "./types.ts";
-import { branchOf, composeKey, getByBranch } from "../../state/branch-cache.ts";
+import { branchOf, composeKey, getByBranch, identityOf } from "../../state/branch-cache.ts";
 
 /** How long an entry that resolved a ticket id but never got the ticket is
     left alone before another lookup is spent on it. Short enough that a key
@@ -48,7 +48,7 @@ export function createCacheHandlers(
       const branches = p?.branches;
       const maxAgeMs = p?.maxAgeMs;
       // Optional exact scoping: an absent repoIdentity falls back to a
-      // suffix match across repos (today's callers never pass this yet).
+      // suffix match across repos.
       const repoIdentity = p?.repoIdentity;
 
       const lookup = (b: string): CacheEntry | undefined =>
@@ -74,6 +74,12 @@ export function createCacheHandlers(
       // never changes underneath them.
       if (!branches) {
         const out: Record<string, CacheEntry> = {};
+        if (repoIdentity) {
+          // A row written with no repo still answers for a branch this repo has no row for.
+          for (const [k, v] of Object.entries(ctx.cache.entries)) if (identityOf(k) === undefined) out[k] = v;
+          for (const [k, v] of Object.entries(ctx.cache.entries)) if (identityOf(k) === repoIdentity) out[branchOf(k)] = v;
+          return { ok: true, data: out };
+        }
         for (const [k, v] of Object.entries(ctx.cache.entries)) out[branchOf(k)] = v;
         return { ok: true, data: out };
       }

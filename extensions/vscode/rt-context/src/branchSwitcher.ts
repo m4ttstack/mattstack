@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { extractLinearId } from './branchParser';
 import { fetchTicketsBatch, fetchMyTodoTickets } from './linear';
 import { fetchMRInfoBatch } from './gitlab';
-import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityToStore } from './forge';
+import { branchDataFromDaemonEntry, forgeWords, ownBranchData, repoIdentityOfRemote, repoIdentityToStore } from './forge';
 import { resolveRepoForge } from './repoForge';
 import { confirmedHostForLookup } from './gitlabNotice';
 import { branchCache, branchListCache } from './cache';
@@ -48,14 +48,12 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
   // Use cached branch list for instant picker open; refresh in background
   const cached = branchListCache.get();
   let branches: BranchInfo[] = [];
-  let branchNames: string[] = [];
 
   function applyBranchList(allBranches: BranchInfo[], worktreeBranchNames: string[]) {
     const worktreeSet = new Set(worktreeBranchNames);
     branches = allBranches.filter(
       (b) => b.name === currentBranch || !worktreeSet.has(b.name),
     );
-    branchNames = branches.map((b) => b.name);
   }
 
   if (cached) {
@@ -214,17 +212,18 @@ export async function showBranchSwitcher(context: vscode.ExtensionContext): Prom
     const freshWtNames = [...freshWorktreeSet];
     branchListCache.set(freshBranches, freshWtNames);
     applyBranchList(freshBranches, freshWtNames);
-    branchNames = branches.map((b) => b.name);
 
     const localBranchNames = branches.filter((b) => b.isLocal).map((b) => b.name);
 
     // 2. Try daemon cache first — one request for all branches
     let daemonHit = false;
     try {
-      const response = await daemonQuery('/api/cache');
+      const repoIdentity = repoForge.remoteUrl ? repoIdentityOfRemote(repoForge.remoteUrl) : null;
+      const response = await daemonQuery(
+        repoIdentity ? `/api/cache?repoIdentity=${encodeURIComponent(repoIdentity)}` : '/api/cache',
+      );
       if (response?.ok && response.data) {
         const allEntries = response.data as Record<string, any>;
-        const localSet = new Set(localBranchNames);
         let hitCount = 0;
         for (const branch of localBranchNames) {
           const entry = allEntries[branch];
