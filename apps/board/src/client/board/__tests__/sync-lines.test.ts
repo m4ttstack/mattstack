@@ -6,7 +6,7 @@ import {
   pushSyncLine,
   shownSyncLog,
   startSyncLines,
-  takeAutoOpen,
+  syncDrawerOpen,
   tidySyncLog,
 } from '../sync-lines.ts';
 
@@ -45,8 +45,10 @@ describe('live lines', () => {
     startSyncLines('mr-a');
     pushSyncLine('mr-a', '[ok] Fetched from origin');
     expect(liveSyncLines('mr-a')).toEqual(['[ok] Fetched from origin']);
-    expect(takeAutoOpen('mr-a')).toBe(true);
-    expect(takeAutoOpen('mr-a')).toBe(false);
+    expect(syncDrawerOpen('mr-a')).toBe(true);
+    startSyncLines('mr-b');
+    expect(syncDrawerOpen('mr-a')).toBe(false);
+    expect(syncDrawerOpen('mr-b')).toBe(true);
   });
 
   test('joins the saved log and the stream where they meet', () => {
