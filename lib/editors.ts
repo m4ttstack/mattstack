@@ -30,7 +30,7 @@ export const EDITOR_PATTERNS: Array<{ appName: string; cliBinary: string; displa
   { appName: "Visual Studio Code - Insiders.app", cliBinary: "code-insiders", displayName: "VS Code Insiders", extensionsDir: ".vscode-insiders/extensions" },
   { appName: "VSCodium.app", cliBinary: "codium", displayName: "VSCodium", extensionsDir: ".vscode-oss/extensions" },
   { appName: "Antigravity.app", cliBinary: "antigravity", displayName: "Antigravity", extensionsDir: ".antigravity/extensions" },
-  { appName: "Antigravity IDE.app", cliBinary: "antigravity", displayName: "Antigravity IDE", extensionsDir: null },
+  { appName: "Antigravity IDE.app", cliBinary: "antigravity-ide", displayName: "Antigravity IDE", extensionsDir: null },
   { appName: "Windsurf.app", cliBinary: "windsurf", displayName: "Windsurf", extensionsDir: ".windsurf/extensions" },
 ];
 

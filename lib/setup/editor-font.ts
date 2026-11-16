@@ -112,8 +112,10 @@ export async function installNerdFont(
 export type EditorFontResult = {
   editor: string;
   path: string;
-  outcome: "written" | "kept" | "member-undid" | "unreadable" | "not-installed";
+  outcome: "written" | "kept" | "member-undid" | "unreadable" | "not-installed" | "failed";
   value?: string;
+  /** Why a write failed; only on `failed`. */
+  detail?: string;
 };
 
 function defaultAppDirs(home: string): string[] {
@@ -184,12 +186,18 @@ export function applyEditorFonts(p: Probes, written: Record<string, string>, app
       text.trim() === ""
         ? `{\n    ${JSON.stringify(TERMINAL_KEY)}: ${JSON.stringify(result.value)}\n}\n`
         : applyEdits(text, modify(text, [TERMINAL_KEY], result.value, { formattingOptions: formattingOf(text) }));
-    p.mkdirp(dirname(target));
-    const mode = p.fileMode(target);
     const tmp = `${target}.rt-${process.pid}.tmp`;
-    p.writeFile(tmp, next);
-    if (mode !== null) p.chmod(tmp, mode);
-    p.rename(tmp, target);
-    return result;
+    try {
+      p.mkdirp(dirname(target));
+      const mode = p.fileMode(target);
+      p.writeFile(tmp, next);
+      if (mode !== null) p.chmod(tmp, mode);
+      p.rename(tmp, target);
+      return result;
+    } catch (err) {
+      p.removeFile(tmp);
+      const detail = firstLine(err instanceof Error ? err.message : String(err));
+      return { editor: result.editor, path: result.path, outcome: "failed", detail };
+    }
   });
 }

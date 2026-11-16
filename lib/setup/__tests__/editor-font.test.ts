@@ -270,7 +270,7 @@ describe("planEditorFonts / applyEditorFonts", () => {
   });
 
   test("a missing User dir gets a new settings.json holding only the key", () => {
-    install("Antigravity IDE.app", "antigravity");
+    install("Antigravity IDE.app", "antigravity-ide");
     const result = only(applyEditorFonts(p(), {}, [apps]), "Antigravity IDE");
     const value = `${EDITOR_DEFAULT_FONT}, ${NERD}`;
     expect(result).toEqual({ editor: "Antigravity IDE", path: settingsPath("Antigravity IDE"), outcome: "written", value });
@@ -310,6 +310,27 @@ describe("planEditorFonts / applyEditorFonts", () => {
     applyEditorFonts(p(), {}, [apps]);
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readdirSync(join(path, ".."))).toEqual(["settings.json"]);
+  });
+
+  test("a write that throws marks that editor failed, cleans its temp file, and the next editor is still written", () => {
+    install("Visual Studio Code.app", "code");
+    install("Cursor.app", "cursor");
+    const codePath = seed("Code", `{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    const cursorPath = seed("Cursor", `{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    const base = realFsProbes(home);
+    const probes: Probes = {
+      ...base,
+      rename(from, to) {
+        if (to === codePath) throw new Error("EACCES: permission denied");
+        base.rename(from, to);
+      },
+    };
+    const results = applyEditorFonts(probes, {}, [apps]);
+    expect(only(results, "VS Code")).toEqual({ editor: "VS Code", path: codePath, outcome: "failed", detail: "EACCES: permission denied" });
+    expect(readdirSync(join(codePath, ".."))).toEqual(["settings.json"]);
+    expect(readFileSync(codePath, "utf8")).toBe(`{ "terminal.integrated.fontFamily": "Fira Code" }`);
+    expect(only(results, "Cursor").outcome).toBe("written");
+    expect(readFileSync(cursorPath, "utf8")).toContain(`Fira Code, ${NERD}`);
   });
 
   test("a symlinked settings.json is edited through the link, which stays a link", () => {
