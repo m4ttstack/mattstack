@@ -937,7 +937,7 @@ function canSubmit(form, s) {
 }
 function chosenValue(form, s) {
   const q = form.questions[0];
-  return q && cursorIsChoice(q, s, 0) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
+  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
 }
 var PAUSE = "pause";
 var GO_BACK = "go-back:";

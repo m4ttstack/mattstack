@@ -69,10 +69,11 @@ export function canSubmit(form: Form, s: State): boolean {
   return form.source !== 'gate' || unansweredCount(s) === 0
 }
 
-// The one-page form's chosen option: the cursor, once it counts as a choice.
+// The one-page form's chosen option: the cursor, once it counts as a choice. A sole option is chosen where it rests,
+// since no key can move the cursor onto it.
 export function chosenValue(form: Form, s: State): string | undefined {
   const q = form.questions[0]
-  return q && cursorIsChoice(q, s, 0) ? choicesOf(q)[s.cursor[0]!]?.value : undefined
+  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]!]?.value : undefined
 }
 
 const PAUSE = 'pause'

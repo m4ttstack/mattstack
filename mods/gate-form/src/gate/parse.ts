@@ -1,4 +1,5 @@
 import type { Controls, Form, FormOption, FormQuestion } from '../../types'
+import { WRITE_IN } from '../form/state'
 import { BOARD_INSTRUCTION, GATE_INSTRUCTION } from './reply'
 
 const DEFAULT_TITLE = 'Questions'
@@ -89,6 +90,8 @@ export function pluginForm(raw: unknown): Form | string {
   const confirm = args.kind === 'confirm'
   if (!Array.isArray(args.options) || args.options.length === 0) return 'options must be a non-empty array.'
   if (confirm && (args.options.length < 2 || args.options.length > 3)) return 'a confirm takes 2 or 3 options.'
+  // The form keeps this value for its write-in row, so an option carrying it could never be chosen.
+  if (args.options.some(option => (option as { value?: unknown } | null)?.value === WRITE_IN)) return `option value ${WRITE_IN} is reserved.`
   // A confirm draws no question line, so its label is only a name for the answer.
   const label = confirm && args.label === undefined ? args.title : args.label
   const question = { id: PLUGIN_QUESTION, header: 'Choice', label, options: args.options }

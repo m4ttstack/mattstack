@@ -48,16 +48,17 @@ export type LegacyForm = {
   replyTo: 'agent' | 'toast'
 }
 
-// `choice` (the default) draws the options as radio rows under `label`, with Submit; `confirm` draws 2 or 3 options
-// as numbered rows under the context, with no question line, the keys starting on the first.
-export type GateFormAskArgs = {
+export type GateFormAskBase = {
   title: string
   context?: string
-  kind?: 'choice' | 'confirm'
-  label?: string
   options: { value: string; label: string; description?: string }[]
   timeoutMs: number
 }
+
+// `choice` (the default) draws the options as radio rows under `label`, with Submit; `confirm` draws 2 or 3 options
+// as numbered Buttons under the context, with no question line, the keys starting on the first. An option's value may
+// not be `__other__`, which the form keeps for itself.
+export type GateFormAskArgs = (GateFormAskBase & { kind?: 'choice'; label: string }) | (GateFormAskBase & { kind: 'confirm'; label?: string })
 
 export type GateFormAskResult = { value: string } | { timedOut: true } | { closed: true }
 

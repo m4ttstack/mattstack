@@ -253,7 +253,9 @@ async function openAsk($: EngineInterface, form: Form): Promise<void> {
 }
 
 // A plugin form is answered here, never by the agent: no prompt is sent for it.
+// A second press can land while the first answer is still being written: the ask's entry is gone by then, so it is ignored.
 async function settlePlugin($: EngineInterface, form: Form, outcome: Outcome): Promise<void> {
+  if (!asked.has(form.id)) return
   const value = outcome.status === 'answered' ? outcome.answers[PLUGIN_QUESTION] : undefined
   await (typeof value === 'string' ? endAsk($, form.id, { value }) : endAsk($, form.id, { closed: true }, CLOSED))
 }

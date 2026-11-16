@@ -79,6 +79,15 @@ test('ask arguments a form cannot draw are refused with the reason', () => {
   expect(pluginForm(null)).toBeString()
 })
 
+test('an option may not carry the value the form keeps for its write-in row', () => {
+  expect(pluginForm({ ...ARGS, options: [...ARGS.options, { value: '__other__', label: 'Other' }] })).toBe('option value __other__ is reserved.')
+})
+
+test('a sole option is chosen where it rests, so Enter submits it with no cursor move', () => {
+  const one = pluginForm({ ...ARGS, options: [ARGS.options[0]] }) as Form
+  expect(keyEffect({ key: 'return' }, one, initial(one))?.post).toEqual({ type: 'answer', formId: one.id, answers: { choice: 'close' } })
+})
+
 test('a plugin form is one page: no tab strip, no review page, no Back, no page hint', () => {
   const page = screen(initial(form))
   for (const gone of ['Choice', 'Review', 'Back', '←→', 'pages']) expect(page).not.toContain(gone)

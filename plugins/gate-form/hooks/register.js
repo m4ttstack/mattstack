@@ -463,6 +463,174 @@ function fromLegacy(old) {
 }
 var knownForms = (list) => list.filter((f) => f.source === "gate" || f.source === "ask" || f.source === "plugin");
 
+// mods/gate-form/src/form/state.ts
+var WRITE_IN = "__other__";
+var isRecommended = (o) => /\(recommended\)\s*$/i.test(o.label);
+var replaceAt = (list, i, value) => list.map((old, k) => k === i ? value : old);
+var markAnswered = (s, i) => replaceAt(s.answered, i, true);
+function choicesOf(q) {
+  if (q.options.length === 0 || !q.other)
+    return q.options;
+  return [...q.options, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
+}
+function initial(form) {
+  return {
+    page: 0,
+    cursor: form.questions.map((q) => isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended))),
+    picked: form.questions.map(() => []),
+    text: form.questions.map(() => ""),
+    answered: form.questions.map(() => false),
+    moved: form.questions.map(() => false),
+    phase: "active",
+    tabsFrom: 0,
+    menu: { open: false, selected: 0 },
+    navAt: "next"
+  };
+}
+function canSubmit(form, s) {
+  if (isSinglePage(form))
+    return chosenValue(form, s) !== undefined;
+  return form.source !== "gate" || unansweredCount(s) === 0;
+}
+function chosenValue(form, s) {
+  const q = form.questions[0];
+  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
+}
+var PAUSE = "pause";
+var GO_BACK = "go-back:";
+var canChat = (form) => form.source !== "plugin";
+var isSinglePage = (form) => form.source === "plugin";
+var isConfirm = (form) => form.confirm === true;
+var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
+var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
+function navIds(form, s) {
+  const ids = s.page > 0 && !isReview(form, s) ? ["back", "next"] : ["next"];
+  if (isReview(form, s) && menuRows(form).length > 0)
+    ids.push("more");
+  if (canChat(form))
+    ids.push("chat");
+  return ids;
+}
+function navAtOf(form, s) {
+  return navIds(form, s).includes(s.navAt) ? s.navAt : "next";
+}
+function menuRows(form) {
+  const controls = form.controls;
+  if (!controls)
+    return [];
+  const rows = controls.pause ? [{ id: PAUSE, label: "Pause run" }] : [];
+  if (controls.goBack.length > 0)
+    rows.push({ id: "go-back", label: "Go back to stage", isHeading: true }, ...controls.goBack.map((stage) => ({ id: `${GO_BACK}${stage}`, label: stage })));
+  return rows;
+}
+function controlAnswers(id) {
+  if (id === PAUSE)
+    return { answers: { next: "hold" }, label: "Asked to pause the run." };
+  if (!id.startsWith(GO_BACK))
+    return;
+  const to = id.slice(GO_BACK.length);
+  return { answers: { next: "go-back", to }, label: `Asked to go back to stage ${to}.` };
+}
+function afterAttempt(form, s) {
+  if (s.phase !== "submitted" || form.status !== "open" || (form.attempt ?? 0) <= (s.sent ?? 0))
+    return s;
+  return { ...s, phase: "active", sent: form.attempt, control: undefined };
+}
+var unansweredCount = (s) => s.answered.filter((a) => !a).length;
+function isPicked(q, s, i, idx) {
+  const value = choicesOf(q)[idx]?.value;
+  if (value === undefined)
+    return false;
+  return s.picked[i].includes(value) || value === WRITE_IN && q.multi && s.text[i].trim() !== "";
+}
+function isTyping(form, s) {
+  const q = form.questions[s.page];
+  if (!q)
+    return false;
+  const choices = choicesOf(q);
+  return choices.length === 0 || choices[s.cursor[s.page]]?.value === WRITE_IN;
+}
+function answersOf(form, s) {
+  const out = {};
+  form.questions.forEach((q, i) => {
+    if (!s.answered[i])
+      return;
+    const typed = s.text[i].trim();
+    if (choicesOf(q).length === 0)
+      out[q.id] = s.text[i];
+    else if (q.multi) {
+      const values = s.picked[i].filter((v) => v !== WRITE_IN);
+      out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
+    } else {
+      const value = choicesOf(q)[s.cursor[i]]?.value;
+      out[q.id] = value === WRITE_IN ? { writeIn: typed } : value;
+    }
+  });
+  return out;
+}
+function goTo(form, s, page) {
+  const last = isSinglePage(form) ? 0 : form.questions.length;
+  return { ...s, page: Math.max(0, Math.min(last, page)) };
+}
+function cursorIsChoice(q, s, i) {
+  const option = choicesOf(q)[s.cursor[i]];
+  if (!option || option.value === WRITE_IN && s.text[i].trim() === "")
+    return false;
+  return s.answered[i] || s.moved[i] || isRecommended(option);
+}
+function takesCursorAsAnswer(form, s) {
+  const q = form.questions[s.page];
+  return q !== undefined && !q.multi && !s.answered[s.page] && cursorIsChoice(q, s, s.page);
+}
+function advance(form, s) {
+  const answered = takesCursorAsAnswer(form, s) ? markAnswered(s, s.page) : s.answered;
+  return goTo(form, { ...s, answered }, s.page + 1);
+}
+function moveCursor(form, s, by) {
+  const q = form.questions[s.page];
+  const count = q ? choicesOf(q).length : 0;
+  if (count === 0)
+    return s;
+  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count), moved: replaceAt(s.moved, s.page, true) };
+}
+function toggled(s, i, value) {
+  const has = s.picked[i].includes(value);
+  return { ...s, picked: replaceAt(s.picked, i, has ? s.picked[i].filter((p) => p !== value) : [...s.picked[i], value]), answered: markAnswered(s, i) };
+}
+function toggleAtCursor(form, s) {
+  const q = form.questions[s.page];
+  const value = q && choicesOf(q)[s.cursor[s.page]]?.value;
+  return value === undefined ? s : toggled(s, s.page, value);
+}
+function confirm(form, s) {
+  const i = s.page;
+  const q = form.questions[i];
+  if (!q)
+    return s;
+  const value = choicesOf(q)[s.cursor[i]]?.value;
+  const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i].includes(value);
+  return { ...s, page: i + 1, answered: markAnswered(s, i), ...adds && { picked: replaceAt(s.picked, i, [...s.picked[i], value]) } };
+}
+function clickChoice(form, s, idx) {
+  const i = s.page;
+  const q = form.questions[i];
+  if (!q)
+    return s;
+  const value = choicesOf(q)[idx]?.value;
+  const cursor = replaceAt(s.cursor, i, idx);
+  if (value === undefined || value === WRITE_IN)
+    return { ...s, cursor };
+  if (!q.multi)
+    return { ...s, cursor, answered: markAnswered(s, i) };
+  return { ...toggled(s, i, value), cursor };
+}
+function typeChar(s, ch) {
+  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
+}
+function deleteChar(s) {
+  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page].slice(0, -1)) };
+}
+
 // mods/gate-form/src/gate/reply.ts
 var REPLY_TAG = "[gate-form] ";
 var json = (value) => `\`\`\`json
@@ -580,6 +748,8 @@ function pluginForm(raw) {
     return "options must be a non-empty array.";
   if (confirm && (args.options.length < 2 || args.options.length > 3))
     return "a confirm takes 2 or 3 options.";
+  if (args.options.some((option) => option?.value === WRITE_IN))
+    return `option value ${WRITE_IN} is reserved.`;
   const label = confirm && args.label === undefined ? args.title : args.label;
   const question = { id: PLUGIN_QUESTION, header: "Choice", label, options: args.options };
   const form = toForm(args.title, args.context, [question], "plugin");
@@ -1023,6 +1193,8 @@ async function openAsk($, form) {
   });
 }
 async function settlePlugin($, form, outcome) {
+  if (!asked.has(form.id))
+    return;
   const value = outcome.status === "answered" ? outcome.answers[PLUGIN_QUESTION] : undefined;
   await (typeof value === "string" ? endAsk($, form.id, { value }) : endAsk($, form.id, { closed: true }, CLOSED));
 }
