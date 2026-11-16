@@ -1411,14 +1411,13 @@ function navRows(form, s, view) {
 }
 function confirmFoot(form, s, view) {
   const at = s.cursor[0];
-  const buttons = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: "option", idx }, tone: "secondary" }));
-  const plain = buttonRow(buttons, undefined, view.width);
-  const line = plain.map((span, k) => k === 1 ? { ...span, ...FILL.current } : span);
+  const buttons = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: "option", idx }, tone: idx === 0 ? "primary" : "secondary" }));
+  const line = buttonRow(buttons, undefined, view.width);
   const span = 1 + 2 * at;
   const row = view.focused ? [...line.slice(0, span), ...gridLook(line[span], { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line;
-  const gap = form.context ? [[sp(SYMBOL.bar, ACCENT)]] : [];
-  const indent = [sp(" ".repeat(widthOf([plain[0]])))];
-  return [...gap, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(" ")], row, ...hang(indent, indent, hint(form, s), view.width, DIM)];
+  const gap = form.context ? [[sp(SYMBOL.bar, GRAY)]] : [];
+  const indent = [sp(" ".repeat(widthOf([line[0]])))];
+  return [...gap, [sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(" ")], row, ...hang(indent, indent, hint(form, s), view.width, DIM)];
 }
 function submitRow(form, s, view) {
   return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
@@ -1450,7 +1449,7 @@ function draw(form, s, view) {
   const gap = [sp(SYMBOL.bar, GRAY)];
   head.push(gap);
   if (form.context) {
-    const indent = [sp(SYMBOL.bar, GRAY), sp("  ")];
+    const indent = rail(GRAY);
     const divider = [sp(`├${"─".repeat(Math.max(4, view.width - 2))}`, GRAY)];
     head.push(...hang(indent, indent, contextText(form.context), view.width), ...isConfirm(form) ? [] : [gap, divider, gap]);
   }

@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, FILL, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -177,18 +177,17 @@ function navRows(form: Form, s: State, view: View): L[] {
   return [marked(line), ...hung.slice(1)]
 }
 
-// The options as buttons, the first primary in the accent fill (the brand bar already carries the brand colour),
-// with the focused one marked; the hint follows the buttons it describes.
+// The options as buttons, the first primary, with the focused one marked; the hint follows the buttons it describes.
+// A confirm has no question section, so its rail stays the unfocused gray all the way down.
 function confirmFoot(form: Form, s: State, view: View): L[] {
   const at = s.cursor[0]!
-  const buttons: Button<Action>[] = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: 'option', idx }, tone: 'secondary' }))
-  const plain = buttonRow(buttons, undefined, view.width)
-  const line: L = plain.map((span, k) => (k === 1 ? { ...span, ...FILL.current } : span))
+  const buttons: Button<Action>[] = (form.questions[0]?.options ?? []).map((o, idx) => ({ label: o.label, action: { type: 'option', idx }, tone: idx === 0 ? 'primary' : 'secondary' }))
+  const line = buttonRow(buttons, undefined, view.width)
   const span = 1 + 2 * at
   const row: L = view.focused ? [...line.slice(0, span), ...gridLook(line[span]!, { marked: true, pressing: view.pressing }), ...line.slice(span + 1)] : line
-  const gap: L[] = form.context ? [[sp(SYMBOL.bar, ACCENT)]] : []
-  const indent = [sp<Action>(' '.repeat(widthOf([plain[0]!])))]
-  return [...gap, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(' ')], row, ...hang(indent, indent, hint(form, s)!, view.width, DIM)]
+  const gap: L[] = form.context ? [[sp(SYMBOL.bar, GRAY)]] : []
+  const indent = [sp<Action>(' '.repeat(widthOf([line[0]!])))]
+  return [...gap, [sp(SYMBOL.end, GRAY)], ...errorLines(form, view), [sp(' ')], row, ...hang(indent, indent, hint(form, s)!, view.width, DIM)]
 }
 
 // The keys stay on the options, so Submit is never marked; Enter presses it from there.
@@ -222,7 +221,7 @@ function draw(form: Form, s: State, view: View): Drawn<Action> {
   const gap: L = [sp(SYMBOL.bar, GRAY)]
   head.push(gap)
   if (form.context) {
-    const indent = [sp<Action>(SYMBOL.bar, GRAY), sp('  ')]
+    const indent = rail<Action>(GRAY)
     const divider: L = [sp(`├${'─'.repeat(Math.max(4, view.width - 2))}`, GRAY)]
     head.push(...hang(indent, indent, contextText(form.context), view.width), ...(isConfirm(form) ? [] : [gap, divider, gap]))
   }

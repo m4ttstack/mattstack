@@ -35,12 +35,12 @@ test('a confirm draws the title, the context and the options as one row of butto
   expect(text).toContain('←→ choose   enter presses')
 })
 
-test('the first option is the primary button, in the accent fill, and has focus', () => {
+test('the first option is the primary button and has focus', () => {
   const row = buttonRow(form, initial(form))
   const exit = row.find(span => span.t.includes('Exit worktree'))
   const close = row.find(span => span.t.includes('Close session'))
   expect(initial(form).cursor[0]).toBe(0)
-  expect(exit?.bg).toBe(FILL.current.bg)
+  expect(exit?.bg).toBe(FILL.primary.bg)
   expect(close?.bg).toBe(FILL.secondary.bg)
   expect(row.slice(0, row.indexOf(exit!)).some(span => span.t.includes('▎'))).toBe(true)
 })
@@ -49,7 +49,7 @@ test('focus moves the ▎ mark, not the colours', () => {
   const row = buttonRow(form, keyEffect({ key: 'right' }, form, initial(form))!.state)
   const exit = row.findIndex(span => span.t.includes('Exit worktree'))
   const close = row.findIndex(span => span.t.includes('Close session'))
-  expect(row[exit]?.bg).toBe(FILL.current.bg)
+  expect(row[exit]?.bg).toBe(FILL.primary.bg)
   expect(row[close]?.bg).toBe(FILL.secondary.bg)
   expect(row.slice(exit + 1, close).some(span => span.t.includes('▎'))).toBe(true)
   expect(row.slice(0, exit).some(span => span.t.includes('▎'))).toBe(false)
@@ -100,4 +100,14 @@ test('a confirm takes 2 or 3 options and an optional label; kind is checked', ()
   expect(pluginForm({ ...ARGS, options: [...ARGS.options, { value: 'a', label: 'A' }, { value: 'b', label: 'B' }] })).toBeString()
   expect(pluginForm({ ...ARGS, kind: 'dialog' })).toBeString()
   expect((pluginForm({ ...ARGS, kind: undefined, label: 'Pick' }) as Form).confirm).toBeUndefined()
+})
+
+test('the rail is one colour from top to bottom, with or without context', () => {
+  for (const f of [form, bare]) {
+    const rails = linesOf(f, initial(f))
+      .map(line => line.find(span => /^[┌│└]$/.test(span.t)))
+      .filter(span => span !== undefined)
+    expect(rails.length).toBeGreaterThan(2)
+    expect(new Set(rails.map(span => span!.color)).size).toBe(1)
+  }
 })
