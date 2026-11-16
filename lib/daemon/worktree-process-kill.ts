@@ -359,28 +359,15 @@ function parseProcessTable(psOutput: string): ProcRow[] {
   return rows;
 }
 
-/**
- * Find and terminate the workload processes whose cwd is inside the worktree.
- * Discovery is done fresh (not from the scanner's 10s-old snapshot) so we act
- * on ground truth at park time.
- */
-export async function killWorktreeProcesses(
+async function readProcessSnapshot(
+  run: RunFn,
+  target: string,
   worktreePath: string,
-  opts: KillWorktreeOptions = {},
-): Promise<WorktreeKillResult> {
-  const run: RunFn = opts.run ?? ((argv, o) => runCapture(argv as [string, ...string[]], o));
-  const signal = opts.signal ?? ((pid, sig) => { process.kill(pid, sig); });
-  const identify = opts.identify ?? ((pid) => identifySession(pid));
-  const selfPids = opts.selfPids ?? [process.pid, process.ppid];
-  const none: WorktreeKillResult = { terminated: [], stoppedSessions: [] };
-
-  const target = safeRealpath(worktreePath);
-  const excludes = nestedExcludes(target, (opts.excludePaths ?? []).map(safeRealpath));
-
+): Promise<{ table: ProcRow[]; cwds: Map<number, string> } | null> {
   const lsof = await run(["lsof", "-d", "cwd", "-Fpn"], { timeoutMs: 10_000 });
   if (lsof.exitCode !== 0 && !lsof.stdout) {
     log.warn({ exitCode: lsof.exitCode, worktreePath }, "lsof failed; skipping worktree process kill");
-    return none;
+    return null;
   }
   const realpaths = new Map<string, string>();
   const cwds = new Map<number, string>();
@@ -405,14 +392,65 @@ export async function killWorktreeProcesses(
   // ancestors or descendants: unlike lsof, any ps failure skips the kill.
   if (ps.exitCode !== 0) {
     log.warn({ exitCode: ps.exitCode, worktreePath }, "ps failed; skipping worktree process kill");
-    return none;
+    return null;
   }
+
+  return { table: parseProcessTable(ps.stdout), cwds };
+}
+
+/**
+ * Agent sessions whose own cwd is inside the tree, identities resolved. Reads
+ * ps and lsof like the kill does but sends no signal. Null when the process
+ * table could not be read.
+ */
+export async function agentSessionsInside(
+  path: string,
+  opts: Pick<KillWorktreeOptions, "excludePaths" | "identify" | "run" | "selfPids"> = {},
+): Promise<StoppedSession[] | null> {
+  const run: RunFn = opts.run ?? ((argv, o) => runCapture(argv as [string, ...string[]], o));
+  const identify = opts.identify ?? ((pid) => identifySession(pid));
+  const selfPids = opts.selfPids ?? [process.pid, process.ppid];
+  const target = safeRealpath(path);
+  const excludes = nestedExcludes(target, (opts.excludePaths ?? []).map(safeRealpath));
+  const snapshot = await readProcessSnapshot(run, target, path);
+  if (!snapshot) return null;
+  const plan = planWorktreeKill({
+    target,
+    excludes,
+    table: snapshot.table,
+    cwds: snapshot.cwds,
+    protectedPids: selfPids,
+    stopSessionsInside: true,
+  });
+  return plan.stoppedSessions.map(s => ({ ...s, identity: identify(s.pid) }));
+}
+
+/**
+ * Find and terminate the workload processes whose cwd is inside the worktree.
+ * Discovery is done fresh (not from the scanner's 10s-old snapshot) so we act
+ * on ground truth at park time.
+ */
+export async function killWorktreeProcesses(
+  worktreePath: string,
+  opts: KillWorktreeOptions = {},
+): Promise<WorktreeKillResult> {
+  const run: RunFn = opts.run ?? ((argv, o) => runCapture(argv as [string, ...string[]], o));
+  const signal = opts.signal ?? ((pid, sig) => { process.kill(pid, sig); });
+  const identify = opts.identify ?? ((pid) => identifySession(pid));
+  const selfPids = opts.selfPids ?? [process.pid, process.ppid];
+  const none: WorktreeKillResult = { terminated: [], stoppedSessions: [] };
+
+  const target = safeRealpath(worktreePath);
+  const excludes = nestedExcludes(target, (opts.excludePaths ?? []).map(safeRealpath));
+
+  const snapshot = await readProcessSnapshot(run, target, worktreePath);
+  if (!snapshot) return none;
 
   const plan = planWorktreeKill({
     target,
     excludes,
-    table: parseProcessTable(ps.stdout),
-    cwds,
+    table: snapshot.table,
+    cwds: snapshot.cwds,
     protectedPids: [...selfPids, ...(opts.callerPids ?? [])],
     stopSessionsInside: opts.stopSessionsInside ?? false,
   });

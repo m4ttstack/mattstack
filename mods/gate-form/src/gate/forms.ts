@@ -47,4 +47,4 @@ export function fromLegacy(old: LegacyForm | null): Form[] {
 }
 
 // Forms stored by a build that still had the demo source.
-export const knownForms = (list: Form[]): Form[] => list.filter(f => f.source === 'gate' || f.source === 'ask')
+export const knownForms = (list: Form[]): Form[] => list.filter(f => f.source === 'gate' || f.source === 'ask' || f.source === 'plugin')

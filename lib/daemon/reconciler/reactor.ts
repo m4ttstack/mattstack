@@ -123,6 +123,9 @@ export interface ReactorDeps {
   notify?: DisposeDeps["notify"];
   /** Test seam passed to disposeTree; unset, dispose uses the real kill. */
   killWorktree?: DisposeDeps["killWorktree"];
+  /** Test seams passed to disposeTree for the leaving mark. */
+  agentsInside?: DisposeDeps["agentsInside"];
+  clock?: DisposeDeps["clock"];
 }
 
 function jobHold(deps: ReactorDeps, rec: TreeRecord): string | null {
@@ -214,6 +217,7 @@ function markDisposable(deps: ReactorDeps, rec: TreeRecord, reason: string): voi
     r.state = "disposable";
     r.disposableReason = reason;
     delete r.heldReason;
+    delete r.leaving;
   });
   deps.emit("worktree:disposable", {
     repo: deps.repoName,
@@ -349,6 +353,43 @@ async function autoReturnMain(
   return "fired";
 }
 
+/**
+ * disposeTree's joinedMr looks up by the BARE branch (its own contract,
+ * unaware of the composite `${identity}:${branch}` keys this repo's
+ * cache map now carries): hand it a bare-keyed, this-repo-only view so a
+ * same-named branch in another repo can never shadow the real entry.
+ */
+function bareKeyedCache(deps: ReactorDeps): Record<string, ReactorCacheEntry> {
+  const scoped: Record<string, ReactorCacheEntry> = {};
+  for (const [key, entry] of Object.entries(deps.cacheEntries)) {
+    if (entry.repoName && entry.repoName !== deps.repoName) continue;
+    scoped[branchOf(key)] = entry;
+  }
+  return scoped;
+}
+
+function disposeDepsFor(deps: ReactorDeps, appConfig: WorktreeAppConfig): DisposeDeps {
+  return {
+    repoName: deps.repoName,
+    repoPath: deps.repoPath,
+    cacheEntries: bareKeyedCache(deps) as Record<string, { mr: any; repoName?: string }>,
+    emit: deps.emit,
+    log: deps.log,
+    killProcesses: appConfig.killProcesses,
+    findRunningRun: deps.findRunningRun,
+    ...(deps.notify ? { notify: deps.notify } : {}),
+    ...(deps.killWorktree ? { killWorktree: deps.killWorktree } : {}),
+    ...(deps.agentsInside ? { agentsInside: deps.agentsInside } : {}),
+    ...(deps.clock ? { clock: deps.clock } : {}),
+  };
+}
+
+const TRANSIENT_REFUSALS = new Map([
+  ["remove-failed", "worktree removal failed"],
+  ["mark-failed", "leaving mark failed to save"],
+  ["processes-unreadable", "could not list the processes inside the tree"],
+]);
+
 /** React to one terminal MR state on one registered tree. Caller holds the tree lock. */
 async function actOnTree(
   deps: ReactorDeps,
@@ -379,15 +420,7 @@ async function actOnTree(
     return "fired";
   }
 
-  // disposeTree's joinedMr looks up by the BARE branch (its own contract,
-  // unaware of the composite `${identity}:${branch}` keys this repo's
-  // cache map now carries): hand it a bare-keyed, this-repo-only view so a
-  // same-named branch in another repo can never shadow the real entry.
-  const scopedEntries: Record<string, ReactorCacheEntry> = {};
-  for (const [key, entry] of Object.entries(deps.cacheEntries)) {
-    if (entry.repoName && entry.repoName !== deps.repoName) continue;
-    scopedEntries[branchOf(key)] = entry;
-  }
+  const scopedEntries = bareKeyedCache(deps);
 
   const iid = scopedEntries[branch]?.mr?.iid;
   const noun = changeNoun(deps.repoName);
@@ -396,36 +429,69 @@ async function actOnTree(
       ? `${noun} ${changeMarker(deps.repoName)}${iid} merged`
       : `${noun} for ${branch} merged`;
 
-  const outcome = await disposeTree(
-    {
-      repoName: deps.repoName,
-      repoPath: deps.repoPath,
-      cacheEntries: scopedEntries as Record<string, { mr: any; repoName?: string }>,
-      emit: deps.emit,
-      log: deps.log,
-      killProcesses: appConfig.killProcesses,
-      findRunningRun: deps.findRunningRun,
-      ...(deps.notify ? { notify: deps.notify } : {}),
-      ...(deps.killWorktree ? { killWorktree: deps.killWorktree } : {}),
-    },
-    rec,
-    { auto: true, stopSessions: { why } },
-  );
+  const outcome = await disposeTree(disposeDepsFor(deps, appConfig), rec, { auto: true, askSessions: { why } });
   if (outcome.disposed) return "fired";
 
-  // "remove-failed" is mechanical and transient (a locked file, a busy
-  // directory)... the tree is still perfectly claimable, so it must NOT be
-  // advertised as disposable. Hold the edge and try again next pass.
-  if (outcome.refusal === "remove-failed") {
+  // The tree is marked leaving and keeps its state; drainLeavingTrees owns
+  // the follow-up, so the edge is spent and a claimed tree must not look
+  // disposable.
+  if (outcome.refusal === "leaving") return "fired";
+
+  // These are mechanical and transient (a locked file, a busy directory, a
+  // registry write that did not land, a process table that did not read)...
+  // the tree is still perfectly claimable, so it must NOT be advertised as
+  // disposable. Hold the edge and try again next pass.
+  const transient = TRANSIENT_REFUSALS.get(outcome.refusal);
+  if (transient) {
     deps.log.warn(
-      { repo: deps.repoName, tree: rec.name, path: rec.path },
-      "auto-dispose: worktree removal failed; retrying next pass",
+      { repo: deps.repoName, tree: rec.name, path: rec.path, refusal: outcome.refusal },
+      `auto-dispose: ${transient}; retrying next pass`,
     );
     return "retry";
   }
 
   markDisposable(deps, rec, outcome.refusal);
   return "fired";
+}
+
+/** Refusals the drain waits out with the mark in place: the grace still running, or a transient failure the next pass retries. */
+const DRAIN_KEEPS_MARK = new Set(["leaving", "changed", ...TRANSIENT_REFUSALS.keys()]);
+
+/** A disposable tree already says it is the person's to look at, so dropping its mark needs no new event. */
+function dropLeavingMark(deps: ReactorDeps, rec: TreeRecord, reason: string): void {
+  patchTree(deps.repoName, rec.path, (r) => {
+    r.disposableReason = reason;
+    delete r.leaving;
+  });
+  deps.log.info(
+    { repo: deps.repoName, tree: rec.name, reason },
+    `worktree ${rec.name} is disposable: ${reason}`,
+  );
+}
+
+/**
+ * Re-run the disposal of every claimed or disposable tree a merge marked
+ * leaving, once per pass: the merge edge fires once, but the grace outlives
+ * it and a restart must pick the countdown up from the stored mark. `skip`
+ * holds the paths the merge edge already acted on in this pass.
+ */
+export async function drainLeavingTrees(deps: ReactorDeps, skip: ReadonlySet<string> = new Set()): Promise<void> {
+  const appConfig = loadWorktreeAppConfig();
+  if (!appConfig.enabled) return;
+  const disposeDeps = disposeDepsFor(deps, appConfig);
+  for (const rec of loadRegistry(deps.repoName)) {
+    if (!rec.leaving || (rec.state !== "claimed" && rec.state !== "disposable") || skip.has(rec.path)) continue;
+    const leaving = rec.leaving;
+    const outcome = await withTreeLock(rec.path, () =>
+      disposeTree(disposeDeps, rec, { auto: true, askSessions: { why: leaving.why } }),
+    );
+    if (outcome === "busy" || outcome.disposed) continue;
+    // Any refusal but these is a guard the session tripped by working on, so
+    // the tree goes back to the person as disposable.
+    if (DRAIN_KEEPS_MARK.has(outcome.refusal)) continue;
+    if (rec.state === "disposable") dropLeavingMark(deps, rec, outcome.refusal);
+    else markDisposable(deps, rec, outcome.refusal);
+  }
 }
 
 /** Worst outcome wins: any retry re-arms the edge, otherwise any fire records it. */
@@ -439,9 +505,10 @@ function worse(a: Reaction, b: Reaction): Reaction {
 async function resumeTrees(deps: ReactorDeps, branch: string): Promise<void> {
   for (const rec of findByBranch(loadRegistry(deps.repoName), branch)) {
     if (rec.kind !== "ephemeral") continue;
-    if (rec.state === "claimed" && rec.heldReason !== undefined) {
+    if (rec.state === "claimed" && (rec.heldReason !== undefined || rec.leaving !== undefined)) {
       patchTree(deps.repoName, rec.path, (r) => {
         delete r.heldReason;
+        delete r.leaving;
       });
       continue;
     }
@@ -451,6 +518,7 @@ async function resumeTrees(deps: ReactorDeps, branch: string): Promise<void> {
         r.state = "claimed";
         delete r.disposableReason;
         delete r.heldReason;
+        delete r.leaving;
       });
       deps.log.info(
         { repo: deps.repoName, tree: rec.name, branch },
@@ -543,6 +611,7 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
     if (!key.startsWith(prefix)) nextMrState[key] = value;
   }
 
+  const actedPaths = new Set<string>();
   for (const [mapKey, entry] of Object.entries(cacheEntries)) {
     // Unattributed entries (older caches predate repoName) may join any repo;
     // an entry attributed elsewhere never does.
@@ -625,6 +694,7 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
     let reaction: Reaction = "done";
     for (const rec of trees) {
       const result = await withTreeLock(rec.path, () => actOnTree(deps, rec, branch, cur, appConfig));
+      if (result !== "busy") actedPaths.add(rec.path);
       // A locked tree is someone else's in-flight work; come back next pass.
       reaction = worse(reaction, result === "busy" ? "retry" : result);
     }
@@ -634,6 +704,7 @@ export async function detectTransitions(deps: ReactorDeps): Promise<void> {
   }
 
   saveReactorState({ mrState: nextMrState, fired: [...fired] }, log);
+  await drainLeavingTrees(deps, actedPaths);
 }
 
 export const __test__ = {

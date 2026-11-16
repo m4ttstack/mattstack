@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -6,17 +6,20 @@ import { basename, dirname, join } from "path";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb, getBranchCacheStore, type CacheEntry } from "../../state/index.ts";
 import { branchOf } from "../../state/branch-cache.ts";
+import * as registryModule from "../registry.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../registry.ts";
 import { branchExistsLocalAsync, listWorktreesAsync, remoteRefExists } from "../git-async.ts";
 import { hasFreshAttendantLease } from "../lease.ts";
 import {
   classifyDirtyAsync,
   disposeTree,
+  LEAVE_GRACE_MS,
   STATUS_FAILED_BLOCKER,
   stoppedSessionNotice,
   type DisposeDeps,
 } from "../dispose.ts";
-import type { KillWorktreeOptions, WorktreeKillResult } from "../../daemon/worktree-process-kill.ts";
+import type { KillWorktreeOptions, StoppedSession, WorktreeKillResult } from "../../daemon/worktree-process-kill.ts";
+import { departedAt } from "../departures.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
@@ -1079,6 +1082,200 @@ describe("disposeTree", () => {
       const result = await disposeTree(deps, rec, { auto: true, stopSessions: { why: "PR #1087 merged" } });
       expect(result).toMatchObject({ disposed: true });
       expect(warns.some((w) => (w[0] as { err?: unknown }).err !== undefined)).toBe(true);
+    });
+  });
+
+  describe("askSessions", () => {
+    const why = "PR #1144 merged";
+    const t0 = Date.parse("2026-11-14T12:00:00.000Z");
+
+    function session(pid: number, sessionId: string | null, cwd: string): StoppedSession {
+      return { pid, label: "claude", cwd, identity: sessionId ? { sessionId, rooms: ["mattstack"] } : null };
+    }
+
+    function setup() {
+      const path = addTree(repo, "tree-a", "feature-a");
+      const rec = register(repoName, ephemeral("tree-a", path, "feature-a"));
+      const killOpts: KillWorktreeOptions[] = [];
+      const state = { inside: [] as StoppedSession[], nowMs: t0, insideCalls: 0 };
+      const deps = makeDeps({
+        killProcesses: true,
+        clock: () => new Date(state.nowMs),
+        agentsInside: async () => {
+          state.insideCalls++;
+          return state.inside;
+        },
+        killWorktree: async (_p: string, opts: KillWorktreeOptions): Promise<WorktreeKillResult> => {
+          killOpts.push(opts);
+          return { terminated: [], stoppedSessions: opts.stopSessionsInside ? state.inside : [] };
+        },
+      });
+      const current = () => loadRegistry(repoName).find((t) => t.path === path);
+      return { path, rec, deps, killOpts, state, current };
+    }
+
+    test("first merge pass with a session inside marks leaving, records the departure and kills nothing", async () => {
+      const { path, rec, deps, killOpts, state, current } = setup();
+      state.inside = [session(601, "s-1", path)];
+      const result = await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      expect(result).toEqual({ disposed: false, refusal: "leaving" });
+      expect(killOpts.length).toBe(0);
+      expect(existsSync(path)).toBe(true);
+      expect(current()?.leaving).toEqual({ why, since: new Date(t0).toISOString() });
+      expect(departedAt(path, "s-1")).toBe(new Date(t0).toISOString());
+      expect(events).toContainEqual({ type: "worktree:leaving", data: { repo: repoName, tree: "tree-a", path, why } });
+    });
+
+    test("next pass with nobody inside disposes", async () => {
+      const { path, rec, deps, killOpts, state, current } = setup();
+      state.inside = [session(601, "s-1", path)];
+      await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      state.inside = [];
+      state.nowMs = t0 + 30_000;
+      const result = await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
+      expect(result).toMatchObject({ disposed: true });
+      expect(killOpts.length).toBe(1);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
+      expect(killOpts[0]?.stopSessionsInside ?? false).toBe(false);
+      expect(current()).toBeUndefined();
+    });
+
+    test("a session that left keeps its MCP servers: dispose spares the family of an agent outside the tree", async () => {
+      const { path, rec, deps, killOpts, state, current } = setup();
+      state.inside = [session(601, "s-1", path)];
+      await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      state.inside = [];
+      state.nowMs = t0 + 30_000;
+      await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
+      expect(killOpts.length).toBe(1);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
+    });
+
+    test("a pass inside the grace with the session still inside keeps the tree", async () => {
+      const { path, rec, deps, killOpts, state, current } = setup();
+      state.inside = [session(601, "s-1", path)];
+      await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      state.nowMs = t0 + LEAVE_GRACE_MS - 1;
+      const result = await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
+      expect(result).toEqual({ disposed: false, refusal: "leaving" });
+      expect(killOpts.length).toBe(0);
+      expect(existsSync(path)).toBe(true);
+      expect(current()?.leaving?.since).toBe(new Date(t0).toISOString());
+      expect(events.filter((e) => e.type === "worktree:leaving").length).toBe(1);
+    });
+
+    test("a pass after 180000 ms with a session still inside disposes with stopSessions", async () => {
+      const posts: Array<{ room: string; body: string }> = [];
+      const { path, rec, deps, killOpts, state, current } = setup();
+      deps.notify = async (post) => { posts.push(post); };
+      state.inside = [session(601, "s-1", path)];
+      await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      state.nowMs = t0 + 180_000;
+      const result = await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
+      expect(result).toMatchObject({ disposed: true });
+      expect(killOpts.length).toBe(1);
+      expect(killOpts[0]?.stopSessionsInside).toBe(true);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
+      expect(posts.length).toBe(1);
+      expect(posts[0]?.body).toContain(why);
+    });
+
+    test("two sessions inside: one leaves, the other is still inside at grace; only the remaining one is stopped", async () => {
+      const posts: Array<{ room: string; body: string }> = [];
+      const { path, rec, deps, killOpts, state, current } = setup();
+      deps.notify = async (post) => { posts.push(post); };
+      state.inside = [session(601, "s-1", path), session(602, "s-2", path)];
+      await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      state.inside = [session(602, "s-2", path)];
+      state.nowMs = t0 + 60_000;
+      expect(await disposeTree(deps, current()!, { auto: true, askSessions: { why } })).toEqual({ disposed: false, refusal: "leaving" });
+      state.nowMs = t0 + LEAVE_GRACE_MS;
+      const result = await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
+      expect(result).toMatchObject({ disposed: true });
+      expect(killOpts.length).toBe(1);
+      expect(killOpts[0]).toMatchObject({ stopSessionsInside: true });
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
+      expect(posts.length).toBe(1);
+      expect(departedAt(path, "s-1")).toBe(new Date(t0).toISOString());
+      expect(departedAt(path, "s-2")).toBe(new Date(t0).toISOString());
+    });
+
+    test("a session first seen during the grace has its departure recorded then", async () => {
+      const { path, rec, deps, state, current } = setup();
+      state.inside = [session(601, "s-1", path), session(603, null, path)];
+      await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      state.inside = [session(601, "s-1", path), session(602, "s-2", path)];
+      state.nowMs = t0 + 60_000;
+      await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
+      expect(departedAt(path, "s-1")).toBe(new Date(t0).toISOString());
+      expect(departedAt(path, "s-2")).toBe(new Date(t0 + 60_000).toISOString());
+    });
+
+    test("no session inside on the first pass disposes at once", async () => {
+      const { path, rec, deps, killOpts, current } = setup();
+      const result = await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      expect(result).toMatchObject({ disposed: true });
+      expect(killOpts.length).toBe(1);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
+      expect(killOpts[0]?.stopSessionsInside ?? false).toBe(false);
+      expect(existsSync(path)).toBe(false);
+      expect(current()).toBeUndefined();
+      expect(events.some((e) => e.type === "worktree:leaving")).toBe(false);
+    });
+
+    test("a leaving mark that fails to save asks nobody and is set by the next pass", async () => {
+      const { path, rec, deps, killOpts, state, current } = setup();
+      state.inside = [session(601, "s-1", path)];
+      const realSave = registryModule.saveRegistry;
+      const failMark = spyOn(registryModule, "saveRegistry").mockImplementation((repo, trees) =>
+        trees.some((t) => t.leaving) ? false : realSave(repo, trees),
+      );
+      let result;
+      try {
+        result = await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      } finally {
+        failMark.mockRestore();
+      }
+      expect(result).toEqual({ disposed: false, refusal: "mark-failed" });
+      expect(killOpts.length).toBe(0);
+      expect(current()?.leaving).toBeUndefined();
+      expect(departedAt(path, "s-1")).toBeNull();
+      expect(events.some((e) => e.type === "worktree:leaving")).toBe(false);
+
+      state.nowMs = t0 + 30_000;
+      expect(await disposeTree(deps, current()!, { auto: true, askSessions: { why } })).toEqual({ disposed: false, refusal: "leaving" });
+      expect(current()?.leaving).toEqual({ why, since: new Date(t0 + 30_000).toISOString() });
+      expect(departedAt(path, "s-1")).toBe(new Date(t0 + 30_000).toISOString());
+    });
+
+    test("a process table that cannot be read refuses and kills nothing", async () => {
+      const { path, rec, deps, killOpts, current } = setup();
+      deps.agentsInside = async () => null;
+      const result = await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      expect(result).toMatchObject({ disposed: false, refusal: "processes-unreadable" });
+      expect(killOpts.length).toBe(0);
+      expect(existsSync(path)).toBe(true);
+      expect(current()?.state).toBe("claimed");
+    });
+
+    test("a guard refusal (dirty) still wins before any mark is set", async () => {
+      const { path, rec, deps, killOpts, state, current } = setup();
+      writeFileSync(join(path, "gen.txt"), "alpha\nbeta\ngamma\n");
+      state.inside = [session(601, "s-1", path)];
+      const result = await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      expect(result).toEqual({ disposed: false, refusal: "dirty" });
+      expect(state.insideCalls).toBe(0);
+      expect(killOpts.length).toBe(0);
+      expect(current()?.leaving).toBeUndefined();
+      expect(departedAt(path, "s-1")).toBeNull();
+    });
+
+    test("without askSessions the kill options are unchanged", async () => {
+      const { rec, deps, killOpts, state } = setup();
+      await disposeTree(deps, rec, { auto: true, stopSessions: { why } });
+      expect(state.insideCalls).toBe(0);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
+      expect(killOpts[0]?.stopSessionsInside).toBe(true);
     });
   });
 

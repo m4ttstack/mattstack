@@ -51,7 +51,7 @@ function toQuestion(q: RawQuestion, seen: Set<string>, source: Form['source']): 
     label: q.label,
     multi: q.multi === true,
     writeIn: q.writeIn === true,
-    other: source !== 'gate' || q.writeIn === true,
+    other: source === 'ask' || q.writeIn === true,
     ...(isText(q.context) && { context: q.context }),
     options,
   }
@@ -76,6 +76,18 @@ export function toForm(title: unknown, context: unknown, raw: unknown, source: F
     status: 'open',
     source,
   }
+}
+
+export const PLUGIN_QUESTION = 'choice'
+
+// `$.gateForm.ask`'s arguments to a one-pick form, or the reason they can't be one.
+export function pluginForm(raw: unknown): Form | string {
+  const args = (raw ?? {}) as { title?: unknown; context?: unknown; label?: unknown; options?: unknown; timeoutMs?: unknown }
+  if (!isText(args.title)) return 'title must be a non-empty string.'
+  if (typeof args.timeoutMs !== 'number' || !(args.timeoutMs > 0)) return 'timeoutMs must be a positive number of milliseconds.'
+  if (!Array.isArray(args.options) || args.options.length === 0) return 'options must be a non-empty array.'
+  const question = { id: PLUGIN_QUESTION, header: 'Choice', label: args.label, options: args.options }
+  return toForm(args.title, args.context, [question], 'plugin')
 }
 
 type Fields = Record<string, unknown>
