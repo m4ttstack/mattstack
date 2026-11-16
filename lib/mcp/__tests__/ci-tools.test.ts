@@ -351,6 +351,25 @@ describe("ci_watch attend", () => {
     expect(state()).toMatchObject({ sha: SHA, held: true, heldBy: "session:aaa", reclaims: 0, pipelineId: 10, pipelineStatus: "success", lastResult: "success" });
     expect(keepalive.size()).toBe(1);
   });
+  test("an attended watch with no maxWaitSeconds waits the full cap before answering running", async () => {
+    let clock = 0;
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline({ status: "running" }) }, {
+      now: () => clock,
+      sleep: async (ms: number) => { clock += ms; },
+    });
+    const r = await watch.handler({ ...target, sha: SHA, attend: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "running" } });
+    expect(clock).toBeGreaterThanOrEqual(1500_000);
+  });
+  test("an explicit maxWaitSeconds still wins under attend", async () => {
+    let clock = 0;
+    const { watch } = attendDefs({ sha: SHA, pipeline: pipeline({ status: "running" }) }, {
+      now: () => clock,
+      sleep: async (ms: number) => { clock += ms; },
+    });
+    await watch.handler({ ...target, sha: SHA, attend: true, maxWaitSeconds: 60 }, A);
+    expect(clock).toBeLessThan(120_000);
+  });
   test("holder doctor claims as doctor", async () => {
     const { watch } = attendDefs({ sha: SHA, pipeline: pipeline() });
     await watch.handler({ ...target, sha: SHA, attend: true, holder: "doctor" }, A);
