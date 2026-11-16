@@ -217,7 +217,7 @@ function once<T>(read: () => T): () => T {
   };
 }
 
-/** Never call directly: the mattstack plugin's worktree mod runs it. Always exits 0 with one JSON line on stdout, whichever of the four answers it gives. */
+/** Never call directly: the mattstack plugin's worktree mod runs it. Always exits 0 with one JSON line on stdout, whichever of the four answers it gives; leaving and reclaimed also name the tree's root as `tree`. */
 export async function awaitLeaveCommand(args: string[], _ctx?: unknown, overrides: Partial<AwaitLeaveDeps> = {}): Promise<void> {
   out.payloadOnStdout();
   const deps = { ...REAL_DEPS, ...overrides };
@@ -263,7 +263,7 @@ export async function awaitLeaveCommand(args: string[], _ctx?: unknown, override
       departed: () => (found ? deps.departedAt(found.tree.path, sessionId) : null),
       lastActive,
     });
-    if (answer) return out.payload(JSON.stringify(answer) + "\n");
+    if (answer) return out.payload(JSON.stringify(answer.state === "none" || !found ? answer : { ...answer, tree: found.tree.path }) + "\n");
     const remaining = deadline - Date.now();
     if (remaining <= 0) return out.payload('{"state":"timeout"}\n');
     await deps.sleep(Math.min(POLL_MS, remaining));

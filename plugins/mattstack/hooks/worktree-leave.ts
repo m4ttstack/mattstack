@@ -17,9 +17,10 @@ const PENDING_GRACE_MS = 30_000
 const WAIT_REJECTIONS = 3
 const REUSED = 'This worktree was reused'
 
+// `tree` is the tree's root; an rt older than the field leaves it out.
 type AwaitLeave =
-  | { state: 'leaving'; why: string; mainCheckout: string }
-  | { state: 'reclaimed'; mainCheckout: string }
+  | { state: 'leaving'; why: string; mainCheckout: string; tree?: string }
+  | { state: 'reclaimed'; mainCheckout: string; tree?: string }
   | { state: 'none' }
   | { state: 'timeout' }
 
@@ -78,8 +79,12 @@ async function pass($: EngineInterface, token: string, left: { tree: string | nu
     return 'again'
   }
   if (answer.state === 'timeout') return 'again'
+  const tree = answer.tree ?? cwd
+  // The verb can wait a minute and the question two: a session that moved away meanwhile is answered for where it is now.
+  if (!within(await $.session.cwd(), tree)) return 'again'
   const choice = answer.state === 'leaving' ? await ask($, answer.why, token) : 'leave'
   if (choice === 'stale' || !(await isCurrent($, token))) return 'stop'
+  if (!within(await $.session.cwd(), tree)) return 'again'
   if (choice === 'close') {
     const exited = await $.command.run({ command: 'exit' }).then(
       () => true,
@@ -87,8 +92,8 @@ async function pass($: EngineInterface, token: string, left: { tree: string | nu
     )
     if (exited) return 'stop'
   }
-  await leave($, cwd, answer.mainCheckout, answer.state === 'leaving' ? answer.why : REUSED)
-  left.tree = cwd
+  await leave($, tree, answer.mainCheckout, answer.state === 'leaving' ? answer.why : REUSED)
+  left.tree = tree
   return 'again'
 }
 
@@ -111,11 +116,12 @@ async function awaitLeave($: EngineInterface, cwd: string, session: string): Pro
 
 function parse(stdout: string): AwaitLeave | null {
   try {
-    const value = JSON.parse(stdout.trim()) as Partial<{ state: string; why: string; mainCheckout: string }>
+    const value = JSON.parse(stdout.trim()) as Partial<{ state: string; why: string; mainCheckout: string; tree: unknown }>
     if (value.state === 'none' || value.state === 'timeout') return { state: value.state }
     if (typeof value.mainCheckout !== 'string') return null
-    if (value.state === 'reclaimed') return { state: 'reclaimed', mainCheckout: value.mainCheckout }
-    if (value.state === 'leaving' && typeof value.why === 'string') return { state: 'leaving', why: value.why, mainCheckout: value.mainCheckout }
+    const tree = typeof value.tree === 'string' ? { tree: value.tree } : {}
+    if (value.state === 'reclaimed') return { state: 'reclaimed', mainCheckout: value.mainCheckout, ...tree }
+    if (value.state === 'leaving' && typeof value.why === 'string') return { state: 'leaving', why: value.why, mainCheckout: value.mainCheckout, ...tree }
   } catch {
     // not this verb's line
   }
@@ -156,11 +162,11 @@ async function ask($: EngineInterface, why: string, token: string): Promise<Choi
 
 // ExitWorktree does nothing for a session that started or resumed inside the tree, so a /cd follows it.
 // A /cd waits for the session to be idle, so the note names where the session is only once it is there.
-async function leave($: EngineInterface, cwd: string, mainCheckout: string, why: string): Promise<void> {
+async function leave($: EngineInterface, tree: string, mainCheckout: string, why: string): Promise<void> {
   await $.tool.call({ tool: 'ExitWorktree', action: 'keep' }).catch(() => undefined)
-  if (within(await $.session.cwd(), cwd)) await $.command.run({ command: 'cd', args: mainCheckout })
+  if (within(await $.session.cwd(), tree)) await $.command.run({ command: 'cd', args: mainCheckout })
   const now = await $.session.cwd()
-  const moved = !within(now, cwd)
+  const moved = !within(now, tree)
   const note = moved ? `${why}: left the worktree; now in ${now}` : `${why}: leaving the worktree; moving to ${mainCheckout}`
   const where = moved ? `Your working directory is now ${now}` : `Your working directory is moving to ${mainCheckout}`
   await $.ui.log(note)

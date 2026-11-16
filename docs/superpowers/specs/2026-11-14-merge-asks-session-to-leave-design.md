@@ -82,10 +82,11 @@ clamps each wait, the CLI loops; a daemon restart mid-wait is not an
 error): `rt worktree await-leave <path>`. It returns as soon as the tree at
 `path`:
 
-- is marked leaving: `{ state: "leaving", why, mainCheckout }`, where
-  `mainCheckout` is the repo's main working tree path;
+- is marked leaving: `{ state: "leaving", why, mainCheckout, tree }`, where
+  `mainCheckout` is the repo's main working tree path and `tree` is the
+  tree's root;
 - is not a live tree for this session any more (see Reclaimed below):
-  `{ state: "reclaimed", mainCheckout }`;
+  `{ state: "reclaimed", mainCheckout, tree }`;
 - is not an rt tree at all: `{ state: "none" }` (the mod stops watching).
 
 ### Mod (mattstack plugin, beside `enter-worktree-check.ts`)
@@ -100,6 +101,9 @@ error): `rt worktree await-leave <path>`. It returns as soon as the tree at
   - **Exit worktree and continue**: leave (below), then a one-line note in
     the transcript naming the reason and the new directory.
 - No answer in 2 minutes: leave, with the same note, and close the question.
+- A session no longer inside `tree` when the answer arrives, or when the
+  question ends, is not asked or moved; the watch asks again from where the
+  session is now.
 - `reclaimed`: leave at once with no question; the note says the tree was
   reused.
 - **Leaving** means: `$.tool.call({ tool: "ExitWorktree", action: "keep" })`

@@ -387,3 +387,42 @@ test('after leaving, the tree it left is not watched again while the move is que
   expect(w.awaits).toHaveLength(1)
   expect(w.logs).toHaveLength(1)
 })
+
+test('a session that moved to another tree while the verb waited is not asked or moved', { plugins: [GATE_FORM] }, async ($, on) => {
+  const w = world(on, { answers: [{ ...LEAVING, tree: TREE }], answersLate: true, exitMoves: true })
+  await start($)
+  await w.clock.settle()
+
+  w.state.cwd = '/home/alex/.mattstack/rt/worktrees/repo/other-tree'
+  await w.clock.advance(POLL_MS)
+  expect(w.asked).toEqual([])
+  expect(w.tools).toEqual([])
+  expect(w.commands).toEqual([])
+  expect(w.awaits.length).toBeGreaterThan(1)
+  expect(w.awaits.at(-1)![3]).toBe('/home/alex/.mattstack/rt/worktrees/repo/other-tree')
+})
+
+test('a session that moved out while the question was open is not moved again', { plugins: [GATE_FORM] }, async ($, on) => {
+  const w = world(on, { answers: [{ ...LEAVING, tree: TREE }], exitMoves: true, waits: ['pending-slow'] })
+  await start($)
+  await w.clock.settle()
+  expect(w.asked).toHaveLength(1)
+
+  w.state.cwd = '/home/alex/.mattstack/rt/worktrees/repo/other-tree'
+  await w.clock.advance(160_000)
+  expect(w.tools).toEqual([])
+  expect(w.commands).toEqual([])
+  expect(w.logs).toEqual([])
+})
+
+test('a session that moved within the tree during the question still gets the /cd out', { plugins: [GATE_FORM] }, async ($, on) => {
+  const w = world(on, { answers: [{ ...LEAVING, tree: TREE }], waits: ['pending-slow'] })
+  await start($)
+  await w.clock.settle()
+
+  w.state.cwd = `${TREE}/tests`
+  await w.clock.advance(160_000)
+  expect(w.tools).toEqual([expect.objectContaining({ tool: 'ExitWorktree', action: 'keep' })])
+  expect(w.commands).toEqual([{ command: 'cd', args: MAIN }])
+  expect(w.logs).toEqual([`${WHY}: left the worktree; now in ${MAIN}`])
+})

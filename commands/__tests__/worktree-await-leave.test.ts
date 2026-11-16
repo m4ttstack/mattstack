@@ -202,14 +202,14 @@ describe("awaitLeaveCommand", () => {
   test("prints exactly one JSON line for a leaving tree", async () => {
     seed({ leaving: { why: "PR #1144 merged", since: "2026-11-14T10:00:00.000Z" } });
     const lines = await run([treePath, "--session", "s1"]);
-    expect(lines).toEqual([JSON.stringify({ state: "leaving", why: "PR #1144 merged", mainCheckout: join(root, "main") })]);
+    expect(lines).toEqual([JSON.stringify({ state: "leaving", why: "PR #1144 merged", mainCheckout: join(root, "main"), tree: treePath })]);
     expect(cap.stderr()).toBe("");
   });
 
   test("a session in a subdirectory of the tree is answered for the tree", async () => {
     seed({ leaving: { why: "PR #1144 merged", since: "2026-11-14T10:00:00.000Z" } });
     const lines = await run([join(treePath, "src", "deep"), "--session", "s1"]);
-    expect(lines).toEqual([JSON.stringify({ state: "leaving", why: "PR #1144 merged", mainCheckout: join(root, "main") })]);
+    expect(lines).toEqual([JSON.stringify({ state: "leaving", why: "PR #1144 merged", mainCheckout: join(root, "main"), tree: treePath })]);
   });
 
   test("a path outside every tree reads none", async () => {
@@ -221,7 +221,7 @@ describe("awaitLeaveCommand", () => {
     seed({ claimedAt: "2026-11-14T09:00:00.000Z" });
     recordDepartures(treePath, ["s1"], "2026-11-14T08:30:00.000Z");
     const args = [treePath, "--session", "s1", "--started", "2026-11-14T10:00:00.000Z", "--start-cwd", treePath];
-    expect(await run(args)).toEqual([JSON.stringify({ state: "reclaimed", mainCheckout: join(root, "main") })]);
+    expect(await run(args)).toEqual([JSON.stringify({ state: "reclaimed", mainCheckout: join(root, "main"), tree: treePath })]);
   });
 
   test("a tree with no main record falls back to the git answer, and none when git has none", async () => {
@@ -239,7 +239,7 @@ describe("awaitLeaveCommand", () => {
       },
     });
     expect(seen).toEqual([["s1", "2026-11-14T10:00:00.000Z"]]);
-    expect(cap.lines()).toEqual([JSON.stringify({ state: "reclaimed", mainCheckout: join(root, "main") })]);
+    expect(cap.lines()).toEqual([JSON.stringify({ state: "reclaimed", mainCheckout: join(root, "main"), tree: treePath })]);
   });
 
   test("the transcript is read at most once per call", async () => {
@@ -258,7 +258,7 @@ describe("awaitLeaveCommand", () => {
     });
     expect(polls).toBe(3);
     expect(reads).toBe(1);
-    expect(cap.lines()).toEqual([JSON.stringify({ state: "leaving", why: "late", mainCheckout: join(root, "main") })]);
+    expect(cap.lines()).toEqual([JSON.stringify({ state: "leaving", why: "late", mainCheckout: join(root, "main"), tree: treePath })]);
   });
 
   test("lastActive is never read for a session outside any tree or outside its start tree", async () => {
@@ -304,7 +304,7 @@ describe("awaitLeaveCommand", () => {
       },
     });
     expect(polls).toBe(1);
-    expect(cap.lines()).toEqual([JSON.stringify({ state: "leaving", why: "late", mainCheckout: join(root, "main") })]);
+    expect(cap.lines()).toEqual([JSON.stringify({ state: "leaving", why: "late", mainCheckout: join(root, "main"), tree: treePath })]);
   });
 
   test("a missing path or session is a usage failure with nothing on stdout", async () => {
