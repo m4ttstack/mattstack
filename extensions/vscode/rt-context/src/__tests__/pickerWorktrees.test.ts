@@ -14,14 +14,14 @@ const all = () => true;
 describe('pickerWorktrees', () => {
   test('drops the trees rt cd hides: on-deck, golden, gitq slots, trash', () => {
     const rows = [
-      wt('/r/hogwarts', 'master'),
+      wt('/r/acme', 'master'),
       wt('/pool/arthur', 'on-deck/arthur'),
       wt('/golden/gl-x', 'rt/golden'),
       wt('/u/.cache/gitq/work/abc/gitq-1', null),
       wt('/pool/.trash/old', 'feature/old'),
       wt('/pool/bill', 'feature/overview-tab'),
     ];
-    expect(pickerWorktrees(rows, all).map((r) => r.name)).toEqual(['hogwarts', 'bill']);
+    expect(pickerWorktrees(rows, all).map((r) => r.name)).toEqual(['acme', 'bill']);
   });
 
   test('keeps the main checkout first and sorts the rest A to Z by branch, else folder', () => {
