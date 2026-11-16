@@ -197,9 +197,6 @@ export interface KillPlanInput {
   protectedPids: number[];
   /** True only for the merge reactor's dispose: agents inside target are stopped. */
   stopSessionsInside: boolean;
-  /** Non-agent descendants inside target of an agent outside it are targets.
-   *  Agents, their ancestors and an inside agent's family are never targeted by this. */
-  killDepartedChildren?: boolean;
 }
 
 /**
@@ -260,12 +257,7 @@ export function planWorktreeKill(input: KillPlanInput): {
   const spared = new Set<number>();
   for (const root of roots) {
     if (!attributed.has(root.pid) || !stopSessionsInside) {
-      const leftovers = input.killDepartedChildren && !attributed.has(root.pid)
-        ? new Set(descendantsOf(root.pid).filter(pid => attributed.has(pid) && !rootSet.has(pid)))
-        : new Set<number>();
-      for (const pid of familyOf(root.pid)) {
-        if (!leftovers.has(pid)) spared.add(pid);
-      }
+      for (const pid of familyOf(root.pid)) spared.add(pid);
     }
   }
   for (const pid of protectedRoots) {
@@ -332,9 +324,6 @@ export interface KillWorktreeOptions {
   excludePaths?: string[];
   /** Stop agent sessions whose own cwd is inside the tree. Default false. */
   stopSessionsInside?: boolean;
-  /** Also kill non-agent processes inside the tree that belong to an agent
-   *  outside it (a departed session's leftovers). Default false. */
-  killDepartedChildren?: boolean;
   /** Resolves a stopped session's chat identity; called before its signal. */
   identify?: (pid: number) => SessionIdentity | null;
   /** Test seam for lsof and ps. */
@@ -463,7 +452,6 @@ export async function killWorktreeProcesses(
     cwds: snapshot.cwds,
     protectedPids: [...selfPids, ...(opts.callerPids ?? [])],
     stopSessionsInside: opts.stopSessionsInside ?? false,
-    killDepartedChildren: opts.killDepartedChildren ?? false,
   });
   if (plan.targets.length === 0) return none;
 

@@ -461,15 +461,15 @@ describe("held trees say why (RT-267)", () => {
     };
 
     function recorder() {
-      const kills: { path: string; stopSessionsInside?: boolean; killDepartedChildren?: boolean }[] = [];
+      const kills: { path: string; stopSessionsInside?: boolean }[] = [];
       const bodies: { room: string; body: string }[] = [];
       const clockState = { nowMs: Date.now() };
       const inside = { sessions: [session] as (typeof session)[], calls: 0 };
       const killWorktree = async (
         path: string,
-        opts: { stopSessionsInside?: boolean; killDepartedChildren?: boolean },
+        opts: { stopSessionsInside?: boolean },
       ): Promise<WorktreeKillResult> => {
-        kills.push({ path, stopSessionsInside: opts.stopSessionsInside, killDepartedChildren: opts.killDepartedChildren });
+        kills.push({ path, stopSessionsInside: opts.stopSessionsInside });
         return { terminated: [], stoppedSessions: opts.stopSessionsInside ? inside.sessions : [] };
       };
       const notify = async (post: { room: string; body: string }) => {
@@ -551,7 +551,7 @@ describe("held trees say why (RT-267)", () => {
 
       expect(find(rec.path)).toBeUndefined();
       expect(r.kills).toHaveLength(1);
-      expect(r.kills[0]!.killDepartedChildren).toBe(true);
+      expect(r.kills[0]).not.toHaveProperty("killDepartedChildren");
       expect(r.kills[0]!.stopSessionsInside ?? false).toBe(false);
     });
 

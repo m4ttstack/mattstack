@@ -1126,7 +1126,7 @@ describe("disposeTree", () => {
       expect(events).toContainEqual({ type: "worktree:leaving", data: { repo: repoName, tree: "tree-a", path, why } });
     });
 
-    test("next pass with nobody inside disposes and kills leftovers", async () => {
+    test("next pass with nobody inside disposes", async () => {
       const { path, rec, deps, killOpts, state, current } = setup();
       state.inside = [session(601, "s-1", path)];
       await disposeTree(deps, rec, { auto: true, askSessions: { why } });
@@ -1135,9 +1135,20 @@ describe("disposeTree", () => {
       const result = await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
       expect(result).toMatchObject({ disposed: true });
       expect(killOpts.length).toBe(1);
-      expect(killOpts[0]?.killDepartedChildren).toBe(true);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
       expect(killOpts[0]?.stopSessionsInside ?? false).toBe(false);
       expect(current()).toBeUndefined();
+    });
+
+    test("a session that left keeps its MCP servers: dispose spares the family of an agent outside the tree", async () => {
+      const { path, rec, deps, killOpts, state, current } = setup();
+      state.inside = [session(601, "s-1", path)];
+      await disposeTree(deps, rec, { auto: true, askSessions: { why } });
+      state.inside = [];
+      state.nowMs = t0 + 30_000;
+      await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
+      expect(killOpts.length).toBe(1);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
     });
 
     test("a pass inside the grace with the session still inside keeps the tree", async () => {
@@ -1164,7 +1175,7 @@ describe("disposeTree", () => {
       expect(result).toMatchObject({ disposed: true });
       expect(killOpts.length).toBe(1);
       expect(killOpts[0]?.stopSessionsInside).toBe(true);
-      expect(killOpts[0]?.killDepartedChildren).toBe(true);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
       expect(posts.length).toBe(1);
       expect(posts[0]?.body).toContain(why);
     });
@@ -1182,7 +1193,8 @@ describe("disposeTree", () => {
       const result = await disposeTree(deps, current()!, { auto: true, askSessions: { why } });
       expect(result).toMatchObject({ disposed: true });
       expect(killOpts.length).toBe(1);
-      expect(killOpts[0]).toMatchObject({ stopSessionsInside: true, killDepartedChildren: true });
+      expect(killOpts[0]).toMatchObject({ stopSessionsInside: true });
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
       expect(posts.length).toBe(1);
       expect(departedAt(path, "s-1")).toBe(new Date(t0).toISOString());
       expect(departedAt(path, "s-2")).toBe(new Date(t0).toISOString());
@@ -1204,7 +1216,7 @@ describe("disposeTree", () => {
       const result = await disposeTree(deps, rec, { auto: true, askSessions: { why } });
       expect(result).toMatchObject({ disposed: true });
       expect(killOpts.length).toBe(1);
-      expect(killOpts[0]?.killDepartedChildren).toBe(true);
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
       expect(killOpts[0]?.stopSessionsInside ?? false).toBe(false);
       expect(existsSync(path)).toBe(false);
       expect(current()).toBeUndefined();
@@ -1252,7 +1264,7 @@ describe("disposeTree", () => {
       const { rec, deps, killOpts, state } = setup();
       await disposeTree(deps, rec, { auto: true, stopSessions: { why } });
       expect(state.insideCalls).toBe(0);
-      expect(killOpts[0]?.killDepartedChildren).toBeUndefined();
+      expect(killOpts[0]).not.toHaveProperty("killDepartedChildren");
       expect(killOpts[0]?.stopSessionsInside).toBe(true);
     });
   });

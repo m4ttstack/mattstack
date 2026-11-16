@@ -150,13 +150,9 @@ dependency already exists.
   tree. The first plan task confirms the same for `ExitWorktree keep` and
   `/cd`. If either leaves the process cwd behind, the mod also tells the
   daemon it has left (a small ack verb), and the daemon trusts that.
-- **A departed session's own processes still in the tree are killed at
-  dispose** (my call). Today the planner spares the whole family of an
-  agent outside the tree, so a dev server the session started would keep
-  running in the trashed directory and holding its ports. On this path
-  only, once no agent session is inside, dispose kills every non-agent
-  process whose cwd is inside the tree, whoever its parent is. Other
-  disposal paths keep today's rule.
+- **A departed session's processes are spared like any agent family outside
+  the tree**, because its MCP servers keep the start directory (found live).
+  Its dev servers keep running in the trashed tree.
 - **The leaving mark drives its own re-checks and grace timer**: after the
   first reconcile pass records the merge, later passes take a path that
   never disposes, so the mark can't rely on the merge edge firing again.

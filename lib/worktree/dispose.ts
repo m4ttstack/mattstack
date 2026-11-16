@@ -298,7 +298,6 @@ export async function disposeTree(
 
   const excludePaths = registry.filter((t) => t.path !== rec.path).map((t) => t.path);
   let stopSessions = opts.stopSessions;
-  let killDepartedChildren: true | undefined;
   if (opts.askSessions && deps.killProcesses) {
     const why = opts.askSessions.why;
     const now = (deps.clock ?? (() => new Date()))();
@@ -328,7 +327,6 @@ export async function disposeTree(
       }
       stopSessions = { why };
     }
-    killDepartedChildren = true;
   }
 
   let stoppedSessions: WorktreeKillResult["stoppedSessions"] = [];
@@ -337,7 +335,6 @@ export async function disposeTree(
       callerPids: deps.callerPids,
       excludePaths,
       stopSessionsInside: stopSessions !== undefined,
-      ...(killDepartedChildren ? { killDepartedChildren } : {}),
     });
     const { terminated } = killed;
     stoppedSessions = killed.stoppedSessions;

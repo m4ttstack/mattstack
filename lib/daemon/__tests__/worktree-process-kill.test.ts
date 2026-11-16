@@ -590,53 +590,6 @@ describe("processLabel", () => {
   });
 });
 
-describe("killDepartedChildren", () => {
-  const T = "/t";
-  const base = (table: KillCandidate[], cwds: [number, string][], extra: Partial<KillPlanInput> = {}) =>
-    planWorktreeKill({
-      target: T,
-      excludes: [],
-      table,
-      cwds: new Map(cwds),
-      protectedPids: [],
-      stopSessionsInside: false,
-      ...extra,
-    });
-  const departed = [row(10, 1, "claude", "claude"), row(11, 10, "node", "node server.js")];
-  const departedCwds: [number, string][] = [[10, "/other"], [11, "/t/app"]];
-
-  test("planWorktreeKill with killDepartedChildren targets a dev server whose parent agent sits outside the tree", () => {
-    const r = base(departed, departedCwds, { killDepartedChildren: true });
-    expect(r.targets.map(t => t.pid)).toEqual([11]);
-    expect(r.stoppedSessions).toEqual([]);
-  });
-
-  test("without killDepartedChildren the same child is spared", () => {
-    expect(base(departed, departedCwds).targets).toEqual([]);
-  });
-
-  test("killDepartedChildren spares the family of an agent still inside the tree", () => {
-    const table = [row(10, 1, "claude", "claude"), row(11, 10, "node", "node server.js")];
-    const r = base(table, [[10, T], [11, "/t/app"]], { killDepartedChildren: true });
-    expect(r.targets).toEqual([]);
-  });
-
-  test("killDepartedChildren spares an outside agent's ancestors", () => {
-    const table = [
-      row(5, 1, "launcher", "/opt/launcher --wrap"),
-      row(10, 5, "claude", "claude"),
-      row(11, 10, "node", "node server.js"),
-    ];
-    const r = base(table, [[5, "/t"], [10, "/other"], [11, "/t/app"]], { killDepartedChildren: true });
-    expect(r.targets.map(t => t.pid)).toEqual([11]);
-  });
-
-  test("killDepartedChildren never targets an agent", () => {
-    const r = base([row(12, 1, "claude", "claude")], [[12, T]], { killDepartedChildren: true });
-    expect(r.targets.map(t => t.pid)).not.toContain(12);
-  });
-});
-
 describe("agentSessionsInside", () => {
   test("lists only agents whose own cwd is inside", async () => {
     const run: NonNullable<KillWorktreeOptions["run"]> = async (argv) => {
