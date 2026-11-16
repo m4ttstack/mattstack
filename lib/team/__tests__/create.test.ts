@@ -782,6 +782,48 @@ describe("the creator", () => {
     expect("mattstack.roster" in orgStore(p)).toBe(false);
   });
 
+  describe("the GitLab login lookup", () => {
+    const recording = () => {
+      const logins: { host: string; token: string | null | undefined }[] = [];
+      const asked: string[] = [];
+      return {
+        logins,
+        asked,
+        seams: {
+          forgeLogin: async (_p: unknown, _provider: unknown, host: string, token?: string | null) => (logins.push({ host, token }), "dev1"),
+          forgeToken: async (_p: unknown, at: string) => (asked.push(at), "glpat-sekrit"),
+        },
+      };
+    };
+
+    test("on a self-hosted GitLab host this Mac never confirmed, rt never reads its token, and glab answers with its own login", async () => {
+      const p = gitAwareFakeProbes(HOME);
+      const forge = recording();
+      const result = await createTeam(p, { ...GITHUB, remote: "https://gitlab.example.com/acme/repo.git" }, new FakeAgeKeySeam(), forge.seams);
+      expect(forge.asked).toEqual([]);
+      expect(forge.logins).toEqual([{ host: "gitlab.example.com", token: null }]);
+      expect(result.rolesDeferred).toBeUndefined();
+    });
+
+    test("on the confirmed self-hosted GitLab host, glab gets the stored token as before", async () => {
+      const p = gitAwareFakeProbes(HOME);
+      p.writeFile(USER_SETTINGS, JSON.stringify({ "rt.integrations": { forgeHost: "gitlab.example.com" } }));
+      const forge = recording();
+      const result = await createTeam(p, { ...GITHUB, remote: "https://gitlab.example.com/acme/repo.git" }, new FakeAgeKeySeam(), forge.seams);
+      expect(forge.logins).toEqual([{ host: "gitlab.example.com", token: "glpat-sekrit" }]);
+      expect(result.rolesDeferred).toBeUndefined();
+      expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
+    });
+
+    test("on gitlab.com, glab gets the stored token with no confirmation, as before", async () => {
+      const p = gitAwareFakeProbes(HOME);
+      const forge = recording();
+      const result = await createTeam(p, { ...GITHUB, remote: "https://gitlab.com/acme/repo.git" }, new FakeAgeKeySeam(), forge.seams);
+      expect(forge.logins).toEqual([{ host: "gitlab.com", token: "glpat-sekrit" }]);
+      expect(result.rolesDeferred).toBeUndefined();
+    });
+  });
+
   test("the rerun after the forge connects writes the roles, records the username and commits the change", async () => {
     const commits: string[] = [];
     const p = gitAwareFakeProbes(HOME, (argv) => {
