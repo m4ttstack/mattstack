@@ -19,6 +19,11 @@ vi.mock('@mattstack/rt-client', () => ({
   runEvidence: vi.fn(),
   runEvidenceAt: vi.fn(),
   abandonRun: vi.fn(async () => ({ ok: true, data: { ok: true } })),
+  holdRun: vi.fn(async () => ({
+    ok: true,
+    data: { held: true, stage: 'implement' },
+  })),
+  redoGate: vi.fn(async () => ({ ok: false, error: 'not-found' })),
   subscribe: vi.fn(() => () => {}),
   getSetting: vi.fn(() => ({ value: 30, provenance: [] })),
   paneFocus: vi.fn(async () => ({
@@ -42,6 +47,8 @@ vi.mock('@mattstack/app-server/event-bridge', async importOriginal => ({
 }));
 
 const { routes } = await import('./routes');
+const { runsRoutes } = await import('./runs');
+const { runsFixture } = await import('./fixtures/design/runsFixture');
 const rt = await import('@mattstack/rt-client');
 
 describe('runs api', () => {
@@ -249,6 +256,67 @@ describe('runs api', () => {
       'repo-tools',
       undefined
     );
+  });
+});
+
+describe('POST /api/runs/:repo/:runId/hold', () => {
+  const pause = (headers: Record<string, string> = {}) =>
+    routes.fetch(
+      new Request('http://localhost/api/runs/repo-tools/run-1/hold', {
+        method: 'POST',
+        headers: { host: 'localhost', ...headers },
+      })
+    );
+
+  beforeEach(() => {
+    vi.mocked(rt.holdRun).mockClear();
+  });
+
+  it('pause holds the run through holdRun', async () => {
+    const data = { held: true as const, stage: 'implement' };
+    vi.mocked(rt.holdRun).mockResolvedValueOnce({ ok: true, data });
+    const res = await pause();
+    expect(res.status).toBe(200);
+    expect(rt.holdRun).toHaveBeenCalledWith('run-1', 'repo-tools');
+    await expect(res.json()).resolves.toEqual(data);
+  });
+
+  it('pause maps a finished run to 409', async () => {
+    vi.mocked(rt.holdRun).mockResolvedValueOnce({
+      ok: false,
+      error: 'this run has finished',
+      failure: { code: 'finished', message: 'this run has finished' },
+    });
+    const res = await pause();
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: 'this run has finished',
+      code: 'finished',
+    });
+  });
+
+  it('pause answers 502 when the daemon is unreachable', async () => {
+    vi.mocked(rt.holdRun).mockResolvedValueOnce({
+      ok: false,
+      error: 'rt daemon unreachable at /x/rt.sock: ECONNREFUSED',
+    });
+    expect((await pause()).status).toBe(502);
+  });
+
+  it('pause is refused off this machine', async () => {
+    const res = await pause({ 'cf-connecting-ip': '203.0.113.9' });
+    expect(res.status).toBe(403);
+    expect(rt.holdRun).not.toHaveBeenCalled();
+  });
+
+  it('pause is refused under the design fixture', async () => {
+    const app = runsRoutes(runsFixture('runs'));
+    const res = await app.request('/api/runs/repo-tools/run-1/hold', {
+      method: 'POST',
+      headers: { host: 'localhost' },
+    });
+    expect(res.status).toBe(403);
+    expect(rt.holdRun).not.toHaveBeenCalled();
   });
 });
 

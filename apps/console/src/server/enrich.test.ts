@@ -10,6 +10,11 @@ vi.mock('@mattstack/rt-client', () => ({
   listRuns: vi.fn(async () => ({ ok: true, data: { runs: [] } })),
   getRun: vi.fn(async () => ({ ok: false, error: 'no such run' })),
   abandonRun: vi.fn(async () => ({ ok: true, data: { ok: true } })),
+  holdRun: vi.fn(async () => ({
+    ok: true,
+    data: { held: true, stage: 'implement' },
+  })),
+  redoGate: vi.fn(async () => ({ ok: false, error: 'not-found' })),
   subscribe: vi.fn(() => () => {}),
   getSetting: vi.fn(() => ({ value: 30, provenance: [] })),
   paneFocus: vi.fn(async () => ({

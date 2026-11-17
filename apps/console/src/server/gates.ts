@@ -12,6 +12,7 @@ import {
   listRuns,
   paneFocus,
   paneList,
+  redoGate,
   type GateAnswer,
   type GateRow,
   type RtResponse,
@@ -23,6 +24,7 @@ import { validator } from 'hono/validator';
 import { runIdOfGate } from '../shared/gate-run';
 import { countsForConsoleBadge } from '../shared/gate-waiting';
 import { personaTrigger } from '../shared/slack-gate';
+import { controlRefusal } from './controlRefusal';
 import {
   FIXTURE_OUTAGE,
   FIXTURE_READ_ONLY,
@@ -304,6 +306,31 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
 
           if (res.data.conflict) return c.json({ row: res.data.row }, 409);
           return c.json({ row: res.data.row }, 200);
+        }
+      )
+      .post(
+        '/api/gates/:id/redo',
+        validator('json', (value): { note?: string } => {
+          const v = value as { note?: unknown };
+          return { note: typeof v?.note === 'string' ? v.note : undefined };
+        }),
+        async c => {
+          if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
+          if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+            return c.json({ error: 'forbidden' }, 403);
+          }
+          const { id } = c.req.param();
+          const { note } = c.req.valid('json');
+          if (!note?.trim()) return c.json({ error: 'note is required' }, 400);
+          const res = await redoGate({ gate: id, note }, rtClientOptions());
+          if (!res.ok || !res.data) {
+            const { status, body } = controlRefusal(res, {
+              'not-found': 404,
+              'bad-note': 400,
+            });
+            return c.json(body, status);
+          }
+          return c.json(res.data, 200);
         }
       )
       .post('/api/gates/:id/focus', async c => {

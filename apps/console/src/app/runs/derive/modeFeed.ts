@@ -1,0 +1,70 @@
+import type { GateRow, RunSummary } from '@mattstack/rt-client';
+
+import { runIdOfGate } from '../../../shared/gate-run';
+import { decisionText } from './day';
+
+const MODE_PREFIX = 'mode:';
+
+export interface ModeFeedRow {
+  gate: GateRow;
+  mode: string;
+  choice: string;
+  stage: string | null;
+  headCommit: string | null;
+  answeredAt: number;
+}
+
+export interface ModeFeedRun {
+  run: RunSummary;
+  canControl: boolean;
+  rows: ModeFeedRow[];
+}
+
+export function modeOf(gate: GateRow): string | null {
+  const by = gate.answer?.by;
+  return by?.startsWith(MODE_PREFIX) ? by.slice(MODE_PREFIX.length) : null;
+}
+
+function metaText(gate: GateRow, key: string): string | null {
+  const v = gate.meta?.[key];
+  return typeof v === 'string' && v ? v : null;
+}
+
+/** The gates a mode answered on the listed runs, grouped by run: rows newest
+    first, runs by their newest row. */
+export function modeFeed(
+  runs: RunSummary[],
+  gates: GateRow[],
+  o: { since?: number } = {}
+): ModeFeedRun[] {
+  const byId = new Map(runs.map(r => [r.id, r] as const));
+  const grouped = new Map<string, ModeFeedRow[]>();
+  for (const gate of gates) {
+    const mode = modeOf(gate);
+    const answeredAt = gate.answer?.answeredAt;
+    if (mode === null || answeredAt == null) continue;
+    if (o.since !== undefined && answeredAt < o.since) continue;
+    const runId = runIdOfGate(gate);
+    if (!runId || !byId.has(runId)) continue;
+    const rows = grouped.get(runId) ?? [];
+    rows.push({
+      gate,
+      mode,
+      choice: decisionText(gate),
+      stage: metaText(gate, 'stage'),
+      headCommit: metaText(gate, 'headCommit'),
+      answeredAt,
+    });
+    grouped.set(runId, rows);
+  }
+  return [...grouped.entries()]
+    .map(([runId, rows]) => {
+      const run = byId.get(runId)!;
+      return {
+        run,
+        canControl: run.status === 'running',
+        rows: rows.sort((a, b) => b.answeredAt - a.answeredAt),
+      };
+    })
+    .sort((a, b) => b.rows[0]!.answeredAt - a.rows[0]!.answeredAt);
+}
