@@ -34,6 +34,9 @@ flowchart TB
     stack_parent_read{Stack parent read?}
     run_field_get_target[/"run_field_get {key: shipTarget}"/]
     target_matches_fresh{shipTarget matches the fresh target?}
+    mr_field_set{Run's mr set before the ship gate?}
+    mr_view_state[/"mr_view {mrUrl: <mr>} (draft or ready, for the gate's reach)"/]
+    mr_for_branch[/"mr_for_branch {repoName: <root>, branches: [<branch>]} (an open MR's state, for the gate's reach)"/]
     gate_ship
     run_field_set_target[/"run_field_set {key: shipTarget, value: <resolved target>, stage}"/]
     run_field_set_target_iterate[/"run_field_set {key: shipTarget, value: -, stage} (iterate)"/]
@@ -122,8 +125,12 @@ flowchart TB
     stack_parent_read -->|yes: the stack parent| run_field_get_target
     stack_parent_read -->|"no: the default branch (an unreadable store or error says so)"| run_field_get_target
     run_field_get_target --> target_matches_fresh
-    target_matches_fresh -->|yes: the earlier Proceed stands| dirty_answer
-    target_matches_fresh -->|no| gate_ship
+    target_matches_fresh -->|"yes, and a person decided it: the earlier Proceed stands"| dirty_answer
+    target_matches_fresh -->|"no, or a mode's Proceed"| mr_field_set
+    mr_field_set -->|yes| mr_view_state
+    mr_field_set -->|no| mr_for_branch
+    mr_view_state --> gate_ship
+    mr_for_branch --> gate_ship
     gate_ship -->|proceed| run_field_set_target
     gate_ship -->|iterate| run_field_set_target_iterate
     gate_ship -->|hold| run_field_set_target_hold
@@ -161,7 +168,7 @@ flowchart TB
     conflict_rounds_spent -->|no| resolve_conflict_files
     conflict_rounds_spent -->|yes: reopen| run_budget_gate_reopenings
     run_budget_gate_reopenings --> gate_reopenings_spent
-    gate_reopenings_spent -->|no: reopen with what was quoted| gate_ship
+    gate_reopenings_spent -->|no: reopen with what was quoted| mr_field_set
     gate_reopenings_spent -->|yes: a failure| rebase_in_progress
     resolve_conflict_files --> continue_result
     continue_result -->|another commit conflicted| run_budget_conflict_rounds

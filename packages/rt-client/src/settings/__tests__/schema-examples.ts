@@ -33,6 +33,14 @@ export const EXAMPLES: Record<string, Example> = {
     ],
     layer: [{ emoji: "🦊" }, { name: "Ada" }],
   },
+  "rt.work.gateMode": {
+    good: ["chatty", "normal", "quiet", "yolo"],
+    bad: [{ value: "quite", path: [] }],
+  },
+  "rt.work.gateModeShadow": {
+    good: [true, false],
+    bad: [{ value: "yes", path: [] }],
+  },
   "chat.slackSupport.trigger": {
     good: ["!!ada"],
     bad: [{ value: "", path: [] }],

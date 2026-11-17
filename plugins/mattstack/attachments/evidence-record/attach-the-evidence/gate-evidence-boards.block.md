@@ -7,7 +7,7 @@ label: Evidence boards
 # Gate evidence-boards (below)
 
 Scope `evidence-boards:<stage>:<n>`, `<n>` counting this gate's openings
-in this stage pass from 1. Open it with `gate_open` (gate-protocol,
+in this stage pass from 1, reach `public`. Open it with `gate_open` (gate-protocol,
 Structured context): the source's `context` is a `boards@1` object.
 
 - `summary`: one sentence naming the MR and how many files go up.

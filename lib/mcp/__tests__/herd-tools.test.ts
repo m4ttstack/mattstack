@@ -181,6 +181,18 @@ describe("herd shepherd tools", () => {
     expect(destructive()[0]!.a).toEqual({ herd: "hd-1", job: "j", brief: BRIEF_BODY, model: "opus", effort: "high", account: "a", disposable: true });
     expect(destructive()[0]!.o.timeoutMs).toBeGreaterThanOrEqual(180_000);
   });
+  test("herd_spawn and herd_respawn pass a valid gateMode and refuse an invalid one with zero daemon calls", async () => {
+    for (const [name, fn] of [["herd_spawn", "spawn"], ["herd_respawn", "respawn"]] as const) {
+      const ok = fake();
+      await ok.tool(name).handler({ herd: "hd-1", job: "j", gateMode: "yolo" }, SESSION);
+      expect(ok.calls.find((c) => c.fn === fn)!.a).toMatchObject({ gateMode: "yolo" });
+      const bad = fake();
+      const r = await bad.tool(name).handler({ herd: "hd-1", job: "j", gateMode: "bogus" }, SESSION);
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe('"gateMode" must be one of chatty, normal, quiet, yolo');
+      expect(bad.destructive()).toEqual([]);
+    }
+  });
   test("herd_spawn refuses a brief outside every read root, with zero daemon calls", async () => {
     const { tool, calls } = fake();
     const r = await tool("herd_spawn").handler({ herd: "hd-1", job: "j", brief: OUTSIDE_MD }, SESSION);

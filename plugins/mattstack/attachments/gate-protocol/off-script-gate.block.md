@@ -6,7 +6,7 @@ order: 3
 
 A host STOP opens it through the graph: scope `off-script:<site>:<n>` (`n`
 from 1 within the site's attempt), `context` quoting the refusal or the
-line asking for the move.
+line asking for the move. It names no reach.
 
 | Question | Options |
 |---|---|

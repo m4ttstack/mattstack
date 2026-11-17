@@ -83,7 +83,7 @@ export const GROUPS: Group[] = [
     tier: 'rt',
     blurb:
       'Which events raise a desktop notification, and when open gates escalate.',
-    match: pattern(/^rt\.(notifications$|notify\.|gates\.)/),
+    match: pattern(/^rt\.(notifications$|notify\.|gates\.|work\.gateMode)/),
   },
   {
     id: 'commands',

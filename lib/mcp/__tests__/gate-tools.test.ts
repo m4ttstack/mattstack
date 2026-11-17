@@ -27,6 +27,9 @@ interface FakeOpts {
   kitOn?: boolean;
   manifest?: string[];
   stages?: string[];
+  pipeline?: string | null;
+  gateMode?: { mode?: unknown; shadow?: unknown } | (() => never);
+  head?: string | null;
 }
 
 function fake(o: FakeOpts = {}) {
@@ -34,6 +37,7 @@ function fake(o: FakeOpts = {}) {
   const asks: Record<string, unknown>[] = [];
   const answers: Record<string, unknown>[] = [];
   const waits: Record<string, unknown>[] = [];
+  const heads: string[] = [];
   const deps: GateToolDeps = {
     ask: (async (p: Record<string, unknown>) => {
       log.push("ask");
@@ -51,6 +55,7 @@ function fake(o: FakeOpts = {}) {
       return o.waitRes ?? { ok: true, data: { status: "answered", row: row() } };
     }) as unknown as GateToolDeps["wait"],
     runDeps: {
+      env: {},
       write: async (verb, args) => {
         const line = [verb, ...args].join(" ");
         log.push(line);
@@ -60,7 +65,7 @@ function fake(o: FakeOpts = {}) {
           return {
             out: JSON.stringify({
               ok: true,
-              run: { id: "1", spawned_by: o.spawnedBy ?? null },
+              run: { id: "1", spawned_by: o.spawnedBy ?? null, pipeline: o.pipeline === undefined ? "feature" : o.pipeline },
               stages: (o.stages ?? []).map((name, i) => ({ run_id: "1", name, attempt: 1, status: "done", started_at: i })),
               manifest: (o.manifest ?? []).map((stage, ordinal) => ({ ordinal, stage })),
               fields: (o.fields ?? []).map((f) => ({ run_id: "1", produced_by: "s", ...f })),
@@ -81,8 +86,17 @@ function fake(o: FakeOpts = {}) {
     readFile: () => { throw new Error("unexpected read"); },
     writeFile: () => { throw new Error("unexpected write"); },
     kitFormOn: () => o.kitOn === true,
+    gateMode: () => {
+      const g = o.gateMode;
+      if (typeof g === "function") return g();
+      return { mode: g?.mode, shadow: g?.shadow };
+    },
+    headCommit: async (worktree) => {
+      heads.push(worktree);
+      return o.head === undefined ? "abc123" : o.head;
+    },
   };
-  return { deps, log, asks, answers, waits };
+  return { deps, log, asks, answers, waits, heads };
 }
 
 function row(over: Partial<GateRow> = {}): GateRow {
@@ -161,7 +175,10 @@ describe("askGate with a run", () => {
     const res = await askGate({ ...ASK, ...RUN }, ENV, f.deps);
     expect(res.ok).toBe(true);
     expect(f.log).toEqual(["snapshot", "field set gate respond-plan --stage s", "ask"]);
-    expect(f.asks[0]).toEqual({ questions: [q("q1")], context: "ctx", kind: "respond-plan", sessionId: "sess-1", paneId: "pane-1" });
+    expect(f.asks[0]).toEqual({
+      questions: [q("q1")], context: "ctx", kind: "respond-plan", sessionId: "sess-1", paneId: "pane-1",
+      meta: { reach: null, headCommit: null },
+    });
   });
 
   test("scope wins over kind, and kind defaults to question", async () => {
@@ -1252,10 +1269,10 @@ describe("kit forms", () => {
   test("the controls ride on the gate's meta, so a form rebuilt from the listed row keeps them", async () => {
     const f = fake({ ...KIT, ...STAGED });
     await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, f.deps);
-    expect(f.asks[0]!.meta).toEqual({ kitControls: { pause: true, goBack: ["plan", "provision"] } });
+    expect(f.asks[0]!.meta).toEqual({ kitControls: { pause: true, goBack: ["plan", "provision"] }, reach: null, headCommit: null });
     const off = fake({ ...STAGED });
     await askGate({ ...ASK, ...IMPLEMENT, kitForm: true }, ENV, off.deps);
-    expect("meta" in off.asks[0]!).toBe(false);
+    expect("kitControls" in (off.asks[0]!.meta as object)).toBe(false);
   });
 
   test("controls are empty on a shepherd worker's run", async () => {
@@ -1353,6 +1370,287 @@ describe("kit forms", () => {
       const res = await tool("gate_reconcile", f.deps).handler({ id: "g1", ...RUN }, ENV);
       expect(f.log).toContain(recordLine("question", { next: "hold" }, "pane"));
       expect(body(res).recorded).toBe(true);
+    });
+  });
+});
+
+describe("gate modes", () => {
+  const recQ = (id: string) => q(id, [{ value: "yes", label: "Yes", recommended: true }, { value: "no", label: "No" }]);
+  const WT: Field = { key: "worktree", value: "/trees/w1", at: 1 };
+  const modeField = (value: string): Field => ({ key: "gate-mode", value, at: 1 });
+  const GATE = { questions: [recQ("q1")], context: "ctx", kind: "ci:ship:1", reach: "worktree", ...RUN };
+  const QUIET = { gateMode: { mode: "quiet" }, fields: [WT] };
+  const preAnswered = (by: string) => ({
+    askData: { preAnswered: true, row: row({ answer: { answers: { q1: "yes" }, by, answeredAt: 2000 } }) },
+  });
+
+  test("quiet auto-answers a worktree gate under a work run", async () => {
+    const f = fake({ ...QUIET, ...preAnswered("mode:quiet") });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(res.ok).toBe(true);
+    expect(f.asks[0]!.preAnswer).toEqual({ answers: { q1: "yes" }, by: "mode:quiet" });
+    expect(f.log).toContain(recordLine("ci:ship:1", { q1: "yes" }, "mode:quiet"));
+    expect(f.log.some((l) => l.startsWith("field set waiting-gate"))).toBe(false);
+    expect(body(res)).toEqual({
+      id: "g1", paneAction: "answered", status: "answered", decidedBy: "mode:quiet",
+      answers: { q1: "yes" }, next: null, writeIn: [], actOnWriteIn: false,
+    });
+  });
+
+  test("a suffixed or plain proceed returns and records next as proceed, while the daemon gets the raw value", async () => {
+    for (const option of ["proceed (Recommended)", "proceed"]) {
+      const nextQ = { id: "next", label: "Next", multi: false, options: option === "proceed" ? [{ value: "proceed", label: "Proceed", recommended: true }, "hold"] : [option, "hold"] };
+      const f = fake({ ...QUIET, ...preAnswered("mode:quiet") });
+      const res = await askGate({ ...GATE, questions: [nextQ] }, HERDR, f.deps);
+      expect(f.asks[0]!.preAnswer).toEqual({ answers: { next: option }, by: "mode:quiet" });
+      expect(body(res)).toMatchObject({ status: "answered", next: "proceed", answers: { next: option } });
+      expect(f.log).toContain(recordLine("ci:ship:1", { next: "proceed" }, "mode:quiet"));
+    }
+  });
+
+  test("a suffixed iterate keeps its verb text and drops only the suffix", async () => {
+    const f = fake({ ...QUIET, ...preAnswered("mode:quiet") });
+    const nextQ = { id: "next", label: "Next", multi: false, options: ["done: shipped as is (Recommended)", "hold"] };
+    const res = await askGate({ ...GATE, questions: [nextQ] }, HERDR, f.deps);
+    expect(body(res).next).toBe("done: shipped as is");
+  });
+
+  test("run field gate-mode beats the setting", async () => {
+    const quietRun = fake({ gateMode: { mode: "chatty" }, fields: [WT, modeField("quiet")], ...preAnswered("mode:quiet") });
+    await askGate(GATE, HERDR, quietRun.deps);
+    expect(quietRun.asks[0]!.preAnswer).toEqual({ answers: { q1: "yes" }, by: "mode:quiet" });
+    const chattyRun = fake({ gateMode: { mode: "yolo" }, fields: [WT, modeField("chatty")] });
+    await askGate(GATE, HERDR, chattyRun.deps);
+    expect("preAnswer" in chattyRun.asks[0]!).toBe(false);
+  });
+
+  test("shadow opens normally and records the would-be answer in meta", async () => {
+    const f = fake({ gateMode: { mode: "quiet", shadow: true }, fields: [WT] });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+    expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "abc123", shadowAnswer: { q1: "yes" }, shadowMode: "quiet" });
+    expect(body(res).paneAction).not.toBe("answered");
+    expect(f.log.some((l) => l.startsWith("decision record"))).toBe(false);
+  });
+
+  test("needsOperator prefixes the context", async () => {
+    const f = fake(QUIET);
+    const res = await askGate({ ...GATE, needsOperator: "which flag key the PM meant" }, HERDR, f.deps);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+    expect(f.asks[0]!.context).toStartWith("Needs you: which flag key the PM meant");
+    expect(f.asks[0]!.context).toEndWith("ctx");
+    expect(body(res).formContext).toStartWith("Needs you: which flag key the PM meant");
+  });
+
+  test("no runDb never auto-answers", async () => {
+    const f = fake(QUIET);
+    const { runDb: _, stage: __, ...noRun } = GATE;
+    const res = await askGate(noRun, HERDR, f.deps);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+    expect("meta" in f.asks[0]!).toBe(false);
+    expect(body(res).paneAction).not.toBe("answered");
+  });
+
+  test("meta carries reach and headCommit on an asking gate", async () => {
+    const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], head: "deadbeef" });
+    await askGate(GATE, HERDR, f.deps);
+    expect(f.heads).toEqual(["/trees/w1"]);
+    expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "deadbeef" });
+  });
+
+  test("an undeclared reach and a missing worktree record null", async () => {
+    const f = fake({ gateMode: { mode: "quiet" } });
+    const { reach: _, ...noReach } = GATE;
+    await askGate(noReach, HERDR, f.deps);
+    expect(f.heads).toEqual([]);
+    expect(f.asks[0]!.meta).toEqual({ reach: null, headCommit: null });
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+  });
+
+  test("an invalid reach input is refused", async () => {
+    const f = fake(QUIET);
+    const res = await askGate({ ...GATE, reach: "everyone" }, HERDR, f.deps);
+    expect(res.error).toBe('"reach" must be one of worktree, draft, teammates, public');
+    expect(f.log).toEqual([]);
+  });
+
+  test("a setting read that throws reads as chatty with no shadow", async () => {
+    const f = fake({ gateMode: () => { throw new Error("settings store unreadable"); }, fields: [WT] });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(res.ok).toBe(true);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+    expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "abc123" });
+  });
+
+  test("a board-only kind never carries a preAnswer, so it asks instead of being refused", async () => {
+    for (const kind of ["review-post", "respond-plan", "respond-post"]) {
+      const f = fake(QUIET);
+      const res = await askGate({ ...GATE, kind }, HERDR, f.deps);
+      expect(res.ok, kind).toBe(true);
+      expect("preAnswer" in f.asks[0]!, kind).toBe(false);
+      expect(f.log.some((l) => l.startsWith("decision record")), kind).toBe(false);
+    }
+  });
+
+  test("a review pipeline always asks", async () => {
+    const f = fake({ ...QUIET, pipeline: "review" });
+    await askGate(GATE, HERDR, f.deps);
+    expect("preAnswer" in f.asks[0]!).toBe(false);
+  });
+
+  test("a daemon that did not pre-answer leaves the gate open as usual", async () => {
+    const f = fake({ ...QUIET, askData: { presentation: "wait" } });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(f.asks[0]!.preAnswer).toBeDefined();
+    expect(body(res).paneAction).toBe("wait");
+    expect(f.log).toContain("field set waiting-gate g1 --stage s");
+    expect(f.log.some((l) => l.startsWith("decision record"))).toBe(false);
+  });
+
+  test("a failed run decision after a pre-answer returns runErrors", async () => {
+    const f = fake({ ...QUIET, ...preAnswered("mode:quiet"), failWrite: (l) => (l.startsWith("decision record") ? "disk full" : undefined) });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(res.ok).toBe(true);
+    expect(body(res)).toMatchObject({ paneAction: "answered", status: "answered", runErrors: ["disk full"] });
+    expect(f.log.filter((l) => l.startsWith("decision record"))).toHaveLength(2);
+  });
+
+  test("a run decision that fails once after a pre-answer is retried and reports no runErrors", async () => {
+    let failures = 0;
+    const f = fake({
+      ...QUIET, ...preAnswered("mode:quiet"),
+      failWrite: (l) => (l.startsWith("decision record") && failures++ === 0 ? "disk full" : undefined),
+    });
+    const res = await askGate(GATE, HERDR, f.deps);
+    expect(f.log.filter((l) => l.startsWith("decision record"))).toHaveLength(2);
+    expect(body(res).runErrors).toBeUndefined();
+    expect(body(res)).toMatchObject({ paneAction: "answered", status: "answered", decidedBy: "mode:quiet" });
+  });
+
+  test("a blank needsOperator is refused before anything opens, on gate_ask and gate_open", async () => {
+    for (const blank of ["", "   "]) {
+      const asked = fake(QUIET);
+      const res = await askGate({ ...GATE, needsOperator: blank }, HERDR, asked.deps);
+      expect(res.error).toBe('"needsOperator" must be a non-empty reason');
+      expect(asked.log).toEqual([]);
+      const opened = fake(QUIET);
+      const source = { questions: [{ id: "q1", multi: false, options: ["go (Recommended)", "stop"] }] };
+      const res2 = await tool("gate_open", opened.deps).handler({ kind: "ci:ship:1", source, reach: "worktree", needsOperator: blank, ...RUN }, HERDR);
+      expect(res2.error).toBe('"needsOperator" must be a non-empty reason');
+      expect(opened.log).toEqual([]);
+    }
+  });
+
+  test("with no caller context, the reason and digest reach formContext only, never the stored context", async () => {
+    const decisions: DecisionRow[] = [{ contract: "gate@1", scope: "a", selection: '{"q1":"yes"}', decided_by: "mode:quiet", decided_at: 6 }];
+    const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions });
+    const { context: _, ...noContext } = GATE;
+    const res = await askGate({ ...noContext, needsOperator: "a product call" }, HERDR, f.deps);
+    expect("context" in f.asks[0]!).toBe(false);
+    expect(body(res).formContext).toBe("Needs you: a product call\n\nDecided without you since your last answer:\n- a: q1=yes");
+  });
+
+  describe("digest", () => {
+    const dec = (scope: string, by: string, at: number, contract = "gate@1"): DecisionRow =>
+      ({ contract, scope, selection: '{"q1":"yes"}', decided_by: by, decided_at: at });
+    const DIGEST_HEAD = "Decided without you since your last answer:";
+    const ASKS = { ...GATE, needsOperator: "a product call" };
+
+    test("asking gate shows decisions since the last human answer", async () => {
+      const decisions = [dec("old", "mode:quiet", 1), dec("human", "pane", 5), dec("a", "mode:quiet", 6), dec("b", "mode:quiet", 7)];
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions });
+      const res = await askGate(GATE, HERDR, f.deps);
+      const ctx = f.asks[0]!.context as string;
+      expect(ctx).toBe(`${DIGEST_HEAD}\n- a: q1=yes\n- b: q1=yes\n\nctx`);
+      expect(ctx).not.toContain("- old:");
+      expect(body(res).formContext).toBe(ctx);
+    });
+
+    test("Needs you comes first, then the digest, then the context", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate(ASKS, HERDR, f.deps);
+      expect(f.asks[0]!.context).toBe(`Needs you: a product call\n\n${DIGEST_HEAD}\n- a: q1=yes\n\nctx`);
+    });
+
+    test("a later execution-strategy decision does not hide them", async () => {
+      const decisions = [dec("a", "mode:quiet", 6), dec("strategy", "pane", 9, "execution-strategy@1")];
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions });
+      await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toContain("- a: q1=yes");
+    });
+
+    test("no mode decisions leaves context unchanged", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("human", "pane", 5)] });
+      const res = await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toBe("ctx");
+      expect(body(res).formContext).toBe("ctx");
+    });
+
+    test("an auto-answered gate carries no digest", async () => {
+      const f = fake({ ...QUIET, ...preAnswered("mode:quiet"), decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toBe("ctx");
+    });
+
+    test("a shadow open is an asking gate and gets the digest", async () => {
+      const f = fake({ gateMode: { mode: "quiet", shadow: true }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toStartWith(DIGEST_HEAD);
+    });
+
+    test("a passed formContext carries the digest", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      const res = await askGate(GATE, HERDR, f.deps, { formContext: "pane prose" });
+      expect(body(res).formContext).toBe(`${DIGEST_HEAD}\n- a: q1=yes\n\npane prose`);
+    });
+
+    test("a structured stored context stays unprefixed while formContext carries the digest", async () => {
+      const structured = JSON.stringify({ schema: "gate-ctx@1", title: "t" });
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      const res = await askGate({ ...GATE, context: structured }, HERDR, f.deps, { formContext: "pane prose" });
+      expect(f.asks[0]!.context).toBe(structured);
+      expect(body(res).formContext).toBe(`${DIGEST_HEAD}\n- a: q1=yes\n\npane prose`);
+    });
+
+    test("a structured context carries the digest and the needsOperator reason in meta for the board", async () => {
+      const structured = JSON.stringify({ schema: "gate-ctx@1", title: "t" });
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate({ ...GATE, context: structured, needsOperator: "a product call" }, HERDR, f.deps, { formContext: "pane prose" });
+      expect(f.asks[0]!.context).toBe(structured);
+      expect(f.asks[0]!.meta).toEqual({
+        reach: "worktree", headCommit: "abc123", digest: `${DIGEST_HEAD}\n- a: q1=yes`, needsOperator: "a product call",
+      });
+    });
+
+    test("a plain-text context keeps its prefix and adds nothing to meta", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate(ASKS, HERDR, f.deps);
+      expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "abc123" });
+    });
+  });
+
+  describe("gate_open", () => {
+    const SOURCE = { questions: [{ id: "q1", multi: false, options: ["go (Recommended)", "stop"] }] };
+
+    test("gate_open forwards reach and needsOperator", async () => {
+      const answered = fake({ ...QUIET, ...preAnswered("mode:quiet") });
+      const res = await tool("gate_open", answered.deps).handler({ kind: "ci:ship:1", source: SOURCE, reach: "worktree", ...RUN }, HERDR);
+      expect(answered.asks[0]!.preAnswer).toEqual({ answers: { q1: "go (Recommended)" }, by: "mode:quiet" });
+      expect(body(res).paneAction).toBe("answered");
+
+      const flagged = fake(QUIET);
+      const asked = await tool("gate_open", flagged.deps).handler(
+        { kind: "ci:ship:1", source: SOURCE, reach: "worktree", needsOperator: "a product call", ...RUN }, HERDR,
+      );
+      expect("preAnswer" in flagged.asks[0]!).toBe(false);
+      expect(body(asked).formContext).toStartWith("Needs you: a product call");
+    });
+
+    test("gate_open refuses an invalid reach before anything opens", async () => {
+      const f = fake(QUIET);
+      const res = await tool("gate_open", f.deps).handler({ kind: "ci:ship:1", source: SOURCE, reach: "world", ...RUN }, HERDR);
+      expect(res.error).toBe('"reach" must be one of worktree, draft, teammates, public');
+      expect(f.log).toEqual([]);
     });
   });
 });

@@ -1386,6 +1386,10 @@ export interface Commands {
           The daemon never reads `rt.gates.kitForm`: the caller sends this only
           when the setting reads on (the gate_ask tool does). */
       kitForm?: boolean;
+      /** Opens the gate already answered, never delivered to a pane or a
+          shepherd. `by` is the decider and must start with `mode:`; the
+          answers get gate:answer's own validation. */
+      preAnswer?: { answers: GateAnswer["answers"]; by: string };
     };
     /** `formCapExceeded`/`formCapAdvisory` appear only when the pane could
         have presented an in-pane form and one or more questions exceeded
@@ -1397,6 +1401,9 @@ export interface Commands {
       id: string; presentation: "form" | "wait" | "kit"; boardOnly: boolean; subject: string; supersededId: string | null;
       formCapExceeded?: Array<{ question: string; options: number }>;
       formCapAdvisory?: string;
+      /** Set only when `preAnswer` was given: the gate is already answered and `row` is its settled row. */
+      preAnswered?: true;
+      row?: GateRow;
     };
   };
   /** The AskUserQuestion hook's verdict for the calling pane: allow only
@@ -1461,8 +1468,8 @@ export interface Commands {
   /** Reopens a done job for a follow-up round in its same pane: it goes back to active until its next report. */
   "herd:follow-up": { payload: { herd: string; job: string }; data: { job: string; status: "active" } };
   /** `brief` is the brief TEXT, not a path: the CLI reads the file. It is stored at `<jobsRoot>/<herd>/<job>/job.md`, so a respawn with `dir` and no `brief` reads it back. */
-  "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; model?: string; effort?: string; account?: string; disposable?: boolean; tree?: string }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked"; /** Only on a guest spawn into another job's tree: the host's reviewerRounds budget this spawn ticked, keyed by the host's latest milestone artifact. */ reviewerRound?: { host: string; key: string; budget: HerdBudget } } };
-  "herd:respawn": { payload: { herd: string; job: string; brief?: string; model?: string; effort?: string; account?: string }; data: Commands["herd:spawn"]["data"] & { launch: { model: string | null; effort: string | null; account: string | null }; budget: HerdBudget; settled: { closed: string[]; consumed: string[] } } };
+  "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; model?: string; effort?: string; account?: string; gateMode?: string; disposable?: boolean; tree?: string }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked"; /** Only on a guest spawn into another job's tree: the host's reviewerRounds budget this spawn ticked, keyed by the host's latest milestone artifact. */ reviewerRound?: { host: string; key: string; budget: HerdBudget } } };
+  "herd:respawn": { payload: { herd: string; job: string; brief?: string; model?: string; effort?: string; account?: string; gateMode?: string }; data: Commands["herd:spawn"]["data"] & { launch: { model: string | null; effort: string | null; account: string | null }; budget: HerdBudget; settled: { closed: string[]; consumed: string[] } } };
   "herd:diagnose": { payload: { herd: string; job: string }; data: { job: string; status: HerdJobInfo["status"]; pane: string | null; paneState: "working" | "idle" | "modal" | "dead" | "gone" | null; verdict: HerdDiagnoseVerdict; openGates: Array<{ id: string; kind: string; presentation: "form" | "wait" | "kit"; owner: string }>; lastGate: { id: string; status: GateStatus; consumed: boolean | null } | null; watchdog: { strikes: number; lastPokeAt: number | null } | null; budgets: HerdJobBudgets } };
   "herd:nudge": { payload: { herd: string; job: string; gate: string }; data: { gate: string; rung: "dm" | "pane"; delivered: boolean; needsHuman: boolean; why?: "pane-busy" | "form-open" | "pane-gone" | "not-claude" | "refused"; budget: HerdBudget } };
   "herd:lanes": { payload: { herd: string; job?: string }; data: { lanes: HerdLaneRow[]; collisions: Array<{ path: string; jobs: string[] }>; skipped: Array<{ job: string; reason: string }> } };

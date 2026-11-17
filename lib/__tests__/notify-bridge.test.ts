@@ -676,6 +676,33 @@ describe("owner rule filter", () => {
   });
 });
 
+describe("pre-answered gates", () => {
+  test("a gate/opened frame marked preAnswered enqueues nothing; an unmarked one still does", async () => {
+    const bus = fakeBus();
+    const enqueued: NotificationEvent[] = [];
+    startNotifyBridge({
+      onBroadcast: bus.onBroadcast,
+      rules: () => [{ pattern: "gate/opened/*", category: "gate", title: "t", message: "m", subjectPrefix: "run:", owner: "human" as const }],
+      enqueue: (e) => { enqueued.push(e); },
+      paneFocused: async () => false,
+    });
+
+    await bus.emit("event", {
+      id: 1, topic: "gate/opened/g1",
+      payload: { id: "g1", subject: "run:r1", owner: "human", preAnswered: true },
+      emittedAt: Date.now(),
+    });
+    expect(enqueued).toHaveLength(0);
+
+    await bus.emit("event", {
+      id: 2, topic: "gate/opened/g2",
+      payload: { id: "g2", subject: "run:r1", owner: "human" },
+      emittedAt: Date.now(),
+    });
+    expect(enqueued).toHaveLength(1);
+  });
+});
+
 describe("surface rule filter", () => {
   const BOARD_RULE: EventBridgeRule = {
     pattern: "gate/opened/*", category: "gate", title: "t", message: "m",
