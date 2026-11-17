@@ -50,6 +50,7 @@ flowchart TB
     run_next_ended{run_next ended?}
     gate_stage_failed
     gate_close
+    redo_from_console
     run_resolve_next[/"run_resolve {runDb, stage, next, to?, note?, attempt, decidedBy}"/]
     run_resolve_redirect[/"run_resolve {runDb, stage, next: redirect, to, note, attempt, decidedBy}"/]
     run_resolve_result{run_resolve result?}
@@ -115,6 +116,8 @@ flowchart TB
     run_next_ended -->|held or waiting| held
     run_next_ended -->|closed| run_closed
     run_next_ended -->|refused| run_hold_refusal
+    run_next_ended -->|redirected: the operator's Redo| redo_from_console
+    redo_from_console --> follow_stage_file
     gate_stage_failed --> run_resolve_next
     gate_close --> run_resolve_next
     run_resolve_next --> run_resolve_result

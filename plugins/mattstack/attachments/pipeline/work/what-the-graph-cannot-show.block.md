@@ -22,6 +22,11 @@ label: Graph notes
   redirected through gate-protocol's Run control takes the same edge with
   that gate's `to`; `run_resolve` returns it `repeated: true`.
 - **`repeated: true`**: already applied; follow the result.
+- **Commit before a gate.** A stage that changed files in the tree
+  commits them before it opens a gate, so the gate's recorded commit is
+  where that work ends.
+- **Pause and Redo from the console** land at `run_next`: a Pause returns
+  `held`, a Redo returns `redirected`.
 - **decidedBy** is the gate tool's returned `decidedBy`, or, for a
   hand-back, the handed `decidedBy` (`pane` when it was typed in the
   pane). The gate tools record each gate's answers; this file records none.
