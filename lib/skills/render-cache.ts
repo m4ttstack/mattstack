@@ -48,6 +48,8 @@ function baseDirOf(zone: ZoneInfo, packDir: string): string | null {
   return fragment.extends === undefined ? null : join(zone.orgDir, "mattstack", "org", "packs", fragment.extends);
 }
 
+const sameRender = (a: RenderStamp, b: RenderStamp) => a.rtBuild === b.rtBuild && a.inputHash === b.inputHash;
+
 const suffix = () => `${process.pid}-${randomBytes(4).toString("hex")}`;
 
 function isRaceLoss(err: unknown): boolean {
@@ -97,7 +99,7 @@ export async function ensureTree(opts: {
     throw err;
   }
   const stamp: RenderStamp = { rtBuild: opts.rtBuild, mattstack: opts.mattstack, inputHash: inputHash(packDir, baseDir, bindings.text) };
-  if (existing && existing.rtBuild === stamp.rtBuild && existing.inputHash === stamp.inputHash) return { ok: true, dir, stamp: existing, rendered: false };
+  if (existing && sameRender(existing, stamp)) return { ok: true, dir, stamp: existing, rendered: false };
 
   const tmp = `${dir}.tmp-${suffix()}`;
   let old: string | null = null;
@@ -107,7 +109,10 @@ export async function ensureTree(opts: {
     if (!result.ok) return failed(result.errors.join("\n"));
     if (result.mattstack !== opts.mattstack) return failed(`rendered with mattstack ${result.mattstack}, but mattstack ${opts.mattstack} is installed`);
     writeFileSync(join(tmp, STAMP_FILE), JSON.stringify(stamp, null, 2) + "\n");
-    if (existing) {
+    const now = readStamp(dir);
+    if (now && sameRender(now, stamp)) return { ok: true, dir, stamp: now, rendered: false };
+    // A folder with no readable stamp is moved aside too, or it would block every later render.
+    if (existsSync(dir)) {
       try {
         old = `${dir}.old-${suffix()}`;
         renameSync(dir, old);
@@ -121,7 +126,7 @@ export async function ensureTree(opts: {
     } catch (err) {
       if (!isRaceLoss(err)) throw err;
       const winner = readStamp(dir);
-      if (!winner) throw err;
+      if (!winner) return failed(`another render left ${dir} without a readable ${STAMP_FILE}`);
       return { ok: true, dir, stamp: winner, rendered: false };
     }
   } finally {

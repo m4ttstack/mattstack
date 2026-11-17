@@ -127,6 +127,33 @@ describe("ensureTree", () => {
     expect(siblingsOf(a.dir).filter((n) => n.includes(".tmp-"))).toEqual([]);
   });
 
+  for (const [what, damage] of [["missing", (dir: string) => rmSync(join(dir, "render.json"))], ["unreadable", (dir: string) => writeFileSync(join(dir, "render.json"), "{not json")]] as const) {
+    test(`a tree folder whose render.json is ${what} re-renders and heals`, async () => {
+      const w = world();
+      const first = await ensureTree(w.opts);
+      if (!first.ok) throw new Error(first.message);
+      damage(first.dir);
+      const second = await ensureTree(w.opts);
+      if (!second.ok) throw new Error(second.message);
+      expect(second.rendered).toBe(true);
+      expect(stampOf(second.dir)).toEqual(second.stamp);
+      expect(siblingsOf(second.dir).filter((n) => /\.(tmp|old)-/.test(n))).toEqual([]);
+      const third = await ensureTree(w.opts);
+      expect(third.ok && third.rendered).toBe(false);
+    });
+  }
+
+  test("two concurrent re-renders of a stale tree: one renders, the other uses its tree", async () => {
+    const w = world();
+    await ensureTree(w.opts);
+    const fresh = { ...w.opts, rtBuild: "rt-2" };
+    const [a, b] = await Promise.all([ensureTree(fresh), ensureTree(fresh)]);
+    if (!a.ok || !b.ok) throw new Error("a render failed");
+    expect([a.rendered, b.rendered].filter(Boolean)).toHaveLength(1);
+    expect(stampOf(a.dir).rtBuild).toBe("rt-2");
+    expect(siblingsOf(a.dir).filter((n) => /\.(tmp|old)-/.test(n))).toEqual([]);
+  });
+
   test("render-failed carries builtWith from the pack lock", async () => {
     const w = world();
     write(join(w.packDir, LOCK_REL), serializeLock({ targets: {}, bases: {}, mattstackSha: {}, mattstackDirty: {}, builtWith: "0.40.0" }));
