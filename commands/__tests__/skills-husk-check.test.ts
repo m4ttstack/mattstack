@@ -196,6 +196,34 @@ describe("check on a husk pack", () => {
     expect(exitCode).toBe(0);
   });
 
+  /** A verbless husk pack whose org base binds its board-review fill from a board slot only. */
+  function seedBoardFillPack() {
+    const s = seedDoorPack();
+    const baseDir = join(dirname(dirname(dirname(s.pack))), "org", "packs", "acme-base");
+    put(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "board:review": { review: "acme-base:board-review" } } }));
+    put(join(baseDir, "attachments", "board-review", "SKILL.md"), '---\nname: board-review\ndescription: How the board reviews an MR\nmetadata:\n  provides: "review"\n---\nReview as {{pack.name}}.\n');
+    rmSync(join(s.pack, "pack", "surface.jsonc"));
+    rmSync(join(baseDir, "attachments", "dev-servers"), { recursive: true });
+    return s;
+  }
+
+  test("a husk pack keeps a husk of each board fill, where the board opens it from the installed copy", async () => {
+    const s = seedBoardFillPack();
+    await compile(s.flags);
+    const committed = join(s.pack, "attachments", "board-review");
+    expect(readFileSync(join(committed, "SKILL.md"), "utf8")).toContain('mcp__mattstack__load_skill {skill: "widgets:board-review"');
+    expect(JSON.parse(readFileSync(join(committed, "compiled.json"), "utf8"))).toEqual({ base: "acme-base", files: ["SKILL.md"] });
+
+    const out = tmp("rt-husk-render-");
+    expect(await renderPackInto({ packDir: s.pack, manifestText: "", repoKey: "", outRoot: out, mattstackDir: s.ms })).toEqual({ ok: true, mattstack: "1.0.0" });
+    expect(readFileSync(join(out, "attachments", "board-review", "SKILL.md"), "utf8")).toContain("Review as widgets.");
+
+    const { exitCode, json } = await check(s.flags);
+    expect(json.compileErrors).toEqual([]);
+    expect((json as unknown as { attachments: { name: string; status: string }[] }).attachments).toEqual([expect.objectContaining({ name: "board-review", status: "in-sync" })]);
+    expect(exitCode).toBe(0);
+  });
+
   test("the rendered scan skips only a unit's own scripts folder", () => {
     const root = tmp("rt-husk-scan-");
     const token = "Run ${CLAUDE_SKILL_DIR}/x first.\n";

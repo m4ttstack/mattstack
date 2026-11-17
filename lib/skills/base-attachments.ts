@@ -22,8 +22,12 @@ export const PROVENANCE_FILE = MAP_FILE;
 export { isEmittedAttachmentDir, isEmittedAttachmentText };
 
 export type BaseRef = { name: string; dir: string; version: string | null };
-/** `pointers` is set when the copy's files were keyed: its own keys and the leaf of every unit it reads by path. */
-export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource; pointers?: { keys: Record<string, Target>; reads: string[] } };
+/**
+ * `pointers` is set when the copy's files were keyed: its own keys and the
+ * leaf of every unit it reads by path. `board` marks a fill bound only from
+ * a board slot, which the board opens by path from the installed copy.
+ */
+export type EmittedAttachment = { name: string; files: CompiledFile[]; warnings: string[]; source?: PlannedSource; pointers?: { keys: Record<string, Target>; reads: string[] }; board?: true };
 export type StaleAttachment = { name: string; why: "dropped" | "no-base" };
 /** A base reference skill's public entry at skills/<name>; its content stays at attachments/, where other skills read it. */
 export type BaseDoor = { name: string; files: CompiledFile[] };
@@ -395,6 +399,7 @@ export function planBaseAttachments(input: {
       warnings,
       source: { dir: srcDir, base: base.name },
       ...(keyed ? { pointers: { keys: keyed.keys, reads: [...new Set(reads)] } } : {}),
+      ...(isFill(srcDir) && boardFills.has(leafOf(name)) ? { board: true as const } : {}),
     });
   }
 

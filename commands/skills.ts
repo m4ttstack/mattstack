@@ -1413,6 +1413,17 @@ function huskFiles(files: CompiledFile[], id: string): { files: CompiledFile[] }
   return { files: [{ path: "SKILL.md", content: huskFor(text, id) }] };
 }
 
+/**
+ * What a husk pack commits of a base unit: nothing, except a board fill's
+ * husk, since the board opens a fill from the installed copy by path. Its
+ * compiled.json keeps the copy marked as the base's and carries no map, so
+ * skills_resolve reads the fill's pointers from the render.
+ */
+function huskEmitFiles(e: EmittedAttachment, id: string): CompiledFile[] | null {
+  if (!e.board || !e.source) return null;
+  return [...huskFiles(e.files, id).files, { path: PROVENANCE_FILE, content: JSON.stringify({ base: e.source.base, files: ["SKILL.md"] }, null, 2) + "\n" }];
+}
+
 const STAGE_COPY_DIR_RE = /^stage-[a-z0-9-]+--[a-z][a-z0-9-]*$/;
 
 /**
@@ -1520,7 +1531,9 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     const idOf = (leaf: string) => unitId(identity?.name ?? resolved.team, leaf);
     for (const e of emits) {
       // A husk pack's base copies live only in each member's render.
+      const husk = husks ? huskEmitFiles(e, idOf(e.name)) : null;
       if (!husks) writeCompiledVerb(outRoot, join(outRoot, "attachments", e.name), e, writes);
+      else if (husk !== null) writeCompiledVerb(outRoot, join(outRoot, "attachments", e.name), { files: husk }, writes);
       else if (existsSync(join(resolved.packDir, "attachments", e.name))) removeEmittedUnit(resolved.packDir, e.name, writes);
     }
     if (intoPack) for (const name of plan.staleDoors) removeCompiledDir(resolved.packDir, join(resolved.packDir, "skills", name), writes);
@@ -2072,10 +2085,14 @@ function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCh
   return rows;
 }
 
-/** What a husk pack commits of its base: a husk per door, and no copies, so a copy still on disk is one compile removes. */
+/** What a husk pack commits of its base: a husk per door and per board fill, and no other copies, so another copy still on disk is one compile removes. */
 function huskRowPlan(packDir: string, plan: BaseAttachmentPlan, idOf: (leaf: string) => string): BaseAttachmentPlan {
-  const lingering = plan.emits.filter((e) => existsSync(join(packDir, "attachments", e.name))).map((e) => ({ name: e.name, why: "dropped" as const }));
-  return { ...plan, emits: [], doors: plan.doors.map((door) => ({ name: door.name, files: huskFiles(door.files, idOf(door.name)).files })), stale: [...plan.stale, ...lingering] };
+  const husked = plan.emits.flatMap((e) => {
+    const files = huskEmitFiles(e, idOf(e.name));
+    return files === null ? [] : [{ ...e, files }];
+  });
+  const lingering = plan.emits.filter((e) => !e.board && existsSync(join(packDir, "attachments", e.name))).map((e) => ({ name: e.name, why: "dropped" as const }));
+  return { ...plan, emits: husked, doors: plan.doors.map((door) => ({ name: door.name, files: huskFiles(door.files, idOf(door.name)).files })), stale: [...plan.stale, ...lingering] };
 }
 
 async function computeCheck(flags: Flags): Promise<CheckPayload> {
@@ -2297,6 +2314,10 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
     const husked = [
       ...results.map(({ target, result }) => ({ dir: units[target.verb.name]!, files: huskFiles(result.files, idOf(target.verb.name)).files })),
       ...plan.doors.map((door) => ({ dir: `skills/${door.name}`, files: huskFiles(door.files, idOf(door.name)).files })),
+      ...plan.emits.flatMap((e) => {
+        const files = huskEmitFiles(e, idOf(e.name));
+        return files === null ? [] : [{ dir: `attachments/${e.name}`, files }];
+      }),
     ];
     for (const { dir, files } of husked) for (const f of files) if ("content" in f) renderErrors.push(...huskToolPathErrors(`${dir}/${f.path}`, f.content));
     const render = await withWorkingRender(resolved, ({ dir, errors }) => ({ errors, rows: errors.length > 0 ? [] : renderedTreeErrors(dir) }));
