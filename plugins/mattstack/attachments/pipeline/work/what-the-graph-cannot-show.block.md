@@ -26,7 +26,8 @@ label: Graph notes
   commits them before it opens a gate, so the gate's recorded commit is
   where that work ends.
 - **Pause and Redo from the console** land at `run_next`: a Pause returns
-  `held`, a Redo returns `redirected`.
+  `held`, a Redo returns `redirected`. A Redo to a stage ahead of the run
+  returns `held` with `redo` (the gate's id).
 - **decidedBy** is the gate tool's returned `decidedBy`, or, for a
   hand-back, the handed `decidedBy` (`pane` when it was typed in the
   pane). The gate tools record each gate's answers; this file records none.
