@@ -218,17 +218,22 @@ func Hex(c color.Color) string {
 // which would put the edge beside an empty footer instead of beside the
 // prompt. The group title is the prompt title and the group description is
 // the key legend Go composes.
-func Huh() huh.Theme { return themed(Pink) }
+func Huh() huh.Theme { return themed(Pink, Cyan) }
 
 // HuhDestructive is the same bar with peach accents: the default-no confirm.
-func HuhDestructive() huh.Theme { return themed(Peach) }
+func HuhDestructive() huh.Theme { return themed(Peach, Cyan) }
+
+// HuhMultiselect keeps ticked rows in plain text: huh paints a multiselect's
+// ticked rows with the style a select uses for its cursor row, so a cyan label
+// there would read as a second cursor. The mint dot alone marks the tick.
+func HuhMultiselect() huh.Theme { return themed(Pink, Text) }
 
 // CardFrame is how many columns the bar and its padding occupy. huh sizes
 // its groups from the terminal width and knows nothing about the form base
 // wrapped around them, so a layout has to hand back this much less.
-func CardFrame() int { return themed(Pink).Theme(true).Form.Base.GetHorizontalFrameSize() }
+func CardFrame() int { return themed(Pink, Cyan).Theme(true).Form.Base.GetHorizontalFrameSize() }
 
-func themed(accent color.Color) huh.Theme {
+func themed(accent, picked color.Color) huh.Theme {
 	return huh.ThemeFunc(func(isDark bool) *huh.Styles {
 		s := huh.ThemeBase(isDark)
 		base := lipgloss.NewStyle()
@@ -253,7 +258,7 @@ func themed(accent color.Color) huh.Theme {
 		s.Focused.SelectSelector = base.Foreground(Cyan).SetString(GlyphChevron + " ")
 		s.Focused.Option = base.Foreground(Text)
 		s.Focused.MultiSelectSelector = base.Foreground(Cyan).SetString(GlyphChevron + " ")
-		s.Focused.SelectedOption = base.Foreground(Cyan)
+		s.Focused.SelectedOption = base.Foreground(picked)
 		s.Focused.SelectedPrefix = base.Foreground(Mint).SetString(GlyphOn + " ")
 		s.Focused.UnselectedOption = base.Foreground(Text)
 		s.Focused.UnselectedPrefix = base.Foreground(Faint).SetString(GlyphStopped + " ")
