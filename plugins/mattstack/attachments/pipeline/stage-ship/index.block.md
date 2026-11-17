@@ -90,6 +90,7 @@ flowchart TB
     stop_gitlab_shortcut[STOP: forge moves go through gitlab_get, the read tools and mr_*]:::stop
     run_field_set_mr[/"run_field_set {key: mr, value: <url>, stage}"/]
     run_field_get_evidence[/"run_field_get {key: evidence}"/]
+    run_field_get_owed[/"run_field_get {key: owed-evidence}"/]
     browser_case{Browser screenshot for this case?}
     capture_after_browser
     capture_after_case
@@ -97,6 +98,8 @@ flowchart TB
     run_budget_after_attempts[/"run_budget {key: ship:after-attempts:<case id>, limit: 3, stage}"/]
     after_attempts_spent{after-attempts spent?}
     every_case_tried{Every named case tried?}
+    owed_on_run{Owed evidence on the run?}
+    run_field_set_owed[/"run_field_set {key: owed-evidence, value: <the list, each item captured this pass marked cleared at the pushed sha>, stage}"/]
     after_captured{AFTER captured this pass?}
     record_evidence
     record_outcome{Record outcome?}
@@ -104,8 +107,10 @@ flowchart TB
     attach_evidence
     attach_outcome{Attach outcome?}
     mr_view_url[/"mr_view {mrUrl}"/]
+    run_field_get_review[/"run_field_get {key: review}"/]
     write_title_description
     mr_update_description[/"mr_update {mrUrl, title, description}"/]
+    owed_left{Any owed-evidence item not cleared at the pushed sha?}
     run_stage_fail[/"run_stage {action: fail, stage, reason}"/]
     run_hold[/"run_hold {stage, reason, decidedBy}"/]
     held_end_turn(((Held: end the turn naming run and stage)))
@@ -218,13 +223,14 @@ flowchart TB
     mr_create_recalls -->|yes: a failure| which_exit
     mr_update_squash --> run_field_set_mr
     run_field_set_mr --> run_field_get_evidence
-    run_field_get_evidence --> browser_case
+    run_field_get_evidence --> run_field_get_owed
+    run_field_get_owed --> browser_case
     browser_case -->|yes| capture_after_browser
     browser_case -->|no: the domain's own method, or no case named| capture_after_case
     capture_after_browser --> after_result
     capture_after_case --> after_result
     after_result -->|captured, or Board ready| every_case_tried
-    after_result -->|none named| after_captured
+    after_result -->|none named| owed_on_run
     after_result -->|skipped: unbound, not a browser case| every_case_tried
     after_result -->|the capture failed, or Not drawn: a failed brief or spent re-renders| run_budget_after_attempts
     after_result -->|Not drawn, a reason no retry fixes: go on without it| every_case_tried
@@ -233,7 +239,10 @@ flowchart TB
     after_attempts_spent -->|no: same case again| browser_case
     after_attempts_spent -->|yes: go on without it| every_case_tried
     every_case_tried -->|no| browser_case
-    every_case_tried -->|yes| after_captured
+    every_case_tried -->|yes| owed_on_run
+    owed_on_run -->|yes| run_field_set_owed
+    owed_on_run -->|"no: unset, or -"| after_captured
+    run_field_set_owed --> after_captured
     after_captured -->|yes| record_evidence
     after_captured -->|no| run_has_evidence
     record_evidence --> record_outcome
@@ -246,9 +255,12 @@ flowchart TB
     attach_outcome -->|"Attached (never Taken: Take links)"| mr_view_url
     attach_outcome -->|Attach held| run_hold
     attach_outcome -->|Attach failed: a failure quoting the reason| which_exit
-    mr_view_url --> write_title_description
+    mr_view_url --> run_field_get_review
+    run_field_get_review --> write_title_description
     write_title_description --> mr_update_description
-    mr_update_description --> ship_done
+    mr_update_description --> owed_left
+    owed_left -->|"no: none owed, or every item cleared"| ship_done
+    owed_left -->|yes: hold, naming each item| run_hold
     run_stage_fail --> stage_failed
     run_hold --> held_end_turn
 ```
