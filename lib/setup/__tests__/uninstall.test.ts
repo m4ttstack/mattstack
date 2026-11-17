@@ -388,6 +388,18 @@ describe("rt uninstall", () => {
         expect((await runUninstall(ctx, actions)).ok).toBe(true);
       });
 
+      test("a re-enable that really fails keeps its record, so Retry can try again", async () => {
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[]) => (argv[2] === "enable" ? { code: 1, stdout: "", stderr: "settings file is locked" } : { code: 0, stdout: "", stderr: "" }),
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
+        const { ctx } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(false);
+        expect(readSetupState(p).superpowersDisabled).toEqual(recorded());
+      });
+
       test("a record alone gates plugins.uninstall", () => {
         const p = bareProbes();
         updateSetupState(p, (s) => ({ ...s, superpowersDisabled: recorded() }));

@@ -364,12 +364,16 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   }
 
   // After mattstack's superpowers is gone, so the Mac keeps the superpowers it had before setup.
-  for (const { configDir, id } of reEnable) {
-    const res = await ctx.p.exec([...claude.exec, "plugin", "enable", id], { env: { CLAUDE_CONFIG_DIR: configDir } });
-    if (res.code !== 0 && !isAlreadyGone(res)) notes.push(`${configDir}: enable ${id} exited ${res.code}`);
+  const stillOff: typeof reEnable = [];
+  for (const entry of reEnable) {
+    const res = await ctx.p.exec([...claude.exec, "plugin", "enable", entry.id], { env: { CLAUDE_CONFIG_DIR: entry.configDir } });
+    if (res.code !== 0 && !isAlreadyGone(res)) {
+      notes.push(`${entry.configDir}: enable ${entry.id} exited ${res.code}`);
+      stillOff.push(entry);
+    }
   }
 
-  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)], superpowersDisabled: [] }));
+  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)], superpowersDisabled: stillOff }));
   const generated = await removeGeneratedMarketplaces(ctx, claude.exec, notes);
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };
