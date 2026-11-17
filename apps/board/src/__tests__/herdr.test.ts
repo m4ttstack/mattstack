@@ -13,7 +13,6 @@ import { describe, expect, test } from 'bun:test';
 
 import { HEADER_COMMENT } from '../../../../lib/skills/compile.ts';
 import { huskFor } from '../../../../lib/skills/husk.ts';
-
 import type { AgentIo } from '../agent-launch.ts';
 import { repoIdentityField } from '../config.ts';
 import {
@@ -1448,7 +1447,11 @@ describe('dispatchPrompt (wrapper hop stays; --skill-path rides alongside --skil
         plugins: [{ id: 'acme@acme', installPath: install }],
       });
       const resolvePath = (name: string) => resolveSkillPath(name, listPlugins);
-      const prompt = await dispatchPrompt('board:review', baseOpts, resolvePath);
+      const prompt = await dispatchPrompt(
+        'board:review',
+        baseOpts,
+        resolvePath
+      );
       expect(prompt).toContain(`--skill-path ${husk}`);
 
       const missing = dispatchPrompt(
