@@ -2696,6 +2696,8 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Id", type: "text", placeholder: "acme:work", hint: "The skill's id, as <plugin>:<unit>" },
           { name: "Dir", flag: "--dir", type: "text", placeholder: "/path/to/skill", hint: "The loaded skill's own folder, which names the installed pack version" },
           { name: "File", flag: "--file", type: "text", placeholder: "references/x.md", hint: "A file in the unit's folder instead of its SKILL.md" },
+          { name: "Husk packs", flag: "--husk-packs", type: "boolean", default: false, hint: "Render every husk pack on this Mac instead of one skill; the daemon runs this after a team pull" },
+          { name: "Org", flag: "--org", type: "text", placeholder: "acme", hint: "With --husk-packs, only this org's packs" },
           SETUP_JSON_ARG,
         ],
       },

@@ -225,3 +225,30 @@ describe("rt skills render", () => {
     expect(typeof env.rtBuild).toBe("string");
   });
 });
+
+describe("rt skills render --husk-packs", () => {
+  test("renders the named org's husk packs and prints the summary the daemon logs", async () => {
+    const orgs: (string | undefined)[] = [];
+    io = captureOut();
+    await skillsRender(["--husk-packs", "--org", "acme", "--json"], {
+      renderPacks: async (org) => {
+        orgs.push(org);
+        return [{ pack: "widgets", ok: false, detail: "mattstack isn't installed on this Mac" }];
+      },
+    });
+    expect(orgs).toEqual(["acme"]);
+    expect(JSON.parse(io.stdout())).toEqual({ ok: true, results: [{ pack: "widgets", ok: false, detail: "mattstack isn't installed on this Mac" }] });
+  });
+
+  test("without --org it renders every org", async () => {
+    const orgs: (string | undefined)[] = [];
+    io = captureOut();
+    await skillsRender(["--husk-packs", "--json"], {
+      renderPacks: async (org) => {
+        orgs.push(org);
+        return [];
+      },
+    });
+    expect(orgs).toEqual([undefined]);
+  });
+});

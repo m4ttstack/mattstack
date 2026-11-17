@@ -6,6 +6,7 @@ import { rtVersion } from "../lib/setup/update.ts";
 import { readZones, zonePackDir, type ZoneInfo } from "../lib/skills/init.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { ensureTree, renderRoot, withEngine } from "../lib/skills/render-cache.ts";
+import { renderHuskPacks, type HuskRender } from "../lib/skills/render-packs.ts";
 import { activeMattstack, parseStamp, pickRenderTree, STAMP_FILE, type RenderStamp } from "../lib/skills/render-paths.ts";
 import { realResolveFs, versionOfDir } from "../lib/skills/resolve.ts";
 import { resolvePluginRoots, resolvePluginRootsFromDir, type PluginRoots } from "../lib/skills/sources.ts";
@@ -15,7 +16,7 @@ import * as out from "../lib/ui/out.ts";
 
 const USAGE = "rt skills render <plugin>:<unit> --dir <skill dir> [--file <path>] --json";
 const SETUP = "rt setup";
-const VALUE_FLAGS = ["--dir", "--file", "--mattstack-dir"];
+const VALUE_FLAGS = ["--dir", "--file", "--mattstack-dir", "--org"];
 /** `<plugin>:<unit>`, or the older `<plugin>@<version>:<unit>`. */
 const ID_RE = /^([a-z0-9][a-z0-9-]*)(?:@(\d+(?:\.\d+)*))?:([a-z0-9][a-z0-9-]*)$/;
 
@@ -58,9 +59,23 @@ function unitFolder(tree: string, id: string, unit: string): string | null {
   return candidates.find(claims) ?? candidates[0] ?? null;
 }
 
-export async function skillsRender(args: string[], seams: { pluginRoots?: () => PluginRoots } = {}): Promise<void> {
+type RenderSeams = { pluginRoots?: () => PluginRoots; renderPacks?: (org: string | undefined) => Promise<HuskRender[]> };
+
+/** The daemon's pull hook runs this in a child rt, so the compile never runs on its event loop; the summary is what the hook logs. */
+async function renderAllHuskPacks(args: string[], json: boolean, seams: RenderSeams): Promise<void> {
+  const org = flag(args, "--org");
+  const results = await (seams.renderPacks ?? ((o) => renderHuskPacks(createRealProbes(), o === undefined ? {} : { org: o })))(org);
+  if (json) {
+    out.json({ ok: true, results });
+    return;
+  }
+  out.print(...results.map((r) => out.line(r.ok ? "done" : "failed", r.pack, r.detail)));
+}
+
+export async function skillsRender(args: string[], seams: RenderSeams = {}): Promise<void> {
   const json = args.includes("--json");
   if (json) out.payloadOnStdout();
+  if (args.includes("--husk-packs")) return renderAllHuskPacks(args, json, seams);
   const id = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1] ?? ""));
   const dir = flag(args, "--dir");
   const match = id ? ID_RE.exec(id) : null;
