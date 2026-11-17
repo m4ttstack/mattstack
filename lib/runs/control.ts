@@ -64,7 +64,9 @@ export function holdAtNextStep(
 ): { ok: true; stage: string; already?: true } | ControlFail {
   return withRun(repo, runId, (db, run) => {
     const stage = run.current_stage;
-    if (!stage || !positionOf(db, stage)) return controlFail("no-stage", "this run has no step to pause at");
+    const at = stage ? positionOf(db, stage) : null;
+    if (!stage || !at) return controlFail("no-stage", "this run has no step to pause at");
+    if (at.status === "done") return controlFail("not-running");
     if (fieldSince(fieldRow(db, "hold"), attemptStart(db, stage)) !== null) return { ok: true as const, stage, already: true as const };
     const held = holdStage(db, { stage, reason: o.reason, decidedBy: o.decidedBy, now: o.now });
     if (!held.ok) throw new Error(held.error);

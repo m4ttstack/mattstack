@@ -557,6 +557,34 @@ describe("nextStage applies a pending redo", () => {
     expect(JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM decisions").all()])).toBe(before);
   });
 
+  const tables = (db: Database) =>
+    JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM decisions").all()]);
+
+  test("a retried run_next after a same-stage redo returns the same redirect, repeated", () => {
+    const db = runAt("implement");
+    redo(db, "implement", "implement");
+    const first = nextStage(db, { stage: "implement", env: {}, now: 200 });
+    expect(first).toMatchObject({ ended: "redirected", next: { stage: "implement", attempt: 2, status: "running" } });
+    const before = tables(db);
+    expect(nextStage(db, { stage: "implement", env: {}, now: 300 })).toEqual({ ...(first as object), repeated: true } as never);
+    expect(tables(db)).toBe(before);
+  });
+
+  test("a run_next after a same-stage redo and a field write completes the new attempt", () => {
+    const db = runAt("implement");
+    redo(db, "implement", "implement");
+    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "redirected" });
+    expect(fieldSet(db, "commits", "c2", "implement", 250).ok).toBe(true);
+    expect(nextStage(db, { stage: "implement", env: {}, now: 300 })).toMatchObject({ ok: true, ended: "done", next: { stage: "self-review" } });
+    expect(db.query("SELECT status FROM stages WHERE name = 'implement' AND attempt = 2").get()).toEqual({ status: "done" });
+  });
+
+  test("a run_next after the worker's own same-stage redirect completes the new attempt as before", () => {
+    const db = runAt("implement");
+    expect(resolveStage(db, { stage: "implement", next: "iterate", note: "again", decidedBy: "pane", env: {}, now: 200 })).toMatchObject({ ok: true });
+    expect(nextStage(db, { stage: "implement", env: {}, now: 300 })).toMatchObject({ ok: true, ended: "failed", missing: ["commits"] });
+  });
+
   test("a run_next on a stage the worker redirected stays refused", () => {
     const db = runAt("implement");
     expect(resolveStage(db, { stage: "implement", next: "redirect", to: "plan", note: "rethink", decidedBy: "pane", env: {}, now: 200 })).toMatchObject({ ok: true });

@@ -295,6 +295,8 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
         };
       }
       if (row.status !== "running" || run.current_stage !== o.stage) return mismatch();
+      const replayed = sameStageRedoReplay(db, manifest, o.stage, row);
+      if (replayed) return replayed;
 
       const since = row.started_at ?? 0;
       const at = positionOf(db, o.stage)!;
@@ -383,6 +385,37 @@ function appliedRedo(db: Database, stage: string, attempt: number): { to: string
   const s = redirectSelection(db, stage, attempt);
   if (!s || typeof s.gate !== "string" || typeof s.to !== "string" || typeof s.reason !== "string") return null;
   return { to: s.to, reason: s.reason, gate: s.gate, headCommit: typeof s.headCommit === "string" ? s.headCommit : null };
+}
+
+/** A console Redo to the stage it was on ends attempt N and starts N+1 in one call, so a
+    lost response leaves the worker repeating run_next on N+1. It counts as that repeat only
+    while N+1 has seen no write since the redirect (the redirect's own writes share its start
+    time): any later field, decision or stage row means the worker did the redo's work, and
+    the call completes N+1 normally. A worker's own redirect carries no gate and never replays. */
+function sameStageRedoReplay(db: Database, manifest: ManifestStage[], stage: string, row: StageRow): Ok<NextResult> | null {
+  if (row.attempt < 2 || row.started_at === null) return null;
+  const left = row.attempt - 1;
+  const prev = db.query("SELECT status FROM stages WHERE name = ? AND attempt = ?").get(stage, left) as { status: StageStatus } | undefined;
+  if (prev?.status !== "redirected") return null;
+  const applied = appliedRedo(db, stage, left);
+  if (!applied || applied.to !== stage) return null;
+  const decided = db.query("SELECT decided_at FROM decisions WHERE contract = 'gate@1' AND scope = ?").get(`redirect:${stage}:${left}`) as { decided_at: number };
+  const wroteSince =
+    db.query("SELECT 1 FROM fields WHERE at > ? LIMIT 1").get(row.started_at) != null ||
+    db.query("SELECT 1 FROM decisions WHERE decided_at > ? LIMIT 1").get(decided.decided_at) != null ||
+    db.query("SELECT 1 FROM stages WHERE started_at > ? LIMIT 1").get(row.started_at) != null;
+  if (wroteSince) return null;
+  return {
+    ok: true,
+    ended: "redirected",
+    from: stage,
+    next: positionOf(db, stage)!,
+    note: applied.reason,
+    headCommit: applied.headCommit,
+    gate: applied.gate,
+    cleared: redirectClears(manifest, stage),
+    repeated: true,
+  };
 }
 
 /** Every produce and consent field from `to` on, in the order a redirect clears them. */

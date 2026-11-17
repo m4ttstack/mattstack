@@ -106,6 +106,26 @@ describe("holdAtNextStep", () => {
   });
 });
 
+describe("holdAtNextStep at a gate", () => {
+  test("a done current stage refuses with not-running and writes nothing", () => {
+    const path = seed("r-hold-close", { at: "self-review" });
+    withDb(path, (db) => expect(stageEnd(db, "self-review", "done", { now: 150 }).ok).toBe(true));
+    expect(holdAtNextStep(REPO, "r-hold-close", { reason: "paused from the console", decidedBy: "console", now: 160 })).toEqual({
+      ok: false,
+      code: "not-running",
+      error: "answer the open gate first",
+    });
+    expect(field(path, "hold")).toBeUndefined();
+  });
+
+  test("a failed current stage still takes a Pause", () => {
+    const path = seed("r-hold-failed", { at: "implement" });
+    withDb(path, (db) => expect(stageEnd(db, "implement", "failed", { reason: "red", now: 150 }).ok).toBe(true));
+    expect(holdAtNextStep(REPO, "r-hold-failed", { reason: "paused from the console", decidedBy: "console", now: 160 })).toEqual({ ok: true, stage: "implement" });
+    expect(field(path, "hold")).toBe("paused from the console");
+  });
+});
+
 describe("requestRedo", () => {
   test("writes the redo request as JSON with by console", () => {
     const path = seed("r-redo", { at: "implement" });
