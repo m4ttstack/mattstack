@@ -135,7 +135,7 @@ where `<mattstack version>` is the installed mattstack plugin's
 unit's `SKILL.md`, `references/`, `parts/`, `scripts/`, base copies and
 `compiled.json`.
 
-A `render.json` stamp beside the tree records the rt build that rendered
+A `render.json` stamp inside the tree, at its root, records the rt build that rendered
 it, the mattstack version, and a hash of the inputs (the pack's sources,
 the base pack's sources, the merged bindings).
 

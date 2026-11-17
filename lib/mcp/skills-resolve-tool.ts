@@ -1,9 +1,11 @@
 /**
- * Reads only under ~/.claude/plugins/cache and ~/.claude/skills, and writes
- * nothing: the id is checked against ID_RE before any read, a `dir` is looked
- * up only once its text sits inside the plugin cache, and resolvePointers
- * refuses a compiled.json that points outside its plugin version folder or
- * its skill link before it touches that path.
+ * Reads only under ~/.claude/plugins/cache, ~/.claude/skills and, for a husk
+ * pack, its render tree under ~/.mattstack/rt/rendered, and writes nothing:
+ * the id is checked against ID_RE before any read, a `dir` is looked up only
+ * once its text sits inside the plugin cache or the render root, and
+ * resolvePointers refuses a compiled.json that points outside its plugin
+ * version folder, its render tree or its skill link before it touches that
+ * path.
  */
 import { UserActionableError } from "../errors.ts";
 import { ID_RE } from "../skills/pointers.ts";
@@ -18,7 +20,7 @@ export function skillsResolveToolDefs(deps: SkillsResolveDeps = { fs: realResolv
   return [
     {
       name: "skills_resolve",
-      description: "Resolve a compiled skill's @key pointers to absolute paths. Pass the id from the skill's opening line (<plugin>:<unit>, <plugin>@<version>:<unit> or skills:<name>) and, as dir, the loaded skill's own directory, which pins the run to the plugin version that skill was loaded from; returns { id, folder, covers, keys, pinned, warning? }, where keys maps each @key (without the @) to the path to use. Call it once per run and reuse the map for every id in covers while its folder sits in the same plugin version folder as the loaded skill. Reads only the installed plugin cache and ~/.claude/skills; a refusal means stop and say so, never look for the file another way.",
+      description: "Resolve a compiled skill's @key pointers to absolute paths. Pass the id from the skill's opening line (<plugin>:<unit>, <plugin>@<version>:<unit> or skills:<name>) and, as dir, the loaded skill's own directory, which pins the run to the plugin version that skill was loaded from; returns { id, folder, covers, keys, pinned, warning? }, where keys maps each @key (without the @) to the path to use. Call it once per run and reuse the map for every id in covers while its folder sits in the same plugin version folder as the loaded skill. Reads only the installed plugin cache, ~/.claude/skills and, for a team pack that commits husks, this Mac's render of it; a refusal means stop and say so, never look for the file another way.",
       inputSchema: {
         type: "object",
         properties: {

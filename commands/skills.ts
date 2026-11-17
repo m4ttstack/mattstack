@@ -1815,8 +1815,9 @@ export async function skillsCompile(args: string[]): Promise<void> {
 
 /**
  * Compiles every target of a pack with bindings built in memory and writes
- * what a compile would write in the pack (targets, base copies, doors, unit
- * maps) under `outRoot` instead, at the same relative paths. The pack itself
+ * what a compile would write in the pack (targets, base copies and unit maps;
+ * no doors, since a render serves a door's id from its base unit) under
+ * `outRoot` instead, at the same relative paths. The pack itself
  * is never written. `mattstack` is the engine version the compile used.
  */
 export async function renderPackInto(opts: { packDir: string; manifestText: string; repoKey: string; outRoot: string; mattstackDir?: string; pluginRoots?: PluginRoots }): Promise<{ ok: true; mattstack: string } | { ok: false; errors: string[] }> {
