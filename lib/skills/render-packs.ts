@@ -67,7 +67,7 @@ export async function renderHuskPacks(p: Probes, opts: { org?: string; roots?: (
         mattstack: engine.version,
         rtBuild: rtVersion(),
         deps: { fs: p, mattstackRoot: join(p.home, ".mattstack"), enginePackDir: engine.dir },
-        pluginRoots,
+        pluginRoots: () => pluginRoots,
       });
       if (!result.ok) results.push({ pack: zone.team, ok: false, detail: result.message });
       else if (result.rendered) results.push({ pack: zone.team, ok: true, detail: `rendered ${manifest.name} ${manifest.version} for mattstack ${engine.version}` });

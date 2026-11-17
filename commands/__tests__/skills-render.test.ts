@@ -181,6 +181,21 @@ describe("rt skills render", () => {
     });
   });
 
+  test("a fresh tree is served without listing Claude Code's plugins", async () => {
+    const w = setup();
+    await render(w, "acme:work", "skills/work");
+    let listed = 0;
+    io = captureOut();
+    await skillsRender(["acme:work", "--dir", join(w.installed, "skills/work"), "--json"], {
+      pluginRoots: () => {
+        listed++;
+        throw new Error("listed plugins");
+      },
+    });
+    expect((JSON.parse(io.stdout()) as { ok: boolean }).ok).toBe(true);
+    expect(listed).toBe(0);
+  });
+
   test("the id may follow the flags", async () => {
     const w = setup();
     io = captureOut();

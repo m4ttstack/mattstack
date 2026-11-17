@@ -8,7 +8,7 @@ import { compareVersions } from "../lib/skills/installed-plugins.ts";
 import { ensureTree, renderRoot, withEngine } from "../lib/skills/render-cache.ts";
 import { activeMattstack, parseStamp, pickRenderTree, STAMP_FILE, type RenderStamp } from "../lib/skills/render-paths.ts";
 import { realResolveFs, versionOfDir } from "../lib/skills/resolve.ts";
-import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
+import { resolvePluginRoots, resolvePluginRootsFromDir, type PluginRoots } from "../lib/skills/sources.ts";
 import { MAP_FILE } from "../lib/skills/unit-maps.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import * as out from "../lib/ui/out.ts";
@@ -58,7 +58,7 @@ function unitFolder(tree: string, id: string, unit: string): string | null {
   return candidates.find(claims) ?? candidates[0] ?? null;
 }
 
-export async function skillsRender(args: string[]): Promise<void> {
+export async function skillsRender(args: string[], seams: { pluginRoots?: () => PluginRoots } = {}): Promise<void> {
   const json = args.includes("--json");
   if (json) out.payloadOnStdout();
   const id = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1] ?? ""));
@@ -87,7 +87,7 @@ export async function skillsRender(args: string[]): Promise<void> {
     mattstack: engine.version,
     rtBuild: rtVersion(),
     deps: { fs: probes, mattstackRoot: join(home, ".mattstack"), enginePackDir: engine.dir },
-    ...(mattstackDir ? { mattstackDir } : { pluginRoots: withEngine(resolvePluginRoots(), engine) }),
+    ...(mattstackDir ? { mattstackDir } : { pluginRoots: () => withEngine((seams.pluginRoots ?? resolvePluginRoots)(), engine) }),
   });
   let tree: { dir: string; stamp: RenderStamp };
   let staleBecause: string | undefined;

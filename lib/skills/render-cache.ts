@@ -104,8 +104,8 @@ export async function ensureTree(opts: {
   deps: MaterializeDeps;
   /** Renders against `<dir>/plugins/<name>` instead of the installed plugins. */
   mattstackDir?: string;
-  /** Plugin roots the caller listed, so the render runs no `claude plugin list` of its own. */
-  pluginRoots?: PluginRoots;
+  /** Plugin roots the caller lists, asked for only when a render runs, so it runs no `claude plugin list` of its own. */
+  pluginRoots?: () => PluginRoots;
   git?: CloneGit;
 }): Promise<EnsureResult> {
   const packDir = zonePackDir(opts.zone);
@@ -144,7 +144,7 @@ export async function ensureTree(opts: {
   let old: string | null = null;
   mkdirSync(tmp, { recursive: true });
   try {
-    const result = await renderPackInto({ packDir, manifestText: bindings.text, repoKey: bindings.repoKey, outRoot: tmp, mattstackDir: opts.mattstackDir, pluginRoots: opts.pluginRoots });
+    const result = await renderPackInto({ packDir, manifestText: bindings.text, repoKey: bindings.repoKey, outRoot: tmp, mattstackDir: opts.mattstackDir, pluginRoots: opts.pluginRoots?.() });
     if (!result.ok) return failed(result.errors.join("\n"));
     if (result.mattstack !== opts.mattstack) return failed(`rendered with mattstack ${result.mattstack}, but mattstack ${opts.mattstack} is installed`);
     writeFileSync(join(tmp, STAMP_FILE), JSON.stringify(stamp, null, 2) + "\n");
