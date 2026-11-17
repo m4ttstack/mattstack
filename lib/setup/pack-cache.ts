@@ -34,6 +34,8 @@ export interface InstalledPack {
   id: string;
   version: string | null;
   enabled: boolean;
+  /** `user`, `project`, `local` or `managed` as Claude Code reports it; absent when the entry carries none. */
+  scope?: string;
 }
 
 interface MarketplaceEntry {
@@ -67,6 +69,7 @@ export function parsePluginList(stdout: string): InstalledPack[] | null {
       id: item.id,
       version: typeof item.version === "string" ? item.version : null,
       enabled: item.enabled === true,
+      ...(typeof item.scope === "string" ? { scope: item.scope } : {}),
     });
   }
   return entries;

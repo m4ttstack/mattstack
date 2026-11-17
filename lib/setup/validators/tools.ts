@@ -25,7 +25,7 @@ import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { integrationDef } from "../integrations.ts";
 import { callableBySkills, claudeJsonPath, linearServerNames, nameTaken, readClaudeConfig } from "../linear-mcp.ts";
-import { parsePluginList, readServedPacks, type ServedPack } from "../pack-cache.ts";
+import { parsePluginList, readServedPacks, type InstalledPack, type ServedPack } from "../pack-cache.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import type { HostArch, PackRequirements, ToolRequirement } from "../requirements.ts";
@@ -669,7 +669,23 @@ function pluginsRow(pluginList: ExecResult, msFloor: Floor, engine: string | nul
   const disabled = expected.filter((id) => byId.get(id)!.enabled !== true);
   if (disabled.length > 0) return row({ ...base, status: "needs-you", detail: `Disabled: ${disabled.join(", ")}`, action: ENABLE_PLUGINS_ACTION });
 
+  const extras = entries.filter((e) => e.enabled && e.id.startsWith("superpowers@") && e.id !== MATTSTACK_SUPERPOWERS);
+  if (extras.length > 0) return row({ ...base, status: "needs-you", detail: secondSuperpowersDetail(extras), action: secondSuperpowersSteps(extras) });
+
   return row({ ...base, status: "ready", detail: `${BASE_PLUGINS.length} plugins installed` });
+}
+
+const MATTSTACK_SUPERPOWERS = "superpowers@mattstack";
+
+function secondSuperpowersDetail(extras: InstalledPack[]): string {
+  return `Two superpowers plugins are enabled (${MATTSTACK_SUPERPOWERS}, ${extras.map((e) => e.id).join(", ")}); the superpowers:* skills may come from either`;
+}
+
+function secondSuperpowersSteps(extras: InstalledPack[]): Action {
+  const steps = extras.map((e) =>
+    e.scope === undefined || e.scope === "user" ? `Run: claude plugin disable ${e.id}` : `${e.id} is enabled at ${e.scope} scope, which rt cannot change; turn it off in that settings file`,
+  );
+  return { type: "steps", label: "Show steps…", steps: [...steps, "Re-check this row"] };
 }
 
 // ─── tool.proxy ─────────────────────────────────────────────────────────────
