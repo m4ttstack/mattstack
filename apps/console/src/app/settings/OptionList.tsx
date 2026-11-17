@@ -44,7 +44,7 @@ export function OptionList({
             className={classes.option}
           >
             <Group gap={12} wrap="nowrap" align="flex-start">
-              <Radio.Indicator size="sm" className={classes.indicator} />
+              <Radio.Indicator size="xs" className={classes.indicator} />
               <Text
                 fz="sm"
                 ff="monospace"
