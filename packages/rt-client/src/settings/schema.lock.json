@@ -2391,5 +2391,18 @@
         "type": "string"
       }
     }
+  },
+  "superpowers.execution": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "enum": [
+        "native-with-reviews",
+        "subagent-driven",
+        "native",
+        "ask"
+      ]
+    }
   }
 }

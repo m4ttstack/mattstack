@@ -258,6 +258,7 @@ export const SCHEMAS = {
   }),
   "claude.marketplaces": z.array(z.string()),
   "claude.plugins": z.array(z.string()),
+  "superpowers.execution": z.enum(["native-with-reviews", "subagent-driven", "native", "ask"]),
   "deck.apps": z.record(
     z.string(),
     z.looseObject({
