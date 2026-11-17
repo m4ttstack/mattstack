@@ -268,6 +268,21 @@ describe("the compiled lock", () => {
     expect(JSON.parse(readFileSync(join(pack, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: HUSKS_MIN_ENGINE });
   });
 
+  test("a husk compile's --json lists the files it wrote for each verb", async () => {
+    const { pack, flags } = seedPipelinePack();
+    optIn(pack);
+    const io = captureSkills();
+    try {
+      await skillsCompile([...flags, "--json"]);
+    } finally {
+      io.restore();
+    }
+    expect(Number(process.exitCode ?? 0)).toBe(0);
+    const rows = (JSON.parse(io.stdout()) as { verbs: { name: string; side: string; files: { path: string }[] }[] }).verbs;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.files.map((f) => f.path)).toEqual(filesOf(join(pack, row.side, row.name)));
+  });
+
   test("a husk compile leaves inputHash unchanged", async () => {
     const { pack, flags } = seedPipelinePack();
     optIn(pack);

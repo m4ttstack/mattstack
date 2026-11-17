@@ -1794,8 +1794,10 @@ export async function skillsCompile(args: string[]): Promise<void> {
     if (flags.json) {
       const rows: CompileVerbRow[] = outcomes.map(({ target, outcome }) => {
         const side: Side = target.isPublic ? "skills" : "attachments";
+        // A husk pack writes only each target's husk, so the row lists that.
+        const files = outcome.ok && resolved.husks ? huskFiles(outcome.result.files, unitId(units.identity?.name ?? resolved.team, target.verb.name)).files : outcome.ok ? outcome.result.files : [];
         return outcome.ok
-          ? { name: target.verb.name, status: "compiled", files: outcome.result.files.map((f) => ({ path: f.path })), warnings: outcome.result.warnings, errors: [], side }
+          ? { name: target.verb.name, status: "compiled", files: files.map((f) => ({ path: f.path })), warnings: outcome.result.warnings, errors: [], side }
           : { name: target.verb.name, status: "errored", files: [], warnings: [], errors: [outcome.message], side };
       });
       // An errored or misplaced verb is a failed compile: exit non-zero so a
