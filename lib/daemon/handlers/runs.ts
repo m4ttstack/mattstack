@@ -9,7 +9,7 @@ import { isAbsolute } from "path";
 import { findRun, listRuns, readRun } from "../../runs/store.ts";
 import { getRunLiveness } from "../../runs/liveness.ts";
 import { abandonRun } from "../../runs/reconcile.ts";
-import { badNote, controlFail, holdAtNextStep, requestRedo, type ControlFail } from "../../runs/control.ts";
+import { badNote, CONSOLE_DECIDER, controlFail, holdAtNextStep, requestRedo, type ControlFail } from "../../runs/control.ts";
 import { checkTextPath, checkUploadPath } from "../upload-guard.ts";
 import {
   EVIDENCE_IMAGE_KEYS, EVIDENCE_SLOTS, EVIDENCE_TEXT_KEYS, EVIDENCE_THEMES, V1_CASE_ID, readEvidence, resolveEvidencePath,
@@ -35,7 +35,6 @@ export interface RunsSeams {
   gateById?: (id: string) => GateRow | null;
 }
 
-const CONSOLE = "console";
 const PAUSE_REASON = "paused from the console";
 
 function refusal(f: ControlFail): { ok: false; error: string; failure: { code: string; message: string } } {
@@ -109,7 +108,7 @@ export function createRunsHandlers(
       try {
         const detail = payload?.repo ? readRun(payload.repo, runId) : findRun(runId);
         if (!detail) return refusal(controlFail("not-found", `no run ${runId}`));
-        const res = holdAtNextStep(detail.run.repo, runId, { reason: PAUSE_REASON, decidedBy: CONSOLE });
+        const res = holdAtNextStep(detail.run.repo, runId, { reason: PAUSE_REASON, decidedBy: CONSOLE_DECIDER });
         if (!res.ok) return refusal(res);
         if (!res.already) emitEvent("run-updated", { repo: detail.run.repo, runId, stage: res.stage, kind: "held" });
         return { ok: true as const, data: res.already ? { held: true, stage: res.stage, already: true } : { held: true, stage: res.stage } };
@@ -135,7 +134,7 @@ export function createRunsHandlers(
         const detail = runId ? findRun(runId) : null;
         if (!detail) return refusal(controlFail("not-found", `no run ${runId || gate.subject}`));
         const repo = detail.run.repo;
-        const res = requestRedo(repo, runId, { gate: gateId, to, note, headCommit, by: CONSOLE, openedAt: gate.openedAt });
+        const res = requestRedo(repo, runId, { gate: gateId, to, note, headCommit, by: CONSOLE_DECIDER, openedAt: gate.openedAt });
         if (!res.ok) return refusal(res);
         emitEvent("run-updated", { repo, runId, stage: to, kind: "redo" });
         return { ok: true as const, data: { runId, repo, to, headCommit } };

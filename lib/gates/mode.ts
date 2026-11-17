@@ -1,5 +1,6 @@
 import type { GateQuestion } from "../../packages/rt-client/src/commands.ts";
 import { gateOptionLabel, gateOptionValue } from "../../packages/rt-client/src/gate-options.ts";
+import { CONSOLE_DECIDER } from "../runs/control.ts";
 import { type AnswersMap, type DecisionRow, answerValue, splitVerb } from "./record.ts";
 
 export type GateMode = "chatty" | "normal" | "quiet" | "yolo";
@@ -116,6 +117,9 @@ export function modeDigest(decisions: DecisionRow[], sinceAt: number): string | 
   return lines.length === 0 ? null : ["Decided without you since your last answer:", ...lines].join("\n");
 }
 
+/** A console Pause, or a Redo the engine turned into a hold, is not the operator answering a gate. */
+const controlHold = (d: DecisionRow): boolean => d.scope.startsWith("hold:") && (d.decided_by === CONSOLE_DECIDER || byMode(d));
+
 export function digestSince(decisions: DecisionRow[]): number {
-  return decisions.filter((d) => isGate(d) && !byMode(d)).reduce((n, d) => Math.max(n, d.decided_at), 0);
+  return decisions.filter((d) => isGate(d) && !byMode(d) && !controlHold(d)).reduce((n, d) => Math.max(n, d.decided_at), 0);
 }

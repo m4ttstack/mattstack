@@ -15,6 +15,9 @@ export type ControlFail = { ok: false; code: ControlCode; error: string };
 
 export const REDO_NOTE_MAX = 2000;
 
+/** The decider the console's Pause and Redo record under. */
+export const CONSOLE_DECIDER = "console";
+
 export const CONTROL_MESSAGES = {
   "bad-note": "Redo needs a note for the worker",
   "not-mode": "only a gate a mode answered can be redone",
