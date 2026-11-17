@@ -204,6 +204,19 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(trusted).not.toContain("org-tool@acme");
       });
 
+      test("a superseded stock superpowers in a team list is skipped with one log line naming the replacement", () => {
+        seedOrg({ org: "acme", username: "dev1", roster, teams: { widgets: { "claude.plugins": ["superpowers@claude-plugins-official"] } } });
+        const made = makeCtx(fakeProbes({ home }));
+
+        const { trusted, teamAuthored } = computePlugins(made.ctx, null);
+
+        expect(trusted).not.toContain("superpowers@claude-plugins-official");
+        expect(teamAuthored).not.toContain("superpowers@claude-plugins-official");
+        const lines = made.logs.filter((l) => l.line.includes("superpowers@claude-plugins-official"));
+        expect(lines).toHaveLength(1);
+        expect(lines[0]!.line).toContain("superpowers@mattstack");
+      });
+
       test("a plugin listed only at user scope is enabled", () => {
         seedOrg({ org: "acme", username: "dev1", roster, teams: { widgets: {} } });
         setSetting("claude.plugins", ["mine@elsewhere"], "user");
@@ -518,7 +531,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
     });
 
-    test("superpowers installs as a trusted baseline plugin, its marketplace added right after rt's own and ahead of team/user sources", async () => {
+    test("mattstack's superpowers installs as a trusted baseline plugin; the marketplaces go rt's own first, then the official one, ahead of team/user sources", async () => {
       const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       setSetting("claude.marketplaces", ["https://example.com/extra-market"], "user");
@@ -541,9 +554,10 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const marketSrcs = execCalls.filter((a) => a.includes("marketplace") && a.includes("add")).map((a) => a.at(-1));
       expect(marketSrcs.slice(0, 2)).toEqual([MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE]);
 
-      expect(BASE_PLUGINS).toContain("superpowers@claude-plugins-official");
-      expect(execCalls.some((a) => a[2] === "install" && a.at(-1) === "superpowers@claude-plugins-official")).toBe(true);
-      expect(execCalls.some((a) => a[2] === "enable" && a.at(-1) === "superpowers@claude-plugins-official")).toBe(true);
+      expect(BASE_PLUGINS).toContain("superpowers@mattstack");
+      expect(execCalls.some((a) => a[2] === "install" && a.at(-1) === "superpowers@mattstack")).toBe(true);
+      expect(execCalls.some((a) => a[2] === "enable" && a.at(-1) === "superpowers@mattstack")).toBe(true);
+      expect(execCalls.some((a) => a.at(-1) === "superpowers@claude-plugins-official")).toBe(false);
     });
 
     test("a team that is not cloned yet adds no team marketplace", async () => {
@@ -598,7 +612,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
     }
 
-    test("a member already running superpowers from its author's own marketplace keeps that copy: no second superpowers is installed", async () => {
+    test("a member running superpowers from its author's own marketplace still gets mattstack's; plugins.install never touches their copy (the swap migration owns that)", async () => {
       const execCalls: string[][] = [];
       const p = fakeProbes({
         home,
@@ -614,8 +628,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
 
-      expect(execCalls.some((a) => a.at(-1) === "superpowers@claude-plugins-official")).toBe(false);
-      expect(execCalls.some((a) => a[2] === "update" && a[3] === "superpowers@superpowers-marketplace")).toBe(true);
+      expect(execCalls.some((a) => a[2] === "install" && a.at(-1) === "superpowers@mattstack")).toBe(true);
+      expect(execCalls.some((a) => a.at(-1) === "superpowers@superpowers-marketplace" || a[3] === "superpowers@superpowers-marketplace")).toBe(false);
       expect(readSetupState(p).plugins).not.toContain("superpowers@superpowers-marketplace");
     });
 
@@ -631,9 +645,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const state = readSetupState(p);
         expect(state.marketplaces).toContain(MATTSTACK_MARKETPLACE_SOURCE);
         expect(state.marketplaces).not.toContain(OFFICIAL_MARKETPLACE_SOURCE);
-        expect(state.plugins).toEqual(expect.arrayContaining(["mattstack@mattstack", "fast-browser@mattstack", "chat@mattstack"]));
+        expect(state.plugins).toEqual(expect.arrayContaining(["mattstack@mattstack", "fast-browser@mattstack", "chat@mattstack", "superpowers@mattstack"]));
         expect(state.plugins).not.toContain("superpowers@claude-plugins-official");
-        expect(execCalls.some((a) => a[2] === "update" && a[3] === "superpowers@claude-plugins-official")).toBe(true);
+        expect(execCalls.some((a) => a[3] === "superpowers@claude-plugins-official" || a.at(-1) === "superpowers@claude-plugins-official")).toBe(false);
       });
     }
 
@@ -683,7 +697,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(JSON.parse(p.readFile(join(generatedDir, ".claude-plugin", "marketplace.json"))!).plugins[0].source).toMatchObject({ source: "git-subdir", path: "mattstack/teams/acme-skills/plugin" });
 
       const pluginNames = installs.map((c) => c.argv.at(-1) ?? "");
-      expect(pluginNames).toEqual(expect.arrayContaining(["mattstack@mattstack", "fast-browser@mattstack", "chat@mattstack", "superpowers@claude-plugins-official", "acme-skills@acme-market"]));
+      expect(pluginNames).toEqual(expect.arrayContaining(["mattstack@mattstack", "fast-browser@mattstack", "chat@mattstack", "superpowers@mattstack", "acme-skills@acme-market"]));
 
       const state = readSetupState(p);
       expect([...state.marketplaces].sort()).toEqual([...marketSrcs].sort());
@@ -1220,7 +1234,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         "mattstack@mattstack": false, // a baseline plugin that drifted off
         "fast-browser@mattstack": true,
         "chat@mattstack": true,
-        "superpowers@claude-plugins-official": true,
+        "superpowers@mattstack": true,
       };
       const execCalls: string[][] = [];
       const p = fakeProbes({

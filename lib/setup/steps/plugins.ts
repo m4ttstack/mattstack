@@ -24,7 +24,7 @@ import { stripJsonc } from "../../jsonc.ts";
 import { getSetting, isSharedScope, type Provenance } from "../../settings/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
-import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
+import { BASE_PLUGINS, SUPERSEDED_PLUGINS, isSuperseded, resolveBasePlugin } from "../base-plugins.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import {
@@ -240,8 +240,13 @@ export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketpla
     const dropped = items.length - named.length;
     ctx.log("plugins.install", `claude.plugins: dropped ${dropped} non-string entr${dropped === 1 ? "y" : "ies"}`);
   }
-  const own = named.filter((item) => !sharedOnly(item.sources)).map((item) => item.value);
-  const shared = named.filter((item) => sharedOnly(item.sources)).map((item) => item.value);
+  const kept = named.filter((item) => {
+    if (!isSuperseded(item.value)) return true;
+    ctx.log("plugins.install", `claude.plugins: skipped ${item.value}; mattstack installs ${SUPERSEDED_PLUGINS[item.value]} instead`);
+    return false;
+  });
+  const own = kept.filter((item) => !sharedOnly(item.sources)).map((item) => item.value);
+  const shared = kept.filter((item) => sharedOnly(item.sources)).map((item) => item.value);
 
   const marketplaceName = teamMarketplace?.name ?? ctx.team.slug;
   const active = ctx.activeTeam ? ctx.activeTeam() : ctx.team.slug ? activeTeamFor(ctx.p, ctx.team.slug).team : null;
