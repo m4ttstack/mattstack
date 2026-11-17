@@ -684,6 +684,30 @@ describe("mcpTools", () => {
     });
   });
 
+  describe("mr_comment_inline dispatch", () => {
+    let calls: Array<{ cmd: string; payload: Record<string, unknown> }>;
+    afterEach(() => {
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: realRtCommand }));
+    });
+    beforeEach(() => {
+      calls = [];
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
+        ...realTransport,
+        rtCommand: async (cmd: string, payload: Record<string, unknown>) => {
+          calls.push({ cmd, payload });
+          return { ok: true, data: { discussionId: "d1", noteId: 1, verified: true } };
+        },
+      }));
+    });
+    test("a removed line goes to the daemon as oldLine alone", async () => {
+      const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+      const TARGET = { repoName: "remote:gitlab.example.com%2Facme%2Fwebapp", iid: 7 };
+      const out = await tool.handler({ ...TARGET, body: "x", path: "a.tsv", oldLine: 144 }, {} as NodeJS.ProcessEnv);
+      expect(out.ok, out.error).toBe(true);
+      expect(calls).toEqual([{ cmd: "mr:comment-inline", payload: { ...TARGET, body: "x", path: "a.tsv", oldLine: 144 } }]);
+    });
+  });
+
   describe("mr_review_submit", () => {
     let calls: Array<{ cmd: string; payload: Record<string, unknown>; timeoutMs?: number }>;
     let reply: () => unknown;
