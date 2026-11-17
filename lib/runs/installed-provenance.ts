@@ -8,7 +8,7 @@
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { basename, dirname, join, relative } from "path";
 import { readLock } from "../skills/compiled-lock.ts";
-import { activeMattstack, isHuskPack, parseStamp, pickRenderTree, renderRoot, STAMP_FILE, type RenderStamp } from "../skills/render-paths.ts";
+import { activeMattstack, isHuskPack, orgOfInstalledCopy, parseStamp, pickRenderTree, renderRoot, STAMP_FILE, type RenderStamp } from "../skills/render-paths.ts";
 import { generatedMarketplaceRef } from "../setup/generated-marketplace.ts";
 import { generatedMarketplaceDir, orgDir, orgDirUnder, orgsDirUnder, teamPackDir } from "../rt-paths.ts";
 import { childEnv } from "../subprocess.ts";
@@ -86,7 +86,8 @@ function huskStamp(packRoot: string, readFile: InstalledDeps["readFile"], cache?
   if (!cache || !isHuskPack(readFile, packRoot)) return null;
   const manifest = readJson(readFile, join(packRoot, MANIFEST_REL));
   if (typeof manifest?.name !== "string" || typeof manifest.version !== "string") return null;
-  const tree = pickRenderTree(cache, renderRoot(cache.home), manifest.name, manifest.version, activeMattstack({ ...cache, readFile }, cache.home)?.version ?? null);
+  const fs = { ...cache, readFile };
+  const tree = pickRenderTree(cache, renderRoot(cache.home), manifest.name, manifest.version, activeMattstack(fs, cache.home)?.version ?? null, orgOfInstalledCopy(fs, cache.home, packRoot));
   return tree === null ? null : parseStamp(readFile(join(tree, STAMP_FILE)));
 }
 

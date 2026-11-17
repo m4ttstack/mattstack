@@ -3,7 +3,7 @@ import { posix } from "path";
 import { UserActionableError } from "../errors.ts";
 import { compareVersions, findPluginVersionDirs, type PluginFs } from "./installed-plugins.ts";
 import { ID_RE, spellFrom, type PointerMap, type Target } from "./pointers.ts";
-import { activeMattstack, installedHuskIn, isHuskPack, pickRenderTree, renderRoot } from "./render-paths.ts";
+import { activeMattstack, installedHuskIn, isHuskPack, orgOfInstalledCopy, pickRenderTree, renderRoot, STAMP_FILE } from "./render-paths.ts";
 import { isIdSafeVersion, MAP_FILE } from "./unit-maps.ts";
 
 /** `realPath` is null for a path that does not exist. */
@@ -165,7 +165,17 @@ function highestInstalled(id: string, plugin: string, deps: ResolveDeps): string
   return held[0]!.versions.reduce((best, v) => (compareVersions(v, best) > 0 ? v : best));
 }
 
-function pluginUnit(id: string, plugin: string, version: string, unit: string, deps: ResolveDeps): Unit {
+/** The render tree (`<root>/<org>/<plugin>/<version>/<mattstack>`) a folder sits in; null outside the render root. */
+function renderTreeOfDir(dir: string, home: string): string | null {
+  const root = renderRoot(home);
+  const text = posix.normalize(dir);
+  if (!posix.isAbsolute(dir) || !within(root, text)) return null;
+  const [org, plugin, version, mattstack] = text.slice(root.length + 1).split("/");
+  return org && plugin && version && mattstack ? `${root}/${org}/${plugin}/${version}/${mattstack}` : null;
+}
+
+/** `loaded` is the render tree the caller's folder sits in: the render that supplied the body, which its pointers come from too. */
+function pluginUnit(id: string, plugin: string, version: string, unit: string, deps: ResolveDeps, loaded: string | null = null): Unit {
   const { fs, home } = deps;
   const roots = findPluginVersionDirs(fs, home, plugin, version);
   if (roots.length === 0) {
@@ -181,7 +191,7 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
   const owner = ownerWhy(plugin);
   const reads = unitReads(fs, root, unit);
   if (!reads.some(({ read }) => "map" in read) && isHuskPack(fs.readFile, root)) {
-    const tree = pickRenderTree(fs, renderRoot(home), plugin, version, activeMattstack(fs, home)?.version ?? null);
+    const tree = loaded !== null && fs.exists(`${loaded}/${STAMP_FILE}`) ? loaded : pickRenderTree(fs, renderRoot(home), plugin, version, activeMattstack(fs, home)?.version ?? null, orgOfInstalledCopy(fs, home, root));
     if (tree === null) {
       throw refuse("skills-resolve-not-rendered", `Load the skill first: call ${LOAD_SKILL}.`, `${plugin} ${version} commits only husks, and this Mac has not rendered it yet.`);
     }
@@ -262,11 +272,12 @@ export function resolvePointers(id: string, deps: ResolveDeps, dir?: string): Re
   } else {
     const [, plugin, stamped, leaf] = PLUGIN_ID_RE.exec(id)!;
     let version = stamped ?? (dir === undefined ? null : versionOfDir(id, plugin!, dir, deps));
+    const loaded = stamped === undefined && version !== null && dir !== undefined ? renderTreeOfDir(dir, deps.home) : null;
     if (version === null) {
       pinned = false;
       version = highestInstalled(id, plugin!, deps);
     }
-    unit = pluginUnit(id, plugin!, version, leaf!, deps);
+    unit = pluginUnit(id, plugin!, version, leaf!, deps, loaded);
   }
   const keys: Record<string, string> = {};
   for (const [key, target] of Object.entries(unit.map.keys)) keys[key] = targetPath(id, key, unit, target, deps);

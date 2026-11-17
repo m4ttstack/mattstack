@@ -466,6 +466,38 @@ describe("resolvePointers: husk packs", () => {
     expect(r.keys["work/x.sh"]).toBe(`${at}/skills/work/x.sh`);
   });
 
+  test("reads the render of the org whose clone publishes the installed copy's marketplace", () => {
+    const zeta = `${HOME}/.mattstack/rt/rendered/zeta/widgets/0.4.2/0.32.76`;
+    const fs = fakeFs(husk({
+      ...tree("0.32.76"),
+      ...widgetsFiles(zeta),
+      [`${zeta}/render.json`]: "{}",
+      [`${HOME}/.mattstack/orgs/zeta/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme" }),
+    }));
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).keys["work/scripts/x.sh"]).toBe(`${zeta}/skills/work/scripts/x.sh`);
+  });
+
+  test("a folder inside a render tree resolves against that tree, not the installed mattstack's", () => {
+    const active = `${CACHE}/mattstack/mattstack/0.32.80`;
+    const versionless = (mattstack: string) => {
+      const at = `${RENDERED}/${mattstack}`;
+      return {
+        [`${at}/render.json`]: "{}",
+        [`${at}/skills/work/SKILL.md`]: "",
+        [`${at}/skills/work/scripts/x.sh`]: "",
+        [`${at}/skills/work/compiled.json`]: map("widgets:work", "skills/work", { "work/scripts/x.sh": "skills/work/scripts/x.sh" }),
+      };
+    };
+    const fs = fakeFs(husk({
+      ...versionless("0.32.76"),
+      ...versionless("0.32.80"),
+      [`${active}/.claude-plugin/plugin.json`]: JSON.stringify({ version: "0.32.80" }),
+      [`${HOME}/.claude/plugins/installed_plugins.json`]: JSON.stringify({ version: 2, plugins: { "mattstack@mattstack": [{ scope: "user", installPath: active }] } }),
+    }));
+    const r = resolvePointers("widgets:work", { fs, home: HOME }, `${RENDERED}/0.32.76/skills/work`);
+    expect(r.keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/scripts/x.sh`);
+  });
+
   test("refuses a key outside the render tree", () => {
     const at = `${RENDERED}/0.32.76`;
     const fs = fakeFs(husk({

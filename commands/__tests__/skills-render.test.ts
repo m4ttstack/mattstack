@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { UserActionableError } from "../../lib/errors.ts";
 import { LOCK_REL, serializeLock } from "../../lib/skills/compiled-lock.ts";
@@ -154,6 +154,17 @@ describe("rt skills render", () => {
     const env = await render(w, "acme:work", "skills/work");
     expect(env).toMatchObject({ ok: true, treeDir: good.treeDir, body: good.body });
     expect(env.staleBecause).toContain("cannot be filled -- the manifest declares no pipelines");
+  });
+
+  test("a failed render never serves another org's tree of the same plugin and version", async () => {
+    const w = setup();
+    const good = await render(w, "acme:work", "skills/work");
+    const stray = join(w.root, "aaa-old", "acme", "0.1.0", "1.0.0");
+    cpSync(good.treeDir as string, stray, { recursive: true });
+    rmSync(good.treeDir as string, { recursive: true, force: true });
+    writeFile(join(w.packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-plan": { rules: "acme:nope" } } }));
+    const err = await refusal(w, "acme:work", "skills/work");
+    expect(err.message).toBe("acme 0.1.0 didn't render on this Mac.");
   });
 
   describe("a clone that moved on at the same version", () => {

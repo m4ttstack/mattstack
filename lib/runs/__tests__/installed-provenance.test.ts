@@ -71,6 +71,21 @@ describe("installedProvenance", () => {
     expect(installedProvenance(fromTree, deps).tokens).toEqual(["mattstack=0.32.80", "rt=1.5.0"]);
   });
 
+  test("reads the stamp of the render under the installed copy's own org", () => {
+    const home = tmp("rt-installed-husk-org-");
+    const cache = join(home, ".claude", "plugins", "cache");
+    const skillDir = installedSkill("0.4.11", {}, cache);
+    const packRoot = dirname(dirname(skillDir));
+    rmSync(join(packRoot, "pack", "compiled.lock.json"));
+    put(join(packRoot, "pack", "skills.jsonc"), '{ "husks": true }');
+    put(join(home, ".mattstack", "rt", "marketplaces", "zeta", ".claude-plugin", "marketplace.json"), JSON.stringify({ name: "acme-plugins" }));
+    const rendered = join(home, ".mattstack", "rt", "rendered");
+    put(join(rendered, "acme", "acme", "0.4.11", "0.32.76", "render.json"), JSON.stringify({ rtBuild: "v1.4.0", mattstack: "0.32.76", inputHash: "h" }));
+    put(join(rendered, "zeta", "acme", "0.4.11", "0.32.76", "render.json"), JSON.stringify({ rtBuild: "v1.5.0", mattstack: "0.32.76", inputHash: "h" }));
+    const deps = { ...realInstalledDeps(home), orgCloneFor: () => null };
+    expect(installedProvenance(skillDir, deps).tokens).toContain("rt=1.5.0");
+  });
+
   test("reads the data branch while the clone is on a trial branch", () => {
     const { dir, sync11 } = orgClone();
     moveToTrial(dir, sync11);

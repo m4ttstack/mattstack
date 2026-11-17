@@ -111,7 +111,7 @@ export async function skillsRender(args: string[], seams: RenderSeams = {}): Pro
   if (result.ok) tree = result;
   else {
     // Nothing renders this version now (the clone moved on, or the render failed); any tree a reader would pick still serves.
-    const picked = pickRenderTree(probes, renderRoot(home), plugin, packVersion, engine.version);
+    const picked = pickRenderTree(probes, renderRoot(home), plugin, packVersion, engine.version, zone.org);
     const stamp = picked === null ? null : parseStamp(probes.readFile(join(picked, STAMP_FILE)));
     if (picked !== null && stamp !== null) {
       tree = { dir: picked, stamp };
