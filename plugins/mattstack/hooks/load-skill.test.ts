@@ -89,6 +89,24 @@ test('tool.call returns result and context', async ($, on) => {
   expect(w.runs).toEqual([{ argv: ['rt', 'skills', 'render', 'acme:work', '--dir', DIR, '--json'], timeoutMs: 60_000 }])
 })
 
+test('a stale render says so in the result', async ($, on) => {
+  world(on, { rt: { exitCode: 0, stdout: JSON.stringify({ ...ENVELOPE, staleBecause: 'bindings.jsonc: acme:nope cannot be filled' }) } })
+  await start($)
+  const called = await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
+  expect(called).toMatchObject({
+    result: `Loaded acme:work (pack 0.1.0, mattstack 0.32.76): ${BODY.length} characters in 1 parts; served the last good render: bindings.jsonc: acme:nope cannot be filled`,
+    context: [BODY],
+  })
+})
+
+test("a failed render's deny carries its first compile error", async ($, on) => {
+  const failed = { error: { code: 'render-failed', message: "acme 0.1.0 didn't render on this Mac.", why: 'bindings.jsonc: acme:nope cannot be filled' } }
+  world(on, { rt: { exitCode: 2, stdout: JSON.stringify(failed) } })
+  await start($)
+  const called = await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
+  expect(called).toEqual({ deny: "acme 0.1.0 didn't render on this Mac. bindings.jsonc: acme:nope cannot be filled" })
+})
+
 test('falls back to ~/.local/bin/rt when rt is missing', async ($, on) => {
   const w = world(on, { [`${HOME}/.local/bin/rt`]: { exitCode: 0, stdout: JSON.stringify(ENVELOPE) } })
   await start($)

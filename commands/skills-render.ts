@@ -26,9 +26,12 @@ function flag(args: string[], name: string): string | undefined {
   return at === -1 ? undefined : args[at + 1];
 }
 
-function fail(code: string, message: string, opts: { next?: string; log?: string } = {}): UserActionableError {
-  return new UserActionableError(code, message, opts.next ? { next: opts.next } : {}, opts);
+/** `next` and `why` ride the envelope too: load_skill builds its deny from the envelope alone. */
+function fail(code: string, message: string, opts: { next?: string; why?: string; log?: string } = {}): UserActionableError {
+  return new UserActionableError(code, message, { ...(opts.next ? { next: opts.next } : {}), ...(opts.why ? { why: opts.why } : {}) }, opts);
 }
+
+const firstLine = (text: string) => text.split("\n").find((l) => l.trim() !== "")?.trim() ?? text;
 
 function pluginName(packDir: string): string | null {
   try {
@@ -87,16 +90,19 @@ export async function skillsRender(args: string[]): Promise<void> {
     ...(mattstackDir ? { mattstackDir } : { pluginRoots: withEngine(resolvePluginRoots(), engine) }),
   });
   let tree: { dir: string; stamp: RenderStamp };
+  let staleBecause: string | undefined;
   if (result.ok) tree = result;
   else {
-    // The clone has moved past the installed version, so nothing can render it; any tree a reader would pick still serves.
-    const picked = result.reason === "missing" ? pickRenderTree(probes, renderRoot(home), plugin, packVersion, engine.version) : null;
+    // Nothing renders this version now (the clone moved on, or the render failed); any tree a reader would pick still serves.
+    const picked = pickRenderTree(probes, renderRoot(home), plugin, packVersion, engine.version);
     const stamp = picked === null ? null : parseStamp(probes.readFile(join(picked, STAMP_FILE)));
-    if (picked !== null && stamp !== null) tree = { dir: picked, stamp };
-    else if (result.reason === "missing") throw fail("render-missing", `${plugin} ${packVersion} isn't rendered on this Mac.`, { next: SETUP, log: result.message });
+    if (picked !== null && stamp !== null) {
+      tree = { dir: picked, stamp };
+      if (result.reason === "render-failed") staleBecause = firstLine(result.message);
+    } else if (result.reason === "missing") throw fail("render-missing", `${plugin} ${packVersion} isn't rendered on this Mac.`, { next: SETUP, log: result.message });
     else if (result.builtWith !== undefined && compareVersions(result.builtWith, engine.version) > 0) {
       throw fail("render-engine-old", `${plugin} was built with mattstack ${result.builtWith}; this Mac has ${engine.version}.`, { next: SETUP, log: result.message });
-    } else throw fail("render-failed", `${plugin} ${packVersion} didn't render on this Mac.`, { log: result.message });
+    } else throw fail("render-failed", `${plugin} ${packVersion} didn't render on this Mac.`, { why: firstLine(result.message), log: result.message });
   }
 
   const folder = unitFolder(tree.dir, id, unit);
@@ -107,8 +113,9 @@ export async function skillsRender(args: string[]): Promise<void> {
   }
   const body = readFileSync(path, "utf8");
   if (json) {
-    out.json({ ok: true, id, packVersion, mattstack: tree.stamp.mattstack, rtBuild: tree.stamp.rtBuild, treeDir: tree.dir, path, body });
+    out.json({ ok: true, id, packVersion, mattstack: tree.stamp.mattstack, rtBuild: tree.stamp.rtBuild, treeDir: tree.dir, path, body, ...(staleBecause !== undefined ? { staleBecause } : {}) });
     return;
   }
+  if (staleBecause !== undefined) out.note(out.line("warn", `${plugin} ${packVersion} didn't render again, so this is the last good render`, staleBecause));
   out.payload(body);
 }

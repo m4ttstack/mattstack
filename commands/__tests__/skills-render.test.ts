@@ -121,12 +121,24 @@ describe("rt skills render", () => {
     expect(err.next).toBe("rt setup");
   });
 
-  test("other render failures carry the compile errors in log", async () => {
+  test("other render failures carry the compile errors in log, and the first one as why", async () => {
     const w = setup();
     writeFile(join(w.packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-plan": { rules: "acme:nope" } } }));
     const err = await refusal(w, "acme:work", "skills/work");
     expect(err.message).toBe("acme 0.1.0 didn't render on this Mac.");
     expect(err.log).toContain("cannot be filled -- the manifest declares no pipelines");
+    expect(err.why).toContain("cannot be filled -- the manifest declares no pipelines");
+    expect(err.why).not.toContain("\n");
+    expect(err.extra.why).toBe(err.why);
+  });
+
+  test("a failed re-render serves the last good render and names why", async () => {
+    const w = setup();
+    const good = await render(w, "acme:work", "skills/work");
+    writeFile(join(w.packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-plan": { rules: "acme:nope" } } }));
+    const env = await render(w, "acme:work", "skills/work");
+    expect(env).toMatchObject({ ok: true, treeDir: good.treeDir, body: good.body });
+    expect(env.staleBecause).toContain("cannot be filled -- the manifest declares no pipelines");
   });
 
   test("the id may follow the flags", async () => {

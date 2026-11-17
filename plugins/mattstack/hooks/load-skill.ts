@@ -19,7 +19,8 @@ type Envelope = {
   packVersion?: unknown
   mattstack?: unknown
   body?: unknown
-  error?: { code?: unknown; message?: unknown; next?: unknown }
+  staleBecause?: unknown
+  error?: { code?: unknown; message?: unknown; why?: unknown; next?: unknown }
 }
 
 /** Pieces of at most `max` characters, cut at line ends; a line longer than `max` is cut at `max`. */
@@ -101,12 +102,14 @@ async function loadSkill($: EngineInterface, input: { skill?: unknown; dir?: unk
   const env = outcome.env
   if (env.ok !== true || typeof env.body !== 'string') {
     const message = typeof env.error?.message === 'string' ? env.error.message : `${skill} didn't render.`
+    const why = typeof env.error?.why === 'string' ? ` ${env.error.why}` : ''
     const fix = typeof env.error?.next === 'string' ? ` Run ${env.error.next}, then call load_skill again.` : ''
-    return { deny: `${message}${fix}` }
+    return { deny: `${message}${why}${fix}` }
   }
   const pieces = splitPieces(env.body)
+  const stale = typeof env.staleBecause === 'string' ? `; served the last good render: ${env.staleBecause}` : ''
   return {
-    result: `Loaded ${String(env.id)} (pack ${String(env.packVersion)}, mattstack ${String(env.mattstack)}): ${env.body.length} characters in ${pieces.length} parts`,
+    result: `Loaded ${String(env.id)} (pack ${String(env.packVersion)}, mattstack ${String(env.mattstack)}): ${env.body.length} characters in ${pieces.length} parts${stale}`,
     context: pieces,
   }
 }
