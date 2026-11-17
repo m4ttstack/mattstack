@@ -919,6 +919,27 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       }
     });
 
+    test("a render that throws is a detail, never a failed install", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => (argv[2] === "list" ? ok("[]") : ok("")),
+      });
+      const { ctx, logs } = makeCtx(p);
+      pluginsTest.setRenderHusks(async () => {
+        throw new Error("render-packs failed to load");
+      });
+      try {
+        const outcome = await pluginsInstallStep.run(ctx);
+        expect(outcome.state).toBe("done");
+        expect(detailOf(outcome)).toContain(". Husk packs were not rendered; load_skill renders them when an agent asks");
+        expect(logs.some((l) => l.line === "render: render-packs failed to load")).toBe(true);
+      } finally {
+        pluginsTest.setRenderHusks(null);
+      }
+    });
+
     test("a repo no team pack declares is tallied as nothing to do, never as a failed materialize", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
