@@ -74,6 +74,19 @@ describe("rt skills render", () => {
     await expect(skillsRender(["acme:work", "--dir", join(w.installed, "skills/work"), "--mattstack-dir", w.mattstackDir, "--file", "../../render.json", "--json"])).rejects.toThrow(UserActionableError);
   });
 
+  test("a folder outside the pack says which folder to pass, not the usage", async () => {
+    const w = setup();
+    io = captureOut();
+    const err = await skillsRender(["acme:work", "--dir", join(w.home, "elsewhere"), "--mattstack-dir", w.mattstackDir, "--json"]).then(
+      () => { throw new Error("expected a refusal"); },
+      (e: unknown) => e as UserActionableError,
+    );
+    expect(err.code).toBe("render-bad-dir");
+    expect(err.next).toBeUndefined();
+    expect(err.why).toBe('Pass the loaded skill\'s own directory, the one its "Base directory for this skill" line names.');
+    expect(err.extra.why).toBe(err.why);
+  });
+
   test("missing tree when the clone is ahead", async () => {
     const w = setup();
     setPackVersion(w.packDir, "0.1.1");

@@ -72,7 +72,9 @@ export async function skillsRender(args: string[], seams: { pluginRoots?: () => 
   const probes = createRealProbes();
 
   const packVersion = stamped ?? versionOfDir(id, plugin, dir, { fs: realResolveFs, home });
-  if (packVersion === null) throw fail("render-bad-dir", `${dir} isn't inside an installed copy of ${plugin}.`, { next: USAGE });
+  if (packVersion === null) {
+    throw fail("render-bad-dir", `${dir} isn't inside an installed copy of ${plugin}.`, { why: 'Pass the loaded skill\'s own directory, the one its "Base directory for this skill" line names.' });
+  }
   const zone: ZoneInfo | undefined = readZones(probes, home).find((z) => pluginName(zonePackDir(z)) === plugin);
   if (!zone) throw fail("render-no-pack", `No org clone on this Mac carries the ${plugin} pack.`, { next: SETUP });
   const engine = mattstackDir ? resolvePluginRootsFromDir(mattstackDir).byName.mattstack : activeMattstack(probes, home);
