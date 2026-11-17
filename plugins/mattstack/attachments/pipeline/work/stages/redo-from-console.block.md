@@ -6,7 +6,10 @@ node: redo_from_console
 
 The operator sent the run back from the console to `next`. Read `note` as
 their instruction for that stage. `headCommit` is where the redone gate's
-step ended, so `git log <headCommit>..HEAD` is the work since.
+step ended, so `git log <headCommit>..HEAD` is the work since. When
+`headCommit` is null, the gate recorded no commit: find the commits since
+the stage at `next` last ran from `note` and the branch's log, and ask the
+operator when they are unclear.
 
 Decide per change in that log whether to revert it (`git revert`), rework
 it, or keep it, guided by `note`, and record each with normal commits on
