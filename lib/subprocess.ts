@@ -50,7 +50,7 @@ export function outputTail(output: string, maxChars: number): string {
  * grace) and settles as a failure, so a caller past its deadline stops paying
  * for a hung git child.
  */
-async function readLines(stream: ReadableStream<Uint8Array>, onLine: (line: string) => void): Promise<string> {
+async function readLines(stream: ReadableStream<Uint8Array>, onLine: (line: string) => void, onChunk?: (text: string) => void): Promise<string> {
   const decoder = new TextDecoder();
   let all = "";
   let pending = "";
@@ -59,6 +59,7 @@ async function readLines(stream: ReadableStream<Uint8Array>, onLine: (line: stri
   };
   for await (const chunk of stream) {
     const text = decoder.decode(chunk, { stream: true });
+    try { onChunk?.(text); } catch { /* a listener's failure never fails the run */ }
     all += text;
     pending += text;
     const lines = pending.split("\n");
@@ -83,10 +84,12 @@ export async function runCapture(
     signal?: AbortSignal;
     /** Each stderr line as it arrives; stderr is still captured whole. */
     onStderrLine?: (line: string) => void;
+    /** Each stderr chunk as it arrives, an unterminated last line included. */
+    onStderrChunk?: (text: string) => void;
   } = {},
 ): Promise<RunResult> {
   if (opts.signal?.aborted) return { stdout: "", stderr: "", exitCode: -1 };
-  const captureStderr = opts.stderr === "pipe" || opts.onStderrLine !== undefined;
+  const captureStderr = opts.stderr === "pipe" || opts.onStderrLine !== undefined || opts.onStderrChunk !== undefined;
   let proc: ReturnType<typeof Bun.spawn>;
   try {
     proc = Bun.spawn(argv, {
@@ -134,8 +137,8 @@ export async function runCapture(
       const stdoutPromise = new Response(proc.stdout as ReadableStream).text();
       const stderrPromise = !captureStderr
         ? Promise.resolve("")
-        : opts.onStderrLine
-          ? readLines(proc.stderr as ReadableStream<Uint8Array>, opts.onStderrLine)
+        : opts.onStderrLine || opts.onStderrChunk
+          ? readLines(proc.stderr as ReadableStream<Uint8Array>, opts.onStderrLine ?? (() => {}), opts.onStderrChunk)
           : new Response(proc.stderr as ReadableStream).text();
       const [stdout, stderr, exitCode] = await Promise.all([
         stdoutPromise,

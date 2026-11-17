@@ -28,10 +28,10 @@ import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { redactCredentials } from "../packages/rt-client/src/redact.ts";
-import { daemonQuery } from "../lib/daemon-client.ts";
+import { daemonQuery, daemonQueryAttributed } from "../lib/daemon-client.ts";
 import { runCapture } from "../lib/subprocess.ts";
 import { GENERATED_MARKER, loadInterceptRules, shimPath, shimReport, installShims, interceptsOutOfDate, uninstallShims } from "../lib/endpoint/shim.ts";
-import { runInterception, type RunDeps } from "../lib/endpoint/run.ts";
+import { claimWithRetry, runInterception, type RunDeps } from "../lib/endpoint/run.ts";
 
 function toStringEnv(env: Record<string, string | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -239,10 +239,14 @@ export async function interceptRun(args: string[]): Promise<void> {
     rules: loadInterceptRules(),
     gitToplevel,
     gitRemote,
-    claim: (payload) => daemonQuery("endpoint:claim", payload, 10_000),
+    claim: (payload) => claimWithRetry(() => daemonQueryAttributed("endpoint:claim", payload, 10_000)),
     execReal,
     resolveRealBinary,
     warn: interceptNote,
+    fail: (msg) => {
+      try { out.fail({ title: msg, next: out.cmd("rt daemon status") }); } catch { /* stderr is gone; still stop */ }
+      process.exit(1);
+    },
   };
 
   await runInterception(deps, command, forwardArgs, cwd, callerEnv, pid);
