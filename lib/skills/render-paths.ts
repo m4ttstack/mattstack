@@ -50,6 +50,19 @@ export function isHuskPack(readFile: (p: string) => string | null, packDir: stri
 
 type RegistryFs = TreeFs & { readFile(p: string): string | null };
 
+/**
+ * True when any org clone on this Mac carries a team pack that opts into
+ * husks, read from files alone, so the daemon asks before it loads the
+ * compile. Layouts 3 to 5 keep a team's pack at `mattstack/teams/<team>/plugin`.
+ */
+export function anyHuskPack(fs: RegistryFs, home: string): boolean {
+  const orgs = join(home, ".mattstack", "orgs");
+  return fs.readDir(orgs).some((org) => {
+    const teams = join(orgs, org, "mattstack", "teams");
+    return fs.readDir(teams).some((team) => isHuskPack(fs.readFile, join(teams, team, "plugin")));
+  });
+}
+
 function manifestVersion(fs: RegistryFs, dir: string): string | null {
   try {
     const version = (JSON.parse(fs.readFile(join(dir, ".claude-plugin", "plugin.json")) ?? "null") as { version?: unknown } | null)?.version;
