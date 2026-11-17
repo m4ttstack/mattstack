@@ -195,7 +195,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     if (set.ok) return ok(body);
     return err(
       `run ${String(runId)} started (runDb ${runDb}) but its gate mode was not recorded: ${set.error}. ` +
-      `Set it with run_field_set (key gate-mode, value ${gateMode}) on that runDb before continuing; do not start another run.`,
+      `Set it with run_field_set (key gate-mode, value ${gateMode}, stage start) on that runDb before continuing; do not start another run.`,
     );
   }
 

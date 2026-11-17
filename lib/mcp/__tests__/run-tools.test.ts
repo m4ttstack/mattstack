@@ -113,7 +113,7 @@ describe("run_start", () => {
       expect(res.ok).toBe(false);
       expect(res.error).toBe(
         "run x started (runDb /runs/repo/id/state.db) but its gate mode was not recorded: locked. " +
-        "Set it with run_field_set (key gate-mode, value quiet) on that runDb before continuing; do not start another run.",
+        "Set it with run_field_set (key gate-mode, value quiet, stage start) on that runDb before continuing; do not start another run.",
       );
       expect(fieldCalls(calls)).toHaveLength(2);
     });
@@ -513,7 +513,7 @@ describe("run_enter", () => {
       expect(res.ok).toBe(false);
       expect(res.error).toBe(
         "run x started (runDb /runs/r/id/state.db) but its gate mode was not recorded: locked. " +
-        "Set it with run_field_set (key gate-mode, value quiet) on that runDb before continuing; do not start another run.",
+        "Set it with run_field_set (key gate-mode, value quiet, stage start) on that runDb before continuing; do not start another run.",
       );
       expect(writes).toBe(2);
     });
