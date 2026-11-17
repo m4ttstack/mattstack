@@ -136,12 +136,12 @@ describe('submitGitLabReview', () => {
     expect(out).toEqual({
       published: false,
       reason: 'pending-drafts',
-      pending: { count: 2, firstLines: ['half a thought', 'another'] }
+      pending: { count: 2, firstLines: ['half a thought', 'another'], ids: [50, 51] }
     });
     expect(f.log).toEqual(['list']);
   });
 
-  describe('includePending', () => {
+  describe('includePendingIds', () => {
     const snapshotAtPublish = (f: ReturnType<typeof fake>) => {
       const seen: string[][] = [];
       const publish = f.deps.mutator.publishDraftNotes;
@@ -156,7 +156,7 @@ describe('submitGitLabReview', () => {
       const f = fake();
       f.seed([draft(50, { note: 'half a thought' })]);
       const seen = snapshotAtPublish(f);
-      const out = await submitGitLabReview(f.deps, { ...INPUT, includePending: true });
+      const out = await submitGitLabReview(f.deps, { ...INPUT, includePendingIds: [50] });
       expect(out.published).toBe(true);
       expect(seen[0]).toEqual(expect.arrayContaining(['half a thought', 'c1', 'c2']));
     });
@@ -169,8 +169,30 @@ describe('submitGitLabReview', () => {
         if (body === 'c2') throw new Error('boom');
         return create(p, i, body, opts);
       };
-      await expect(submitGitLabReview(f.deps, { ...INPUT, includePending: true })).rejects.toThrow(/review not posted/);
+      await expect(submitGitLabReview(f.deps, { ...INPUT, includePendingIds: [50] })).rejects.toThrow(/review not posted/);
       expect(f.pending().map((d) => d.id)).toEqual([50]);
+    });
+
+    test('a stale id list is refused before anything is created', async () => {
+      const f = fake();
+      f.seed([draft(50, { note: 'half a thought' }), draft(51, { note: 'written since' })]);
+      const out = await submitGitLabReview(f.deps, { ...INPUT, includePendingIds: [50] });
+      expect(out).toEqual({
+        published: false,
+        reason: 'pending-drafts',
+        pending: { count: 2, firstLines: ['half a thought', 'written since'], ids: [50, 51] }
+      });
+      expect(f.log).toEqual(['list']);
+    });
+
+    test('pending comments plus this review past one page are refused before anything is created', async () => {
+      const f = fake();
+      f.seed(Array.from({ length: 30 }, (_, i) => draft(500 + i)));
+      const comments = Array.from({ length: 80 }, (_, i) => ({ body: `c${i}`, path: 'src/a.ts', line: i + 1 }));
+      await expect(
+        submitGitLabReview(f.deps, { ...INPUT, comments, replies: [], includePendingIds: f.pending().map((d) => d.id) })
+      ).rejects.toThrow(/review not posted: .*30 pending comments.*100/);
+      expect(f.log).toEqual(['list']);
     });
 
     test("a timed-out create never mistakes the caller's comment for its own", async () => {
@@ -183,7 +205,7 @@ describe('submitGitLabReview', () => {
         if (body === 'c2' && tries++ === 0) throw Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' });
         return create(p, i, body, opts);
       };
-      const out = await submitGitLabReview(f.deps, { ...INPUT, includePending: true });
+      const out = await submitGitLabReview(f.deps, { ...INPUT, includePendingIds: [50] });
       expect(out.published).toBe(true);
       expect(seen[0]).toEqual(expect.arrayContaining(['half a thought', 'c1', 'c2']));
     });
@@ -276,6 +298,57 @@ describe('submitGitLabReview', () => {
     const out = await submitGitLabReview(f.deps, INPUT);
     expect(out.published).toBe(true);
     expect(published.filter((n) => n === 'c2')).toHaveLength(1);
+  });
+
+  test('a draft that appears during a timed-out create is not taken for it unless the body matches', async () => {
+    const f = fake();
+    const create = f.deps.mutator.createDraftNote;
+    let tries = 0;
+    f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+      if (body === 'c2' && tries++ === 0) {
+        f.seed([...f.pending(), draft(90, { note: 'typed in the GitLab UI meanwhile' })]);
+        throw timeout();
+      }
+      return create(p, i, body, opts);
+    };
+    const seen: string[][] = [];
+    const publish = f.deps.mutator.publishDraftNotes;
+    f.deps.mutator.publishDraftNotes = async (p, i, o) => {
+      seen.push(f.pending().map((d) => d.note));
+      return publish(p, i, o);
+    };
+    const out = await submitGitLabReview(f.deps, INPUT);
+    expect(out.published).toBe(true);
+    expect(seen[0]).toContain('c2');
+  });
+
+  test('a timed-out create that lands late is published once, not twice', async () => {
+    const f = fake();
+    const create = f.deps.mutator.createDraftNote;
+    let tries = 0;
+    f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+      if (body === 'c2' && tries++ === 0) {
+        // GitLab keeps going after the client gives up: the draft commits after the check.
+        const list = f.deps.mutator.listDraftNotes;
+        f.deps.mutator.listDraftNotes = async (pp, ii) => {
+          const now = await list(pp, ii);
+          f.deps.mutator.listDraftNotes = list;
+          await create(p, i, body, opts);
+          return now;
+        };
+        throw timeout();
+      }
+      return create(p, i, body, opts);
+    };
+    const seen: string[][] = [];
+    const publish = f.deps.mutator.publishDraftNotes;
+    f.deps.mutator.publishDraftNotes = async (p, i, o) => {
+      seen.push(f.pending().map((d) => d.note));
+      return publish(p, i, o);
+    };
+    const out = await submitGitLabReview(f.deps, INPUT);
+    expect(out.published).toBe(true);
+    expect(seen[0]!.filter((n) => n === 'c2')).toHaveLength(1);
   });
 
   test('a create that times out twice rolls back and says nothing was posted', async () => {

@@ -11,7 +11,7 @@ export interface ReviewSubmitInput {
   comments: ReviewSubmitComment[];
   replies: ReviewSubmitReply[];
   expectedHeadSha?: string;
-  includePending?: boolean;
+  includePendingIds?: number[];
 }
 
 /** glance's GitLab review allows no more: its pending check and rollback each read one 100-item page. */
@@ -30,7 +30,9 @@ export function parseReviewSubmit(
   if (!isText(p.summary)) return fail("summary must be a non-empty string");
   if (!Array.isArray(p.comments) || !Array.isArray(p.replies)) return fail("comments and replies must be arrays");
   if (p.expectedHeadSha !== undefined && !isFullSha(p.expectedHeadSha)) return fail("expectedHeadSha must be a full commit sha");
-  if (p.includePending !== undefined && typeof p.includePending !== "boolean") return fail("includePending must be a boolean");
+  if (p.includePendingIds !== undefined && !(Array.isArray(p.includePendingIds) && p.includePendingIds.length > 0 && p.includePendingIds.every(isPosInt))) {
+    return fail("includePendingIds must be a non-empty list of pending comment ids");
+  }
   if (p.comments.length + p.replies.length > MAX_ITEMS) {
     return fail(`at most ${MAX_ITEMS} comments and replies in total per review`);
   }
@@ -67,7 +69,7 @@ export function parseReviewSubmit(
     input: {
       outcome: p.outcome, summary: p.summary, comments, replies,
       ...(p.expectedHeadSha !== undefined ? { expectedHeadSha: p.expectedHeadSha as string } : {}),
-      ...(p.includePending !== undefined ? { includePending: p.includePending as boolean } : {}),
+      ...(p.includePendingIds !== undefined ? { includePendingIds: p.includePendingIds as number[] } : {}),
     },
   };
 }

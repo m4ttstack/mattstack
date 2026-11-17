@@ -1200,12 +1200,12 @@ export interface ReviewSubmission {
   summary: string;
   comments: ReviewComment[];
   replies: ReviewReply[];
-  /** GitLab: publish the caller's own pending comments with the review instead of refusing on them. */
-  includePending?: boolean;
+  /** GitLab: the caller's pending comment ids, from a `pending-drafts` refusal, to publish with the review. A different set is refused again. */
+  includePendingIds?: number[];
 }
 
 export type ReviewSubmitResult =
-  | { published: false; reason: 'pending-drafts'; pending: { count: number; firstLines: string[] } }
+  | { published: false; reason: 'pending-drafts'; pending: { count: number; firstLines: string[]; /** GitLab: the pending comment ids, to pass back as includePendingIds. */ ids?: number[] } }
   | {
       published: false;
       reason: 'bad-anchors';

@@ -925,7 +925,7 @@ export interface DiscussionsDiffsData { diffs: Array<{ newPath: string; diff: st
 export interface ReviewSubmitComment { body: string; path: string; line: number; oldPath?: string; oldLine?: number }
 export interface ReviewSubmitReply { discussionId: string; body?: string; resolve: boolean }
 export type ReviewSubmitData =
-  | { published: false; reason: "pending-drafts"; pending: { count: number; firstLines: string[] }; mrUrl: string }
+  | { published: false; reason: "pending-drafts"; pending: { count: number; firstLines: string[]; ids?: number[] }; mrUrl: string }
   | { published: false; reason: "bad-anchors"; badAnchors: Array<{ index: number; path: string; line: number }>; mrUrl: string }
   | { published: false; reason: "head-moved"; expectedHeadSha: string; headSha: string; mrUrl: string }
   | {
@@ -1246,7 +1246,7 @@ export interface Commands {
   "mr:review-submit": {
     payload: {
       repoName: string; iid: number; outcome: "comment" | "approve" | "request_changes"; summary: string;
-      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[]; expectedHeadSha?: string; includePending?: boolean;
+      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[]; expectedHeadSha?: string; includePendingIds?: number[];
     };
     data: ReviewSubmitData;
   };

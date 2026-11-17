@@ -727,11 +727,13 @@ describe("mcpTools", () => {
       expect(calls).toEqual([{ cmd: "mr:review-submit", payload: { ...TARGET, outcome: "comment", summary: "s", comments: [], replies: [] }, timeoutMs: 180_000 }]);
     });
 
-    test("passes includePending to the daemon only when asked", async () => {
-      await tool().handler({ ...TARGET, outcome: "comment", summary: "s", includePending: true }, {} as NodeJS.ProcessEnv);
-      expect(calls[0]!.payload.includePending).toBe(true);
-      expect((tool().inputSchema as { properties: Record<string, unknown> }).properties.includePending).toEqual({ type: "boolean" });
-      expect(tool().description).toContain("includePending");
+    test("passes includePendingIds to the daemon only when given", async () => {
+      await tool().handler({ ...TARGET, outcome: "comment", summary: "s", includePendingIds: [50] }, {} as NodeJS.ProcessEnv);
+      expect(calls[0]!.payload.includePendingIds).toEqual([50]);
+      await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect("includePendingIds" in calls[1]!.payload).toBe(false);
+      expect((tool().inputSchema as { properties: Record<string, unknown> }).properties.includePendingIds).toEqual({ type: "array", items: { type: "number" } });
+      expect(tool().description).toContain("includePendingIds");
     });
 
     test("sends request_changes to the daemon", async () => {

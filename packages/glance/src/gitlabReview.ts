@@ -74,17 +74,30 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
   }
 
   const before = await mutator.listDraftNotes(project, iid);
-  if (before.length > 0 && !review.includePending) {
+  // includePendingIds names the exact drafts the person agreed to post, from
+  // an earlier refusal; a set that has changed since is refused again.
+  const agreed = new Set(review.includePendingIds ?? []);
+  const sameSet = before.length === agreed.size && before.every((d) => agreed.has(d.id));
+  if (before.length > 0 && !sameSet) {
     return {
       published: false,
       reason: 'pending-drafts',
-      pending: { count: before.length, firstLines: pendingPreview(before.map((d) => d.note)) }
+      pending: {
+        count: before.length,
+        firstLines: pendingPreview(before.map((d) => d.note)),
+        ids: before.map((d) => d.id)
+      }
     };
+  }
+  if (before.length > 0 && (before.length >= MAX_ITEMS || before.length + items > MAX_ITEMS)) {
+    throw new Error(
+      `review not posted: ${items} comments and replies with ${before.length} pending comments exceed the limit of ${MAX_ITEMS}`
+    );
   }
 
   const created: number[] = [];
   // The caller's own pending comments, kept and published with the review
-  // under includePending, and never deleted or taken for this call's.
+  // under includePendingIds, and never deleted or taken for this call's.
   const theirs = new Set(before.map((d) => d.id));
   const deleteAll = async (ids: number[], firstError?: string): Promise<Rollback> => {
     let left = 0;
@@ -113,19 +126,30 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
     return deleteAll(ids);
   };
 
+  const ours = (d: { id: number }) => !created.includes(d.id) && !theirs.has(d.id);
+  const bodies = new Set<string>();
+  let anyTimedOut = false;
   /**
-   * A timed-out create may still have landed. Creates run one at a time, so a
-   * pending comment missing from `created` is this one, and only a create
-   * that left nothing behind is sent again.
+   * A timed-out create may still have landed, and GitLab can commit it after
+   * the client gave up. A pending comment that is not anyone's known one and
+   * carries this body is that create; anything else (a draft the person typed
+   * meanwhile) is never taken for it.
    */
   const create = async (body: string, opts: Parameters<GitLabReviewDeps['mutator']['createDraftNote']>[3]) => {
+    bodies.add(body);
     try {
       return await mutator.createDraftNote(project, iid, body, opts);
     } catch (err) {
       if (!isTimeout(err)) throw err;
-      const landed = (await mutator.listDraftNotes(project, iid)).find((d) => !created.includes(d.id) && !theirs.has(d.id));
+      anyTimedOut = true;
+      const landed = (await mutator.listDraftNotes(project, iid)).find((d) => ours(d) && d.note === body);
       return landed ?? (await mutator.createDraftNote(project, iid, body, opts));
     }
+  };
+  /** A late-committing timed-out create would otherwise publish a second copy. */
+  const dropLateCopies = async () => {
+    const late = (await mutator.listDraftNotes(project, iid)).filter((d) => ours(d) && bodies.has(d.note));
+    for (const d of late) await mutator.deleteDraftNote(project, iid, d.id);
   };
 
   const badAnchors: Array<{ index: number; path: string; line: number }> = [];
@@ -148,6 +172,7 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
         created.push(d.id);
       }
     }
+    if (anyTimedOut && badAnchors.length === 0) await dropLateCopies();
   } catch (err) {
     throw new Error(`review not posted: ${String(err)}${leftover(await rollback()) || '; rolled back, nothing was posted'}`);
   }
