@@ -1397,6 +1397,24 @@ describe("gate modes", () => {
     });
   });
 
+  test("a suffixed or plain proceed returns and records next as proceed, while the daemon gets the raw value", async () => {
+    for (const option of ["proceed (Recommended)", "proceed"]) {
+      const nextQ = { id: "next", label: "Next", multi: false, options: option === "proceed" ? [{ value: "proceed", label: "Proceed", recommended: true }, "hold"] : [option, "hold"] };
+      const f = fake({ ...QUIET, ...preAnswered("mode:quiet") });
+      const res = await askGate({ ...GATE, questions: [nextQ] }, HERDR, f.deps);
+      expect(f.asks[0]!.preAnswer).toEqual({ answers: { next: option }, by: "mode:quiet" });
+      expect(body(res)).toMatchObject({ status: "answered", next: "proceed", answers: { next: option } });
+      expect(f.log).toContain(recordLine("ci:ship:1", { next: "proceed" }, "mode:quiet"));
+    }
+  });
+
+  test("a suffixed iterate keeps its verb text and drops only the suffix", async () => {
+    const f = fake({ ...QUIET, ...preAnswered("mode:quiet") });
+    const nextQ = { id: "next", label: "Next", multi: false, options: ["done: shipped as is (Recommended)", "hold"] };
+    const res = await askGate({ ...GATE, questions: [nextQ] }, HERDR, f.deps);
+    expect(body(res).next).toBe("done: shipped as is");
+  });
+
   test("run field gate-mode beats the setting", async () => {
     const quietRun = fake({ gateMode: { mode: "chatty" }, fields: [WT, modeField("quiet")], ...preAnswered("mode:quiet") });
     await askGate(GATE, HERDR, quietRun.deps);

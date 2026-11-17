@@ -19,7 +19,7 @@ import { childEnv, runCapture } from "../subprocess.ts";
 import { earlierStages } from "../runs/engine.ts";
 import {
   actOnWriteIn, decisionForGate, nextOf, normalizeAnswers, postSelection, respondPlanSelection, respondPostSelection,
-  skipReason, writeInsOf,
+  skipReason, withPlainNext, writeInsOf,
   type AnswersMap, type DecisionRow, type PlanRow, type RecordShape,
 } from "../gates/record.ts";
 import { realRunToolDeps, runToolDefs, type RunToolDeps } from "./run-tools.ts";
@@ -354,8 +354,9 @@ export async function askGate(
 
   if (run && preAnswer && data.preAnswered === true) {
     const fields = answerFieldsOf(preAnswer.answers, preAnswer.by);
-    const failed = await run.decision(scope, fields.answers, preAnswer.by)
-      && await run.decision(scope, fields.answers, preAnswer.by);
+    const selection = withPlainNext(fields.answers);
+    const failed = await run.decision(scope, selection, preAnswer.by)
+      && await run.decision(scope, selection, preAnswer.by);
     return ok({ id: data.id, paneAction: "answered", status: "answered", ...fields, ...(failed ? { runErrors: [failed] } : {}) });
   }
 
@@ -476,7 +477,7 @@ async function recordDecision(
       } else if (o.shape === "post") {
         selection = postSelection(fields.answers, { source: o.source });
       } else {
-        selection = fields.answers;
+        selection = withPlainNext(fields.answers);
       }
       result.selection = selection;
       const failed = await run.decision(o.scope, selection, fields.decidedBy);

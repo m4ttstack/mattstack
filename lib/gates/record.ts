@@ -53,9 +53,25 @@ export function writeInsOf(a: AnswersMap): { question: string; text: string }[] 
   return out;
 }
 
+const RECOMMENDED_SUFFIX = /\(\s*recommended\s*\)\s*$/i;
+
+/** A string option's value can carry the recommended suffix, which the daemon checks against the options as written. */
+export function plainOptionValue(value: string): string {
+  return value.replace(RECOMMENDED_SUFFIX, "").trim();
+}
+
 export function nextOf(a: AnswersMap): string | null {
   const v = a.next === undefined ? undefined : answerValue(a.next);
-  return typeof v === "string" ? v : null;
+  return typeof v === "string" ? plainOptionValue(v) : null;
+}
+
+export function withPlainNext(a: AnswersMap): AnswersMap {
+  const n = a.next;
+  if (typeof n === "string") return { ...a, next: plainOptionValue(n) };
+  if (typeof n === "object" && !Array.isArray(n) && !isWriteIn(n) && typeof n.value === "string") {
+    return { ...a, next: { ...n, value: plainOptionValue(n.value) } };
+  }
+  return a;
 }
 
 export function actOnWriteIn(a: AnswersMap): boolean {
