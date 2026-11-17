@@ -222,7 +222,7 @@ async function withRunDbAsync(env: NodeJS.ProcessEnv, cwd: string, body: (run: R
 
 export type EngineOp =
   | { op: "enter"; args: string[]; packRoot: string; stage?: string; pipeline?: string; handedRunDb?: string; resume?: string; fresh?: boolean }
-  | { op: "next"; stage: string }
+  | { op: "next"; stage: string; attempt?: number }
   | { op: "resolve"; stage: string; next: ResolveNext; to?: string; note?: string; attempt?: number; decidedBy: string }
   | { op: "hold"; stage: string; reason?: string; decidedBy: string }
   | { op: "close"; workType: string; stage: string; outcome: "done" | "failed" | "abandoned"; reason?: string; detailPath?: string }
@@ -257,7 +257,7 @@ type Applied = { r: Ok<object> | Fail; adopts: boolean };
 function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: NodeJS.ProcessEnv): Applied {
   switch (op.op) {
     case "next": {
-      const r = nextStage(db, { stage: op.stage, env });
+      const r = nextStage(db, { stage: op.stage, attempt: op.attempt, env });
       const startedStage = r.ok && "next" in r && (r.ended === "redirected" || (r.ended === "done" && r.repeated !== true));
       return { r, adopts: startedStage };
     }

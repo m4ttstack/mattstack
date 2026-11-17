@@ -560,23 +560,72 @@ describe("nextStage applies a pending redo", () => {
   const tables = (db: Database) =>
     JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM decisions").all()]);
 
-  test("a retried run_next after a same-stage redo returns the same redirect, repeated", () => {
+  test("a retried run_next naming the redone attempt replays a same-stage redo and writes nothing", () => {
     const db = runAt("implement");
     redo(db, "implement", "implement");
-    const first = nextStage(db, { stage: "implement", env: {}, now: 200 });
+    const first = nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 200 });
     expect(first).toMatchObject({ ended: "redirected", next: { stage: "implement", attempt: 2, status: "running" } });
     const before = tables(db);
-    expect(nextStage(db, { stage: "implement", env: {}, now: 300 })).toEqual({ ...(first as object), repeated: true } as never);
+    expect(nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 300 })).toEqual({ ...(first as object), repeated: true } as never);
     expect(tables(db)).toBe(before);
   });
 
-  test("a run_next after a same-stage redo and a field write completes the new attempt", () => {
+  test("a replay naming the redone attempt survives an unrelated field write", () => {
+    const db = runAt("implement");
+    redo(db, "implement", "implement");
+    const first = nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 200 });
+    expect(fieldSet(db, "notes", "x", "implement", 250).ok).toBe(true);
+    const before = tables(db);
+    expect(nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 300 })).toEqual({ ...(first as object), repeated: true } as never);
+    expect(tables(db)).toBe(before);
+  });
+
+  test("naming the new attempt completes a no-produce stage that wrote nothing", () => {
+    const db = runAt("implement");
+    writeManifest(
+      db,
+      [
+        { stage: "plan", consumes: [], produces: ["approach"] },
+        { stage: "implement", consumes: ["approach"], produces: [] },
+        { stage: "self-review", consumes: [], produces: ["review"] },
+      ],
+      null,
+    );
+    redo(db, "implement", "implement");
+    expect(nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 200 })).toMatchObject({ ended: "redirected" });
+    expect(nextStage(db, { stage: "implement", attempt: 2, env: {}, now: 200 })).toMatchObject({ ok: true, ended: "done", next: { stage: "self-review" } });
+    expect(db.query("SELECT status FROM stages WHERE name = 'implement' AND attempt = 2").get()).toEqual({ status: "done" });
+  });
+
+  test("naming the redone attempt also replays a redo to an earlier stage", () => {
+    const db = runAt("implement");
+    redo(db, "plan", "implement");
+    const first = nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 200 });
+    expect(first).toMatchObject({ ended: "redirected", next: { stage: "plan", attempt: 2 } });
+    expect(nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 300 })).toEqual({ ...(first as object), repeated: true } as never);
+  });
+
+  test("an attempt that is neither current nor a redone one is refused as stale", () => {
+    const db = runAt("implement");
+    redo(db, "implement", "implement");
+    expect(nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 200 })).toMatchObject({ ended: "redirected" });
+    const before = tables(db);
+    expect(nextStage(db, { stage: "implement", attempt: 3, env: {}, now: 300 })).toEqual({
+      ok: false,
+      code: 2,
+      error: "stage implement is at attempt 2; this call was for attempt 3",
+    });
+    expect(tables(db)).toBe(before);
+    const own = runAt("implement");
+    expect(resolveStage(own, { stage: "implement", next: "iterate", note: "again", decidedBy: "pane", env: {}, now: 200 })).toMatchObject({ ok: true });
+    expect(nextStage(own, { stage: "implement", attempt: 1, env: {}, now: 300 })).toMatchObject({ ok: false, code: 2 });
+  });
+
+  test("without an attempt, a retried run_next after a same-stage redo completes the new attempt as before", () => {
     const db = runAt("implement");
     redo(db, "implement", "implement");
     expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "redirected" });
-    expect(fieldSet(db, "commits", "c2", "implement", 250).ok).toBe(true);
-    expect(nextStage(db, { stage: "implement", env: {}, now: 300 })).toMatchObject({ ok: true, ended: "done", next: { stage: "self-review" } });
-    expect(db.query("SELECT status FROM stages WHERE name = 'implement' AND attempt = 2").get()).toEqual({ status: "done" });
+    expect(nextStage(db, { stage: "implement", env: {}, now: 300 })).toMatchObject({ ok: true, ended: "failed", missing: ["commits"] });
   });
 
   test("a run_next after the worker's own same-stage redirect completes the new attempt as before", () => {

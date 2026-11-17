@@ -1707,6 +1707,11 @@ Read how a stage ended and move the run on: starts the next stage when every pro
     },
     "stage": {
       "type": "string"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The attempt this stage call is finishing, from run_enter's or the last run_next's result; lets a retried call after a lost reply get the same answer."
     }
   },
   "required": [

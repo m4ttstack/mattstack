@@ -211,6 +211,14 @@ describe("runEngineOp", () => {
     });
   });
 
+  test("next carries its attempt to the engine", async () => {
+    const { root, pack } = fixture();
+    const quiet = { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    const { runDb } = JSON.parse((await runEngineOp(enterOp(pack), quiet)).out) as { runDb: string };
+    const r = await runEngineOp({ op: "next", stage: "plan", attempt: 2 }, { ...quiet, RT_RUN_DB: runDb }, "/");
+    expect(JSON.parse(r.out)).toMatchObject({ ok: false, error: "stage plan is at attempt 1; this call was for attempt 2" });
+  });
+
   test("close closes a standalone run and refuses a work-type mismatch", async () => {
     const { root, pack } = fixture();
     const quiet = { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;

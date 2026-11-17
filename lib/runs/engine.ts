@@ -229,7 +229,7 @@ export function parseRedo(value: string | null | undefined): RedoRequest | null 
   return { gate: r.gate as string, to: r.to as string, note: r.note as string, headCommit: r.headCommit as string | null, by: r.by as string, at: r.at };
 }
 
-export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessEnv; now?: number }): Ok<NextResult> | Fail {
+export function nextStage(db: Database, o: { stage: string; attempt?: number; env: NodeJS.ProcessEnv; now?: number }): Ok<NextResult> | Fail {
   const now = o.now ?? Date.now();
   try {
     return db.transaction((): Ok<NextResult> | Fail => {
@@ -251,6 +251,12 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
           `stage ${o.stage} is not the run's current stage (current stage ${run.current_stage ?? "none"}; ${o.stage} ${row ? `is ${row.status}` : "was never started"})`,
         );
       if (!row) return mismatch();
+      if (o.attempt !== undefined && o.attempt !== row.attempt) {
+        return (
+          redoReplay(db, manifest, run.current_stage, o.stage, o.attempt) ??
+          refuse(`stage ${o.stage} is at attempt ${row.attempt}; this call was for attempt ${o.attempt}`)
+        );
+      }
 
       const earlier = (): string[] =>
         earlierStages(manifest, index, (stage) => db.query("SELECT 1 FROM stages WHERE name = ? LIMIT 1").get(stage) != null);
@@ -278,25 +284,8 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
         if (following && run.current_stage === following.stage && positionOf(db, following.stage)?.status === "running") return finished(true);
         return mismatch();
       }
-      if (row.status === "redirected") {
-        const applied = appliedRedo(db, o.stage, row.attempt);
-        const next = applied ? positionOf(db, applied.to) : null;
-        if (!applied || !next || run.current_stage !== applied.to || next.status !== "running") return mismatch();
-        return {
-          ok: true,
-          ended: "redirected",
-          from: o.stage,
-          next,
-          note: applied.reason,
-          headCommit: applied.headCommit,
-          gate: applied.gate,
-          cleared: redirectClears(manifest, applied.to),
-          repeated: true,
-        };
-      }
+      if (row.status === "redirected") return redoReplay(db, manifest, run.current_stage, o.stage, row.attempt) ?? mismatch();
       if (row.status !== "running" || run.current_stage !== o.stage) return mismatch();
-      const replayed = sameStageRedoReplay(db, manifest, o.stage, row);
-      if (replayed) return replayed;
 
       const since = row.started_at ?? 0;
       const at = positionOf(db, o.stage)!;
@@ -387,33 +376,20 @@ function appliedRedo(db: Database, stage: string, attempt: number): { to: string
   return { to: s.to, reason: s.reason, gate: s.gate, headCommit: typeof s.headCommit === "string" ? s.headCommit : null };
 }
 
-/** A console Redo to the stage it was on ends attempt N and starts N+1 in one call, so a
-    lost response leaves the worker repeating run_next on N+1. It counts as that repeat only
-    while N+1 has seen no write since the redirect (the redirect's own writes share its start
-    time): any later field, decision or stage row means the worker did the redo's work, and
-    the call completes N+1 normally. A worker's own redirect carries no gate and never replays. */
-function sameStageRedoReplay(db: Database, manifest: ManifestStage[], stage: string, row: StageRow): Ok<NextResult> | null {
-  if (row.attempt < 2 || row.started_at === null) return null;
-  const left = row.attempt - 1;
-  const prev = db.query("SELECT status FROM stages WHERE name = ? AND attempt = ?").get(stage, left) as { status: StageStatus } | undefined;
-  if (prev?.status !== "redirected") return null;
-  const applied = appliedRedo(db, stage, left);
-  if (!applied || applied.to !== stage) return null;
-  const decided = db.query("SELECT decided_at FROM decisions WHERE contract = 'gate@1' AND scope = ?").get(`redirect:${stage}:${left}`) as { decided_at: number };
-  const wroteSince =
-    db.query("SELECT 1 FROM fields WHERE at > ? LIMIT 1").get(row.started_at) != null ||
-    db.query("SELECT 1 FROM decisions WHERE decided_at > ? LIMIT 1").get(decided.decided_at) != null ||
-    db.query("SELECT 1 FROM stages WHERE started_at > ? LIMIT 1").get(row.started_at) != null;
-  if (wroteSince) return null;
+/** Replays the console Redo that redirected `attempt`, while the run still sits at its target. */
+function redoReplay(db: Database, manifest: ManifestStage[], currentStage: string | null, stage: string, attempt: number): Ok<NextResult> | null {
+  const applied = appliedRedo(db, stage, attempt);
+  const next = applied ? positionOf(db, applied.to) : null;
+  if (!applied || !next || currentStage !== applied.to || next.status !== "running") return null;
   return {
     ok: true,
     ended: "redirected",
     from: stage,
-    next: positionOf(db, stage)!,
+    next,
     note: applied.reason,
     headCommit: applied.headCommit,
     gate: applied.gate,
-    cleared: redirectClears(manifest, stage),
+    cleared: redirectClears(manifest, applied.to),
     repeated: true,
   };
 }

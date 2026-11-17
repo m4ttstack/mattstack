@@ -391,12 +391,28 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     {
       name: "run_next",
       description: "Read how a stage ended and move the run on: starts the next stage when every produce is set, or reports failed, held, waiting, redirected (an operator's Redo moved the run back to an earlier stage, with their note and the commit the gate recorded) or the last stage. It returns results and opens no gates.",
-      inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, stage: { type: "string" } }, required: ["stage"], additionalProperties: false },
+      inputSchema: {
+        type: "object",
+        properties: {
+          ...RUN_DB_PROPS,
+          stage: { type: "string" },
+          attempt: {
+            type: "integer",
+            minimum: 1,
+            description: "The attempt this stage call is finishing, from run_enter's or the last run_next's result; lets a retried call after a lost reply get the same answer.",
+          },
+        },
+        required: ["stage"],
+        additionalProperties: false,
+      },
       shellForms: NO_VERB,
       async handler(input, env) {
-        const bad = checkRequired(input, [{ name: "stage", type: "string" }]);
+        const bad = checkRequired(input, [{ name: "stage", type: "string" }]) ?? checkOptional(input, [{ name: "attempt", type: "number" }]);
         if (bad) return err(bad);
-        return engine({ op: "next", stage: input.stage as string }, input, env);
+        if (input.attempt !== undefined && (!Number.isInteger(input.attempt) || (input.attempt as number) < 1)) return err('"attempt" must be an integer of at least 1');
+        const op: EngineOp = { op: "next", stage: input.stage as string };
+        if (typeof input.attempt === "number") op.attempt = input.attempt;
+        return engine(op, input, env);
       },
     },
     {
