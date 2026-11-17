@@ -303,15 +303,39 @@ describe("gitPush and a slow pre-push hook", () => {
     expect(timeouts[PUSH]).toBeGreaterThanOrEqual(600_000);
     expect(timeouts["rev-parse --verify HEAD"]).toBeUndefined();
   });
-  test("a push that times out says so and keeps what the hook printed", async () => {
-    const scripted = fakeGit(onFeature);
-    const git: GitRunner = async (args, cwd) =>
+  const LS_REMOTE = "ls-remote --end-of-options origin refs/heads/feat/x";
+  const timingOut = (script: Script): GitRunner => {
+    const scripted = fakeGit({ ...onFeature, ...script });
+    return async (args, cwd) =>
       args.join(" ") === PUSH ? { code: -1, stdout: "", stderr: "lintBranch: running lint:diff", timedOut: true } : scripted(args, cwd);
-    const r = await gitPush("/t", {}, git);
+  };
+  test("a push that times out with nothing on the remote says so and keeps what the hook printed", async () => {
+    const r = await gitPush("/t", {}, timingOut({ [LS_REMOTE]: { stdout: "" } }));
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/^git push timed out after \d+s/);
-    expect(r.error).toContain("pre-push hook");
+    expect(r.error).toContain("the remote does not have it");
     expect(r.error).toContain("lintBranch: running lint:diff");
+  });
+  test("a push that timed out after the remote took the commit reports it pushed", async () => {
+    const r = await gitPush("/t", {}, timingOut({ [LS_REMOTE]: { stdout: "abc1234\trefs/heads/feat/x\n" } }));
+    expect(r.ok, r.error).toBe(true);
+    expect(r.body).toMatchObject({ pushed: true, sha: "abc1234", landedAfterTimeout: true });
+  });
+  test("a push that timed out where the remote cannot be read says it may have landed", async () => {
+    const r = await gitPush("/t", {}, timingOut({ [LS_REMOTE]: { code: 128, stderr: "fatal: unable to access" } }));
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("may have landed");
+  });
+  test("a cancelled call reaches the push", async () => {
+    const seen: Array<AbortSignal | undefined> = [];
+    const scripted = fakeGit({ ...onFeature, [PUSH]: {} });
+    const git: GitRunner = async (args, cwd, opts) => {
+      if (args[0] === "push") seen.push(opts?.signal);
+      return scripted(args, cwd);
+    };
+    const signal = new AbortController().signal;
+    await gitPush("/t", { signal }, git);
+    expect(seen).toEqual([signal]);
   });
   test("realGitRunner keeps the stderr a hook printed before the deadline", async () => {
     const dir = mkdtempSync(join(tmpdir(), "git-push-slow-hook-"));

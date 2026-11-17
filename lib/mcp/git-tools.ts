@@ -29,7 +29,7 @@ export function syncChildEnv(base: Record<string, string | undefined>, cwd: stri
 }
 
 /** `env` adds keys to the child's environment for this one call. */
-export type GitRunner = (args: string[], cwd: string, opts?: { env?: Record<string, string>; timeoutMs?: number }) => Promise<{ code: number; stdout: string; stderr: string; timedOut?: boolean }>;
+export type GitRunner = (args: string[], cwd: string, opts?: { env?: Record<string, string>; timeoutMs?: number; signal?: AbortSignal }) => Promise<{ code: number; stdout: string; stderr: string; timedOut?: boolean }>;
 
 const GIT_TIMEOUT_MS = 120_000;
 // A repo's pre-push hook runs inside the push and can lint for minutes.
@@ -39,7 +39,7 @@ export const gitRunnerWith = (extra: Record<string, string>): GitRunner => async
   // runCapture drops its captured output on a timeout, so the lines are kept
   // as they arrive to say what was running when the deadline hit.
   const lines: string[] = [];
-  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: opts?.timeoutMs ?? GIT_TIMEOUT_MS, onStderrLine: (l) => lines.push(l), env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra, ...opts?.env }) });
+  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: opts?.timeoutMs ?? GIT_TIMEOUT_MS, signal: opts?.signal, onStderrLine: (l) => lines.push(l), env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra, ...opts?.env }) });
   if (r.timedOut) return { code: r.exitCode, stdout: r.stdout, stderr: lines.join("\n"), timedOut: true };
   return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
@@ -120,7 +120,7 @@ async function priorPipeline(openMr: (branch: string) => Promise<OpenMrLookup>, 
 // upstream; an explicit refspec pushes exactly one ref either way.
 export async function gitPush(
   cwd: string,
-  opts: { forceWithLease?: boolean; setUpstream?: boolean; /** Push this commit, not HEAD, so a moved HEAD cannot send what was never checked. */ sha?: string },
+  opts: { forceWithLease?: boolean; setUpstream?: boolean; /** Push this commit, not HEAD, so a moved HEAD cannot send what was never checked. */ sha?: string; signal?: AbortSignal },
   git: GitRunner,
   openMr?: (branch: string) => Promise<OpenMrLookup>,
 ): Promise<ToolResult> {
@@ -165,14 +165,22 @@ export async function gitPush(
   const head = await git(["rev-parse", "--verify", "HEAD"], cwd);
   if (head.code !== 0) return err(`git rev-parse --verify HEAD failed: ${detail(head)}`);
   const before = openMr ? await priorPipeline(openMr, branch) : {};
-  const r = await git(args, cwd, { timeoutMs: PUSH_TIMEOUT_MS });
+  const sha = opts.sha || head.stdout.trim();
+  const r = await git(args, cwd, { timeoutMs: PUSH_TIMEOUT_MS, signal: opts.signal });
+  let landedAfterTimeout = false;
   if (r.timedOut) {
+    // The hook runs before the pack is sent, so a kill late in the transfer
+    // can land after the remote already moved the branch.
     const sofar = detail(r);
-    return err(`git push timed out after ${PUSH_TIMEOUT_MS / 1000}s, with a pre-push hook possibly still running; nothing is known to have reached the remote${sofar ? `. Last output: ${sofar}` : ""}`);
-  }
-  if (r.code !== 0) return err(`git push failed: ${detail(r)}`);
+    const last = sofar ? `. Last output: ${sofar}` : "";
+    const timedOut = `git push timed out after ${PUSH_TIMEOUT_MS / 1000}s, with a pre-push hook possibly still running`;
+    const remoteHead = await git(["ls-remote", "--end-of-options", remote, `refs/heads/${remoteBranch}`], cwd);
+    if (remoteHead.code !== 0) return err(`${timedOut}; the remote could not be read, so it may have landed; check before pushing again${last}`);
+    if (remoteHead.stdout.split(/\s/)[0] !== sha) return err(`${timedOut}; the remote does not have it${last}`);
+    landedAfterTimeout = true;
+  } else if (r.code !== 0) return err(`git push failed: ${detail(r)}`);
   const tracking = opts.sha && opts.setUpstream ? await writeUpstream(cwd, git, branch, remote, remoteBranch) : {};
-  return ok({ pushed: true, branch, sha: opts.sha || head.stdout.trim(), forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...before, ...tracking });
+  return ok({ pushed: true, branch, sha, forceWithLease: opts.forceWithLease === true, upstream: `${remote}/${remoteBranch}`, ...(landedAfterTimeout && { landedAfterTimeout: true }), ...before, ...tracking });
 }
 
 // git's -u records nothing for a bare sha source, so a pinned push writes the
@@ -754,7 +762,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
           }
         }
         if (signal?.aborted) return err("git_push was cancelled before the push; nothing was pushed");
-        const pushed = await gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true, ...(checkedSha && { sha: checkedSha }) }, deps.git, (branch) => deps.openMr(repoName, branch));
+        const pushed = await gitPush(path, { forceWithLease: input.forceWithLease === true, setUpstream: input.setUpstream === true, ...(checkedSha && { sha: checkedSha }), ...(signal && { signal }) }, deps.git, (branch) => deps.openMr(repoName, branch));
         if (!pushed.ok || pushed.body === null || typeof pushed.body !== "object") return pushed;
         const body = pushed.body as { sha: string };
         if (run) await postPushed(run, path, body.sha, deps);
