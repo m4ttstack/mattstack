@@ -315,12 +315,52 @@ function buildGate(raw: RawGate): GateRow {
   };
 }
 
+/** `runs-modes`: the `runs` data with WEB-412 in the quiet mode, two of its
+    gates answered by it, and WEB-397 paused from the console. */
+const MODE_GATES = new Set(['g-412-scope', 'g-412-proceed']);
+const MODE_FIELDS: Record<string, [key: string, value: string, by: string][]> =
+  {
+    '20261008-1338': [['gate-mode', 'quiet', 'run']],
+    '20260930-1323': [
+      ['gate-mode', 'normal', 'run'],
+      ['hold', 'paused from the console', 'console'],
+    ],
+  };
+
+function withModeFields(raw: RawRun): RawRun {
+  const extra = MODE_FIELDS[raw.run.id];
+  if (!extra) return raw;
+  const at = raw.fields.at(-1)?.at ?? raw.run.started_at;
+  return {
+    ...raw,
+    fields: [
+      ...raw.fields,
+      ...extra.map(([key, value, by]) => ({ key, value, produced_by: by, at })),
+    ],
+  };
+}
+
+function withModeAnswer(gate: RawGate): RawGate {
+  if (!MODE_GATES.has(gate.id) || !gate.answer) return gate;
+  const answer = { ...gate.answer, by: 'mode:quiet' } as typeof gate.answer & {
+    overridden?: boolean;
+  };
+  delete answer.overridden;
+  return {
+    ...gate,
+    meta: { ...gate.meta, headCommit: '4f1c2ab9e0', reach: 'worktree' },
+    answer,
+  };
+}
+
 export function runsFixture(scenario: FixtureScenario): RunsFixture {
   const index = () => readRuns<Index>('runs.json');
+  const modes = scenario === 'runs-modes';
+  const data: FixtureScenario = modes ? 'runs' : scenario;
 
   async function scope() {
     const ix = await index();
-    const set = ix.scenarios[scenario] ?? { listed: [], hidden: [] };
+    const set = ix.scenarios[data] ?? { listed: [], hidden: [] };
     return {
       ix,
       listed: new Set(set.listed),
@@ -330,7 +370,8 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
 
   async function load(runId: string): Promise<RunDetail> {
     const ix = await index();
-    return buildDetail(await readRuns<RawRun>(`run-${runId}.json`), ix.repo);
+    const raw = await readRuns<RawRun>(`run-${runId}.json`);
+    return buildDetail(modes ? withModeFields(raw) : raw, ix.repo);
   }
 
   async function getRun(repo: string, runId: string) {
@@ -342,7 +383,9 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
 
   async function allGates(): Promise<GateRow[]> {
     const { gates } = await readRuns<{ gates: RawGate[] }>('gates.json');
-    return gates.map(buildGate).sort((a, b) => a.openedAt - b.openedAt);
+    return gates
+      .map(g => buildGate(modes ? withModeAnswer(g) : g))
+      .sort((a, b) => a.openedAt - b.openedAt);
   }
 
   async function fileOf(path: string): Promise<FixtureEvidence | null> {
@@ -375,7 +418,7 @@ export function runsFixture(scenario: FixtureScenario): RunsFixture {
 
   return {
     outage: scenario === 'runs-outage',
-    usage: scenario === 'runs-empty' ? emptyUsageFixture() : usageFixture(),
+    usage: data === 'runs-empty' ? emptyUsageFixture() : usageFixture(),
 
     async asOf(runId) {
       const { clock } = await index();

@@ -42,6 +42,23 @@ const answered = (by: string | undefined): GateRow =>
     answer: { answers: {}, by: by as string, answeredAt: 5 },
   });
 
+describe('a mode as the decider', () => {
+  it('reads mode:<mode> as that mode, not you', () => {
+    expect(answeredBy(answered('mode:quiet'))).toEqual({
+      you: false,
+      via: 'mode',
+      mode: 'quiet',
+    });
+  });
+
+  it('stamps and explains the mode', () => {
+    expect(answerStamp(answered('mode:quiet'))).toMatch(/^quiet mode · /);
+    expect(answerSurface(answered('mode:quiet'))).toBe(
+      'The quiet mode answered this without asking you'
+    );
+  });
+});
+
 describe('answeredBy', () => {
   it.each(['console', 'pane', 'board'] as const)('%s is you', via => {
     expect(answeredBy(answered(via))).toEqual({ you: true, via });

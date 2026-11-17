@@ -38,39 +38,62 @@ export function useGateRedo(gate: GateRow): {
   note: ReactNode;
 } {
   const run = useContext(ModeRunContext);
-  const { redo } = useModeControls(run?.repo ?? '', run?.runId ?? '');
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const stage = typeof gate.meta?.stage === 'string' ? gate.meta.stage : null;
   const headCommit =
     typeof gate.meta?.headCommit === 'string' ? gate.meta.headCommit : null;
   const canRedo = Boolean(run?.canControl && stage && modeOf(gate) !== null);
-  const send = async (note: string) => {
-    const err = await redo(gate.id, note);
-    if (err) setError(err);
-    else {
-      setOpen(false);
-      setError(null);
-    }
-  };
   return {
     canRedo,
     open,
-    toggle: () => {
-      setOpen(o => !o);
-      setError(null);
-    },
+    toggle: () => setOpen(o => !o),
     note:
-      canRedo && open && stage ? (
-        <RedoNote
+      run && canRedo && open && stage ? (
+        <GateRedoNote
+          repo={run.repo}
+          runId={run.runId}
+          gate={gate.id}
           step={stage}
           headCommit={headCommit}
-          error={error}
-          onSend={n => void send(n)}
-          onCancel={() => setOpen(false)}
+          onClose={() => setOpen(false)}
         />
       ) : null,
   };
+}
+
+/** A story record's open Redo note; it talks to the console only once
+    opened. */
+function GateRedoNote({
+  repo,
+  runId,
+  gate,
+  step,
+  headCommit,
+  onClose,
+}: {
+  repo: string;
+  runId: string;
+  gate: string;
+  step: string;
+  headCommit: string | null;
+  onClose: () => void;
+}) {
+  const { redo } = useModeControls(repo, runId);
+  const [error, setError] = useState<string | null>(null);
+  const send = async (note: string) => {
+    const err = await redo(gate, note);
+    if (err) setError(err);
+    else onClose();
+  };
+  return (
+    <RedoNote
+      step={step}
+      headCommit={headCommit}
+      error={error}
+      onSend={n => void send(n)}
+      onCancel={onClose}
+    />
+  );
 }
 
 /** The run page's notice while a console Pause is on its way or has

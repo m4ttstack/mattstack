@@ -2,7 +2,41 @@ import type { GateRow, RunSummary } from '@mattstack/rt-client';
 import { describe, expect, it } from 'vitest';
 
 import { decisionText } from './day';
-import { modeFeed, modeOf } from './modeFeed';
+import { modeFeed, modeOf, pauseStateOf, runModeOf } from './modeFeed';
+
+describe('runModeOf', () => {
+  const field = (value: string) => [{ key: 'gate-mode', value }];
+
+  it('takes the gate-mode field, else the latest mode-answered gate', () => {
+    expect(runModeOf(field('quiet'), [])).toBe('quiet');
+    const rows = modeFeed([run('r1')], [gate('g1', 'r1', 'mode:yolo', 10)])[0]!
+      .rows;
+    expect(runModeOf(undefined, rows)).toBe('yolo');
+  });
+
+  it('chatty and no mode answer nothing alone', () => {
+    expect(runModeOf(field('chatty'), [])).toBeNull();
+    expect(runModeOf(undefined, [])).toBeNull();
+  });
+});
+
+describe('pauseStateOf', () => {
+  const hold = { reason: 'paused from the console', at: 5 };
+
+  it('is none with no live pause', () => {
+    expect(pauseStateOf(run('r1'))).toBe('none');
+  });
+
+  it('is pausing while the agent works and paused once it stops', () => {
+    expect(
+      pauseStateOf(run('r1', { hold, agent: { status: 'working', pane: 'p' } }))
+    ).toBe('pausing');
+    expect(
+      pauseStateOf(run('r1', { hold, agent: { status: 'idle', pane: 'p' } }))
+    ).toBe('paused');
+    expect(pauseStateOf(run('r1', { hold }))).toBe('paused');
+  });
+});
 
 const run = (id: string, over: Partial<RunSummary> = {}): RunSummary => ({
   id,
