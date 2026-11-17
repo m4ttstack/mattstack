@@ -1,11 +1,13 @@
 import { homedir } from 'node:os';
 import {
   fromOperatorPage,
+  hasLocalOrigin,
   isLocalRequest,
   type LocalServer,
 } from '@mattstack/app-server/local-request';
 import { panesForOrigin, resolveOriginFocus } from '@mattstack/gate-kit/server';
 import {
+  DAEMON_UNREACHABLE_PREFIX,
   gateAnswer,
   gateList,
   getSetting,
@@ -126,13 +128,8 @@ function isMissingGateError(message: string): boolean {
   return message === 'not-found' || message === 'closed';
 }
 
-/** The rt-client transport's own error-shape prefix (rtCommand's catch) for
-    a failed socket connection -- distinct from a daemon-issued validation
-    rejection, which never carries this text. */
-const UNREACHABLE_PREFIX = 'rt daemon unreachable';
-
 function isUnreachableError(message: string): boolean {
-  return message.startsWith(UNREACHABLE_PREFIX);
+  return message.startsWith(DAEMON_UNREACHABLE_PREFIX);
 }
 
 /** With a design `fixture` (`CONSOLE_FIXTURE=design`) the reads answer from
@@ -316,7 +313,10 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
         }),
         async c => {
           if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
-          if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+          if (
+            !isLocalRequest(c.req.raw, c.env as LocalServer | undefined) ||
+            !hasLocalOrigin(c.req.raw)
+          ) {
             return c.json({ error: 'forbidden' }, 403);
           }
           const { id } = c.req.param();

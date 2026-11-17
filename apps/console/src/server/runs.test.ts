@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // share `@mattstack/rt-client`, and every named export any of them uses must
 // be present here or vitest throws "No `X` export is defined on the mock".
 vi.mock('@mattstack/rt-client', () => ({
+  DAEMON_UNREACHABLE_PREFIX: 'rt daemon unreachable at ',
   agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   paneList: vi.fn(async () => ({ ok: true, data: { panes: [] } })),
@@ -307,6 +308,36 @@ describe('POST /api/runs/:repo/:runId/hold', () => {
     const res = await pause({ 'cf-connecting-ip': '203.0.113.9' });
     expect(res.status).toBe(403);
     expect(rt.holdRun).not.toHaveBeenCalled();
+  });
+
+  it('pause is refused from another origin', async () => {
+    const res = await pause({ origin: 'https://evil.example' });
+    expect(res.status).toBe(403);
+    expect(rt.holdRun).not.toHaveBeenCalled();
+  });
+
+  it('pause maps an unknown run to 404', async () => {
+    vi.mocked(rt.holdRun).mockResolvedValueOnce({
+      ok: false,
+      error: 'no run run-1',
+      failure: { code: 'not-found', message: 'no run run-1' },
+    });
+    const res = await pause();
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: 'no run run-1',
+      code: 'not-found',
+    });
+  });
+
+  it('pause answers 409 when the daemon says ok with no data', async () => {
+    vi.mocked(rt.holdRun).mockResolvedValueOnce({ ok: true });
+    const res = await pause();
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: 'the daemon refused with no error detail',
+      code: 'failed',
+    });
   });
 
   it('pause is refused under the design fixture', async () => {

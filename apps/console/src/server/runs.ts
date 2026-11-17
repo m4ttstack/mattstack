@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, join } from 'node:path';
 import {
+  hasLocalOrigin,
   isLocalRequest,
   type LocalServer,
 } from '@mattstack/app-server/local-request';
@@ -410,13 +411,16 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
       )
       .post('/api/runs/:repo/:runId/hold', async c => {
         if (fixture) return c.json({ error: FIXTURE_READ_ONLY }, 403);
-        if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+        if (
+          !isLocalRequest(c.req.raw, c.env as LocalServer | undefined) ||
+          !hasLocalOrigin(c.req.raw)
+        ) {
           return c.json({ error: 'forbidden' }, 403);
         }
         const { repo: rawRepo, runId } = c.req.param();
         const res = await holdRun(runId, canonicalRepo(rawRepo));
         if (!res.ok || !res.data) {
-          const { status, body } = controlRefusal(res);
+          const { status, body } = controlRefusal(res, { 'not-found': 404 });
           return c.json(body, status);
         }
         return c.json(res.data, 200);
