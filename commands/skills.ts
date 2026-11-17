@@ -48,6 +48,7 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError, failureFor, userErrorPayload } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
+import { teamBindings } from "../lib/skills/materialize.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { FLOOR_REL, readFloor } from "../lib/engine-floor.ts";
 import { validateChain } from "../lib/skills/chain.ts";
@@ -930,6 +931,23 @@ function rootsForRender(roots: PluginRoots): PluginRoots {
 }
 
 /**
+ * The bindings a husk pack's working render uses. A member's Mac renders with
+ * the team's bindings, never the publisher's personal overrides, so a pack in
+ * an org clone renders with those too; anywhere else, with the manifest the
+ * pack resolved.
+ */
+export function huskCheckBindings(resolved: Pick<Resolved, "packDir" | "manifestText" | "repoKey" | "pluginRoots">): { text: string; repoKey: string } | { error: string } {
+  const fallback = { text: resolved.manifestText ?? "", repoKey: resolved.repoKey };
+  const probes = createRealProbes();
+  const real = (p: string) => (existsSync(p) ? realpathSync(p) : p);
+  const zone = readZonesFrom(probes, join(mattstackHome(), "orgs")).find((z) => z.hasPack && real(zonePackDir(z)) === real(resolved.packDir));
+  const engine = resolved.pluginRoots.byName.mattstack?.dir;
+  if (!zone || engine === undefined) return fallback;
+  const bound = teamBindings({ fs: probes, mattstackRoot: mattstackHome(), enginePackDir: engine }, zone, zone.team);
+  return "error" in bound ? { error: bound.error } : { text: bound.text, repoKey: bound.repoKey };
+}
+
+/**
  * A husk pack commits no compiled maps, so its views and checks read a full
  * render of the working tree instead, never the member's render cache, which
  * holds the installed version rather than uncommitted edits.
@@ -937,7 +955,9 @@ function rootsForRender(roots: PluginRoots): PluginRoots {
 async function withWorkingRender<T>(resolved: Resolved, fn: (render: { dir: string; errors: string[] }) => T): Promise<T> {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-working-render-")));
   try {
-    const rendered = await renderPackInto({ packDir: resolved.packDir, manifestText: resolved.manifestText ?? "", repoKey: resolved.repoKey, outRoot: dir, pluginRoots: rootsForRender(resolved.pluginRoots) });
+    const bindings = huskCheckBindings(resolved);
+    if ("error" in bindings) return fn({ dir, errors: [bindings.error] });
+    const rendered = await renderPackInto({ packDir: resolved.packDir, manifestText: bindings.text, repoKey: bindings.repoKey, outRoot: dir, pluginRoots: rootsForRender(resolved.pluginRoots) });
     return fn({ dir, errors: rendered.ok ? [] : rendered.errors });
   } finally {
     rmSync(dir, { recursive: true, force: true });

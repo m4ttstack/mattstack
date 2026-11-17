@@ -2,10 +2,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, relative } from "path";
+import { stripJsonc } from "../../lib/jsonc.ts";
 import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
+import { renderWorld, writeFile } from "../../lib/skills/__tests__/render-world.ts";
+import { materializeRepo } from "../../lib/skills/materialize.ts";
+import { resolvePluginRootsFromDir } from "../../lib/skills/sources.ts";
+import { createRealProbes } from "../../lib/setup/probes.ts";
 import { renderedTreeErrors } from "../../lib/skills/unit-maps.ts";
 import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
-import { renderPackInto, skillsAnatomy, skillsCheck, skillsCompile } from "../skills.ts";
+import { huskCheckBindings, renderPackInto, skillsAnatomy, skillsCheck, skillsCompile } from "../skills.ts";
 
 const FIX = join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-native");
 
@@ -219,5 +224,37 @@ describe("check on a husk pack", () => {
     const after = await anatomy();
     expect(propSpan(after)).toBe(propSpan(before) + 3);
     expect(after.rendered.lines).toBe(before.rendered.lines + 3);
+  });
+});
+
+describe("check's husk render in an org clone", () => {
+  const savedHome = process.env.HOME;
+  afterEach(() => {
+    process.env.HOME = savedHome;
+  });
+  const bindingsOf = (text: string) => (JSON.parse(stripJsonc(text)) as { bindings: Record<string, unknown> }).bindings;
+
+  test("renders with the team's bindings, never this Mac's overrides.jsonc", () => {
+    const w = renderWorld(made, { husks: true });
+    process.env.HOME = w.home;
+    writeFile(join(w.mattstackRoot, "user", "skills", "overrides.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-ship": { rules: "acme:plan-policy" } } }));
+    const roots = resolvePluginRootsFromDir(w.mattstackDir);
+    const materialized = materializeRepo({ fs: createRealProbes(), mattstackRoot: w.mattstackRoot, enginePackDir: roots.byName.mattstack!.dir }, "https://gitlab.example.com/acme/widgets");
+    if (materialized.kind !== "written") throw new Error(materialized.kind);
+    const written = materialized.packs.find((p) => p.ok);
+    if (!written || !written.ok) throw new Error(JSON.stringify(materialized.packs));
+    const manifestText = readFileSync(written.path, "utf8");
+    expect(bindingsOf(manifestText)["mattstack:stage-ship"]).toBeDefined();
+
+    const chosen = huskCheckBindings({ packDir: w.packDir, manifestText, repoKey: "acme-widgets", pluginRoots: roots });
+    if ("error" in chosen) throw new Error(chosen.error);
+    expect(bindingsOf(chosen.text)["mattstack:stage-ship"]).toBeUndefined();
+    expect(bindingsOf(chosen.text)["mattstack:stage-plan"]).toBeDefined();
+  });
+
+  test("a pack outside any org clone renders with the manifest it resolved", () => {
+    const s = seedHuskPack();
+    const manifestText = readFileSync(s.manifest, "utf8");
+    expect(huskCheckBindings({ packDir: s.pack, manifestText, repoKey: "my-repo", pluginRoots: resolvePluginRootsFromDir(s.ms) })).toEqual({ text: manifestText, repoKey: "my-repo" });
   });
 });
