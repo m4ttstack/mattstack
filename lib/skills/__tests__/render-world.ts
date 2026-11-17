@@ -1,7 +1,9 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { skillsCompile } from "../../../commands/skills.ts";
 import { ORG_LAYOUT } from "../../team/org-marker.ts";
+import { captureSkills } from "./helpers.ts";
 import type { MaterializeFs } from "../materialize.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
@@ -54,4 +56,29 @@ export function renderWorld(made: string[], opts: { husks?: boolean } = {}) {
   }));
   const root = join(mattstackRoot, "rt", "rendered");
   return { home, mattstackRoot, mattstackDir, orgDir, packDir, installed, root };
+}
+
+/**
+ * Replaces the world's installed copy with what a member installs of a husk
+ * pack: the clone's pack compiled into husks. The compile runs on a copy
+ * outside the org clone, which refuses writes from an unknown author.
+ */
+export async function installHusks(w: { home: string; packDir: string; installed: string; mattstackDir: string }): Promise<void> {
+  const build = join(w.home, "build", "acme");
+  cpSync(w.packDir, build, { recursive: true });
+  const exit = process.exit;
+  process.exit = ((code?: number) => {
+    throw new Error(`compile exited ${code}`);
+  }) as typeof process.exit;
+  const io = captureSkills();
+  try {
+    await skillsCompile(["--pack-dir", build, "--mattstack-dir", w.mattstackDir, "--manifest", join(FIX, "mattstack-home", "repos", "my-repo", "skills.jsonc")]);
+  } catch (err) {
+    throw new Error(`${(err as Error).message}: ${io.stderr()}`);
+  } finally {
+    io.restore();
+    process.exit = exit;
+  }
+  rmSync(w.installed, { recursive: true, force: true });
+  cpSync(build, w.installed, { recursive: true });
 }

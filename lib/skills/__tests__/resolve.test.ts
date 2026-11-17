@@ -406,10 +406,10 @@ describe("resolvePointers: husk packs", () => {
   });
   const tree = (mattstack: string) => ({ ...widgetsFiles(`${RENDERED}/${mattstack}`), [`${RENDERED}/${mattstack}/render.json`]: "{}" });
 
-  test("resolves a husk pack's keys into the render tree", () => {
+  test("resolves a husk pack's keys into the render tree, and names the installed husk as its folder", () => {
     const fs = fakeFs(husk({ ...tree("0.32.76"), ...tree("0.32.80") }));
     const r = resolvePointers("widgets@0.4.2:work", { fs, home: HOME });
-    expect(r.folder).toBe(`${RENDERED}/0.32.76/skills/work`);
+    expect(r.folder).toBe(`${V}/skills/work`);
     expect(r.keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/scripts/x.sh`);
     expect(r.keys["stage-x/parts/d/y.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/../../skills/stage-x/parts/d/y.sh`);
   });
@@ -423,12 +423,33 @@ describe("resolvePointers: husk packs", () => {
       [`${CACHE}/mattstack/mattstack/0.32.80/.claude-plugin/plugin.json`]: JSON.stringify({ version: "0.32.80" }),
       [`${HOME}/.claude/plugins/installed_plugins.json`]: JSON.stringify({ version: 2, plugins: { "mattstack@mattstack": [{ scope: "user", installPath: active, version: "0.32.76" }] } }),
     }));
-    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).folder).toBe(`${RENDERED}/0.32.76/skills/work`);
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/scripts/x.sh`);
   });
 
   test("without the installed mattstack's tree, the newest tree serves", () => {
     const fs = fakeFs(husk({ ...tree("0.32.70"), ...tree("0.32.80"), [`${RENDERED}/0.32.90.tmp-1-ab/render.json`]: "{}" }));
-    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).folder).toBe(`${RENDERED}/0.32.80/skills/work`);
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.80/skills/work/scripts/x.sh`);
+  });
+
+  test("a door's husk is its folder when the render serves the id from the base unit", () => {
+    const at = `${RENDERED}/0.32.76`;
+    const fs = fakeFs(husk({
+      [`${V}/skills/servers/SKILL.md`]: "husk",
+      [`${at}/render.json`]: "{}",
+      [`${at}/attachments/servers/SKILL.md`]: "",
+      [`${at}/attachments/servers/compiled.json`]: map("widgets@0.4.2:servers", "attachments/servers", {}),
+    }));
+    expect(resolvePointers("widgets@0.4.2:servers", { fs, home: HOME }).folder).toBe(`${V}/skills/servers`);
+  });
+
+  test("a unit with no husk installed keeps the tree's folder", () => {
+    const at = `${RENDERED}/0.32.76`;
+    const fs = fakeFs(husk({
+      [`${at}/render.json`]: "{}",
+      [`${at}/attachments/base-only/SKILL.md`]: "",
+      [`${at}/attachments/base-only/compiled.json`]: map("widgets@0.4.2:base-only", "attachments/base-only", {}),
+    }));
+    expect(resolvePointers("widgets@0.4.2:base-only", { fs, home: HOME }).folder).toBe(`${at}/attachments/base-only`);
   });
 
   test("refuses a key outside the render tree", () => {

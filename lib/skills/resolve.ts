@@ -98,8 +98,12 @@ function assertLive(fs: ResolveFs, link: string): void {
   }
 }
 
-/** `why` is the sentence every refusal about this copy's own files ends with. */
-type Unit = { folder: string; map: PointerMap; bound: string; fix: string; why: string };
+/**
+ * `why` is the sentence every refusal about this copy's own files ends with.
+ * `installed` is the husk a husk pack's unit was loaded from: the folder a
+ * caller is handed, while its keys point into the render.
+ */
+type Unit = { folder: string; map: PointerMap; bound: string; fix: string; why: string; installed?: string };
 
 function marketplaceOf(versionDir: string): string {
   return posix.basename(posix.dirname(posix.dirname(versionDir)));
@@ -179,7 +183,10 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
     if (tree === null) {
       throw refuse("skills-resolve-not-rendered", `Load the skill first: call ${LOAD_SKILL}.`, `${plugin} ${version} commits only husks, and this Mac has not rendered it yet.`);
     }
-    return unitIn(id, unit, `${plugin} ${version}`, tree, unitReads(fs, tree, unit), fix, owner);
+    const rendered = unitIn(id, unit, `${plugin} ${version}`, tree, unitReads(fs, tree, unit), fix, owner);
+    // A door's husk sits in skills/ while the render serves its id from the base unit, so any husk of that name stands in.
+    const husk = reads.find(({ folder }) => folder === `${root}/${rendered.map.dir}`) ?? reads[0];
+    return husk ? { ...rendered, installed: husk.folder } : rendered;
   }
   return unitIn(id, unit, `${plugin} ${version}`, root, reads, fix, owner);
 }
@@ -267,5 +274,5 @@ export function resolvePointers(id: string, deps: ResolveDeps, dir?: string): Re
       throw refuse("skills-resolve-missing-file", `The file behind @${key} is missing.`, `${path} does not exist in this copy of ${id}. ${unit.why}`, unit.fix);
     }
   }
-  return { id, folder: unit.folder, covers: unit.map.covers, keys, pinned, ...(pinned ? {} : { warning: UNPINNED_WARNING }) };
+  return { id, folder: unit.installed ?? unit.folder, covers: unit.map.covers, keys, pinned, ...(pinned ? {} : { warning: UNPINNED_WARNING }) };
 }
