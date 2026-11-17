@@ -118,7 +118,7 @@ export function dirClimbsOutOfCache(dir: string, home: string): boolean {
  * A path is only looked up on disk once its text sits inside the cache, so
  * nothing outside it is touched.
  */
-function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
+export function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
   if (!posix.isAbsolute(dir)) return null;
   const cache = pluginCache(deps.home);
   const text = posix.normalize(dir);

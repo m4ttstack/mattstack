@@ -21,6 +21,11 @@ const KEEP_MATTSTACK_VERSIONS = 2;
 /** Siblings a render in flight writes and then renames away; pruning never touches them. */
 const IN_FLIGHT_RE = /\.(tmp|old)-/;
 
+/** Where every member's rendered trees live: `~/.mattstack/rt/rendered`. */
+export function renderRoot(home: string): string {
+  return join(home, ".mattstack", "rt", "rendered");
+}
+
 export function treeDir(root: string, org: string, plugin: string, packVersion: string, mattstack: string): string {
   return join(root, org, plugin, packVersion, mattstack);
 }

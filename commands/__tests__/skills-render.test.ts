@@ -1,0 +1,108 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { UserActionableError } from "../../lib/errors.ts";
+import { LOCK_REL, serializeLock } from "../../lib/skills/compiled-lock.ts";
+import { renderWorld, setPackVersion, writeFile } from "../../lib/skills/__tests__/render-world.ts";
+import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../lib/ui/out.ts";
+import { skillsRender } from "../skills-render.ts";
+
+const made: string[] = [];
+const savedHome = process.env.HOME;
+let io: CapturedOut | null = null;
+
+beforeEach(() => out.__test__.reset());
+afterEach(() => {
+  io?.restore();
+  io = null;
+  process.env.HOME = savedHome;
+  out.__test__.reset();
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+function setup() {
+  const w = renderWorld(made);
+  process.env.HOME = w.home;
+  return w;
+}
+
+async function render(w: ReturnType<typeof setup>, id: string, unitDir: string, extra: string[] = []): Promise<Record<string, unknown>> {
+  io = captureOut();
+  await skillsRender([id, "--dir", join(w.installed, unitDir), "--mattstack-dir", w.mattstackDir, ...extra, "--json"]);
+  const printed = io.stdout();
+  io.restore();
+  io = null;
+  return JSON.parse(printed) as Record<string, unknown>;
+}
+
+async function refusal(w: ReturnType<typeof setup>, id: string, unitDir: string): Promise<UserActionableError> {
+  try {
+    await render(w, id, unitDir);
+  } catch (err) {
+    if (err instanceof UserActionableError) return err;
+    throw err;
+  }
+  throw new Error("expected a refusal");
+}
+
+describe("rt skills render", () => {
+  test("prints the rendered SKILL.md for a stage and for a verb", async () => {
+    const w = setup();
+    const verb = await render(w, "acme:work", "skills/work");
+    expect(verb.path).toBe(join(w.root, "acme", "acme", "0.1.0", "1.0.0", "skills", "work", "SKILL.md"));
+    expect(verb.body).toContain("<!-- part: block:work source=mattstack:work");
+    expect(verb.body).toBe(readFileSync(verb.path as string, "utf8"));
+
+    const stage = await render(w, "acme:stage-plan", "attachments/stage-plan");
+    expect(stage.path).toBe(join(w.root, "acme", "acme", "0.1.0", "1.0.0", "attachments", "stage-plan", "SKILL.md"));
+    expect(stage.body).toContain("<!-- part: block:stage-plan source=mattstack:stage-plan");
+  });
+
+  test("--file returns a file from the unit's folder", async () => {
+    const w = setup();
+    const file = await render(w, "acme:stage-plan", "attachments/stage-plan", ["--file", "parts/include-gitlab-note/scripts/note.sh"]);
+    expect(file.path).toBe(join(w.root, "acme", "acme", "0.1.0", "1.0.0", "attachments", "stage-plan", "parts", "include-gitlab-note", "scripts", "note.sh"));
+    expect(file.body).toBe(readFileSync(file.path as string, "utf8"));
+  });
+
+  test("--file refuses a path that climbs out of the unit", async () => {
+    const w = setup();
+    io = captureOut();
+    await expect(skillsRender(["acme:work", "--dir", join(w.installed, "skills/work"), "--mattstack-dir", w.mattstackDir, "--file", "../../render.json", "--json"])).rejects.toThrow(UserActionableError);
+  });
+
+  test("missing tree when the clone is ahead", async () => {
+    const w = setup();
+    setPackVersion(w.packDir, "0.1.1");
+    const err = await refusal(w, "acme:work", "skills/work");
+    expect(err.message).toBe("acme 0.1.0 isn't rendered on this Mac.");
+    expect(err.next).toBe("rt setup");
+    expect(err.extra.next).toBe("rt setup");
+  });
+
+  test("names builtWith when the engine is older", async () => {
+    const w = setup();
+    writeFile(join(w.packDir, LOCK_REL), serializeLock({ targets: {}, bases: {}, mattstackSha: {}, mattstackDirty: {}, builtWith: "1.2.0" }));
+    writeFile(join(w.packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-plan": { rules: "acme:nope" } } }));
+    const err = await refusal(w, "acme:work", "skills/work");
+    expect(err.message).toBe("acme was built with mattstack 1.2.0; this Mac has 1.0.0.");
+    expect(err.next).toBe("rt setup");
+  });
+
+  test("other render failures carry the compile errors in log", async () => {
+    const w = setup();
+    writeFile(join(w.packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-plan": { rules: "acme:nope" } } }));
+    const err = await refusal(w, "acme:work", "skills/work");
+    expect(err.message).toBe("acme 0.1.0 didn't render on this Mac.");
+    expect(err.log).toContain("cannot be filled -- the manifest declares no pipelines");
+  });
+
+  test("--json envelope keys are exactly", async () => {
+    const w = setup();
+    const env = await render(w, "acme:work", "skills/work");
+    expect(Object.keys(env)).toEqual(["ok", "id", "packVersion", "mattstack", "rtBuild", "treeDir", "path", "body"]);
+    expect(env).toMatchObject({ ok: true, id: "acme:work", packVersion: "0.1.0", mattstack: "1.0.0", treeDir: join(w.root, "acme", "acme", "0.1.0", "1.0.0") });
+    expect(typeof env.rtBuild).toBe("string");
+  });
+});

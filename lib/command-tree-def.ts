@@ -2686,6 +2686,19 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      render: {
+        description: "Hand an agent the full text of a team pack skill, rendered on this Mac",
+        module: "./commands/skills-render.ts",
+        fn: "skillsRender",
+        hidden: true,
+        omitBehavior: { exempt: "agent-facing; the load_skill tool passes the id and folder" },
+        args: [
+          { name: "Id", type: "text", placeholder: "acme:work", hint: "The skill's id, as <plugin>:<unit>" },
+          { name: "Dir", flag: "--dir", type: "text", placeholder: "/path/to/skill", hint: "The loaded skill's own folder, which names the installed pack version" },
+          { name: "File", flag: "--file", type: "text", placeholder: "references/x.md", hint: "A file in the unit's folder instead of its SKILL.md" },
+          SETUP_JSON_ARG,
+        ],
+      },
       "history-classify": {
         description: "Tell which of an org clone's commits changed only version numbers",
         module: "./commands/skills-history-classify.ts",
