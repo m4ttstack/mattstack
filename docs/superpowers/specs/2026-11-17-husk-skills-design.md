@@ -77,7 +77,7 @@ compile uses today, built in memory, so it needs nothing per member:
 | `skills/<verb>/SKILL.md`, `attachments/<stage>/SKILL.md` | compiled body | husk |
 | base doors (`skills/<base unit>/SKILL.md`, from `doorFor`) | "Read `${CLAUDE_SKILL_DIR}/../../attachments/<unit>/SKILL.md`" | husk for that base unit |
 | `<unit>/references/`, `<unit>/parts/`, `<unit>/scripts/` | rendered and vendored copies | render cache only |
-| `attachments/<base unit>/` (assured-base copies) | rendered copies | render cache only |
+| `attachments/<base unit>/` (acme-base copies) | rendered copies | render cache only |
 | `<unit>/compiled.json` | pointer map | render cache only |
 | hand-written skills, fills, `pack/*` sources | sources | unchanged |
 | `pack/requires.json` | written by compile | written by compile, husk rules below |
@@ -219,7 +219,7 @@ Claude Code keeps attached context whole up to 100,000 characters per piece
 and 200,000 per tool call, and saves anything past that to a file with a
 preview and the path. `check` fails a rendered body over 200,000
 characters. The husk's "Read any saved file" line covers a body that grows
-past the limit between checks. claimview `review` (201,762) needs trimming
+past the limit between checks. widgets `review` (201,762) needs trimming
 before its pack switches.
 
 ## Rollout
@@ -232,7 +232,7 @@ before its pack switches.
    compile writes husks, deletes committed bodies and copies, rewrites the
    lock and raises `minEngine` to `HUSKS_MIN_ENGINE`. Members below it are
    held, as today.
-3. Once claimview and ingestion-platform run on husks, husks become the
+3. Once widgets and gadgets run on husks, husks become the
    default for new packs.
 
 ## Skill and doc updates

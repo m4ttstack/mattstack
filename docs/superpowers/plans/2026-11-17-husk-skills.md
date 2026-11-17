@@ -254,11 +254,11 @@ the whole-branch review, since they need live sessions, not code review.
 - Create: `docs/superpowers/plans/2026-11-17-husk-skills-e2e.md` (the run log: commands, accounts, results)
 
 **Interfaces:**
-- Consumes: everything above, run from this worktree through `--plugin-dir plugins/mattstack` and a scratch copy of the claimview pack with `husks: true` compiled by this worktree's `bun cli.ts`.
+- Consumes: everything above, run from this worktree through `--plugin-dir plugins/mattstack` and a scratch copy of the widgets pack with `husks: true` compiled by this worktree's `bun cli.ts`.
 
-- [ ] **Step 1:** In a scratch org copy (never the live org clone), set `husks: true` on claimview, compile with `bun cli.ts skills compile --pack-dir <scratch pack>`, and confirm the pack's `git status` shows only husks, the lock and `requires.json`.
+- [ ] **Step 1:** In a scratch org copy (never the live org clone), set `husks: true` on widgets, compile with `bun cli.ts skills compile --pack-dir <scratch pack>`, and confirm the pack's `git status` shows only husks, the lock and `requires.json`.
 - [ ] **Step 2:** Personal account, `claude -p --model sonnet --plugin-dir plugins/mattstack --plugin-dir <scratch pack>`: load `ship`, `stage-evidence` and `review`; each run quotes probe lines at 20/45/70/97% word for word and names the same first action as today's committed body.
-- [ ] **Step 3:** Enterprise account through a herdr pane (`rt agent start --account matthew.goodwin@assured.claims ... --extra-args "--plugin-dir ..."`): repeat Step 2 for `ship`; expect no "skipped" notice for the mattstack mod.
+- [ ] **Step 3:** Enterprise account through a herdr pane (`rt agent start --account <enterprise account> ... --extra-args "--plugin-dir ..."`): repeat Step 2 for `ship`; expect no "skipped" notice for the mattstack mod.
 - [ ] **Step 4:** A subagent handed a husk path loads it through `load_skill` (one Sonnet run whose prompt spawns a subagent to load `stage-evidence`).
 - [ ] **Step 5:** Record results in the run log and commit `husks: end-to-end proof on personal and enterprise accounts`.
 
@@ -277,4 +277,4 @@ the whole-branch review, since they need live sessions, not code review.
 
 ## After merge (not part of this PR)
 
-- Release; then trim claimview `review` under 200,000 characters and opt claimview and ingestion-platform in (`"husks": true`), each through the editing-skills pipeline in the org clone.
+- Release; then trim widgets `review` under 200,000 characters and opt widgets and gadgets in (`"husks": true`), each through the editing-skills pipeline in the org clone.
