@@ -1,0 +1,17 @@
+.option {
+  padding: 8px 12px;
+}
+
+.indicator {
+  flex: none;
+  margin-top: 2px;
+}
+
+.line {
+  flex: 1;
+  min-width: 0;
+}
+
+.value {
+  flex: none;
+}

@@ -11,6 +11,7 @@ import {
 } from '@mattstack/settings-kit/shapes';
 
 import { compositeParts } from './CompositeControls';
+import { explainedOptions, OptionList } from './OptionList';
 import { PanelToolbar } from './PanelToolbar';
 import { ProjectPicker, useRowProject } from './RowProject';
 import { ScalarControl } from './ScalarControl';
@@ -22,6 +23,8 @@ type Row = ReturnType<typeof useRowSave>;
 
 export interface RowParts {
   control: ReactNode;
+  /** The Value tab's own control, where it differs from the header's. */
+  valueControl?: ReactNode;
   body: ReactNode;
   toolbar?: ReactNode;
   perRepo: boolean;
@@ -46,6 +49,7 @@ export function useRowParts(
   let control: ReactNode;
   let body: ReactNode = null;
   let toolbar: ReactNode;
+  let valueControl: ReactNode;
   if (perRepo) {
     control = (
       <Text fz={12} c={text.muted}>
@@ -83,6 +87,15 @@ export function useRowParts(
         suggestions={opts.suggestions}
       />
     );
+    const explained = kind === 'enum' ? explainedOptions(def) : null;
+    if (explained)
+      valueControl = (
+        <OptionList
+          def={def}
+          options={explained}
+          onSave={v => void row.save(v)}
+        />
+      );
   } else if (kind === 'external') {
     const shape = SHAPES[def.key];
     const owner = shape?.kind === 'external' ? shape.app : 'another app';
@@ -126,7 +139,7 @@ export function useRowParts(
     body = composite.body;
     toolbar = composite.toolbar;
   }
-  return { control, body, toolbar, perRepo };
+  return { control, valueControl, body, toolbar, perRepo };
 }
 
 /** The Value tab: a composite's editor, or the full description and the
@@ -166,6 +179,18 @@ export function ValueContent({
         {picker}
         {parts.body}
       </>
+    );
+  if (parts.valueControl)
+    return (
+      <Stack gap={10} px={8}>
+        {picker}
+        {parts.valueControl}
+        {describe && (
+          <Text fz={12} c={text.muted}>
+            {def.description}
+          </Text>
+        )}
+      </Stack>
     );
   return (
     <Stack gap={10} px={8}>
