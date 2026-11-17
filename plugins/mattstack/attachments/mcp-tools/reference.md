@@ -147,7 +147,7 @@ List gates in all statuses unless open is true, optionally filtered by subject p
 ### gate_ask
 
 <!-- mcp-lint: allow -->
-Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: the top-level context and every question's context are stored whole, with no size limit. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, boardOnly, subject, supersededId, paneAction, formChunks}; then act on the result's paneAction, which says form or wait for this pane (kit: the gate-form mod draws the gate and its result tells you what to do). form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words. Under a run, pass runDb and stage. formChunks hold the questions 4 to a form.
+Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: the top-level context and every question's context are stored whole, with no size limit. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, boardOnly, subject, supersededId, paneAction, formChunks}; then act on the result's paneAction, which says form or wait for this pane (kit: the gate-form mod draws the gate and its result tells you what to do). form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. answered: a work run's gate mode (the run's gate-mode field, else the rt.work.gateMode setting) covered the declared reach and answered every question with its recommended option; the result is {id, paneAction, status: "answered", decidedBy: "mode:<mode>", answers, next, writeIn, actOnWriteIn}, the decision is already recorded on the scope, and nothing is asked: act on answers and next. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim, except that a question opened with writeIn: true may be answered {writeIn} with the human's own words. Under a run, pass runDb and stage. formChunks hold the questions 4 to a form.
 
 ```json
 {
@@ -235,6 +235,20 @@ Open a decision gate with the daemon-side ceremony: subject resolves from this s
       "type": "boolean",
       "description": "Set by the gate-form mod; never pass it yourself."
     },
+    "reach": {
+      "type": "string",
+      "enum": [
+        "worktree",
+        "draft",
+        "teammates",
+        "public"
+      ],
+      "description": "Under a run, who this gate's answer reaches. A work run's gate mode answers the gate itself with its recommended options when the mode covers this reach; an undeclared reach always asks, and public never answers itself."
+    },
+    "needsOperator": {
+      "type": "string",
+      "description": "A short reason the decision turns on a product or people call. The gate then asks in every mode; the pane's form opens with \"Needs you: <reason>\", and so does a plain-text context."
+    },
     "runDb": {
       "type": "string",
       "description": "The run's runDb, under a pipeline run; the gate's run fields and decision are written there."
@@ -258,7 +272,7 @@ Open a decision gate with the daemon-side ceremony: subject resolves from this s
 ### gate_open
 
 <!-- mcp-lint: allow -->
-Build and validate a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer: the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. A boards@1 source with more than 12 boards, or one whose boards do not fit the pane prose budget, is refused. The gate stores the context whole and untrimmed (structured, or prose for a legacy findings file); only the prose a Claude Code pane's form shows has a budget (8192 UTF-8 bytes): optional parts are trimmed first, then whole question contexts are left out largest first, then the gate context, and board-only fields never reach it. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: "post" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits and trimmed (of the pane prose), contextDropped (the pane form left some context out), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}: open is the whole stored open with option text truncated as gate_ask does; formContext and formChunks are the fitted pane prose, droppedContexts the questions it left out. outPath also writes the open, in gate-ctx.sh fit's output shape (its pane key the pane prose), to a temp-root file.
+Build and validate a structured gate from a gate-ctx@1 source (source inline, sourcePath a .json file under a read root, or review: {findings | findingsPath, extras} built by the review-source recipe first), then open it with gate_ask's ceremony. It opens a gate only when called and never picks an answer itself (a work run's gate mode may open it already answered, as gate_ask says): the skill owns the gate, presents it and answers it. A source with problems is refused with one line per problem and nothing opens. A boards@1 source with more than 12 boards, or one whose boards do not fit the pane prose budget, is refused. The gate stores the context whole and untrimmed (structured, or prose for a legacy findings file); only the prose a Claude Code pane's form shows has a budget (8192 UTF-8 bytes): optional parts are trimmed first, then whole question contexts are left out largest first, then the gate context, and board-only fields never reach it. Under a run, pass runDb and stage: scope defaults to kind and no kind maps to another scope, so a review-post gate passes scope: "post" itself. The untrimmed source is stored as extra.gate-source.<scope>. Returns gate_ask's result plus mode (structured | prose), fits and trimmed (of the pane prose), contextDropped (the pane form left some context out), formContext and formChunks. handBack: true opens nothing and returns {open: {context, questions}, mode, fits, trimmed, contextDropped, droppedContexts, formContext, formChunks, labelsTruncated?}: open is the whole stored open with option text truncated as gate_ask does; formContext and formChunks are the fitted pane prose, droppedContexts the questions it left out. outPath also writes the open, in gate-ctx.sh fit's output shape (its pane key the pane prose), to a temp-root file.
 
 ```json
 {
@@ -305,6 +319,20 @@ Build and validate a structured gate from a gate-ctx@1 source (source inline, so
     "kitForm": {
       "type": "boolean",
       "description": "Set by the gate-form mod; never pass it yourself."
+    },
+    "reach": {
+      "type": "string",
+      "enum": [
+        "worktree",
+        "draft",
+        "teammates",
+        "public"
+      ],
+      "description": "Under a run, who this gate's answer reaches. A work run's gate mode answers the gate itself with its recommended options when the mode covers this reach; an undeclared reach always asks, and public never answers itself."
+    },
+    "needsOperator": {
+      "type": "string",
+      "description": "A short reason the decision turns on a product or people call. The gate then asks in every mode; the pane's form opens with \"Needs you: <reason>\", and so does a plain-text context."
     },
     "runDb": {
       "type": "string",
@@ -1373,6 +1401,10 @@ Start a pipeline run and get back its runDb. flags is the compiled run-start fla
     },
     "spawnedBy": {
       "type": "string"
+    },
+    "gateMode": {
+      "type": "string",
+      "description": "chatty, normal, quiet or yolo: how far this run answers its own gates. Omitted, RT_GATE_MODE in the environment applies; unset, the rt.work.gateMode setting does."
     }
   },
   "required": [
@@ -1639,6 +1671,10 @@ Start, resume or inherit a pipeline run and return where it stands, or the candi
     },
     "spawnedBy": {
       "type": "string"
+    },
+    "gateMode": {
+      "type": "string",
+      "description": "chatty, normal, quiet or yolo: recorded only when this call starts a new run; a resumed run keeps its own. Omitted, RT_GATE_MODE in the environment applies."
     }
   },
   "required": [
@@ -2745,7 +2781,7 @@ Start a herd (room, workspace, gate subscription) for this shepherd session. rep
 ### herd_spawn
 
 <!-- mcp-lint: allow -->
-Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. A spawn into a tree another job already holds is a guest (a reviewer): it ticks the host's reviewerRounds budget and returns it as reviewerRound {host, key, budget}. Only the herd's shepherd session may call it. Takes minutes.
+Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. gateMode (chatty, normal, quiet or yolo) is not stored on the job: a respawn must pass it again, while a worker resuming its run keeps the run's recorded mode. A spawn into a tree another job already holds is a guest (a reviewer): it ticks the host's reviewerRounds budget and returns it as reviewerRound {host, key, budget}. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
 {
@@ -2770,6 +2806,10 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
     },
     "account": {
       "type": "string"
+    },
+    "gateMode": {
+      "type": "string",
+      "description": "chatty, normal, quiet or yolo; the worker's new run starts in this gate mode (it reaches the worker as RT_GATE_MODE)."
     },
     "disposable": {
       "type": "boolean"
@@ -2789,7 +2829,7 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
 ### herd_respawn
 
 <!-- mcp-lint: allow -->
-Relaunch a job's agent in its existing worktree (no provisioning). brief, account, model and effort follow herd_spawn's rules; omitted, the job's stored brief and launch settings are reused. Only the herd's shepherd session may call it. Takes minutes.
+Relaunch a job's agent in its existing worktree (no provisioning). brief, account, model, effort and gateMode follow herd_spawn's rules (gateMode is not stored, so pass it again); omitted, the job's stored brief and launch settings are reused. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
 {
@@ -2814,6 +2854,10 @@ Relaunch a job's agent in its existing worktree (no provisioning). brief, accoun
     },
     "account": {
       "type": "string"
+    },
+    "gateMode": {
+      "type": "string",
+      "description": "chatty, normal, quiet or yolo; the worker's new run starts in this gate mode (it reaches the worker as RT_GATE_MODE)."
     }
   },
   "required": [

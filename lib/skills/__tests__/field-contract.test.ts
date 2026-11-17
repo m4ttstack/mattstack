@@ -87,6 +87,9 @@ describe("fieldContractErrors", () => {
   test("passes a read of an rt-written key", () => {
     expect(fieldContractErrors(docs("run_field_get {key: hold}\nrt runs field get ticket"), {})).toEqual([]);
   });
+  test("passes a read of the gate-mode key run_start and run_enter write", () => {
+    expect(fieldContractErrors(docs("run_field_get {key: gate-mode}"), {})).toEqual([]);
+  });
   test("passes a read under a tool-written prefix", () => {
     expect(fieldContractErrors(docs("run_field_get {key: extra.gate-source.respond-plan}"), {})).toEqual([]);
   });

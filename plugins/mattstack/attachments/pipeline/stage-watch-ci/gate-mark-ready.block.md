@@ -6,7 +6,7 @@ label: Mark ready
 
 # Gate mark-ready
 
-One sentence above the form: CI is green for the MR's head, and whether
+Reach `teammates`. One sentence above the form: CI is green for the MR's head, and whether
 `evidence` is set.
 
 | Question | Options (recommended first) | Shown when |

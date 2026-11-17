@@ -376,6 +376,8 @@ export const SCHEMAS = {
   "chat.slackSupport.defaultRepo": z.string().min(1),
   "chat.slackSupport.trigger": z.string().regex(/\S/),
   "rt.gates.kitForm": z.boolean(),
+  "rt.work.gateMode": z.enum(["chatty", "normal", "quiet", "yolo"]),
+  "rt.work.gateModeShadow": z.boolean(),
   "agent.persona": z.looseObject({
     name: z.string().regex(/\S/).meta({ title: "Name", description: "What the agent calls itself in every Slack message." }),
     emoji: z.string().regex(/\S/).meta({ title: "Emoji", description: "Shown beside the name in the prefix of every Slack message." }),

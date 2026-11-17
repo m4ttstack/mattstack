@@ -1487,3 +1487,93 @@ describe('repo reach', () => {
     expect(screen.queryByText(/all repos/)).toBeNull();
   });
 });
+
+describe('a choice setting that explains each option', () => {
+  const lines = {
+    chatty: 'Stops to ask you at every step.',
+    normal: 'Handles small steps on its own.',
+    quiet: 'Also pushes on its own.',
+    yolo: 'Goes all the way.',
+  };
+  const gateMode = () =>
+    def('rt.work.gateMode', {
+      effective: { scope: 'user', file: '/u', value: 'chatty' },
+      optionDescriptions: lines,
+    });
+  const panel = () =>
+    screen.findByRole('region', { name: 'rt.work.gateMode settings' });
+  const open = (key: string) =>
+    userEvent.click(screen.getByRole('button', { name: `open ${key}` }));
+
+  it('lists every option with its line on the Value tab', async () => {
+    renderRow(
+      <SettingRow def={gateMode()} store={store()} subhead={null} query="" />
+    );
+    await open('rt.work.gateMode');
+    const region = await panel();
+    const options = await within(region).findAllByRole('radio', {
+      name: /^(chatty|normal|quiet|yolo)/,
+    });
+    expect(options).toHaveLength(4);
+    for (const line of Object.values(lines))
+      expect(within(region).getByText(line)).toBeInTheDocument();
+    expect(
+      within(region).getByRole('radio', { name: /^chatty/ })
+    ).toBeChecked();
+    expect(
+      within(region).queryByRole('combobox', { name: 'rt.work.gateMode' })
+    ).toBeNull();
+    expect(
+      screen.getByRole('combobox', { name: 'rt.work.gateMode' })
+    ).toBeInTheDocument();
+  });
+
+  it('picking an option saves it the way the dropdown does', async () => {
+    const s = store();
+    renderRow(
+      <SettingRow def={gateMode()} store={s} subhead={null} query="" />
+    );
+    await open('rt.work.gateMode');
+    await userEvent.click(
+      await within(await panel()).findByRole('radio', { name: /^quiet/ })
+    );
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('rt.work.gateMode', 'user', 'quiet')
+    );
+    expect(s.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('picking the option already in effect writes nothing', async () => {
+    const s = store();
+    renderRow(
+      <SettingRow def={gateMode()} store={s} subhead={null} query="" />
+    );
+    await open('rt.work.gateMode');
+    await userEvent.click(
+      await within(await panel()).findByRole('radio', { name: /^chatty/ })
+    );
+    expect(s.set).not.toHaveBeenCalled();
+  });
+
+  it('an enum with no option lines keeps its dropdown on the Value tab', async () => {
+    renderRow(
+      <SettingRow
+        def={def('rt.logLevel', {
+          scopes: ['machine', 'user'],
+          effective: { scope: 'machine', file: '/m', value: 'info' },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await open('rt.logLevel');
+    const region = await screen.findByRole('region', {
+      name: 'rt.logLevel settings',
+    });
+    expect(
+      await within(region).findByRole('combobox', { name: 'rt.logLevel' })
+    ).toBeInTheDocument();
+    expect(within(region).queryByRole('radio', { name: /^info/ })).toBeNull();
+  });
+});

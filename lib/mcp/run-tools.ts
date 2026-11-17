@@ -5,6 +5,7 @@ import { flagValue } from "../cli-args.ts";
 import { runEngineOp, runWriteVerb, type EngineOp, type WriteVerb } from "../../commands/runs-write.ts";
 import { listRuns } from "../../packages/rt-client/src/index.ts";
 import { packPluginIdentity } from "../skills/provenance.ts";
+import { GATE_MODE_ERROR, parseMode } from "../gates/mode.ts";
 import { isPathComponent, runsRoot } from "../runs/paths.ts";
 import { checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolResult } from "./shared.ts";
 
@@ -14,6 +15,8 @@ export interface RunToolDeps {
   realpath: (p: string) => string;
   isPackRoot: (packRoot: string) => boolean;
   engine: typeof runEngineOp;
+  /** Read for RT_GATE_MODE; injected so a test never sees the real process env. */
+  env: NodeJS.ProcessEnv;
 }
 
 export const realRunToolDeps: RunToolDeps = {
@@ -22,6 +25,7 @@ export const realRunToolDeps: RunToolDeps = {
   realpath: (p) => realpathSync(p),
   isPackRoot: (p) => packPluginIdentity(p) !== null,
   engine: runEngineOp,
+  env: process.env,
 };
 
 // A quote or substitution in the compiled flag string would need a shell to
@@ -60,12 +64,13 @@ export function packRootFrom(skillDir: string, realpath: (p: string) => string):
   return realpath(resolve(skillDir, "..", ".."));
 }
 
-type Prepared = { args: string[]; packRoot: string };
+type Prepared = { args: string[]; packRoot: string; gateMode?: string };
 
 /** What run_start and run_enter share: the flag string, the skill's pack root and the argv both pass to the run-start parser. */
 function prepareStart(input: Record<string, unknown>, deps: RunToolDeps): Prepared | { error: string } {
-  const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }]) ?? checkOptional(input, [{ name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }]);
+  const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }]) ?? checkOptional(input, [{ name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }, { name: "gateMode", type: "string" }]);
   if (bad) return { error: bad };
+  if (typeof input.gateMode === "string" && parseMode(input.gateMode) !== input.gateMode) return { error: GATE_MODE_ERROR };
   const skillDir = input.skillDir as string;
   if (!isAbsolute(skillDir)) return { error: '"skillDir" must be an absolute path' };
   const split = splitFlags(input.flags as string);
@@ -80,7 +85,9 @@ function prepareStart(input: Record<string, unknown>, deps: RunToolDeps): Prepar
   const args = [...split.args, "--pack-dirs", packRoot, "--skill-dir", join(packRoot, basename(dirname(abs)), basename(abs))];
   if (typeof input.ticket === "string") args.push("--ticket", input.ticket);
   if (typeof input.spawnedBy === "string") args.push("--spawned-by", input.spawnedBy);
-  return { args, packRoot };
+  const envMode = deps.env.RT_GATE_MODE;
+  const gateMode = typeof input.gateMode === "string" ? input.gateMode : typeof envMode === "string" && parseMode(envMode) === envMode ? envMode : undefined;
+  return { args, packRoot, ...(gateMode && { gateMode }) };
 }
 
 /** realpath of the nearest existing ancestor plus the missing tail, so a path that is not there yet still compares against a realpathed root. */
@@ -177,6 +184,21 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     return err(message);
   }
 
+  /** A run with no gate-mode field falls back to the rt.work.gateMode setting, which may be looser than the mode asked for,
+      so a failed write is an error. The run already exists and is never undone, so the error names it. */
+  async function recordGateMode(body: object, gateMode: string | undefined, env: NodeJS.ProcessEnv): Promise<ToolResult> {
+    const { runDb, runId } = body as { runDb?: unknown; runId?: unknown };
+    if (gateMode === undefined || typeof runDb !== "string") return ok(body);
+    const setField = () => write("field", ["set", "gate-mode", gateMode, "--stage", "start"], { runDb }, env);
+    let set = await setField();
+    if (!set.ok) set = await setField();
+    if (set.ok) return ok(body);
+    return err(
+      `run ${String(runId)} started (runDb ${runDb}) but its gate mode was not recorded: ${set.error}. ` +
+      `Set it with run_field_set (key gate-mode, value ${gateMode}, stage start) on that runDb before continuing; do not start another run.`,
+    );
+  }
+
   return [
     {
       name: "run_start",
@@ -188,6 +210,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
           skillDir: { type: "string", description: "Absolute path of the loaded skill's directory (CLAUDE_SKILL_DIR)." },
           ticket: { type: "string" },
           spawnedBy: { type: "string" },
+          gateMode: { type: "string", description: "chatty, normal, quiet or yolo: how far this run answers its own gates. Omitted, RT_GATE_MODE in the environment applies; unset, the rt.work.gateMode setting does." },
         },
         required: ["flags", "skillDir"],
         additionalProperties: false,
@@ -200,7 +223,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         const r = await deps.write("run-start", prepared.args, env, prepared.packRoot);
         const body = parseOut(r.out) as { ok?: boolean; error?: string } | null;
         if (r.code !== 0 || !body?.ok) return err(body?.error ?? `rt runs run-start failed (exit ${r.code})`);
-        return ok(body);
+        return recordGateMode(body, prepared.gateMode, env);
       },
     },
     {
@@ -330,6 +353,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
           fresh: { type: "boolean", description: "Start a new run without listing candidates." },
           ticket: { type: "string" },
           spawnedBy: { type: "string" },
+          gateMode: { type: "string", description: "chatty, normal, quiet or yolo: recorded only when this call starts a new run; a resumed run keeps its own. Omitted, RT_GATE_MODE in the environment applies." },
         },
         required: ["flags", "skillDir"],
         additionalProperties: false,
@@ -341,7 +365,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         if (typeof input.stage === "string" && !/^\S+$/.test(input.stage)) return err('"stage" must be a single token with no whitespace');
         const prepared = prepareStart(input, deps);
         if ("error" in prepared) return err(prepared.error);
-        const { args, packRoot } = prepared;
+        const { args, packRoot, gateMode } = prepared;
         if (typeof input.resume === "string" && !isPathComponent(input.resume)) return err('"resume" must be a run id, a single path component');
         let handedRunDb: string | undefined;
         if (typeof input.runDb === "string") {
@@ -360,7 +384,8 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         if (typeof input.fresh === "boolean") op.fresh = input.fresh;
         const r = await deps.engine(op, env, packRoot);
         if (r.code !== 0) return err(engineFailure(r, "run_enter"));
-        return ok(parseOut(r.out) ?? { ok: true });
+        const entered = (parseOut(r.out) ?? { ok: true }) as { mode?: unknown };
+        return entered.mode === "started" ? recordGateMode(entered, gateMode, env) : ok(entered);
       },
     },
     {

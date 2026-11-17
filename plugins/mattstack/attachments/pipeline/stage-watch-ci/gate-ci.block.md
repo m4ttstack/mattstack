@@ -9,7 +9,7 @@ label: CI gate
 Quote any error, or a spent `waiting`'s `next`. On `no_pipeline`,
 `pushed: false` means the MR head is `remoteSha`: say ship first; `pushed:
 true` means no pipeline ran for it (on GitHub, no check reported for the
-sha). Scope `ci:watch-ci:<attempt>`. One sentence above the form: the
+sha). Scope `ci:watch-ci:<attempt>`, reach `worktree`. One sentence above the form: the
 verdict and a one-line triage per blocking failure.
 
 | Question | Options (recommended first) | Shown when |

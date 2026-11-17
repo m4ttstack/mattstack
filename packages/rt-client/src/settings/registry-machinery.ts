@@ -65,6 +65,8 @@ export interface SettingDef {
   /** Keys whose store names hold older versions of this key. */
   renamedFrom?: string[];
   description: string;
+  /** One short line per value of an enum key, keyed by the value. */
+  optionDescriptions?: Record<string, string>;
 }
 
 type LockFile = Record<string, { storeVersion: number; schema: JsonSchema }>;

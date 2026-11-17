@@ -20,6 +20,7 @@ import { GATE_FORM_OPTION_CAP, gatePresentation } from "../../../packages/rt-cli
 
 const FORM_CAP_ADVISORY = `the in-pane form caps a question at ${GATE_FORM_OPTION_CAP} options, so this gate presents as wait; split an oversized selection into <id>-1, <id>-2, ... questions whose answers read as one union`;
 import { resolveGateSubject, type GateSubjectResult } from "../gate-subject.ts";
+import { parseMode } from "../../gates/mode.ts";
 import { SLACK_OPEN_ANSWERERS, SLACK_OPEN_KIND, SLACK_OPEN_OPEN_REFUSAL, SLACK_OPEN_REFUSAL } from "../../slack/request.ts";
 
 /**
@@ -124,7 +125,7 @@ const ORIGIN_STRING_KEYS: ReadonlySet<string> = new Set(["paneId", "tabId", "run
 const EXEMPT_CONTEXT_KINDS: ReadonlySet<string> = new Set(["milestone", "pane-attention"]);
 // The board's sheet edits each draft in place; a pane form cannot, so these
 // are answered on the board only, whoever raised them.
-const BOARD_ONLY_KINDS: ReadonlySet<string> = new Set(["review-post", "respond-plan", "respond-post"]);
+export const BOARD_ONLY_KINDS: ReadonlySet<string> = new Set(["review-post", "respond-plan", "respond-post"]);
 
 const MISSING_CONTEXT_ERROR =
   "context is required for a human-owned gate: pass --context with the material the reader can decide from alone " +
@@ -184,15 +185,21 @@ function isValidNudge(v: unknown): v is { session: string } {
     resolution gate-push injects with) first, falling back to nudge.session
     when either side has no pane; with nothing comparable on either axis,
     the two gates are treated as different panes and the push proceeds. */
-function sameOpenerPane(a: GateRow, b: GateRow): boolean {
-  const paneA = a.origin?.paneId || a.pane;
+function sameOpenerPane(a: OpenerIdentity, b: GateRow): boolean {
   const paneB = b.origin?.paneId || b.pane;
-  if (paneA && paneB) return paneA === paneB;
-  const sessionA = a.nudge?.session;
+  if (a.paneId && paneB) return a.paneId === paneB;
   const sessionB = b.nudge?.session;
-  if (sessionA && sessionB) return sessionA === sessionB;
+  if (a.sessionId && sessionB) return a.sessionId === sessionB;
   return false;
 }
+
+/** The pane and session a gate was opened from; a pre-answered gate stores neither, so its caller names them here. */
+interface OpenerIdentity { paneId?: string; sessionId?: string }
+
+const openerOf = (row: GateRow): OpenerIdentity => ({
+  paneId: row.origin?.paneId || row.pane || undefined,
+  sessionId: row.nudge?.session,
+});
 
 /** Herd-spawned runs own their gates; everything else (no origin, no runId,
     an unknown run, or a legacy spawner like "shepherdr") falls back to the
@@ -368,6 +375,31 @@ type GateSiblingHandlers =
   & { "gate:unsubscribe": (payload: unknown) => Promise<CommandResult<"gate:unsubscribe">> }
   & { "gate:subscriptions": (payload: unknown) => Promise<CommandResult<"gate:subscriptions">> };
 
+const MODE_DECIDER_PREFIX = "mode:";
+
+/** Shape and answer checks for gate:ask's `preAnswer`, run before any row exists so a refusal leaves nothing behind. */
+function parsePreAnswer(
+  raw: unknown,
+  questions: GateQuestion[],
+  context: unknown,
+): { ok: true; preAnswer: { answers: GateAnswer["answers"]; by: string } | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, preAnswer: undefined };
+  if (!isPlainObject(raw)) return { ok: false, error: "preAnswer must be an object with answers and by" };
+  const by = typeof raw.by === "string" ? raw.by.trim() : "";
+  if (!by.startsWith(MODE_DECIDER_PREFIX)) return { ok: false, error: `preAnswer by must start with ${MODE_DECIDER_PREFIX}` };
+  const mode = by.slice(MODE_DECIDER_PREFIX.length);
+  if (parseMode(mode) !== mode) return { ok: false, error: "preAnswer by must name a gate mode" };
+  if (mode === "chatty") return { ok: false, error: "preAnswer by must name a mode that answers gates" };
+  if (typeof context === "string" && context.includes("boards@1")) {
+    return { ok: false, error: "preAnswer is not allowed for a gate that opens boards" };
+  }
+  const answers = raw.answers;
+  if (!isPlainObject(answers)) return { ok: false, error: "preAnswer must be an object with answers and by" };
+  const validationError = validateGateAnswers(questions, answers);
+  if (validationError) return { ok: false, error: validationError };
+  return { ok: true, preAnswer: { answers: answers as GateAnswer["answers"], by } };
+}
+
 export function createGateHandlers(
   store: GatesStore,
   bus: EventsBus,
@@ -471,7 +503,7 @@ export function createGateHandlers(
   };
 
   /** `internal` is true only for the daemon's own opens, the one path that may name a gate's id or open a `slack-open` gate. */
-  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false) => {
+  const openGate = async (rawPayload: unknown, internal: boolean, fromAsk = false, opts: { skipPush?: boolean; opener?: OpenerIdentity; preAnswered?: boolean } = {}) => {
     const payload = rawPayload as Commands["gate:open"]["payload"] | undefined;
     const subject = typeof payload?.subject === "string" ? payload.subject.trim() : "";
     const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
@@ -552,6 +584,7 @@ export function createGateHandlers(
       id: row.id, subject: row.subject, kind: row.kind, questions: row.questions,
       meta: row.meta, agent: row.agent, paneId: row.pane, label,
       context: row.context, origin: row.origin, owner: row.owner,
+      ...(opts.preAnswered ? { preAnswered: true as const } : {}),
     };
     emitGateEvent(`gate/opened/${row.id}`, eventPayload, emittedAt);
 
@@ -568,12 +601,12 @@ export function createGateHandlers(
       // on the superseded gate never gets an answer, so it needs the same
       // doorbell-then-Escape delivery onAnswered gives a real answer.
       const supersededRow = store.get(supersededId);
-      if (supersededRow && !sameOpenerPane(row, supersededRow)) {
+      if (supersededRow && !sameOpenerPane(opts.opener ?? openerOf(row), supersededRow)) {
         firePush(push.onClosed(supersededRow), { verb: "gate:open", gateId: supersededRow.id });
       }
     }
 
-    firePush(push.onOpened(row), { verb: "gate:open", gateId: row.id });
+    if (!opts.skipPush) firePush(push.onOpened(row), { verb: "gate:open", gateId: row.id });
 
     return { ok: true as const, data: { id: row.id, supersededId } };
   };
@@ -791,6 +824,9 @@ export function createGateHandlers(
     if (!Array.isArray(questions) || questions.length === 0 || !questions.every(isValidQuestion)) {
       return { ok: false as const, error: "invalid questions" };
     }
+    const preAnswerResult = parsePreAnswer(payload?.preAnswer, questions, payload?.context);
+    if (!preAnswerResult.ok) return preAnswerResult;
+    const preAnswer = preAnswerResult.preAnswer;
     const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim() ? payload.sessionId.trim() : undefined;
     const paneId = typeof payload?.paneId === "string" && payload.paneId.trim() ? payload.paneId.trim() : undefined;
     const explicitSubject = typeof payload?.subject === "string" && payload.subject.trim() ? payload.subject.trim() : undefined;
@@ -800,13 +836,14 @@ export function createGateHandlers(
 
     const kind = typeof payload?.kind === "string" && payload.kind.trim() ? payload.kind.trim() : "question";
     const boardOnly = BOARD_ONLY_KINDS.has(kind);
-    const presentation = boardOnly ? "wait" : gatePresentation({ paneId, sessionId, questions, kit: payload?.kitForm === true });
+    if (preAnswer && boardOnly) return { ok: false as const, error: "preAnswer is not allowed for board-only kinds" };
+    const presentation = boardOnly || preAnswer ? "wait" : gatePresentation({ paneId, sessionId, questions, kit: payload?.kitForm === true });
     // Only when a form was otherwise POSSIBLE: a pane-less ask waits for its
     // own reason, and an advisory there would teach the wrong lesson. The
     // gate still opens either way -- an over-cap wait gate is legitimate
     // (remote cards render any option count) -- the caller just learns WHY
     // the in-pane form never appeared, which no skill prose reached.
-    const overCap = paneId && sessionId && !boardOnly && presentation !== "kit"
+    const overCap = paneId && sessionId && !boardOnly && !preAnswer && presentation !== "kit"
       ? questions.filter((q) => q.options.length > GATE_FORM_OPTION_CAP)
       : [];
 
@@ -822,7 +859,7 @@ export function createGateHandlers(
       Object.entries(rawOrigin).filter(([key]) => !CEREMONY_ORIGIN_KEYS.has(key)),
     );
     const derivedOrigin: GateOrigin = { presentation };
-    if (paneId) derivedOrigin.paneId = paneId;
+    if (paneId && !preAnswer) derivedOrigin.paneId = paneId;
     if (resolved.runId) derivedOrigin.runId = resolved.runId;
     const runWorktree = resolved.runWorktree ?? (resolved.runId ? deps.runWorktree?.(resolved.runId) ?? undefined : undefined);
     if (runWorktree) derivedOrigin.worktree = runWorktree;
@@ -835,11 +872,28 @@ export function createGateHandlers(
       ...(isPlainObject(payload?.meta) ? { meta: payload!.meta } : {}),
       ...(typeof payload?.agent === "string" && payload.agent.trim() ? { agent: payload.agent } : {}),
       ...(context !== undefined ? { context } : {}),
-      ...(paneId ? { pane: paneId } : {}),
+      ...(paneId && !preAnswer ? { pane: paneId } : {}),
       ...((presentation === "form" || presentation === "kit") && sessionId ? { nudge: { session: sessionId } } : {}),
       origin,
-    }, false, true);
+    }, false, true, preAnswer ? { skipPush: true, opener: { paneId, sessionId }, preAnswered: true } : {});
     if (!opened.ok) return opened;
+    if (preAnswer) {
+      // Answered in-store rather than through gate:answer: its owner guard refuses a herd-owned gate, and nothing here may reach a pane or shepherd.
+      const answered = store.answer(opened.data.id, preAnswer.answers, preAnswer.by, {});
+      if (!answered.ok) return { ok: false as const, error: "preAnswer: the gate closed before it could be answered" };
+      const row = answered.row;
+      emitGateEvent(`gate/answered/${row.id}`, {
+        id: row.id, subject: row.subject, kind: row.kind,
+        answers: row.answer?.answers, by: preAnswer.by, paneId: row.pane,
+      }, Date.now());
+      return {
+        ok: true as const,
+        data: {
+          id: row.id, presentation, boardOnly, subject: resolved.subject, supersededId: opened.data.supersededId,
+          preAnswered: true as const, row,
+        },
+      };
+    }
     return {
       ok: true as const,
       data: {

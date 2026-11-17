@@ -7,7 +7,7 @@ label: Evidence redaction
 # Gate evidence-redaction (below)
 
 Scope `evidence-redaction:<stage>:<n>`, where `<n>` counts this gate's
-openings in this stage pass from 1;
+openings in this stage pass from 1, reach `public`;
 `redaction-openings:<first entry of this opening>:<first crop of this
 opening, or board>` (file names) budgets each opening, so a long
 hand-off's later openings, and the later openings of one board's long run

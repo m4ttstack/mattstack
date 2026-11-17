@@ -14,7 +14,7 @@ const RUNS_ROOT = "/runs";
 const DB = `${RUNS_ROOT}/repo/id/state.db`;
 const RUNS_ROOT_ENV = { RT_RUNS_ROOT: RUNS_ROOT } as NodeJS.ProcessEnv;
 
-function fakeDeps(out = '{"ok":true}', code = 0): { deps: RunToolDeps; calls: Call[] } {
+function fakeDeps(out = '{"ok":true}', code = 0, procEnv: NodeJS.ProcessEnv = {}): { deps: RunToolDeps; calls: Call[] } {
   const calls: Call[] = [];
   return {
     calls,
@@ -24,6 +24,7 @@ function fakeDeps(out = '{"ok":true}', code = 0): { deps: RunToolDeps; calls: Ca
       realpath: (p) => p.replace("/link/", "/real/"),
       isPackRoot: () => true,
       engine: async () => ({ out: "{}", code: 0 }),
+      env: procEnv,
     },
   };
 }
@@ -70,6 +71,71 @@ describe("run_start", () => {
     expect(res.body).toEqual({ ok: true, runId: "x", runDb: "/db" });
     expect(calls[0]!.verb).toBe("run-start");
     expect(calls[0]!.args).toEqual(["--repo", "r", "--work-type", "w", "--pipeline", "p", "--pack-dirs", "/real/pack", "--skill-dir", "/real/pack/skills/work", "--ticket", "T-1", "--spawned-by", "board"]);
+  });
+  describe("gateMode", () => {
+    const START = '{"ok":true,"runId":"x","runDb":"/runs/repo/id/state.db"}';
+    const input = { flags: "--repo r --work-type w --pipeline p", skillDir: "/link/pack/skills/work" };
+    const fieldCalls = (calls: Call[]) => calls.filter((c) => c.verb === "field");
+
+    test("a valid gateMode writes the gate-mode field after the run starts", async () => {
+      const { deps, calls } = fakeDeps(START);
+      const res = await tool(deps, "run_start").handler({ ...input, gateMode: "quiet" }, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(true);
+      expect(calls.map((c) => c.verb)).toEqual(["run-start", "field"]);
+      expect(calls[1]!.args).toEqual(["set", "gate-mode", "quiet", "--stage", "start"]);
+      expect(calls[1]!.env.RT_RUN_DB).toBe("/runs/repo/id/state.db");
+    });
+    test("an invalid gateMode refuses before the run starts", async () => {
+      const { deps, calls } = fakeDeps(START);
+      const res = await tool(deps, "run_start").handler({ ...input, gateMode: "bogus" }, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe('"gateMode" must be one of chatty, normal, quiet, yolo');
+      expect(calls).toEqual([]);
+    });
+    test("RT_GATE_MODE applies when no gateMode is passed", async () => {
+      const { deps, calls } = fakeDeps(START, 0, { RT_GATE_MODE: "normal" });
+      await tool(deps, "run_start").handler(input, RUNS_ROOT_ENV);
+      expect(fieldCalls(calls)[0]!.args).toEqual(["set", "gate-mode", "normal", "--stage", "start"]);
+    });
+    test("an explicit gateMode wins over RT_GATE_MODE", async () => {
+      const { deps, calls } = fakeDeps(START, 0, { RT_GATE_MODE: "normal" });
+      await tool(deps, "run_start").handler({ ...input, gateMode: "yolo" }, RUNS_ROOT_ENV);
+      expect(fieldCalls(calls)[0]!.args[2]).toBe("yolo");
+    });
+    test("a field write that fails twice errors with the run's ids so the agent stops", async () => {
+      const calls: Call[] = [];
+      const { deps } = fakeDeps(START);
+      deps.write = async (verb, args, env, cwd) => {
+        calls.push({ verb, args, env: env ?? {}, cwd: cwd ?? "" });
+        return verb === "field" ? { out: '{"ok":false,"error":"locked"}', code: 1 } : { out: START, code: 0 };
+      };
+      const res = await tool(deps, "run_start").handler({ ...input, gateMode: "quiet" }, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe(
+        "run x started (runDb /runs/repo/id/state.db) but its gate mode was not recorded: locked. " +
+        "Set it with run_field_set (key gate-mode, value quiet, stage start) on that runDb before continuing; do not start another run.",
+      );
+      expect(fieldCalls(calls)).toHaveLength(2);
+    });
+    test("a field write that fails once is retried and leaves no warning", async () => {
+      const calls: Call[] = [];
+      const { deps } = fakeDeps(START);
+      deps.write = async (verb, args, env, cwd) => {
+        calls.push({ verb, args, env: env ?? {}, cwd: cwd ?? "" });
+        if (verb !== "field") return { out: START, code: 0 };
+        return fieldCalls(calls).length === 1 ? { out: '{"ok":false,"error":"locked"}', code: 1 } : { out: '{"ok":true}', code: 0 };
+      };
+      const res = await tool(deps, "run_start").handler({ ...input, gateMode: "quiet" }, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(true);
+      expect(fieldCalls(calls)).toHaveLength(2);
+      expect((res.body as Record<string, unknown>).warning).toBeUndefined();
+    });
+    test("an invalid RT_GATE_MODE is ignored and writes nothing", async () => {
+      const { deps, calls } = fakeDeps(START, 0, { RT_GATE_MODE: "bogus" });
+      const res = await tool(deps, "run_start").handler(input, RUNS_ROOT_ENV);
+      expect(res.ok).toBe(true);
+      expect(fieldCalls(calls)).toEqual([]);
+    });
   });
   test("refuses a quoted flag string without calling write", async () => {
     const { deps, calls } = fakeDeps();
@@ -399,6 +465,58 @@ describe("run_enter", () => {
     deps.isPackRoot = () => false;
     expect((await run({})).error).toContain("plugin.json");
     expect(calls).toEqual([]);
+  });
+  describe("gateMode", () => {
+    const STARTED = '{"ok":true,"mode":"started","runId":"x","runDb":"/runs/r/id/state.db"}';
+    const enter = (deps: RunToolDeps, input: Record<string, unknown> = {}) => tool(deps, "run_enter").handler({ flags: FLAGS, skillDir: SKILL, ...input }, RUNS_ROOT_ENV);
+    const withEnv = (out: string, procEnv: NodeJS.ProcessEnv) => {
+      const { deps, calls } = fakeDeps(undefined, 0, procEnv);
+      deps.engine = async () => ({ out, code: 0 });
+      return { deps, calls };
+    };
+    test("a fresh run with RT_GATE_MODE writes the field", async () => {
+      const { deps, calls } = withEnv(STARTED, { RT_GATE_MODE: "quiet" });
+      const res = await enter(deps);
+      expect(res.ok).toBe(true);
+      expect(calls.map((c) => c.verb)).toEqual(["field"]);
+      expect(calls[0]!.args).toEqual(["set", "gate-mode", "quiet", "--stage", "start"]);
+    });
+    test("an explicit gateMode on a fresh run wins over the env", async () => {
+      const { deps, calls } = withEnv(STARTED, { RT_GATE_MODE: "quiet" });
+      await enter(deps, { gateMode: "yolo" });
+      expect(calls[0]!.args[2]).toBe("yolo");
+    });
+    test("a resumed or inherited run writes nothing", async () => {
+      for (const mode of ["resumed", "inherited", "candidates"]) {
+        const { deps, calls } = withEnv(`{"ok":true,"mode":"${mode}","runDb":"/runs/r/id/state.db"}`, { RT_GATE_MODE: "quiet" });
+        await enter(deps, { gateMode: "yolo" });
+        expect(calls, mode).toEqual([]);
+      }
+    });
+    test("an invalid gateMode refuses and starts nothing", async () => {
+      const { deps, calls } = fakeEngine();
+      const res = await enter(deps, { gateMode: "bogus" });
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe('"gateMode" must be one of chatty, normal, quiet, yolo');
+      expect(calls).toEqual([]);
+    });
+    test("an invalid RT_GATE_MODE is ignored", async () => {
+      const { deps, calls } = withEnv(STARTED, { RT_GATE_MODE: "bogus" });
+      expect((await enter(deps)).ok).toBe(true);
+      expect(calls).toEqual([]);
+    });
+    test("a field write that fails twice errors with the run's ids so the agent stops", async () => {
+      const { deps } = withEnv(STARTED, { RT_GATE_MODE: "quiet" });
+      let writes = 0;
+      deps.write = async () => { writes++; return { out: '{"ok":false,"error":"locked"}', code: 1 }; };
+      const res = await enter(deps);
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe(
+        "run x started (runDb /runs/r/id/state.db) but its gate mode was not recorded: locked. " +
+        "Set it with run_field_set (key gate-mode, value quiet, stage start) on that runDb before continuing; do not start another run.",
+      );
+      expect(writes).toBe(2);
+    });
   });
   test("an engine error envelope becomes the error message", async () => {
     const { deps } = fakeEngine('{"ok":false,"error":"no run x in repo r"}', 2);

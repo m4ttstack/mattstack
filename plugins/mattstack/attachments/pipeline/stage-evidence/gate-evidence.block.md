@@ -10,6 +10,13 @@ props:
 
 # Gate `evidence` (before any capture)
 
+Runs integration with kind `evidence`, reach `worktree`. Pass
+`needsOperator`, with a one-line reason, when a recommendation turns
+on a product or people call: what the ticket's author or product owner
+meant, a flag key or value that came from a conversation, a follow-up
+ticket, or scope beyond the ticket. Pass it even when the step has a
+recommendation.
+
 One sentence above the form: what the plan asks for and what is unknown,
 naming any dev-server role left waiting or unclaimed. **I started it,
 check again** (or an `iterate`) on such a role re-runs `dev_endpoints`
