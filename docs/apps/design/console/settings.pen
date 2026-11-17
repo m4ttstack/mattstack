@@ -1,5 +1,5 @@
 {
-  "version": "2.21",
+  "version": "2.22",
   "children": [
     {
       "type": "frame",
@@ -68127,6 +68127,1164 @@
                   "content": "A Mac with no org shows no badge, no org and no team segment: there is nothing shared to change.",
                   "fontFamily": "$font",
                   "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "iytSP",
+      "x": 6720,
+      "y": 1308,
+      "name": "O · Choice settings explain each option",
+      "theme": {
+        "mode": "light"
+      },
+      "clip": true,
+      "width": 1120,
+      "fill": "$card",
+      "layout": "vertical",
+      "gap": 28,
+      "padding": 40,
+      "children": [
+        {
+          "type": "frame",
+          "id": "NuxOS",
+          "name": "Header",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 6,
+          "children": [
+            {
+              "type": "text",
+              "id": "vggDv",
+              "name": "Title",
+              "fill": "$text-1",
+              "content": "O · Choice settings explain each option",
+              "fontFamily": "$font",
+              "fontSize": 20,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "usGgo",
+              "name": "Subtitle",
+              "fill": "$text-3",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "Each choice can carry a short line saying what it does. Two places it could show: A in the dropdown, B when the setting is open.",
+              "lineHeight": 1.5,
+              "fontFamily": "$font",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "hdJ0Z",
+          "name": "Variant A · Help inside the picker",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "g5Pu3e",
+              "name": "Label",
+              "fill": "$text-1",
+              "content": "A · In the dropdown",
+              "fontFamily": "$font",
+              "fontSize": 14,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "cZT4W",
+              "name": "Row rt.work.gateMode",
+              "width": "fill_container",
+              "fill": "$card",
+              "cornerRadius": 8,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "pfWQs",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "stroke": "$border-soft",
+                  "gap": 24,
+                  "padding": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "t3Kq9A",
+                      "name": "Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "uSh7s",
+                          "name": "Title line",
+                          "gap": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "tdQUg",
+                              "name": "Key",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "mGNi2",
+                                  "name": "Namespace",
+                                  "fill": "$text-3",
+                                  "content": "rt.work.",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Y3Obzi",
+                                  "name": "Name",
+                                  "fill": "$text-body",
+                                  "content": "gateMode",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "vJ3DX",
+                              "name": "Scope machine",
+                              "fill": "$accent-wash",
+                              "cornerRadius": 4,
+                              "gap": 4,
+                              "padding": [
+                                1,
+                                6,
+                                1,
+                                5
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "ellipse",
+                                  "id": "H85AIv",
+                                  "name": "Dot",
+                                  "fill": "$accent-fill",
+                                  "width": 6,
+                                  "height": 6
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "x6ne0",
+                                  "name": "Label",
+                                  "fill": "$accent-text-small",
+                                  "content": "user",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "r0Jjn",
+                          "name": "Description",
+                          "fill": "$text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "How much a work run stops to ask you.",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "lNqPD",
+                      "name": "Control",
+                      "width": 260,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "z0MCQm",
+                          "name": "Select",
+                          "width": 120,
+                          "height": 30,
+                          "fill": "$card",
+                          "cornerRadius": 6,
+                          "stroke": "$border",
+                          "strokeWidth": 1,
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "S8vDv6",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "content": "quiet",
+                              "fontFamily": "$font",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "icon",
+                              "id": "SdMd5",
+                              "name": "Caret",
+                              "width": 14,
+                              "height": 14,
+                              "icon": "chevrons-up-down",
+                              "library": "lucide",
+                              "fill": "$text-4"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "WpWy0",
+                      "name": "Disclosure",
+                      "width": 28,
+                      "height": 28,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "xygbC",
+                          "name": "Chevron",
+                          "width": 16,
+                          "height": 16,
+                          "icon": "chevron-up",
+                          "library": "lucide",
+                          "fill": "$text-1"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "s4Gnx",
+              "name": "Dropdown anchor",
+              "width": "fill_container",
+              "padding": [
+                0,
+                140,
+                0,
+                0
+              ],
+              "justifyContent": "end",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "DQpgN",
+                  "name": "Dropdown",
+                  "width": 400,
+                  "fill": "$card",
+                  "cornerRadius": 8,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "effect": {
+                    "type": "shadow",
+                    "shadowType": "outer",
+                    "color": "#0000001f",
+                    "offset": {
+                      "x": 0,
+                      "y": 4
+                    },
+                    "blur": 12
+                  },
+                  "layout": "vertical",
+                  "gap": 2,
+                  "padding": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "cU30R",
+                      "name": "Option chatty",
+                      "width": "fill_container",
+                      "cornerRadius": 6,
+                      "layout": "vertical",
+                      "gap": 2,
+                      "padding": [
+                        8,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "IYrRG",
+                          "name": "Title line",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "VPcrr",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "content": "chatty",
+                              "fontFamily": "$mono",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "ElSwL",
+                          "name": "Description",
+                          "fill": "$text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Stops to ask you at every step.",
+                          "lineHeight": 1.4,
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Tnj7E",
+                      "name": "Option normal",
+                      "width": "fill_container",
+                      "cornerRadius": 6,
+                      "layout": "vertical",
+                      "gap": 2,
+                      "padding": [
+                        8,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "sW0Ms",
+                          "name": "Title line",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "rIlzU",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "content": "normal",
+                              "fontFamily": "$mono",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "QDTba",
+                          "name": "Description",
+                          "fill": "$text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Handles small steps on its own, like the plan and fixes to your code. Asks before it pushes anything.",
+                          "lineHeight": 1.4,
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "KkHno",
+                      "name": "Option quiet",
+                      "width": "fill_container",
+                      "fill": "$accent-wash",
+                      "cornerRadius": 6,
+                      "layout": "vertical",
+                      "gap": 2,
+                      "padding": [
+                        8,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "WCEbH",
+                          "name": "Title line",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "chJr0",
+                              "name": "Check",
+                              "width": 12,
+                              "height": 12,
+                              "icon": "check",
+                              "library": "lucide",
+                              "fill": "$ok-text"
+                            },
+                            {
+                              "type": "text",
+                              "id": "IbnK3",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "content": "quiet",
+                              "fontFamily": "$mono",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "iKO0o",
+                          "name": "Description",
+                          "fill": "$text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Also pushes and updates your draft merge request on its own. Asks before teammates see anything.",
+                          "lineHeight": 1.4,
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "m6CF3v",
+                      "name": "Option yolo",
+                      "width": "fill_container",
+                      "cornerRadius": 6,
+                      "layout": "vertical",
+                      "gap": 2,
+                      "padding": [
+                        8,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "V9GTMA",
+                          "name": "Title line",
+                          "gap": 6,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "zZJV7",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "content": "yolo",
+                              "fontFamily": "$mono",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "Pad4H",
+                          "name": "Description",
+                          "fill": "$text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Goes all the way to a merge request ready for review. Still asks before posting anything public.",
+                          "lineHeight": 1.4,
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "jWM6J",
+                      "name": "Footnote",
+                      "width": "fill_container",
+                      "stroke": "$border-soft",
+                      "strokeWidth": {
+                        "top": 1
+                      },
+                      "padding": [
+                        8,
+                        10,
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "GMx7a",
+                          "name": "Text",
+                          "fill": "$text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "In every mode it still asks when it isn't sure, or wants to stop.",
+                          "lineHeight": 1.4,
+                          "fontFamily": "$font",
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "hFfMb",
+          "name": "Variant B · Help in the Value tab",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "N1T4oZ",
+              "name": "Label",
+              "fill": "$text-1",
+              "content": "B · When the setting is open",
+              "fontFamily": "$font",
+              "fontSize": 14,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "ZNj9k",
+              "name": "Open row rt.work.gateMode",
+              "width": "fill_container",
+              "fill": "$card",
+              "cornerRadius": 8,
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Qj28Z",
+                  "name": "Row",
+                  "width": "fill_container",
+                  "stroke": "$border-soft",
+                  "gap": 24,
+                  "padding": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "cJKoN",
+                      "name": "Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "N78kvh",
+                          "name": "Title line",
+                          "gap": 8,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "mkwdG",
+                              "name": "Key",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "ApOkB",
+                                  "name": "Namespace",
+                                  "fill": "$text-3",
+                                  "content": "rt.work.",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "d2pZG",
+                                  "name": "Name",
+                                  "fill": "$text-body",
+                                  "content": "gateMode",
+                                  "fontFamily": "$mono",
+                                  "fontSize": 14,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "nAoyd",
+                              "name": "Scope machine",
+                              "fill": "$accent-wash",
+                              "cornerRadius": 4,
+                              "gap": 4,
+                              "padding": [
+                                1,
+                                6,
+                                1,
+                                5
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "ellipse",
+                                  "id": "lKPkh",
+                                  "name": "Dot",
+                                  "fill": "$accent-fill",
+                                  "width": 6,
+                                  "height": 6
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "gSn1S",
+                                  "name": "Label",
+                                  "fill": "$accent-text-small",
+                                  "content": "user",
+                                  "fontFamily": "$font",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "OAmXe",
+                          "name": "Description",
+                          "fill": "$text-3",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "How much a work run stops to ask you.",
+                          "fontFamily": "$font",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "CJmCj",
+                      "name": "Control",
+                      "width": 260,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "g9cxb",
+                          "name": "Select",
+                          "width": 120,
+                          "height": 30,
+                          "fill": "$card",
+                          "cornerRadius": 6,
+                          "stroke": "$border",
+                          "strokeWidth": 1,
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "justifyContent": "space_between",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "eRMEP",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "content": "quiet",
+                              "fontFamily": "$font",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "icon",
+                              "id": "w5aWQ",
+                              "name": "Caret",
+                              "width": 14,
+                              "height": 14,
+                              "icon": "chevrons-up-down",
+                              "library": "lucide",
+                              "fill": "$text-4"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "vnzff",
+                      "name": "Disclosure",
+                      "width": 28,
+                      "height": 28,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "EFRb2",
+                          "name": "Chevron",
+                          "width": 16,
+                          "height": 16,
+                          "icon": "chevron-up",
+                          "library": "lucide",
+                          "fill": "$text-1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "kvrw5",
+                  "name": "Panel",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "padding": [
+                    0,
+                    12,
+                    12,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "V7UZq1",
+                      "name": "Tabs",
+                      "height": 31,
+                      "fill": "$inset",
+                      "cornerRadius": 6,
+                      "padding": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "qpXnV",
+                          "name": "Value",
+                          "width": 51,
+                          "height": 23,
+                          "fill": "$card",
+                          "cornerRadius": 2,
+                          "effect": [
+                            {
+                              "type": "shadow",
+                              "shadowType": "outer",
+                              "color": "#0000001a",
+                              "offset": {
+                                "x": 0,
+                                "y": 1
+                              },
+                              "blur": 2
+                            },
+                            {
+                              "type": "shadow",
+                              "shadowType": "outer",
+                              "color": "#0000000d",
+                              "offset": {
+                                "x": 0,
+                                "y": 1
+                              },
+                              "blur": 3
+                            }
+                          ],
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "LQhnX",
+                              "name": "Label",
+                              "fill": "$text-1",
+                              "content": "Value",
+                              "fontFamily": "$font",
+                              "fontSize": 11.2,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Dtdur",
+                          "name": "Where it's set",
+                          "width": 97,
+                          "height": 23,
+                          "fill": "#00000000",
+                          "cornerRadius": 2,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "r4gZMF",
+                              "name": "Label",
+                              "fill": "$text-3",
+                              "content": "Where it's set",
+                              "fontFamily": "$font",
+                              "fontSize": 11.2,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "KjX6p",
+                      "name": "Options",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "V6PKAG",
+                          "name": "Option chatty",
+                          "width": "fill_container",
+                          "cornerRadius": 6,
+                          "gap": 12,
+                          "padding": [
+                            9,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "ETtMd",
+                              "name": "Radio",
+                              "fill": "$card",
+                              "width": 14,
+                              "height": 14,
+                              "stroke": "$border",
+                              "strokeWidth": 1.5
+                            },
+                            {
+                              "type": "text",
+                              "id": "KkYjb",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": 72,
+                              "content": "chatty",
+                              "fontFamily": "$mono",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "xeT0C",
+                              "name": "Description",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Stops to ask you at every step.",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "hp3lk",
+                          "name": "Option normal",
+                          "width": "fill_container",
+                          "cornerRadius": 6,
+                          "gap": 12,
+                          "padding": [
+                            9,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "IQvkA",
+                              "name": "Radio",
+                              "fill": "$card",
+                              "width": 14,
+                              "height": 14,
+                              "stroke": "$border",
+                              "strokeWidth": 1.5
+                            },
+                            {
+                              "type": "text",
+                              "id": "t3zNA",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": 72,
+                              "content": "normal",
+                              "fontFamily": "$mono",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "zrS6y",
+                              "name": "Description",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Handles small steps on its own, like the plan and fixes to your code. Asks before it pushes anything.",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "i9kon",
+                          "name": "Option quiet",
+                          "width": "fill_container",
+                          "fill": "$accent-wash",
+                          "cornerRadius": 6,
+                          "gap": 12,
+                          "padding": [
+                            9,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "S5PET9",
+                              "name": "Radio",
+                              "fill": "$card",
+                              "width": 14,
+                              "height": 14,
+                              "stroke": "$accent-fill",
+                              "strokeWidth": 4
+                            },
+                            {
+                              "type": "text",
+                              "id": "isGvp",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": 72,
+                              "content": "quiet",
+                              "fontFamily": "$mono",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            },
+                            {
+                              "type": "text",
+                              "id": "b5AQ1",
+                              "name": "Description",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Also pushes and updates your draft merge request on its own. Asks before teammates see anything.",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "OH35f",
+                          "name": "Option yolo",
+                          "width": "fill_container",
+                          "cornerRadius": 6,
+                          "gap": 12,
+                          "padding": [
+                            9,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "ellipse",
+                              "id": "zMOTQ",
+                              "name": "Radio",
+                              "fill": "$card",
+                              "width": 14,
+                              "height": 14,
+                              "stroke": "$border",
+                              "strokeWidth": 1.5
+                            },
+                            {
+                              "type": "text",
+                              "id": "HZk4B",
+                              "name": "Value",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": 72,
+                              "content": "yolo",
+                              "fontFamily": "$mono",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "xeIhF",
+                              "name": "Description",
+                              "fill": "$text-body",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Goes all the way to a merge request ready for review. Still asks before posting anything public.",
+                              "fontFamily": "$font",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "q2mrt",
+                      "name": "Footnote",
+                      "fill": "$text-3",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "In every mode it still asks when it isn't sure, or wants to stop.",
+                      "lineHeight": 1.4,
+                      "fontFamily": "$font",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "EdWVK",
+          "name": "Notes",
+          "width": "fill_container",
+          "gap": 24,
+          "children": [
+            {
+              "type": "frame",
+              "id": "yMgDW",
+              "name": "Source",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "rb5f7",
+                  "name": "Heading",
+                  "fill": "$text-1",
+                  "content": "Where the text lives",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "H1N3Lm",
+                  "name": "Body",
+                  "fill": "$text-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "The lines are written once, next to the setting itself, so the console and the docs say the same thing.",
+                  "lineHeight": 1.4,
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "Zhpf1",
+              "name": "A · picker",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "pMKk3",
+                  "name": "Heading",
+                  "fill": "$text-1",
+                  "content": "A · In the dropdown",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "GnHho",
+                  "name": "Body",
+                  "fill": "$text-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "You see the help only while choosing.",
+                  "lineHeight": 1.4,
+                  "fontFamily": "$font",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "pUAug",
+              "name": "B · Value tab",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "XR8gc",
+                  "name": "Heading",
+                  "fill": "$text-1",
+                  "content": "B · When the setting is open",
+                  "fontFamily": "$font",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "lfehN",
+                  "name": "Body",
+                  "fill": "$text-3",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "All four choices and what they do show at once. The dropdown at the top still works for quick changes.",
+                  "lineHeight": 1.4,
+                  "fontFamily": "$font",
+                  "fontSize": 12,
                   "fontWeight": "normal"
                 }
               ]
