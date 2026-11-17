@@ -3,9 +3,9 @@
  * from render-cache.ts, which loads the compile, so the resolver and run
  * provenance can read the cache without it.
  */
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import { stripJsonc } from "../jsonc.ts";
-import { compareVersions, ENGINE_PACK_REF, findInstalledPluginDir } from "./installed-plugins.ts";
+import { compareVersions, ENGINE_PACK_REF, findInstalledPluginDir, findPluginVersionDirs } from "./installed-plugins.ts";
 
 export type RenderStamp = { rtBuild: string; mattstack: string; inputHash: string };
 
@@ -49,6 +49,33 @@ export function isHuskPack(readFile: (p: string) => string | null, packDir: stri
 }
 
 type RegistryFs = TreeFs & { readFile(p: string): string | null };
+
+/**
+ * The installed husk a rendered unit stands in for: `<copy>/<unitPath>` when
+ * it is there, else any husk of the unit's name, since a door's husk sits in
+ * `skills/` while the render serves its id from the base unit.
+ */
+export function installedHuskIn(fs: TreeFs, copy: string, unitPath: string): string | null {
+  const leaf = unitPath.slice(unitPath.lastIndexOf("/") + 1);
+  const attachments = join(copy, "attachments");
+  const candidates = [join(copy, unitPath), join(copy, "skills", leaf), join(attachments, leaf), ...fs.readDir(attachments).map((group) => join(attachments, group, leaf))];
+  return candidates.find((c) => fs.exists(c)) ?? null;
+}
+
+/**
+ * For a folder inside a render tree (`<root>/<org>/<plugin>/<version>/<mattstack>/<unit>`),
+ * the installed husk of that unit at that pack version; null outside the
+ * render root, or without exactly one installed copy.
+ */
+export function installedHuskForTreeDir(fs: TreeFs, home: string, dir: string): string | null {
+  const root = renderRoot(home);
+  const text = normalize(dir);
+  if (!text.startsWith(`${root}/`)) return null;
+  const [, plugin, version, , ...unit] = text.slice(root.length + 1).split("/");
+  if (!plugin || !version || unit.length === 0) return null;
+  const copies = findPluginVersionDirs(fs, home, plugin, version);
+  return copies.length === 1 ? installedHuskIn(fs, copies[0]!, unit.join("/")) : null;
+}
 
 /**
  * True when any org clone on this Mac carries a team pack that opts into

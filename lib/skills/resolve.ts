@@ -3,7 +3,7 @@ import { posix } from "path";
 import { UserActionableError } from "../errors.ts";
 import { compareVersions, findPluginVersionDirs, type PluginFs } from "./installed-plugins.ts";
 import { ID_RE, spellFrom, type PointerMap, type Target } from "./pointers.ts";
-import { activeMattstack, isHuskPack, pickRenderTree, renderRoot } from "./render-paths.ts";
+import { activeMattstack, installedHuskIn, isHuskPack, pickRenderTree, renderRoot } from "./render-paths.ts";
 import { isIdSafeVersion, MAP_FILE } from "./unit-maps.ts";
 
 /** `realPath` is null for a path that does not exist. */
@@ -186,9 +186,8 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
       throw refuse("skills-resolve-not-rendered", `Load the skill first: call ${LOAD_SKILL}.`, `${plugin} ${version} commits only husks, and this Mac has not rendered it yet.`);
     }
     const rendered = unitIn(id, unit, `${plugin} ${version}`, tree, unitReads(fs, tree, unit), fix, owner);
-    // A door's husk sits in skills/ while the render serves its id from the base unit, so any husk of that name stands in.
-    const husk = reads.find(({ folder }) => folder === `${root}/${rendered.map.dir}`) ?? reads[0];
-    return husk ? { ...rendered, installed: husk.folder } : rendered;
+    const installed = installedHuskIn(fs, root, rendered.map.dir);
+    return installed === null ? rendered : { ...rendered, installed };
   }
   return unitIn(id, unit, `${plugin} ${version}`, root, reads, fix, owner);
 }
