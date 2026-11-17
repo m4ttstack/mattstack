@@ -452,6 +452,20 @@ describe("resolvePointers: husk packs", () => {
     expect(resolvePointers("widgets@0.4.2:base-only", { fs, home: HOME }).folder).toBe(`${at}/attachments/base-only`);
   });
 
+  test("a folder inside a render tree pins its pack version", () => {
+    const at = `${RENDERED}/0.32.76`;
+    const fs = fakeFs(husk({
+      [`${CACHE}/acme/widgets/0.4.9/x`]: "",
+      [`${at}/render.json`]: "{}",
+      [`${at}/skills/work/SKILL.md`]: "",
+      [`${at}/skills/work/x.sh`]: "",
+      [`${at}/skills/work/compiled.json`]: map("widgets:work", "skills/work", { "work/x.sh": "skills/work/x.sh" }),
+    }));
+    const r = resolvePointers("widgets:work", { fs, home: HOME }, `${at}/attachments/stage-x`);
+    expect(r.pinned).toBe(true);
+    expect(r.keys["work/x.sh"]).toBe(`${at}/skills/work/x.sh`);
+  });
+
   test("refuses a key outside the render tree", () => {
     const at = `${RENDERED}/0.32.76`;
     const fs = fakeFs(husk({

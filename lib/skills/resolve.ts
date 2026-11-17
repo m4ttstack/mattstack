@@ -120,18 +120,20 @@ export function dirClimbsOutOfCache(dir: string, home: string): boolean {
 }
 
 /**
- * The version folder `dir` sits in, read from `<cache>/<market>/<plugin>/<version>/`.
- * A path is only looked up on disk once its text sits inside the cache, so
- * nothing outside it is touched.
+ * The version folder `dir` sits in, read from `<cache>/<market>/<plugin>/<version>/`
+ * or a render tree's `<root>/<org>/<plugin>/<version>/`. A path is only
+ * looked up on disk once its text sits inside one of them, so nothing outside
+ * is touched.
  */
 export function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
   if (!posix.isAbsolute(dir)) return null;
-  const cache = pluginCache(deps.home);
   const text = posix.normalize(dir);
-  if (!within(cache, text)) return null;
+  // A render tree, `<root>/<org>/<plugin>/<version>/<mattstack>/`, names its pack version the way a cache copy does.
+  const root = [pluginCache(deps.home), renderRoot(deps.home)].find((r) => within(r, text));
+  if (root === undefined) return null;
   // The written path, not its normalized text: the OS follows a link before the `..` after it.
   const real = deps.fs.realPath(dir);
-  const [base, path] = real === null ? [cache, text] : [deps.fs.realPath(cache) ?? cache, real];
+  const [base, path] = real === null ? [root, text] : [deps.fs.realPath(root) ?? root, real];
   if (!within(base, path)) return null;
   const [, named, version] = path.slice(base.length + 1).split("/");
   if (!named || !version) return null;
