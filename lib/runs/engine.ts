@@ -166,6 +166,7 @@ export type NextResult =
   | { ended: "failed"; at: Position; reason: string | null; detailPath: string | null; missing?: string[]; scope: string; earlier: string[] }
   | { ended: "held"; at: Position; reason: string }
   | { ended: "waiting"; at: Position; gate: string }
+  | { ended: "redirected"; from: string; next: Position; note: string; headCommit: string | null; gate: string; cleared: string[] }
   | { ended: "done"; next: Position; repeated?: true }
   | { ended: "done"; last: true; stages: string[]; scope: "close"; repeated?: true };
 
@@ -180,6 +181,32 @@ const NO_MANIFEST = "this run has no pipeline manifest; resume it with run_enter
 function fieldAfter(db: Database, key: string, since: number): string | null {
   const row = db.query("SELECT value, at FROM fields WHERE key = ?").get(key) as { value: string; at: number } | undefined;
   return row && row.at >= since && !cleared(row.value) ? row.value : null;
+}
+
+export interface RedoRequest {
+  gate: string;
+  to: string;
+  note: string;
+  headCommit: string | null;
+  by: string;
+  at: number;
+}
+
+export function pendingRedo(db: Database): RedoRequest | null {
+  const row = db.query("SELECT value FROM fields WHERE key = 'redo'").get() as { value: string } | undefined;
+  if (!row || cleared(row.value)) return null;
+  let v: unknown;
+  try {
+    v = JSON.parse(row.value);
+  } catch {
+    return null;
+  }
+  if (typeof v !== "object" || v === null) return null;
+  const r = v as Record<string, unknown>;
+  const str = (k: string) => typeof r[k] === "string";
+  if (!str("gate") || !str("to") || !str("note") || !str("by") || typeof r.at !== "number") return null;
+  if (r.headCommit !== null && typeof r.headCommit !== "string") return null;
+  return { gate: r.gate as string, to: r.to as string, note: r.note as string, headCommit: r.headCommit as string | null, by: r.by as string, at: r.at };
 }
 
 export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessEnv; now?: number }): Ok<NextResult> | Fail {
@@ -240,6 +267,22 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
       const gate = fieldAfter(db, "waiting-gate", since);
       if (gate !== null) return { ok: true, ended: "waiting", at, gate };
 
+      const redo = pendingRedo(db);
+      if (redo) {
+        must(fieldSet(db, "redo", "-", o.stage, now));
+        const toIndex = manifest.findIndex((m) => m.stage === redo.to);
+        if (toIndex < 0 || toIndex > index) {
+          const why = toIndex < 0 ? "it is not in this run's pipeline manifest" : `it is ahead of ${o.stage}`;
+          const reason = `redo to ${redo.to} could not apply: ${why}`;
+          const r = must(holdInTx(db, { stage: o.stage, reason, decidedBy: redo.by, now }));
+          return { ok: true, ended: "held", at: r.at, reason };
+        }
+        const r = must(
+          redirectInTx(db, { stage: o.stage, to: redo.to, note: redo.note, decidedBy: redo.by, extra: { gate: redo.gate, headCommit: redo.headCommit }, env: o.env, now }),
+        );
+        return { ok: true, ended: "redirected", from: o.stage, next: r.next, note: redo.note, headCommit: redo.headCommit, gate: redo.gate, cleared: r.cleared };
+      }
+
       const missing = entry.produces.filter((key) => {
         const f = db.query("SELECT value FROM fields WHERE key = ?").get(key) as { value: string } | undefined;
         return cleared(f?.value);
@@ -292,6 +335,40 @@ function redirectedTo(db: Database, stage: string, attempt: number): string | nu
   } catch {
     return null;
   }
+}
+
+/** Assumes `to` is in the manifest at or before `stage`; callers check that. */
+export function redirectInTx(
+  db: Database,
+  o: { stage: string; to: string; note: string; decidedBy: string; extra?: Record<string, unknown>; env: NodeJS.ProcessEnv; now: number },
+): Ok<{ next: Position; cleared: string[] }> | Fail {
+  const { stage, to, now } = o;
+  const from = positionOf(db, stage);
+  if (!from) return { ok: false, error: `stage ${stage} has no row in this run`, code: 3 };
+  const manifest = readManifest(db);
+  const toIndex = manifest.findIndex((m) => m.stage === to);
+  const reason = o.note;
+  must(
+    decisionRecord(db, {
+      contract: "gate@1",
+      scope: `redirect:${stage}:${from.attempt}`,
+      selection: JSON.stringify({ from: stage, to, reason, ...o.extra }),
+      decidedBy: o.decidedBy,
+      now,
+    }),
+  );
+  if (from.status === "running") must(stageEnd(db, stage, "redirected", { reason, now }));
+
+  const cleared: string[] = [];
+  for (const m of manifest.slice(toIndex)) {
+    for (const key of m.produces) {
+      must(fieldSet(db, key, "-", to, now));
+      cleared.push(key);
+    }
+  }
+  for (const m of manifest.slice(toIndex)) cleared.push(...clearConsent(db, m.stage, now));
+  must(stageStart(db, to, o.env, now));
+  return { ok: true, next: positionOf(db, to)!, cleared };
 }
 
 export function resolveStage(
@@ -368,28 +445,8 @@ export function resolveStage(
         const offStage = offStageRefusal();
         if (offStage) return offStage;
 
-        const reason = o.note ?? `redirected to ${to}`;
-        must(
-          decisionRecord(db, {
-            contract: "gate@1",
-            scope: `redirect:${o.stage}:${from.attempt}`,
-            selection: JSON.stringify({ from: o.stage, to, reason }),
-            decidedBy: o.decidedBy,
-            now,
-          }),
-        );
-        if (from.status === "running") must(stageEnd(db, o.stage, "redirected", { reason, now }));
-
-        const cleared: string[] = [];
-        for (const m of manifest.slice(toIndex)) {
-          for (const key of m.produces) {
-            must(fieldSet(db, key, "-", to, now));
-            cleared.push(key);
-          }
-        }
-        for (const m of manifest.slice(toIndex)) cleared.push(...clearConsent(db, m.stage, now));
-        must(stageStart(db, to, o.env, now));
-        return { ok: true, applied: o.next, next: positionOf(db, to)!, cleared };
+        const r = redirectInTx(db, { stage: o.stage, to, note: o.note ?? `redirected to ${to}`, decidedBy: o.decidedBy, env: o.env, now });
+        return r.ok ? { ok: true, applied: o.next, next: r.next, cleared: r.cleared } : r;
       }
 
       if (o.next === "abandon") {

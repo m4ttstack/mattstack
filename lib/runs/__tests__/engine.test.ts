@@ -447,6 +447,99 @@ describe("nextStage", () => {
   });
 });
 
+describe("nextStage applies a pending redo", () => {
+  function runAt(stage: "plan" | "implement"): Database {
+    const db = mkdb();
+    writeManifest(
+      db,
+      [
+        { stage: "plan", consumes: [], produces: ["approach"] },
+        { stage: "implement", consumes: ["approach"], produces: ["commits"] },
+        { stage: "self-review", consumes: ["commits"], produces: ["review"] },
+      ],
+      null,
+    );
+    expect(stageStart(db, "plan", {}, 100).ok).toBe(true);
+    if (stage === "implement") {
+      expect(stageEnd(db, "plan", "done", { now: 110 }).ok).toBe(true);
+      expect(stageStart(db, "implement", {}, 120).ok).toBe(true);
+    }
+    expect(fieldSet(db, "approach", "tdd", "plan", 130).ok).toBe(true);
+    expect(fieldSet(db, "commits", "c1", "implement", 130).ok).toBe(true);
+    return db;
+  }
+  const redo = (db: Database, to: string, stage: string) =>
+    expect(
+      fieldSet(db, "redo", JSON.stringify({ gate: "g1", to, note: "split the helper", headCommit: "abc1234", by: "console", at: 140 }), stage, 140).ok,
+    ).toBe(true);
+  const field = (db: Database, key: string) => (db.query("SELECT value FROM fields WHERE key = ?").get(key) as { value: string } | undefined)?.value;
+
+  test("a pending redo redirects at run_next", () => {
+    const db = runAt("implement");
+    redo(db, "plan", "implement");
+    const r = nextStage(db, { stage: "implement", env: {}, now: 200 });
+    expect(r).toMatchObject({
+      ok: true,
+      ended: "redirected",
+      from: "implement",
+      next: { stage: "plan", attempt: 2, status: "running" },
+      note: "split the helper",
+      headCommit: "abc1234",
+      gate: "g1",
+    });
+    expect(db.query("SELECT status FROM stages WHERE name = 'implement' ORDER BY attempt DESC LIMIT 1").get()).toEqual({ status: "redirected" });
+    const d = db.query("SELECT selection, decided_by FROM decisions WHERE contract = 'gate@1' AND scope = 'redirect:implement:1'").get() as {
+      selection: string;
+      decided_by: string;
+    };
+    expect(d.decided_by).toBe("console");
+    expect(JSON.parse(d.selection)).toMatchObject({ to: "plan", reason: "split the helper", gate: "g1", headCommit: "abc1234" });
+    expect(field(db, "redo")).toBe("-");
+  });
+
+  test("a redo to the current stage restarts it", () => {
+    const db = runAt("implement");
+    redo(db, "implement", "implement");
+    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "redirected", next: { stage: "implement", attempt: 2 } });
+    expect(db.query("SELECT status FROM stages WHERE name = 'implement' AND attempt = 2").get()).toEqual({ status: "running" });
+  });
+
+  test("hold wins over a pending redo", () => {
+    const db = runAt("implement");
+    redo(db, "plan", "implement");
+    expect(fieldSet(db, "hold", "paused", "implement", 150).ok).toBe(true);
+    const before = field(db, "redo");
+    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "held", reason: "paused" });
+    expect(field(db, "redo")).toBe(before);
+  });
+
+  test("an armed gate keeps the redo pending", () => {
+    const db = runAt("implement");
+    redo(db, "plan", "implement");
+    expect(fieldSet(db, "waiting-gate", "g2", "implement", 150).ok).toBe(true);
+    const before = field(db, "redo");
+    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "waiting", gate: "g2" });
+    expect(field(db, "redo")).toBe(before);
+  });
+
+  test("a redo whose stage is ahead becomes a hold", () => {
+    const db = runAt("plan");
+    redo(db, "self-review", "plan");
+    expect(nextStage(db, { stage: "plan", env: {}, now: 200 })).toMatchObject({
+      ok: true,
+      ended: "held",
+      reason: "redo to self-review could not apply: it is ahead of plan",
+    });
+    expect(field(db, "redo")).toBe("-");
+  });
+
+  test("a malformed redo field is ignored", () => {
+    const db = runAt("implement");
+    expect(fieldSet(db, "redo", "not json", "implement", 140).ok).toBe(true);
+    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "done", next: { stage: "self-review" } });
+  });
+});
+
 describe("resolveStage", () => {
   const NO_MANIFEST = "this run has no pipeline manifest; resume it with run_enter to record one";
   const stages = [
