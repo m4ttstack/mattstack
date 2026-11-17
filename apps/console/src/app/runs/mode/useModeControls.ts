@@ -18,7 +18,8 @@ export function useModeControls(repo: string, runId: string) {
       const res = await client.api.runs[':repo'][':runId'].hold.$post({
         param: { repo, runId },
       });
-      if (!res.ok) return (await readApiError(res, "couldn't pause the run")).message;
+      if (!res.ok)
+        return (await readApiError(res, "couldn't pause the run")).message;
     } catch {
       return "the console server didn't answer";
     }
@@ -32,7 +33,8 @@ export function useModeControls(repo: string, runId: string) {
         param: { id: gate },
         json: { note },
       });
-      if (!res.ok) return (await readApiError(res, "couldn't send the run back")).message;
+      if (!res.ok)
+        return (await readApiError(res, "couldn't send the run back")).message;
     } catch {
       return "the console server didn't answer";
     }

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import {
+  Alert,
   Badge,
   Button,
   Group,
@@ -8,8 +9,9 @@ import {
   Textarea,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
+import type { GateRow } from '@mattstack/rt-client';
 
-import type { ModeFeedRow, PauseState } from '../derive/modeFeed';
+import { modeOf, type ModeFeedRow, type PauseState } from '../derive/modeFeed';
 import { Glyph } from '../Glyph';
 import classes from './ModeDecisions.module.css';
 import { useModeControls } from './useModeControls';
@@ -18,6 +20,94 @@ const clock = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 const shortSha = (sha: string) => sha.slice(0, 7);
+
+/** The run a page shows, for gate records deep in its story to offer Redo
+    without threading the run through every component between. */
+export const ModeRunContext = createContext<{
+  repo: string;
+  runId: string;
+  canControl: boolean;
+} | null>(null);
+
+/** Redo for one gate record in a run's story: whether it can be redone, a
+    toggle for its link, and the open note to draw under the record. */
+export function useGateRedo(gate: GateRow): {
+  canRedo: boolean;
+  open: boolean;
+  toggle: () => void;
+  note: ReactNode;
+} {
+  const run = useContext(ModeRunContext);
+  const { redo } = useModeControls(run?.repo ?? '', run?.runId ?? '');
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const stage = typeof gate.meta?.stage === 'string' ? gate.meta.stage : null;
+  const headCommit =
+    typeof gate.meta?.headCommit === 'string' ? gate.meta.headCommit : null;
+  const canRedo = Boolean(run?.canControl && stage && modeOf(gate) !== null);
+  const send = async (note: string) => {
+    const err = await redo(gate.id, note);
+    if (err) setError(err);
+    else {
+      setOpen(false);
+      setError(null);
+    }
+  };
+  return {
+    canRedo,
+    open,
+    toggle: () => {
+      setOpen(o => !o);
+      setError(null);
+    },
+    note:
+      canRedo && open && stage ? (
+        <RedoNote
+          step={stage}
+          headCommit={headCommit}
+          error={error}
+          onSend={n => void send(n)}
+          onCancel={() => setOpen(false)}
+        />
+      ) : null,
+  };
+}
+
+/** The run page's notice while a console Pause is on its way or has
+    landed. */
+export function PausedBanner({
+  pause,
+  at,
+  stage,
+  mode,
+}: {
+  pause: Exclude<PauseState, 'none'>;
+  at: number;
+  stage: string | null;
+  mode: string | null;
+}) {
+  const where = stage ? ` after ${stage}` : '';
+  const title =
+    pause === 'pausing'
+      ? `Pausing from the console: it stops${where}.`
+      : `Paused from the console at ${clock(at)}. It stopped${where}.`;
+  const asks = mode
+    ? `Gates that open now ask you instead of the ${mode} mode.`
+    : 'Gates that open now ask you.';
+  return (
+    <Alert
+      color="yellow"
+      variant="light"
+      icon={<Glyph name="hand" size={16} />}
+      data-testid="paused-banner"
+    >
+      <Text fz="sm" fw={600}>
+        {title}
+      </Text>
+      <Text fz="sm">{asks}</Text>
+    </Alert>
+  );
+}
 
 /** The note box a Redo opens: what the worker should do differently, sent
     back to the gate's step. */
@@ -204,7 +294,12 @@ export function ModePanel({
           </UnstyledButton>
         ) : null}
         {canControl && shown === 'none' ? (
-          <Button ml="auto" size="compact-sm" variant="default" onClick={onPause}>
+          <Button
+            ml="auto"
+            size="compact-sm"
+            variant="default"
+            onClick={onPause}
+          >
             Pause
           </Button>
         ) : null}

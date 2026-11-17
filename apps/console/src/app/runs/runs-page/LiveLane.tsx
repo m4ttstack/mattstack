@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   ActionIcon,
   Anchor,
@@ -7,7 +8,6 @@ import {
   Tooltip,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
-import type { ReactNode } from 'react';
 import { Link } from 'wouter';
 
 import type { LaneFacts } from '../derive/lanes';
