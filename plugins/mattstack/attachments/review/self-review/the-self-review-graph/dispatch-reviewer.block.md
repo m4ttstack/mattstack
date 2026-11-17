@@ -25,6 +25,7 @@ The brief adds two asks, since the fix loop reads both from the draft:
   `Reachable from this change: yes` when the change calls it, feeds it
   new inputs or exposes it to new users, else `no`.
 
-Right after the dispatch, record the commit it reviewed as
-`self-review-head` (the next node), so a re-review knows where the last
-full review stopped.
+Read `git rev-parse HEAD` before the dispatch and hold that sha; right
+after the dispatch, record it as `self-review-head` (the next node), never
+a fresh read, so a commit that lands while the reviewer works stays
+outside what counts as reviewed and the next re-review covers it.

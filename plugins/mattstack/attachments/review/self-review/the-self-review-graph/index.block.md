@@ -31,7 +31,7 @@ flowchart TB
     who_judges{Who forms the self-review judgment?}
     stop_no_inline_judging[STOP: never judge your own diff inline; dispatch the fresh reviewer]:::stop
     dispatch_reviewer
-    run_field_set_head[/"run_field_set {runDb, key: self-review-head, value: <HEAD sha>, stage}"/]
+    run_field_set_head[/"run_field_set {runDb, key: self-review-head, value: <the HEAD sha read before the dispatch>, stage}"/]
     check_verdicts
     verdict_problems{Verdict problems left?}
     run_budget_verdict_rounds[/"run_budget {runDb, key: verdict-rounds:<depth>, limit: 2, stage}"/]
@@ -64,7 +64,7 @@ flowchart TB
     stuck_answer{Self-review stuck finding answer?}
     record_left_open
     fix_round_changed{Did the fix round change code?}
-    run_budget_rereview[/"run_budget {runDb, key: rereview-rounds, limit: 2, stage}"/]
+    run_budget_rereview[/"run_budget {runDb, key: rereview-rounds, limit: 3, stage}"/]
     rereview_spent{rereview-rounds spent?}
     rereview_fix_round
     rereview_findings{Did the re-review raise findings?}

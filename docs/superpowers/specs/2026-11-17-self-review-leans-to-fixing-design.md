@@ -111,8 +111,10 @@ it closes. The re-review covers every change since the last full review,
 not just the latest commit.
 
 **How "since the last full review" is found.** At every full review
-dispatch, the engine records the head commit as the run field
-`self-review-head` (one `run_field_set`). The re-review's diff is
+dispatch, the engine reads the head commit before it dispatches and
+records that sha as the run field `self-review-head` (one `run_field_set`)
+after, so a commit that lands during the review is not counted as
+reviewed. The re-review's diff is
 `git diff <self-review-head>` (committed and uncommitted changes since
 that commit) plus untracked files, built the same way as the self-review
 diff. A re-review does not move `self-review-head`, so a second re-review
@@ -121,8 +123,13 @@ the full review, the diff also holds changes that review already saw:
 a superset, which is the safe direction.
 
 The re-review assembles a draft and opens the same fix gate. With no
-findings it closes. It is budgeted (`rereview-rounds`, limit 2); a spent
-budget holds instead of closing with an unreviewed fix round.
+findings it closes. It is budgeted (`rereview-rounds`, limit 3, charged before each
+dispatch, so two re-reviews run); a spent budget holds instead of closing
+with an unreviewed fix round.
+
+An owed item ship has no capture method for (an unbound, non-browser
+case) is not skipped silently: it stays owed, and ship holds on it,
+naming it for the operator.
 
 The unbound stage path already loops back to a fresh review of
 `<branch-point>..HEAD`, the whole branch, after each fix round, which
