@@ -51,23 +51,36 @@ function parse(stdout: string): Envelope | null {
   }
 }
 
-const isRenderError = (env: Envelope) => typeof env.error?.code === 'string' && env.error.code.startsWith('render-')
+const RENDER_TIMEOUT_MS = 60_000
+
+// What an rt older than the verb prints, on stderr with nothing on stdout.
+const NO_VERB_RE = /has no command called render/
+
+type Outcome = { kind: 'envelope'; env: Envelope } | { kind: 'failed' } | { kind: 'timeout' } | { kind: 'no-rt' }
 
 // Claude Code's own environment often has no rt on PATH, so the installed
-// copy is tried next. Only the verb's own envelope settles it: an rt too old
-// for the verb also prints an error, so anything else tries the next rt.
-async function render($: EngineInterface, skill: string, dir: string): Promise<Envelope | null> {
+// copy is tried next. Only an rt that cannot start, or one older than the
+// verb, gives way to the next: any other answer is rt's, and a second rt
+// would only render again.
+async function render($: EngineInterface, skill: string, dir: string): Promise<Outcome> {
   const home = await $.env.get('HOME')
-  for (const rt of ['rt', `${home ?? ''}/.local/bin/rt`]) {
+  const rts = home ? ['rt', `${home}/.local/bin/rt`] : ['rt']
+  for (const rt of rts) {
+    const started = await $.clock.now()
+    let ran: { stdout: string; stderr: string }
     try {
-      const { stdout } = await $.process.run([rt, 'skills', 'render', skill, '--dir', dir, '--json'], { timeoutMs: 60_000 })
-      const env = parse(stdout)
-      if (env && (env.ok === true || isRenderError(env))) return env
+      ran = await $.process.run([rt, 'skills', 'render', skill, '--dir', dir, '--json'], { timeoutMs: RENDER_TIMEOUT_MS })
     } catch {
-      // rt not found under this name
+      // A run cut off at the deadline rejects just as one that cannot start does; only the time taken tells them apart.
+      if ((await $.clock.now()) - started >= RENDER_TIMEOUT_MS) return { kind: 'timeout' }
+      continue
     }
+    const env = parse(ran.stdout)
+    if (env) return { kind: 'envelope', env }
+    if (ran.stdout.trim() === '' && NO_VERB_RE.test(ran.stderr)) continue
+    return { kind: 'failed' }
   }
-  return null
+  return { kind: 'no-rt' }
 }
 
 async function loadSkill($: EngineInterface, input: { skill?: unknown; dir?: unknown }): Promise<ToolCallResult> {
@@ -75,10 +88,17 @@ async function loadSkill($: EngineInterface, input: { skill?: unknown; dir?: unk
   if (typeof skill !== 'string' || typeof dir !== 'string' || skill === '' || dir === '') {
     return { deny: "Pass skill as <plugin>:<unit> and dir as the skill's own folder." }
   }
-  const env = await render($, skill, dir)
-  if (env === null) {
+  const outcome = await render($, skill, dir)
+  if (outcome.kind === 'no-rt') {
     return { deny: `${skill} isn't loaded: rt isn't on PATH or at ~/.local/bin/rt. Open mattstack.app to install rt, then call load_skill again.` }
   }
+  if (outcome.kind === 'timeout') {
+    return { deny: `${skill} isn't loaded: rendering it took longer than ${RENDER_TIMEOUT_MS / 1000} seconds. Run rt setup to render it, then call load_skill again.` }
+  }
+  if (outcome.kind === 'failed') {
+    return { deny: `${skill} isn't loaded: rt failed without saying why. See the rt log with rt daemon logs, then call load_skill again.` }
+  }
+  const env = outcome.env
   if (env.ok !== true || typeof env.body !== 'string') {
     const message = typeof env.error?.message === 'string' ? env.error.message : `${skill} didn't render.`
     const fix = typeof env.error?.next === 'string' ? ` Run ${env.error.next}, then call load_skill again.` : ''

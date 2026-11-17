@@ -23,24 +23,30 @@ const MISSING = {
   at: '2026-11-17T00:00:00.000Z',
 }
 
-type Reply = { exitCode: number; stdout: string } | 'missing'
+// 'hang' runs past the 60 s deadline and rejects, as a timed-out run does.
+type Reply = { exitCode: number; stdout: string; stderr?: string } | 'missing' | 'hang'
 
-function world(on: On, replies: Record<string, Reply>) {
+function world(on: On, replies: Record<string, Reply>, env: Record<string, string> = { HOME }) {
   const runs: { argv: readonly string[]; timeoutMs?: number }[] = []
   const registered: Record<string, unknown>[] = []
-  mock.env(on, { HOME })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  mock.env(on, env)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.register', (_, e) => {
     registered.push(e as unknown as Record<string, unknown>)
     return { value: { tool: `mcp__mattstack__${e.name}` } }
   })
-  on('process.run', (_, e) => {
+  on('process.run', async (_, e) => {
     runs.push({ argv: e.argv, timeoutMs: e.init?.timeoutMs })
     const reply = replies[e.argv[0] ?? ''] ?? 'missing'
     if (reply === 'missing') throw new Error(`cannot start ${e.argv[0]}`)
-    return { value: { exitCode: reply.exitCode, stdout: reply.stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (reply === 'hang') {
+      await clock.sleep(60_000)
+      throw new Error('timed out')
+    }
+    return { value: { exitCode: reply.exitCode, stdout: reply.stdout, stderr: reply.stderr ?? '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  return { runs, registered }
+  return { runs, registered, clock }
 }
 
 const start = ($: Parameters<Parameters<typeof test>[1]>[0]) => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: false })
@@ -110,13 +116,52 @@ test("denies with the envelope's sentence on ok:false", async ($, on) => {
 
 test('an rt without the verb gives way to the next rt', async ($, on) => {
   const w = world(on, {
-    rt: { exitCode: 2, stdout: JSON.stringify({ error: { code: 'unknown-command', message: 'no such verb' } }) },
+    rt: { exitCode: 1, stdout: '', stderr: 'rt skills has no command called render\n' },
     [`${HOME}/.local/bin/rt`]: { exitCode: 0, stdout: JSON.stringify(ENVELOPE) },
   })
   await start($)
   const called = await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
   expect(called.context).toEqual([BODY])
   expect(w.runs).toHaveLength(2)
+})
+
+test("any other envelope is rt's answer, never a reason to try the next rt", async ($, on) => {
+  const usage = { error: { code: 'usage', message: 'Name the skill as <plugin>:<unit> and pass its own folder with --dir.', next: 'rt skills render <plugin>:<unit> --dir <skill dir>' } }
+  const w = world(on, {
+    rt: { exitCode: 2, stdout: JSON.stringify(usage) },
+    [`${HOME}/.local/bin/rt`]: { exitCode: 0, stdout: JSON.stringify(ENVELOPE) },
+  })
+  await start($)
+  const called = await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
+  expect(called).toEqual({ deny: 'Name the skill as <plugin>:<unit> and pass its own folder with --dir. Run rt skills render <plugin>:<unit> --dir <skill dir>, then call load_skill again.' })
+  expect(w.runs).toHaveLength(1)
+})
+
+test('an rt that ran and printed nothing is a failed rt, not a missing one', async ($, on) => {
+  const w = world(on, {
+    rt: { exitCode: 1, stdout: '', stderr: 'rt hit an unexpected error\n' },
+    [`${HOME}/.local/bin/rt`]: { exitCode: 0, stdout: JSON.stringify(ENVELOPE) },
+  })
+  await start($)
+  const called = await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
+  expect(called).toEqual({ deny: "acme:work isn't loaded: rt failed without saying why. See the rt log with rt daemon logs, then call load_skill again." })
+  expect(w.runs).toHaveLength(1)
+})
+
+test('a render past the deadline is denied as slow, and no second rt starts it again', async ($, on) => {
+  const w = world(on, { rt: 'hang', [`${HOME}/.local/bin/rt`]: { exitCode: 0, stdout: JSON.stringify(ENVELOPE) } })
+  await start($)
+  const call = $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
+  await w.clock.advance(60_000)
+  expect(await call).toEqual({ deny: "acme:work isn't loaded: rendering it took longer than 60 seconds. Run rt setup to render it, then call load_skill again." })
+  expect(w.runs).toHaveLength(1)
+})
+
+test('with no HOME, only rt on PATH is tried', async ($, on) => {
+  const w = world(on, {}, {})
+  await start($)
+  await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
+  expect(w.runs.map(r => r.argv[0])).toEqual(['rt'])
 })
 
 test('denies a call missing its skill or dir', async ($, on) => {
