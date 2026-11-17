@@ -771,7 +771,7 @@ export function herdSpawn(
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["herd:spawn"]["data"]>> {
   const payload: Record<string, unknown> = { herd: a.herd, job: a.job };
-  for (const k of ["brief", "dir", "model", "effort", "account", "disposable", "tree"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  for (const k of ["brief", "dir", "model", "effort", "account", "gateMode", "disposable", "tree"] as const) if (a[k] !== undefined) payload[k] = a[k];
   return rtCommand<Commands["herd:spawn"]["data"]>("herd:spawn", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 60_000 });
 }
 
@@ -781,7 +781,7 @@ export function herdRespawn(
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["herd:respawn"]["data"]>> {
   const payload: Record<string, unknown> = { herd: a.herd, job: a.job };
-  for (const k of ["brief", "model", "effort", "account"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  for (const k of ["brief", "model", "effort", "account", "gateMode"] as const) if (a[k] !== undefined) payload[k] = a[k];
   return rtCommand<Commands["herd:respawn"]["data"]>("herd:respawn", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 300_000 });
 }
 
