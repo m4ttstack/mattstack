@@ -155,6 +155,12 @@ describe("runInterception", () => {
       expect(calls.exec).toBeUndefined();
       expect(failed).toEqual(["fakecmd did not start: rt could not reserve a port for the web role (no free port in pool)"]);
     });
+    test("a claim whose setup fails stops the start too", async () => {
+      const { deps, calls, failed } = closedHarness(async () => ({ ok: true, data: {} }));
+      await run(deps, ["run", "serve"]);
+      expect(calls.exec).toBeUndefined();
+      expect(failed).toEqual(["fakecmd did not start: setting up the web role failed (claim envelope missing port/refs: {})"]);
+    });
     test("a successful claim runs as usual", async () => {
       const { deps, calls, failed } = closedHarness(async () => ({ ok: true, data: { role: "web", port: 3000, refs: {} } }));
       await run(deps, ["run", "serve"]);

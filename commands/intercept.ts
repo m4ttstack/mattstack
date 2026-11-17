@@ -244,7 +244,7 @@ export async function interceptRun(args: string[]): Promise<void> {
     resolveRealBinary,
     warn: interceptNote,
     fail: (msg) => {
-      try { out.note(out.line("failed", msg)); } catch { /* stderr is gone; still stop */ }
+      try { out.fail({ title: msg, next: out.cmd("rt daemon status") }); } catch { /* stderr is gone; still stop */ }
       process.exit(1);
     },
   };

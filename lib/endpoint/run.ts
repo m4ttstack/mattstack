@@ -173,6 +173,7 @@ export async function runInterception(
     childEnv = { ...baseEnv, ...rendered, ...hookEnv };
     finalArgs = applyArgInject(args, match.argInject, envKeys);
   } catch (err) {
+    if (roleCfg.failClosed) deps.fail(`${command} did not start: setting up the ${match.role} role failed (${(err as Error).message})`);
     deps.warn(`${command} ran without an rt port: setting up the ${match.role} role failed (${(err as Error).message})`);
     return execUntouched();
   }
