@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, realpathSync } from "fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import type { ResolveNext } from "../runs/engine.ts";
@@ -69,6 +69,13 @@ const treeFs = {
       return readdirSync(p);
     } catch {
       return [];
+    }
+  },
+  readFile(p: string): string | null {
+    try {
+      return readFileSync(p, "utf8");
+    } catch {
+      return null;
     }
   },
 };

@@ -74,16 +74,19 @@ export function renderTreeOfDir(dir: string, home: string): string | null {
 /**
  * For a folder inside a render tree (`<root>/<org>/<plugin>/<version>/<mattstack>/<unit>`),
  * the installed husk of that unit at that pack version; null outside the
- * render root, or without exactly one installed copy.
+ * render root, without exactly one installed copy, or when that copy's
+ * marketplace belongs to another org.
  */
-export function installedHuskForTreeDir(fs: TreeFs, home: string, dir: string): string | null {
+export function installedHuskForTreeDir(fs: RegistryFs, home: string, dir: string): string | null {
   const root = renderRoot(home);
   const text = normalize(dir);
   if (!text.startsWith(`${root}/`)) return null;
-  const [, plugin, version, , ...unit] = text.slice(root.length + 1).split("/");
-  if (!plugin || !version || unit.length === 0) return null;
+  const [org, plugin, version, , ...unit] = text.slice(root.length + 1).split("/");
+  if (!org || !plugin || !version || unit.length === 0) return null;
   const copies = findPluginVersionDirs(fs, home, plugin, version);
-  return copies.length === 1 ? installedHuskIn(fs, copies[0]!, unit.join("/")) : null;
+  if (copies.length !== 1) return null;
+  const copyOrg = orgOfInstalledCopy(fs, home, copies[0]!);
+  return copyOrg === null || copyOrg === org ? installedHuskIn(fs, copies[0]!, unit.join("/")) : null;
 }
 
 /**
