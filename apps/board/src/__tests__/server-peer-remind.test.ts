@@ -6,6 +6,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { expect, test } from 'bun:test';
 
+import { isDaemonTimeout } from '@mattstack/rt-client';
 import {
   markPeerReviewReminded,
   peerReviewKey,
@@ -13,7 +14,6 @@ import {
   writePeerReview,
   type PeerReviewState,
 } from '../peer/peer-reviews.ts';
-import { isDaemonTimeout } from '@mattstack/rt-client';
 import {
   createReminder,
   REMIND_EVERY_MS,

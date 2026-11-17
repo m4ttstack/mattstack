@@ -1158,7 +1158,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         const stopLoopLag = startLoopLagMonitor({
           intervalMs: 1_000,
           thresholdMs: 2_000,
-          now: Date.now,
+          now: () => performance.now(),
           setInterval: (fn, ms) => { const h = setInterval(fn, ms); h.unref?.(); return h; },
           clearInterval: (h) => clearInterval(h as ReturnType<typeof setInterval>),
           log: loggerHandle.childLogger("loop-lag"),
