@@ -1,4 +1,11 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   Alert,
   Badge,
@@ -9,6 +16,7 @@ import {
   Textarea,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
+import { notifications } from '@mattstack/app-kit/notifications';
 import type { GateRow } from '@mattstack/rt-client';
 
 import { modeOf, type ModeFeedRow, type PauseState } from '../derive/modeFeed';
@@ -80,8 +88,13 @@ function GateRedoNote({
 }) {
   const { redo } = useModeControls(repo, runId);
   const [error, setError] = useState<string | null>(null);
+  // Each open note owns its request: one closed (or closed and reopened)
+  // while its request was in flight must not touch the editor now open.
+  const live = useRef(true);
+  useEffect(() => () => void (live.current = false), []);
   const send = async (note: string) => {
     const err = await redo(gate, note);
+    if (!live.current) return;
     if (err) setError(err);
     else onClose();
   };
@@ -252,13 +265,9 @@ export function ModePanel({
   stage: string | null;
   defaultOpen?: boolean;
 }) {
-  const { pause: hold, redo } = useModeControls(repo, runId);
+  const { pause: hold } = useModeControls(repo, runId);
   const [open, setOpen] = useState(defaultOpen);
   const [redoing, setRedoing] = useState<string | null>(null);
-  const [redoError, setRedoError] = useState<{
-    gate: string;
-    message: string;
-  } | null>(null);
   // True only while the Pause request is in flight; after it settles the
   // run's own state says whether it is pausing.
   const [pressed, setPressed] = useState(false);
@@ -275,20 +284,9 @@ export function ModePanel({
 
   const onPause = async () => {
     setPressed(true);
-    await hold();
+    const err = await hold();
     setPressed(false);
-  };
-
-  // A result applies only to the editor it was sent from: the operator may
-  // have opened another row's note while it was in flight.
-  const send = async (gate: string, note: string) => {
-    const err = await redo(gate, note);
-    if (err) {
-      setRedoError({ gate, message: err });
-      return;
-    }
-    setRedoing(cur => (cur === gate ? null : cur));
-    setRedoError(cur => (cur?.gate === gate ? null : cur));
+    if (err) notifications.error(`Couldn't pause the run: ${err}`);
   };
 
   return (
@@ -346,20 +344,20 @@ export function ModePanel({
                 row={row}
                 canRedo={canControl}
                 active={redoing === row.gate.id}
-                onRedo={() => {
-                  setRedoing(redoing === row.gate.id ? null : row.gate.id);
-                  setRedoError(null);
-                }}
+                onRedo={() =>
+                  setRedoing(redoing === row.gate.id ? null : row.gate.id)
+                }
               />
               {redoing === row.gate.id && row.stage ? (
-                <RedoNote
+                <GateRedoNote
+                  repo={repo}
+                  runId={runId}
+                  gate={row.gate.id}
                   step={row.stage}
                   headCommit={row.headCommit}
-                  error={
-                    redoError?.gate === row.gate.id ? redoError.message : null
+                  onClose={() =>
+                    setRedoing(cur => (cur === row.gate.id ? null : cur))
                   }
-                  onSend={note => void send(row.gate.id, note)}
-                  onCancel={() => setRedoing(null)}
                 />
               ) : null}
             </Stack>

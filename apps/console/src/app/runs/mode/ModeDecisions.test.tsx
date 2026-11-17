@@ -184,6 +184,45 @@ describe('ModePanel', () => {
     expect(screen.queryByTestId('redo-refused')).toBeNull();
   });
 
+  it('a refused Pause says why and offers Pause again', async () => {
+    holdPost.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: 'answer the open gate first',
+        code: 'not-running',
+      }),
+    });
+    wrap(panel());
+    await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(
+      await screen.findByText(
+        /Couldn't pause the run: answer the open gate first/
+      )
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  it('a note reopened while its first send is in flight stays open', async () => {
+    let settle!: (v: unknown) => void;
+    redoPost.mockReturnValue(new Promise(r => (settle = r)));
+    wrap(panel({ defaultOpen: true }));
+    const redoButton = screen.getByRole('button', { name: 'Redo' });
+    await userEvent.click(redoButton);
+    await userEvent.type(
+      screen.getByLabelText('What the worker should do differently'),
+      'x'
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Send back to plan' })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(redoButton);
+    settle(ok());
+    await new Promise(r => setTimeout(r, 0));
+    expect(screen.getByTestId('redo-note')).toBeTruthy();
+  });
+
   it('a finished run offers neither Pause nor Redo', () => {
     wrap(panel({ canControl: false, defaultOpen: true }));
     expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
