@@ -99,7 +99,7 @@ export function computeUninstallActions(p: Probes, opts: { keepData: boolean }, 
     actions.push({ id: "extension.uninstall", title: "Uninstall rt's editor extensions", kind: "rt" });
   }
 
-  if (state.plugins.length > 0 || state.marketplaces.length > 0 || generatedMarketplaceFolders(p).length > 0) {
+  if (state.plugins.length > 0 || state.marketplaces.length > 0 || (state.superpowersDisabled ?? []).length > 0 || generatedMarketplaceFolders(p).length > 0) {
     actions.push({ id: "plugins.uninstall", title: "Uninstall the mattstack plugins from Claude Code", kind: "rt" });
   }
 
@@ -324,7 +324,8 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   if (!claude.exec) return { outcome: { state: "skipped", detail: "Claude Code is not installed" } };
 
   const state = readSetupState(ctx.p);
-  if (state.plugins.length === 0 && state.marketplaces.length === 0 && generatedMarketplaceFolders(ctx.p).length === 0) {
+  const reEnable = state.superpowersDisabled ?? [];
+  if (state.plugins.length === 0 && state.marketplaces.length === 0 && reEnable.length === 0 && generatedMarketplaceFolders(ctx.p).length === 0) {
     return { outcome: { state: "skipped", detail: "Nothing recorded to remove" } };
   }
 
@@ -362,7 +363,13 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
     }
   }
 
-  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)] }));
+  // After mattstack's superpowers is gone, so the Mac keeps the superpowers it had before setup.
+  for (const { configDir, id } of reEnable) {
+    const res = await ctx.p.exec([...claude.exec, "plugin", "enable", id], { env: { CLAUDE_CONFIG_DIR: configDir } });
+    if (res.code !== 0 && !isAlreadyGone(res)) notes.push(`${configDir}: enable ${id} exited ${res.code}`);
+  }
+
+  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)], superpowersDisabled: [] }));
   const generated = await removeGeneratedMarketplaces(ctx, claude.exec, notes);
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };
