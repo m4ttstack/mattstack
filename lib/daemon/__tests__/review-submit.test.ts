@@ -31,6 +31,18 @@ describe("parseReviewSubmit", () => {
     bad({ comments, replies: replies(41) }, "at most 100 comments and replies in total per review");
     expect(parseReviewSubmit({ ...base, comments, replies: replies(40) }).ok).toBe(true);
   });
+  describe("includePendingIds", () => {
+    test("passes a list of positive integer ids through", () => {
+      expect(parseReviewSubmit({ ...base, includePendingIds: [50, 51] })).toEqual({ ok: true, input: { ...base, includePendingIds: [50, 51] } });
+    });
+    test("refuses anything but a non-empty list of positive integers", () => {
+      for (const includePendingIds of [true, [], [0], ["50"], 50]) bad({ includePendingIds }, "includePendingIds must be a non-empty list of pending comment ids");
+    });
+    test("leaves it out when absent", () => {
+      const r = parseReviewSubmit(base);
+      expect(r.ok && "includePendingIds" in r.input).toBe(false);
+    });
+  });
   describe("expectedHeadSha", () => {
     const sha40 = "a".repeat(39) + "F";
     const sha64 = "AbCdEf01".repeat(8);

@@ -2,7 +2,7 @@ import { describe, expect, test, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { rtCommand } from "../src/transport.ts";
+import { isDaemonTimeout, rtCommand } from "../src/transport.ts";
 import { fakeDaemon } from "./fake-daemon.ts";
 
 const stops: Array<() => void> = [];
@@ -41,6 +41,24 @@ describe("rtCommand", () => {
     const res = await rtCommand("slow-cmd", {}, { sockPath: sock, timeoutMs: 20 });
     expect(res.ok).toBe(false);
     expect(res.error).toContain(`rt daemon unreachable at ${sock}`);
+    expect(res.error).toContain("slow-cmd timed out after 0.02s");
+    expect(res.error).not.toContain("The operation timed out");
+  });
+
+  test("a missing socket is not worded as a timeout", async () => {
+    const sockPath = join(tmpdir(), "definitely-missing.sock");
+    const res = await rtCommand("project-mrs:read", { repoName: "x" }, { sockPath });
+    expect(res.error).not.toContain("timed out");
+    expect(isDaemonTimeout(res.error)).toBe(false);
+  });
+
+  test("isDaemonTimeout knows a timed-out call by its error", async () => {
+    const sock = join(tmpdir(), `rt-client-timeout-mark-${process.pid}.sock`);
+    const server = Bun.serve({ unix: sock, async fetch() { await new Promise((r) => setTimeout(r, 200)); return Response.json({ ok: true }); } });
+    stops.push(() => server.stop(true));
+    const res = await rtCommand("slow-cmd", {}, { sockPath: sock, timeoutMs: 20 });
+    expect(isDaemonTimeout(res.error)).toBe(true);
+    expect(isDaemonTimeout(undefined)).toBe(false);
   });
 
   test("no sockPath resolves the default at call time from process.env.HOME, not a module-load snapshot", async () => {

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeStateDb } from "../../state/index.ts";
-import { runInterception } from "../run.ts";
+import { claimWithRetry, runInterception } from "../run.ts";
 import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 /** Merges `identity`'s roles into the shared team store rather than clobbering earlier entries — every test in this describe shares one per-test HOME. */
@@ -33,6 +33,7 @@ function harness(over: Partial<Parameters<typeof runInterception>[0]> = {}) {
     execReal: async (bin: string, args: string[], env: Record<string, string>) => { calls.exec = { bin, args, env }; throw new Error("EXEC"); },
     resolveRealBinary: () => "/usr/bin/fakecmd",
     warn: (m: string) => calls.warned.push(m),
+    fail: (m: string): never => { throw new Error(`unexpected fail: ${m}`); },
     ...over,
   };
   return { deps, calls };
@@ -132,12 +133,69 @@ describe("runInterception", () => {
     expect(gitCalls).toBe(0);
     expect(calls.exec!.args).toEqual(["run", "serve"]);
   });
+  describe("a failClosed role", () => {
+    const R3_IDENTITY = "x/test/r3";
+    const R3_REMOTE = "git@x:test/r3.git";
+    function closedHarness(claim: () => Promise<any>) {
+      writeRepoRoles(R3_IDENTITY, { web: { env: { PORT: "${port}" }, failClosed: true } });
+      const failed: string[] = [];
+      const h = harness({ gitRemote: async () => R3_REMOTE, claim, fail: (m: string) => { failed.push(m); throw new Error("EXEC"); } });
+      h.deps.rules = [{ ...h.deps.rules[0]!, repo: "r3", repoRemote: R3_REMOTE }];
+      return { ...h, failed };
+    }
+    test("a daemon that never answers stops the start instead of running without a port", async () => {
+      const { deps, calls, failed } = closedHarness(async () => null);
+      await run(deps, ["run", "serve"]);
+      expect(calls.exec).toBeUndefined();
+      expect(failed).toEqual(["fakecmd did not start: rt could not reserve a port for the web role (the rt daemon did not answer)"]);
+    });
+    test("a refused claim names the daemon's reason", async () => {
+      const { deps, calls, failed } = closedHarness(async () => ({ ok: false, error: "no free port in pool" }));
+      await run(deps, ["run", "serve"]);
+      expect(calls.exec).toBeUndefined();
+      expect(failed).toEqual(["fakecmd did not start: rt could not reserve a port for the web role (no free port in pool)"]);
+    });
+    test("a claim whose setup fails stops the start too", async () => {
+      const { deps, calls, failed } = closedHarness(async () => ({ ok: true, data: {} }));
+      await run(deps, ["run", "serve"]);
+      expect(calls.exec).toBeUndefined();
+      expect(failed).toEqual(["fakecmd did not start: setting up the web role failed (claim envelope missing port/refs: {})"]);
+    });
+    test("a successful claim runs as usual", async () => {
+      const { deps, calls, failed } = closedHarness(async () => ({ ok: true, data: { role: "web", port: 3000, refs: {} } }));
+      await run(deps, ["run", "serve"]);
+      expect(failed).toEqual([]);
+      expect(calls.exec!.env.PORT).toBe("3000");
+    });
+  });
   test("malformed ok:true claim envelope → warn and exec real untouched (fails open)", async () => {
     const { deps, calls } = harness({ claim: async () => ({ ok: true, data: {} }) });
     await run(deps, ["run", "serve"], { KEEP_ME: "1" });
     expect(calls.warned.some((w) => w.includes("ran without an rt port"))).toBe(true);
     expect(calls.exec!.args).toEqual(["run", "serve"]); // no argInject spliced
     expect(calls.exec!.env.PORT).toBeUndefined(); // no rendered role env
+  });
+});
+
+describe("claimWithRetry", () => {
+  test("a claim that timed out is sent once more", async () => {
+    const answers = [{ response: null, timedOut: true }, { response: { ok: true }, timedOut: false }];
+    let sent = 0;
+    const r = await claimWithRetry(async () => answers[sent++]!);
+    expect(sent).toBe(2);
+    expect(r).toEqual({ ok: true });
+  });
+  test("a daemon that is not running is not asked twice", async () => {
+    let sent = 0;
+    const r = await claimWithRetry(async () => { sent++; return { response: null, timedOut: false }; });
+    expect(sent).toBe(1);
+    expect(r).toBeNull();
+  });
+  test("two timeouts give up", async () => {
+    let sent = 0;
+    const r = await claimWithRetry(async () => { sent++; return { response: null, timedOut: true }; });
+    expect(sent).toBe(2);
+    expect(r).toBeNull();
   });
 });
 

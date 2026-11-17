@@ -27,6 +27,7 @@ import {
   gatePark,
   getRun,
   getSetting,
+  isDaemonTimeout,
   listOrgs,
   matchSlackFaces,
   paneList,
@@ -348,7 +349,7 @@ import {
   reviewPresenceRecipients,
   reviewSyncEnvelopes,
 } from './peer/presence.ts';
-import { createReminder, isDaemonTimeout } from './peer/remind.ts';
+import { createReminder } from './peer/remind.ts';
 import {
   makePeering,
   startPeeringWhenTokenLoads,

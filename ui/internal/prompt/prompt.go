@@ -100,6 +100,7 @@ func Run(ctx context.Context, spec protocol.PromptSpec, term *os.File) (protocol
 			result.Value = &v
 		}
 	case "multiselect":
+		th = theme.HuhMultiselect()
 		v := append([]string(nil), spec.InitialMany...)
 		opts := make([]huh.Option[string], 0, len(spec.Options))
 		for _, o := range spec.Options {

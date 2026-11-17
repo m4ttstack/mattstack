@@ -113,7 +113,8 @@ describe("rule selector slot", () => {
       const edge = (a: string, b: string) => new RegExp(`\\b${a} -> ${b}\\b`);
       expect(body).toMatch(edge("run_depth_checks", "select_rules"));
       expect(body).toMatch(edge("select_rules", "repro_browser"));
-      expect(body).toMatch(edge("dispatch_reviewer", "check_verdicts"));
+      expect(body).toMatch(edge("dispatch_reviewer", "run_field_set_head"));
+      expect(body).toMatch(edge("run_field_set_head", "check_verdicts"));
       expect(body).toMatch(edge("fails_to_findings", "assemble_draft"));
       expect(body).not.toMatch(edge("run_depth_checks", "repro_browser"));
       expect(body).not.toMatch(edge("dispatch_reviewer", "assemble_draft"));
