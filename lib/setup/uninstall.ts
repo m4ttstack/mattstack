@@ -27,6 +27,8 @@ import { deckIsHealthy, readDeckApiPort } from "./steps/deck.ts";
 import { servicePlists } from "./need.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "./steps/services.ts";
 import { parseMarketplaceList } from "./marketplace-list.ts";
+import { superpowersForkSwapMigration } from "./migrations/superpowers-fork-swap.ts";
+import { isAlreadyEnabled } from "./pack-cache.ts";
 import { claudeMessage, marketplaceSourceKey } from "./steps/plugins.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Probes } from "./probes.ts";
@@ -367,13 +369,15 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   const stillOff: typeof reEnable = [];
   for (const entry of reEnable) {
     const res = await ctx.p.exec([...claude.exec, "plugin", "enable", entry.id], { env: { CLAUDE_CONFIG_DIR: entry.configDir } });
-    if (res.code !== 0 && !isAlreadyGone(res)) {
+    if (res.code !== 0 && !isAlreadyGone(res) && !isAlreadyEnabled(res)) {
       notes.push(`${entry.configDir}: enable ${entry.id} exited ${res.code}`);
       stillOff.push(entry);
     }
   }
+  // A reinstall that kept ~/.mattstack must swap again, so the swap is forgotten once nothing it turned off is still off.
+  const forgetSwap = (ids: string[]) => (stillOff.length === 0 ? ids.filter((id) => id !== superpowersForkSwapMigration.id) : ids);
 
-  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)], superpowersDisabled: stillOff }));
+  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)], superpowersDisabled: stillOff, migrations: forgetSwap(s.migrations) }));
   const generated = await removeGeneratedMarketplaces(ctx, claude.exec, notes);
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };

@@ -191,7 +191,7 @@ export function isAlready(res: ExecResult): boolean {
 }
 
 /** Enabling a plugin that is already on exits 1 with "is already enabled" on stderr (claude 2.1.284). */
-function isAlreadyEnabled(res: ExecResult): boolean {
+export function isAlreadyEnabled(res: ExecResult): boolean {
   return /already enabled/i.test(res.stderr);
 }
 

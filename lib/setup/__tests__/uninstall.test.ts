@@ -388,6 +388,40 @@ describe("rt uninstall", () => {
         expect((await runUninstall(ctx, actions)).ok).toBe(true);
       });
 
+      test("a recorded copy the member already turned back on counts as done, and its record is cleared", async () => {
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[]) =>
+            argv[2] === "enable" ? { code: 1, stdout: "", stderr: 'Plugin "superpowers@claude-plugins-official" is already enabled' } : { code: 0, stdout: "", stderr: "" },
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
+        const { ctx } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(true);
+        expect(readSetupState(p).superpowersDisabled ?? []).toEqual([]);
+      });
+
+      test("uninstall forgets the swap once its copies are back on, so a reinstall that kept ~/.mattstack swaps again", async () => {
+        const p = bareProbes({ ...pathTool("claude"), exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded(), migrations: ["2026-10-01-other", "2026-11-18-superpowers-fork-swap"] }));
+        const { ctx } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(true);
+        expect(readSetupState(p).migrations).toEqual(["2026-10-01-other"]);
+      });
+
+      test("a re-enable that really fails keeps its record and the swap's migration, so Retry can try again", async () => {
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[]) => (argv[2] === "enable" ? { code: 1, stdout: "", stderr: "settings file is locked" } : { code: 0, stdout: "", stderr: "" }),
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded(), migrations: ["2026-11-18-superpowers-fork-swap"] }));
+        const { ctx } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(false);
+        expect(readSetupState(p).migrations).toEqual(["2026-11-18-superpowers-fork-swap"]);
+      });
+
       test("a re-enable that really fails keeps its record, so Retry can try again", async () => {
         const p = bareProbes({
           ...pathTool("claude"),
