@@ -105,6 +105,13 @@ describe("2026-11-18-superpowers-fork-swap", () => {
     expect(readSetupState(h.p).superpowersDisabled ?? []).toEqual([]);
   });
 
+  test("a cswap folder with its own plugins, which plugins.install never installs into, never holds the migration open", async () => {
+    const h = harness({ sessions: ["1-work"], lists: { [sessionDir("1-work")]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }] } });
+    const outcome = await superpowersForkSwapMigration.run(h.ctx);
+    expect(outcome.state).toBe("skipped");
+    expect(h.disables()).toEqual([]);
+  });
+
   test("a stock copy enabled only at project scope is out of reach: no disable, skipped", async () => {
     const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "project" }] } });
     const outcome = await superpowersForkSwapMigration.run(h.ctx);

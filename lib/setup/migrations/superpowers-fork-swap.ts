@@ -3,6 +3,7 @@ import { isSuperseded } from "../base-plugins.ts";
 import { PACK_EXEC_TIMEOUT_MS, claudeMessage, parsePluginList } from "../pack-cache.ts";
 import type { ExecResult } from "../probes.ts";
 import { updateSetupState, type SuperpowersDisabled } from "../state.ts";
+import { claudeConfigDirs } from "../tools-install.ts";
 import type { MigrationDef } from "./index.ts";
 import { dedupedConfigDirs } from "./team-packs-from-git.ts";
 
@@ -26,6 +27,8 @@ export const superpowersForkSwapMigration: MigrationDef = {
     const disabled: SuperpowersDisabled[] = [];
     const failures: string[] = [];
     const waiting: string[] = [];
+    const unmanaged: string[] = [];
+    const managed = new Set(claudeConfigDirs(ctx.p, []));
     for (const dir of dedupedConfigDirs(ctx)) {
       const run = (args: string[]): Promise<ExecResult> => ctx.p.exec([...claude.exec!, ...args], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
       const listed = await run(["plugin", "list", "--json"]);
@@ -38,7 +41,8 @@ export const superpowersForkSwapMigration: MigrationDef = {
       if (stock.length === 0) continue;
       const fork = entries.find((e) => e.id === FORK_ID);
       if (!fork?.enabled) {
-        waiting.push(dir);
+        // plugins.install only installs into the folders claudeConfigDirs names, so waiting anywhere else would never end.
+        (managed.has(dir) ? waiting : unmanaged).push(dir);
         continue;
       }
       for (const entry of stock) {
@@ -54,7 +58,8 @@ export const superpowersForkSwapMigration: MigrationDef = {
     if (disabled.length > 0) updateSetupState(ctx.p, (s) => ({ ...s, superpowersDisabled: [...(s.superpowersDisabled ?? []), ...disabled] }));
     if (failures.length > 0) return { state: "failed", detail: `Could not switch every Claude config folder to mattstack's superpowers: ${failures.join("; ")}` };
     if (waiting.length > 0) return { state: "partial", detail: `Waiting for mattstack's superpowers to install before turning off the stock copy in ${waiting.join(", ")}` };
-    if (disabled.length === 0) return { state: "skipped", detail: "No stock superpowers was turned on" };
-    return { state: "done", detail: `Turned off ${disabled.map((d) => d.id).join(", ")}; mattstack's superpowers serves the superpowers skills now` };
+    const leftNote = unmanaged.length > 0 ? `; left the stock copy on in ${unmanaged.join(", ")}, where rt does not install plugins` : "";
+    if (disabled.length === 0) return { state: "skipped", detail: `No stock superpowers was turned off${leftNote}` };
+    return { state: "done", detail: `Turned off ${disabled.map((d) => d.id).join(", ")}; mattstack's superpowers serves the superpowers skills now${leftNote}` };
   },
 };
