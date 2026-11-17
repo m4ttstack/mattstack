@@ -238,6 +238,8 @@ func themed(accent color.Color) huh.Theme {
 		// to rewrap.
 		s.Form.Base = base.Border(lipgloss.Border{Left: "▌"}, false, false, false, true).BorderForeground(accent).PaddingLeft(1)
 		s.Group.Base = base
+		// The selection never wears the edge's hue: a pink cursor bar beside a
+		// pink edge read as one mark.
 		s.Group.Title = base.Foreground(accent)
 		s.Group.Description = base.Foreground(Faint)
 		s.Focused.Base = base
@@ -248,10 +250,10 @@ func themed(accent color.Color) huh.Theme {
 		s.Blurred.Description = base.Foreground(Faint)
 		s.Focused.ErrorMessage = base.Foreground(Coral)
 		s.Focused.ErrorIndicator = base.Foreground(Coral)
-		s.Focused.SelectSelector = base.Foreground(Pink).SetString(GlyphBar + " ")
+		s.Focused.SelectSelector = base.Foreground(Cyan).SetString(GlyphChevron + " ")
 		s.Focused.Option = base.Foreground(Text)
-		s.Focused.MultiSelectSelector = base.Foreground(Pink).SetString(GlyphBar + " ")
-		s.Focused.SelectedOption = base.Foreground(PinkSoft)
+		s.Focused.MultiSelectSelector = base.Foreground(Cyan).SetString(GlyphChevron + " ")
+		s.Focused.SelectedOption = base.Foreground(Cyan)
 		s.Focused.SelectedPrefix = base.Foreground(Mint).SetString(GlyphOn + " ")
 		s.Focused.UnselectedOption = base.Foreground(Text)
 		s.Focused.UnselectedPrefix = base.Foreground(Faint).SetString(GlyphStopped + " ")
