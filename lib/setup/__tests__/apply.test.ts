@@ -1939,6 +1939,30 @@ describe("runUpdateWith", () => {
     );
     expect(ran).toEqual(["org.folder", "org.pull", "migration", "team.identity", "plugins.install", "skills.materialize", "verify"]);
   });
+  test("a migration marked afterSteps runs after the update-safe steps and before verify, so it sees what plugins.install just did", async () => {
+    const ran: string[] = [];
+    const step = (id: StepId): StepDef => ({ id, title: id, kind: "rt", updateSafe: true, applies: () => true, run: async () => { ran.push(id); return { state: "done" }; } });
+    const late: MigrationDef = { ...fakeMigration("2026-11-18-late", async () => { ran.push("late"); return { state: "done" }; }), afterSteps: true };
+    const { ctx, events } = testCtx();
+    await runUpdateWith(
+      [step("org.folder"), step("org.pull"), step("plugins.install"), step("verify")],
+      [late, fakeMigration("2026-10-01-early", async () => { ran.push("early"); return { state: "done" }; })],
+      ctx,
+    );
+    expect(ran).toEqual(["org.folder", "org.pull", "early", "plugins.install", "late", "verify"]);
+    const plan = events.find((e) => e.event === "plan");
+    expect(plan && plan.event === "plan" ? plan.steps.map((s) => s.id) : []).toEqual(["org.folder", "org.pull", "migration.2026-10-01-early", "plugins.install", "migration.2026-11-18-late", "verify"]);
+    expect(readSetupState(ctx.p).migrations).toEqual(["2026-10-01-early", "2026-11-18-late"]);
+  });
+
+  test("a retry run still runs an afterSteps migration, after the leads", async () => {
+    const ran: string[] = [];
+    const step = (id: StepId): StepDef => ({ id, title: id, kind: "rt", updateSafe: true, applies: () => true, run: async () => { ran.push(id); return { state: "done" }; } });
+    const late: MigrationDef = { ...fakeMigration("2026-11-18-late", async () => { ran.push("late"); return { state: "done" }; }), afterSteps: true };
+    await runUpdateWith([step("org.folder"), step("org.pull"), step("plugins.install"), step("verify")], [late], testCtx().ctx, { retry: true });
+    expect(ran).toEqual(["org.folder", "org.pull", "late"]);
+  });
+
   test("runs pending migrations, then update-safe steps in order, then verify; non-safe steps never run", async () => {
     // No org steps here; org.folder and org.pull would lead the migration.
     const { ctx, events } = testCtx();

@@ -13,13 +13,15 @@ const FORK_ID = "superpowers@mattstack";
  * Once per Mac: turn off the stock superpowers copies the mattstack fork
  * replaces, at user scope in every Claude config folder, and record each one
  * so `rt uninstall` can turn it back on. A copy the member turns on again
- * later is theirs; nothing re-runs this. A folder where the fork is not on
- * yet waits (`partial` runs again next launch, after `plugins.install`), so
- * a Mac is never left with no superpowers.
+ * later is theirs; nothing re-runs this. It runs after the update-safe
+ * steps, so `plugins.install` has added the fork in the same run; a folder
+ * where the fork is still not on waits (`partial` runs again next launch),
+ * so a Mac is never left with no superpowers.
  */
 export const superpowersForkSwapMigration: MigrationDef = {
   id: "2026-11-18-superpowers-fork-swap",
   title: "Switch to mattstack's superpowers",
+  afterSteps: true,
   async run(ctx) {
     const claude = resolveTool(ctx.p, "claude");
     if (!claude.exec) return { state: "skipped", detail: "Claude Code is not installed" };

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { ApplyContext } from "../apply.ts";
+import { runUpdateWith, type ApplyContext, type StepDef } from "../apply.ts";
+import type { ApplyEvent } from "../contract.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
 import { superpowersForkSwapMigration } from "../migrations/superpowers-fork-swap.ts";
 import type { ExecResult } from "../probes.ts";
@@ -135,6 +136,18 @@ describe("2026-11-18-superpowers-fork-swap", () => {
     const h = harness({ lists: { [defaultDir()]: { code: 1, stdout: "", stderr: "nope" } } });
     expect((await superpowersForkSwapMigration.run(h.ctx)).state).toBe("failed");
     expect(readSetupState(h.p).superpowersDisabled ?? []).toEqual([]);
+  });
+
+  test("an update run swaps the stock copy in the same run plugins.install adds the fork, so no second superpowers stays on", async () => {
+    const listed: Listed[] = [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }];
+    const h = harness({ lists: { [defaultDir()]: listed } });
+    const events: ApplyEvent[] = [];
+    const ctx = { ...h.ctx, emit: (e: ApplyEvent) => events.push(e), log: () => {} } as ApplyContext;
+    const pluginsInstall: StepDef = { id: "plugins.install", title: "plugins", kind: "rt", updateSafe: true, applies: () => true, run: async () => { listed.push({ id: "superpowers@mattstack", enabled: true, scope: "user" }); return { state: "done" }; } };
+    await runUpdateWith([pluginsInstall], [superpowersForkSwapMigration], ctx);
+    expect(h.disables()).toEqual([{ argv: ["plugin", "disable", "superpowers@claude-plugins-official"], dir: defaultDir() }]);
+    expect(readSetupState(h.p).migrations).toContain("2026-11-18-superpowers-fork-swap");
+    expect(events.findLast((e) => e.event === "done")).toEqual({ event: "done", ok: true });
   });
 
   test("a disable that fails is failed, and the folders that worked stay recorded", async () => {
