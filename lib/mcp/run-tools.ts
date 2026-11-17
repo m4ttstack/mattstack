@@ -390,7 +390,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     },
     {
       name: "run_next",
-      description: "Read how a stage ended and move the run on: starts the next stage when every produce is set, or reports failed, held, waiting or the last stage. It returns results and opens no gates.",
+      description: "Read how a stage ended and move the run on: starts the next stage when every produce is set, or reports failed, held, waiting, redirected (an operator's Redo moved the run back to an earlier stage, with their note and the commit the gate recorded) or the last stage. It returns results and opens no gates.",
       inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, stage: { type: "string" } }, required: ["stage"], additionalProperties: false },
       shellForms: NO_VERB,
       async handler(input, env) {

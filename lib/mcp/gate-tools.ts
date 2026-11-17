@@ -8,23 +8,23 @@
  * decisions on the caller's scope.
  */
 import { readFileSync, writeFileSync } from "fs";
-import { gateAnswer, gateAsk, gateWait, getSetting, isRunControl } from "../../packages/rt-client/src/index.ts";
+import { chatPost, gateAnswer, gateAsk, gateWait, getSetting, isRunControl } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/src/index.ts";
 import { boardsBudgetError, checkSource, fitOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
 import { flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
 import { isObject, tojson, utf8Bytes } from "../gates/jq.ts";
 import { BOARD_ONLY_KINDS } from "../daemon/handlers/gate.ts";
-import { autoAnswerDecision, digestSince, effectiveMode, modeDigest, parseReach, type GateMode } from "../gates/mode.ts";
+import { autoAnswerDecision, digestSince, effectiveMode, modeDecisionLine, modeDigest, parseReach, type GateMode } from "../gates/mode.ts";
 import { buildReviewSource, reviewSourceErrors } from "../gates/review-source.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
-import { earlierStages } from "../runs/engine.ts";
+import { cleared, earlierStages } from "../runs/engine.ts";
 import {
   actOnWriteIn, decisionForGate, nextOf, normalizeAnswers, postSelection, respondPlanSelection, respondPostSelection,
   skipReason, withPlainNext, writeInsOf,
   type AnswersMap, type DecisionRow, type PlanRow, type RecordShape,
 } from "../gates/record.ts";
 import { realRunToolDeps, runToolDefs, type RunToolDeps } from "./run-tools.ts";
-import { checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolResult } from "./shared.ts";
+import { checkOptional, checkRequired, err, fromResponse, ok, requireChatHandle, type McpToolDef, type ToolResult } from "./shared.ts";
 import { liveSelfPaneId } from "../self-pane.ts";
 import {
   checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots,
@@ -42,6 +42,8 @@ export interface GateToolDeps {
   kitFormOn: () => boolean;
   gateMode: () => { mode: unknown; shadow: unknown };
   headCommit: (worktree: string) => Promise<string | null>;
+  /** null when posted, or when there is no HERD_ROOM to post to; else the error. */
+  herdLine: (env: NodeJS.ProcessEnv, body: string) => Promise<string | null>;
 }
 
 // An unreadable setting is chatty with no shadow: the gate still asks.
@@ -69,6 +71,19 @@ function kitFormReadsOn(deps: GateToolDeps): boolean {
   }
 }
 
+async function postHerdLine(env: NodeJS.ProcessEnv, body: string): Promise<string | null> {
+  const room = env.HERD_ROOM;
+  if (!room) return null;
+  try {
+    const identity = await requireChatHandle(env);
+    if ("error" in identity) return identity.error;
+    const res = await chatPost({ room, handle: identity.handle, body, quiet: true });
+    return res.ok ? null : (res.error ?? "chat:post failed");
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
 export const realGateToolDeps: GateToolDeps = {
   ask: gateAsk,
   answer: gateAnswer,
@@ -81,6 +96,7 @@ export const realGateToolDeps: GateToolDeps = {
   kitFormOn: () => getSetting("rt.gates.kitForm").value === true,
   gateMode: () => ({ mode: getSetting("rt.work.gateMode").value, shadow: getSetting("rt.work.gateModeShadow").value }),
   headCommit: gitHead,
+  herdLine: postHerdLine,
 };
 
 export interface RunSnapshot {
@@ -307,7 +323,8 @@ export async function askGate(
     const settings = gateModeSettings(deps);
     mode = effectiveMode(fieldValue(run, "gate-mode"), settings.mode);
     shadow = settings.shadow;
-    if (shaped && !BOARD_ONLY_KINDS.has(kind)) {
+    const controlPending = !cleared(fieldValue(run, "hold")) || !cleared(fieldValue(run, "redo"));
+    if (shaped && !BOARD_ONLY_KINDS.has(kind) && !controlPending) {
       const decided = autoAnswerDecision({ mode, pipeline: run.snapshot.pipeline, reach, needsOperator: reason, context, questions: raw });
       if (decided.kind === "answer") modeAnswers = decided.answers;
     }
@@ -363,7 +380,12 @@ export async function askGate(
     const selection = withPlainNext(fields.answers);
     const failed = await run.decision(scope, selection, preAnswer.by)
       && await run.decision(scope, selection, preAnswer.by);
-    return ok({ id: data.id, paneAction: "answered", status: "answered", ...fields, ...(failed ? { runErrors: [failed] } : {}) });
+    const herdLineError = await deps.herdLine(env, modeDecisionLine(mode, scope, selection));
+    return ok({
+      id: data.id, paneAction: "answered", status: "answered", ...fields,
+      ...(failed ? { runErrors: [failed] } : {}),
+      ...(herdLineError ? { herdLineError } : {}),
+    });
   }
 
   const paneAction = paneActionFor(data.presentation, { herdr: env.HERDR_ENV === "1", spawned: run?.snapshot.run.spawned_by != null });

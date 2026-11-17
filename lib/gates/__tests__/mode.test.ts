@@ -6,6 +6,7 @@ import {
   autoAnswerDecision,
   digestSince,
   effectiveMode,
+  modeDecisionLine,
   modeDigest,
   recommendedValues,
 } from "../mode.ts";
@@ -130,6 +131,16 @@ describe("effectiveMode", () => {
   test("unknown run field is chatty", () => expect(effectiveMode("quite", "quiet")).toBe("chatty"));
   test("no run field uses setting", () => expect(effectiveMode(undefined, "quiet")).toBe("quiet"));
   test("bad setting is chatty", () => expect(effectiveMode(undefined, 7)).toBe("chatty"));
+});
+
+describe("modeDecisionLine", () => {
+  test("names the mode, the scope and the selection", () => {
+    expect(modeDecisionLine("quiet", "plan", { tier: "direct-tdd" })).toBe("quiet mode decided plan: tier=direct-tdd");
+  });
+
+  test("a multi answer joins with a bar", () => {
+    expect(modeDecisionLine("yolo", "scope", { areas: ["api", "ui"], next: "proceed" })).toBe("yolo mode decided scope: areas=api|ui, next=proceed");
+  });
 });
 
 describe("modeDigest", () => {

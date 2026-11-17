@@ -1686,7 +1686,7 @@ Start, resume or inherit a pipeline run and return where it stands, or the candi
 ### run_next
 
 <!-- mcp-lint: allow -->
-Read how a stage ended and move the run on: starts the next stage when every produce is set, or reports failed, held, waiting or the last stage. It returns results and opens no gates.
+Read how a stage ended and move the run on: starts the next stage when every produce is set, or reports failed, held, waiting, redirected (an operator's Redo moved the run back to an earlier stage, with their note and the commit the gate recorded) or the last stage. It returns results and opens no gates.
 
 ```json
 {

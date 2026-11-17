@@ -1,6 +1,6 @@
 import type { GateQuestion } from "../../packages/rt-client/src/commands.ts";
 import { gateOptionLabel, gateOptionValue } from "../../packages/rt-client/src/gate-options.ts";
-import { type DecisionRow, answerValue, splitVerb } from "./record.ts";
+import { type AnswersMap, type DecisionRow, answerValue, splitVerb } from "./record.ts";
 
 export type GateMode = "chatty" | "normal" | "quiet" | "yolo";
 export type Reach = "worktree" | "draft" | "teammates" | "public";
@@ -102,6 +102,10 @@ function describeSelection(selection: string): string {
   } catch {
     return selection;
   }
+}
+
+export function modeDecisionLine(mode: GateMode, scope: string, answers: AnswersMap): string {
+  return `${mode} mode decided ${scope}: ${describeSelection(JSON.stringify(answers))}`;
 }
 
 export function modeDigest(decisions: DecisionRow[], sinceAt: number): string | null {
