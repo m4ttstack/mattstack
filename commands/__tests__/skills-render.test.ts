@@ -98,6 +98,13 @@ describe("rt skills render", () => {
     expect(err.log).toContain("cannot be filled -- the manifest declares no pipelines");
   });
 
+  test("the id may follow the flags", async () => {
+    const w = setup();
+    io = captureOut();
+    await skillsRender(["--json", "--dir", join(w.installed, "skills/work"), "--mattstack-dir", w.mattstackDir, "acme:work"]);
+    expect((JSON.parse(io.stdout()) as { id: string }).id).toBe("acme:work");
+  });
+
   test("--json envelope keys are exactly", async () => {
     const w = setup();
     const env = await render(w, "acme:work", "skills/work");

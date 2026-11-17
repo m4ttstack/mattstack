@@ -14,7 +14,8 @@ import * as out from "../lib/ui/out.ts";
 
 const USAGE = "rt skills render <plugin>:<unit> --dir <skill dir> [--file <path>] --json";
 const SETUP = "rt setup";
-const ID_RE = /^([a-z0-9][a-z0-9-]*):([a-z0-9][a-z0-9-]*)$/;
+const VALUE_FLAGS = ["--dir", "--file", "--mattstack-dir"];
+const ID_RE =/^([a-z0-9][a-z0-9-]*):([a-z0-9][a-z0-9-]*)$/;
 
 function flag(args: string[], name: string): string | undefined {
   const at = args.indexOf(name);
@@ -51,7 +52,7 @@ function unitFolder(tree: string, id: string, unit: string): string | null {
 export async function skillsRender(args: string[]): Promise<void> {
   const json = args.includes("--json");
   if (json) out.payloadOnStdout();
-  const id = args.find((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
+  const id = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1] ?? ""));
   const dir = flag(args, "--dir");
   const match = id ? ID_RE.exec(id) : null;
   if (!id || !match || !dir) throw fail("usage", "Name the skill as <plugin>:<unit> and pass its own folder with --dir.", { next: USAGE });
