@@ -10,6 +10,23 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-17-husk-skills-design.md` (RT-586). Read it before any task.
 
+## Execution batches
+
+Subagent-driven execution runs by batch, not by task: one implementer per
+batch works through its tasks in order (committing after each), then one
+reviewer reviews the batch's commits against this plan and the spec. A
+whole-branch review follows Batch 3.
+
+| Batch | Tasks | Review question |
+| --- | --- | --- |
+| 1. Render core | 1, 2, 3, 4 | Does a render produce the right tree, keyed and swapped safely? |
+| 2. Serving and triggers | 5, 6, 7, 8 | Does a rendered tree reach an agent, from a pull to `load_skill`? |
+| 3. Husk packs | 9, 10 | Does an opted-in pack commit only husks and check cleanly? |
+
+Tasks 11 (end to end on real accounts) and 12 (skill updates through
+`superpowers:writing-skills`) run inline in the controlling session after
+the whole-branch review, since they need live sessions, not code review.
+
 ## Global Constraints
 
 - Run every test from the worktree root (`bun test <path>`); bun reads `bunfig.toml` only from the cwd.
