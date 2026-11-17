@@ -7,6 +7,7 @@ import { isEmittedAttachmentDir, isEmittedAttachmentText } from "./emitted.ts";
 import { hasCompiledHeader, HEADER_COMMENT, unresolvedRelativePaths } from "./compile.ts";
 import { handPathDiagnostics } from "./hand-paths.ts";
 import { FRONTMATTER_RE } from "./frontmatter-re.ts";
+import { isHuskDir } from "./husk.ts";
 import { hostDir } from "./layout.ts";
 import { assertNoTeamMarkerInRawFile, packPathResolves, readTextUnlessBinary, referencePath, sourcePackPath, substituteAttachmentPlaceholders, type PackTarget } from "./placeholders.ts";
 import { referenceCopies } from "./references.ts";
@@ -102,23 +103,28 @@ export function listEmittedUnits(attachmentsDir: string): string[] {
   return units;
 }
 
-function doorsOnDisk(packDir: string): string[] {
+/** A husk pack's door keeps only its husk, so its folder has no compiled.json to mark it. */
+function isDoorDir(dir: string): boolean {
+  return isEmittedAttachmentDir(dir) || isHuskDir(dir);
+}
+
+function doorsOnDisk(packDir: string, verbSides: Record<string, Side>): string[] {
   const skillsDir = join(packDir, "skills");
-  return listDirs(skillsDir).filter((name) => isEmittedAttachmentDir(join(skillsDir, name)));
+  return listDirs(skillsDir).filter((name) => !Object.hasOwn(verbSides, name) && isDoorDir(join(skillsDir, name)));
 }
 
 /** The team's own skill of this name wins, grouped or not. */
 function hasTeamSkill(packDir: string, name: string): boolean {
   const skillsDir = join(packDir, "skills");
   const own = join(skillsDir, name);
-  if (existsSync(join(own, "SKILL.md")) && !isEmittedAttachmentDir(own)) return true;
+  if (existsSync(join(own, "SKILL.md")) && !isDoorDir(own)) return true;
   return listDirs(skillsDir).some((group) => existsSync(join(skillsDir, group, name, "SKILL.md")));
 }
 
 /** Why a public unit cannot have its door, or null when it can. A door never writes over a folder compile did not make. */
 function doorRefusal(packDir: string, label: string, name: string, skillMd: string): string | null {
   const own = join(packDir, "skills", name);
-  if (existsSync(own) && !isEmittedAttachmentDir(own)) return `${label} cannot be public: skills/${name} already holds a folder compile did not make; rename one of them`;
+  if (existsSync(own) && !isDoorDir(own)) return `${label} cannot be public: skills/${name} already holds a folder compile did not make; rename one of them`;
   const { description } = stripFrontmatter(skillMd).frontmatter;
   if (typeof description !== "string" || description.trim() === "") return `${label} cannot be public: its SKILL.md has no description for agents to match on`;
   return null;
@@ -237,7 +243,7 @@ export function planBaseAttachments(input: {
   const onDiskEmitted = listEmittedUnits(attachmentsDir);
 
   if (ext === undefined) {
-    return { base: null, emits: [], kept: [], stale: onDiskEmitted.map((name) => ({ name, why: "no-base" as const })), retired: [], doors: [], staleDoors: doorsOnDisk(packDir), errors: [] };
+    return { base: null, emits: [], kept: [], stale: onDiskEmitted.map((name) => ({ name, why: "no-base" as const })), retired: [], doors: [], staleDoors: doorsOnDisk(packDir, verbSides), errors: [] };
   }
   const base = resolveBase(packDir, packName, ext);
   if (typeof base === "string") return { base: null, emits: [], kept: [], stale: [], retired: [], doors: [], staleDoors: [], errors: [base] };
@@ -403,7 +409,7 @@ export function planBaseAttachments(input: {
     return refusal ? [] : [doorFor(base, emit.name, skillMd.content)];
   });
   if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], doors: [], staleDoors: [], errors };
-  const staleDoors = doorsOnDisk(packDir).filter((name) => !doors.some((door) => door.name === name));
+  const staleDoors = doorsOnDisk(packDir, verbSides).filter((name) => !doors.some((door) => door.name === name));
   return { base, emits, kept, stale, retired, doors, staleDoors, errors };
 }
 

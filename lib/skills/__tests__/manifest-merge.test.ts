@@ -224,6 +224,11 @@ describe("parseFragment", () => {
   test("throws FragmentError when the document is not an object", () => {
     expect(() => parseFragment("[]", "/f.jsonc")).toThrow(FragmentError);
   });
+  test("husks is a boolean and nothing else", () => {
+    expect(parseFragment('{ "husks": true }', "/f.jsonc").husks).toBe(true);
+    expect(parseFragment('{ "husks": false }', "/f.jsonc").husks).toBe(false);
+    expect(() => parseFragment('{ "husks": "true" }', "/f.jsonc")).toThrow("fragment husks is not a boolean: /f.jsonc");
+  });
   test.each([
     ["{ nope", "fragment is not valid JSONC: /f.jsonc", "is not valid JSONC"],
     ["// only a comment\n", "fragment is not valid JSONC: /f.jsonc", "is not valid JSONC"],

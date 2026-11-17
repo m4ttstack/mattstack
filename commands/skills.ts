@@ -67,7 +67,9 @@ import { lockEntryOf, lockWrite, mergeLock, readLock, type CompiledLock } from "
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
-import { layeredFromManifest, readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
+import { FragmentError, layeredFromManifest, parseFragment, readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
+import { huskFor } from "../lib/skills/husk.ts";
+import { inputHash } from "../lib/skills/render.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
 import { DISABLE_MODEL_INVOCATION_SETTING, neverDisabled, disableModelInvocationConfigDirs, disableModelInvocationHome, providesContract, readDisableModelInvocationChoices, reconcileDisableModelInvocation, withInstalledPlugins } from "../lib/skills/disable-model-invocation.ts";
@@ -79,8 +81,8 @@ import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } fr
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { assertNoTeamMarkerInAllowedTools, findPlaceholders, packPathResolves } from "../lib/skills/placeholders.ts";
-import { newTeamContext, POINTER_KEYS_MIN_ENGINE, readTeamValues, TEAM_MARKERS_MIN_ENGINE, VERSIONLESS_IDS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
-import type { PointerMap } from "../lib/skills/pointers.ts";
+import { HUSKS_MIN_ENGINE, newTeamContext, POINTER_KEYS_MIN_ENGINE, readTeamValues, TEAM_MARKERS_MIN_ENGINE, VERSIONLESS_IDS_MIN_ENGINE, type MissingMarker, type TeamContext } from "../lib/skills/team-params.ts";
+import { unitId, type PointerMap } from "../lib/skills/pointers.ts";
 import {
   attachMaps,
   emittedUnits,
@@ -612,7 +614,21 @@ type Resolved = {
   claimedTrees: Set<string>;
   /** Read once per resolve(); `planUnits` refuses a run that writes or checks a unit without it. */
   identity: PackIdentity;
+  /** The pack's own fragment sets `"husks": true`: a compile into the pack writes husks, a render writes full skills. */
+  husks: boolean;
 };
+
+function readHusks(packDir: string): boolean {
+  const path = join(packDir, "pack", "skills.jsonc");
+  const text = readIfPresent(path);
+  if (text === null) return false;
+  try {
+    return parseFragment(text, path).husks === true;
+  } catch (err) {
+    if (err instanceof FragmentError) throw new SkillsUsageError(err.message);
+    throw err;
+  }
+}
 
 /**
  * Internal roster tokens mirror invocableRoster's "<team>:<name>" shape so
@@ -736,7 +752,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, manifestText, base, provenance,
     pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, teamContext,
-    claimedTrees: new Set<string>(), identity: readPackIdentity(packDir),
+    claimedTrees: new Set<string>(), identity: readPackIdentity(packDir), husks: readHusks(packDir),
   };
 }
 
@@ -1268,18 +1284,22 @@ function readIfPresent(path: string): string | null {
   }
 }
 
-/** The team pack's generated floor mirrors the engine it compiled against; the mattstack pack's own floor is hand-maintained and never written here. */
+/**
+ * The team pack's generated floor mirrors the engine it compiled against; the mattstack pack's own floor is hand-maintained and never written here.
+ * A husk pack carries no engine text, so its floor is the husk release and its own rule-based needs.
+ */
 export function floorWrite(
   resolved: { packDir: string; pluginRoots: PluginRoots },
   readFile: (path: string) => string | null,
   write: boolean,
   usesTeamMarkers: boolean,
   carriesKeys = false,
+  husks = false,
 ): { written: string[]; removed: string[]; stale: boolean } {
   const engineDir = resolved.pluginRoots.byName.mattstack?.dir ?? null;
   if (engineDir !== null && resolvePath(engineDir) === resolvePath(resolved.packDir)) return { written: [], removed: [], stale: false };
-  if (engineDir === null && !usesTeamMarkers && !carriesKeys) return { written: [], removed: [], stale: false };
-  const engineFloor = engineDir === null ? null : readFloor(readFile, engineDir);
+  if (!husks && engineDir === null && !usesTeamMarkers && !carriesKeys) return { written: [], removed: [], stale: false };
+  const engineFloor = husks ? HUSKS_MIN_ENGINE : engineDir === null ? null : readFloor(readFile, engineDir);
   const raises = [...(usesTeamMarkers ? [TEAM_MARKERS_MIN_ENGINE] : []), ...(carriesKeys ? [POINTER_KEYS_MIN_ENGINE, VERSIONLESS_IDS_MIN_ENGINE] : [])];
   const floor = raises.reduce<string | null>((high, v) => (high === null || compareVersions(high, v) < 0 ? v : high), engineFloor);
   const target = join(resolved.packDir, FLOOR_REL);
@@ -1318,6 +1338,31 @@ function compiledLockOf(resolved: Resolved, outcomes: { target: CompileTarget; o
     }
   }
   return lock;
+}
+
+/**
+ * A husk pack's lock keeps bases and no per-target versions. `builtWith`
+ * moves only when the sources differ from the ones it last recorded, so a
+ * mattstack bump alone changes nothing committed.
+ */
+function huskLockOf(resolved: Resolved, current: CompiledLock, base: BaseAttachmentPlan): CompiledLock {
+  const sourcesHash = inputHash(resolved.packDir, base.base?.dir ?? null, "");
+  const moved = current.sourcesHash !== sourcesHash;
+  return {
+    targets: {},
+    bases: { ...current.bases, ...compiledLockOf(resolved, [], base).bases },
+    mattstackSha: {},
+    mattstackDirty: {},
+    builtWith: moved ? resolved.pluginRoots.byName.mattstack?.version : current.builtWith,
+    sourcesHash,
+  };
+}
+
+/** A husk target keeps only its SKILL.md, reduced to a husk. */
+function huskFiles(files: CompiledFile[], id: string): { files: CompiledFile[] } {
+  const skillMd = files.find((f) => f.path === "SKILL.md");
+  const text = skillMd === undefined ? "" : "content" in skillMd ? skillMd.content : readFileSync(skillMd.copyFrom, "utf8");
+  return { files: [{ path: "SKILL.md", content: huskFor(text, id) }] };
 }
 
 const STAGE_COPY_DIR_RE = /^stage-[a-z0-9-]+--[a-z][a-z0-9-]*$/;
@@ -1367,6 +1412,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
 } {
   // A render writes a fresh tree: nothing in the pack is swept, owned or bookkept.
   const intoPack = renderInto === null;
+  const husks = intoPack && resolved.husks;
   const outRoot = renderInto ?? resolved.packDir;
   if (write && intoPack) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
@@ -1423,9 +1469,14 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
       for (const rel of plan.retired) removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", rel), writes);
     }
-    for (const e of emits) writeCompiledVerb(outRoot, join(outRoot, "attachments", e.name), e, writes);
+    const idOf = (leaf: string) => unitId(identity?.name ?? resolved.team, leaf);
+    for (const e of emits) {
+      // A husk pack's base copies live only in each member's render.
+      if (!husks) writeCompiledVerb(outRoot, join(outRoot, "attachments", e.name), e, writes);
+      else if (existsSync(join(resolved.packDir, "attachments", e.name))) removeEmittedUnit(resolved.packDir, e.name, writes);
+    }
     if (intoPack) for (const name of plan.staleDoors) removeCompiledDir(resolved.packDir, join(resolved.packDir, "skills", name), writes);
-    for (const door of plan.doors) writeCompiledVerb(outRoot, join(outRoot, "skills", door.name), door, writes);
+    for (const door of plan.doors) writeCompiledVerb(outRoot, join(outRoot, "skills", door.name), husks ? huskFiles(door.files, idOf(door.name)) : door, writes);
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
       const { verb, isPublic } = target;
@@ -1434,17 +1485,18 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       // it carries the compiler header, never when it is the hand-written source.
       const stale = otherSideDir(resolved.packDir, verb.name, isPublic);
       if (intoPack && existsSync(stale) && !isHandWrittenDir(stale)) removeCompiledDir(resolved.packDir, stale, writes);
-      writeCompiledVerb(outRoot, outDirFor(outRoot, verb.name, isPublic), outcome.result, writes);
+      writeCompiledVerb(outRoot, outDirFor(outRoot, verb.name, isPublic), husks ? huskFiles(outcome.result.files, idOf(verb.name)) : outcome.result, writes);
     }
   }
   if (writing && intoPack) {
     for (const copy of staleCopies) removeCompiledDir(resolved.packDir, copy.dir, writes);
     // A scoped compile sees only its own targets' markers, so it never lowers a floor a full compile raised for the rest.
     const keptRaise = verbFilter !== null && floorAtLeast(readFloor(readIfPresent, resolved.packDir), TEAM_MARKERS_MIN_ENGINE);
-    const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise, outcomes.length > 0 || emits.length > 0);
+    const floor = floorWrite(resolved, readIfPresent, true, resolved.teamContext?.sawMarker === true || keptRaise, outcomes.length > 0 || emits.length > 0, husks);
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
-    const lock = lockWrite(resolved.packDir, mergeLock(readLock(resolved.packDir, readIfPresent), compiledLockOf(resolved, outcomes, plan)), readIfPresent, true);
+    const current = readLock(resolved.packDir, readIfPresent);
+    const lock = lockWrite(resolved.packDir, husks ? huskLockOf(resolved, current, plan) : mergeLock(current, compiledLockOf(resolved, outcomes, plan)), readIfPresent, true);
     writes.written.push(...lock.written);
     if (verbFilter === null) {
       const manifest = pipelinesWrite(resolved, readIfPresent, true);
