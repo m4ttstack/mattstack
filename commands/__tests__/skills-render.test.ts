@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { UserActionableError } from "../../lib/errors.ts";
 import { LOCK_REL, serializeLock } from "../../lib/skills/compiled-lock.ts";
 import { renderWorld, setPackVersion, writeFile } from "../../lib/skills/__tests__/render-world.ts";
+import { childEnv } from "../../lib/subprocess.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import * as out from "../../lib/ui/out.ts";
 import { skillsRender } from "../skills-render.ts";
@@ -139,6 +141,44 @@ describe("rt skills render", () => {
     const env = await render(w, "acme:work", "skills/work");
     expect(env).toMatchObject({ ok: true, treeDir: good.treeDir, body: good.body });
     expect(env.staleBecause).toContain("cannot be filled -- the manifest declares no pipelines");
+  });
+
+  describe("a clone that moved on at the same version", () => {
+    const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { stdio: "pipe", env: childEnv() }).toString();
+    function gitWorld() {
+      const w = setup();
+      rmSync(join(w.orgDir, ".git"), { recursive: true, force: true });
+      git(w.orgDir, "init", "-q", "-b", "main");
+      git(w.orgDir, "add", "-A");
+      git(w.orgDir, "commit", "-qm", "org");
+      return w;
+    }
+    const policy = (w: ReturnType<typeof setup>) => join(w.packDir, "attachments", "plan-policy", "SKILL.md");
+    const edit = (w: ReturnType<typeof setup>) => writeFileSync(policy(w), readFileSync(policy(w), "utf8").replace("policy text", "policy text EDITED"));
+
+    test("an uncommitted fill edit does not change what is served while a tree exists", async () => {
+      const w = gitWorld();
+      await render(w, "acme:stage-plan", "attachments/stage-plan");
+      edit(w);
+      expect((await render(w, "acme:stage-plan", "attachments/stage-plan")).body).not.toContain("EDITED");
+      git(w.orgDir, "commit", "-qam", "edit");
+      expect((await render(w, "acme:stage-plan", "attachments/stage-plan")).body).toContain("EDITED");
+    });
+
+    test("a clone off its data branch serves the tree it has", async () => {
+      const w = gitWorld();
+      await render(w, "acme:stage-plan", "attachments/stage-plan");
+      git(w.orgDir, "switch", "-qc", "trial");
+      edit(w);
+      git(w.orgDir, "commit", "-qam", "trial edit");
+      expect((await render(w, "acme:stage-plan", "attachments/stage-plan")).body).not.toContain("EDITED");
+    });
+
+    test("with no tree yet, the working copy renders", async () => {
+      const w = gitWorld();
+      edit(w);
+      expect((await render(w, "acme:stage-plan", "attachments/stage-plan")).body).toContain("EDITED");
+    });
   });
 
   test("the id may follow the flags", async () => {

@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { renderPackInto } from "../../commands/skills.ts";
+import { generatedMarketplaceRef } from "../setup/generated-marketplace.ts";
+import { childEnv, runCapture } from "../subprocess.ts";
 import { readLock } from "./compiled-lock.ts";
 import { zonePackDir, type ZoneInfo } from "./init.ts";
 import { compareVersions } from "./installed-plugins.ts";
@@ -46,6 +48,36 @@ function baseDirOf(zone: ZoneInfo, packDir: string): string | null {
 
 const sameRender = (a: RenderStamp, b: RenderStamp) => a.rtBuild === b.rtBuild && a.inputHash === b.inputHash;
 
+export type CloneGit = (cwd: string, args: string[]) => Promise<{ code: number; stdout: string }>;
+
+const GIT_TIMEOUT_MS = 10_000;
+
+const realCloneGit: CloneGit = async (cwd, args) => {
+  const r = await runCapture(["git", "-C", cwd, ...args], { timeoutMs: GIT_TIMEOUT_MS, env: { ...childEnv(), LC_ALL: "C" } });
+  return { code: r.exitCode, stdout: r.stdout };
+};
+
+/** The branch a `git status --branch` header names; null when detached. */
+function statusBranch(header: string): string | null {
+  const text = header.replace(/^## /, "");
+  if (text.startsWith("No commits yet on ")) return text.slice("No commits yet on ".length).trim();
+  if (text.startsWith("HEAD (no branch)")) return null;
+  return text.split(/\.\.\.| /)[0] ?? null;
+}
+
+/**
+ * True when the clone's working copy is not what members installed: a change
+ * not committed under the pack or its base, or a branch other than the data
+ * branch installs read. A git that cannot answer is no evidence either way.
+ */
+async function cloneMovedOn(git: CloneGit, home: string, zone: ZoneInfo, fs: MaterializeDeps["fs"], dirs: string[]): Promise<boolean> {
+  const status = await git(zone.orgDir, ["status", "--porcelain=v1", "--branch", "--untracked-files=all", "--", ...dirs.map((d) => relative(zone.orgDir, d))]);
+  if (status.code !== 0) return false;
+  const [header = "", ...changes] = status.stdout.split("\n");
+  if (changes.some((line) => line.trim() !== "")) return true;
+  return statusBranch(header) !== generatedMarketplaceRef({ readFile: fs.readFile, home }, zone.orgDir);
+}
+
 const suffix = () => `${process.pid}-${randomBytes(4).toString("hex")}`;
 
 function isRaceLoss(err: unknown): boolean {
@@ -55,8 +87,10 @@ function isRaceLoss(err: unknown): boolean {
 
 /**
  * The rendered tree for the installed pack version. Only the clone holding
- * that version can render it; once the clone has moved on, an existing tree
- * is served as is and a missing one is reported.
+ * that version, committed on its data branch, renders over a tree; once the
+ * clone has moved on, an existing tree is served as is. A missing tree at the
+ * installed version renders from the working copy; at any other, it is
+ * reported.
  */
 export async function ensureTree(opts: {
   /** Whose plugin cache names the pack versions a running session may still load. */
@@ -72,6 +106,7 @@ export async function ensureTree(opts: {
   mattstackDir?: string;
   /** Plugin roots the caller listed, so the render runs no `claude plugin list` of its own. */
   pluginRoots?: PluginRoots;
+  git?: CloneGit;
 }): Promise<EnsureResult> {
   const packDir = zonePackDir(opts.zone);
   const manifest = readJson(join(packDir, ".claude-plugin", "plugin.json"));
@@ -100,6 +135,10 @@ export async function ensureTree(opts: {
   }
   const stamp: RenderStamp = { rtBuild: opts.rtBuild, mattstack: opts.mattstack, inputHash: inputHash(packDir, baseDir, bindings.text) };
   if (existing && sameRender(existing, stamp)) return { ok: true, dir, stamp: existing, rendered: false };
+  // Members render what was committed, so an edit not yet published never replaces a tree they share.
+  if (existing && (await cloneMovedOn(opts.git ?? realCloneGit, opts.home, opts.zone, opts.deps.fs, baseDir === null ? [packDir] : [packDir, baseDir]))) {
+    return { ok: true, dir, stamp: existing, rendered: false };
+  }
 
   const tmp = `${dir}.tmp-${suffix()}`;
   let old: string | null = null;
