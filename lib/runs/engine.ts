@@ -164,7 +164,7 @@ export function budget(
 export type NextResult =
   | { ended: "closed"; status: string }
   | { ended: "failed"; at: Position; reason: string | null; detailPath: string | null; missing?: string[]; scope: string; earlier: string[] }
-  | { ended: "held"; at: Position; reason: string }
+  | { ended: "held"; at: Position; reason: string; redo?: string }
   | { ended: "waiting"; at: Position; gate: string }
   | { ended: "redirected"; from: string; next: Position; note: string; headCommit: string | null; gate: string; cleared: string[] }
   | { ended: "done"; next: Position; repeated?: true }
@@ -275,7 +275,7 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
           const why = toIndex < 0 ? "it is not in this run's pipeline manifest" : `it is ahead of ${o.stage}`;
           const reason = `redo to ${redo.to} could not apply: ${why}`;
           const r = must(holdInTx(db, { stage: o.stage, reason, decidedBy: redo.by, now }));
-          return { ok: true, ended: "held", at: r.at, reason };
+          return { ok: true, ended: "held", at: r.at, reason, redo: redo.gate };
         }
         const r = must(
           redirectInTx(db, { stage: o.stage, to: redo.to, note: redo.note, decidedBy: redo.by, extra: { gate: redo.gate, headCommit: redo.headCommit }, env: o.env, now }),

@@ -509,7 +509,9 @@ describe("nextStage applies a pending redo", () => {
     redo(db, "plan", "implement");
     expect(fieldSet(db, "hold", "paused", "implement", 150).ok).toBe(true);
     const before = field(db, "redo");
-    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "held", reason: "paused" });
+    const r = nextStage(db, { stage: "implement", env: {}, now: 200 });
+    expect(r).toMatchObject({ ended: "held", reason: "paused" });
+    expect(r).not.toHaveProperty("redo");
     expect(field(db, "redo")).toBe(before);
   });
 
@@ -529,6 +531,7 @@ describe("nextStage applies a pending redo", () => {
       ok: true,
       ended: "held",
       reason: "redo to self-review could not apply: it is ahead of plan",
+      redo: "g1",
     });
     expect(field(db, "redo")).toBe("-");
   });

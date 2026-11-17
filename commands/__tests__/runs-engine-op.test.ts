@@ -125,6 +125,34 @@ describe("runEngineOp", () => {
     });
   });
 
+  const redoValue = (to: string) => JSON.stringify({ gate: "g1", to, note: "again", headCommit: null, by: "console", at: 1 });
+
+  test("next adopts the session when a pending redo redirects it", async () => {
+    const { root, pack } = fixture();
+    const base = { RT_RUNS_ROOT: root, CLAUDE_CODE_SESSION_ID: "sess-engine-1" };
+    const quiet = { ...base, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    const { runDb } = JSON.parse((await runEngineOp(enterOp(pack), quiet)).out) as { runDb: string };
+    await runWriteVerb("field", ["set", "redo", redoValue("plan"), "--stage", "plan"], { ...quiet, RT_RUN_DB: runDb });
+    await withFakeDaemon(async (seen) => {
+      const adopts = () => seen.filter((s) => JSON.stringify(s).includes("sess-engine-1")).length;
+      const next = await runEngineOp({ op: "next", stage: "plan" }, { ...base, RT_RUN_DB: runDb }, "/");
+      expect(JSON.parse(next.out)).toMatchObject({ ended: "redirected", next: { stage: "plan", attempt: 2 } });
+      expect(adopts()).toBe(1);
+    });
+  });
+
+  test("next emits run-next when a redo it could not apply becomes a hold", async () => {
+    const { root, pack } = fixture();
+    const quiet = { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" } as NodeJS.ProcessEnv;
+    const { runDb } = JSON.parse((await runEngineOp(enterOp(pack), quiet)).out) as { runDb: string };
+    await runWriteVerb("field", ["set", "redo", redoValue("build"), "--stage", "plan"], { ...quiet, RT_RUN_DB: runDb });
+    await withFakeDaemon(async (seen) => {
+      const next = await runEngineOp({ op: "next", stage: "plan" }, { RT_RUN_DB: runDb }, "/");
+      expect(JSON.parse(next.out)).toMatchObject({ ended: "held", redo: "g1" });
+      expect(seen.map((s) => [s.payload.kind, s.payload.stage])).toEqual([["run-next", "plan"]]);
+    });
+  });
+
   test("a missing --repo is a usage error, exit 2", async () => {
     const { root, pack } = fixture();
     const r = await runEngineOp({ op: "enter", args: ["--work-type", "w", "--pipeline", "p"], packRoot: pack }, { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" });

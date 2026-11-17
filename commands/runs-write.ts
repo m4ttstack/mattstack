@@ -258,7 +258,8 @@ function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: Node
   switch (op.op) {
     case "next": {
       const r = nextStage(db, { stage: op.stage, env });
-      return { r, adopts: r.ok && r.ended === "done" && "next" in r && r.repeated !== true };
+      const startedStage = r.ok && "next" in r && (r.ended === "redirected" || (r.ended === "done" && r.repeated !== true));
+      return { r, adopts: startedStage };
     }
     case "resolve": {
       const r = resolveStage(db, { stage: op.stage, next: op.next, to: op.to, note: op.note, attempt: op.attempt, decidedBy: op.decidedBy, env });
@@ -280,7 +281,7 @@ function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: Node
 function wroteNothing(op: Exclude<EngineOp, { op: "enter" }>, body: Record<string, unknown>): boolean {
   if (body.repeated === true) return true;
   if (op.op === "budget") return op.increment === 0;
-  if (op.op === "next") return body.ended === "held" || body.ended === "waiting" || body.ended === "closed";
+  if (op.op === "next") return (body.ended === "held" && body.redo === undefined) || body.ended === "waiting" || body.ended === "closed";
   return false;
 }
 
