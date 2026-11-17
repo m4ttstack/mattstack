@@ -895,6 +895,30 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(detailOf(outcome)).toContain("Materialized 1 pack file");
     });
 
+    test("includes the render detail after materialize, and logs a pack that did not render", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => (argv[2] === "list" ? ok("[]") : ok("")),
+      });
+      const { ctx, logs } = makeCtx(p);
+      const asked: Probes[] = [];
+      pluginsTest.setRenderHusks(async (probes) => {
+        asked.push(probes);
+        return [{ pack: "widgets", ok: true, detail: "rendered" }, { pack: "gadgets", ok: false, detail: "no mattstack" }];
+      });
+      try {
+        const outcome = await pluginsInstallStep.run(ctx);
+        expect(outcome.state).toBe("done");
+        expect(detailOf(outcome)).toContain(". 1 husk pack ready; gadgets did not render: no mattstack");
+        expect(asked).toEqual([p]);
+        expect(logs.some((l) => l.line === "render gadgets: no mattstack")).toBe(true);
+      } finally {
+        pluginsTest.setRenderHusks(null);
+      }
+    });
+
     test("a repo no team pack declares is tallied as nothing to do, never as a failed materialize", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
