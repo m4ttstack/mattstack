@@ -104,6 +104,16 @@ describe("inputHash", () => {
     expect(inputHash(s.packDir, null, s.manifestText)).not.toBe(first);
   });
 
+  test("inputHash ignores the junk a Mac or a script run leaves beside the sources", () => {
+    const s = seed();
+    const first = inputHash(s.packDir, null, s.manifestText);
+    writeFileSync(join(s.packDir, ".DS_Store"), "finder");
+    mkdirSync(join(s.packDir, "attachments", "policy", "__pycache__"), { recursive: true });
+    writeFileSync(join(s.packDir, "attachments", "policy", "__pycache__", "x.cpython-312.pyc"), "bytecode");
+    writeFileSync(join(s.packDir, "attachments", "policy", "y.pyc"), "bytecode");
+    expect(inputHash(s.packDir, null, s.manifestText)).toBe(first);
+  });
+
   test("inputHash changes with the bindings and the base pack's sources", () => {
     const s = seed();
     const base = realpathSync(mkdtempSync(join(tmpdir(), "rt-render-base-")));

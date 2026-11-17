@@ -1,6 +1,7 @@
 import { createHash, type Hash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isSkippedAttachmentPath } from "./base-attachments.ts";
 import { isEmittedAttachmentDir } from "./emitted.ts";
 import { hasCompiledHeader } from "./compile.ts";
 import { LOCK_REL, readLock } from "./compiled-lock.ts";
@@ -24,6 +25,8 @@ function sourceFiles(packDir: string): string[] {
     for (const entry of readdirSync(abs, { withFileTypes: true })) {
       if (entry.name === ".git") continue;
       const child = rel === "" ? entry.name : `${rel}/${entry.name}`;
+      // A copy never carries these, so they would change the hash from Mac to Mac with nothing to render.
+      if (isSkippedAttachmentPath(child)) continue;
       if (entry.isDirectory()) {
         if (!isCompiledUnit(packDir, child, lockTargets)) walk(child);
       } else if (entry.isFile() && !COMPILE_WRITTEN_FILES.has(child)) {
