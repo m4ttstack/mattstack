@@ -202,6 +202,7 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
           additionalProperties: { type: 'string' },
         },
         hook: { type: 'string' },
+        failClosed: { type: 'boolean' },
       },
       additionalProperties: {},
     },
