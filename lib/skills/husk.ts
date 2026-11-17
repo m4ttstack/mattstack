@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseAllowedTools } from "./allowed-tools.ts";
+import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
 import { HEADER_COMMENT } from "./compile.ts";
 import { stripFrontmatter } from "./sources.ts";
 
@@ -43,8 +44,33 @@ export function huskFor(compiledSkillMd: string, id: string): string {
   return `---\n${withLoadTool(lines, rules).join("\n")}\n---\n\n${HEADER_COMMENT}\n\n${huskBody(id)}\n`;
 }
 
+/** Folders a compiled unit holds that only the render cache keeps once the pack commits husks. */
+const CACHE_ONLY_DIRS = ["scripts", "references", "parts"];
+
+/** A husk's `${CLAUDE_SKILL_DIR}` is the plugin copy, which holds none of the cache-only folders, so a rule naming one allows nothing that runs. */
+export function huskToolPathErrors(file: string, text: string): BlockDiagnostic[] {
+  const match = text.match(FRONTMATTER_RE);
+  if (!match) return [];
+  const lines = match[0].split("\n");
+  const out: BlockDiagnostic[] = [];
+  for (const rule of parseAllowedTools(stripFrontmatter(text).frontmatter["allowed-tools"])) {
+    const dir = CACHE_ONLY_DIRS.find((d) => rule.includes(`\${CLAUDE_SKILL_DIR}/${d}/`));
+    if (dir === undefined) continue;
+    const at = lines.findIndex((l) => l.includes(rule));
+    out.push({
+      file,
+      line: at < 0 ? 1 : at + 1,
+      col: at < 0 ? 1 : lines[at]!.indexOf(rule) + 1,
+      code: "husk-tool-path",
+      message: `allowed-tools rule ${rule} names \${CLAUDE_SKILL_DIR}/${dir}/, which a husk pack keeps only in each member's render`,
+    });
+  }
+  return out;
+}
+
+/** Reads the body as text alone: a hand-written skill's frontmatter may not parse. */
 export function isHuskText(text: string): boolean {
-  const body = stripFrontmatter(text).body;
+  const body = text.slice(text.match(FRONTMATTER_RE)?.[0].length ?? 0).trimStart();
   return body.startsWith(HEADER_COMMENT) && body.slice(HEADER_COMMENT.length).trimStart().startsWith(`Before anything else, call \`${LOAD_SKILL_TOOL} `);
 }
 

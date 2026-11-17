@@ -55,5 +55,6 @@ describe("huskFor", () => {
     expect(huskFor(husk, "acme:work")).toBe(husk);
     expect(isHuskText(husk)).toBe(true);
     expect(isHuskText(compiled)).toBe(false);
+    expect(isHuskText("---\nname: x\ndescription: Use when: x\n---\nBody.\n")).toBe(false);
   });
 });

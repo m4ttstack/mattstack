@@ -1,5 +1,7 @@
 // src/__tests__/herdr.test.ts
-import { homedir } from 'os';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { homedir, tmpdir } from 'os';
+import { dirname, join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
 import type { AgentIo } from '../agent-launch.ts';
@@ -31,7 +33,11 @@ import {
   type HerdrRunner,
 } from '../herdr.ts';
 import { respondResumeDispatchFields } from '../respond-state.ts';
-import { SkillBindError, type SkillPathResolution } from '../skill-path.ts';
+import {
+  resolveSkillPath,
+  SkillBindError,
+  type SkillPathResolution,
+} from '../skill-path.ts';
 
 const resolved = (path: string): SkillPathResolution => ({ ok: true, path });
 const notInstalled: SkillPathResolution = {
@@ -1412,6 +1418,34 @@ describe('dispatchPrompt (wrapper hop stays; --skill-path rides alongside --skil
   --fix-classes retry-flake
   --draft-bin ${draftBinPath()}`
     );
+  });
+
+  test('dispatchPrompt hands a husk path and still throws SkillBindError when the skill does not resolve', async () => {
+    const install = realpathSync(mkdtempSync(join(tmpdir(), 'board-husk-')));
+    try {
+      const husk = join(install, 'skills', 'board-review', 'SKILL.md');
+      mkdirSync(dirname(husk), { recursive: true });
+      writeFileSync(
+        husk,
+        '---\nname: "board-review"\ndescription: "Review"\nallowed-tools:\n  - "mcp__mattstack__load_skill"\n---\n\nBefore anything else, call `mcp__mattstack__load_skill {skill: "acme:board-review", dir: "${CLAUDE_SKILL_DIR}"}`.\n'
+      );
+      const listPlugins = async () => ({
+        ok: true as const,
+        plugins: [{ id: 'acme@acme', installPath: install }],
+      });
+      const resolvePath = (name: string) => resolveSkillPath(name, listPlugins);
+      const prompt = await dispatchPrompt('board:review', baseOpts, resolvePath);
+      expect(prompt).toContain(`--skill-path ${husk}`);
+
+      const missing = dispatchPrompt(
+        'board:review',
+        { ...baseOpts, skill: 'acme:board-gone' },
+        resolvePath
+      );
+      await expect(missing).rejects.toBeInstanceOf(SkillBindError);
+    } finally {
+      rmSync(install, { recursive: true, force: true });
+    }
   });
 
   test('re-review keeps --skill-path and --re-review both present', async () => {

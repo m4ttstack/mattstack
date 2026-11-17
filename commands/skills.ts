@@ -26,9 +26,9 @@
  */
 
 import { execFileSync, spawnSync } from "child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree } from "jsonc-parser";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { registeredSkillRoots } from "../lib/skills/skill-roots.ts";
 import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
@@ -63,12 +63,12 @@ import { buildBlocksPayload, type BlocksPayload, type PayloadBlock } from "../li
 import { isBlockTree, walk } from "../lib/skills/blocks/tree.ts";
 import type { Block as BlockNode, BlockTree, PropSpec } from "../lib/skills/blocks/types.ts";
 import { builtVersionsOf, linksIn, partsFromMarkers, type AnatomyPayload, type AnatomySource } from "../lib/skills/anatomy.ts";
-import { lockEntryOf, lockWrite, mergeLock, readLock, type CompiledLock } from "../lib/skills/compiled-lock.ts";
+import { LOCK_REL, lockEntryOf, lockWrite, mergeLock, readLock, serializeLock, type CompiledLock } from "../lib/skills/compiled-lock.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
 import { FragmentError, layeredFromManifest, parseFragment, readManifestDropped, readManifestProvenance, type DroppedOverride } from "../lib/skills/manifest-merge.ts";
-import { huskFor } from "../lib/skills/husk.ts";
+import { huskFor, huskToolPathErrors } from "../lib/skills/husk.ts";
 import { inputHash } from "../lib/skills/render.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { dropProvenanceLine, removePipelineOverride } from "../lib/skills/pipeline-edit.ts";
@@ -92,6 +92,7 @@ import {
   pointerErrorsIn,
   PointerConflictError,
   readPackIdentity,
+  renderedTreeErrors,
   stageReadsOf,
   unitsInMemory,
   unitsOnDisk,
@@ -909,16 +910,42 @@ function identityIfAny(resolved: Resolved): Identity | null {
  * units it reads lend the maps their last compile wrote, as in a scoped
  * `--verb` compile. A conflict leaves the files unclosed; compile reports it.
  */
-function closedViewFiles(resolved: Resolved, target: CompileTarget, files: CompiledFile[], pointers: CompileResult["pointers"], verbSides: Record<string, Side>, planned: PlannedAttachments): CompiledFile[] {
+function closedViewFiles(resolved: Resolved, target: CompileTarget, files: CompiledFile[], pointers: CompileResult["pointers"], verbSides: Record<string, Side>, planned: PlannedAttachments, mapsFrom: string = resolved.packDir): CompiledFile[] {
   const identity = identityIfAny(resolved);
   if (!identity || !pointers) return files;
   try {
-    const { maps } = attachMaps({ packDir: resolved.packDir, identity, units: unitTableOf(verbSides, emittedUnits(planned)), compiled: [{ leaf: target.verb.name, files, pointers }], emits: [] });
+    const { maps } = attachMaps({ packDir: mapsFrom, identity, units: unitTableOf(verbSides, emittedUnits(planned)), compiled: [{ leaf: target.verb.name, files, pointers }], emits: [] });
     return withMapFile(files, maps.get(target.verb.name));
   } catch (err) {
     if (err instanceof PointerConflictError) return files;
     throw err;
   }
+}
+
+/** A fresh resolve adds the org base packs again and refuses one it already holds. */
+function rootsForRender(roots: PluginRoots): PluginRoots {
+  const { folderOnly, ...rest } = roots;
+  return { ...rest, byName: Object.fromEntries(Object.entries(roots.byName).filter(([name]) => !folderOnly?.has(name))) };
+}
+
+/**
+ * A husk pack commits no compiled maps, so its views and checks read a full
+ * render of the working tree instead, never the member's render cache, which
+ * holds the installed version rather than uncommitted edits.
+ */
+async function withWorkingRender<T>(resolved: Resolved, fn: (render: { dir: string; errors: string[] }) => T): Promise<T> {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-working-render-")));
+  try {
+    const rendered = await renderPackInto({ packDir: resolved.packDir, manifestText: resolved.manifestText ?? "", repoKey: resolved.repoKey, outRoot: dir, pluginRoots: rootsForRender(resolved.pluginRoots) });
+    return fn({ dir, errors: rendered.ok ? [] : rendered.errors });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Where a view's sibling maps come from: the pack itself, or for a husk pack a render of its working tree. */
+async function withViewMaps<T>(resolved: Resolved, fn: (mapsFrom: string) => T): Promise<T> {
+  return resolved.husks ? withWorkingRender(resolved, ({ dir }) => fn(dir)) : fn(resolved.packDir);
 }
 
 /** What a compile resolved, for anatomy and blocks: the engine, its includes and every block's prop values. */
@@ -1679,24 +1706,26 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // scoped compile still renders {{verb.path}} to siblings it is not writing.
       const emittedTargetDirs = knownTargetDirs;
       const planned = plannedAttachmentsOf(plan);
-      for (const target of targets) {
-        const { verb } = target;
-        const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity);
-        if (!outcome.ok) {
-          // A lint-erroring verb has no previewable body -- say so on stderr
-          // and leave stdout empty rather than silently producing nothing.
-          out.fail({ title: `${verb.name} did not compile, so there is nothing to preview`, details: outcome.message });
-          process.exitCode = 1;
-          return;
+      await withViewMaps(resolved, (mapsFrom) => {
+        for (const target of targets) {
+          const { verb } = target;
+          const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned, identity);
+          if (!outcome.ok) {
+            // A lint-erroring verb has no previewable body -- say so on stderr
+            // and leave stdout empty rather than silently producing nothing.
+            out.fail({ title: `${verb.name} did not compile, so there is nothing to preview`, details: outcome.message });
+            process.exitCode = 1;
+            return;
+          }
+          refuseMissingValues(resolved);
+          // The body is the product here: no summary lines and no warnings
+          // interleaved, so the output pipes straight into a file or a preview pane.
+          const files = closedViewFiles(resolved, target, outcome.result.files, outcome.result.pointers, verbSides, planned, mapsFrom);
+          const main = files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
+          if (!main || !("content" in main)) throw new SkillsUsageError(`verb "${verb.name}": produced no SKILL.md`);
+          out.payload(`${main.content}\n`);
         }
-        refuseMissingValues(resolved);
-        // The body is the product here: no summary lines and no warnings
-        // interleaved, so the output pipes straight into a file or a preview pane.
-        const files = closedViewFiles(resolved, target, outcome.result.files, outcome.result.pointers, verbSides, planned);
-        const main = files.find((f) => "content" in f && f.path.endsWith("SKILL.md"));
-        if (!main || !("content" in main)) throw new SkillsUsageError(`verb "${verb.name}": produced no SKILL.md`);
-        out.payload(`${main.content}\n`);
-      }
+      });
       // The post-loop misplaced scan below walks the whole pack rather than the
       // requested verb, so letting --preview reach it would put a misplaced
       // skill anywhere on stdout, where the caller reads the compiled body.
@@ -1917,6 +1946,8 @@ export type CheckPayload = {
   pointerConflicts?: string[];
   /** Each target whose compile failed in this check, its message only: what lends a stale map to a conflict. Not part of check --json. */
   targetCompileErrors?: string[];
+  /** A husk pack's render of its working tree and its husks' rules: bodies too large, tokens left in any rendered file, rules naming a cache-only folder. In check --json only when non-empty. */
+  renderErrors?: BlockDiagnostic[];
 };
 
 /** A hand-written skill's own fault: no compile fixes it, so it fails check apart from `drift`, which sync reads as "recompile". */
@@ -1930,9 +1961,18 @@ export function handSkillFailures(payload: Pick<CheckPayload, "skillPaths" | "sk
  * only on disk is drift, which a recompile clears.
  */
 export function checkFailures(
-  payload: Pick<CheckPayload, "skillPaths" | "skillFrontmatter" | "sourcePointerErrors" | "pointerConflicts">,
+  payload: Pick<CheckPayload, "skillPaths" | "skillFrontmatter" | "sourcePointerErrors" | "pointerConflicts" | "renderErrors">,
 ): { handSkills: BlockDiagnostic[]; pointers: BlockDiagnostic[]; conflicts: string[] } {
-  return { handSkills: handSkillFailures(payload), pointers: payload.sourcePointerErrors ?? [], conflicts: payload.pointerConflicts ?? [] };
+  // A render row and the in-memory scan can name the same token in the same file.
+  const seen = new Set<string>();
+  const pointers: BlockDiagnostic[] = [];
+  for (const d of [...(payload.sourcePointerErrors ?? []), ...(payload.renderErrors ?? [])]) {
+    const key = `${d.file}:${d.line}:${d.col}:${d.code}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pointers.push(d);
+  }
+  return { handSkills: handSkillFailures(payload), pointers, conflicts: payload.pointerConflicts ?? [] };
 }
 
 /** The registered skills compile does not produce, each checked from its own folder. */
@@ -2007,6 +2047,12 @@ function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCh
   return rows;
 }
 
+/** What a husk pack commits of its base: a husk per door, and no copies, so a copy still on disk is one compile removes. */
+function huskRowPlan(packDir: string, plan: BaseAttachmentPlan, idOf: (leaf: string) => string): BaseAttachmentPlan {
+  const lingering = plan.emits.filter((e) => existsSync(join(packDir, "attachments", e.name))).map((e) => ({ name: e.name, why: "dropped" as const }));
+  return { ...plan, emits: [], doors: plan.doors.map((door) => ({ name: door.name, files: huskFiles(door.files, idOf(door.name)).files })), stale: [...plan.stale, ...lingering] };
+}
+
 async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const resolved = await resolve(flags);
 
@@ -2024,6 +2070,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
 
   const unitPlan = planUnits(resolved, flags.verbs);
   const { targets, verbSides, knownTargetDirs, identity, base: basePlan } = unitPlan;
+  const husks = resolved.husks;
+  const idOf = (leaf: string) => unitId(identity?.name ?? resolved.team, leaf);
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
@@ -2097,7 +2145,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       continue;
     }
     const { target } = slot;
-    const result = { ...slot.result, files: filesOf(target, slot.result) };
+    const full = filesOf(target, slot.result);
+    const result = { ...slot.result, files: husks ? huskFiles(full, idOf(target.verb.name)).files : full };
     const { verb, isPublic } = target;
     const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
     const side: Side = isPublic ? "skills" : "attachments";
@@ -2185,7 +2234,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
-  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false, resolved.teamContext?.sawMarker === true, targets.length > 0 || plan.emits.length > 0).stale) {
+  if (flags.verbs === null && floorWrite(resolved, readIfPresent, false, resolved.teamContext?.sawMarker === true, targets.length > 0 || plan.emits.length > 0, husks).stale) {
     compileErrors.push("pack/requires.json is out of date with the engine's floor");
     anyStale = true;
   }
@@ -2195,7 +2244,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   }
 
   const baseErrors = plan.errors;
-  const attachments = (flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : []).filter((row) => missing.length === 0 || row.status !== "stale");
+  const attachments = (flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, husks ? huskRowPlan(resolved.packDir, plan, idOf) : plan) : []).filter((row) => missing.length === 0 || row.status !== "stale");
   if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
   const staleCopies = staleStageCopies(resolved.packDir, verbSides).map((c) => c.name);
   if (staleCopies.length > 0) anyStale = true;
@@ -2213,7 +2262,31 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   ];
   const sourcePointerErrors = identity && freshWhole && pointerConflicts.length === 0 ? pointerErrorsIn(unitsInMemory(fresh), units, fileCheckFor(resolved.packDir, fresh)) : [];
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter, pointerErrors, sourcePointerErrors, pointerConflicts, targetCompileErrors };
+  const renderErrors: BlockDiagnostic[] = [];
+  if (husks && flags.verbs === null) {
+    const want = serializeLock(huskLockOf(resolved, readLock(resolved.packDir, readIfPresent), plan));
+    if (readIfPresent(join(resolved.packDir, LOCK_REL)) !== want) {
+      compileErrors.push("pack/compiled.lock.json is out of date with the pack's sources");
+      anyStale = true;
+    }
+    const husked = [
+      ...results.map(({ target, result }) => ({ dir: units[target.verb.name]!, files: huskFiles(result.files, idOf(target.verb.name)).files })),
+      ...plan.doors.map((door) => ({ dir: `skills/${door.name}`, files: huskFiles(door.files, idOf(door.name)).files })),
+    ];
+    for (const { dir, files } of husked) for (const f of files) if ("content" in f) renderErrors.push(...huskToolPathErrors(`${dir}/${f.path}`, f.content));
+    const render = await withWorkingRender(resolved, ({ dir, errors }) => ({ errors, rows: errors.length > 0 ? [] : renderedTreeErrors(dir) }));
+    if (render.errors.length > 0) {
+      compileErrors.push(...render.errors);
+      anyStale = true;
+    }
+    renderErrors.push(...render.rows);
+  }
+
+  return {
+    pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides, extendsBase: plan.base !== null, skillPaths, skillFrontmatter,
+    // A husk carries no pointers: the rows that matter come from the render.
+    pointerErrors: husks ? [] : pointerErrors, sourcePointerErrors, pointerConflicts, targetCompileErrors, renderErrors,
+  };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -2299,6 +2372,11 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
     blocks.push(out.verbatim(pointerErrors.map(formatDiagnostic), "compiled skills, pointers"));
     blocks.push(out.line("failed", `pointers: ${countOf(pointerErrors.length, "pointer problem", "pointer problems")}`, "fix it in the source, then compile again"));
   }
+  const renderErrors = payload.renderErrors ?? [];
+  if (renderErrors.length > 0) {
+    blocks.push(out.verbatim(renderErrors.map(formatDiagnostic), "rendered skills"));
+    blocks.push(out.line("failed", `rendered skills: ${countOf(renderErrors.length, "problem", "problems")}`, "fix it in the source, then compile again"));
+  }
   blocks.push(...fieldContractBlocks(payload.fieldContract, "advisory; it never fails a check"));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
@@ -2330,7 +2408,7 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [], skillPaths = [], skillFrontmatter = [], pointerErrors = [] } = payload;
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract, staleCopies, droppedOverrides = [], skillPaths = [], skillFrontmatter = [], pointerErrors = [], renderErrors = [] } = payload;
       // Only when present: the envelope's existing keys are frozen, and a clean pack keeps its exact bytes.
       out.json({
         pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, fieldContract,
@@ -2339,6 +2417,7 @@ export async function skillsCheck(args: string[]): Promise<void> {
         ...(skillPaths.length > 0 ? { skillPaths } : {}),
         ...(skillFrontmatter.length > 0 ? { skillFrontmatter } : {}),
         ...(pointerErrors.length > 0 ? { pointerErrors } : {}),
+        ...(renderErrors.length > 0 ? { renderErrors } : {}),
       });
       return;
     }
@@ -2844,12 +2923,16 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     const planned = plannedAttachmentsOf(basePlan);
     const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, planned, identityIfAny(resolved));
     refuseMissingValues(resolved);
-    const main = closedViewFiles(resolved, target, result.files, result.pointers, plan.verbSides, planned).find((f) => "content" in f && f.path === "SKILL.md");
+    const files = await withViewMaps(resolved, (mapsFrom) => closedViewFiles(resolved, target, result.files, result.pointers, plan.verbSides, planned, mapsFrom));
+    const main = files.find((f) => "content" in f && f.path === "SKILL.md");
     if (!main || !("content" in main)) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
     const fresh = main.content;
     const { step, includes, values } = result.anatomy;
     const renderedPath = join(outDirFor(resolved.packDir, skill, target.isPublic), "SKILL.md");
-    const onDisk = readIfExists(renderedPath);
+    const committed = readIfExists(renderedPath);
+    // A husk pack commits only the husk: the parts come from the working tree, and the husk alone says whether a compile is due.
+    const huskDue = resolved.husks && committed !== null && committed !== huskFor(fresh, unitId(identityIfAny(resolved)?.name ?? resolved.team, skill));
+    const onDisk = resolved.husks ? null : committed;
     const shown = onDisk ?? fresh;
 
     const built = builtVersionsOf(onDisk ?? "", readLock(resolved.packDir).targets[lockTarget(resolved.packDir, skill, target.isPublic)]);
@@ -2886,8 +2969,8 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     }
     const changedKeys = onDisk ? changedPartKeys(onDisk, fresh) : new Set<string>();
     // check masks the compiler's version and sha stamps before comparing, and so must this, or the two disagree.
-    const staleBecause = onDisk ? skillMdDriftCauses(maskProvenance(onDisk), maskProvenance(fresh)) : [];
-    const status = onDisk === null ? "never-compiled" : staleBecause.length > 0 ? "stale" : "in-sync";
+    const staleBecause: DriftCause[] = onDisk ? skillMdDriftCauses(maskProvenance(onDisk), maskProvenance(fresh)) : huskDue ? ["structure"] : [];
+    const status = committed === null ? "never-compiled" : staleBecause.length > 0 ? "stale" : "in-sync";
     const parts = partsFromMarkers(shown, sources, changedKeys).map((part) => {
       if (part.kind !== "prop") return part;
       const source = propSources.get(`prop:${part.name}`)?.shift();
@@ -2909,7 +2992,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         lines: fileLineCount(readFileSync(templatePath, "utf8")),
         ...originFor(resolved.pluginRoots, step.plugin, step.dir),
       },
-      rendered: { path: renderedPath, exists: onDisk !== null, lines: fileLineCount(shown) },
+      rendered: { path: renderedPath, exists: committed !== null, lines: fileLineCount(shown) },
       status,
       staleBecause,
       parts,
@@ -2980,7 +3063,8 @@ export async function skillsBlocks(args: string[]): Promise<void> {
     const planned = plannedAttachmentsOf(basePlan);
     const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, planned, identityIfAny(resolved));
     refuseMissingValues(resolved);
-    const main = closedViewFiles(resolved, target, result.files, result.pointers, plan.verbSides, planned).find((f) => "content" in f && f.path === "SKILL.md");
+    const files = await withViewMaps(resolved, (mapsFrom) => closedViewFiles(resolved, target, result.files, result.pointers, plan.verbSides, planned, mapsFrom));
+    const main = files.find((f) => "content" in f && f.path === "SKILL.md");
     if (!main || !("content" in main)) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
     const { step, includes, values } = result.anatomy;
     const tree = step.tree;

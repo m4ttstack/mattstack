@@ -4,6 +4,7 @@ import type { BlockDiagnostic } from "./blocks/diagnostics.ts";
 import { HEADER_COMMENT } from "./compile.ts";
 import { MAP_FILE } from "./emitted.ts";
 import { FRONTMATTER_RE } from "./frontmatter-re.ts";
+import { readTextUnlessBinary } from "./placeholders.ts";
 import { closeMap, ID_RE, isKey, KEY_TOKEN_RE, keyBody, leftoverTokens, openingLine, unitId, type PointerMap, type Target, type UnitTable } from "./pointers.ts";
 import type { CompiledFile, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
@@ -342,6 +343,32 @@ export function pointerErrorsIn(units: ScannedUnit[], table: UnitTable, fileExis
       if (reported.has(key) || typeof target !== "string" || fileExists(target)) continue;
       reported.add(key);
       out.push({ file: `${unit.dir}/${MAP_FILE}`, ...entrySite(unit.mapText!, key), code: "missing-target", message: missing(`@${key}`, target) });
+    }
+  }
+  return out;
+}
+
+/** Claude Code keeps one tool call's attached context whole up to this many characters. */
+export const RENDERED_BODY_LIMIT = 200_000;
+
+/**
+ * Reads a whole rendered tree the way agents meet it: a SKILL.md over the
+ * limit would reach the agent cut to a preview, and a `${CLAUDE_SKILL_DIR}` in
+ * a file read from the cache is never filled in. A vendored script reads that
+ * name from its environment instead, so scripts are not text an agent reads.
+ */
+export function renderedTreeErrors(root: string): BlockDiagnostic[] {
+  const out: BlockDiagnostic[] = [];
+  const rels = (readdirSync(root, { recursive: true }) as string[]).map((rel) => rel.split("\\").join("/")).filter((rel) => isFile(join(root, rel))).sort();
+  for (const file of rels) {
+    if (file.split("/").includes("scripts")) continue;
+    const text = readTextUnlessBinary(join(root, file));
+    if (text === null) continue;
+    if (leafOf(file) === UNIT_SKILL_MD && text.length > RENDERED_BODY_LIMIT) {
+      out.push({ file, line: 1, col: 1, code: "body-too-large", message: `this skill renders to ${text.length} characters, over the 200,000 a load_skill call keeps whole` });
+    }
+    for (const { line, col, token } of leftoverTokens(text)) {
+      out.push({ file, line, col, code: "leftover-token", message: `${token} is left in a rendered file; compile writes each pointer there as an @key` });
     }
   }
   return out;
