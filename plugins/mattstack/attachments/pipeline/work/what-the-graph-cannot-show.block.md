@@ -22,6 +22,9 @@ label: Graph notes
   redirected through gate-protocol's Run control takes the same edge with
   that gate's `to`; `run_resolve` returns it `repeated: true`.
 - **`repeated: true`**: already applied; follow the result.
+- **`attempt` on `run_next`** is the stage's attempt from the last
+  `run_enter`, `run_next` or `run_resolve` result, so a retried call after
+  a lost reply gets the same answer.
 - **Commit before a gate.** A stage that changed files in the tree
   commits them before it opens a gate, so the gate's recorded commit is
   where that work ends.

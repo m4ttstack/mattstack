@@ -46,7 +46,7 @@ flowchart TB
     reenter_at_gate
     at_status{at.status?}
     stage_file_ended{How did the stage file end?}
-    run_next[/"run_next {runDb, stage}"/]
+    run_next[/"run_next {runDb, stage, attempt}"/]
     run_next_ended{run_next ended?}
     gate_stage_failed
     gate_close
