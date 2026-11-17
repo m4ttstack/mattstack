@@ -74,42 +74,78 @@ function packPluginName(fs: MaterializeFs, pluginJson: string): string | null {
   }
 }
 
+type PackMerge = { merged: ReturnType<typeof mergeLayers>; layers: Layer[] } | { error: string };
+
+/** Throws FragmentError; the callers turn it into their own failure shape. */
+function mergePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, own: Fragment, defaults: Layer | null, override: Layer | null): PackMerge {
+  const layers: Layer[] = [];
+  if (defaults) layers.push(defaults);
+  if (own.extends !== undefined) {
+    const base = baseLayer(deps, zone, pack, own.extends);
+    if ("error" in base) return { error: base.error };
+    layers.push(base);
+  }
+  layers.push({ label: "pack", fragment: own });
+  if (override) layers.push(override);
+
+  const merged = mergeLayers(layers);
+  for (const { key, layer, reason } of merged.dropped) {
+    const title = `${key} from ${layer} is ignored: the pipeline ${reason === "removed" ? "no longer lists" : "does not list"} that stage`;
+    warn("skills", title, { context: { pack, key, layer }, show: { title } });
+  }
+  const base = layers.find((l) => l.label.startsWith("base:"));
+  if (base) {
+    const baseName = base.label.slice("base:".length);
+    const fills = boardOnlyBaseFills(baseName, mergedBindings(base.fragment, own));
+    if (fills.size > 0) {
+      const pluginJson = join(zonePackDir(zone), ".claude-plugin", "plugin.json");
+      const plugin = packPluginName(deps.fs, pluginJson);
+      if (!plugin) return { error: `${pack} carries board fills from ${baseName}, but ${pluginJson} names no plugin for the board to find them under` };
+      retargetBoardFills(merged, baseName, fills, plugin);
+    }
+  }
+  return { merged, layers };
+}
+
+function engineDefaults(deps: MaterializeDeps): Layer | null {
+  const fragment = readFragment(deps.fs, join(deps.enginePackDir, "pack", "skills.jsonc"));
+  return fragment ? { label: "default", fragment } : null;
+}
+
+/**
+ * A pack's bindings as every member of its team gets them: engine defaults,
+ * the base and the pack's own fragment, keyed to the zone's first project.
+ * Never reads the personal overrides layer or any repo's bindings file.
+ */
+export function teamBindings(deps: MaterializeDeps, zone: ZoneInfo, pack: string): { text: string; repoKey: string } | { error: string } {
+  const project = zone.projects[0];
+  if (project === undefined) return { error: `${zone.slug} lists no board.projects, so ${pack} has no repo to render for` };
+  const ref = zone.host === null ? null : parseRemote(`https://${zone.host}/${project}`);
+  if (!ref) return { error: `${zone.slug} has no forge host for ${project}, so ${pack} has no repo to render for` };
+  const ownPath = join(zonePackDir(zone), "pack", "skills.jsonc");
+  try {
+    const own = readFragment(deps.fs, ownPath);
+    if (!own) return { error: `${ownPath} is missing` };
+    const result = mergePack(deps, zone, pack, own, engineDefaults(deps), null);
+    if ("error" in result) return result;
+    return { text: renderManifest(result.merged, { repo: `${ref.host}/${ref.path}`, pack, zone: zone.slug }), repoKey: ref.slug };
+  } catch (err) {
+    if (err instanceof FragmentError) return { error: err.message };
+    throw err;
+  }
+}
+
 function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, own: Fragment, repo: string, slug: string, defaults: Layer | null, override: Layer | null): PackOutcome {
   try {
-    const layers: Layer[] = [];
-    if (defaults) layers.push(defaults);
-    if (own.extends !== undefined) {
-      const base = baseLayer(deps, zone, pack, own.extends);
-      if ("error" in base) return { pack, zone: zone.slug, ok: false, detail: base.error };
-      layers.push(base);
-    }
-    layers.push({ label: "pack", fragment: own });
-    if (override) layers.push(override);
-
-    const merged = mergeLayers(layers);
-    for (const { key, layer, reason } of merged.dropped) {
-      const title = `${key} from ${layer} is ignored: the pipeline ${reason === "removed" ? "no longer lists" : "does not list"} that stage`;
-      warn("skills", title, { context: { pack, key, layer }, show: { title } });
-    }
-    const base = layers.find((l) => l.label.startsWith("base:"));
-    if (base) {
-      const baseName = base.label.slice("base:".length);
-      const fills = boardOnlyBaseFills(baseName, mergedBindings(base.fragment, own));
-      if (fills.size > 0) {
-        const pluginJson = join(zonePackDir(zone), ".claude-plugin", "plugin.json");
-        const plugin = packPluginName(deps.fs, pluginJson);
-        if (!plugin) return { pack, zone: zone.slug, ok: false, detail: `${pack} carries board fills from ${baseName}, but ${pluginJson} names no plugin for the board to find them under` };
-        retargetBoardFills(merged, baseName, fills, plugin);
-      }
-    }
-
+    const result = mergePack(deps, zone, pack, own, defaults, override);
+    if ("error" in result) return { pack, zone: zone.slug, ok: false, detail: result.error };
     const path = packManifestPath(deps.mattstackRoot, slug, pack);
-    const text = renderManifest(merged, { repo, pack, zone: zone.slug });
+    const text = renderManifest(result.merged, { repo, pack, zone: zone.slug });
     deps.fs.mkdirp(dirname(path));
     const tmp = `${path}.tmp`;
     deps.fs.writeFile(tmp, text);
     deps.fs.rename(tmp, path);
-    return { pack, zone: zone.slug, ok: true, path, layers: layers.map((l) => l.label) };
+    return { pack, zone: zone.slug, ok: true, path, layers: result.layers.map((l) => l.label) };
   } catch (err) {
     if (err instanceof FragmentError) return { pack, zone: zone.slug, ok: false, detail: err.message };
     throw err;
@@ -168,8 +204,7 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
   let override: Layer | null = null;
   let sharedError: string | null = null;
   try {
-    const engineFragment = readFragment(deps.fs, join(deps.enginePackDir, "pack", "skills.jsonc"));
-    if (engineFragment) defaults = { label: "default", fragment: engineFragment };
+    defaults = engineDefaults(deps);
     const overridePath = join(deps.mattstackRoot, "user", "skills", "overrides.jsonc");
     const overrideText = deps.fs.readFile(overridePath);
     if (overrideText !== null && !isBlankOverridesText(overrideText)) override = { label: "override", fragment: parseFragment(overrideText, overridePath) };
