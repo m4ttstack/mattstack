@@ -58,8 +58,10 @@ compile uses today, built in memory, so it needs nothing per member:
 - **Team-level bindings**, merged the way `materializePack`
   (`lib/skills/materialize.ts`) merges them: the engine's
   `pack/skills.jsonc`, the base pack's and the team pack's own fragments.
-  The repo key is the first repo the pack's zone declares, the same rule
-  compile's default `--repo` follows.
+  The repo key is the first project in the pack zone's `board.projects`
+  (`ZoneInfo.projects[0]` on `ZoneInfo.host`), turned into a slug the way
+  `materializeRepo` turns a remote into one (`parseRemote`), so it matches
+  the `repos/<slug>` key a member's own materialize would use.
 - **No personal overrides.** `~/.mattstack/user/skills/overrides.jsonc` is
   left out, so every member renders the same team text they get today, and
   a broken overrides file cannot break team skills. A member's materialized
