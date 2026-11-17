@@ -184,14 +184,19 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
     return err(message);
   }
 
-  /** A failed write never undoes a run that already exists, so it comes back as a warning on the success body. */
-  async function recordGateMode(body: object, gateMode: string | undefined, env: NodeJS.ProcessEnv): Promise<object> {
-    const runDb = (body as { runDb?: unknown }).runDb;
-    if (gateMode === undefined || typeof runDb !== "string") return body;
+  /** A run with no gate-mode field falls back to the rt.work.gateMode setting, which may be looser than the mode asked for,
+      so a failed write is an error. The run already exists and is never undone, so the error names it. */
+  async function recordGateMode(body: object, gateMode: string | undefined, env: NodeJS.ProcessEnv): Promise<ToolResult> {
+    const { runDb, runId } = body as { runDb?: unknown; runId?: unknown };
+    if (gateMode === undefined || typeof runDb !== "string") return ok(body);
     const setField = () => write("field", ["set", "gate-mode", gateMode, "--stage", "start"], { runDb }, env);
     let set = await setField();
     if (!set.ok) set = await setField();
-    return set.ok ? body : { ...body, warning: `gate-mode was not recorded on the new run: ${set.error}` };
+    if (set.ok) return ok(body);
+    return err(
+      `run ${String(runId)} started (runDb ${runDb}) but its gate mode was not recorded: ${set.error}. ` +
+      `Set it with run_field_set (key gate-mode, value ${gateMode}) on that runDb before continuing; do not start another run.`,
+    );
   }
 
   return [
@@ -218,7 +223,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         const r = await deps.write("run-start", prepared.args, env, prepared.packRoot);
         const body = parseOut(r.out) as { ok?: boolean; error?: string } | null;
         if (r.code !== 0 || !body?.ok) return err(body?.error ?? `rt runs run-start failed (exit ${r.code})`);
-        return ok(await recordGateMode(body, prepared.gateMode, env));
+        return recordGateMode(body, prepared.gateMode, env);
       },
     },
     {
@@ -380,7 +385,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         const r = await deps.engine(op, env, packRoot);
         if (r.code !== 0) return err(engineFailure(r, "run_enter"));
         const entered = (parseOut(r.out) ?? { ok: true }) as { mode?: unknown };
-        return ok(entered.mode === "started" ? await recordGateMode(entered, gateMode, env) : entered);
+        return entered.mode === "started" ? recordGateMode(entered, gateMode, env) : ok(entered);
       },
     },
     {

@@ -102,7 +102,7 @@ describe("run_start", () => {
       await tool(deps, "run_start").handler({ ...input, gateMode: "yolo" }, RUNS_ROOT_ENV);
       expect(fieldCalls(calls)[0]!.args[2]).toBe("yolo");
     });
-    test("a failed field write keeps the run and adds a warning", async () => {
+    test("a field write that fails twice errors with the run's ids so the agent stops", async () => {
       const calls: Call[] = [];
       const { deps } = fakeDeps(START);
       deps.write = async (verb, args, env, cwd) => {
@@ -110,8 +110,11 @@ describe("run_start", () => {
         return verb === "field" ? { out: '{"ok":false,"error":"locked"}', code: 1 } : { out: START, code: 0 };
       };
       const res = await tool(deps, "run_start").handler({ ...input, gateMode: "quiet" }, RUNS_ROOT_ENV);
-      expect(res.ok).toBe(true);
-      expect(res.body).toMatchObject({ ok: true, runId: "x", runDb: "/runs/repo/id/state.db", warning: expect.stringContaining("locked") });
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe(
+        "run x started (runDb /runs/repo/id/state.db) but its gate mode was not recorded: locked. " +
+        "Set it with run_field_set (key gate-mode, value quiet) on that runDb before continuing; do not start another run.",
+      );
       expect(fieldCalls(calls)).toHaveLength(2);
     });
     test("a field write that fails once is retried and leaves no warning", async () => {
@@ -502,12 +505,17 @@ describe("run_enter", () => {
       expect((await enter(deps)).ok).toBe(true);
       expect(calls).toEqual([]);
     });
-    test("a failed field write keeps the run and adds a warning", async () => {
+    test("a field write that fails twice errors with the run's ids so the agent stops", async () => {
       const { deps } = withEnv(STARTED, { RT_GATE_MODE: "quiet" });
-      deps.write = async () => ({ out: '{"ok":false,"error":"locked"}', code: 1 });
+      let writes = 0;
+      deps.write = async () => { writes++; return { out: '{"ok":false,"error":"locked"}', code: 1 }; };
       const res = await enter(deps);
-      expect(res.ok).toBe(true);
-      expect(res.body).toMatchObject({ mode: "started", runId: "x", warning: expect.stringContaining("locked") });
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe(
+        "run x started (runDb /runs/r/id/state.db) but its gate mode was not recorded: locked. " +
+        "Set it with run_field_set (key gate-mode, value quiet) on that runDb before continuing; do not start another run.",
+      );
+      expect(writes).toBe(2);
     });
   });
   test("an engine error envelope becomes the error message", async () => {
