@@ -125,7 +125,7 @@ const ORIGIN_STRING_KEYS: ReadonlySet<string> = new Set(["paneId", "tabId", "run
 const EXEMPT_CONTEXT_KINDS: ReadonlySet<string> = new Set(["milestone", "pane-attention"]);
 // The board's sheet edits each draft in place; a pane form cannot, so these
 // are answered on the board only, whoever raised them.
-const BOARD_ONLY_KINDS: ReadonlySet<string> = new Set(["review-post", "respond-plan", "respond-post"]);
+export const BOARD_ONLY_KINDS: ReadonlySet<string> = new Set(["review-post", "respond-plan", "respond-post"]);
 
 const MISSING_CONTEXT_ERROR =
   "context is required for a human-owned gate: pass --context with the material the reader can decide from alone " +

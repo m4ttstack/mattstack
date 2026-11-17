@@ -13,6 +13,7 @@ import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/s
 import { boardsBudgetError, checkSource, fitOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
 import { flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
 import { isObject, tojson, utf8Bytes } from "../gates/jq.ts";
+import { BOARD_ONLY_KINDS } from "../daemon/handlers/gate.ts";
 import { autoAnswerDecision, digestSince, effectiveMode, modeDigest, parseReach, type GateMode } from "../gates/mode.ts";
 import { buildReviewSource, reviewSourceErrors } from "../gates/review-source.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
@@ -306,7 +307,7 @@ export async function askGate(
     const settings = gateModeSettings(deps);
     mode = effectiveMode(fieldValue(run, "gate-mode"), settings.mode);
     shadow = settings.shadow;
-    if (shaped) {
+    if (shaped && !BOARD_ONLY_KINDS.has(kind)) {
       const decided = autoAnswerDecision({ mode, pipeline: run.snapshot.pipeline, reach, needsOperator: reason, context, questions: raw });
       if (decided.kind === "answer") modeAnswers = decided.answers;
     }
@@ -317,10 +318,11 @@ export async function askGate(
   const digest = run && !preAnswer ? modeDigest(run.snapshot.decisions, digestSince(run.snapshot.decisions)) : null;
   const lead = [needsYou, digest].filter((part): part is string => part != null).join("\n\n") || undefined;
 
+  const structured = context !== undefined && isStructured(context);
   const payload: Commands["gate:ask"]["payload"] = { questions };
   if (input.context !== undefined) {
-    // A structured context keeps its JSON whole for the board; the reason and digest reach the pane through formContext.
-    payload.context = context !== undefined && !isStructured(context) ? prefixed(lead, context)! : input.context as string;
+    // A structured context keeps its JSON whole; the board reads the reason and digest from meta, the pane from formContext.
+    payload.context = context !== undefined && !structured ? prefixed(lead, context)! : input.context as string;
   }
   if (input.kind !== undefined) payload.kind = input.kind as string;
   // No RT_GATE_SUBJECT read (contract C13): the var carries an agent:<id>
@@ -345,6 +347,10 @@ export async function askGate(
       meta.shadowAnswer = modeAnswers;
       meta.shadowMode = mode;
     }
+  }
+  if (structured) {
+    if (digest) meta.digest = digest;
+    if (reason !== undefined) meta.needsOperator = reason;
   }
   if (Object.keys(meta).length > 0) payload.meta = meta;
   if (preAnswer) payload.preAnswer = preAnswer;

@@ -1482,6 +1482,16 @@ describe("gate modes", () => {
     expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "abc123" });
   });
 
+  test("a board-only kind never carries a preAnswer, so it asks instead of being refused", async () => {
+    for (const kind of ["review-post", "respond-plan", "respond-post"]) {
+      const f = fake(QUIET);
+      const res = await askGate({ ...GATE, kind }, HERDR, f.deps);
+      expect(res.ok, kind).toBe(true);
+      expect("preAnswer" in f.asks[0]!, kind).toBe(false);
+      expect(f.log.some((l) => l.startsWith("decision record")), kind).toBe(false);
+    }
+  });
+
   test("a review pipeline always asks", async () => {
     const f = fake({ ...QUIET, pipeline: "review" });
     await askGate(GATE, HERDR, f.deps);
@@ -1600,6 +1610,22 @@ describe("gate modes", () => {
       const res = await askGate({ ...GATE, context: structured }, HERDR, f.deps, { formContext: "pane prose" });
       expect(f.asks[0]!.context).toBe(structured);
       expect(body(res).formContext).toBe(`${DIGEST_HEAD}\n- a: q1=yes\n\npane prose`);
+    });
+
+    test("a structured context carries the digest and the needsOperator reason in meta for the board", async () => {
+      const structured = JSON.stringify({ schema: "gate-ctx@1", title: "t" });
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate({ ...GATE, context: structured, needsOperator: "a product call" }, HERDR, f.deps, { formContext: "pane prose" });
+      expect(f.asks[0]!.context).toBe(structured);
+      expect(f.asks[0]!.meta).toEqual({
+        reach: "worktree", headCommit: "abc123", digest: `${DIGEST_HEAD}\n- a: q1=yes`, needsOperator: "a product call",
+      });
+    });
+
+    test("a plain-text context keeps its prefix and adds nothing to meta", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT], decisions: [dec("a", "mode:quiet", 6)] });
+      await askGate(ASKS, HERDR, f.deps);
+      expect(f.asks[0]!.meta).toEqual({ reach: "worktree", headCommit: "abc123" });
     });
   });
 
