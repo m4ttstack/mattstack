@@ -730,6 +730,25 @@ describe("teamBindings", () => {
     expect(second.repoKey).toBe(SLUG);
   });
 
+  test("teamBindings returns dropped keys without warning", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: {
+      widgets: { pack: { pipelines: { feature: { bindings: { "mattstack:stage-evidence": { domain: "acme:a" } } } } } },
+    } });
+    const logged: string[] = [];
+    warnTest.reset();
+    setWarningLog((_module, message) => logged.push(message), { quiet: true });
+    let out: ReturnType<typeof teamBindings>;
+    try {
+      out = teamBindings({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, zoneOf(root, "widgets"), "widgets");
+    } finally {
+      warnTest.reset();
+    }
+    expect(logged).toEqual([]);
+    if ("error" in out) throw new Error(out.error);
+    expect(out.dropped.map((d) => d.title)).toEqual(["feature/mattstack:stage-evidence domain from pack is ignored: the pipeline does not list that stage"]);
+  });
+
   test("teamBindings reports a zone with no projects", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", { projects: [], teams: { widgets: { pack: {} } } });

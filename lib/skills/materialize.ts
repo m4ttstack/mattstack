@@ -74,7 +74,10 @@ function packPluginName(fs: MaterializeFs, pluginJson: string): string | null {
   }
 }
 
-type PackMerge = { merged: ReturnType<typeof mergeLayers>; layers: Layer[] } | { error: string };
+type PackMerge = { merged: ReturnType<typeof mergeLayers>; layers: Layer[]; dropped: DroppedNote[] } | { error: string };
+
+/** A binding the merge ignored, with the sentence a person reads about it. */
+export type DroppedNote = { key: string; layer: string; title: string };
 
 /** Throws FragmentError; the callers turn it into their own failure shape. */
 function mergePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, own: Fragment, defaults: Layer | null, override: Layer | null): PackMerge {
@@ -89,10 +92,11 @@ function mergePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, own: Fra
   if (override) layers.push(override);
 
   const merged = mergeLayers(layers);
-  for (const { key, layer, reason } of merged.dropped) {
-    const title = `${key} from ${layer} is ignored: the pipeline ${reason === "removed" ? "no longer lists" : "does not list"} that stage`;
-    warn("skills", title, { context: { pack, key, layer }, show: { title } });
-  }
+  const dropped = merged.dropped.map(({ key, layer, reason }) => ({
+    key,
+    layer,
+    title: `${key} from ${layer} is ignored: the pipeline ${reason === "removed" ? "no longer lists" : "does not list"} that stage`,
+  }));
   const base = layers.find((l) => l.label.startsWith("base:"));
   if (base) {
     const baseName = base.label.slice("base:".length);
@@ -104,7 +108,7 @@ function mergePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, own: Fra
       retargetBoardFills(merged, baseName, fills, plugin);
     }
   }
-  return { merged, layers };
+  return { merged, layers, dropped };
 }
 
 function engineDefaults(deps: MaterializeDeps): Layer | null {
@@ -117,7 +121,7 @@ function engineDefaults(deps: MaterializeDeps): Layer | null {
  * the base and the pack's own fragment, keyed to the zone's first project.
  * Never reads the personal overrides layer or any repo's bindings file.
  */
-export function teamBindings(deps: MaterializeDeps, zone: ZoneInfo, pack: string): { text: string; repoKey: string } | { error: string } {
+export function teamBindings(deps: MaterializeDeps, zone: ZoneInfo, pack: string): { text: string; repoKey: string; dropped: DroppedNote[] } | { error: string } {
   const project = zone.projects[0];
   if (project === undefined) return { error: `${zone.slug} lists no board.projects, so ${pack} has no repo to render for` };
   const ref = zone.host === null ? null : parseRemote(`https://${zone.host}/${project}`);
@@ -128,7 +132,7 @@ export function teamBindings(deps: MaterializeDeps, zone: ZoneInfo, pack: string
     if (!own) return { error: `${ownPath} is missing` };
     const result = mergePack(deps, zone, pack, own, engineDefaults(deps), null);
     if ("error" in result) return result;
-    return { text: renderManifest(result.merged, { repo: `${ref.host}/${ref.path}`, pack, zone: zone.slug }), repoKey: ref.slug };
+    return { text: renderManifest(result.merged, { repo: `${ref.host}/${ref.path}`, pack, zone: zone.slug }), repoKey: ref.slug, dropped: result.dropped };
   } catch (err) {
     if (err instanceof FragmentError) return { error: err.message };
     throw err;
@@ -139,6 +143,7 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
   try {
     const result = mergePack(deps, zone, pack, own, defaults, override);
     if ("error" in result) return { pack, zone: zone.slug, ok: false, detail: result.error };
+    for (const { key, layer, title } of result.dropped) warn("skills", title, { context: { pack, key, layer }, show: { title } });
     const path = packManifestPath(deps.mattstackRoot, slug, pack);
     const text = renderManifest(result.merged, { repo, pack, zone: zone.slug });
     deps.fs.mkdirp(dirname(path));
