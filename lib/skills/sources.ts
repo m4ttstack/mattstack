@@ -709,7 +709,11 @@ export function readVerbRoster(packDir: string): VerbDef[] {
 }
 
 export function readManifestBindings(manifestPath: string): Record<string, Record<string, string>> {
-  const parsed = JSON.parse(stripJsonc(readFileSync(manifestPath, "utf8"))) as {
+  return manifestBindingsOf(readFileSync(manifestPath, "utf8"));
+}
+
+export function manifestBindingsOf(text: string): Record<string, Record<string, string>> {
+  const parsed = JSON.parse(stripJsonc(text)) as {
     bindings?: Record<string, Record<string, string>>;
   };
   return parsed.bindings ?? {};
@@ -730,15 +734,15 @@ export function readManifestPipelineLayered(manifestPath: string): Record<string
  * site, and pipelines is only ever needed alongside it, never instead of it.
  */
 export function readManifestPipelines(manifestPath: string): Record<string, string[]> {
-  return readNormalizedPipelines(manifestPath).stages;
+  return manifestPipelinesOf(readFileSync(manifestPath, "utf8")).stages;
 }
 
 export function readManifestPipelineBindings(manifestPath: string): Record<string, BindingsMap> {
-  return readNormalizedPipelines(manifestPath).bindings;
+  return manifestPipelinesOf(readFileSync(manifestPath, "utf8")).bindings;
 }
 
-function readNormalizedPipelines(manifestPath: string): ReturnType<typeof normalizePipelines> {
-  const parsed = JSON.parse(stripJsonc(readFileSync(manifestPath, "utf8"))) as { pipelines?: unknown };
+export function manifestPipelinesOf(text: string): ReturnType<typeof normalizePipelines> {
+  const parsed = JSON.parse(stripJsonc(text)) as { pipelines?: unknown };
   return normalizePipelines(parsed.pipelines);
 }
 
