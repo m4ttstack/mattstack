@@ -127,6 +127,18 @@
       "value": "!409",
       "produced_by": "ship",
       "at": "2026-10-08T16:05:00-05:00"
+    },
+    {
+      "key": "gate-mode",
+      "value": "normal",
+      "produced_by": "run",
+      "at": "2026-09-30T13:23:00-05:00"
+    },
+    {
+      "key": "hold",
+      "value": "paused from the console",
+      "produced_by": "console",
+      "at": "2026-10-08T16:20:00-05:00"
     }
   ],
   "decisions": []

@@ -7,6 +7,7 @@ import {
   Tooltip,
 } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
+import type { ReactNode } from 'react';
 import { Link } from 'wouter';
 
 import type { LaneFacts } from '../derive/lanes';
@@ -20,11 +21,20 @@ export interface LiveLaneProps {
   title: string;
   href: string;
   facts: LaneFacts;
+  /** The run's mode panel, when its gate mode answers gates on its own. */
+  mode?: ReactNode;
 }
 
 /** A live run as a card: its ticket, MR and decisions over its title, then a
     band with its rail, the stage it is in and how long it has run. */
-export function LiveLane({ runId, ticket, title, href, facts }: LiveLaneProps) {
+export function LiveLane({
+  runId,
+  ticket,
+  title,
+  href,
+  facts,
+  mode,
+}: LiveLaneProps) {
   const { liveness, focusPane: pane } = facts;
   const waiting = liveness.waiting === true;
   return (
@@ -130,6 +140,7 @@ export function LiveLane({ runId, ticket, title, href, facts }: LiveLaneProps) {
           </Text>
         </Group>
       </div>
+      {mode ? <div className={classes.mode}>{mode}</div> : null}
     </Paper>
   );
 }

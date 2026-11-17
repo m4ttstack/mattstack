@@ -215,7 +215,7 @@
       "id": "g-412-scope",
       "subject": "run:20261008-1338",
       "kind": "plan",
-      "meta": { "stage": "plan" },
+      "meta": { "stage": "plan", "headCommit": "4f1c2ab9e0", "reach": "worktree" },
       "owner": "human",
       "openedAt": "2026-10-08T13:44:00-05:00",
       "questions": [
@@ -236,9 +236,8 @@
       ],
       "answer": {
         "answers": { "scope": "Both parcels and recipients" },
-        "by": "console",
-        "answeredAt": "2026-10-08T13:44:00-05:00",
-        "overridden": true
+        "by": "mode:quiet",
+        "answeredAt": "2026-10-08T13:44:00-05:00"
       }
     },
     {
@@ -299,7 +298,7 @@
       "id": "g-412-proceed",
       "subject": "run:20261008-1338",
       "kind": "evidence",
-      "meta": { "stage": "evidence" },
+      "meta": { "stage": "evidence", "headCommit": "4f1c2ab9e0", "reach": "worktree" },
       "owner": "human",
       "openedAt": "2026-10-08T15:12:00-05:00",
       "questions": [
@@ -317,9 +316,8 @@
       ],
       "answer": {
         "answers": { "proceed": "Screenshot as planned" },
-        "by": "console",
-        "answeredAt": "2026-10-08T15:12:00-05:00",
-        "overridden": true
+        "by": "mode:quiet",
+        "answeredAt": "2026-10-08T15:12:00-05:00"
       }
     },
 

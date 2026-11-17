@@ -278,8 +278,16 @@ function buildDetail(raw: RawRun, repo: string): RunDetail {
     evidence_count: shots.reduce((n, s) => n + (s.annotated ? 2 : 1), 0),
     evidence_cases: evidence.version === 2 ? evidence.cases.length : 0,
     evidence_links: evidence.version === 0 ? evidence.links.length : 0,
+    hold: holdOf(fields),
   };
   return { run, stages, fields, decisions, schemaAhead: false };
+}
+
+function holdOf(fields: { key: string; value: string; at: number }[]) {
+  const f = fields.find(x => x.key === 'hold');
+  return f && f.value.trim() && f.value !== '-'
+    ? { reason: f.value, at: f.at }
+    : null;
 }
 
 function buildGate(raw: RawGate): GateRow {

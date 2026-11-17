@@ -119,6 +119,12 @@
       "value": "3 of 5",
       "produced_by": "implement",
       "at": "2026-10-08T16:19:00-05:00"
+    },
+    {
+      "key": "gate-mode",
+      "value": "quiet",
+      "produced_by": "run",
+      "at": "2026-10-08T13:38:00-05:00"
     }
   ],
   "decisions": [

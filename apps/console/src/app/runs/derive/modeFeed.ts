@@ -20,6 +20,27 @@ export interface ModeFeedRun {
   rows: ModeFeedRow[];
 }
 
+export type PauseState = 'none' | 'pausing' | 'paused';
+
+/** A pause set for the current step reads as pausing while the agent is
+    still working and paused once it has stopped. */
+export function pauseStateOf(run: RunSummary): PauseState {
+  if (!run.hold) return 'none';
+  return run.agent?.status === 'working' ? 'pausing' : 'paused';
+}
+
+/** The mode a run answers gates in: its `gate-mode` field, else the mode on
+    its latest mode-answered gate. Null for chatty or none, which answer
+    nothing alone. */
+export function runModeOf(
+  fields: { key: string; value: string }[] | undefined,
+  rows: ModeFeedRow[]
+): string | null {
+  const field = fields?.find(f => f.key === 'gate-mode')?.value?.trim();
+  const mode = field || rows[0]?.mode || null;
+  return mode && mode !== 'chatty' ? mode : null;
+}
+
 export function modeOf(gate: GateRow): string | null {
   const by = gate.answer?.by;
   return by?.startsWith(MODE_PREFIX) ? by.slice(MODE_PREFIX.length) : null;
