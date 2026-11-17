@@ -36,6 +36,7 @@ flowchart TB
     target_matches_fresh{shipTarget matches the fresh target?}
     mr_field_set{Run's mr set before the ship gate?}
     mr_view_state[/"mr_view {mrUrl: <mr>} (draft or ready, for the gate's reach)"/]
+    mr_for_branch[/"mr_for_branch {repoName: <root>, branches: [<branch>]} (an open MR's state, for the gate's reach)"/]
     gate_ship
     run_field_set_target[/"run_field_set {key: shipTarget, value: <resolved target>, stage}"/]
     run_field_set_target_iterate[/"run_field_set {key: shipTarget, value: -, stage} (iterate)"/]
@@ -127,8 +128,9 @@ flowchart TB
     target_matches_fresh -->|"yes, and a person decided it: the earlier Proceed stands"| dirty_answer
     target_matches_fresh -->|"no, or a mode's Proceed"| mr_field_set
     mr_field_set -->|yes| mr_view_state
-    mr_field_set -->|no| gate_ship
+    mr_field_set -->|no| mr_for_branch
     mr_view_state --> gate_ship
+    mr_for_branch --> gate_ship
     gate_ship -->|proceed| run_field_set_target
     gate_ship -->|iterate| run_field_set_target_iterate
     gate_ship -->|hold| run_field_set_target_hold
