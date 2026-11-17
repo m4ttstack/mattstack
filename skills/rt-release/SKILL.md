@@ -237,6 +237,15 @@ Quote each stale row as preflight printed it (pinned vs current). Recommend per 
   `env -i HOME=<temp> dist/rt --version --json`'s `engine` equals that `plugin.json` version, and
   the publish refuses a mattstack version below the published one (`older than the published`),
   so a release never moves the catalog backwards.
+- **Superpowers fork**: `superpowers` is a url-source pin like fast-browser, on
+  m4ttstack/superpowers' `mattstack` branch, so the Plugin catalog row's refresh is its cut. That
+  branch moves by a force-push whenever the fork is rebased onto a new obra/superpowers release,
+  so before landing the refresh run `git ls-remote --tags https://github.com/m4ttstack/superpowers.git`
+  and check two things: the new pin (the branch tip the refresh wrote) is the peeled `^{}` commit
+  of a tag `v<upstream>-groups.<n>`, and the old
+  pin still has its tag, so catalogs already published keep installing it. Either missing: hold
+  the row and ask Matt to tag the fork; never tag it yourself. The rebase itself happens in the
+  fork, never in the release.
 - **Standalone fast-browser**: compared against `m4ttstack/fast-browser`'s main `package.json`
   (it publishes to npm, not GitHub releases). Hold only as Matt's recorded decision.
 - **Tool rows** (bun, sparkle, age, age-keygen, zstd, git-lfs, gh, glab, jq, node, sops,
