@@ -1,8 +1,18 @@
 // src/__tests__/herdr.test.ts
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { homedir, tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { describe, expect, test } from 'bun:test';
+
+import { HEADER_COMMENT } from '../../../../lib/skills/compile.ts';
+import { huskFor } from '../../../../lib/skills/husk.ts';
 
 import type { AgentIo } from '../agent-launch.ts';
 import { repoIdentityField } from '../config.ts';
@@ -1427,8 +1437,12 @@ describe('dispatchPrompt (wrapper hop stays; --skill-path rides alongside --skil
       mkdirSync(dirname(husk), { recursive: true });
       writeFileSync(
         husk,
-        '---\nname: "board-review"\ndescription: "Review"\nallowed-tools:\n  - "mcp__mattstack__load_skill"\n---\n\nBefore anything else, call `mcp__mattstack__load_skill {skill: "acme:board-review", dir: "${CLAUDE_SKILL_DIR}"}`.\n'
+        huskFor(
+          '---\nname: "board-review"\ndescription: "Review"\nmetadata:\n  compiled: "mattstack"\n---\n\nThe full review body.\n',
+          'acme:board-review'
+        )
       );
+      expect(readFileSync(husk, 'utf8')).toContain(HEADER_COMMENT);
       const listPlugins = async () => ({
         ok: true as const,
         plugins: [{ id: 'acme@acme', installPath: install }],

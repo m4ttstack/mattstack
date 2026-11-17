@@ -231,7 +231,7 @@ describe("the compiled lock", () => {
   const setMattstackVersion = (ms: string, version: string) =>
     put(join(ms, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version }));
   const status = (dir: string) => inRepo(dir, "status", "--porcelain", "--untracked-files=all").split("\n").filter(Boolean).sort();
-  const husk = (id: string) => `Before anything else, call \`mcp__mattstack__load_skill {skill: "${id}", dir: "\${CLAUDE_SKILL_DIR}"}\`.`;
+  const husk = (id: string) => `Before anything else, call \`mcp__mattstack__load_skill {skill: "${id}", dir: "<this skill's directory>"}\`.`;
 
   function filesOf(dir: string, prefix = ""): string[] {
     if (!existsSync(dir)) return [];
@@ -315,6 +315,20 @@ describe("the compiled lock", () => {
     setMattstackVersion(ms, "1.0.1");
     await compile(flags);
     expect(status(pack)).toEqual([]);
+  });
+
+  test("turning husks off drops builtWith and sourcesHash from the lock", async () => {
+    const { pack, flags } = seedPipelinePack();
+    optIn(pack);
+    await compile(flags);
+    expect(readLock(pack).builtWith).toBe("1.0.0");
+    put(join(pack, "pack", "skills.jsonc"), JSON.stringify({ husks: false }));
+    await compile(flags);
+    const lock = readLock(pack);
+    expect(lock.builtWith).toBeUndefined();
+    expect(lock.sourcesHash).toBeUndefined();
+    expect(lock.targets["skills/work"]).toEqual({ mattstack: "1.0.0" });
+    expect(readFileSync(join(pack, "skills", "work", "SKILL.md"), "utf8")).toContain('"read": "@stage-plan/SKILL.md"');
   });
 
   test("builtWith moves only when a source changes", async () => {

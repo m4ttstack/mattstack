@@ -3,6 +3,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from "os";
 import { dirname, join, relative } from "path";
 import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
+import { renderedTreeErrors } from "../../lib/skills/unit-maps.ts";
+import { ORG_LAYOUT } from "../../lib/team/org-marker.ts";
 import { renderPackInto, skillsAnatomy, skillsCheck, skillsCompile } from "../skills.ts";
 
 const FIX = join(import.meta.dir, "..", "..", "lib", "skills", "__tests__", "fixtures", "compile-native");
@@ -150,6 +152,55 @@ describe("check on a husk pack", () => {
     expect(json.renderErrors?.map((d) => [d.file, d.code])).toEqual([["attachments/stage-ship/SKILL.md", "husk-tool-path"]]);
     expect(json.renderErrors?.[0]?.message).toContain("${CLAUDE_SKILL_DIR}/scripts/");
     expect(exitCode).toBe(1);
+  });
+
+  /** A verbless husk pack whose org base unit dev-servers is public, so its only committed skill is a door husk. */
+  function seedDoorPack() {
+    const ms = tmp("rt-husk-door-");
+    put(join(ms, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version: "1.0.0" }));
+    const orgRoot = join(ms, "orgs", "acme");
+    put(join(orgRoot, ".git", "config"), "");
+    put(join(orgRoot, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme", layout: ORG_LAYOUT }));
+    const baseDir = join(orgRoot, "mattstack", "org", "packs", "acme-base");
+    put(join(baseDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme-base", version: "0.1.0" }));
+    put(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    put(join(baseDir, "attachments", "dev-servers", "SKILL.md"), "---\nname: dev-servers\ndescription: Servers\n---\nServers.\n");
+    const pack = join(orgRoot, "mattstack", "teams", "widgets", "plugin");
+    put(join(pack, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.4.11" }));
+    put(join(pack, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base", husks: true }));
+    put(join(pack, "pack", "surface.jsonc"), JSON.stringify({ public: ["dev-servers"] }));
+    return { pack, ms, flags: ["--team", "widgets", "--pack-dir", pack, "--mattstack-dir", ms] };
+  }
+
+  test("a render writes the base unit a door husk loads, and no door", async () => {
+    const s = seedDoorPack();
+    await compile(s.flags);
+    const out = tmp("rt-husk-render-");
+    const rendered = await renderPackInto({ packDir: s.pack, manifestText: "", repoKey: "", outRoot: out, mattstackDir: s.ms });
+    expect(rendered).toEqual({ ok: true, mattstack: "1.0.0" });
+    const files = [...treeOf(out).keys()].sort();
+    expect(files).toEqual(["attachments/dev-servers/SKILL.md", "attachments/dev-servers/compiled.json"]);
+  });
+
+  test("check passes a husk pack whose only skill is a door", async () => {
+    const s = seedDoorPack();
+    await compile(s.flags);
+    const { exitCode, json } = await check(s.flags);
+    expect(json.compileErrors).toEqual([]);
+    expect(json.renderErrors).toBeUndefined();
+    expect(exitCode).toBe(0);
+  });
+
+  test("the rendered scan skips only a unit's own scripts folder", () => {
+    const root = tmp("rt-husk-scan-");
+    const token = "Run ${CLAUDE_SKILL_DIR}/x first.\n";
+    put(join(root, "skills", "a", "SKILL.md"), "---\nname: a\n---\nA.\n");
+    put(join(root, "skills", "a", "scripts", "run.sh"), `# ${token}`);
+    put(join(root, "skills", "a", "references", "scripts", "x.md"), token);
+    put(join(root, "attachments", "g", "u", "SKILL.md"), "---\nname: u\n---\nU.\n");
+    put(join(root, "attachments", "g", "u", "scripts", "y.sh"), `# ${token}`);
+    put(join(root, "attachments", "g", "u", "parts", "include-n", "scripts", "z.md"), token);
+    expect(renderedTreeErrors(root).map((d) => d.file)).toEqual(["attachments/g/u/parts/include-n/scripts/z.md", "skills/a/references/scripts/x.md"]);
   });
 
   test("anatomy shows uncommitted edits in a husk pack", async () => {

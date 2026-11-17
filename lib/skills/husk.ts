@@ -9,10 +9,10 @@ export const LOAD_SKILL_TOOL = "mcp__mattstack__load_skill";
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
-/** Claude Code fills `${CLAUDE_SKILL_DIR}` when it loads a husk, so the tool gets the folder that pins the installed pack version. */
+/** The agent names its own folder: a reader handed the husk as a path gets no token filled in. */
 function huskBody(id: string): string {
   return (
-    `Before anything else, call \`${LOAD_SKILL_TOOL} {skill: "${id}", dir: "\${CLAUDE_SKILL_DIR}"}\`. ` +
+    `Before anything else, call \`${LOAD_SKILL_TOOL} {skill: "${id}", dir: "<this skill's directory>"}\`. ` +
     "What it returns is this skill's full text: follow it as the skill. " +
     "If the tool says any part was saved to a file, Read that whole file first. If the call fails, stop and say so."
   );
@@ -45,7 +45,7 @@ export function huskFor(compiledSkillMd: string, id: string): string {
 }
 
 /** Folders a compiled unit holds that only the render cache keeps once the pack commits husks. */
-const CACHE_ONLY_DIRS = ["scripts", "references", "parts"];
+const CACHE_ONLY_RE = /\$(?:\{CLAUDE_SKILL_DIR\}|CLAUDE_SKILL_DIR)\/(?:scripts|references|parts)\//;
 
 /** A husk's `${CLAUDE_SKILL_DIR}` is the plugin copy, which holds none of the cache-only folders, so a rule naming one allows nothing that runs. */
 export function huskToolPathErrors(file: string, text: string): BlockDiagnostic[] {
@@ -54,15 +54,15 @@ export function huskToolPathErrors(file: string, text: string): BlockDiagnostic[
   const lines = match[0].split("\n");
   const out: BlockDiagnostic[] = [];
   for (const rule of parseAllowedTools(stripFrontmatter(text).frontmatter["allowed-tools"])) {
-    const dir = CACHE_ONLY_DIRS.find((d) => rule.includes(`\${CLAUDE_SKILL_DIR}/${d}/`));
-    if (dir === undefined) continue;
+    const named = rule.match(CACHE_ONLY_RE)?.[0];
+    if (named === undefined) continue;
     const at = lines.findIndex((l) => l.includes(rule));
     out.push({
       file,
       line: at < 0 ? 1 : at + 1,
       col: at < 0 ? 1 : lines[at]!.indexOf(rule) + 1,
       code: "husk-tool-path",
-      message: `allowed-tools rule ${rule} names \${CLAUDE_SKILL_DIR}/${dir}/, which a husk pack keeps only in each member's render`,
+      message: `allowed-tools rule ${rule} names ${named}, which a husk pack keeps only in each member's render`,
     });
   }
   return out;

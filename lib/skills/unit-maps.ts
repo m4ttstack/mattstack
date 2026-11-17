@@ -352,16 +352,28 @@ export function pointerErrorsIn(units: ScannedUnit[], table: UnitTable, fileExis
 export const RENDERED_BODY_LIMIT = 200_000;
 
 /**
+ * A unit's own top-level `scripts/` (`skills/<unit>/scripts/`,
+ * `attachments/<unit>/scripts/` or `attachments/<group>/<unit>/scripts/`).
+ * Those files are run, not read, and their comment lines name the token.
+ */
+function inUnitScripts(root: string, file: string): boolean {
+  const segs = file.split("/");
+  if (segs[0] !== "skills" && segs[0] !== "attachments") return false;
+  const unitAt = (depth: number) => segs[depth] === "scripts" && isFile(join(root, ...segs.slice(0, depth), UNIT_SKILL_MD));
+  if (unitAt(2)) return true;
+  return segs[0] === "attachments" && !isFile(join(root, segs[0], segs[1] ?? "", UNIT_SKILL_MD)) && unitAt(3);
+}
+
+/**
  * Reads a whole rendered tree the way agents meet it: a SKILL.md over the
  * limit would reach the agent cut to a preview, and a `${CLAUDE_SKILL_DIR}` in
- * a file read from the cache is never filled in. A vendored script reads that
- * name from its environment instead, so scripts are not text an agent reads.
+ * a file read from the cache is never filled in.
  */
 export function renderedTreeErrors(root: string): BlockDiagnostic[] {
   const out: BlockDiagnostic[] = [];
   const rels = (readdirSync(root, { recursive: true }) as string[]).map((rel) => rel.split("\\").join("/")).filter((rel) => isFile(join(root, rel))).sort();
   for (const file of rels) {
-    if (file.split("/").includes("scripts")) continue;
+    if (inUnitScripts(root, file)) continue;
     const text = readTextUnlessBinary(join(root, file));
     if (text === null) continue;
     if (leafOf(file) === UNIT_SKILL_MD && text.length > RENDERED_BODY_LIMIT) {

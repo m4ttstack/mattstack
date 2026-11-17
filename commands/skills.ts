@@ -687,8 +687,9 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const provenance = manifestText !== null ? readManifestProvenance(manifestText) : {};
   // No compile targets means nothing needs plugin roots or the invocable roster;
   // skipping the `claude plugin list` subprocess keeps rosterless packs usable
-  // even where the Claude CLI is absent.
-  const pluginRoots: PluginRoots = fullRoster.length === 0
+  // even where the Claude CLI is absent. A husk pack renders with mattstack even with no verbs.
+  const husks = readHusks(packDir);
+  const pluginRoots: PluginRoots = fullRoster.length === 0 && !husks
     ? { byName: {}, list: [] }
     : flags.pluginRoots
       ? { ...flags.pluginRoots, byName: { ...flags.pluginRoots.byName } }
@@ -753,7 +754,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   return {
     packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, manifestText, base, provenance,
     pipelines, pipelineBindings, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, teamContext,
-    claimedTrees: new Set<string>(), identity: readPackIdentity(packDir), husks: readHusks(packDir),
+    claimedTrees: new Set<string>(), identity: readPackIdentity(packDir), husks,
   };
 }
 
@@ -1503,7 +1504,8 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
       else if (existsSync(join(resolved.packDir, "attachments", e.name))) removeEmittedUnit(resolved.packDir, e.name, writes);
     }
     if (intoPack) for (const name of plan.staleDoors) removeCompiledDir(resolved.packDir, join(resolved.packDir, "skills", name), writes);
-    for (const door of plan.doors) writeCompiledVerb(outRoot, join(outRoot, "skills", door.name), husks ? huskFiles(door.files, idOf(door.name)) : door, writes);
+    // A render serves a door's id from its base unit, so a rendered door would never be read.
+    if (intoPack) for (const door of plan.doors) writeCompiledVerb(outRoot, join(outRoot, "skills", door.name), husks ? huskFiles(door.files, idOf(door.name)) : door, writes);
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
       const { verb, isPublic } = target;
@@ -1523,7 +1525,9 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     writes.written.push(...floor.written);
     writes.removed.push(...floor.removed);
     const current = readLock(resolved.packDir, readIfPresent);
-    const lock = lockWrite(resolved.packDir, husks ? huskLockOf(resolved, current, plan) : mergeLock(current, compiledLockOf(resolved, outcomes, plan)), readIfPresent, true);
+    // A pack that turned husks off no longer records when its sources last changed.
+    const next = husks ? huskLockOf(resolved, current, plan) : { ...mergeLock(current, compiledLockOf(resolved, outcomes, plan)), builtWith: undefined, sourcesHash: undefined };
+    const lock = lockWrite(resolved.packDir, next, readIfPresent, true);
     writes.written.push(...lock.written);
     if (verbFilter === null) {
       const manifest = pipelinesWrite(resolved, readIfPresent, true);
