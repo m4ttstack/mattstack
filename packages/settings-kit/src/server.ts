@@ -65,6 +65,7 @@ export interface SettingDefWire {
   hasDefault: boolean;
   defaultValue: unknown;
   defaultNote?: string;
+  optionDescriptions?: Record<string, string>;
   effective: EffectiveWire;
   storeVersion: number;
   schema?: JsonSchema;
@@ -263,6 +264,7 @@ export function defToWire(def: SettingDef, migrated: ((def: SettingDef) => boole
     storeVersion: def.storeVersion ?? 1,
   };
   if (def.defaultNote !== undefined) wire.defaultNote = def.defaultNote;
+  if (def.optionDescriptions !== undefined) wire.optionDescriptions = def.optionDescriptions;
   if (hasSchema(def)) {
     wire.schema = def.schema;
     if (def.merge === "deep" && def.type === "object" && def.layerSchema) wire.layerSchema = def.layerSchema;
