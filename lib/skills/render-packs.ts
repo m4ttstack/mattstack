@@ -59,6 +59,7 @@ export async function renderHuskPacks(p: Probes, opts: { org?: string; roots?: (
     }
     try {
       const result = await ensureTree({
+        home: p.home,
         root: renderRoot(p.home),
         zone,
         pack: zone.team,

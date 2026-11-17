@@ -59,6 +59,8 @@ function isRaceLoss(err: unknown): boolean {
  * is served as is and a missing one is reported.
  */
 export async function ensureTree(opts: {
+  /** Whose plugin cache names the pack versions a running session may still load. */
+  home: string;
   root: string;
   zone: ZoneInfo;
   pack: string;
@@ -131,17 +133,29 @@ export async function ensureTree(opts: {
     rmSync(tmp, { recursive: true, force: true });
     if (old !== null) rmSync(old, { recursive: true, force: true });
   }
-  pruneTrees(opts.root, opts.zone.org, plugin, { installedVersion: opts.installedVersion, mattstack: opts.mattstack });
+  pruneTrees(opts.root, opts.zone.org, plugin, { installedVersion: opts.installedVersion, mattstack: opts.mattstack, cached: cachedPackVersions(opts.home, plugin) });
   return { ok: true, dir, stamp, rendered: true };
 }
 
 const settledDirs = (dir: string) => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }) : []).filter((e) => e.isDirectory() && !IN_FLIGHT_RE.test(e.name)).map((e) => e.name);
 const newestFirst = (names: string[]) => [...names].sort((a, b) => compareVersions(b, a));
 
-/** Keeps the newest pack versions and, under each, the newest mattstack versions; the installed pair always stays. */
-export function pruneTrees(root: string, org: string, plugin: string, keep: { installedVersion: string; mattstack: string }): void {
+/** Every version of `plugin` with a folder in the plugin cache: a session started on one keeps loading it until it ends. */
+export function cachedPackVersions(home: string, plugin: string): string[] {
+  const cache = join(home, ".claude", "plugins", "cache");
+  return settledDirs(cache)
+    .filter((market) => !market.startsWith("temp_git_"))
+    .flatMap((market) => settledDirs(join(cache, market, plugin)));
+}
+
+/**
+ * Keeps the newest pack versions and, under each, the newest mattstack
+ * versions; the installed pair always stays, and so does every version the
+ * plugin cache still holds.
+ */
+export function pruneTrees(root: string, org: string, plugin: string, keep: { installedVersion: string; mattstack: string; cached?: string[] }): void {
   const pluginDir = join(root, org, plugin);
-  const kept = new Set(newestFirst(settledDirs(pluginDir)).slice(0, KEEP_PACK_VERSIONS));
+  const kept = new Set([...newestFirst(settledDirs(pluginDir)).slice(0, KEEP_PACK_VERSIONS), ...(keep.cached ?? [])]);
   for (const packVersion of settledDirs(pluginDir)) {
     const versionDir = join(pluginDir, packVersion);
     const installed = packVersion === keep.installedVersion;
@@ -150,7 +164,7 @@ export function pruneTrees(root: string, org: string, plugin: string, keep: { in
       continue;
     }
     const keepMattstack = new Set(kept.has(packVersion) ? newestFirst(settledDirs(versionDir)).slice(0, KEEP_MATTSTACK_VERSIONS) : []);
-    if (installed) keepMattstack.add(keep.mattstack);
+    if (installed || keep.cached?.includes(packVersion)) keepMattstack.add(keep.mattstack);
     for (const mattstack of settledDirs(versionDir)) {
       if (!keepMattstack.has(mattstack)) rmSync(join(versionDir, mattstack), { recursive: true, force: true });
     }

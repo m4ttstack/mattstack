@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createRealProbes } from "../../setup/probes.ts";
 import { renderHuskPacks, renderTally } from "../render-packs.ts";
 import { resolvePluginRootsFromDir } from "../sources.ts";
-import { renderWorld, writeFile } from "./render-world.ts";
+import { renderWorld, setPackVersion, writeFile } from "./render-world.ts";
 
 const made: string[] = [];
 afterEach(() => {
@@ -26,6 +26,16 @@ function world() {
 const registry = (installPath: string) => JSON.stringify({ version: 2, plugins: { "mattstack@mattstack": [{ scope: "user", installPath, version: "1.0.0" }] } });
 
 describe("renderHuskPacks", () => {
+  test("pull-time renders of newer versions keep the tree of a version the plugin cache still holds", async () => {
+    const w = world();
+    for (const v of ["0.0.9", "0.1.0", "0.1.1", "0.1.2", "0.1.3"]) {
+      setPackVersion(w.packDir, v);
+      await renderHuskPacks(w.p, { org: "acme", roots: w.roots });
+    }
+    expect(readdirSync(join(w.root, "acme", "acme")).sort()).toEqual(["0.1.0", "0.1.1", "0.1.2", "0.1.3"]);
+    expect(existsSync(join(w.root, "acme", "acme", "0.1.0", "1.0.0", "render.json"))).toBe(true);
+  });
+
   test("renders only husk packs", async () => {
     const w = world();
     const results = await renderHuskPacks(w.p, { roots: w.roots });

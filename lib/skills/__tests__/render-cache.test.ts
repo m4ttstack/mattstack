@@ -50,7 +50,7 @@ function world() {
   const deps: MaterializeDeps = { fs: realFs, mattstackRoot, enginePackDir };
   const zone: ZoneInfo = readZonesFrom(realFs, join(mattstackRoot, "orgs")).find((z) => z.team === "widgets")!;
   const root = join(mattstackRoot, "rt", "rendered");
-  const opts = { root, zone, pack: "widgets", installedVersion: "0.4.11", mattstack: "1.0.0", rtBuild: "rt-1", deps, mattstackDir };
+  const opts = { home, root, zone, pack: "widgets", installedVersion: "0.4.11", mattstack: "1.0.0", rtBuild: "rt-1", deps, mattstackDir };
   return { packDir, root, opts };
 }
 
@@ -185,5 +185,16 @@ describe("pruneTrees", () => {
       "1.0.2": ["0.32.10", "0.32.2"],
       "1.0.3": ["0.32.10", "0.32.2"],
     });
+  });
+
+  test("a version the plugin cache holds keeps its newest trees and the installed mattstack's", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-render-prune-")));
+    made.push(root);
+    for (const pv of ["1.0.0", "1.0.1", "1.0.2", "1.0.3", "1.0.4"]) for (const ms of ["0.32.1", "0.32.2", "0.32.3"]) write(join(treeDir(root, "acme", "widgets", pv, ms), "render.json"), "{}");
+
+    pruneTrees(root, "acme", "widgets", { installedVersion: "1.0.4", mattstack: "0.32.1", cached: ["1.0.0"] });
+
+    expect(readdirSync(join(root, "acme", "widgets")).sort()).toEqual(["1.0.0", "1.0.2", "1.0.3", "1.0.4"]);
+    expect(readdirSync(join(root, "acme", "widgets", "1.0.0")).sort()).toEqual(["0.32.1", "0.32.2", "0.32.3"]);
   });
 });

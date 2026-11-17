@@ -76,6 +76,7 @@ export async function skillsRender(args: string[]): Promise<void> {
   if (!engine) throw fail("render-no-mattstack", "mattstack isn't installed on this Mac.", { next: SETUP });
 
   const result = await ensureTree({
+    home,
     root: renderRoot(home),
     zone,
     pack: zone.team,
