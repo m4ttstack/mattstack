@@ -1346,7 +1346,7 @@ function staleStageCopies(packDir: string, verbSides: Record<string, Side>): { n
  * and no process.exit here: callers own how outcomes/failures/misplaced
  * become human or JSON output and how the process exits.
  */
-function performCompile(resolved: Resolved, verbFilter: string[] | null, write: boolean, units: UnitPlan, outRoot: string = resolved.packDir): {
+function performCompile(resolved: Resolved, verbFilter: string[] | null, write: boolean, units: UnitPlan, renderInto: string | null = null): {
   outcomes: { target: CompileTarget; outcome: CompileOutcome }[];
   failures: string[];
   misplaced: string[];
@@ -1361,8 +1361,9 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   /** The closure found two units claiming one key: a full compile writes every unit from one table again. */
   pointerConflict: boolean;
 } {
-  // A render writes a fresh tree outside the pack: nothing in the pack is swept, owned or bookkept.
-  const intoPack = outRoot === resolved.packDir;
+  // A render writes a fresh tree: nothing in the pack is swept, owned or bookkept.
+  const intoPack = renderInto === null;
+  const outRoot = renderInto ?? resolved.packDir;
   if (write && intoPack) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
   const { targets, verbSides, knownTargetDirs, base: plan, identity } = units;

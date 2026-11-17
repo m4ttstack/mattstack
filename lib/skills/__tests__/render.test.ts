@@ -76,6 +76,14 @@ describe("renderPackInto", () => {
     expect(rendered.ok).toBe(true);
     expect(filesUnder(s.packDir)).toEqual(before);
   });
+
+  test("renderPackInto aimed at the pack folder itself keeps the pack's lock and floor untouched", async () => {
+    const s = seed();
+    const rendered = await renderPackInto({ packDir: s.packDir, manifestText: s.manifestText, repoKey: s.repoKey, outRoot: s.packDir, mattstackDir: s.mattstackDir });
+    expect(rendered.ok).toBe(true);
+    expect(existsSync(join(s.packDir, LOCK_REL))).toBe(false);
+    expect(existsSync(join(s.packDir, "pack", "requires.json"))).toBe(false);
+  });
 });
 
 describe("inputHash", () => {
