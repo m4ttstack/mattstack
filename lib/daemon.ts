@@ -1155,7 +1155,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           { bootDelayMs: 60_000, intervalMs: 15 * 60_000 },
           log,
         ));
-        startLoopLagMonitor({
+        const stopLoopLag = startLoopLagMonitor({
           intervalMs: 1_000,
           thresholdMs: 2_000,
           now: Date.now,
@@ -1163,6 +1163,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           clearInterval: (h) => clearInterval(h as ReturnType<typeof setInterval>),
           log: loggerHandle.childLogger("loop-lag"),
         });
+        sweepHandles.push({ stop: stopLoopLag });
         const usageLog = loggerHandle.childLogger("usage-limits");
         let lastUsageProblems = "";
         sweepHandles.push(scheduleSweep(
