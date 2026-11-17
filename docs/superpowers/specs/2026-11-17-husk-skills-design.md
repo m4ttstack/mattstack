@@ -110,9 +110,11 @@ husks, so no rendered body needs the token.
   carries engine text.
 - `pack/compiled.lock.json` keeps `bases` and drops per-target engine
   versions, which now live in the render stamp. It gains one `builtWith`
-  field: the mattstack version of the last compile that changed a source.
-  A compile writes it only when it also writes a source change, so a
-  mattstack bump alone changes nothing committed in a team pack.
+  field: the publisher's mattstack version when the pack's sources last
+  changed. Compile writes it on the opt-in compile and whenever the sources
+  it reads differ from the last committed ones (the input hash, without
+  bindings), so a mattstack bump alone changes nothing committed in a team
+  pack.
 - **A source an older engine cannot compile.** A publisher on a newer
   mattstack can bind a fill to a slot, block or stage an older engine lacks.
   That is a genuine new need, but nothing detects it ahead of time. The
@@ -120,8 +122,8 @@ husks, so no rendered body needs the token.
   older than `builtWith` gets a `load_skill` error that names the version
   the pack was built with and says to update mattstack (`rt setup`), and the
   pull hook logs the same. The previous pack version's tree is never served
-  in its place. Members on the same or a newer mattstack than the publisher
-  get the same text the publisher saw.
+  in its place. Members on the same mattstack as the publisher get the same
+  text the publisher saw.
 
 ## The render cache
 
@@ -148,7 +150,8 @@ missing tree fails.
   the race), the temp folder is deleted and the existing tree is used.
 - **Pruning.** After a render, keep the three newest pack versions per
   plugin and, under each, the two newest mattstack versions; delete the
-  rest.
+  rest. Never prune the tree for the installed pack version and installed
+  mattstack version.
 
 ### Triggers
 
@@ -162,10 +165,11 @@ missing tree fails.
 - **After install.** `plugins.install` renders after
   `runMaterializeAfterInstall`, which also covers a mattstack update
   (installed by setup), since the new mattstack version has no tree yet.
-- **On a miss.** `rt skills render` renders when the tree for the installed
-  pack version and installed mattstack version is missing or stale, if the
-  clone's pack version matches the installed one. Otherwise it fails with a
-  sentence naming the version it lacks and `rt setup` as the fix. Rendering
+- **On a miss.** `rt skills render` renders when the clone holds the
+  installed pack version and that version's tree is missing or stale. When
+  the clone has moved on, an existing tree is used as is; only a missing
+  tree fails, with a sentence naming the version it lacks and `rt setup` as
+  the fix. Rendering
   an older commit than the clone holds is out of scope for v1.
 
 ## `load_skill` and `rt skills render`
