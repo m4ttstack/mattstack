@@ -305,9 +305,9 @@ describe("runs:hold and runs:redo", () => {
   const REPO = "remote:acme";
   const RUN = "20261117-090000-redo";
 
-  function seedLive(status = "running"): string {
+  function seedLive(status = "running", stages?: { name: string; status: string }[]): string {
     const dir = root();
-    seedRun(dir, REPO, RUN, 1000, 2, { status });
+    seedRun(dir, REPO, RUN, 1000, 2, { status, ...(stages ? { stages } : {}) });
     return join(dir, REPO, RUN, "state.db");
   }
 
@@ -322,7 +322,7 @@ describe("runs:hold and runs:redo", () => {
 
   function gate(over: Record<string, unknown> = {}): any {
     return {
-      id: "g-1", subject: `run:${RUN}`, kind: "decision", questions: [],
+      id: "g-1", subject: `run:${RUN}`, kind: "decision", questions: [], openedAt: 2000,
       meta: { stage: "plan", headCommit: "abc1234" },
       status: "answered", answer: { answers: {}, by: "mode:quiet", answeredAt: 1 },
       ...over,
@@ -350,6 +350,7 @@ describe("runs:hold and runs:redo", () => {
     ["no recorded stage", { gateRow: gate({ meta: { headCommit: "abc1234" } }) }, "no-stage", "that gate recorded no stage to go back to"],
     ["a blank note", { gateRow: gate(), note: "  " }, "bad-note", "Redo needs a note for the worker"],
     ["an unknown gate", { gateRow: null }, "not-found", "no gate g-1"],
+    ["a gate from an earlier pass", { gateRow: gate({ openedAt: 500 }) }, "stale", "that gate is from an earlier pass of its step"],
   ];
   for (const [name, c, code, message] of refusals) {
     test(`runs:redo refuses ${name} with ${code}, writing and emitting nothing`, async () => {
@@ -370,6 +371,25 @@ describe("runs:hold and runs:redo", () => {
     expect(res).toEqual({ ok: true, data: { held: true, stage: "plan" } });
     expect(fieldOf(path, "hold")).toBe("paused from the console");
     expect(emitted).toEqual([{ topic: "run-updated", payload: { repo: REPO, runId: RUN, stage: "plan", kind: "held" } }]);
+  });
+
+  test("a repeat runs:hold reports already and emits nothing more", async () => {
+    seedLive();
+    const emitted: { topic: string; payload: any }[] = [];
+    const h = handlersWith(null, emitted);
+    await (h["runs:hold"] as any)({ runId: RUN });
+    const res = await (h["runs:hold"] as any)({ runId: RUN });
+    expect(res).toEqual({ ok: true, data: { held: true, stage: "plan", already: true } });
+    expect(emitted).toHaveLength(1);
+  });
+
+  test("runs:hold on a run with no stage row refuses with no-stage and emits nothing", async () => {
+    const path = seedLive("running", []);
+    const emitted: { topic: string; payload: any }[] = [];
+    const res = await (handlersWith(null, emitted)["runs:hold"] as any)({ runId: RUN });
+    expect(res).toEqual({ ok: false, error: "this run has no step to pause at", failure: { code: "no-stage", message: "this run has no step to pause at" } });
+    expect(emitted).toEqual([]);
+    expect(fieldOf(path, "hold")).toBeUndefined();
   });
 
   test("runs:hold on a finished run refuses with finished and emits nothing", async () => {

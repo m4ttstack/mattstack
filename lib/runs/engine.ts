@@ -5,7 +5,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { join } from "path";
-import { closedRunMove, CONSENT_FIELDS, decisionRecord, fieldSet, runStatus, stageEnd, stageStart, type Fail, type Ok } from "./write.ts";
+import { clearRedo, closedRunMove, CONSENT_FIELDS, decisionRecord, fieldSet, runStatus, stageEnd, stageStart, type Fail, type Ok } from "./write.ts";
 
 export type StageStatus = "running" | "done" | "failed" | "redirected";
 export type Position = { stage: string; attempt: number; status: StageStatus; file: string | null };
@@ -105,9 +105,26 @@ export function cleared(value: string | null | undefined): boolean {
   return t === "" || t === "-";
 }
 
+type FieldRow = { value: string; at: number };
+
+export function fieldRow(db: Database, key: string): FieldRow | null {
+  return (db.query("SELECT value, at FROM fields WHERE key = ?").get(key) as FieldRow | undefined) ?? null;
+}
+
+/** A field's value when it is set and was written at or after `since`. A hold
+    or armed gate counts only for the attempt it was written during. */
+export function fieldSince(row: FieldRow | null | undefined, since: number | null): string | null {
+  return row && row.at >= (since ?? 0) && !cleared(row.value) ? row.value : null;
+}
+
+export function attemptStart(db: Database, stage: string): number | null {
+  const row = db.query("SELECT started_at FROM stages WHERE name = ? ORDER BY attempt DESC LIMIT 1").get(stage) as { started_at: number | null } | undefined;
+  return row?.started_at ?? null;
+}
+
 type Held = Ok<{ held: true; at: Position; scope: string }> | Fail;
 
-function holdInTx(db: Database, o: { stage: string; reason?: string; decidedBy: string; now?: number }): Held {
+function holdInTx(db: Database, o: { stage: string; reason?: string; decidedBy: string; extra?: Record<string, unknown>; now?: number }): Held {
   const run = db.query("SELECT status FROM runs LIMIT 1").get() as { status: string } | undefined;
   if (!run) return refuse("this run has no run row");
   if (run.status !== "running") return refuse(`this run is ${run.status}; nothing to hold. ${closedRunMove(run.status)}`);
@@ -115,7 +132,7 @@ function holdInTx(db: Database, o: { stage: string; reason?: string; decidedBy: 
   if (!at) return { ok: false, error: `stage ${o.stage} has no row in this run`, code: 3 };
   const reason = o.reason ?? "held";
   const scope = `hold:${o.stage}:${at.attempt}`;
-  must(decisionRecord(db, { contract: "gate@1", scope, selection: JSON.stringify({ reason }), decidedBy: o.decidedBy, now: o.now }));
+  must(decisionRecord(db, { contract: "gate@1", scope, selection: JSON.stringify({ reason, ...o.extra }), decidedBy: o.decidedBy, now: o.now }));
   must(fieldSet(db, "hold", reason, o.stage, o.now));
   return { ok: true, held: true, at, scope };
 }
@@ -166,7 +183,7 @@ export type NextResult =
   | { ended: "failed"; at: Position; reason: string | null; detailPath: string | null; missing?: string[]; scope: string; earlier: string[] }
   | { ended: "held"; at: Position; reason: string; redo?: string }
   | { ended: "waiting"; at: Position; gate: string }
-  | { ended: "redirected"; from: string; next: Position; note: string; headCommit: string | null; gate: string; cleared: string[] }
+  | { ended: "redirected"; from: string; next: Position; note: string; headCommit: string | null; gate: string; cleared: string[]; repeated?: true }
   | { ended: "done"; next: Position; repeated?: true }
   | { ended: "done"; last: true; stages: string[]; scope: "close"; repeated?: true };
 
@@ -179,8 +196,7 @@ function refuse(error: string): Fail {
 const NO_MANIFEST = "this run has no pipeline manifest; resume it with run_enter to record one";
 
 function fieldAfter(db: Database, key: string, since: number): string | null {
-  const row = db.query("SELECT value, at FROM fields WHERE key = ?").get(key) as { value: string; at: number } | undefined;
-  return row && row.at >= since && !cleared(row.value) ? row.value : null;
+  return fieldSince(fieldRow(db, key), since);
 }
 
 export interface RedoRequest {
@@ -193,11 +209,15 @@ export interface RedoRequest {
 }
 
 export function pendingRedo(db: Database): RedoRequest | null {
-  const row = db.query("SELECT value FROM fields WHERE key = 'redo'").get() as { value: string } | undefined;
-  if (!row || cleared(row.value)) return null;
+  return parseRedo(fieldRow(db, "redo")?.value);
+}
+
+/** The redo field's request, or null when it is cleared or not a well-formed request. */
+export function parseRedo(value: string | null | undefined): RedoRequest | null {
+  if (cleared(value)) return null;
   let v: unknown;
   try {
-    v = JSON.parse(row.value);
+    v = JSON.parse(value!);
   } catch {
     return null;
   }
@@ -258,6 +278,22 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
         if (following && run.current_stage === following.stage && positionOf(db, following.stage)?.status === "running") return finished(true);
         return mismatch();
       }
+      if (row.status === "redirected") {
+        const applied = appliedRedo(db, o.stage, row.attempt);
+        const next = applied ? positionOf(db, applied.to) : null;
+        if (!applied || !next || run.current_stage !== applied.to || next.status !== "running") return mismatch();
+        return {
+          ok: true,
+          ended: "redirected",
+          from: o.stage,
+          next,
+          note: applied.reason,
+          headCommit: applied.headCommit,
+          gate: applied.gate,
+          cleared: redirectClears(manifest, applied.to),
+          repeated: true,
+        };
+      }
       if (row.status !== "running" || run.current_stage !== o.stage) return mismatch();
 
       const since = row.started_at ?? 0;
@@ -274,7 +310,7 @@ export function nextStage(db: Database, o: { stage: string; env: NodeJS.ProcessE
         if (toIndex < 0 || toIndex > index) {
           const why = toIndex < 0 ? "it is not in this run's pipeline manifest" : `it is ahead of ${o.stage}`;
           const reason = `redo to ${redo.to} could not apply: ${why}`;
-          const r = must(holdInTx(db, { stage: o.stage, reason, decidedBy: redo.by, now }));
+          const r = must(holdInTx(db, { stage: o.stage, reason, decidedBy: redo.by, extra: { note: redo.note, gate: redo.gate }, now }));
           return { ok: true, ended: "held", at: r.at, reason, redo: redo.gate };
         }
         const r = must(
@@ -324,20 +360,45 @@ function clearConsent(db: Database, stage: string, now: number): string[] {
   return keys.slice();
 }
 
-function redirectedTo(db: Database, stage: string, attempt: number): string | null {
+function redirectSelection(db: Database, stage: string, attempt: number): Record<string, unknown> | null {
   const row = db.query("SELECT selection FROM decisions WHERE contract = 'gate@1' AND scope = ?").get(`redirect:${stage}:${attempt}`) as
     | { selection: string }
     | undefined;
   if (!row) return null;
   try {
-    const to = (JSON.parse(row.selection) as { to?: unknown }).to;
-    return typeof to === "string" ? to : null;
+    const v: unknown = JSON.parse(row.selection);
+    return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
   } catch {
     return null;
   }
 }
 
-/** Assumes `to` is in the manifest at or before `stage`; callers check that. */
+function redirectedTo(db: Database, stage: string, attempt: number): string | null {
+  const to = redirectSelection(db, stage, attempt)?.to;
+  return typeof to === "string" ? to : null;
+}
+
+/** The console Redo that redirected this attempt, read back from its decision. */
+function appliedRedo(db: Database, stage: string, attempt: number): { to: string; reason: string; gate: string; headCommit: string | null } | null {
+  const s = redirectSelection(db, stage, attempt);
+  if (!s || typeof s.gate !== "string" || typeof s.to !== "string" || typeof s.reason !== "string") return null;
+  return { to: s.to, reason: s.reason, gate: s.gate, headCommit: typeof s.headCommit === "string" ? s.headCommit : null };
+}
+
+/** Every produce and consent field from `to` on, in the order a redirect clears them. */
+function redirectClears(manifest: ManifestStage[], to: string): string[] {
+  const from = manifest.slice(manifest.findIndex((m) => m.stage === to));
+  return [...from.flatMap((m) => m.produces), ...from.flatMap((m) => CONSENT_FIELDS[m.stage] ?? [])];
+}
+
+/** A hold placed during the attempt being left moves to the attempt that replaces it,
+    so a Pause survives the worker's own retry or redirect. */
+function carryHold(db: Database, to: string, leftStartedAt: number | null, now: number): void {
+  const hold = fieldSince(fieldRow(db, "hold"), leftStartedAt);
+  if (hold !== null) must(fieldSet(db, "hold", hold, to, now));
+}
+
+/** Callers check that `to` is at or before `stage`. */
 export function redirectInTx(
   db: Database,
   o: { stage: string; to: string; note: string; decidedBy: string; extra?: Record<string, unknown>; env: NodeJS.ProcessEnv; now: number },
@@ -347,28 +408,26 @@ export function redirectInTx(
   if (!from) return { ok: false, error: `stage ${stage} has no row in this run`, code: 3 };
   const manifest = readManifest(db);
   const toIndex = manifest.findIndex((m) => m.stage === to);
-  const reason = o.note;
+  if (toIndex < 0) return refuse(`stage ${to} is not in this run's pipeline manifest`);
+  const leftStartedAt = attemptStart(db, stage);
   must(
     decisionRecord(db, {
       contract: "gate@1",
       scope: `redirect:${stage}:${from.attempt}`,
-      selection: JSON.stringify({ from: stage, to, reason, ...o.extra }),
+      selection: JSON.stringify({ from: stage, to, reason: o.note, ...o.extra }),
       decidedBy: o.decidedBy,
       now,
     }),
   );
-  if (from.status === "running") must(stageEnd(db, stage, "redirected", { reason, now }));
+  if (from.status === "running") must(stageEnd(db, stage, "redirected", { reason: o.note, now }));
 
-  const cleared: string[] = [];
   for (const m of manifest.slice(toIndex)) {
-    for (const key of m.produces) {
-      must(fieldSet(db, key, "-", to, now));
-      cleared.push(key);
-    }
+    for (const key of m.produces) must(fieldSet(db, key, "-", to, now));
   }
-  for (const m of manifest.slice(toIndex)) cleared.push(...clearConsent(db, m.stage, now));
+  for (const m of manifest.slice(toIndex)) clearConsent(db, m.stage, now);
   must(stageStart(db, to, o.env, now));
-  return { ok: true, next: positionOf(db, to)!, cleared };
+  carryHold(db, to, leftStartedAt, now);
+  return { ok: true, next: positionOf(db, to)!, cleared: redirectClears(manifest, to) };
 }
 
 export function resolveStage(
@@ -424,8 +483,10 @@ export function resolveStage(
         const offStage = offStageRefusal();
         if (offStage) return offStage;
         if (status !== "failed") return refuse(`stage ${o.stage} cannot be retried: ${status ? `its latest attempt is ${status}` : "it has no row"}, not failed`);
+        const leftStartedAt = attemptStart(db, o.stage);
         const cleared = clearConsent(db, o.stage, now);
         must(stageStart(db, o.stage, o.env, now));
+        carryHold(db, o.stage, leftStartedAt, now);
         return { ok: true, applied: "retry", next: positionOf(db, o.stage)!, cleared };
       }
 
@@ -452,6 +513,7 @@ export function resolveStage(
       if (o.next === "abandon") {
         if (status === "running") must(stageEnd(db, o.stage, "failed", { reason: o.note ?? "abandoned", now }));
         must(runStatus(db, "abandoned", now));
+        must(clearRedo(db, o.stage, now));
         return { ok: true, applied: "abandon", status: "abandoned" };
       }
 
@@ -467,6 +529,7 @@ export function resolveStage(
         return refuse(`stage ${at.name} attempt ${at.attempt} is ${live ? "running" : "current"}; the run is not at its close`);
       }
       must(runStatus(db, "done", now));
+      must(clearRedo(db, o.stage, now));
       return { ok: true, applied: "done", status: "done" };
     }).immediate();
   } catch (err) {
@@ -500,6 +563,7 @@ export function closeRun(
         must(stageEnd(db, o.stage, o.outcome === "done" ? "done" : "failed", { reason, detailPath: o.detailPath, now }));
       }
       must(runStatus(db, o.outcome, now));
+      must(clearRedo(db, o.stage, now));
       return { ok: true, closed: true, status: o.outcome };
     }).immediate();
   } catch (err) {

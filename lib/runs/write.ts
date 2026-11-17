@@ -140,6 +140,8 @@ export function stageStart(db: Database, name: string, env: NodeJS.ProcessEnv, n
         const cleared = fieldSet(db, key, "-", name, now);
         if (!cleared.ok) throw new Error(cleared.error);
       }
+      const droppedRedo = clearRedo(db, name, now);
+      if (!droppedRedo.ok) throw new Error(droppedRedo.error);
       db.run("UPDATE runs SET current_stage=?", [name]);
       recordIdentity(db, env, now);
       return { ok: true };
@@ -234,6 +236,14 @@ export function fieldSet(db: Database, key: string, value: string, stage: string
   } catch (err) {
     return { ok: false, error: `sqlite write failed: ${String(err)}`, code: 1 };
   }
+}
+
+/** Drops a pending console Redo, so a run that finished or reopened never applies one from before. */
+export function clearRedo(db: Database, stage: string, now: number): Ok | Fail {
+  const row = db.query("SELECT value FROM fields WHERE key = 'redo'").get() as { value: string } | undefined;
+  const t = row?.value.trim();
+  if (t === undefined || t === "" || t === "-") return { ok: true };
+  return fieldSet(db, "redo", "-", stage, now);
 }
 
 export function fieldGet(db: Database, key: string): Ok<{ value: string }> | Fail {

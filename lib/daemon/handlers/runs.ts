@@ -1,8 +1,9 @@
 /**
  * runs:* — pipeline run state (SKILLS-28). These handlers read each DB
- * readonly per request and hold nothing, with one exception: runs:abandon,
- * which writes through reconcile.ts because only a person can decide a run
- * is dead.
+ * readonly per request and hold nothing, except the three writes only a
+ * person can make: runs:abandon (through reconcile.ts, deciding a run is
+ * dead), and runs:hold and runs:redo (through control.ts, the console's
+ * Pause and Redo).
  */
 import { isAbsolute } from "path";
 import { findRun, listRuns, readRun } from "../../runs/store.ts";
@@ -134,7 +135,7 @@ export function createRunsHandlers(
         const detail = runId ? findRun(runId) : null;
         if (!detail) return refusal(controlFail("not-found", `no run ${runId || gate.subject}`));
         const repo = detail.run.repo;
-        const res = requestRedo(repo, runId, { gate: gateId, to, note, headCommit, by: CONSOLE });
+        const res = requestRedo(repo, runId, { gate: gateId, to, note, headCommit, by: CONSOLE, openedAt: gate.openedAt });
         if (!res.ok) return refusal(res);
         emitEvent("run-updated", { repo, runId, stage: to, kind: "redo" });
         return { ok: true as const, data: { runId, repo, to, headCommit } };

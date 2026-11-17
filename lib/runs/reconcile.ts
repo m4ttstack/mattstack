@@ -7,7 +7,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 import { join } from "path";
 import { isPathComponent, runsRoot } from "./store.ts";
-import { fieldSet, openRunDb, runStatus } from "./write.ts";
+import { clearRedo, fieldSet, openRunDb, runStatus } from "./write.ts";
 
 export type AbandonResult = { ok: true } | { ok: false; error: string };
 
@@ -28,6 +28,8 @@ export function abandonRun(repo: string, runId: string, reason: string): Abandon
     if (!closed.ok) return { ok: false, error: closed.error };
     const noted = fieldSet(db, "reconciled", reason, "rt runs abandon", now);
     if (!noted.ok) return { ok: false, error: noted.error };
+    const dropped = clearRedo(db, "rt runs abandon", now);
+    if (!dropped.ok) return { ok: false, error: dropped.error };
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err) };

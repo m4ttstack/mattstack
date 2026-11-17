@@ -6,11 +6,11 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 import { join } from "path";
-import { cleared, holdStage, pendingRedo, positionOf, readManifest, type RedoRequest } from "./engine.ts";
+import { attemptStart, fieldRow, fieldSince, holdStage, pendingRedo, positionOf, readManifest, type RedoRequest } from "./engine.ts";
 import { isPathComponent, runsRoot } from "./store.ts";
 import { fieldSet, openRunDb } from "./write.ts";
 
-export type ControlCode = "not-found" | "finished" | "pending" | "ahead" | "no-stage" | "not-mode" | "bad-note";
+export type ControlCode = "not-found" | "finished" | "pending" | "ahead" | "no-stage" | "not-mode" | "bad-note" | "not-running" | "stale";
 export type ControlFail = { ok: false; code: ControlCode; error: string };
 
 export const REDO_NOTE_MAX = 2000;
@@ -22,6 +22,8 @@ export const CONTROL_MESSAGES = {
   finished: "this run has finished",
   ahead: "that gate's stage is ahead of where the run is now",
   pending: "a redo is already waiting for this run",
+  "not-running": "answer the open gate first",
+  stale: "that gate is from an earlier pass of its step",
 } as const satisfies Partial<Record<ControlCode, string>>;
 
 export function controlFail(code: ControlCode, error: string = (CONTROL_MESSAGES as Record<string, string>)[code] ?? code): ControlFail {
@@ -60,8 +62,7 @@ export function holdAtNextStep(
   return withRun(repo, runId, (db, run) => {
     const stage = run.current_stage;
     if (!stage || !positionOf(db, stage)) return controlFail("no-stage", "this run has no step to pause at");
-    const hold = db.query("SELECT value FROM fields WHERE key = 'hold'").get() as { value: string } | undefined;
-    if (!cleared(hold?.value)) return { ok: true as const, stage, already: true as const };
+    if (fieldSince(fieldRow(db, "hold"), attemptStart(db, stage)) !== null) return { ok: true as const, stage, already: true as const };
     const held = holdStage(db, { stage, reason: o.reason, decidedBy: o.decidedBy, now: o.now });
     if (!held.ok) throw new Error(held.error);
     return { ok: true as const, stage };
@@ -71,11 +72,14 @@ export function holdAtNextStep(
 export function requestRedo(
   repo: string,
   runId: string,
-  r: { gate: string; to: string; note: string; headCommit: string | null; by: string; now?: number },
+  r: { gate: string; to: string; note: string; headCommit: string | null; by: string; openedAt?: number; now?: number },
 ): { ok: true } | ControlFail {
   if (badNote(r.note)) return controlFail("bad-note");
   return withRun(repo, runId, (db, run) => {
     if (pendingRedo(db)) return controlFail("pending");
+    if (!run.current_stage || positionOf(db, run.current_stage)?.status !== "running") return controlFail("not-running");
+    const toStarted = attemptStart(db, r.to);
+    if (r.openedAt !== undefined && toStarted !== null && r.openedAt < toStarted) return controlFail("stale");
     const order = readManifest(db).map((m) => m.stage);
     const toIndex = order.indexOf(r.to);
     const atIndex = run.current_stage ? order.indexOf(run.current_stage) : -1;

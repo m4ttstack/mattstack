@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { budget, cleared, closeRun, holdStage, nextStage, positionOf, readManifest, resolveStage, setManifestRoot, writeManifest } from "../engine.ts";
+import { budget, cleared, closeRun, holdStage, nextStage, positionOf, readManifest, redirectInTx, resolveStage, setManifestRoot, writeManifest } from "../engine.ts";
 import { createRunDb, fieldSet, runStatus, stageEnd, stageStart } from "../write.ts";
 
 const dirs: string[] = [];
@@ -527,19 +527,159 @@ describe("nextStage applies a pending redo", () => {
   test("a redo whose stage is ahead becomes a hold", () => {
     const db = runAt("plan");
     redo(db, "self-review", "plan");
-    expect(nextStage(db, { stage: "plan", env: {}, now: 200 })).toMatchObject({
+    const reason = "redo to self-review could not apply: it is ahead of plan";
+    expect(nextStage(db, { stage: "plan", env: {}, now: 200 })).toMatchObject({ ok: true, ended: "held", reason, redo: "g1" });
+    expect(field(db, "redo")).toBe("-");
+    expect(field(db, "hold")).toBe(reason);
+    const d = db.query("SELECT selection, decided_by FROM decisions WHERE contract = 'gate@1' AND scope = 'hold:plan:1'").get() as { selection: string; decided_by: string };
+    expect(d.decided_by).toBe("console");
+    expect(JSON.parse(d.selection)).toEqual({ reason, note: "split the helper", gate: "g1" });
+  });
+
+  test("a redo whose stage is not in the manifest becomes a hold", () => {
+    const db = runAt("implement");
+    redo(db, "design", "implement");
+    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({
       ok: true,
       ended: "held",
-      reason: "redo to self-review could not apply: it is ahead of plan",
+      reason: "redo to design could not apply: it is not in this run's pipeline manifest",
       redo: "g1",
     });
-    expect(field(db, "redo")).toBe("-");
+  });
+
+  test("a retried run_next after an applied redo returns the same redirect, repeated", () => {
+    const db = runAt("implement");
+    redo(db, "plan", "implement");
+    const first = nextStage(db, { stage: "implement", env: {}, now: 200 });
+    expect(first).toMatchObject({ ended: "redirected" });
+    const before = JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM decisions").all()]);
+    expect(nextStage(db, { stage: "implement", env: {}, now: 300 })).toEqual({ ...(first as object), repeated: true } as never);
+    expect(JSON.stringify([db.query("SELECT * FROM stages").all(), db.query("SELECT * FROM fields").all(), db.query("SELECT * FROM decisions").all()])).toBe(before);
+  });
+
+  test("a run_next on a stage the worker redirected stays refused", () => {
+    const db = runAt("implement");
+    expect(resolveStage(db, { stage: "implement", next: "redirect", to: "plan", note: "rethink", decidedBy: "pane", env: {}, now: 200 })).toMatchObject({ ok: true });
+    expect(nextStage(db, { stage: "implement", env: {}, now: 300 })).toMatchObject({ ok: false, code: 2 });
   });
 
   test("a malformed redo field is ignored", () => {
     const db = runAt("implement");
     expect(fieldSet(db, "redo", "not json", "implement", 140).ok).toBe(true);
     expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "done", next: { stage: "self-review" } });
+  });
+});
+
+describe("a Pause outlives the worker's run_resolve", () => {
+  function atReview(): Database {
+    const db = mkdb();
+    writeManifest(
+      db,
+      [
+        { stage: "plan", consumes: [], produces: ["approach"] },
+        { stage: "implement", consumes: ["approach"], produces: ["commits"] },
+        { stage: "self-review", consumes: ["commits"], produces: ["review"] },
+      ],
+      null,
+    );
+    expect(stageStart(db, "plan", {}, 100).ok).toBe(true);
+    expect(fieldSet(db, "approach", "x", "plan", 101).ok).toBe(true);
+    expect(stageEnd(db, "plan", "done", { now: 110 }).ok).toBe(true);
+    expect(stageStart(db, "implement", {}, 120).ok).toBe(true);
+    expect(fieldSet(db, "commits", "c1", "implement", 121).ok).toBe(true);
+    expect(stageEnd(db, "implement", "done", { now: 130 }).ok).toBe(true);
+    expect(stageStart(db, "self-review", {}, 140).ok).toBe(true);
+    return db;
+  }
+  const pause = (db: Database, now: number) =>
+    expect(holdStage(db, { stage: "self-review", reason: "paused from the console", decidedBy: "console", now }).ok).toBe(true);
+
+  test("Pause, then run_resolve redirect, then run_next returns held", () => {
+    const db = atReview();
+    pause(db, 150);
+    expect(resolveStage(db, { stage: "self-review", next: "redirect", to: "implement", note: "fix", attempt: 1, decidedBy: "pane", env: {}, now: 160 })).toMatchObject({ ok: true });
+    expect(fieldSet(db, "commits", "c2", "implement", 180).ok).toBe(true);
+    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({
+      ok: true,
+      ended: "held",
+      reason: "paused from the console",
+      at: { stage: "implement", attempt: 2 },
+    });
+  });
+
+  test("Pause, then run_resolve iterate, then run_next returns held", () => {
+    const db = atReview();
+    pause(db, 150);
+    expect(resolveStage(db, { stage: "self-review", next: "iterate", attempt: 1, decidedBy: "pane", env: {}, now: 160 })).toMatchObject({ ok: true });
+    expect(nextStage(db, { stage: "self-review", env: {}, now: 200 })).toMatchObject({ ended: "held", at: { stage: "self-review", attempt: 2 } });
+  });
+
+  test("Pause, then run_resolve retry, then run_next returns held", () => {
+    const db = atReview();
+    expect(stageEnd(db, "self-review", "failed", { reason: "red", now: 145 }).ok).toBe(true);
+    pause(db, 150);
+    expect(resolveStage(db, { stage: "self-review", next: "retry", attempt: 1, decidedBy: "pane", env: {}, now: 160 })).toMatchObject({ ok: true, applied: "retry" });
+    expect(nextStage(db, { stage: "self-review", env: {}, now: 200 })).toMatchObject({ ended: "held", at: { stage: "self-review", attempt: 2 } });
+  });
+
+  test("a hold from before the attempt being left is not carried", () => {
+    const db = atReview();
+    expect(fieldSet(db, "hold", "old", "implement", 125).ok).toBe(true);
+    expect(resolveStage(db, { stage: "self-review", next: "redirect", to: "implement", note: "fix", decidedBy: "pane", env: {}, now: 160 })).toMatchObject({ ok: true });
+    expect(fieldSet(db, "commits", "c2", "implement", 180).ok).toBe(true);
+    expect(nextStage(db, { stage: "implement", env: {}, now: 200 })).toMatchObject({ ended: "done" });
+  });
+});
+
+describe("a finished run drops a pending redo", () => {
+  const REDO = JSON.stringify({ gate: "g1", to: "plan", note: "n", headCommit: null, by: "console", at: 1 });
+  function closing(): Database {
+    const db = mkdb();
+    writeManifest(db, [{ stage: "plan", consumes: [], produces: [] }, { stage: "ship", consumes: [], produces: [] }], null);
+    attempt(db, "plan");
+    attempt(db, "ship");
+    expect(fieldSet(db, "redo", REDO, "ship", 50).ok).toBe(true);
+    return db;
+  }
+  const redoField = (db: Database) => (db.query("SELECT value FROM fields WHERE key = 'redo'").get() as { value: string }).value;
+
+  test("Close's done clears it", () => {
+    const db = closing();
+    expect(resolveStage(db, { stage: "ship", next: "done", decidedBy: "pane", env: {}, now: 200 })).toMatchObject({ applied: "done" });
+    expect(redoField(db)).toBe("-");
+  });
+
+  test("an abandon clears it", () => {
+    const db = closing();
+    expect(resolveStage(db, { stage: "ship", next: "abandon", decidedBy: "pane", env: {}, now: 200 })).toMatchObject({ applied: "abandon" });
+    expect(redoField(db)).toBe("-");
+  });
+
+  test("closeRun clears it", () => {
+    const db = mkdb();
+    writeManifest(db, [{ stage: "review", consumes: [], produces: [] }], null);
+    expect(stageStart(db, "review", {}, 100).ok).toBe(true);
+    expect(fieldSet(db, "redo", REDO, "review", 110).ok).toBe(true);
+    expect(closeRun(db, { workType: "work", stage: "review", outcome: "done", now: 200 })).toMatchObject({ closed: true });
+    expect(redoField(db)).toBe("-");
+  });
+
+  test("a reopen clears one left in the field", () => {
+    const db = closing();
+    expect(runStatus(db, "done", 150).ok).toBe(true);
+    expect(stageStart(db, "ship", {}, 500, { reopen: true })).toEqual({ ok: true });
+    expect(redoField(db)).toBe("-");
+    expect(nextStage(db, { stage: "ship", env: {}, now: 600 })).toMatchObject({ ended: "done", last: true });
+  });
+});
+
+describe("redirectInTx", () => {
+  test("refuses a target that is not in the manifest", () => {
+    const db = mkdb();
+    writeManifest(db, [{ stage: "plan", consumes: [], produces: [] }], null);
+    expect(stageStart(db, "plan", {}, 100).ok).toBe(true);
+    expect(redirectInTx(db, { stage: "plan", to: "nope", note: "n", decidedBy: "pane", env: {}, now: 200 })).toMatchObject({ ok: false, code: 2 });
+    expect(db.query("SELECT COUNT(*) AS n FROM decisions").get()).toEqual({ n: 0 });
   });
 });
 
