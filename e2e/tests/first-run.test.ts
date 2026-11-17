@@ -50,6 +50,21 @@ describe("first-run", () => {
     }
   }, 30_000);
 
+  test("git's credential helper never sees the hint on its stderr, while the rest of the git verbs still do", async () => {
+    const fresh = createTestHome();
+    try {
+      const helper = await rtRaw(["git", "credential", "store"], { home: fresh.path });
+      expect(helper.exitCode).toBe(0);
+      expect(helper.stdout).toBe("");
+      expect(helper.stderr).not.toContain("rt is not set up yet");
+
+      const other = await rtRaw(["git", "--help"], { home: fresh.path });
+      expect(other.stdout + other.stderr).toContain("rt is not set up yet");
+    } finally {
+      fresh.cleanup();
+    }
+  }, 30_000);
+
   test("RT_APP_SOCKET set skips the hint for a non-skip command on a fresh HOME", async () => {
     const fresh = createTestHome();
     try {

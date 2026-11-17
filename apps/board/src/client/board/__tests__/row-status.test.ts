@@ -785,8 +785,8 @@ describe('rowStatus: gates', () => {
     ]);
   });
 
-  test('a plainly answered gate is a quiet answered line with the answers as detail', () => {
-    const [line] = candidateLines(
+  test('a plainly answered gate offers no Decision line', () => {
+    const lines = candidateLines(
       mr({
         gates: [
           gate({
@@ -799,58 +799,7 @@ describe('rowStatus: gates', () => {
       NONE,
       ME
     );
-    expect(line).toMatchObject({
-      tone: 'quiet',
-      word: 'answered',
-      detail: 'Minor, comment',
-      verbs: [],
-    });
-  });
-
-  test('an answer wrapped with a note unwraps to its value, not [object Object]', () => {
-    const [line] = candidateLines(
-      mr({
-        gates: [
-          gate({
-            status: 'answered',
-            answers: {
-              tiers: { value: 'Minor', note: 'small nit' },
-              outcome: 'leave-parent',
-            },
-          }),
-        ] as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(line).toMatchObject({
-      tone: 'quiet',
-      word: 'answered',
-      detail: 'Minor, leave-parent',
-      verbs: [],
-    });
-  });
-
-  test('a write-in answer reads as "wrote in: ..." in the detail', () => {
-    const [line] = candidateLines(
-      mr({
-        gates: [
-          gate({
-            status: 'answered',
-            answers: { approach: { writeIn: 'split it' }, next: 'proceed' },
-          }),
-        ] as never,
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(line).toMatchObject({
-      tone: 'quiet',
-      word: 'answered',
-      detail: 'wrote in: "split it", proceed',
-    });
+    expect(lines.some(l => l.source === 'Decision')).toBe(false);
   });
 });
 
@@ -1138,7 +1087,7 @@ describe('rowStatus: respond lane', () => {
     );
     expect(line).toMatchObject({
       word: 'responding to Darryl',
-      detail: 'drafting replies · 3 of 5',
+      detail: 'drafting replies • 3 of 5',
     });
   });
 
@@ -1208,7 +1157,7 @@ describe('rowStatus: respond lane', () => {
     );
     expect(failed).toMatchObject({
       word: 'response failed',
-      detail: 'Darryl · pane died',
+      detail: 'Darryl • pane died',
     });
     expect(failed!.verbs[0]).toEqual({
       kind: 'restart-respond',
@@ -1237,7 +1186,7 @@ describe('rowStatus: respond lane', () => {
     expect(line).toMatchObject({
       tone: 'warn',
       word: 'replies posted',
-      detail: 'Darryl · reviewer came back',
+      detail: 'Darryl • reviewer came back',
     });
     expect(line!.verbs[0]).toEqual({
       kind: 'restart-respond',
@@ -2367,7 +2316,7 @@ describe('statusPhrase: the pill says what the status group says', () => {
       blockers: { any: true, awaitingApprovals: true },
     });
     expect(statusPhrase(wide)).toEqual({ text: '19/83 approved', hue: 'cyan' });
-    expect(statusReasons(wide)).toBe('blocked:\n· awaiting approvals (19/83)');
+    expect(statusReasons(wide)).toBe('blocked:\n• awaiting approvals (19/83)');
   });
 
   test('an untouched MR is amber', () => {
@@ -2767,6 +2716,31 @@ describe('rowStatus: a local sync that pushed', () => {
   test("yields to a ci failure on the push's own pipeline", () => {
     const s = rowStatus(synced('p2'), NOW, NONE, ME);
     expect(s.line.word).toBe('needs a ci fix');
+    expect(s.more.map(l => l.word)).toContain('synced');
+  });
+});
+
+describe('rowStatus: equal-ranked lines', () => {
+  const row = (respondAt: number, syncAt: number) =>
+    own({
+      respond: {
+        status: 'done',
+        posted: 3,
+        threads: 3,
+        reportReady: true,
+        updatedAt: respondAt,
+      },
+      doctor: { status: 'synced', message: 'rebased', updatedAt: syncAt },
+    });
+
+  test('a sync newer than the response leads the row', () => {
+    const s = rowStatus(row(NOW - 60_000, NOW), NOW, NONE, ME);
+    expect(s.line.word).toBe('synced');
+  });
+
+  test('a response newer than the sync leads the row', () => {
+    const s = rowStatus(row(NOW, NOW - 60_000), NOW, NONE, ME);
+    expect(s.line.word).not.toBe('synced');
     expect(s.more.map(l => l.word)).toContain('synced');
   });
 });

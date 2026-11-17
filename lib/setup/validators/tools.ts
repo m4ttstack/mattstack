@@ -18,6 +18,8 @@
 
 import { isBrokenLauncher, resolveTool } from "../../deps/resolve.ts";
 import { detectEditors } from "../../editors.ts";
+import { joinNames, planEditorFonts } from "../editor-font.ts";
+import { readSetupState } from "../state.ts";
 import { BACKUP_TOOLS as BACKUP_TOOL_NAMES } from "../../state/backup-tools.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
@@ -410,6 +412,36 @@ function editorRow(seams: ToolsSeams): Row {
   const editors = seams.detectEditors();
   if (editors.length === 0) return row({ ...base, status: "skipped", detail: "No editor found. rt works without one" });
   return row({ ...base, status: "ready", detail: editors.map((e) => e.name).join(", ") });
+}
+
+// ─── editor.terminal-font ──────────────────────────────────────────────────
+
+/** `appDirs` is a test seam; production scans /Applications and ~/Applications. */
+export function editorFontRow(p: Probes, appDirs?: string[]): Row {
+  const base = {
+    id: "editor.terminal-font",
+    kind: "tool" as const,
+    title: "Editor terminal font",
+    why: "Adds a Nerd Font to your editor's terminal so rt's icons show.",
+    required: false,
+    optionalNote: "Works without this; some icons in the editor's terminal show as boxes.",
+    recheck: "on-activate" as const,
+  };
+  const plan = planEditorFonts(p, readSetupState(p).editorFontWritten ?? {}, appDirs);
+  if (plan.every((r) => r.outcome === "not-installed")) return row({ ...base, status: "skipped", detail: "No supported editor is installed" });
+  const toWrite = plan.filter((r) => r.outcome === "written").map((r) => r.editor);
+  if (toWrite.length > 0) {
+    return row({ ...base, status: "missing", detail: `No Nerd Font in the terminal for ${joinNames(toWrite)}`, action: applyStepAction("Add font", "editor.terminal-font") });
+  }
+  const editorsWith = (outcome: string) => plan.filter((r) => r.outcome === outcome).map((r) => r.editor);
+  const leftAlone = (names: string[]) => `rt left ${names.length === 1 ? "it" : "them"} alone`;
+  const unreadable = editorsWith("unreadable");
+  const undone = editorsWith("member-undid");
+  const notes = [
+    ...(unreadable.length > 0 ? [`Could not read settings for ${joinNames(unreadable)}, so ${leftAlone(unreadable)}`] : []),
+    ...(undone.length > 0 ? [`You changed the terminal font in ${joinNames(undone)}, so ${leftAlone(undone)}`] : []),
+  ];
+  return row({ ...base, status: "ready", detail: notes.length > 0 ? notes.join(". ") : "Terminal fonts include a Nerd Font" });
 }
 
 // ─── tool.chrome / tool.chrome-signin ──────────────────────────────────────
@@ -810,6 +842,7 @@ export async function toolRows(
     fastBrowserRow(fastBrowser, solo),
     fastBrowserExtensionRow(p, fastBrowser, solo),
     editorRow(seams),
+    editorFontRow(p),
     chromeRow(p, reqs),
   ];
 

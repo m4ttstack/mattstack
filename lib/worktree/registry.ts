@@ -55,6 +55,7 @@ export interface TreeRecord {
   treeMayBeInconsistent?: boolean;
   missCount?: number; // consecutive reconcile passes the path was absent from git ground truth (S063 hold)
   kept?: KeepRecord;
+  leaving?: { why: string; since: string }; // the tree's session was asked to leave; since is ISO
 }
 
 const WORKTREE_REGISTRY_NS = "worktree-registry";

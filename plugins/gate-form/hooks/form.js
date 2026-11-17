@@ -245,7 +245,7 @@ function keySelected(span) {
     return [span];
   const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
     { ...span, t: span.t.slice(1) }
   ];
 }
@@ -258,6 +258,8 @@ var rail = (style) => [sp(SYMBOL.bar, style), sp("  ")];
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
 var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
+  if (span.mark)
+    return { ...span, color: MUTED[span.mark] ?? span.mark, dim: false };
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
@@ -917,7 +919,7 @@ function choicesOf(q) {
 function initial(form) {
   return {
     page: 0,
-    cursor: form.questions.map((q) => Math.max(0, q.options.findIndex(isRecommended))),
+    cursor: form.questions.map((q) => isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended))),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
     answered: form.questions.map(() => false),
@@ -928,16 +930,28 @@ function initial(form) {
     navAt: "next"
   };
 }
-var canSubmit = (form, s) => form.source !== "gate" || unansweredCount(s) === 0;
+function canSubmit(form, s) {
+  if (isSinglePage(form))
+    return chosenValue(form, s) !== undefined;
+  return form.source !== "gate" || unansweredCount(s) === 0;
+}
+function chosenValue(form, s) {
+  const q = form.questions[0];
+  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
+}
 var PAUSE = "pause";
 var GO_BACK = "go-back:";
-var isReview = (form, s) => s.page === form.questions.length;
+var canChat = (form) => form.source !== "plugin";
+var isSinglePage = (form) => form.source === "plugin";
+var isConfirm = (form) => form.confirm === true;
+var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
-  const ids = s.page > 0 ? ["back", "next"] : ["next"];
+  const ids = s.page > 0 && !isReview(form, s) ? ["back", "next"] : ["next"];
   if (isReview(form, s) && menuRows(form).length > 0)
     ids.push("more");
-  ids.push("chat");
+  if (canChat(form))
+    ids.push("chat");
   return ids;
 }
 function navAtOf(form, s) {
@@ -998,7 +1012,8 @@ function answersOf(form, s) {
   return out;
 }
 function goTo(form, s, page) {
-  return { ...s, page: Math.max(0, Math.min(form.questions.length, page)) };
+  const last = isSinglePage(form) ? 0 : form.questions.length;
+  return { ...s, page: Math.max(0, Math.min(last, page)) };
 }
 function cursorIsChoice(q, s, i) {
   const option = choicesOf(q)[s.cursor[i]];
@@ -1065,9 +1080,15 @@ function post(form, s, answers, control) {
   return { state: { ...s, phase: "submitted", sent: form.attempt ?? 0, control }, post: { type: "answer", formId: form.id, answers } };
 }
 function send(form, s) {
-  return canSubmit(form, s) ? post(form, s, answersOf(form, s)) : undefined;
+  if (!canSubmit(form, s))
+    return;
+  if (!isSinglePage(form))
+    return post(form, s, answersOf(form, s));
+  return post(form, s, { [form.questions[0].id]: chosenValue(form, s) });
 }
 function chat(form, s) {
+  if (!canChat(form))
+    return;
   if (!s.chatArmed)
     return { state: { ...s, chatArmed: true } };
   const state = form.source === "gate" ? disarm(s) : { ...disarm(s), phase: "chat" };
@@ -1103,8 +1124,9 @@ function performOn(action, form, armed) {
       return { state: goTo(form, s, action.page) };
     case "advance":
       return { state: advance(form, s) };
-    case "option":
+    case "option": {
       return { state: clickChoice(form, s, action.idx) };
+    }
     case "send":
       return send(form, s);
     case "menu":
@@ -1115,6 +1137,8 @@ function gridOf(form, s) {
   const q = form.questions[s.page];
   const choices = q ? choicesOf(q) : [];
   const above = !q ? [] : choices.length === 0 ? [{ key: "text", ids: ["text"], main: 0 }] : choices.map((_, i) => ({ key: `choice-${i}`, ids: ["choice"], main: 0 }));
+  if (isSinglePage(form))
+    return above;
   const ids = navIds(form, s);
   return [...above, { key: "nav", ids, main: Math.max(0, ids.indexOf("next")) }];
 }
@@ -1133,7 +1157,7 @@ function gridKey(ev, form, s) {
     return;
   if (!move.to)
     return { state: s };
-  const nav = rows.length - 1;
+  const nav = isSinglePage(form) ? -1 : rows.length - 1;
   if (move.to.at === nav)
     return { state: { ...s, onNav: true, navAt: rows[nav].ids[move.to.col] } };
   if (here.at === nav)
@@ -1154,27 +1178,46 @@ function pressNav(ev, form, armed, s) {
 }
 var isEnter = (ev) => ev.key === "return" || ev.key === "enter";
 function pressesButton(ev, form, s) {
-  if (s.phase !== "active" || !isEnter(ev))
+  if (s.phase !== "active")
+    return false;
+  if (isConfirm(form))
+    return false;
+  if (!isEnter(ev))
     return false;
   if (s.menu.open)
     return true;
+  if (isSinglePage(form))
+    return canSubmit(form, s);
   if (!isOnNav(form, s)) {
     const q = form.questions[s.page];
     return q !== undefined && choicesOf(q).length > 0;
   }
   return !(navAtOf(form, s) === "next" && isReview(form, s) && !canSubmit(form, s));
 }
+function reviewKey(ev, form, s) {
+  if (ev.key === "left")
+    return { state: goTo(form, s, s.page - 1) };
+  if (ev.key === "right")
+    return { state: s };
+  if (ev.key !== "tab")
+    return;
+  const ids = navIds(form, s);
+  const at = ids.indexOf(navAtOf(form, s));
+  return { state: { ...s, navAt: ids[(at + (ev.shift ? -1 : 1) + ids.length) % ids.length] } };
+}
 function navKey(ev, form, armed, s) {
   if (s.menu.open)
     return moved(form, s, menuKey(s.menu, menuRows(form), ev.key)) ?? { state: s };
-  return isEnter(ev) ? pressNav(ev, form, armed, s) : gridKey(ev, form, s);
+  if (isEnter(ev))
+    return pressNav(ev, form, armed, s);
+  return (isReview(form, s) ? reviewKey(ev, form, s) : undefined) ?? gridKey(ev, form, s);
 }
 function questionKey(ev, form, s) {
   const { key } = ev;
   const isSpace = key === " " || key === "space";
   const typing = isTyping(form, s);
   if (isEnter(ev))
-    return { state: confirm(form, s) };
+    return isSinglePage(form) ? send(form, s) ?? { state: s } : { state: confirm(form, s) };
   if (key === "left" || key === "right")
     return { state: goTo(form, s, s.page + (key === "left" ? -1 : 1)) };
   if (key === "up" || key === "down")
@@ -1196,7 +1239,11 @@ function keyEffect(ev, form, armed) {
   if (ev.ctrl && (ev.key === "x" || ev.key === "c"))
     return chat(form, armed);
   const s = disarm(armed);
-  if (ev.key === "tab")
+  if (isConfirm(form))
+    return;
+  if (ev.key === "tab" && isSinglePage(form))
+    return { state: s };
+  if (ev.key === "tab" && !isReview(form, s))
     return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) });
   return settled(s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s));
 }
@@ -1323,9 +1370,8 @@ function withTabInView(form, s, width) {
   return { ...s, tabsFrom: revealTab(tabList(form, s), s.page, width, s.tabsFrom) };
 }
 var MORE = { type: "menu", hit: { type: "toggle" } };
-function spanAt2(id, line) {
-  const left = { back: 0, next: 1, more: 2 };
-  return id === "chat" ? line.length - 1 : 1 + 2 * left[id];
+function spanAt2(id, left, line) {
+  return id === "chat" ? line.length - 1 : 1 + 2 * left.indexOf(id);
 }
 function navRows(form, s, view) {
   const n = form.questions.length;
@@ -1334,14 +1380,15 @@ function navRows(form, s, view) {
   const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
   const submit = { label: unansweredCount(s) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) };
   const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : submit;
-  const aside = s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
+  const aside = !canChat(form) ? undefined : s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
-  const line = buttonRow(rows.length === 0 ? [back, next] : [back, next, more], aside, view.width);
+  const left = [...page === n ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
+  const line = buttonRow(left.map(([, button]) => button), aside, view.width);
   const marked = (row) => {
     if (!view.focused || !isOnNav(form, s))
       return row;
-    const at = spanAt2(navAtOf(form, s), row);
+    const at = spanAt2(navAtOf(form, s), left.map(([id]) => id), row);
     return [...row.slice(0, at), ...gridLook(row[at], { marked: true, pressing: view.pressing && !s.menu.open }), ...row.slice(at + 1)];
   };
   if (rows.length === 0)
@@ -1351,6 +1398,12 @@ function navRows(form, s, view) {
   const hung = menu({ ...s.menu, label: MORE_ACTIONS, rows, width: view.width, indent, pressing: view.pressing === true, actionFor: (hit) => ({ type: "menu", hit }) });
   return [marked(line), ...hung.slice(1)];
 }
+function confirmFoot(form, view) {
+  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view)];
+}
+function submitRow(form, s, view) {
+  return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
+}
 function errorLines(form, view) {
   if (form.status !== "open" || !form.error)
     return [];
@@ -1359,29 +1412,38 @@ function errorLines(form, view) {
 }
 function hint(form, s) {
   const q = form.questions[s.page];
-  if (!q)
-    return "←→ buttons  enter presses";
+  if (isSinglePage(form))
+    return "↑↓ choose  enter submit";
+  if (!q) {
+    const others = navIds(form, s).length > 1 ? "   tab buttons" : "";
+    return `← back${others}   enter ${navAtOf(form, s) === "next" ? "submit" : "presses"}`;
+  }
   if (s.onNav)
     return "←→ buttons  ↑ answers  enter presses";
   return choicesOf(q).length === 0 ? "←→ pages  ↓ buttons" : "←→ pages  ↑↓ move";
 }
 function draw(form, s, view) {
-  const head = [brandBar("mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
+  const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
   if (s.phase !== "active" || form.status !== "open")
     return { head, page: closedPage(form, s, view), foot: [] };
+  const gap = [sp(SYMBOL.bar, GRAY)];
+  head.push(gap);
   if (form.context) {
-    const first = [sp(SYMBOL.bar, GRAY), sp("  "), sp(ICON.info, ACCENT), sp(" ")];
-    const rest = [sp(SYMBOL.bar, GRAY), sp("    ")];
-    head.push([sp(SYMBOL.bar, GRAY)], ...hang(first, rest, contextText(form.context), view.width));
+    const indent = rail(GRAY);
+    const divider = [sp(`├${"─".repeat(Math.max(4, view.width - 2))}`, GRAY)];
+    head.push(...hang(indent, indent, contextText(form.context), view.width), ...isConfirm(form) ? [] : [gap, divider, gap]);
   }
-  const divider = [sp(`├${"─".repeat(Math.max(4, view.width - 2))}`, GRAY)];
-  head.push([sp(SYMBOL.bar, GRAY)], [sp(SYMBOL.bar, GRAY)], divider, [sp(SYMBOL.bar, GRAY)], tabs(form, s, view), [sp(SYMBOL.bar, GRAY)]);
+  if (isConfirm(form))
+    return { head, page: [], foot: confirmFoot(form, view) };
+  if (!isSinglePage(form))
+    head.push(tabs(form, s, view), gap);
   const q = form.questions[s.page];
   const accentBar = rail(ACCENT);
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
   const keys = hint(form, s);
   const hintLines = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)];
-  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), [sp(" ")], ...navRows(form, s, view)];
+  const nav = [[sp(" ")], ...isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view)];
+  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), ...nav];
   return { head, page, foot };
 }
 function tallestQuestion(form, s, view) {
@@ -1401,7 +1463,7 @@ function fittedLines(form, s, view, rows, wheel) {
   const full = draw(form, s, view);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
-    const pad = s.phase === "active" && form.status === "open" ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
+    const pad = s.phase === "active" && form.status === "open" && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...wheel !== undefined && { wheelAt: wheel } };
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) };

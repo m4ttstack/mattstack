@@ -102,7 +102,7 @@ describe('unknownSectionNotice', () => {
 
   test('GitLab keeps its section wording', () => {
     expect(unknownSectionNotice('gitlab', '[Web]', '[Web][#web]')).toBe(
-      'no CODEOWNERS section "[Web]" · did you mean "[Web][#web]"?'
+      'no CODEOWNERS section "[Web]"; did you mean "[Web][#web]"?'
     );
     expect(unknownSectionNotice('gitlab', '[Web]', null)).toBe(
       'no CODEOWNERS section "[Web]"'

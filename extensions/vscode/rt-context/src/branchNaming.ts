@@ -5,8 +5,6 @@
  * ${titleSlug}. ${llmSlug:N} falls back to a mechanical slug (LLM is CLI-only).
  */
 
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
 import { getDef, getSetting } from "@mattstack/rt-client";
 
 export interface BranchNamingConfig {
@@ -25,33 +23,10 @@ export function defaultBranchNaming(): BranchNamingConfig {
   return asConfig(getDef(SETTING_KEY)?.default) as BranchNamingConfig;
 }
 
-const noticed = new Set<string>();
-
-/** The pre-store file is no longer read. Only an org admin can move it, so say how, once per file. */
-function noticeLegacyFile(dataDir: string, repoIdentity: string | null): void {
-  const legacyPath = join(dataDir, "branch-naming.json");
-  if (noticed.has(legacyPath) || !existsSync(legacyPath)) return;
-  noticed.add(legacyPath);
-  let config: BranchNamingConfig | null;
-  try {
-    config = asConfig(JSON.parse(readFileSync(legacyPath, "utf8")));
-  } catch {
-    config = null;
-  }
-  if (config === null || repoIdentity === null) {
-    console.warn(`rt-context: ${legacyPath} is no longer read`);
-    return;
-  }
-  const value = JSON.stringify(config).replaceAll("'", "'\\''");
-  console.warn(`rt-context: ${legacyPath} is no longer read. An org admin can move it with: rt settings set rt.branchNaming '${value}' --scope org --repo ${repoIdentity}`);
-}
-
 /** Never throws: a store rt cannot read gives the default template. */
-export function loadBranchNamingConfig(dataDir: string, repoIdentity: string | null): BranchNamingConfig {
+export function loadBranchNamingConfig(repoIdentity: string | null): BranchNamingConfig {
   try {
-    const resolved = getSetting<unknown>(SETTING_KEY, { repoIdentity });
-    if (resolved.provenance.every((p) => p.scope === "default")) noticeLegacyFile(dataDir, repoIdentity);
-    return asConfig(resolved.value) ?? defaultBranchNaming();
+    return asConfig(getSetting<unknown>(SETTING_KEY, { repoIdentity }).value) ?? defaultBranchNaming();
   } catch {
     return defaultBranchNaming();
   }

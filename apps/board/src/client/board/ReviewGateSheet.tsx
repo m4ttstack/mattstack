@@ -41,7 +41,7 @@ import {
 import {
   readinessProse,
   readReviewGate,
-  reviewMeta,
+  reviewMetaParts,
   SEVERITY_LABEL,
   SEVERITY_ORDER,
 } from './review-gate.ts';
@@ -59,6 +59,7 @@ import {
   FindingAnchor,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
+import { withSeps } from './Sep.tsx';
 import { useSheetKeys } from './sheet-keys.ts';
 import {
   KeyCap,
@@ -788,7 +789,7 @@ function ReviewGateSheet({
   const { review } = data;
   const author = mr ? people.short(mr.author.username) : 'the author';
   const you = review.reviewer ?? self ?? undefined;
-  const meta = reviewMeta(review);
+  const meta = reviewMetaParts(review);
 
   const contextCard = (
     <div className="tui-sheet-context-card">
@@ -801,7 +802,9 @@ function ReviewGateSheet({
           {review.summary}
         </Markdown>
       </div>
-      {meta && <p className="tui-sheet-context-meta">{meta}</p>}
+      {meta.length > 0 && (
+        <p className="tui-sheet-context-meta">{withSeps(meta)}</p>
+      )}
       {SEVERITY_ORDER.some(s => review.findings[s] > 0) && (
         <div className="tui-review-tier-pills">
           {SEVERITY_ORDER.filter(s => review.findings[s] > 0).map(s => (
@@ -992,12 +995,6 @@ function ReviewGateSheet({
                                   >
                                     all
                                   </button>
-                                  <span
-                                    className="tui-review-allnone-sep"
-                                    aria-hidden="true"
-                                  >
-                                    ·
-                                  </span>
                                   <button
                                     type="button"
                                     className="tui-review-allnone"

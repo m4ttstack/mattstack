@@ -35,7 +35,7 @@ test('the review page hints at its buttons, not at pages', () => {
   const text = pageLines(sample.questions.length).map(textOf).join('\n')
   expect(text).toContain('Submit your answers?')
   expect(text).not.toContain('pages')
-  expect(text).toContain('enter presses')
+  expect(text).toContain('← back   tab buttons   enter submit')
 })
 
 test('a question page has the hint line', () => {
@@ -92,4 +92,11 @@ test('on a short pane the gate context is kept, wrapped in full, and the page sc
   for (let wheel = 0; wheel <= 40; wheel += 1) seen += ` ${flat(fittedLines(sample, { ...s, pageTop: 0, wheelAt: 0 }, VIEW, SHORT, wheel).lines)}`
   for (const line of context) expect(seen.replace(/\s+/g, ' ')).toContain(line.replace(/^[-\s]+/, '').trim())
   expect(flat(fittedLines(sample, s, VIEW, SHORT).lines)).toContain(context[0]!.trim())
+})
+
+test('a plugin form is headed mattstack, a gate or ask form mattstack decision gate', () => {
+  const header = (form: Form) => textOf(visibleLines(form, initial(form), VIEW, ROWS)[0]!)
+  expect(header({ ...sample, source: 'plugin' })).toContain('mattstack')
+  expect(header({ ...sample, source: 'plugin' })).not.toContain('decision gate')
+  expect(header(sample)).toContain('mattstack decision gate')
 })

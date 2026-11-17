@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { branchCache, branchListCache } from './cache';
-import { showCantSaveSecretMessage } from './secrets';
 import {
   initStatusBar,
   waitForGitAndStart,
@@ -13,7 +12,7 @@ import {
   getCurrentWorktreePath,
   openLinearUrl,
 } from './statusBar';
-import { connectWebSocket, disconnectWebSocket, onDaemonEvent } from './daemonClient';
+import { onDaemonRefresh } from './daemonClient';
 import { showBranchSwitcher } from './branchSwitcher';
 import { showAllWorktrees } from './worktreePicker';
 import { forgeWords } from './forge';
@@ -56,7 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
         items.push({
           label: '$(folder-opened) Open in Finder',
           action: () => {
-            exec(`open "${worktreePath}"`);
+            execFile('open', [worktreePath]);
           },
         });
       }
@@ -80,17 +79,6 @@ export function activate(context: vscode.ExtensionContext) {
       showBranchSwitcher(context),
     ),
 
-    // RT-32: the extension can't save secrets anymore — show the directed
-    // `rt secrets set` message immediately rather than prompting for a
-    // token it would only throw away.
-    vscode.commands.registerCommand('rtContext.setLinearApiKey', () => {
-      showCantSaveSecretMessage('linearApiKey');
-    }),
-
-    vscode.commands.registerCommand('rtContext.setGitlabToken', () => {
-      showCantSaveSecretMessage('gitlabToken');
-    }),
-
     vscode.commands.registerCommand('rtContext.refresh', () => {
       branchCache.clear();
       branchListCache.clear();
@@ -107,20 +95,33 @@ export function activate(context: vscode.ExtensionContext) {
 
   waitForGitAndStart(context);
 
-  // Connect to daemon WebSocket for live updates
-  connectWebSocket();
-  context.subscriptions.push(
-    onDaemonEvent((event) => {
-      if (event.type === 'status') {
-        // Daemon refreshed its cache — update status bar with fresh data
-        scheduleUpdate(context);
-      }
-    }),
+  context.subscriptions.push(onDaemonRefresh(() => scheduleUpdate(context)));
+
+  void noticeEditorTokens(context);
+}
+
+const EDITOR_TOKENS: Record<string, string> = {
+  'rtContext.linearApiKey': 'linearApiKey',
+  'rtContext.gitlabToken': 'gitlabToken',
+};
+
+/** Tokens the old Set commands saved in the editor are no longer read; say how to move them until they are forgotten. */
+async function noticeEditorTokens(context: vscode.ExtensionContext): Promise<void> {
+  const found: string[] = [];
+  for (const editorKey of Object.keys(EDITOR_TOKENS)) {
+    if (await context.secrets.get(editorKey)) found.push(editorKey);
+  }
+  if (!found.length) return;
+  const commands = found.map((k) => `rt secrets set rt ${EDITOR_TOKENS[k]}`).join(' and ');
+  const forget = 'Forget the editor copies';
+  const picked = await vscode.window.showWarningMessage(
+    `RT Context no longer reads tokens saved in the editor. Move them to rt with ${commands}.`,
+    forget,
   );
+  if (picked === forget) await Promise.all(found.map((k) => context.secrets.delete(k)));
 }
 
 export function deactivate() {
   clearUpdateTimer();
-  disconnectWebSocket();
   branchCache.clear();
 }

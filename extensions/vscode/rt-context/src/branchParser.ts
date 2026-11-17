@@ -1,48 +1,6 @@
-/**
- * Matches Linear-style identifiers: 1+ letters, a hyphen, 1+ digits.
- * e.g. ACME-1287, ENG-456, PLAT-12
- */
-const LINEAR_ID_RE = /^[A-Za-z]+-\d+$/;
+import { normalizeRemote } from '@mattstack/rt-client';
 
-/**
- * Extract a Linear ticket identifier from a git branch name.
- *
- * Splits the branch on `/` and scans segments from last to first,
- * returning the first segment that matches the TEAM-NNN pattern.
- *
- * Based on the proven approach in gitq-core/src/linear.ts.
- *
- * Examples:
- *   "feature/acme-1287"           → "ACME-1287"
- *   "matt/ENG-456-some-desc"    → null  (segment isn't purely the ID)
- *   "feature/acme-1287-add-stuff" → null  (segment has trailing text)
- *
- * For branches where the ID is embedded in a longer segment (e.g.
- * "feature/acme-1287-add-photos"), we also try a prefix-match fallback.
- */
-export function extractLinearId(branch: string): string | null {
-  const segments = branch.split('/');
-
-  // Pass 1: exact segment match (most reliable)
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const seg = segments[i]!;
-    if (LINEAR_ID_RE.test(seg)) {
-      return seg.toUpperCase();
-    }
-  }
-
-  // Pass 2: prefix match — the segment starts with TEAM-NNN followed by
-  // a separator (hyphen, underscore). Handles "acme-1287-add-photos".
-  const PREFIX_RE = /^([A-Za-z]+-\d+)[-_]/;
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const match = PREFIX_RE.exec(segments[i]!);
-    if (match) {
-      return match[1]!.toUpperCase();
-    }
-  }
-
-  return null;
-}
+export { extractLinearId } from '@mattstack/rt-client';
 
 /** The https origin a request to this authority would reach, as a URL parser reads it, so the host a token gate judges is the host the request goes to. */
 function originOf(authority: string): string | null {
@@ -53,27 +11,25 @@ function originOf(authority: string): string | null {
   }
 }
 
+const URL_FORM_RE = /^([a-z][a-z0-9+.-]*):\/\/([^/]+)\//i;
+
 /**
- * Parse a GitLab/GitHub remote URL to extract the project path.
- *
- * Handles both SSH and HTTPS formats:
- *   "git@gitlab.com:my-org/my-repo.git" → "my-org/my-repo"
- *   "https://gitlab.com/my-org/my-repo.git" → "my-org/my-repo"
+ * A remote's web origin and project path. The path comes from rt-client's
+ * normalizeRemote, as in rt's own parser (lib/enrich.ts) minus its ssh alias
+ * lookup. A URL-form remote's host is the one a URL parser would reach from
+ * the raw authority, never normalizeRemote's reading of it, because the
+ * token gate must judge the host the request goes to. A port on a non-http
+ * remote belongs to sshd, so it is dropped.
  */
 export function parseRemoteUrl(url: string): { host: string; projectPath: string } | null {
-  // SSH format: git@host:org/repo.git
-  const sshMatch = /^git@([^:]+):(.+?)(?:\.git)?$/.exec(url);
-  if (sshMatch) {
-    const host = originOf(sshMatch[1]!);
-    return host ? { host, projectPath: sshMatch[2]! } : null;
-  }
-
-  // HTTPS format: https://host/org/repo.git
-  const httpsMatch = /^https?:\/\/([^/]+)\/(.+?)(?:\.git)?$/.exec(url);
-  if (httpsMatch) {
-    const host = originOf(httpsMatch[1]!);
-    return host ? { host, projectPath: httpsMatch[2]! } : null;
-  }
-
-  return null;
+  const trimmed = url.trim();
+  if (/^file:/i.test(trimmed)) return null;
+  const normalized = normalizeRemote(trimmed);
+  if (!normalized) return null;
+  const slash = normalized.indexOf('/');
+  const urlForm = URL_FORM_RE.exec(trimmed);
+  const origin = originOf(urlForm ? urlForm[2]! : normalized.slice(0, slash));
+  if (!origin) return null;
+  const webOrigin = urlForm && /^https?$/i.test(urlForm[1]!) ? origin : origin.replace(/:\d+$/, '');
+  return { host: webOrigin, projectPath: normalized.slice(slash + 1).replace(/\.git$/, '') };
 }

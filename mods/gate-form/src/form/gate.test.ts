@@ -68,19 +68,33 @@ test('Go back to stage plan sends next: go-back with to: plan', () => {
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'go-back', to: 'plan' } })
 })
 
-test('keyboard: right selects More actions, Enter opens it, arrows move past the heading, Enter picks', () => {
-  const picked = keys(gate, atReview(gate), 'right', 'return', 'down', 'down', 'return')
+test('keyboard: Tab selects More actions, Enter opens it, arrows move past the heading, Enter picks', () => {
+  const picked = keys(gate, atReview(gate), 'tab', 'return', 'down', 'down', 'return')
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'go-back', to: 'provision' } })
 })
 
-test('keyboard: left closes the menu, then goes back to Submit, then to Back, which pages back', () => {
-  const open = keys(gate, atReview(gate), 'right', 'return')!.state
+test('keyboard: left closes the menu, then pages back from the review page', () => {
+  const open = keys(gate, atReview(gate), 'tab', 'return')!.state
   expect(open.menu.open).toBe(true)
   const closed = keyEffect({ key: 'left' }, gate, open)!.state
   expect(keyEffect({ key: 'backspace' }, gate, open)!.state.menu.open).toBe(false)
   expect(closed.menu.open).toBe(false)
-  expect(keyEffect({ key: 'left' }, gate, closed)!.state.navAt).toBe('next')
-  expect(keys(gate, { ...closed, navAt: 'next' }, 'left', 'return')!.state.page).toBe(REVIEW - 1)
+  expect(keyEffect({ key: 'left' }, gate, closed)!.state.page).toBe(REVIEW - 1)
+})
+
+test('the review page has no Back button: left pages back, right stays, Enter submits', () => {
+  const s = answeredAll(gate)
+  const nav = linesAt(gate, s).find(line => textOf(line).includes('Submit'))!
+  expect(textOf(nav)).not.toContain('Back')
+  const back = keyEffect({ key: 'left' }, gate, s)!.state
+  expect(back.page).toBe(REVIEW - 1)
+  expect(back.onNav).toBeUndefined()
+  expect(keyEffect({ key: 'right' }, gate, s)!.state.page).toBe(REVIEW)
+  expect(keyEffect({ key: 'return' }, gate, s)?.post).toEqual({ type: 'answer', formId: gate.id, answers: { tier: 'std', why: 'no' } })
+})
+
+test('a question page keeps its Back button', () => {
+  expect(screen(gate, goTo(gate, initial(gate), 1))).toContain('Back')
 })
 
 test('Ctrl-X twice on a gate form sets it aside and keeps it open', () => {

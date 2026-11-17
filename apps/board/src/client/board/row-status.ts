@@ -6,7 +6,7 @@
     all reads its standing state for whoever the board's seat is. The
     pill and the line may name the same fact ("changes requested" twice):
     one is where the MR is, the other is what to do about it. */
-import { domainForKind, unwrapGateAnswer } from '@mattstack/gate-kit';
+import { domainForKind } from '@mattstack/gate-kit';
 import type { BoardMR } from '../../data.ts';
 import { hasChangesRequested } from '../../data.ts';
 import { isFreshPeerReview } from '../../peer/presence.ts';
@@ -86,6 +86,9 @@ export interface Candidate {
   settled?: true;
   /** The author's repair (a rebase, a ci fix), which outranks settled notes. */
   repair?: true;
+  /** When the lane last wrote this line; between two equal-ranked lines
+      that both carry one, the newer leads the row. */
+  at?: number;
   /** A local sync's saved output: the word opens it, and streamed lines
       join it while the sync runs. */
   syncLog?: readonly string[];
@@ -128,7 +131,7 @@ export function statusReasons(mr: BoardMR): string {
   if (b.hasMergeError)
     reasons.push(`merge error: ${b.mergeError ?? 'unknown'}`);
   return reasons.length
-    ? `blocked:\n${reasons.map(r => `· ${r}`).join('\n')}`
+    ? `blocked:\n${reasons.map(r => `• ${r}`).join('\n')}`
     : 'blocked';
 }
 
@@ -306,24 +309,6 @@ function gateLines(mr: BoardMRWithReview): Candidate[] {
       });
       continue;
     }
-    // A noted answer wire-carries as { value, note } rather than a bare
-    // string/array; unwrapping first is what keeps this from joining
-    // "[object Object]" into the summary.
-    const summary = Object.values(gate.answers ?? {})
-      .map(v => {
-        const a = unwrapGateAnswer(v);
-        return a.writeIn !== undefined
-          ? `wrote in: "${a.writeIn}"`
-          : (a.value ?? []);
-      })
-      .flatMap(v => (Array.isArray(v) ? v : [v]))
-      .join(', ');
-    out.push({
-      tone: 'quiet',
-      word: 'answered',
-      detail: summary || undefined,
-      verbs: [],
-    });
   }
   return out;
 }
@@ -547,7 +532,7 @@ function withWho(line: Candidate, who: string | null): Candidate {
   if (!who) return line;
   return {
     ...line,
-    detail: line.detail ? `${who} · ${line.detail}` : who,
+    detail: line.detail ? `${who} • ${line.detail}` : who,
   };
 }
 
@@ -652,7 +637,7 @@ function respondLine(
     spin: true,
     detail: who
       ? r.message
-        ? `${phase} · ${r.message}`
+        ? `${phase} • ${r.message}`
         : phase
       : r.message || undefined,
     verbs: [{ kind: 'focus', label: 'focus', domain: 'respond' }],
@@ -726,7 +711,11 @@ function settled(
   now: number
 ): Candidate | null {
   if (updatedAt !== undefined && now - updatedAt > DONE_TTL) return null;
-  return { ...line, settled: true };
+  return {
+    ...line,
+    settled: true,
+    ...(updatedAt !== undefined ? { at: updatedAt } : {}),
+  };
 }
 
 /** A live run's worker was rung in place of a doctor. The server sends only
@@ -817,6 +806,7 @@ function doctorStatusLine(
         tone: 'go',
         word: DOCTOR_LABEL[d.status],
         detail: d.message || undefined,
+        at: d.updatedAt,
         // Until the push's own pipeline replaces the one it found, a ci
         // failure on the row is the old branch's, so it must not outrank this.
         ...(d.pipelineAtSync && mr.pipeline?.id === d.pipelineAtSync
@@ -1186,6 +1176,10 @@ export function candidateLines(
   return standing?.repair && !handed ? [...lines, standing] : lines;
 }
 
+function newerFirst(a: Candidate, b: Candidate): number {
+  return a.at !== undefined && b.at !== undefined ? b.at - a.at : 0;
+}
+
 const TONE_RANK: Record<Tone, number> = {
   bad: 0,
   warn: 1,
@@ -1212,7 +1206,12 @@ export function rowStatus(
     repairs && l.settled ? TONE_RANK.clear + 1 : TONE_RANK[l.rankAs ?? l.tone];
   const ranked = lines
     .map((line, index) => ({ line, index }))
-    .sort((a, b) => rank(a.line) - rank(b.line) || a.index - b.index);
+    .sort(
+      (a, b) =>
+        rank(a.line) - rank(b.line) ||
+        newerFirst(a.line, b.line) ||
+        a.index - b.index
+    );
   const [first, ...rest] = ranked;
   const line = first!.line;
   return {

@@ -10,6 +10,7 @@ const HOME: Record<string, GroupId> = {
   "skills.writing-style": "agents",
   "skills.overrides": "agents",
   "tool.editor": "agents",
+  "editor.terminal-font": "agents",
   "tool.extension": "agents",
   "tool.vsix": "agents",
   "tool.fast-browser": "browser",

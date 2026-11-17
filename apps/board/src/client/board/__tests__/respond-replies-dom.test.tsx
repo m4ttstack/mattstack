@@ -149,7 +149,8 @@ test('joined options show the file, the verb tag and the full reply text', async
     [...item.querySelectorAll('.tui-reply-choice-file')].map(n => n.textContent)
   ).toEqual(['queue/enqueue.ts:88', 'queue/README.md:12']);
   const fix = item.querySelector('[data-verb="fix"]')!;
-  expect(fix.textContent).toBe('fix · ab12cd3');
+  expect(fix.textContent).toBe('fix ab12cd3');
+  expect(fix.querySelector('.tui-sep')).not.toBeNull();
   expect(fix.querySelector('.tui-respond-pill-sha')!.textContent).toBe(
     'ab12cd3'
   );

@@ -399,7 +399,7 @@ const FIXTURE = {
 type Src = { context?: Record<string, any>; questions: Record<string, any>[] };
 const loadJson = (p: string) => JSON.parse(readFileSync(p, "utf8"));
 const plan = (): Src => loadJson(FIXTURE.plan);
-const PLAN_GATE_LINE = "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback · fresh-context adjudicated";
+const PLAN_GATE_LINE = "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback; fresh-context adjudicated";
 const bigAdjudication = (): Src => {
   const s = plan();
   s.context!.adjudication = "x".repeat(9 * 1024);

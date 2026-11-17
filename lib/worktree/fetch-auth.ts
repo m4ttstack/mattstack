@@ -14,6 +14,8 @@ import { createRealProbes } from "../setup/probes.ts";
 import { hostFromRemote, readUserIntegrationOverrides } from "../setup/team-settings.ts";
 import { forgeTokenKey, poolCredentialHelper, rtSelfHelper } from "../team/git-credential.ts";
 import { forgeTokenLookupForGit, mayOfferGitLabToken, mayOfferToken, tokenOrNull } from "../team/forge-token.ts";
+import { scrubGitEnv } from "../../packages/git-core/src/exec.ts";
+import { childEnv, runCapture } from "../subprocess.ts";
 import { runGit, type GitResult } from "./git-async.ts";
 
 export { poolCredentialHelper, rtSelfHelper };
@@ -109,7 +111,8 @@ export async function originFetchAuth(
 ): Promise<FetchAuth | null> {
   if (!seams || configParamsNameHelper(process.env)) return null;
   // get-url applies the user's insteadOf rewrites, so the decision follows the transport git will really use.
-  const r = await runGit(cwd, ["remote", "get-url", ...(opts.push ? ["--push"] : []), "origin"]);
+  // A hook or another repo's git process exports GIT_DIR, which outranks cwd.
+  const r = await runCapture(["git", "remote", "get-url", ...(opts.push ? ["--push"] : []), "origin"], { cwd, stderr: "pipe", timeoutMs: 60_000, env: scrubGitEnv(childEnv()) });
   const url = r.stdout.trim();
   if (r.exitCode !== 0 || !/^https:\/\//i.test(url)) return null;
   const host = hostFromRemote(url);

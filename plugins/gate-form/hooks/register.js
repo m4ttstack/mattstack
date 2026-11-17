@@ -248,7 +248,7 @@ function keySelected(span) {
     return [span];
   const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false },
+    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
     { ...span, t: span.t.slice(1) }
   ];
 }
@@ -261,6 +261,8 @@ var rail = (style) => [sp(SYMBOL.bar, style), sp("  ")];
 var MUTED = { cyan: "#62a4b0", green: "#72b072", yellow: "#baa75c", red: "#c46e6e", gray: "#6e6e6e", [BRAND.pink]: "#b05680" };
 var MUTED_FILL = { [BRAND.pink]: { bg: "#9e5270", color: "#1f1a2b" }, [BRAND.pinkDeep]: { bg: "#884465", color: "#1f1a2b" }, [FILL.secondary.bg]: { bg: "#334659", color: "#b8b8b8" }, [FILL.disabled.bg]: FILL.disabled, [FILL.field.bg]: { bg: "#323232", color: "#b8b8b8" }, [SCROLL.track]: { bg: "#353535" }, [SCROLL.thumb]: { bg: "#646464" } };
 function muted(span) {
+  if (span.mark)
+    return { ...span, color: MUTED[span.mark] ?? span.mark, dim: false };
   if (span.quiet)
     return { ...span, color: QUIET.muted, dim: false };
   if (span.bg)
@@ -344,6 +346,23 @@ function addWheel($, paneId, by) {
   $.ui.invalidate("ui.render");
 }
 var wheelTotal = (paneId) => wheels.get(paneId) ?? 0;
+// packages/mod-kit/src/patterns/hotkey-choices.tsx
+function hotkeyChoices(els, spec) {
+  const { Box, Text, Button } = els;
+  const lead = " ".repeat(spec.indent ?? 3);
+  return /* @__PURE__ */ h(Box, {
+    flexDirection: "column"
+  }, spec.choices.map((choice, idx) => /* @__PURE__ */ h(Box, {
+    key: `${spec.key}-row-${idx}`,
+    flexDirection: "row"
+  }, /* @__PURE__ */ h(Text, null, lead), /* @__PURE__ */ h(Button, {
+    key: `${spec.key}:${idx}`,
+    plain: true,
+    hotkey: spec.focused && idx < 9 ? String(idx + 1) : undefined,
+    autoFocus: idx === 0 ? true : undefined,
+    onPress: choice.onPress
+  }, choice.label))));
+}
 // mods/gate-form/src/gate/bell.ts
 var BODY_MAX = 140;
 function bellArgs(cwd, questions) {
@@ -442,7 +461,175 @@ function fromLegacy(old) {
   const { replyTo: _, ...rest } = old;
   return [{ ...rest, source: "ask", questions: old.questions.map((q) => ({ ...q, other: true })) }];
 }
-var knownForms = (list) => list.filter((f) => f.source === "gate" || f.source === "ask");
+var knownForms = (list) => list.filter((f) => f.source === "gate" || f.source === "ask" || f.source === "plugin");
+
+// mods/gate-form/src/form/state.ts
+var WRITE_IN = "__other__";
+var isRecommended = (o) => /\(recommended\)\s*$/i.test(o.label);
+var replaceAt = (list, i, value) => list.map((old, k) => k === i ? value : old);
+var markAnswered = (s, i) => replaceAt(s.answered, i, true);
+function choicesOf(q) {
+  if (q.options.length === 0 || !q.other)
+    return q.options;
+  return [...q.options, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
+}
+function initial(form) {
+  return {
+    page: 0,
+    cursor: form.questions.map((q) => isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended))),
+    picked: form.questions.map(() => []),
+    text: form.questions.map(() => ""),
+    answered: form.questions.map(() => false),
+    moved: form.questions.map(() => false),
+    phase: "active",
+    tabsFrom: 0,
+    menu: { open: false, selected: 0 },
+    navAt: "next"
+  };
+}
+function canSubmit(form, s) {
+  if (isSinglePage(form))
+    return chosenValue(form, s) !== undefined;
+  return form.source !== "gate" || unansweredCount(s) === 0;
+}
+function chosenValue(form, s) {
+  const q = form.questions[0];
+  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
+}
+var PAUSE = "pause";
+var GO_BACK = "go-back:";
+var canChat = (form) => form.source !== "plugin";
+var isSinglePage = (form) => form.source === "plugin";
+var isConfirm = (form) => form.confirm === true;
+var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
+var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
+function navIds(form, s) {
+  const ids = s.page > 0 && !isReview(form, s) ? ["back", "next"] : ["next"];
+  if (isReview(form, s) && menuRows(form).length > 0)
+    ids.push("more");
+  if (canChat(form))
+    ids.push("chat");
+  return ids;
+}
+function navAtOf(form, s) {
+  return navIds(form, s).includes(s.navAt) ? s.navAt : "next";
+}
+function menuRows(form) {
+  const controls = form.controls;
+  if (!controls)
+    return [];
+  const rows = controls.pause ? [{ id: PAUSE, label: "Pause run" }] : [];
+  if (controls.goBack.length > 0)
+    rows.push({ id: "go-back", label: "Go back to stage", isHeading: true }, ...controls.goBack.map((stage) => ({ id: `${GO_BACK}${stage}`, label: stage })));
+  return rows;
+}
+function controlAnswers(id) {
+  if (id === PAUSE)
+    return { answers: { next: "hold" }, label: "Asked to pause the run." };
+  if (!id.startsWith(GO_BACK))
+    return;
+  const to = id.slice(GO_BACK.length);
+  return { answers: { next: "go-back", to }, label: `Asked to go back to stage ${to}.` };
+}
+function afterAttempt(form, s) {
+  if (s.phase !== "submitted" || form.status !== "open" || (form.attempt ?? 0) <= (s.sent ?? 0))
+    return s;
+  return { ...s, phase: "active", sent: form.attempt, control: undefined };
+}
+var unansweredCount = (s) => s.answered.filter((a) => !a).length;
+function isPicked(q, s, i, idx) {
+  const value = choicesOf(q)[idx]?.value;
+  if (value === undefined)
+    return false;
+  return s.picked[i].includes(value) || value === WRITE_IN && q.multi && s.text[i].trim() !== "";
+}
+function isTyping(form, s) {
+  const q = form.questions[s.page];
+  if (!q)
+    return false;
+  const choices = choicesOf(q);
+  return choices.length === 0 || choices[s.cursor[s.page]]?.value === WRITE_IN;
+}
+function answersOf(form, s) {
+  const out = {};
+  form.questions.forEach((q, i) => {
+    if (!s.answered[i])
+      return;
+    const typed = s.text[i].trim();
+    if (choicesOf(q).length === 0)
+      out[q.id] = s.text[i];
+    else if (q.multi) {
+      const values = s.picked[i].filter((v) => v !== WRITE_IN);
+      out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
+    } else {
+      const value = choicesOf(q)[s.cursor[i]]?.value;
+      out[q.id] = value === WRITE_IN ? { writeIn: typed } : value;
+    }
+  });
+  return out;
+}
+function goTo(form, s, page) {
+  const last = isSinglePage(form) ? 0 : form.questions.length;
+  return { ...s, page: Math.max(0, Math.min(last, page)) };
+}
+function cursorIsChoice(q, s, i) {
+  const option = choicesOf(q)[s.cursor[i]];
+  if (!option || option.value === WRITE_IN && s.text[i].trim() === "")
+    return false;
+  return s.answered[i] || s.moved[i] || isRecommended(option);
+}
+function takesCursorAsAnswer(form, s) {
+  const q = form.questions[s.page];
+  return q !== undefined && !q.multi && !s.answered[s.page] && cursorIsChoice(q, s, s.page);
+}
+function advance(form, s) {
+  const answered = takesCursorAsAnswer(form, s) ? markAnswered(s, s.page) : s.answered;
+  return goTo(form, { ...s, answered }, s.page + 1);
+}
+function moveCursor(form, s, by) {
+  const q = form.questions[s.page];
+  const count = q ? choicesOf(q).length : 0;
+  if (count === 0)
+    return s;
+  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count), moved: replaceAt(s.moved, s.page, true) };
+}
+function toggled(s, i, value) {
+  const has = s.picked[i].includes(value);
+  return { ...s, picked: replaceAt(s.picked, i, has ? s.picked[i].filter((p) => p !== value) : [...s.picked[i], value]), answered: markAnswered(s, i) };
+}
+function toggleAtCursor(form, s) {
+  const q = form.questions[s.page];
+  const value = q && choicesOf(q)[s.cursor[s.page]]?.value;
+  return value === undefined ? s : toggled(s, s.page, value);
+}
+function confirm(form, s) {
+  const i = s.page;
+  const q = form.questions[i];
+  if (!q)
+    return s;
+  const value = choicesOf(q)[s.cursor[i]]?.value;
+  const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i].includes(value);
+  return { ...s, page: i + 1, answered: markAnswered(s, i), ...adds && { picked: replaceAt(s.picked, i, [...s.picked[i], value]) } };
+}
+function clickChoice(form, s, idx) {
+  const i = s.page;
+  const q = form.questions[i];
+  if (!q)
+    return s;
+  const value = choicesOf(q)[idx]?.value;
+  const cursor = replaceAt(s.cursor, i, idx);
+  if (value === undefined || value === WRITE_IN)
+    return { ...s, cursor };
+  if (!q.multi)
+    return { ...s, cursor, answered: markAnswered(s, i) };
+  return { ...toggled(s, i, value), cursor };
+}
+function typeChar(s, ch) {
+  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
+}
+function deleteChar(s) {
+  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page].slice(0, -1)) };
+}
 
 // mods/gate-form/src/gate/reply.ts
 var REPLY_TAG = "[gate-form] ";
@@ -521,7 +708,7 @@ function toQuestion(q, seen, source) {
     label: q.label,
     multi: q.multi === true,
     writeIn: q.writeIn === true,
-    other: source !== "gate" || q.writeIn === true,
+    other: source === "ask" || q.writeIn === true,
     ...isText(q.context) && { context: q.context },
     options
   };
@@ -546,6 +733,27 @@ function toForm(title, context, raw, source) {
     status: "open",
     source
   };
+}
+var PLUGIN_QUESTION = "choice";
+function pluginForm(raw) {
+  const args = raw ?? {};
+  if (!isText(args.title))
+    return "title must be a non-empty string.";
+  if (typeof args.timeoutMs !== "number" || !(args.timeoutMs > 0))
+    return "timeoutMs must be a positive number of milliseconds.";
+  if (args.kind !== undefined && args.kind !== "choice" && args.kind !== "confirm")
+    return "kind must be 'choice' or 'confirm'.";
+  const confirm = args.kind === "confirm";
+  if (!Array.isArray(args.options) || args.options.length === 0)
+    return "options must be a non-empty array.";
+  if (confirm && (args.options.length < 2 || args.options.length > 3))
+    return "a confirm takes 2 or 3 options.";
+  if (args.options.some((option) => option?.value === WRITE_IN))
+    return `option value ${WRITE_IN} is reserved.`;
+  const label = confirm && args.label === undefined ? args.title : args.label;
+  const question = { id: PLUGIN_QUESTION, header: "Choice", label, options: args.options };
+  const form = toForm(args.title, args.context, [question], "plugin");
+  return typeof form === "string" || !confirm ? form : { ...form, confirm: true };
 }
 var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 function readKitResult(text) {
@@ -798,6 +1006,11 @@ var watching = new Set;
 var WAIT_RETRY_MS = [1000, 5000, 15000];
 var answering = new Set;
 var deck = {};
+var asked = new Map;
+var queued = [];
+var WAIT_MS = 5000;
+var TIMED_OUT = "No answer in time.";
+var CLOSED = "Closed without an answer.";
 var GATE_PANE = { id: PANE, label: "mattstack gate waiting" };
 async function readForms($) {
   const forms = knownForms(await read($, formsAtom));
@@ -907,6 +1120,8 @@ async function settle($, formId, outcome) {
   const form = (await readForms($)).find((f) => f.id === formId);
   if (!form || form.status !== "open")
     return;
+  if (form.source === "plugin")
+    return settlePlugin($, form, outcome);
   if (form.source === "gate") {
     if (outcome.status === "answered")
       return answerGate($, form, outcome.answers);
@@ -916,6 +1131,81 @@ async function settle($, formId, outcome) {
   const forms = await writeForms($, (list) => patchForm(list, formId, { status }));
   await wake($, agentReply(form, outcome), `the answers for ${formId}`);
   await showCurrent($, forms);
+}
+async function askPlugin($, args) {
+  const form = pluginForm(args);
+  if (typeof form === "string")
+    return { deny: form };
+  const entry = { wakes: [] };
+  asked.set(form.id, entry);
+  entry.timer = $.clock.after(args.timeoutMs, () => void endAsk($, form.id, { timedOut: true }, TIMED_OUT).catch(() => {
+    return;
+  }));
+  const isAsking = (await readForms($)).some((f) => f.source === "plugin" && f.status === "open" && asked.has(f.id));
+  if (isAsking || queued.length > 0)
+    queued.push(form);
+  else
+    await openAsk($, form);
+  return { value: { id: form.id } };
+}
+async function waitAsk($, id) {
+  const entry = asked.get(id);
+  if (!entry)
+    return { closed: true };
+  if (!entry.outcome) {
+    const stop = new AbortController;
+    await Promise.race([new Promise((resolve) => entry.wakes.push(resolve)), $.clock.sleep(WAIT_MS, { signal: stop.signal }).catch(() => {
+      return;
+    })]);
+    stop.abort();
+  }
+  if (!entry.outcome)
+    return { pending: true };
+  asked.delete(id);
+  return entry.outcome;
+}
+async function endAsk($, id, outcome, note) {
+  const entry = asked.get(id);
+  if (entry?.outcome)
+    return;
+  if (entry) {
+    entry.outcome = outcome;
+    entry.timer?.cancel();
+    for (const wake of entry.wakes.splice(0))
+      wake();
+  }
+  const at = queued.findIndex((f) => f.id === id);
+  if (at >= 0) {
+    queued.splice(at, 1);
+    return;
+  }
+  const status = "value" in outcome ? "answered" : "cancelled";
+  const forms = await writeForms($, (list) => patchForm(list, id, { status, ...note && { note } }));
+  const next = queued.shift();
+  if (next)
+    await openAsk($, next);
+  else
+    await showCurrent($, forms);
+}
+async function openAsk($, form) {
+  await openForm($, form).catch(() => {
+    return;
+  });
+}
+async function settlePlugin($, form, outcome) {
+  if (!asked.has(form.id))
+    return;
+  const value = outcome.status === "answered" ? outcome.answers[PLUGIN_QUESTION] : undefined;
+  await (typeof value === "string" ? endAsk($, form.id, { value }) : endAsk($, form.id, { closed: true }, CLOSED));
+}
+async function closeOrphans($) {
+  const isOrphan = (f) => f.source === "plugin" && f.status === "open" && !asked.has(f.id);
+  if (!(await readForms($)).some(isOrphan))
+    return;
+  const forms = await writeForms($, (list) => list.map((f) => isOrphan(f) ? { ...f, status: "cancelled", note: CLOSED } : f));
+  if (openCount(forms) === 0)
+    await $.ui.close({ id: PANE });
+  $.ui.invalidate("ui.render");
 }
 async function openForm($, form, supersededId) {
   await writeForms($, (list) => addForm(list, form, supersededId));
@@ -1212,9 +1502,18 @@ async function turnOn($) {
 }
 function register(on) {
   registerPaneRedraw(on);
+  on("engine.create", async ($, e, next) => {
+    const built = await next(e);
+    return { ...built, gateForm: { ask: async () => ({ id: "" }), wait: async () => ({ closed: true }) } };
+  });
+  on("gateForm.ask", ($, e) => askPlugin($, e));
+  on("gateForm.wait", ($, e) => waitAsk($, e.id).then((value) => ({ value })));
   on("session.start", async ($, e, next) => {
     setting.reading = readSetting($);
     setting.reading.then(() => setting.isOn ? turnOn($) : undefined).catch(() => {
+      return;
+    });
+    await closeOrphans($).catch(() => {
       return;
     });
     return next(e);
@@ -1298,6 +1597,18 @@ function register(on) {
     const rows = Math.max(8, body - 3);
     const focused = e.props.isFocused || await read($, keysAtom);
     const height = Math.max(1, form.status === "open" ? body : body - 2);
+    if (form.confirm && form.status === "open") {
+      const answers = (form.questions[0]?.options ?? []).map((option) => ({ label: option.label, onPress: () => void settle($, form.id, { status: "answered", answers: { [PLUGIN_QUESTION]: option.value } }) }));
+      return /* @__PURE__ */ h(Box, {
+        flexDirection: "column",
+        paddingX: 1,
+        gap: 1
+      }, /* @__PURE__ */ h(Client, {
+        key: `form-${form.id}`,
+        module: "./form.js",
+        props: { form: fitForm(form, FORM_BUDGET), rows, cols: (e.props.bodyColumns ?? 60) - 2, focused, wheel: wheelTotal(PANE) }
+      }), hotkeyChoices(els, { key: `confirm-${form.id}`, choices: answers, focused: e.props.isFocused === true }));
+    }
     return /* @__PURE__ */ h(Box, {
       flexDirection: "column",
       paddingX: 1,

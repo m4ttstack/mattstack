@@ -267,7 +267,9 @@ function ActionMenu({
           }}
         />
         <div className="tui-menu-note-hint">
-          ↵ launch with note · ⇧↵ newline · esc back
+          <span>↵ launch with note</span>
+          <span>⇧↵ newline</span>
+          <span>esc back</span>
         </div>
       </ContextMenu>
     );

@@ -636,7 +636,10 @@ test('a wait-style gate reads its context and pane from meta', async () => {
     card.querySelector('.tui-sheet-context-reasoning')?.textContent?.trim()
   ).toBe('I need an interactive login at http://localhost:4001.');
   expect(card.querySelector('.tui-sheet-context-meta')?.textContent).toContain(
-    'aspen · w4:pC'
+    'aspen w4:pC'
+  );
+  expect(card.querySelectorAll('.tui-sheet-context-meta .tui-sep').length).toBe(
+    3
   );
   const focus = $$('.tui-gate-sheet-actions button').find(
     b => b.textContent?.trim() === 'focus pane'

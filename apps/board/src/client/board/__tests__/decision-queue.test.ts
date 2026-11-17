@@ -40,7 +40,7 @@ test('view maps order to states and 1-based position', () => {
   const v = queueView(session({ answered: ['g1'], activeId: 'g2' }), entries);
   expect(v.states).toEqual(['done', 'active', 'todo']);
   expect(v.position).toBe(2);
-  expect(v.nextPeek).toBe('!3 · fix the thing');
+  expect(v.nextPeek).toBe('!3 • fix the thing');
 });
 
 test('advance skips answered gates, never wraps backwards', () => {
@@ -188,7 +188,7 @@ test('advanceOrWrap completes only once every gate is retired', () => {
 
 test('nextPeek names the successor in order, and nothing on the last gate', () => {
   const middle = session({ answered: ['g3'], activeId: 'g2' });
-  expect(queueView(middle, entries).nextPeek).toBe('!3 · fix the thing');
+  expect(queueView(middle, entries).nextPeek).toBe('!3 • fix the thing');
   const last = session({ answered: ['g1', 'g2'], activeId: 'g3' });
   expect(queueView(last, entries).nextPeek).toBeUndefined();
 });
@@ -308,7 +308,7 @@ test('the recap takes each answered gate from the latest rows, else the entry th
 
 test('entryPeek names an MR gate by iid and title, a non-MR gate by its label', () => {
   expect(entryPeek(entry('g1', 7, 'tidy the cache'))).toBe(
-    '!7 · tidy the cache'
+    '!7 • tidy the cache'
   );
   expect(
     entryPeek({
@@ -333,23 +333,23 @@ test('bannerCopy counts the queue and names the gate that opens first', () => {
   };
   expect(bannerCopy([first, entry('g2', 2), entry('g3', 3)], now)).toEqual({
     title: '3 decisions are waiting on you',
-    detail: 'Next: !1374 · attribute panel summaries · waiting 2h',
+    detail: 'Next: !1374 • attribute panel summaries • waiting 2h',
   });
   expect(bannerCopy([first], now)).toEqual({
     title: '1 decision is waiting on you',
-    detail: '!1374 · attribute panel summaries · waiting 2h',
+    detail: '!1374 • attribute panel summaries • waiting 2h',
   });
 });
 
 test('bannerCopy leaves out the wait when openedAt is missing, and says just opened under a minute', () => {
   const now = Date.parse('2026-10-21T12:00:00Z');
-  expect(bannerCopy([entry('g1', 1)], now).detail).toBe('!1 · fix the thing');
+  expect(bannerCopy([entry('g1', 1)], now).detail).toBe('!1 • fix the thing');
   const fresh: QueueEntry = {
     gate: { gateId: 'g1', status: 'open', openedAt: now - 20_000 } as GateRow,
     mr: { iid: 1, title: 'fix the thing' } as BoardMRWithReview,
   };
   expect(bannerCopy([fresh], now).detail).toBe(
-    '!1 · fix the thing · just opened'
+    '!1 • fix the thing • just opened'
   );
 });
 
@@ -363,11 +363,11 @@ test('a GitHub entry is named #N in the peek and the banner, a GitLab one keeps 
       provider: 'github',
     } as BoardMRWithReview,
   };
-  expect(entryPeek(pr)).toBe('#4103 · export the usage table as CSV');
+  expect(entryPeek(pr)).toBe('#4103 • export the usage table as CSV');
   expect(bannerCopy([pr], 0).detail).toBe(
-    '#4103 · export the usage table as CSV'
+    '#4103 • export the usage table as CSV'
   );
   expect(entryPeek(entry('g1', 7, 'tidy the cache'))).toBe(
-    '!7 · tidy the cache'
+    '!7 • tidy the cache'
   );
 });

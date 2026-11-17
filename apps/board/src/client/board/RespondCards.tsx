@@ -10,6 +10,7 @@ import type {
 } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import type { PostPick } from './respond-post.ts';
+import { Sep } from './Sep.tsx';
 
 const SEVERITY: Record<
   Severity,
@@ -96,7 +97,10 @@ function ThreadCard({
           {CALL_TEXT[verdict.call]}
         </span>
         {verdict.note && (
-          <span className="tui-thread-verdict-note">· {verdict.note}</span>
+          <span className="tui-thread-verdict-tail">
+            <Sep />
+            <span className="tui-thread-verdict-note">{verdict.note}</span>
+          </span>
         )}
       </div>
       {reply.kind === 'verbatim' && (
@@ -145,7 +149,9 @@ function ThreadOutcome({
         data-hue={OUTCOME_HUE.reply}
         data-outcome="reply-with-step"
       >
-        reply · posts with this step
+        reply
+        <Sep />
+        posts with this step
       </span>
     );
   const heldBack = held && verb !== 'skip';
@@ -186,7 +192,8 @@ function ReplyChoiceBody({
         >
           {entry.verb === 'fix' && entry.sha ? (
             <>
-              {'fix · '}
+              fix
+              <Sep />
               <span className="tui-respond-pill-sha">{entry.sha}</span>
             </>
           ) : (

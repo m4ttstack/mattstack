@@ -300,7 +300,7 @@ test('the state pill carries the merge blockers in its tooltip', async () => {
   ]);
   const pill = container.querySelector('.tui-phrase')!;
   expect(pill.getAttribute('title')).toBe(
-    'blocked:\n· merge conflicts with target branch\n· awaiting approvals (0/1)'
+    'blocked:\n• merge conflicts with target branch\n• awaiting approvals (0/1)'
   );
   await render([mr()]);
   expect(container.querySelector('.tui-phrase')!.getAttribute('title')).toBe(

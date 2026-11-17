@@ -958,6 +958,47 @@ describe("branchSyncPreflight", () => {
     const r = await branchSyncPreflight("/t", fakeGit({ ...base, [COUNT]: { stdout: "0\t1\n" }, [GIT_PATHS]: { code: 128, stderr: "fatal: not a git repository" } }), () => false);
     expect(r.ok).toBe(false);
   });
+  describe("the preflight fetch", () => {
+    const AUTH_DENIED = { code: 128, stderr: "fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled" };
+    const HELPER = { GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_1: "credential.https://gitlab.com.helper", GIT_CONFIG_VALUE_1: "!rt git credential" };
+    const auth = async () => ({ env: HELPER, remote: "https://gitlab.com/acme/app.git", host: "gitlab.com" });
+    /** fakeGit, but each `fetch origin` answers the next outcome in turn, and records the env it ran under. */
+    function fetchesInTurn(outcomes: Array<{ code?: number; stderr?: string }>, envs: Array<Record<string, string> | undefined>): GitRunner {
+      const rest = fakeGit({ ...base, [COUNT]: { stdout: "0\t1\n" } });
+      return async (args, cwd, env) => {
+        if (args.join(" ") !== "fetch origin") return rest(args, cwd);
+        envs.push(env);
+        const hit = outcomes.shift() ?? { code: 1, stderr: "fetched too often" };
+        return { code: hit.code ?? 0, stdout: "", stderr: hit.stderr ?? "" };
+      };
+    }
+
+    test("an auth failure is retried once through rt's credential helper", async () => {
+      const envs: Array<Record<string, string> | undefined> = [];
+      const r = await branchSyncPreflight("/t", fetchesInTurn([AUTH_DENIED, {}], envs), () => false, auth);
+      expect(r).toEqual({ ok: true, diverged: false });
+      expect(envs).toEqual([undefined, HELPER]);
+    });
+    test("a retry that also fails refuses with its own words and is not retried again", async () => {
+      const envs: Array<Record<string, string> | undefined> = [];
+      const r = await branchSyncPreflight("/t", fetchesInTurn([AUTH_DENIED, { code: 128, stderr: "fatal: Authentication failed for 'https://gitlab.com/acme/app.git/'" }], envs), () => false, auth);
+      expect(r.ok).toBe(false);
+      expect((r as { error: string }).error).toContain("Authentication failed");
+      expect(envs).toHaveLength(2);
+    });
+    test("a failure that is not about auth is not retried", async () => {
+      const envs: Array<Record<string, string> | undefined> = [];
+      const r = await branchSyncPreflight("/t", fetchesInTurn([{ code: 128, stderr: "fatal: unable to access: Could not resolve host" }], envs), () => false, auth);
+      expect(r.ok).toBe(false);
+      expect(envs).toEqual([undefined]);
+    });
+    test("with nothing for rt to offer, the first failure stands", async () => {
+      const envs: Array<Record<string, string> | undefined> = [];
+      const r = await branchSyncPreflight("/t", fetchesInTurn([AUTH_DENIED], envs), () => false, async () => null);
+      expect((r as { error: string }).error).toContain("terminal prompts disabled");
+      expect(envs).toEqual([undefined]);
+    });
+  });
   test("main, master and the remote default branch refuse before any fetch (rt sync would force-push them)", async () => {
     for (const branch of ["main", "master", "develop"]) {
       const calls: string[] = [];
