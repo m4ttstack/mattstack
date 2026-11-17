@@ -3,6 +3,7 @@ import { cpSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createRealProbes } from "../../setup/probes.ts";
 import { renderHuskPacks, renderTally } from "../render-packs.ts";
+import { resolvePluginRootsFromDir } from "../sources.ts";
 import { renderWorld, writeFile } from "./render-world.ts";
 
 const made: string[] = [];
@@ -18,13 +19,16 @@ function world() {
   writeFile(join(gadgets, "plugin", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "gadgets", version: "2.0.0" }));
   writeFile(join(gadgets, "plugin", "pack", "skills.jsonc"), "{}");
   const p = { ...createRealProbes(), home: w.home };
-  return { ...w, p };
+  const roots = async () => resolvePluginRootsFromDir(w.mattstackDir);
+  return { ...w, p, roots };
 }
+
+const registry = (installPath: string) => JSON.stringify({ version: 2, plugins: { "mattstack@mattstack": [{ scope: "user", installPath, version: "1.0.0" }] } });
 
 describe("renderHuskPacks", () => {
   test("renders only husk packs", async () => {
     const w = world();
-    const results = await renderHuskPacks(w.p, { mattstackDir: w.mattstackDir });
+    const results = await renderHuskPacks(w.p, { roots: w.roots });
     expect(results).toEqual([{ pack: "widgets", ok: true, detail: "rendered acme 0.1.0 for mattstack 1.0.0" }]);
     expect(existsSync(join(w.root, "acme", "acme", "0.1.0", "1.0.0", "skills", "work", "SKILL.md"))).toBe(true);
     expect(readdirSync(join(w.root, "acme"))).toEqual(["acme"]);
@@ -32,14 +36,14 @@ describe("renderHuskPacks", () => {
 
   test("an unchanged pack costs one hash and no render", async () => {
     const w = world();
-    await renderHuskPacks(w.p, { mattstackDir: w.mattstackDir });
-    expect(await renderHuskPacks(w.p, { mattstackDir: w.mattstackDir })).toEqual([{ pack: "widgets", ok: true, detail: "acme 0.1.0 is up to date" }]);
+    await renderHuskPacks(w.p, { roots: w.roots });
+    expect(await renderHuskPacks(w.p, { roots: w.roots })).toEqual([{ pack: "widgets", ok: true, detail: "acme 0.1.0 is up to date" }]);
   });
 
   test("a failure is reported, never thrown", async () => {
     const w = world();
     writeFile(join(w.packDir, "pack", "skills.jsonc"), JSON.stringify({ husks: true, bindings: { "mattstack:stage-plan": { rules: "acme:nope" } } }));
-    const results = await renderHuskPacks(w.p, { mattstackDir: w.mattstackDir });
+    const results = await renderHuskPacks(w.p, { roots: w.roots });
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ pack: "widgets", ok: false });
     expect(results[0]!.detail).toContain("cannot be filled");
@@ -47,18 +51,34 @@ describe("renderHuskPacks", () => {
 
   test("an org the Mac has no clone of renders nothing", async () => {
     const w = world();
-    expect(await renderHuskPacks(w.p, { org: "other", mattstackDir: w.mattstackDir })).toEqual([]);
+    expect(await renderHuskPacks(w.p, { org: "other", roots: w.roots })).toEqual([]);
   });
 
   test("a missing mattstack is reported for each husk pack", async () => {
     const w = world();
-    expect(await renderHuskPacks(w.p, { mattstackDir: join(w.home, "nowhere") })).toEqual([{ pack: "widgets", ok: false, detail: "mattstack isn't installed on this Mac" }]);
+    writeFile(join(w.home, ".claude", "plugins", "installed_plugins.json"), registry(join(w.home, "nowhere")));
+    expect(await renderHuskPacks(w.p, { roots: w.roots })).toEqual([{ pack: "widgets", ok: false, detail: "mattstack isn't installed on this Mac" }]);
+  });
+
+  test("the plugin list is the caller's, and a listing that fails is reported for each husk pack", async () => {
+    const w = world();
+    const results = await renderHuskPacks(w.p, { roots: async () => { throw new Error("claude plugin list did not answer within 60 s"); } });
+    expect(results).toEqual([{ pack: "widgets", ok: false, detail: "Claude Code's plugin list could not be read: claude plugin list did not answer within 60 s" }]);
+  });
+
+  test("the mattstack the registry names is the one rendered with, whatever the listing says", async () => {
+    const w = world();
+    const stale = join(w.home, "stale", "plugins", "mattstack");
+    cpSync(join(w.mattstackDir, "plugins", "mattstack"), stale, { recursive: true });
+    writeFile(join(stale, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version: "0.9.0" }));
+    const roots = async () => resolvePluginRootsFromDir(join(w.home, "stale"));
+    expect(await renderHuskPacks(w.p, { roots })).toEqual([{ pack: "widgets", ok: true, detail: "rendered acme 0.1.0 for mattstack 1.0.0" }]);
   });
 
   test("an org clone that cannot be read is reported, never thrown", async () => {
     const w = world();
     writeFile(join(w.orgDir, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme", layout: 999 }));
-    const results = await renderHuskPacks(w.p, { mattstackDir: w.mattstackDir });
+    const results = await renderHuskPacks(w.p, { roots: w.roots });
     expect(results).toHaveLength(1);
     expect(results[0]!.ok).toBe(false);
   });

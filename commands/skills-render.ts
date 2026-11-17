@@ -5,7 +5,8 @@ import { UserActionableError } from "../lib/errors.ts";
 import { rtVersion } from "../lib/setup/update.ts";
 import { readZones, zonePackDir, type ZoneInfo } from "../lib/skills/init.ts";
 import { compareVersions } from "../lib/skills/installed-plugins.ts";
-import { ensureTree, renderRoot } from "../lib/skills/render-cache.ts";
+import { ensureTree, renderRoot, withEngine } from "../lib/skills/render-cache.ts";
+import { activeMattstack, parseStamp, pickRenderTree, STAMP_FILE, type RenderStamp } from "../lib/skills/render-paths.ts";
 import { realResolveFs, versionOfDir } from "../lib/skills/resolve.ts";
 import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
 import { MAP_FILE } from "../lib/skills/unit-maps.ts";
@@ -15,7 +16,10 @@ import * as out from "../lib/ui/out.ts";
 const USAGE = "rt skills render <plugin>:<unit> --dir <skill dir> [--file <path>] --json";
 const SETUP = "rt setup";
 const VALUE_FLAGS = ["--dir", "--file", "--mattstack-dir"];
-const ID_RE =/^([a-z0-9][a-z0-9-]*):([a-z0-9][a-z0-9-]*)$/;
+/** `<plugin>:<unit>`, or the older `<plugin>@<version>:<unit>`. */
+const ID_RE = /^([a-z0-9][a-z0-9-]*)(?:@(\d+(?:\.\d+)*))?:([a-z0-9][a-z0-9-]*)$/;
+
+const versionless = (id: string) => id.replace(/@[^:]*:/, ":");
 
 function flag(args: string[], name: string): string | undefined {
   const at = args.indexOf(name);
@@ -39,9 +43,11 @@ function pluginName(packDir: string): string | null {
 function unitFolder(tree: string, id: string, unit: string): string | null {
   const groups = existsSync(join(tree, "attachments")) ? readdirSync(join(tree, "attachments")) : [];
   const candidates = [join(tree, "skills", unit), join(tree, "attachments", unit), ...groups.map((g) => join(tree, "attachments", g, unit))].filter((c) => existsSync(join(c, "SKILL.md")));
+  // A map may carry the older versioned id, and so may the id asked for.
   const claims = (folder: string) => {
     try {
-      return (JSON.parse(readFileSync(join(folder, MAP_FILE), "utf8")) as { id?: unknown }).id === id;
+      const mapId = (JSON.parse(readFileSync(join(folder, MAP_FILE), "utf8")) as { id?: unknown }).id;
+      return typeof mapId === "string" && versionless(mapId) === versionless(id);
     } catch {
       return false;
     }
@@ -56,17 +62,17 @@ export async function skillsRender(args: string[]): Promise<void> {
   const dir = flag(args, "--dir");
   const match = id ? ID_RE.exec(id) : null;
   if (!id || !match || !dir) throw fail("usage", "Name the skill as <plugin>:<unit> and pass its own folder with --dir.", { next: USAGE });
-  const [, plugin, unit] = match as unknown as [string, string, string];
+  const [, plugin, stamped, unit] = match as unknown as [string, string, string | undefined, string];
   const file = flag(args, "--file") ?? "SKILL.md";
   const mattstackDir = flag(args, "--mattstack-dir");
   const home = process.env.HOME || homedir();
   const probes = createRealProbes();
 
-  const packVersion = versionOfDir(id, plugin, dir, { fs: realResolveFs, home });
+  const packVersion = stamped ?? versionOfDir(id, plugin, dir, { fs: realResolveFs, home });
   if (packVersion === null) throw fail("render-bad-dir", `${dir} isn't inside an installed copy of ${plugin}.`, { next: USAGE });
   const zone: ZoneInfo | undefined = readZones(probes, home).find((z) => pluginName(zonePackDir(z)) === plugin);
   if (!zone) throw fail("render-no-pack", `No org clone on this Mac carries the ${plugin} pack.`, { next: SETUP });
-  const engine = (mattstackDir ? resolvePluginRootsFromDir(mattstackDir) : resolvePluginRoots()).byName.mattstack;
+  const engine = mattstackDir ? resolvePluginRootsFromDir(mattstackDir).byName.mattstack : activeMattstack(probes, home);
   if (!engine) throw fail("render-no-mattstack", "mattstack isn't installed on this Mac.", { next: SETUP });
 
   const result = await ensureTree({
@@ -77,17 +83,22 @@ export async function skillsRender(args: string[]): Promise<void> {
     mattstack: engine.version,
     rtBuild: rtVersion(),
     deps: { fs: probes, mattstackRoot: join(home, ".mattstack"), enginePackDir: engine.dir },
-    mattstackDir,
+    ...(mattstackDir ? { mattstackDir } : { pluginRoots: withEngine(resolvePluginRoots(), engine) }),
   });
-  if (!result.ok) {
-    if (result.reason === "missing") throw fail("render-missing", `${plugin} ${packVersion} isn't rendered on this Mac.`, { next: SETUP, log: result.message });
-    if (result.builtWith !== undefined && compareVersions(result.builtWith, engine.version) > 0) {
+  let tree: { dir: string; stamp: RenderStamp };
+  if (result.ok) tree = result;
+  else {
+    // The clone has moved past the installed version, so nothing can render it; any tree a reader would pick still serves.
+    const picked = result.reason === "missing" ? pickRenderTree(probes, renderRoot(home), plugin, packVersion, engine.version) : null;
+    const stamp = picked === null ? null : parseStamp(probes.readFile(join(picked, STAMP_FILE)));
+    if (picked !== null && stamp !== null) tree = { dir: picked, stamp };
+    else if (result.reason === "missing") throw fail("render-missing", `${plugin} ${packVersion} isn't rendered on this Mac.`, { next: SETUP, log: result.message });
+    else if (result.builtWith !== undefined && compareVersions(result.builtWith, engine.version) > 0) {
       throw fail("render-engine-old", `${plugin} was built with mattstack ${result.builtWith}; this Mac has ${engine.version}.`, { next: SETUP, log: result.message });
-    }
-    throw fail("render-failed", `${plugin} ${packVersion} didn't render on this Mac.`, { log: result.message });
+    } else throw fail("render-failed", `${plugin} ${packVersion} didn't render on this Mac.`, { log: result.message });
   }
 
-  const folder = unitFolder(result.dir, id, unit);
+  const folder = unitFolder(tree.dir, id, unit);
   if (!folder) throw fail("render-no-unit", `${id} isn't in the rendered ${plugin} ${packVersion}.`);
   const path = join(folder, file);
   if (posix.isAbsolute(file) || !posix.normalize(path).startsWith(`${folder}/`) || !existsSync(path)) {
@@ -95,7 +106,7 @@ export async function skillsRender(args: string[]): Promise<void> {
   }
   const body = readFileSync(path, "utf8");
   if (json) {
-    out.json({ ok: true, id, packVersion, mattstack: result.stamp.mattstack, rtBuild: result.stamp.rtBuild, treeDir: result.dir, path, body });
+    out.json({ ok: true, id, packVersion, mattstack: tree.stamp.mattstack, rtBuild: tree.stamp.rtBuild, treeDir: tree.dir, path, body });
     return;
   }
   out.payload(body);

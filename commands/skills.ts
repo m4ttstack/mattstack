@@ -239,6 +239,8 @@ type Flags = {
   manifestText?: string;
   /** The repo key a render's bindings belong to, which no file path carries. */
   repoKey?: string;
+  /** A render's plugin roots, listed by its caller; with them, `claude plugin list` is not run. */
+  pluginRoots?: PluginRoots;
 };
 
 function parseFlags(args: string[]): Flags {
@@ -671,7 +673,9 @@ async function resolve(flags: Flags): Promise<Resolved> {
   // even where the Claude CLI is absent.
   const pluginRoots: PluginRoots = fullRoster.length === 0
     ? { byName: {}, list: [] }
-    : flags.mattstackDir
+    : flags.pluginRoots
+      ? { ...flags.pluginRoots, byName: { ...flags.pluginRoots.byName } }
+      : flags.mattstackDir
       ? resolvePluginRootsFromDir(mattstackRoot)
       : resolvePluginRoots();
   // The pack being compiled is the plugin its own fills are bound as. The installed
@@ -1710,11 +1714,12 @@ export async function skillsCompile(args: string[]): Promise<void> {
  * maps) under `outRoot` instead, at the same relative paths. The pack itself
  * is never written. `mattstack` is the engine version the compile used.
  */
-export async function renderPackInto(opts: { packDir: string; manifestText: string; repoKey: string; outRoot: string; mattstackDir?: string }): Promise<{ ok: true; mattstack: string } | { ok: false; errors: string[] }> {
+export async function renderPackInto(opts: { packDir: string; manifestText: string; repoKey: string; outRoot: string; mattstackDir?: string; pluginRoots?: PluginRoots }): Promise<{ ok: true; mattstack: string } | { ok: false; errors: string[] }> {
   const flags: Flags = {
     ...parseFlags(["--pack-dir", opts.packDir, ...(opts.mattstackDir ? ["--mattstack-dir", opts.mattstackDir] : [])]),
     manifestText: opts.manifestText,
     repoKey: opts.repoKey,
+    ...(opts.pluginRoots ? { pluginRoots: opts.pluginRoots } : {}),
   };
   try {
     const resolved = await resolve(flags);

@@ -16,7 +16,8 @@ import { findPlaceholders } from "./placeholders.ts";
 import { firstTeamMarker } from "./team-params.ts";
 import { layeredFromManifest } from "./manifest-merge.ts";
 import { fillsDiffer, normalizePipelines, pipelineNameError, stageCopyName, type BindingsMap, type LayeredBindings } from "./pipelines.ts";
-import { cachedPluginList, claudeConfigDir, livePluginListCacheDeps, pluginListCacheFile, pluginListInputs } from "./plugin-list-cache.ts";
+import { cachedPluginList, cachedPluginListAsync, claudeConfigDir, livePluginListCacheDeps, pluginListCacheFile, pluginListInputs } from "./plugin-list-cache.ts";
+import { childEnv } from "../subprocess.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import type { AttachmentSource, StepSource, VerbDef } from "./types.ts";
 
@@ -187,6 +188,38 @@ export function resolvePluginRoots(): PluginRoots {
     livePluginListCacheDeps(() => listInstalledPlugins()),
   );
   return buildPluginRoots(list);
+}
+
+/**
+ * resolvePluginRoots for the daemon: the spawn runs off the event loop and
+ * is killed at `timeoutMs`, so a hung `claude` costs one rejected call
+ * instead of a frozen daemon.
+ */
+export async function resolvePluginRootsAsync(opts: { timeoutMs: number; bin?: string }): Promise<PluginRoots> {
+  const bin = opts.bin ?? resolveClaudeBin() ?? "claude";
+  const list = await cachedPluginListAsync(pluginListCacheFile(), pluginListInputs(claudeConfigDir(), process.cwd(), bin), {
+    ...livePluginListCacheDeps(() => []),
+    list: () => listInstalledPluginsAsync(bin, opts.timeoutMs),
+  });
+  return buildPluginRoots(list);
+}
+
+async function listInstalledPluginsAsync(bin: string, timeoutMs: number): Promise<PluginListEntry[]> {
+  const child = Bun.spawn([bin, "plugin", "list", "--json"], { stdout: "pipe", stderr: "ignore", env: childEnv() });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`claude plugin list did not answer within ${Math.round(timeoutMs / 1000)} s`));
+    }, timeoutMs);
+  });
+  try {
+    const [text, code] = await Promise.race([Promise.all([new Response(child.stdout).text(), child.exited]), timedOut]);
+    if (code !== 0) throw new Error(`claude plugin list exited ${code}`);
+    return JSON.parse(text) as PluginListEntry[];
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

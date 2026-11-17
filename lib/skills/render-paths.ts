@@ -48,10 +48,40 @@ export function isHuskPack(readFile: (p: string) => string | null, packDir: stri
   }
 }
 
-/** The mattstack version installed in the plugin cache, or null without one. */
-export function installedMattstack(fs: TreeFs, home: string): string | null {
+type RegistryFs = TreeFs & { readFile(p: string): string | null };
+
+function manifestVersion(fs: RegistryFs, dir: string): string | null {
+  try {
+    const version = (JSON.parse(fs.readFile(join(dir, ".claude-plugin", "plugin.json")) ?? "null") as { version?: unknown } | null)?.version;
+    return typeof version === "string" ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The mattstack plugin Claude Code loads, from its install registry
+ * (`installed_plugins.json`), the user install first: renders, the resolver
+ * and run provenance all name the installed mattstack through this, so they
+ * agree on which tree is current. Without a registry entry, the newest
+ * version folder in the plugin cache.
+ */
+export function activeMattstack(fs: RegistryFs, home: string): { dir: string; version: string } | null {
+  try {
+    const parsed = JSON.parse(fs.readFile(join(home, ".claude", "plugins", "installed_plugins.json")) ?? "null") as { plugins?: Record<string, unknown> } | null;
+    const raw = parsed?.plugins?.[ENGINE_PACK_REF];
+    const entries = (Array.isArray(raw) ? raw : []).filter((e): e is { installPath: string; scope?: unknown } => typeof e?.installPath === "string" && fs.exists(e.installPath));
+    const entry = entries.find((e) => e.scope === "user") ?? entries[0];
+    if (entry) {
+      const version = manifestVersion(fs, entry.installPath);
+      if (version !== null) return { dir: entry.installPath, version };
+    }
+  } catch {
+    // an unreadable registry falls back to the cache folders
+  }
   const dir = findInstalledPluginDir(fs, home, ENGINE_PACK_REF);
-  return dir === null ? null : dir.slice(dir.lastIndexOf("/") + 1);
+  if (dir === null) return null;
+  return { dir, version: manifestVersion(fs, dir) ?? dir.slice(dir.lastIndexOf("/") + 1) };
 }
 
 /**

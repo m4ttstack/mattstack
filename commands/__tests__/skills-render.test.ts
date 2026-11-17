@@ -81,6 +81,37 @@ describe("rt skills render", () => {
     expect(err.extra.next).toBe("rt setup");
   });
 
+  test("clone ahead: the installed version's tree for this mattstack serves", async () => {
+    const w = setup();
+    await render(w, "acme:work", "skills/work");
+    setPackVersion(w.packDir, "0.1.1");
+    const env = await render(w, "acme:work", "skills/work");
+    expect(env).toMatchObject({ packVersion: "0.1.0", mattstack: "1.0.0", treeDir: join(w.root, "acme", "acme", "0.1.0", "1.0.0") });
+  });
+
+  test("clone ahead: a tree rendered with an older mattstack still serves", async () => {
+    const w = setup();
+    await render(w, "acme:work", "skills/work");
+    setPackVersion(w.packDir, "0.1.1");
+    writeFile(join(w.mattstackDir, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version: "1.1.0" }));
+    const env = await render(w, "acme:work", "skills/work");
+    expect(env).toMatchObject({ packVersion: "0.1.0", mattstack: "1.0.0", treeDir: join(w.root, "acme", "acme", "0.1.0", "1.0.0") });
+    expect(env.body).toContain("<!-- part: block:work source=mattstack:work");
+  });
+
+  test("a versioned id and a versioned map id find the unit, not the first folder of that name", async () => {
+    const w = setup();
+    const first = await render(w, "acme:stage-plan", "attachments/stage-plan");
+    const tree = first.treeDir as string;
+    writeFile(join(tree, "skills", "stage-plan", "SKILL.md"), "decoy\n");
+    writeFile(join(tree, "skills", "stage-plan", "compiled.json"), JSON.stringify({ id: "acme:other", dir: "skills/stage-plan", covers: [], keys: {} }));
+    const map = join(tree, "attachments", "stage-plan", "compiled.json");
+    writeFile(map, readFileSync(map, "utf8").replace('"id": "acme:stage-plan"', '"id": "acme@0.1.0:stage-plan"'));
+    const env = await render(w, "acme@0.1.0:stage-plan", "attachments/stage-plan");
+    expect(env.path).toBe(join(tree, "attachments", "stage-plan", "SKILL.md"));
+    expect(env.packVersion).toBe("0.1.0");
+  });
+
   test("names builtWith when the engine is older", async () => {
     const w = setup();
     writeFile(join(w.packDir, LOCK_REL), serializeLock({ targets: {}, bases: {}, mattstackSha: {}, mattstackDirty: {}, builtWith: "1.2.0" }));

@@ -414,6 +414,18 @@ describe("resolvePointers: husk packs", () => {
     expect(r.keys["stage-x/parts/d/y.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/../../skills/stage-x/parts/d/y.sh`);
   });
 
+  test("the installed mattstack is the one Claude Code's registry names, not the newest cache folder", () => {
+    const active = `${CACHE}/mattstack/mattstack/0.32.76`;
+    const fs = fakeFs(husk({
+      ...tree("0.32.76"),
+      ...tree("0.32.80"),
+      [`${active}/.claude-plugin/plugin.json`]: JSON.stringify({ version: "0.32.76" }),
+      [`${CACHE}/mattstack/mattstack/0.32.80/.claude-plugin/plugin.json`]: JSON.stringify({ version: "0.32.80" }),
+      [`${HOME}/.claude/plugins/installed_plugins.json`]: JSON.stringify({ version: 2, plugins: { "mattstack@mattstack": [{ scope: "user", installPath: active, version: "0.32.76" }] } }),
+    }));
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).folder).toBe(`${RENDERED}/0.32.76/skills/work`);
+  });
+
   test("without the installed mattstack's tree, the newest tree serves", () => {
     const fs = fakeFs(husk({ ...tree("0.32.70"), ...tree("0.32.80"), [`${RENDERED}/0.32.90.tmp-1-ab/render.json`]: "{}" }));
     expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).folder).toBe(`${RENDERED}/0.32.80/skills/work`);

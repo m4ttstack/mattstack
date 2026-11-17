@@ -48,6 +48,10 @@ export function renderWorld(made: string[], opts: { husks?: boolean } = {}) {
   writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ ...(opts.husks ? { husks: true } : {}), ...manifest }));
   const installed = join(home, ".claude", "plugins", "cache", "acme-market", "acme", "0.1.0");
   cpSync(packDir, installed, { recursive: true });
+  writeFile(join(home, ".claude", "plugins", "installed_plugins.json"), JSON.stringify({
+    version: 2,
+    plugins: { "mattstack@mattstack": [{ scope: "user", installPath: join(mattstackDir, "plugins", "mattstack"), version: "1.0.0" }] },
+  }));
   const root = join(mattstackRoot, "rt", "rendered");
   return { home, mattstackRoot, mattstackDir, orgDir, packDir, installed, root };
 }

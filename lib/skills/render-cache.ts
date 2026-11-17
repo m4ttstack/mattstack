@@ -8,6 +8,7 @@ import { compareVersions } from "./installed-plugins.ts";
 import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { teamBindings, type MaterializeDeps } from "./materialize.ts";
 import { inputHash } from "./render.ts";
+import type { PluginRoots } from "./sources.ts";
 import { IN_FLIGHT_RE, parseStamp, STAMP_FILE, treeDir, type RenderStamp } from "./render-paths.ts";
 
 export { renderRoot, treeDir, type RenderStamp } from "./render-paths.ts";
@@ -67,6 +68,8 @@ export async function ensureTree(opts: {
   deps: MaterializeDeps;
   /** Renders against `<dir>/plugins/<name>` instead of the installed plugins. */
   mattstackDir?: string;
+  /** Plugin roots the caller listed, so the render runs no `claude plugin list` of its own. */
+  pluginRoots?: PluginRoots;
 }): Promise<EnsureResult> {
   const packDir = zonePackDir(opts.zone);
   const manifest = readJson(join(packDir, ".claude-plugin", "plugin.json"));
@@ -100,7 +103,7 @@ export async function ensureTree(opts: {
   let old: string | null = null;
   mkdirSync(tmp, { recursive: true });
   try {
-    const result = await renderPackInto({ packDir, manifestText: bindings.text, repoKey: bindings.repoKey, outRoot: tmp, mattstackDir: opts.mattstackDir });
+    const result = await renderPackInto({ packDir, manifestText: bindings.text, repoKey: bindings.repoKey, outRoot: tmp, mattstackDir: opts.mattstackDir, pluginRoots: opts.pluginRoots });
     if (!result.ok) return failed(result.errors.join("\n"));
     if (result.mattstack !== opts.mattstack) return failed(`rendered with mattstack ${result.mattstack}, but mattstack ${opts.mattstack} is installed`);
     writeFileSync(join(tmp, STAMP_FILE), JSON.stringify(stamp, null, 2) + "\n");
@@ -152,4 +155,9 @@ export function pruneTrees(root: string, org: string, plugin: string, keep: { in
       if (!keepMattstack.has(mattstack)) rmSync(join(versionDir, mattstack), { recursive: true, force: true });
     }
   }
+}
+
+/** The roots a render compiles with, their mattstack set to the one activeMattstack names. */
+export function withEngine(roots: PluginRoots, engine: { dir: string; version: string }): PluginRoots {
+  return { ...roots, byName: { ...roots.byName, mattstack: { dir: engine.dir, version: engine.version } } };
 }

@@ -3,7 +3,7 @@ import { posix } from "path";
 import { UserActionableError } from "../errors.ts";
 import { compareVersions, findPluginVersionDirs, type PluginFs } from "./installed-plugins.ts";
 import { ID_RE, spellFrom, type PointerMap, type Target } from "./pointers.ts";
-import { installedMattstack, isHuskPack, pickRenderTree, renderRoot } from "./render-paths.ts";
+import { activeMattstack, isHuskPack, pickRenderTree, renderRoot } from "./render-paths.ts";
 import { isIdSafeVersion, MAP_FILE } from "./unit-maps.ts";
 
 /** `realPath` is null for a path that does not exist. */
@@ -175,7 +175,7 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
   const owner = ownerWhy(plugin);
   const reads = unitReads(fs, root, unit);
   if (!reads.some(({ read }) => "map" in read) && isHuskPack(fs.readFile, root)) {
-    const tree = pickRenderTree(fs, renderRoot(home), plugin, version, installedMattstack(fs, home));
+    const tree = pickRenderTree(fs, renderRoot(home), plugin, version, activeMattstack(fs, home)?.version ?? null);
     if (tree === null) {
       throw refuse("skills-resolve-not-rendered", `Load the skill first: call ${LOAD_SKILL}.`, `${plugin} ${version} commits only husks, and this Mac has not rendered it yet.`);
     }
