@@ -555,6 +555,13 @@ describe("schema on the wire", () => {
     expect("defaultNote" in defToWire(base, undefined, { scope: null, file: null })).toBe(false);
   });
 
+  test("optionDescriptions ride the wire when the def has them", () => {
+    const base = { key: "rt.x", type: "string", scopes: ["user"], merge: "replace", description: "" } as any;
+    const eff = { scope: null, file: null };
+    expect(defToWire({ ...base, optionDescriptions: { a: "Does A." } }, undefined, eff).optionDescriptions).toEqual({ a: "Does A." });
+    expect("optionDescriptions" in defToWire(base, undefined, eff)).toBe(false);
+  });
+
   test("GET /repos lists store identities with labels", async () => {
     const body = (await (await handle(get("/api/settings/repos")))!.json()) as any;
     expect(body.repos).toEqual([{ identity: "gitlab.example.com/acme/app", label: "acme/app" }]);

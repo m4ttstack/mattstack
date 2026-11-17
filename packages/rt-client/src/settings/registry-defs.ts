@@ -320,7 +320,13 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["user", "machine"],
     default: "chatty",
     merge: "replace",
-    description: "How much a work run stops to ask you. chatty asks at every gate; normal, quiet and yolo let more gates go ahead on the agent's recommendation. A run can set its own mode.",
+    description: "How much a work run stops to ask you. In every mode it still asks when it isn't sure, or wants to stop. A run can set its own mode.",
+    optionDescriptions: {
+      chatty: "Stops to ask you at every step.",
+      normal: "Handles small steps on its own, like the plan and fixes to your code. Asks before it pushes anything.",
+      quiet: "Also pushes and updates your draft merge request on its own. Asks before teammates see anything.",
+      yolo: "Goes all the way to a merge request ready for review. Still asks before posting anything public.",
+    },
   },
   {
     key: "rt.work.gateModeShadow",

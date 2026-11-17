@@ -134,6 +134,24 @@ describe("every setting is console-ready", () => {
   });
 });
 
+describe("choice settings explain each option", () => {
+  const defs = allDefs();
+  test("optionDescriptions name exactly the schema's enum values", () => {
+    const bad = defs
+      .filter((d) => d.optionDescriptions)
+      .filter((d) => {
+        const values = (d.schema as { enum?: unknown[] } | undefined)?.enum ?? [];
+        return JSON.stringify(Object.keys(d.optionDescriptions!).sort()) !== JSON.stringify([...values].sort());
+      })
+      .map((d) => d.key);
+    expect(bad).toEqual([]);
+  });
+  test("rt.work.gateMode explains every mode", () => {
+    const def = defs.find((d) => d.key === "rt.work.gateMode")!;
+    expect(Object.keys(def.optionDescriptions ?? {})).toEqual(["chatty", "normal", "quiet", "yolo"]);
+  });
+});
+
 describe("every setting says what it is when nothing is set", () => {
   const defs = allDefs();
   test("every key has a default or a defaultNote", () => {
