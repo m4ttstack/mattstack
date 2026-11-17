@@ -12,6 +12,7 @@ import { importAppSettingsMigration } from "./import-app-settings.ts";
 import { importLegacySettingsMigration } from "./import-legacy-settings.ts";
 import { retireOldBgServerMigration } from "./retire-old-bg-server.ts";
 import { retireSwitchboardUrlMigration } from "./retire-switchboard-url.ts";
+import { superpowersForkSwapMigration } from "./superpowers-fork-swap.ts";
 import { sdmResourcesKeyMigration } from "./sdm-resources-key.ts";
 import { teamPacksFromGitMigration } from "./team-packs-from-git.ts";
 import { unsetSetting } from "../../settings/write.ts";
@@ -52,6 +53,7 @@ export const MIGRATIONS: MigrationDef[] = [
   retireOldBgServerMigration,
   boardCwdsFollowBoardRepoMigration,
   teamPacksFromGitMigration,
+  superpowersForkSwapMigration,
 ];
 
 export function migrationEventId(id: string): MigrationEventId {

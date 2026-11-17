@@ -10,6 +10,11 @@ import type { BoardCwds } from "./board-folder.ts";
 import type { StepId } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 
+export interface SuperpowersDisabled {
+  configDir: string;
+  id: string;
+}
+
 export interface SetupState {
   /** 2 since `finishedAt` exists; older files are judged by parseSetupState. */
   v: 2;
@@ -23,6 +28,8 @@ export interface SetupState {
   migrations: string[];
   /** Claude config dirs where rt added `"tui": "fullscreen"`; an update run leaves these alone even when the key is gone. */
   claudeFullscreenDirs: string[];
+  /** Stock superpowers copies the fork-swap migration turned off, per Claude config folder; `rt uninstall` turns these back on. */
+  superpowersDisabled?: SuperpowersDisabled[];
   lastApplyAt?: string;
   /** The rt version the last `rt setup update` run stamped, whatever its outcome. */
   lastUpdate?: { version: string; at: string };
