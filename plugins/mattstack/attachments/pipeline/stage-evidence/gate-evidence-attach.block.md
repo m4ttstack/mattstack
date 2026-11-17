@@ -10,6 +10,7 @@ props:
 
 # Gate `evidence-attach` (the domain attaches here and the lookup found an open MR or PR)
 
+Reach `public`, whether it opens through `gate_open` or `gate_ask`.
 One sentence above the form: what was captured and where it sits. Once a
 board is drawn, open the gate with `gate_open` (gate-protocol, Structured
 context): the source's `context` is a `boards@1` object whose `summary` is

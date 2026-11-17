@@ -5,7 +5,10 @@ order: 2
 # Runs integration
 
 A site that says "run gate-protocol's Runs integration with kind `<k>` and
-these questions" enters at the trigger and walks every branch. Under a run
+these questions" enters at the trigger and walks every branch. A site that
+says "Runs integration with kind `<k>`, reach `<reach>`" also passes
+`reach: "<reach>"` on its `gate_ask` or `gate_open`; a site that names no
+reach passes none. Under a run
 every gate tool call passes `runDb` and the site's `stage`: the tools
 bracket the gate, arm `waiting-gate` on a wait, record the answers map
 (`decidedBy` the CAS winner) and clear the marker. Without them the stop

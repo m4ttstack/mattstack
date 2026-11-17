@@ -1199,6 +1199,23 @@ describe("herd:spawn", () => {
     expect(statSync(join(dir, "herds", herd, "job-a")).mode & 0o777).toBe(0o700);
   });
 
+  test("a gateMode goes into the worker's env as RT_GATE_MODE; none leaves the key out", async () => {
+    const { h, agentCalls, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t", gateMode: "quiet" });
+    if (!res.ok) throw new Error(res.error);
+    expect(agentCalls[0].env.RT_GATE_MODE).toBe("quiet");
+    const plain = await h["herd:spawn"]({ herd, job: "job-b", brief: "b", dir: "/t" });
+    if (!plain.ok) throw new Error(plain.error);
+    expect("RT_GATE_MODE" in agentCalls[1].env).toBe(false);
+  });
+
+  test("an invalid gateMode refuses the spawn before any agent starts", async () => {
+    const { h, agentCalls, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b", dir: "/t", gateMode: "bogus" });
+    expect(res).toEqual({ ok: false, error: '"gateMode" must be one of chatty, normal, quiet, yolo' });
+    expect(agentCalls).toEqual([]);
+  });
+
   test("a spawned worker gets a chat session file, so the chat_* MCP tools resolve its handle", async () => {
     const { h, herd } = await started();
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
@@ -1706,6 +1723,20 @@ describe("herd:spawn {tree} and herd:respawn", () => {
     expect(worktreeCalls).toEqual([]);
     expect(agentCalls[1]).toMatchObject({ cwd: t1.path, model: "opus", effort: "high", account: "2" });
     expect(res.data).toMatchObject({ worktree: t1.path, branch: "br-t1", tree: "t1", launch: { model: "opus", effort: "high", account: "2" } });
+  });
+
+  test("respawn passes gateMode as RT_GATE_MODE, does not remember it, and refuses an invalid one", async () => {
+    const t1 = claimedTree("t1");
+    const { h, agentCalls, herd } = await started([t1]);
+    expect((await h["herd:spawn"]({ herd, job: "job-a", brief: "b", tree: "t1", gateMode: "quiet" })).ok).toBe(true);
+    expect(agentCalls[0].env.RT_GATE_MODE).toBe("quiet");
+    const bad = await h["herd:respawn"]({ herd, job: "job-a", gateMode: "bogus" });
+    expect(bad).toEqual({ ok: false, error: '"gateMode" must be one of chatty, normal, quiet, yolo' });
+    expect(agentCalls).toHaveLength(1);
+    expect((await h["herd:respawn"]({ herd, job: "job-a", gateMode: "yolo" })).ok).toBe(true);
+    expect(agentCalls[1].env.RT_GATE_MODE).toBe("yolo");
+    expect((await h["herd:respawn"]({ herd, job: "job-a" })).ok).toBe(true);
+    expect("RT_GATE_MODE" in agentCalls[2].env).toBe(false);
   });
 
   test("respawn overrides one setting and keeps the others", async () => {

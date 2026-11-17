@@ -8,6 +8,7 @@ import {
   normalizeAnswers,
   skipReason,
   splitVerb,
+  withPlainNext,
   writeInsOf,
 } from "../record.ts";
 
@@ -52,6 +53,24 @@ describe("write-ins", () => {
     expect(actOnWriteIn({ tier: { writeIn: "x" }, next: "hold" })).toBe(false);
     expect(actOnWriteIn({ tier: { writeIn: "x" }, next: "iterate here" })).toBe(true);
     expect(actOnWriteIn({ tier: "a" })).toBe(false);
+  });
+});
+
+describe("a recommended suffix on next", () => {
+  test("nextOf drops the suffix and keeps verb text", () => {
+    expect(nextOf({ next: "proceed (Recommended)" })).toBe("proceed");
+    expect(nextOf({ next: { value: "proceed ( recommended ) ", note: "n" } })).toBe("proceed");
+    expect(nextOf({ next: "iterate: tighten the copy (Recommended)" })).toBe("iterate: tighten the copy");
+  });
+  test("actOnWriteIn and skipReason read the plain verb", () => {
+    expect(actOnWriteIn({ tier: { writeIn: "x" }, next: "proceed (Recommended)" })).toBe(true);
+    expect(skipReason("post", { next: "proceed (Recommended)" })).toBeNull();
+  });
+  test("withPlainNext rewrites only next, bare or wrapped", () => {
+    expect(withPlainNext({ q1: "yes (Recommended)", next: "proceed (Recommended)" })).toEqual({ q1: "yes (Recommended)", next: "proceed" });
+    expect(withPlainNext({ next: { value: "proceed (Recommended)", note: "n" } })).toEqual({ next: { value: "proceed", note: "n" } });
+    expect(withPlainNext({ next: { writeIn: "w" } })).toEqual({ next: { writeIn: "w" } });
+    expect(withPlainNext({ q1: "a" })).toEqual({ q1: "a" });
   });
 });
 

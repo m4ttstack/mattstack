@@ -151,6 +151,13 @@ function resolvePaneId(payload: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/** A gate a run's mode answered at open never waits on anyone, so its opened frame alerts no one. */
+function isPreAnsweredOpen(frame: BroadcastEventFrame): boolean {
+  if (!frame.topic.startsWith("gate/opened/")) return false;
+  const payload = frame.payload;
+  return payload !== null && typeof payload === "object" && (payload as Record<string, unknown>).preAnswered === true;
+}
+
 export function startNotifyBridge(deps: {
   onBroadcast(fn: (type: string, data: unknown) => void): () => void;
   rules(): EventBridgeRule[];
@@ -199,6 +206,7 @@ export function startNotifyBridge(deps: {
   const onEvent = async (type: string, data: unknown): Promise<void> => {
     if (type !== "event") return;
     if (!isEventFrame(data)) return;
+    if (isPreAnsweredOpen(data)) return;
 
     let rules: EventBridgeRule[];
     try {
