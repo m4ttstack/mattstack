@@ -15,8 +15,9 @@ not your own.
   value as `reach`. A site that names none passes none, and that gate
   always asks.
 - **needsOperator** is a one-line reason, passed only where the site's
-  guidance says a recommendation turns on a product or people call. The
-  gate then asks in every mode and shows the reason.
+  guidance asks for one: a recommendation that turns on a product or
+  people call, or a reopening the site says must ask. The gate then asks
+  in every mode and shows the reason.
 
 - **Context** is a VERBATIM QUOTE of the material under decision (the
   brief's task, the plan section, the failing output), never a fresh

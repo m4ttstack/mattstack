@@ -642,7 +642,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Off-script step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: block:gate-protocol source=mattstack:gate-protocol path=attachments/gate-protocol/index.block.md lines=9-151 -->
+<!-- part: block:gate-protocol source=mattstack:gate-protocol path=attachments/gate-protocol/index.block.md lines=9-161 -->
 The daemon's gate registry is the single arbiter; under a run the gate
 tools record the decision.
 
@@ -670,6 +670,10 @@ digraph gate_protocol {
     gate_record [label="gate_record {runDb, stage, scope, shape: answers, answers, decidedBy: pane}" shape=plaintext];
     pane_action [label="paneAction?" shape=diamond];
     answered_by_mode [label="Take the mode's answer" shape=box];
+    mode_run_errors [label="runErrors on the mode's answered result?" shape=diamond];
+    gate_reconcile_mode_answer [label="gate_reconcile {id, runDb, stage, scope?} (record the mode's answer)" shape=plaintext];
+    mode_answer_recorded [label="Reconcile recorded the decision?" shape=diamond];
+    run_hold_unrecorded [label="run_hold {runDb, stage, reason: <the reconcile error>, decidedBy: pane}" shape=plaintext];
     boards_to_open [label="A boards@1 context in an attended session, with a board not yet opened?" shape=diamond];
     open_board [label="open <board path>" shape=plaintext];
     present_pane_form [label="Present the in-pane gate form" shape=box];
@@ -741,7 +745,13 @@ digraph gate_protocol {
     trigger_kit_answer -> gate_reconcile;
     pane_action -> rt_gate_wait [label="wait"];
     pane_action -> answered_by_mode [label="answered: decided by a mode"];
-    answered_by_mode -> act_on_answer;
+    answered_by_mode -> mode_run_errors;
+    mode_run_errors -> act_on_answer [label="no"];
+    mode_run_errors -> gate_reconcile_mode_answer [label="yes"];
+    gate_reconcile_mode_answer -> mode_answer_recorded;
+    mode_answer_recorded -> act_on_answer [label="yes: recorded, or alreadyReconciled"];
+    mode_answer_recorded -> run_hold_unrecorded [label="no: runErrors, a refusal or an error"];
+    run_hold_unrecorded -> run_held;
     present_pane_form -> form_result;
     form_result -> map_answer [label="answered"];
     form_result -> trigger_doorbell [label="dismissed" style=dashed];
@@ -790,7 +800,7 @@ digraph gate_protocol {
 }
 ```
 
-<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-44 -->
+<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-45 -->
 ### Build the gate's questions and context
 
 Open before anything that depends on the answer. A question is `{"id",
@@ -804,8 +814,9 @@ not your own.
   value as `reach`. A site that names none passes none, and that gate
   always asks.
 - **needsOperator** is a one-line reason, passed only where the site's
-  guidance says a recommendation turns on a product or people call. The
-  gate then asks in every mode and shows the reason.
+  guidance asks for one: a recommendation that turns on a product or
+  people call, or a reopening the site says must ask. The gate then asks
+  in every mode and shows the reason.
 
 - **Context** is a VERBATIM QUOTE of the material under decision (the
   brief's task, the plan section, the failing output), never a fresh
@@ -866,7 +877,7 @@ too.
 Form-only, with no other gate call: the answer is the decision (no CAS),
 `decidedBy` `pane`, and under a run `gate_record` records it.
 
-<!-- part: block:gate-protocol/answered-by-mode source=mattstack:gate-protocol path=attachments/gate-protocol/answered-by-mode.block.md lines=5-19 -->
+<!-- part: block:gate-protocol/answered-by-mode source=mattstack:gate-protocol path=attachments/gate-protocol/answered-by-mode.block.md lines=5-24 -->
 ### Take the mode's answer
 
 The `paneAction: answered` branch: the run's gate mode covered the reach
@@ -877,11 +888,16 @@ call whose graph node writes its own decider (`decidedBy: stage-plan`)
 keeps it. When the result carries `runErrors`, the run decision did not
 save: call `gate_reconcile {id, runDb, stage}` once (adding the `scope`
 the open passed, when it passed one), which records the answer as the
-run's decision under the same `mode:<mode>` decider, then go on. Act on
+run's decision under the same `mode:<mode>` decider. Its result recorded
+the decision when it reads `recorded: true` or `alreadyReconciled: true`;
+then act. Any other result (its own `runErrors`, a refusal, an error)
+means the decision is still unrecorded: quote that error as the
+`run_hold` reason and end the turn held, with nothing acted on. Act on
 the result's `answers` and `next` at the site, exactly as if the human had
 picked them: the site's `Read next` and Selection lines route them. Never
 open the gate again, never present it (no form, no AskUserQuestion, no
-wait), and never call `gate_answer` on it.
+wait), and never call `gate_answer` on it, whether the reconcile recorded
+or not.
 
 <!-- part: block:gate-protocol/boards-to-open source=mattstack:gate-protocol path=attachments/gate-protocol/boards-to-open.block.md lines=5-11 -->
 ### A boards@1 context in an attended session, with a board not yet opened?

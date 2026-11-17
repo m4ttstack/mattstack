@@ -32,6 +32,10 @@ flowchart TB
     gate_record[/"gate_record {runDb, stage, scope, shape: answers, answers, decidedBy: pane}"/]
     pane_action{paneAction?}
     answered_by_mode
+    mode_run_errors{runErrors on the mode's answered result?}
+    gate_reconcile_mode_answer[/"gate_reconcile {id, runDb, stage, scope?} (record the mode's answer)"/]
+    mode_answer_recorded{Reconcile recorded the decision?}
+    run_hold_unrecorded[/"run_hold {runDb, stage, reason: <the reconcile error>, decidedBy: pane}"/]
     boards_to_open{A boards@1 context in an attended session, with a board not yet opened?}
     open_board[/open <board path>/]
     present_pane_form
@@ -102,7 +106,13 @@ flowchart TB
     trigger_kit_answer --> gate_reconcile
     pane_action -->|wait| rt_gate_wait
     pane_action -->|answered: decided by a mode| answered_by_mode
-    answered_by_mode --> act_on_answer
+    answered_by_mode --> mode_run_errors
+    mode_run_errors -->|no| act_on_answer
+    mode_run_errors -->|yes| gate_reconcile_mode_answer
+    gate_reconcile_mode_answer --> mode_answer_recorded
+    mode_answer_recorded -->|"yes: recorded, or alreadyReconciled"| act_on_answer
+    mode_answer_recorded -->|"no: runErrors, a refusal or an error"| run_hold_unrecorded
+    run_hold_unrecorded --> run_held
     present_pane_form --> form_result
     form_result -->|answered| map_answer
     form_result -.->|dismissed| trigger_doorbell
