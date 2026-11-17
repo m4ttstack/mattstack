@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import { renderPackInto } from "../../commands/skills.ts";
 import { generatedMarketplaceRef } from "../setup/generated-marketplace.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
+import { isSkippedAttachmentPath } from "./base-attachments.ts";
 import { readLock } from "./compiled-lock.ts";
 import { zonePackDir, type ZoneInfo } from "./init.ts";
 import { compareVersions } from "./installed-plugins.ts";
@@ -74,7 +75,8 @@ async function cloneMovedOn(git: CloneGit, home: string, zone: ZoneInfo, fs: Mat
   const status = await git(zone.orgDir, ["status", "--porcelain=v1", "--branch", "--untracked-files=all", "--", ...dirs.map((d) => relative(zone.orgDir, d))]);
   if (status.code !== 0) return false;
   const [header = "", ...changes] = status.stdout.split("\n");
-  if (changes.some((line) => line.trim() !== "")) return true;
+  // A change inputHash never reads (a .DS_Store, Python bytecode) is not an edit.
+  if (changes.some((line) => line.trim() !== "" && !isSkippedAttachmentPath(line.slice(3)))) return true;
   return statusBranch(header) !== generatedMarketplaceRef({ readFile: fs.readFile, home }, zone.orgDir);
 }
 

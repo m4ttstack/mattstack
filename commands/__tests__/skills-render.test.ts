@@ -175,6 +175,7 @@ describe("rt skills render", () => {
       edit(w);
       expect((await render(w, "acme:stage-plan", "attachments/stage-plan")).body).not.toContain("EDITED");
       git(w.orgDir, "commit", "-qam", "edit");
+      writeFileSync(join(w.packDir, ".DS_Store"), "finder");
       expect((await render(w, "acme:stage-plan", "attachments/stage-plan")).body).toContain("EDITED");
     });
 
