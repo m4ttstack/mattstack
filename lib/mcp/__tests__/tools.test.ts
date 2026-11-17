@@ -364,13 +364,19 @@ describe("mcpTools", () => {
     const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
     const res = await tool.handler({ repoName: "rt", iid: 1, body: "x", path: "a.ts" }, {} as NodeJS.ProcessEnv);
     expect(res.ok).toBe(false);
-    expect(res.error).toBe('"line" is required');
+    expect(res.error).toBe('"line" or "oldLine" is required');
+  });
+
+  test("mr_comment_inline takes oldLine alone for a removed line", async () => {
+    const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+    const res = await tool.handler({ repoName: "rt", iid: 1, body: "x", path: "a.ts", oldLine: 144 }, {} as NodeJS.ProcessEnv);
+    expect(res.error ?? "").not.toContain('"line"');
   });
 
   test("mr_comment_inline schema requires the position fields, offers mrUrl and forbids extras", () => {
     const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
     const schema = tool.inputSchema as { required?: string[]; additionalProperties?: boolean; properties?: Record<string, unknown> };
-    expect(schema.required).toEqual(["body", "path", "line"]);
+    expect(schema.required).toEqual(["body", "path"]);
     expect(schema.additionalProperties).toBe(false);
     expect(Object.keys(schema.properties ?? {}).sort()).toEqual(
       ["repoName", "iid", "mrUrl", "body", "path", "line", "oldPath", "oldLine"].sort(),
@@ -678,6 +684,30 @@ describe("mcpTools", () => {
     });
   });
 
+  describe("mr_comment_inline dispatch", () => {
+    let calls: Array<{ cmd: string; payload: Record<string, unknown> }>;
+    afterEach(() => {
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: realRtCommand }));
+    });
+    beforeEach(() => {
+      calls = [];
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({
+        ...realTransport,
+        rtCommand: async (cmd: string, payload: Record<string, unknown>) => {
+          calls.push({ cmd, payload });
+          return { ok: true, data: { discussionId: "d1", noteId: 1, verified: true } };
+        },
+      }));
+    });
+    test("a removed line goes to the daemon as oldLine alone", async () => {
+      const tool = mcpTools().find((t) => t.name === "mr_comment_inline")!;
+      const TARGET = { repoName: "remote:gitlab.example.com%2Facme%2Fwebapp", iid: 7 };
+      const out = await tool.handler({ ...TARGET, body: "x", path: "a.tsv", oldLine: 144 }, {} as NodeJS.ProcessEnv);
+      expect(out.ok, out.error).toBe(true);
+      expect(calls).toEqual([{ cmd: "mr:comment-inline", payload: { ...TARGET, body: "x", path: "a.tsv", oldLine: 144 } }]);
+    });
+  });
+
   describe("mr_review_submit", () => {
     let calls: Array<{ cmd: string; payload: Record<string, unknown>; timeoutMs?: number }>;
     let reply: () => unknown;
@@ -719,6 +749,15 @@ describe("mcpTools", () => {
       const out = await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
       expect(out.ok).toBe(true);
       expect(calls).toEqual([{ cmd: "mr:review-submit", payload: { ...TARGET, outcome: "comment", summary: "s", comments: [], replies: [] }, timeoutMs: 180_000 }]);
+    });
+
+    test("passes includePendingIds to the daemon only when given", async () => {
+      await tool().handler({ ...TARGET, outcome: "comment", summary: "s", includePendingIds: [50] }, {} as NodeJS.ProcessEnv);
+      expect(calls[0]!.payload.includePendingIds).toEqual([50]);
+      await tool().handler({ ...TARGET, outcome: "comment", summary: "s" }, {} as NodeJS.ProcessEnv);
+      expect("includePendingIds" in calls[1]!.payload).toBe(false);
+      expect((tool().inputSchema as { properties: Record<string, unknown> }).properties.includePendingIds).toEqual({ type: "array", items: { type: "number" } });
+      expect(tool().description).toContain("includePendingIds");
     });
 
     test("sends request_changes to the daemon", async () => {

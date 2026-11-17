@@ -88,6 +88,13 @@ describe("mr:review-submit", () => {
   beforeEach(() => { home = mkdtempSync(join(tmpdir(), "rt-review-submit-")); process.env.HOME = home; closeStateDb(); });
   afterEach(() => { process.env.HOME = origHome; closeStateDb(); rmSync(home, { recursive: true, force: true }); });
 
+  test("includePendingIds reaches the provider", async () => {
+    const stub = stubProvider();
+    const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));
+    await h["mr:review-submit"]({ ...PAYLOAD, includePendingIds: [50] });
+    expect(stub.sent().includePendingIds).toEqual([50]);
+  });
+
   test("submits, approves, and reports reviewer state, summary note and MR url", async () => {
     const stub = stubProvider();
     const h = createDiscussionHandlers(fakeCtx, () => {}, seams(stub));

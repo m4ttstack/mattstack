@@ -50,16 +50,6 @@ export type RemindResult =
   | { status: 502; body: { maybeSent: true; remindedAt: number } }
   | { status: 404 | 422 | 502; message: string };
 
-/** rt-client folds a fetch abort into its "unreachable" error, so the
-    timeout shows only as the AbortSignal's message at the end. */
-export function isDaemonTimeout(error: string | undefined): boolean {
-  return (
-    !!error &&
-    error.startsWith('rt daemon unreachable at ') &&
-    error.endsWith(': The operation timed out.')
-  );
-}
-
 export function remindText(mr: RemindMr): string {
   return `${mr.author} is waiting on your review of ${mrRef(mr)} (${mr.title}). It's parked at your approval gate: ${mr.webUrl}`;
 }

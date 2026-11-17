@@ -378,9 +378,12 @@ export function createDiscussionHandlers(
       const path = p?.path;
       const line = p?.line;
 
+      // A removed line has no new-side number, so oldLine alone anchors it.
+      const lineOk = line === undefined
+        ? p?.oldLine !== undefined
+        : typeof line === "number" && Number.isInteger(line) && line > 0;
       if (!p?.repoName || typeof iid !== "number" || typeof body !== "string" || !body.trim() ||
-          typeof path !== "string" || !path ||
-          typeof line !== "number" || !Number.isInteger(line) || line <= 0) {
+          typeof path !== "string" || !path || !lineOk) {
         return { ok: false, error: "missing repoName/iid/body/path/line" };
       }
       const oldLineOk = p?.oldLine === undefined || (Number.isInteger(p.oldLine) && p.oldLine > 0);
@@ -402,7 +405,7 @@ export function createDiscussionHandlers(
         const forgeName = repoCtx.forge === "github" ? "GitHub" : "GitLab";
         const noun = forgeChangeNoun(repoCtx.forge);
 
-        if (position.oldLine === undefined) {
+        if (position.oldLine === undefined && line !== undefined) {
           let page: Awaited<ReturnType<typeof diffsFn>> | undefined;
           try {
             page = await diffsFn(repoCtx, iid, {
@@ -431,11 +434,11 @@ export function createDiscussionHandlers(
         // GitHub takes one side: a caller's old line goes LEFT, anything else
         // goes RIGHT, so an old line the diff filled in is dropped there.
         const github = repoCtx.forge === "github";
-        const commentAnchor: CommentAnchor = github && callerOldLine !== undefined
+        const commentAnchor: CommentAnchor = line === undefined || (github && callerOldLine !== undefined)
           ? { path, oldLine: callerOldLine }
           : { path, line };
         if (position.oldPath !== undefined) commentAnchor.oldPath = position.oldPath;
-        if (!github && position.oldLine !== undefined) commentAnchor.oldLine = position.oldLine;
+        if (!github && line !== undefined && position.oldLine !== undefined) commentAnchor.oldLine = position.oldLine;
 
         const postOnce = () => repoCtx.provider.createInlineComment(writeRef(repoCtx), iid, body, commentAnchor);
 

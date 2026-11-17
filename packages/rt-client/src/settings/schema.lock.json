@@ -2001,6 +2001,9 @@
           },
           "hook": {
             "type": "string"
+          },
+          "failClosed": {
+            "type": "boolean"
           }
         },
         "additionalProperties": {}
