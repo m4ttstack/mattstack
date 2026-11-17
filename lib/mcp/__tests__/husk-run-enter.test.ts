@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { cpSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { skillsRender } from "../../../commands/skills-render.ts";
 import { resolvePointers, realResolveFs } from "../../skills/resolve.ts";
@@ -71,4 +71,31 @@ test("a skill read from its render tree starts a run from its own folder there",
   const row = db.query("SELECT pack_commits FROM runs").get() as { pack_commits: string };
   db.close();
   expect(row.pack_commits).toBe("acme=0.1.0,mattstack=1.0.0,rt=9.9.9");
+});
+
+test("a run started from a render tree records that render's stamp, not the active mattstack's", async () => {
+  const w = renderWorld(made, { husks: true });
+  process.env.HOME = w.home;
+  process.env.RT_VERSION = "9.9.9";
+  await installHusks(w);
+  out.__test__.reset();
+  const io = captureOut();
+  try {
+    await skillsRender(["acme:stage-plan", "--dir", join(w.installed, "attachments", "stage-plan"), "--mattstack-dir", w.mattstackDir, "--json"]);
+  } finally {
+    io.restore();
+  }
+  const version = join(w.root, "acme", "acme", "0.1.0");
+  cpSync(join(version, "1.0.0"), join(version, "0.9.0"), { recursive: true });
+  writeFileSync(join(version, "0.9.0", "render.json"), JSON.stringify({ rtBuild: "8.8.8", mattstack: "0.9.0", inputHash: "h" }));
+
+  const env = { RT_RUNS_ROOT: join(w.home, "runs"), RT_RUN_EMIT: "0", HOME: w.home } as NodeJS.ProcessEnv;
+  const enter = runToolDefs({ ...realRunToolDeps, env }).find((t) => t.name === "run_enter")!;
+  const entered = await enter.handler({ flags: "--repo my-repo --work-type feature --pipeline feature", skillDir: join(version, "0.9.0", "attachments", "stage-plan") }, env);
+
+  expect(entered.error).toBeUndefined();
+  const db = new Database((entered.body as { runDb: string }).runDb, { readonly: true });
+  const row = db.query("SELECT pack_commits FROM runs").get() as { pack_commits: string };
+  db.close();
+  expect(row.pack_commits).toBe("acme=0.1.0,mattstack=0.9.0,rt=8.8.8");
 });

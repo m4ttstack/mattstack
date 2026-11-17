@@ -3,7 +3,7 @@ import { posix } from "path";
 import { UserActionableError } from "../errors.ts";
 import { compareVersions, findPluginVersionDirs, type PluginFs } from "./installed-plugins.ts";
 import { ID_RE, spellFrom, type PointerMap, type Target } from "./pointers.ts";
-import { activeMattstack, installedHuskIn, isHuskPack, orgOfInstalledCopy, pickRenderTree, renderRoot, STAMP_FILE } from "./render-paths.ts";
+import { activeMattstack, installedHuskIn, isHuskPack, orgOfInstalledCopy, pickRenderTree, renderRoot, renderTreeOfDir, STAMP_FILE } from "./render-paths.ts";
 import { isIdSafeVersion, MAP_FILE } from "./unit-maps.ts";
 
 /** `realPath` is null for a path that does not exist. */
@@ -163,15 +163,6 @@ function highestInstalled(id: string, plugin: string, deps: ResolveDeps): string
   if (held.length === 0) throw refuse("skills-resolve-not-installed", `${plugin} is not installed, so ${id} cannot resolve.`, `No version of ${plugin} is installed.`, "/reload-plugins");
   if (held.length > 1) throw manyMarketplaces(plugin, plugin, held);
   return held[0]!.versions.reduce((best, v) => (compareVersions(v, best) > 0 ? v : best));
-}
-
-/** The render tree (`<root>/<org>/<plugin>/<version>/<mattstack>`) a folder sits in; null outside the render root. */
-function renderTreeOfDir(dir: string, home: string): string | null {
-  const root = renderRoot(home);
-  const text = posix.normalize(dir);
-  if (!posix.isAbsolute(dir) || !within(root, text)) return null;
-  const [org, plugin, version, mattstack] = text.slice(root.length + 1).split("/");
-  return org && plugin && version && mattstack ? `${root}/${org}/${plugin}/${version}/${mattstack}` : null;
 }
 
 /** `loaded` is the render tree the caller's folder sits in: the render that supplied the body, which its pointers come from too. */

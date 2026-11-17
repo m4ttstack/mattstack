@@ -62,6 +62,15 @@ export function installedHuskIn(fs: TreeFs, copy: string, unitPath: string): str
   return candidates.find((c) => fs.exists(c)) ?? null;
 }
 
+/** The render tree (`<root>/<org>/<plugin>/<version>/<mattstack>`) a folder sits in; null outside the render root. */
+export function renderTreeOfDir(dir: string, home: string): string | null {
+  const root = renderRoot(home);
+  const text = normalize(dir);
+  if (!text.startsWith(`${root}/`)) return null;
+  const [org, plugin, version, mattstack] = text.slice(root.length + 1).split("/");
+  return org && plugin && version && mattstack ? join(root, org, plugin, version, mattstack) : null;
+}
+
 /**
  * For a folder inside a render tree (`<root>/<org>/<plugin>/<version>/<mattstack>/<unit>`),
  * the installed husk of that unit at that pack version; null outside the

@@ -8,7 +8,7 @@
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { basename, dirname, join, relative } from "path";
 import { readLock } from "../skills/compiled-lock.ts";
-import { activeMattstack, isHuskPack, orgOfInstalledCopy, parseStamp, pickRenderTree, renderRoot, STAMP_FILE, type RenderStamp } from "../skills/render-paths.ts";
+import { activeMattstack, isHuskPack, orgOfInstalledCopy, parseStamp, pickRenderTree, renderRoot, renderTreeOfDir, STAMP_FILE, type RenderStamp } from "../skills/render-paths.ts";
 import { generatedMarketplaceRef } from "../setup/generated-marketplace.ts";
 import { generatedMarketplaceDir, orgDir, orgDirUnder, orgsDirUnder, teamPackDir } from "../rt-paths.ts";
 import { childEnv } from "../subprocess.ts";
@@ -79,13 +79,21 @@ const PACK_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
 const tokenValue = (v: unknown): string | null =>
   typeof v === "string" && (VERSION_VALUE.test(v) || SHA_VALUE.test(v)) ? v : null;
 
-/** The render stamp of the tree a husk pack's skill loaded from: the folder itself when it is a render tree, else the tree a reader picks. */
-function huskStamp(packRoot: string, readFile: InstalledDeps["readFile"], cache?: RenderCacheFs): RenderStamp | null {
+/**
+ * The render stamp of the tree a husk pack's skill loaded from: the folder
+ * itself when it is a render tree, else `loaded` when it is a tree of this
+ * pack version, else the tree a reader picks.
+ */
+function huskStamp(packRoot: string, readFile: InstalledDeps["readFile"], cache?: RenderCacheFs, loaded?: string): RenderStamp | null {
   const own = parseStamp(readFile(join(packRoot, STAMP_FILE)));
   if (own) return own;
   if (!cache || !isHuskPack(readFile, packRoot)) return null;
   const manifest = readJson(readFile, join(packRoot, MANIFEST_REL));
   if (typeof manifest?.name !== "string" || typeof manifest.version !== "string") return null;
+  const named = loaded === undefined ? null : renderTreeOfDir(loaded, cache.home);
+  const ofThisPack = named !== null && basename(dirname(named)) === manifest.version && basename(dirname(dirname(named))) === manifest.name;
+  const loadedStamp = ofThisPack ? parseStamp(readFile(join(named, STAMP_FILE))) : null;
+  if (loadedStamp) return loadedStamp;
   const fs = { ...cache, readFile };
   const tree = pickRenderTree(cache, renderRoot(cache.home), manifest.name, manifest.version, activeMattstack(fs, cache.home)?.version ?? null, orgOfInstalledCopy(fs, cache.home, packRoot));
   return tree === null ? null : parseStamp(readFile(join(tree, STAMP_FILE)));
@@ -96,9 +104,9 @@ function huskStamp(packRoot: string, readFile: InstalledDeps["readFile"], cache?
  * skill's own target; for a husk pack, the mattstack and rt build of the
  * render it loaded, with nothing dirty.
  */
-export function lockedMattstack(skillDir: string, readFile: InstalledDeps["readFile"], cache?: RenderCacheFs): { token: string | null; dirty: 0 | 1; rtToken?: string } {
+export function lockedMattstack(skillDir: string, readFile: InstalledDeps["readFile"], cache?: RenderCacheFs, renderTree?: string): { token: string | null; dirty: 0 | 1; rtToken?: string } {
   const packRoot = dirname(dirname(skillDir));
-  const stamp = huskStamp(packRoot, readFile, cache);
+  const stamp = huskStamp(packRoot, readFile, cache, renderTree);
   if (stamp) {
     const mattstack = tokenValue(stamp.mattstack);
     const rt = tokenValue(stamp.rtBuild.replace(/^v/, ""));
@@ -110,9 +118,9 @@ export function lockedMattstack(skillDir: string, readFile: InstalledDeps["readF
   return { token: value ? `mattstack=${value}` : null, dirty: lock.mattstackDirty[target] === 1 ? 1 : 0 };
 }
 
-export function installedProvenance(skillDir: string, deps: InstalledDeps): InstalledProvenance {
+export function installedProvenance(skillDir: string, deps: InstalledDeps, renderTree?: string): InstalledProvenance {
   const packRoot = dirname(dirname(skillDir));
-  const mattstack = lockedMattstack(skillDir, deps.readFile, deps.renderCache);
+  const mattstack = lockedMattstack(skillDir, deps.readFile, deps.renderCache, renderTree);
   const manifest = readJson(deps.readFile, join(packRoot, MANIFEST_REL));
   const name = typeof manifest?.name === "string" && PACK_NAME.test(manifest.name) ? manifest.name : null;
   const version = tokenValue(manifest?.version);
