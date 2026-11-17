@@ -87,6 +87,57 @@ function isRaceLoss(err: unknown): boolean {
   return code === "EEXIST" || code === "ENOTEMPTY";
 }
 
+type Rename = (from: string, to: string) => void;
+
+/**
+ * Moves `tmp` into `dir`, keeping the tree it replaces until `tmp` is in
+ * place: null once published, the stamp of a render that got there first,
+ * or "lost" when what got there has no stamp, and the old tree is back.
+ */
+function publish(tmp: string, dir: string, rename: Rename): RenderStamp | "lost" | null {
+  let old: string | null = null;
+  // A folder with no readable stamp is moved aside too, or it would block every later render.
+  if (existsSync(dir)) {
+    try {
+      old = `${dir}.old-${suffix()}`;
+      rename(dir, old);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      old = null;
+    }
+  }
+  const restore = () => {
+    if (old === null) return;
+    if (existsSync(dir)) {
+      const stray = `${dir}.old-${suffix()}`;
+      rename(dir, stray);
+      rmSync(stray, { recursive: true, force: true });
+    }
+    rename(old, dir);
+    old = null;
+  };
+  const drop = () => {
+    if (old !== null) rmSync(old, { recursive: true, force: true });
+  };
+  try {
+    rename(tmp, dir);
+  } catch (err) {
+    if (!isRaceLoss(err)) {
+      restore();
+      throw err;
+    }
+    const winner = readStamp(dir);
+    if (!winner) {
+      restore();
+      return "lost";
+    }
+    drop();
+    return winner;
+  }
+  drop();
+  return null;
+}
+
 /**
  * The rendered tree for the installed pack version. Only the clone holding
  * that version, committed on its data branch, renders over a tree; once the
@@ -109,6 +160,7 @@ export async function ensureTree(opts: {
   /** Plugin roots the caller lists, asked for only when a render runs, so it runs no `claude plugin list` of its own. */
   pluginRoots?: () => PluginRoots;
   git?: CloneGit;
+  rename?: Rename;
 }): Promise<EnsureResult> {
   const packDir = zonePackDir(opts.zone);
   const manifest = readJson(join(packDir, ".claude-plugin", "plugin.json"));
@@ -143,36 +195,25 @@ export async function ensureTree(opts: {
   }
 
   const tmp = `${dir}.tmp-${suffix()}`;
-  let old: string | null = null;
   mkdirSync(tmp, { recursive: true });
   try {
     const result = await renderPackInto({ packDir, manifestText: bindings.text, repoKey: bindings.repoKey, outRoot: tmp, mattstackDir: opts.mattstackDir, pluginRoots: opts.pluginRoots?.() });
     if (!result.ok) return failed(result.errors.join("\n"));
     if (result.mattstack !== opts.mattstack) return failed(`rendered with mattstack ${result.mattstack}, but mattstack ${opts.mattstack} is installed`);
+    // Nothing holds a pull off while the render reads the clone, so the stamp only names what was read if the sources are still the ones it hashed.
+    const after = readJson(join(packDir, ".claude-plugin", "plugin.json"));
+    if (after?.version !== opts.installedVersion || inputHash(packDir, baseDir, bindings.text) !== stamp.inputHash) {
+      if (existing) return { ok: true, dir, stamp: existing, rendered: false };
+      return failed(`the org clone changed while ${plugin} ${opts.installedVersion} rendered, so nothing was kept; render it again`);
+    }
     writeFileSync(join(tmp, STAMP_FILE), JSON.stringify(stamp, null, 2) + "\n");
     const now = readStamp(dir);
     if (now && sameRender(now, stamp)) return { ok: true, dir, stamp: now, rendered: false };
-    // A folder with no readable stamp is moved aside too, or it would block every later render.
-    if (existsSync(dir)) {
-      try {
-        old = `${dir}.old-${suffix()}`;
-        renameSync(dir, old);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-        old = null;
-      }
-    }
-    try {
-      renameSync(tmp, dir);
-    } catch (err) {
-      if (!isRaceLoss(err)) throw err;
-      const winner = readStamp(dir);
-      if (!winner) return failed(`another render left ${dir} without a readable ${STAMP_FILE}`);
-      return { ok: true, dir, stamp: winner, rendered: false };
-    }
+    const winner = publish(tmp, dir, opts.rename ?? renameSync);
+    if (winner === "lost") return failed(`another render left ${dir} without a readable ${STAMP_FILE}`);
+    if (winner !== null) return { ok: true, dir, stamp: winner, rendered: false };
   } finally {
     rmSync(tmp, { recursive: true, force: true });
-    if (old !== null) rmSync(old, { recursive: true, force: true });
   }
   pruneTrees(opts.root, opts.zone.org, plugin, { installedVersion: opts.installedVersion, mattstack: opts.mattstack, cached: cachedPackVersions(opts.home, plugin) });
   return { ok: true, dir, stamp, rendered: true };

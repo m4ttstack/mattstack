@@ -7,6 +7,7 @@ import { LOCK_REL, serializeLock } from "../compiled-lock.ts";
 import { readZonesFrom, type ZoneInfo } from "../init.ts";
 import type { MaterializeDeps, MaterializeFs } from "../materialize.ts";
 import { ensureTree, pruneTrees, treeDir, type RenderStamp } from "../render-cache.ts";
+import { resolvePluginRootsFromDir } from "../sources.ts";
 import { seedTwoVerbPack, setTwoVerbPackVersion } from "./helpers.ts";
 
 const realFs: MaterializeFs = {
@@ -152,6 +153,67 @@ describe("ensureTree", () => {
     expect([a.rendered, b.rendered].filter(Boolean)).toHaveLength(1);
     expect(stampOf(a.dir).rtBuild).toBe("rt-2");
     expect(siblingsOf(a.dir).filter((n) => /\.(tmp|old)-/.test(n))).toEqual([]);
+  });
+
+  test("a clone that moves on while the render runs publishes nothing over the tree it had", async () => {
+    const w = world();
+    const first = await ensureTree(w.opts);
+    if (!first.ok) throw new Error(first.message);
+    const fill = join(w.packDir, "attachments", "policy", "SKILL.md");
+    writeFileSync(fill, readFileSync(fill, "utf8") + "\nA rule before the pull.\n");
+    const pulled = () => {
+      setTwoVerbPackVersion(w.packDir, "0.4.12");
+      writeFileSync(fill, readFileSync(fill, "utf8") + "\nA rule from 0.4.12.\n");
+      return resolvePluginRootsFromDir(w.opts.mattstackDir);
+    };
+    const second = await ensureTree({ ...w.opts, pluginRoots: pulled });
+    if (!second.ok) throw new Error(second.message);
+    expect(second.rendered).toBe(false);
+    expect(stampOf(second.dir)).toEqual(first.stamp);
+    expect(readFileSync(join(second.dir, "skills", "alpha", "SKILL.md"), "utf8")).not.toContain("A rule from 0.4.12.");
+    expect(siblingsOf(second.dir).filter((n) => /\.(tmp|old)-/.test(n))).toEqual([]);
+  });
+
+  test("a clone that moves on during the first render reports it rather than filing new sources under the old version", async () => {
+    const w = world();
+    const pulled = () => {
+      setTwoVerbPackVersion(w.packDir, "0.4.12");
+      return resolvePluginRootsFromDir(w.opts.mattstackDir);
+    };
+    const result = await ensureTree({ ...w.opts, pluginRoots: pulled });
+    expect(result.ok).toBe(false);
+    expect(existsSync(treeDir(w.root, "acme", "acme", "0.4.11", "1.0.0"))).toBe(false);
+  });
+
+  test("a publish that fails puts the tree it replaced back", async () => {
+    const w = world();
+    const first = await ensureTree(w.opts);
+    if (!first.ok) throw new Error(first.message);
+    const refuse = (from: string, to: string) => {
+      if (from.includes(".tmp-")) throw Object.assign(new Error("denied"), { code: "EACCES" });
+      renameSync(from, to);
+    };
+    await expect(ensureTree({ ...w.opts, rtBuild: "rt-2", rename: refuse })).rejects.toThrow("denied");
+    expect(stampOf(first.dir)).toEqual(first.stamp);
+    expect(siblingsOf(first.dir).filter((n) => /\.(tmp|old)-/.test(n))).toEqual([]);
+  });
+
+  test("a race winner with no stamp gives way to the tree it replaced", async () => {
+    const w = world();
+    const first = await ensureTree(w.opts);
+    if (!first.ok) throw new Error(first.message);
+    const beaten = (from: string, to: string) => {
+      if (from.includes(".tmp-")) {
+        write(join(to, "stray.txt"), "no stamp here");
+        throw Object.assign(new Error("not empty"), { code: "ENOTEMPTY" });
+      }
+      renameSync(from, to);
+    };
+    const result = await ensureTree({ ...w.opts, rtBuild: "rt-2", rename: beaten });
+    expect(result.ok).toBe(false);
+    expect(stampOf(first.dir)).toEqual(first.stamp);
+    expect(existsSync(join(first.dir, "stray.txt"))).toBe(false);
+    expect(siblingsOf(first.dir).filter((n) => /\.(tmp|old)-/.test(n))).toEqual([]);
   });
 
   test("render-failed carries builtWith from the pack lock", async () => {
