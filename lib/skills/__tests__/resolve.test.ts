@@ -395,3 +395,50 @@ describe("resolvePointers: versionless ids", () => {
     expect(skills.warning).toBeUndefined();
   });
 });
+
+describe("resolvePointers: husk packs", () => {
+  const RENDERED = `${HOME}/.mattstack/rt/rendered/acme/widgets/0.4.2`;
+  const husk = (extra: Record<string, string> = {}) => ({
+    [`${V}/pack/skills.jsonc`]: '// opted in\n{ "husks": true }',
+    [`${V}/skills/work/SKILL.md`]: "---\nname: work\n---\n\nCall mcp__mattstack__load_skill.\n",
+    [`${CACHE}/mattstack/mattstack/0.32.76/x`]: "",
+    ...extra,
+  });
+  const tree = (mattstack: string) => ({ ...widgetsFiles(`${RENDERED}/${mattstack}`), [`${RENDERED}/${mattstack}/render.json`]: "{}" });
+
+  test("resolves a husk pack's keys into the render tree", () => {
+    const fs = fakeFs(husk({ ...tree("0.32.76"), ...tree("0.32.80") }));
+    const r = resolvePointers("widgets@0.4.2:work", { fs, home: HOME });
+    expect(r.folder).toBe(`${RENDERED}/0.32.76/skills/work`);
+    expect(r.keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/scripts/x.sh`);
+    expect(r.keys["stage-x/parts/d/y.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/../../skills/stage-x/parts/d/y.sh`);
+  });
+
+  test("without the installed mattstack's tree, the newest tree serves", () => {
+    const fs = fakeFs(husk({ ...tree("0.32.70"), ...tree("0.32.80"), [`${RENDERED}/0.32.90.tmp-1-ab/render.json`]: "{}" }));
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).folder).toBe(`${RENDERED}/0.32.80/skills/work`);
+  });
+
+  test("refuses a key outside the render tree", () => {
+    const at = `${RENDERED}/0.32.76`;
+    const fs = fakeFs(husk({
+      [`${at}/render.json`]: "{}",
+      [`${at}/skills/work/SKILL.md`]: "",
+      [`${at}/skills/work/compiled.json`]: map("widgets@0.4.2:work", "skills/work", { "work/x": "../../../x" }),
+      [`${RENDERED}/x`]: "",
+    }));
+    expect(refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME })).code).toBe("skills-resolve-outside");
+  });
+
+  test("refuses with the load-first sentence when no tree exists", () => {
+    const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs: fakeFs(husk()), home: HOME }));
+    expect(e.message).toBe("Load the skill first: call mcp__mattstack__load_skill.");
+  });
+
+  test("non-husk packs resolve as before", () => {
+    const fs = fakeFs({ ...widgetsFiles(), ...tree("0.32.76"), [`${V}/pack/skills.jsonc`]: "{}" });
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).folder).toBe(`${V}/skills/work`);
+    const bare = refusal(() => resolvePointers("widgets@0.4.2:work", { fs: fakeFs({ [`${V}/skills/work/SKILL.md`]: "", ...tree("0.32.76") }), home: HOME }));
+    expect(bare.code).toBe("skills-resolve-no-map");
+  });
+});

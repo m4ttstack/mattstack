@@ -8,27 +8,16 @@ import { compareVersions } from "./installed-plugins.ts";
 import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { teamBindings, type MaterializeDeps } from "./materialize.ts";
 import { inputHash } from "./render.ts";
+import { IN_FLIGHT_RE, parseStamp, STAMP_FILE, treeDir, type RenderStamp } from "./render-paths.ts";
 
-export type RenderStamp = { rtBuild: string; mattstack: string; inputHash: string };
+export { renderRoot, treeDir, type RenderStamp } from "./render-paths.ts";
 
 export type EnsureResult =
   | { ok: true; dir: string; stamp: RenderStamp; rendered: boolean }
   | { ok: false; reason: "missing" | "render-failed"; message: string; builtWith?: string };
 
-const STAMP_FILE = "render.json";
 const KEEP_PACK_VERSIONS = 3;
 const KEEP_MATTSTACK_VERSIONS = 2;
-/** Siblings a render in flight writes and then renames away; pruning never touches them. */
-const IN_FLIGHT_RE = /\.(tmp|old)-/;
-
-/** Where every member's rendered trees live: `~/.mattstack/rt/rendered`. */
-export function renderRoot(home: string): string {
-  return join(home, ".mattstack", "rt", "rendered");
-}
-
-export function treeDir(root: string, org: string, plugin: string, packVersion: string, mattstack: string): string {
-  return join(root, org, plugin, packVersion, mattstack);
-}
 
 function readJson(path: string): Record<string, unknown> | null {
   try {
@@ -40,10 +29,11 @@ function readJson(path: string): Record<string, unknown> | null {
 }
 
 function readStamp(dir: string): RenderStamp | null {
-  const raw = readJson(join(dir, STAMP_FILE));
-  if (!raw) return null;
-  const { rtBuild, mattstack, inputHash: hash } = raw;
-  return typeof rtBuild === "string" && typeof mattstack === "string" && typeof hash === "string" ? { rtBuild, mattstack, inputHash: hash } : null;
+  try {
+    return parseStamp(readFileSync(join(dir, STAMP_FILE), "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 /** The org base pack the team pack's own fragment extends, in the same clone; null without one. */
