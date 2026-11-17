@@ -14,5 +14,8 @@ label: Graph notes
   and then the calling flow continues (ship, or the next task); or
   `outcome: abandoned` with `reason: <their words>` on an abandon or a
   hand back.
-- Before the close, the final message lists every selected finding as
-  fixed, not reproduced (with its test), or left open.
+- Before the close, the final message lists every finding as fixed, not
+  reproduced (with its test), a judgment call (with the reviewer's
+  reason), owed evidence (with what to capture), or left open.
+- A hold on spent `rereview-rounds` names the fix round no re-review
+  covered; closing with that round unreviewed is not an option.

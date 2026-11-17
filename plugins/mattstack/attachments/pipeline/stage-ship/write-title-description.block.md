@@ -17,4 +17,10 @@ This stage always writes them, an existing MR's included; the domain's
 title, template and voice rules decide what they say, never whether the
 write happens.
 
+Each `Open:` bullet in the run's `review` field (a judgment call
+self-review left open) goes in the description's follow-up section as one
+line: the finding and the reviewer's reason. The domain's template names
+that section; with none, it is a `Follow-up` list at the end of the body.
+An unset `review` (`run_field_get` errors) adds nothing.
+
 {{props.rules}}
