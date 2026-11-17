@@ -1200,6 +1200,8 @@ export interface ReviewSubmission {
   summary: string;
   comments: ReviewComment[];
   replies: ReviewReply[];
+  /** GitLab: publish the caller's own pending comments with the review instead of refusing on them. */
+  includePending?: boolean;
 }
 
 export type ReviewSubmitResult =

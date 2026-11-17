@@ -1246,7 +1246,7 @@ export interface Commands {
   "mr:review-submit": {
     payload: {
       repoName: string; iid: number; outcome: "comment" | "approve" | "request_changes"; summary: string;
-      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[]; expectedHeadSha?: string;
+      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[]; expectedHeadSha?: string; includePending?: boolean;
     };
     data: ReviewSubmitData;
   };

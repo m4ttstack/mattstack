@@ -727,6 +727,13 @@ describe("mcpTools", () => {
       expect(calls).toEqual([{ cmd: "mr:review-submit", payload: { ...TARGET, outcome: "comment", summary: "s", comments: [], replies: [] }, timeoutMs: 180_000 }]);
     });
 
+    test("passes includePending to the daemon only when asked", async () => {
+      await tool().handler({ ...TARGET, outcome: "comment", summary: "s", includePending: true }, {} as NodeJS.ProcessEnv);
+      expect(calls[0]!.payload.includePending).toBe(true);
+      expect((tool().inputSchema as { properties: Record<string, unknown> }).properties.includePending).toEqual({ type: "boolean" });
+      expect(tool().description).toContain("includePending");
+    });
+
     test("sends request_changes to the daemon", async () => {
       const out = await tool().handler({ ...TARGET, outcome: "request_changes", summary: "s" }, {} as NodeJS.ProcessEnv);
       expect(out.ok).toBe(true);

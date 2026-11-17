@@ -31,6 +31,16 @@ describe("parseReviewSubmit", () => {
     bad({ comments, replies: replies(41) }, "at most 100 comments and replies in total per review");
     expect(parseReviewSubmit({ ...base, comments, replies: replies(40) }).ok).toBe(true);
   });
+  describe("includePending", () => {
+    test("passes true through", () => {
+      expect(parseReviewSubmit({ ...base, includePending: true })).toEqual({ ok: true, input: { ...base, includePending: true } });
+    });
+    test("refuses a non-boolean", () => bad({ includePending: "yes" }, "includePending must be a boolean"));
+    test("leaves it out when absent", () => {
+      const r = parseReviewSubmit(base);
+      expect(r.ok && "includePending" in r.input).toBe(false);
+    });
+  });
   describe("expectedHeadSha", () => {
     const sha40 = "a".repeat(39) + "F";
     const sha64 = "AbCdEf01".repeat(8);

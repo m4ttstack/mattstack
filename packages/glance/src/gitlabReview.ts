@@ -74,7 +74,7 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
   }
 
   const before = await mutator.listDraftNotes(project, iid);
-  if (before.length > 0) {
+  if (before.length > 0 && !review.includePending) {
     return {
       published: false,
       reason: 'pending-drafts',
@@ -83,6 +83,9 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
   }
 
   const created: number[] = [];
+  // The caller's own pending comments, kept and published with the review
+  // under includePending, and never deleted or taken for this call's.
+  const theirs = new Set(before.map((d) => d.id));
   const deleteAll = async (ids: number[], firstError?: string): Promise<Rollback> => {
     let left = 0;
     for (const id of ids) {
@@ -96,14 +99,14 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
     return { left, firstError };
   };
   /**
-   * The check above proved the caller had no pending comments, so every one
-   * listed now is this call's, including a create that landed and then threw
-   * before its id reached `created`.
+   * Every pending comment listed now that the caller did not already have is
+   * this call's, including a create that landed and then threw before its id
+   * reached `created`.
    */
   const rollback = async (): Promise<Rollback> => {
     let ids: number[];
     try {
-      ids = (await mutator.listDraftNotes(project, iid)).map((d) => d.id);
+      ids = (await mutator.listDraftNotes(project, iid)).map((d) => d.id).filter((id) => !theirs.has(id));
     } catch (err) {
       return deleteAll(created, String(err));
     }
@@ -120,7 +123,7 @@ export async function submitGitLabReview(deps: GitLabReviewDeps, review: ReviewS
       return await mutator.createDraftNote(project, iid, body, opts);
     } catch (err) {
       if (!isTimeout(err)) throw err;
-      const landed = (await mutator.listDraftNotes(project, iid)).find((d) => !created.includes(d.id));
+      const landed = (await mutator.listDraftNotes(project, iid)).find((d) => !created.includes(d.id) && !theirs.has(d.id));
       return landed ?? (await mutator.createDraftNote(project, iid, body, opts));
     }
   };

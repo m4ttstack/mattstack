@@ -141,6 +141,54 @@ describe('submitGitLabReview', () => {
     expect(f.log).toEqual(['list']);
   });
 
+  describe('includePending', () => {
+    const snapshotAtPublish = (f: ReturnType<typeof fake>) => {
+      const seen: string[][] = [];
+      const publish = f.deps.mutator.publishDraftNotes;
+      f.deps.mutator.publishDraftNotes = async (p, i, o) => {
+        seen.push(f.pending().map((d) => d.note));
+        return publish(p, i, o);
+      };
+      return seen;
+    };
+
+    test("publishes the caller's pending comment together with the review", async () => {
+      const f = fake();
+      f.seed([draft(50, { note: 'half a thought' })]);
+      const seen = snapshotAtPublish(f);
+      const out = await submitGitLabReview(f.deps, { ...INPUT, includePending: true });
+      expect(out.published).toBe(true);
+      expect(seen[0]).toEqual(expect.arrayContaining(['half a thought', 'c1', 'c2']));
+    });
+
+    test("a failed review rolls back only its own comments and keeps the caller's", async () => {
+      const f = fake();
+      f.seed([draft(50, { note: 'half a thought' })]);
+      const create = f.deps.mutator.createDraftNote;
+      f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+        if (body === 'c2') throw new Error('boom');
+        return create(p, i, body, opts);
+      };
+      await expect(submitGitLabReview(f.deps, { ...INPUT, includePending: true })).rejects.toThrow(/review not posted/);
+      expect(f.pending().map((d) => d.id)).toEqual([50]);
+    });
+
+    test("a timed-out create never mistakes the caller's comment for its own", async () => {
+      const f = fake();
+      f.seed([draft(50, { note: 'half a thought' })]);
+      const seen = snapshotAtPublish(f);
+      const create = f.deps.mutator.createDraftNote;
+      let tries = 0;
+      f.deps.mutator.createDraftNote = async (p, i, body, opts) => {
+        if (body === 'c2' && tries++ === 0) throw Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' });
+        return create(p, i, body, opts);
+      };
+      const out = await submitGitLabReview(f.deps, { ...INPUT, includePending: true });
+      expect(out.published).toBe(true);
+      expect(seen[0]).toEqual(expect.arrayContaining(['half a thought', 'c1', 'c2']));
+    });
+  });
+
   test('a null line_code deletes everything this call created and names the anchor', async () => {
     const f = fake({});
     const create = f.deps.mutator.createDraftNote;
