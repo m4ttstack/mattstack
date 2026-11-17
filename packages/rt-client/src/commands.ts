@@ -478,6 +478,10 @@ export interface RunSummary {
   evidence_links?: number;
   /** How the run ended up: its own status plus the MR it opened or reviewed. Absent on pre-outcome daemons. */
   outcome?: RunOutcome;
+  /** A pause that applies to the current attempt (the `hold` field written during it), else null. Absent on older daemons. */
+  hold?: { reason: string; at: number } | null;
+  /** An operator's Redo waiting for the worker's next `run_next`, else null. Absent on older daemons. */
+  redo?: { gate: string; to: string; note: string } | null;
 }
 /** `mr` is the run's own MR (written by ship or watch-ci); `reviewed` is the MR a review or respond run looked at and never counts as merged. */
 export interface RunOutcome {

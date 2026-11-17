@@ -8,6 +8,7 @@ import { join } from "path";
 import type { Attention, RunDecisionRow, RunDetail, RunFieldRow, RunStageRow, RunSummary } from "../../packages/rt-client/src/commands.ts";
 import { evidenceShots, readEvidence } from "../../packages/rt-client/src/evidence.ts";
 import { computeAttention, fieldValue, lastEventAt, type RunLiveness } from "./attention.ts";
+import { fieldSince, parseRedo } from "./engine.ts";
 import { buildOutcome, mrRole, readAllCachedOutcomes, readCachedOutcome, type CachedOutcome } from "./outcome.ts";
 import { isPathComponent, runsRoot } from "./paths.ts";
 import { KNOWN_SCHEMA_VERSION } from "./write.ts";
@@ -98,6 +99,18 @@ function stageSummaries(stages: RunStageRow[]): NonNullable<RunSummary["stages"]
   return stages.map((s) => ({ name: s.name, status: s.status, started_at: s.started_at, ended_at: s.ended_at, attempt: s.attempt }));
 }
 
+// The same freshness rule run_next applies: a hold counts only for the attempt it was written during.
+function controls(run: Pick<RunSummary, "current_stage">, stages: RunStageRow[], fields: RunFieldRow[]): Pick<RunSummary, "hold" | "redo"> {
+  const current = stages.filter((s) => s.name === run.current_stage).sort((a, b) => b.attempt - a.attempt)[0];
+  const holdRow = fields.find((f) => f.key === "hold");
+  const reason = fieldSince(holdRow, current?.started_at ?? null);
+  const redo = parseRedo(fields.find((f) => f.key === "redo")?.value);
+  return {
+    hold: reason && holdRow ? { reason, at: holdRow.at } : null,
+    redo: redo ? { gate: redo.gate, to: redo.to, note: redo.note } : null,
+  };
+}
+
 /** The summary's evidence counts: images and cases a v1 or v2 field records, links a legacy one names. */
 function evidenceCounts(fields: RunFieldRow[]): { evidence_count: number; evidence_links: number; evidence_cases: number } {
   const record = readEvidence(fieldValue(fields, "evidence"));
@@ -175,6 +188,7 @@ function withAttention(db: Database, row: RunSummary, liveness?: RunLiveness): {
         stages: stageSummaries(stages),
         decision_count: decisions.length,
         ...evidenceCounts(fields),
+        ...controls(row, stages, fields),
       },
       src: outcomeSource(fields, decisions),
     };
@@ -246,6 +260,7 @@ export function readRun(repo: string, runId: string, liveness?: RunLiveness): Ru
         stages: stageSummaries(stages),
         decision_count: decisions.length,
         ...evidenceCounts(fields),
+        ...controls(run, stages, fields),
       }, src, src.mrField ? cachedOutcomeFor(run.id) : null),
       stages, fields, decisions,
       schemaAhead,
