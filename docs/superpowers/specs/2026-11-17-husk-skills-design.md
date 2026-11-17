@@ -14,7 +14,9 @@ as a dozen diffs.
 
 A team pack commit shows only the source a person edited, plus the version
 bump every publish carries. A mattstack update alone makes no team pack
-commit. Members get exactly the skill text they get today.
+commit. A member on the publisher's mattstack version gets exactly the
+skill text they get today; a member on another version gets that version's
+engine text with the same team sources.
 
 ## Decisions
 
@@ -86,7 +88,11 @@ A husk body reads:
 The husk keeps the compiled body's frontmatter (`name`, `description`,
 `allowed-tools`, `disable-model-invocation`, the `compiled:` stamp), so
 invocation and permissions are unchanged. `allowed-tools` adds
-`mcp__mattstack__load_skill`.
+`mcp__mattstack__load_skill`. In a husk, a frontmatter rule's
+`${CLAUDE_SKILL_DIR}` points at the plugin copy, which no longer holds
+`scripts/`, so `check` fails a husk rule naming
+`${CLAUDE_SKILL_DIR}/scripts/...` or any other folder that now lives only in
+the cache.
 
 **No `${CLAUDE_SKILL_DIR}` in rendered text.** Claude Code fills that token
 only when it loads a SKILL.md, never in a tool's attached context. Compiled
@@ -103,8 +109,19 @@ husks, so no rendered body needs the token.
   a member's mattstack is held by its own floor, and the pack no longer
   carries engine text.
 - `pack/compiled.lock.json` keeps `bases` and drops per-target engine
-  versions, which now live in the render stamp. A mattstack bump then
-  changes nothing committed in a team pack.
+  versions, which now live in the render stamp. It gains one `builtWith`
+  field: the mattstack version of the last compile that changed a source.
+  A compile writes it only when it also writes a source change, so a
+  mattstack bump alone changes nothing committed in a team pack.
+- **A source an older engine cannot compile.** A publisher on a newer
+  mattstack can bind a fill to a slot, block or stage an older engine lacks.
+  That is a genuine new need, but nothing detects it ahead of time. The
+  accepted outcome: a member whose render fails while their mattstack is
+  older than `builtWith` gets a `load_skill` error that names the version
+  the pack was built with and says to update mattstack (`rt setup`), and the
+  pull hook logs the same. The previous pack version's tree is never served
+  in its place. Members on the same or a newer mattstack than the publisher
+  get the same text the publisher saw.
 
 ## The render cache
 
@@ -116,9 +133,15 @@ unit's `SKILL.md`, `references/`, `parts/`, `scripts/`, base copies and
 
 A `render.json` stamp beside the tree records the rt build that rendered
 it, the mattstack version, and a hash of the inputs (the pack's sources,
-the base pack's sources, the merged bindings). A tree whose rt build or
-input hash differs from what a render would use now is stale and is
-rendered again.
+the base pack's sources, the merged bindings).
+
+**Staleness is judged only when the clone holds that tree's pack version.**
+Then a tree whose rt build or input hash differs from what a render would
+use now is rendered again. When the clone has moved past the tree's pack
+version (a pull landed, the installed pack has not updated yet), the
+existing tree is used as is: nothing can render that version again, and the
+member's skills keep working until setup installs the new one. Only a
+missing tree fails.
 
 - **Atomic swap.** A render writes to a temp folder beside the target and
   renames it into place. If the target already exists (another render won
@@ -165,7 +188,8 @@ allow, the same shape as `enter-worktree-check.ts`. Its `tool.call` hook:
   `{ result: "Loaded <id> (pack <version>, mattstack <version>): <n> characters in <k> parts", context: pieces }`;
 - on any failure returns `{ deny: "<what is missing>. <the fix>" }`, which
   the model reads as the tool's error, with no context, so it stops instead
-  of working from a husk.
+  of working from a husk. A `tool.call` hook may answer `deny`; the
+  human-todos mod does (`mods/human-todos/src/contract.ts`).
 
 ## Who reads what
 
@@ -173,7 +197,7 @@ allow, the same shape as `enter-worktree-check.ts`. Its `tool.call` hook:
 | --- | --- |
 | An agent invoking a skill (slash command, Skill tool) | Gets the husk; calls `load_skill`. |
 | An orchestrator reading a stage through an `@key` (`@stage-provision/SKILL.md`) | `skills_resolve` returns the rendered file in the cache, which it reads directly. No `load_skill` call. |
-| A path reader handed a husk path (the board's `--skill-path` dispatch, `apps/board/src/herdr.ts` `dispatchPrompt`) | Reads the husk and follows its line, or the board passes the rendered path instead; the plan picks one. |
+| A path reader handed a husk path (the board's `--skill-path` dispatch, `apps/board/src/herdr.ts` `dispatchPrompt`) | Reads the husk and follows its line, or the board passes the rendered path instead; the plan picks one. Either keeps `dispatchPrompt` failing closed when the skill does not resolve. |
 | A subagent handed a husk | Calls `load_skill`; the end-to-end test proves subagents see the mod tool. |
 | `skills_resolve` (`lib/skills/resolve.ts`) | Reads `compiled.json` from the render cache for the installed pack version; the bound check allows that version's cache folder and nothing else outside the plugin copy. |
 | `rt skills check` (`computeCheck`) | Compares husks, the lock and `requires.json` against a compile; renders the whole pack in memory to catch compile errors, leftover tokens and bodies over 200,000 characters. Body drift and orphan checks apply to husks only. |
