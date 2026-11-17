@@ -356,6 +356,10 @@ describe("gitPush and a slow pre-push hook", () => {
       const r = await realGitRunner(["push", "origin", "HEAD:refs/heads/x"], work, { timeoutMs: 1500 });
       expect(r.timedOut).toBe(true);
       expect(r.stderr).toContain("hook started");
+      await Bun.write(hook, "#!/bin/sh\nprintf 'no newline yet' >&2\nsleep 3\n");
+      const partial = await realGitRunner(["push", "origin", "HEAD:refs/heads/y"], work, { timeoutMs: 1500 });
+      expect(partial.timedOut).toBe(true);
+      expect(partial.stderr).toContain("no newline yet");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

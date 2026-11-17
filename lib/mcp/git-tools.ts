@@ -36,11 +36,12 @@ const GIT_TIMEOUT_MS = 120_000;
 const PUSH_TIMEOUT_MS = 900_000;
 
 export const gitRunnerWith = (extra: Record<string, string>): GitRunner => async (args, cwd, opts) => {
-  // runCapture drops its captured output on a timeout, so the lines are kept
-  // as they arrive to say what was running when the deadline hit.
-  const lines: string[] = [];
-  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: opts?.timeoutMs ?? GIT_TIMEOUT_MS, signal: opts?.signal, onStderrLine: (l) => lines.push(l), env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra, ...opts?.env }) });
-  if (r.timedOut) return { code: r.exitCode, stdout: r.stdout, stderr: lines.join("\n"), timedOut: true };
+  // runCapture drops its captured output on a timeout, so the text is kept as
+  // it arrives (an unterminated last line too) to say what was running when
+  // the deadline hit.
+  let sofar = "";
+  const r = await runCapture(["git", ...args], { cwd, stderr: "pipe", timeoutMs: opts?.timeoutMs ?? GIT_TIMEOUT_MS, signal: opts?.signal, onStderrChunk: (t) => { sofar += t; }, env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(cwd), ...extra, ...opts?.env }) });
+  if (r.timedOut) return { code: r.exitCode, stdout: r.stdout, stderr: sofar, timedOut: true };
   return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 };
 
