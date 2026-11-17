@@ -925,7 +925,7 @@ export interface DiscussionsDiffsData { diffs: Array<{ newPath: string; diff: st
 export interface ReviewSubmitComment { body: string; path: string; line: number; oldPath?: string; oldLine?: number }
 export interface ReviewSubmitReply { discussionId: string; body?: string; resolve: boolean }
 export type ReviewSubmitData =
-  | { published: false; reason: "pending-drafts"; pending: { count: number; firstLines: string[] }; mrUrl: string }
+  | { published: false; reason: "pending-drafts"; pending: { count: number; firstLines: string[]; ids?: number[] }; mrUrl: string }
   | { published: false; reason: "bad-anchors"; badAnchors: Array<{ index: number; path: string; line: number }>; mrUrl: string }
   | { published: false; reason: "head-moved"; expectedHeadSha: string; headSha: string; mrUrl: string }
   | {
@@ -1205,7 +1205,8 @@ export interface Commands {
       rejects stays rejected, and after a second degrade both stray notes
       are deleted and the call fails. `verified: true` means the check ran. */
   "mr:comment-inline": {
-    payload: { repoName: string; iid: number; body: string; path: string; line: number; oldPath?: string; oldLine?: number };
+    /** `line` or `oldLine`: a removed line has only an old-side number. */
+    payload: { repoName: string; iid: number; body: string; path: string; line?: number; oldPath?: string; oldLine?: number };
     data: { discussionId: string; noteId: number; verified: true };
   };
 
@@ -1245,7 +1246,7 @@ export interface Commands {
   "mr:review-submit": {
     payload: {
       repoName: string; iid: number; outcome: "comment" | "approve" | "request_changes"; summary: string;
-      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[]; expectedHeadSha?: string;
+      comments: ReviewSubmitComment[]; replies: ReviewSubmitReply[]; expectedHeadSha?: string; includePendingIds?: number[];
     };
     data: ReviewSubmitData;
   };

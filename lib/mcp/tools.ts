@@ -429,7 +429,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_comment_inline",
-      description: `Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: on GitLab the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so pass oldLine yourself only to comment on a removed line. Use mr_reply_thread to reply to an existing thread. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
+      description: `Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: on GitLab the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. line is the line number in the new version of the file; the daemon fills oldLine for an unchanged line and refuses a line outside the diff, so for a removed line pass oldLine alone, with no line. Use mr_reply_thread to reply to an existing thread. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -440,7 +440,7 @@ export function mcpTools(): McpToolDef[] {
           oldPath: { type: "string" },
           oldLine: { type: "number" },
         },
-        required: ["body", "path", "line"],
+        required: ["body", "path"],
         additionalProperties: false,
       },
       shellForms: { none: "inline notes have no glab verb; a glab api call hits the glab catch-all on mr_view" },
@@ -448,9 +448,9 @@ export function mcpTools(): McpToolDef[] {
         const bad = checkRequired(input, [
           { name: "body", type: "string" },
           { name: "path", type: "string" },
-          { name: "line", type: "number" },
-        ]) ?? checkOptional(input, [{ name: "oldPath", type: "string" }, { name: "oldLine", type: "number" }]);
+        ]) ?? checkOptional(input, [{ name: "line", type: "number" }, { name: "oldPath", type: "string" }, { name: "oldLine", type: "number" }]);
         if (bad) return err(bad);
+        if (input.line === undefined && input.oldLine === undefined) return err('"line" or "oldLine" is required');
         const target = await resolveMrTarget(input, { github: true });
         if (!target.ok) return err(target.error);
         const payload: Commands["mr:comment-inline"]["payload"] = {
@@ -458,8 +458,8 @@ export function mcpTools(): McpToolDef[] {
           iid: target.iid,
           body: input.body as string,
           path: input.path as string,
-          line: input.line as number,
         };
+        if (input.line !== undefined) payload.line = input.line as number;
         if (input.oldPath !== undefined) payload.oldPath = input.oldPath as string;
         if (input.oldLine !== undefined) payload.oldLine = input.oldLine as number;
         const res = await rtCommand<Commands["mr:comment-inline"]["data"]>("mr:comment-inline", payload, { timeoutMs: MR_WRITE_TIMEOUT_MS });
@@ -489,7 +489,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_review_submit",
-      description: `Post one whole review in one call, exactly as GitLab's "Submit your review" does (on GitHub it posts one review in one request): every entry in comments becomes an inline thread, every entry in replies lands in its existing thread (resolve: true resolves it; a reply with no body only resolves), summary posts as the review's summary note, and the caller is marked as having reviewed. outcome "approve" also approves. outcome "request_changes" posts the review as changes requested and never approves: on GitHub that is a changes-requested review, on GitLab the reviewer shows as having requested changes. A refused review posts nothing: published: false with reason "bad-anchors" lists the comments whose line is outside the diff (move those findings into summary and call again), and reason "pending-drafts" means the caller already has pending comments on the MR that a submit would publish (the caller submits or discards them first: pending drafts on GitLab, a pending review on GitHub). A review carries at most 100 comments and replies in total. With outcome "approve", published: true with approved: false means the review is up and only the approval was refused: never call this again for that review, use mr_approve. Pass expectedHeadSha, the sha you reviewed, and a moved head posts nothing and returns published: false with reason "head-moved" and headSha; re-read the diff before reviewing again. Returns counts, repliedTo, resolved, resolveErrors (the threads a reply could not resolve), replyErrors (GitHub only: the review is up but those replies did not post and their threads stay unresolved; post each with mr_reply_thread, never by calling this again), approved, approveError (when the approval was refused), reviewerState, summaryNoteId and mrUrl. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
+      description: `Post one whole review in one call, exactly as GitLab's "Submit your review" does (on GitHub it posts one review in one request): every entry in comments becomes an inline thread, every entry in replies lands in its existing thread (resolve: true resolves it; a reply with no body only resolves), summary posts as the review's summary note, and the caller is marked as having reviewed. outcome "approve" also approves. outcome "request_changes" posts the review as changes requested and never approves: on GitHub that is a changes-requested review, on GitLab the reviewer shows as having requested changes. A refused review posts nothing: published: false with reason "bad-anchors" lists the comments whose line is outside the diff (move those findings into summary and call again), and reason "pending-drafts" means the caller already has pending comments on the MR that a submit would publish (the caller submits or discards them first: pending drafts on GitLab, a pending review on GitHub). On GitLab the refusal lists the drafts' ids; to post them with this review, pass those ids as includePendingIds, and only once the person has said to post theirs too. A changed set is refused again. A review carries at most 100 comments and replies in total. With outcome "approve", published: true with approved: false means the review is up and only the approval was refused: never call this again for that review, use mr_approve. Pass expectedHeadSha, the sha you reviewed, and a moved head posts nothing and returns published: false with reason "head-moved" and headSha; re-read the diff before reviewing again. Returns counts, repliedTo, resolved, resolveErrors (the threads a reply could not resolve), replyErrors (GitHub only: the review is up but those replies did not post and their threads stay unresolved; post each with mr_reply_thread, never by calling this again), approved, approveError (when the approval was refused), reviewerState, summaryNoteId and mrUrl. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -497,6 +497,7 @@ export function mcpTools(): McpToolDef[] {
           outcome: { type: "string", enum: ["comment", "approve", "request_changes"] },
           summary: { type: "string" },
           expectedHeadSha: { type: "string", description: "the full head sha you reviewed" },
+          includePendingIds: { type: "array", items: { type: "number" } },
           comments: {
             type: "array",
             items: {
@@ -536,6 +537,7 @@ export function mcpTools(): McpToolDef[] {
           comments: (input.comments ?? []) as Commands["mr:review-submit"]["payload"]["comments"],
           replies: (input.replies ?? []) as Commands["mr:review-submit"]["payload"]["replies"],
           ...(input.expectedHeadSha !== undefined ? { expectedHeadSha: input.expectedHeadSha as string } : {}),
+          ...(input.includePendingIds !== undefined ? { includePendingIds: input.includePendingIds as number[] } : {}),
         };
         const res = await rtCommand<Commands["mr:review-submit"]["data"]>("mr:review-submit", payload, { timeoutMs: MR_REVIEW_SUBMIT_TIMEOUT_MS });
         return withReviewTimeout(fromResponse(res));

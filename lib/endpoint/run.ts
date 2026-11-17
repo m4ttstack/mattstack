@@ -41,6 +41,20 @@ export interface RunDeps {
   execReal(bin: string, args: string[], env: Record<string, string>): Promise<never>;
   resolveRealBinary(command: string): string | null;
   warn(msg: string): void;
+  /** Stops the start for a failClosed role whose claim failed. */
+  fail(msg: string): never;
+}
+
+/**
+ * A claim that timed out (the daemon busy, not down) is sent once more; a
+ * daemon that is not running is not worth a second wait.
+ */
+export async function claimWithRetry(
+  attempt: () => Promise<{ response: any | null; timedOut: boolean }>,
+): Promise<any | null> {
+  const first = await attempt();
+  if (first.response !== null || !first.timedOut) return first.response;
+  return (await attempt()).response;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -113,6 +127,12 @@ export async function runInterception(
   }
 
   if (!claimRes || !claimRes.ok) {
+    // Running without a port binds the tool's own default, which another
+    // worktree may already hold, so a role can ask to stop here instead.
+    if (roleCfg.failClosed) {
+      const reason = claimRes ? String(claimRes.error ?? "the claim was refused") : "the rt daemon did not answer";
+      deps.fail(`${command} did not start: rt could not reserve a port for the ${match.role} role (${reason})`);
+    }
     deps.warn(`${command} ran without an rt port: rt could not reserve one for the ${match.role} role`);
     return execUntouched();
   }
@@ -153,6 +173,7 @@ export async function runInterception(
     childEnv = { ...baseEnv, ...rendered, ...hookEnv };
     finalArgs = applyArgInject(args, match.argInject, envKeys);
   } catch (err) {
+    if (roleCfg.failClosed) deps.fail(`${command} did not start: setting up the ${match.role} role failed (${(err as Error).message})`);
     deps.warn(`${command} ran without an rt port: setting up the ${match.role} role failed (${(err as Error).message})`);
     return execUntouched();
   }

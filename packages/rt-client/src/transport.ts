@@ -79,6 +79,12 @@ function assertSockNotForbidden(cmd: string, sockPath: string): void {
 
 /** Starts every error rtCommand returns when the daemon gave no answer (unreachable, or timed out). */
 export const DAEMON_UNREACHABLE_PREFIX = "rt daemon unreachable at ";
+const DAEMON_TIMEOUT_TAIL = "; the daemon may be busy rather than down";
+
+/** True for an rtCommand error from a daemon that took the request and did not answer in time. */
+export function isDaemonTimeout(error: string | undefined): boolean {
+  return !!error && error.startsWith(DAEMON_UNREACHABLE_PREFIX) && error.endsWith(DAEMON_TIMEOUT_TAIL);
+}
 
 export async function rtCommand<T = unknown>(
   cmd: string,
@@ -87,6 +93,7 @@ export async function rtCommand<T = unknown>(
 ): Promise<RtResponse<T>> {
   const sockPath = opts.sockPath ?? defaultSock();
   assertSockNotForbidden(cmd, sockPath);
+  const timeoutMs = opts.timeoutMs ?? 15_000;
   try {
     const body = JSON.stringify(payload);
     const res = await fetch(`http://localhost/${cmd}`, {
@@ -94,7 +101,7 @@ export async function rtCommand<T = unknown>(
       method: "POST",
       headers: { "Content-Type": "application/json", "X-RT-Client": `rt-client/${process.pid}` },
       body,
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
+      signal: AbortSignal.timeout(timeoutMs),
       // Bun's `unix` fetch option isn't in the standard RequestInit type.
     } as RequestInit);
     const text = await res.text();
@@ -111,7 +118,12 @@ export async function rtCommand<T = unknown>(
     }
     return { ok: false, error: `${cmd} failed: HTTP ${res.status}${text ? ` ${text.slice(0, 200)}` : ""}` };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // A timeout means the daemon took the request and was slow, which reads
+    // differently from a socket nobody is listening on.
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
+    const msg = timedOut
+      ? `${cmd} timed out after ${timeoutMs / 1000}s${DAEMON_TIMEOUT_TAIL}`
+      : err instanceof Error ? err.message : String(err);
     return { ok: false, error: `${DAEMON_UNREACHABLE_PREFIX}${sockPath}: ${msg}` };
   }
 }
