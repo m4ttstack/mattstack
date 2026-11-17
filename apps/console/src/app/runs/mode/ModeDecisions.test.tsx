@@ -90,14 +90,16 @@ const panel = (over: Partial<Parameters<typeof ModePanel>[0]> = {}) => (
 );
 
 describe('ModePanel', () => {
-  it('Pause posts to the hold route and then reads Pausing…', async () => {
-    holdPost.mockResolvedValue(ok());
+  it('Pause posts to the hold route and reads Pausing… while it is sent', async () => {
+    let settle!: (v: unknown) => void;
+    holdPost.mockReturnValue(new Promise(r => (settle = r)));
     wrap(panel());
     await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
     expect(holdPost).toHaveBeenCalledWith({
       param: { repo: 'remote:acme%2Fweb', runId: 'r1' },
     });
     expect(await screen.findByText('Pausing…')).toBeTruthy();
+    settle(ok());
   });
 
   it('Redo sends the note for that gate', async () => {
@@ -138,6 +140,48 @@ describe('ModePanel', () => {
     );
     expect(await screen.findByTestId('redo-refused')).toBeTruthy();
     expect(screen.getByTestId('redo-note')).toBeTruthy();
+  });
+
+  it('once the Pause request settles, the run state alone says pausing', async () => {
+    holdPost.mockResolvedValue(ok());
+    wrap(panel());
+    await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy()
+    );
+    expect(screen.queryByText('Pausing…')).toBeNull();
+  });
+
+  it("a late Redo result stays with its own row's note", async () => {
+    let settle!: (v: unknown) => void;
+    redoPost.mockReturnValue(new Promise(r => (settle = r)));
+    wrap(
+      panel({
+        defaultOpen: true,
+        rows: [row('g1', 'plan'), row('g2', 'evidence')],
+      })
+    );
+    const [first, second] = screen.getAllByRole('button', { name: 'Redo' });
+    await userEvent.click(first!);
+    await userEvent.type(
+      screen.getByLabelText('What the worker should do differently'),
+      'x'
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Send back to plan' })
+    );
+    await userEvent.click(second!);
+    settle({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'stale', code: 'stale' }),
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Send back to evidence' })
+      ).toBeTruthy()
+    );
+    expect(screen.queryByTestId('redo-refused')).toBeNull();
   });
 
   it('a finished run offers neither Pause nor Redo', () => {

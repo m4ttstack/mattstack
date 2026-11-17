@@ -18,7 +18,7 @@
 - Pause is today's hold: engine `holdStage`, run field `hold`, a gate@1 decision `hold:<stage>:<attempt>`. Redo ends as today's redirect: a gate@1 decision `redirect:<stage>:<attempt>`. rt gains no branch reset verb, and no skill text may tell a worker to reset or rewrite history.
 - Both controls record their decider as `console`.
 - The repo is public: no team, pack, ticket or employer names in code, tests, fixtures, commits or PR text.
-- Run `bun test` from the repo root only, on the targeted files you touch; console tests run with `bun run --cwd apps/console vitest run <file>`.
+- Run `bun test` from the repo root only, on the targeted files you touch; console tests run through the root script, `bun run console:test -- <file>`.
 - A built binary runs only under an isolated HOME (`env -i HOME=<temp> ...`), every invocation.
 - After touching `packages/rt-client/src`, run `bun run --cwd packages/rt-client build` (its `dist/` is what the console and the daemon tests resolve).
 - Any edit under `plugins/mattstack` loads superpowers:writing-skills and mattstack:editing-skills first, bumps `plugins/mattstack/.claude-plugin/plugin.json`'s version (one past main's at merge time), and adds a `CERTIFICATION.md` row.
@@ -148,7 +148,7 @@ Also tested in their tasks: a herd worker with no chat sign-in still gets its an
   - `runs.test.ts`: `pause holds the run through holdRun` -> `rt.holdRun` called with `('run-1', 'repo-tools')`, 200 body equal to the stub's data; `pause maps a finished run to 409`; `pause is refused off this machine` (a `cf-connecting-ip` header -> 403, `holdRun` not called).
   - `gates.test.ts`: `redo sends the note to redoGate` -> `rt.redoGate` called with `{gate: 'g1', note: 'use the shared helper'}`, 200; `a blank note is 400 and never reaches the daemon`; `a pending redo is 409 with its code`; `an unknown gate is 404`; under the design fixture both writes are 403.
   - `modeFeed.test.ts`: `lists only mode-answered gates under their run` (a `mode:quiet` and a `console` gate on running `r1`, a `mode:normal` gate on done `r2` -> two runs; `r1` has one row with `mode: 'quiet'`, `choice === decisionText(gate)` and containing `direct-tdd`, `stage` and `headCommit` from `meta`; `r2.canControl === false`); `since drops older rows`; `a gate on an unlisted run is left out`; `runs order by their newest row`.
-- [ ] **Step 2:** `bun run --cwd apps/console vitest run src/server/runs.test.ts src/server/gates.test.ts src/app/runs/derive/modeFeed.test.ts`; expect FAIL.
+- [ ] **Step 2:** `bun run console:test -- src/server/runs.test.ts src/server/gates.test.ts src/app/runs/derive/modeFeed.test.ts`; expect FAIL.
 - [ ] **Step 3:** Implement. Keep each route chained and inline (console AGENTS.md: Hono RPC inference).
 - [ ] **Step 4:** Run the same command and `bun run console:typecheck`; expect PASS.
 - [ ] **Step 5: Commit** `console: pause and redo routes, and the mode feed derive`.

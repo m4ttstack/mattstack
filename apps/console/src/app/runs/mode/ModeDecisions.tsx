@@ -255,7 +255,12 @@ export function ModePanel({
   const { pause: hold, redo } = useModeControls(repo, runId);
   const [open, setOpen] = useState(defaultOpen);
   const [redoing, setRedoing] = useState<string | null>(null);
-  const [redoError, setRedoError] = useState<string | null>(null);
+  const [redoError, setRedoError] = useState<{
+    gate: string;
+    message: string;
+  } | null>(null);
+  // True only while the Pause request is in flight; after it settles the
+  // run's own state says whether it is pausing.
   const [pressed, setPressed] = useState(false);
   const shown: PauseState = pause === 'none' && pressed ? 'pausing' : pause;
 
@@ -270,18 +275,20 @@ export function ModePanel({
 
   const onPause = async () => {
     setPressed(true);
-    const err = await hold();
-    if (err) setPressed(false);
+    await hold();
+    setPressed(false);
   };
 
+  // A result applies only to the editor it was sent from: the operator may
+  // have opened another row's note while it was in flight.
   const send = async (gate: string, note: string) => {
     const err = await redo(gate, note);
     if (err) {
-      setRedoError(err);
+      setRedoError({ gate, message: err });
       return;
     }
-    setRedoing(null);
-    setRedoError(null);
+    setRedoing(cur => (cur === gate ? null : cur));
+    setRedoError(cur => (cur?.gate === gate ? null : cur));
   };
 
   return (
@@ -348,7 +355,9 @@ export function ModePanel({
                 <RedoNote
                   step={row.stage}
                   headCommit={row.headCommit}
-                  error={redoError}
+                  error={
+                    redoError?.gate === row.gate.id ? redoError.message : null
+                  }
                   onSend={note => void send(row.gate.id, note)}
                   onCancel={() => setRedoing(null)}
                 />
