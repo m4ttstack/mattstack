@@ -1057,6 +1057,9 @@ export interface Commands {
   "runs:list": { payload: { repo?: string; includeTests?: boolean }; data: { runs: RunSummary[] } };
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
+  "runs:hold": { payload: { runId: string; repo?: string }; data: { held: true; stage: string; already?: true } };
+  /** The run, the stage to go back to and the commit come from the gate row, never the caller. */
+  "runs:redo": { payload: { gate: string; note: string }; data: { runId: string; repo: string; to: string; headCommit: string | null } };
   "runs:evidence": { payload: { runId: string; repo?: string } & ({ key: EvidenceImageKey | EvidenceTextKey } | EvidenceAddress); data: { mime: string; base64?: string; text?: string } };
   "usage:mrs": { payload: { days?: number; repo?: string }; data: UsageMrsData };
   /** `data` is null when no MR has that key. */
@@ -1555,6 +1558,8 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "runs:list",
   "runs:get",
   "runs:abandon",
+  "runs:hold",
+  "runs:redo",
   "runs:evidence",
   "usage:mrs",
   "usage:mr",

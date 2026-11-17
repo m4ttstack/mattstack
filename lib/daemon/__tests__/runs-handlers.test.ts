@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -297,5 +298,85 @@ describe("runs handlers", () => {
       ] });
       expect((await call(tree, "t-9")).error).toBe("no evidence");
     });
+  });
+});
+
+describe("runs:hold and runs:redo", () => {
+  const REPO = "remote:acme";
+  const RUN = "20261117-090000-redo";
+
+  function seedLive(status = "running"): string {
+    const dir = root();
+    seedRun(dir, REPO, RUN, 1000, 2, { status });
+    return join(dir, REPO, RUN, "state.db");
+  }
+
+  function fieldOf(path: string, key: string): string | undefined {
+    const db = new Database(path, { readonly: true });
+    try {
+      return (db.query("SELECT value FROM fields WHERE key = ?").get(key) as { value: string } | null)?.value;
+    } finally {
+      db.close();
+    }
+  }
+
+  function gate(over: Record<string, unknown> = {}): any {
+    return {
+      id: "g-1", subject: `run:${RUN}`, kind: "decision", questions: [],
+      meta: { stage: "plan", headCommit: "abc1234" },
+      status: "answered", answer: { answers: {}, by: "mode:quiet", answeredAt: 1 },
+      ...over,
+    };
+  }
+
+  function handlersWith(row: any, emitted: { topic: string; payload: any }[]) {
+    return createRunsHandlers({ log } as any, (topic, payload) => { emitted.push({ topic, payload }); }, {
+      gateById: (id) => (row && row.id === id ? row : null),
+    });
+  }
+
+  test("runs:redo on a mode-answered gate records the redo and emits once", async () => {
+    const path = seedLive();
+    const emitted: { topic: string; payload: any }[] = [];
+    const h = handlersWith(gate(), emitted);
+    const res = await (h["runs:redo"] as any)({ gate: "g-1", note: "try the shared helper" });
+    expect(res).toEqual({ ok: true, data: { runId: RUN, repo: REPO, to: "plan", headCommit: "abc1234" } });
+    expect(emitted).toEqual([{ topic: "run-updated", payload: { repo: REPO, runId: RUN, stage: "plan", kind: "redo" } }]);
+    expect(JSON.parse(fieldOf(path, "redo")!)).toMatchObject({ gate: "g-1", to: "plan", by: "console", headCommit: "abc1234" });
+  });
+
+  const refusals: [string, any, string, string][] = [
+    ["a person's answer", { gateRow: gate({ answer: { answers: {}, by: "console", answeredAt: 1 } }) }, "not-mode", "only a gate a mode answered can be redone"],
+    ["no recorded stage", { gateRow: gate({ meta: { headCommit: "abc1234" } }) }, "no-stage", "that gate recorded no stage to go back to"],
+    ["a blank note", { gateRow: gate(), note: "  " }, "bad-note", "Redo needs a note for the worker"],
+    ["an unknown gate", { gateRow: null }, "not-found", "no gate g-1"],
+  ];
+  for (const [name, c, code, message] of refusals) {
+    test(`runs:redo refuses ${name} with ${code}, writing and emitting nothing`, async () => {
+      const path = seedLive();
+      const emitted: { topic: string; payload: any }[] = [];
+      const h = handlersWith(c.gateRow, emitted);
+      const res = await (h["runs:redo"] as any)({ gate: "g-1", note: c.note ?? "a note" });
+      expect(res).toEqual({ ok: false, error: message, failure: { code, message } });
+      expect(emitted).toEqual([]);
+      expect(fieldOf(path, "redo")).toBeUndefined();
+    });
+  }
+
+  test("runs:hold holds the run's current stage and emits held", async () => {
+    const path = seedLive();
+    const emitted: { topic: string; payload: any }[] = [];
+    const res = await (handlersWith(null, emitted)["runs:hold"] as any)({ runId: RUN });
+    expect(res).toEqual({ ok: true, data: { held: true, stage: "plan" } });
+    expect(fieldOf(path, "hold")).toBe("paused from the console");
+    expect(emitted).toEqual([{ topic: "run-updated", payload: { repo: REPO, runId: RUN, stage: "plan", kind: "held" } }]);
+  });
+
+  test("runs:hold on a finished run refuses with finished and emits nothing", async () => {
+    seedLive("done");
+    const emitted: { topic: string; payload: any }[] = [];
+    const res = await (handlersWith(null, emitted)["runs:hold"] as any)({ runId: RUN });
+    expect(res).toEqual({ ok: false, error: "this run has finished", failure: { code: "finished", message: "this run has finished" } });
+    expect(emitted).toEqual([]);
   });
 });
