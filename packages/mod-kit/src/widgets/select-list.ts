@@ -59,8 +59,10 @@ const isCursorRow = (spec: SelectSpec<unknown>, idx: number) => spec.focused && 
 function choiceRows<A>(choice: Choice, idx: number, spec: SelectSpec<A>): Line<A>[] {
   const bar = sp<A>(spec.rail === false ? '' : SYMBOL.bar, ACCENT)
   const isAt = isCursorRow(spec, idx)
-  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { bold: true }) : sp('  '), choiceMark(spec, idx), sp(' ')]
-  const under = [bar, sp('    ')]
+  // A box glyph draws wider than its cell in many fonts and runs into the space after it, so a box gets two.
+  const gap = spec.multi ? '  ' : ' '
+  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { bold: true }) : sp('  '), choiceMark(spec, idx), sp(gap)]
+  const under = [bar, sp(`   ${gap}`)]
   const rows = choiceLines(choice, idx, spec, lead, under)
   return isAt && spec.pressing ? rows.map(line => line.map(span => ((span as { isLabel?: boolean }).isLabel ? pressed(span) : span))) : rows
 }
