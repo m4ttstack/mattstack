@@ -1590,6 +1590,67 @@ describe('a gate whose poster honors edited drafts', () => {
     ).not.toBeNull();
   });
 
+  describe('with no-findings drafts', () => {
+    const NONE_APPROVE = 'Looks good to me, approving.';
+    const NONE_COMMENT = 'Read it through; nothing to add from me.';
+    const noneGate = () => {
+      const g = draftsGate();
+      return {
+        ...g,
+        context: j({
+          ...JSON.parse(g.context as string),
+          summaryNoFindingsComments: {
+            approve: NONE_APPROVE,
+            comment: NONE_COMMENT,
+          },
+        }),
+      };
+    };
+    const untickAll = async () => {
+      for (const t of [
+        'SQL built from unsanitized input',
+        'Missing null check on response',
+        'Inconsistent error wording',
+        'Unused import',
+      ])
+        await click(checkboxForTitle(t));
+    };
+
+    test('unticking every finding swaps in the no-findings draft for the verdict', async () => {
+      await render(noneGate());
+      expect(valueOf(summaryLine())).toContain(SUMMARY);
+      await untickAll();
+      expect(valueOf(summaryLine())).toContain(NONE_APPROVE);
+      await pickVerdict('comment');
+      expect(valueOf(summaryLine())).toContain(NONE_COMMENT);
+    });
+
+    test('the untouched no-findings draft rides the outcome as text', async () => {
+      await render(noneGate());
+      await untickAll();
+      await click(submitButton());
+      expect(answers().outcome).toEqual({
+        value: 'approve',
+        text: NONE_APPROVE,
+      });
+    });
+
+    test('re-ticking a finding brings back the verdict draft and its edit', async () => {
+      await render(noneGate());
+      await edit(summaryLine(), 'Approve, edited.');
+      await untickAll();
+      expect(valueOf(summaryLine())).not.toContain('Approve, edited.');
+      await click(checkboxForTitle('Unused import'));
+      expect(valueOf(summaryLine())).toContain('Approve, edited.');
+    });
+
+    test('a gate without no-findings drafts keeps the verdict draft', async () => {
+      await render(draftsGate());
+      await untickAll();
+      expect(valueOf(summaryLine())).toContain(SUMMARY);
+    });
+  });
+
   test('submitting under comment sends no approve edit', async () => {
     await render(draftsGate());
     await edit(summaryLine(), 'Approve, edited.');

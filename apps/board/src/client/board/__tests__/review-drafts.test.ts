@@ -8,6 +8,8 @@ import {
   draftEdits,
   findOutcomeQuestion,
   hasDiffLine,
+  noneSummaryKey,
+  summaryDraftFor,
   summaryKey,
 } from '../review-drafts.ts';
 
@@ -159,6 +161,70 @@ describe('draftEdits', () => {
     expect(
       draftEdits(DRAFTS, ticked, { [summaryKey('approve')]: 'New.' }, undefined)
     ).toEqual({ texts: {} });
+  });
+});
+
+describe('with nothing ticked', () => {
+  const NONE_DRAFTS = {
+    ...DRAFTS,
+    noneSummaries: { approve: 'Approving.', comment: 'Nothing to add.' },
+  };
+  const none = new Set<string>();
+
+  test('the no-findings draft is the summary, under its own key', () => {
+    expect(summaryDraftFor(NONE_DRAFTS, 'comment', true)).toEqual({
+      key: noneSummaryKey('comment'),
+      draft: 'Nothing to add.',
+      none: true,
+    });
+  });
+
+  test('a ticked finding brings back the verdict draft', () => {
+    expect(summaryDraftFor(NONE_DRAFTS, 'comment', false)).toEqual({
+      key: summaryKey('comment'),
+      draft: 'Comment draft.',
+    });
+  });
+
+  test('a gate with no no-findings drafts keeps the verdict draft', () => {
+    expect(summaryDraftFor(DRAFTS, 'comment', true)).toEqual({
+      key: summaryKey('comment'),
+      draft: 'Comment draft.',
+    });
+  });
+
+  test('the untouched no-findings draft always rides, so the poster never falls back to the verdict line', () => {
+    expect(draftEdits(NONE_DRAFTS, none, {}, 'comment', true)).toEqual({
+      texts: {},
+      summary: 'Nothing to add.',
+    });
+  });
+
+  test('an edit of the no-findings draft rides, and the verdict edit is kept apart', () => {
+    expect(
+      draftEdits(
+        NONE_DRAFTS,
+        none,
+        {
+          [summaryKey('comment')]: 'Verdict edit.',
+          [noneSummaryKey('comment')]: 'Clean edit.',
+        },
+        'comment',
+        true
+      )
+    ).toEqual({ texts: {}, summary: 'Clean edit.' });
+  });
+
+  test('a blank no-findings edit cannot post', () => {
+    expect(
+      draftEdits(
+        NONE_DRAFTS,
+        none,
+        { [noneSummaryKey('approve')]: ' ' },
+        'approve',
+        true
+      )
+    ).toBeNull();
   });
 });
 

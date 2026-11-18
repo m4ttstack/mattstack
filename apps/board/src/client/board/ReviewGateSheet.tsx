@@ -37,6 +37,8 @@ import {
   draftEdits,
   findOutcomeQuestion,
   hasDiffLine,
+  type ReviewDrafts,
+  summaryDraftFor,
 } from './review-drafts.ts';
 import {
   readinessProse,
@@ -353,27 +355,34 @@ function reviewHistory(
 /** The drafts the poster falls back to, or null when the gate does not
     promise to post edits or any draft is missing (a finding's comment, or
     the summary line for any verdict): the sheet then offers no editing at
-    all. */
+    all. No-findings lines ride only when every verdict has one. */
 function readDrafts(
   review:
-    | { editable?: boolean; summaryComments?: Record<string, string> }
+    | {
+        editable?: boolean;
+        summaryComments?: Record<string, string>;
+        summaryNoFindingsComments?: Record<string, string>;
+      }
     | undefined,
   findings: FindingEntry[],
   outcome: GateQuestion | undefined
-): {
-  findings: Map<string, string>;
-  summaries: Record<string, string>;
-} | null {
+): ReviewDrafts | null {
   const summaries = review?.summaryComments;
   if (!review?.editable || !summaries || !outcome) return null;
-  if (outcome.options.some(o => summaries[optionValue(o)] === undefined))
-    return null;
+  const coversEvery = (lines: Record<string, string>) =>
+    outcome.options.every(o => lines[optionValue(o)] !== undefined);
+  if (!coversEvery(summaries)) return null;
   const map = new Map<string, string>();
   for (const f of findings) {
     if (f.comment === undefined) return null;
     map.set(f.id, f.comment);
   }
-  return { findings: map, summaries };
+  const none = review.summaryNoFindingsComments;
+  return {
+    findings: map,
+    summaries,
+    ...(none && coversEvery(none) ? { noneSummaries: none } : {}),
+  };
 }
 
 /** The report's checks in the rail: a tally beside the title, then every
@@ -564,10 +573,14 @@ function ReviewGateSheet({
     : undefined;
   const verdict =
     typeof selectedOutcome === 'string' ? selectedOutcome : undefined;
+  const nothingTicked =
+    selectedFindings.size === 0 && selectedSkipped.size === 0;
   const summaryDraft =
-    drafts && verdict !== undefined ? drafts.summaries[verdict] : undefined;
+    drafts && verdict !== undefined
+      ? summaryDraftFor(drafts, verdict, nothingTicked)
+      : undefined;
   const edits = drafts
-    ? draftEdits(drafts, selectedFindings, form.texts, verdict)
+    ? draftEdits(drafts, selectedFindings, form.texts, verdict, nothingTicked)
     : { texts: {} };
   const pinsByFile = useMemo(() => {
     const out = new Map<string, FilePin[]>();
@@ -1179,8 +1192,8 @@ function ReviewGateSheet({
                   </div>
                   {verdict !== undefined && summaryDraft !== undefined && (
                     <SummaryCard
-                      outcome={verdict}
-                      draft={summaryDraft}
+                      textKey={summaryDraft.key}
+                      draft={summaryDraft.draft}
                       form={form}
                       postsOn={mr ? mrRef(mr) : undefined}
                     />

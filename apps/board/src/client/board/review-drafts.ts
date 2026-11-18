@@ -4,9 +4,33 @@ import { postedText } from './respond-post.ts';
 import { isFindingsQuestion } from './review-gate.ts';
 
 /** Form text keys: one per finding's comment, one summary line per
-    verdict, so each verdict keeps its own edit. */
+    verdict, and one no-findings line per verdict, so each keeps its own
+    edit. */
 export const commentKey = (findingId: string) => `comment:${findingId}`;
 export const summaryKey = (outcome: string) => `summary:${outcome}`;
+export const noneSummaryKey = (outcome: string) => `summary:${outcome}:none`;
+
+export interface ReviewDrafts {
+  findings: Map<string, string>;
+  summaries: Record<string, string>;
+  /** Per verdict, the summary for a review that posts no findings. */
+  noneSummaries?: Record<string, string>;
+}
+
+/** The summary draft the selected verdict posts, and the form key its edit
+    lives under. With nothing ticked, the no-findings draft when the gate
+    carries one, since the verdict draft speaks of findings. */
+export function summaryDraftFor(
+  drafts: ReviewDrafts,
+  outcome: string,
+  nothingTicked: boolean
+): { key: string; draft: string; none?: true } | undefined {
+  const none = nothingTicked ? drafts.noneSummaries?.[outcome] : undefined;
+  if (none !== undefined)
+    return { key: noneSummaryKey(outcome), draft: none, none: true };
+  const draft = drafts.summaries[outcome];
+  return draft === undefined ? undefined : { key: summaryKey(outcome), draft };
+}
 
 /** An inline comment needs both a file and a line; the gate joins them as
     `file:line`, so a bare file (or none) posts in the summary instead. */
@@ -32,13 +56,16 @@ export interface DraftEdits {
 
 /** The edits, as they post, that differ from their drafts, for ticked findings
     only, keyed by finding id, plus the selected verdict's summary edit.
-    Null when a ticked finding's edit, or the selected verdict's summary
-    edit, is blank: an empty comment cannot post. */
+    A no-findings summary always rides, edited or not, because an older
+    poster knows only the verdict drafts. Null when a ticked finding's
+    edit, or the selected verdict's summary edit, is blank: an empty
+    comment cannot post. */
 export function draftEdits(
-  drafts: { findings: Map<string, string>; summaries: Record<string, string> },
+  drafts: ReviewDrafts,
   ticked: Set<string>,
   texts: Record<string, string>,
-  outcome: string | undefined
+  outcome: string | undefined,
+  nothingTicked = false
 ): DraftEdits | null {
   const out: DraftEdits = { texts: {} };
   for (const [id, draft] of drafts.findings) {
@@ -49,15 +76,16 @@ export function draftEdits(
     const posted = postedText(edit);
     if (posted !== postedText(draft)) out.texts[id] = posted;
   }
-  const summaryDraft =
-    outcome !== undefined ? drafts.summaries[outcome] : undefined;
-  const summaryEdit =
-    outcome !== undefined ? texts[summaryKey(outcome)] : undefined;
-  if (summaryEdit !== undefined && summaryDraft !== undefined) {
-    if (summaryEdit.trim() === '') return null;
-    const posted = postedText(summaryEdit);
-    if (posted !== postedText(summaryDraft)) out.summary = posted;
-  }
+  const summary =
+    outcome !== undefined
+      ? summaryDraftFor(drafts, outcome, nothingTicked)
+      : undefined;
+  if (summary === undefined) return out;
+  const summaryEdit = texts[summary.key];
+  if (summaryEdit !== undefined && summaryEdit.trim() === '') return null;
+  const posted = postedText(summaryEdit ?? summary.draft);
+  if (summary.none || posted !== postedText(summary.draft))
+    out.summary = posted;
   return out;
 }
 
