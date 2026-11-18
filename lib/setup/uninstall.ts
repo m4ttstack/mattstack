@@ -367,10 +367,15 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
 
   // After mattstack's superpowers is gone, so the Mac keeps the superpowers it had before setup.
   const stillOff: typeof reEnable = [];
+  const turnedOn: string[] = [];
   for (const entry of reEnable) {
-    const res = await ctx.p.exec([...claude.exec, "plugin", "enable", entry.id], { env: { CLAUDE_CONFIG_DIR: entry.configDir } });
-    if (res.code !== 0 && !isAlreadyGone(res) && !isAlreadyEnabled(res)) {
-      notes.push(`${entry.configDir}: enable ${entry.id} exited ${res.code}`);
+    const res = await ctx.p.exec([...claude.exec, "plugin", "enable", entry.id, "--scope", "user"], { env: { CLAUDE_CONFIG_DIR: entry.configDir } });
+    if (res.code === 0 || isAlreadyEnabled(res)) {
+      if (!turnedOn.includes(entry.id)) turnedOn.push(entry.id);
+    } else if (isAlreadyGone(res)) {
+      ctx.log("plugins.uninstall", `${entry.configDir}: ${entry.id} is no longer installed, so there was nothing to turn back on`);
+    } else {
+      notes.push(`${entry.configDir}: enable ${entry.id} (${claudeMessage(res, `exited ${res.code}`)})`);
       stillOff.push(entry);
     }
   }
@@ -382,7 +387,8 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };
   const generatedNote = generated > 0 ? `, and deleted ${generated} generated team marketplace folder${generated === 1 ? "" : "s"}` : "";
-  return { outcome: { state: "done", detail: `Removed ${state.plugins.length} plugin${state.plugins.length === 1 ? "" : "s"} and ${state.marketplaces.length} marketplace${state.marketplaces.length === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}${generatedNote}` } };
+  const turnedOnNote = turnedOn.length > 0 ? `; turned ${turnedOn.join(", ")} back on` : "";
+  return { outcome: { state: "done", detail: `Removed ${state.plugins.length} plugin${state.plugins.length === 1 ? "" : "s"} and ${state.marketplaces.length} marketplace${state.marketplaces.length === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}${generatedNote}${turnedOnNote}` } };
 }
 
 function mattstackDataDir(p: Pick<Probes, "home">): string {

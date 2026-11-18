@@ -353,6 +353,10 @@ describe("rt uninstall", () => {
     describe("plugins.uninstall turns back on the stock superpowers the swap turned off", () => {
       const actions: UninstallAction[] = [{ id: "plugins.uninstall", title: "x", kind: "rt" }];
       const recorded = () => [{ configDir: join(home, ".claude"), id: "superpowers@claude-plugins-official" }];
+      const uninstallDetail = (events: ApplyEvent[]) => {
+        const ended = events.findLast((e) => e.event === "step" && e.id === "plugins.uninstall" && e.state !== "running");
+        return ended && ended.event === "step" ? ended.detail : undefined;
+      };
 
       test("the recorded copy is re-enabled in its folder, after mattstack's superpowers is removed, and the record is cleared", async () => {
         const calls: { argv: string[]; dir?: string }[] = [];
@@ -364,7 +368,7 @@ describe("rt uninstall", () => {
           },
         });
         updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
-        const { ctx } = makeCtx(p);
+        const { ctx, events } = makeCtx(p);
 
         const result = await runUninstall(ctx, actions);
         expect(result.ok).toBe(true);
@@ -373,7 +377,9 @@ describe("rt uninstall", () => {
         expect(uninstallAt).toBeGreaterThanOrEqual(0);
         expect(enableAt).toBeGreaterThan(uninstallAt);
         expect(calls[enableAt]!.dir).toBe(join(home, ".claude"));
+        expect(calls[enableAt]!.argv).toEqual(["plugin", "enable", "superpowers@claude-plugins-official", "--scope", "user"]);
         expect(readSetupState(p).superpowersDisabled ?? []).toEqual([]);
+        expect(uninstallDetail(events)).toContain("turned superpowers@claude-plugins-official back on");
       });
 
       test("a recorded copy the member already removed is a note, not a failed uninstall", async () => {
@@ -383,9 +389,11 @@ describe("rt uninstall", () => {
             argv[2] === "enable" ? { code: 1, stdout: "", stderr: 'Plugin "superpowers@claude-plugins-official" not found' } : { code: 0, stdout: "", stderr: "" },
         });
         updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
-        const { ctx } = makeCtx(p);
+        const { ctx, logs } = makeCtx(p);
 
         expect((await runUninstall(ctx, actions)).ok).toBe(true);
+        expect(readSetupState(p).superpowersDisabled ?? []).toEqual([]);
+        expect(logs.some((l) => l.id === "plugins.uninstall" && l.line.includes("superpowers@claude-plugins-official") && l.line.includes("no longer installed"))).toBe(true);
       });
 
       test("a recorded copy the member already turned back on counts as done, and its record is cleared", async () => {
@@ -428,9 +436,11 @@ describe("rt uninstall", () => {
           exec: async (argv: string[]) => (argv[2] === "enable" ? { code: 1, stdout: "", stderr: "settings file is locked" } : { code: 0, stdout: "", stderr: "" }),
         });
         updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
-        const { ctx } = makeCtx(p);
+        const { ctx, events } = makeCtx(p);
 
-        expect((await runUninstall(ctx, actions)).ok).toBe(false);
+        const result = await runUninstall(ctx, actions);
+        expect(result.ok).toBe(false);
+        expect(uninstallDetail(events)).toContain("settings file is locked");
         expect(readSetupState(p).superpowersDisabled).toEqual(recorded());
       });
 

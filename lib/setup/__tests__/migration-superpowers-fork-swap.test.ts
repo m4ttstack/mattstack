@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runUpdateWith, type ApplyContext, type StepDef } from "../apply.ts";
@@ -7,7 +7,9 @@ import type { ApplyEvent } from "../contract.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
 import { superpowersForkSwapMigration } from "../migrations/superpowers-fork-swap.ts";
 import type { ExecResult } from "../probes.ts";
-import { readSetupState } from "../state.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
+import { getSetting } from "../../settings/resolve.ts";
+import { setSetting } from "../../settings/write.ts";
 import { fakeProbes, ok } from "./fakes.ts";
 
 type Listed = { id: string; enabled: boolean; scope?: string };
@@ -70,7 +72,7 @@ describe("2026-11-18-superpowers-fork-swap", () => {
     const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "user" }] } });
     const outcome = await superpowersForkSwapMigration.run(h.ctx);
     expect(outcome.state).toBe("done");
-    expect(h.disables()).toEqual([{ argv: ["plugin", "disable", "superpowers@claude-plugins-official"], dir: defaultDir() }]);
+    expect(h.disables()).toEqual([{ argv: ["plugin", "disable", "superpowers@claude-plugins-official", "--scope", "user"], dir: defaultDir() }]);
     expect(readSetupState(h.p).superpowersDisabled).toEqual([{ configDir: defaultDir(), id: "superpowers@claude-plugins-official" }]);
   });
 
@@ -145,9 +147,58 @@ describe("2026-11-18-superpowers-fork-swap", () => {
     const ctx = { ...h.ctx, emit: (e: ApplyEvent) => events.push(e), log: () => {} } as ApplyContext;
     const pluginsInstall: StepDef = { id: "plugins.install", title: "plugins", kind: "rt", updateSafe: true, applies: () => true, run: async () => { listed.push({ id: "superpowers@mattstack", enabled: true, scope: "user" }); return { state: "done" }; } };
     await runUpdateWith([pluginsInstall], [superpowersForkSwapMigration], ctx);
-    expect(h.disables()).toEqual([{ argv: ["plugin", "disable", "superpowers@claude-plugins-official"], dir: defaultDir() }]);
+    expect(h.disables()).toEqual([{ argv: ["plugin", "disable", "superpowers@claude-plugins-official", "--scope", "user"], dir: defaultDir() }]);
     expect(readSetupState(h.p).migrations).toContain("2026-11-18-superpowers-fork-swap");
     expect(events.findLast((e) => e.event === "done")).toEqual({ event: "done", ok: true });
+  });
+
+  test("mattstack's superpowers installed but turned off in a folder: the member opted out there, so the stock copy stays on and nothing waits", async () => {
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: false, scope: "user" }] } });
+    const outcome = await superpowersForkSwapMigration.run(h.ctx);
+    expect(outcome.state).toBe("skipped");
+    expect(outcome.detail).toContain(defaultDir());
+    expect(h.disables()).toEqual([]);
+  });
+
+  test("mattstack's superpowers removed after rt installed it: the member's choice, so nothing waits for it", async () => {
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }] } });
+    updateSetupState(h.p, (st) => ({ ...st, plugins: ["superpowers@mattstack"] }));
+    const outcome = await superpowersForkSwapMigration.run(h.ctx);
+    expect(outcome.state).toBe("skipped");
+    expect(h.disables()).toEqual([]);
+  });
+
+  test("a folder and id already in the record are not recorded twice", async () => {
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "user" }] } });
+    updateSetupState(h.p, (st) => ({ ...st, superpowersDisabled: [{ configDir: defaultDir(), id: "superpowers@claude-plugins-official" }] }));
+    await superpowersForkSwapMigration.run(h.ctx);
+    expect(readSetupState(h.p).superpowersDisabled).toEqual([{ configDir: defaultDir(), id: "superpowers@claude-plugins-official" }]);
+  });
+
+  test("two folders that share plugins/ but keep their own settings.json are each switched, since enablement lives in settings.json", async () => {
+    mkdirSync(join(defaultDir(), "plugins"), { recursive: true });
+    writeFileSync(join(defaultDir(), "settings.json"), "{}");
+    mkdirSync(sessionDir("1-work"), { recursive: true });
+    symlinkSync(join(defaultDir(), "plugins"), join(sessionDir("1-work"), "plugins"));
+    writeFileSync(join(sessionDir("1-work"), "settings.json"), "{}");
+    const both: Listed[] = [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "user" }];
+    const h = harness({ sessions: ["1-work"], lists: { [defaultDir()]: both, [sessionDir("1-work")]: both } });
+    await superpowersForkSwapMigration.run(h.ctx);
+    expect(h.disables().map((c) => c.dir)).toEqual([defaultDir(), sessionDir("1-work")]);
+  });
+
+  test("skills the member turned off under the stock copy stay off under mattstack's superpowers", async () => {
+    setSetting("rt.skills.disableModelInvocation", { "superpowers@claude-plugins-official": ["brainstorming"] }, "user");
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "user" }] } });
+    await superpowersForkSwapMigration.run(h.ctx);
+    expect(getSetting<Record<string, string[]>>("rt.skills.disableModelInvocation").value["superpowers@mattstack"]).toEqual(["brainstorming"]);
+  });
+
+  test("skill choices the member already made for mattstack's superpowers are kept", async () => {
+    setSetting("rt.skills.disableModelInvocation", { "superpowers@claude-plugins-official": ["brainstorming"], "superpowers@mattstack": ["writing-plans"] }, "user");
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "user" }] } });
+    await superpowersForkSwapMigration.run(h.ctx);
+    expect(getSetting<Record<string, string[]>>("rt.skills.disableModelInvocation").value["superpowers@mattstack"]).toEqual(["writing-plans"]);
   });
 
   test("a disable that fails is failed, and the folders that worked stay recorded", async () => {
