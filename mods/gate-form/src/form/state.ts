@@ -20,7 +20,6 @@ export type State = {
   phase: Phase
   hover?: string
   pressed?: string
-  tabsFrom: number
   chatArmed?: true
   menu: MenuState
   // The keyboard is on the nav row rather than the page's answers; the review page has only the nav row.
@@ -68,7 +67,6 @@ export function initial(form: Form): State {
     answered: form.questions.map(() => false),
     chosen,
     phase: 'active',
-    tabsFrom: 0,
     menu: { open: false, selected: 0 },
     navAt: 'next',
   }

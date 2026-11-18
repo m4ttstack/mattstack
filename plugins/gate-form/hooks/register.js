@@ -490,7 +490,6 @@ function initial(form) {
     answered: form.questions.map(() => false),
     chosen,
     phase: "active",
-    tabsFrom: 0,
     menu: { open: false, selected: 0 },
     navAt: "next"
   };

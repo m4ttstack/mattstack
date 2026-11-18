@@ -893,7 +893,6 @@ function initial(form) {
     answered: form.questions.map(() => false),
     chosen,
     phase: "active",
-    tabsFrom: 0,
     menu: { open: false, selected: 0 },
     navAt: "next"
   };
@@ -1117,8 +1116,6 @@ function performOn(action, form, armed) {
     return chat(form, armed);
   const s = disarm(armed);
   switch (action.type) {
-    case "scroll-tabs":
-      return { state: { ...s, tabsFrom: action.from } };
     case "page":
       return { state: goTo(form, s, action.page) };
     case "advance":

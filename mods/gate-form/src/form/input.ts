@@ -7,7 +7,6 @@ import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickCh
 export type Action =
   | { type: 'page'; page: number }
   | { type: 'hide' }
-  | { type: 'scroll-tabs'; from: number }
   | { type: 'advance' }
   | { type: 'option'; idx: number }
   | { type: 'send' }
@@ -84,8 +83,6 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
   if (action.type === 'chat') return chat(form, armed)
   const s = disarm(armed)
   switch (action.type) {
-    case 'scroll-tabs':
-      return { state: { ...s, tabsFrom: action.from } }
     case 'page':
       return { state: goTo(form, s, action.page) }
     case 'advance':

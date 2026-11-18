@@ -149,12 +149,17 @@ pushed to the right edge.
 
 ### `SelectList`
 
-`<SelectList choices cursor multi? cursorIsChoice? isPicked? writeIn? onPick? maxShown?>`.
+`<SelectList choices cursor multi? isPicked? writeIn? onPick? maxShown?>`.
 Clack's select and multiselect. `choices` are `{ label, description?, isWriteIn? }`.
-The focused choice shows in full, the rest in one row each. `maxShown` defaults
-to 8 and the list windows around the cursor ("N more"). `writeIn` is the text of
-the "Something else" row. `cursorIsChoice` draws the single-select cursor as
-chosen.
+`maxShown` defaults to 8 and the list windows around the cursor ("N more").
+The cursor and the pick are separate: while focused, the cursor's choice has a
+`❯` in its gutter and a tinted row, and `isPicked` draws the ● or ticked box,
+so moving never looks like picking. The pointer over a choice gives it the same
+tint, held down or not. A write-in choice is one row: its label is the
+placeholder, and with the cursor on it you type there; `writeIn` is the typed
+text. The widget's `rail`, `spaced` and `isDefault` options (`selectList`) drop
+the rail, add a blank row between choices, and draw a not-yet-accepted single
+pick as a dim ●.
 
 ### `Menu`
 
@@ -363,10 +368,11 @@ is the button a move onto the row lands on).
   With `tabSteps`, Tab and Shift+Tab step rows.
 - `gridSelection(rows, spot)` turns a spot back into a selection to store.
 
-- `gridLook(span, { marked?, pressing? })` draws the selected button: pressed
-  while `pressing` (pass `ui.keyPressing`), with the `keySelected` edge while
-  `marked` (pass `ui.keyboard`, or true where the mod always shows the
-  selection). The edge is pink, or white on a pink (brand) fill.
+- `gridLook(span, { marked?, pressing? })` draws a lone selected button:
+  pressed while `pressing` (pass `ui.keyPressing`), with the `keySelected`
+  look while `marked` (pass `ui.keyboard`, or true where the mod always shows
+  the selection). In a row, use `markButtonAt` instead, so the button keeps
+  its width.
 
 The mod keeps the selection in its state. Enter calls
 `ui.pressFor(() => ...)`, so the button shows its press before it acts. See `mods/human-todos/src/pane/kit-view.tsx` and
@@ -477,10 +483,13 @@ call. `kitClient` does all of this.
 `BRAND`, `FILL`, `QUIET`, `SCROLL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
 `WARN`, `DIM` are the palette and glyph tables. `rail(style)` is the left rail
 spans. `hovered(span)`, `pressed(span)` and `muted(span)` give the state
-shades. `keySelected(span)` marks the button the keyboard selected: its own
-look with a pink `SYMBOL.selectEdge` in its left edge cell, as two spans of the
-same width. The edge is a `mark`, a foreground the pointer states keep, so it
-takes the button's hover and press fills. Icons are Nerd Font codepoints.
+shades. `markButtonAt(line, at, { pressing? })` marks the button the keyboard
+selected at `line[at]`: its fill lifted a step and a `❯` (`SYMBOL.selectEdge`,
+in the terminal's own text colour) in the blank spacer cells before it, so the
+button keeps its width and the row its cell count. With no blank cell before
+it the `❯` is added. `keySelected(span)` does the same for a lone button. The
+`❯` carries no action, so the pointer lights only the button. Icons are Nerd
+Font codepoints.
 
 ## Checks
 
