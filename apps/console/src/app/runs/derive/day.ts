@@ -510,13 +510,15 @@ function gateLine(gate: GateRow): string | null {
   if (answer?.writeIn)
     return `${question.label} Wrote in: “${answer.writeIn}”.`;
   if (!answer || answer.picked.length === 0) return question.label;
-  const you = answeredBy(gate)?.you;
+  const by = answeredBy(gate);
   const who =
-    you === true
-      ? 'You picked'
-      : you === false
-        ? 'The shepherd picked'
-        : 'Picked';
+    by?.via === 'mode'
+      ? `The ${by.mode} mode picked`
+      : by?.you === true
+        ? 'You picked'
+        : by?.you === false
+          ? 'The shepherd picked'
+          : 'Picked';
   return `${question.label} ${who} ${pickedText(question, answer.picked)}.`;
 }
 
@@ -562,6 +564,28 @@ export function dayDecisions(
     const at = gate.answer?.answeredAt;
     if (at == null || at < from || at >= to) continue;
     if (!answeredBy(gate)?.you) continue;
+    const run = byId.get(runIdOfGate(gate) ?? '');
+    if (run) out.push({ gate, run });
+  }
+  return out.sort(
+    (a, b) => b.gate.answer!.answeredAt - a.gate.answer!.answeredAt
+  );
+}
+
+/** The gates a run's mode answered that day on the runs listed, newest
+    first. */
+export function dayModeDecisions(
+  runs: RunSummary[],
+  gates: GateRow[],
+  from: number,
+  to: number
+): DayDecision[] {
+  const byId = new Map(runs.map(r => [r.id, r] as const));
+  const out: DayDecision[] = [];
+  for (const gate of gates) {
+    const at = gate.answer?.answeredAt;
+    if (at == null || at < from || at >= to) continue;
+    if (answeredBy(gate)?.via !== 'mode') continue;
     const run = byId.get(runIdOfGate(gate) ?? '');
     if (run) out.push({ gate, run });
   }

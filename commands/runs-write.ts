@@ -223,7 +223,7 @@ async function withRunDbAsync(env: NodeJS.ProcessEnv, cwd: string, body: (run: R
 
 export type EngineOp =
   | { op: "enter"; args: string[]; packRoot: string; stage?: string; pipeline?: string; handedRunDb?: string; resume?: string; fresh?: boolean }
-  | { op: "next"; stage: string }
+  | { op: "next"; stage: string; attempt?: number }
   | { op: "resolve"; stage: string; next: ResolveNext; to?: string; note?: string; attempt?: number; decidedBy: string }
   | { op: "hold"; stage: string; reason?: string; decidedBy: string }
   | { op: "close"; workType: string; stage: string; outcome: "done" | "failed" | "abandoned"; reason?: string; detailPath?: string }
@@ -258,8 +258,9 @@ type Applied = { r: Ok<object> | Fail; adopts: boolean };
 function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: NodeJS.ProcessEnv): Applied {
   switch (op.op) {
     case "next": {
-      const r = nextStage(db, { stage: op.stage, env });
-      return { r, adopts: r.ok && r.ended === "done" && "next" in r && r.repeated !== true };
+      const r = nextStage(db, { stage: op.stage, attempt: op.attempt, env });
+      const startedStage = r.ok && "next" in r && (r.ended === "redirected" || (r.ended === "done" && r.repeated !== true));
+      return { r, adopts: startedStage };
     }
     case "resolve": {
       const r = resolveStage(db, { stage: op.stage, next: op.next, to: op.to, note: op.note, attempt: op.attempt, decidedBy: op.decidedBy, env });
@@ -281,7 +282,7 @@ function applyOp(op: Exclude<EngineOp, { op: "enter" }>, db: Database, env: Node
 function wroteNothing(op: Exclude<EngineOp, { op: "enter" }>, body: Record<string, unknown>): boolean {
   if (body.repeated === true) return true;
   if (op.op === "budget") return op.increment === 0;
-  if (op.op === "next") return body.ended === "held" || body.ended === "waiting" || body.ended === "closed";
+  if (op.op === "next") return (body.ended === "held" && body.redo === undefined) || body.ended === "waiting" || body.ended === "closed";
   return false;
 }
 

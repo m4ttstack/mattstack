@@ -29,7 +29,9 @@ import {
   statCards,
   type RunsFilter,
 } from '../derive/lanes';
+import { modeFeed, pauseStateOf, runModeOf } from '../derive/modeFeed';
 import { Eyebrow } from '../Eyebrow';
+import { ModePanel } from '../mode/ModeDecisions';
 import { repoPath } from '../repoLabel';
 import { RetryAlert } from '../RetryAlert';
 import type { RunPageData } from '../run-page/useRunParts';
@@ -126,6 +128,8 @@ function LaneSlot({
 }) {
   const detail = useRunChrome(run.repo, run.id).data as RunPageData | undefined;
   const mrField = detail?.fields.find(f => f.key === 'mr')?.value;
+  const rows = modeFeed([run], gates)[0]?.rows ?? [];
+  const mode = runModeOf(detail?.fields, rows);
   return (
     <LiveLane
       runId={run.id}
@@ -133,6 +137,19 @@ function LaneSlot({
       title={titleOf(run, mrField)}
       href={runHref(run)}
       facts={laneFacts({ run, detail, gates, now })}
+      mode={
+        mode ? (
+          <ModePanel
+            repo={run.repo}
+            runId={run.id}
+            mode={mode}
+            rows={rows}
+            canControl={run.status === 'running'}
+            pause={pauseStateOf(run)}
+            stage={run.current_stage}
+          />
+        ) : null
+      }
     />
   );
 }

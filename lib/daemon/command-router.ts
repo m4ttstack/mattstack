@@ -325,6 +325,7 @@ export function buildRoutedHandlers(opts: {
     ...createRunsHandlers({ log: ctx.log }, emitEvent, {
       isRunTree: (path, runRepo) => isRunTree(path, runRepo, { findTreeByPath, repoIndex: ctx.repoIndex }),
       openKitGate: openKitGateFor(opts.gatesStore),
+      gateById: (id) => opts.gatesStore.get(id) ?? null,
     }),
     ...createUsageHandlers({ log: ctx.log }),
     ...createSecretsHandlers({ log: ctx.log }),

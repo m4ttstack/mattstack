@@ -358,3 +358,31 @@ describe("runs store outcome", () => {
     expect(listRuns("alpha")[0]!.outcome).toEqual({ status: "running" });
   });
 });
+
+describe("run summary controls", () => {
+  const stages = [{ name: "plan", status: "running", startedAt: 2000 }];
+
+  test("a hold written during the current attempt shows on the summary", () => {
+    const dir = root();
+    seedRun(dir, "alpha", "r1", 1000, 1, { stages, fields: [{ key: "hold", value: "paused from the console", producedBy: "console", at: 2500 }] });
+    expect(listRuns("alpha")[0]!.hold).toEqual({ reason: "paused from the console", at: 2500 });
+  });
+
+  test("a hold from before the current attempt, or cleared, is no hold", () => {
+    const dir = root();
+    seedRun(dir, "alpha", "r1", 1000, 1, { stages, fields: [{ key: "hold", value: "old", producedBy: "console", at: 1500 }] });
+    seedRun(dir, "alpha", "r2", 1100, 1, { stages, fields: [{ key: "hold", value: "-", producedBy: "console", at: 2500 }] });
+    expect(listRuns("alpha").map(r => r.hold)).toEqual([null, null]);
+  });
+
+  test("a pending redo shows its gate, target and note; a malformed one is none", () => {
+    const dir = root();
+    const redo = JSON.stringify({ gate: "g1", to: "plan", note: "use the helper", headCommit: "abc1234", by: "console", at: 2600 });
+    seedRun(dir, "alpha", "r1", 1000, 1, { stages, fields: [{ key: "redo", value: redo, producedBy: "console", at: 2600 }] });
+    seedRun(dir, "alpha", "r2", 1100, 1, { stages, fields: [{ key: "redo", value: "not json", producedBy: "console", at: 2600 }] });
+    const [r2, r1] = listRuns("alpha");
+    expect(r1!.redo).toEqual({ gate: "g1", to: "plan", note: "use the helper" });
+    expect(r2!.redo).toBeNull();
+    expect(readRun("alpha", "r1")!.run.redo).toEqual({ gate: "g1", to: "plan", note: "use the helper" });
+  });
+});

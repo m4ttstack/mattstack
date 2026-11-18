@@ -16,6 +16,7 @@ import {
   dayAxis,
   dayDecisions,
   dayKey,
+  dayModeDecisions,
   dayTimeline,
   dayTotals,
   decisionCount,
@@ -487,6 +488,21 @@ describe('dayDecisions', () => {
     ]);
   });
 
+  it('keeps a mode answer out of yours and lists it under the mode', () => {
+    const gates = [
+      answered('g1', 'a', 'console', TODAY(10)),
+      answered('g2', 'b', 'mode:quiet', TODAY(12)),
+      answered('g3', 'a', 'mode:yolo', TODAY(13)),
+      answered('g4', 'b', 'mode:quiet', YESTERDAY(13)),
+    ];
+    expect(dayDecisions(runs, gates, from, to).map(d => d.gate.id)).toEqual([
+      'g1',
+    ]);
+    expect(dayModeDecisions(runs, gates, from, to).map(d => d.gate.id)).toEqual(
+      ['g3', 'g2']
+    );
+  });
+
   it('words a decision by the picked options', () => {
     expect(decisionText(answered('g1', 'a', 'console', TODAY(10)))).toBe(
       'Stub the data'
@@ -565,6 +581,9 @@ describe('barDetail', () => {
   it('says who picked when it was not you, and nothing while it is open', () => {
     expect(barDetail(waiting(planGate('shepherd'))).gate).toBe(
       'Which approach should the plan take? The shepherd picked Server-side filter.'
+    );
+    expect(barDetail(waiting(planGate('mode:quiet'))).gate).toBe(
+      'Which approach should the plan take? The quiet mode picked Server-side filter.'
     );
     expect(barDetail(waiting(planGate('cron'))).gate).toBe(
       'Which approach should the plan take? Picked Server-side filter.'

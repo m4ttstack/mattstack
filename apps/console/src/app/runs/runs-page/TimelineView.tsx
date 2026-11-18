@@ -15,6 +15,7 @@ import {
   activeOn,
   dayDecisions,
   dayKey,
+  dayModeDecisions,
   dayTimeline,
   dayWindow,
   shiftDay,
@@ -167,6 +168,10 @@ export function TimelineView({
     () => dayDecisions(runs, gates, from, to),
     [runs, gates, from, to]
   );
+  const modeDecisions = useMemo(
+    () => dayModeDecisions(runs, gates, from, to),
+    [runs, gates, from, to]
+  );
 
   return (
     <>
@@ -260,6 +265,14 @@ export function TimelineView({
               isToday={timeline.isToday}
               loading={loading}
             />
+            {loading || modeDecisions.length > 0 ? (
+              <DecisionsToday
+                by="mode"
+                decisions={modeDecisions}
+                isToday={timeline.isToday}
+                loading={loading}
+              />
+            ) : null}
           </Stack>
         }
       />

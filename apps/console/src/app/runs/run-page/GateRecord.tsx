@@ -7,6 +7,7 @@ import {
   Stack,
   Text,
   Tooltip,
+  UnstyledButton,
 } from '@mattstack/app-kit/core';
 import type { MantineColor } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
@@ -27,6 +28,7 @@ import {
 } from '../derive/gateRecord';
 import { gateEndNote } from '../derive/gates';
 import { GateContext } from '../GateContext';
+import { useGateRedo } from '../mode/ModeDecisions';
 import classes from './GateRecord.module.css';
 
 const SEVERITY: Record<
@@ -76,7 +78,15 @@ function Chip({
 
 /** Who answered and when, with where it came from on hover; why it closed
     for a gate that ended unanswered. */
-function Stamp({ gate, then }: { gate: GateRow; then: string | null }) {
+function Stamp({
+  gate,
+  then,
+  onRedo,
+}: {
+  gate: GateRow;
+  then: string | null;
+  onRedo?: () => void;
+}) {
   const ended = gateEndNote(gate);
   const by = answeredBy(gate);
   const surface = answerSurface(gate);
@@ -94,11 +104,25 @@ function Stamp({ gate, then }: { gate: GateRow; then: string | null }) {
         </Text>
       ) : gate.answer ? (
         <Tooltip label={surface} disabled={!surface}>
-          <Text fz="sm" c="dimmed" tabIndex={0}>
-            {by ? `${by.via} · ` : ''}
-            {formatClock(gate.answer.answeredAt)}
-          </Text>
+          <Group gap={6} wrap="nowrap" tabIndex={0}>
+            {by?.via === 'mode' ? (
+              <Badge size="sm" color="blue">
+                {by.mode}
+              </Badge>
+            ) : null}
+            <Text fz="sm" c="dimmed">
+              {by && by.via !== 'mode' ? `${by.via} · ` : ''}
+              {formatClock(gate.answer.answeredAt)}
+            </Text>
+          </Group>
         </Tooltip>
+      ) : null}
+      {onRedo ? (
+        <UnstyledButton onClick={onRedo} data-testid={`redo-${gate.id}`}>
+          <Text fz="sm" fw={500} c="blue">
+            Redo
+          </Text>
+        </UnstyledButton>
       ) : null}
     </Group>
   );
@@ -573,6 +597,18 @@ export function GateRecordView({
         </Text>
       </section>
     );
+  return (
+    <AnsweredRecord gate={gate} number={number} flat={flat} linked={linked} />
+  );
+}
+
+function AnsweredRecord({
+  gate,
+  number,
+  flat,
+  linked,
+}: Required<Pick<GateRecordViewProps, 'gate' | 'number' | 'flat' | 'linked'>>) {
+  const redo = useGateRedo(gate);
   const record = gateRecord(gate);
   const then = record.shape === 'form' ? record.then : null;
   return (
@@ -591,12 +627,17 @@ export function GateRecordView({
         <Text fz="md" fw={600} lh="normal">
           Gate {number}
         </Text>
-        <Stamp gate={gate} then={then} />
+        <Stamp
+          gate={gate}
+          then={then}
+          onRedo={redo.canRedo ? redo.toggle : undefined}
+        />
       </Group>
       {record.shape === 'review-post' ? <ReviewPost record={record} /> : null}
       {record.shape === 'respond-plan' ? <RespondPlan record={record} /> : null}
       {record.shape === 'respond-post' ? <RespondPost record={record} /> : null}
       {record.shape === 'form' ? <Form record={record} /> : null}
+      {redo.note}
     </section>
   );
 }

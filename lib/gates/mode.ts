@@ -1,6 +1,7 @@
 import type { GateQuestion } from "../../packages/rt-client/src/commands.ts";
 import { gateOptionLabel, gateOptionValue } from "../../packages/rt-client/src/gate-options.ts";
-import { type DecisionRow, answerValue, splitVerb } from "./record.ts";
+import { CONSOLE_DECIDER } from "../runs/control.ts";
+import { type AnswersMap, type DecisionRow, answerValue, splitVerb } from "./record.ts";
 
 export type GateMode = "chatty" | "normal" | "quiet" | "yolo";
 export type Reach = "worktree" | "draft" | "teammates" | "public";
@@ -104,6 +105,10 @@ function describeSelection(selection: string): string {
   }
 }
 
+export function modeDecisionLine(mode: GateMode, scope: string, answers: AnswersMap): string {
+  return `${mode} mode decided ${scope}: ${describeSelection(JSON.stringify(answers))}`;
+}
+
 export function modeDigest(decisions: DecisionRow[], sinceAt: number): string | null {
   const lines = decisions
     .filter((d) => isGate(d) && byMode(d) && d.decided_at > sinceAt)
@@ -112,6 +117,9 @@ export function modeDigest(decisions: DecisionRow[], sinceAt: number): string | 
   return lines.length === 0 ? null : ["Decided without you since your last answer:", ...lines].join("\n");
 }
 
+/** A console Pause, or a Redo the engine turned into a hold, is not the operator answering a gate. */
+const controlHold = (d: DecisionRow): boolean => d.scope.startsWith("hold:") && (d.decided_by === CONSOLE_DECIDER || byMode(d));
+
 export function digestSince(decisions: DecisionRow[]): number {
-  return decisions.filter((d) => isGate(d) && !byMode(d)).reduce((n, d) => Math.max(n, d.decided_at), 0);
+  return decisions.filter((d) => isGate(d) && !byMode(d) && !controlHold(d)).reduce((n, d) => Math.max(n, d.decided_at), 0);
 }

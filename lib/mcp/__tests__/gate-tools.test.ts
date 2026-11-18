@@ -6,7 +6,7 @@ import type { GateQuestion, GateRow } from "../../../packages/rt-client/src/comm
 import { fitOpen } from "../../gates/ctx.ts";
 import type { DecisionRow } from "../../gates/record.ts";
 import { buildReviewSource } from "../../gates/review-source.ts";
-import { answerGate, askGate, gateToolDefs, openRun, type GateToolDeps } from "../gate-tools.ts";
+import { answerGate, askGate, gateToolDefs, openRun, postHerdLine, type GateToolDeps } from "../gate-tools.ts";
 import { checkReadRootPath } from "../temp-root-guard.ts";
 
 const DB = "/runs/r/1/state.db";
@@ -27,9 +27,11 @@ interface FakeOpts {
   kitOn?: boolean;
   manifest?: string[];
   stages?: string[];
+  currentStage?: string;
   pipeline?: string | null;
   gateMode?: { mode?: unknown; shadow?: unknown } | (() => never);
   head?: string | null;
+  herdLine?: string | null;
 }
 
 function fake(o: FakeOpts = {}) {
@@ -38,6 +40,7 @@ function fake(o: FakeOpts = {}) {
   const answers: Record<string, unknown>[] = [];
   const waits: Record<string, unknown>[] = [];
   const heads: string[] = [];
+  const lines: { room: string | undefined; body: string }[] = [];
   const deps: GateToolDeps = {
     ask: (async (p: Record<string, unknown>) => {
       log.push("ask");
@@ -65,7 +68,7 @@ function fake(o: FakeOpts = {}) {
           return {
             out: JSON.stringify({
               ok: true,
-              run: { id: "1", spawned_by: o.spawnedBy ?? null, pipeline: o.pipeline === undefined ? "feature" : o.pipeline },
+              run: { id: "1", spawned_by: o.spawnedBy ?? null, pipeline: o.pipeline === undefined ? "feature" : o.pipeline, current_stage: o.currentStage ?? null },
               stages: (o.stages ?? []).map((name, i) => ({ run_id: "1", name, attempt: 1, status: "done", started_at: i })),
               manifest: (o.manifest ?? []).map((stage, ordinal) => ({ ordinal, stage })),
               fields: (o.fields ?? []).map((f) => ({ run_id: "1", produced_by: "s", ...f })),
@@ -95,8 +98,14 @@ function fake(o: FakeOpts = {}) {
       heads.push(worktree);
       return o.head === undefined ? "abc123" : o.head;
     },
+    herdLine: async (env, text) => {
+      if (!env.HERD_ROOM) return null;
+      log.push("herd line");
+      lines.push({ room: env.HERD_ROOM, body: text });
+      return o.herdLine ?? null;
+    },
   };
-  return { deps, log, asks, answers, waits, heads };
+  return { deps, log, asks, answers, waits, heads, lines };
 }
 
 function row(over: Partial<GateRow> = {}): GateRow {
@@ -1527,6 +1536,99 @@ describe("gate modes", () => {
     expect(body(res)).toMatchObject({ paneAction: "answered", status: "answered", decidedBy: "mode:quiet" });
   });
 
+  describe("a pending control", () => {
+    const control = (key: string, value: string): Field => ({ key, value, at: 2 });
+
+    test("a paused run asks", async () => {
+      const f = fake({ gateMode: { mode: "quiet" }, fields: [WT, control("hold", "paused from the console")], ...preAnswered("mode:quiet") });
+      const res = await askGate(GATE, HERDR, f.deps);
+      expect("preAnswer" in f.asks[0]!).toBe(false);
+      expect(body(res).paneAction).not.toBe("answered");
+      expect(f.log.some((l) => l.startsWith("decision record"))).toBe(false);
+    });
+
+    test("a pending redo asks", async () => {
+      const redo = JSON.stringify({ gate: "g0", to: "plan", note: "tighten the plan", headCommit: "abc123", by: "console", at: 1 });
+      const f = fake({ gateMode: { mode: "quiet" }, fields: [WT, control("redo", redo)], ...preAnswered("mode:quiet") });
+      const res = await askGate(GATE, HERDR, f.deps);
+      expect("preAnswer" in f.asks[0]!).toBe(false);
+      expect(body(res).paneAction).not.toBe("answered");
+    });
+
+    test("a malformed redo field still answers", async () => {
+      const f = fake({ gateMode: { mode: "quiet" }, fields: [WT, control("redo", '{"to":"plan"}')], ...preAnswered("mode:quiet") });
+      const res = await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.preAnswer).toEqual({ answers: { q1: "yes" }, by: "mode:quiet" });
+      expect(body(res).paneAction).toBe("answered");
+    });
+
+    test("a stale hold does not stop mode answers", async () => {
+      const stale = { key: "hold", value: "paused from the console", at: 0 };
+      const f = fake({ gateMode: { mode: "quiet" }, fields: [WT, stale], stages: ["plan", "implement"], currentStage: "implement", ...preAnswered("mode:quiet") });
+      const res = await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.preAnswer).toEqual({ answers: { q1: "yes" }, by: "mode:quiet" });
+      expect(body(res).paneAction).toBe("answered");
+    });
+
+    test("a hold from the current attempt still asks", async () => {
+      const fresh = { key: "hold", value: "paused from the console", at: 1 };
+      const f = fake({ gateMode: { mode: "quiet" }, fields: [WT, fresh], stages: ["plan", "implement"], currentStage: "implement", ...preAnswered("mode:quiet") });
+      await askGate(GATE, HERDR, f.deps);
+      expect("preAnswer" in f.asks[0]!).toBe(false);
+    });
+
+    test("a paused run's gate carries the digest", async () => {
+      const decisions = [
+        { contract: "gate@1", scope: "plan", selection: JSON.stringify({ tier: "direct-tdd" }), decided_by: "mode:quiet", decided_at: 6 },
+        { contract: "gate@1", scope: "hold:implement:1", selection: JSON.stringify({ reason: "paused from the console" }), decided_by: "console", decided_at: 8 },
+      ];
+      const f = fake({ gateMode: { mode: "quiet" }, fields: [WT, control("hold", "paused from the console")], decisions });
+      await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.context).toStartWith("Decided without you since your last answer:\n- plan: tier=direct-tdd");
+    });
+
+    test("a cleared hold still answers", async () => {
+      const f = fake({ gateMode: { mode: "quiet" }, fields: [WT, control("hold", "-")], ...preAnswered("mode:quiet") });
+      const res = await askGate(GATE, HERDR, f.deps);
+      expect(f.asks[0]!.preAnswer).toEqual({ answers: { q1: "yes" }, by: "mode:quiet" });
+      expect(body(res).paneAction).toBe("answered");
+    });
+  });
+
+  describe("the herd room line", () => {
+    const PLAN = { ...GATE, kind: "plan", questions: [q("tier", [{ value: "direct-tdd", label: "direct-tdd", recommended: true }, { value: "superpowers", label: "Superpowers" }])] };
+    const tierAnswered = { askData: { preAnswered: true, row: row({ answer: { answers: { tier: "direct-tdd" }, by: "mode:quiet", answeredAt: 2000 } }) } };
+    const HERD = { ...HERDR, HERD_ROOM: "herd-x" } as NodeJS.ProcessEnv;
+
+    test("a herd worker's answered gate posts one room line", async () => {
+      const f = fake({ ...QUIET, ...tierAnswered });
+      const res = await askGate(PLAN, HERD, f.deps);
+      expect(f.lines).toEqual([{ room: "herd-x", body: "quiet mode decided plan: tier=direct-tdd" }]);
+      expect(f.log.indexOf("herd line")).toBeGreaterThan(f.log.findLastIndex((l) => l.startsWith("decision record")));
+      expect(body(res).herdLineError).toBeUndefined();
+    });
+
+    test("no HERD_ROOM posts nothing", async () => {
+      const f = fake({ ...QUIET, ...tierAnswered });
+      const res = await askGate(PLAN, HERDR, f.deps);
+      expect(f.lines).toEqual([]);
+      expect(body(res).paneAction).toBe("answered");
+    });
+
+    test("a failed room line keeps the answer", async () => {
+      const f = fake({ ...QUIET, ...tierAnswered, herdLine: "not signed in" });
+      const res = await askGate(PLAN, HERD, f.deps);
+      expect(body(res)).toMatchObject({ paneAction: "answered", status: "answered", herdLineError: "not signed in" });
+      expect(body(res).runErrors).toBeUndefined();
+    });
+
+    test("an asking gate posts nothing", async () => {
+      const f = fake({ gateMode: { mode: "chatty" }, fields: [WT] });
+      await askGate(PLAN, HERD, f.deps);
+      expect(f.lines).toEqual([]);
+    });
+  });
+
   test("a blank needsOperator is refused before anything opens, on gate_ask and gate_open", async () => {
     for (const blank of ["", "   "]) {
       const asked = fake(QUIET);
@@ -1652,5 +1754,37 @@ describe("gate modes", () => {
       expect(res.error).toBe('"reach" must be one of worktree, draft, teammates, public');
       expect(f.log).toEqual([]);
     });
+  });
+});
+
+describe("postHerdLine", () => {
+  const ROOM = { HERD_ROOM: "herd-1" } as NodeJS.ProcessEnv;
+
+  test("no room gives null and makes no calls", async () => {
+    const calls: string[] = [];
+    const r = await postHerdLine({} as NodeJS.ProcessEnv, "line", {
+      handle: async () => { calls.push("handle"); return { handle: "w1" }; },
+      post: async () => { calls.push("post"); return { ok: true }; },
+    });
+    expect(r).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  test("a handle error is returned as is", async () => {
+    let posted = false;
+    const r = await postHerdLine(ROOM, "line", {
+      handle: async () => ({ error: "not signed in to chat" }),
+      post: async () => { posted = true; return { ok: true }; },
+    });
+    expect(r).toBe("not signed in to chat");
+    expect(posted).toBe(false);
+  });
+
+  test("a thrown post becomes a string", async () => {
+    const r = await postHerdLine(ROOM, "line", {
+      handle: async () => ({ handle: "w1" }),
+      post: async () => { throw new Error("socket closed"); },
+    });
+    expect(r).toBe("socket closed");
   });
 });
