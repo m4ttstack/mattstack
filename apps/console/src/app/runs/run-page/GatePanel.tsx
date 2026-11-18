@@ -735,11 +735,17 @@ function OptionBody({
     ? splitCommand(description)
     : { prose: '', command: null };
   return (
-    <Group gap={10} wrap="nowrap" className={classes.optionRow}>
-      {multiple ? (
-        <Checkbox.Indicator size="xs" data-parity="radio" />
-      ) : (
-        <Radio.Indicator size="xs" data-parity="radio" />
+    <Group gap={12} wrap="nowrap" className={classes.optionRow}>
+      {index < 9 && (
+        <Kbd
+          size="sm"
+          className={classes.cap}
+          data-shape={multiple ? 'check' : 'radio'}
+          data-testid="gate-option-key"
+          data-parity={`key ${index + 1}`}
+        >
+          <span data-parity="n">{index + 1}</span>
+        </Kbd>
       )}
       <Stack gap={3} className={classes.optionText}>
         <Group gap={8} wrap="nowrap">
@@ -769,16 +775,6 @@ function OptionBody({
           </Code>
         )}
       </Stack>
-      {index < 9 && (
-        <Kbd
-          size="sm"
-          className={classes.cap}
-          data-testid="gate-option-key"
-          data-parity={`key ${index + 1}`}
-        >
-          <span data-parity="n">{index + 1}</span>
-        </Kbd>
-      )}
     </Group>
   );
 }
