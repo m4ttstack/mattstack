@@ -212,3 +212,23 @@
 .noteInput.noteInput {
   padding-block: 7px;
 }
+
+/* Borderless like a chat composer: it lines up with the option rows and
+   only fills in under the pointer or while typing. */
+.note {
+  margin-inline: -10px;
+}
+
+.noteInput.noteInput {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+.noteInput.noteInput:hover,
+.noteInput.noteInput:focus {
+  background-color: var(--tk-panel);
+}
+
+.noteInput.noteInput:focus {
+  border-color: transparent;
+}
