@@ -103,6 +103,7 @@ export function StageDocText({
       text={preview ? docPreview(text) : stageDocBody(text)}
       className={preview ? `${classes.doc} ${classes.preview}` : classes.doc}
       components={preview ? PREVIEW : FULL}
+      tidy={false}
     />
   );
 }

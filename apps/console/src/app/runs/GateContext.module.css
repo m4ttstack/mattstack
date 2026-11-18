@@ -26,9 +26,21 @@
 }
 
 .prose strong {
-  font-weight: 500;
+  font-weight: 600;
+}
+
+.prose :not(pre) > code {
+  padding: 1px 5px;
+  border: 1px solid var(--tk-border);
+  background-color: var(--tk-inset);
 }
 
 .quote {
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+
+/* A task list's checkbox is its marker, so the bullet goes. */
+.list:has(input[type='checkbox']) {
+  padding-inline-start: 0;
+  list-style: none;
 }
