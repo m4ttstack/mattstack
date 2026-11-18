@@ -13,6 +13,9 @@ type Props = { view: KitView; focused: boolean; width: number; composing?: strin
 // `draft` is the open message row's text, kept here so typing never waits on the hooks module.
 type State = PointerState & { sel?: GridSelection<PaneButton['id']>; draft?: { id: string; text: string; at: number } }
 
+// The store's cap on the card's rows (store.ts setComposeLines); past it the draft scrolls within the card.
+const MAX_LINES = 8
+
 export default kitClient<Props, State>(
   (props, ui) => {
     const { view } = props
@@ -31,7 +34,7 @@ export default kitClient<Props, State>(
     const setDraft = (text: string, caret = Array.from(text).length) => {
       if (composing === undefined) return
       ui.setState({ ...ui.state, draft: { id: composing, text, at: caret } })
-      const lines = draftRows(text, props.width).length
+      const lines = Math.min(MAX_LINES, draftRows(text, props.width).length)
       if (lines !== (props.composeLines ?? 1)) ui.post({ type: 'draftLines', lines })
     }
     // Send and Send & mark done carry the draft; a blank one sends nothing.
@@ -39,6 +42,11 @@ export default kitClient<Props, State>(
       if (composing === undefined || draft.trim() === '') return
       ui.setState({ ...ui.state, draft: undefined })
       ui.post({ type: 'send', id: composing, text: draft.trim(), done })
+    }
+    // The pane can narrow or widen with the draft unchanged, so its wrapped height is checked on every draw, not only on edits.
+    if (composing !== undefined) {
+      const lines = Math.min(MAX_LINES, draftRows(draft, props.width).length)
+      if (lines !== (props.composeLines ?? 1)) ui.post({ type: 'draftLines', lines })
     }
     const isCompose = (message: PaneMessage | undefined, button: PaneButton['id']) => message?.type === 'press' && message.button === button
 

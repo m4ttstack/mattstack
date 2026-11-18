@@ -1,5 +1,7 @@
 import type { ClientKeyEvent } from 'claude-code'
 
+import { cellWidth } from '../draw/cells'
+
 // A one-line text being edited: the text, and the caret's place in it as a count of code points from the start.
 export type TextEdit = { text: string; at: number }
 
@@ -60,25 +62,34 @@ export function editText(edit: TextEdit, ev: Key): TextEdit | undefined {
   return { text: [...chars.slice(0, at), ...typed, ...chars.slice(at)].join(''), at: at + typed.length }
 }
 
-// The text split into rows of at most `width` cells at word breaks, every character kept (a row keeps the spaces that
-// end it), so a caret's place maps onto a row and column. A word wider than a row is cut.
+// The text split into rows of at most `width` cells at word breaks, every character kept, so a caret's place maps onto
+// a row and column. Widths are terminal cells (a wide character takes two). A word wider than a row is cut, and a run
+// of spaces longer than the room left carries on onto the next row rather than running past the edge.
 export function wrapKeeping(text: string, width: number): string[] {
   const room = Math.max(1, width)
   const rows: string[] = []
   let row: string[] = []
+  let used = 0
+  const flush = () => {
+    rows.push(row.join(''))
+    row = []
+    used = 0
+  }
+  const place = (ch: string) => {
+    const w = cellWidth(ch)
+    if (used + w > room && row.length > 0) flush()
+    row.push(ch)
+    used += w
+  }
   for (const piece of text.match(/\S+|\s+/g) ?? ['']) {
     const chars = Array.from(piece)
-    if (/^\s+$/.test(piece) || row.length + chars.length <= room) {
-      row.push(...chars)
+    const wide = cellWidth(piece)
+    if (/^\s+$/.test(piece) || used + wide <= room) {
+      chars.forEach(place)
       continue
     }
-    if (row.length > 0) rows.push(row.join(''))
-    row = []
-    for (let i = 0; i < chars.length; i += room) {
-      const chunk = chars.slice(i, i + room)
-      if (chunk.length === room && i + room < chars.length) rows.push(chunk.join(''))
-      else row = chunk
-    }
+    if (row.length > 0) flush()
+    chars.forEach(place)
   }
   rows.push(row.join(''))
   return rows

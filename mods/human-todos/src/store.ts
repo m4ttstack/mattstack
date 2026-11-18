@@ -165,7 +165,11 @@ export function peekTodos($: EngineInterface): Promise<Todo[]> {
 }
 
 export async function readPane($: EngineInterface): Promise<{ list: Todo[]; openIds: string[]; spin: number; composing: string | null; composeLines: number }> {
-  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame), composing: await read($, composing), composeLines: await read($, composeLines) }
+  const list = await read($, todos)
+  // A message row belongs to an open item: once its item is done, skipped, running or withdrawn, the row is shut.
+  const open = await read($, composing)
+  const isLive = open !== null && list.some(t => t.id === open && t.status === 'open')
+  return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null, composeLines: isLive ? await read($, composeLines) : 1 }
 }
 
 // The card grows with the draft, up to MAX_COMPOSE_LINES rows; past that its text scrolls within the card.

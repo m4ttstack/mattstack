@@ -49,6 +49,17 @@ describe('wrapKeeping and caretRow', () => {
     expect(caretRow(rows, 28)).toEqual({ row: rows.length - 1, col: Array.from(rows.at(-1)!).length })
   })
 
+  test('rows are measured in cells: a wide character takes two', () => {
+    const rows = wrapKeeping('日本語日本語', 4)
+    expect(rows).toEqual(['日本', '語日', '本語'])
+  })
+
+  test('a run of spaces longer than the room carries on onto the next row', () => {
+    const rows = wrapKeeping(`a${' '.repeat(12)}`, 4)
+    expect(rows.join('')).toBe(`a${' '.repeat(12)}`)
+    expect(rows.every(r => r.length <= 4)).toBe(true)
+  })
+
   test('a word wider than a row is cut across rows', () => {
     expect(wrapKeeping('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij'])
   })

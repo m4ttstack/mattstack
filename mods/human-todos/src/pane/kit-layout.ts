@@ -79,12 +79,27 @@ function composeLines(lines: number, room: number, draft?: Draft): L[] {
   return [blankRow(), ...drawn, blankRow()]
 }
 
-// The card's last row: its actions as kit buttons against the right edge, Cancel and Send & mark done plain words, Send
-// last with the neutral fill, which stands off the card's tint. Kit buttons, so the pointer lights and presses them as it does every other button.
-function composeActionsLine(buttons: PaneButton[], room: number): L {
-  const spans = buttons.flatMap((b, n): L => [sp(n === 0 ? '' : ' '), buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1)])
-  const used = spans.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD
-  return card([sp(' '.repeat(Math.max(0, room - used))), ...spans, sp(' '.repeat(CARD_PAD))], room)
+// The card's last rows: its actions as kit buttons against the right edge, Cancel and Send & mark done plain words, Send
+// last with the neutral fill. Kit buttons, so the pointer lights and presses them as it does every other button. In a
+// narrow pane they wrap onto more rows, each still right-aligned, so Send is never clipped away.
+function composeActionsLines(buttons: PaneButton[], room: number): L[] {
+  const spans = buttons.map(b => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1))
+  const rows: L[][] = [[]]
+  let used = CARD_PAD
+  for (const span of spans) {
+    const w = cellWidth(span.t) + 1
+    if (used + w > room && rows.at(-1)!.length > 0) {
+      rows.push([])
+      used = CARD_PAD
+    }
+    rows.at(-1)!.push([sp(' '), span])
+    used += w
+  }
+  return rows.map(row => {
+    const line = row.flat()
+    const width = line.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD
+    return card([sp(' '.repeat(Math.max(0, room - width))), ...line, sp(' '.repeat(CARD_PAD))], room)
+  })
 }
 
 // The model wraps by characters; a row wider in cells than its room wraps again here.
@@ -93,7 +108,7 @@ function rowLines(row: PaneRow, room: number, draft?: Draft): L[] {
     case 'compose':
       return composeLines(row.lines, room, draft)
     case 'composeActions':
-      return [composeActionsLine(row.buttons, room), card([], room)]
+      return [...composeActionsLines(row.buttons, room), card([], room)]
     case 'blank':
       return [[]]
     case 'text': {

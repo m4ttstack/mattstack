@@ -340,22 +340,29 @@ function wrapKeeping(text, width) {
   const room = Math.max(1, width);
   const rows = [];
   let row = [];
+  let used = 0;
+  const flush = () => {
+    rows.push(row.join(""));
+    row = [];
+    used = 0;
+  };
+  const place = (ch) => {
+    const w = cellWidth(ch);
+    if (used + w > room && row.length > 0)
+      flush();
+    row.push(ch);
+    used += w;
+  };
   for (const piece of text.match(/\S+|\s+/g) ?? [""]) {
     const chars = Array.from(piece);
-    if (/^\s+$/.test(piece) || row.length + chars.length <= room) {
-      row.push(...chars);
+    const wide = cellWidth(piece);
+    if (/^\s+$/.test(piece) || used + wide <= room) {
+      chars.forEach(place);
       continue;
     }
     if (row.length > 0)
-      rows.push(row.join(""));
-    row = [];
-    for (let i = 0;i < chars.length; i += room) {
-      const chunk = chars.slice(i, i + room);
-      if (chunk.length === room && i + room < chars.length)
-        rows.push(chunk.join(""));
-      else
-        row = chunk;
-    }
+      flush();
+    chars.forEach(place);
   }
   rows.push(row.join(""));
   return rows;
@@ -1200,17 +1207,31 @@ function composeLines(lines, room, draft) {
   });
   return [blankRow(), ...drawn, blankRow()];
 }
-function composeActionsLine(buttons, room) {
-  const spans = buttons.flatMap((b, n) => [sp(n === 0 ? "" : " "), buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1)]);
-  const used = spans.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD;
-  return card([sp(" ".repeat(Math.max(0, room - used))), ...spans, sp(" ".repeat(CARD_PAD))], room);
+function composeActionsLines(buttons, room) {
+  const spans = buttons.map((b) => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1));
+  const rows = [[]];
+  let used = CARD_PAD;
+  for (const span of spans) {
+    const w = cellWidth(span.t) + 1;
+    if (used + w > room && rows.at(-1).length > 0) {
+      rows.push([]);
+      used = CARD_PAD;
+    }
+    rows.at(-1).push([sp(" "), span]);
+    used += w;
+  }
+  return rows.map((row) => {
+    const line = row.flat();
+    const width = line.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD;
+    return card([sp(" ".repeat(Math.max(0, room - width))), ...line, sp(" ".repeat(CARD_PAD))], room);
+  });
 }
 function rowLines(row, room, draft) {
   switch (row.kind) {
     case "compose":
       return composeLines(row.lines, room, draft);
     case "composeActions":
-      return [composeActionsLine(row.buttons, room), card([], room)];
+      return [...composeActionsLines(row.buttons, room), card([], room)];
     case "blank":
       return [[]];
     case "text": {
@@ -1298,6 +1319,7 @@ function viewLines(view, width, focus = {}, draft) {
 }
 
 // mods/human-todos/src/pane/kit-view.tsx
+var MAX_LINES = 8;
 var kit_view_default = kitClient((props, ui) => {
   const { view } = props;
   const { stops } = view;
@@ -1315,7 +1337,7 @@ var kit_view_default = kitClient((props, ui) => {
     if (composing === undefined)
       return;
     ui.setState({ ...ui.state, draft: { id: composing, text, at: caret } });
-    const lines = draftRows(text, props.width).length;
+    const lines = Math.min(MAX_LINES, draftRows(text, props.width).length);
     if (lines !== (props.composeLines ?? 1))
       ui.post({ type: "draftLines", lines });
   };
@@ -1325,6 +1347,11 @@ var kit_view_default = kitClient((props, ui) => {
     ui.setState({ ...ui.state, draft: undefined });
     ui.post({ type: "send", id: composing, text: draft.trim(), done });
   };
+  if (composing !== undefined) {
+    const lines = Math.min(MAX_LINES, draftRows(draft, props.width).length);
+    if (lines !== (props.composeLines ?? 1))
+      ui.post({ type: "draftLines", lines });
+  }
   const isCompose = (message, button) => message?.type === "press" && message.button === button;
   const mark = (at, col) => {
     const sel = gridSelection(stops, { at, col });
