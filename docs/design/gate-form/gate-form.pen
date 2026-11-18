@@ -14812,6 +14812,1756 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "k95uXq",
+      "x": 10300,
+      "y": 0,
+      "name": "H · Context page",
+      "width": 1560,
+      "fill": "#f3f0e9",
+      "layout": "vertical",
+      "gap": 14,
+      "padding": 28,
+      "children": [
+        {
+          "type": "text",
+          "id": "hlMV2",
+          "name": "Title",
+          "fill": "#161616",
+          "content": "H · The context page",
+          "fontFamily": "Inter",
+          "fontSize": 20,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "g5RmPV",
+          "name": "Note",
+          "fill": "#3d3d3d",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "Buttons dock to the bottom in all three. No progress dots on this page: it is a preface, not a question.",
+          "lineHeight": 1.45,
+          "fontFamily": "Inter",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "E0wZFJ",
+          "name": "Variants",
+          "width": "fill_container",
+          "gap": 24,
+          "children": [
+            {
+              "type": "frame",
+              "id": "x9yQXC",
+              "name": "1 · Preface",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "vtXaw",
+                  "name": "Caption title",
+                  "fill": "#161616",
+                  "content": "1 · Preface",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "C7Y12P",
+                  "name": "Caption sub",
+                  "fill": "#6a6a6a",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Title and context up top; the empty middle is left alone; a plain line above the buttons says what comes next.",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "tiUxX",
+                  "name": "Gate pane",
+                  "clip": true,
+                  "width": "fill_container",
+                  "height": 720,
+                  "fill": "#1b1b1b",
+                  "cornerRadius": 4,
+                  "layout": "vertical",
+                  "padding": [
+                    10,
+                    12,
+                    14,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "c1tup",
+                      "name": "line",
+                      "width": "fill_container",
+                      "fill": "#f2668b",
+                      "padding": [
+                        1,
+                        8
+                      ],
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "klXnr",
+                          "name": "span",
+                          "fill": "#1b1b1b",
+                          "content": "◈  mattstack decision gate",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "o1mwJD",
+                          "name": "span",
+                          "fill": "#1b1b1b",
+                          "content": "Hide ⌄",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Q8ngE4",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "MmuaW",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "G2RDqU",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "mm0px",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "respond-plan",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "tWR2A",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "RuLru",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "4 questions after this",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "KYno7",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "kELb7",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Lpj9M",
+                      "name": "para",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "MzJIP",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Review round 2 on !482 found 7 threads. Pick which to fix in this pass.",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "u1JQ3d",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "l8Jw12",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "bg4IT",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "eKg9J",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "Important",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Zjd4s",
+                      "name": "para",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "F80Qv6",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "  • ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "UUFzr",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "2 threads are blocking",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "gvsl4",
+                      "name": "para",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "emUSz",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "  • ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "QXPgN",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "CodeRabbit flagged the cache key twice, in ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "dkgtQ",
+                          "name": "span",
+                          "fill": "#7fa7ad",
+                          "content": "lib/cache.ts",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "OXlzD",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "dzaa0",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "IUCOB",
+                      "name": "para",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "mjW6c",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "The reviewer asked for a re-review once the blocking threads are fixed.",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ReeyW",
+                      "name": "Push",
+                      "width": "fill_container",
+                      "height": "fill_container"
+                    },
+                    {
+                      "type": "rectangle",
+                      "id": "SVi1Y",
+                      "name": "Rule",
+                      "fill": "#3a3a3a",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "UGSIa",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "f05uM",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "C9AkHH",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "adl9c",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "Next: ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "x3MzVn",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "Who should re-review once the fixes are pushed?",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "zZsl3",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "I0v4H0",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8b8z",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "NWxNP",
+                          "name": "span",
+                          "fill": "#3fb6c8",
+                          "content": "❯ ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "NwY1t",
+                          "name": "chip",
+                          "fill": "#2f62a8",
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Teec9",
+                              "name": "span",
+                              "fill": "#ffffff",
+                              "content": "Start →",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "xi5mo",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "   ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "JHERF",
+                          "name": "chip",
+                          "fill": "#333333",
+                          "padding": [
+                            0,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "IogZw",
+                              "name": "span",
+                              "fill": "#d4d4d4",
+                              "content": "☐ Chat about this",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "WIJVP",
+              "name": "2 · Preface with the questions listed",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "SzB14",
+                  "name": "Caption title",
+                  "fill": "#161616",
+                  "content": "2 · Preface with the questions listed",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "pyQdl",
+                  "name": "Caption sub",
+                  "fill": "#6a6a6a",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "The spare room lists what you'll be asked, so the page earns its height and you know what's coming.",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "L0Yw0",
+                  "name": "Gate pane",
+                  "clip": true,
+                  "width": "fill_container",
+                  "height": 720,
+                  "fill": "#1b1b1b",
+                  "cornerRadius": 4,
+                  "layout": "vertical",
+                  "padding": [
+                    10,
+                    12,
+                    14,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "d053yB",
+                      "name": "line",
+                      "width": "fill_container",
+                      "fill": "#f2668b",
+                      "padding": [
+                        1,
+                        8
+                      ],
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "FLBZJ",
+                          "name": "span",
+                          "fill": "#1b1b1b",
+                          "content": "◈  mattstack decision gate",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Nff46",
+                          "name": "span",
+                          "fill": "#1b1b1b",
+                          "content": "Hide ⌄",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "OT9eX",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "XDtqi",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "l6qrVi",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "es8TI",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "respond-plan",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "LcRAk",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "TpxrR",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "eycMA",
+                      "name": "para",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "X5edF",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Review round 2 on !482 found 7 threads. Pick which to fix in this pass.",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "FbHIQ",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Ft6uE",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "WN7OH",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Zr4Qb",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "Important",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XNp02",
+                      "name": "para",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "f6pHFV",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "  • ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "jNQYF",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "2 threads are blocking",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "fen2n",
+                      "name": "para",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "OOGkx",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "  • ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "tkH4D",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "CodeRabbit flagged the cache key twice, in ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "OOrmy",
+                          "name": "span",
+                          "fill": "#7fa7ad",
+                          "content": "lib/cache.ts",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Lfato",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "LeJon",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "hmS9g",
+                      "name": "para",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "N5DeP",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "The reviewer asked for a re-review once the blocking threads are fixed.",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "tdnen",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "b67I0",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "rectangle",
+                      "id": "lAM6t",
+                      "name": "Rule",
+                      "fill": "#3a3a3a",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xZYkH",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "x46Bhh",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "lweMT",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "xc0lt",
+                          "name": "span",
+                          "fill": "#555555",
+                          "content": "YOU'LL BE ASKED",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "K2LQNV",
+                      "name": "Q",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "fPMFR",
+                          "name": "span",
+                          "fill": "#555555",
+                          "content": "○ ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "JXYg6",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "reviewer  ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "y5BnN9",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Who should re-review once the fixes are pushed?",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "LPnph",
+                      "name": "Q",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ACq6W",
+                          "name": "span",
+                          "fill": "#555555",
+                          "content": "○ ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "h469c9",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "threads   ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "h2LuFA",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Which threads should this pass fix?",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "PIrdd",
+                      "name": "Q",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "r123f",
+                          "name": "span",
+                          "fill": "#555555",
+                          "content": "○ ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "zenUU",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "notify    ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "P9n2UI",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Post a reply on each fixed thread?",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "sMgts",
+                      "name": "Q",
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "yUjAv",
+                          "name": "span",
+                          "fill": "#555555",
+                          "content": "○ ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "KrIRE",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "note      ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Y3645b",
+                          "name": "text",
+                          "fill": "#d4d4d4",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Anything the fixer should know?",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "kMNCz",
+                      "name": "Push",
+                      "width": "fill_container",
+                      "height": "fill_container"
+                    },
+                    {
+                      "type": "rectangle",
+                      "id": "WIOTY",
+                      "name": "Rule",
+                      "fill": "#3a3a3a",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "V1ime",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "k4FK8A",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "l6nkHu",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ltMEH",
+                          "name": "span",
+                          "fill": "#3fb6c8",
+                          "content": "❯ ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "C6Ntqs",
+                          "name": "chip",
+                          "fill": "#2f62a8",
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "C9TRln",
+                              "name": "span",
+                              "fill": "#ffffff",
+                              "content": "Start questions →",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "MfER1",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "   ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "AibgH",
+                          "name": "chip",
+                          "fill": "#333333",
+                          "padding": [
+                            0,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "NAkE4",
+                              "name": "span",
+                              "fill": "#d4d4d4",
+                              "content": "☐ Chat about this",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "JdLur",
+              "name": "3 · Centered card",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "S0nCvN",
+                  "name": "Caption title",
+                  "fill": "#161616",
+                  "content": "3 · Centered card",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "UNgse",
+                  "name": "Caption sub",
+                  "fill": "#6a6a6a",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "The context sits in a card in the middle of the pane (its border drawn with ┌─┐ box characters), the start button right under it.",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "NH0ey",
+                  "name": "Gate pane",
+                  "clip": true,
+                  "width": "fill_container",
+                  "height": 720,
+                  "fill": "#1b1b1b",
+                  "cornerRadius": 4,
+                  "layout": "vertical",
+                  "padding": [
+                    10,
+                    12,
+                    14,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "LNdvZ",
+                      "name": "line",
+                      "width": "fill_container",
+                      "fill": "#f2668b",
+                      "padding": [
+                        1,
+                        8
+                      ],
+                      "justifyContent": "space_between",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "EXMBt",
+                          "name": "span",
+                          "fill": "#1b1b1b",
+                          "content": "◈  mattstack decision gate",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "lHMKX",
+                          "name": "span",
+                          "fill": "#1b1b1b",
+                          "content": "Hide ⌄",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "BZLLa",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "x4B3YV",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ng2W9",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "g5ogID",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "respond-plan",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "D0Yxj7",
+                      "name": "Push",
+                      "width": "fill_container",
+                      "height": "fill_container"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "vhXT6",
+                      "name": "Card",
+                      "width": "fill_container",
+                      "stroke": "#3a3a3a",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "padding": [
+                        12,
+                        14
+                      ],
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "RSERN",
+                          "name": "line",
+                          "width": "fill_container",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "L4HWO",
+                              "name": "span",
+                              "fill": "#555555",
+                              "content": "CONTEXT",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "MIxUg",
+                          "name": "line",
+                          "width": "fill_container",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "LHt7y",
+                              "name": "span",
+                              "fill": "#d4d4d4",
+                              "content": " ",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "n5Ubz",
+                          "name": "para",
+                          "width": "fill_container",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "VlfCd",
+                              "name": "text",
+                              "fill": "#d4d4d4",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "Review round 2 on !482 found 7 threads. Pick which to fix in this pass.",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "lUX1K",
+                          "name": "line",
+                          "width": "fill_container",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "QWw5J",
+                              "name": "span",
+                              "fill": "#d4d4d4",
+                              "content": " ",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "dUezk",
+                          "name": "line",
+                          "width": "fill_container",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "N603FF",
+                              "name": "span",
+                              "fill": "#d4d4d4",
+                              "content": "Important",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Sg4BD",
+                          "name": "para",
+                          "width": "fill_container",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "DrzsV",
+                              "name": "span",
+                              "fill": "#858585",
+                              "content": "  • ",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "B7eX0",
+                              "name": "text",
+                              "fill": "#d4d4d4",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "2 threads are blocking",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "o84w8",
+                          "name": "para",
+                          "width": "fill_container",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "z6ABga",
+                              "name": "span",
+                              "fill": "#858585",
+                              "content": "  • ",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "usFZX",
+                              "name": "span",
+                              "fill": "#d4d4d4",
+                              "content": "CodeRabbit flagged the cache key twice, in ",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "thuqL",
+                              "name": "span",
+                              "fill": "#7fa7ad",
+                              "content": "lib/cache.ts",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ANicL",
+                          "name": "line",
+                          "width": "fill_container",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "nCBBU",
+                              "name": "span",
+                              "fill": "#d4d4d4",
+                              "content": " ",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "p0l6D",
+                          "name": "para",
+                          "width": "fill_container",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "GzImW",
+                              "name": "text",
+                              "fill": "#d4d4d4",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "The reviewer asked for a re-review once the blocking threads are fixed.",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "MDiIa",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "c37c15",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ktQPw",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "RTEfZ",
+                          "name": "span",
+                          "fill": "#858585",
+                          "content": "4 questions next",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "NIm7P",
+                      "name": "Push",
+                      "width": "fill_container",
+                      "height": "fill_container"
+                    },
+                    {
+                      "type": "rectangle",
+                      "id": "O72mi1",
+                      "name": "Rule",
+                      "fill": "#3a3a3a",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "mGJzZ",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "oaM1z",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": " ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "vBU5L",
+                      "name": "line",
+                      "width": "fill_container",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "T10vA",
+                          "name": "span",
+                          "fill": "#3fb6c8",
+                          "content": "❯ ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "TDFgK",
+                          "name": "chip",
+                          "fill": "#2f62a8",
+                          "padding": [
+                            0,
+                            10
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B79mt",
+                              "name": "span",
+                              "fill": "#ffffff",
+                              "content": "Start →",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "700"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "Nt0jF",
+                          "name": "span",
+                          "fill": "#d4d4d4",
+                          "content": "   ",
+                          "lineHeight": 1.5,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "BHrJA",
+                          "name": "chip",
+                          "fill": "#333333",
+                          "padding": [
+                            0,
+                            8
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "YlNdy",
+                              "name": "span",
+                              "fill": "#d4d4d4",
+                              "content": "☐ Chat about this",
+                              "lineHeight": 1.5,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
