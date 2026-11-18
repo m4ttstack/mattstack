@@ -198,6 +198,23 @@ export function abandonRun(
   return rtCommand<{ ok: boolean }>("runs:abandon", payload, { sockPath: opts.sockPath, timeoutMs: 10_000 });
 }
 
+export function holdRun(
+  runId: string,
+  repo?: string,
+  opts: RtClientOptions = {},
+): Promise<RtResponse<{ held: true; stage: string; already?: true }>> {
+  const payload: Record<string, unknown> = { runId };
+  if (repo !== undefined) payload.repo = repo;
+  return rtCommand<{ held: true; stage: string; already?: true }>("runs:hold", payload, { sockPath: opts.sockPath, timeoutMs: 10_000 });
+}
+
+export function redoGate(
+  p: { gate: string; note: string },
+  opts: RtClientOptions = {},
+): Promise<RtResponse<{ runId: string; repo: string; to: string; headCommit: string | null }>> {
+  return rtCommand<{ runId: string; repo: string; to: string; headCommit: string | null }>("runs:redo", { gate: p.gate, note: p.note }, { sockPath: opts.sockPath, timeoutMs: 10_000 });
+}
+
 export function usageMrs(
   q: { days?: number; repo?: string } = {},
   opts: RtClientOptions = {},

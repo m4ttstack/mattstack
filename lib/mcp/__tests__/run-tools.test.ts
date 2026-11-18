@@ -558,6 +558,18 @@ describe("run engine tools", () => {
     }
     expect(calls).toHaveLength(1);
   });
+  test("run_next passes attempt through and declares it as an integer of at least 1", async () => {
+    const { deps, calls } = fakeEngine();
+    await tool(deps, "run_next").handler({ runDb: DB, stage: "plan", attempt: 2 }, RUNS_ROOT_ENV);
+    expect(calls[0]!.op).toEqual({ op: "next", stage: "plan", attempt: 2 });
+    const props = (tool(deps, "run_next").inputSchema as { properties: Record<string, unknown> }).properties;
+    expect(props.attempt).toMatchObject({ type: "integer", minimum: 1 });
+    for (const attempt of [0, -1, 1.5, "2"]) {
+      const res = await tool(deps, "run_next").handler({ runDb: DB, stage: "plan", attempt }, RUNS_ROOT_ENV);
+      expect(res.ok, String(attempt)).toBe(false);
+    }
+    expect(calls).toHaveLength(1);
+  });
   test("run_enter refuses a stage that is not a single token", async () => {
     const { deps, calls } = fakeEngine();
     for (const stage of ["", " ", "two words", "tab\there", "line\nbreak"]) {

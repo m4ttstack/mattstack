@@ -14,6 +14,8 @@ export {
   listRuns,
   getRun,
   abandonRun,
+  holdRun,
+  redoGate,
   runEvidence,
   runEvidenceAt,
   usageMrs,

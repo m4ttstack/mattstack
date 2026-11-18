@@ -1,26 +1,30 @@
 /**
  * runs:* — pipeline run state (SKILLS-28). These handlers read each DB
- * readonly per request and hold nothing, with one exception: runs:abandon,
- * which writes through reconcile.ts because only a person can decide a run
- * is dead.
+ * readonly per request and hold nothing, except the three writes only a
+ * person can make: runs:abandon (through reconcile.ts, deciding a run is
+ * dead), and runs:hold and runs:redo (through control.ts, the console's
+ * Pause and Redo).
  */
 import { isAbsolute } from "path";
 import { findRun, listRuns, readRun } from "../../runs/store.ts";
 import { getRunLiveness } from "../../runs/liveness.ts";
 import { abandonRun } from "../../runs/reconcile.ts";
+import { badNote, CONSOLE_DECIDER, controlFail, holdAtNextStep, requestRedo, type ControlFail } from "../../runs/control.ts";
 import { checkTextPath, checkUploadPath } from "../upload-guard.ts";
 import {
   EVIDENCE_IMAGE_KEYS, EVIDENCE_SLOTS, EVIDENCE_TEXT_KEYS, EVIDENCE_THEMES, V1_CASE_ID, readEvidence, resolveEvidencePath,
   type EvidenceAddress, type EvidenceImageKey, type EvidenceTextKey,
 } from "../../../packages/rt-client/src/evidence.ts";
 import type { HandlerContext, CommandResult } from "./types.ts";
-import type { Commands } from "../../../packages/rt-client/src/commands.ts";
+import type { Commands, GateRow } from "../../../packages/rt-client/src/commands.ts";
 
 const EVIDENCE_MAX_BYTES = 15 * 1024 * 1024;
 
 type RunsHandlers = { "runs:list": (payload: unknown) => Promise<CommandResult<"runs:list">> }
   & { "runs:get": (payload: unknown) => Promise<CommandResult<"runs:get">> }
   & { "runs:abandon": (payload: unknown) => Promise<CommandResult<"runs:abandon">> }
+  & { "runs:hold": (payload: unknown) => Promise<CommandResult<"runs:hold">> }
+  & { "runs:redo": (payload: unknown) => Promise<CommandResult<"runs:redo">> }
   & { "runs:evidence": (payload: unknown) => Promise<CommandResult<"runs:evidence">> };
 
 export interface RunsSeams {
@@ -28,6 +32,13 @@ export interface RunsSeams {
   isRunTree?: (path: string, runRepo: string) => boolean;
   /** Id of the open kit gate for a Claude session, so a run waiting at one is not read as stale. */
   openKitGate?: (session: string) => string | null;
+  gateById?: (id: string) => GateRow | null;
+}
+
+const PAUSE_REASON = "paused from the console";
+
+function refusal(f: ControlFail): { ok: false; error: string; failure: { code: string; message: string } } {
+  return { ok: false, error: f.error, failure: { code: f.code, message: f.error } };
 }
 
 function readAddress(p: Record<string, unknown>): EvidenceAddress | null {
@@ -87,6 +98,48 @@ export function createRunsHandlers(
         return { ok: true as const, data: { ok: true } };
       } catch (err) {
         ctx.log.warn({ err, runId }, "runs:abandon failed");
+        return { ok: false as const, error: String(err) };
+      }
+    },
+    "runs:hold": async (rawPayload: unknown): Promise<CommandResult<"runs:hold">> => {
+      const payload = rawPayload as Commands["runs:hold"]["payload"] | undefined;
+      const runId = typeof payload?.runId === "string" ? payload.runId.trim() : "";
+      if (!runId) return { ok: false as const, error: "missing runId" };
+      try {
+        const detail = payload?.repo ? readRun(payload.repo, runId) : findRun(runId);
+        if (!detail) return refusal(controlFail("not-found", `no run ${runId}`));
+        const res = holdAtNextStep(detail.run.repo, runId, { reason: PAUSE_REASON, decidedBy: CONSOLE_DECIDER });
+        if (!res.ok) return refusal(res);
+        if (!res.already) emitEvent("run-updated", { repo: detail.run.repo, runId, stage: res.stage, kind: "held" });
+        return { ok: true as const, data: res.already ? { held: true, stage: res.stage, already: true } : { held: true, stage: res.stage } };
+      } catch (err) {
+        ctx.log.warn({ err, runId }, "runs:hold failed");
+        return { ok: false as const, error: String(err) };
+      }
+    },
+    "runs:redo": async (rawPayload: unknown): Promise<CommandResult<"runs:redo">> => {
+      const payload = rawPayload as Commands["runs:redo"]["payload"] | undefined;
+      const gateId = typeof payload?.gate === "string" ? payload.gate.trim() : "";
+      if (!gateId) return { ok: false as const, error: "missing gate" };
+      const note = typeof payload?.note === "string" ? payload.note : "";
+      if (badNote(note)) return refusal(controlFail("bad-note"));
+      try {
+        const gate = seams.gateById?.(gateId) ?? null;
+        if (!gate) return refusal(controlFail("not-found", `no gate ${gateId}`));
+        if (!gate.answer?.by.startsWith("mode:")) return refusal(controlFail("not-mode"));
+        const to = gate.meta?.stage;
+        if (typeof to !== "string" || !to) return refusal(controlFail("no-stage"));
+        const headCommit = typeof gate.meta?.headCommit === "string" ? gate.meta.headCommit : null;
+        const runId = gate.subject.startsWith("run:") ? gate.subject.slice("run:".length) : "";
+        const detail = runId ? findRun(runId) : null;
+        if (!detail) return refusal(controlFail("not-found", `no run ${runId || gate.subject}`));
+        const repo = detail.run.repo;
+        const res = requestRedo(repo, runId, { gate: gateId, to, note, headCommit, by: CONSOLE_DECIDER, openedAt: gate.openedAt });
+        if (!res.ok) return refusal(res);
+        emitEvent("run-updated", { repo, runId, stage: to, kind: "redo" });
+        return { ok: true as const, data: { runId, repo, to, headCommit } };
+      } catch (err) {
+        ctx.log.warn({ err, gate: gateId }, "runs:redo failed");
         return { ok: false as const, error: String(err) };
       }
     },

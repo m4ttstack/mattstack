@@ -12,10 +12,12 @@ import type { GateRow, RunSummary } from '@mattstack/rt-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@mattstack/rt-client', () => ({
+  DAEMON_UNREACHABLE_PREFIX: 'rt daemon unreachable at ',
   agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   gateList: vi.fn(),
   gateAnswer: vi.fn(),
+  redoGate: vi.fn(),
   getSetting: vi.fn(() => ({
     value: { name: 'Maude', emoji: 'x' },
     provenance: [],
@@ -25,7 +27,8 @@ vi.mock('@mattstack/rt-client', () => ({
   listRuns: vi.fn(),
 }));
 
-const { gates } = await import('./gates');
+const { gates, gatesRoutes } = await import('./gates');
+const { runsFixture } = await import('./fixtures/design/runsFixture');
 const rt = await import('@mattstack/rt-client');
 
 beforeEach(() => {
@@ -570,6 +573,138 @@ function focus(id: string) {
     new Request(`http://localhost/api/gates/${id}/focus`, { method: 'POST' })
   );
 }
+
+describe('POST /api/gates/:id/redo', () => {
+  const redo = (
+    id: string,
+    body: unknown,
+    headers: Record<string, string> = {}
+  ) =>
+    gates.fetch(
+      new Request(`http://localhost/api/gates/${id}/redo`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          host: 'localhost',
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      })
+    );
+  const refuse = (code: string, error = code) => ({
+    ok: false as const,
+    error,
+    failure: { code, message: error },
+  });
+
+  it('redo sends the note to redoGate', async () => {
+    const data = {
+      runId: 'r1',
+      repo: 'repo-tools',
+      to: 'plan',
+      headCommit: 'abc123',
+    };
+    vi.mocked(rt.redoGate).mockResolvedValueOnce({ ok: true, data });
+    const res = await redo('g1', { note: 'use the shared helper' });
+    expect(res.status).toBe(200);
+    expect(rt.redoGate).toHaveBeenCalledWith(
+      { gate: 'g1', note: 'use the shared helper' },
+      { sockPath: undefined }
+    );
+    await expect(res.json()).resolves.toEqual(data);
+  });
+
+  it('a blank note is 400 and never reaches the daemon', async () => {
+    for (const body of [{ note: '   ' }, { note: '' }, {}, { note: 3 }]) {
+      const res = await redo('g1', body);
+      expect(res.status).toBe(400);
+    }
+    expect(rt.redoGate).not.toHaveBeenCalled();
+  });
+
+  it('a pending redo is 409 with its code', async () => {
+    vi.mocked(rt.redoGate).mockResolvedValueOnce(
+      refuse('pending', 'a redo is already waiting for this run')
+    );
+    const res = await redo('g1', { note: 'again' });
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: 'a redo is already waiting for this run',
+      code: 'pending',
+    });
+  });
+
+  it('an unknown gate is 404', async () => {
+    vi.mocked(rt.redoGate).mockResolvedValueOnce(refuse('not-found'));
+    expect((await redo('nope', { note: 'x' })).status).toBe(404);
+  });
+
+  it('a run at a gate and a gate from an earlier pass are 409 with their codes', async () => {
+    for (const [code, error] of [
+      ['not-running', 'answer the open gate first'],
+      ['stale', 'that gate is from an earlier pass of its step'],
+    ]) {
+      vi.mocked(rt.redoGate).mockResolvedValueOnce(refuse(code!, error));
+      const res = await redo('g1', { note: 'x' });
+      expect(res.status).toBe(409);
+      await expect(res.json()).resolves.toEqual({ error, code });
+    }
+  });
+
+  it('an ok with no data is 409', async () => {
+    vi.mocked(rt.redoGate).mockResolvedValueOnce({ ok: true });
+    const res = await redo('g1', { note: 'x' });
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: 'the daemon refused with no error detail',
+      code: 'failed',
+    });
+  });
+
+  it('a bad note the daemon refuses is 400', async () => {
+    vi.mocked(rt.redoGate).mockResolvedValueOnce(refuse('bad-note'));
+    expect((await redo('g1', { note: 'x' })).status).toBe(400);
+  });
+
+  it('an unreachable daemon is 502', async () => {
+    vi.mocked(rt.redoGate).mockResolvedValueOnce({
+      ok: false,
+      error: 'rt daemon unreachable at /x/rt.sock: ECONNREFUSED',
+    });
+    expect((await redo('g1', { note: 'x' })).status).toBe(502);
+  });
+
+  it('is refused off this machine', async () => {
+    const res = await redo(
+      'g1',
+      { note: 'x' },
+      { 'cf-connecting-ip': '203.0.113.9' }
+    );
+    expect(res.status).toBe(403);
+    expect(rt.redoGate).not.toHaveBeenCalled();
+  });
+
+  it('is refused from another origin', async () => {
+    const res = await redo(
+      'g1',
+      { note: 'x' },
+      { origin: 'https://evil.example' }
+    );
+    expect(res.status).toBe(403);
+    expect(rt.redoGate).not.toHaveBeenCalled();
+  });
+
+  it('is refused under the design fixture', async () => {
+    const app = gatesRoutes(runsFixture('runs'));
+    const res = await app.request('/api/gates/g1/redo', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', host: 'localhost' },
+      body: JSON.stringify({ note: 'x' }),
+    });
+    expect(res.status).toBe(403);
+    expect(rt.redoGate).not.toHaveBeenCalled();
+  });
+});
 
 describe('POST /api/gates/:id/focus', () => {
   it('focuses by origin.paneId while that pane is still listed', async () => {

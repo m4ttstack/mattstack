@@ -29,6 +29,11 @@
   );
 }
 
+.mode {
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--tk-line-1);
+}
+
 .full {
   width: 100%;
   min-width: 0;

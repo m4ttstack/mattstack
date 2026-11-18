@@ -217,6 +217,8 @@ describe('the routes under the design fixture', () => {
     };
     await refused(post(`${RUN}/20261008-1338/abandon`));
     await refused(post(`${RUN}/20261008-1338/resume`));
+    await refused(post(`${RUN}/20261008-1338/hold`));
+    await refused(post('/api/gates/g-418-plan/redo', { note: 'again' }));
     await refused(
       post('/api/gates/g-418-plan/answer', { answers: { approach: 'x' } })
     );

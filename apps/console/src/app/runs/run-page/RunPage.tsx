@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Stack } from '@mattstack/app-kit/core';
+import { Paper, Stack } from '@mattstack/app-kit/core';
 import type { GateRow } from '@mattstack/rt-client';
 import { useSearch } from 'wouter';
 
@@ -7,9 +7,12 @@ import { useUsageRun } from '../../usage/useUsage';
 import { formatDuration } from '../derive/duration';
 import { gateStage } from '../derive/gates';
 import { heroLiveness } from '../derive/liveness';
+import { modeFeed, pauseStateOf, runModeOf } from '../derive/modeFeed';
 import { liveCost } from '../derive/record';
 import { heldSpans } from '../derive/run';
 import { railStages, stageAttempts } from '../derive/stages';
+import { Eyebrow } from '../Eyebrow';
+import { ModePanel, ModeRunContext, PausedBanner } from '../mode/ModeDecisions';
 import { GatePanels, typingTarget } from './GatePanel';
 import { GatesUnreadable } from './GatesUnreadable';
 import { HandoffCard } from './HandoffCard';
@@ -133,6 +136,9 @@ export function RunPage({
   usePruneGateDrafts(gates);
   const usage = useUsageRun(runId, { live: true });
   const { live, answerable, handoff, mine } = facts;
+  const modeRows = modeFeed([run], gates)[0]?.rows ?? [];
+  const mode = runModeOf(fields, modeRows);
+  const pause = pauseStateOf(run);
 
   const rail =
     kind === 'work'
@@ -179,56 +185,89 @@ export function RunPage({
   }
 
   return (
-    <Stack gap={20} data-testid="run-page">
-      <RunHeader
-        repo={repo}
-        runId={runId}
-        ticket={facts.hero.ticket}
-        ticketUrl={facts.hero.ticketUrl}
-        meta={facts.hero.meta}
-        title={parts.title}
-        liveness={heroLiveness(run, { handoff, mine }, now)}
-        rail={rail}
-        finished={!live}
-        focusPane={
-          run.agent && run.agent.status !== 'done' ? run.agent.pane : null
-        }
-        canResume={facts.canResume}
-        canAbandon={run.attention.needs && run.attention.reason === 'stale'}
-        onViewInputs={drawer.open}
-        facts={parts.factRows}
-        cost={usage.data === undefined ? null : liveCost(usage.data)}
-        waitedFor={
-          mine && rail?.some(s => s.status === 'waiting')
-            ? formatDuration(now - mine.openedAt)
-            : null
-        }
-      />
-      {parts.gatesFailed ? (
-        <GatesUnreadable onRetry={() => void parts.retryGates()} />
-      ) : null}
-      <Stack gap={14} data-parity="Story">
-        {gatePanels ?? slot}
-        <RunStory
+    <ModeRunContext.Provider value={{ repo, runId, canControl: live }}>
+      <Stack gap={20} data-testid="run-page">
+        <RunHeader
           repo={repo}
           runId={runId}
-          label={kind === 'utility' ? run.work_type : kind}
-          story={story}
-          block={parts.block}
-          evidenceField={parts.evidenceField}
-          pathHref={pathHref}
-          linkedGateId={linkedGateId}
-          ticket={parts.facts.hero.ticket}
+          ticket={facts.hero.ticket}
+          ticketUrl={facts.hero.ticketUrl}
+          meta={facts.hero.meta}
+          title={parts.title}
+          liveness={heroLiveness(run, { handoff, mine }, now)}
+          rail={rail}
+          finished={!live}
+          focusPane={
+            run.agent && run.agent.status !== 'done' ? run.agent.pane : null
+          }
+          canResume={facts.canResume}
+          canAbandon={run.attention.needs && run.attention.reason === 'stale'}
+          onViewInputs={drawer.open}
+          facts={parts.factRows}
+          cost={usage.data === undefined ? null : liveCost(usage.data)}
+          waitedFor={
+            mine && rail?.some(s => s.status === 'waiting')
+              ? formatDuration(now - mine.openedAt)
+              : null
+          }
         />
+        {parts.gatesFailed ? (
+          <GatesUnreadable onRetry={() => void parts.retryGates()} />
+        ) : null}
+        {pause !== 'none' && run.hold ? (
+          <PausedBanner
+            pause={pause}
+            at={run.hold.at}
+            stage={run.current_stage}
+            mode={mode}
+          />
+        ) : null}
+        {mode ? (
+          <Paper
+            variant="ground"
+            withBorder
+            radius={12}
+            p={16}
+            data-testid="mode-card"
+          >
+            <Stack gap={10}>
+              <Eyebrow>Mode</Eyebrow>
+              <ModePanel
+                repo={repo}
+                runId={runId}
+                mode={mode}
+                rows={modeRows}
+                canControl={live}
+                pause={pause}
+                stage={run.current_stage}
+                defaultOpen
+              />
+            </Stack>
+          </Paper>
+        ) : null}
+        <Stack gap={14} data-parity="Story">
+          {gatePanels ?? slot}
+          <RunStory
+            repo={repo}
+            runId={runId}
+            label={kind === 'utility' ? run.work_type : kind}
+            story={story}
+            block={parts.block}
+            evidenceField={parts.evidenceField}
+            pathHref={pathHref}
+            linkedGateId={linkedGateId}
+            ticket={parts.facts.hero.ticket}
+          />
+        </Stack>
+        <InputsDrawer
+          repo={repo}
+          runId={runId}
+          decisions={decisions}
+          opened={drawer.opened}
+          onClose={drawer.close}
+        />
+        <StageDocDrawer repo={repo} runId={runId} />
       </Stack>
-      <InputsDrawer
-        repo={repo}
-        runId={runId}
-        decisions={decisions}
-        opened={drawer.opened}
-        onClose={drawer.close}
-      />
-      <StageDocDrawer repo={repo} runId={runId} />
-    </Stack>
+    </ModeRunContext.Provider>
   );
 }
