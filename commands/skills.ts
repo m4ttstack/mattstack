@@ -25,6 +25,7 @@
  * inside a real pack tree is not isolated.
  */
 
+import type { CommandContext } from "../lib/command-tree.ts";
 import { execFileSync, spawnSync } from "child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, findNodeAtLocation, getNodeValue, modify, parseTree } from "jsonc-parser";
@@ -3325,7 +3326,7 @@ function takeExpect(args: string[]): { expect: string | null; rest: string[] } {
   return { expect: value, rest: [...args.slice(0, i), ...args.slice(i + 2)] };
 }
 
-export async function skillsDiscard(args: string[], io: DiscardIo = REAL_DISCARD_IO): Promise<void> {
+export async function skillsDiscard(args: string[], _ctx: CommandContext = {}, io: DiscardIo = REAL_DISCARD_IO): Promise<void> {
   await withCleanErrors(args, async () => {
     const { expect, rest } = takeExpect(args);
     const flags = parseFlags(rest);

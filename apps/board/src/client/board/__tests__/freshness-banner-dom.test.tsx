@@ -286,3 +286,65 @@ test('a stored switchboard token: no token banner', async () => {
     container.remove();
   }
 });
+
+const slackBanner = (container: HTMLElement) =>
+  [...container.querySelectorAll<HTMLElement>('.tui-banner')].find(el =>
+    el.textContent?.includes('Slack')
+  ) ?? null;
+
+test('a Slack token Slack rejected: a banner naming rt setup slack connect', async () => {
+  servedData = {
+    ...BOARD_DATA,
+    dataSyncedAt: NOW - 60_000,
+    slackIssue: { kind: 'rejected', error: 'token_revoked' },
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = await renderBoard(container);
+  try {
+    const el = slackBanner(container);
+    expect(el?.dataset.intent).toBe('bad');
+    expect(el?.textContent).toContain('Slack rejected this board');
+    expect(el?.textContent).toContain('rt setup slack connect');
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test('an unreadable Slack token: a banner naming rt setup status, with the reason on hover', async () => {
+  servedData = {
+    ...BOARD_DATA,
+    dataSyncedAt: NOW - 60_000,
+    slackIssue: {
+      kind: 'unreadable',
+      detail: 'board secrets need the rt daemon',
+    },
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = await renderBoard(container);
+  try {
+    const el = slackBanner(container);
+    expect(el?.dataset.intent).toBe('bad');
+    expect(el?.textContent).toContain("can't read its Slack token");
+    expect(el?.textContent).toContain('rt setup status');
+    expect(el?.title).toBe('board secrets need the rt daemon');
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test('no Slack issue: no Slack banner', async () => {
+  servedData = { ...BOARD_DATA, dataSyncedAt: NOW - 60_000, slackIssue: null };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = await renderBoard(container);
+  try {
+    expect(slackBanner(container)).toBeNull();
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+});

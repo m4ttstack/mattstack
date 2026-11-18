@@ -5,7 +5,8 @@
 # extras.json: {"target": "!87", "reviewer"?, "round"?, "editable"?,
 # "questions": [<the questions that follow the findings, outcome first>]}.
 # editable true needs a comment on every finding and a summary.comments
-# line for exactly the option values of the extras' outcome question.
+# line for exactly the option values of the extras' outcome question, and
+# summary.noFindingsComments, when present, with those same keys.
 # stdout: {"context": <review@1>, "questions": [thread-1.., findings-1..,
 # skipped-1.., extras questions]}. Findings go Critical, Important, Minor
 # (report order within a tier), four options per findings-N question;
@@ -41,6 +42,7 @@ def file_errs: [
   chk(.summary.readiness | among(["yes","no","with-fixes"]); "summary.readiness: yes|no|with-fixes"),
   chk(.summary.reasoning | str; "summary.reasoning: required non-empty string"),
   chk(.summary | optional("comments"; type == "object" and all(.[]; non_blank)); "summary.comments: object of non-blank strings when present"),
+  chk(.summary | optional("noFindingsComments"; type == "object" and all(.[]; non_blank)); "summary.noFindingsComments: object of non-blank strings when present"),
   chk(.findings | type == "array"; "findings: required array"),
   chk(optional("re_review"; type == "boolean"); "re_review: boolean when present"),
   chk(optional("prior"; type == "object" and (.addressed | int) and (.still_open | int)); "prior: {addressed, still_open} integers when present"),
@@ -92,7 +94,10 @@ def draft_errs($f):
     ([.questions | array_or_empty | .[] | select(type == "object" and .id == "outcome")] as $o
      | if ($o | length) == 0 then "editable: needs an outcome question for summary.comments to follow"
        else [$o[0].options | array_or_empty | .[] | if type == "object" then .value else . end] as $v
-         | chk($f.summary.comments | type == "object" and keys == ($v | unique); "editable: summary.comments needs exactly one line per outcome option: \($v | map(tostring) | join(", "))")
+         | chk($f.summary.comments | type == "object" and keys == ($v | unique); "editable: summary.comments needs exactly one line per outcome option: \($v | map(tostring) | join(", "))"),
+           (if $f.summary | type == "object" and has("noFindingsComments")
+            then chk($f.summary.noFindingsComments | type == "object" and keys == ($v | unique); "editable: summary.noFindingsComments needs exactly one line per outcome option when present: \($v | map(tostring) | join(", "))")
+            else empty end)
        end)
   end;
 def extras_errs($f): [
@@ -166,7 +171,8 @@ def build($x):
       + ($x | with_entries(select(.key == "round")))
       + with_entries(select(.key == "re_review" or .key == "prior"))
       + (if $x.editable == true then {editable: true} else {} end)
-      + (if .summary | has("comments") then {summaryComments: .summary.comments} else {} end)),
+      + (if .summary | has("comments") then {summaryComments: .summary.comments} else {} end)
+      + (if .summary | has("noFindingsComments") then {summaryNoFindingsComments: .summary.noFindingsComments} else {} end)),
      questions: ((threads | to_entries | map(.key as $i | .value | thread_question($i + 1)))
        + ([range(0; $ordered | length; 4) as $i | $ordered[$i:$i + 4]] | to_entries
        | map({id: "findings-\(.key + 1)", label: "Post which findings to \($x.target)?", multi: true}

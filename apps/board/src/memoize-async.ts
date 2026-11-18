@@ -13,13 +13,13 @@ export function memoizeAsync<T>(
   load: () => Promise<T>,
   isFailure: (value: T) => boolean,
   opts: { ttlMs?: number; now?: () => number } = {}
-): () => Promise<T> {
+): (() => Promise<T>) & { invalidate: () => void } {
   const ttlMs = opts.ttlMs ?? 60_000;
   const now = opts.now ?? Date.now;
   let cached: Promise<T> | undefined;
   let expiresAt = 0;
 
-  return () => {
+  const get = () => {
     const t = now();
     if (cached && t < expiresAt) return cached;
     const pending = load();
@@ -28,13 +28,24 @@ export function memoizeAsync<T>(
     // hits the cache above and shares this same in-flight promise, instead
     // of racing a second `load()`.
     expiresAt = t + ttlMs;
+    // A load superseded by invalidate() or a later load must not set the
+    // expiry of the promise that replaced it.
     pending
       .then(value => {
-        expiresAt = isFailure(value) ? now() + ttlMs : Infinity;
+        if (cached === pending)
+          expiresAt = isFailure(value) ? now() + ttlMs : Infinity;
       })
       .catch(() => {
-        expiresAt = now() + ttlMs;
+        if (cached === pending) expiresAt = now() + ttlMs;
       });
     return pending;
   };
+  // A pinned success can go bad underneath (a revoked token); the caller that
+  // sees the rejection drops it, so the next call reads the store again.
+  return Object.assign(get, {
+    invalidate: () => {
+      cached = undefined;
+      expiresAt = 0;
+    },
+  });
 }

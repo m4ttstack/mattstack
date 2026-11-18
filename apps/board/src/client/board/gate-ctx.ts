@@ -75,6 +75,9 @@ export interface ReviewCtx {
   editable?: boolean;
   /** The drafted summary line per outcome option value. */
   summaryComments?: Record<string, string>;
+  /** The drafted summary line per outcome option value, for a review that
+      posts no findings. */
+  summaryNoFindingsComments?: Record<string, string>;
 }
 
 export interface FindingEntry {
@@ -306,6 +309,7 @@ function readReview(o: Obj): ReviewCtx {
   const prior = o.prior === undefined ? undefined : obj(o.prior);
   const editable = optFlag(o.editable);
   const summaryComments = optStrMap(o.summaryComments);
+  const summaryNoFindingsComments = optStrMap(o.summaryNoFindingsComments);
   return {
     shape: 'review@1',
     ...(reviewer !== undefined ? { reviewer } : {}),
@@ -328,6 +332,9 @@ function readReview(o: Obj): ReviewCtx {
       : {}),
     ...(editable ? { editable } : {}),
     ...(summaryComments !== undefined ? { summaryComments } : {}),
+    ...(summaryNoFindingsComments !== undefined
+      ? { summaryNoFindingsComments }
+      : {}),
   };
 }
 

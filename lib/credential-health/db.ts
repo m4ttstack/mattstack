@@ -7,7 +7,7 @@ export interface CredentialHealthRow {
   expiresAt: string | null;
   checkedAt: number;
   lastNotifiedAt: number | null;
-  lastNotifiedKind: "dead" | "expiring" | null;
+  lastNotifiedKind: "dead" | "expiring" | "unreadable" | null;
 }
 
 export function readCredentialHealth(

@@ -21,7 +21,14 @@ here, before any gate opens.
    verdict, in that voice, with the strengths and the assessment said as
    the reviewer wants them. None holds an issue list: each ticked finding
    with no diff line joins it at post time (Compose).
-4. Write each line for its own verdict, whatever readiness says, so
+4. `summary.noFindingsComments`: the same keys, one line per verdict for a
+   review the human posts with nothing beside the summary (every finding
+   unticked, no thread reply):
+   `{"comment": "...", "approve": "..."}`. Each is the whole summary line
+   for that verdict, in that voice, for a review that posts no findings, so
+   it speaks of no notes, nits, comments or findings left. Write it even
+   when there are findings: the human may untick them all.
+5. Write each line for its own verdict, whatever readiness says, so
    review-posting's tacit-approval rule shapes every line now. The
    `approve` line is the only one that may say the MR is ready to merge,
    good to merge, LGTM or nothing blocking. The `comment` line leaves the merge

@@ -18,6 +18,7 @@
  *   rt chat slack-status
  */
 
+import type { CommandContext } from "../lib/command-tree.ts";
 import { readFileSync } from "fs";
 import {
   chatSlackAssignment,
@@ -103,7 +104,7 @@ const START_SEAMS: SlackStartSeams = {
  * Only a caller with its own signed-in session is recorded as requester: a native app
  * running from the repo folder must not inherit whichever agent is signed in there.
  */
-export async function slackStart(args: string[], seams: SlackStartSeams = START_SEAMS): Promise<void> {
+export async function slackStart(args: string[], _ctx: CommandContext = {}, seams: SlackStartSeams = START_SEAMS): Promise<void> {
   const person = positional(args);
   if (!person) failUsage("Who is the Slack chat with?", START_USAGE);
   if (flagValue(args, "--brief") !== "-") failUsage("--brief - reads the brief from stdin", START_USAGE);
@@ -132,7 +133,7 @@ export async function slackStart(args: string[], seams: SlackStartSeams = START_
 }
 
 /** A gate id means the operator now has a form to answer; candidates mean the name matched several people. */
-export async function slackRequest(args: string[], seams: SlackStartSeams = START_SEAMS): Promise<void> {
+export async function slackRequest(args: string[], _ctx: CommandContext = {}, seams: SlackStartSeams = START_SEAMS): Promise<void> {
   const person = positional(args);
   if (!person) failUsage("Who is the Slack chat with?", REQUEST_USAGE);
   if (flagValue(args, "--brief") !== "-") failUsage("--brief - reads the brief from stdin", REQUEST_USAGE);

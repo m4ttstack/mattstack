@@ -76,6 +76,7 @@ import {
 } from './codeowner-posts.ts';
 import {
   applyRosterEdit,
+  boardSecretsFailure,
   boardSetting,
   codeownerSlackOn,
   daemonRepoField,
@@ -424,6 +425,7 @@ import {
   type ReactedBy,
 } from './slack-emoji.ts';
 import { slackFaceNames } from './slack-face-names.ts';
+import { slackIssueFor, type SlackIssue } from './slack-health.ts';
 import {
   attachOwnerPosts,
   attachOwnerPostsLeft,
@@ -438,6 +440,7 @@ import {
   refreshOwnerPosts,
   resolveSlackRef,
   slackSweepTargets,
+  slackTokenState,
   sweepSlackRefs,
   unreactFromMR,
   verifyFoundRefs,
@@ -2620,6 +2623,7 @@ const httpServer = Bun.serve({
               missing: switchboardToken.missing(),
             }),
             slackEnabled: !!slackToken,
+            slackIssue: currentSlackIssue(slackToken),
             triageEnabled: triagePassEnabled(),
             doctorTier: triageConfigOrDefault().tier,
             ownerSlackRepos: slackToken
@@ -5533,11 +5537,31 @@ void cache.get().catch(() => {});
 let sweepChain: Promise<unknown> = Promise.resolve();
 let autoResolveTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** The token Slack last rejected, and why; cleared by a sweep Slack accepts. */
+let slackRejection: { token: string; error: string } | null = null;
+
+function currentSlackIssue(token: string | null): SlackIssue | null {
+  return slackIssueFor({
+    token,
+    rejection: slackRejection,
+    secretsFailure: token ? null : boardSecretsFailure(),
+    channels: configuredSlackChannels(config),
+  });
+}
+
 async function sweepOnce(
   force: boolean
 ): Promise<{ resolved: number; failed: number }> {
   const slackToken = await getSlackToken();
   if (!slackToken) return { resolved: 0, failed: 0 };
+  const state = await slackTokenState(slackToken);
+  if (typeof state === 'object') {
+    slackRejection = { token: slackToken, error: state.rejected };
+    // Read the store again next time: a reconnect writes a new token there.
+    getSlackToken.invalidate();
+    return { resolved: 0, failed: 0 };
+  }
+  if (state === 'ok') slackRejection = null;
   const snapshot = await cache.get().catch(() => null);
   if (!snapshot) return { resolved: 0, failed: 0 };
   const retryAfter =
@@ -5590,14 +5614,15 @@ async function scheduleAutoResolve(): Promise<void> {
     clearTimeout(autoResolveTimer);
     return;
   }
-  const slackToken = await getSlackToken();
+  await getSlackToken();
   // Cleared here, after this function's only await, not before it -- two
   // overlapping calls (e.g. boot racing a config reload) both suspend on the
   // same memoized getSlackToken() and resume in call order, so the second
   // one's clear reliably cancels whatever the first one just armed, instead
   // of both arming independently and orphaning a timer forever.
   clearTimeout(autoResolveTimer);
-  if (!slackToken) return;
+  // Armed with no token too: each sweep reads the store again, so a token
+  // connected after boot starts sweeping without a board restart.
   const tick = () => {
     void runSlackSweep().catch(err =>
       console.error(
