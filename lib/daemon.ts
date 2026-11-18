@@ -63,6 +63,8 @@ import { readSwitchboardToken } from "./daemon/handlers/secrets.ts";
 import { readBoardSwitchboardToken } from "./team/board-token.ts";
 import { collectPing, readPingVersions, runningInVirtualMachine } from "./telemetry/ping.ts";
 import { startTelemetry } from "./telemetry/start.ts";
+import { makePingHealth } from "./telemetry/clone-health.ts";
+import { rtSelfArgv } from "./rt-self.ts";
 
 import { SystemProcessScanner } from "./daemon/system-process-scanner.ts";
 
@@ -1366,7 +1368,15 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             enabled: () => getSetting<boolean>("telemetry.enabled").value,
             virtualMachine: () => runningInVirtualMachine(telemetryProbes),
             versions: () => readPingVersions(telemetryProbes),
-            collect: () => collectPing(telemetryProbes),
+            collect: () =>
+              collectPing(
+                telemetryProbes,
+                makePingHealth({
+                  probes: telemetryProbes,
+                  rtArgv: rtSelfArgv({ main: join(import.meta.dir, "..", "cli.ts") }),
+                  status: () => teamSnapshots.status(),
+                }),
+              ),
             token: () => readBoardSwitchboardToken(telemetryProbes, () => readSwitchboardToken()),
             post: async (url, body, token) =>
               (

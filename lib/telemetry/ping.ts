@@ -20,6 +20,7 @@ import { ENGINE_PACK_REF } from "../skills/installed-plugins.ts";
 import { installedVersionFor, type PluginListEntry } from "../skills/sources.ts";
 import { markerState } from "../team/org-marker.ts";
 import { readTeamLocal } from "../team/team-local.ts";
+import type { CloneHealth, StaleSkill } from "./clone-health.ts";
 import { readInstallId } from "./install-id.ts";
 
 export interface TelemetryPing {
@@ -33,9 +34,17 @@ export interface TelemetryPing {
   migrationsRecorded: string[];
   migrationsKnown: string[];
   legacyDirs: string[];
-  orgs: { org: string; layout: number | null }[];
-  packs: { id: string; version: string | null }[];
+  /** `clone` only from the daemon's ping, null when it could not be read. */
+  orgs: { org: string; layout: number | null; clone?: CloneHealth | null }[];
+  /** `stale` only from the daemon's ping: the skills this Mac reads as waiting for compile. */
+  packs: { id: string; version: string | null; stale?: StaleSkill[] | null }[];
   appUpdate: AppUpdateStatus | null;
+}
+
+/** What the daemon adds to a ping so a clone in a bad state can be diagnosed from the relay. */
+export interface PingHealthDeps {
+  cloneHealth(slug: string): Promise<CloneHealth | null>;
+  staleSkills(packName: string): Promise<StaleSkill[] | null>;
 }
 
 /** What the app's updater last did, as the tray writes it (`UpdateStatus.swift`). */
@@ -111,7 +120,7 @@ async function listPlugins(p: Probes): Promise<PluginListEntry[]> {
 }
 
 /** Throws only when the install id cannot be kept; every other field degrades to null or empty. */
-export async function collectPing(p: Probes): Promise<TelemetryPing> {
+export async function collectPing(p: Probes, health?: PingHealthDeps): Promise<TelemetryPing> {
   const flavor = processFlavor();
   const installId = readInstallId(p, flavor);
 
@@ -125,16 +134,24 @@ export async function collectPing(p: Probes): Promise<TelemetryPing> {
   });
 
   const orgs = await field("orgs", [] as TelemetryPing["orgs"], () =>
-    slugs.map((slug) => {
-      const marker = markerState(p, orgDirUnder(p.home, slug));
-      return { org: slug, layout: marker.kind === "org" ? marker.layout : null };
-    }),
+    Promise.all(
+      slugs.map(async (slug) => {
+        const marker = markerState(p, orgDirUnder(p.home, slug));
+        const entry = { org: slug, layout: marker.kind === "org" ? marker.layout : null };
+        return health ? { ...entry, clone: await field("clone", null, () => health.cloneHealth(slug)) } : entry;
+      }),
+    ),
   );
 
   const packs = await field("packs", [] as TelemetryPing["packs"], async () => {
     const served = await Promise.all(slugs.map((slug) => readServedPacks(p, slug)));
-    const ids = new Set(served.flatMap((s) => s.packs.map((pack) => pack.id)));
-    return [...ids].sort().map((id) => ({ id, version: installedVersion(id) }));
+    const byId = new Map(served.flatMap((s) => s.packs.map((pack) => [pack.id, pack.name] as const)));
+    return Promise.all(
+      [...byId.keys()].sort().map(async (id) => {
+        const entry = { id, version: installedVersion(id) };
+        return health ? { ...entry, stale: await field("stale", null, () => health.staleSkills(byId.get(id)!)) } : entry;
+      }),
+    );
   });
 
   return {

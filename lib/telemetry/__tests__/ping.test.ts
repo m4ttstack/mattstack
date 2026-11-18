@@ -276,3 +276,46 @@ describe("runningInVirtualMachine", () => {
     expect(await runningInVirtualMachine(answer("", 1))).toBe(false);
   });
 });
+
+describe("collectPing with clone health", () => {
+  const CLONE = {
+    branch: "mattstack",
+    dataBranch: "mattstack",
+    head: "aaaaaaaaaaaa",
+    upstream: "bbbbbbbbbbbb",
+    behind: 3,
+    ahead: 0,
+    lastPullAt: "2026-11-18T10:00:00.000Z",
+    pull: "local-changes" as const,
+    canPublish: false,
+    dirtyCount: 1,
+    dirty: [{ path: "mattstack/teams/web/plugin/skills/work/SKILL.md", status: "M" }],
+    dirtySince: "2026-11-17T08:00:00.000Z",
+    conflicted: false,
+    layoutHold: false,
+  };
+
+  test("each org carries its clone and each served pack its stale skills", async () => {
+    const p = world([{ slug: "acme", layout: 4, packs: ["acme-pack"] }], { plugins: [{ id: "acme-pack@acme", version: "1.4.0" }] });
+    const ping = await collectPing(p, {
+      cloneHealth: async (slug) => (slug === "acme" ? CLONE : null),
+      staleSkills: async (pack) => (pack === "acme-pack" ? [{ skill: "work", causes: ["source"] }] : null),
+    });
+    expect(ping.orgs).toEqual([{ org: "acme", layout: 4, clone: CLONE }]);
+    expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: "1.4.0", stale: [{ skill: "work", causes: ["source"] }] }]);
+  });
+
+  test("a clone or check that throws reads as null and never drops the ping", async () => {
+    const p = world([{ slug: "acme", layout: 4, packs: ["acme-pack"] }]);
+    const ping = await collectPing(p, {
+      cloneHealth: async () => {
+        throw new Error("git gone");
+      },
+      staleSkills: async () => {
+        throw new Error("rt gone");
+      },
+    });
+    expect(ping.orgs).toEqual([{ org: "acme", layout: 4, clone: null }]);
+    expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: null, stale: null }]);
+  });
+});
