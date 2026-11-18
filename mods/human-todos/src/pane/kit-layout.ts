@@ -80,7 +80,7 @@ function composeLines(lines: number, room: number, draft?: Draft): L[] {
 }
 
 // The card's last row: its actions as kit buttons against the right edge, Cancel and Send & mark done plain words, Send
-// last with the quiet fill. Kit buttons, so the pointer lights and presses them as it does every other button.
+// last with the neutral fill, which stands off the card's tint. Kit buttons, so the pointer lights and presses them as it does every other button.
 function composeActionsLine(buttons: PaneButton[], room: number): L {
   const spans = buttons.flatMap((b, n): L => [sp(n === 0 ? '' : ' '), buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1)])
   const used = spans.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD

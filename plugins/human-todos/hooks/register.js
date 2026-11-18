@@ -1831,7 +1831,7 @@ var TONES = {
   stop: "caution",
   forceStop: "caution",
   message: "quiet",
-  send: "quiet",
+  send: "neutral",
   sendDone: "plain",
   cancelMessage: "plain"
 };
