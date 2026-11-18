@@ -3,7 +3,7 @@
 ## Intent
 
 `herdr agent attach <target>` drops you into an agent's terminal, but you
-have to know the pane id. Matt wants to run it from a picker: see every
+have to know the pane id. Matt wants to run it from a picker: see every Claude
 agent pane with everything mattstack knows about it (who it is in chat, its
 face, what started it, what it is waiting on), pick one, and land in it.
 
@@ -26,8 +26,7 @@ The mock is `docs/design/pane-attach/pane-attach.pen`, frame
 - A light palette. rt-ui's interactive views always paint their own dark
   palette (`ui/internal/theme`), and this picker does the same.
 - A GUI version (tray or console).
-- Codex-specific detail beyond what herdr and the agent record already
-  hold. Codex panes are listed; they just show less.
+- Codex or other non-Claude agent panes. Listing them is a later change.
 
 ## Anti-goals
 
@@ -128,13 +127,8 @@ when there is data:
 - `gate`: the open gate whose pane (`origin.paneId`, else the row's `pane`)
   is this pane: gate id and the question text
 
-**Which panes.** The picker lists every agent herdr detects (Claude, Codex,
-anything `herdr agent attach` can reach), decided by Matt. `pane:list`
-keeps only `agent === "claude"` panes today, on both servers. It gains an
-opt-in payload flag (for example `allAgents: true`) that only the attach
-verb sends; without it, `pane:list` and `rt pane list` return exactly what
-they return now. A non-Claude row carries herdr's agent name, and has no
-chat presence or face unless one matches.
+**Which panes.** Claude panes only for now, decided by Matt: the same set
+`pane:list` already returns on both servers. No change to that filter.
 
 The rows and the preview read these fields. `rt pane list`'s person-facing
 table gains the badge column. Its off-terminal text stays byte-identical, and
