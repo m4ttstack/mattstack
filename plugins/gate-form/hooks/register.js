@@ -168,7 +168,7 @@ var SYMBOL = {
   boxActive: "◻",
   boxOn: "◼",
   boxOff: "◻",
-  selectEdge: "▎"
+  selectEdge: "❯"
 };
 var ICON = {
   layers: "",
@@ -246,12 +246,13 @@ function pressed(span) {
 function keySelected(span) {
   if (!span.t.startsWith(" "))
     return [span];
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
+  const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) }
+    { ...bare, t: SYMBOL.selectEdge, color: "cyan", bold: true, dim: false },
+    { ...hoverOf(span), t: span.t.slice(1) }
   ];
 }
+var CURSOR_ROW = "#25343a";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -474,13 +475,14 @@ function choicesOf(q) {
   return [...q.options, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
 }
 function initial(form) {
+  const chosen = form.questions.map((q) => isConfirm(form) || q.multi ? undefined : q.options.find(isRecommended)?.value);
   return {
     page: 0,
     cursor: form.questions.map((q) => isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended))),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
-    answered: form.questions.map(() => false),
-    moved: form.questions.map(() => false),
+    answered: chosen.map((value) => value !== undefined),
+    chosen,
     phase: "active",
     tabsFrom: 0,
     menu: { open: false, selected: 0 },
@@ -494,7 +496,9 @@ function canSubmit(form, s) {
 }
 function chosenValue(form, s) {
   const q = form.questions[0];
-  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
+  if (!q)
+    return;
+  return s.chosen[0] ?? (choicesOf(q).length === 1 ? choicesOf(q)[0].value : undefined);
 }
 var PAUSE = "pause";
 var GO_BACK = "go-back:";
@@ -541,7 +545,9 @@ function isPicked(q, s, i, idx) {
   const value = choicesOf(q)[idx]?.value;
   if (value === undefined)
     return false;
-  return s.picked[i].includes(value) || value === WRITE_IN && q.multi && s.text[i].trim() !== "";
+  if (!q.multi)
+    return s.chosen[i] === value;
+  return s.picked[i].includes(value) || value === WRITE_IN && s.text[i].trim() !== "";
 }
 function isTyping(form, s) {
   const q = form.questions[s.page];
@@ -562,7 +568,7 @@ function answersOf(form, s) {
       const values = s.picked[i].filter((v) => v !== WRITE_IN);
       out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
     } else {
-      const value = choicesOf(q)[s.cursor[i]]?.value;
+      const value = s.chosen[i];
       out[q.id] = value === WRITE_IN ? { writeIn: typed } : value;
     }
   });
@@ -572,35 +578,31 @@ function goTo(form, s, page) {
   const last = isSinglePage(form) ? 0 : form.questions.length;
   return { ...s, page: Math.max(0, Math.min(last, page)) };
 }
-function cursorIsChoice(q, s, i) {
-  const option = choicesOf(q)[s.cursor[i]];
-  if (!option || option.value === WRITE_IN && s.text[i].trim() === "")
-    return false;
-  return s.answered[i] || s.moved[i] || isRecommended(option);
-}
-function takesCursorAsAnswer(form, s) {
-  const q = form.questions[s.page];
-  return q !== undefined && !q.multi && !s.answered[s.page] && cursorIsChoice(q, s, s.page);
-}
 function advance(form, s) {
-  const answered = takesCursorAsAnswer(form, s) ? markAnswered(s, s.page) : s.answered;
-  return goTo(form, { ...s, answered }, s.page + 1);
+  return goTo(form, s, s.page + 1);
 }
 function moveCursor(form, s, by) {
   const q = form.questions[s.page];
   const count = q ? choicesOf(q).length : 0;
   if (count === 0)
     return s;
-  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count), moved: replaceAt(s.moved, s.page, true) };
+  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count) };
 }
 function toggled(s, i, value) {
   const has = s.picked[i].includes(value);
   return { ...s, picked: replaceAt(s.picked, i, has ? s.picked[i].filter((p) => p !== value) : [...s.picked[i], value]), answered: markAnswered(s, i) };
 }
+function chose(s, i, value) {
+  if (value === WRITE_IN && s.text[i].trim() === "")
+    return s;
+  return { ...s, chosen: replaceAt(s.chosen, i, value), answered: markAnswered(s, i) };
+}
 function toggleAtCursor(form, s) {
   const q = form.questions[s.page];
   const value = q && choicesOf(q)[s.cursor[s.page]]?.value;
-  return value === undefined ? s : toggled(s, s.page, value);
+  if (value === undefined)
+    return s;
+  return q?.multi ? toggled(s, s.page, value) : chose(s, s.page, value);
 }
 function confirm(form, s) {
   const i = s.page;
@@ -608,6 +610,10 @@ function confirm(form, s) {
   if (!q)
     return s;
   const value = choicesOf(q)[s.cursor[i]]?.value;
+  if (choicesOf(q).length > 0 && !q.multi) {
+    const picked = value === undefined ? s : chose(s, i, value);
+    return picked.answered[i] ? { ...picked, page: i + 1 } : picked;
+  }
   const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i].includes(value);
   return { ...s, page: i + 1, answered: markAnswered(s, i), ...adds && { picked: replaceAt(s.picked, i, [...s.picked[i], value]) } };
 }
@@ -621,11 +627,13 @@ function clickChoice(form, s, idx) {
   if (value === undefined || value === WRITE_IN)
     return { ...s, cursor };
   if (!q.multi)
-    return { ...s, cursor, answered: markAnswered(s, i) };
+    return chose({ ...s, cursor }, i, value);
   return { ...toggled(s, i, value), cursor };
 }
-function typeChar(s, ch) {
-  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
+function typeChar(form, s, ch) {
+  const typed = { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
+  const q = form.questions[s.page];
+  return q && !q.multi && choicesOf(q).length > 0 ? { ...typed, chosen: replaceAt(s.chosen, s.page, WRITE_IN) } : typed;
 }
 function deleteChar(s) {
   return { ...s, text: replaceAt(s.text, s.page, s.text[s.page].slice(0, -1)) };

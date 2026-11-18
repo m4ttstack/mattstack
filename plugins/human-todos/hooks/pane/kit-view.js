@@ -140,7 +140,7 @@ var SYMBOL = {
   boxActive: "◻",
   boxOn: "◼",
   boxOff: "◻",
-  selectEdge: "▎"
+  selectEdge: "❯"
 };
 var ICON = {
   layers: "",
@@ -217,10 +217,10 @@ function pressed(span) {
 function keySelected(span) {
   if (!span.t.startsWith(" "))
     return [span];
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
+  const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) }
+    { ...bare, t: SYMBOL.selectEdge, color: "cyan", bold: true, dim: false },
+    { ...hoverOf(span), t: span.t.slice(1) }
   ];
 }
 var ACCENT = { color: "cyan" };

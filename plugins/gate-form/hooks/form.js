@@ -165,7 +165,7 @@ var SYMBOL = {
   boxActive: "◻",
   boxOn: "◼",
   boxOff: "◻",
-  selectEdge: "▎"
+  selectEdge: "❯"
 };
 var ICON = {
   layers: "",
@@ -243,12 +243,13 @@ function pressed(span) {
 function keySelected(span) {
   if (!span.t.startsWith(" "))
     return [span];
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
+  const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span;
   return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) }
+    { ...bare, t: SYMBOL.selectEdge, color: "cyan", bold: true, dim: false },
+    { ...hoverOf(span), t: span.t.slice(1) }
   ];
 }
+var CURSOR_ROW = "#25343a";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -409,35 +410,42 @@ function selectList(spec) {
   const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, () => [bar])];
   if (start > 0)
     lines.push([bar, sp(`  ↑ ${start} more`, DIM)]);
-  shown.forEach((choice, n) => lines.push(...withAction(padded(choiceRows(choice, start + n, spec)), spec.actionFor(start + n))));
+  shown.forEach((choice, n) => {
+    const idx = start + n;
+    const rows = padded(choiceRows(choice, idx, spec));
+    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width)) : rows, spec.actionFor(idx)));
+  });
   const below = total - start - shown.length;
   if (below > 0)
     lines.push([bar, sp(`  ↓ ${below} more`, DIM)]);
   return lines;
 }
 function choiceMark(spec, idx) {
-  const isAt = idx === spec.cursor;
+  const isPicked = spec.isPicked(idx);
   if (!spec.multi)
-    return isAt ? spec.cursorIsChoice ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, ACCENT) : sp(SYMBOL.radioOff, DIM);
-  if (spec.isPicked(idx))
-    return sp(SYMBOL.boxOn, DONE);
-  return isAt ? sp(SYMBOL.boxActive, ACCENT) : sp(SYMBOL.boxOff, DIM);
+    return isPicked ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, DIM);
+  return isPicked ? sp(SYMBOL.boxOn, DONE) : sp(SYMBOL.boxOff, DIM);
 }
+var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
 function choiceRows(choice, idx, spec) {
   const bar = sp(SYMBOL.bar, ACCENT);
-  const lead = [bar, sp("  "), choiceMark(spec, idx), sp(" ")];
+  const isAt = isCursorRow(spec, idx);
+  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { ...ACCENT, bold: true }) : sp("  "), choiceMark(spec, idx), sp(" ")];
   const under = [bar, sp("    ")];
-  const isAt = idx === spec.cursor;
   const rows = choiceLines(choice, idx, spec, lead, under);
-  if (!isAt || !spec.pressing)
-    return rows;
-  return rows.map((line) => line.map((span) => span.isLabel ? pressed(span) : span));
+  return isAt && spec.pressing ? rows.map((line) => line.map((span) => span.isLabel ? pressed(span) : span)) : rows;
+}
+function tinted(line, width) {
+  const [rail, ...rest] = line;
+  const filled = rest.map((span) => span.bg ? span : { ...span, bg: CURSOR_ROW });
+  const room = Math.max(0, width - widthOf(line));
+  return [rail, ...filled, ...room > 0 ? [sp(" ".repeat(room), { bg: CURSOR_ROW })] : []];
 }
 function choiceLines(choice, idx, spec, lead, under) {
   const isAt = idx === spec.cursor;
   if (choice.isWriteIn)
     return writeInRows(choice, isAt, lead, under, spec);
-  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isAt && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
+  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isCursorRow(spec, idx) && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 function writeInRows(choice, isAt, lead, under, spec) {
   const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
@@ -447,63 +455,6 @@ function writeInRows(choice, isAt, lead, under, spec) {
   if (typed !== "")
     return [label, ...hang(under, under, `“${typed}”`, spec.width, {})];
   return [label, ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
-}
-// packages/mod-kit/src/widgets/tab-strip.ts
-function fillWindow(seed, first, count, room, cost) {
-  let lo = seed;
-  let hi = seed;
-  let used = cost(seed);
-  const right = () => hi + 1 < count && used + cost(hi + 1) <= room && (used += cost(++hi), true);
-  const left = () => lo > 0 && used + cost(lo - 1) <= room && (used += cost(--lo), true);
-  while (first === "right" ? right() || left() : left() || right())
-    ;
-  return { lo, hi };
-}
-function tabText(tab, room) {
-  if (!tab)
-    return "";
-  const text = tab.mark ? `${tab.mark} ${tab.label}` : tab.label;
-  const limit = Math.max(1, room - 2);
-  return cellWidth(text) <= limit ? text : `${cutCells(text, limit - 1)}…`;
-}
-var MARK_WIDTH = 5;
-var STRIP_CHROME = 3 + 2 * MARK_WIDTH + 2;
-var CHIP = { ...FILL.chip, bold: true };
-function scrollMark(side, hidden, action) {
-  const arrow = side === "left" ? "‹" : "›";
-  const label = hidden === 0 ? ` ${arrow} ` : side === "left" ? ` ${arrow} ${hidden} ` : ` ${hidden} ${arrow} `;
-  const text = side === "left" ? label.padEnd(MARK_WIDTH) : label.padStart(MARK_WIDTH);
-  return hidden > 0 ? sp(text, { ...CHIP, action }) : sp(text, DIM);
-}
-function windowFiller(tabs, width) {
-  const room = width - STRIP_CHROME;
-  const cost = (k) => cellWidth(tabText(tabs[k], room)) + 2;
-  return (seed, first) => fillWindow(Math.max(0, Math.min(tabs.length - 1, seed)), first, tabs.length, room, cost);
-}
-function revealTab(tabs, current, width, from) {
-  const fill = windowFiller(tabs, width);
-  const shown = fill(from, "right");
-  if (current > shown.hi)
-    return fill(current, "right").lo;
-  if (current < shown.lo)
-    return fill(current, "left").lo;
-  return shown.lo;
-}
-function tabStrip(spec) {
-  const { tabs, current } = spec;
-  const fill = windowFiller(tabs, spec.width);
-  const { lo, hi } = fill(spec.from, "right");
-  const line = [...rail(GRAY), scrollMark("left", lo, spec.scrollTo(lo - 1)), sp(" ")];
-  for (let k = lo;k <= hi; k += 1) {
-    const tab = tabs[k];
-    if (!tab)
-      continue;
-    const look = k === current ? FILL.current : tab.isDone ? DONE : DIM;
-    line.push(sp(` ${tabText(tab, spec.width - STRIP_CHROME)} `, { ...look, action: tab.action }));
-  }
-  const after = tabs.length - 1 - hi;
-  line.push(sp(" ".repeat(Math.max(1, spec.width - widthOf(line) - MARK_WIDTH))), scrollMark("right", after, spec.scrollTo(lo + 1)));
-  return line;
 }
 // packages/mod-kit/src/widgets/text-cursor.ts
 function textCursor(value, placeholder, showCursor) {
@@ -917,13 +868,14 @@ function choicesOf(q) {
   return [...q.options, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
 }
 function initial(form) {
+  const chosen = form.questions.map((q) => isConfirm(form) || q.multi ? undefined : q.options.find(isRecommended)?.value);
   return {
     page: 0,
     cursor: form.questions.map((q) => isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended))),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
-    answered: form.questions.map(() => false),
-    moved: form.questions.map(() => false),
+    answered: chosen.map((value) => value !== undefined),
+    chosen,
     phase: "active",
     tabsFrom: 0,
     menu: { open: false, selected: 0 },
@@ -937,7 +889,9 @@ function canSubmit(form, s) {
 }
 function chosenValue(form, s) {
   const q = form.questions[0];
-  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
+  if (!q)
+    return;
+  return s.chosen[0] ?? (choicesOf(q).length === 1 ? choicesOf(q)[0].value : undefined);
 }
 var PAUSE = "pause";
 var GO_BACK = "go-back:";
@@ -984,7 +938,9 @@ function isPicked(q, s, i, idx) {
   const value = choicesOf(q)[idx]?.value;
   if (value === undefined)
     return false;
-  return s.picked[i].includes(value) || value === WRITE_IN && q.multi && s.text[i].trim() !== "";
+  if (!q.multi)
+    return s.chosen[i] === value;
+  return s.picked[i].includes(value) || value === WRITE_IN && s.text[i].trim() !== "";
 }
 function isTyping(form, s) {
   const q = form.questions[s.page];
@@ -1005,7 +961,7 @@ function answersOf(form, s) {
       const values = s.picked[i].filter((v) => v !== WRITE_IN);
       out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
     } else {
-      const value = choicesOf(q)[s.cursor[i]]?.value;
+      const value = s.chosen[i];
       out[q.id] = value === WRITE_IN ? { writeIn: typed } : value;
     }
   });
@@ -1015,35 +971,31 @@ function goTo(form, s, page) {
   const last = isSinglePage(form) ? 0 : form.questions.length;
   return { ...s, page: Math.max(0, Math.min(last, page)) };
 }
-function cursorIsChoice(q, s, i) {
-  const option = choicesOf(q)[s.cursor[i]];
-  if (!option || option.value === WRITE_IN && s.text[i].trim() === "")
-    return false;
-  return s.answered[i] || s.moved[i] || isRecommended(option);
-}
-function takesCursorAsAnswer(form, s) {
-  const q = form.questions[s.page];
-  return q !== undefined && !q.multi && !s.answered[s.page] && cursorIsChoice(q, s, s.page);
-}
 function advance(form, s) {
-  const answered = takesCursorAsAnswer(form, s) ? markAnswered(s, s.page) : s.answered;
-  return goTo(form, { ...s, answered }, s.page + 1);
+  return goTo(form, s, s.page + 1);
 }
 function moveCursor(form, s, by) {
   const q = form.questions[s.page];
   const count = q ? choicesOf(q).length : 0;
   if (count === 0)
     return s;
-  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count), moved: replaceAt(s.moved, s.page, true) };
+  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count) };
 }
 function toggled(s, i, value) {
   const has = s.picked[i].includes(value);
   return { ...s, picked: replaceAt(s.picked, i, has ? s.picked[i].filter((p) => p !== value) : [...s.picked[i], value]), answered: markAnswered(s, i) };
 }
+function chose(s, i, value) {
+  if (value === WRITE_IN && s.text[i].trim() === "")
+    return s;
+  return { ...s, chosen: replaceAt(s.chosen, i, value), answered: markAnswered(s, i) };
+}
 function toggleAtCursor(form, s) {
   const q = form.questions[s.page];
   const value = q && choicesOf(q)[s.cursor[s.page]]?.value;
-  return value === undefined ? s : toggled(s, s.page, value);
+  if (value === undefined)
+    return s;
+  return q?.multi ? toggled(s, s.page, value) : chose(s, s.page, value);
 }
 function confirm(form, s) {
   const i = s.page;
@@ -1051,6 +1003,10 @@ function confirm(form, s) {
   if (!q)
     return s;
   const value = choicesOf(q)[s.cursor[i]]?.value;
+  if (choicesOf(q).length > 0 && !q.multi) {
+    const picked = value === undefined ? s : chose(s, i, value);
+    return picked.answered[i] ? { ...picked, page: i + 1 } : picked;
+  }
   const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i].includes(value);
   return { ...s, page: i + 1, answered: markAnswered(s, i), ...adds && { picked: replaceAt(s.picked, i, [...s.picked[i], value]) } };
 }
@@ -1064,11 +1020,13 @@ function clickChoice(form, s, idx) {
   if (value === undefined || value === WRITE_IN)
     return { ...s, cursor };
   if (!q.multi)
-    return { ...s, cursor, answered: markAnswered(s, i) };
+    return chose({ ...s, cursor }, i, value);
   return { ...toggled(s, i, value), cursor };
 }
-function typeChar(s, ch) {
-  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
+function typeChar(form, s, ch) {
+  const typed = { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
+  const q = form.questions[s.page];
+  return q && !q.multi && choicesOf(q).length > 0 ? { ...typed, chosen: replaceAt(s.chosen, s.page, WRITE_IN) } : typed;
 }
 function deleteChar(s) {
   return { ...s, text: replaceAt(s.text, s.page, s.text[s.page].slice(0, -1)) };
@@ -1085,6 +1043,10 @@ function send(form, s) {
   if (!isSinglePage(form))
     return post(form, s, answersOf(form, s));
   return post(form, s, { [form.questions[0].id]: chosenValue(form, s) });
+}
+function sendPicked(form, s) {
+  const picked = toggleAtCursor(form, s);
+  return send(form, picked) ?? { state: picked };
 }
 function chat(form, s) {
   if (!canChat(form))
@@ -1217,12 +1179,12 @@ function questionKey(ev, form, s) {
   const isSpace = key === " " || key === "space";
   const typing = isTyping(form, s);
   if (isEnter(ev))
-    return isSinglePage(form) ? send(form, s) ?? { state: s } : { state: confirm(form, s) };
+    return isSinglePage(form) ? sendPicked(form, s) : { state: confirm(form, s) };
   if (key === "left" || key === "right")
     return { state: goTo(form, s, s.page + (key === "left" ? -1 : 1)) };
   if (key === "up" || key === "down")
     return gridKey(ev, form, s);
-  if (isSpace && form.questions[s.page]?.multi && !typing)
+  if (isSpace && !typing)
     return { state: toggleAtCursor(form, s) };
   if (!typing)
     return;
@@ -1230,7 +1192,7 @@ function questionKey(ev, form, s) {
     return { state: deleteChar(s) };
   const ch = isSpace ? " " : key;
   if (ch.length === 1 && !ev.ctrl && !ev.meta)
-    return { state: typeChar(s, ch) };
+    return { state: typeChar(form, s, ch) };
   return;
 }
 function keyEffect(ev, form, armed) {
@@ -1241,6 +1203,8 @@ function keyEffect(ev, form, armed) {
   const s = disarm(armed);
   if (isConfirm(form))
     return;
+  if (ev.shift && (ev.key === "up" || ev.key === "down"))
+    return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === "up" ? -1 : 1)) } };
   if (ev.key === "tab" && isSinglePage(form))
     return { state: s };
   if (ev.key === "tab" && !isReview(form, s))
@@ -1259,13 +1223,61 @@ function contextText(context) {
   } catch {}
   return context;
 }
+function contextBody(context, width) {
+  const out = [];
+  for (const raw of contextText(context).split(`
+`)) {
+    const t = raw.trimEnd();
+    const bullet = /^\s*[-*] +/.exec(t);
+    if (t.trim() === "") {
+      if (out.length > 0 && out[out.length - 1].length > 0)
+        out.push([]);
+    } else if (bullet)
+      out.push(...hang([sp("  • ", DIM)], [sp("    ")], t.slice(bullet[0].length), width));
+    else if (/^#{1,6} /.test(t))
+      out.push(...hang([], [], t.replace(/^#+ +/, ""), width, { bold: true }));
+    else if (t.endsWith(":") && t.length <= 60)
+      out.push(...hang([], [], t.slice(0, -1), width, { bold: true }));
+    else
+      out.push(...hang([], [], t, width));
+  }
+  while (out.length > 0 && out[out.length - 1].length === 0)
+    out.pop();
+  return out;
+}
+var BOX_CELLS = 6;
+var CTX_BG = "#202020";
+var MIN_CTX = 3;
+var tint = (line, width) => {
+  const filled = line.map((span) => span.bg ? span : { ...span, bg: CTX_BG });
+  const room = Math.max(0, width - widthOf(line));
+  return room > 0 ? [...filled, sp(" ".repeat(room), { bg: CTX_BG })] : filled;
+};
+function contextBox(context, width, ctx) {
+  if (ctx.cap <= 0)
+    return [];
+  const inner = width - BOX_CELLS;
+  const body = contextBody(context, inner);
+  const top = Math.min(Math.max(0, ctx.top), Math.max(0, body.length - ctx.cap));
+  const bar = scrollBar(ctx.cap, body.length, top);
+  const shown = body.slice(top, top + ctx.cap);
+  const rail = sp(`${SYMBOL.bar} `, GRAY);
+  const lines = shown.map((line, n) => [rail, ...tint([sp(" "), ...clipLine(line, inner)], inner + 1), ...body.length > ctx.cap ? bar[n] : []]);
+  if (body.length <= ctx.cap)
+    return lines;
+  const below = body.length - top - ctx.cap;
+  const where = below > 0 ? `↓ ${below} more line${below === 1 ? "" : "s"}` : `↑ ${top} line${top === 1 ? "" : "s"} above`;
+  const keys = "shift+↑↓ or wheel";
+  const gapCells = Math.max(2, width - 2 - widthOf([sp(where), sp(keys)]));
+  return [...lines, [sp(SYMBOL.bar, GRAY), sp(" "), sp(where, DIM), sp(" ".repeat(gapCells)), sp(keys, GRAY)]];
+}
 function answerSummary(q, s, i) {
   const choices = choicesOf(q);
   if (choices.length === 0)
     return s.text[i] === "" ? "(blank)" : s.text[i];
   const label = (v) => v === WRITE_IN ? `“${s.text[i]}”` : choices.find((o) => o.value === v)?.label ?? v;
   if (!q.multi)
-    return label(choices[s.cursor[i]]?.value ?? "");
+    return label(s.chosen[i] ?? "");
   const values = [...s.picked[i], ...s.text[i].trim() !== "" ? [WRITE_IN] : []];
   return values.length === 0 ? "none" : values.map(label).join(", ");
 }
@@ -1308,7 +1320,6 @@ function questionPage(q, s, i, base) {
     cursor: s.cursor[i],
     multi: q.multi,
     isPicked: (idx) => isPicked(q, s, i, idx),
-    cursorIsChoice: !q.multi && cursorIsChoice(q, s, i),
     writeIn: s.text[i],
     width: view.width,
     focused: view.focused,
@@ -1352,22 +1363,19 @@ function closedPage(form, s, view) {
   const rest = [sp(" "), sp("  ")];
   return [...reviewList2(form, s, view), [sp(SYMBOL.bar, GRAY)], ...hang([sp(SYMBOL.end, GRAY), sp("  ")], rest, end.text, view.width, end.isWarn ? WARN : {})];
 }
-function tabList(form, s) {
+function progress(form, s, view) {
   const n = form.questions.length;
-  const list = form.questions.map((q, i) => ({
-    label: q.header,
-    mark: s.answered[i] ? ICON.done : ICON.todo,
-    isDone: s.answered[i] === true,
-    action: { type: "page", page: i }
-  }));
-  list.push({ label: "Submit", isDone: false, action: { type: "page", page: n } });
-  return list;
-}
-function tabs(form, s, view) {
-  return tabStrip({ tabs: tabList(form, s), current: s.page, width: view.width, from: s.tabsFrom, scrollTo: (from) => ({ type: "scroll-tabs", from }) });
-}
-function withTabInView(form, s, width) {
-  return { ...s, tabsFrom: revealTab(tabList(form, s), s.page, width, s.tabsFrom) };
+  const dots = form.questions.flatMap((_, i) => [
+    sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { ...i === s.page ? ACCENT : s.answered[i] ? DONE : GRAY, action: { type: "page", page: i } }),
+    sp(" ")
+  ]);
+  const q = form.questions[s.page];
+  const where = q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(" review", { bold: true })];
+  const missing = unansweredCount(s);
+  const left = sp(missing === 0 ? "all answered" : `${missing} to answer`, missing === 0 ? DONE : DIM);
+  const line = [sp(SYMBOL.bar, GRAY), sp("  "), ...dots, ...where];
+  const room = view.width - widthOf(line) - widthOf([left]);
+  return room >= 2 ? [...line, sp(" ".repeat(room)), left] : line;
 }
 var MORE = { type: "menu", hit: { type: "toggle" } };
 function spanAt2(id, left, line) {
@@ -1376,10 +1384,10 @@ function spanAt2(id, left, line) {
 function navRows(form, s, view) {
   const n = form.questions.length;
   const page = s.page;
-  const back = { label: `${ICON.back} Back`, action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === 0 };
+  const back = { label: "← Back", action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === 0 };
   const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
   const submit = { label: unansweredCount(s) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) };
-  const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : submit;
+  const next = page < n - 1 ? forward("Next →") : page === n - 1 ? forward("Review →") : submit;
   const aside = !canChat(form) ? undefined : s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
@@ -1413,30 +1421,32 @@ function errorLines(form, view) {
 function hint(form, s) {
   const q = form.questions[s.page];
   if (isSinglePage(form))
-    return "↑↓ choose  enter submit";
+    return "↑↓ move  space pick  enter pick + submit";
   if (!q) {
     const others = navIds(form, s).length > 1 ? "   tab buttons" : "";
     return `← back${others}   enter ${navAtOf(form, s) === "next" ? "submit" : "presses"}`;
   }
   if (s.onNav)
     return "←→ buttons  ↑ answers  enter presses";
-  return choicesOf(q).length === 0 ? "←→ pages  ↓ buttons" : "←→ pages  ↑↓ move";
+  if (choicesOf(q).length === 0)
+    return "←→ pages  ↓ buttons";
+  return q.multi ? "↑↓ move  space tick  enter next  ←→ pages" : "↑↓ move  space pick  enter pick + next  ←→ pages";
 }
-function draw(form, s, view) {
+function draw(form, s, view, ctx) {
   const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
   if (s.phase !== "active" || form.status !== "open")
     return { head, page: closedPage(form, s, view), foot: [] };
   const gap = [sp(SYMBOL.bar, GRAY)];
   head.push(gap);
-  if (form.context) {
+  if (form.context && isConfirm(form)) {
     const indent = rail(GRAY);
-    const divider = [sp(`├${"─".repeat(Math.max(4, view.width - 2))}`, GRAY)];
-    head.push(...hang(indent, indent, contextText(form.context), view.width), ...isConfirm(form) ? [] : [gap, divider, gap]);
-  }
+    head.push(...hang(indent, indent, contextText(form.context), view.width));
+  } else if (form.context)
+    head.push(...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap);
   if (isConfirm(form))
     return { head, page: [], foot: confirmFoot(form, view) };
   if (!isSinglePage(form))
-    head.push(tabs(form, s, view), gap);
+    head.push(progress(form, s, view), gap);
   const q = form.questions[s.page];
   const accentBar = rail(ACCENT);
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
@@ -1459,25 +1469,41 @@ function tallestQuestion(form, s, view) {
 }
 var BAR_CELLS = 3;
 var FIXED_TOP = 2;
+function contextFit(form, s, view, rows, turned) {
+  if (!form.context || isConfirm(form) || s.phase !== "active" || form.status !== "open")
+    return { usedWheel: false };
+  const total = contextBody(form.context, view.width - BOX_CELLS).length;
+  const bare = draw(form, s, view, { cap: 0, top: 0 });
+  const pageRows = Math.max(bare.page.length, tallestQuestion(form, s, view));
+  const room = rows - bare.head.length - pageRows - bare.foot.length;
+  if (total <= Math.max(MIN_CTX, room))
+    return { ctx: { cap: total, top: 0 }, usedWheel: false };
+  const cap = Math.max(MIN_CTX, room - 1);
+  const top = Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), total - cap);
+  return { ctx: { cap, top }, usedWheel: true };
+}
 function fittedLines(form, s, view, rows, wheel) {
-  const full = draw(form, s, view);
+  const wheelTurn = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt;
+  const { ctx, usedWheel } = contextFit(form, s, view, rows, wheelTurn);
+  const kept = { ...wheel !== undefined && { wheelAt: wheel }, ...ctx && { ctxTop: ctx.top } };
+  const full = draw(form, s, view, ctx);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
     const pad = s.phase === "active" && form.status === "open" && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
-    return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...wheel !== undefined && { wheelAt: wheel } };
+    return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...kept };
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) };
-  const narrow = draw(form, s, inner);
+  const narrow = draw(form, s, inner, ctx);
   const region = [...narrow.head.slice(FIXED_TOP), ...narrow.page];
   const windowRows = Math.max(1, rows - FIXED_TOP - narrow.foot.length);
-  const turned = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt;
+  const turned = usedWheel ? 0 : wheelTurn;
   const most = maxScroll(region.length, windowRows);
   const wheeled = Math.min(Math.max(0, (s.pageTop ?? 0) + turned), most);
   const cursor = `${s.page}:${s.onNav ? "nav" : s.cursor[s.page] ?? ""}`;
   const top = cursor === s.followed ? wheeled : followCursor(region, s, windowRows, wheeled);
   const bar = scrollBar(windowRows, region.length, top);
   const shown = region.slice(top, top + windowRows).map((line, n) => Object.assign([...clipLine(line, inner.width), ...bar[n] ?? []], line.action === undefined ? {} : { action: line.action }));
-  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...wheel !== undefined && { wheelAt: wheel } };
+  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...kept };
 }
 function followCursor(region, s, windowRows, from) {
   const at = s.cursor[s.page];
@@ -1503,7 +1529,7 @@ var form_default = kitClient((props, ui) => {
       return false;
     if (effect.post !== undefined)
       ui.post(effect.post);
-    ui.setState(effect.state.page === ui.state.page ? effect.state : withTabInView(form, effect.state, width));
+    ui.setState(effect.state);
     return true;
   };
   ui.onKey((ev) => {
@@ -1514,8 +1540,8 @@ var form_default = kitClient((props, ui) => {
   });
   const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows, props.wheel);
   const s = ui.state;
-  if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt)
-    ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt });
+  if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt || fitted.ctxTop !== s.ctxTop)
+    ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt, ctxTop: fitted.ctxTop });
   return /* @__PURE__ */ h(Panel, {
     width
   }, /* @__PURE__ */ h(Lines, {
