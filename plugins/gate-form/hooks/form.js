@@ -1533,8 +1533,10 @@ function fittedLines(form, s, view, rows, wheel) {
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
     if (s.phase === "active" && form.status === "open" && !isConfirm(form)) {
-      const spare = Math.max(0, rows - full.head.length - full.page.length - full.foot.length);
-      return { lines: [...full.head, ...Array.from({ length: spare }, () => BLANK), ...full.page, ...full.foot], top: 0, ...kept };
+      const height = Math.max(full.page.length, Math.min(tallestQuestion(form, s, view), rows - full.head.length - full.foot.length));
+      const page = [...full.page, ...Array.from({ length: height - full.page.length }, () => BLANK)];
+      const spare = Math.max(0, rows - full.head.length - page.length - full.foot.length);
+      return { lines: [...full.head, ...Array.from({ length: spare }, () => BLANK), ...page, ...full.foot], top: 0, ...kept };
     }
     const pad = s.phase === "active" && form.status === "open" && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: BLANK } : undefined;
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...kept };
