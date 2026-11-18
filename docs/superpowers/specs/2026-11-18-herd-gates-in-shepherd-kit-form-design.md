@@ -56,11 +56,15 @@ handles milestone gates its own way. (Matt's pick.)
    board-only kinds do (`lib/daemon/handlers/gate.ts:840`). The worker's mod
    already passes a `wait` result through untouched, and the gate protocol's
    `wait` branch does the rest.
-2. **The form read.** A daemon read builds the kit form payload
-   (`questions`, `context`, `controls`) for an open gate id, reusing the
-   builder in `lib/mcp/gate-tools.ts` (~line 437). Herd runs get no
-   Pause / Go back controls already (`runControls`), so controls come back
-   empty for them.
+2. **The form is stored, not rebuilt.** When a herd worker opens a gate,
+   the open path builds the kit form payload (`questions`, `context`,
+   `controls`) with the builder in `lib/mcp/gate-tools.ts` exactly as it
+   would for the worker's pane, and stores it on the gate row as
+   `meta.kitForm`. The shepherd reads that back, so its form is the
+   worker's form byte for byte (the open-time fit of a `gate_open` source
+   can't be reproduced from the row alone). Herd runs get no Pause / Go
+   back controls already (`runControls`). A herd gate with no stored form
+   (`herd_ask`) gets one from its questions and flattened context.
 3. **`herd_gate_present {gate}`.** A shepherd-only MCP tool that returns
    that payload in the same shape `gate_ask` returns for a kit gate.
 4. **The shepherd's mod.** The gate-form mod takes `herd_gate_present` over
