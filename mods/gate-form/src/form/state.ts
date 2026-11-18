@@ -44,10 +44,11 @@ const isRecommended = (o: FormOption) => /\(recommended\)\s*$/i.test(o.label)
 const replaceAt = <T>(list: T[], i: number, value: T): T[] => list.map((old, k) => (k === i ? value : old))
 const markAnswered = (s: State, i: number) => replaceAt(s.answered, i, true)
 
-// A question with options ends in a write-in row where it takes typed text.
+// The recommended option leads the list, the rest keep their order, and a question that takes typed text ends in a write-in row.
 export function choicesOf(q: FormQuestion): FormOption[] {
-  if (q.options.length === 0 || !q.other) return q.options
-  return [...q.options, { value: WRITE_IN, label: 'Something else', description: 'Write in your answer' }]
+  const ordered = [...q.options.filter(isRecommended), ...q.options.filter(o => !isRecommended(o))]
+  if (ordered.length === 0 || !q.other) return ordered
+  return [...ordered, { value: WRITE_IN, label: 'Something else', description: 'Write in your answer' }]
 }
 
 // A single choice starts with its recommended option picked; a multi question starts with nothing ticked.
@@ -55,7 +56,7 @@ export function initial(form: Form): State {
   const chosen = form.questions.map(q => (isConfirm(form) || q.multi ? undefined : q.options.find(isRecommended)?.value))
   return {
     page: 0,
-    cursor: form.questions.map(q => (isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended)))),
+    cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ''),
     answered: chosen.map(value => value !== undefined),

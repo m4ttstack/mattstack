@@ -470,15 +470,16 @@ var isRecommended = (o) => /\(recommended\)\s*$/i.test(o.label);
 var replaceAt = (list, i, value) => list.map((old, k) => k === i ? value : old);
 var markAnswered = (s, i) => replaceAt(s.answered, i, true);
 function choicesOf(q) {
-  if (q.options.length === 0 || !q.other)
-    return q.options;
-  return [...q.options, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
+  const ordered = [...q.options.filter(isRecommended), ...q.options.filter((o) => !isRecommended(o))];
+  if (ordered.length === 0 || !q.other)
+    return ordered;
+  return [...ordered, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
 }
 function initial(form) {
   const chosen = form.questions.map((q) => isConfirm(form) || q.multi ? undefined : q.options.find(isRecommended)?.value);
   return {
     page: 0,
-    cursor: form.questions.map((q) => isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended))),
+    cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
     answered: chosen.map((value) => value !== undefined),
