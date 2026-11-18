@@ -947,8 +947,8 @@ var TONES = {
   stop: "caution",
   forceStop: "caution",
   message: "quiet",
-  send: "primary",
-  sendDone: "secondary",
+  send: "quiet",
+  sendDone: "quiet",
   cancelMessage: "quiet"
 };
 var ESCAPES = new RegExp("\\x1b\\[[0-?]*[ -/]*[@-~]|\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)?|\\x1b[@-_]", "g");

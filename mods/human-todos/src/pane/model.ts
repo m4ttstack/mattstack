@@ -52,8 +52,8 @@ const TONES: Record<ButtonId, ButtonTone> = {
   stop: 'caution',
   forceStop: 'caution',
   message: 'quiet',
-  send: 'primary',
-  sendDone: 'secondary',
+  send: 'quiet',
+  sendDone: 'quiet',
   cancelMessage: 'quiet',
 }
 
