@@ -240,7 +240,8 @@ export const reviewFirstRound: StoryGate = {
           'Looks good to me, approving. Left a few inline notes to pick up on the way.',
       },
       summaryNoFindingsComments: {
-        comment: 'Read it through; nothing to add from me. Your call on the merge.',
+        comment:
+          'Read it through; nothing to add from me. Your call on the merge.',
         approve: 'Read it through and it looks good to me. Approving.',
       },
     }),

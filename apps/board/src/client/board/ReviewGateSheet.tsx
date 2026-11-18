@@ -37,8 +37,8 @@ import {
   draftEdits,
   findOutcomeQuestion,
   hasDiffLine,
-  type ReviewDrafts,
   summaryDraftFor,
+  type ReviewDrafts,
 } from './review-drafts.ts';
 import {
   readinessProse,
