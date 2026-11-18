@@ -2,7 +2,9 @@ package picker
 
 import (
 	"strings"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -50,10 +52,54 @@ func (m *Model) hasPreviews() bool {
 
 var faceCache = map[string]string{}
 
-// faceLines is the face drawn into its faceCols x faceRows box, or the
-// placeholder tile when there is no face or it cannot be read.
-func faceLines(face *protocol.PickPreviewFace) []string {
+// kittyQueryWait is how long the picker waits for the kitty graphics reply
+// before it settles on half-blocks.
+const kittyQueryWait = 150 * time.Millisecond
+
+// firstFaceID keeps the picker's kitty image ids clear of low ids other
+// programs in the same terminal are likely to use.
+const firstFaceID = 0x52540
+
+// assignFaceIDs gives every preview face path its own kitty image id.
+func (m *Model) assignFaceIDs() {
+	m.faceIDs = map[string]uint32{}
+	for _, r := range m.req.Rows {
+		if r.Preview == nil || r.Preview.Face == nil || r.Preview.Face.Path == "" {
+			continue
+		}
+		if _, ok := m.faceIDs[r.Preview.Face.Path]; !ok {
+			m.faceIDs[r.Preview.Face.Path] = firstFaceID + uint32(len(m.faceIDs))
+		}
+	}
+}
+
+// sendFaces transmits every face once, at start; the face box then shows
+// each by its placeholder text. A face that cannot be read loses its id and
+// falls back to the empty tile.
+func (m *Model) sendFaces() tea.Cmd {
+	var sb strings.Builder
+	for path, id := range m.faceIDs {
+		seq, err := termimage.KittyTransmit(id, path, faceCols, faceRows)
+		if err != nil {
+			delete(m.faceIDs, path)
+			continue
+		}
+		sb.WriteString(seq)
+	}
+	if sb.Len() == 0 {
+		return nil
+	}
+	return tea.Raw(sb.String())
+}
+
+// faceLines is the face drawn into its faceCols x faceRows box (a kitty
+// placement, else half-blocks), or the placeholder tile when there is no
+// face or it cannot be read.
+func (m *Model) faceLines(face *protocol.PickPreviewFace) []string {
 	if face != nil && face.Path != "" {
+		if id, ok := m.faceIDs[face.Path]; ok {
+			return termimage.KittyPlaceholder(id, faceCols, faceRows)
+		}
 		drawn, ok := faceCache[face.Path]
 		if !ok {
 			if s, err := termimage.HalfBlock(face.Path, faceCols, faceRows); err == nil {
@@ -103,7 +149,7 @@ func previewLines(m *Model, width, height int) []string {
 		p = m.req.Rows[m.matches[m.cursor].Index].Preview
 	}
 	if p != nil {
-		face := faceLines(p.Face)
+		face := m.faceLines(p.Face)
 		for i := 0; i < faceRows; i++ {
 			line := face[i]
 			if i < len(p.Header) {
