@@ -109,8 +109,7 @@ this version with no migration pending, or run), and only one run at a time hold
 `~/.mattstack/rt/setup-update.lock` (`lib/setup/update-lock.ts`); a second
 one reports `skipped: "running"`. A run is `org.folder` and `org.pull`, then
 pending migrations, then `team.identity` and the other `StepDef`s with
-`updateSafe: true`, then any migration marked `afterSteps` (one that needs
-what those steps install), then `verify`, through `runUpdateWith` in
+`updateSafe: true`, then `afterSteps` migrations, then `verify`, via `runUpdateWith` in
 `lib/setup/apply.ts`, so a migration that reads the org sees the clone at
 `orgs/<org>` holding what its checked-out branch holds on origin now. No failed outcome stops it, and a migration that
 throws is one more failed item; only a step that throws a plain error

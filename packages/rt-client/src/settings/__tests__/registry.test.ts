@@ -450,8 +450,9 @@ describe("settings/registry", () => {
         "rt.gates.kitForm",
         "rt.work.gateMode",
         "rt.work.gateModeShadow",
+        "superpowers.execution",
       ];
-      expect(suiteKeys).toHaveLength(111);
+      expect(suiteKeys).toHaveLength(112);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
