@@ -100,5 +100,5 @@ function writeInRows<A>(choice: Choice, isAt: boolean, lead: Span<A>[], under: S
   const fieldLead = lead.slice(0, -1)
   if (isAt) return [[...fieldLead, ...inputField(typed, choice.label, spec.width - widthOf(fieldLead), spec.focused)]]
   if (typed !== '') return hang(lead, under, typed, spec.width, {})
-  return [[...lead, sp(choice.label, { ...DIM, isLabel: true })]]
+  return hang(lead, under, choice.label, spec.width, { ...DIM, isLabel: true })
 }

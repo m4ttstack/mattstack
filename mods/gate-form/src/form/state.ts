@@ -97,7 +97,8 @@ export const isSinglePage = (form: Form) => form.source === 'plugin'
 export const isConfirm = (form: Form) => form.confirm === true
 
 // A gate or ask with one question submits from its own page, with no review page after it.
-export const isOneQuestion = (form: Form) => !isSinglePage(form) && form.questions.length === 1
+// A gate with run controls keeps its review page, which is where Pause run and Go back to stage live.
+export const isOneQuestion = (form: Form) => !isSinglePage(form) && form.questions.length === 1 && menuRows(form).length === 0
 
 export const isReview = (form: Form, s: State) => !isSinglePage(form) && s.page === form.questions.length
 export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)
@@ -224,8 +225,9 @@ export function confirm(form: Form, s: State): State {
   if (!q) return s
   const value = choicesOf(q)[s.cursor[i]!]?.value
   if (choicesOf(q).length > 0 && !q.multi) {
+    // Moves on only when the focused choice was taken: an empty write-in keeps the page, whatever was picked before.
     const picked = value === undefined ? s : chose(s, i, value)
-    return picked.answered[i] ? { ...picked, page: i + 1 } : picked
+    return value !== undefined && picked.chosen[i] === value ? { ...picked, page: i + 1 } : picked
   }
   const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i]!.includes(value)
   return { ...s, page: i + 1, answered: markAnswered(s, i), ...(adds && { picked: replaceAt(s.picked, i, [...s.picked[i]!, value]) }) }
@@ -244,12 +246,21 @@ export function clickChoice(form: Form, s: State, idx: number): State {
 }
 
 // Typing into a single choice's write-in picks it.
+// Typing into a single choice's write-in picks it once the text is not blank; a free-text question is answered as typed.
 export function typeChar(form: Form, s: State, ch: string): State {
-  const typed = { ...s, text: replaceAt(s.text, s.page, s.text[s.page]! + ch), answered: markAnswered(s, s.page) }
-  const q = form.questions[s.page]
-  return q && !q.multi && choicesOf(q).length > 0 ? { ...typed, chosen: replaceAt(s.chosen, s.page, WRITE_IN) } : typed
+  const i = s.page
+  const text = replaceAt(s.text, i, s.text[i]! + ch)
+  const q = form.questions[i]
+  const isWriteIn = q !== undefined && choicesOf(q).length > 0
+  if (!isWriteIn) return { ...s, text, answered: markAnswered(s, i) }
+  if (text[i]!.trim() === '') return { ...s, text }
+  return q.multi ? { ...s, text, answered: markAnswered(s, i) } : { ...s, text, chosen: replaceAt(s.chosen, i, WRITE_IN), answered: markAnswered(s, i) }
 }
 
+// A single choice's write-in cleared to blank is no longer its answer: the pick and the answer both go.
 export function deleteChar(s: State): State {
-  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page]!.slice(0, -1)) }
+  const i = s.page
+  const text = replaceAt(s.text, i, s.text[i]!.slice(0, -1))
+  if (s.chosen[i] !== WRITE_IN || text[i]!.trim() !== '') return { ...s, text }
+  return { ...s, text, chosen: replaceAt(s.chosen, i, undefined), answered: replaceAt(s.answered, i, false) }
 }

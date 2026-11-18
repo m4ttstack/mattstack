@@ -244,7 +244,7 @@ function markButtonAt(line, at, focus = {}) {
   const button = line[at];
   if (!button)
     return line;
-  const lit = hoverOf(focus.pressing ? pressed(button) : button);
+  const lit = focus.pressing ? pressed(button) : hoverOf(button);
   let back = at - 1;
   while (back >= 0 && line[back].t === "")
     back -= 1;
@@ -472,7 +472,7 @@ function writeInRows(choice, isAt, lead, under, spec) {
     return [[...fieldLead, ...inputField(typed, choice.label, spec.width - widthOf(fieldLead), spec.focused)]];
   if (typed !== "")
     return hang(lead, under, typed, spec.width, {});
-  return [[...lead, sp(choice.label, { ...DIM, isLabel: true })]];
+  return hang(lead, under, choice.label, spec.width, { ...DIM, isLabel: true });
 }
 // packages/mod-kit/src/widgets/text-cursor.ts
 function textCursor(value, placeholder, showCursor) {
@@ -916,7 +916,7 @@ var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
-var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1;
+var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1 && menuRows(form).length === 0;
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
@@ -1029,7 +1029,7 @@ function confirm(form, s) {
   const value = choicesOf(q)[s.cursor[i]]?.value;
   if (choicesOf(q).length > 0 && !q.multi) {
     const picked = value === undefined ? s : chose(s, i, value);
-    return picked.answered[i] ? { ...picked, page: i + 1 } : picked;
+    return value !== undefined && picked.chosen[i] === value ? { ...picked, page: i + 1 } : picked;
   }
   const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i].includes(value);
   return { ...s, page: i + 1, answered: markAnswered(s, i), ...adds && { picked: replaceAt(s.picked, i, [...s.picked[i], value]) } };
@@ -1048,12 +1048,22 @@ function clickChoice(form, s, idx) {
   return { ...toggled(s, i, value), cursor };
 }
 function typeChar(form, s, ch) {
-  const typed = { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
-  const q = form.questions[s.page];
-  return q && !q.multi && choicesOf(q).length > 0 ? { ...typed, chosen: replaceAt(s.chosen, s.page, WRITE_IN) } : typed;
+  const i = s.page;
+  const text = replaceAt(s.text, i, s.text[i] + ch);
+  const q = form.questions[i];
+  const isWriteIn = q !== undefined && choicesOf(q).length > 0;
+  if (!isWriteIn)
+    return { ...s, text, answered: markAnswered(s, i) };
+  if (text[i].trim() === "")
+    return { ...s, text };
+  return q.multi ? { ...s, text, answered: markAnswered(s, i) } : { ...s, text, chosen: replaceAt(s.chosen, i, WRITE_IN), answered: markAnswered(s, i) };
 }
 function deleteChar(s) {
-  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page].slice(0, -1)) };
+  const i = s.page;
+  const text = replaceAt(s.text, i, s.text[i].slice(0, -1));
+  if (s.chosen[i] !== WRITE_IN || text[i].trim() !== "")
+    return { ...s, text };
+  return { ...s, text, chosen: replaceAt(s.chosen, i, undefined), answered: replaceAt(s.answered, i, false) };
 }
 
 // mods/gate-form/src/form/input.ts
@@ -1079,9 +1089,14 @@ function optionClick(form, s, idx, now) {
   if (!isDouble)
     return { state: { ...clickChoice(form, s, idx), lastClick: { page: s.page, idx, at: now } } };
   const once = { ...s, lastClick: undefined };
+  const q = form.questions[s.page];
+  const value = q && choicesOf(q)[idx]?.value;
+  const isTaken = q !== undefined && value !== undefined && (q.multi ? isPicked(q, once, s.page, idx) : once.chosen[s.page] === value);
+  if (!isTaken)
+    return { state: once };
   if (isSinglePage(form))
     return send(form, once) ?? { state: once };
-  return { state: once.answered[s.page] ? advance(form, once) : once };
+  return { state: advance(form, once) };
 }
 function chat(form, s) {
   if (!canChat(form))
@@ -1117,7 +1132,7 @@ function performOn(action, form, armed) {
     return;
   if (action.type === "chat")
     return chat(form, armed);
-  const s = disarm(armed);
+  const s = action.type === "option" ? disarm(armed) : { ...disarm(armed), lastClick: undefined };
   switch (action.type) {
     case "page":
       return { state: goTo(form, s, action.page) };
@@ -1239,7 +1254,7 @@ function keyEffect(ev, form, armed) {
     return;
   if (ev.ctrl && (ev.key === "x" || ev.key === "c"))
     return chat(form, armed);
-  const s = disarm(armed);
+  const s = { ...disarm(armed), lastClick: undefined };
   if (isConfirm(form))
     return;
   if (isContextPage(s))
@@ -1474,7 +1489,7 @@ function navRows(form, s, view) {
   const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
   const submit = { label: unansweredCount(s) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) };
   const next = isOneQuestion(form) || page === n ? submit : page < n - 1 ? forward("Next →") : forward("Review →");
-  const aside = !canChat(form) ? undefined : s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
+  const aside = chatButton(form, s);
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
   const left = [...page === n || isOneQuestion(form) && !s.contextPaged ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
@@ -1504,16 +1519,22 @@ function errorLines(form, view) {
   const lead = [sp(SYMBOL.warn, WARN), sp("  ")];
   return [[sp(" ")], ...hang(lead, [sp("   ")], form.error, view.width, WARN)];
 }
+function chatButton(form, s) {
+  if (!canChat(form))
+    return;
+  return s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
+}
 function contextPage(form, s, view, head, ctx) {
   const n = form.questions.length;
-  head.push([sp(`${n} question${n === 1 ? "" : "s"} after this`, DIM)], BLANK);
+  if (!ctx.compact)
+    head.push([sp(`${n} question${n === 1 ? "" : "s"} after this`, DIM)], BLANK);
   const start = { label: "Start →", action: { type: "page", page: 0 }, tone: "secondary" };
-  const aside = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" } : undefined;
-  const line = buttonRow([start], aside, view.width, 2);
+  const line = buttonRow([start], chatButton(form, s), view.width, 2);
   const marked = view.focused ? markButtonAt(line, 1, { pressing: view.pressing }) : line;
   const first = form.questions[0];
   const next = first ? clipLine([sp("Next: ", DIM), sp(first.label)], view.width) : BLANK;
-  return { head, page: contextBox(form.context ?? "", view.width, ctx), foot: [BLANK, rule(view.width), BLANK, next, BLANK, marked] };
+  const foot = ctx.compact ? [rule(view.width), marked] : [BLANK, rule(view.width), BLANK, next, BLANK, marked];
+  return { head, page: contextBox(form.context ?? "", view.width, ctx), foot };
 }
 function draw(form, s, view, ctx) {
   const head = [brandBar(`mattstack · ${form.title}`, view.width, { type: "hide" }), BLANK];
@@ -1554,20 +1575,24 @@ function contextFit(form, s, view, rows, turned) {
   if (!form.context || isConfirm(form) || s.phase !== "active" || form.status !== "open")
     return { usedWheel: false, paged: false };
   const total = contextBody(form.context, view.width - BOX_CELLS).length;
-  const inline = { ...s, page: Math.max(0, s.page), contextPaged: undefined };
+  const most = (cap) => Math.max(0, contextBody(form.context ?? "", view.width - BOX_CELLS - BAR_CELLS).length - cap);
+  const last = Math.max(0, form.questions.length - 1);
+  const inline = { ...s, page: Math.min(Math.max(0, s.page), last), contextPaged: undefined, menu: { ...s.menu, open: false } };
   const bare = draw(form, inline, view, { cap: 0, top: 0 });
   const pageRows = Math.max(bare.page.length, tallestQuestion(form, inline, view));
   const room = rows - bare.head.length - pageRows - bare.foot.length;
-  const scrolled = (cap) => ({ cap, top: Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), Math.max(0, total - cap)) });
+  const scrolled = (cap, compact) => ({ cap, top: Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), most(cap)), ...compact && { compact } });
   if (total <= Math.max(MIN_CTX, room))
     return { ctx: { cap: total, top: 0 }, usedWheel: false, paged: false };
   if (room >= CTX_FLOOR)
     return { ctx: scrolled(room), usedWheel: true, paged: false };
   if (!isContextPage(s))
     return { usedWheel: false, paged: true };
-  const page = draw(form, s, view, { cap: 0, top: 0 });
-  const cap = Math.max(MIN_CTX, rows - page.head.length - page.foot.length);
-  return { ctx: total <= cap ? { cap: total, top: 0 } : scrolled(cap), usedWheel: total > cap, paged: true };
+  const roomy = draw(form, s, view, { cap: 0, top: 0 });
+  const compact = rows - roomy.head.length - roomy.foot.length < MIN_CTX;
+  const page = compact ? draw(form, s, view, { cap: 0, top: 0, compact }) : roomy;
+  const cap = Math.max(1, rows - page.head.length - page.foot.length);
+  return { ctx: total <= cap ? { cap: total, top: 0, ...compact && { compact } } : scrolled(cap, compact), usedWheel: total > cap, paged: true };
 }
 function fittedLines(form, s, view, rows, wheel) {
   const wheelTurn = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt;

@@ -117,7 +117,7 @@ export function pressed<S extends Style>(span: S): S {
 export function markButtonAt<A>(line: Line<A>, at: number, focus: { pressing?: boolean } = {}): Line<A> {
   const button = line[at]
   if (!button) return line
-  const lit = hoverOf(focus.pressing ? pressed(button) : button)
+  const lit = focus.pressing ? pressed(button) : hoverOf(button)
   // The spacer is the nearest span before the button with any width: a row can hold empty spans between them
   // (a zero indent), and stopping at one would add the cell and push every button over.
   let back = at - 1

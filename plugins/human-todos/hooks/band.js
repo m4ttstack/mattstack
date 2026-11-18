@@ -218,7 +218,7 @@ function markButtonAt(line, at, focus = {}) {
   const button = line[at];
   if (!button)
     return line;
-  const lit = hoverOf(focus.pressing ? pressed(button) : button);
+  const lit = focus.pressing ? pressed(button) : hoverOf(button);
   let back = at - 1;
   while (back >= 0 && line[back].t === "")
     back -= 1;
@@ -230,9 +230,6 @@ function markButtonAt(line, at, focus = {}) {
     return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
   }
   return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)]);
-}
-function keySelected(span) {
-  return markButtonAt([span], 0);
 }
 var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };

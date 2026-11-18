@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isContextPage, isOnNav, isOneQuestion, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isContextPage, isPicked, isOnNav, isOneQuestion, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -42,8 +42,13 @@ export function optionClick(form: Form, s: State, idx: number, now: number): Eff
   const isDouble = last !== undefined && last.page === s.page && last.idx === idx && now - last.at < DOUBLE_MS
   if (!isDouble) return { state: { ...clickChoice(form, s, idx), lastClick: { page: s.page, idx, at: now } } }
   const once = { ...s, lastClick: undefined }
+  // The double click moves on only with the clicked option taken: an empty write-in is not, whatever was picked before.
+  const q = form.questions[s.page]
+  const value = q && choicesOf(q)[idx]?.value
+  const isTaken = q !== undefined && value !== undefined && (q.multi ? isPicked(q, once, s.page, idx) : once.chosen[s.page] === value)
+  if (!isTaken) return { state: once }
   if (isSinglePage(form)) return send(form, once) ?? { state: once }
-  return { state: once.answered[s.page] ? advance(form, once) : once }
+  return { state: advance(form, once) }
 }
 
 // The first press arms it; the second sets the form aside. A gate set aside stays open and answerable.
@@ -81,7 +86,8 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
   if (action.type === 'hide') return { state: armed, post: { type: 'hide', formId: form.id } }
   if (armed.phase !== 'active') return undefined
   if (action.type === 'chat') return chat(form, armed)
-  const s = disarm(armed)
+  // Any act between two option clicks breaks them up, so only two clicks in a row count as a double click.
+  const s = action.type === 'option' ? disarm(armed) : { ...disarm(armed), lastClick: undefined }
   switch (action.type) {
     case 'page':
       return { state: goTo(form, s, action.page) }
@@ -197,7 +203,7 @@ function contextKey(ev: ClientKeyEvent, form: Form, s: State): Effect {
 export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect | undefined {
   if (armed.phase !== 'active') return undefined
   if (ev.ctrl && (ev.key === 'x' || ev.key === 'c')) return chat(form, armed)
-  const s = disarm(armed)
+  const s = { ...disarm(armed), lastClick: undefined }
   // A confirm's answers are the engine's Buttons, drawn by the hooks module, which take the keys themselves.
   if (isConfirm(form)) return undefined
   if (isContextPage(s)) return settled(form, s, contextKey(ev, form, s))

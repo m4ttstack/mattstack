@@ -244,7 +244,7 @@ function markButtonAt(line, at, focus = {}) {
   const button = line[at];
   if (!button)
     return line;
-  const lit = hoverOf(focus.pressing ? pressed(button) : button);
+  const lit = focus.pressing ? pressed(button) : hoverOf(button);
   let back = at - 1;
   while (back >= 0 && line[back].t === "")
     back -= 1;

@@ -247,7 +247,7 @@ function markButtonAt(line, at, focus = {}) {
   const button = line[at];
   if (!button)
     return line;
-  const lit = hoverOf(focus.pressing ? pressed(button) : button);
+  const lit = focus.pressing ? pressed(button) : hoverOf(button);
   let back = at - 1;
   while (back >= 0 && line[back].t === "")
     back -= 1;
@@ -513,7 +513,7 @@ var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
-var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1;
+var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1 && menuRows(form).length === 0;
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
@@ -626,7 +626,7 @@ function confirm(form, s) {
   const value = choicesOf(q)[s.cursor[i]]?.value;
   if (choicesOf(q).length > 0 && !q.multi) {
     const picked = value === undefined ? s : chose(s, i, value);
-    return picked.answered[i] ? { ...picked, page: i + 1 } : picked;
+    return value !== undefined && picked.chosen[i] === value ? { ...picked, page: i + 1 } : picked;
   }
   const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i].includes(value);
   return { ...s, page: i + 1, answered: markAnswered(s, i), ...adds && { picked: replaceAt(s.picked, i, [...s.picked[i], value]) } };
@@ -645,12 +645,22 @@ function clickChoice(form, s, idx) {
   return { ...toggled(s, i, value), cursor };
 }
 function typeChar(form, s, ch) {
-  const typed = { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
-  const q = form.questions[s.page];
-  return q && !q.multi && choicesOf(q).length > 0 ? { ...typed, chosen: replaceAt(s.chosen, s.page, WRITE_IN) } : typed;
+  const i = s.page;
+  const text = replaceAt(s.text, i, s.text[i] + ch);
+  const q = form.questions[i];
+  const isWriteIn = q !== undefined && choicesOf(q).length > 0;
+  if (!isWriteIn)
+    return { ...s, text, answered: markAnswered(s, i) };
+  if (text[i].trim() === "")
+    return { ...s, text };
+  return q.multi ? { ...s, text, answered: markAnswered(s, i) } : { ...s, text, chosen: replaceAt(s.chosen, i, WRITE_IN), answered: markAnswered(s, i) };
 }
 function deleteChar(s) {
-  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page].slice(0, -1)) };
+  const i = s.page;
+  const text = replaceAt(s.text, i, s.text[i].slice(0, -1));
+  if (s.chosen[i] !== WRITE_IN || text[i].trim() !== "")
+    return { ...s, text };
+  return { ...s, text, chosen: replaceAt(s.chosen, i, undefined), answered: replaceAt(s.answered, i, false) };
 }
 
 // mods/gate-form/src/gate/reply.ts
