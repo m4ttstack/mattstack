@@ -1443,10 +1443,10 @@ function closedPage(form, s, view) {
 function progress(form, s, view) {
   const n = form.questions.length;
   const dots = form.questions.flatMap((_, i) => [
-    sp(s.answered[i] ? "☑" : "☐", { color: i === s.page ? "white" : "#8a8a8a", action: { type: "page", page: i } }),
+    sp(s.answered[i] ? "☑" : "☐", { color: i === s.page ? "white" : "#8a8a8a" }),
     sp(" ")
   ]);
-  const marker = s.contextPaged ? [sp("◆", { color: isContextPage(s) ? "white" : "#8a8a8a", action: { type: "page", page: -1 } }), sp(" ")] : [];
+  const marker = s.contextPaged ? [sp("◆", { color: isContextPage(s) ? "white" : "#8a8a8a" }), sp(" ")] : [];
   const q = form.questions[s.page];
   const where = [sp(isContextPage(s) ? ` context, then ${n} question${n === 1 ? "" : "s"}` : q ? ` question ${s.page + 1} of ${n}` : " review", DIM)];
   const missing = unansweredCount(s);

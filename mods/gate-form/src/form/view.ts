@@ -212,16 +212,15 @@ function closedPage(form: Form, s: State, view: View): L[] {
   return [...reviewList(form, s, view), BLANK, ...hang<Action>([], [], end.text, view.width, end.isWarn ? WARN : {})]
 }
 
-// Progress, not navigation targets: a checkbox per question, ticked once answered and bright on the current page,
-// each still a click to its page,
+// Progress only, nothing to click: a checkbox per question, ticked once answered and bright on the current page,
 // then where you are and how many are left. There is no Submit item; the last page's button goes to the review.
 function progress(form: Form, s: State, view: View): L {
   const n = form.questions.length
   const dots: L = form.questions.flatMap((_, i): L => [
-    sp(s.answered[i] ? '☑' : '☐', { color: i === s.page ? 'white' : '#8a8a8a', action: { type: 'page', page: i } }),
+    sp(s.answered[i] ? '☑' : '☐', { color: i === s.page ? 'white' : '#8a8a8a' }),
     sp(' '),
   ])
-  const marker: L = s.contextPaged ? [sp('◆', { color: isContextPage(s) ? 'white' : '#8a8a8a', action: { type: 'page', page: -1 } }), sp(' ')] : []
+  const marker: L = s.contextPaged ? [sp('◆', { color: isContextPage(s) ? 'white' : '#8a8a8a' }), sp(' ')] : []
   const q = form.questions[s.page]
   const where: L = [sp(isContextPage(s) ? ` context, then ${n} question${n === 1 ? '' : 's'}` : q ? ` question ${s.page + 1} of ${n}` : ' review', DIM)]
   const missing = unansweredCount(s)
