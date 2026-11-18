@@ -41,3 +41,63 @@ export async function telemetryOpen(_args: string[], _ctx: CommandContext = {}, 
   }
   out.print(out.line("done", "Opened the telemetry page"));
 }
+
+// ─── rt telemetry clones ───────────────────────────────────────────────────
+
+/** The relay's `/telemetry/clones.json`, typed only as far as the human view reads it; `--json` passes it through whole. */
+interface CloneReport {
+  macs: { label: string; orgs: { org: string; flags: string[] }[] }[];
+  events: unknown[];
+}
+
+export interface TelemetryClonesDeps {
+  readKey: () => Promise<string | null>;
+  baseUrl: () => string;
+  /** The key rides in an Authorization header, so it never lands in a URL or a log. */
+  fetchReport: (url: string, key: string) => Promise<{ status: number; body: string }>;
+}
+
+function clonesDeps(): TelemetryClonesDeps {
+  const open = realDeps();
+  return {
+    readKey: open.readKey,
+    baseUrl: open.baseUrl,
+    fetchReport: async (url, key) => {
+      const res = await fetch(url, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000) });
+      return { status: res.status, body: await res.text() };
+    },
+  };
+}
+
+function flagValue(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+export async function telemetryClones(args: string[], _ctx: CommandContext = {}, deps: TelemetryClonesDeps = clonesDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const key = await deps.readKey();
+  if (!key) {
+    throw new UserActionableError("telemetry-key-missing", "No telemetry key is stored on this Mac", {}, { next: "rt secrets set rt switchboardTelemetryToken" });
+  }
+  const user = flagValue(args, "--user");
+  const url = `${deps.baseUrl()}/telemetry/clones.json${user ? `?user=${encodeURIComponent(user)}` : ""}`;
+  const res = await deps.fetchReport(url, key);
+  if (res.status !== 200) {
+    throw new UserActionableError("telemetry-clones-failed", "The relay did not send the clone report", {}, {
+      why: res.status === 401 ? "It refused this Mac's telemetry key." : `It answered HTTP ${res.status}.`,
+    });
+  }
+  const report = JSON.parse(res.body) as CloneReport;
+  if (json) {
+    out.json(report);
+    return;
+  }
+  const rows = report.macs.flatMap((m) => m.orgs.map((o) => [m.label, o.org, o.flags.length > 0 ? o.flags.join("; ") : "healthy"]));
+  const changes = report.events.length;
+  out.print(
+    rows.length > 0 ? out.table(rows, ["Mac", "Org", "Clone"]) : out.line("pending", "No Mac has reported its clones yet"),
+    out.line("done", `${changes} state ${changes === 1 ? "change" : "changes"} recorded`, "Run with --json for each clone's files, shas and timeline"),
+  );
+}

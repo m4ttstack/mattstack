@@ -71,6 +71,8 @@ export interface CloneGitFacts {
 }
 
 const MAX_DIRTY = 40;
+/** The relay drops a clone block holding a longer path; the tail names the file. */
+const MAX_PATH = 512;
 const SHA_LENGTH = 12;
 
 const AUTH = /authentication failed|could not read username|terminal prompts disabled|http basic|403|401|invalid username or password|access denied|permission denied/i;
@@ -110,7 +112,7 @@ export function buildCloneHealth(s: CloneStatusSlice, git: CloneGitFacts, dataBr
     pull: pullState(s),
     canPublish: !s.pullOnly,
     dirtyCount: git.dirty.length,
-    dirty: git.dirty.slice(0, MAX_DIRTY),
+    dirty: git.dirty.slice(0, MAX_DIRTY).map((d) => (d.path.length > MAX_PATH ? { ...d, path: d.path.slice(-MAX_PATH) } : d)),
     dirtySince: seen.length > 0 ? new Date(Math.min(...seen)).toISOString() : null,
     conflicted: s.conflicted !== null,
     layoutHold: (s.layoutHold ?? null) !== null,

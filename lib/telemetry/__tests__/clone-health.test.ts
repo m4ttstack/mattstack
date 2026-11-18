@@ -93,6 +93,13 @@ describe("buildCloneHealth", () => {
     });
   });
 
+  test("a path past the relay's limit keeps its tail", () => {
+    const path = `mattstack/${"deep/".repeat(120)}SKILL.md`;
+    const health = buildCloneHealth(STATUS, { ...GIT, dirty: [{ path, status: "M" }] }, "mattstack");
+    expect(health.dirty[0]!.path.length).toBe(512);
+    expect(health.dirty[0]!.path.endsWith("deep/SKILL.md")).toBe(true);
+  });
+
   test("caps the dirty list but keeps the true count", () => {
     const dirty = Array.from({ length: 60 }, (_, i) => ({ path: `mattstack/f${i}.md`, status: "??" }));
     const health = buildCloneHealth(STATUS, { ...GIT, dirty }, "mattstack");
