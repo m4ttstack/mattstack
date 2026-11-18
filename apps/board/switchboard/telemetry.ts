@@ -16,10 +16,71 @@ export interface TelemetryPing {
   migrationsRecorded: string[];
   migrationsKnown: string[];
   legacyDirs: string[];
-  orgs: { org: string; layout: number | null }[];
-  packs: { id: string; version: string | null }[];
+  /** `clone` is absent from a Mac older than the field, null when it could not be read or parsed. */
+  orgs: { org: string; layout: number | null; clone?: CloneHealth | null }[];
+  /** `stale`: the skills that Mac reads as waiting for compile; absent or null as for `clone`. */
+  packs: { id: string; version: string | null; stale?: StaleSkill[] | null }[];
   /** Null from a Mac older than the field, or one whose app wrote no status. */
   appUpdate: AppUpdateStatus | null;
+}
+
+/** One org clone's health, as `lib/telemetry/clone-health.ts` builds it.
+    Paths are org-relative; a pull failure is a kind, never the raw error. */
+export interface CloneHealth {
+  branch: string | null;
+  dataBranch: string | null;
+  head: string | null;
+  upstream: string | null;
+  behind: number | null;
+  ahead: number | null;
+  lastPullAt: string | null;
+  pull: string;
+  canPublish: boolean;
+  dirtyCount: number;
+  dirty: { path: string; status: string }[];
+  dirtySince: string | null;
+  conflicted: boolean;
+  layoutHold: boolean;
+}
+
+export interface StaleSkill {
+  skill: string;
+  causes: string[];
+}
+
+/** What the clone timeline records: every org's clone minus its pull time,
+    and every pack's stale skills, as one Mac last reported them. */
+export interface CloneState {
+  clones: Record<string, Omit<CloneHealth, 'lastPullAt'> | null>;
+  stale: Record<string, StaleSkill[] | null>;
+}
+
+export interface CloneReportMac {
+  installId: string;
+  label: string;
+  lastSeen: number;
+  running: boolean;
+  appVersion: string | null;
+  rtVersion: string;
+  pluginVersion: string | null;
+  macosVersion: string | null;
+  orgs: {
+    org: string;
+    layout: number | null;
+    clone: CloneHealth | null;
+    flags: string[];
+  }[];
+  packs: { id: string; version: string | null; stale: StaleSkill[] | null }[];
+}
+
+export interface CloneReport {
+  macs: CloneReportMac[];
+  events: {
+    installId: string;
+    label: string;
+    at: number;
+    state: CloneState;
+  }[];
 }
 
 export interface AppUpdateStatus {
@@ -46,6 +107,13 @@ export interface TelemetrySnapshot {
   migrations: { id: string; notRun: string[]; tooOld: string[] }[];
   legacyDirs: { label: string; dirs: string[] }[];
   orgLayouts: { org: string; layout: number | null; macs: string[] }[];
+  clones: {
+    label: string;
+    org: string;
+    flags: string[];
+    lastPullAt: string | null;
+    stale: number;
+  }[];
   packs: { id: string; oldestVersion: string | null; macs: number }[];
   updates: {
     label: string;
@@ -76,6 +144,10 @@ type UpdateDbRow = {
 
 const MAX_ENTRIES = 256;
 const MAX_STRING = 128;
+/** A deep pack path runs past MAX_STRING; one long path must not drop the ping. */
+const MAX_PATH = 512;
+const MAX_DIRTY = 40;
+const STALE_PULL_MS = 6 * 60 * 60_000;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -115,6 +187,89 @@ function appUpdate(v: unknown): AppUpdateStatus | null | undefined {
   return { lastCheckAt, offeredVersion, heldVersion, hold };
 }
 
+const isCount = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const isCountOrNull = (v: unknown): v is number | null =>
+  v === null || isCount(v);
+
+/** Absent stays absent (an older Mac); anything malformed reads as null. */
+function cloneOf(v: unknown): CloneHealth | null | undefined {
+  if (v === undefined) return undefined;
+  if (!isRecord(v)) return null;
+  const strs = [
+    'branch',
+    'dataBranch',
+    'head',
+    'upstream',
+    'lastPullAt',
+    'dirtySince',
+  ] as const;
+  if (!strs.every(k => isStrOrNull(v[k]))) return null;
+  if (!isStr(v.pull) || !isCountOrNull(v.behind) || !isCountOrNull(v.ahead))
+    return null;
+  if (!isCount(v.dirtyCount)) return null;
+  if (
+    typeof v.canPublish !== 'boolean' ||
+    typeof v.conflicted !== 'boolean' ||
+    typeof v.layoutHold !== 'boolean'
+  )
+    return null;
+  if (!Array.isArray(v.dirty) || v.dirty.length > MAX_DIRTY) return null;
+  const dirty: CloneHealth['dirty'] = [];
+  for (const d of v.dirty) {
+    if (
+      !isRecord(d) ||
+      typeof d.path !== 'string' ||
+      d.path.length > MAX_PATH ||
+      !isStr(d.status)
+    )
+      return null;
+    dirty.push({ path: d.path, status: d.status });
+  }
+  return {
+    branch: v.branch as string | null,
+    dataBranch: v.dataBranch as string | null,
+    head: v.head as string | null,
+    upstream: v.upstream as string | null,
+    behind: v.behind,
+    ahead: v.ahead,
+    lastPullAt: v.lastPullAt as string | null,
+    pull: v.pull,
+    canPublish: v.canPublish,
+    dirtyCount: v.dirtyCount,
+    dirty,
+    dirtySince: v.dirtySince as string | null,
+    conflicted: v.conflicted,
+    layoutHold: v.layoutHold,
+  };
+}
+
+function staleOf(v: unknown): StaleSkill[] | null | undefined {
+  if (v === undefined) return undefined;
+  return entries(v, item => {
+    if (!isRecord(item) || !isStr(item.skill)) return null;
+    const causes = strings(item.causes);
+    return causes ? { skill: item.skill, causes } : null;
+  });
+}
+
+/** What is wrong with one clone, in words for the telemetry page; empty when healthy. */
+export function cloneFlags(c: CloneHealth, now: number): string[] {
+  const flags: string[] = [];
+  const pulledAt = c.lastPullAt ? Date.parse(c.lastPullAt) : NaN;
+  if (!Number.isFinite(pulledAt) || now - pulledAt > STALE_PULL_MS)
+    flags.push('no good pull in 6h+');
+  if (c.pull !== 'ok') flags.push(`last pull: ${c.pull}`);
+  if ((c.behind ?? 0) > 0) flags.push(`behind origin by ${c.behind}`);
+  if (!c.canPublish && c.dirtyCount > 0)
+    flags.push(
+      `${c.dirtyCount} uncommitted files on a Mac that cannot publish them`
+    );
+  if (c.conflicted) flags.push('rebase stopped mid-way');
+  if (c.layoutHold) flags.push('pull held for a layout this app cannot read');
+  return flags;
+}
+
 /** The relay's only gate on an unauthenticated body: a fresh object with the
     spec's fields and nothing else, or null. No coercion. */
 export function parsePing(raw: unknown): TelemetryPing | null {
@@ -137,13 +292,19 @@ export function parsePing(raw: unknown): TelemetryPing | null {
     if (!isRecord(item) || !isStr(item.org)) return null;
     const { layout } = item;
     if (layout !== null && typeof layout !== 'number') return null;
-    return { org: item.org, layout };
+    const clone = cloneOf(item.clone);
+    return clone === undefined
+      ? { org: item.org, layout }
+      : { org: item.org, layout, clone };
   });
   const packs = entries(raw.packs, item => {
     if (!isRecord(item) || !isStr(item.id) || !isStrOrNull(item.version)) {
       return null;
     }
-    return { id: item.id, version: item.version };
+    const stale = staleOf(item.stale);
+    return stale === undefined
+      ? { id: item.id, version: item.version }
+      : { id: item.id, version: item.version, stale };
   });
   const update = appUpdate(raw.appUpdate);
   if (
@@ -232,6 +393,15 @@ export class TelemetryStore {
     db.run(
       `CREATE INDEX IF NOT EXISTS telemetry_updates_install_id ON telemetry_updates (install_id)`
     );
+    db.run(`CREATE TABLE IF NOT EXISTS telemetry_clone_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      install_id TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      state TEXT NOT NULL
+    )`);
+    db.run(
+      `CREATE INDEX IF NOT EXISTS telemetry_clone_events_install_id ON telemetry_clone_events (install_id)`
+    );
   }
 
   /** False only for an install id the table has not seen while it is full. */
@@ -276,6 +446,7 @@ export class TelemetryStore {
           now
         );
       }
+      this.noteCloneState(ping, now);
       this.db.run(
         `INSERT INTO telemetry_macs (install_id, ping, verified_username, last_seen)
          VALUES (?, ?, ?, ?)
@@ -286,6 +457,90 @@ export class TelemetryStore {
         [ping.installId, JSON.stringify(ping), verifiedUsername, now]
       );
     })();
+  }
+
+  /** Appends the Mac's clone state when it differs from the last one kept;
+      a pull that only moved the pull time is not a change. */
+  private noteCloneState(ping: TelemetryPing, at: number): void {
+    const reports =
+      ping.orgs.some(o => o.clone !== undefined) ||
+      ping.packs.some(p => p.stale !== undefined);
+    if (!reports) return;
+    const state: CloneState = { clones: {}, stale: {} };
+    for (const o of ping.orgs) {
+      if (o.clone === undefined) continue;
+      if (o.clone === null) {
+        state.clones[o.org] = null;
+        continue;
+      }
+      const { lastPullAt: _pulledAt, ...rest } = o.clone;
+      state.clones[o.org] = rest;
+    }
+    for (const p of ping.packs)
+      if (p.stale !== undefined) state.stale[p.id] = p.stale;
+    const text = JSON.stringify(state);
+    const last = this.db
+      .query<{ state: string }, [string]>(
+        `SELECT state FROM telemetry_clone_events WHERE install_id = ? ORDER BY at DESC, id DESC LIMIT 1`
+      )
+      .get(ping.installId);
+    if (last?.state === text) return;
+    this.db.run(
+      `INSERT INTO telemetry_clone_events (install_id, at, state) VALUES (?, ?, ?)`,
+      [ping.installId, at, text]
+    );
+  }
+
+  /** Every Mac's clones with what is wrong with them, and their clone
+      timeline, for one person (a verified or reported username) or all. */
+  cloneReport(now: number, user?: string): CloneReport {
+    const macs = this.snapshot(now).macs.filter(
+      m =>
+        user === undefined ||
+        m.verifiedUsername === user ||
+        m.usernames.includes(user)
+    );
+    const labels = new Map(macs.map(m => [m.installId, macLabel(m)]));
+    const ids = [...labels.keys()];
+    const events =
+      ids.length === 0
+        ? []
+        : this.db
+            .query<{ install_id: string; at: number; state: string }, string[]>(
+              `SELECT install_id, at, state FROM telemetry_clone_events
+               WHERE install_id IN (${ids.map(() => '?').join(',')}) ORDER BY at, id`
+            )
+            .all(...ids)
+            .map(e => ({
+              installId: e.install_id,
+              label: labels.get(e.install_id) ?? e.install_id,
+              at: e.at,
+              state: JSON.parse(e.state) as CloneState,
+            }));
+    return {
+      macs: macs.map(m => ({
+        installId: m.installId,
+        label: macLabel(m),
+        lastSeen: m.lastSeen,
+        running: m.running,
+        appVersion: m.appVersion,
+        rtVersion: m.rtVersion,
+        pluginVersion: m.pluginVersion,
+        macosVersion: m.macosVersion,
+        orgs: m.orgs.map(o => ({
+          org: o.org,
+          layout: o.layout,
+          clone: o.clone ?? null,
+          flags: o.clone ? cloneFlags(o.clone, now) : [],
+        })),
+        packs: m.packs.map(p => ({
+          id: p.id,
+          version: p.version,
+          stale: p.stale ?? null,
+        })),
+      })),
+      events,
+    };
   }
 
   private noteChange(
@@ -311,6 +566,7 @@ export class TelemetryStore {
            (SELECT install_id FROM telemetry_macs WHERE last_seen < ?)`,
         [cutoff]
       );
+      this.db.run(`DELETE FROM telemetry_clone_events WHERE at < ?`, [cutoff]);
       this.db.run(`DELETE FROM telemetry_macs WHERE last_seen < ?`, [cutoff]);
     })();
   }
@@ -357,9 +613,35 @@ export class TelemetryStore {
         .map(m => ({ label: macLabel(m), dirs: m.legacyDirs })),
       orgLayouts: orgLayouts(macs),
       packs: packStatus(macs),
+      clones: flaggedClones(macs, now),
       updates,
     };
   }
+}
+
+/** Every org clone with something wrong, so the page can lead with it; the
+    full detail and its timeline are in `/telemetry/clones.json`. */
+function flaggedClones(
+  macs: MacRow[],
+  now: number
+): TelemetrySnapshot['clones'] {
+  return macs.flatMap(m => {
+    const stale = m.packs.reduce((n, p) => n + (p.stale?.length ?? 0), 0);
+    return m.orgs.flatMap(o => {
+      const flags = o.clone ? cloneFlags(o.clone, now) : [];
+      return flags.length === 0
+        ? []
+        : [
+            {
+              label: macLabel(m),
+              org: o.org,
+              flags,
+              lastPullAt: o.clone!.lastPullAt,
+              stale,
+            },
+          ];
+    });
+  });
 }
 
 function versionCounts(macs: MacRow[]): TelemetrySnapshot['versions'] {
