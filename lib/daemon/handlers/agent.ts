@@ -19,7 +19,7 @@
  * resolveHookSettingsPath below.
  */
 
-import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 import type { Database } from "bun:sqlite";
@@ -214,7 +214,10 @@ function resolveHerdrPrompt(rec: AgentRecord, prompt: string | undefined): { pro
   chmodSync(agentPromptsRoot(), 0o700);
   const dir = agentPromptDir(rec.id);
   const path = writePromptFile(dir, nextPromptFileName(dir), prompt);
-  return { prompt: pointerPrompt(path), readDirs: [dir] };
+  // Claude Code matches a symlinked path's resolved target against the rules
+  // too, so a symlinked rt root needs its real directory granted as well.
+  const real = realpathSync(dir);
+  return { prompt: pointerPrompt(path), readDirs: real === dir ? [dir] : [dir, real] };
 }
 
 /** Deterministic from the id alone, mirroring agentResultPath above. */

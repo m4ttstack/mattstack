@@ -141,6 +141,14 @@ describe("buildClaudeArgv", () => {
     expect(argv).toEqual(["/abs/claude", "--allowedTools", "Read(//d1/**)", "--resume", UUID]);
   });
 
+  test("readDirs escape gitignore metacharacters so the rule matches the literal path", () => {
+    const argv = buildClaudeArgv({
+      readDirs: ["/Users/a[work]/p*?\\x"],
+      session: { kind: "start", sessionId: UUID }, headless: false,
+    }, bins);
+    expect(argv).toContain("Read(//Users/a\\[work\\]/p\\*\\?\\\\x/**)");
+  });
+
   test("readDirs never emit --add-dir, which Claude Code 2.1.327 gates behind a trust prompt", () => {
     const argv = buildClaudeArgv({
       readDirs: ["/d1"],

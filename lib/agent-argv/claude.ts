@@ -40,6 +40,12 @@ export function resolveCswapBin(): string {
   return Bun.which("cswap") ?? join(process.env.HOME ?? homedir(), ".local", "bin", "cswap");
 }
 
+/** Read rules are gitignore patterns, so a path's own metacharacters must
+    match literally. */
+function escapeRulePattern(path: string): string {
+  return path.replace(/[\\[\]*?]/g, (c) => `\\${c}`);
+}
+
 function claudeArgs(inv: AgentInvocation): string[] {
   if (!isValidSessionUuid(inv.session.sessionId)) {
     throw new Error(`invalid session uuid "${inv.session.sessionId}" ... refusing to spawn`);
@@ -68,7 +74,7 @@ function claudeArgs(inv: AgentInvocation): string[] {
   // --allowedTools is variadic: the token right after its value must be
   // another flag, never the positional prompt, or claude would swallow the
   // prompt as one more rule.
-  if (inv.readDirs) for (const dir of inv.readDirs) args.push("--allowedTools", `Read(/${dir}/**)`);
+  if (inv.readDirs) for (const dir of inv.readDirs) args.push("--allowedTools", `Read(/${escapeRulePattern(dir)}/**)`);
   if (inv.session.kind === "start") args.push("--session-id", inv.session.sessionId);
   else args.push("--resume", inv.session.sessionId);
   if (inv.extraArgs) args.push(...inv.extraArgs.split(/\s+/).filter(Boolean));
