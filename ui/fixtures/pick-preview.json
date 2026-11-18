@@ -4,6 +4,7 @@
   "message": "Which pane should rt attach to?",
   "layout": "fullscreen",
   "breadcrumb": ["rt", "pane attach"],
+  "columnHeader": [{ "text": "AGENT  ", "tone": "faint" }, { "text": "STATUS", "tone": "faint" }],
   "rows": [
     {
       "value": "w1:p3",

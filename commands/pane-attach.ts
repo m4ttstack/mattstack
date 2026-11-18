@@ -92,40 +92,97 @@ function preview(p: ChatPane, faces: Map<string, string>, peeks: Map<string, str
   };
 }
 
-function row(p: ChatPane, faces: Map<string, string>, peeks: Map<string, string[]>): PickRow {
+const GAP = 2;
+const CAP = { agent: 18, repo: 44, tab: 16 };
+
+/** Pads or cuts text to exactly width terminal cells. */
+function fit(text: string, width: number): string {
+  const w = Bun.stringWidth(text);
+  if (w <= width) return text + " ".repeat(width - w);
+  let out = "";
+  for (const ch of text) {
+    if (Bun.stringWidth(out + ch) > width - 1) break;
+    out += ch;
+  }
+  return out + "…" + " ".repeat(Math.max(0, width - 1 - Bun.stringWidth(out)));
+}
+
+interface Cells { glyph: PickSegment; agent: PickSegment; status: PickSegment; repo: PickSegment; tab: PickSegment; flag?: PickSegment }
+
+function cells(p: ChatPane): Cells {
   const status = STATUS[p.agentStatus] ?? STATUS.unknown;
   const bg = p.paneId.startsWith(BG_PREFIX);
-  const name: PickSegment = p.presence ? { text: ` ${p.presence.handle}`, bold: true, column: true } : { text: " not signed in", tone: "faint", column: true };
-  const repo = [p.repo, p.branch].filter(Boolean).join(" · ");
-  const where = bg ? p.herd?.job : p.tab;
-  const b = badge(p);
   return {
-    value: p.paneId,
-    group: bg ? "background" : p.workspace,
-    left: [
-      { text: status.glyph, tone: status.tone },
-      name,
-      { text: `  ${status.word}`, tone: status.tone },
-      ...(repo ? [{ text: `  ${repo}`, tone: "dim" }] : []),
-    ],
-    right: [...(where ? [{ text: where, tone: "faint" }] : []), ...(b ? [{ ...b, text: `  ${b.text}` }] : [])],
-    match: [p.presence?.handle, p.repo, p.branch, p.tab, ...(p.presence?.rooms ?? [])].filter(Boolean).join(" "),
-    preview: preview(p, faces, peeks),
+    glyph: { text: `${status.glyph} `, tone: status.tone },
+    agent: p.presence ? { text: p.presence.handle, bold: true } : { text: "not signed in", tone: "faint" },
+    status: { text: status.word, tone: status.tone },
+    repo: { text: [p.repo, p.branch].filter(Boolean).join(" · "), tone: "dim" },
+    tab: { text: (bg ? p.herd?.job : p.tab) ?? "", tone: "faint" },
+    flag: badge(p),
   };
 }
 
-/** Picker rows: grouped by herdr workspace in first-seen order, background panes last, the caller's own pane left out. */
-export function attachRows(panes: ChatPane[], faces: Map<string, string>, peeks: Map<string, string[]>, selfRef: string | undefined): PickRow[] {
-  const kept = panes.filter((p) => p.paneId !== selfRef);
+function colWidth(texts: string[], title: string, cap: number): number {
+  return Math.min(cap, Math.max(Bun.stringWidth(title), ...texts.map((t) => Bun.stringWidth(t))));
+}
+
+const BG_GROUP = "\u0000background";
+
+/** Picker rows and the header naming their columns, padded to shared widths; grouped by herdr workspace in first-seen order, background panes last, the caller's own pane left out. */
+export function attachView(panes: ChatPane[], faces: Map<string, string>, peeks: Map<string, string[]>, selfRef: string | undefined): { rows: PickRow[]; header: PickSegment[] } {
   const order: string[] = [];
   const byGroup = new Map<string, ChatPane[]>();
-  for (const p of kept) {
-    const g = p.paneId.startsWith(BG_PREFIX) ? "\u0000background" : p.workspace;
+  for (const p of panes.filter((p) => p.paneId !== selfRef)) {
+    const g = p.paneId.startsWith(BG_PREFIX) ? BG_GROUP : p.workspace;
     if (!byGroup.has(g)) { byGroup.set(g, []); order.push(g); }
     byGroup.get(g)!.push(p);
   }
-  order.sort((a, b) => Number(a.startsWith("\u0000")) - Number(b.startsWith("\u0000")));
-  return order.flatMap((g) => byGroup.get(g)!.map((p) => row(p, faces, peeks)));
+  order.sort((a, b) => Number(a === BG_GROUP) - Number(b === BG_GROUP));
+  const sorted = order.flatMap((g) => byGroup.get(g)!);
+  const all = sorted.map(cells);
+
+  const glyphW = Bun.stringWidth(all[0]?.glyph.text ?? "  ");
+  const w = {
+    agent: colWidth(all.map((c) => c.glyph.text + c.agent.text), "AGENT", CAP.agent),
+    status: colWidth(all.map((c) => c.status.text), "STATUS", Infinity),
+    repo: colWidth(all.map((c) => c.repo.text), "REPO · BRANCH", CAP.repo),
+    tab: colWidth(all.map((c) => c.tab.text), "TAB", CAP.tab),
+  };
+  const anyFlag = all.some((c) => c.flag);
+  const anyTab = all.some((c) => c.tab.text);
+  const repoW = anyTab || anyFlag ? w.repo + GAP : undefined;
+  const tabW = anyFlag ? w.tab + GAP : undefined;
+  const cell = (text: string, cw: number | undefined) => (cw === undefined ? text : fit(text, cw));
+
+  const rows = sorted.map((p, i): PickRow => {
+    const c = all[i]!;
+    return {
+      value: p.paneId,
+      group: p.paneId.startsWith(BG_PREFIX) ? "background" : p.workspace,
+      left: [
+        c.glyph,
+        { ...c.agent, text: fit(c.agent.text, w.agent - glyphW + GAP) },
+        { ...c.status, text: fit(c.status.text, w.status + GAP) },
+        { ...c.repo, text: cell(c.repo.text, repoW) },
+        ...(anyTab ? [{ ...c.tab, text: cell(c.tab.text, tabW) }] : []),
+        ...(c.flag ? [c.flag] : []),
+      ],
+      match: [p.presence?.handle, p.repo, p.branch, p.tab, ...(p.presence?.rooms ?? [])].filter(Boolean).join(" "),
+      preview: preview(p, faces, peeks),
+    };
+  });
+  const header: PickSegment[] = [
+    { text: fit("AGENT", w.agent + GAP) },
+    { text: fit("STATUS", w.status + GAP) },
+    { text: cell("REPO · BRANCH", repoW) },
+    ...(anyTab ? [{ text: cell("TAB", tabW) }] : []),
+    ...(anyFlag ? [{ text: "FLAG" }] : []),
+  ];
+  return { rows, header };
+}
+
+export function attachRows(panes: ChatPane[], faces: Map<string, string>, peeks: Map<string, string[]>, selfRef: string | undefined): PickRow[] {
+  return attachView(panes, faces, peeks, selfRef).rows;
 }
 
 export interface AttachDeps {
@@ -181,12 +238,14 @@ async function choose(deps: AttachDeps): Promise<{ paneId: string; action: strin
   const peeks = new Map(peeked.filter((e): e is readonly [string, string[]] => e[1] !== undefined));
   const waiting = panes.filter((p) => p.agentStatus === "blocked" || p.gate).length;
 
+  const view = attachView(panes, faces, peeks, self);
   const result = await deps.pick({
     message: "Which pane should rt attach to?",
     layout: "fullscreen",
     breadcrumb: ["rt", "pane attach"],
     idleCount: `${panes.length} agent${panes.length === 1 ? "" : "s"} · ${waiting} waiting on you`,
-    rows: attachRows(panes, faces, peeks, self),
+    rows: view.rows,
+    columnHeader: view.header,
     actions: ACTIONS,
   });
   if (!result.value || result.action === "cancel" || result.action === "esc") return null;

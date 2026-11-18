@@ -156,6 +156,9 @@ type PickRequest struct {
 	// AcceptNoMatch: enter on a no-match filter resolves with
 	// {action:"select", value:null, query} instead of leaving the picker open.
 	AcceptNoMatch bool `json:"acceptNoMatch,omitempty"`
+	// ColumnHeader is a line naming the list's columns, painted above the
+	// rows at their own indent. The caller pads rows and header alike.
+	ColumnHeader []PickSegment `json:"columnHeader,omitempty"`
 }
 
 type PickUpdate struct {

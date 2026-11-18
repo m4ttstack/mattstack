@@ -34,6 +34,9 @@ func (m *Model) totalChromeRows() int {
 	if m.showSelectedPanel() {
 		rows++
 	}
+	if len(m.req.ColumnHeader) > 0 {
+		rows++
+	}
 	return rows
 }
 
@@ -104,6 +107,10 @@ func renderFrame(m *Model, target int) string {
 		listWidth = m.width - previewW - previewGap
 	}
 	bodyStart := len(lines)
+	if len(m.req.ColumnHeader) > 0 {
+		lines = append(lines, columnHeaderLine(m, listWidth))
+		y++
+	}
 	rowWidth := listWidth
 	if scrolling {
 		rowWidth-- // last column is the thumb rail's dedicated gutter

@@ -34,13 +34,13 @@ test("self excluded", () => {
 
 test("badge priority: gate > herd > caller > first room", () => {
   const rows = attachRows([kirk, anon, worker, other], new Map(), new Map(), undefined);
-  const badge = (id: string) => rowOf(rows, id).right!.at(-1)!.text.trim();
+  const badge = (id: string) => rowOf(rows, id).left.at(-1)!.text.trim();
   expect(badge("w2:p1")).toBe("? gate");
   expect(badge("bg:w9:p1")).toBe("herd h-7c1");
   expect(badge("w1:p3")).toBe("board:review");
   expect(badge("w1:p4")).not.toMatch(/gate|herd|#/);
   const roomOnly = attachRows([{ ...kirk, agent: undefined }], new Map(), new Map(), undefined)[0]!;
-  expect(roomOnly.right!.at(-1)!.text.trim()).toBe("#mattstack");
+  expect(roomOnly.left.at(-1)!.text.trim()).toBe("#mattstack");
 });
 
 test("not signed in", () => {

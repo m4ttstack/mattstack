@@ -29,12 +29,12 @@ func (m *Model) previewWidth() int {
 	if m.width < previewMinTerminal || !m.hasPreviews() {
 		return 0
 	}
-	w := m.width * 2 / 5
-	if w < 44 {
-		w = 44
+	w := m.width / 3
+	if w < 40 {
+		w = 40
 	}
-	if w > 64 {
-		w = 64
+	if w > 52 {
+		w = 52
 	}
 	return w
 }
@@ -149,4 +149,19 @@ func joinPreview(m *Model, body []string, listWidth, previewW int) {
 		}
 		body[i] = line + sep + pv[i]
 	}
+}
+
+// columnHeaderLine names the list's columns, starting where row text does
+// (gutter, separator, group indent) so the caller's padding lines them up.
+func columnHeaderLine(m *Model, width int) string {
+	var sb strings.Builder
+	for _, s := range m.req.ColumnHeader {
+		c := theme.Meta
+		if s.Tone != "" {
+			c = segColor(s)
+		}
+		sb.WriteString(fg(c).Bold(s.Bold).Render(rtrender.Clean(s.Text)))
+	}
+	lead := 2 + m.rowIndent()
+	return onBg.Render(strings.Repeat(" ", lead)) + ansi.Truncate(sb.String(), width-lead, "")
 }

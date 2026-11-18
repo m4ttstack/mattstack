@@ -322,5 +322,6 @@ test("pick preview fixture round-trips and omits preview on a plain row", () => 
   expect(preview.screen).toHaveLength(2);
   expect(empty.preview?.face).toEqual({ placeholder: "?" });
   expect("preview" in plain).toBe(false);
+  expect(req.columnHeader?.map((s) => s.text)).toEqual(["AGENT  ", "STATUS"]);
   expect(JSON.parse(encodeLine(req))).toEqual(req);
 });
