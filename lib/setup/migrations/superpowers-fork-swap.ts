@@ -1,12 +1,13 @@
 import { resolveTool } from "../../deps/resolve.ts";
-import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
-import { DISABLE_MODEL_INVOCATION_SETTING } from "../../skills/disable-model-invocation.ts";
+import { DISABLE_MODEL_INVOCATION_SETTING, readDisableModelInvocationChoices } from "../../skills/disable-model-invocation.ts";
 import { SUPERPOWERS_FORK, isSuperseded } from "../base-plugins.ts";
+import { parseMarketplaceList } from "../marketplace-list.ts";
 import { PACK_EXEC_TIMEOUT_MS, claudeMessage, parsePluginList } from "../pack-cache.ts";
 import type { ExecResult } from "../probes.ts";
 import { readSetupState, updateSetupState, type SuperpowersDisabled } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
+import type { MigrationEventId } from "../contract.ts";
 import type { MigrationDef } from "./index.ts";
 import { dedupedConfigDirs } from "./team-packs-from-git.ts";
 
@@ -21,8 +22,11 @@ import { dedupedConfigDirs } from "./team-packs-from-git.ts";
  * member turned the fork off, or removed it after rt installed it, keeps its
  * stock copy and holds nothing.
  */
+const ID = "2026-11-18-superpowers-fork-swap";
+const LOG_ID: MigrationEventId = `migration.${ID}`;
+
 export const superpowersForkSwapMigration: MigrationDef = {
-  id: "2026-11-18-superpowers-fork-swap",
+  id: ID,
   title: "Switch to mattstack's superpowers",
   needs: ["plugins.install"],
   async run(ctx) {
@@ -47,8 +51,9 @@ export const superpowersForkSwapMigration: MigrationDef = {
       if (stock.length === 0) continue;
       const fork = entries.find((e) => e.id === SUPERPOWERS_FORK);
       if (!fork?.enabled) {
-        // plugins.install only installs into the folders claudeConfigDirs names, and never again once the member turned the fork off or removed it.
-        (managed.has(dir) && fork === undefined && !rtInstalledFork ? waiting : leftOn).push(dir);
+        // plugins.install only installs into the folders claudeConfigDirs names, never again once the member turned the fork off or removed it, and never from a marketplace the folder has not registered.
+        const installable = managed.has(dir) && fork === undefined && !rtInstalledFork && (await hasMattstackMarketplace(run));
+        (installable ? waiting : leftOn).push(dir);
         continue;
       }
       for (const entry of stock) {
@@ -62,12 +67,16 @@ export const superpowersForkSwapMigration: MigrationDef = {
     }
 
     if (disabled.length > 0) {
+      try {
+        carrySkillChoices(disabled.map((d) => d.id));
+      } catch (err) {
+        ctx.log(LOG_ID, `warn: skill choices not carried to ${SUPERPOWERS_FORK}: ${err instanceof Error ? err.message : String(err)}`);
+      }
       updateSetupState(ctx.p, (s) => {
         const had = s.superpowersDisabled ?? [];
         const fresh = disabled.filter((d) => !had.some((h) => h.configDir === d.configDir && h.id === d.id));
         return { ...s, superpowersDisabled: [...had, ...fresh] };
       });
-      carrySkillChoices(disabled.map((d) => d.id));
     }
     if (failures.length > 0) return { state: "failed", detail: `Could not switch every Claude config folder to mattstack's superpowers: ${failures.join("; ")}` };
     if (waiting.length > 0) return { state: "partial", detail: `Waiting for mattstack's superpowers to install before turning off the stock copy in ${waiting.join(", ")}` };
@@ -79,9 +88,16 @@ export const superpowersForkSwapMigration: MigrationDef = {
 
 /** Skills the member kept Claude from invoking under a stock copy stay that way under the fork, unless they already chose for the fork. */
 function carrySkillChoices(stockIds: string[]): void {
-  const choices = getSetting<Record<string, string[]>>(DISABLE_MODEL_INVOCATION_SETTING).value;
+  const choices = readDisableModelInvocationChoices();
   if (Object.hasOwn(choices, SUPERPOWERS_FORK)) return;
   const names = [...new Set(stockIds.flatMap((id) => choices[id] ?? []))];
   if (names.length === 0) return;
   setSetting(DISABLE_MODEL_INVOCATION_SETTING, { ...choices, [SUPERPOWERS_FORK]: names }, "user");
+}
+
+/** A listing rt cannot read counts as registered, so a passing hiccup waits a launch rather than giving up on the swap. */
+async function hasMattstackMarketplace(run: (args: string[]) => Promise<ExecResult>): Promise<boolean> {
+  const res = await run(["plugin", "marketplace", "list", "--json"]);
+  const listed = res.code === 0 ? parseMarketplaceList(res.stdout) : null;
+  return listed === null || listed.some((m) => m.name === "mattstack");
 }

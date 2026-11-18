@@ -44,7 +44,8 @@ mode = None
 rt = shutil.which("rt")
 if rt:
     try:
-        res = subprocess.run([rt, "settings", "get", "superpowers.execution", "--json"], capture_output=True, text=True, timeout=RT_BUDGET_S)
+        # From HOME: a compiled rt loads a bunfig from its cwd, and a project one may preload code.
+        res = subprocess.run([rt, "settings", "get", "superpowers.execution", "--json"], capture_output=True, text=True, timeout=RT_BUDGET_S, cwd=os.path.expanduser("~"))
         if res.returncode == 0:
             mode = json.loads(res.stdout or "{}").get("value")
     except Exception:

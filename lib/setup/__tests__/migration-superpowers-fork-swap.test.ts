@@ -32,7 +32,7 @@ describe("2026-11-18-superpowers-fork-swap", () => {
   const defaultDir = () => join(home, ".claude");
   const sessionDir = (s: string) => join(home, ".claude-swap-backup", "sessions", s);
 
-  function harness(opts: { lists: Record<string, Listed[] | ExecResult>; sessions?: string[]; claude?: boolean; failDisable?: (dir: string | undefined) => boolean }) {
+  function harness(opts: { lists: Record<string, Listed[] | ExecResult>; marketplaces?: Record<string, string[]>; sessions?: string[]; claude?: boolean; failDisable?: (dir: string | undefined) => boolean }) {
     const calls: Call[] = [];
     const files: Record<string, string> = opts.claude === false ? {} : { "/usr/local/bin/claude": "bin" };
     const dirs: Record<string, string[]> = {};
@@ -50,6 +50,9 @@ describe("2026-11-18-superpowers-fork-swap", () => {
       exec: async (argv, execOpts) => {
         const dir = execOpts?.env?.CLAUDE_CONFIG_DIR;
         calls.push({ argv: argv.slice(1), dir });
+        if (argv[1] === "plugin" && argv[2] === "marketplace" && argv[3] === "list") {
+          return ok(JSON.stringify((opts.marketplaces?.[dir ?? defaultDir()] ?? ["mattstack"]).map((name) => ({ name, source: "github", repo: `m4ttstack/${name}` }))));
+        }
         if (argv[1] === "plugin" && argv[2] === "list") {
           const listed = opts.lists[dir ?? defaultDir()] ?? [];
           return Array.isArray(listed) ? ok(JSON.stringify(listed)) : listed;
@@ -106,6 +109,14 @@ describe("2026-11-18-superpowers-fork-swap", () => {
     expect(outcome.state).toBe("partial");
     expect(h.disables()).toEqual([]);
     expect(readSetupState(h.p).superpowersDisabled ?? []).toEqual([]);
+  });
+
+  test("a folder with no mattstack marketplace never waits: plugins.install cannot add the fork there", async () => {
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }] }, marketplaces: { [defaultDir()]: ["claude-plugins-official"] } });
+    const outcome = await superpowersForkSwapMigration.run(h.ctx);
+    expect(outcome.state).toBe("skipped");
+    expect(outcome.detail).toContain(defaultDir());
+    expect(h.disables()).toEqual([]);
   });
 
   test("a cswap folder with its own plugins, which plugins.install never installs into, never holds the migration open", async () => {

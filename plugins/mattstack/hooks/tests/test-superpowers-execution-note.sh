@@ -28,6 +28,8 @@ stub_rt() { # mode | --fail
     printf '#!/bin/sh\necho "rt broke" >&2\nexit 3\n' > "$STUB_BIN/rt"
   elif [ "$1" = "--slow" ]; then
     printf '#!/bin/sh\nsleep 10\necho '"'"'{"ok":true,"value":"native"}'"'"'\n' > "$STUB_BIN/rt"
+  elif [ "$1" = "--pwd" ]; then
+    printf '#!/bin/sh\npwd -P > "%s/rt-cwd"\necho '"'"'{"ok":true,"value":"native"}'"'"'\n' "$SANDBOX" > "$STUB_BIN/rt"
   elif [ "$1" = "--marker" ]; then
     printf '#!/bin/sh\ntouch "%s/rt-ran"\necho '"'"'{"ok":true,"value":"native"}'"'"'\n' "$SANDBOX" > "$STUB_BIN/rt"
   else
@@ -114,6 +116,11 @@ took=$(( $(date +%s) - start ))
 check "rt slower than the hook's budget: falls back to Native with reviews" "SessionStart|$NWR" "$(ctx_of "$out")"
 [ "$took" -lt 5 ] && fast=yes || fast=no
 check "rt slower than the hook's budget: answers inside the 5s hook timeout" "yes" "$fast"
+
+fork_state yes true
+stub_rt --pwd
+(cd "$PROJ" && run_hook "$STUB_BIN" >/dev/null)
+check "rt runs from HOME, so a project's bunfig never loads into it" "$(cd "$SANDBOX" && pwd -P)" "$(cat "$SANDBOX/rt-cwd" 2>/dev/null)"
 
 [ -x "$HOOK" ] && exe=yes || exe=no
 check "hook file is executable" "yes" "$exe"

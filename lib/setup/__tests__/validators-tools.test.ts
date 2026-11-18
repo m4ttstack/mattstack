@@ -1,3 +1,4 @@
+import { applyInstallSatisfiedFlip } from "../plan.ts";
 import { resolveTool } from "../../deps/resolve.ts";
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
@@ -821,13 +822,19 @@ describe("toolRows - tool.plugins", () => {
     const withExtra = (extra: RealPluginEntry & { scope?: string }) => JSON.stringify([...REAL_PLUGIN_ENTRIES, extra]);
     const rowFor = (json: string) => pickRow(toolRows(fakeProbes({ exec: listExec(ok(json)) }), [], { arch: "arm64", secrets: NO_SECRETS }, NOOP_SEAMS), "tool.plugins");
 
-    test("the stock copy enabled too -> needs-you naming both, with steps that disable the stock one", async () => {
+    test("the stock copy enabled too -> needs-you naming both, with the disable step in its detail and no action", async () => {
       const r = await rowFor(withExtra({ id: "superpowers@claude-plugins-official", enabled: true }));
       expect(r.status).toBe("needs-you");
       expect(r.detail).toContain("superpowers@mattstack");
       expect(r.detail).toContain("superpowers@claude-plugins-official");
-      expect(r.action?.type).toBe("steps");
-      expect(JSON.stringify(r.action)).toContain("claude plugin disable superpowers@claude-plugins-official");
+      expect(r.detail).toContain("claude plugin disable superpowers@claude-plugins-official");
+      expect(r.action).toBeNull();
+    });
+
+    test("the warning never blocks a finished Mac: status mode keeps it not required, so setup stays on ready", async () => {
+      const r = await rowFor(withExtra({ id: "superpowers@claude-plugins-official", enabled: true }));
+      const flipped = applyInstallSatisfiedFlip([{ id: "tools", title: "Tools", rows: [r] }], "status");
+      expect(flipped[0]!.rows[0]!.required).toBe(false);
     });
 
     test("the stock copy installed but disabled -> ready", async () => {
@@ -844,7 +851,7 @@ describe("toolRows - tool.plugins", () => {
     test("a second copy enabled at project scope says rt cannot change it", async () => {
       const r = await rowFor(withExtra({ id: "superpowers@claude-plugins-official", enabled: true, scope: "project" }));
       expect(r.status).toBe("needs-you");
-      expect(JSON.stringify(r.action)).toContain("rt cannot change");
+      expect(r.detail).toContain("rt cannot change");
     });
   });
 

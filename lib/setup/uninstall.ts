@@ -28,7 +28,8 @@ import { servicePlists } from "./need.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "./steps/services.ts";
 import { parseMarketplaceList } from "./marketplace-list.ts";
 import { superpowersForkSwapMigration } from "./migrations/superpowers-fork-swap.ts";
-import { isAlreadyEnabled } from "./pack-cache.ts";
+import { isAlreadyEnabled, parsePluginList } from "./pack-cache.ts";
+import { SUPERPOWERS_FORK } from "./base-plugins.ts";
 import { claudeMessage, marketplaceSourceKey } from "./steps/plugins.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Probes } from "./probes.ts";
@@ -334,12 +335,17 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   const configDirs = claudeConfigDirs(ctx.p, []);
   const notes: string[] = [];
   const unresolved: string[] = [];
+  // Kept on the record so Retry tries the removal again.
+  const notRemoved = new Set<string>();
 
   for (const dir of configDirs) {
     const env = { CLAUDE_CONFIG_DIR: dir };
     for (const plugin of state.plugins) {
       const res = await ctx.p.exec([...claude.exec, "plugin", "uninstall", plugin], { env });
-      if (res.code !== 0 && !isAlreadyGone(res)) notes.push(`${dir}: uninstall ${plugin} exited ${res.code}`);
+      if (res.code !== 0 && !isAlreadyGone(res)) {
+        notes.push(`${dir}: uninstall ${plugin} exited ${res.code}`);
+        notRemoved.add(plugin);
+      }
     }
     if (state.marketplaces.length === 0) continue;
     // `marketplace remove` takes the registered name, and setup-state records
@@ -369,7 +375,16 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   const stillOff: typeof reEnable = [];
   const turnedOn: string[] = [];
   for (const entry of reEnable) {
-    const res = await ctx.p.exec([...claude.exec, "plugin", "enable", entry.id, "--scope", "user"], { env: { CLAUDE_CONFIG_DIR: entry.configDir } });
+    const env = { CLAUDE_CONFIG_DIR: entry.configDir };
+    const listed = await ctx.p.exec([...claude.exec, "plugin", "list", "--json"], { env });
+    const forkOn = listed.code === 0 && (parsePluginList(listed.stdout) ?? []).some((e) => e.id === SUPERPOWERS_FORK && e.enabled);
+    if (forkOn) {
+      // Turning the stock copy on beside the fork would leave two superpowers serving the same skills.
+      if (notRemoved.has(SUPERPOWERS_FORK)) stillOff.push(entry);
+      else ctx.log("plugins.uninstall", `${entry.configDir}: left ${entry.id} off, since ${SUPERPOWERS_FORK} is still on there and rt did not install it`);
+      continue;
+    }
+    const res = await ctx.p.exec([...claude.exec, "plugin", "enable", entry.id, "--scope", "user"], { env });
     if (res.code === 0 || isAlreadyEnabled(res)) {
       if (!turnedOn.includes(entry.id)) turnedOn.push(entry.id);
     } else if (isAlreadyGone(res)) {
@@ -382,7 +397,7 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   // A reinstall that kept ~/.mattstack must swap again, so the swap is forgotten once nothing it turned off is still off.
   const forgetSwap = (ids: string[]) => (stillOff.length === 0 ? ids.filter((id) => id !== superpowersForkSwapMigration.id) : ids);
 
-  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)], superpowersDisabled: stillOff, migrations: forgetSwap(s.migrations) }));
+  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [...notRemoved], marketplaces: [...new Set(unresolved)], superpowersDisabled: stillOff, migrations: forgetSwap(s.migrations) }));
   const generated = await removeGeneratedMarketplaces(ctx, claude.exec, notes);
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };
