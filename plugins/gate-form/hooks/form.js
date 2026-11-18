@@ -1379,11 +1379,11 @@ function wonSummary(q, raw) {
     return picked || "skipped";
   return picked ? `${picked}, “${typed.note}”` : `“${typed.note}”`;
 }
-var kindIcon = (q) => choicesOf(q).length === 0 ? ICON.text : q.multi ? ICON.multi : ICON.single;
 function questionPage(q, s, i, base) {
   const view = { ...base, focused: base.focused && !s.onNav, pressing: base.pressing && !s.onNav };
-  const bar = [sp("   ")];
-  const lines = hang([sp(kindIcon(q), ACCENT), sp("  ")], bar, q.label, view.width, { bold: true });
+  const number = `${i + 1}.`.padEnd(4);
+  const bar = [sp(" ".repeat(number.length))];
+  const lines = hang([sp(number, DIM)], bar, q.label, view.width, { bold: true });
   if (q.multi)
     lines.push([...bar, sp("pick any number", DIM)]);
   if (q.context)

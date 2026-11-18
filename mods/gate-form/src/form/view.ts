@@ -146,13 +146,13 @@ function wonSummary(q: FormQuestion, raw: unknown): string {
   return picked ? `${picked}, “${typed.note}”` : `“${typed.note}”`
 }
 
-const kindIcon = (q: FormQuestion) => (choicesOf(q).length === 0 ? ICON.text : q.multi ? ICON.multi : ICON.single)
 
 function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
   // On the nav row the keys are there, so the answer shows no caret.
   const view = { ...base, focused: base.focused && !s.onNav, pressing: base.pressing && !s.onNav }
-  const bar: L = [sp('   ')]
-  const lines: L[] = hang([sp(kindIcon(q), ACCENT), sp('  ')], bar, q.label, view.width, { bold: true })
+  const number = `${i + 1}.`.padEnd(4)
+  const bar: L = [sp(' '.repeat(number.length))]
+  const lines: L[] = hang([sp(number, DIM)], bar, q.label, view.width, { bold: true })
   if (q.multi) lines.push([...bar, sp('pick any number', DIM)])
   if (q.context) lines.push(...hang(bar, bar, q.context, view.width, DIM))
   lines.push(BLANK)
