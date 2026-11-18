@@ -501,24 +501,33 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
     },
     migrationId: m.id,
   }));
-  if (retry) return [...leads, ...pending];
+  const needed = new Set(migrations.filter((m) => !applied.includes(m.id)).flatMap((m) => m.needs ?? []));
+  const late = new Set(migrations.filter((m) => (m.needs ?? []).length > 0).map((m) => m.id));
+  const early = pending.filter((i) => !late.has(i.migrationId!));
+  const afterSteps = pending.filter((i) => late.has(i.migrationId!));
+  if (retry) {
+    const rerun = safe.filter((s) => needed.has(s.id) && !LEADS_UPDATE.includes(s.id)).map(item);
+    return [...leads, ...early, ...rerun, ...afterSteps];
+  }
   const rest = safe.filter((s) => !LEADS_UPDATE.includes(s.id) && s.id !== RUN_END_STEP).map(item);
   const verify = steps.find((s) => s.id === "verify" && s.updateSafe);
-  return [...leads, ...pending, ...rest, ...(verify ? [item(verify)] : [])];
+  return [...leads, ...early, ...rest, ...afterSteps, ...(verify ? [item(verify)] : [])];
 }
 
 /**
  * The update run: org.folder and org.pull first, so a migration reads the
  * org where the resolver looks and as main holds it now; then pending
- * migrations, then every other update-safe step in contract order, then verify. No failed outcome stops the run; every
+ * migrations, then every other update-safe step in contract order, then the
+ * migrations that name `needs`, then verify. No failed outcome stops the run; every
  * item's outcome is collected and `done` names every failure. A migration
  * that throws a plain Error is one more failed outcome, but a step that does
  * is a bug: the run stops there and rethrows after `done`. Migrations that
  * end done or skipped are recorded one at a time, so a crash mid-run loses
  * nothing already recorded. The setup intent is never cleared: an update is
  * not an install. A `retry` run (a stamped version with a migration still
- * pending) runs only the leads and the pending migrations: a Mac stuck on one
- * migration pays little per launch and never restarts its apps.
+ * pending) runs only the leads, the steps a pending migration `needs`, and the
+ * pending migrations: a Mac stuck on one migration pays little per launch and
+ * never restarts its apps.
  */
 /** False when the read throws: a form rt cannot read must not keep the window opening. */
 async function setupStillNeedsYou(read: (() => Promise<boolean>) | undefined, ctx: ApplyContext, id: EventId | undefined): Promise<boolean> {

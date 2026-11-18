@@ -20,6 +20,7 @@ Install any plugin from the catalog:
 $ claude plugin install mattstack@mattstack      # the mattstack skills pack
 $ claude plugin install chat@mattstack           # rt chat presence skills and hooks
 $ claude plugin install fast-browser@mattstack   # Chrome automation for Claude Code and Codex
+$ claude plugin install superpowers@mattstack    # superpowers with task groups and Native with reviews
 ```
 
 Update later with `claude plugin update <plugin>@mattstack`.
@@ -39,9 +40,12 @@ made here are overwritten by the next release; change the catalog in `rt`.
 ## Plugin sources
 
 The `mattstack` and `chat` plugins publish from this repository's tree
-(`plugins/mattstack`, `marketplace/plugins/chat`); `fast-browser` is a pinned
-URL source. A plugin in its own repo is **pinned to a commit**, so a given
-catalog commit always installs the same plugin code:
+(`plugins/mattstack`, `marketplace/plugins/chat`). `fast-browser` and
+`superpowers` (mattstack's fork of
+[obra/superpowers](https://github.com/obra/superpowers), pinned from its
+`mattstack` branch) are pinned URL sources. A plugin in its own repo is
+**pinned to a commit**, so a given catalog commit always installs the same
+plugin code:
 
 ```json
 "source": { "source": "url", "url": "https://github.com/…", "ref": "main", "sha": "<commit>" }

@@ -350,6 +350,158 @@ describe("rt uninstall", () => {
       expect(events.filter((e) => e.event === "step" && (e as { id: string }).id === "app.trash")).toEqual([]);
     });
 
+    describe("plugins.uninstall turns back on the stock superpowers the swap turned off", () => {
+      const actions: UninstallAction[] = [{ id: "plugins.uninstall", title: "x", kind: "rt" }];
+      const recorded = () => [{ configDir: join(home, ".claude"), id: "superpowers@claude-plugins-official" }];
+      const uninstallDetail = (events: ApplyEvent[]) => {
+        const ended = events.findLast((e) => e.event === "step" && e.id === "plugins.uninstall" && e.state !== "running");
+        return ended && ended.event === "step" ? ended.detail : undefined;
+      };
+
+      test("the recorded copy is re-enabled in its folder, after mattstack's superpowers is removed, and the record is cleared", async () => {
+        const calls: { argv: string[]; dir?: string }[] = [];
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[], opts?: { env?: Record<string, string> }) => {
+            calls.push({ argv: argv.slice(1), dir: opts?.env?.CLAUDE_CONFIG_DIR });
+            return { code: 0, stdout: "[]", stderr: "" };
+          },
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
+        const { ctx, events } = makeCtx(p);
+
+        const result = await runUninstall(ctx, actions);
+        expect(result.ok).toBe(true);
+        const uninstallAt = calls.findIndex((c) => c.argv[1] === "uninstall" && c.argv[2] === "superpowers@mattstack");
+        const enableAt = calls.findIndex((c) => c.argv[1] === "enable" && c.argv[2] === "superpowers@claude-plugins-official");
+        expect(uninstallAt).toBeGreaterThanOrEqual(0);
+        expect(enableAt).toBeGreaterThan(uninstallAt);
+        expect(calls[enableAt]!.dir).toBe(join(home, ".claude"));
+        expect(calls[enableAt]!.argv).toEqual(["plugin", "enable", "superpowers@claude-plugins-official", "--scope", "user"]);
+        expect(readSetupState(p).superpowersDisabled ?? []).toEqual([]);
+        expect(uninstallDetail(events)).toContain("turned superpowers@claude-plugins-official back on");
+      });
+
+      test("a recorded copy the member already removed is a note, not a failed uninstall", async () => {
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[]) =>
+            argv[2] === "enable" ? { code: 1, stdout: "", stderr: 'Plugin "superpowers@claude-plugins-official" not found' } : { code: 0, stdout: "[]", stderr: "" },
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
+        const { ctx, logs } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(true);
+        expect(readSetupState(p).superpowersDisabled ?? []).toEqual([]);
+        expect(logs.some((l) => l.id === "plugins.uninstall" && l.line.includes("superpowers@claude-plugins-official") && l.line.includes("no longer installed"))).toBe(true);
+      });
+
+      test("a recorded copy the member already turned back on counts as done, and its record is cleared", async () => {
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[]) =>
+            argv[2] === "enable" ? { code: 1, stdout: "", stderr: 'Plugin "superpowers@claude-plugins-official" is already enabled' } : { code: 0, stdout: "[]", stderr: "" },
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
+        const { ctx } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(true);
+        expect(readSetupState(p).superpowersDisabled ?? []).toEqual([]);
+      });
+
+      test("uninstall forgets the swap once its copies are back on, so a reinstall that kept ~/.mattstack swaps again", async () => {
+        const p = bareProbes({ ...pathTool("claude"), exec: async () => ({ code: 0, stdout: "[]", stderr: "" }) });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded(), superpowersSkillsCarried: ["superpowers@claude-plugins-official"], migrations: ["2026-10-01-other", "2026-11-18-superpowers-fork-swap"] }));
+        const { ctx } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(true);
+        expect(readSetupState(p).migrations).toEqual(["2026-10-01-other"]);
+        expect(readSetupState(p).superpowersSkillsCarried).toBeUndefined();
+      });
+
+      test("a re-enable that really fails keeps its record and the swap's migration and names the error, so Retry can try again", async () => {
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[]) => (argv[2] === "enable" ? { code: 1, stdout: "", stderr: "settings file is locked" } : { code: 0, stdout: "[]", stderr: "" }),
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded(), migrations: ["2026-11-18-superpowers-fork-swap"] }));
+        const { ctx, events } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(false);
+        expect(uninstallDetail(events)).toContain("settings file is locked");
+        expect(readSetupState(p).superpowersDisabled).toEqual(recorded());
+        expect(readSetupState(p).migrations).toEqual(["2026-11-18-superpowers-fork-swap"]);
+      });
+
+      test("a fork removal that fails keeps the stock copy off and both records, so Retry finishes the job", async () => {
+        const calls: string[][] = [];
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[]) => {
+            calls.push(argv.slice(1));
+            if (argv[2] === "uninstall") return { code: 1, stdout: "", stderr: "boom" };
+            if (argv[2] === "list") return { code: 0, stdout: JSON.stringify([{ id: "superpowers@mattstack", enabled: true, scope: "user" }]), stderr: "" };
+            return { code: 0, stdout: "[]", stderr: "" };
+          },
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded() }));
+        const { ctx } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(false);
+        expect(calls.some((a) => a[1] === "enable")).toBe(false);
+        expect(readSetupState(p).superpowersDisabled).toEqual(recorded());
+        expect(readSetupState(p).plugins).toEqual(["superpowers@mattstack"]);
+      });
+
+      test("a fork the member installed themselves keeps the stock copy off, so two never end up on", async () => {
+        const calls: string[][] = [];
+        const p = bareProbes({
+          ...pathTool("claude"),
+          exec: async (argv: string[]) => {
+            calls.push(argv.slice(1));
+            if (argv[2] === "list") return { code: 0, stdout: JSON.stringify([{ id: "superpowers@mattstack", enabled: true, scope: "user" }]), stderr: "" };
+            return { code: 0, stdout: "[]", stderr: "" };
+          },
+        });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["mattstack@mattstack"], superpowersDisabled: recorded() }));
+        const { ctx, logs } = makeCtx(p);
+
+        expect((await runUninstall(ctx, actions)).ok).toBe(true);
+        expect(calls.some((a) => a[1] === "enable")).toBe(false);
+        expect(readSetupState(p).superpowersDisabled ?? []).toEqual([]);
+        expect(logs.some((l) => l.line.includes("superpowers@mattstack is still on"))).toBe(true);
+      });
+
+      for (const [what, listing] of [
+        ["fails", { code: 1, stdout: "", stderr: "claude crashed" }],
+        ["cannot be read", { code: 0, stdout: "not json", stderr: "" }],
+      ] as const) {
+        test(`a plugin listing that ${what} keeps the stock copy off and its records, and fails so Retry checks again`, async () => {
+          const calls: string[][] = [];
+          const p = bareProbes({
+            ...pathTool("claude"),
+            exec: async (argv: string[]) => {
+              calls.push(argv.slice(1));
+              return argv[2] === "list" ? listing : { code: 0, stdout: "[]", stderr: "" };
+            },
+          });
+          updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded(), migrations: ["2026-11-18-superpowers-fork-swap"] }));
+          const { ctx } = makeCtx(p);
+
+          expect((await runUninstall(ctx, actions)).ok).toBe(false);
+          expect(calls.some((a) => a[1] === "enable")).toBe(false);
+          expect(readSetupState(p).superpowersDisabled).toEqual(recorded());
+          expect(readSetupState(p).migrations).toEqual(["2026-11-18-superpowers-fork-swap"]);
+        });
+      }
+
+      test("a record alone gates plugins.uninstall", () => {
+        const p = bareProbes();
+        updateSetupState(p, (s) => ({ ...s, superpowersDisabled: recorded() }));
+        expect(computeUninstallActions(p, { keepData: true }, noEditorSeams).some((a) => a.id === "plugins.uninstall")).toBe(true);
+      });
+    });
+
     test("no action may crash the run: a library throw is caught and reported as a failed outcome, done still emitted", async () => {
       const actions: UninstallAction[] = [{ id: "plugins.uninstall", title: "x", kind: "rt" }];
       const p = bareProbes({

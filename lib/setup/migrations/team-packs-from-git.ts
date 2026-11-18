@@ -33,11 +33,12 @@ function realOrResolved(path: string): string {
 }
 
 /** A cswap session dir can share the default dir's plugins folder through a symlink, and one plugin set must be reinstalled once. */
-function dedupedConfigDirs(ctx: ApplyContext): string[] {
+/** One folder per real `by` entry: `plugins` for what is installed, `settings.json` for what is enabled. */
+export function dedupedConfigDirs(ctx: ApplyContext, by: "plugins" | "settings.json" = "plugins"): string[] {
   const seen = new Set<string>();
   const dirs: string[] = [];
   for (const dir of claudeConfigDirs(ctx.p, cswapConfigDirs(ctx.p))) {
-    const key = realOrResolved(join(dir, "plugins"));
+    const key = realOrResolved(join(dir, by));
     if (seen.has(key)) continue;
     seen.add(key);
     dirs.push(dir);

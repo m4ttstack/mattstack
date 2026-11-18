@@ -6,6 +6,11 @@ from a public marketplace (`claude.marketplaces` + `claude.plugins`, team
 scope: installed on the joiner, never auto-enabled), three secrets across
 two domains, a team-scope board title, and a declared Slack app.
 
+The team also lists `superpowers@claude-plugins-official`, which mattstack
+supersedes: `plugins.install` skips it and installs the baseline
+`superpowers@mattstack` instead, so `expect.json` names the fork. The
+team-chosen public plugin is `agent-sdk-dev`.
+
 `mattstack.integrations.slack` is fake (`A0VMTESTFAKE` and an obviously
 invalid client id) ... it exists only so `declaredIntegrations()`
 (`lib/setup/validators/accounts.ts`) requires `account.slack`, the same as a
