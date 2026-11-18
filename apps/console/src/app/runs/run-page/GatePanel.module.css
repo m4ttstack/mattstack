@@ -183,7 +183,7 @@
 .key {
   display: inline-flex;
   flex-shrink: 0;
-  align-self: flex-start;
+  align-self: center;
   height: 24px;
   overflow: hidden;
   border: 1px solid var(--tk-border);
