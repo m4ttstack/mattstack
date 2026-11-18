@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isOneQuestion, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -63,13 +63,18 @@ function moved(form: Form, s: State, move: MenuMove | undefined): Effect | undef
 }
 
 // A new page starts with the keyboard on its answers and the nav row back on its forward button.
-function settled(before: State, effect: Effect | undefined): Effect | undefined {
+// A form with one question has no review page: moving past its question submits it.
+function settled(form: Form, before: State, effect: Effect | undefined): Effect | undefined {
   if (!effect || effect.state.page === before.page) return effect
+  if (isOneQuestion(form) && effect.state.page > 0 && effect.post === undefined && effect.state.phase === 'active') {
+    const kept = { ...effect.state, page: 0 }
+    return send(form, kept) ?? { state: kept }
+  }
   return { ...effect, state: { ...effect.state, onNav: undefined, navAt: 'next', pageTop: undefined, followed: undefined } }
 }
 
 export function perform(action: Action, form: Form, armed: State): Effect | undefined {
-  return settled(armed, performOn(action, form, armed))
+  return settled(form, armed, performOn(action, form, armed))
 }
 
 function performOn(action: Action, form: Form, armed: State): Effect | undefined {
@@ -176,7 +181,8 @@ function questionKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefin
   const isSpace = key === ' ' || key === 'space'
   const typing = isTyping(form, s)
   if (isEnter(ev)) return isSinglePage(form) ? sendPicked(form, s) : { state: confirm(form, s) }
-  if (key === 'left' || key === 'right') return { state: goTo(form, s, s.page + (key === 'left' ? -1 : 1)) }
+  // With one question there is no page to step to, and → must not submit by accident.
+  if (key === 'left' || key === 'right') return { state: isOneQuestion(form) ? s : goTo(form, s, s.page + (key === 'left' ? -1 : 1)) }
   if (key === 'up' || key === 'down') return gridKey(ev, form, s)
   if (isSpace && !typing) return { state: toggleAtCursor(form, s) }
   if (!typing) return undefined
@@ -195,7 +201,7 @@ export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect 
   // shift+↑↓ scrolls the context box; the view clamps it to the context's height.
   if (ev.shift && (ev.key === 'up' || ev.key === 'down')) return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === 'up' ? -1 : 1)) } }
   // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
-  if (ev.key === 'tab' && isSinglePage(form)) return { state: s }
-  if (ev.key === 'tab' && !isReview(form, s)) return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })
-  return settled(s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s))
+  if (ev.key === 'tab' && (isSinglePage(form) || isOneQuestion(form))) return { state: s }
+  if (ev.key === 'tab' && !isReview(form, s)) return settled(form, s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })
+  return settled(form, s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s))
 }

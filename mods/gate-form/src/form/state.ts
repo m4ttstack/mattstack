@@ -94,6 +94,9 @@ export const isSinglePage = (form: Form) => form.source === 'plugin'
 
 export const isConfirm = (form: Form) => form.confirm === true
 
+// A gate or ask with one question submits from its own page, with no review page after it.
+export const isOneQuestion = (form: Form) => !isSinglePage(form) && form.questions.length === 1
+
 export const isReview = (form: Form, s: State) => !isSinglePage(form) && s.page === form.questions.length
 export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(form, s)
 

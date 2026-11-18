@@ -902,6 +902,7 @@ var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
+var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1;
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
@@ -1078,13 +1079,17 @@ function moved(form, s, move) {
   const control = move.picked === undefined ? undefined : controlAnswers(move.picked);
   return control ? post(form, state, control.answers, control.label) : { state };
 }
-function settled(before, effect) {
+function settled(form, before, effect) {
   if (!effect || effect.state.page === before.page)
     return effect;
+  if (isOneQuestion(form) && effect.state.page > 0 && effect.post === undefined && effect.state.phase === "active") {
+    const kept = { ...effect.state, page: 0 };
+    return send(form, kept) ?? { state: kept };
+  }
   return { ...effect, state: { ...effect.state, onNav: undefined, navAt: "next", pageTop: undefined, followed: undefined } };
 }
 function perform(action, form, armed) {
-  return settled(armed, performOn(action, form, armed));
+  return settled(form, armed, performOn(action, form, armed));
 }
 function performOn(action, form, armed) {
   if (action.type === "hide")
@@ -1195,7 +1200,7 @@ function questionKey(ev, form, s) {
   if (isEnter(ev))
     return isSinglePage(form) ? sendPicked(form, s) : { state: confirm(form, s) };
   if (key === "left" || key === "right")
-    return { state: goTo(form, s, s.page + (key === "left" ? -1 : 1)) };
+    return { state: isOneQuestion(form) ? s : goTo(form, s, s.page + (key === "left" ? -1 : 1)) };
   if (key === "up" || key === "down")
     return gridKey(ev, form, s);
   if (isSpace && !typing)
@@ -1219,11 +1224,11 @@ function keyEffect(ev, form, armed) {
     return;
   if (ev.shift && (ev.key === "up" || ev.key === "down"))
     return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === "up" ? -1 : 1)) } };
-  if (ev.key === "tab" && isSinglePage(form))
+  if (ev.key === "tab" && (isSinglePage(form) || isOneQuestion(form)))
     return { state: s };
   if (ev.key === "tab" && !isReview(form, s))
-    return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) });
-  return settled(s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s));
+    return settled(form, s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) });
+  return settled(form, s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s));
 }
 
 // mods/gate-form/src/form/view.ts
@@ -1447,11 +1452,11 @@ function navRows(form, s, view) {
   const back = { label: "← Back", action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === 0 };
   const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
   const submit = { label: unansweredCount(s) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) };
-  const next = page < n - 1 ? forward("Next →") : page === n - 1 ? forward("Review →") : submit;
+  const next = isOneQuestion(form) || page === n ? submit : page < n - 1 ? forward("Next →") : forward("Review →");
   const aside = !canChat(form) ? undefined : s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
-  const left = [...page === n ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
+  const left = [...page === n || isOneQuestion(form) ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
   const line = buttonRow(left.map(([, button]) => button), aside, view.width);
   const marked = (row) => {
     if (!view.focused || !isOnNav(form, s))
@@ -1497,7 +1502,7 @@ function draw(form, s, view, ctx) {
   return { head, page, foot };
 }
 function progressRows(form, s, view) {
-  return isSinglePage(form) ? [BLANK] : [BLANK, progress(form, s, view), BLANK];
+  return isSinglePage(form) || isOneQuestion(form) ? [BLANK] : [BLANK, progress(form, s, view), BLANK];
 }
 function tallestQuestion(form, s, view) {
   let tallest = 0;

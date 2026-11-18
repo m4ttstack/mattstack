@@ -506,6 +506,7 @@ var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
+var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1;
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {

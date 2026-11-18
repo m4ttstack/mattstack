@@ -2,7 +2,7 @@ import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, bu
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canChat, canSubmit, choicesOf, isConfirm, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { canChat, canSubmit, choicesOf, isConfirm, isOneQuestion, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 // `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
@@ -245,7 +245,7 @@ function navRows(form: Form, s: State, view: View): L[] {
   const back: Button<Action> = { label: '← Back', action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 }
   const forward = (label: string): Button<Action> => ({ label, action: { type: 'advance' }, tone: 'secondary' })
   const submit: Button<Action> = { label: unansweredCount(s) === 0 || form.source === 'gate' ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }
-  const next = page < n - 1 ? forward('Next →') : page === n - 1 ? forward('Review →') : submit
+  const next = isOneQuestion(form) || page === n ? submit : page < n - 1 ? forward('Next →') : forward('Review →')
   const aside: Button<Action> | undefined = !canChat(form)
     ? undefined
     : s.chatArmed
@@ -253,7 +253,7 @@ function navRows(form: Form, s: State, view: View): L[] {
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }
   const rows = page === n ? menuRows(form) : []
   const more: Button<Action> = { label: MORE_ACTIONS, action: MORE, tone: 'quiet' }
-  const left: [NavId, Button<Action>][] = [...(page === n ? [] : [['back', back] as [NavId, Button<Action>]]), ['next', next], ...(rows.length === 0 ? [] : [['more', more] as [NavId, Button<Action>]])]
+  const left: [NavId, Button<Action>][] = [...(page === n || isOneQuestion(form) ? [] : [['back', back] as [NavId, Button<Action>]]), ['next', next], ...(rows.length === 0 ? [] : [['more', more] as [NavId, Button<Action>]])]
   const line = buttonRow(left.map(([, button]) => button), aside, view.width)
   const marked = (row: L): L => {
     if (!view.focused || !isOnNav(form, s)) return row
@@ -304,7 +304,7 @@ function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
 
 // The form's own head: a blank row, the progress line and a blank row under it, on a form with more than one page.
 function progressRows(form: Form, s: State, view: View): L[] {
-  return isSinglePage(form) ? [BLANK] : [BLANK, progress(form, s, view), BLANK]
+  return isSinglePage(form) || isOneQuestion(form) ? [BLANK] : [BLANK, progress(form, s, view), BLANK]
 }
 
 // The tallest any question page gets, over every cursor position (the focused choice wraps its label and description).
