@@ -34,6 +34,8 @@ export interface InstalledPack {
   id: string;
   version: string | null;
   enabled: boolean;
+  /** `user`, `project`, `local` or `managed` as Claude Code reports it; absent when the entry carries none. */
+  scope?: string;
 }
 
 interface MarketplaceEntry {
@@ -67,6 +69,7 @@ export function parsePluginList(stdout: string): InstalledPack[] | null {
       id: item.id,
       version: typeof item.version === "string" ? item.version : null,
       enabled: item.enabled === true,
+      ...(typeof item.scope === "string" ? { scope: item.scope } : {}),
     });
   }
   return entries;
@@ -188,7 +191,7 @@ export function isAlready(res: ExecResult): boolean {
 }
 
 /** Enabling a plugin that is already on exits 1 with "is already enabled" on stderr (claude 2.1.284). */
-function isAlreadyEnabled(res: ExecResult): boolean {
+export function isAlreadyEnabled(res: ExecResult): boolean {
   return /already enabled/i.test(res.stderr);
 }
 

@@ -98,8 +98,9 @@ describe("2026-11-02-team-packs-from-git", () => {
 
   const changes = (calls: Call[]) => calls.filter((c) => c.argv[1] !== "list" && !(c.argv[1] === "marketplace" && c.argv[2] === "list"));
 
-  test("is registered last with its dated id", () => {
-    expect(MIGRATIONS.at(-1)).toBe(teamPacksFromGitMigration);
+  test("is registered with its dated id, ahead of the superpowers fork swap", () => {
+    const ids = MIGRATIONS.map((m) => m.id);
+    expect(ids.indexOf("2026-11-02-team-packs-from-git")).toBeLessThan(ids.indexOf("2026-11-18-superpowers-fork-swap"));
     expect(teamPacksFromGitMigration.id).toBe("2026-11-02-team-packs-from-git");
   });
 
