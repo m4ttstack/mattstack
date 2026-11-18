@@ -442,7 +442,10 @@ describe('BlockView: a husk pack', () => {
   it('reads the full text under Rendered, never the committed husk', async () => {
     renderView(
       { view: 'rendered' },
-      { renderedPath: '/r.md', renderedSource: { kind: 'husk', text: full } }
+      {
+        renderedPath: '/r.md',
+        renderedSource: { kind: 'husk', text: full, settled: true },
+      }
     );
 
     const rendered = await screen.findByTestId('block-rendered');
@@ -454,7 +457,10 @@ describe('BlockView: a husk pack', () => {
   it("cuts a block's rendered lines from the full text", async () => {
     renderView(
       { block: 'mini/gate', view: 'rendered' },
-      { renderedPath: '/r.md', renderedSource: { kind: 'husk', text: full } }
+      {
+        renderedPath: '/r.md',
+        renderedSource: { kind: 'husk', text: full, settled: true },
+      }
     );
 
     const rendered = await screen.findByTestId('block-rendered');
@@ -476,7 +482,10 @@ describe('BlockView: a husk pack', () => {
     });
     const patch = renderView(
       { view: 'husk' },
-      { renderedPath: '/r.md', renderedSource: { kind: 'husk', text: full } }
+      {
+        renderedPath: '/r.md',
+        renderedSource: { kind: 'husk', text: full, settled: true },
+      }
     );
 
     const rendered = await screen.findByTestId('block-rendered');
@@ -493,7 +502,10 @@ describe('BlockView: a husk pack', () => {
   it('offers no Husk at a single block', () => {
     renderView(
       { block: 'mini/gate', view: 'husk' },
-      { renderedPath: '/r.md', renderedSource: { kind: 'husk', text: full } }
+      {
+        renderedPath: '/r.md',
+        renderedSource: { kind: 'husk', text: full, settled: true },
+      }
     );
     expect(screen.queryByRole('radio', { name: 'Husk' })).toBeNull();
     expect(screen.getByRole('radio', { name: 'Rendered' })).toBeChecked();
@@ -517,9 +529,43 @@ describe('BlockView: a husk pack', () => {
       }
     );
     expect(screen.getByTestId('block-rendered-none')).toHaveTextContent(
-      'The rendered skill could not be read: rt timed out'
+      'rt could not say how this skill is rendered: rt timed out'
     );
     expect(sourceGet).not.toHaveBeenCalled();
+  });
+
+  it('keeps Husk and the whole text while a refetch is in flight', async () => {
+    renderView(
+      { view: 'rendered' },
+      {
+        renderedPath: '/r.md',
+        renderedSource: { kind: 'husk', text: full, settled: false },
+      }
+    );
+    expect(screen.getByRole('radio', { name: 'Husk' })).toBeInTheDocument();
+    expect(await screen.findByTestId('block-rendered')).toHaveTextContent(
+      'full 70'
+    );
+  });
+
+  it('holds a section of a husk pack while either read refetches', () => {
+    renderView(
+      { block: 'mini/gate', view: 'rendered' },
+      {
+        renderedPath: '/r.md',
+        renderedSource: { kind: 'husk', text: full, settled: false },
+      }
+    );
+    expect(screen.queryByTestId('block-rendered')).toBeNull();
+  });
+
+  it('reads Husk as Rendered while rt has not said the pack ships husks', () => {
+    renderView(
+      { view: 'husk' },
+      { renderedPath: '/r.md', renderedSource: { kind: 'pending' } }
+    );
+    expect(screen.queryByRole('radio', { name: 'Husk' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Rendered' })).toBeChecked();
   });
 
   it('offers no Husk for a pack that commits full skills', () => {

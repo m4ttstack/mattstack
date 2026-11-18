@@ -35,6 +35,7 @@ import {
   sharedRootOf,
   type MapGraph,
 } from './model/blockView';
+import type { RenderedSource } from './model/renderedSource';
 import { sectionsAt } from './model/sections';
 import { usedBySites } from './model/usedBy';
 import { crumbsOf, zoomOf } from './model/zoom';
@@ -147,14 +148,6 @@ function trailOf(
 
 const HEADING_OR_GRAPH = /^#{1,6}\s.*$|```mermaid\n[\s\S]*?\n```/gm;
 
-/** Where the Rendered view reads a skill from: its compiled file, a husk
-    pack's full text from rt, or nothing yet while rt has not said which. */
-export type RenderedSource =
-  | { kind: 'file' }
-  | { kind: 'husk'; text: string }
-  | { kind: 'pending' }
-  | { kind: 'error'; message: string };
-
 /** The compiled file, cut to the lines a block renders to. A husk pack's
     full text comes from rt as `text`, since its committed file is the husk. */
 function RenderedText({
@@ -174,17 +167,21 @@ function RenderedText({
   const readsFile =
     text === null && from.kind !== 'pending' && from.kind !== 'error';
   const source = useSkillSource(pack, readsFile ? path : null);
+  // A section's lines are cut by the blocks' ranges, so they wait for both reads to land.
+  const waiting =
+    from.kind === 'pending' ||
+    (text !== null && range !== null && from.kind === 'husk' && !from.settled);
   const { show: held, bind: heldBind } = useStepLoading(
-    from.kind === 'pending' || (readsFile && path !== null && source.isPending)
+    waiting || (readsFile && path !== null && source.isPending)
   );
   if (from.kind === 'error') {
     return (
       <Text fz={13} c="dimmed" data-testid="block-rendered-none">
-        {`The rendered skill could not be read: ${from.message}`}
+        {`rt could not say how this skill is rendered: ${from.message}`}
       </Text>
     );
   }
-  if (from.kind === 'pending' || held) {
+  if (waiting || held) {
     return <StepLoader {...heldBind} steps={['reading the rendered skill']} />;
   }
   if (text !== null) return <RenderedLines content={text} range={range} />;

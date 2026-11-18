@@ -19,7 +19,8 @@ import { buildTemplateView } from '../graph/model/templateModel';
 import { useGraphFocus } from '../graph/useGraphFocus';
 import { useAnatomy, usePendingChanges } from '../useWiring';
 import classes from './blocks.module.css';
-import { BlockView, type RenderedSource, type SkillHeader } from './BlockView';
+import { BlockView, type SkillHeader } from './BlockView';
+import { renderedSourceOf } from './model/renderedSource';
 import { skillKindOf } from './skillKind';
 import { useSkillBlocks } from './useSkillBlocks';
 
@@ -65,20 +66,17 @@ export function BlockStage({
     });
   }, [anatomy, composition, check, changes, focused.step, pipeline]);
 
-  // A husk pack's text and the blocks' line ranges come from two reads, so
-  // Rendered waits while either refetches rather than cut new text by old ranges.
-  const renderedSource: RenderedSource =
-    fromFile || skill.state !== 'ready' || skill.readOnly
-      ? { kind: 'file' }
-      : anatomyQuery.isError
-        ? { kind: 'error', message: (anatomyQuery.error as Error).message }
-        : !anatomy
-          ? { kind: 'pending' }
-          : !anatomy.rendered.husk
-            ? { kind: 'file' }
-            : anatomyQuery.isFetching || skill.fetching
-              ? { kind: 'pending' }
-              : { kind: 'husk', text: anatomy.rendered.text ?? '' };
+  const renderedSource = renderedSourceOf({
+    fromFile,
+    ready: skill.state === 'ready',
+    readOnly: skill.state === 'ready' && skill.readOnly,
+    anatomy,
+    anatomyError: anatomyQuery.isError
+      ? (anatomyQuery.error as Error).message
+      : null,
+    anatomyFetching: anatomyQuery.isFetching,
+    blocksFetching: skill.state === 'ready' && skill.fetching,
+  });
 
   const header: SkillHeader = {
     title: focused.command
