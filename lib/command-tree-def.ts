@@ -2379,6 +2379,15 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/telemetry.ts",
         fn: "telemetryOpen",
       },
+      clones: {
+        description: "See whose org copy is stuck, dirty or behind, and what happened to it",
+        module: "./commands/telemetry.ts",
+        fn: "telemetryClones",
+        args: [
+          { name: "User", flag: "--user", type: "text", optional: true, placeholder: "dev1", hint: "Only this person's Macs (their forge username)" },
+          SETUP_JSON_ARG,
+        ],
+      },
     },
   },
 
