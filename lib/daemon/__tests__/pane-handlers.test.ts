@@ -13,7 +13,7 @@ import { insertAgent } from "../../state/agents-store.ts";
 import type { HerdJobRow } from "../herd-store.ts";
 import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
 import type { TrayClient, TrayReply } from "../../daemon-client.ts";
-import { bgSocketPath, type BgService } from "../bg-service.ts";
+import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
 
@@ -943,4 +943,36 @@ test("pane:list without stores matches today", async () => {
   const res = await pane["pane:list"]({});
   if (!res.ok) throw new Error(res.error);
   for (const p of res.data.panes) for (const k of ["agent", "herd", "gate"]) expect(Object.keys(p)).not.toContain(k);
+});
+
+// ─── pane:attach-plan ──────────────────────────────────────────────────────
+
+test("pane:attach-plan for a visible pane is herdr agent attach", async () => {
+  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}) });
+  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3" })).toEqual({ ok: true, data: { argv: ["herdr", "agent", "attach", "w1:p3"], env: {} } });
+  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3", takeover: true })).toEqual({ ok: true, data: { argv: ["herdr", "agent", "attach", "w1:p3", "--takeover"], env: {} } });
+});
+
+test("pane:attach-plan for a bg pane attaches to its terminal on the bg server", async () => {
+  const calls: Array<{ socket: string | null; args: string[] }> = [];
+  const herdrRunnerFor = (socket: string | null): HerdrRunner => async (args: string[]) => {
+    calls.push({ socket, args });
+    if (args[0] === "pane" && args[1] === "get") return { stdout: JSON.stringify({ result: { pane: { terminal_id: "t42" } } }), exitCode: 0 };
+    return { stdout: "{}", exitCode: 0 };
+  };
+  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrRunnerFor, bg: fakeBg({ up: async () => true }) });
+  const res = await pane["pane:attach-plan"]({ paneId: "bg:w1:p3" });
+  expect(res).toEqual({
+    ok: true,
+    data: { argv: ["env", "-u", "HERDR_SOCKET_PATH", "herdr", "terminal", "attach", "t42", "--takeover"], env: { HERDR_SESSION: BG_SESSION } },
+  });
+  expect(calls).toEqual([{ socket: bgSocketPath(), args: ["pane", "get", "w1:p3"] }]);
+});
+
+test("pane:attach-plan for a bg pane while the bg server is down says so plainly", async () => {
+  let called = false;
+  const herdrRunnerFor = (): HerdrRunner => async () => { called = true; return { stdout: "{}", exitCode: 0 }; };
+  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrRunnerFor, bg: fakeBg({ up: async () => false }) });
+  expect(await pane["pane:attach-plan"]({ paneId: "bg:w1:p3" })).toEqual({ ok: false, error: "The background herdr server isn't running" });
+  expect(called).toBe(false);
 });

@@ -1183,6 +1183,8 @@ export interface Commands {
   /** `callerWorkspace` (HERDR_WORKSPACE_ID) is required only for a `bg:`
       ref, whose focus opens an attend tab in the caller's own workspace. */
   "pane:focus": { payload: { paneId: string; callerWorkspace?: string }; data: PaneFocusResult };
+  /** The command that attaches the caller's terminal to a pane: run `argv` with `env` merged over the caller's own. */
+  "pane:attach-plan": { payload: { paneId: string; takeover?: boolean }; data: { argv: string[]; env: Record<string, string> } };
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read": { payload: { branches?: string[]; maxAgeMs?: number; repoIdentity?: string }; data: Record<string, BranchEnrichment> };
@@ -1621,6 +1623,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "pane:send",
   "pane:self",
   "pane:focus",
+  "pane:attach-plan",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

@@ -13,7 +13,7 @@ import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
 import { SLACK_OPEN_REFUSAL, opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
-import { attendPane } from "../attend.ts";
+import { attendPane, bgTerminalId } from "../attend.ts";
 import { sessionFromPaneProcess, withProcessSession } from "../pane-process-session.ts";
 import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
@@ -194,6 +194,7 @@ export function createPaneHandlers(opts: {
   & { "pane:send": (payload: unknown) => Promise<CommandResult<"pane:send">> }
   & { "pane:self": (payload: unknown) => Promise<CommandResult<"pane:self">> }
   & { "pane:focus": (payload: unknown) => Promise<CommandResult<"pane:focus">> }
+  & { "pane:attach-plan": (payload: unknown) => Promise<CommandResult<"pane:attach-plan">> }
   & { "pane:spawn": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"pane:spawn">> } {
   const { db, repoIndex } = opts;
   const herdr = opts.herdr ?? herdrRequest;
@@ -486,6 +487,24 @@ export function createPaneHandlers(opts: {
       if (reply.status < 200 || reply.status >= 300 || reply.json?.ok === false)
         return { ok: false, error: reply.json?.error ?? `tray focus failed (${reply.status})` };
       return { ok: true, data: { paneId: payload.paneId, focused: reply.json?.focused ?? true } };
+    },
+
+    // A plain `herdr agent attach` only reaches the visible server, so a bg
+    // pane attaches to its terminal on the hidden server, the way attendPane
+    // does, but in the caller's own terminal.
+    "pane:attach-plan": async (rawPayload: unknown): Promise<CommandResult<"pane:attach-plan">> => {
+      const payload = rawPayload as Commands["pane:attach-plan"]["payload"];
+      const { server, paneId } = parsePaneRef(payload.paneId);
+      if (server !== "bg") {
+        return { ok: true, data: { argv: ["herdr", "agent", "attach", paneId, ...(payload.takeover ? ["--takeover"] : [])], env: {} } };
+      }
+      if (!bg || !herdrRunnerFor || !(await bg.up())) return { ok: false, error: "The background herdr server isn't running" };
+      const term = await bgTerminalId({ socket: bgSocketPath(), paneId, herdrRunnerFor });
+      if (!term.ok) return term;
+      return {
+        ok: true,
+        data: { argv: ["env", "-u", "HERDR_SOCKET_PATH", "herdr", "terminal", "attach", term.termId, "--takeover"], env: { HERDR_SESSION: BG_SESSION } },
+      };
     },
   };
 }

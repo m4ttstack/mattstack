@@ -638,6 +638,15 @@ export function paneFocus(
   return rtCommand<Commands["pane:focus"]["data"]>("pane:focus", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
+export function paneAttachPlan(
+  a: Commands["pane:attach-plan"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["pane:attach-plan"]["data"]>> {
+  const payload: Record<string, unknown> = { paneId: a.paneId };
+  if (a.takeover) payload.takeover = true;
+  return rtCommand<Commands["pane:attach-plan"]["data"]>("pane:attach-plan", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
 // ─── Reconciler (executor state; lib/daemon/reconciler.ts) ────────────────
 
 /** Never triggers a sweep; a plain read of the last one's snapshot. */
