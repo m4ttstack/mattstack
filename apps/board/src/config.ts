@@ -985,9 +985,22 @@ async function boardSecrets(
   deps?: BoardSecretsDeps
 ): Promise<BoardSecretsData> {
   const res = await readBoardSecrets(deps);
-  if (res.ok) return res;
+  if (res.ok) {
+    secretsFailure = null;
+    return res;
+  }
+  // A daemon that is down or restarting comes back by itself; only a read the
+  // daemon answered and failed is worth telling the person about.
+  secretsFailure = res.daemonDown ? null : res.message;
   console.warn(`board: secrets unavailable (${res.message})`);
   return {};
+}
+
+let secretsFailure: string | null = null;
+
+/** Why the last board secrets read failed, or null once a read succeeds. */
+export function boardSecretsFailure(): string | null {
+  return secretsFailure;
 }
 
 /** Optional after the rt rewire: only the display-name lookup uses it; the

@@ -38,7 +38,8 @@ export interface BoardSecretsData {
 }
 
 export type BoardSecretsResult =
-  ({ ok: true } & BoardSecretsData) | { ok: false; message: string };
+  | ({ ok: true } & BoardSecretsData)
+  | { ok: false; message: string; daemonDown?: true };
 
 export interface BoardSecretsDeps {
   readApiToken?: () => string;
@@ -99,7 +100,11 @@ export async function readBoardSecrets(
     token = readApiToken();
   } catch (err) {
     // Path/cause only -- the token itself never appears in an fs error.
-    return { ok: false, message: `${DAEMON_DOWN_MESSAGE} (${causeOf(err)})` };
+    return {
+      ok: false,
+      message: `${DAEMON_DOWN_MESSAGE} (${causeOf(err)})`,
+      daemonDown: true,
+    };
   }
 
   let res: RtResponse<BoardSecretsData>;
@@ -108,13 +113,21 @@ export async function readBoardSecrets(
   } catch (err) {
     // Path/cause only -- the token travels in the request body, never in a
     // fetch/connect error.
-    return { ok: false, message: `${DAEMON_DOWN_MESSAGE} (${causeOf(err)})` };
+    return {
+      ok: false,
+      message: `${DAEMON_DOWN_MESSAGE} (${causeOf(err)})`,
+      daemonDown: true,
+    };
   }
 
   if (!res.ok) {
     const err = res.error ?? 'unknown';
     if (err.startsWith(UNREACHABLE_PREFIX))
-      return { ok: false, message: `${DAEMON_DOWN_MESSAGE} (${err})` };
+      return {
+        ok: false,
+        message: `${DAEMON_DOWN_MESSAGE} (${err})`,
+        daemonDown: true,
+      };
     // A daemon that predates secrets:read entirely refuses the verb itself,
     // not the scope -- caught here BEFORE the bad-scope/token checks below,
     // which all assume the daemon at least recognized the command.
