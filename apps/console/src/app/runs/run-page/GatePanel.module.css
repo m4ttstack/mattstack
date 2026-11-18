@@ -131,6 +131,9 @@
 /* Rows like a Slack list: no rules, a soft fill under the pointer, a tint
    when picked. The row's padding hangs into the gutter so the text lines up
    with the question. */
+/* Rows like a Slack list: no rules, a soft fill under the pointer, a tint
+   when picked. The row's padding hangs into the gutter so the text lines up
+   with the question. */
 .options {
   gap: 2px;
   margin-inline: -10px;
@@ -174,8 +177,29 @@
   overflow-wrap: anywhere;
 }
 
+/* The key cap is the row's only mark: it hints the key, and fills with
+   the accent once the row is picked. */
 .cap.cap {
   flex-shrink: 0;
+  align-self: flex-start;
+  min-width: 22px;
+  margin-top: 1px;
+  justify-content: center;
+}
+
+/* Square for pick-any, round for pick-one, as checkboxes and radios are. */
+.cap.cap[data-shape='check'] {
+  border-radius: 5px;
+}
+
+.cap.cap[data-shape='radio'] {
+  border-radius: 999px;
+}
+
+.card.card[data-checked] .cap.cap {
+  border-color: var(--tk-fill-accent);
+  background-color: var(--tk-fill-accent);
+  color: var(--tk-on-fill-accent);
 }
 
 .footer {
@@ -213,22 +237,23 @@
   padding-block: 7px;
 }
 
-/* Borderless like a chat composer: it lines up with the option rows and
-   only fills in under the pointer or while typing. */
+/* Borderless like a chat composer: a fill at rest, lined up with the option
+   rows, washed with the accent under the pointer or while typing. */
 .note {
   margin-inline: -10px;
 }
 
 .noteInput.noteInput {
   border-color: transparent;
-  background-color: transparent;
+  background-color: var(--tk-inset);
 }
 
 .noteInput.noteInput:hover,
 .noteInput.noteInput:focus {
-  background-color: var(--tk-panel);
-}
-
-.noteInput.noteInput:focus {
   border-color: transparent;
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    var(--tk-inset)
+  );
 }
