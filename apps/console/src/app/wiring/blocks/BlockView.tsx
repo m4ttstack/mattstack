@@ -19,7 +19,7 @@ import classes from './blocks.module.css';
 import { BlockText, DiagramButton, FlowRow, mermaidOf } from './BlockText';
 import { BuiltFrom } from './BuiltFrom';
 import { CopyForClaude } from './CopyForClaude';
-import { DocumentCard } from './DocumentCard';
+import { DocumentCard, type DocumentView } from './DocumentCard';
 import { EveryStep } from './FlowGraph';
 import { MarkdownText } from './MarkdownText';
 import { glyphOf, labelOf, rootOf, shownLabel } from './model/blockFacts';
@@ -142,20 +142,24 @@ function trailOf(
 
 const HEADING_OR_GRAPH = /^#{1,6}\s.*$|```mermaid\n[\s\S]*?\n```/gm;
 
-/** The compiled file, cut to the lines a block renders to. */
+/** The compiled file, cut to the lines a block renders to. A husk pack's
+    full text comes from rt as `text`, since its committed file is the husk. */
 function RenderedText({
   pack,
   path,
+  text = null,
   range,
 }: {
   pack: string;
   path: string | null;
+  text?: string | null;
   range: [number, number] | null;
 }) {
-  const source = useSkillSource(pack, path);
+  const source = useSkillSource(pack, text === null ? path : null);
   const { show: held, bind: heldBind } = useStepLoading(
-    path !== null && source.isPending
+    text === null && path !== null && source.isPending
   );
+  if (text !== null) return <RenderedLines content={text} range={range} />;
   if (!path) {
     return (
       <Text fz={13} c="dimmed" data-testid="block-rendered-none">
@@ -175,7 +179,17 @@ function RenderedText({
       <StepLoader {...heldBind} steps={[`reading ${path.split('/').at(-1)}`]} />
     );
   }
-  const lines = source.data.content.split('\n');
+  return <RenderedLines content={source.data.content} range={range} />;
+}
+
+function RenderedLines({
+  content,
+  range,
+}: {
+  content: string;
+  range: [number, number] | null;
+}) {
+  const lines = content.split('\n');
   const shown = range ? lines.slice(range[0] - 1, range[1]) : lines;
   return (
     <div data-testid="block-rendered">
@@ -278,7 +292,14 @@ export function BlockView({
   );
   const block = zoom.level === 'skill' ? null : zoom.block;
   const root = rootOf(payload);
-  const rendered = url.view === 'rendered';
+  const anatomyRendered = context?.anatomy?.rendered;
+  const huskPack = anatomyRendered?.husk === true;
+  // Husk is offered only for a husk pack's whole skill; anywhere else it reads as Rendered.
+  const view: DocumentView =
+    url.view === 'husk' && !(huskPack && zoom.level === 'skill')
+      ? 'rendered'
+      : (url.view ?? 'template');
+  const rendered = view !== 'template';
   const map = useMemo(
     () => (rendered ? null : mapGraphOf(payload, zoom, url.select)),
     [url.select, rendered, payload, zoom]
@@ -385,8 +406,9 @@ export function BlockView({
     <DocumentCard
       payload={payload}
       block={docBlock}
-      rendered={rendered}
-      onRendered={next => patch({ view: next ? 'rendered' : null })}
+      view={view}
+      onView={next => patch({ view: next === 'template' ? null : next })}
+      husk={huskPack && zoom.level === 'skill'}
       strip={zoom.level === 'block' && !headingOnly}
       note={docNote}
     >
@@ -394,7 +416,14 @@ export function BlockView({
         <RenderedText
           pack={pack}
           path={readOnly && block ? block.path : renderedPath}
-          range={block ? renderedRangeOf(payload, block) : null}
+          text={
+            huskPack && view === 'rendered'
+              ? (anatomyRendered?.text ?? null)
+              : null
+          }
+          range={
+            block && view === 'rendered' ? renderedRangeOf(payload, block) : null
+          }
         />
       ) : (
         docText && (
