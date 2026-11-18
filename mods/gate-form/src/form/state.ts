@@ -164,7 +164,9 @@ export function answersOf(form: Form, s: State): Record<string, unknown> {
     if (choicesOf(q).length === 0) out[q.id] = s.text[i]!
     else if (q.multi) {
       const values = s.picked[i]!.filter(v => v !== WRITE_IN)
-      out[q.id] = typed === '' ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed }
+      // A joined split answers each part with the picks it owns, as the agent asked (parse.ts joinSplits).
+      if (q.parts) for (const part of q.parts) out[part.id] = values.filter(v => part.values.includes(v))
+      else out[q.id] = typed === '' ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed }
     } else {
       const value = s.chosen[i]
       out[q.id] = value === WRITE_IN ? { writeIn: typed } : value
