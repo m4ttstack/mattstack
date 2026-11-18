@@ -1777,11 +1777,11 @@ function markFor(todo) {
     return { mark: "–", tone: "inactive" };
   return { mark: "✓", tone: "success" };
 }
-function buttonsOf(todo, messages) {
+function buttonsOf(todo, messages, isComposing = false) {
   const ids = buttonsFor(todo);
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
   const own = ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
-  return messages && todo.status === "open" ? [...own, { id: "message", label: LABELS.message, tone: "quiet", todoId: todo.id }] : own;
+  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
 }
 var composeButtons = (todoId) => ["send", "sendDone", "cancelMessage"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
@@ -1843,7 +1843,7 @@ function paneModel(input) {
       rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo, messages) });
     } else {
       blank();
-      rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages) });
+      rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages, input.composing === todo.id) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
       if (messages && todo.status === "open" && input.composing === todo.id) {

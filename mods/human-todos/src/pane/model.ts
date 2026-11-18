@@ -1,4 +1,4 @@
-import { cellWidth } from '@mattstack/mod-kit'
+import { ICON, cellWidth } from '@mattstack/mod-kit'
 import type { ButtonTone } from '@mattstack/mod-kit'
 
 import type { Todo } from '../../types'
@@ -80,11 +80,12 @@ function markFor(todo: Todo): { mark: string; tone: Tone } {
 
 // Only an item's main button is filled, the rest stay quiet until the pointer is over them. A running item lists Show or Open log before Stop, so Stop is its main one.
 // An open item in the kit drawer ends its row with the message button, a quiet chat bubble after Done and Skip.
-function buttonsOf(todo: Todo, messages: boolean): PaneButton[] {
+// The chevron turns down while the item's message row is open, and points right while it is shut.
+function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButton[] {
   const ids = buttonsFor(todo)
   const main = ids.find(id => id === 'stop' || id === 'forceStop') ?? ids[0]
   const own = ids.map((id): PaneButton => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : 'quiet', todoId: todo.id }))
-  return messages && todo.status === 'open' ? [...own, { id: 'message', label: LABELS.message, tone: 'quiet', todoId: todo.id }] : own
+  return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: 'quiet', todoId: todo.id }] : own
 }
 
 const composeButtons = (todoId: string): PaneButton[] =>
@@ -152,7 +153,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
     } else {
       blank()
       // Confirm lands on the row Run was on, so the prompt goes under the buttons rather than pushing them down.
-      rows.push({ kind: 'buttons', buttons: buttonsOf(todo, messages) })
+      rows.push({ kind: 'buttons', buttons: buttonsOf(todo, messages, input.composing === todo.id) })
       if (isConfirming) lines('Are you sure you want to run this script?', width, 'plain', true)
       if (messages && todo.status === 'open' && input.composing === todo.id) {
         blank()
