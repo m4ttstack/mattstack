@@ -1385,7 +1385,13 @@ function answerSummary(q, s, i) {
 function wonOf(q, won) {
   if (!q.parts)
     return won[q.id];
-  return q.parts.flatMap((part) => Array.isArray(won[part.id]) ? won[part.id] : []);
+  const recorded = q.parts.map((part) => won[part.id]).filter((raw) => raw !== undefined && raw !== null);
+  if (recorded.length === 0)
+    return;
+  const valuesOf = (raw) => Array.isArray(raw) ? raw : typeof raw === "object" && raw !== null && Array.isArray(raw.value) ? raw.value : [];
+  const notes = recorded.flatMap((raw) => typeof raw === "object" && raw !== null && typeof raw.note === "string" ? [raw.note] : []);
+  const value = recorded.flatMap(valuesOf);
+  return notes.length > 0 ? { value, note: notes.join("; ") } : value;
 }
 function wonSummary(q, raw) {
   const label = (v) => q.options.find((o) => o.value === v)?.label ?? String(v);

@@ -169,6 +169,8 @@ test('anything short of a certain split is left as separate questions', () => {
     ['a lone -1', [part('l-1', ['a'])]],
     ['a value in two parts', [part('l-1', ['a', 'b']), part('l-2', ['b'])]],
     ['a question already named the base', [{ id: 'l', label: 'L', multi: true, options: [opt('z')] }, part('l-1', ['a']), part('l-2', ['b'])]],
+    ['parts that ask different things', [part('l-1', ['a'], { label: 'Which files in api?' }), part('l-2', ['b'], { label: 'Which files in web?' })]],
+    ['parts with different contexts', [part('l-1', ['a'], { context: 'api' }), part('l-2', ['b'], { context: 'web' })]],
   ]
   for (const [why, questions] of cases) {
     const form = toForm('t', undefined, questions, 'gate')

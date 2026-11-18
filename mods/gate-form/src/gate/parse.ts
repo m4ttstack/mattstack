@@ -66,8 +66,9 @@ const PART_OF = /\s*\(\d+\s+of\s+\d+\)\s*$/i
 // question. Only a run that is certainly such a split is joined, everything else is left as it came:
 // - consecutive questions `<base>-1`, `<base>-2`, ... numbered from 1 with no gap, at least two of them
 // - every part pick-any, with no write-in, and its options' values distinct across the parts
+// - every part asks the same thing: one label once a trailing "(1 of 2)" is dropped, and one context (or none)
 // - no other question already uses `<base>` as its id
-// The joined question takes the first part's label (without a trailing "(1 of 2)"), header and context.
+// So nothing a part says is lost: two lists that merely share an id stem stay apart.
 export function joinSplits(questions: FormQuestion[]): FormQuestion[] {
   const ids = new Set(questions.map(q => q.id))
   const out: FormQuestion[] = []
@@ -84,7 +85,9 @@ export function joinSplits(questions: FormQuestion[]): FormQuestion[] {
     while (end < questions.length && questions[end]!.id === `${base}-${end - i + 1}`) end += 1
     const run = questions.slice(i, end)
     const values = run.flatMap(q => q.options.map(o => o.value))
-    const isSplit = run.length >= 2 && run.every(q => q.multi && !q.writeIn && !q.other) && new Set(values).size === values.length
+    const label = run[0]!.label.replace(PART_OF, '')
+    const isSameAsk = run.every(q => q.label.replace(PART_OF, '') === label && (q.context ?? '') === (run[0]!.context ?? ''))
+    const isSplit = run.length >= 2 && isSameAsk && run.every(q => q.multi && !q.writeIn && !q.other) && new Set(values).size === values.length
     if (!isSplit) {
       out.push(...run)
       i = end
@@ -95,7 +98,7 @@ export function joinSplits(questions: FormQuestion[]): FormQuestion[] {
       ...head,
       id: base,
       header: head.header === head.id ? base : head.header.replace(SPLIT_ID, '$1'),
-      label: head.label.replace(PART_OF, ''),
+      label,
       options: run.flatMap(q => q.options),
       parts: run.map(q => ({ id: q.id, values: q.options.map(o => o.value) })),
     })

@@ -768,7 +768,9 @@ function joinSplits(questions) {
       end += 1;
     const run = questions.slice(i, end);
     const values = run.flatMap((q) => q.options.map((o) => o.value));
-    const isSplit = run.length >= 2 && run.every((q) => q.multi && !q.writeIn && !q.other) && new Set(values).size === values.length;
+    const label = run[0].label.replace(PART_OF, "");
+    const isSameAsk = run.every((q) => q.label.replace(PART_OF, "") === label && (q.context ?? "") === (run[0].context ?? ""));
+    const isSplit = run.length >= 2 && isSameAsk && run.every((q) => q.multi && !q.writeIn && !q.other) && new Set(values).size === values.length;
     if (!isSplit) {
       out.push(...run);
       i = end;
@@ -779,7 +781,7 @@ function joinSplits(questions) {
       ...head,
       id: base,
       header: head.header === head.id ? base : head.header.replace(SPLIT_ID, "$1"),
-      label: head.label.replace(PART_OF, ""),
+      label,
       options: run.flatMap((q) => q.options),
       parts: run.map((q) => ({ id: q.id, values: q.options.map((o) => o.value) }))
     });
