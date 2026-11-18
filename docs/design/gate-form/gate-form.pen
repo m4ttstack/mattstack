@@ -6410,27 +6410,27 @@
         },
         {
           "type": "frame",
-          "id": "U6YoxX",
+          "id": "quEz2",
           "name": "Caption",
           "gap": 10,
           "alignItems": "end",
           "children": [
             {
               "type": "text",
-              "id": "PxNtA",
+              "id": "o3l5lT",
               "name": "Caption title",
               "fill": "#161616",
-              "content": "6 · ❯ outside, in the gap",
+              "content": "6 · ❯ outside, Next →",
               "fontFamily": "Inter",
               "fontSize": 14,
               "fontWeight": "700"
             },
             {
               "type": "text",
-              "id": "LHHcf",
+              "id": "pBmS0",
               "name": "Caption sub",
               "fill": "#6a6a6a",
-              "content": "The ❯ sits in the cell left of the button, just like the option gutter; the button itself is unchanged except a lifted fill.",
+              "content": "Buttons use plain arrows so they don't echo the ❯ focus mark. Next is focused here.",
               "fontFamily": "Inter",
               "fontSize": 12,
               "fontWeight": "normal"
@@ -6439,8 +6439,8 @@
         },
         {
           "type": "frame",
-          "id": "VrENe",
-          "name": "Row 6 · ❯ outside, in the gap",
+          "id": "yVupQ",
+          "name": "Row 6 →",
           "width": "fill_container",
           "fill": "#1b1b1b",
           "cornerRadius": 4,
@@ -6452,7 +6452,48 @@
           "children": [
             {
               "type": "text",
-              "id": "jXEKp",
+              "id": "oyfZr",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "e8VbE1",
+              "name": "Button",
+              "fill": "#333333",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "ZaVa7",
+                  "name": "span",
+                  "fill": "#d4d4d4",
+                  "content": "  ← Back  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "O8yxt",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "qBzpl",
               "name": "span",
               "fill": "#3fb6c8",
               "content": "❯ ",
@@ -6463,16 +6504,16 @@
             },
             {
               "type": "frame",
-              "id": "U5S7zY",
+              "id": "cabsJ",
               "name": "Button",
               "fill": "#2f62a8",
               "children": [
                 {
                   "type": "text",
-                  "id": "H2n5H",
+                  "id": "m65Wc",
                   "name": "span",
                   "fill": "#ffffff",
-                  "content": "  Next ›  ",
+                  "content": "  Next →  ",
                   "lineHeight": 1.5,
                   "fontFamily": "JetBrains Mono",
                   "fontSize": 12,
@@ -6482,7 +6523,7 @@
             },
             {
               "type": "text",
-              "id": "FWD9m",
+              "id": "V8T17",
               "name": "span",
               "fill": "#1b1b1b",
               "content": "  ",
@@ -6493,65 +6534,24 @@
             },
             {
               "type": "text",
-              "id": "GIdBo",
+              "id": "WE4wG",
               "name": "span",
               "fill": "#3fb6c8",
-              "content": "❯ ",
-              "lineHeight": 1.5,
-              "fontFamily": "JetBrains Mono",
-              "fontSize": 12,
-              "fontWeight": "700"
-            },
-            {
-              "type": "frame",
-              "id": "lpdZR",
-              "name": "Button",
-              "fill": "#505050",
-              "children": [
-                {
-                  "type": "text",
-                  "id": "kG43c",
-                  "name": "span",
-                  "fill": "#d4d4d4",
-                  "content": "  ☐ Chat about this  ",
-                  "lineHeight": 1.5,
-                  "fontFamily": "JetBrains Mono",
-                  "fontSize": 12,
-                  "fontWeight": "700"
-                }
-              ]
-            },
-            {
-              "type": "text",
-              "id": "yFgkO",
-              "name": "span",
-              "fill": "#1b1b1b",
               "content": "  ",
               "lineHeight": 1.5,
               "fontFamily": "JetBrains Mono",
               "fontSize": 12,
-              "fontWeight": "normal"
-            },
-            {
-              "type": "text",
-              "id": "ghtoy",
-              "name": "span",
-              "fill": "#3fb6c8",
-              "content": "❯ ",
-              "lineHeight": 1.5,
-              "fontFamily": "JetBrains Mono",
-              "fontSize": 12,
               "fontWeight": "700"
             },
             {
               "type": "frame",
-              "id": "s7iX1",
+              "id": "po2p6",
               "name": "Button",
-              "fill": "#ff93b0",
+              "fill": "#f2668b",
               "children": [
                 {
                   "type": "text",
-                  "id": "HvNad",
+                  "id": "EnC3Y",
                   "name": "span",
                   "fill": "#1b1b1b",
                   "content": "  Submit  ",
@@ -6564,7 +6564,7 @@
             },
             {
               "type": "text",
-              "id": "o9IJB",
+              "id": "w3Rav",
               "name": "span",
               "fill": "#1b1b1b",
               "content": "  ",
@@ -6572,26 +6572,74 @@
               "fontFamily": "JetBrains Mono",
               "fontSize": 12,
               "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "x350U9",
+          "name": "Caption",
+          "gap": 10,
+          "alignItems": "end",
+          "children": [
+            {
+              "type": "text",
+              "id": "ARb5v",
+              "name": "Caption title",
+              "fill": "#161616",
+              "content": "6 · ❯ outside, Next »",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "RMz6Q",
+              "name": "Caption sub",
+              "fill": "#6a6a6a",
+              "content": "Buttons use guillemets so they don't echo the ❯ focus mark. Next is focused here.",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "UWGJm",
+          "name": "Row 6 »",
+          "width": "fill_container",
+          "fill": "#1b1b1b",
+          "cornerRadius": 4,
+          "padding": [
+            12,
+            14
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "ESmtZ",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
             },
             {
               "type": "frame",
-              "id": "qQM1G",
-              "name": "Spacer",
-              "width": "fill_container",
-              "height": 1
-            },
-            {
-              "type": "frame",
-              "id": "X5pV9",
-              "name": "Rest",
-              "fill": "#1e3c66",
+              "id": "N7i8od",
+              "name": "Button",
+              "fill": "#333333",
               "children": [
                 {
                   "type": "text",
-                  "id": "LRWnI",
+                  "id": "N1Fb1",
                   "name": "span",
-                  "fill": "#ffffff",
-                  "content": "  Next ›  ",
+                  "fill": "#d4d4d4",
+                  "content": "  « Back  ",
                   "lineHeight": 1.5,
                   "fontFamily": "JetBrains Mono",
                   "fontSize": 12,
@@ -6601,10 +6649,259 @@
             },
             {
               "type": "text",
-              "id": "cGtLn",
+              "id": "graCR",
               "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "EFLFU",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "❯ ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "TCnJM",
+              "name": "Button",
+              "fill": "#2f62a8",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "NPwDt",
+                  "name": "span",
+                  "fill": "#ffffff",
+                  "content": "  Next »  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "x0Anb",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "TXFxD",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "D8XMk",
+              "name": "Button",
+              "fill": "#f2668b",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "DSrlJ",
+                  "name": "span",
+                  "fill": "#1b1b1b",
+                  "content": "  Submit  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "KhGv7",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "LkL5n",
+          "name": "Caption",
+          "gap": 10,
+          "alignItems": "end",
+          "children": [
+            {
+              "type": "text",
+              "id": "hIkoC",
+              "name": "Caption title",
+              "fill": "#161616",
+              "content": "6 · ❯ outside, Next ▶",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "cxGRn",
+              "name": "Caption sub",
               "fill": "#6a6a6a",
-              "content": "  unfocused",
+              "content": "Buttons use solid triangles so they don't echo the ❯ focus mark. Next is focused here.",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "V5Kf5",
+          "name": "Row 6 ▶",
+          "width": "fill_container",
+          "fill": "#1b1b1b",
+          "cornerRadius": 4,
+          "padding": [
+            12,
+            14
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "jDpXC",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "A31Fk",
+              "name": "Button",
+              "fill": "#333333",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "LpdJ6",
+                  "name": "span",
+                  "fill": "#d4d4d4",
+                  "content": "  ◀ Back  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "DFn0w",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "R2Vhv",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "❯ ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "CcZAU",
+              "name": "Button",
+              "fill": "#2f62a8",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "wxXMc",
+                  "name": "span",
+                  "fill": "#ffffff",
+                  "content": "  Next ▶  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "OSO26",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "jbCB4",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "KLG41",
+              "name": "Button",
+              "fill": "#f2668b",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "JJAKZ",
+                  "name": "span",
+                  "fill": "#1b1b1b",
+                  "content": "  Submit  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "dDF6J",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
               "lineHeight": 1.5,
               "fontFamily": "JetBrains Mono",
               "fontSize": 12,
