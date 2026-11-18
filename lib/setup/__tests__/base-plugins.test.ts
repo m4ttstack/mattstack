@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { BASE_PLUGINS, SUPERSEDED_PLUGINS, isSuperseded, resolveBasePlugin } from "../base-plugins.ts";
+import { BASE_PLUGINS, SUPERPOWERS_FORK, SUPERSEDED_PLUGINS, isSuperseded, resolveBasePlugin } from "../base-plugins.ts";
 
 describe("base plugins", () => {
   test("the baseline installs mattstack's superpowers, not the stock copy", () => {
     expect(BASE_PLUGINS).toContain("superpowers@mattstack");
     expect(BASE_PLUGINS).not.toContain("superpowers@claude-plugins-official");
+  });
+
+  test("the fork id is one exported constant the baseline and the superseded map both use", () => {
+    expect(SUPERPOWERS_FORK).toBe("superpowers@mattstack");
+    expect(BASE_PLUGINS).toContain(SUPERPOWERS_FORK);
+    expect(new Set(Object.values(SUPERSEDED_PLUGINS))).toEqual(new Set([SUPERPOWERS_FORK]));
   });
 
   test("exactly the two stock ids are superseded, each by superpowers@mattstack", () => {

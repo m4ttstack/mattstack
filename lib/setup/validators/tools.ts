@@ -21,7 +21,7 @@ import { detectEditors } from "../../editors.ts";
 import { joinNames, planEditorFonts } from "../editor-font.ts";
 import { readSetupState } from "../state.ts";
 import { BACKUP_TOOLS as BACKUP_TOOL_NAMES } from "../../state/backup-tools.ts";
-import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
+import { BASE_PLUGINS, SUPERPOWERS_FORK, resolveBasePlugin } from "../base-plugins.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { integrationDef } from "../integrations.ts";
 import { callableBySkills, claudeJsonPath, linearServerNames, nameTaken, readClaudeConfig } from "../linear-mcp.ts";
@@ -669,16 +669,15 @@ function pluginsRow(pluginList: ExecResult, msFloor: Floor, engine: string | nul
   const disabled = expected.filter((id) => byId.get(id)!.enabled !== true);
   if (disabled.length > 0) return row({ ...base, status: "needs-you", detail: `Disabled: ${disabled.join(", ")}`, action: ENABLE_PLUGINS_ACTION });
 
-  const extras = entries.filter((e) => e.enabled && e.id.startsWith("superpowers@") && e.id !== MATTSTACK_SUPERPOWERS);
+  const extras = entries.filter((e) => e.enabled && e.id.startsWith("superpowers@") && e.id !== SUPERPOWERS_FORK);
   if (extras.length > 0) return row({ ...base, status: "needs-you", detail: secondSuperpowersDetail(extras), action: secondSuperpowersSteps(extras) });
 
   return row({ ...base, status: "ready", detail: `${BASE_PLUGINS.length} plugins installed` });
 }
 
-const MATTSTACK_SUPERPOWERS = "superpowers@mattstack";
 
 function secondSuperpowersDetail(extras: InstalledPack[]): string {
-  return `Two superpowers plugins are enabled (${MATTSTACK_SUPERPOWERS}, ${extras.map((e) => e.id).join(", ")}); the superpowers:* skills may come from either`;
+  return `Two superpowers plugins are enabled (${SUPERPOWERS_FORK}, ${extras.map((e) => e.id).join(", ")}); the superpowers:* skills may come from either`;
 }
 
 function secondSuperpowersSteps(extras: InstalledPack[]): Action {

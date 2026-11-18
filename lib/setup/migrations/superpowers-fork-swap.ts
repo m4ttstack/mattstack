@@ -1,13 +1,11 @@
 import { resolveTool } from "../../deps/resolve.ts";
-import { isSuperseded } from "../base-plugins.ts";
+import { SUPERPOWERS_FORK, isSuperseded } from "../base-plugins.ts";
 import { PACK_EXEC_TIMEOUT_MS, claudeMessage, parsePluginList } from "../pack-cache.ts";
 import type { ExecResult } from "../probes.ts";
 import { updateSetupState, type SuperpowersDisabled } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import type { MigrationDef } from "./index.ts";
 import { dedupedConfigDirs } from "./team-packs-from-git.ts";
-
-const FORK_ID = "superpowers@mattstack";
 
 /**
  * Once per Mac: turn off the stock superpowers copies the mattstack fork
@@ -41,7 +39,7 @@ export const superpowersForkSwapMigration: MigrationDef = {
       }
       const stock = entries.filter((e) => isSuperseded(e.id) && e.enabled && (e.scope === undefined || e.scope === "user"));
       if (stock.length === 0) continue;
-      const fork = entries.find((e) => e.id === FORK_ID);
+      const fork = entries.find((e) => e.id === SUPERPOWERS_FORK);
       if (!fork?.enabled) {
         // plugins.install only installs into the folders claudeConfigDirs names, so waiting anywhere else would never end.
         (managed.has(dir) ? waiting : unmanaged).push(dir);

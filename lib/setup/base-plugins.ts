@@ -4,6 +4,9 @@
  * without a validator importing a step (or a second copy of the list drifting
  * from the first).
  */
+/** mattstack's superpowers fork: the baseline copy, and what every superseded stock copy gives way to. */
+export const SUPERPOWERS_FORK = "superpowers@mattstack";
+
 export const BASE_PLUGINS: string[] = [
   "mattstack@mattstack",
   "fast-browser@mattstack",
@@ -12,7 +15,7 @@ export const BASE_PLUGINS: string[] = [
   // skills; without it a pipeline dies mid-run on a missing skill. This is
   // mattstack's fork (task groups, Native with reviews), listed in the
   // mattstack marketplace under the same plugin name.
-  "superpowers@mattstack",
+  SUPERPOWERS_FORK,
 ];
 
 /**
@@ -22,8 +25,8 @@ export const BASE_PLUGINS: string[] = [
  * them off. An explicit list, never a name match.
  */
 export const SUPERSEDED_PLUGINS: Readonly<Record<string, string>> = {
-  "superpowers@claude-plugins-official": "superpowers@mattstack",
-  "superpowers@superpowers-marketplace": "superpowers@mattstack",
+  "superpowers@claude-plugins-official": SUPERPOWERS_FORK,
+  "superpowers@superpowers-marketplace": SUPERPOWERS_FORK,
 };
 
 export function isSuperseded(id: string): boolean {

@@ -217,6 +217,16 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(lines[0]!.line).toContain("superpowers@mattstack");
       });
 
+      test("a superseded id listed at two scopes is skipped with one log line", () => {
+        seedOrg({ org: "acme", username: "dev1", roster, settings: { "claude.plugins": ["superpowers@claude-plugins-official"] }, teams: { widgets: { "claude.plugins": ["superpowers@claude-plugins-official"] } } });
+        setSetting("claude.plugins", ["superpowers@claude-plugins-official"], "user");
+        const made = makeCtx(fakeProbes({ home }));
+
+        computePlugins(made.ctx, null);
+
+        expect(made.logs.filter((l) => l.line.includes("superpowers@claude-plugins-official"))).toHaveLength(1);
+      });
+
       test("a plugin listed only at user scope is enabled", () => {
         seedOrg({ org: "acme", username: "dev1", roster, teams: { widgets: {} } });
         setSetting("claude.plugins", ["mine@elsewhere"], "user");
