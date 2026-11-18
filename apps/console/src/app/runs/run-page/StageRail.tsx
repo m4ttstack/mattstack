@@ -37,7 +37,7 @@ const STATUS_ICON: Partial<
 };
 
 const STATUS_SUFFIX: Partial<Record<Status, string>> = {
-  waiting: ' · waiting',
+  waiting: ' • waiting',
   held: ' · held',
 };
 
