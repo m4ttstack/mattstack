@@ -148,12 +148,12 @@ function barsPage(ui: Ui, width: number) {
 function singlePage(ui: Ui) {
   return [
     ...heading('SelectList, single, no descriptions: click a choice'),
-    <SelectList choices={PLAIN} cursor={cursorOf(ui, 'single')} cursorIsChoice onPick={idx => moveCursor(ui, 'single', idx)} />,
+    <SelectList choices={PLAIN} cursor={cursorOf(ui, 'single')} isPicked={idx => idx === cursorOf(ui, 'single')} onPick={idx => moveCursor(ui, 'single', idx)} />,
     ...heading('SelectList, single, with descriptions'),
-    <SelectList choices={DESCRIBED} cursor={cursorOf(ui, 'described')} cursorIsChoice onPick={idx => moveCursor(ui, 'described', idx)} />,
+    <SelectList choices={DESCRIBED} cursor={cursorOf(ui, 'described')} isPicked={idx => idx === cursorOf(ui, 'described')} onPick={idx => moveCursor(ui, 'described', idx)} />,
     ...heading('SelectList, single, unfocused: muted, nothing to click'),
     <Unfocused>
-      <SelectList choices={DESCRIBED.slice(0, 2)} cursor={0} cursorIsChoice />
+      <SelectList choices={DESCRIBED.slice(0, 2)} cursor={0} isPicked={idx => idx === 0} />
     </Unfocused>,
   ]
 }
@@ -190,7 +190,7 @@ function writeInPage() {
 function longPage(ui: Ui) {
   return [
     ...heading('SelectList of 10: eight show at a time, and the window follows the cursor'),
-    <SelectList choices={LONG} cursor={cursorOf(ui, 'long')} cursorIsChoice onPick={idx => moveCursor(ui, 'long', idx)} />,
+    <SelectList choices={LONG} cursor={cursorOf(ui, 'long')} isPicked={idx => idx === cursorOf(ui, 'long')} onPick={idx => moveCursor(ui, 'long', idx)} />,
   ]
 }
 
@@ -242,7 +242,7 @@ function shellPage(ui: Ui) {
     >
       <Rail bold>{`Page ${at + 1} of ${last + 1}`}</Rail>
       <Rail dim>Pages are different heights; the foot stays on one row.</Rail>
-      <SelectList choices={DESCRIBED.slice(0, at + 1)} cursor={0} cursorIsChoice />
+      <SelectList choices={DESCRIBED.slice(0, at + 1)} cursor={0} isPicked={idx => idx === 0} />
     </PageShell>,
   ]
 }

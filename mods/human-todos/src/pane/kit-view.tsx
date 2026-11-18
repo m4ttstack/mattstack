@@ -14,7 +14,10 @@ export default kitClient<Props, State>(
   (props, ui) => {
     const { view } = props
     const { stops } = view
-    const here = gridResolve(stops, ui.state.sel)
+    const resolved = gridResolve(stops, ui.state.sel)
+    // Finishing the last item lands on the item above it, not on Clear finished below.
+    const above = resolved.at - 1
+    const here = resolved.hasFallen && stops[resolved.at]?.isItem === false && stops[above]?.isItem ? { at: above, col: stops[above]!.main, hasFallen: true } : resolved
     const current = stops[here.at] && stopMessage(stops[here.at]!, here.col)
 
     const mark = (at: number, col: number) => {
