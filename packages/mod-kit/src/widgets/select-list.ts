@@ -1,5 +1,5 @@
 import { hang, sp, widthOf, withAction, type Line, type Span } from '../draw/text'
-import { ACCENT, CURSOR_ROW, DIM, DONE, ICON, SYMBOL, pressed } from '../draw/theme'
+import { ACCENT, CURSOR_ROW, DIM, DONE, SYMBOL, pressed } from '../draw/theme'
 import { inputField } from './input-field'
 
 export type Choice = { label: string; description?: string; isWriteIn?: boolean }
@@ -40,7 +40,7 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
   shown.forEach((choice, n) => {
     const idx = start + n
     if (spec.spaced && n > 0) lines.push(blank())
-    const rows = padded(choiceRows(choice, idx, spec))
+    const rows = choice.isWriteIn ? choiceRows(choice, idx, spec) : padded(choiceRows(choice, idx, spec))
     lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width)) : rows, spec.actionFor(idx)))
   })
   const below = total - start - shown.length
@@ -80,14 +80,13 @@ function choiceLines<A>(choice: Choice, idx: number, spec: SelectSpec<A>, lead: 
   return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...(isCursorRow(spec, idx) && { bold: true }) }), ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
 }
 
-// The label stays put; the row under it is the description until the choice is focused, then the line you type on,
-// with the description as its placeholder. Typed text shows in that row once you move off.
+// One row, as Claude Code draws it: the label is the placeholder, and with the cursor on it you type in that row.
+// Typed text shows there once you move off.
 function writeInRows<A>(choice: Choice, isAt: boolean, lead: Span<A>[], under: Span<A>[], spec: SelectSpec<A>): Line<A>[] {
-  const label = [...lead, sp(`${ICON.edit}  `), sp(choice.label, { isLabel: true, ...(isAt && { bold: true }) })]
   const typed = spec.writeIn
-  // The field opens with a pad cell of its own, so the indent gives one up and the text stays where the description was.
-  const fieldLead = [...under.slice(0, -1), sp<A>(under[under.length - 1]!.t.slice(1))]
-  if (isAt) return [label, [...fieldLead, ...inputField(typed, choice.description ?? '', spec.width - widthOf(fieldLead), spec.focused)]]
-  if (typed !== '') return [label, ...hang(under, under, `“${typed}”`, spec.width, {})]
-  return [label, ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
+  // The field opens with a pad cell of its own, so it takes the place of the space after the mark.
+  const fieldLead = lead.slice(0, -1)
+  if (isAt) return [[...fieldLead, ...inputField(typed, choice.label, spec.width - widthOf(fieldLead), spec.focused)]]
+  if (typed !== '') return hang(lead, under, typed, spec.width, {})
+  return [[...lead, sp(choice.label, { ...DIM, isLabel: true })]]
 }

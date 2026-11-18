@@ -53,7 +53,7 @@ const markAnswered = (s: State, i: number) => replaceAt(s.answered, i, true)
 export function choicesOf(q: FormQuestion): FormOption[] {
   const ordered = [...q.options.filter(isRecommended), ...q.options.filter(o => !isRecommended(o))]
   if (ordered.length === 0 || !q.other) return ordered
-  return [...ordered, { value: WRITE_IN, label: 'Something else', description: 'Write in your answer' }]
+  return [...ordered, { value: WRITE_IN, label: 'Type something.' }]
 }
 
 // A single choice starts with its recommended option picked; a multi question starts with nothing ticked.

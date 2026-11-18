@@ -478,7 +478,7 @@ function choicesOf(q) {
   const ordered = [...q.options.filter(isRecommended), ...q.options.filter((o) => !isRecommended(o))];
   if (ordered.length === 0 || !q.other)
     return ordered;
-  return [...ordered, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
+  return [...ordered, { value: WRITE_IN, label: "Type something." }];
 }
 function initial(form) {
   const chosen = form.questions.map((q) => isConfirm(form) || q.multi ? undefined : q.options.find(isRecommended)?.value);

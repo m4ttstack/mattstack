@@ -686,7 +686,7 @@ function selectList(spec) {
     const idx = start + n;
     if (spec.spaced && n > 0)
       lines.push(blank());
-    const rows = padded(choiceRows(choice, idx, spec));
+    const rows = choice.isWriteIn ? choiceRows(choice, idx, spec) : padded(choiceRows(choice, idx, spec));
     lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width)) : rows, spec.actionFor(idx)));
   });
   const below = total - start - shown.length;
@@ -722,14 +722,13 @@ function choiceLines(choice, idx, spec, lead, under) {
   return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isCursorRow(spec, idx) && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 function writeInRows(choice, isAt, lead, under, spec) {
-  const label = [...lead, sp(`${ICON.edit}  `), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
   const typed = spec.writeIn;
-  const fieldLead = [...under.slice(0, -1), sp(under[under.length - 1].t.slice(1))];
+  const fieldLead = lead.slice(0, -1);
   if (isAt)
-    return [label, [...fieldLead, ...inputField(typed, choice.description ?? "", spec.width - widthOf(fieldLead), spec.focused)]];
+    return [[...fieldLead, ...inputField(typed, choice.label, spec.width - widthOf(fieldLead), spec.focused)]];
   if (typed !== "")
-    return [label, ...hang(under, under, `“${typed}”`, spec.width, {})];
-  return [label, ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
+    return hang(lead, under, typed, spec.width, {});
+  return [[...lead, sp(choice.label, { ...DIM, isLabel: true })]];
 }
 
 // packages/mod-kit/src/components/select-list.tsx
