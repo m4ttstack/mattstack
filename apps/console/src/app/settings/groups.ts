@@ -144,9 +144,9 @@ export const GROUPS: Group[] = [
     label: 'Suite-wide',
     tier: 'suite',
     blurb:
-      'Team integrations, the roster, install mode, Claude Code plugins and skills.',
+      'Team integrations, the roster, install mode, Claude Code plugins, skills and the superpowers execution mode.',
     match: key =>
-      (/^(mattstack|setup|claude|skills|telemetry)\./.test(key) &&
+      (/^(mattstack|setup|claude|skills|superpowers|telemetry)\./.test(key) &&
         key !== 'mattstack.tracking') ||
       key === 'rt.integrations' ||
       key === 'rt.skills.disableModelInvocation',

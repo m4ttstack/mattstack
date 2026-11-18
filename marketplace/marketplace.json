@@ -33,6 +33,16 @@
       "name": "mattstack",
       "source": "./plugins/mattstack",
       "description": "The mattstack skills pack: the work orchestrator and pipeline stages, orchestration skills, the review cluster, the GitLab CI forge adapter, and the parameterized-skill primitive with its authoring skill."
+    },
+    {
+      "name": "superpowers",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/m4ttstack/superpowers.git",
+        "ref": "mattstack",
+        "sha": "4e49c04aba058d593eaa02e9de3d70c030ab6973"
+      },
+      "description": "Superpowers with task groups and Native with reviews: mattstack's fork of obra/superpowers."
     }
   ]
 }

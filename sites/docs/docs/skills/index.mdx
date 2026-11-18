@@ -39,6 +39,33 @@ Then run `/reload-plugins` in your Claude Code session to load the update.
 
 If you maintain a team pack, [`rt skills sync`](/rt/reference/skills/sync) brings the pack's compiled skills and installed plugin caches current. It refuses on content drift.
 
+## Superpowers
+
+The mattstack skills and every team pack call the superpowers skills (brainstorming, plans, test-driven development). Setup installs `superpowers@mattstack`, mattstack's fork of [obra/superpowers](https://github.com/obra/superpowers). The skill names stay `superpowers:*`. The fork adds task groups, so related plan tasks share one review. It also adds a faster way to run a plan, Native with reviews: the session builds each task itself, and a fresh reviewer checks each group.
+
+On a machine that already has `superpowers` from `claude-plugins-official` or `superpowers-marketplace`:
+
+- Setup turns the stock copy off once in your user settings, in each Claude folder where the fork is on. Turn it back on and rt leaves it alone.
+- A stock copy turned on in a project's settings stays on. Setup status names it, and you turn it off in that project.
+- While a second superpowers is on, the `tool.plugins` row of `rt setup status` warns. Both copies answer to the same skill names.
+- A team that lists the stock copy in `claude.plugins` gets the fork instead.
+- `rt uninstall` turns the stock copy back on.
+
+When a plan is ready, Claude runs it the way the `superpowers.execution` setting says, without asking which approach:
+
+| Value | Runs the plan with |
+| --- | --- |
+| `native-with-reviews` (default) | Native with reviews, or subagent-driven when you ask for it or the plan is long |
+| `subagent-driven` | a fresh agent per task group |
+| `native` | the session alone, with one review at the end |
+| `ask` | asks you each time |
+
+```bash
+rt settings set superpowers.execution '"subagent-driven"' --scope user
+```
+
+A team sets its default with `--scope team`, and your own `user` value wins over it.
+
 ## Also on this tab
 
 - [Gates](/skills/gates): decisions that pause a subject until someone answers.

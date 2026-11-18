@@ -319,6 +319,7 @@ export const EXAMPLES: Record<string, Example> = {
   },
   "claude.marketplaces": { good: [[], ["acme/claude-plugins", "https://gitlab.example.com/acme/marketplace.git"]], bad: [{ value: [{ source: "acme/claude-plugins" }], path: [0] }] },
   "claude.plugins": { good: [[], ["review@acme", "deploy@acme"]], bad: [{ value: ["review@acme", 2], path: [1] }] },
+  "superpowers.execution": { good: ["native-with-reviews", "ask"], bad: [{ value: "fast", path: [] }] },
   "deck.apps": {
     good: [{}, { app: { published: true, publicFollowsOverride: false } }, { docs: { published: false, passwordVersion: 2, override: { devPort: 5174, basePort: 4100 } } }],
     bad: [
