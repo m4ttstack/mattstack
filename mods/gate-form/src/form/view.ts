@@ -285,7 +285,6 @@ function errorLines(form: Form, view: View): L[] {
   return [[sp(' ')], ...hang(lead, [sp<Action>('   ')], form.error, view.width, WARN)]
 }
 
-// The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
 // Chat about this, or its armed state after a first press, on every page that offers it.
 function chatButton(form: Form, s: State): Button<Action> | undefined {
   if (!canChat(form)) return undefined
@@ -386,7 +385,13 @@ function contextFit(form: Form, s: State, view: View, rows: number, turned: numb
 export function fittedLines(form: Form, s: State, view: View, rows: number, wheel?: number): Fitted {
   const wheelTurn = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt
   const { ctx, usedWheel, paged } = contextFit(form, s, view, rows, wheelTurn)
-  const kept = { ...(wheel !== undefined && { wheelAt: wheel }), ...(ctx && { ctxTop: ctx.top }), contextPaged: paged }
+  // The stored offset is clamped at the width the box is drawn, so scrolling back up never turns through dead rows.
+  const keptAt = (width: number) => ({
+    ...(wheel !== undefined && { wheelAt: wheel }),
+    ...(ctx && { ctxTop: Math.min(ctx.top, Math.max(0, contextBody(form.context ?? '', width - BOX_CELLS).length - ctx.cap)) }),
+    contextPaged: paged,
+  })
+  const kept = keptAt(view.width)
   const full = draw(form, s, view, ctx)
   const room = rows - FIXED_TOP - full.foot.length
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
@@ -417,7 +422,7 @@ export function fittedLines(form: Form, s: State, view: View, rows: number, whee
   const bar = scrollBar<Action>(windowRows, region.length, top)
   // A choice's click is on the line itself (`withAction`), so the drawn line keeps it.
   const shown = region.slice(top, top + windowRows).map((line, n): L => Object.assign([...clipLine(line, inner.width), ...(bar[n] ?? [])], line.action === undefined ? {} : { action: line.action }))
-  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...kept }
+  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...keptAt(inner.width) }
 }
 
 // The window over `region` that shows the cursor's choice whole, moving as little as it can from `from`.

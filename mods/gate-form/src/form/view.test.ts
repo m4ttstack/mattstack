@@ -92,3 +92,53 @@ test('the title rides in the brand bar as mattstack · title, for a plugin form 
   expect(header(sample)).toContain(`mattstack · ${sample.title}`)
   expect(header(sample)).not.toContain('decision gate')
 })
+
+// Wheel `turns` notches down from the top, then back up, returning how many notches up changed nothing on screen.
+function deadTurnsAfterScrolling(form: Form, width: number, rows: number, turns: number): { dead: number; last: string } {
+  let s: State = { ...initial(form), wheelAt: 0 }
+  const view = { width, focused: true }
+  const text = (lines: { t: string }[][]) => lines.map(textOf).join('\n')
+  let wheel = 0
+  let shown = ''
+  const turn = (by: number) => {
+    wheel += by
+    const f = fittedLines(form, s, view, rows, wheel)
+    // As form.tsx does: a form that first lays out paged opens on its context page.
+    const page = f.contextPaged && s.contextPaged === undefined ? -1 : s.page
+    s = { ...s, ctxTop: f.ctxTop, wheelAt: f.wheelAt, pageTop: f.top, followed: f.followed, contextPaged: f.contextPaged === true, page }
+    const now = text(f.lines)
+    const moved = now !== shown
+    shown = now
+    return moved
+  }
+  for (let n = 0; n < turns; n++) turn(1)
+  const last = shown
+  let dead = 0
+  for (let n = 0; n < 5; n++) if (!turn(-1)) dead++
+  return { dead, last }
+}
+
+const longContext = Array.from({ length: 6 }, (_, n) => `Paragraph ${n + 1}. ${'word '.repeat(60).trim()} end${n + 1}`).join('\n\n')
+const oneQuestion = toForm('T', longContext, [{ id: 'a', label: 'Pick one', options: [{ value: 'x', label: 'X' }, { value: 'y', label: 'Y' }] }], 'ask') as Form
+
+test('scrolling the context box to its end and back up never turns through dead rows', () => {
+  expect(deadTurnsAfterScrolling(oneQuestion, 44, 30, 80).dead).toBe(0)
+})
+
+test('when the whole page scrolls on a narrow pane, the context still reaches its last line', () => {
+  expect(deadTurnsAfterScrolling(oneQuestion, 30, 12, 200).last).toContain('end6')
+})
+
+test('a one-question gate with run controls keeps its review page, where More actions lives', () => {
+  const gate = { ...(toForm('T', undefined, [{ id: 'a', label: 'Pick one', options: [{ value: 'x', label: 'X (Recommended)' }] }], 'gate') as Form), controls: { pause: true, goBack: [] } }
+  const next = perform({ type: 'advance' }, gate, initial(gate))!
+  expect(next.post).toBeUndefined()
+  expect(next.state.page).toBe(1)
+  expect(visibleLines(gate, next.state, VIEW, ROWS).map(textOf).join('\n')).toContain('More actions')
+})
+
+test('the context page shows the armed Chat label after a first press', () => {
+  const gate = { ...oneQuestion, source: 'gate' as const }
+  const paged: State = { ...initial(gate), contextPaged: true, page: -1, chatArmed: true }
+  expect(visibleLines(gate, paged, { width: 60, focused: true }, 14).map(textOf).join('\n')).toContain('Press again to chat')
+})

@@ -1597,7 +1597,12 @@ function contextFit(form, s, view, rows, turned) {
 function fittedLines(form, s, view, rows, wheel) {
   const wheelTurn = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt;
   const { ctx, usedWheel, paged } = contextFit(form, s, view, rows, wheelTurn);
-  const kept = { ...wheel !== undefined && { wheelAt: wheel }, ...ctx && { ctxTop: ctx.top }, contextPaged: paged };
+  const keptAt = (width) => ({
+    ...wheel !== undefined && { wheelAt: wheel },
+    ...ctx && { ctxTop: Math.min(ctx.top, Math.max(0, contextBody(form.context ?? "", width - BOX_CELLS).length - ctx.cap)) },
+    contextPaged: paged
+  });
+  const kept = keptAt(view.width);
   const full = draw(form, s, view, ctx);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
@@ -1625,7 +1630,7 @@ function fittedLines(form, s, view, rows, wheel) {
   const top = cursor === s.followed ? wheeled : followCursor(region, s, windowRows, wheeled);
   const bar = scrollBar(windowRows, region.length, top);
   const shown = region.slice(top, top + windowRows).map((line, n) => Object.assign([...clipLine(line, inner.width), ...bar[n] ?? []], line.action === undefined ? {} : { action: line.action }));
-  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...kept };
+  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...keptAt(inner.width) };
 }
 function followCursor(region, s, windowRows, from) {
   const at = s.cursor[s.page];

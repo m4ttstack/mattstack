@@ -173,7 +173,6 @@ export function answersOf(form: Form, s: State): Record<string, unknown> {
   return out
 }
 
-// Navigation only: arrows, Tab and the tab strip look around without answering anything.
 // Navigation only: arrows and Tab look around without answering anything.
 export function goTo(form: Form, s: State, page: number): State {
   const last = isSinglePage(form) ? 0 : form.questions.length
@@ -245,7 +244,6 @@ export function clickChoice(form: Form, s: State, idx: number): State {
   return { ...toggled(s, i, value), cursor }
 }
 
-// Typing into a single choice's write-in picks it.
 // Typing into a single choice's write-in picks it once the text is not blank; a free-text question is answered as typed.
 export function typeChar(form: Form, s: State, ch: string): State {
   const i = s.page
