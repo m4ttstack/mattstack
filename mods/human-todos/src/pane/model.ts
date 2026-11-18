@@ -91,7 +91,8 @@ function markFor(todo: Todo): { mark: string; tone: Tone } {
 function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButton[] {
   const ids = buttonsFor(todo)
   const main = ids.find(id => id === 'stop' || id === 'forceStop') ?? ids[0]
-  const own = ids.map((id): PaneButton => ({ id, label: LABELS[id], tone: id === main || id === 'done' ? TONES[id] : 'quiet', todoId: todo.id }))
+  const label = (id: ButtonId) => (id === 'done' && todo.doneLabel ? todo.doneLabel : LABELS[id])
+  const own = ids.map((id): PaneButton => ({ id, label: label(id), tone: id === main || id === 'done' ? TONES[id] : 'quiet', todoId: todo.id }))
   return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: 'quiet', todoId: todo.id }] : own
 }
 

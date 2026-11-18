@@ -41,3 +41,7 @@ test('a message from the pane reaches the agent; Send & mark done also finishes 
   expect(settle(t, { kind: 'message', text: 'use the staging account', done: false })).toEqual({ patch: {}, text: '#1 "Sign in": the user says: use the staging account' })
   expect(settle(t, { kind: 'message', text: 'all set', done: true })).toEqual({ patch: { status: 'done' }, text: '#1 "Sign in": the user marked it done and says: all set' })
 })
+
+test("Done on an item with a doneLabel tells the agent which words the user pressed", () => {
+  expect(settle(todo({ title: 'Sign in', doneLabel: "I've signed in" }), { kind: 'done' }).text).toBe('#1 "Sign in": the user pressed "I\'ve signed in" (done).')
+})

@@ -259,3 +259,8 @@ test('the item whose message card is open gets its draft rows, then Cancel, Send
   ])
   expect(spans[0]!.last).toBe(at + 1)
 })
+
+test("an agent's doneLabel replaces the Done button's word, and Done keeps its fill", () => {
+  const row = build([todo({ doneLabel: "I've signed in" })]).rows.find(r => r.kind === 'buttons') as { buttons: { id: string; label: string; tone: string }[] }
+  expect(row.buttons[0]).toMatchObject({ id: 'done', label: "I've signed in", tone: 'secondary' })
+})

@@ -23,6 +23,7 @@ When you need the user to do something you cannot do yourself (a command that ne
   - \`terminal\`: a command that needs their terminal (sudo, a login or password prompt). Give \`script\`; the pane offers Copy.
   - \`link\`: a step on a web page. Give \`url\`; the pane offers Open.
   - \`image\`: images for the user to look at (screenshots, captures). Give \`paths\`, one absolute path per image; the pane offers Open, which opens them all in their default image app. Use it instead of running \`open\` yourself or wrapping \`open\` in a run script.
+- Give \`doneLabel\` when finishing the step has a natural name ("I've signed in", "Approved it"); it replaces the Done button's word.
 - When the user ticks, skips or runs an item, or writes to you about it from the pane (optionally marking it done), you receive a message saying so. Do not ask them to type "done".
 - Use ${names.list} to see what is still open, and ${names.withdraw} when an item is no longer needed.`
 }
@@ -53,6 +54,10 @@ export function registerContract(on: On): void {
             description: 'For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp, svg); Open opens them all in the default image app',
           },
           cwd: { type: 'string', description: 'For kind run: directory to run in; defaults to the session cwd' },
+          doneLabel: {
+            type: 'string',
+            description: 'Optional words for the Done button, saying what finishing this step means, e.g. "I\'ve signed in" or "Approved it". Two to four words; plain Done when left out.',
+          },
         },
         required: ['kind', 'title'],
       },

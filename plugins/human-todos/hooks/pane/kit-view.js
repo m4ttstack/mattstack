@@ -864,6 +864,7 @@ function checkKind(input) {
   }
   return;
 }
+var DONE_LABEL_MAX = 32;
 function toTodo(id, input) {
   const hasScript = input.kind === "run" || input.kind === "terminal";
   return {
@@ -875,7 +876,8 @@ function toTodo(id, input) {
     ...hasScript && input.script !== undefined && { script: input.script },
     ...input.kind === "link" && input.url !== undefined && { url: input.url },
     ...input.kind === "image" && input.paths !== undefined && { paths: [...input.paths] },
-    ...input.kind === "run" && input.cwd !== undefined && { cwd: input.cwd }
+    ...input.kind === "run" && input.cwd !== undefined && { cwd: input.cwd },
+    ...input.doneLabel?.trim() && { doneLabel: input.doneLabel.trim().slice(0, DONE_LABEL_MAX) }
   };
 }
 function buttonsFor(todo) {
@@ -1035,7 +1037,8 @@ function markFor(todo) {
 function buttonsOf(todo, messages, isComposing = false) {
   const ids = buttonsFor(todo);
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
-  const own = ids.map((id) => ({ id, label: LABELS[id], tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
+  const label = (id) => id === "done" && todo.doneLabel ? todo.doneLabel : LABELS[id];
+  const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
   return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
 }
 var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));

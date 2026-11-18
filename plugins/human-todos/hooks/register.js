@@ -607,6 +607,7 @@ function checkKind(input) {
   }
   return;
 }
+var DONE_LABEL_MAX = 32;
 function toTodo(id, input) {
   const hasScript = input.kind === "run" || input.kind === "terminal";
   return {
@@ -618,7 +619,8 @@ function toTodo(id, input) {
     ...hasScript && input.script !== undefined && { script: input.script },
     ...input.kind === "link" && input.url !== undefined && { url: input.url },
     ...input.kind === "image" && input.paths !== undefined && { paths: [...input.paths] },
-    ...input.kind === "run" && input.cwd !== undefined && { cwd: input.cwd }
+    ...input.kind === "run" && input.cwd !== undefined && { cwd: input.cwd },
+    ...input.doneLabel?.trim() && { doneLabel: input.doneLabel.trim().slice(0, DONE_LABEL_MAX) }
   };
 }
 function buttonsFor(todo) {
@@ -1286,7 +1288,7 @@ function settle(todo, outcome, log) {
   const output = `Output: ${outputLine(log)}`;
   switch (outcome.kind) {
     case "done":
-      return { patch: { status: "done" }, text: `${who}: the user marked it done.` };
+      return { patch: { status: "done" }, text: todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` };
     case "skipped":
       return { patch: { status: "skipped" }, text: `${who}: the user skipped it.` };
     case "message":
@@ -1854,7 +1856,8 @@ function markFor(todo) {
 function buttonsOf(todo, messages, isComposing = false) {
   const ids = buttonsFor(todo);
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
-  const own = ids.map((id) => ({ id, label: LABELS[id], tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
+  const label = (id) => id === "done" && todo.doneLabel ? todo.doneLabel : LABELS[id];
+  const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
   return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
 }
 var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
@@ -2410,6 +2413,7 @@ When you need the user to do something you cannot do yourself (a command that ne
   - \`terminal\`: a command that needs their terminal (sudo, a login or password prompt). Give \`script\`; the pane offers Copy.
   - \`link\`: a step on a web page. Give \`url\`; the pane offers Open.
   - \`image\`: images for the user to look at (screenshots, captures). Give \`paths\`, one absolute path per image; the pane offers Open, which opens them all in their default image app. Use it instead of running \`open\` yourself or wrapping \`open\` in a run script.
+- Give \`doneLabel\` when finishing the step has a natural name ("I've signed in", "Approved it"); it replaces the Done button's word.
 - When the user ticks, skips or runs an item, or writes to you about it from the pane (optionally marking it done), you receive a message saying so. Do not ask them to type "done".
 - Use ${names.list} to see what is still open, and ${names.withdraw} when an item is no longer needed.`;
 }
@@ -2437,7 +2441,11 @@ function registerContract(on) {
             items: { type: "string" },
             description: "For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp, svg); Open opens them all in the default image app"
           },
-          cwd: { type: "string", description: "For kind run: directory to run in; defaults to the session cwd" }
+          cwd: { type: "string", description: "For kind run: directory to run in; defaults to the session cwd" },
+          doneLabel: {
+            type: "string",
+            description: `Optional words for the Done button, saying what finishing this step means, e.g. "I've signed in" or "Approved it". Two to four words; plain Done when left out.`
+          }
         },
         required: ["kind", "title"]
       }
