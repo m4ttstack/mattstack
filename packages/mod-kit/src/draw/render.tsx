@@ -1,6 +1,6 @@
 import type { ClientElements } from 'claude-code'
 
-import { CURSOR_ROW, hovered, muted, pressed } from './theme'
+import { CURSOR_ROW, CURSOR_ROW_PRESS, hovered, muted, pressed } from './theme'
 import { lineHoverKey, spanHoverKey, type Line, type Span, type Style } from './text'
 
 // `hover` and `pressed` are hover keys (hoverKeyAt): the control under the pointer, and the one held down.
@@ -13,8 +13,11 @@ function isControl<A>(span: Span<A>, line: Line<A>, row: number, key: string): b
 
 function styleOf<A>(span: Span<A>, line: Line<A>, row: number, look: Look): Style {
   if (!look.focused) return muted(span)
+  // A row-tinted choice lights and presses as one row; a span with a fill of its own (the write-in field) keeps it.
+  const ownFill = span.bg !== undefined && span.bg !== CURSOR_ROW
+  if (span.rowTint && look.pressed !== undefined && lineHoverKey(line) === look.pressed) return ownFill ? span : { ...span, bg: CURSOR_ROW_PRESS }
   if (look.pressed !== undefined && isControl(span, line, row, look.pressed)) return pressed(span)
-  if (span.rowTint && look.hover !== undefined && lineHoverKey(line) === look.hover) return span.bg ? span : { ...span, bg: CURSOR_ROW }
+  if (span.rowTint && look.hover !== undefined && lineHoverKey(line) === look.hover) return ownFill ? span : { ...span, bg: CURSOR_ROW }
   if (look.hover !== undefined && isControl(span, line, row, look.hover)) return hovered(span)
   return span
 }

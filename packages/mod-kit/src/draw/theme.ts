@@ -135,6 +135,8 @@ export function keySelected<A>(span: Span<A>): Span<A>[] {
 
 // The row the keyboard is on in a list of options, tinted behind its text.
 export const CURSOR_ROW = '#2e2e2e'
+// The same row held down, by a click or by Enter: a step darker, so the press reads across the whole row.
+export const CURSOR_ROW_PRESS = '#232323'
 
 export const ACCENT: Style = { color: 'cyan' }
 export const GRAY: Style = { color: 'gray' }

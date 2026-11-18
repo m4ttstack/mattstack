@@ -1,5 +1,5 @@
 import { hang, sp, widthOf, withAction, type Line, type Span } from '../draw/text'
-import { ACCENT, CURSOR_ROW, DIM, DONE, SYMBOL, pressed } from '../draw/theme'
+import { ACCENT, CURSOR_ROW, CURSOR_ROW_PRESS, DIM, DONE, SYMBOL } from '../draw/theme'
 import { inputField } from './input-field'
 
 export type Choice = { label: string; description?: string; isWriteIn?: boolean }
@@ -19,7 +19,7 @@ export type SelectSpec<A> = {
   rail?: boolean
   // A blank row between choices, for a list with room to breathe.
   spaced?: boolean
-  // A key's activation of the cursor's choice is showing (KitUi `keyPressing`): its label draws pressed, as a click's would.
+  // A key's activation of the cursor's choice is showing (KitUi `keyPressing`): its row draws pressed, as a click's would.
   pressing?: boolean
 }
 
@@ -41,7 +41,8 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
     const idx = start + n
     if (spec.spaced && n > 0) lines.push(blank())
     const rows = choice.isWriteIn ? choiceRows(choice, idx, spec) : padded(choiceRows(choice, idx, spec))
-    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width)) : rows.map(line => hoverTinted(line, spec.width)), spec.actionFor(idx)))
+    const fill = spec.pressing ? CURSOR_ROW_PRESS : CURSOR_ROW
+    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width, fill)) : rows.map(line => hoverTinted(line, spec.width)), spec.actionFor(idx)))
   })
   const below = total - start - shown.length
   if (below > 0) lines.push([bar, sp(`  ↓ ${below} more`, DIM)])
@@ -64,15 +65,15 @@ function choiceRows<A>(choice: Choice, idx: number, spec: SelectSpec<A>): Line<A
   const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { bold: true }) : sp('  '), choiceMark(spec, idx), sp(gap)]
   const under = [bar, sp(`   ${gap}`)]
   const rows = choiceLines(choice, idx, spec, lead, under)
-  return isAt && spec.pressing ? rows.map(line => line.map(span => ((span as { isLabel?: boolean }).isLabel ? pressed(span) : span))) : rows
+  return rows
 }
 
 // The cursor's row, tinted from after the rail to the list's right edge; a span with its own fill (the write-in field) keeps it.
-function tinted<A>(line: Line<A>, width: number): Line<A> {
+function tinted<A>(line: Line<A>, width: number, fill: string): Line<A> {
   const [rail, ...rest] = line
-  const filled = rest.map(span => (span.bg ? span : { ...span, bg: CURSOR_ROW }))
+  const filled = rest.map(span => (span.bg ? span : { ...span, bg: fill, rowTint: true }))
   const room = Math.max(0, width - widthOf(line))
-  return [rail!, ...filled, ...(room > 0 ? [sp<A>(' '.repeat(room), { bg: CURSOR_ROW })] : [])]
+  return [rail!, ...filled, ...(room > 0 ? [sp<A>(' '.repeat(room), { bg: fill, rowTint: true })] : [])]
 }
 
 // A choice the pointer is over looks like the cursor's: its rows carry the row tint for the renderer to show on hover,

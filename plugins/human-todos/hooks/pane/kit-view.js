@@ -232,6 +232,7 @@ function keySelected(span) {
   return markButtonAt([span], 0);
 }
 var CURSOR_ROW = "#2e2e2e";
+var CURSOR_ROW_PRESS = "#232323";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -539,10 +540,13 @@ function isControl(span, line, row, key) {
 function styleOf(span, line, row, look) {
   if (!look.focused)
     return muted(span);
+  const ownFill = span.bg !== undefined && span.bg !== CURSOR_ROW;
+  if (span.rowTint && look.pressed !== undefined && lineHoverKey(line) === look.pressed)
+    return ownFill ? span : { ...span, bg: CURSOR_ROW_PRESS };
   if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
     return pressed(span);
   if (span.rowTint && look.hover !== undefined && lineHoverKey(line) === look.hover)
-    return span.bg ? span : { ...span, bg: CURSOR_ROW };
+    return ownFill ? span : { ...span, bg: CURSOR_ROW };
   if (look.hover !== undefined && isControl(span, line, row, look.hover))
     return hovered(span);
   return span;
