@@ -114,12 +114,7 @@ function contextBox(context: string, width: number, ctx: CtxView): L[] {
     const pad = Math.max(0, inner - widthOf(text))
     return [...text, ...(body.length > cap ? [sp<Action>(' '.repeat(pad)), ...bar[n]!] : [])]
   })
-  if (body.length <= cap) return lines
-  const below = body.length - top - cap
-  const where = below > 0 ? `↓ ${below} more line${below === 1 ? '' : 's'}` : `↑ ${top} line${top === 1 ? '' : 's'} above`
-  const keys = 'shift+↑↓ or wheel'
-  const gapCells = Math.max(2, width - widthOf([sp(where), sp(keys)]))
-  return [...lines, [sp(where, DIM), sp(' '.repeat(gapCells)), sp(keys, GRAY)]]
+  return lines
 }
 
 function answerSummary(q: FormQuestion, s: State, i: number): string {
@@ -294,7 +289,7 @@ function errorLines(form: Form, view: View): L[] {
 // The context page, a preface: how many questions follow, the context, then the first question named above Start.
 function contextPage(form: Form, s: State, view: View, head: L[], ctx: CtxView): Drawn<Action> {
   const n = form.questions.length
-  head.splice(head.length - 1, 1, [sp(`${n} question${n === 1 ? '' : 's'} after this`, DIM)], BLANK)
+  head.push([sp(`${n} question${n === 1 ? '' : 's'} after this`, DIM)], BLANK)
   const start: Button<Action> = { label: 'Start →', action: { type: 'page', page: 0 }, tone: 'secondary' }
   const aside: Button<Action> | undefined = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' } : undefined
   const line = buttonRow([start], aside, view.width, 2)
@@ -305,13 +300,13 @@ function contextPage(form: Form, s: State, view: View, head: L[], ctx: CtxView):
 }
 
 function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
-  const head: L[] = [brandBar<Action>(form.source === 'plugin' ? 'mattstack' : 'mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(form.title, { bold: true })]]
+  // The title rides in the brand bar, so the context and the form get its rows.
+  const head: L[] = [brandBar<Action>(`mattstack · ${form.title}`, view.width, { type: 'hide' }), BLANK]
   if (s.phase !== 'active' || form.status !== 'open') return { head, page: closedPage(form, s, view), foot: [] }
   const gap = BLANK
-  head.push(gap)
   if (isContextPage(s) && form.context && !isConfirm(form)) return contextPage(form, s, view, head, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 })
   if (form.context && isConfirm(form)) head.push(...hang<Action>([], [], contextText(form.context), view.width))
-  else if (form.context && !s.contextPaged) head.push([sp('CONTEXT', GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width))
+  else if (form.context && !s.contextPaged) head.push(...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width))
   if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, view) }
 
   const q = form.questions[s.page]
@@ -362,10 +357,10 @@ function contextFit(form: Form, s: State, view: View, rows: number, turned: numb
   const room = rows - bare.head.length - pageRows - bare.foot.length
   const scrolled = (cap: number) => ({ cap, top: Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), Math.max(0, total - cap)) })
   if (total <= Math.max(MIN_CTX, room)) return { ctx: { cap: total, top: 0 }, usedWheel: false, paged: false }
-  if (room - 1 >= CTX_FLOOR) return { ctx: scrolled(room - 1), usedWheel: true, paged: false }
+  if (room >= CTX_FLOOR) return { ctx: scrolled(room), usedWheel: true, paged: false }
   if (!isContextPage(s)) return { usedWheel: false, paged: true }
   const page = draw(form, s, view, { cap: 0, top: 0 })
-  const cap = Math.max(MIN_CTX, rows - page.head.length - page.foot.length - 1)
+  const cap = Math.max(MIN_CTX, rows - page.head.length - page.foot.length)
   return { ctx: total <= cap ? { cap: total, top: 0 } : scrolled(cap), usedWheel: total > cap, paged: true }
 }
 
