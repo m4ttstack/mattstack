@@ -110,6 +110,26 @@ test('a relayed gate the shepherd answered with herd_gate_answer closes without 
   expect(w.sent).toEqual([])
 })
 
+test('a relayed gate the form cannot draw passes through untouched, with no band, so the shepherd falls back to AskUserQuestion', async ($, on) => {
+  const broken = { ...relayResult('g1'), kitForm: { questions: [], controls: { pause: false, goBack: [] } } }
+  const w = world(on, { reply: () => ({ text: JSON.stringify(broken) }) })
+  await drawOn($, 'terminal')
+  const out = await present($, 'g1')
+  expect(JSON.parse(resultText(out))).toEqual(broken)
+  expect(w.panes.size).toBe(0)
+  expect(w.toasts).toEqual([])
+  expect(w.waits).toEqual([])
+})
+
+test('a spilled relay result passes through untouched and draws nothing', async ($, on) => {
+  const w = world(on, { reply: () => ({ text: 'Output saved to /tmp/spill.json' }), files: { '/tmp/spill.json': JSON.stringify(relayResult('g1')) } })
+  await drawOn($, 'terminal')
+  const out = await present($, 'g1')
+  expect(resultText(out)).toBe('Output saved to /tmp/spill.json')
+  expect(w.panes.size).toBe(0)
+  expect(w.ran).toEqual([])
+})
+
 test('with rt.gates.kitForm off, herd_gate_present passes through untouched', async ($, on) => {
   const w = world(on, { ...presentEach, setting: 'off' })
   await drawOn($, 'terminal')

@@ -1412,6 +1412,8 @@ async function takeGate($, e, next, present = false) {
   const kind = present && kit.kind === "kit" ? kit.fields.kind : e.kind;
   const title = typeof kind === "string" && kind.trim() !== "" ? kind : GATE_TITLE;
   const kindText = typeof kind === "string" ? kind : "";
+  if (present && (kit.kind !== "kit" || typeof gateForm(kit.fields, GATE_TITLE) === "string"))
+    return out;
   if (kit.kind === "kit") {
     const gateId = kit.fields.id;
     if (typeof gateId !== "string" || gateId === "")

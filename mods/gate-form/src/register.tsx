@@ -477,6 +477,9 @@ async function takeGate($: EngineInterface, e: ToolCallInput, next: Next, presen
   const kind = present && kit.kind === 'kit' ? kit.fields.kind : (e as unknown as { kind?: unknown }).kind
   const title = typeof kind === 'string' && kind.trim() !== '' ? kind : GATE_TITLE
   const kindText = typeof kind === 'string' ? kind : ''
+  // A presented gate is a worker's, not this agent's to hold on: one the form can't take goes back untouched,
+  // so the shepherd presents it another way and keeps presenting the rest.
+  if (present && (kit.kind !== 'kit' || typeof gateForm(kit.fields, GATE_TITLE) === 'string')) return out
   if (kit.kind === 'kit') {
     const gateId = kit.fields.id
     if (typeof gateId !== 'string' || gateId === '') return out
