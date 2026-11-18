@@ -570,6 +570,28 @@ describe("nextStage applies a pending redo", () => {
     expect(tables(db)).toBe(before);
   });
 
+  test("after two same-stage redos, only the latest one replays", () => {
+    const db = runAt("implement");
+    redo(db, "implement", "implement");
+    expect(nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 200 })).toMatchObject({ ended: "redirected", next: { attempt: 2 } });
+    const sel = (a: number) =>
+      JSON.parse((db.query("SELECT selection FROM decisions WHERE scope = ?").get(`redirect:implement:${a}`) as { selection: string }).selection);
+    expect(sel(1)).toMatchObject({ toAttempt: 2 });
+    expect(
+      fieldSet(db, "redo", JSON.stringify({ gate: "g2", to: "implement", note: "rename it", headCommit: "def5678", by: "console", at: 250 }), "implement", 250).ok,
+    ).toBe(true);
+    const second = nextStage(db, { stage: "implement", attempt: 2, env: {}, now: 300 });
+    expect(second).toMatchObject({ ended: "redirected", gate: "g2", note: "rename it", next: { attempt: 3 } });
+    const before = tables(db);
+    expect(nextStage(db, { stage: "implement", attempt: 1, env: {}, now: 400 })).toEqual({
+      ok: false,
+      code: 2,
+      error: "stage implement is at attempt 3; this call was for attempt 1",
+    });
+    expect(nextStage(db, { stage: "implement", attempt: 2, env: {}, now: 400 })).toEqual({ ...(second as object), repeated: true } as never);
+    expect(tables(db)).toBe(before);
+  });
+
   test("a replay naming the redone attempt survives an unrelated field write", () => {
     const db = runAt("implement");
     redo(db, "implement", "implement");

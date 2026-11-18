@@ -304,8 +304,9 @@ export function nextStage(db: Database, o: { stage: string; attempt?: number; en
           const r = must(holdInTx(db, { stage: o.stage, reason, decidedBy: redo.by, extra: { note: redo.note, gate: redo.gate }, now }));
           return { ok: true, ended: "held", at: r.at, reason, redo: redo.gate };
         }
+        const toAttempt = (positionOf(db, redo.to)?.attempt ?? 0) + 1;
         const r = must(
-          redirectInTx(db, { stage: o.stage, to: redo.to, note: redo.note, decidedBy: redo.by, extra: { gate: redo.gate, headCommit: redo.headCommit }, env: o.env, now }),
+          redirectInTx(db, { stage: o.stage, to: redo.to, note: redo.note, decidedBy: redo.by, extra: { gate: redo.gate, headCommit: redo.headCommit, toAttempt }, env: o.env, now }),
         );
         return { ok: true, ended: "redirected", from: o.stage, next: r.next, note: redo.note, headCommit: redo.headCommit, gate: redo.gate, cleared: r.cleared };
       }
@@ -370,17 +371,29 @@ function redirectedTo(db: Database, stage: string, attempt: number): string | nu
 }
 
 /** The console Redo that redirected this attempt, read back from its decision. */
-function appliedRedo(db: Database, stage: string, attempt: number): { to: string; reason: string; gate: string; headCommit: string | null } | null {
+function appliedRedo(
+  db: Database,
+  stage: string,
+  attempt: number,
+): { to: string; reason: string; gate: string; headCommit: string | null; toAttempt: number | null } | null {
   const s = redirectSelection(db, stage, attempt);
   if (!s || typeof s.gate !== "string" || typeof s.to !== "string" || typeof s.reason !== "string") return null;
-  return { to: s.to, reason: s.reason, gate: s.gate, headCommit: typeof s.headCommit === "string" ? s.headCommit : null };
+  return {
+    to: s.to,
+    reason: s.reason,
+    gate: s.gate,
+    headCommit: typeof s.headCommit === "string" ? s.headCommit : null,
+    toAttempt: typeof s.toAttempt === "number" ? s.toAttempt : null,
+  };
 }
 
-/** Replays the console Redo that redirected `attempt`, while the run still sits at its target. */
+/** Replays the console Redo that redirected `attempt`, while the attempt it started is still the
+    target's latest and running. A decision from before `toAttempt` was recorded checks only the target. */
 function redoReplay(db: Database, manifest: ManifestStage[], currentStage: string | null, stage: string, attempt: number): Ok<NextResult> | null {
   const applied = appliedRedo(db, stage, attempt);
   const next = applied ? positionOf(db, applied.to) : null;
   if (!applied || !next || currentStage !== applied.to || next.status !== "running") return null;
+  if (applied.toAttempt !== null && next.attempt !== applied.toAttempt) return null;
   return {
     ok: true,
     ended: "redirected",
