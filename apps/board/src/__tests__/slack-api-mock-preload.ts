@@ -94,9 +94,26 @@ globalThis.fetch = (async (
         : (input as Request).url;
   if (!url.startsWith('https://slack.com/api/'))
     return realFetch(input as never, init);
+  // A token Slack has revoked: every method answers token_revoked.
+  if (
+    new Headers(init?.headers).get('authorization') === 'Bearer revoked-token'
+  )
+    return new Response(JSON.stringify({ ok: false, error: 'token_revoked' }), {
+      headers: { 'content-type': 'application/json' },
+    });
   const method = url.slice('https://slack.com/api/'.length).split('?')[0]!;
   const params: Record<string, string> = init?.body
     ? (JSON.parse(init.body as string) as Record<string, string>)
     : Object.fromEntries(new URL(url).searchParams);
+  // A token Slack accepts that lacks groups:read: it can list public
+  // channels, but the private channels the sweep also lists are refused.
+  if (
+    new Headers(init?.headers).get('authorization') ===
+      'Bearer scopeless-token' &&
+    (params.types ?? '').includes('private_channel')
+  )
+    return new Response(JSON.stringify({ ok: false, error: 'missing_scope' }), {
+      headers: { 'content-type': 'application/json' },
+    });
   return slackApi(method, params);
 }) as typeof fetch;

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import type { RtResponse } from '@mattstack/rt-client';
 import type { BoardSecretsData } from '../board-secrets.ts';
 import {
+  boardSecretsFailure,
   loadGitLabToken,
   loadSlackToken,
   loadSwitchboardAdminToken,
@@ -160,5 +161,23 @@ describe('readSwitchboardToken', () => {
     expect(
       await readSwitchboardToken(daemonDeps({ switchboardToken: 'daemon-sb' }))
     ).toEqual({ token: 'daemon-sb', missing: false });
+  });
+});
+
+describe('boardSecretsFailure', () => {
+  test('a refused secrets read is remembered, and a good read clears it', async () => {
+    delete process.env.SLACK_TOKEN;
+    await loadSlackToken(refusedDeps('bad-token'));
+    expect(boardSecretsFailure()).toContain('bad-token');
+    await loadSlackToken(daemonDeps({ slackToken: 'xoxp' }));
+    expect(boardSecretsFailure()).toBeNull();
+  });
+
+  test('a daemon that is down or restarting is not a failure to read the token', async () => {
+    delete process.env.SLACK_TOKEN;
+    await loadSlackToken(
+      refusedDeps('rt daemon unreachable at /tmp/rt.sock: ECONNREFUSED')
+    );
+    expect(boardSecretsFailure()).toBeNull();
   });
 });

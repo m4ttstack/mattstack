@@ -385,6 +385,13 @@ export interface BoardData {
       peering never starts and no ask can arrive. Absent from an older
       server. */
   switchboardTokenMissing?: boolean;
+  /** What stops the board using Slack: Slack rejected the stored token, or
+      the secrets holding it could not be read. Null or absent when Slack
+      works or is not set up. */
+  slackIssue?:
+    | { kind: 'rejected'; error: string }
+    | { kind: 'unreadable'; detail: string }
+    | null;
   /** Board tabs, in display order. Always non-empty (config.tabs falls back to
       IMPLICIT_TABS server-side). */
   tabs: TabConfig[];

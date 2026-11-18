@@ -50,6 +50,7 @@ import { appBundleRoot } from "./bundle-layout.ts";
 import { reconcile as reconcileLinks } from "./deps/links.ts";
 import { createRealProbes } from "./setup/probes.ts";
 import { runAccountsSweep, type IntegrationTarget } from "./credential-health/sweep.ts";
+import { unreadableReason } from "./credential-health/unreadable-reason.ts";
 import { INTEGRATIONS, type ValidateCtx } from "./setup/integrations.ts";
 import type { Integration } from "./setup/contract.ts";
 import { confirmedGitlabHost } from "./setup/gitlab-host.ts";
@@ -1016,15 +1017,16 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           const targets: IntegrationTarget[] = [];
           for (const [id, def] of Object.entries(INTEGRATIONS)) {
             if (!def.secret) continue;
+            const ctx = credentialHealthCtxFor(id as Integration, team, overrides);
             let token: string | null;
             try {
               token = await readSecret(def.secret.domain, def.secret.key, accountsSecretsSeams);
             } catch (err) {
               log.warn({ err, integration: id }, "accounts-sweep: readSecret failed");
+              targets.push({ id, def, token: "", ctx, readError: unreadableReason(err) });
               continue;
             }
             if (!token) continue;
-            const ctx = credentialHealthCtxFor(id as Integration, team, overrides);
             targets.push({ id, def, token, ctx });
           }
 
