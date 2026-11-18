@@ -26,6 +26,7 @@
  * | `disable-model-invocation` | surface rows show the field on, off, locked and absent |
  * | `trial`            | `unsynced`, with the org copy on the trial branch `try-roles` |
  * | `version-stamps`   | the history gains three syncs that only moved version stamps, between two real commits, and rt reads the release commit as version-only too |
+ * | `husk`             | plan's pack commits husks: its committed file is the husk, and anatomy carries the full text |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -35,6 +36,8 @@
  * for the mode panel, story Redo and paused banner. Every other
  * scenario serves no runs.
  */
+
+import { readFileSync } from 'node:fs';
 
 export const SCENARIOS = [
   'clean',
@@ -59,6 +62,7 @@ export const SCENARIOS = [
   'disable-model-invocation',
   'trial',
   'version-stamps',
+  'husk',
   'runs',
   'runs-empty',
   'runs-outage',
@@ -85,7 +89,13 @@ interface Anatomy {
   status: string;
   staleBecause?: string[];
   template: { builtVersion: string | null };
-  rendered: { path: string; exists: boolean; lines: number };
+  rendered: {
+    path: string;
+    exists: boolean;
+    lines: number;
+    husk?: true;
+    text?: string;
+  };
   parts: Part[];
   links: unknown[];
 }
@@ -368,6 +378,44 @@ function neverCompiled(anatomy: Anatomy): Anatomy {
     rendered: { ...anatomy.rendered, exists: false, lines: 0 },
     parts: anatomy.parts.map(part => ({ ...part, renderedLines: null })),
     links: [],
+  };
+}
+
+const PLAN_RENDERED_FILE = new URL(
+  './files/packs/acme/attachments/stage-plan/SKILL.md',
+  import.meta.url
+);
+
+/** The committed husk: the compiled skill's frontmatter and the one line
+    that loads it, as rt's `huskFor` writes it. */
+function toHusk(text: string): string {
+  const end = text.indexOf('\n---\n', 4);
+  return `${text.slice(0, end + 5)}
+<!-- compiled by rt skills compile from the sources below; props pre-resolved; to change this file, edit its sources and recompile -->
+
+Before anything else, call \`mcp__mattstack__load_skill {skill: "acme:stage-plan", dir: "<this skill's directory>"}\`. What it returns is this skill's full text: follow it as the skill. If the tool says any part was saved to a file, Read that whole file first. If the call fails, stop and say so.
+`;
+}
+
+/** A husk pack: no per-file build versions, and the full text beside the
+    husk path. */
+function huskPlan(anatomy: Anatomy): Anatomy {
+  return {
+    ...anatomy,
+    template: { ...anatomy.template, builtVersion: null },
+    parts: anatomy.parts.map(part =>
+      part.source
+        ? {
+            ...part,
+            source: { ...(part.source as object), builtVersion: null },
+          }
+        : part
+    ),
+    rendered: {
+      ...anatomy.rendered,
+      husk: true,
+      text: readFileSync(PLAN_RENDERED_FILE, 'utf8'),
+    },
   };
 }
 
@@ -861,6 +909,11 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
     anatomy: { 'stage-plan': { file: PLAN_FILE, edit: neverCompiled } },
     check: planCheck('never-compiled'),
     files: { [PLAN_RENDERED]: null },
+  },
+  husk: {
+    subject: 'stage-plan',
+    anatomy: { 'stage-plan': { file: PLAN_FILE, edit: huskPlan } },
+    files: { [PLAN_RENDERED]: toHusk },
   },
   'anatomy-failed': {
     subject: 'stage-plan',

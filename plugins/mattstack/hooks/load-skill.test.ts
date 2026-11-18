@@ -83,7 +83,7 @@ test('tool.call returns result and context', async ($, on) => {
   await start($)
   const called = await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
   expect(called).toMatchObject({
-    result: `Loaded acme:work (pack 0.1.0, mattstack 0.32.76): ${BODY.length} characters in 1 parts`,
+    result: `Loaded acme:work (pack 0.1.0, mattstack 0.32.76): ${BODY.length} characters in 1 parts. Its full text follows as context: follow it as the skill. Where it says this skill's directory, use ${DIR}.`,
     context: [BODY],
   })
   expect(w.runs).toEqual([{ argv: ['rt', 'skills', 'render', 'acme:work', '--dir', DIR, '--json'], timeoutMs: 60_000 }])
@@ -94,7 +94,7 @@ test('a stale render says so in the result', async ($, on) => {
   await start($)
   const called = await $.tool.call({ tool: TOOL, skill: 'acme:work', dir: DIR })
   expect(called).toMatchObject({
-    result: `Loaded acme:work (pack 0.1.0, mattstack 0.32.76): ${BODY.length} characters in 1 parts; served the last good render: bindings.jsonc: acme:nope cannot be filled`,
+    result: `Loaded acme:work (pack 0.1.0, mattstack 0.32.76): ${BODY.length} characters in 1 parts; served the last good render: bindings.jsonc: acme:nope cannot be filled. Its full text follows as context: follow it as the skill. Where it says this skill's directory, use ${DIR}.`,
     context: [BODY],
   })
 })

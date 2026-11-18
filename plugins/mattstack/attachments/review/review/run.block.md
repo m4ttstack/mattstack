@@ -7,8 +7,9 @@ order: 1
 Outside a pipeline this verb is its own run, so the console shows it and
 the Stop hook covers its pane. `run_enter` starts, resumes or inherits the
 run, or returns the running candidates; never list, read or build run dbs
-by hand. It takes `flags` (the block below, verbatim), `skillDir` (this
-skill's directory), `stage: review`, and only when they apply: `runDb` a
+by hand. It takes `flags` (the block below, verbatim), `skillDir` (the
+folder holding the SKILL.md you are following: the `dir` you passed
+`load_skill`, or the folder of the file you read), `stage: review`, and only when they apply: `runDb` a
 caller handed you; `spawnedBy` when a surface launched this pane; `resume`,
 a review run id the caller or developer names, or the one on a handed
 `--report`'s `review-run: <run id>` line (even in a launched pane).

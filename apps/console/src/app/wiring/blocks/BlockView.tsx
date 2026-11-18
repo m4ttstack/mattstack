@@ -19,7 +19,7 @@ import classes from './blocks.module.css';
 import { BlockText, DiagramButton, FlowRow, mermaidOf } from './BlockText';
 import { BuiltFrom } from './BuiltFrom';
 import { CopyForClaude } from './CopyForClaude';
-import { DocumentCard } from './DocumentCard';
+import { DocumentCard, type DocumentView } from './DocumentCard';
 import { EveryStep } from './FlowGraph';
 import { MarkdownText } from './MarkdownText';
 import { glyphOf, labelOf, rootOf, shownLabel } from './model/blockFacts';
@@ -35,6 +35,7 @@ import {
   sharedRootOf,
   type MapGraph,
 } from './model/blockView';
+import type { RenderedSource } from './model/renderedSource';
 import { sectionsAt } from './model/sections';
 import { usedBySites } from './model/usedBy';
 import { crumbsOf, zoomOf } from './model/zoom';
@@ -81,6 +82,11 @@ export interface BlockViewProps {
   readOnly?: boolean;
   /** The file the Rendered view reads. */
   renderedPath?: string | null;
+  /** Where Rendered reads from. A husk pack's full skill comes from rt,
+      compiled from the working tree, and Husk reads the committed file at
+      `renderedPath`; until rt says which kind of pack it is, nothing is
+      shown, since the file may be only the husk. */
+  renderedSource?: RenderedSource;
   skill?: SkillHeader;
   context?: BlockContext | null;
 }
@@ -142,20 +148,43 @@ function trailOf(
 
 const HEADING_OR_GRAPH = /^#{1,6}\s.*$|```mermaid\n[\s\S]*?\n```/gm;
 
-/** The compiled file, cut to the lines a block renders to. */
+/** The compiled file, cut to the lines a block renders to. A husk pack's
+    full text comes from rt as `text`, since its committed file is the husk. */
 function RenderedText({
   pack,
   path,
+  source: from,
+  view,
   range,
 }: {
   pack: string;
   path: string | null;
+  source: RenderedSource;
+  view: DocumentView;
   range: [number, number] | null;
 }) {
-  const source = useSkillSource(pack, path);
+  const text = from.kind === 'husk' && view === 'rendered' ? from.text : null;
+  const readsFile =
+    text === null && from.kind !== 'pending' && from.kind !== 'error';
+  const source = useSkillSource(pack, readsFile ? path : null);
+  // A section's lines are cut by the blocks' ranges, so they wait for both reads to land.
+  const waiting =
+    from.kind === 'pending' ||
+    (text !== null && range !== null && from.kind === 'husk' && !from.settled);
   const { show: held, bind: heldBind } = useStepLoading(
-    path !== null && source.isPending
+    waiting || (readsFile && path !== null && source.isPending)
   );
+  if (from.kind === 'error') {
+    return (
+      <Text fz={13} c="dimmed" data-testid="block-rendered-none">
+        {`rt could not say how this skill is rendered: ${from.message}`}
+      </Text>
+    );
+  }
+  if (waiting || held) {
+    return <StepLoader {...heldBind} steps={['reading the rendered skill']} />;
+  }
+  if (text !== null) return <RenderedLines content={text} range={range} />;
   if (!path) {
     return (
       <Text fz={13} c="dimmed" data-testid="block-rendered-none">
@@ -175,7 +204,17 @@ function RenderedText({
       <StepLoader {...heldBind} steps={[`reading ${path.split('/').at(-1)}`]} />
     );
   }
-  const lines = source.data.content.split('\n');
+  return <RenderedLines content={source.data.content} range={range} />;
+}
+
+function RenderedLines({
+  content,
+  range,
+}: {
+  content: string;
+  range: [number, number] | null;
+}) {
+  const lines = content.split('\n');
   const shown = range ? lines.slice(range[0] - 1, range[1]) : lines;
   return (
     <div data-testid="block-rendered">
@@ -269,6 +308,7 @@ export function BlockView({
   patch,
   readOnly = false,
   renderedPath = null,
+  renderedSource = { kind: 'file' },
   skill,
   context = null,
 }: BlockViewProps) {
@@ -278,7 +318,13 @@ export function BlockView({
   );
   const block = zoom.level === 'skill' ? null : zoom.block;
   const root = rootOf(payload);
-  const rendered = url.view === 'rendered';
+  const huskPack = renderedSource.kind === 'husk';
+  // Husk is offered only for a husk pack's whole skill; anywhere else it reads as Rendered.
+  const view: DocumentView =
+    url.view === 'husk' && !(huskPack && zoom.level === 'skill')
+      ? 'rendered'
+      : (url.view ?? 'template');
+  const rendered = view !== 'template';
   const map = useMemo(
     () => (rendered ? null : mapGraphOf(payload, zoom, url.select)),
     [url.select, rendered, payload, zoom]
@@ -385,8 +431,9 @@ export function BlockView({
     <DocumentCard
       payload={payload}
       block={docBlock}
-      rendered={rendered}
-      onRendered={next => patch({ view: next ? 'rendered' : null })}
+      view={view}
+      onView={next => patch({ view: next === 'template' ? null : next })}
+      husk={huskPack && zoom.level === 'skill'}
       strip={zoom.level === 'block' && !headingOnly}
       note={docNote}
     >
@@ -394,7 +441,13 @@ export function BlockView({
         <RenderedText
           pack={pack}
           path={readOnly && block ? block.path : renderedPath}
-          range={block ? renderedRangeOf(payload, block) : null}
+          source={renderedSource}
+          view={view}
+          range={
+            block && view === 'rendered'
+              ? renderedRangeOf(payload, block)
+              : null
+          }
         />
       ) : (
         docText && (
