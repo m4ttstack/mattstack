@@ -231,6 +231,7 @@ function markButtonAt(line, at, focus = {}) {
 function keySelected(span) {
   return markButtonAt([span], 0);
 }
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };

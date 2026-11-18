@@ -41,7 +41,7 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
     const idx = start + n
     if (spec.spaced && n > 0) lines.push(blank())
     const rows = choice.isWriteIn ? choiceRows(choice, idx, spec) : padded(choiceRows(choice, idx, spec))
-    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width)) : rows, spec.actionFor(idx)))
+    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width)) : rows.map(line => hoverTinted(line, spec.width)), spec.actionFor(idx)))
   })
   const below = total - start - shown.length
   if (below > 0) lines.push([bar, sp(`  ↓ ${below} more`, DIM)])
@@ -73,6 +73,14 @@ function tinted<A>(line: Line<A>, width: number): Line<A> {
   const filled = rest.map(span => (span.bg ? span : { ...span, bg: CURSOR_ROW }))
   const room = Math.max(0, width - widthOf(line))
   return [rail!, ...filled, ...(room > 0 ? [sp<A>(' '.repeat(room), { bg: CURSOR_ROW })] : [])]
+}
+
+// A choice the pointer is over looks like the cursor's: its rows carry the row tint for the renderer to show on hover,
+// padded to the list's edge so the tint spans the row.
+function hoverTinted<A>(line: Line<A>, width: number): Line<A> {
+  const [rail, ...rest] = line
+  const room = Math.max(0, width - widthOf(line))
+  return [rail!, ...rest.map(span => ({ ...span, rowTint: true })), ...(room > 0 ? [sp<A>(' '.repeat(room), { rowTint: true })] : [])]
 }
 
 function choiceLines<A>(choice: Choice, idx: number, spec: SelectSpec<A>, lead: Span<A>[], under: Span<A>[]): Line<A>[] {

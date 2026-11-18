@@ -3,7 +3,8 @@ import { cellWidth, chunkCells } from './cells'
 // `quiet` marks a button drawn without a fill at rest, so the pointer states give it a fill of its own; it draws nothing itself.
 // `chip` is the fill a control drawn flat on a coloured bar takes under the pointer; it draws nothing itself.
 // `mark` is a foreground the pointer states keep, for a marker drawn inside a control; it draws nothing itself.
-export type Style = { color?: string; bg?: string; dim?: boolean; bold?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean; quiet?: boolean; chip?: string; mark?: string }
+// `rowTint`: while the pointer is over this span's line control, the span takes the keyboard cursor's row tint.
+export type Style = { color?: string; bg?: string; dim?: boolean; bold?: boolean; italic?: boolean; underline?: boolean; inverse?: boolean; quiet?: boolean; chip?: string; mark?: string; rowTint?: boolean }
 
 // A span or a whole line can carry the action a click on it performs, so a pointer handler only has to look up what it hit.
 export type Span<A> = Style & { t: string; action?: A; isLabel?: true }

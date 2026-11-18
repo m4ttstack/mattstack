@@ -505,6 +505,8 @@ function styleOf(span, line, row, look) {
     return muted(span);
   if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
     return pressed(span);
+  if (span.rowTint && look.hover !== undefined && lineHoverKey(line) === look.hover)
+    return span.bg ? span : { ...span, bg: CURSOR_ROW };
   if (look.hover !== undefined && isControl(span, line, row, look.hover))
     return hovered(span);
   return span;
@@ -687,7 +689,7 @@ function selectList(spec) {
     if (spec.spaced && n > 0)
       lines.push(blank());
     const rows = choice.isWriteIn ? choiceRows(choice, idx, spec) : padded(choiceRows(choice, idx, spec));
-    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width)) : rows, spec.actionFor(idx)));
+    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width)) : rows.map((line) => hoverTinted(line, spec.width)), spec.actionFor(idx)));
   });
   const below = total - start - shown.length;
   if (below > 0)
@@ -715,6 +717,11 @@ function tinted(line, width) {
   const filled = rest.map((span) => span.bg ? span : { ...span, bg: CURSOR_ROW });
   const room = Math.max(0, width - widthOf(line));
   return [rail, ...filled, ...room > 0 ? [sp(" ".repeat(room), { bg: CURSOR_ROW })] : []];
+}
+function hoverTinted(line, width) {
+  const [rail, ...rest] = line;
+  const room = Math.max(0, width - widthOf(line));
+  return [rail, ...rest.map((span) => ({ ...span, rowTint: true })), ...room > 0 ? [sp(" ".repeat(room), { rowTint: true })] : []];
 }
 function choiceLines(choice, idx, spec, lead, under) {
   const isAt = idx === spec.cursor;

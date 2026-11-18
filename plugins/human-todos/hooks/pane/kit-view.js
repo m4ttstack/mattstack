@@ -231,6 +231,7 @@ function markButtonAt(line, at, focus = {}) {
 function keySelected(span) {
   return markButtonAt([span], 0);
 }
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -540,6 +541,8 @@ function styleOf(span, line, row, look) {
     return muted(span);
   if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
     return pressed(span);
+  if (span.rowTint && look.hover !== undefined && lineHoverKey(line) === look.hover)
+    return span.bg ? span : { ...span, bg: CURSOR_ROW };
   if (look.hover !== undefined && isControl(span, line, row, look.hover))
     return hovered(span);
   return span;
