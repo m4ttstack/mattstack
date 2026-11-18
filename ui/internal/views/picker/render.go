@@ -98,7 +98,13 @@ func renderFrame(m *Model, target int) string {
 	top, h := m.viewport()
 	scrolling := n > h
 
-	rowWidth := m.width
+	previewW := m.previewWidth()
+	listWidth := m.width
+	if previewW > 0 {
+		listWidth = m.width - previewW - previewGap
+	}
+	bodyStart := len(lines)
+	rowWidth := listWidth
 	if scrolling {
 		rowWidth-- // last column is the thumb rail's dedicated gutter
 	}
@@ -121,6 +127,9 @@ func renderFrame(m *Model, target int) string {
 	// land on the padded rows the terminal actually paints them on, not the
 	// natural rows they would sit on unpadded.
 	y += appendInteriorFiller(&lines, target, 2) // bottom rule + keybar
+	if previewW > 0 {
+		joinPreview(m, lines[bodyStart:], listWidth, previewW)
+	}
 
 	lines = append(lines, rule(m.width))
 	y++
