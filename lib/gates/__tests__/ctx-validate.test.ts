@@ -102,6 +102,7 @@ const rejects: [string, string, (s: Src) => void, string][] = [
   ["a numeric draft comment", REVIEW, (s) => (s.questions[0].context.findings[1].comment = 5), "findings-1: findings[1].comment: non-empty string when present"],
   ["summary drafts as a string", REVIEW, (s) => (s.context.summaryComments = "Thanks."), "gate: summaryComments: object of non-blank strings when present"],
   ["a blank summary draft", REVIEW, (s) => (s.context.summaryComments = { comment: "Thanks.", approve: "  " }), "gate: summaryComments: object of non-blank strings when present"],
+  ["no-findings drafts as a string", REVIEW, (s) => (s.context.summaryNoFindingsComments = "Thanks."), "gate: summaryNoFindingsComments: object of non-blank strings when present"],
   ["editable false", REVIEW, (s) => (s.context.editable = false), "gate: editable: true when present"],
   ["null evidence", REVIEW, (s) => (s.questions[0].context.findings[0].evidence = null), "findings-1: findings[0].evidence: non-empty string when present"],
   ["an option with no entry", REVIEW, (s) => s.questions[0].options.push({ value: "f7", label: "[Minor] extra" }), "findings-1: option f7: no findings entry carries its value"],

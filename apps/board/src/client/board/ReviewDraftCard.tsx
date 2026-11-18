@@ -53,7 +53,7 @@ import {
   UndoGlyph,
 } from './icons.tsx';
 import { CommentAuthor } from './PersonLead.tsx';
-import { commentKey, hasDiffLine, summaryKey } from './review-drafts.ts';
+import { commentKey, hasDiffLine } from './review-drafts.ts';
 import { SEVERITY_LABEL } from './review-gate.ts';
 import { Sep, withSeps } from './Sep.tsx';
 
@@ -1054,19 +1054,19 @@ export function FindingCard({
 /** The review's summary line, drafted for the picked verdict, in the dock
     beside the choice that swaps it. Two lines at rest; a click opens it
     whole. A finding with no diff line edits in its own card; the poster
-    joins it in after this line. */
+    joins it in after this line. `textKey` is the form key the draft's edit
+    lives under (`summaryDraftFor`). */
 export function SummaryCard({
-  outcome,
+  textKey: key,
   draft,
   form,
   postsOn,
 }: {
-  outcome: string;
+  textKey: string;
   draft: string;
   form: GateFormState;
   postsOn?: string;
 }) {
-  const key = summaryKey(outcome);
   const { edited } = commentState(draft, form.texts[key], true);
   return (
     <section

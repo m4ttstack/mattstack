@@ -112,6 +112,10 @@ function fileErrs(f: Obj): string[] {
       () => optional(at(f, "summary"), "comments", (v) => isObject(v) && Object.values(v).every(nonBlank)),
       "summary.comments: object of non-blank strings when present",
     ),
+    ...chk(
+      () => optional(at(f, "summary"), "noFindingsComments", (v) => isObject(v) && Object.values(v).every(nonBlank)),
+      "summary.noFindingsComments: object of non-blank strings when present",
+    ),
     ...chk(() => Array.isArray(at(f, "findings")), "findings: required array"),
     ...chk(() => optional(f, "re_review", (v) => typeof v === "boolean"), "re_review: boolean when present"),
     ...chk(
@@ -150,6 +154,17 @@ function draftErrs(x: Obj, f: Obj): string[] {
             [...want].every((v) => typeof v === "string" && Object.hasOwn(c, v))
           );
         }, `editable: summary.comments needs exactly one line per outcome option: ${values.map(tostring).join(", ")}`)),
+    ...(outcome.length === 0 || !isObject(at(f, "summary")) || !jqHas(at(f, "summary"), "noFindingsComments")
+      ? []
+      : chk(() => {
+          const c = at(f, "summary", "noFindingsComments");
+          const want = new Set(values);
+          return (
+            isObject(c) &&
+            Object.keys(c).length === want.size &&
+            [...want].every((v) => typeof v === "string" && Object.hasOwn(c, v))
+          );
+        }, `editable: summary.noFindingsComments needs exactly one line per outcome option when present: ${values.map(tostring).join(", ")}`)),
   ];
 }
 
@@ -372,6 +387,7 @@ export function buildReviewSource(findings: Record<string, unknown>, extras: Rec
     ...pick(f, ["re_review", "prior"]),
     ...(x.editable === true ? { editable: true } : {}),
     ...(jqHas(f.summary, "comments") ? { summaryComments: f.summary.comments } : {}),
+    ...(jqHas(f.summary, "noFindingsComments") ? { summaryNoFindingsComments: f.summary.noFindingsComments } : {}),
   };
   const threadQs = (entries(f, "threads") as Obj[]).map((t, i) => threadQuestion(t, i + 1));
   const findingQs = chunks(ordered, 4).map((chunk, i) => ({
