@@ -377,8 +377,16 @@ export async function askGate(
   const paneId = await liveSelfPaneId(env);
   if (paneId) payload.paneId = paneId;
   const controls = runControls(run);
+  const formContext = prefixed(lead, "formContext" in extra
+    ? extra.formContext
+    : context !== undefined ? flattenContext(context, { level: "gate" }) : undefined);
   const meta: Record<string, unknown> = {};
-  if (input.kitForm === true && !preAnswer && kitFormReadsOn(deps)) {
+  // A herd job's gate is drawn in its shepherd's kit form: the stored copy is what herd_gate_present hands back.
+  const relay = typeof env.HERD_JOB === "string" && env.HERD_JOB !== "" && !preAnswer;
+  if (relay) {
+    payload.shepherdRelay = true;
+    meta.kitForm = kitFormOf(questions, formContext, controls, extra.proseById);
+  } else if (input.kitForm === true && !preAnswer && kitFormReadsOn(deps)) {
     payload.kitForm = true;
     // The gate-form mod rebuilds a form from the listed row after a restart; the row is the only place it can read these.
     meta.kitControls = controls;
@@ -426,22 +434,29 @@ export async function askGate(
     }
   }
 
-  const formContext = prefixed(lead, "formContext" in extra
-    ? extra.formContext
-    : context !== undefined ? flattenContext(context, { level: "gate" }) : undefined);
   const kit = paneAction === "kit";
   const result: Record<string, unknown> = { ...data, paneAction, formChunks: shaped && !kit ? formChunks(questions, extra.proseById) : [] };
   if (formContext !== undefined) result.formContext = formContext;
   if (truncated.length > 0) result.labelsTruncated = truncated;
   if (runErrors.length > 0) result.runErrors = runErrors;
-  if (kit) {
-    result.kitForm = {
-      questions: extra.proseById ? withPaneProse(questions, extra.proseById) : questions,
-      ...(formContext !== undefined ? { context: formContext } : {}),
-      controls,
-    };
-  }
+  if (kit) result.kitForm = kitFormOf(questions, formContext, controls, extra.proseById);
   return ok(result);
+}
+
+export type KitFormPayload = { questions: GateQuestion[]; context?: string; controls: { pause: boolean; goBack: string[] } };
+
+/** The form a kit gate draws: the worker's pane reads it from the result, the shepherd's from the stored row. */
+export function kitFormOf(
+  questions: GateQuestion[],
+  formContext: string | undefined,
+  controls: { pause: boolean; goBack: string[] },
+  proseById?: Record<string, string>,
+): KitFormPayload {
+  return {
+    questions: proseById ? withPaneProse(questions, proseById) : questions,
+    ...(formContext !== undefined ? { context: formContext } : {}),
+    controls,
+  };
 }
 
 /** Each question's context swapped for the pane's fitted prose, and left out where the budget dropped it. */

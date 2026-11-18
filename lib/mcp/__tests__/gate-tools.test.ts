@@ -1355,6 +1355,59 @@ describe("kit forms", () => {
     });
   });
 
+  describe("a herd worker's gate", () => {
+    const HERD = { ...HERDR, HERD_JOB: "j1" } as NodeJS.ProcessEnv;
+    const WAIT = { kitOn: true, askData: { presentation: "wait" as const } };
+
+    test("sends shepherdRelay, not kitForm, stores the kit form and waits", async () => {
+      const f = fake(WAIT);
+      const questions = [q("q1")];
+      const res = await askGate({ questions, context: "Why", kitForm: true }, HERD, f.deps);
+      expect(f.asks[0]!.shepherdRelay).toBe(true);
+      expect("kitForm" in f.asks[0]!).toBe(false);
+      expect((f.asks[0]!.meta as Record<string, unknown>).kitForm).toEqual({ questions, context: "Why", controls: { pause: false, goBack: [] } });
+      expect(body(res).paneAction).toBe("wait");
+      expect("kitForm" in body(res)).toBe(false);
+    });
+
+    test("without kitForm input, or with the setting off, still relays and stores the form", async () => {
+      for (const [kitOn, input] of [[true, {}], [false, { kitForm: true }]] as const) {
+        const f = fake({ ...WAIT, kitOn });
+        await askGate({ questions: [q("q1")], context: "Why", ...input }, HERD, f.deps);
+        expect(f.asks[0]!.shepherdRelay).toBe(true);
+        expect((f.asks[0]!.meta as Record<string, unknown>).kitForm).toBeDefined();
+      }
+    });
+
+    test("gate_open stores the pane-fitted prose, as the kit result would carry it", async () => {
+      const relayed = fake(WAIT);
+      const drawn = fake(KIT);
+      await tool("gate_open", relayed.deps).handler({ kind: "respond-plan", source: plan(), kitForm: true }, HERD);
+      const kit = await tool("gate_open", drawn.deps).handler({ kind: "respond-plan", source: plan(), kitForm: true }, ENV);
+      expect((relayed.asks[0]!.meta as Record<string, unknown>).kitForm).toEqual(body(kit).kitForm);
+    });
+
+    test("a preAnswered gate stores no kit form and does not relay", async () => {
+      const recQ = q("q1", [{ value: "yes", label: "Yes", recommended: true }, { value: "no", label: "No" }]);
+      const f = fake({
+        gateMode: { mode: "quiet" }, fields: [{ key: "worktree", value: "/trees/w1", at: 1 }],
+        askData: { preAnswered: true, row: row({ answer: { answers: { q1: "yes" }, by: "mode:quiet", answeredAt: 2000 } }) },
+      });
+      await askGate({ questions: [recQ], context: "ctx", kind: "ci:ship:1", reach: "worktree", ...RUN }, HERD, f.deps);
+      expect(f.asks[0]!.preAnswer).toBeDefined();
+      expect("shepherdRelay" in f.asks[0]!).toBe(false);
+      expect("kitForm" in ((f.asks[0]!.meta ?? {}) as object)).toBe(false);
+    });
+
+    test("outside a herd, the payload carries no relay and no stored form", async () => {
+      const f = fake(KIT);
+      await askGate({ questions: [q("q1")], context: "Why", kitForm: true }, { ...HERDR, HERD_JOB: "" } as NodeJS.ProcessEnv, f.deps);
+      expect("shepherdRelay" in f.asks[0]!).toBe(false);
+      expect(f.asks[0]!.kitForm).toBe(true);
+      expect("kitForm" in (f.asks[0]!.meta as object)).toBe(false);
+    });
+  });
+
   describe("a run-control answer", () => {
     const held = (answers: Record<string, unknown>, questions = [q("q1")]) =>
       row({ questions, answer: { answers, by: "pane", answeredAt: 2000 } } as Partial<GateRow>);
