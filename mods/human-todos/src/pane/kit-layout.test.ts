@@ -180,7 +180,7 @@ test('in keyboard mode the selected item carries the pink rail in its gutter and
     expect(line[0]!.t === SYMBOL.bar && line[0]!.color === BRAND.pink, `row ${n}`).toBe(inItem)
   })
   expect(lines[range.first]!.find(s => s.t === '○')?.color).toBe(BRAND.pink)
-  const edge = lines.flat().find(s => s.t === SYMBOL.selectEdge)
+  const edge = lines.flat().find(s => s.t.startsWith(SYMBOL.selectEdge))
   expect(edge).toMatchObject({ bold: true })
   expect(edge!.color).toBeUndefined()
   expect(edge!.action).toBeUndefined()

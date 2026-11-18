@@ -119,6 +119,14 @@ describe('keySelected', () => {
     expect(out[0]!.action).toBeUndefined()
   })
 
+  test('markButtonAt looks past empty spans to the indent, so the first button of a row does not shift', () => {
+    const button = buttonSpan({ label: 'Done', action: 'done', tone: 'primary' })
+    const line = [sp('    '), sp(''), button]
+    const out = markButtonAt(line, 2)
+    expect(widthOf(out)).toBe(widthOf(line))
+    expect(out.map(s => s.t).join('')).toBe(`  ${SYMBOL.selectEdge} ${button.t}`)
+  })
+
   test('markButtonAt on a line with no such span is left as it is', () => {
     const line = [sp('x')]
     expect(markButtonAt(line, 3)).toBe(line)
