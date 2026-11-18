@@ -238,3 +238,24 @@ test('messageOf gives each button the one message both drawers act on', () => {
   expect(messageOf({ id: 'more', todoId: '3' })).toEqual({ type: 'toggle', id: '3' })
   expect(messageOf({ id: 'clear' })).toEqual({ type: 'clear' })
 })
+
+test('in the kit drawer an open item ends its row with the message button; the plain drawer has none', () => {
+  const kit = paneModel({ list: [todo({})], expanded: [], spin: '⠋', width: 38, messages: true })
+  const ids = (rows: PaneRow[]) => rows.flatMap(r => (r.kind === 'buttons' ? r.buttons.map(b => b.id) : []))
+  expect(ids(kit.rows)).toEqual(['done', 'skip', 'message'])
+  expect(ids(build([todo({})]).rows)).toEqual(['done', 'skip'])
+  expect(ids(paneModel({ list: [todo({ status: 'running', runner: 'local' })], expanded: [], spin: '⠋', width: 38, messages: true }).rows)).not.toContain('message')
+})
+
+test('the item whose message row is open gets the field and Send, Send & mark done and Cancel under its buttons', () => {
+  const { rows, spans } = paneModel({ list: [todo({})], expanded: [], spin: '⠋', width: 38, messages: true, composing: '1' })
+  const at = rows.findIndex(r => r.kind === 'input')
+  expect(rows[at]).toEqual({ kind: 'input', todoId: '1' })
+  const after = rows[at + 1]
+  expect(after?.kind === 'buttons' && after.buttons.map(b => [b.id, b.label])).toEqual([
+    ['send', 'Send'],
+    ['sendDone', 'Send & mark done'],
+    ['cancelMessage', 'Cancel'],
+  ])
+  expect(spans[0]!.last).toBe(at + 1)
+})

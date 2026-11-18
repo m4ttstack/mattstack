@@ -9,6 +9,8 @@ import { syncSpinner } from './spinner'
 export const todos = atom({ plugin: 'human-todos', key: 'todos' } as const, [] as Todo[], { shape: 'todos-1' })
 export const nextId = atom({ plugin: 'human-todos', key: 'nextId' } as const, 1)
 export const expanded = atom({ plugin: 'human-todos', key: 'expanded' } as const, [] as string[])
+// The item whose message row is open, at most one at a time.
+export const composing = atom({ plugin: 'human-todos', key: 'composing' } as const, null as string | null)
 export const frame = atom({ plugin: 'human-todos', key: 'frame' } as const, 0)
 // The shared workspace's id goes with the herdr server it is on, so a switch between servers never reuses an id from the other.
 export const workspace = atom({ plugin: 'human-todos', key: 'herdrWorkspace' } as const, null as { session: string; id: string } | null)
@@ -150,6 +152,7 @@ export async function leaveList($: EngineInterface): Promise<void> {
 export async function resetList($: EngineInterface): Promise<void> {
   await update($, todos, () => [])
   await update($, expanded, () => [])
+  await update($, composing, () => null)
   await update($, nextId, () => 1)
 }
 
@@ -158,8 +161,17 @@ export function peekTodos($: EngineInterface): Promise<Todo[]> {
   return read($, todos)
 }
 
-export async function readPane($: EngineInterface): Promise<{ list: Todo[]; openIds: string[]; spin: number }> {
-  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame) }
+export async function readPane($: EngineInterface): Promise<{ list: Todo[]; openIds: string[]; spin: number; composing: string | null }> {
+  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame), composing: await read($, composing) }
+}
+
+// Opening one item's message row closes any other; pressing its button again closes it.
+export async function toggleComposing($: EngineInterface, id: string): Promise<void> {
+  await update($, composing, open => (open === id ? null : id))
+}
+
+export async function closeComposing($: EngineInterface): Promise<void> {
+  await update($, composing, () => null)
 }
 
 export async function bumpFrame($: EngineInterface): Promise<void> {

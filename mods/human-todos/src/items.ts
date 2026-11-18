@@ -5,7 +5,8 @@ import type { AddInput, Todo } from '../types'
 export const PLUGIN = 'human-todos'
 export const TITLE = 'Human Todos'
 
-export type ButtonId = 'run' | 'open' | 'copy' | 'done' | 'skip' | 'confirm' | 'cancel' | 'show' | 'stop' | 'forceStop' | 'openLog'
+// `message` opens the item's message row; `send`, `sendDone` and `cancelMessage` are that row's buttons (kit drawer only).
+export type ButtonId = 'run' | 'open' | 'copy' | 'done' | 'skip' | 'confirm' | 'cancel' | 'show' | 'stop' | 'forceStop' | 'openLog' | 'message' | 'send' | 'sendDone' | 'cancelMessage'
 
 export const KINDS = ['task', 'run', 'terminal', 'link', 'image'] as const
 export const LIVE_LINES_LOCAL = 15

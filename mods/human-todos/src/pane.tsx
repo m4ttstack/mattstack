@@ -31,8 +31,9 @@ export async function openPane($: EngineInterface): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number }, width: number): PaneModel {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width })
+// The kit drawer offers each item's message row; the plain drawer has no field to type in.
+function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null }, width: number, messages = true): PaneModel {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing })
 }
 
 async function waitingBand($: EngineInterface): Promise<Waiting | undefined> {
@@ -140,7 +141,7 @@ export function registerPane(on: On): void {
     // Only terminal and desktop draw a Client; vscode and mobile keep the engine-drawn pane.
     if (e.surface !== 'terminal' && e.surface !== 'desktop') {
       const inner = Math.max(22, paneColumns(e) - 4)
-      return drawPlainPane($, e, modelOf(pane, inner - 2), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE)
+      return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE)
     }
     const { Client } = $.ui.resolve(e)
     const width = paneColumns(e)
@@ -150,6 +151,7 @@ export function registerPane(on: On): void {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
       width,
+      ...(pane.composing !== null && { composing: pane.composing }),
     }
     return <Client key="human-todos-pane" module="./pane/kit-view.tsx" height={bodyRows} props={props} />
   })

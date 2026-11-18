@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, WARN, cellWidth, ellipsize, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrappedButtons } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, WARN, cellWidth, ellipsize, inputField, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrappedButtons } from '@mattstack/mod-kit'
 import type { Line, ListFocus, Style, WindowStop } from '@mattstack/mod-kit'
 
 import { endRows, messageOf } from './model'
@@ -37,9 +37,14 @@ function buttonLines(row: Extract<PaneRow, { kind: 'buttons' }>, room: number): 
   return wrappedButtons(lead, row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT)
 }
 
+// The open message row's draft and whether its caret shows; the hook's layout passes none, the field is one line either way.
+export type Draft = { text: string; caret: boolean }
+
 // The model wraps by characters; a row wider in cells than its room wraps again here.
-function rowLines(row: PaneRow, room: number): L[] {
+function rowLines(row: PaneRow, room: number, draft?: Draft): L[] {
   switch (row.kind) {
+    case 'input':
+      return [[sp(' '.repeat(INDENT)), ...inputField(draft?.text ?? '', 'Message the agent', Math.max(4, room - INDENT), draft?.caret ?? false)]]
     case 'blank':
       return [[]]
     case 'text': {
@@ -140,9 +145,9 @@ export type KitFocus = ListFocus<PaneMessage>
 
 // The Client's half: the window's rows laid out, each ending in its scroll bar cell.
 // The button the keys selected takes the kit's selected look, and its item carries a rail in the gutter.
-export function viewLines(view: KitView, width: number, focus: KitFocus = {}): L[] {
+export function viewLines(view: KitView, width: number, focus: KitFocus = {}, draft?: Draft): L[] {
   const room = roomOf(width)
-  const shown = view.rows.flatMap(row => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows)
+  const shown = view.rows.flatMap(row => rowLines(row, room, draft)).slice(view.skip, view.skip + view.windowRows)
   const bar = scrollBar<PaneMessage>(view.windowRows, view.total, view.top)
   return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus })
 }

@@ -47,6 +47,19 @@ function cutCells(text, cells) {
   }
   return out;
 }
+function tailCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return cells <= 0 ? "" : text.slice(-cells);
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text).reverse()) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out = grapheme + out;
+  }
+  return out;
+}
 function chunkCells(text, cells) {
   const out = [];
   let piece = "";
@@ -66,6 +79,9 @@ function chunkCells(text, cells) {
 }
 function padCells(text, cells) {
   return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
+}
+function firstGrapheme(text) {
+  return segmenter.segment(text)[Symbol.iterator]().next().value?.segment ?? "";
 }
 
 // packages/mod-kit/src/draw/text.ts
@@ -171,6 +187,7 @@ var FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
+var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",

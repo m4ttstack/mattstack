@@ -11,7 +11,7 @@ const PREFIX = 'mcp__human-todos__'
 type ToolNames = { add: string; list: string; withdraw: string }
 
 export function addDescription(paneTitle: string): string {
-  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, skip, stop or run it, so never ask them to type "done".`
+  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, skip, stop or run it, or write to you about it from the pane, so never ask them to type "done".`
 }
 
 export function guidance(names: ToolNames): string {
@@ -23,7 +23,7 @@ When you need the user to do something you cannot do yourself (a command that ne
   - \`terminal\`: a command that needs their terminal (sudo, a login or password prompt). Give \`script\`; the pane offers Copy.
   - \`link\`: a step on a web page. Give \`url\`; the pane offers Open.
   - \`image\`: images for the user to look at (screenshots, captures). Give \`paths\`, one absolute path per image; the pane offers Open, which opens them all in their default image app. Use it instead of running \`open\` yourself or wrapping \`open\` in a run script.
-- When the user ticks, skips or runs an item, you receive a message saying so. Do not ask them to type "done".
+- When the user ticks, skips or runs an item, or writes to you about it from the pane (optionally marking it done), you receive a message saying so. Do not ask them to type "done".
 - Use ${names.list} to see what is still open, and ${names.withdraw} when an item is no longer needed.`
 }
 

@@ -41,6 +41,7 @@ declare module 'claude-code' {
       todos: Shaped<Todo[]>
       nextId: number
       expanded: string[]
+      composing: string | null
       loadedFor: string | null
       isSaveFailed: boolean
       frame: number

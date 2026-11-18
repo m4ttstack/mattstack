@@ -47,6 +47,19 @@ function cutCells(text, cells) {
   }
   return out;
 }
+function tailCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return cells <= 0 ? "" : text.slice(-cells);
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text).reverse()) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out = grapheme + out;
+  }
+  return out;
+}
 function chunkCells(text, cells) {
   const out = [];
   let piece = "";
@@ -66,6 +79,9 @@ function chunkCells(text, cells) {
 }
 function padCells(text, cells) {
   return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
+}
+function firstGrapheme(text) {
+  return segmenter.segment(text)[Symbol.iterator]().next().value?.segment ?? "";
 }
 
 // packages/mod-kit/src/draw/text.ts
@@ -171,6 +187,7 @@ var FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
+var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -249,6 +266,22 @@ function muted(span) {
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
+}
+// packages/mod-kit/src/widgets/input-field.ts
+function inputField(value, placeholder, width, showCursor) {
+  const room = width - 2;
+  const box = (spans) => [
+    sp(" ", FILL.field),
+    ...spans.map((span) => ({ ...span, bg: FILL.field.bg })),
+    sp(" ".repeat(Math.max(0, width - 1 - widthOf(spans))), FILL.field)
+  ];
+  if (value === "") {
+    const hint = cutCells(placeholder, room);
+    const head = firstGrapheme(hint);
+    return box([sp(head || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)]);
+  }
+  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
+  return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
 }
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
@@ -895,7 +928,11 @@ var LABELS = {
   show: "Show",
   stop: "Stop",
   forceStop: "Force stop",
-  openLog: "Open log"
+  openLog: "Open log",
+  message: "",
+  send: "Send",
+  sendDone: "Send & mark done",
+  cancelMessage: "Cancel"
 };
 var TONES = {
   run: "primary",
@@ -908,7 +945,11 @@ var TONES = {
   copy: "neutral",
   openLog: "neutral",
   stop: "caution",
-  forceStop: "caution"
+  forceStop: "caution",
+  message: "quiet",
+  send: "primary",
+  sendDone: "secondary",
+  cancelMessage: "quiet"
 };
 var ESCAPES = new RegExp("\\x1b\\[[0-?]*[ -/]*[@-~]|\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)?|\\x1b[@-_]", "g");
 var CONTROLS = new RegExp("[\\x00-\\x08\\x0b-\\x1f\\x7f]", "g");
@@ -928,13 +969,16 @@ function markFor(todo) {
     return { mark: "–", tone: "inactive" };
   return { mark: "✓", tone: "success" };
 }
-function buttonsOf(todo) {
+function buttonsOf(todo, messages) {
   const ids = buttonsFor(todo);
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
-  return ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
+  const own = ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
+  return messages && todo.status === "open" ? [...own, { id: "message", label: LABELS.message, tone: "quiet", todoId: todo.id }] : own;
 }
+var composeButtons = (todoId) => ["send", "sendDone", "cancelMessage"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
   const { list, expanded, spin, width } = input;
+  const messages = input.messages === true;
   const inner = width + 2;
   const actionable = list.filter(isActionable);
   const finished = list.filter((t) => !isActionable(t));
@@ -988,12 +1032,17 @@ function paneModel(input) {
         spin: true,
         pad: true
       };
-      rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo) });
+      rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo, messages) });
     } else {
       blank();
-      rows.push({ kind: "buttons", buttons: buttonsOf(todo) });
+      rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
+      if (messages && todo.status === "open" && input.composing === todo.id) {
+        blank();
+        rows.push({ kind: "input", todoId: todo.id });
+        rows.push({ kind: "buttons", buttons: composeButtons(todo.id) });
+      }
     }
     spans.push({ first, last: rows.length - 1 });
     blank();
@@ -1055,8 +1104,10 @@ function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
   return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
-function rowLines(row, room) {
+function rowLines(row, room, draft) {
   switch (row.kind) {
+    case "input":
+      return [[sp(" ".repeat(INDENT)), ...inputField(draft?.text ?? "", "Message the agent", Math.max(4, room - INDENT), draft?.caret ?? false)]];
     case "blank":
       return [[]];
     case "text": {
@@ -1136,9 +1187,9 @@ function kitView(model, width, bodyRows, offset) {
     stops: keyStops(model, layout)
   };
 }
-function viewLines(view, width, focus = {}) {
+function viewLines(view, width, focus = {}, draft) {
   const room = roomOf(width);
-  const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
+  const shown = view.rows.flatMap((row) => rowLines(row, room, draft)).slice(view.skip, view.skip + view.windowRows);
   const bar = scrollBar(view.windowRows, view.total, view.top);
   return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
@@ -1151,6 +1202,16 @@ var kit_view_default = kitClient((props, ui) => {
   const above = resolved.at - 1;
   const here = resolved.hasFallen && stops[resolved.at]?.isItem === false && stops[above]?.isItem ? { at: above, col: stops[above].main, hasFallen: true } : resolved;
   const current = stops[here.at] && stopMessage(stops[here.at], here.col);
+  const composing = props.composing;
+  const draft = composing !== undefined && ui.state.draft?.id === composing ? ui.state.draft.text : "";
+  const setDraft = (text) => composing !== undefined && ui.setState({ ...ui.state, draft: { id: composing, text } });
+  const send = (done) => {
+    if (composing === undefined || draft.trim() === "")
+      return;
+    ui.setState({ ...ui.state, draft: undefined });
+    ui.post({ type: "send", id: composing, text: draft.trim(), done });
+  };
+  const isCompose = (message, button) => message?.type === "press" && message.button === button;
   const mark = (at, col) => {
     const sel = gridSelection(stops, { at, col });
     if (!sel)
@@ -1177,12 +1238,42 @@ var kit_view_default = kitClient((props, ui) => {
   const clicked = (message) => {
     const wanted = JSON.stringify(message);
     stops.forEach((stop, at) => stop.ids.forEach((_id, col) => JSON.stringify(stopMessage(stop, col)) === wanted && mark(at, col)));
+    if (isCompose(message, "send"))
+      return send(false);
+    if (isCompose(message, "sendDone"))
+      return send(true);
     ui.post(message);
   };
   ui.onReveal(() => reveal(here.at));
   ui.onKey((ev) => {
     if (!ui.focused || stops.length === 0)
       return false;
+    if (composing !== undefined) {
+      const isSpace = ev.key === " " || ev.key === "space";
+      if (ev.key === "escape") {
+        ui.setState({ ...ui.state, draft: undefined });
+        ui.post({ type: "press", id: composing, button: "cancelMessage" });
+        return true;
+      }
+      if (ev.key === "backspace" || ev.key === "delete") {
+        setDraft(draft.slice(0, -1));
+        return true;
+      }
+      const ch = isSpace ? " " : ev.key;
+      if (ch.length === 1 && !ev.ctrl && !ev.meta) {
+        setDraft(draft + ch);
+        return true;
+      }
+      const isEnter = ev.key === "return" || ev.key === "enter";
+      if (isEnter && !isCompose(current, "sendDone") && !isCompose(current, "cancelMessage") && draft.trim() !== "") {
+        send(false);
+        return true;
+      }
+      if (isEnter && isCompose(current, "sendDone")) {
+        send(true);
+        return true;
+      }
+    }
     const move = gridMove(stops, here, ev, { tabSteps: true });
     if (move.handled) {
       if (move.to)
@@ -1209,7 +1300,7 @@ var kit_view_default = kitClient((props, ui) => {
   }), /* @__PURE__ */ h(Lines, {
     lines: [[sp(" ")]]
   }), /* @__PURE__ */ h(Lines, {
-    lines: viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {}),
+    lines: viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {}, { text: draft, caret: ui.focused }),
     onAction: clicked
   }));
 }, {

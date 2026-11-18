@@ -35,3 +35,9 @@ test('settle turns each outcome into the item change and the message to the agen
   expect(kept).toHaveLength(30)
   expect(kept?.[0]).toBe('line 10')
 })
+
+test('a message from the pane reaches the agent; Send & mark done also finishes the item', () => {
+  const t = todo({ title: 'Sign in' })
+  expect(settle(t, { kind: 'message', text: 'use the staging account', done: false })).toEqual({ patch: {}, text: '#1 "Sign in": the user says: use the staging account' })
+  expect(settle(t, { kind: 'message', text: 'all set', done: true })).toEqual({ patch: { status: 'done' }, text: '#1 "Sign in": the user marked it done and says: all set' })
+})

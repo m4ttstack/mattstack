@@ -47,6 +47,19 @@ function cutCells(text, cells) {
   }
   return out;
 }
+function tailCells(text, cells) {
+  if (PRINTABLE_ASCII.test(text))
+    return cells <= 0 ? "" : text.slice(-cells);
+  let used = 0;
+  let out = "";
+  for (const grapheme of graphemes(text).reverse()) {
+    used += graphemeWidth(grapheme);
+    if (used > cells)
+      break;
+    out = grapheme + out;
+  }
+  return out;
+}
 function chunkCells(text, cells) {
   const out = [];
   let piece = "";
@@ -66,6 +79,9 @@ function chunkCells(text, cells) {
 }
 function padCells(text, cells) {
   return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
+}
+function firstGrapheme(text) {
+  return segmenter.segment(text)[Symbol.iterator]().next().value?.segment ?? "";
 }
 
 // packages/mod-kit/src/draw/text.ts
@@ -171,6 +187,7 @@ var FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
+var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -249,6 +266,22 @@ function muted(span) {
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
+}
+// packages/mod-kit/src/widgets/input-field.ts
+function inputField(value, placeholder, width, showCursor) {
+  const room = width - 2;
+  const box = (spans) => [
+    sp(" ", FILL.field),
+    ...spans.map((span) => ({ ...span, bg: FILL.field.bg })),
+    sp(" ".repeat(Math.max(0, width - 1 - widthOf(spans))), FILL.field)
+  ];
+  if (value === "") {
+    const hint = cutCells(placeholder, room);
+    const head = firstGrapheme(hint);
+    return box([sp(head || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)]);
+  }
+  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
+  return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
 }
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
@@ -986,6 +1019,7 @@ async function resumeWatching($) {
 var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1" });
 var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
 var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
+var composing = atom({ plugin: "human-todos", key: "composing" }, null);
 var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
 var workspace = atom({ plugin: "human-todos", key: "herdrWorkspace" }, null);
 var loadedFor = atom({ plugin: "human-todos", key: "loadedFor" }, null);
@@ -1108,13 +1142,20 @@ async function leaveList($) {
 async function resetList($) {
   await update($, todos, () => []);
   await update($, expanded, () => []);
+  await update($, composing, () => null);
   await update($, nextId, () => 1);
 }
 function peekTodos($) {
   return read($, todos);
 }
 async function readPane2($) {
-  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame) };
+  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame), composing: await read($, composing) };
+}
+async function toggleComposing($, id) {
+  await update($, composing, (open) => open === id ? null : id);
+}
+async function closeComposing($) {
+  await update($, composing, () => null);
 }
 async function bumpFrame($) {
   await update($, frame, (n) => n + 1);
@@ -1174,6 +1215,8 @@ function settle(todo, outcome, log) {
       return { patch: { status: "done" }, text: `${who}: the user marked it done.` };
     case "skipped":
       return { patch: { status: "skipped" }, text: `${who}: the user skipped it.` };
+    case "message":
+      return outcome.done ? { patch: { status: "done" }, text: `${who}: the user marked it done and says: ${outcome.text}` } : { patch: {}, text: `${who}: the user says: ${outcome.text}` };
     case "ran": {
       const outputTail = tail(outcome.outputTail);
       return {
@@ -1693,7 +1736,11 @@ var LABELS = {
   show: "Show",
   stop: "Stop",
   forceStop: "Force stop",
-  openLog: "Open log"
+  openLog: "Open log",
+  message: "",
+  send: "Send",
+  sendDone: "Send & mark done",
+  cancelMessage: "Cancel"
 };
 var TONES = {
   run: "primary",
@@ -1706,7 +1753,11 @@ var TONES = {
   copy: "neutral",
   openLog: "neutral",
   stop: "caution",
-  forceStop: "caution"
+  forceStop: "caution",
+  message: "quiet",
+  send: "primary",
+  sendDone: "secondary",
+  cancelMessage: "quiet"
 };
 var ESCAPES = new RegExp("\\x1b\\[[0-?]*[ -/]*[@-~]|\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)?|\\x1b[@-_]", "g");
 var CONTROLS = new RegExp("[\\x00-\\x08\\x0b-\\x1f\\x7f]", "g");
@@ -1726,13 +1777,16 @@ function markFor(todo) {
     return { mark: "–", tone: "inactive" };
   return { mark: "✓", tone: "success" };
 }
-function buttonsOf(todo) {
+function buttonsOf(todo, messages) {
   const ids = buttonsFor(todo);
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
-  return ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
+  const own = ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
+  return messages && todo.status === "open" ? [...own, { id: "message", label: LABELS.message, tone: "quiet", todoId: todo.id }] : own;
 }
+var composeButtons = (todoId) => ["send", "sendDone", "cancelMessage"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
   const { list, expanded, spin, width } = input;
+  const messages = input.messages === true;
   const inner = width + 2;
   const actionable = list.filter(isActionable);
   const finished = list.filter((t) => !isActionable(t));
@@ -1786,12 +1840,17 @@ function paneModel(input) {
         spin: true,
         pad: true
       };
-      rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo) });
+      rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo, messages) });
     } else {
       blank();
-      rows.push({ kind: "buttons", buttons: buttonsOf(todo) });
+      rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
+      if (messages && todo.status === "open" && input.composing === todo.id) {
+        blank();
+        rows.push({ kind: "input", todoId: todo.id });
+        rows.push({ kind: "buttons", buttons: composeButtons(todo.id) });
+      }
     }
     spans.push({ first, last: rows.length - 1 });
     blank();
@@ -1842,6 +1901,13 @@ async function pressTodo($, todoId, button, surface) {
     $.ui.toast(`Could not ${LABELS[button].toLowerCase()} #${todo.id}`);
   }
 }
+async function sendMessage($, todoId, text, done) {
+  const todo = (await peekTodos($)).find((t) => t.id === todoId);
+  await closeComposing($);
+  if (!todo || todo.status !== "open" || text.trim() === "")
+    return;
+  await report($, todo, { kind: "message", text: text.trim(), done });
+}
 async function clearFinished($) {
   const gone = await removeTodos($, (t) => !isActionable(t));
   await clampScroll($);
@@ -1849,6 +1915,12 @@ async function clearFinished($) {
 }
 async function act($, message, surface) {
   try {
+    if (message.type === "press" && message.button === "message")
+      return await toggleComposing($, message.id);
+    if (message.type === "press" && message.button === "cancelMessage")
+      return await closeComposing($);
+    if (message.type === "send")
+      return await sendMessage($, message.id, message.text, message.done);
     if (message.type === "press")
       return await pressTodo($, message.id, message.button, surface);
     if (message.type === "toggle")
@@ -1882,8 +1954,10 @@ function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
   return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
-function rowLines(row, room) {
+function rowLines(row, room, draft) {
   switch (row.kind) {
+    case "input":
+      return [[sp(" ".repeat(INDENT)), ...inputField(draft?.text ?? "", "Message the agent", Math.max(4, room - INDENT), draft?.caret ?? false)]];
     case "blank":
       return [[]];
     case "text": {
@@ -1963,9 +2037,9 @@ function kitView(model, width, bodyRows, offset) {
     stops: keyStops(model, layout)
   };
 }
-function viewLines(view, width, focus = {}) {
+function viewLines(view, width, focus = {}, draft) {
   const room = roomOf(width);
-  const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
+  const shown = view.rows.flatMap((row) => rowLines(row, room, draft)).slice(view.skip, view.skip + view.windowRows);
   const bar = scrollBar(view.windowRows, view.total, view.top);
   return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
@@ -2082,8 +2156,8 @@ async function openPane($) {
   await $.ui.open({ id: PANE, title: TITLE });
   $.ui.invalidate("ui.render");
 }
-function modelOf(pane, width) {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width });
+function modelOf(pane, width, messages = true) {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing });
 }
 async function waitingBand($) {
   const band = bandModel(await peekTodos($));
@@ -2188,7 +2262,7 @@ function registerPane(on) {
     const pane = await readPane2($);
     if (e.surface !== "terminal" && e.surface !== "desktop") {
       const inner = Math.max(22, paneColumns(e) - 4);
-      return drawPlainPane($, e, modelOf(pane, inner - 2), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
+      return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
     }
     const { Client } = $.ui.resolve(e);
     const width = paneColumns(e);
@@ -2197,7 +2271,8 @@ function registerPane(on) {
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),
-      width
+      width,
+      ...pane.composing !== null && { composing: pane.composing }
     };
     return /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",
@@ -2210,7 +2285,7 @@ function registerPane(on) {
 // mods/human-todos/src/contract.ts
 var PREFIX = "mcp__human-todos__";
 function addDescription(paneTitle) {
-  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, skip, stop or run it, so never ask them to type "done".`;
+  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, skip, stop or run it, or write to you about it from the pane, so never ask them to type "done".`;
 }
 function guidance(names) {
   return `# To-dos for the user
@@ -2221,7 +2296,7 @@ When you need the user to do something you cannot do yourself (a command that ne
   - \`terminal\`: a command that needs their terminal (sudo, a login or password prompt). Give \`script\`; the pane offers Copy.
   - \`link\`: a step on a web page. Give \`url\`; the pane offers Open.
   - \`image\`: images for the user to look at (screenshots, captures). Give \`paths\`, one absolute path per image; the pane offers Open, which opens them all in their default image app. Use it instead of running \`open\` yourself or wrapping \`open\` in a run script.
-- When the user ticks, skips or runs an item, you receive a message saying so. Do not ask them to type "done".
+- When the user ticks, skips or runs an item, or writes to you about it from the pane (optionally marking it done), you receive a message saying so. Do not ask them to type "done".
 - Use ${names.list} to see what is still open, and ${names.withdraw} when an item is no longer needed.`;
 }
 function registerContract(on) {
