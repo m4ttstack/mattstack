@@ -1,6 +1,8 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
@@ -46,7 +48,7 @@ import { parseBoards } from '../../../shared/gate-boards';
 import { isMine } from '../../../shared/gate-waiting';
 import { client } from '../../api';
 import { formatDuration } from '../derive/duration';
-import { contextBlocks, splitCommand } from '../derive/gates';
+import { contextBlocks, splitCommand, tidyFindings } from '../derive/gates';
 import { Eyebrow } from '../Eyebrow';
 import { GateContext } from '../GateContext';
 import { Glyph } from '../Glyph';
@@ -82,6 +84,49 @@ function stepName(id: string): string {
 }
 
 const FINDINGS_MAX_HEIGHT = 320;
+const FINDINGS_MIN_HEIGHT = 120;
+
+/** The scroller an embedded panel fills. */
+const paneOf = (el: HTMLElement): HTMLElement | null => {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const { overflowY } = getComputedStyle(p);
+    if (overflowY === 'auto' || overflowY === 'scroll') return p;
+  }
+  return null;
+};
+
+/** How tall the findings may grow: in a pane holding this one gate, every
+    pixel the header and the form leave, so a short question gives the
+    findings the room it does not use; anywhere else the fixed cap. */
+function useFindingsHeight(embedded: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(FINDINGS_MAX_HEIGHT);
+  useLayoutEffect(() => {
+    const split = ref.current;
+    const card = split?.parentElement;
+    const pane = split ? paneOf(split) : null;
+    if (!embedded || !split || !card || !pane) return;
+    const fit = () => {
+      const findings = split.querySelector<HTMLElement>('[data-findings]');
+      const content = pane.firstElementChild as HTMLElement | null;
+      if (!findings || !content) return;
+      const besides = card.offsetHeight - findings.offsetHeight;
+      const rest = content.offsetHeight - card.offsetHeight;
+      setHeight(
+        Math.max(
+          FINDINGS_MIN_HEIGHT,
+          Math.floor(pane.clientHeight - rest - besides)
+        )
+      );
+    };
+    fit();
+    const watcher = new ResizeObserver(fit);
+    watcher.observe(pane);
+    watcher.observe(card);
+    return () => watcher.disconnect();
+  }, [embedded]);
+  return { ref, height };
+}
 const NOTE_PLACEHOLDER = 'Add a note for the agent (optional)';
 const WRITE_IN_PLACEHOLDER = 'Write your own answer, or pick one above';
 
@@ -375,6 +420,7 @@ export function GatePanel({
   const boards = parseBoards(context);
   const tone = mine ? 'mine' : 'herd';
   const age = formatDuration(now - gate.openedAt);
+  const findings = useFindingsHeight(embedded);
   const primaryLabel = `${last ? 'Submit' : 'Next'}${skippable ? ' · none' : ''}`;
 
   return (
@@ -457,11 +503,11 @@ export function GatePanel({
           </Text>
         </div>
       ) : (
-        <div className={classes.split}>
+        <div ref={findings.ref} className={classes.split}>
           {boards ? (
             <GateBoards gateId={gate.id} boards={boards} />
           ) : context !== null ? (
-            <Findings text={context} />
+            <Findings text={context} maxHeight={findings.height} />
           ) : null}
           <Stack gap={10} className={classes.form}>
             {active && (
@@ -620,7 +666,7 @@ function CodeExcerpt({ lines }: { lines: string[] }) {
   );
 }
 
-function Findings({ text }: { text: string }) {
+function Findings({ text, maxHeight }: { text: string; maxHeight: number }) {
   const blocks = contextBlocks(text);
   return (
     <Stack
@@ -629,14 +675,12 @@ function Findings({ text }: { text: string }) {
       data-parity="context"
       data-testid="gate-findings"
     >
-      <Eyebrow className={classes.contextLabel} data-parity="label">
-        What the agent found
-      </Eyebrow>
       <ScrollArea.Autosize
-        mah={FINDINGS_MAX_HEIGHT}
+        mah={maxHeight}
         type="auto"
         offsetScrollbars="present"
         classNames={{ root: classes.scroll, thumb: classes.thumb }}
+        data-findings
         viewportProps={{
           tabIndex: 0,
           role: 'region',
@@ -644,6 +688,7 @@ function Findings({ text }: { text: string }) {
         }}
       >
         <Stack gap={10} className={classes.scrollBody}>
+          <Eyebrow data-parity="label">What the agent found</Eyebrow>
           {blocks.map((block, i) =>
             block.kind === 'markdown' ? (
               <div
@@ -651,7 +696,7 @@ function Findings({ text }: { text: string }) {
                 className={classes.findings}
                 data-parity={i === 0 ? 'lead' : undefined}
               >
-                <GateContext text={block.text} />
+                <GateContext text={tidyFindings(block.text)} />
               </div>
             ) : block.kind === 'code' ? (
               <CodeExcerpt key={i} lines={block.lines} />
@@ -663,7 +708,7 @@ function Findings({ text }: { text: string }) {
                       {point.label}
                     </Text>
                     <div className={classes.pointText} data-parity="v">
-                      <GateContext text={point.text} />
+                      <GateContext text={tidyFindings(point.text)} />
                     </div>
                   </div>
                 ))}

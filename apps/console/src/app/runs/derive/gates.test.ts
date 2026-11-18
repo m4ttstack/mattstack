@@ -11,6 +11,7 @@ import {
   pickedText,
   questionAnswer,
   splitCommand,
+  tidyFindings,
   tookRecommendation,
   waitingOnYou,
 } from './gates';
@@ -320,5 +321,22 @@ describe('questionAnswer: a write-in', () => {
         q
       )
     ).toEqual({ picked: [], writeIn: 'split it' });
+  });
+});
+
+describe('tidyFindings', () => {
+  it('bolds a paragraph lead label and marks shas and ids as code', () => {
+    expect(
+      tidyFindings(
+        'Domain checks: all clean.\n\n- 3024b69 key the claim\n\nCase cmi9h4b8j001q0lht37aa9m17 next. Gates: fine'
+      )
+    ).toBe(
+      '**Domain checks:** all clean.\n\n- `3024b69` key the claim\n\nCase `cmi9h4b8j001q0lht37aa9m17` next. Gates: fine'
+    );
+  });
+
+  it('leaves backtick spans, plain words and mid-paragraph lines alone', () => {
+    const text = 'Ship it\nNote: `3024b69` stays, deadbeef too';
+    expect(tidyFindings(text)).toBe(text);
   });
 });

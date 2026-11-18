@@ -49,12 +49,8 @@
   border-bottom: 1px solid var(--tk-border-soft);
 }
 
-.contextLabel {
-  padding: 20px 28px 10px;
-}
-
 .scrollBody {
-  padding: 2px 28px 24px;
+  padding: 20px 28px 24px;
 }
 
 .thumb {
@@ -73,7 +69,23 @@
 
 .findings {
   --gate-context-fz: var(--mantine-font-size-md);
-  --gate-context-lh: 20px;
+  --gate-context-lh: 22px;
+}
+
+.findings strong {
+  font-weight: 600;
+}
+
+.findings :not(pre) > code {
+  padding: 1px 5px;
+  border: 1px solid var(--tk-border);
+  background-color: var(--tk-inset);
+}
+
+.findings p,
+.findings ul,
+.findings ol {
+  margin-bottom: 12px;
 }
 
 /* List markers hang left of the text, where the scroll viewport clips them. */

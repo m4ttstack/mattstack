@@ -26,6 +26,10 @@ import { validator } from 'hono/validator';
 import { runIdOfGate } from '../shared/gate-run';
 import { countsForConsoleBadge } from '../shared/gate-waiting';
 import { personaTrigger } from '../shared/slack-gate';
+import {
+  joinSplitQuestions,
+  splitJoinedAnswers,
+} from '../shared/split-questions';
 import { controlRefusal } from './controlRefusal';
 import {
   FIXTURE_OUTAGE,
@@ -189,13 +193,11 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
           const scope = c.req.valid('query');
           const res = await allGates(scope);
           if (!res.ok) return c.json({ error: res.error }, 502);
+          const gates = res.gates.map(joinSplitQuestions);
           if (fixture) {
-            return c.json(
-              { gates: res.gates, asOf: await fixture.asOf(scope.run) },
-              200
-            );
+            return c.json({ gates, asOf: await fixture.asOf(scope.run) }, 200);
           }
-          return c.json({ gates: res.gates }, 200);
+          return c.json({ gates }, 200);
         }
       )
       .get('/api/gates/slack', async c => {
@@ -271,12 +273,21 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
             }
           }
 
+          const found = await findGate(id);
+          const sent =
+            found.ok && found.gate
+              ? splitJoinedAnswers(
+                  found.gate.questions,
+                  answers as GateAnswer['answers']
+                )
+              : (answers as GateAnswer['answers']);
+
           let res: Awaited<ReturnType<typeof gateAnswer>>;
           try {
             res = await gateAnswer(
               {
                 id,
-                answers: answers as GateAnswer['answers'],
+                answers: sent,
                 by: 'console',
                 // A human surface: the daemon's owner guard refuses a herd-owned
                 // gate unless the answer is marked as a human override.
@@ -301,8 +312,9 @@ export function gatesRoutes(fixture: RunsFixture | null = null) {
             return c.json({ error: message }, 400);
           }
 
-          if (res.data.conflict) return c.json({ row: res.data.row }, 409);
-          return c.json({ row: res.data.row }, 200);
+          const row = joinSplitQuestions(res.data.row);
+          if (res.data.conflict) return c.json({ row }, 409);
+          return c.json({ row }, 200);
         }
       )
       .post(
