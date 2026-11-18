@@ -28,9 +28,11 @@ test('advance on approach marks it answered with the recommended identity', () =
   expect(answersOf(sample, effect!.state).approach).toBe('identity')
 })
 
-test('Tab acts like advance', () => {
+test('Tab only looks ahead: it pages on and never answers', () => {
   const at = goTo(sample, initial(sample), APPROACH)
-  expect(keyEffect({ key: 'tab' }, sample, at)?.state).toEqual(perform({ type: 'advance' }, sample, at)?.state)
+  const effect = keyEffect({ key: 'tab' }, sample, at)
+  expect(effect?.state.page).toBe(APPROACH + 1)
+  expect(effect?.state.answered).toEqual(at.answered)
 })
 
 test('shift+Tab only looks back', () => {
@@ -45,7 +47,7 @@ test('advance with the cursor never moved leaves an option list with no recommen
     { value: 'a', label: 'Alpha' },
     { value: 'b', label: 'Beta' },
   ]
-  const form = toForm('t', undefined, [{ id: 'pick', label: 'Pick one', options }], 'ask') as Form
+  const form = toForm('t', undefined, [{ id: 'pick', label: 'Pick one', options }, { id: 'other', label: 'Another', options }], 'ask') as Form
   const effect = perform({ type: 'advance' }, form, initial(form))
   expect(effect?.state.page).toBe(1)
   expect(effect?.state.answered[0]).toBe(false)

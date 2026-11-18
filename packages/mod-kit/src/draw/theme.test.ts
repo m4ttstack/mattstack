@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { buttonSpan } from '../widgets/buttons'
 import { sp, widthOf, type Style } from './text'
-import { BRAND, FILL, QUIET, SCROLL, SYMBOL, hovered, keySelected, muted, pressed } from './theme'
+import { BRAND, FILL, QUIET, SCROLL, SYMBOL, hovered, keySelected, markButtonAt, muted, pressed } from './theme'
 
 function luminance(hex: string): number {
   const channel = (at: number) => {
@@ -98,30 +98,29 @@ describe('chip and mark', () => {
 
 describe('keySelected', () => {
   for (const tone of ['primary', 'quiet'] as const) {
-    test(`a ${tone} button keeps its fill and width, with a pink edge mark in its first cell`, () => {
+    test(`a ${tone} button keeps its width and lifts its fill, with a bold ❯ added before it`, () => {
       const button = buttonSpan({ label: 'Done', action: 'done', tone })
-      const [edge, rest, ...more] = keySelected(button)
+      const [edge, lit, ...more] = keySelected(button)
       expect(more).toEqual([])
-      expect(edge).toMatchObject({ t: SYMBOL.selectEdge, color: BRAND.pink, mark: BRAND.pink, bg: button.bg, action: 'done' })
-      expect(rest).toMatchObject({ t: button.t.slice(1), bg: button.bg, color: button.color, action: 'done' })
-      expect(widthOf([edge!, rest!])).toBe(widthOf([button]))
-      expect(hovered(edge!).bg).toBe(hovered(button).bg)
-      expect(hovered(edge!).color).toBe(BRAND.pink)
+      expect(edge).toMatchObject({ t: SYMBOL.selectEdge, bold: true })
+      expect(edge!.color).toBeUndefined()
+      expect(edge!.action).toBeUndefined()
+      expect(lit).toMatchObject({ t: button.t, action: 'done', bg: hovered(button).bg })
     })
   }
 
-  test('a span with no blank edge is left as it is', () => {
-    const span = sp('Done', { action: 'done' })
-    expect(keySelected(span)).toEqual([span])
+  test('markButtonAt puts the ❯ in the blank spacer before the button and keeps the cell count', () => {
+    const button = buttonSpan({ label: 'Done', action: 'done', tone: 'primary' })
+    const line = [sp('  '), button]
+    const out = markButtonAt(line, 1)
+    expect(out.map(s => s.t).join('')).toBe(`${SYMBOL.selectEdge} ${button.t}`)
+    expect(widthOf(out)).toBe(widthOf(line))
+    expect(out[0]).toMatchObject({ t: `${SYMBOL.selectEdge} `, bold: true })
+    expect(out[0]!.action).toBeUndefined()
   })
 
-  test('the edge never takes the dim of the span it marks', () => {
-    const [edge] = keySelected(sp(' 1', { dim: true, bg: QUIET.rest }))
-    expect(edge).toMatchObject({ t: SYMBOL.selectEdge, color: BRAND.pink, dim: false })
-  })
-
-  test('unfocused, the edge keeps its own hue a step down instead of the quiet grey', () => {
-    const [edge] = keySelected(buttonSpan({ label: 'Skip', action: 'skip', tone: 'quiet' }))
-    expect(muted(edge!)).toMatchObject({ color: muted<Style>({ color: BRAND.pink }).color, bg: QUIET.rest })
+  test('markButtonAt on a line with no such span is left as it is', () => {
+    const line = [sp('x')]
+    expect(markButtonAt(line, 3)).toBe(line)
   })
 })

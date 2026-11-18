@@ -20,26 +20,18 @@ test('Chat about this sits on the same row on every question page', () => {
   expect(new Set(rows).size).toBe(1)
 })
 
-test('the N chip on the tab strip scrolls one tab and keeps the page', () => {
-  const s = goTo(sample, initial(sample), 2)
-  const chip = visibleLines(sample, s, VIEW, ROWS)
-    .flat()
-    .find(span => span.t.includes('›') && span.action?.type === 'scroll-tabs')
-  expect(chip).toBeDefined()
-  const effect = perform(chip!.action as Action, sample, s)
-  expect(effect?.state.tabsFrom).toBe(s.tabsFrom + 1)
-  expect(effect?.state.page).toBe(2)
-})
-
-test('the review page hints at its buttons, not at pages', () => {
+test('the review page has no keys hint, only its question and buttons', () => {
   const text = pageLines(sample.questions.length).map(textOf).join('\n')
   expect(text).toContain('Submit your answers?')
   expect(text).not.toContain('pages')
-  expect(text).toContain('← back   tab buttons   enter submit')
+  expect(text).not.toContain('enter submit')
 })
 
-test('a question page has the hint line', () => {
-  expect(pageLines(0).map(textOf).join('\n')).toContain('←→ pages')
+test('a question page has a progress line with ☐ per question, ⏎ for review and no keys hint', () => {
+  const text = pageLines(0).map(textOf).join('\n')
+  expect(text).not.toContain('←→ pages')
+  expect(text).toContain('☐ ☐ ☐ ☐ ☐ ☐ ☐ ☐ ⏎  question 1 of 8')
+  expect(text).toContain('8 to answer')
 })
 
 // A short pane: the approach page (seven choices) does not fit in 24 rows, so it scrolls.
@@ -61,7 +53,7 @@ test('a page too tall for the pane scrolls to keep the cursor in view, with a sc
   expect(fitted.lines).toHaveLength(SHORT)
   expect(fitted.top).toBeGreaterThan(0)
   const text = fitted.lines.map(textOf).join('\n')
-  expect(text).toContain('Something else')
+  expect(text).toContain('Type something.')
   expect(text).not.toContain('…')
   expect(text).toContain('Chat about this')
 })
@@ -83,20 +75,20 @@ test('the wheel scrolls a long page, and the cursor pulls the window back only o
   expect(moved.pageTop).toBeGreaterThan(0)
 })
 
-test('on a short pane the gate context is kept, wrapped in full, and the page scrolls up to it', () => {
+test('on a short pane the gate context is kept, as light markdown, and the page scrolls up to it', () => {
   const s = settle(goTo(sample, initial(sample), APPROACH), 0)
   const flat = (lines: { t: string }[][]) => lines.map(textOf).join(' ').replace(/[│├└┌]/g, ' ').replace(/\s+/g, ' ')
   const context = (sample.context ?? '').split('\n').filter(line => line.trim() !== '')
   expect(context.length).toBeGreaterThan(0)
   let seen = ''
   for (let wheel = 0; wheel <= 40; wheel += 1) seen += ` ${flat(fittedLines(sample, { ...s, pageTop: 0, wheelAt: 0 }, VIEW, SHORT, wheel).lines)}`
-  for (const line of context) expect(seen.replace(/\s+/g, ' ')).toContain(line.replace(/^[-\s]+/, '').trim())
+  for (const line of context) expect(seen.replace(/\s+/g, ' ')).toContain(line.replace(/^[-\s]+/, '').replace(/:$/, '').trim())
   expect(flat(fittedLines(sample, s, VIEW, SHORT).lines)).toContain(context[0]!.trim())
 })
 
-test('a plugin form is headed mattstack, a gate or ask form mattstack decision gate', () => {
+test('the title rides in the brand bar as mattstack · title, for a plugin form and a gate or ask form alike', () => {
   const header = (form: Form) => textOf(visibleLines(form, initial(form), VIEW, ROWS)[0]!)
-  expect(header({ ...sample, source: 'plugin' })).toContain('mattstack')
-  expect(header({ ...sample, source: 'plugin' })).not.toContain('decision gate')
-  expect(header(sample)).toContain('mattstack decision gate')
+  expect(header({ ...sample, source: 'plugin' })).toContain(`mattstack · ${sample.title}`)
+  expect(header(sample)).toContain(`mattstack · ${sample.title}`)
+  expect(header(sample)).not.toContain('decision gate')
 })

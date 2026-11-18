@@ -170,7 +170,7 @@ test("each stop knows its buttons' lines, so a tall item's button can be brought
   expect(revealButtonOffset(above, 0, 0)).toBe(view.stops[0]!.lines[0]!)
 })
 
-test('in keyboard mode the selected item carries the pink rail in its gutter and a pink mark; the button its pink edge', () => {
+test('in keyboard mode the selected item carries the pink rail in its gutter and a pink mark; the button gets a bold ❯ before it', () => {
   const model = modelAt(many(3), 40)
   const range = rangeOf(model, 40, 40, 1)
   const selected = { type: 'press' as const, id: '2', button: 'done' as const }
@@ -181,7 +181,9 @@ test('in keyboard mode the selected item carries the pink rail in its gutter and
   })
   expect(lines[range.first]!.find(s => s.t === '○')?.color).toBe(BRAND.pink)
   const edge = lines.flat().find(s => s.t === SYMBOL.selectEdge)
-  expect(edge).toMatchObject({ color: BRAND.pink, action: selected })
+  expect(edge).toMatchObject({ bold: true })
+  expect(edge!.color).toBeUndefined()
+  expect(edge!.action).toBeUndefined()
   for (const line of lines) expect(cellWidth(textOf(line))).toBe(40)
 })
 
