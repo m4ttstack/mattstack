@@ -140,6 +140,10 @@ envelope's shape is what is frozen, not its words, so reword it and keep
 every key, code and status. A command goes in the
 error's `next` option, which the envelope never carries; a result string
 that is the only carrier of its remedy keeps the command as its last words.
+One deliberate exception: `rt skills render` also puts `next` and `why` in
+its error's `extra`, so its envelope carries `error.next` and `error.why`,
+because the `load_skill` mod tool builds its deny from the envelope alone and
+has no other way to the fix or the compile error behind a failed render.
 
 A warn sink under `lib/` that a caller can replace (`lib/team`'s three)
 takes `(message, shown?)`: the message is the log text and `shown` is the

@@ -154,8 +154,7 @@ import {
   type BootPhase,
 } from "./daemon/supervision-state.ts";
 import { safeInterval, safeTimeout, scheduleSweep } from "./daemon/safe-timers.ts";
-import { createInterceptPullHook } from "./daemon/intercept-pull-hook.ts";
-import { createMaterializePullHook } from "./daemon/materialize-pull-hook.ts";
+import { teamPullHooks } from "./daemon/team-pull-hooks.ts";
 import { createToolNoticePullHook } from "./daemon/tool-notice-pull-hook.ts";
 import { composePullHooks } from "./daemon/pull-hooks.ts";
 import { BOOT_DELAY_MS as CD_CACHE_BOOT_DELAY_MS, REFRESH_MS as CD_CACHE_REFRESH_MS, refreshCdCache } from "./daemon/cd-cache-refresh.ts";
@@ -1248,11 +1247,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         teamSnapshots = startTeamSnapshots({
           log: loggerHandle.childLogger("team-snapshots"),
           broadcast: emit,
-          afterPull: composePullHooks([
-            createInterceptPullHook({ log: loggerHandle.childLogger("intercepts") }),
-            createMaterializePullHook({ log: loggerHandle.childLogger("materialize") }),
-            toolNoticeHook,
-          ]),
+          afterPull: composePullHooks(teamPullHooks((name) => loggerHandle.childLogger(name), toolNoticeHook)),
           afterUpToDatePull: toolNoticeHook,
         });
 

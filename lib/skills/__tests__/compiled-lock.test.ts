@@ -39,6 +39,35 @@ describe("compiled lock", () => {
     expect(readLock("/x", () => "{nope")).toEqual(lock());
   });
 
+  test("readLock round-trips builtWith and sourcesHash", () => {
+    const text = serializeLock(lock({ builtWith: "0.32.76", sourcesHash: "abc" }));
+    const read = readLock("/x", () => text);
+    expect(read.builtWith).toBe("0.32.76");
+    expect(read.sourcesHash).toBe("abc");
+  });
+
+  test("readLock reads a lock without builtWith or sourcesHash as undefined", () => {
+    const read = readLock("/x", () => serializeLock(lock()));
+    expect(read.builtWith).toBeUndefined();
+    expect(read.sourcesHash).toBeUndefined();
+  });
+
+  test("serializeLock omits builtWith and sourcesHash when undefined", () => {
+    const text = serializeLock(lock({ builtWith: undefined, sourcesHash: undefined }));
+    expect(Object.keys(JSON.parse(text))).not.toContain("builtWith");
+    expect(Object.keys(JSON.parse(text))).not.toContain("sourcesHash");
+  });
+
+  test("mergeLock keeps the current builtWith and sourcesHash when the compile has none", () => {
+    const current = lock({ builtWith: "0.32.76", sourcesHash: "abc" });
+    const kept = mergeLock(current, lock());
+    expect(kept.builtWith).toBe("0.32.76");
+    expect(kept.sourcesHash).toBe("abc");
+    const replaced = mergeLock(current, lock({ builtWith: "0.32.80", sourcesHash: "def" }));
+    expect(replaced.builtWith).toBe("0.32.80");
+    expect(replaced.sourcesHash).toBe("def");
+  });
+
   test("lockWrite reports stale without writing when write is false", () => {
     const dir = mkdtempSync(join(tmpdir(), "lock-"));
     try {

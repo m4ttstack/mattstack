@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { materializeRepo, type MaterializeFs } from "../materialize.ts";
+import { materializeRepo, teamBindings, type MaterializeFs } from "../materialize.ts";
+import { readZonesFrom } from "../init.ts";
 import { layeredFromManifest, readManifestProvenance } from "../manifest-merge.ts";
 import { setWarningLog, __test__ as warnTest } from "../../ui/warn.ts";
 
@@ -695,3 +696,67 @@ describe("stale bindings files (team-folder zones)", () => {
     expect(snapshot(engine)).toEqual(engineBefore);
   });
 });
+
+describe("teamBindings", () => {
+  const zoneOf = (root: string, team: string) => readZonesFrom(realFs, join(root, "orgs")).find((z) => z.team === team)!;
+
+  test("teamBindings ignores overrides.jsonc", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: { bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } } } });
+    write(join(root, "user", "skills", "overrides.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { forge: "me:forge" } } }));
+    const out = teamBindings({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, zoneOf(root, "widgets"), "widgets");
+    if ("error" in out) throw new Error(out.error);
+    expect(out.text).toContain("widgets:gates");
+    expect(out.text).not.toContain("me:forge");
+  });
+
+  test("teamBindings needs no registered repo", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
+    const out = teamBindings({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, zoneOf(root, "widgets"), "widgets");
+    expect(existsSync(join(root, "repos"))).toBe(false);
+    if ("error" in out) throw new Error(out.error);
+    expect(body2(out.text).pipelines.feature).toEqual(["stage-plan", "stage-gates"]);
+  });
+
+  test("teamBindings uses projects[0]", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets", "acme/other"], teams: { widgets: { pack: {} } } });
+    const deps = { fs: realFs, mattstackRoot: root, enginePackDir: engine };
+    const first = teamBindings(deps, zoneOf(root, "widgets"), "widgets");
+    const second = teamBindings(deps, zoneOf(root, "widgets"), "widgets");
+    if ("error" in first || "error" in second) throw new Error("unexpected error");
+    expect(first.repoKey).toBe(SLUG);
+    expect(second.repoKey).toBe(SLUG);
+  });
+
+  test("teamBindings returns dropped keys without warning", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: {
+      widgets: { pack: { pipelines: { feature: { bindings: { "mattstack:stage-evidence": { domain: "acme:a" } } } } } },
+    } });
+    const logged: string[] = [];
+    warnTest.reset();
+    setWarningLog((_module, message) => logged.push(message), { quiet: true });
+    let out: ReturnType<typeof teamBindings>;
+    try {
+      out = teamBindings({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, zoneOf(root, "widgets"), "widgets");
+    } finally {
+      warnTest.reset();
+    }
+    expect(logged).toEqual([]);
+    if ("error" in out) throw new Error(out.error);
+    expect(out.dropped.map((d) => d.title)).toEqual(["feature/mattstack:stage-evidence domain from pack is ignored: the pipeline does not list that stage"]);
+  });
+
+  test("teamBindings reports a zone with no projects", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: [], teams: { widgets: { pack: {} } } });
+    const out = teamBindings({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, zoneOf(root, "widgets"), "widgets");
+    expect("error" in out).toBe(true);
+  });
+});
+
+function body2(text: string): { pipelines: Record<string, string[]> } {
+  return JSON.parse(text.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n"));
+}

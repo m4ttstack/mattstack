@@ -2,7 +2,7 @@
  * rt runs <write verb>: the pipeline's write side of the run DB. Parsing and
  * printing only; every mutation lives in lib/runs/write.ts.
  *   rt runs run-start   --repo R --work-type T --pipeline P [--run-id ID] [--spawned-by S]
- *                       [--pack-dirs "DIR:DIR"] [--skill-dir DIR] [--ticket ID] [--mattstack-sha SHA]
+ *                       [--pack-dirs "DIR:DIR"] [--skill-dir DIR] [--render-tree DIR] [--ticket ID] [--mattstack-sha SHA]
  *                       [--mattstack-dirty 0|1] [--pack-sha NAME=VALUE]
  *   rt runs run-status  --status done|failed|abandoned
  *   rt runs stage-start --stage NAME [--reopen]
@@ -93,6 +93,7 @@ function startOpts(args: string[], env: NodeJS.ProcessEnv): RunStartOpts {
     spawnedBy: flagValue(args, "--spawned-by"),
     packDirs,
     skillDir: flagValue(args, "--skill-dir"),
+    renderTree: flagValue(args, "--render-tree"),
     ticket: flagValue(args, "--ticket"),
     mattstackSha: flagValue(args, "--mattstack-sha"),
     mattstackDirty: dirty === undefined ? undefined : dirty === "1",
