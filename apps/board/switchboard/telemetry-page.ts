@@ -139,6 +139,14 @@ function updateCell(m: TelemetrySnapshot['macs'][number]): Cell {
   return '-';
 }
 
+/** A ping is unauthenticated, so its pull time may not be a date at all. */
+function lastPullCell(lastPullAt: string | null): Cell {
+  const at = lastPullAt ? Date.parse(lastPullAt) : NaN;
+  return Number.isNaN(at)
+    ? '-'
+    : { html: `<span class="nowrap">${time(at).html}</span>` };
+}
+
 function lastCheckCell(m: TelemetrySnapshot['macs'][number]): Cell {
   const at = m.appUpdate?.lastCheckAt
     ? Date.parse(m.appUpdate.lastCheckAt)
@@ -280,6 +288,16 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
     ['Pack', 'Oldest version', 'Macs'],
     s.packs.map(p => [p.id, orDash(p.oldestVersion), String(p.macs)])
   );
+  const clones = table(
+    ['Mac', 'Org', 'What is wrong', 'Last good pull', 'Stale skills'],
+    s.clones.map(c => [
+      { html: `<span class="nowrap">${escapeHtml(c.label)}</span>` },
+      c.org,
+      list(c.flags),
+      lastPullCell(c.lastPullAt),
+      String(c.stale),
+    ])
+  );
   const updates = table(
     ['When', 'Mac', 'App', 'rt'],
     mergedUpdates(s.updates).map(u => [
@@ -299,6 +317,9 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
       `Not on the latest release<span class="note">${escapeHtml(release)}</span>`,
       behind
     ) +
+    (s.clones.length === 0
+      ? `<h2>Clone health <span class="none">none</span></h2>`
+      : panel('Clone health', clones)) +
     panel('Macs', macs) +
     `<section class="stack"><h2>Versions</h2><div class="grid">` +
     `<div class="card">${versions('app')}</div>` +

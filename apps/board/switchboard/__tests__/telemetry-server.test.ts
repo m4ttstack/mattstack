@@ -534,3 +534,36 @@ describe('sourceIp', () => {
     expect(from({})).toBe('unknown');
   });
 });
+
+describe('GET /telemetry/clones.json', () => {
+  test('rejects a missing or wrong key, and is 404 with no view token', async () => {
+    expect(
+      (await setup(null).get(`/telemetry/clones.json?key=${VIEW}`)).status
+    ).toBe(404);
+    const { get } = setup();
+    expect((await get('/telemetry/clones.json')).status).toBe(401);
+    expect((await get('/telemetry/clones.json?key=nope')).status).toBe(401);
+  });
+
+  test("answers one person's clones and timeline as JSON, uncached", async () => {
+    const { telemetry, get } = setup();
+    telemetry.record(ping({ usernames: ['dev1'] }), 'dev1', NOW);
+    telemetry.record(
+      ping({ installId: 'other', usernames: ['dev2'] }),
+      'dev2',
+      NOW
+    );
+    const res = await get(`/telemetry/clones.json?user=dev1`, {
+      authorization: `Bearer ${VIEW}`,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/json');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = (await res.json()) as {
+      macs: { label: string }[];
+      events: unknown[];
+    };
+    expect(body.macs.map(m => m.label)).toEqual(['dev1']);
+    expect(Array.isArray(body.events)).toBe(true);
+  });
+});

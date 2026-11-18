@@ -216,6 +216,23 @@ export function makeFetchHandler(
       return new Response(null, { status: 204 });
     }
 
+    if (pathname === '/telemetry/clones.json' && req.method === 'GET') {
+      if (!viewToken) return new Response('not found', { status: 404 });
+      const params = new URL(req.url).searchParams;
+      const key = params.get('key') ?? bearer(req) ?? '';
+      if (!sameSecret(key, viewToken))
+        return new Response('unauthorized', { status: 401 });
+      const user = params.get('user') ?? undefined;
+      return new Response(JSON.stringify(telemetry.cloneReport(now(), user)), {
+        headers: {
+          'content-type': 'application/json',
+          'cache-control': 'no-store',
+          'referrer-policy': 'no-referrer',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    }
+
     if (pathname === '/telemetry' && req.method === 'GET') {
       if (!viewToken) return new Response('not found', { status: 404 });
       const key = new URL(req.url).searchParams.get('key') ?? bearer(req) ?? '';
