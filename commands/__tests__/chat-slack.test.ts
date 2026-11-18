@@ -534,7 +534,7 @@ test("slack-assignment without a session is refused, and the daemon is never ask
 
 test("slack-start sends the brief read from stdin, the pane and the repo", async () => {
   canned["chat:slack-start"] = { ok: true, data: { conversation: 9 } };
-  const res = await run(() => slackStart(["alex", "--brief", "-", "--requester-pane", "w1-2", "--json"], START_SEAMS));
+  const res = await run(() => slackStart(["alex", "--brief", "-", "--requester-pane", "w1-2", "--json"], {}, START_SEAMS));
   expect(res.code).toBe(0);
   expect(JSON.parse(res.stdout)).toEqual({ ok: true, conversation: 9 });
   expect(seen.find((s) => s.cmd === "chat:slack-start")!.payload).toEqual({
@@ -548,7 +548,7 @@ test("slack-start sends the brief read from stdin, the pane and the repo", async
 test("slack-start from a signed-in session names the requester", async () => {
   await signIn();
   canned["chat:slack-start"] = { ok: true, data: { conversation: 9 } };
-  await run(() => slackStart(["alex", "--brief", "-", "--json"], START_SEAMS));
+  await run(() => slackStart(["alex", "--brief", "-", "--json"], {}, START_SEAMS));
   expect(seen.find((s) => s.cmd === "chat:slack-start")!.payload).toMatchObject({ requesterSession: SESSION, requesterHandle: expect.stringMatching(/^support\./) });
 });
 
@@ -556,7 +556,7 @@ test("slack-start without a session env names no requester even when a folder id
   await signIn();
   delete process.env.CLAUDE_CODE_SESSION_ID;
   canned["chat:slack-start"] = { ok: true, data: { conversation: 9 } };
-  await run(() => slackStart(["alex", "--brief", "-", "--json"], START_SEAMS));
+  await run(() => slackStart(["alex", "--brief", "-", "--json"], {}, START_SEAMS));
   const payload = seen.find((s) => s.cmd === "chat:slack-start")!.payload;
   expect(payload).not.toHaveProperty("requesterHandle");
   expect(payload).not.toHaveProperty("requesterSession");
@@ -564,7 +564,7 @@ test("slack-start without a session env names no requester even when a folder id
 
 test("slack-start keeps a refusal in the envelope under --json", async () => {
   canned["chat:slack-start"] = { ok: false, error: "alex already has a Slack chat open in room" };
-  const res = await run(() => slackStart(["alex", "--brief", "-", "--json"], START_SEAMS));
+  const res = await run(() => slackStart(["alex", "--brief", "-", "--json"], {}, START_SEAMS));
   expect(res.code).toBe(1);
   expect(res.stderr).toBe("");
   expect(JSON.parse(res.stdout)).toEqual({ ok: false, error: "alex already has a Slack chat open in room" });
@@ -576,15 +576,25 @@ test.each([
   ["an empty brief", ["alex", "--brief", "-", "--json"], { ...START_SEAMS, readBrief: async () => "  " }],
   ["no repo underfoot", ["alex", "--brief", "-", "--json"], { ...START_SEAMS, repo: () => null }],
 ] as [string, string[], typeof START_SEAMS][])("slack-start with %s is refused, and nothing is sent", async (_name, args, seams) => {
-  const res = await run(() => slackStart(args, seams as never));
+  const res = await run(() => slackStart(args, {}, seams as never));
   expect(res.code).not.toBe(0);
   expect(seen.filter((s) => s.cmd === "chat:slack-start")).toEqual([]);
+});
+
+test("slack-start and slack-request take the command context second, as the dispatcher calls them", async () => {
+  await signIn();
+  canned["chat:slack-start"] = { ok: true, data: { conversation: 9 } };
+  canned["chat:slack-request"] = { ok: true, data: { gateId: "gate-1" } };
+  const start = await run(() => slackStart(["alex", "--brief", "-", "--json"], {}, START_SEAMS));
+  const request = await run(() => slackRequest(["alex", "--brief", "-", "--json"], {}, START_SEAMS));
+  expect(JSON.parse(start.stdout)).toEqual({ ok: true, conversation: 9 });
+  expect(JSON.parse(request.stdout)).toEqual({ ok: true, gateId: "gate-1" });
 });
 
 test("slack-request --json prints gateId", async () => {
   await signIn();
   canned["chat:slack-request"] = { ok: true, data: { gateId: "gate-1" } };
-  const res = await run(() => slackRequest(["alex", "--brief", "-", "--json"], START_SEAMS));
+  const res = await run(() => slackRequest(["alex", "--brief", "-", "--json"], {}, START_SEAMS));
   expect(res.code).toBe(0);
   expect(JSON.parse(res.stdout)).toEqual({ ok: true, gateId: "gate-1" });
   expect(seen.find((s) => s.cmd === "chat:slack-request")!.payload).toEqual({
@@ -599,9 +609,9 @@ test("slack-request --json prints gateId", async () => {
 test("slack-request prints the candidates when the name is ambiguous", async () => {
   await signIn();
   canned["chat:slack-request"] = { ok: true, data: { candidates: [{ name: "Alex A", person: "U1" }, { name: "Alex B", person: "U2", title: "Lead" }] } };
-  const json = await run(() => slackRequest(["alex", "--brief", "-", "--json"], START_SEAMS));
+  const json = await run(() => slackRequest(["alex", "--brief", "-", "--json"], {}, START_SEAMS));
   expect(JSON.parse(json.stdout)).toEqual({ ok: true, candidates: [{ name: "Alex A", person: "U1" }, { name: "Alex B", person: "U2", title: "Lead" }] });
-  const text = await run(() => slackRequest(["alex", "--brief", "-"], START_SEAMS));
+  const text = await run(() => slackRequest(["alex", "--brief", "-"], {}, START_SEAMS));
   expect(text.stdout).toContain("Alex A");
   expect(text.stdout).toContain("U2");
 });
@@ -609,7 +619,7 @@ test("slack-request prints the candidates when the name is ambiguous", async () 
 test("slack-request keeps a refusal in the envelope under --json", async () => {
   await signIn();
   canned["chat:slack-request"] = { ok: false, error: "No one in Slack matches nobody" };
-  const res = await run(() => slackRequest(["nobody", "--brief", "-", "--json"], START_SEAMS));
+  const res = await run(() => slackRequest(["nobody", "--brief", "-", "--json"], {}, START_SEAMS));
   expect(res.code).toBe(1);
   expect(JSON.parse(res.stdout)).toEqual({ ok: false, error: "No one in Slack matches nobody" });
 });
@@ -623,7 +633,7 @@ test.each([
 ] as [string, string[], typeof START_SEAMS, boolean][])("slack-request with %s is refused, and nothing is sent", async (_name, args, seams, signedIn) => {
   if (signedIn) await signIn();
   else process.env.CLAUDE_CODE_SESSION_ID = SESSION;
-  const res = await run(() => slackRequest(args, seams as never));
+  const res = await run(() => slackRequest(args, {}, seams as never));
   expect(res.code).not.toBe(0);
   expect(seen.filter((s) => s.cmd === "chat:slack-request")).toEqual([]);
 });
