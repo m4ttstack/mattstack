@@ -18,6 +18,7 @@ import { formatDuration } from '../derive/duration';
 import { fieldLabel } from '../derive/fields';
 import type { StageAttempt } from '../derive/stages';
 import { splitRedirect, stageSummary, type StoryEntry } from '../derive/story';
+import { Eyebrow } from '../Eyebrow';
 import { FailureExcerpt } from '../FailureExcerpt';
 import { EvidenceCard } from './EvidenceCard';
 import { FieldStrip, isStripField } from './FieldStrip';
@@ -53,9 +54,7 @@ function StageField({
   return (
     <Stack gap={6} className={classes.field} data-row={label}>
       <Group gap={10} wrap="nowrap" align="center">
-        <Text fz="sm" fw={500} lh="normal" c="dimmed" data-parity="k">
-          {label}
-        </Text>
+        <Eyebrow data-parity="k">{label}</Eyebrow>
         {lead}
       </Group>
       <div className={classes.value}>{children}</div>

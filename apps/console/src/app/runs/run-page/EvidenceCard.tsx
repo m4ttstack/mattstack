@@ -334,12 +334,7 @@ function StoryEvidence({
     <Stack gap={10} className={classes.storySection}>
       <Group justify="space-between" wrap="nowrap" gap={12}>
         <Group gap={8} wrap="nowrap">
-          <Text fz="md" fw={600} lh="normal">
-            Boards
-          </Text>
-          <Text fz="sm" lh="normal" c="dimmed">
-            {count} {count === 1 ? 'board' : 'boards'}
-          </Text>
+          <Eyebrow>Boards · {count}</Eyebrow>
         </Group>
         <Group gap={14} wrap="nowrap" className={classes.links}>
           {url ? <UrlLink url={url} short /> : null}

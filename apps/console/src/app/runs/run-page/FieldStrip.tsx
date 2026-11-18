@@ -16,6 +16,7 @@ import type { RunFieldRow } from '@mattstack/rt-client';
 import { formatClock } from '../derive/clock';
 import { fieldLabel } from '../derive/fields';
 import { fieldKind } from '../derive/run';
+import { Eyebrow } from '../Eyebrow';
 import classes from './FieldStrip.module.css';
 import { prettyJson } from './FieldValue';
 
@@ -253,10 +254,8 @@ export function FieldStrip({ fields }: { fields: RunFieldRow[] }) {
                 wrap="nowrap"
                 data-row={fieldLabel(f.key)}
               >
-                <Text fz="sm" lh="normal" c="dimmed">
-                  {fieldLabel(f.key)}
-                </Text>
-                <Text fz="md" fw={500} lh="normal">
+                <Eyebrow>{fieldLabel(f.key)}</Eyebrow>
+                <Text fz="md" lh="normal">
                   {f.value}
                 </Text>
               </Group>
@@ -280,11 +279,9 @@ export function FieldStrip({ fields }: { fields: RunFieldRow[] }) {
               }}
             >
               <Group gap={8} wrap="nowrap">
-                <Text span fz="sm" lh="normal" c="dimmed">
-                  {fieldLabel(f.key)}
-                </Text>
+                <Eyebrow span>{fieldLabel(f.key)}</Eyebrow>
                 {preview ? (
-                  <Text span fz="sm" fw={500} lh="normal">
+                  <Text span fz="md" lh="normal">
                     {preview}
                   </Text>
                 ) : null}
