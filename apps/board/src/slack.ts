@@ -293,7 +293,11 @@ export async function slackTokenState(
 ): Promise<'ok' | 'unreachable' | { rejected: string }> {
   try {
     await call('auth.test', token, {});
-    await call('conversations.list', token, { limit: '1' });
+    await call('conversations.list', token, {
+      types: 'public_channel,private_channel',
+      exclude_archived: 'true',
+      limit: '1',
+    });
     return 'ok';
   } catch (err) {
     const rejected = slackAuthError(

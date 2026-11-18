@@ -101,3 +101,26 @@ describe('memoizeAsync', () => {
     expect(calls).toBe(2);
   });
 });
+
+describe('memoizeAsync superseded loads', () => {
+  test('a load invalidated mid-flight does not pin its result over a newer load', async () => {
+    let calls = 0;
+    let releaseFirst!: (v: string) => void;
+    const get = memoizeAsync<string | null>(
+      () => {
+        calls++;
+        if (calls === 1) return new Promise(r => (releaseFirst = r));
+        return Promise.resolve(calls === 2 ? null : 'fresh');
+      },
+      v => v === null,
+      { ttlMs: 0 }
+    );
+    const first = get();
+    get.invalidate();
+    expect(await get()).toBeNull();
+    releaseFirst('stale');
+    await first;
+    expect(await get()).toBe('fresh');
+    expect(calls).toBe(3);
+  });
+});

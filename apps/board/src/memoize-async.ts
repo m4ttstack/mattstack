@@ -28,12 +28,15 @@ export function memoizeAsync<T>(
     // hits the cache above and shares this same in-flight promise, instead
     // of racing a second `load()`.
     expiresAt = t + ttlMs;
+    // A load superseded by invalidate() or a later load must not set the
+    // expiry of the promise that replaced it.
     pending
       .then(value => {
-        expiresAt = isFailure(value) ? now() + ttlMs : Infinity;
+        if (cached === pending)
+          expiresAt = isFailure(value) ? now() + ttlMs : Infinity;
       })
       .catch(() => {
-        expiresAt = now() + ttlMs;
+        if (cached === pending) expiresAt = now() + ttlMs;
       });
     return pending;
   };

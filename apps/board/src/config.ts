@@ -989,7 +989,9 @@ async function boardSecrets(
     secretsFailure = null;
     return res;
   }
-  secretsFailure = res.message;
+  // A daemon that is down or restarting comes back by itself; only a read the
+  // daemon answered and failed is worth telling the person about.
+  secretsFailure = res.daemonDown ? null : res.message;
   console.warn(`board: secrets unavailable (${res.message})`);
   return {};
 }

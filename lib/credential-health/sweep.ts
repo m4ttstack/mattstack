@@ -92,21 +92,26 @@ function recordUnreadable(deps: SweepDeps, failed: IntegrationTarget[], now: num
   const seen = failed.map((t) => ({ t, prev: readCredentialHealth(deps.db, t.id) })).filter((x) => x.prev !== null);
   if (seen.length === 0) return;
   const unreadable = seen.map((x) => x.t);
-  const prevs = seen.map((x) => x.prev);
+  const prevs = seen.map((x) => x.prev!);
   const notify = prevs.some(
-    (prev) => prev?.lastNotifiedKind !== "unreadable" || prev.lastNotifiedAt == null || now - prev.lastNotifiedAt >= TWENTY_FOUR_HOURS,
+    (prev) => prev.lastNotifiedKind !== "unreadable" || prev.lastNotifiedAt == null || now - prev.lastNotifiedAt >= TWENTY_FOUR_HOURS,
   );
   unreadable.forEach((t, i) => {
-    const prev = prevs[i];
+    const prev = prevs[i]!;
+    // Unreadable says nothing about the token, so a known ready or invalid
+    // status stands: the next readable sweep compares against it.
+    const status = prev.status === "ready" || prev.status === "invalid" ? prev.status : "error";
+    const detail = `rt couldn't read the saved token: ${t.readError}`;
     writeCredentialHealth(deps.db, {
       integration: t.id,
-      status: "error",
-      detail: `rt could not read the saved token: ${t.readError}`,
-      expiresAt: prev?.expiresAt ?? null,
+      status,
+      detail,
+      expiresAt: prev.expiresAt,
       checkedAt: now,
-      lastNotifiedAt: notify ? now : (prev?.lastNotifiedAt ?? null),
-      lastNotifiedKind: notify ? "unreadable" : (prev?.lastNotifiedKind ?? null),
+      lastNotifiedAt: notify ? now : prev.lastNotifiedAt,
+      lastNotifiedKind: notify ? "unreadable" : prev.lastNotifiedKind,
     });
+    if (notify) deps.emitEvent("credential/health", { integration: t.id, status, detail, transition: "unreadable" });
   });
   if (!notify) return;
   const titles = unreadable.map((t) => t.def.title);
