@@ -1,8 +1,8 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, cellWidth, chunkCells, clipLine, fitToRows, hang, markButtonAt, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line, type Span } from '@mattstack/mod-kit'
+import { DIM, DONE, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, cellWidth, chunkCells, clipLine, fitToRows, hang, markButtonAt, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line, type Span } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canChat, canSubmit, choicesOf, firstPage, isConfirm, isContextPage, isOneQuestion, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { canChat, canSubmit, choicesOf, firstPage, isConfirm, isContextPage, isOneQuestion, isOnNav, isReview, isPicked, isSinglePage, menuRows, navAtOf, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 // `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
@@ -225,7 +225,9 @@ function progress(form: Form, s: State, view: View): L {
   const where: L = [sp(isContextPage(s) ? ` context, then ${n} question${n === 1 ? '' : 's'}` : q ? ` question ${s.page + 1} of ${n}` : ' review', DIM)]
   const missing = unansweredCount(s)
   const left = sp<Action>(missing === 0 ? 'all answered' : `${missing} to answer`, DIM)
-  const line: L = [...marker, ...dots, ...where]
+  // The review page is a step of its own, so it ends the row in a different shape from the question boxes.
+  const review: L = isOneQuestion(form) ? [] : [sp('▢', { color: isReview(form, s) ? 'white' : '#8a8a8a' }), sp(' ')]
+  const line: L = [...marker, ...dots, ...review, ...where]
   const room = view.width - widthOf(line) - widthOf([left])
   return room >= 2 ? [...line, sp(' '.repeat(room)), left] : line
 }

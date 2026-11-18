@@ -1455,7 +1455,8 @@ function progress(form, s, view) {
   const where = [sp(isContextPage(s) ? ` context, then ${n} question${n === 1 ? "" : "s"}` : q ? ` question ${s.page + 1} of ${n}` : " review", DIM)];
   const missing = unansweredCount(s);
   const left = sp(missing === 0 ? "all answered" : `${missing} to answer`, DIM);
-  const line = [...marker, ...dots, ...where];
+  const review = isOneQuestion(form) ? [] : [sp("▢", { color: isReview(form, s) ? "white" : "#8a8a8a" }), sp(" ")];
+  const line = [...marker, ...dots, ...review, ...where];
   const room = view.width - widthOf(line) - widthOf([left]);
   return room >= 2 ? [...line, sp(" ".repeat(room)), left] : line;
 }
