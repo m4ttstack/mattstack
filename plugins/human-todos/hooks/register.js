@@ -232,7 +232,7 @@ function keySelected(span) {
   return markButtonAt([span], 0);
 }
 var CURSOR_ROW = "#2e2e2e";
-var CURSOR_ROW_PRESS = "#232323";
+var CURSOR_ROW_PRESS = "#3a3a3a";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
