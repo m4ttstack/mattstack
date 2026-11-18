@@ -1,4 +1,4 @@
-import { ACCENT, CURSOR_ROW, DIM, DONE, GRAY, PLACEHOLDER, WARN, cellWidth, ellipsize, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrappedButtons } from '@mattstack/mod-kit'
+import { ACCENT, CURSOR_ROW, DIM, DONE, GRAY, PLACEHOLDER, WARN, buttonSpan, cellWidth, ellipsize, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrappedButtons } from '@mattstack/mod-kit'
 import type { Line, ListFocus, Style, WindowStop } from '@mattstack/mod-kit'
 
 import { endRows, messageOf } from './model'
@@ -72,12 +72,12 @@ function composeLines(lines: number, room: number, draft?: Draft): L[] {
   })]
 }
 
-// The card's last row: its actions as plain words against the right edge, Send bold and last.
-const ACTION_LOOK: Partial<Record<PaneButton['id'], Style>> = { cancelMessage: GRAY, sendDone: DIM, send: { bold: true } }
+// The card's last row: its actions as kit buttons against the right edge, Cancel and Send & mark done plain words, Send
+// last with the quiet fill. Kit buttons, so the pointer lights and presses them as it does every other button.
 function composeActionsLine(buttons: PaneButton[], room: number): L {
-  const words = buttons.flatMap((b, n): L => [sp('   '), sp(b.label, { ...(ACTION_LOOK[b.id] ?? {}), action: messageOf(b) }), ...(n === buttons.length - 1 ? [sp(' '.repeat(CARD_PAD))] : [])])
-  const used = words.reduce((n, span) => n + cellWidth(span.t), 0)
-  return card([sp(' '.repeat(Math.max(0, room - used))), ...words], room)
+  const spans = buttons.flatMap((b, n): L => [sp(n === 0 ? '' : ' '), buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1)])
+  const used = spans.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD
+  return card([sp(' '.repeat(Math.max(0, room - used))), ...spans, sp(' '.repeat(CARD_PAD))], room)
 }
 
 // The model wraps by characters; a row wider in cells than its room wraps again here.

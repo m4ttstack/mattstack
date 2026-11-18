@@ -60,8 +60,8 @@ const TONES: Record<ButtonId, ButtonTone> = {
   forceStop: 'caution',
   message: 'quiet',
   send: 'quiet',
-  sendDone: 'quiet',
-  cancelMessage: 'quiet',
+  sendDone: 'plain',
+  cancelMessage: 'plain',
 }
 
 // CSI sequences (colours, cursor moves), OSC sequences (titles, links) ended by BEL or ESC \, then any other two-byte escape.

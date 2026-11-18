@@ -73,7 +73,7 @@ const LONG: Choice[] = ['Rename', 'Extract', 'Inline', 'Move', 'Split', 'Merge',
 const TAB_NAMES = ['Overview', 'Install', 'Configure', 'Usage', 'Hooks', 'Commands', 'Settings', 'Tools', 'Panes', 'Themes', 'Testing', 'Release', 'Upgrade', 'Support', 'Billing', 'Audit', 'Export', 'Import', 'Sync', 'Search']
 
 // The filled tones, each drawn beside its FILL swatch; quiet has no fill to show.
-type FilledTone = Exclude<ButtonTone, 'quiet'>
+type FilledTone = Exclude<ButtonTone, 'quiet' | 'plain'>
 const TONES: FilledTone[] = ['primary', 'secondary', 'neutral', 'caution', 'brand']
 
 function toneRow(ui: Ui, tone: FilledTone) {
