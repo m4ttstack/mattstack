@@ -6203,6 +6203,414 @@
               "fontWeight": "normal"
             }
           ]
+        },
+        {
+          "type": "frame",
+          "id": "TREjJ",
+          "name": "Caption",
+          "gap": 10,
+          "alignItems": "end",
+          "children": [
+            {
+              "type": "text",
+              "id": "X6X0B",
+              "name": "Caption title",
+              "fill": "#161616",
+              "content": "5 · ❯ inside + brighter fill",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "N8woQ",
+              "name": "Caption sub",
+              "fill": "#6a6a6a",
+              "content": "The option cursor's ❯ takes the button's first cell; the fill lifts a step.",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "RPNWv",
+          "name": "Row 5 · ❯ inside + brighter fill",
+          "width": "fill_container",
+          "fill": "#1b1b1b",
+          "cornerRadius": 4,
+          "padding": [
+            12,
+            14
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "UW3NX",
+              "name": "Button",
+              "fill": "#2f62a8",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "GcUnf",
+                  "name": "span",
+                  "fill": "#ffffff",
+                  "content": "❯ ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "hKsNR",
+                  "name": "span",
+                  "fill": "#ffffff",
+                  "content": "Next ›  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "dhKal",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "JhXq1",
+              "name": "Button",
+              "fill": "#505050",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "y1BIOf",
+                  "name": "span",
+                  "fill": "#ffffff",
+                  "content": "❯ ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "AXpj6",
+                  "name": "span",
+                  "fill": "#d4d4d4",
+                  "content": "☐ Chat about this  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "p262c",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "aVA7f",
+              "name": "Button",
+              "fill": "#ff93b0",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "pFYSA",
+                  "name": "span",
+                  "fill": "#1b1b1b",
+                  "content": "❯ ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "ECB4z",
+                  "name": "span",
+                  "fill": "#1b1b1b",
+                  "content": "Submit  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "zDZ5u",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "rxke1",
+              "name": "Spacer",
+              "width": "fill_container",
+              "height": 1
+            },
+            {
+              "type": "frame",
+              "id": "Smuax",
+              "name": "Rest",
+              "fill": "#1e3c66",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "S9mW4H",
+                  "name": "span",
+                  "fill": "#ffffff",
+                  "content": "  Next ›  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "o0I36",
+              "name": "span",
+              "fill": "#6a6a6a",
+              "content": "  unfocused",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "U6YoxX",
+          "name": "Caption",
+          "gap": 10,
+          "alignItems": "end",
+          "children": [
+            {
+              "type": "text",
+              "id": "PxNtA",
+              "name": "Caption title",
+              "fill": "#161616",
+              "content": "6 · ❯ outside, in the gap",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "LHHcf",
+              "name": "Caption sub",
+              "fill": "#6a6a6a",
+              "content": "The ❯ sits in the cell left of the button, just like the option gutter; the button itself is unchanged except a lifted fill.",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "VrENe",
+          "name": "Row 6 · ❯ outside, in the gap",
+          "width": "fill_container",
+          "fill": "#1b1b1b",
+          "cornerRadius": 4,
+          "padding": [
+            12,
+            14
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "jXEKp",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "❯ ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "U5S7zY",
+              "name": "Button",
+              "fill": "#2f62a8",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "H2n5H",
+                  "name": "span",
+                  "fill": "#ffffff",
+                  "content": "  Next ›  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "FWD9m",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "GIdBo",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "❯ ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "lpdZR",
+              "name": "Button",
+              "fill": "#505050",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "kG43c",
+                  "name": "span",
+                  "fill": "#d4d4d4",
+                  "content": "  ☐ Chat about this  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "yFgkO",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "ghtoy",
+              "name": "span",
+              "fill": "#3fb6c8",
+              "content": "❯ ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "s7iX1",
+              "name": "Button",
+              "fill": "#ff93b0",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "HvNad",
+                  "name": "span",
+                  "fill": "#1b1b1b",
+                  "content": "  Submit  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "o9IJB",
+              "name": "span",
+              "fill": "#1b1b1b",
+              "content": "  ",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "qQM1G",
+              "name": "Spacer",
+              "width": "fill_container",
+              "height": 1
+            },
+            {
+              "type": "frame",
+              "id": "X5pV9",
+              "name": "Rest",
+              "fill": "#1e3c66",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "LRWnI",
+                  "name": "span",
+                  "fill": "#ffffff",
+                  "content": "  Next ›  ",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "cGtLn",
+              "name": "span",
+              "fill": "#6a6a6a",
+              "content": "  unfocused",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            }
+          ]
         }
       ]
     }
