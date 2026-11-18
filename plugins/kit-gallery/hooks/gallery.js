@@ -558,7 +558,7 @@ function brandBar(label, width, hide) {
 var BrandBar = kitComponent("BrandBar", (props, ctx) => [brandBar(props.title, ctx.width, props.onHide && ctx.bind("hide", props.onHide))]);
 // packages/mod-kit/src/widgets/buttons.ts
 var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];

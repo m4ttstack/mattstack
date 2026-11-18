@@ -10,7 +10,7 @@ export type Button<A> = { label: string; action: A; tone?: ButtonTone; disabled?
 const TONE_FILL: Record<ButtonTone, Style> = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } }
 
 type Spacing = { indent: number; pad: number; gap: number }
-const ROOMY: Spacing = { indent: 3, pad: 2, gap: 2 }
+const ROOMY: Spacing = { indent: 3, pad: 2, gap: 3 }
 const COMPACT: Spacing = { indent: 1, pad: 1, gap: 1 }
 
 export function buttonSpan<A>(button: Button<A>, pad = ROOMY.pad): Span<A> {
