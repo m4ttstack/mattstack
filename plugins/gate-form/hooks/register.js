@@ -487,7 +487,7 @@ function initial(form) {
     cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
-    answered: chosen.map((value, i) => i === 0 && value !== undefined),
+    answered: form.questions.map(() => false),
     chosen,
     phase: "active",
     tabsFrom: 0,
@@ -583,14 +583,15 @@ function answersOf(form, s) {
 }
 function goTo(form, s, page) {
   const last = isSinglePage(form) ? 0 : form.questions.length;
-  const to = Math.max(firstPage(s), Math.min(last, page));
-  const seen = to >= 0 && to < form.questions.length && s.chosen[to] !== undefined;
-  return { ...s, page: to, ...seen && { answered: markAnswered(s, to) } };
+  return { ...s, page: Math.max(firstPage(s), Math.min(last, page)) };
 }
 var firstPage = (s) => s.contextPaged ? -1 : 0;
 var isContextPage = (s) => s.page < 0;
 function advance(form, s) {
-  return goTo(form, s, s.page + 1);
+  const i = s.page;
+  const q = form.questions[i];
+  const accepts = q !== undefined && !q.multi && s.chosen[i] !== undefined;
+  return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1);
 }
 function moveCursor(form, s, by) {
   const q = form.questions[s.page];

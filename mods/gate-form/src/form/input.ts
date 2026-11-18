@@ -207,6 +207,7 @@ export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect 
   if (ev.shift && (ev.key === 'up' || ev.key === 'down')) return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === 'up' ? -1 : 1)) } }
   // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
   if (ev.key === 'tab' && (isSinglePage(form) || isOneQuestion(form))) return { state: s }
-  if (ev.key === 'tab' && !isReview(form, s)) return settled(form, s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })
+  // Tab looks around like the arrows; only the Next button, Enter, space or a click answers.
+  if (ev.key === 'tab' && !isReview(form, s)) return settled(form, s, { state: goTo(form, s, s.page + (ev.shift ? -1 : 1)) })
   return settled(form, s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s))
 }

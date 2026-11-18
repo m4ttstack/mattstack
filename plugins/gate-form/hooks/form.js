@@ -890,7 +890,7 @@ function initial(form) {
     cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
-    answered: chosen.map((value, i) => i === 0 && value !== undefined),
+    answered: form.questions.map(() => false),
     chosen,
     phase: "active",
     tabsFrom: 0,
@@ -986,14 +986,15 @@ function answersOf(form, s) {
 }
 function goTo(form, s, page) {
   const last = isSinglePage(form) ? 0 : form.questions.length;
-  const to = Math.max(firstPage(s), Math.min(last, page));
-  const seen = to >= 0 && to < form.questions.length && s.chosen[to] !== undefined;
-  return { ...s, page: to, ...seen && { answered: markAnswered(s, to) } };
+  return { ...s, page: Math.max(firstPage(s), Math.min(last, page)) };
 }
 var firstPage = (s) => s.contextPaged ? -1 : 0;
 var isContextPage = (s) => s.page < 0;
 function advance(form, s) {
-  return goTo(form, s, s.page + 1);
+  const i = s.page;
+  const q = form.questions[i];
+  const accepts = q !== undefined && !q.multi && s.chosen[i] !== undefined;
+  return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1);
 }
 function moveCursor(form, s, by) {
   const q = form.questions[s.page];
@@ -1248,7 +1249,7 @@ function keyEffect(ev, form, armed) {
   if (ev.key === "tab" && (isSinglePage(form) || isOneQuestion(form)))
     return { state: s };
   if (ev.key === "tab" && !isReview(form, s))
-    return settled(form, s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) });
+    return settled(form, s, { state: goTo(form, s, s.page + (ev.shift ? -1 : 1)) });
   return settled(form, s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s));
 }
 
@@ -1638,7 +1639,7 @@ var form_default = kitClient((props, ui) => {
   const paged = fitted.contextPaged === true;
   const page = paged && s.contextPaged === undefined ? -1 : !paged && s.page < 0 ? 0 : s.page;
   if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt || fitted.ctxTop !== s.ctxTop || paged !== (s.contextPaged ?? false) || page !== s.page)
-    ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt, ctxTop: fitted.ctxTop, contextPaged: paged, page, ...page < 0 && s.page >= 0 && { answered: s.answered.map((a, i) => i === 0 ? false : a) } });
+    ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt, ctxTop: fitted.ctxTop, contextPaged: paged, page });
   return /* @__PURE__ */ h(Panel, {
     width
   }, /* @__PURE__ */ h(Lines, {

@@ -64,8 +64,8 @@ export function initial(form: Form): State {
     cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ''),
-    // A pre-picked radio counts as answered once its page has been seen; the first page is seen on opening.
-    answered: chosen.map((value, i) => i === 0 && value !== undefined),
+    // A pre-picked radio is a default, not an answer: space, Enter, a click or the Next button answers it.
+    answered: form.questions.map(() => false),
     chosen,
     phase: 'active',
     tabsFrom: 0,
@@ -175,20 +175,21 @@ export function answersOf(form: Form, s: State): Record<string, unknown> {
 }
 
 // Navigation only: arrows, Tab and the tab strip look around without answering anything.
-// Arriving on a question whose radio was pre-picked answers it with that pick.
+// Navigation only: arrows and Tab look around without answering anything.
 export function goTo(form: Form, s: State, page: number): State {
   const last = isSinglePage(form) ? 0 : form.questions.length
-  const to = Math.max(firstPage(s), Math.min(last, page))
-  const seen = to >= 0 && to < form.questions.length && s.chosen[to] !== undefined
-  return { ...s, page: to, ...(seen && { answered: markAnswered(s, to) }) }
+  return { ...s, page: Math.max(firstPage(s), Math.min(last, page)) }
 }
 
 export const firstPage = (s: State) => (s.contextPaged ? -1 : 0)
 export const isContextPage = (s: State) => s.page < 0
 
-// Next (or Review) only moves on: a single choice was picked by space, Enter, a click or its recommended default.
+// The Next (or Review) button: a deliberate act, so it accepts a single choice's pick, default or not, then moves on.
 export function advance(form: Form, s: State): State {
-  return goTo(form, s, s.page + 1)
+  const i = s.page
+  const q = form.questions[i]
+  const accepts = q !== undefined && !q.multi && s.chosen[i] !== undefined
+  return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1)
 }
 
 export function moveCursor(form: Form, s: State, by: number): State {

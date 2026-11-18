@@ -31,8 +31,7 @@ export default kitClient<Props, State>(
     const paged = fitted.contextPaged === true
     const page = paged && s.contextPaged === undefined ? -1 : !paged && s.page < 0 ? 0 : s.page
     if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt || fitted.ctxTop !== s.ctxTop || paged !== (s.contextPaged ?? false) || page !== s.page)
-      // Opening on the context page leaves the first question unseen, so its pre-pick is not an answer yet.
-      ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt, ctxTop: fitted.ctxTop, contextPaged: paged, page, ...(page < 0 && s.page >= 0 && { answered: s.answered.map((a, i) => (i === 0 ? false : a)) }) })
+      ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt, ctxTop: fitted.ctxTop, contextPaged: paged, page })
     return (
       <Panel width={width}>
         <Lines lines={fitted.lines} onAction={action => apply(perform(action, form, ui.state))} />
