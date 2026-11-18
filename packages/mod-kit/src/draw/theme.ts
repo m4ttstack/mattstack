@@ -111,13 +111,13 @@ export function pressed<S extends Style>(span: S): S {
   return span.mark ? { ...out, color: span.mark } : out
 }
 
-// The button the keyboard selected: a cyan ❯ in its left edge cell, drawn outside the fill, and the fill lifted a step,
+// The button the keyboard selected: a white ❯ in its left edge cell, drawn outside the fill, and the fill lifted a step,
 // so the cell count stays. The ❯ carries no action, so the pointer lights and presses only the button itself.
 export function keySelected<A>(span: Span<A>): Span<A>[] {
   if (!span.t.startsWith(' ')) return [span]
   const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span
   return [
-    { ...bare, t: SYMBOL.selectEdge, color: 'cyan', bold: true, dim: false },
+    { ...bare, t: SYMBOL.selectEdge, color: 'white', bold: true, dim: false },
     { ...hoverOf(span), t: span.t.slice(1) },
   ]
 }

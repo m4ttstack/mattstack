@@ -248,7 +248,7 @@ function keySelected(span) {
     return [span];
   const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span;
   return [
-    { ...bare, t: SYMBOL.selectEdge, color: "cyan", bold: true, dim: false },
+    { ...bare, t: SYMBOL.selectEdge, color: "white", bold: true, dim: false },
     { ...hoverOf(span), t: span.t.slice(1) }
   ];
 }
@@ -1608,7 +1608,7 @@ function register(on) {
         dimColor: true
       }, "This screen can't draw the form yet. Answer in the terminal.");
     const body = paneRows(e);
-    const rows = Math.max(8, body - 3);
+    const rows = Math.max(8, body);
     const focused = e.props.isFocused || await read($, keysAtom);
     const height = Math.max(1, form.status === "open" ? body : body - 2);
     if (form.confirm && form.status === "open") {

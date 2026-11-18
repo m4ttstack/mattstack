@@ -219,7 +219,7 @@ function keySelected(span) {
     return [span];
   const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span;
   return [
-    { ...bare, t: SYMBOL.selectEdge, color: "cyan", bold: true, dim: false },
+    { ...bare, t: SYMBOL.selectEdge, color: "white", bold: true, dim: false },
     { ...hoverOf(span), t: span.t.slice(1) }
   ];
 }

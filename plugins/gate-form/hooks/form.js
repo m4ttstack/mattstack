@@ -245,7 +245,7 @@ function keySelected(span) {
     return [span];
   const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span;
   return [
-    { ...bare, t: SYMBOL.selectEdge, color: "cyan", bold: true, dim: false },
+    { ...bare, t: SYMBOL.selectEdge, color: "white", bold: true, dim: false },
     { ...hoverOf(span), t: span.t.slice(1) }
   ];
 }
@@ -433,7 +433,7 @@ var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
 function choiceRows(choice, idx, spec) {
   const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const isAt = isCursorRow(spec, idx);
-  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { ...ACCENT, bold: true }) : sp("  "), choiceMark(spec, idx), sp(" ")];
+  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { color: "white", bold: true }) : sp("  "), choiceMark(spec, idx), sp(" ")];
   const under = [bar, sp("    ")];
   const rows = choiceLines(choice, idx, spec, lead, under);
   return isAt && spec.pressing ? rows.map((line) => line.map((span) => span.isLabel ? pressed(span) : span)) : rows;
@@ -1473,7 +1473,7 @@ function navRows(form, s, view) {
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
   const left = [...page === n || isOneQuestion(form) && !s.contextPaged ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
-  const line = buttonRow(left.map(([, button]) => button), aside, view.width);
+  const line = buttonRow(left.map(([, button]) => button), aside, view.width, 0);
   const marked = (row) => {
     if (!view.focused || !isOnNav(form, s))
       return row;
@@ -1491,7 +1491,7 @@ function confirmFoot(form, view) {
   return [BLANK, ...errorLines(form, view)];
 }
 function submitRow(form, s, view) {
-  return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
+  return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width, 0);
 }
 function errorLines(form, view) {
   if (form.status !== "open" || !form.error)
@@ -1504,7 +1504,7 @@ function contextPage(form, s, view, head, ctx) {
   head.splice(head.length - 1, 1, [sp(`${n} question${n === 1 ? "" : "s"} after this`, DIM)], BLANK);
   const start = { label: "Start →", action: { type: "page", page: 0 }, tone: "secondary" };
   const aside = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" } : undefined;
-  const line = buttonRow([start], aside, view.width);
+  const line = buttonRow([start], aside, view.width, 0);
   const marked = view.focused ? [...line.slice(0, 1), ...gridLook(line[1], { marked: true, pressing: view.pressing }), ...line.slice(2)] : line;
   const first = form.questions[0];
   const next = first ? clipLine([sp("Next: ", DIM), sp(first.label)], view.width) : BLANK;

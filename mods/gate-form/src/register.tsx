@@ -657,7 +657,7 @@ export function register(on: On): void {
     if (!form) return <Text dimColor>No questions right now.</Text>
     if (!Client) return <Text dimColor>This screen can't draw the form yet. Answer in the terminal.</Text>
     const body = paneRows(e)
-    const rows = Math.max(8, body - 3)
+    const rows = Math.max(8, body)
     const focused = e.props.isFocused || (await read($, keysAtom))
     // The Close row and the gap above it take two of the body's rows.
     const height = Math.max(1, form.status === 'open' ? body : body - 2)
