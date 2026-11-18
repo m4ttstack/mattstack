@@ -10,8 +10,10 @@ Scope `sweep`, once for the whole batch, never per branch. The question:
 
 - `branches` (write-in): a multi-select of the branches to rebase, in
   order, pre-selected by the rule under **Plan the sweep** (deselecting skips
-  one); one question with gate-form's `ask` tool (`mcp__gate-form__ask`)
-  in your session; without it, over 4 branches it splits into
+  one); one question when the kit form draws the gate (opened from the
+  main session, not a subagent or a hand-back, with gate-form's `ask`
+  tool (`mcp__gate-form__ask`) in your session); otherwise, over 4
+  branches it splits into
   `branches-1`, `branches-2`, ... of up to 4 options each, in order,
   whose answers read as one union
 
