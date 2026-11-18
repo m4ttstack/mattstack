@@ -482,7 +482,7 @@ function initial(form) {
     cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
-    answered: chosen.map((value) => value !== undefined),
+    answered: chosen.map((value, i) => i === 0 && value !== undefined),
     chosen,
     phase: "active",
     tabsFrom: 0,
@@ -510,7 +510,7 @@ var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
-  const ids = s.page > 0 && !isReview(form, s) ? ["back", "next"] : ["next"];
+  const ids = s.page > firstPage(s) && !isReview(form, s) ? ["back", "next"] : ["next"];
   if (isReview(form, s) && menuRows(form).length > 0)
     ids.push("more");
   if (canChat(form))
@@ -578,8 +578,12 @@ function answersOf(form, s) {
 }
 function goTo(form, s, page) {
   const last = isSinglePage(form) ? 0 : form.questions.length;
-  return { ...s, page: Math.max(0, Math.min(last, page)) };
+  const to = Math.max(firstPage(s), Math.min(last, page));
+  const seen = to >= 0 && to < form.questions.length && s.chosen[to] !== undefined;
+  return { ...s, page: to, ...seen && { answered: markAnswered(s, to) } };
 }
+var firstPage = (s) => s.contextPaged ? -1 : 0;
+var isContextPage = (s) => s.page < 0;
 function advance(form, s) {
   return goTo(form, s, s.page + 1);
 }

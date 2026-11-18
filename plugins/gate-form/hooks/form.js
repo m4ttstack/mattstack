@@ -878,7 +878,7 @@ function initial(form) {
     cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
-    answered: chosen.map((value) => value !== undefined),
+    answered: chosen.map((value, i) => i === 0 && value !== undefined),
     chosen,
     phase: "active",
     tabsFrom: 0,
@@ -906,7 +906,7 @@ var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
-  const ids = s.page > 0 && !isReview(form, s) ? ["back", "next"] : ["next"];
+  const ids = s.page > firstPage(s) && !isReview(form, s) ? ["back", "next"] : ["next"];
   if (isReview(form, s) && menuRows(form).length > 0)
     ids.push("more");
   if (canChat(form))
@@ -974,8 +974,12 @@ function answersOf(form, s) {
 }
 function goTo(form, s, page) {
   const last = isSinglePage(form) ? 0 : form.questions.length;
-  return { ...s, page: Math.max(0, Math.min(last, page)) };
+  const to = Math.max(firstPage(s), Math.min(last, page));
+  const seen = to >= 0 && to < form.questions.length && s.chosen[to] !== undefined;
+  return { ...s, page: to, ...seen && { answered: markAnswered(s, to) } };
 }
+var firstPage = (s) => s.contextPaged ? -1 : 0;
+var isContextPage = (s) => s.page < 0;
 function advance(form, s) {
   return goTo(form, s, s.page + 1);
 }
@@ -1200,7 +1204,7 @@ function questionKey(ev, form, s) {
   if (isEnter(ev))
     return isSinglePage(form) ? sendPicked(form, s) : { state: confirm(form, s) };
   if (key === "left" || key === "right")
-    return { state: isOneQuestion(form) ? s : goTo(form, s, s.page + (key === "left" ? -1 : 1)) };
+    return { state: isOneQuestion(form) && key === "right" ? s : goTo(form, s, s.page + (key === "left" ? -1 : 1)) };
   if (key === "up" || key === "down")
     return gridKey(ev, form, s);
   if (isSpace && !typing)
@@ -1214,6 +1218,13 @@ function questionKey(ev, form, s) {
     return { state: typeChar(form, s, ch) };
   return;
 }
+function contextKey(ev, form, s) {
+  if (ev.key === "up" || ev.key === "down")
+    return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === "up" ? -1 : 1)) } };
+  if (isEnter(ev) || ev.key === "right" || ev.key === "tab" && !ev.shift)
+    return { state: goTo(form, s, 0) };
+  return { state: s };
+}
 function keyEffect(ev, form, armed) {
   if (armed.phase !== "active")
     return;
@@ -1222,6 +1233,8 @@ function keyEffect(ev, form, armed) {
   const s = disarm(armed);
   if (isConfirm(form))
     return;
+  if (isContextPage(s))
+    return settled(form, s, contextKey(ev, form, s));
   if (ev.shift && (ev.key === "up" || ev.key === "down"))
     return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === "up" ? -1 : 1)) } };
   if (ev.key === "tab" && (isSinglePage(form) || isOneQuestion(form)))
@@ -1310,6 +1323,7 @@ function contextBody(context, width) {
 }
 var BOX_CELLS = 3;
 var MIN_CTX = 3;
+var CTX_FLOOR = 8;
 var BLANK = [sp(" ")];
 var RULE_COLOR = "#3a3a3a";
 var rule = (width) => [sp("─".repeat(width), { color: RULE_COLOR })];
@@ -1318,18 +1332,19 @@ function contextBox(context, width, ctx) {
     return [];
   const inner = width - BOX_CELLS;
   const body = contextBody(context, inner);
-  const top = Math.min(Math.max(0, ctx.top), Math.max(0, body.length - ctx.cap));
-  const bar = scrollBar(ctx.cap, body.length, top);
-  const shown = body.slice(top, top + ctx.cap);
+  const cap = Math.min(ctx.cap, body.length);
+  const top = Math.min(Math.max(0, ctx.top), Math.max(0, body.length - cap));
+  const bar = scrollBar(cap, body.length, top);
+  const shown = body.slice(top, top + cap);
   const lines = shown.map((line, n) => {
     const clipped = clipLine(line, inner);
     const text = clipped.length === 0 ? BLANK : clipped;
     const pad = Math.max(0, inner - widthOf(text));
-    return [...text, ...body.length > ctx.cap ? [sp(" ".repeat(pad)), ...bar[n]] : []];
+    return [...text, ...body.length > cap ? [sp(" ".repeat(pad)), ...bar[n]] : []];
   });
-  if (body.length <= ctx.cap)
+  if (body.length <= cap)
     return lines;
-  const below = body.length - top - ctx.cap;
+  const below = body.length - top - cap;
   const where = below > 0 ? `↓ ${below} more line${below === 1 ? "" : "s"}` : `↑ ${top} line${top === 1 ? "" : "s"} above`;
   const keys = "shift+↑↓ or wheel";
   const gapCells = Math.max(2, width - widthOf([sp(where), sp(keys)]));
@@ -1434,11 +1449,12 @@ function progress(form, s, view) {
     sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { color: i === s.page ? "white" : s.answered[i] ? "#8a8a8a" : "#555555", action: { type: "page", page: i } }),
     sp(" ")
   ]);
+  const marker = s.contextPaged ? [sp("◆", { color: isContextPage(s) ? "white" : "#8a8a8a", action: { type: "page", page: -1 } }), sp(" ")] : [];
   const q = form.questions[s.page];
-  const where = q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(" review", { bold: true })];
+  const where = isContextPage(s) ? [sp(" context", { bold: true }), sp(`  then ${n} question${n === 1 ? "" : "s"}`, DIM)] : q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(" review", { bold: true })];
   const missing = unansweredCount(s);
   const left = sp(missing === 0 ? "all answered" : `${missing} to answer`, DIM);
-  const line = [...dots, ...where];
+  const line = [...marker, ...dots, ...where];
   const room = view.width - widthOf(line) - widthOf([left]);
   return room >= 2 ? [...line, sp(" ".repeat(room)), left] : line;
 }
@@ -1449,14 +1465,14 @@ function spanAt2(id, left, line) {
 function navRows(form, s, view) {
   const n = form.questions.length;
   const page = s.page;
-  const back = { label: "← Back", action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === 0 };
+  const back = { label: "← Back", action: { type: "page", page: page - 1 }, tone: "secondary", disabled: page === firstPage(s) };
   const forward = (label) => ({ label, action: { type: "advance" }, tone: "secondary" });
   const submit = { label: unansweredCount(s) === 0 || form.source === "gate" ? "Submit" : "Submit anyway", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) };
   const next = isOneQuestion(form) || page === n ? submit : page < n - 1 ? forward("Next →") : forward("Review →");
   const aside = !canChat(form) ? undefined : s.chatArmed ? { label: `${ICON.chat} Press again to chat`, action: { type: "chat" }, tone: "caution" } : { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" };
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
-  const left = [...page === n || isOneQuestion(form) ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
+  const left = [...page === n || isOneQuestion(form) && !s.contextPaged ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
   const line = buttonRow(left.map(([, button]) => button), aside, view.width);
   const marked = (row) => {
     if (!view.focused || !isOnNav(form, s))
@@ -1483,15 +1499,25 @@ function errorLines(form, view) {
   const lead = [sp(SYMBOL.warn, WARN), sp("  ")];
   return [[sp(" ")], ...hang(lead, [sp("   ")], form.error, view.width, WARN)];
 }
+function contextPage(form, s, view, head, ctx) {
+  head.push(...progressRows(form, s, view), rule(view.width), BLANK);
+  const start = { label: "Start →", action: { type: "page", page: 0 }, tone: "secondary" };
+  const aside = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" } : undefined;
+  const line = buttonRow([start], aside, view.width);
+  const marked = view.focused ? [...line.slice(0, 1), ...gridLook(line[1], { marked: true, pressing: view.pressing }), ...line.slice(2)] : line;
+  return { head, page: contextBox(form.context ?? "", view.width, ctx), foot: [BLANK, rule(view.width), BLANK, marked] };
+}
 function draw(form, s, view, ctx) {
   const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(form.title, { bold: true })]];
   if (s.phase !== "active" || form.status !== "open")
     return { head, page: closedPage(form, s, view), foot: [] };
   const gap = BLANK;
   head.push(gap);
+  if (isContextPage(s) && form.context && !isConfirm(form))
+    return contextPage(form, s, view, head, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 });
   if (form.context && isConfirm(form))
     head.push(...hang([], [], contextText(form.context), view.width));
-  else if (form.context)
+  else if (form.context && !s.contextPaged)
     head.push([sp("CONTEXT", GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width));
   if (isConfirm(form))
     return { head, page: [], foot: confirmFoot(form, view) };
@@ -1502,7 +1528,7 @@ function draw(form, s, view, ctx) {
   return { head, page, foot };
 }
 function progressRows(form, s, view) {
-  return isSinglePage(form) || isOneQuestion(form) ? [BLANK] : [BLANK, progress(form, s, view), BLANK];
+  return isSinglePage(form) || isOneQuestion(form) && !s.contextPaged ? [BLANK] : [BLANK, progress(form, s, view), BLANK];
 }
 function tallestQuestion(form, s, view) {
   let tallest = 0;
@@ -1519,25 +1545,31 @@ var BAR_CELLS = 3;
 var FIXED_TOP = 2;
 function contextFit(form, s, view, rows, turned) {
   if (!form.context || isConfirm(form) || s.phase !== "active" || form.status !== "open")
-    return { usedWheel: false };
+    return { usedWheel: false, paged: false };
   const total = contextBody(form.context, view.width - BOX_CELLS).length;
-  const bare = draw(form, s, view, { cap: 0, top: 0 });
-  const pageRows = Math.max(bare.page.length, tallestQuestion(form, s, view));
+  const inline = { ...s, page: Math.max(0, s.page), contextPaged: undefined };
+  const bare = draw(form, inline, view, { cap: 0, top: 0 });
+  const pageRows = Math.max(bare.page.length, tallestQuestion(form, inline, view));
   const room = rows - bare.head.length - pageRows - bare.foot.length;
+  const scrolled = (cap) => ({ cap, top: Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), Math.max(0, total - cap)) });
   if (total <= Math.max(MIN_CTX, room))
-    return { ctx: { cap: total, top: 0 }, usedWheel: false };
-  const cap = Math.max(MIN_CTX, room - 1);
-  const top = Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), total - cap);
-  return { ctx: { cap, top }, usedWheel: true };
+    return { ctx: { cap: total, top: 0 }, usedWheel: false, paged: false };
+  if (room - 1 >= CTX_FLOOR)
+    return { ctx: scrolled(room - 1), usedWheel: true, paged: false };
+  if (!isContextPage(s))
+    return { usedWheel: false, paged: true };
+  const page = draw(form, s, view, { cap: 0, top: 0 });
+  const cap = Math.max(MIN_CTX, rows - page.head.length - page.foot.length - 1);
+  return { ctx: total <= cap ? { cap: total, top: 0 } : scrolled(cap), usedWheel: total > cap, paged: true };
 }
 function fittedLines(form, s, view, rows, wheel) {
   const wheelTurn = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt;
-  const { ctx, usedWheel } = contextFit(form, s, view, rows, wheelTurn);
-  const kept = { ...wheel !== undefined && { wheelAt: wheel }, ...ctx && { ctxTop: ctx.top } };
+  const { ctx, usedWheel, paged } = contextFit(form, s, view, rows, wheelTurn);
+  const kept = { ...wheel !== undefined && { wheelAt: wheel }, ...ctx && { ctxTop: ctx.top }, contextPaged: paged };
   const full = draw(form, s, view, ctx);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
-    if (s.phase === "active" && form.status === "open" && !isConfirm(form)) {
+    if (s.phase === "active" && form.status === "open" && !isConfirm(form) && !isContextPage(s)) {
       const height = Math.max(full.page.length, Math.min(tallestQuestion(form, s, view), rows - full.head.length - full.foot.length));
       const page = [...full.page, ...Array.from({ length: height - full.page.length }, () => BLANK)];
       const spare = Math.max(0, rows - full.head.length - page.length - full.foot.length);
@@ -1594,8 +1626,10 @@ var form_default = kitClient((props, ui) => {
   });
   const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows, props.wheel);
   const s = ui.state;
-  if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt || fitted.ctxTop !== s.ctxTop)
-    ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt, ctxTop: fitted.ctxTop });
+  const paged = fitted.contextPaged === true;
+  const page = paged && s.contextPaged === undefined ? -1 : !paged && s.page < 0 ? 0 : s.page;
+  if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt || fitted.ctxTop !== s.ctxTop || paged !== (s.contextPaged ?? false) || page !== s.page)
+    ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt, ctxTop: fitted.ctxTop, contextPaged: paged, page, ...page < 0 && s.page >= 0 && { answered: s.answered.map((a, i) => i === 0 ? false : a) } });
   return /* @__PURE__ */ h(Panel, {
     width
   }, /* @__PURE__ */ h(Lines, {

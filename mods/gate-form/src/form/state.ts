@@ -36,6 +36,9 @@ export type State = {
   wheelAt?: number
   // The last option click, so a second one on the same option soon after reads as a double click.
   lastClick?: { page: number; idx: number; at: number }
+  // The context is too long to share the pane with the tallest question, so it has a page of its own before the
+  // first question (page -1). The view decides it from the pane's height (view.ts `contextFit`).
+  contextPaged?: boolean
   // The context box's first row in view while the context is taller than its box.
   ctxTop?: number
   // The run control that was sent, for the closed form to name.
@@ -61,7 +64,8 @@ export function initial(form: Form): State {
     cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ''),
-    answered: chosen.map(value => value !== undefined),
+    // A pre-picked radio counts as answered once its page has been seen; the first page is seen on opening.
+    answered: chosen.map((value, i) => i === 0 && value !== undefined),
     chosen,
     phase: 'active',
     tabsFrom: 0,
@@ -103,7 +107,7 @@ export const isOnNav = (form: Form, s: State) => s.onNav === true || isReview(fo
 // The nav row's buttons the keyboard can rest on: a disabled Back is skipped, while a disabled Submit stays, as Enter on it does nothing.
 // The review page has no Back: ← pages back there, as on every page.
 export function navIds(form: Form, s: State): NavId[] {
-  const ids: NavId[] = s.page > 0 && !isReview(form, s) ? ['back', 'next'] : ['next']
+  const ids: NavId[] = s.page > firstPage(s) && !isReview(form, s) ? ['back', 'next'] : ['next']
   if (isReview(form, s) && menuRows(form).length > 0) ids.push('more')
   if (canChat(form)) ids.push('chat')
   return ids
@@ -171,10 +175,16 @@ export function answersOf(form: Form, s: State): Record<string, unknown> {
 }
 
 // Navigation only: arrows, Tab and the tab strip look around without answering anything.
+// Arriving on a question whose radio was pre-picked answers it with that pick.
 export function goTo(form: Form, s: State, page: number): State {
   const last = isSinglePage(form) ? 0 : form.questions.length
-  return { ...s, page: Math.max(0, Math.min(last, page)) }
+  const to = Math.max(firstPage(s), Math.min(last, page))
+  const seen = to >= 0 && to < form.questions.length && s.chosen[to] !== undefined
+  return { ...s, page: to, ...(seen && { answered: markAnswered(s, to) }) }
 }
+
+export const firstPage = (s: State) => (s.contextPaged ? -1 : 0)
+export const isContextPage = (s: State) => s.page < 0
 
 // Next (or Review) only moves on: a single choice was picked by space, Enter, a click or its recommended default.
 export function advance(form: Form, s: State): State {

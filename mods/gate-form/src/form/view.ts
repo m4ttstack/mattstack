@@ -2,7 +2,7 @@ import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, bu
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canChat, canSubmit, choicesOf, isConfirm, isOneQuestion, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { canChat, canSubmit, choicesOf, firstPage, isConfirm, isContextPage, isOneQuestion, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 // `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
@@ -88,6 +88,8 @@ export function contextBody(context: string, width: number): L[] {
 const BOX_CELLS = 3
 // The fewest context rows the box shrinks to before the whole page scrolls instead.
 const MIN_CTX = 3
+// The fewest rows the context box gets beside the form before the context moves to its own page.
+const CTX_FLOOR = 8
 
 export type CtxView = { cap: number; top: number }
 
@@ -102,17 +104,18 @@ function contextBox(context: string, width: number, ctx: CtxView): L[] {
   if (ctx.cap <= 0) return []
   const inner = width - BOX_CELLS
   const body = contextBody(context, inner)
-  const top = Math.min(Math.max(0, ctx.top), Math.max(0, body.length - ctx.cap))
-  const bar = scrollBar<Action>(ctx.cap, body.length, top)
-  const shown = body.slice(top, top + ctx.cap)
+  const cap = Math.min(ctx.cap, body.length)
+  const top = Math.min(Math.max(0, ctx.top), Math.max(0, body.length - cap))
+  const bar = scrollBar<Action>(cap, body.length, top)
+  const shown = body.slice(top, top + cap)
   const lines = shown.map((line, n): L => {
     const clipped = clipLine(line, inner)
     const text = clipped.length === 0 ? BLANK : clipped
     const pad = Math.max(0, inner - widthOf(text))
-    return [...text, ...(body.length > ctx.cap ? [sp<Action>(' '.repeat(pad)), ...bar[n]!] : [])]
+    return [...text, ...(body.length > cap ? [sp<Action>(' '.repeat(pad)), ...bar[n]!] : [])]
   })
-  if (body.length <= ctx.cap) return lines
-  const below = body.length - top - ctx.cap
+  if (body.length <= cap) return lines
+  const below = body.length - top - cap
   const where = below > 0 ? `↓ ${below} more line${below === 1 ? '' : 's'}` : `↑ ${top} line${top === 1 ? '' : 's'} above`
   const keys = 'shift+↑↓ or wheel'
   const gapCells = Math.max(2, width - widthOf([sp(where), sp(keys)]))
@@ -222,11 +225,12 @@ function progress(form: Form, s: State, view: View): L {
     sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { color: i === s.page ? 'white' : s.answered[i] ? '#8a8a8a' : '#555555', action: { type: 'page', page: i } }),
     sp(' '),
   ])
+  const marker: L = s.contextPaged ? [sp('◆', { color: isContextPage(s) ? 'white' : '#8a8a8a', action: { type: 'page', page: -1 } }), sp(' ')] : []
   const q = form.questions[s.page]
-  const where: L = q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(' review', { bold: true })]
+  const where: L = isContextPage(s) ? [sp(' context', { bold: true }), sp(`  then ${n} question${n === 1 ? '' : 's'}`, DIM)] : q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(' review', { bold: true })]
   const missing = unansweredCount(s)
   const left = sp<Action>(missing === 0 ? 'all answered' : `${missing} to answer`, DIM)
-  const line: L = [...dots, ...where]
+  const line: L = [...marker, ...dots, ...where]
   const room = view.width - widthOf(line) - widthOf([left])
   return room >= 2 ? [...line, sp(' '.repeat(room)), left] : line
 }
@@ -242,7 +246,7 @@ function spanAt(id: NavId, left: NavId[], line: L): number {
 function navRows(form: Form, s: State, view: View): L[] {
   const n = form.questions.length
   const page = s.page
-  const back: Button<Action> = { label: '← Back', action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 }
+  const back: Button<Action> = { label: '← Back', action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === firstPage(s) }
   const forward = (label: string): Button<Action> => ({ label, action: { type: 'advance' }, tone: 'secondary' })
   const submit: Button<Action> = { label: unansweredCount(s) === 0 || form.source === 'gate' ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }
   const next = isOneQuestion(form) || page === n ? submit : page < n - 1 ? forward('Next →') : forward('Review →')
@@ -253,7 +257,7 @@ function navRows(form: Form, s: State, view: View): L[] {
     : { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' }
   const rows = page === n ? menuRows(form) : []
   const more: Button<Action> = { label: MORE_ACTIONS, action: MORE, tone: 'quiet' }
-  const left: [NavId, Button<Action>][] = [...(page === n || isOneQuestion(form) ? [] : [['back', back] as [NavId, Button<Action>]]), ['next', next], ...(rows.length === 0 ? [] : [['more', more] as [NavId, Button<Action>]])]
+  const left: [NavId, Button<Action>][] = [...(page === n || (isOneQuestion(form) && !s.contextPaged) ? [] : [['back', back] as [NavId, Button<Action>]]), ['next', next], ...(rows.length === 0 ? [] : [['more', more] as [NavId, Button<Action>]])]
   const line = buttonRow(left.map(([, button]) => button), aside, view.width)
   const marked = (row: L): L => {
     if (!view.focused || !isOnNav(form, s)) return row
@@ -286,13 +290,24 @@ function errorLines(form: Form, view: View): L[] {
 }
 
 // The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
+// The context page: the whole pane for the context, then Start.
+function contextPage(form: Form, s: State, view: View, head: L[], ctx: CtxView): Drawn<Action> {
+  head.push(...progressRows(form, s, view), rule(view.width), BLANK)
+  const start: Button<Action> = { label: 'Start →', action: { type: 'page', page: 0 }, tone: 'secondary' }
+  const aside: Button<Action> | undefined = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' } : undefined
+  const line = buttonRow([start], aside, view.width)
+  const marked: L = view.focused ? [...line.slice(0, 1), ...gridLook(line[1]!, { marked: true, pressing: view.pressing }), ...line.slice(2)] : line
+  return { head, page: contextBox(form.context ?? '', view.width, ctx), foot: [BLANK, rule(view.width), BLANK, marked] }
+}
+
 function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
   const head: L[] = [brandBar<Action>(form.source === 'plugin' ? 'mattstack' : 'mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(form.title, { bold: true })]]
   if (s.phase !== 'active' || form.status !== 'open') return { head, page: closedPage(form, s, view), foot: [] }
   const gap = BLANK
   head.push(gap)
+  if (isContextPage(s) && form.context && !isConfirm(form)) return contextPage(form, s, view, head, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 })
   if (form.context && isConfirm(form)) head.push(...hang<Action>([], [], contextText(form.context), view.width))
-  else if (form.context) head.push([sp('CONTEXT', GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width))
+  else if (form.context && !s.contextPaged) head.push([sp('CONTEXT', GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width))
   if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, view) }
 
   const q = form.questions[s.page]
@@ -304,7 +319,7 @@ function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
 
 // The form's own head: a blank row, the progress line and a blank row under it, on a form with more than one page.
 function progressRows(form: Form, s: State, view: View): L[] {
-  return isSinglePage(form) || isOneQuestion(form) ? [BLANK] : [BLANK, progress(form, s, view), BLANK]
+  return isSinglePage(form) || (isOneQuestion(form) && !s.contextPaged) ? [BLANK] : [BLANK, progress(form, s, view), BLANK]
 }
 
 // The tallest any question page gets, over every cursor position (the focused choice wraps its label and description).
@@ -327,21 +342,27 @@ const FIXED_TOP = 2
 // `followed` names the cursor the window last moved to show, and `wheelAt` the wheel total it last took;
 // the Client keeps both, so a wheel turn can leave the cursor out of view until the cursor moves again.
 // `ctxTop` is the context box's first row in view.
-export type Fitted = { lines: L[]; top: number; followed?: string; wheelAt?: number; ctxTop?: number }
+export type Fitted = { lines: L[]; top: number; followed?: string; wheelAt?: number; ctxTop?: number; contextPaged?: boolean }
 
 // The context box takes the rows the form leaves, down to MIN_CTX, and scrolls inside itself (shift+↑↓, or the wheel
 // while it overflows), so the question and the buttons stay in view. Measured against the tallest question, so the box
 // keeps its height as you page.
-function contextFit(form: Form, s: State, view: View, rows: number, turned: number): { ctx?: CtxView; usedWheel: boolean } {
-  if (!form.context || isConfirm(form) || s.phase !== 'active' || form.status !== 'open') return { usedWheel: false }
+// Where the context goes: in full beside the form when it fits, in a box that scrolls when at least CTX_FLOOR rows
+// are left for it, and on a page of its own before the first question when even that leaves it squashed.
+function contextFit(form: Form, s: State, view: View, rows: number, turned: number): { ctx?: CtxView; usedWheel: boolean; paged: boolean } {
+  if (!form.context || isConfirm(form) || s.phase !== 'active' || form.status !== 'open') return { usedWheel: false, paged: false }
   const total = contextBody(form.context, view.width - BOX_CELLS).length
-  const bare = draw(form, s, view, { cap: 0, top: 0 })
-  const pageRows = Math.max(bare.page.length, tallestQuestion(form, s, view))
+  const inline = { ...s, page: Math.max(0, s.page), contextPaged: undefined }
+  const bare = draw(form, inline, view, { cap: 0, top: 0 })
+  const pageRows = Math.max(bare.page.length, tallestQuestion(form, inline, view))
   const room = rows - bare.head.length - pageRows - bare.foot.length
-  if (total <= Math.max(MIN_CTX, room)) return { ctx: { cap: total, top: 0 }, usedWheel: false }
-  const cap = Math.max(MIN_CTX, room - 1)
-  const top = Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), total - cap)
-  return { ctx: { cap, top }, usedWheel: true }
+  const scrolled = (cap: number) => ({ cap, top: Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), Math.max(0, total - cap)) })
+  if (total <= Math.max(MIN_CTX, room)) return { ctx: { cap: total, top: 0 }, usedWheel: false, paged: false }
+  if (room - 1 >= CTX_FLOOR) return { ctx: scrolled(room - 1), usedWheel: true, paged: false }
+  if (!isContextPage(s)) return { usedWheel: false, paged: true }
+  const page = draw(form, s, view, { cap: 0, top: 0 })
+  const cap = Math.max(MIN_CTX, rows - page.head.length - page.foot.length - 1)
+  return { ctx: total <= cap ? { cap: total, top: 0 } : scrolled(cap), usedWheel: total > cap, paged: true }
 }
 
 // Every page is padded to the tallest question's height, room allowing, so the buttons keep their row as you page.
@@ -350,14 +371,14 @@ function contextFit(form: Form, s: State, view: View, rows: number, turned: numb
 // pane's running total) moves it too, and a scroll bar runs down its right edge.
 export function fittedLines(form: Form, s: State, view: View, rows: number, wheel?: number): Fitted {
   const wheelTurn = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt
-  const { ctx, usedWheel } = contextFit(form, s, view, rows, wheelTurn)
-  const kept = { ...(wheel !== undefined && { wheelAt: wheel }), ...(ctx && { ctxTop: ctx.top }) }
+  const { ctx, usedWheel, paged } = contextFit(form, s, view, rows, wheelTurn)
+  const kept = { ...(wheel !== undefined && { wheelAt: wheel }), ...(ctx && { ctxTop: ctx.top }), contextPaged: paged }
   const full = draw(form, s, view, ctx)
   const room = rows - FIXED_TOP - full.foot.length
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
     // The form docks to the bottom of the pane at the tallest question's height, so the progress line and the buttons
     // keep their rows as you page: a shorter question leaves blank rows under its options, the spare rows sit above.
-    if (s.phase === 'active' && form.status === 'open' && !isConfirm(form)) {
+    if (s.phase === 'active' && form.status === 'open' && !isConfirm(form) && !isContextPage(s)) {
       const height = Math.max(full.page.length, Math.min(tallestQuestion(form, s, view), rows - full.head.length - full.foot.length))
       const page = [...full.page, ...Array.from({ length: height - full.page.length }, () => BLANK)]
       const spare = Math.max(0, rows - full.head.length - page.length - full.foot.length)

@@ -2,7 +2,7 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isOneQuestion, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isContextPage, isOnNav, isOneQuestion, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
@@ -182,7 +182,7 @@ function questionKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefin
   const typing = isTyping(form, s)
   if (isEnter(ev)) return isSinglePage(form) ? sendPicked(form, s) : { state: confirm(form, s) }
   // With one question there is no page to step to, and → must not submit by accident.
-  if (key === 'left' || key === 'right') return { state: isOneQuestion(form) ? s : goTo(form, s, s.page + (key === 'left' ? -1 : 1)) }
+  if (key === 'left' || key === 'right') return { state: isOneQuestion(form) && key === 'right' ? s : goTo(form, s, s.page + (key === 'left' ? -1 : 1)) }
   if (key === 'up' || key === 'down') return gridKey(ev, form, s)
   if (isSpace && !typing) return { state: toggleAtCursor(form, s) }
   if (!typing) return undefined
@@ -192,12 +192,20 @@ function questionKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefin
   return undefined
 }
 
+// The context page: ↑↓ scroll it, Enter, → or Tab start the questions.
+function contextKey(ev: ClientKeyEvent, form: Form, s: State): Effect {
+  if (ev.key === 'up' || ev.key === 'down') return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === 'up' ? -1 : 1)) } }
+  if (isEnter(ev) || ev.key === 'right' || (ev.key === 'tab' && !ev.shift)) return { state: goTo(form, s, 0) }
+  return { state: s }
+}
+
 export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect | undefined {
   if (armed.phase !== 'active') return undefined
   if (ev.ctrl && (ev.key === 'x' || ev.key === 'c')) return chat(form, armed)
   const s = disarm(armed)
   // A confirm's answers are the engine's Buttons, drawn by the hooks module, which take the keys themselves.
   if (isConfirm(form)) return undefined
+  if (isContextPage(s)) return settled(form, s, contextKey(ev, form, s))
   // shift+↑↓ scrolls the context box; the view clamps it to the context's height.
   if (ev.shift && (ev.key === 'up' || ev.key === 'down')) return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === 'up' ? -1 : 1)) } }
   // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
