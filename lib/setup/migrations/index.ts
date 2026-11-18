@@ -17,15 +17,15 @@ import { sdmResourcesKeyMigration } from "./sdm-resources-key.ts";
 import { teamPacksFromGitMigration } from "./team-packs-from-git.ts";
 import { unsetSetting } from "../../settings/write.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
-import type { MigrationEventId } from "../contract.ts";
+import type { MigrationEventId, StepId } from "../contract.ts";
 
 export interface MigrationDef {
   id: string;
   title: string;
   /** `done` changed something, `skipped` found nothing to fix; both are recorded. Any other state is not, so it runs again at the next launch's update. */
   run(ctx: ApplyContext): Promise<StepOutcome>;
-  /** An update run gives it its turn after the update-safe steps (before `verify`), for a migration that needs what those steps install; a retry run, which runs no such step, runs it after the leads like any other. */
-  afterSteps?: boolean;
+  /** Update-safe steps whose result it needs (`plugins.install` for one that reads installed plugins). A full update run gives it its turn after every update-safe step, before `verify`; a retry run, which otherwise runs no step, runs these steps again right before it, so a step that failed on the stamping launch gets another go. */
+  needs?: StepId[];
 }
 
 export const SHARED_STORE_REFUSAL = 'A setup migration only changes this Mac. A change to the org or team stores is a layout change: see the rt:settings skill, "Changing the org repo\'s layout".';

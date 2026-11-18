@@ -14,8 +14,8 @@ import { dedupedConfigDirs } from "./team-packs-from-git.ts";
  * Once per Mac: turn off the stock superpowers copies the mattstack fork
  * replaces, at user scope in every Claude config folder, and record each one
  * so `rt uninstall` can turn it back on. A copy the member turns on again
- * later is theirs; nothing re-runs this. It runs after the update-safe
- * steps, so `plugins.install` has added the fork in the same run; a folder
+ * later is theirs; nothing re-runs this. It runs after `plugins.install`,
+ * in the same run that adds the fork and in every retry; a folder
  * where rt has never installed the fork waits (`partial` runs again next
  * launch), so a Mac is never left with no superpowers. A folder where the
  * member turned the fork off, or removed it after rt installed it, keeps its
@@ -24,7 +24,7 @@ import { dedupedConfigDirs } from "./team-packs-from-git.ts";
 export const superpowersForkSwapMigration: MigrationDef = {
   id: "2026-11-18-superpowers-fork-swap",
   title: "Switch to mattstack's superpowers",
-  afterSteps: true,
+  needs: ["plugins.install"],
   async run(ctx) {
     const claude = resolveTool(ctx.p, "claude");
     if (!claude.exec) return { state: "skipped", detail: "Claude Code is not installed" };

@@ -152,6 +152,16 @@ describe("2026-11-18-superpowers-fork-swap", () => {
     expect(events.findLast((e) => e.event === "done")).toEqual({ event: "done", ok: true });
   });
 
+  test("a retry launch after an install that failed reruns plugins.install, then swaps", async () => {
+    const listed: Listed[] = [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }];
+    const h = harness({ lists: { [defaultDir()]: listed } });
+    const ctx = { ...h.ctx, emit: () => {}, log: () => {} } as Partial<ApplyContext> as ApplyContext;
+    const pluginsInstall: StepDef = { id: "plugins.install", title: "plugins", kind: "rt", updateSafe: true, applies: () => true, run: async () => { listed.push({ id: "superpowers@mattstack", enabled: true, scope: "user" }); return { state: "done" }; } };
+    await runUpdateWith([pluginsInstall], [superpowersForkSwapMigration], ctx, { retry: true });
+    expect(h.disables()).toHaveLength(1);
+    expect(readSetupState(h.p).migrations).toContain("2026-11-18-superpowers-fork-swap");
+  });
+
   test("mattstack's superpowers installed but turned off in a folder: the member opted out there, so the stock copy stays on and nothing waits", async () => {
     const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: false, scope: "user" }] } });
     const outcome = await superpowersForkSwapMigration.run(h.ctx);

@@ -1939,10 +1939,10 @@ describe("runUpdateWith", () => {
     );
     expect(ran).toEqual(["org.folder", "org.pull", "migration", "team.identity", "plugins.install", "skills.materialize", "verify"]);
   });
-  test("a migration marked afterSteps runs after the update-safe steps and before verify, so it sees what plugins.install just did", async () => {
+  test("a migration that needs a step runs after the update-safe steps and before verify, so it sees what plugins.install just did", async () => {
     const ran: string[] = [];
     const step = (id: StepId): StepDef => ({ id, title: id, kind: "rt", updateSafe: true, applies: () => true, run: async () => { ran.push(id); return { state: "done" }; } });
-    const late: MigrationDef = { ...fakeMigration("2026-11-18-late", async () => { ran.push("late"); return { state: "done" }; }), afterSteps: true };
+    const late: MigrationDef = { ...fakeMigration("2026-11-18-late", async () => { ran.push("late"); return { state: "done" }; }), needs: ["plugins.install"] };
     const { ctx, events } = testCtx();
     await runUpdateWith(
       [step("org.folder"), step("org.pull"), step("plugins.install"), step("verify")],
@@ -1955,12 +1955,19 @@ describe("runUpdateWith", () => {
     expect(readSetupState(ctx.p).migrations).toEqual(["2026-10-01-early", "2026-11-18-late"]);
   });
 
-  test("a retry run still runs an afterSteps migration, after the leads", async () => {
+  test("a retry run reruns the steps a pending migration needs, then the migration, so a failed install gets another go", async () => {
     const ran: string[] = [];
     const step = (id: StepId): StepDef => ({ id, title: id, kind: "rt", updateSafe: true, applies: () => true, run: async () => { ran.push(id); return { state: "done" }; } });
-    const late: MigrationDef = { ...fakeMigration("2026-11-18-late", async () => { ran.push("late"); return { state: "done" }; }), afterSteps: true };
-    await runUpdateWith([step("org.folder"), step("org.pull"), step("plugins.install"), step("verify")], [late], testCtx().ctx, { retry: true });
-    expect(ran).toEqual(["org.folder", "org.pull", "late"]);
+    const late: MigrationDef = { ...fakeMigration("2026-11-18-late", async () => { ran.push("late"); return { state: "done" }; }), needs: ["plugins.install"] };
+    await runUpdateWith([step("org.folder"), step("org.pull"), step("plugins.install"), step("skills.materialize"), step("verify")], [late], testCtx().ctx, { retry: true });
+    expect(ran).toEqual(["org.folder", "org.pull", "plugins.install", "late"]);
+  });
+
+  test("a retry run whose pending migrations need no step runs only the leads and the migrations", async () => {
+    const ran: string[] = [];
+    const step = (id: StepId): StepDef => ({ id, title: id, kind: "rt", updateSafe: true, applies: () => true, run: async () => { ran.push(id); return { state: "done" }; } });
+    await runUpdateWith([step("org.folder"), step("org.pull"), step("plugins.install"), step("verify")], [fakeMigration("2026-10-01-plain", async () => { ran.push("plain"); return { state: "done" }; })], testCtx().ctx, { retry: true });
+    expect(ran).toEqual(["org.folder", "org.pull", "plain"]);
   });
 
   test("runs pending migrations, then update-safe steps in order, then verify; non-safe steps never run", async () => {
