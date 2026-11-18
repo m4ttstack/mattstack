@@ -396,7 +396,7 @@ covers).
   (`{ shown, top, width, gutter, bar, barCells, focus?, leadGlyph? }`) and draws the window's lines. Each line sits in its gutter, clipped, and ends in
   its scroll bar cells. `focus` is a `ListFocus` (`{ selected, range, marked,
   pressing }`). The selected action takes `gridLook`. While `marked`, the
-  stop's lines get the pink rail and its `leadGlyph` turns pink.
+  stop's lines get a rail in the terminal's text colour and its `leadGlyph` turns pink.
 - `wrappedButtons(lead, buttons, room, indent)` lays out a lead and buttons,
   carried onto more rows as the room runs out.
 - `lineOfAction(lines, action)` finds the line that holds an action.

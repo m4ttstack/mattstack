@@ -474,7 +474,7 @@ function windowLines(spec) {
   const focus = spec.focus ?? {};
   const chosen = focus.selected === undefined ? undefined : JSON.stringify(focus.selected);
   const range = focus.marked ? focus.range : undefined;
-  const rail = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(Math.max(0, spec.gutter - 1)))];
+  const rail = [sp(SYMBOL.bar), sp(" ".repeat(Math.max(0, spec.gutter - 1)))];
   const plain = [sp(" ".repeat(spec.gutter))];
   return spec.shown.map((line, n) => {
     const at = spec.top + n;
