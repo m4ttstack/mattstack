@@ -111,7 +111,7 @@ export function pressed<S extends Style>(span: S): S {
   return span.mark ? { ...out, color: span.mark } : out
 }
 
-// The button the keyboard selected, at `line[at]`: its fill lifted a step and a white ❯ in the blank cells before it,
+// The button the keyboard selected, at `line[at]`: its fill lifted a step and a ❯ in the terminal's own text colour in the blank cells before it,
 // taken from the spacer there, so the button keeps its full width and the row its cell count. With no blank cell
 // before it the ❯ is added and the row grows by one. The ❯ carries no action: the pointer lights only the button.
 export function markButtonAt<A>(line: Line<A>, at: number, focus: { pressing?: boolean } = {}): Line<A> {
@@ -123,9 +123,9 @@ export function markButtonAt<A>(line: Line<A>, at: number, focus: { pressing?: b
   if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
     const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge
     const rest = prev.t.slice(mark.length)
-    return keep([...line.slice(0, at - 1), ...(rest === '' ? [] : [{ ...prev, t: rest }]), sp<A>(mark, { color: 'white', bold: true }), lit, ...line.slice(at + 1)])
+    return keep([...line.slice(0, at - 1), ...(rest === '' ? [] : [{ ...prev, t: rest }]), sp<A>(mark, { bold: true }), lit, ...line.slice(at + 1)])
   }
-  return keep([...line.slice(0, at), sp<A>(SYMBOL.selectEdge, { color: 'white', bold: true }), lit, ...line.slice(at + 1)])
+  return keep([...line.slice(0, at), sp<A>(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)])
 }
 
 // A lone button span with the keyboard on it, for a caller with no row around it: the ❯ is added before it.

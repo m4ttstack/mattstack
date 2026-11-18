@@ -224,9 +224,9 @@ function markButtonAt(line, at, focus = {}) {
   if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
     const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
     const rest = prev.t.slice(mark.length);
-    return keep([...line.slice(0, at - 1), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { color: "white", bold: true }), lit, ...line.slice(at + 1)]);
+    return keep([...line.slice(0, at - 1), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true }), lit, ...line.slice(at + 1)]);
   }
-  return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { color: "white", bold: true }), lit, ...line.slice(at + 1)]);
+  return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)]);
 }
 function keySelected(span) {
   return markButtonAt([span], 0);

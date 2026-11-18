@@ -704,7 +704,7 @@ var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
 function choiceRows(choice, idx, spec) {
   const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const isAt = isCursorRow(spec, idx);
-  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { color: "white", bold: true }) : sp("  "), choiceMark(spec, idx), sp(" ")];
+  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { bold: true }) : sp("  "), choiceMark(spec, idx), sp(" ")];
   const under = [bar, sp("    ")];
   const rows = choiceLines(choice, idx, spec, lead, under);
   return isAt && spec.pressing ? rows.map((line) => line.map((span) => span.isLabel ? pressed(span) : span)) : rows;
@@ -724,8 +724,9 @@ function choiceLines(choice, idx, spec, lead, under) {
 function writeInRows(choice, isAt, lead, under, spec) {
   const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
   const typed = spec.writeIn;
+  const fieldLead = [...under.slice(0, -1), sp(under[under.length - 1].t.slice(1))];
   if (isAt)
-    return [label, [...under, ...inputField(typed, choice.description ?? "", spec.width - widthOf(under), spec.focused)]];
+    return [label, [...fieldLead, ...inputField(typed, choice.description ?? "", spec.width - widthOf(fieldLead), spec.focused)]];
   if (typed !== "")
     return [label, ...hang(under, under, `“${typed}”`, spec.width, {})];
   return [label, ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
