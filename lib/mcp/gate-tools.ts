@@ -8,23 +8,23 @@
  * decisions on the caller's scope.
  */
 import { readFileSync, writeFileSync } from "fs";
-import { gateAnswer, gateAsk, gateWait, getSetting, isRunControl } from "../../packages/rt-client/src/index.ts";
+import { chatPost, gateAnswer, gateAsk, gateWait, getSetting, isRunControl } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion, GateRow } from "../../packages/rt-client/src/index.ts";
 import { boardsBudgetError, checkSource, fitOpen, type FitResult, type GateCtxSource } from "../gates/ctx.ts";
 import { flattenContext, formChunks, paneActionFor, truncateOptionText, type TruncatedText } from "../gates/form.ts";
 import { isObject, tojson, utf8Bytes } from "../gates/jq.ts";
 import { BOARD_ONLY_KINDS } from "../daemon/handlers/gate.ts";
-import { autoAnswerDecision, digestSince, effectiveMode, modeDigest, parseReach, type GateMode } from "../gates/mode.ts";
+import { autoAnswerDecision, digestSince, effectiveMode, modeDecisionLine, modeDigest, parseReach, type GateMode } from "../gates/mode.ts";
 import { buildReviewSource, reviewSourceErrors } from "../gates/review-source.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
-import { earlierStages } from "../runs/engine.ts";
+import { earlierStages, fieldSince, parseRedo } from "../runs/engine.ts";
 import {
   actOnWriteIn, decisionForGate, nextOf, normalizeAnswers, postSelection, respondPlanSelection, respondPostSelection,
   skipReason, withPlainNext, writeInsOf,
   type AnswersMap, type DecisionRow, type PlanRow, type RecordShape,
 } from "../gates/record.ts";
 import { realRunToolDeps, runToolDefs, type RunToolDeps } from "./run-tools.ts";
-import { checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolResult } from "./shared.ts";
+import { checkOptional, checkRequired, err, fromResponse, ok, requireChatHandle, type McpToolDef, type ToolResult } from "./shared.ts";
 import { liveSelfPaneId } from "../self-pane.ts";
 import {
   checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots,
@@ -42,6 +42,8 @@ export interface GateToolDeps {
   kitFormOn: () => boolean;
   gateMode: () => { mode: unknown; shadow: unknown };
   headCommit: (worktree: string) => Promise<string | null>;
+  /** null when posted, or when there is no HERD_ROOM to post to; else the error. */
+  herdLine: (env: NodeJS.ProcessEnv, body: string) => Promise<string | null>;
 }
 
 // An unreadable setting is chatty with no shadow: the gate still asks.
@@ -69,6 +71,25 @@ function kitFormReadsOn(deps: GateToolDeps): boolean {
   }
 }
 
+export async function postHerdLine(
+  env: NodeJS.ProcessEnv,
+  body: string,
+  seams: { handle?: (env: NodeJS.ProcessEnv) => Promise<{ handle: string } | { error: string }>; post?: (p: Parameters<typeof chatPost>[0]) => Promise<{ ok: boolean; error?: string }> } = {},
+): Promise<string | null> {
+  const room = env.HERD_ROOM;
+  if (!room) return null;
+  const handle = seams.handle ?? ((e: NodeJS.ProcessEnv) => requireChatHandle(e));
+  const post = seams.post ?? chatPost;
+  try {
+    const identity = await handle(env);
+    if ("error" in identity) return identity.error;
+    const res = await post({ room, handle: identity.handle, body, quiet: true });
+    return res.ok ? null : (res.error ?? "chat:post failed");
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
 export const realGateToolDeps: GateToolDeps = {
   ask: gateAsk,
   answer: gateAnswer,
@@ -81,6 +102,7 @@ export const realGateToolDeps: GateToolDeps = {
   kitFormOn: () => getSetting("rt.gates.kitForm").value === true,
   gateMode: () => ({ mode: getSetting("rt.work.gateMode").value, shadow: getSetting("rt.work.gateModeShadow").value }),
   headCommit: gitHead,
+  herdLine: (env, body) => postHerdLine(env, body),
 };
 
 export interface RunSnapshot {
@@ -92,6 +114,8 @@ export interface RunSnapshot {
   manifest: string[];
   /** Names of the stages that have a row. */
   stages: string[];
+  /** When the current stage's latest attempt started; a hold written before it is stale. */
+  currentStartedAt: number | null;
 }
 
 export interface RunHandle {
@@ -156,8 +180,21 @@ function runHandler(defs: ReturnType<typeof runToolDefs>, name: string) {
 }
 
 function snapshotOf(body: unknown): RunSnapshot {
-  const b = (body ?? {}) as { run?: { spawned_by?: unknown; pipeline?: unknown } | null; fields?: unknown[]; decisions?: unknown[]; manifest?: unknown[]; stages?: unknown[] };
+  const b = (body ?? {}) as {
+    run?: { spawned_by?: unknown; pipeline?: unknown; current_stage?: unknown } | null;
+    fields?: unknown[];
+    decisions?: unknown[];
+    manifest?: unknown[];
+    stages?: unknown[];
+  };
   const spawned = b.run?.spawned_by;
+  const stageRows = (b.stages ?? []) as { name?: unknown; attempt?: unknown; started_at?: unknown }[];
+  const current = stageRows
+    .filter((st) => st.name === b.run?.current_stage)
+    .reduce<{ attempt: number; started_at: number | null } | null>((latest, st) => {
+      const attempt = typeof st.attempt === "number" ? st.attempt : 0;
+      return latest && latest.attempt >= attempt ? latest : { attempt, started_at: typeof st.started_at === "number" ? st.started_at : null };
+    }, null);
   return {
     run: { spawned_by: typeof spawned === "string" && spawned !== "" ? spawned : null },
     pipeline: typeof b.run?.pipeline === "string" ? b.run.pipeline : null,
@@ -170,7 +207,8 @@ function snapshotOf(body: unknown): RunSnapshot {
       return { contract: r.contract, scope: r.scope, selection: r.selection, decided_by: r.decided_by, decided_at: r.decided_at };
     }),
     manifest: (b.manifest ?? []).map((m) => String((m as { stage?: unknown }).stage)),
-    stages: (b.stages ?? []).map((st) => String((st as { name?: unknown }).name)),
+    stages: stageRows.map((st) => String(st.name)),
+    currentStartedAt: current?.started_at ?? null,
   };
 }
 
@@ -206,8 +244,12 @@ export async function openRun(
   };
 }
 
+function fieldOf(run: RunHandle, key: string): { value: string; at: number } | undefined {
+  return run.snapshot.fields.find((f) => f.key === key);
+}
+
 function fieldValue(run: RunHandle, key: string): string | undefined {
-  return run.snapshot.fields.find((f) => f.key === key)?.value;
+  return fieldOf(run, key)?.value;
 }
 
 /** The scope an answered gate records under when the caller names none: the one
@@ -307,7 +349,8 @@ export async function askGate(
     const settings = gateModeSettings(deps);
     mode = effectiveMode(fieldValue(run, "gate-mode"), settings.mode);
     shadow = settings.shadow;
-    if (shaped && !BOARD_ONLY_KINDS.has(kind)) {
+    const controlPending = fieldSince(fieldOf(run, "hold"), run.snapshot.currentStartedAt) !== null || parseRedo(fieldValue(run, "redo")) !== null;
+    if (shaped && !BOARD_ONLY_KINDS.has(kind) && !controlPending) {
       const decided = autoAnswerDecision({ mode, pipeline: run.snapshot.pipeline, reach, needsOperator: reason, context, questions: raw });
       if (decided.kind === "answer") modeAnswers = decided.answers;
     }
@@ -363,7 +406,12 @@ export async function askGate(
     const selection = withPlainNext(fields.answers);
     const failed = await run.decision(scope, selection, preAnswer.by)
       && await run.decision(scope, selection, preAnswer.by);
-    return ok({ id: data.id, paneAction: "answered", status: "answered", ...fields, ...(failed ? { runErrors: [failed] } : {}) });
+    const herdLineError = await deps.herdLine(env, modeDecisionLine(mode, scope, selection));
+    return ok({
+      id: data.id, paneAction: "answered", status: "answered", ...fields,
+      ...(failed ? { runErrors: [failed] } : {}),
+      ...(herdLineError ? { herdLineError } : {}),
+    });
   }
 
   const paneAction = paneActionFor(data.presentation, { herdr: env.HERDR_ENV === "1", spawned: run?.snapshot.run.spawned_by != null });

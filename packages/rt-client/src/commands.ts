@@ -478,6 +478,10 @@ export interface RunSummary {
   evidence_links?: number;
   /** How the run ended up: its own status plus the MR it opened or reviewed. Absent on pre-outcome daemons. */
   outcome?: RunOutcome;
+  /** A pause that applies to the current attempt (the `hold` field written during it), else null. Absent on older daemons. */
+  hold?: { reason: string; at: number } | null;
+  /** An operator's Redo waiting for the worker's next `run_next`, else null. Absent on older daemons. */
+  redo?: { gate: string; to: string; note: string } | null;
 }
 /** `mr` is the run's own MR (written by ship or watch-ci); `reviewed` is the MR a review or respond run looked at and never counts as merged. */
 export interface RunOutcome {
@@ -1057,6 +1061,9 @@ export interface Commands {
   "runs:list": { payload: { repo?: string; includeTests?: boolean }; data: { runs: RunSummary[] } };
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
+  "runs:hold": { payload: { runId: string; repo?: string }; data: { held: true; stage: string; already?: true } };
+  /** The run, the stage to go back to and the commit come from the gate row, never the caller. */
+  "runs:redo": { payload: { gate: string; note: string }; data: { runId: string; repo: string; to: string; headCommit: string | null } };
   "runs:evidence": { payload: { runId: string; repo?: string } & ({ key: EvidenceImageKey | EvidenceTextKey } | EvidenceAddress); data: { mime: string; base64?: string; text?: string } };
   "usage:mrs": { payload: { days?: number; repo?: string }; data: UsageMrsData };
   /** `data` is null when no MR has that key. */
@@ -1556,6 +1563,8 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "runs:list",
   "runs:get",
   "runs:abandon",
+  "runs:hold",
+  "runs:redo",
   "runs:evidence",
   "usage:mrs",
   "usage:mr",

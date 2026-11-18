@@ -30,7 +30,9 @@
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
  * `runs-outage` is a stopped daemon: the runs, run, gates and
- * effective-inputs routes answer 502 `daemon unreachable`. Every other
+ * effective-inputs routes answer 502 `daemon unreachable`. `runs-modes` is
+ * `runs` with a run in the quiet mode and another paused from the console,
+ * for the mode panel, story Redo and paused banner. Every other
  * scenario serves no runs.
  */
 
@@ -60,6 +62,7 @@ export const SCENARIOS = [
   'runs',
   'runs-empty',
   'runs-outage',
+  'runs-modes',
 ] as const;
 
 export type FixtureScenario = (typeof SCENARIOS)[number];
@@ -804,6 +807,7 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
   runs: { subject: 'stage-plan' },
   'runs-empty': { subject: 'stage-plan' },
   'runs-outage': { subject: 'stage-plan' },
+  'runs-modes': { subject: 'stage-plan' },
   unsynced: { subject: 'stage-plan' },
   trial: {
     subject: 'stage-plan',

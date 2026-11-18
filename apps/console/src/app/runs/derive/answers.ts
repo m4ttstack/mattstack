@@ -5,14 +5,18 @@ import { formatClock } from './clock';
 
 export type AnsweredBy =
   | { you: true; via: 'console' | 'pane' | 'board' }
-  | { you: false; via: 'shepherd' };
+  | { you: false; via: 'shepherd' }
+  | { you: false; via: 'mode'; mode: string };
 
 export function answeredBy(g: GateRow): AnsweredBy | null {
-  switch (g.answer?.by) {
+  const by = g.answer?.by;
+  if (by?.startsWith('mode:'))
+    return { you: false, via: 'mode', mode: by.slice('mode:'.length) };
+  switch (by) {
     case 'console':
     case 'pane':
     case 'board':
-      return { you: true, via: g.answer.by };
+      return { you: true, via: by };
     case 'shepherd':
       return { you: false, via: 'shepherd' };
     default:
@@ -94,7 +98,9 @@ export function answerStamp(g: GateRow): string | null {
   const time = formatClock(g.answer.answeredAt);
   const by = answeredBy(g);
   if (!by) return time;
-  return `${by.you ? 'you' : 'shepherd'} · ${time}`;
+  const who =
+    by.via === 'mode' ? `${by.mode} mode` : by.you ? 'you' : 'shepherd';
+  return `${who} · ${time}`;
 }
 
 const SURFACE_LABEL = {
@@ -107,7 +113,10 @@ const SURFACE_LABEL = {
 /** Where the answer came from, for a tooltip; null when `by` is missing. */
 export function answerSurface(g: GateRow): string | null {
   const by = answeredBy(g);
-  return by ? SURFACE_LABEL[by.via] : null;
+  if (!by) return null;
+  if (by.via === 'mode')
+    return `The ${by.mode} mode answered this without asking you`;
+  return SURFACE_LABEL[by.via];
 }
 
 const RANGE_COUNT = /^\S+\.\.\S+\s+\((\d+)\)/;

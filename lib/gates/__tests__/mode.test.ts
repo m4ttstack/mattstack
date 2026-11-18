@@ -6,6 +6,7 @@ import {
   autoAnswerDecision,
   digestSince,
   effectiveMode,
+  modeDecisionLine,
   modeDigest,
   recommendedValues,
 } from "../mode.ts";
@@ -132,6 +133,16 @@ describe("effectiveMode", () => {
   test("bad setting is chatty", () => expect(effectiveMode(undefined, 7)).toBe("chatty"));
 });
 
+describe("modeDecisionLine", () => {
+  test("names the mode, the scope and the selection", () => {
+    expect(modeDecisionLine("quiet", "plan", { tier: "direct-tdd" })).toBe("quiet mode decided plan: tier=direct-tdd");
+  });
+
+  test("a multi answer joins with a bar", () => {
+    expect(modeDecisionLine("yolo", "scope", { areas: ["api", "ui"], next: "proceed" })).toBe("yolo mode decided scope: areas=api|ui, next=proceed");
+  });
+});
+
 describe("modeDigest", () => {
   const ds = [
     row("gate@1", "plan", { tier: "direct-tdd" }, "mode:quiet", 20),
@@ -156,5 +167,15 @@ describe("digestSince", () => {
     ];
     expect(digestSince(ds)).toBe(10);
     expect(digestSince([])).toBe(0);
+  });
+
+  test("ignores a console Pause and a hold a mode decided, but not a hold the operator answered", () => {
+    const ds = [
+      row("gate@1", "a", {}, "pane", 10),
+      row("gate@1", "hold:plan:1", { reason: "paused from the console" }, "console", 40),
+      row("gate@1", "hold:plan:2", { reason: "r" }, "mode:quiet", 50),
+    ];
+    expect(digestSince(ds)).toBe(10);
+    expect(digestSince([...ds, row("gate@1", "hold:implement:1", { reason: "waiting on design" }, "pane", 60)])).toBe(60);
   });
 });
