@@ -1,6 +1,8 @@
-/** Slack's answers that mean the token itself is no good, as opposed to one
-    channel or message being out of reach. */
+/** Slack's answers a reconnect fixes: the token itself is no good, or it
+    lacks a scope the board needs, as opposed to one channel or message being
+    out of reach. */
 const AUTH_ERRORS = new Set([
+  'missing_scope',
   'invalid_auth',
   'not_authed',
   'token_revoked',

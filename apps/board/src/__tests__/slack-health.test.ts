@@ -12,6 +12,12 @@ describe('slackAuthError', () => {
     ).toBe('invalid_auth');
   });
 
+  test('a token missing a scope needs a reconnect too', () => {
+    expect(slackAuthError('slack conversations.list: missing_scope')).toBe(
+      'missing_scope'
+    );
+  });
+
   test('a channel or message failure is not an auth failure', () => {
     expect(
       slackAuthError('slack chat.postMessage: not_in_channel')

@@ -284,14 +284,16 @@ export interface MessageReactions {
   reactedBy: ReactedBy;
 }
 
-/** Whether Slack accepts this token: `ok`, the auth error it rejects the
-    token with, or `unreachable` when the check failed some other way (a
+/** Whether Slack accepts this token for the board's reads: `ok`, the error
+    a reconnect fixes (a rejected token, or one missing the channel scope the
+    sweep needs), or `unreachable` when the check failed some other way (a
     network failure says nothing about the token). */
 export async function slackTokenState(
   token: string
 ): Promise<'ok' | 'unreachable' | { rejected: string }> {
   try {
     await call('auth.test', token, {});
+    await call('conversations.list', token, { limit: '1' });
     return 'ok';
   } catch (err) {
     const rejected = slackAuthError(

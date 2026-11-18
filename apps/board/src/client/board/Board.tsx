@@ -2164,6 +2164,32 @@ export function Board() {
               </div>
             )}
 
+            {data.slackIssue?.kind === 'rejected' && (
+              <div
+                className="tui-banner"
+                data-intent="bad"
+                role="alert"
+                title={data.slackIssue.error}
+              >
+                ⚠ Slack rejected this board's token, so Slack posts don't show
+                <Sep />
+                run <code>rt setup slack connect</code> to reconnect
+              </div>
+            )}
+            {data.slackIssue?.kind === 'unreadable' && (
+              <div
+                className="tui-banner"
+                data-intent="bad"
+                role="alert"
+                title={data.slackIssue.detail}
+              >
+                ⚠ this board can't read its Slack token, so Slack posts don't
+                show
+                <Sep />
+                run <code>rt setup status</code> to see why
+              </div>
+            )}
+
             {activeTab.source.kind === 'codeowners' &&
               activeSection?.unknown && (
                 <div className="tui-banner" data-intent="bad" role="alert">

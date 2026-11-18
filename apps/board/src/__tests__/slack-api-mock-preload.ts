@@ -100,6 +100,14 @@ globalThis.fetch = (async (
       headers: { 'content-type': 'application/json' },
     });
   const method = url.slice('https://slack.com/api/'.length).split('?')[0]!;
+  // A token Slack accepts that lacks the scopes the board reads channels with.
+  if (
+    new Headers(init?.headers).get('authorization') === 'Bearer scopeless-token' &&
+    method !== 'auth.test'
+  )
+    return new Response(JSON.stringify({ ok: false, error: 'missing_scope' }), {
+      headers: { 'content-type': 'application/json' },
+    });
   const params: Record<string, string> = init?.body
     ? (JSON.parse(init.body as string) as Record<string, string>)
     : Object.fromEntries(new URL(url).searchParams);
