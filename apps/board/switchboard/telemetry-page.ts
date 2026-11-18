@@ -286,7 +286,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
       { html: `<span class="nowrap">${escapeHtml(c.label)}</span>` },
       c.org,
       list(c.flags),
-      orDash(c.lastPullAt),
+      c.lastPullAt ? time(Date.parse(c.lastPullAt)) : '-',
       String(c.stale),
     ])
   );
