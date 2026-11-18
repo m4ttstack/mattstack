@@ -168,7 +168,7 @@ var SYMBOL = {
   boxActive: "◻",
   boxOn: "◼",
   boxOff: "◻",
-  selectEdge: "▎"
+  selectEdge: "❯"
 };
 var ICON = {
   layers: "",
@@ -243,15 +243,24 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
-function keySelected(span) {
-  if (!span.t.startsWith(" "))
-    return [span];
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
-  return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) }
-  ];
+function markButtonAt(line, at, focus = {}) {
+  const button = line[at];
+  if (!button)
+    return line;
+  const lit = focus.pressing ? pressed(button) : hoverOf(button);
+  let back = at - 1;
+  while (back >= 0 && line[back].t === "")
+    back -= 1;
+  const prev = line[back];
+  const keep = (spans) => Object.assign(spans, line.action === undefined ? {} : { action: line.action });
+  if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
+    const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
+    const rest = prev.t.slice(mark.length);
+    return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
+  }
+  return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)]);
 }
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -469,20 +478,21 @@ var isRecommended = (o) => /\(recommended\)\s*$/i.test(o.label);
 var replaceAt = (list, i, value) => list.map((old, k) => k === i ? value : old);
 var markAnswered = (s, i) => replaceAt(s.answered, i, true);
 function choicesOf(q) {
-  if (q.options.length === 0 || !q.other)
-    return q.options;
-  return [...q.options, { value: WRITE_IN, label: "Something else", description: "Write in your answer" }];
+  const ordered = [...q.options.filter(isRecommended), ...q.options.filter((o) => !isRecommended(o))];
+  if (ordered.length === 0 || !q.other)
+    return ordered;
+  return [...ordered, { value: WRITE_IN, label: "Type something." }];
 }
 function initial(form) {
+  const chosen = form.questions.map((q) => isConfirm(form) || q.multi ? undefined : q.options.find(isRecommended)?.value);
   return {
     page: 0,
-    cursor: form.questions.map((q) => isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended))),
+    cursor: form.questions.map(() => 0),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ""),
     answered: form.questions.map(() => false),
-    moved: form.questions.map(() => false),
+    chosen,
     phase: "active",
-    tabsFrom: 0,
     menu: { open: false, selected: 0 },
     navAt: "next"
   };
@@ -494,17 +504,20 @@ function canSubmit(form, s) {
 }
 function chosenValue(form, s) {
   const q = form.questions[0];
-  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]]?.value : undefined;
+  if (!q)
+    return;
+  return s.chosen[0] ?? (choicesOf(q).length === 1 ? choicesOf(q)[0].value : undefined);
 }
 var PAUSE = "pause";
 var GO_BACK = "go-back:";
 var canChat = (form) => form.source !== "plugin";
 var isSinglePage = (form) => form.source === "plugin";
 var isConfirm = (form) => form.confirm === true;
+var isOneQuestion = (form) => !isSinglePage(form) && form.questions.length === 1 && menuRows(form).length === 0;
 var isReview = (form, s) => !isSinglePage(form) && s.page === form.questions.length;
 var isOnNav = (form, s) => s.onNav === true || isReview(form, s);
 function navIds(form, s) {
-  const ids = s.page > 0 && !isReview(form, s) ? ["back", "next"] : ["next"];
+  const ids = s.page > firstPage(s) && !isReview(form, s) ? ["back", "next"] : ["next"];
   if (isReview(form, s) && menuRows(form).length > 0)
     ids.push("more");
   if (canChat(form))
@@ -541,7 +554,9 @@ function isPicked(q, s, i, idx) {
   const value = choicesOf(q)[idx]?.value;
   if (value === undefined)
     return false;
-  return s.picked[i].includes(value) || value === WRITE_IN && q.multi && s.text[i].trim() !== "";
+  if (!q.multi)
+    return s.chosen[i] === value;
+  return s.picked[i].includes(value) || value === WRITE_IN && s.text[i].trim() !== "";
 }
 function isTyping(form, s) {
   const q = form.questions[s.page];
@@ -562,7 +577,7 @@ function answersOf(form, s) {
       const values = s.picked[i].filter((v) => v !== WRITE_IN);
       out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
     } else {
-      const value = choicesOf(q)[s.cursor[i]]?.value;
+      const value = s.chosen[i];
       out[q.id] = value === WRITE_IN ? { writeIn: typed } : value;
     }
   });
@@ -570,37 +585,38 @@ function answersOf(form, s) {
 }
 function goTo(form, s, page) {
   const last = isSinglePage(form) ? 0 : form.questions.length;
-  return { ...s, page: Math.max(0, Math.min(last, page)) };
+  return { ...s, page: Math.max(firstPage(s), Math.min(last, page)) };
 }
-function cursorIsChoice(q, s, i) {
-  const option = choicesOf(q)[s.cursor[i]];
-  if (!option || option.value === WRITE_IN && s.text[i].trim() === "")
-    return false;
-  return s.answered[i] || s.moved[i] || isRecommended(option);
-}
-function takesCursorAsAnswer(form, s) {
-  const q = form.questions[s.page];
-  return q !== undefined && !q.multi && !s.answered[s.page] && cursorIsChoice(q, s, s.page);
-}
+var firstPage = (s) => s.contextPaged ? -1 : 0;
+var isContextPage = (s) => s.page < 0;
 function advance(form, s) {
-  const answered = takesCursorAsAnswer(form, s) ? markAnswered(s, s.page) : s.answered;
-  return goTo(form, { ...s, answered }, s.page + 1);
+  const i = s.page;
+  const q = form.questions[i];
+  const accepts = q !== undefined && !q.multi && s.chosen[i] !== undefined;
+  return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1);
 }
 function moveCursor(form, s, by) {
   const q = form.questions[s.page];
   const count = q ? choicesOf(q).length : 0;
   if (count === 0)
     return s;
-  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count), moved: replaceAt(s.moved, s.page, true) };
+  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page] + by + count) % count) };
 }
 function toggled(s, i, value) {
   const has = s.picked[i].includes(value);
   return { ...s, picked: replaceAt(s.picked, i, has ? s.picked[i].filter((p) => p !== value) : [...s.picked[i], value]), answered: markAnswered(s, i) };
 }
+function chose(s, i, value) {
+  if (value === WRITE_IN && s.text[i].trim() === "")
+    return s;
+  return { ...s, chosen: replaceAt(s.chosen, i, value), answered: markAnswered(s, i) };
+}
 function toggleAtCursor(form, s) {
   const q = form.questions[s.page];
   const value = q && choicesOf(q)[s.cursor[s.page]]?.value;
-  return value === undefined ? s : toggled(s, s.page, value);
+  if (value === undefined)
+    return s;
+  return q?.multi ? toggled(s, s.page, value) : chose(s, s.page, value);
 }
 function confirm(form, s) {
   const i = s.page;
@@ -608,6 +624,10 @@ function confirm(form, s) {
   if (!q)
     return s;
   const value = choicesOf(q)[s.cursor[i]]?.value;
+  if (choicesOf(q).length > 0 && !q.multi) {
+    const picked = value === undefined ? s : chose(s, i, value);
+    return value !== undefined && picked.chosen[i] === value ? { ...picked, page: i + 1 } : picked;
+  }
   const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i].includes(value);
   return { ...s, page: i + 1, answered: markAnswered(s, i), ...adds && { picked: replaceAt(s.picked, i, [...s.picked[i], value]) } };
 }
@@ -621,14 +641,26 @@ function clickChoice(form, s, idx) {
   if (value === undefined || value === WRITE_IN)
     return { ...s, cursor };
   if (!q.multi)
-    return { ...s, cursor, answered: markAnswered(s, i) };
+    return chose({ ...s, cursor }, i, value);
   return { ...toggled(s, i, value), cursor };
 }
-function typeChar(s, ch) {
-  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page] + ch), answered: markAnswered(s, s.page) };
+function typeChar(form, s, ch) {
+  const i = s.page;
+  const text = replaceAt(s.text, i, s.text[i] + ch);
+  const q = form.questions[i];
+  const isWriteIn = q !== undefined && choicesOf(q).length > 0;
+  if (!isWriteIn)
+    return { ...s, text, answered: markAnswered(s, i) };
+  if (text[i].trim() === "")
+    return { ...s, text };
+  return q.multi ? { ...s, text, answered: markAnswered(s, i) } : { ...s, text, chosen: replaceAt(s.chosen, i, WRITE_IN), answered: markAnswered(s, i) };
 }
 function deleteChar(s) {
-  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page].slice(0, -1)) };
+  const i = s.page;
+  const text = replaceAt(s.text, i, s.text[i].slice(0, -1));
+  if (s.chosen[i] !== WRITE_IN || text[i].trim() !== "")
+    return { ...s, text };
+  return { ...s, text, chosen: replaceAt(s.chosen, i, undefined), answered: replaceAt(s.answered, i, false) };
 }
 
 // mods/gate-form/src/gate/reply.ts
@@ -1606,7 +1638,7 @@ function register(on) {
         dimColor: true
       }, "This screen can't draw the form yet. Answer in the terminal.");
     const body = paneRows(e);
-    const rows = Math.max(8, body - 3);
+    const rows = Math.max(8, body);
     const focused = e.props.isFocused || await read($, keysAtom);
     const height = Math.max(1, form.status === "open" ? body : body - 2);
     if (form.confirm && form.status === "open") {

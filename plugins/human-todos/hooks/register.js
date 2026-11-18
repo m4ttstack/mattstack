@@ -140,7 +140,7 @@ var SYMBOL = {
   boxActive: "◻",
   boxOn: "◼",
   boxOff: "◻",
-  selectEdge: "▎"
+  selectEdge: "❯"
 };
 var ICON = {
   layers: "",
@@ -214,15 +214,24 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
-function keySelected(span) {
-  if (!span.t.startsWith(" "))
-    return [span];
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
-  return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) }
-  ];
+function markButtonAt(line, at, focus = {}) {
+  const button = line[at];
+  if (!button)
+    return line;
+  const lit = focus.pressing ? pressed(button) : hoverOf(button);
+  let back = at - 1;
+  while (back >= 0 && line[back].t === "")
+    back -= 1;
+  const prev = line[back];
+  const keep = (spans) => Object.assign(spans, line.action === undefined ? {} : { action: line.action });
+  if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
+    const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
+    const rest = prev.t.slice(mark.length);
+    return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
+  }
+  return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)]);
 }
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -288,11 +297,11 @@ function gridMove(rows, here, ev, options = {}) {
 }
 function gridLook(span, focus) {
   const base = focus.pressing ? pressed(span) : span;
-  return focus.marked ? keySelected(base) : [base];
+  return focus.marked ? markButtonAt([span], 0, { pressing: focus.pressing }) : [base];
 }
 // packages/mod-kit/src/widgets/buttons.ts
 var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
@@ -462,11 +471,12 @@ function windowLines(spec) {
   const focus = spec.focus ?? {};
   const chosen = focus.selected === undefined ? undefined : JSON.stringify(focus.selected);
   const range = focus.marked ? focus.range : undefined;
-  const rail = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(Math.max(0, spec.gutter - 1)))];
+  const rail = [sp(SYMBOL.bar), sp(" ".repeat(Math.max(0, spec.gutter - 1)))];
   const plain = [sp(" ".repeat(spec.gutter))];
   return spec.shown.map((line, n) => {
     const at = spec.top + n;
-    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? gridLook(span, focus) : [span]) : line;
+    const hit = chosen ? line.findIndex((span) => span.action !== undefined && JSON.stringify(span.action) === chosen) : -1;
+    const lit = hit < 0 ? line : focus.marked ? markButtonAt(line, hit, focus) : line.flatMap((span, i) => i === hit ? gridLook(span, focus) : [span]);
     const lead = range && at === range.first && spec.leadGlyph ? markLead(lit, spec.leadGlyph) : lit;
     const gutter = range && at >= range.first && at <= range.last ? rail : plain;
     return [...clipLine([...gutter, ...lead], spec.width - spec.barCells), ...spec.bar[n] ?? []];
@@ -1747,7 +1757,7 @@ function paneModel(input) {
     const hidden = script.length - SCRIPT_ROWS;
     const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR).map(cleanLine);
     const isRunning = todo.status === "running";
-    wrapWords(todo.title, inner - 2).forEach((line, n) => rows.push(n === 0 ? { kind: "text", text: `${isRunning ? `${spin} ` : "○ "}${line}`, tone: "title", indent: false, ...isRunning && { spin: true } } : { kind: "text", text: line, tone: "title", indent: true }));
+    wrapWords(todo.title, inner - 2).forEach((line, n) => rows.push(n === 0 ? { kind: "text", text: `${isRunning ? `${spin} ` : "☐ "}${line}`, tone: "title", indent: false, ...isRunning && { spin: true } } : { kind: "text", text: line, tone: "title", indent: true }));
     if (todo.detail)
       lines(todo.detail, width, "dim", true);
     if (!isRunning && todo.note)
@@ -1870,7 +1880,7 @@ var STYLE = {
 var roomOf = (width) => Math.max(1, width - GUTTER - BAR);
 function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
-  return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, row.flush ? 0 : INDENT);
+  return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
 function rowLines(row, room) {
   switch (row.kind) {
@@ -1957,7 +1967,7 @@ function viewLines(view, width, focus = {}) {
   const room = roomOf(width);
   const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const bar = scrollBar(view.windowRows, view.total, view.top);
-  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus, leadGlyph: "○" });
+  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
 
 // mods/human-todos/src/pane/plain-view.tsx

@@ -5,7 +5,6 @@ export type SelectListProps = {
   choices: Choice[]
   cursor: number
   multi?: boolean
-  cursorIsChoice?: boolean
   isPicked?: (idx: number) => boolean
   writeIn?: string
   onPick?: (idx: number) => void
@@ -18,7 +17,6 @@ export const SelectList = kitComponent('SelectList', (props: SelectListProps, ct
     choices: props.choices,
     cursor: props.cursor,
     multi: props.multi ?? false,
-    cursorIsChoice: props.cursorIsChoice ?? false,
     isPicked: props.isPicked ?? (() => false),
     writeIn: props.writeIn ?? '',
     width: ctx.width,

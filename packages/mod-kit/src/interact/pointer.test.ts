@@ -176,8 +176,8 @@ test('a still release does nothing when the pressed action now belongs to a diff
   expect(m.actions).toEqual([])
 })
 
-test("a release on the pressed control's own place acts though its keyboard edge came off in the redraw", () => {
-  const edged = [[{ ...buttonSpan<Action>({ label: 'One', action: 'one' }), t: '▎' }, { ...buttonSpan<Action>({ label: 'One', action: 'one' }), t: ' One  ' }, sp(' '), buttonSpan<Action>({ label: 'Two', action: 'two' })]]
+test("a release on the pressed control's own place acts though its keyboard mark came off in the redraw", () => {
+  const edged = [[{ ...buttonSpan<Action>({ label: 'One', action: 'one' }), t: '❯' }, { ...buttonSpan<Action>({ label: 'One', action: 'one' }), t: ' One  ' }, sp(' '), buttonSpan<Action>({ label: 'Two', action: 'two' })]]
   let lines: Line<Action>[] = edged
   const m = mount({ lines: () => lines })
   m.send('down', 0, 'left')

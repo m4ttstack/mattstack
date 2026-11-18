@@ -15,7 +15,7 @@ test('an open run item clips the script to two rows, then offers Show all, the c
   const { rows } = build([todo({ kind: 'run', title: 'Deploy', detail: 'To staging', script: script5, cwd: '/tmp' })])
 
   expect(rows).toEqual([
-    text('○ Deploy', 'title'),
+    text('☐ Deploy', 'title'),
     text('To staging', 'dim', true),
     text('$ one', 'script', true),
     text('two', 'script', true),
@@ -82,7 +82,7 @@ test("a note shows under the detail, link and image rows are cyan, and a long ti
   ])
 
   expect(rows.slice(0, 4)).toEqual([
-    text('○ Store the token for the replay', 'title'),
+    text('☐ Store the token for the replay', 'title'),
     text('workspace before the pilot runs', 'title', true),
     text('D', 'dim', true),
     text('Stopped', 'warning', true),

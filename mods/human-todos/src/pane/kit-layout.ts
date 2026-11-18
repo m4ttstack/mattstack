@@ -31,9 +31,10 @@ const STYLE: Record<Tone, Style> = {
 
 const roomOf = (width: number) => Math.max(1, width - GUTTER - BAR)
 
+// Every button row, Clear finished too, starts at the indent: it holds the ❯ when a row's first button is selected.
 function buttonLines(row: Extract<PaneRow, { kind: 'buttons' }>, room: number): L[] {
   const lead: L = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : []
-  return wrappedButtons(lead, row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, row.flush ? 0 : INDENT)
+  return wrappedButtons(lead, row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT)
 }
 
 // The model wraps by characters; a row wider in cells than its room wraps again here.
@@ -138,10 +139,10 @@ export function kitView(model: PaneModel, width: number, bodyRows: number, offse
 export type KitFocus = ListFocus<PaneMessage>
 
 // The Client's half: the window's rows laid out, each ending in its scroll bar cell.
-// The button the keys selected takes the kit's selected look, and its item carries the pink rail in the gutter and a pink ○.
+// The button the keys selected takes the kit's selected look, and its item carries a rail in the gutter.
 export function viewLines(view: KitView, width: number, focus: KitFocus = {}): L[] {
   const room = roomOf(width)
   const shown = view.rows.flatMap(row => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows)
   const bar = scrollBar<PaneMessage>(view.windowRows, view.total, view.top)
-  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus, leadGlyph: '○' })
+  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus })
 }
