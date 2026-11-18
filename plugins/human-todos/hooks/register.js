@@ -1970,7 +1970,7 @@ function viewLines(view, width, focus = {}) {
   const room = roomOf(width);
   const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
   const bar = scrollBar(view.windowRows, view.total, view.top);
-  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus, leadGlyph: "○" });
+  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
 
 // mods/human-todos/src/pane/plain-view.tsx

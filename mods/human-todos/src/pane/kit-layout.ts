@@ -144,5 +144,5 @@ export function viewLines(view: KitView, width: number, focus: KitFocus = {}): L
   const room = roomOf(width)
   const shown = view.rows.flatMap(row => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows)
   const bar = scrollBar<PaneMessage>(view.windowRows, view.total, view.top)
-  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus, leadGlyph: '○' })
+  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus })
 }
