@@ -705,7 +705,7 @@ function brandBar(label, width, hide) {
   const text = `  ${BRAND.glyph}  ${label}`;
   if (hide === undefined)
     return [sp(fit(text, width), look)];
-  const button = ` Hide ${ICON.collapse} `;
+  const button = " Close ";
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 
@@ -940,7 +940,7 @@ function markFor(todo) {
 function buttonsOf(todo, messages, isComposing = false) {
   const ids = buttonsFor(todo);
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
-  const own = ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
+  const own = ids.map((id) => ({ id, label: LABELS[id], tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
   return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
 }
 var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
@@ -1085,15 +1085,16 @@ function draftRows(text, width) {
 function composeLines(lines, room, draft) {
   const pad = sp(" ".repeat(CARD_PAD));
   const text = draft?.text ?? "";
+  const top = card([pad], room);
   if (text === "")
-    return [card([pad, sp(" ", draft?.caret ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, () => card([pad], room))];
+    return [top, card([pad, sp(" ", draft?.caret ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, () => card([pad], room))];
   const rows = wrap(text, Math.max(4, room - 2 * CARD_PAD - 1));
   const shown = rows.slice(-lines);
-  return Array.from({ length: lines }, (_, n) => {
+  return [top, ...Array.from({ length: lines }, (_, n) => {
     const line = shown[n] ?? "";
     const isLast = n === shown.length - 1;
     return card([pad, sp(line), ...isLast && draft?.caret ? [sp(" ", { inverse: true })] : []], room);
-  });
+  })];
 }
 var ACTION_LOOK = { cancelMessage: GRAY, sendDone: DIM, send: { bold: true } };
 function composeActionsLine(buttons, room) {

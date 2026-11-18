@@ -550,7 +550,7 @@ function brandBar(label, width, hide) {
   const text = `  ${BRAND.glyph}  ${label}`;
   if (hide === undefined)
     return [sp(fit(text, width), look)];
-  const button = ` Hide ${ICON.collapse} `;
+  const button = " Close ";
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 
@@ -910,14 +910,14 @@ function barsPage(ui, width) {
     }),
     /* @__PURE__ */ h(Rail, {
       dim: true
-    }, "No Hide button: the pane has nothing to put away."),
+    }, "No close button: the pane has nothing to put away."),
     /* @__PURE__ */ h(BrandBar, {
       title: "mattstack kit gallery",
       onHide: ui.hide
     }),
     /* @__PURE__ */ h(Rail, {
       dim: true
-    }, "With Hide: the button puts this pane away."),
+    }, "With the close button: it puts this pane away."),
     ...heading("InputField: focused on the left, unfocused on the right"),
     field("", "Name the function"),
     field("fetchAllPages", "Name the function"),

@@ -27,7 +27,7 @@ test('an open run item clips the script to two rows, then offers Show all, the c
       buttons: [
         { id: 'run', label: 'Run', tone: 'primary', todoId: '1' },
         { id: 'copy', label: 'Copy', tone: 'quiet', todoId: '1' },
-        { id: 'done', label: 'Done', tone: 'quiet', todoId: '1' },
+        { id: 'done', label: 'Done', tone: 'secondary', todoId: '1' },
         { id: 'skip', label: 'Skip', tone: 'quiet', todoId: '1' },
       ],
     },
@@ -61,15 +61,15 @@ test('a confirming item shows the whole script, then its buttons, then the confi
   ])
 })
 
-test("an item's first button is its only filled one: the main action, or Stop while it runs", () => {
+test("an item's main button and Done are filled: the main action, or Stop while it runs, and Done always looks the same", () => {
   const tones = (over: Partial<Todo>) => {
     const row = build([todo(over)]).rows.filter(r => r.kind === 'buttons').at(-1) as { buttons: { id: string; tone: string }[] }
     return row.buttons.map(b => `${b.id}:${b.tone}`)
   }
   expect(tones({ kind: 'task' })).toEqual(['done:secondary', 'skip:quiet'])
-  expect(tones({ kind: 'terminal', script: 'sudo ls' })).toEqual(['copy:neutral', 'done:quiet', 'skip:quiet'])
-  expect(tones({ kind: 'link', url: 'https://example.com' })).toEqual(['open:primary', 'done:quiet', 'skip:quiet'])
-  expect(tones({ kind: 'image', paths: ['/a.png'] })).toEqual(['open:primary', 'done:quiet', 'skip:quiet'])
+  expect(tones({ kind: 'terminal', script: 'sudo ls' })).toEqual(['copy:neutral', 'done:secondary', 'skip:quiet'])
+  expect(tones({ kind: 'link', url: 'https://example.com' })).toEqual(['open:primary', 'done:secondary', 'skip:quiet'])
+  expect(tones({ kind: 'image', paths: ['/a.png'] })).toEqual(['open:primary', 'done:secondary', 'skip:quiet'])
   expect(tones({ kind: 'run', script: 'ls', status: 'running', runner: 'local' })).toEqual(['openLog:quiet', 'stop:caution'])
   expect(tones({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', isStopping: true })).toEqual(['show:quiet', 'forceStop:caution'])
 })

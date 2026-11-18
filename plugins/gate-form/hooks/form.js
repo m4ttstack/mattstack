@@ -284,7 +284,7 @@ function brandBar(label, width, hide) {
   const text = `  ${BRAND.glyph}  ${label}`;
   if (hide === undefined)
     return [sp(fit(text, width), look)];
-  const button = ` Hide ${ICON.collapse} `;
+  const button = " Close ";
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 // packages/mod-kit/src/widgets/buttons.ts

@@ -129,7 +129,7 @@ lines and draws them. One per Client.
 
 ### `BrandBar`
 
-`<BrandBar title onHide?>`. The pink header bar. With `onHide` it shows a Hide
+`<BrandBar title onHide?>`. The pink header bar. With `onHide` it shows a Close
 button.
 
 ### `Button` and `ButtonRow`
@@ -440,7 +440,7 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `widthOf(spans)`: display width of a line, in terminal cells.
 - `withAction(lines, action)`: attaches an action to every line.
 
-Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Hide does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
+Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Close does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
 
 ### `cellWidth`, `cutCells`, `padCells` and `chunkCells`
 

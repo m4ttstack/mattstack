@@ -68,8 +68,10 @@ export function registerPane(on: On): void {
     return { text: `${TITLE} pane opened.` }
   })
 
+  // Typing into an open message card raises prompt.edit too, so while one is open the keys stay with the pane;
+  // clearing them here would flash the pane's keyboard marks off and on with every key.
   on('prompt.edit', async ($, e, next) => {
-    await setKeysInPane($, false)
+    if ((await readPane($)).composing === null) await setKeysInPane($, false)
     return next(e)
   })
   on('prompt.submit', async ($, e, next) => {

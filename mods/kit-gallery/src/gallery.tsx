@@ -134,9 +134,9 @@ function barsPage(ui: Ui, width: number) {
   return [
     ...heading('BrandBar'),
     <BrandBar title="mattstack kit gallery" />,
-    <Rail dim>No Hide button: the pane has nothing to put away.</Rail>,
+    <Rail dim>No close button: the pane has nothing to put away.</Rail>,
     <BrandBar title="mattstack kit gallery" onHide={ui.hide} />,
-    <Rail dim>With Hide: the button puts this pane away.</Rail>,
+    <Rail dim>With the close button: it puts this pane away.</Rail>,
     ...heading('InputField: focused on the left, unfocused on the right'),
     field('', 'Name the function'),
     field('fetchAllPages', 'Name the function'),

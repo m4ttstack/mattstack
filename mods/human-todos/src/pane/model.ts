@@ -85,13 +85,13 @@ function markFor(todo: Todo): { mark: string; tone: Tone } {
   return { mark: '✓', tone: 'success' }
 }
 
-// Only an item's main button is filled, the rest stay quiet until the pointer is over them. A running item lists Show or Open log before Stop, so Stop is its main one.
+// Only an item's main button and Done are filled (Done always looks the same), the rest stay quiet until the pointer is over them. A running item lists Show or Open log before Stop, so Stop is its main one.
 // An open item in the kit drawer ends its row with the message button, a quiet chat bubble after Done and Skip.
 // The chevron turns down while the item's message row is open, and points right while it is shut.
 function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButton[] {
   const ids = buttonsFor(todo)
   const main = ids.find(id => id === 'stop' || id === 'forceStop') ?? ids[0]
-  const own = ids.map((id): PaneButton => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : 'quiet', todoId: todo.id }))
+  const own = ids.map((id): PaneButton => ({ id, label: LABELS[id], tone: id === main || id === 'done' ? TONES[id] : 'quiet', todoId: todo.id }))
   return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: 'quiet', todoId: todo.id }] : own
 }
 

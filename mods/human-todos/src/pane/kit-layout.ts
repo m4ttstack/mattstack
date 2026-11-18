@@ -59,15 +59,17 @@ export function draftRows(text: string, width: number): string[] {
 function composeLines(lines: number, room: number, draft?: Draft): L[] {
   const pad = sp<PaneMessage>(' '.repeat(CARD_PAD))
   const text = draft?.text ?? ''
-  if (text === '') return [card([pad, sp(' ', draft?.caret ? { inverse: true } : {}), sp('Message the agent', PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, () => card([pad], room))]
+  // A blank tinted row above the draft matches the actions row below it, so the card's padding reads even.
+  const top = card([pad], room)
+  if (text === '') return [top, card([pad, sp(' ', draft?.caret ? { inverse: true } : {}), sp('Message the agent', PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, () => card([pad], room))]
   const rows = wrap(text, Math.max(4, room - 2 * CARD_PAD - 1))
   // Past the card's height the newest rows show, as a field scrolls to its caret.
   const shown = rows.slice(-lines)
-  return Array.from({ length: lines }, (_, n) => {
+  return [top, ...Array.from({ length: lines }, (_, n) => {
     const line = shown[n] ?? ''
     const isLast = n === shown.length - 1
     return card([pad, sp(line), ...(isLast && draft?.caret ? [sp(' ', { inverse: true })] : [])], room)
-  })
+  })]
 }
 
 // The card's last row: its actions as plain words against the right edge, Send bold and last.
