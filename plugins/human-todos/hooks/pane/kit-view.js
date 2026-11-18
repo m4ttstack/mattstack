@@ -1306,6 +1306,8 @@ var kit_view_default = kitClient((props, ui) => {
   const here = resolved.hasFallen && stops[resolved.at]?.isItem === false && stops[above]?.isItem ? { at: above, col: stops[above].main, hasFallen: true } : resolved;
   const current = stops[here.at] && stopMessage(stops[here.at], here.col);
   const composing = props.composing;
+  if (ui.state.draft && ui.state.draft.id !== composing)
+    ui.setState({ ...ui.state, draft: undefined });
   const editing = composing !== undefined && ui.state.draft?.id === composing ? ui.state.draft : undefined;
   const draft = editing?.text ?? "";
   const at = editing?.at ?? Array.from(draft).length;
