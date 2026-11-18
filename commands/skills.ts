@@ -3041,7 +3041,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         lines: fileLineCount(readFileSync(templatePath, "utf8")),
         ...originFor(resolved.pluginRoots, step.plugin, step.dir),
       },
-      rendered: { path: renderedPath, exists: committed !== null, lines: fileLineCount(shown) },
+      rendered: { path: renderedPath, exists: committed !== null, lines: fileLineCount(shown), ...(resolved.husks ? { husk: true as const, text: fresh } : {}) },
       status,
       staleBecause,
       parts,

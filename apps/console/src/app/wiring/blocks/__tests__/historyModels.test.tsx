@@ -341,6 +341,22 @@ describe('builtFrom', () => {
       new Set(['unmeasured'])
     );
   });
+
+  it('says every file of a husk pack renders per Mac, and the block note says why', () => {
+    const plan = designFixture('anatomy.stage-plan');
+    const husk = {
+      ...plan,
+      rendered: { ...plan.rendered, husk: true as const },
+    };
+    const rows = builtFrom(husk, undefined);
+
+    expect(new Set(rows.map(row => row.status))).toEqual(
+      new Set(['renders per Mac'])
+    );
+    expect(blockNote(rows, 'stage-plan')).toBe(
+      'stage-plan ships as a husk: each Mac renders it from these files, so it holds no built copy to fall behind.'
+    );
+  });
 });
 
 describe('staleSteps', () => {

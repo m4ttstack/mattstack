@@ -354,7 +354,15 @@ interface SkillsAnatomyResponse {
   public: boolean;
   description: string | null;
   template: SkillsAnatomySource;
-  rendered: { path: string; exists: boolean; lines: number };
+  /** A husk pack commits only the husk at `path`; `text` is the full skill
+      compiled from the working tree. */
+  rendered: {
+    path: string;
+    exists: boolean;
+    lines: number;
+    husk?: true;
+    text?: string;
+  };
   status: 'in-sync' | 'stale' | 'never-compiled';
   staleBecause: SkillsDriftCause[];
   parts: SkillsAnatomyPart[];

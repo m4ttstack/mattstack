@@ -33,6 +33,8 @@ export type SkillBlocks =
       /** The file the Rendered view reads, whose lines `renderedLines`
           count. */
       renderedPath: string | null;
+      /** A refetch of the blocks is in flight. */
+      fetching: boolean;
     };
 
 /** The compiled file a skill renders to. */
@@ -116,6 +118,7 @@ export function useSkillBlocks(
       payload: blocksQuery.data,
       readOnly: false,
       renderedPath: artifactOf(composition, item.skill),
+      fetching: blocksQuery.isFetching,
     };
   }
   if (!composition) return { state: 'loading' };
@@ -139,5 +142,6 @@ export function useSkillBlocks(
     payload: tree,
     readOnly: true,
     renderedPath: sourcePath,
+    fetching: false,
   };
 }

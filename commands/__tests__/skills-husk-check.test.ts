@@ -253,6 +253,17 @@ describe("check on a husk pack", () => {
     expect(propSpan(after)).toBe(propSpan(before) + 3);
     expect(after.rendered.lines).toBe(before.rendered.lines + 3);
   });
+
+  test("anatomy hands a husk pack's full text beside the husk path", async () => {
+    const s = seedHuskPack();
+    await compile(s.flags);
+    type Anatomy = { rendered: { path: string; lines: number; husk?: boolean; text?: string } };
+    const a = JSON.parse((await run(() => skillsAnatomy([...s.flags, "--skill", "stage-plan", "--json"]))).stdout) as Anatomy;
+    expect(a.rendered.husk).toBe(true);
+    expect(readFileSync(a.rendered.path, "utf8")).toContain("mcp__mattstack__load_skill");
+    expect(a.rendered.text).toContain("policy text");
+    expect(a.rendered.text!.trimEnd().split("\n").length).toBe(a.rendered.lines);
+  });
 });
 
 describe("check's husk render in an org clone", () => {
