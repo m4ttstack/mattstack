@@ -27,7 +27,7 @@ export default kitClient<Props, State>(
     })
     const fitted = fittedLines(form, ui.state, { width, focused: ui.focused, pressing: ui.keyPressing }, props.rows, props.wheel)
     const s = ui.state
-    if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt) ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt })
+    if (fitted.top !== (s.pageTop ?? 0) || fitted.followed !== s.followed || fitted.wheelAt !== s.wheelAt || fitted.ctxTop !== s.ctxTop) ui.setState({ ...s, pageTop: fitted.top, followed: fitted.followed, wheelAt: fitted.wheelAt, ctxTop: fitted.ctxTop })
     return (
       <Panel width={width}>
         <Lines lines={fitted.lines} onAction={action => apply(perform(action, form, ui.state))} />

@@ -180,6 +180,8 @@ export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect 
   const s = disarm(armed)
   // A confirm's answers are the engine's Buttons, drawn by the hooks module, which take the keys themselves.
   if (isConfirm(form)) return undefined
+  // shift+↑↓ scrolls the context box; the view clamps it to the context's height.
+  if (ev.shift && (ev.key === 'up' || ev.key === 'down')) return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === 'up' ? -1 : 1)) } }
   // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
   if (ev.key === 'tab' && isSinglePage(form)) return { state: s }
   if (ev.key === 'tab' && !isReview(form, s)) return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })

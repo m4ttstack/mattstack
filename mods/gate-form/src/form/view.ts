@@ -24,6 +24,56 @@ function contextText(context: string): string {
   return context
 }
 
+// The context as light markdown: `#` headings and short lines ending in a colon read as bold labels, `-` and `*`
+// items as bullets with a hanging indent, and runs of blank lines collapse to one.
+export function contextBody(context: string, width: number): L[] {
+  const out: L[] = []
+  for (const raw of contextText(context).split('\n')) {
+    const t = raw.trimEnd()
+    const bullet = /^\s*[-*] +/.exec(t)
+    if (t.trim() === '') {
+      if (out.length > 0 && out[out.length - 1]!.length > 0) out.push([])
+    } else if (bullet) out.push(...hang([sp('  • ', DIM)], [sp('    ')], t.slice(bullet[0].length), width))
+    else if (/^#{1,6} /.test(t)) out.push(...hang<Action>([], [], t.replace(/^#+ +/, ''), width, { bold: true }))
+    else if (t.endsWith(':') && t.length <= 60) out.push(...hang<Action>([], [], t.slice(0, -1), width, { bold: true }))
+    else out.push(...hang<Action>([], [], t, width))
+  }
+  while (out.length > 0 && out[out.length - 1]!.length === 0) out.pop()
+  return out
+}
+
+// The box's rail, its padding cell and the scroll bar's three cells.
+const BOX_CELLS = 6
+const CTX_BG = '#202020'
+// The fewest context rows the box shrinks to before the whole page scrolls instead.
+const MIN_CTX = 3
+
+export type CtxView = { cap: number; top: number }
+
+const tint = (line: L, width: number): L => {
+  const filled = line.map(span => (span.bg ? span : { ...span, bg: CTX_BG }))
+  const room = Math.max(0, width - widthOf(line))
+  return room > 0 ? [...filled, sp(' '.repeat(room), { bg: CTX_BG })] : filled
+}
+
+// The context in its own box, `cap` rows tall from row `top`, with a scroll bar and a line saying what is out of view.
+function contextBox(context: string, width: number, ctx: CtxView): L[] {
+  if (ctx.cap <= 0) return []
+  const inner = width - BOX_CELLS
+  const body = contextBody(context, inner)
+  const top = Math.min(Math.max(0, ctx.top), Math.max(0, body.length - ctx.cap))
+  const bar = scrollBar<Action>(ctx.cap, body.length, top)
+  const shown = body.slice(top, top + ctx.cap)
+  const rail = sp<Action>(`${SYMBOL.bar} `, GRAY)
+  const lines = shown.map((line, n): L => [rail, ...tint([sp(' '), ...clipLine(line, inner)], inner + 1), ...(body.length > ctx.cap ? bar[n]! : [])])
+  if (body.length <= ctx.cap) return lines
+  const below = body.length - top - ctx.cap
+  const where = below > 0 ? `↓ ${below} more line${below === 1 ? '' : 's'}` : `↑ ${top} line${top === 1 ? '' : 's'} above`
+  const keys = 'shift+↑↓ or wheel'
+  const gapCells = Math.max(2, width - 2 - widthOf([sp(where), sp(keys)]))
+  return [...lines, [sp(SYMBOL.bar, GRAY), sp(' '), sp(where, DIM), sp(' '.repeat(gapCells)), sp(keys, GRAY)]]
+}
+
 function answerSummary(q: FormQuestion, s: State, i: number): string {
   const choices = choicesOf(q)
   if (choices.length === 0) return s.text[i]! === '' ? '(blank)' : s.text[i]!
@@ -203,16 +253,15 @@ function hint(form: Form, s: State): string | undefined {
 }
 
 // The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
-function draw(form: Form, s: State, view: View): Drawn<Action> {
+function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
   const head: L[] = [brandBar<Action>(form.source === 'plugin' ? 'mattstack' : 'mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
   if (s.phase !== 'active' || form.status !== 'open') return { head, page: closedPage(form, s, view), foot: [] }
   const gap: L = [sp(SYMBOL.bar, GRAY)]
   head.push(gap)
-  if (form.context) {
+  if (form.context && isConfirm(form)) {
     const indent = rail<Action>(GRAY)
-    const divider: L = [sp(`├${'─'.repeat(Math.max(4, view.width - 2))}`, GRAY)]
-    head.push(...hang(indent, indent, contextText(form.context), view.width), ...(isConfirm(form) ? [] : [gap, divider, gap]))
-  }
+    head.push(...hang(indent, indent, contextText(form.context), view.width))
+  } else if (form.context) head.push(...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap)
   if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, view) }
   if (!isSinglePage(form)) head.push(progress(form, s, view), gap)
 
@@ -245,24 +294,43 @@ const FIXED_TOP = 2
 
 // `followed` names the cursor the window last moved to show, and `wheelAt` the wheel total it last took;
 // the Client keeps both, so a wheel turn can leave the cursor out of view until the cursor moves again.
-export type Fitted = { lines: L[]; top: number; followed?: string; wheelAt?: number }
+// `ctxTop` is the context box's first row in view.
+export type Fitted = { lines: L[]; top: number; followed?: string; wheelAt?: number; ctxTop?: number }
+
+// The context box takes the rows the form leaves, down to MIN_CTX, and scrolls inside itself (shift+↑↓, or the wheel
+// while it overflows), so the question and the buttons stay in view. Measured against the tallest question, so the box
+// keeps its height as you page.
+function contextFit(form: Form, s: State, view: View, rows: number, turned: number): { ctx?: CtxView; usedWheel: boolean } {
+  if (!form.context || isConfirm(form) || s.phase !== 'active' || form.status !== 'open') return { usedWheel: false }
+  const total = contextBody(form.context, view.width - BOX_CELLS).length
+  const bare = draw(form, s, view, { cap: 0, top: 0 })
+  const pageRows = Math.max(bare.page.length, tallestQuestion(form, s, view))
+  const room = rows - bare.head.length - pageRows - bare.foot.length
+  if (total <= Math.max(MIN_CTX, room)) return { ctx: { cap: total, top: 0 }, usedWheel: false }
+  const cap = Math.max(MIN_CTX, room - 1)
+  const top = Math.min(Math.max(0, (s.ctxTop ?? 0) + turned), total - cap)
+  return { ctx: { cap, top }, usedWheel: true }
+}
 
 // Every page is padded to the tallest question's height, room allowing, so the buttons keep their row as you page.
-// A page too tall for the pane scrolls between the brand bar and the nav rows instead, so nothing is cut: the window
-// follows the cursor's choice when it moves, the wheel (`wheel`, the pane's running total) moves it too, and a scroll
-// bar runs down its right edge.
+// A page too tall for the pane even with the context box at its smallest scrolls between the brand bar and the nav
+// rows instead, so nothing is cut: the window follows the cursor's choice when it moves, the wheel (`wheel`, the
+// pane's running total) moves it too, and a scroll bar runs down its right edge.
 export function fittedLines(form: Form, s: State, view: View, rows: number, wheel?: number): Fitted {
-  const full = draw(form, s, view)
+  const wheelTurn = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt
+  const { ctx, usedWheel } = contextFit(form, s, view, rows, wheelTurn)
+  const kept = { ...(wheel !== undefined && { wheelAt: wheel }), ...(ctx && { ctxTop: ctx.top }) }
+  const full = draw(form, s, view, ctx)
   const room = rows - FIXED_TOP - full.foot.length
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
     const pad = s.phase === 'active' && form.status === 'open' && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
-    return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...(wheel !== undefined && { wheelAt: wheel }) }
+    return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...kept }
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) }
-  const narrow = draw(form, s, inner)
+  const narrow = draw(form, s, inner, ctx)
   const region = [...narrow.head.slice(FIXED_TOP), ...narrow.page]
   const windowRows = Math.max(1, rows - FIXED_TOP - narrow.foot.length)
-  const turned = wheel === undefined || s.wheelAt === undefined ? 0 : wheel - s.wheelAt
+  const turned = usedWheel ? 0 : wheelTurn
   const most = maxScroll(region.length, windowRows)
   const wheeled = Math.min(Math.max(0, (s.pageTop ?? 0) + turned), most)
   const cursor = `${s.page}:${s.onNav ? 'nav' : (s.cursor[s.page] ?? '')}`
@@ -270,7 +338,7 @@ export function fittedLines(form: Form, s: State, view: View, rows: number, whee
   const bar = scrollBar<Action>(windowRows, region.length, top)
   // A choice's click is on the line itself (`withAction`), so the drawn line keeps it.
   const shown = region.slice(top, top + windowRows).map((line, n): L => Object.assign([...clipLine(line, inner.width), ...(bar[n] ?? [])], line.action === undefined ? {} : { action: line.action }))
-  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...(wheel !== undefined && { wheelAt: wheel }) }
+  return { lines: [...full.head.slice(0, FIXED_TOP), ...shown, ...narrow.foot], top, followed: cursor, ...kept }
 }
 
 // The window over `region` that shows the cursor's choice whole, moving as little as it can from `from`.
