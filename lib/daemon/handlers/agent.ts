@@ -19,7 +19,7 @@
  * resolveHookSettingsPath below.
  */
 
-import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 import type { Database } from "bun:sqlite";
@@ -167,7 +167,7 @@ function agentPromptsRoot(): string {
   return join(rtDir(), "agent-prompts");
 }
 
-/** Per-agent, so an unattended pane's --add-dir grant (see resolveHerdrPrompt)
+/** Per-agent, so an unattended pane's Read grant (see resolveHerdrPrompt)
     admits only its own prompt file, never every agent's. */
 function agentPromptDir(id: string): string {
   return join(agentPromptsRoot(), id);
@@ -207,14 +207,17 @@ function nextPromptFileName(dir: string): string {
     etc.) passes through unchanged, since Claude Code only expands a slash
     command when it is the literal first message; any other prompt is moved
     into an owner-only file behind a pointer, with its directory named for
-    --add-dir so the launched pane can read it with no permission prompt. */
-function resolveHerdrPrompt(rec: AgentRecord, prompt: string | undefined): { prompt?: string; addDirs?: string[] } {
+    a Read allow rule so the launched pane can read it with no permission prompt. */
+function resolveHerdrPrompt(rec: AgentRecord, prompt: string | undefined): { prompt?: string; readDirs?: string[] } {
   if (prompt === undefined || rec.surface !== "herdr" || prompt.startsWith("/")) return { prompt };
   mkdirSync(agentPromptsRoot(), { recursive: true, mode: 0o700 });
   chmodSync(agentPromptsRoot(), 0o700);
   const dir = agentPromptDir(rec.id);
   const path = writePromptFile(dir, nextPromptFileName(dir), prompt);
-  return { prompt: pointerPrompt(path), addDirs: [dir] };
+  // Claude Code matches a symlinked path's resolved target against the rules
+  // too, so a symlinked rt root needs its real directory granted as well.
+  const real = realpathSync(dir);
+  return { prompt: pointerPrompt(path), readDirs: real === dir ? [dir] : [dir, real] };
 }
 
 /** Deterministic from the id alone, mirroring agentResultPath above. */
@@ -476,7 +479,7 @@ export function createAgentHandlers(opts: {
       RT_DAEMON_SOCK: DAEMON_SOCK_PATH,
     };
     const settingsPath = resolveHookSettingsPath(rec, log);
-    const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
+    const { prompt: resolvedPrompt, readDirs } = resolveHerdrPrompt(rec, prompt);
     const nodePin = rec.surface === "herdr" ? (opts.resolveNodePin ?? resolveNodePin)(rec.cwd) : undefined;
     if (nodePin?.kind === "missing") log.warn({ cwd: rec.cwd, version: nodePin.version }, "nvm has not installed the node in .nvmrc");
     const sshEnv = rec.surface === "herdr" ? await paneSshEnv(extra.herdrSocket) : {};
@@ -497,7 +500,7 @@ export function createAgentHandlers(opts: {
       ...(rec.surface === "herdr" && { env: { ...sshEnv, ...extra.env, ...gateEnv } }),
       ...(nodePin !== undefined && { nodePin }),
       ...(settingsPath !== undefined && { settingsPath }),
-      ...(addDirs !== undefined && { addDirs }),
+      ...(readDirs !== undefined && { readDirs }),
     };
 
     if (rec.surface === "herdr") {

@@ -1641,7 +1641,15 @@ function promptPathFromPointer(text: string): string {
   return m[1]!;
 }
 
-test("agent:start herdr puts only a pointer in the pane command; the prompt sits in an 0600 file, and its dir is granted via --add-dir before --session-id", async () => {
+// The test HOME sits under macOS's symlinked /var, so the real path differs
+// there and both grants appear; elsewhere only the logical one does.
+function readGrant(dir: string): string {
+  const real = realpathSync(dir);
+  const rule = (d: string) => `'--allowedTools' 'Read(/${d}/**)'`;
+  return real === dir ? rule(dir) : `${rule(dir)} ${rule(real)}`;
+}
+
+test("agent:start herdr puts only a pointer in the pane command; the prompt sits in an 0600 file, and its dir is granted by a Read allow rule before --session-id, never --add-dir", async () => {
   const calls: string[][] = [];
   const h = fresh({ runner: okRunner(calls) });
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: BRIEF, surface: "herdr" });
@@ -1651,7 +1659,8 @@ test("agent:start herdr puts only a pointer in the pane command; the prompt sits
   const file = promptPathFromPointer(cmd);
   expect(cmd).not.toContain("bun run test");
   expect(cmd).toContain(pointerPrompt(file));
-  expect(cmd).toContain(`'--add-dir' '${dir}' '--session-id'`);
+  expect(cmd).toContain(`${readGrant(dir)} '--session-id'`);
+  expect(cmd).not.toContain("--add-dir");
   expect(readFileSync(file, "utf8")).toBe(BRIEF);
   expect(statSync(file).mode & 0o777).toBe(0o600);
   expect(statSync(dir).mode & 0o777).toBe(0o700);
@@ -1690,7 +1699,8 @@ test("agent:resume with a new prompt goes through the pointer; without one it em
   const file = promptPathFromPointer(withPrompt);
   expect(withPrompt).not.toContain("bun run test");
   expect(withPrompt).toContain(pointerPrompt(file));
-  expect(withPrompt).toContain(`'--add-dir' '${dir}' '--resume'`);
+  expect(withPrompt).toContain(`${readGrant(dir)} '--resume'`);
+  expect(withPrompt).not.toContain("--add-dir");
   expect(readFileSync(file, "utf8")).toBe(BRIEF);
   calls.length = 0;
   expect((await h["agent:resume"]({ id: started.data.id, tab: "again" })).ok).toBe(true);

@@ -40,6 +40,12 @@ export function resolveCswapBin(): string {
   return Bun.which("cswap") ?? join(process.env.HOME ?? homedir(), ".local", "bin", "cswap");
 }
 
+/** Read rules are gitignore patterns, so a path's own metacharacters must
+    match literally. */
+function escapeRulePattern(path: string): string {
+  return path.replace(/[\\[\]*?]/g, (c) => `\\${c}`);
+}
+
 function claudeArgs(inv: AgentInvocation): string[] {
   if (!isValidSessionUuid(inv.session.sessionId)) {
     throw new Error(`invalid session uuid "${inv.session.sessionId}" ... refusing to spawn`);
@@ -61,10 +67,14 @@ function claudeArgs(inv: AgentInvocation): string[] {
     args.push("--settings", JSON.stringify(CROSS_SESSION_INBOUND_SETTINGS));
   }
   if (inv.settingsPath) args.push("--settings", inv.settingsPath);
-  // --add-dir is variadic: the token right after its value must be another
-  // flag, never the positional prompt, or claude would swallow the prompt as
-  // one more directory to add.
-  if (inv.addDirs) for (const dir of inv.addDirs) args.push("--add-dir", dir);
+  // Never --add-dir: from Claude Code 2.1.327 it asks the person to trust any
+  // added directory with no trust record of its own, and an unattended pane
+  // would wait on that forever. A Read allow rule grants the same reads with
+  // no prompt. The leading "/" makes the rule absolute ("//abs/path/**").
+  // --allowedTools is variadic: the token right after its value must be
+  // another flag, never the positional prompt, or claude would swallow the
+  // prompt as one more rule.
+  if (inv.readDirs) for (const dir of inv.readDirs) args.push("--allowedTools", `Read(/${escapeRulePattern(dir)}/**)`);
   if (inv.session.kind === "start") args.push("--session-id", inv.session.sessionId);
   else args.push("--resume", inv.session.sessionId);
   if (inv.extraArgs) args.push(...inv.extraArgs.split(/\s+/).filter(Boolean));
