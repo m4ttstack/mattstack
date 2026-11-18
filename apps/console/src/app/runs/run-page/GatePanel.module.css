@@ -85,7 +85,7 @@
 .findings p,
 .findings ul,
 .findings ol {
-  margin-bottom: 12px;
+  margin-bottom: 18px;
 }
 
 /* List markers hang left of the text, where the scroll viewport clips them. */
@@ -128,8 +128,25 @@
   margin-bottom: 10px;
 }
 
-.card {
-  padding: 12px 14px;
+/* One quiet list: hairlines between the rows instead of a card each. */
+.options {
+  overflow: hidden;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: var(--mantine-radius-md);
+}
+
+.card.card {
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 0;
+}
+
+.card.card:not(:focus-visible) {
+  outline: 0;
+}
+
+.card.card + .card.card {
+  border-top: 1px solid var(--tk-border-soft);
 }
 
 .optionRow {
@@ -147,7 +164,7 @@
   overflow-wrap: anywhere;
 }
 
-.cap {
+.cap.cap {
   flex-shrink: 0;
 }
 
