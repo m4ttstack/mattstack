@@ -285,19 +285,6 @@ function errorLines(form: Form, view: View): L[] {
   return [[sp(' ')], ...hang(lead, [sp<Action>('   ')], form.error, view.width, WARN)]
 }
 
-// The same with or without focus: focus changes only how the selection is drawn, never what the form says.
-function hint(form: Form, s: State): string | undefined {
-  const q = form.questions[s.page]
-  if (isSinglePage(form)) return '↑↓ move  space pick  enter pick + submit'
-  if (!q) {
-    const others = navIds(form, s).length > 1 ? '   tab buttons' : ''
-    return `← back${others}   enter ${navAtOf(form, s) === 'next' ? 'submit' : 'presses'}`
-  }
-  if (s.onNav) return '←→ buttons  ↑ answers  enter presses'
-  if (choicesOf(q).length === 0) return '←→ pages  ↓ buttons'
-  return q.multi ? '↑↓ move  space tick  enter next  ←→ pages' : '↑↓ move  space pick  enter pick + next  ←→ pages'
-}
-
 // The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
 function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
   const head: L[] = [brandBar<Action>(form.source === 'plugin' ? 'mattstack' : 'mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(form.title, { bold: true })]]
@@ -310,10 +297,8 @@ function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
 
   const q = form.questions[s.page]
   const page = [...progressRows(form, s, view), ...(q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view))]
-  const keys = hint(form, s)
-  const hintLines: L[] = keys === undefined ? [] : [BLANK, ...hang<Action>([], [], keys, view.width, DIM)]
   const nav: L[] = [[sp(' ')], ...(isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view))]
-  const foot: L[] = [...hintLines, BLANK, rule(view.width), ...errorLines(form, view), ...nav]
+  const foot: L[] = [BLANK, rule(view.width), ...errorLines(form, view), ...nav]
   return { head, page, foot }
 }
 

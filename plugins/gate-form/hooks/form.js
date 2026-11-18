@@ -1478,20 +1478,6 @@ function errorLines(form, view) {
   const lead = [sp(SYMBOL.warn, WARN), sp("  ")];
   return [[sp(" ")], ...hang(lead, [sp("   ")], form.error, view.width, WARN)];
 }
-function hint(form, s) {
-  const q = form.questions[s.page];
-  if (isSinglePage(form))
-    return "↑↓ move  space pick  enter pick + submit";
-  if (!q) {
-    const others = navIds(form, s).length > 1 ? "   tab buttons" : "";
-    return `← back${others}   enter ${navAtOf(form, s) === "next" ? "submit" : "presses"}`;
-  }
-  if (s.onNav)
-    return "←→ buttons  ↑ answers  enter presses";
-  if (choicesOf(q).length === 0)
-    return "←→ pages  ↓ buttons";
-  return q.multi ? "↑↓ move  space tick  enter next  ←→ pages" : "↑↓ move  space pick  enter pick + next  ←→ pages";
-}
 function draw(form, s, view, ctx) {
   const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(form.title, { bold: true })]];
   if (s.phase !== "active" || form.status !== "open")
@@ -1506,10 +1492,8 @@ function draw(form, s, view, ctx) {
     return { head, page: [], foot: confirmFoot(form, view) };
   const q = form.questions[s.page];
   const page = [...progressRows(form, s, view), ...q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view)];
-  const keys = hint(form, s);
-  const hintLines = keys === undefined ? [] : [BLANK, ...hang([], [], keys, view.width, DIM)];
   const nav = [[sp(" ")], ...isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view)];
-  const foot = [...hintLines, BLANK, rule(view.width), ...errorLines(form, view), ...nav];
+  const foot = [BLANK, rule(view.width), ...errorLines(form, view), ...nav];
   return { head, page, foot };
 }
 function progressRows(form, s, view) {
