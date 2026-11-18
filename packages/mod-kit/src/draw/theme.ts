@@ -1,4 +1,4 @@
-import { sp, type Span, type Style } from './text'
+import { sp, type Line, type Span, type Style } from './text'
 
 // Clack's unicode symbols and colours, from @clack/prompts (MIT).
 export const SYMBOL = {
@@ -111,15 +111,26 @@ export function pressed<S extends Style>(span: S): S {
   return span.mark ? { ...out, color: span.mark } : out
 }
 
-// The button the keyboard selected: a white ❯ in its left edge cell, drawn outside the fill, and the fill lifted a step,
-// so the cell count stays. The ❯ carries no action, so the pointer lights and presses only the button itself.
+// The button the keyboard selected, at `line[at]`: its fill lifted a step and a white ❯ in the blank cells before it,
+// taken from the spacer there, so the button keeps its full width and the row its cell count. With no blank cell
+// before it the ❯ is added and the row grows by one. The ❯ carries no action: the pointer lights only the button.
+export function markButtonAt<A>(line: Line<A>, at: number, focus: { pressing?: boolean } = {}): Line<A> {
+  const button = line[at]
+  if (!button) return line
+  const lit = hoverOf(focus.pressing ? pressed(button) : button)
+  const prev = line[at - 1]
+  const keep = <T extends Span<A>[]>(spans: T): Line<A> => Object.assign(spans, line.action === undefined ? {} : { action: line.action })
+  if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
+    const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge
+    const rest = prev.t.slice(mark.length)
+    return keep([...line.slice(0, at - 1), ...(rest === '' ? [] : [{ ...prev, t: rest }]), sp<A>(mark, { color: 'white', bold: true }), lit, ...line.slice(at + 1)])
+  }
+  return keep([...line.slice(0, at), sp<A>(SYMBOL.selectEdge, { color: 'white', bold: true }), lit, ...line.slice(at + 1)])
+}
+
+// A lone button span with the keyboard on it, for a caller with no row around it: the ❯ is added before it.
 export function keySelected<A>(span: Span<A>): Span<A>[] {
-  if (!span.t.startsWith(' ')) return [span]
-  const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span
-  return [
-    { ...bare, t: SYMBOL.selectEdge, color: 'white', bold: true, dim: false },
-    { ...hoverOf(span), t: span.t.slice(1) },
-  ]
+  return markButtonAt<A>([span], 0)
 }
 
 // The row the keyboard is on in a list of options, tinted behind its text.

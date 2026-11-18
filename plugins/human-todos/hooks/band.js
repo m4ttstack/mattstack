@@ -214,14 +214,22 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
+function markButtonAt(line, at, focus = {}) {
+  const button = line[at];
+  if (!button)
+    return line;
+  const lit = hoverOf(focus.pressing ? pressed(button) : button);
+  const prev = line[at - 1];
+  const keep = (spans) => Object.assign(spans, line.action === undefined ? {} : { action: line.action });
+  if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
+    const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
+    const rest = prev.t.slice(mark.length);
+    return keep([...line.slice(0, at - 1), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { color: "white", bold: true }), lit, ...line.slice(at + 1)]);
+  }
+  return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { color: "white", bold: true }), lit, ...line.slice(at + 1)]);
+}
 function keySelected(span) {
-  if (!span.t.startsWith(" "))
-    return [span];
-  const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span;
-  return [
-    { ...bare, t: SYMBOL.selectEdge, color: "white", bold: true, dim: false },
-    { ...hoverOf(span), t: span.t.slice(1) }
-  ];
+  return markButtonAt([span], 0);
 }
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };

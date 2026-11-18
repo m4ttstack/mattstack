@@ -240,14 +240,19 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
-function keySelected(span) {
-  if (!span.t.startsWith(" "))
-    return [span];
-  const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span;
-  return [
-    { ...bare, t: SYMBOL.selectEdge, color: "white", bold: true, dim: false },
-    { ...hoverOf(span), t: span.t.slice(1) }
-  ];
+function markButtonAt(line, at, focus = {}) {
+  const button = line[at];
+  if (!button)
+    return line;
+  const lit = hoverOf(focus.pressing ? pressed(button) : button);
+  const prev = line[at - 1];
+  const keep = (spans) => Object.assign(spans, line.action === undefined ? {} : { action: line.action });
+  if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
+    const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
+    const rest = prev.t.slice(mark.length);
+    return keep([...line.slice(0, at - 1), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { color: "white", bold: true }), lit, ...line.slice(at + 1)]);
+  }
+  return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { color: "white", bold: true }), lit, ...line.slice(at + 1)]);
 }
 var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
@@ -332,7 +337,8 @@ function menu(spec) {
   const act = spec.actionFor ?? ((hit) => hit);
   const indent = spec.indent ?? 0;
   const button = buttonSpan({ label: spec.label, action: act({ type: "toggle" }), tone: "quiet" });
-  const head = [sp(" ".repeat(indent)), ...spec.isSelected ? keySelected(button) : [button]];
+  const plainHead = [sp(" ".repeat(indent)), button];
+  const head = spec.isSelected ? markButtonAt(plainHead, 1) : plainHead;
   if (!spec.open || spec.rows.length === 0)
     return [head];
   const width = spec.width ?? Number.POSITIVE_INFINITY;
@@ -484,10 +490,6 @@ function gridMove(rows, here, ev, options = {}) {
     return col >= 0 && col < (rows[here.at]?.ids.length ?? 0) ? { handled: true, to: { at: here.at, col } } : { handled: true };
   }
   return { handled: false };
-}
-function gridLook(span, focus) {
-  const base = focus.pressing ? pressed(span) : span;
-  return focus.marked ? keySelected(base) : [base];
 }
 // packages/mod-kit/src/interact/pointer.ts
 function lookOf(state, focused) {
@@ -1451,7 +1453,7 @@ function progress(form, s, view) {
   ]);
   const marker = s.contextPaged ? [sp("◆", { color: isContextPage(s) ? "white" : "#8a8a8a", action: { type: "page", page: -1 } }), sp(" ")] : [];
   const q = form.questions[s.page];
-  const where = isContextPage(s) ? [sp(" context", { bold: true }), sp(`  then ${n} question${n === 1 ? "" : "s"}`, DIM)] : q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(" review", { bold: true })];
+  const where = [sp(isContextPage(s) ? ` context, then ${n} question${n === 1 ? "" : "s"}` : q ? ` question ${s.page + 1} of ${n}` : " review", DIM)];
   const missing = unansweredCount(s);
   const left = sp(missing === 0 ? "all answered" : `${missing} to answer`, DIM);
   const line = [...marker, ...dots, ...where];
@@ -1473,12 +1475,12 @@ function navRows(form, s, view) {
   const rows = page === n ? menuRows(form) : [];
   const more = { label: MORE_ACTIONS, action: MORE, tone: "quiet" };
   const left = [...page === n || isOneQuestion(form) && !s.contextPaged ? [] : [["back", back]], ["next", next], ...rows.length === 0 ? [] : [["more", more]]];
-  const line = buttonRow(left.map(([, button]) => button), aside, view.width, 0);
+  const line = buttonRow(left.map(([, button]) => button), aside, view.width, 2);
   const marked = (row) => {
     if (!view.focused || !isOnNav(form, s))
       return row;
     const at = spanAt2(navAtOf(form, s), left.map(([id]) => id), row);
-    return [...row.slice(0, at), ...gridLook(row[at], { marked: true, pressing: view.pressing && !s.menu.open }), ...row.slice(at + 1)];
+    return markButtonAt(row, at, { pressing: view.pressing && !s.menu.open });
   };
   if (rows.length === 0)
     return [marked(line)];
@@ -1491,7 +1493,7 @@ function confirmFoot(form, view) {
   return [BLANK, ...errorLines(form, view)];
 }
 function submitRow(form, s, view) {
-  return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width, 0);
+  return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width, 2);
 }
 function errorLines(form, view) {
   if (form.status !== "open" || !form.error)
@@ -1504,8 +1506,8 @@ function contextPage(form, s, view, head, ctx) {
   head.splice(head.length - 1, 1, [sp(`${n} question${n === 1 ? "" : "s"} after this`, DIM)], BLANK);
   const start = { label: "Start →", action: { type: "page", page: 0 }, tone: "secondary" };
   const aside = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" } : undefined;
-  const line = buttonRow([start], aside, view.width, 0);
-  const marked = view.focused ? [...line.slice(0, 1), ...gridLook(line[1], { marked: true, pressing: view.pressing }), ...line.slice(2)] : line;
+  const line = buttonRow([start], aside, view.width, 2);
+  const marked = view.focused ? markButtonAt(line, 1, { pressing: view.pressing }) : line;
   const first = form.questions[0];
   const next = first ? clipLine([sp("Next: ", DIM), sp(first.label)], view.width) : BLANK;
   return { head, page: contextBox(form.context ?? "", view.width, ctx), foot: [BLANK, rule(view.width), BLANK, next, BLANK, marked] };

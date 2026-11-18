@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, cellWidth, chunkCells, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line, type Span } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, cellWidth, chunkCells, clipLine, fitToRows, hang, markButtonAt, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line, type Span } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -227,7 +227,7 @@ function progress(form: Form, s: State, view: View): L {
   ])
   const marker: L = s.contextPaged ? [sp('◆', { color: isContextPage(s) ? 'white' : '#8a8a8a', action: { type: 'page', page: -1 } }), sp(' ')] : []
   const q = form.questions[s.page]
-  const where: L = isContextPage(s) ? [sp(' context', { bold: true }), sp(`  then ${n} question${n === 1 ? '' : 's'}`, DIM)] : q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(' review', { bold: true })]
+  const where: L = [sp(isContextPage(s) ? ` context, then ${n} question${n === 1 ? '' : 's'}` : q ? ` question ${s.page + 1} of ${n}` : ' review', DIM)]
   const missing = unansweredCount(s)
   const left = sp<Action>(missing === 0 ? 'all answered' : `${missing} to answer`, DIM)
   const line: L = [...marker, ...dots, ...where]
@@ -258,11 +258,11 @@ function navRows(form: Form, s: State, view: View): L[] {
   const rows = page === n ? menuRows(form) : []
   const more: Button<Action> = { label: MORE_ACTIONS, action: MORE, tone: 'quiet' }
   const left: [NavId, Button<Action>][] = [...(page === n || (isOneQuestion(form) && !s.contextPaged) ? [] : [['back', back] as [NavId, Button<Action>]]), ['next', next], ...(rows.length === 0 ? [] : [['more', more] as [NavId, Button<Action>]])]
-  const line = buttonRow(left.map(([, button]) => button), aside, view.width, 0)
+  const line = buttonRow(left.map(([, button]) => button), aside, view.width, 2)
   const marked = (row: L): L => {
     if (!view.focused || !isOnNav(form, s)) return row
     const at = spanAt(navAtOf(form, s), left.map(([id]) => id), row)
-    return [...row.slice(0, at), ...gridLook(row[at]!, { marked: true, pressing: view.pressing && !s.menu.open }), ...row.slice(at + 1)]
+    return markButtonAt(row, at, { pressing: view.pressing && !s.menu.open })
   }
   if (rows.length === 0) return [marked(line)]
 
@@ -280,7 +280,7 @@ function confirmFoot(form: Form, view: View): L[] {
 
 // The keys stay on the options, so Submit is never marked; Enter presses it from there.
 function submitRow(form: Form, s: State, view: View): L {
-  return buttonRow([{ label: 'Submit', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }], undefined, view.width, 0)
+  return buttonRow([{ label: 'Submit', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }], undefined, view.width, 2)
 }
 
 function errorLines(form: Form, view: View): L[] {
@@ -296,8 +296,8 @@ function contextPage(form: Form, s: State, view: View, head: L[], ctx: CtxView):
   head.splice(head.length - 1, 1, [sp(`${n} question${n === 1 ? '' : 's'} after this`, DIM)], BLANK)
   const start: Button<Action> = { label: 'Start →', action: { type: 'page', page: 0 }, tone: 'secondary' }
   const aside: Button<Action> | undefined = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' } : undefined
-  const line = buttonRow([start], aside, view.width, 0)
-  const marked: L = view.focused ? [...line.slice(0, 1), ...gridLook(line[1]!, { marked: true, pressing: view.pressing }), ...line.slice(2)] : line
+  const line = buttonRow([start], aside, view.width, 2)
+  const marked: L = view.focused ? markButtonAt(line, 1, { pressing: view.pressing }) : line
   const first = form.questions[0]
   const next: L = first ? clipLine([sp('Next: ', DIM), sp(first.label)], view.width) : BLANK
   return { head, page: contextBox(form.context ?? '', view.width, ctx), foot: [BLANK, rule(view.width), BLANK, next, BLANK, marked] }
