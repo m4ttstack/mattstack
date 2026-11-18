@@ -676,7 +676,7 @@ function selectList(spec) {
   const total = spec.choices.length;
   const start = total <= max ? 0 : Math.min(Math.max(0, spec.cursor - Math.floor(max / 2)), total - max);
   const shown = spec.choices.slice(start, start + max);
-  const bar = sp(SYMBOL.bar, ACCENT);
+  const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const lines = [];
   const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, () => [bar])];
   if (start > 0)
@@ -699,7 +699,7 @@ function choiceMark(spec, idx) {
 }
 var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
 function choiceRows(choice, idx, spec) {
-  const bar = sp(SYMBOL.bar, ACCENT);
+  const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const isAt = isCursorRow(spec, idx);
   const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { ...ACCENT, bold: true }) : sp("  "), choiceMark(spec, idx), sp(" ")];
   const under = [bar, sp("    ")];

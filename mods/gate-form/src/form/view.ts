@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -42,12 +42,17 @@ export function contextBody(context: string, width: number): L[] {
   return out
 }
 
-// The box's rail, its padding cell and the scroll bar's three cells.
-const BOX_CELLS = 6
+// The scroll bar's three cells.
+const BOX_CELLS = 3
 // The fewest context rows the box shrinks to before the whole page scrolls instead.
 const MIN_CTX = 3
 
 export type CtxView = { cap: number; top: number }
+
+// No rail runs down the side: sections are set apart by blank rows, a dim label and thin rules.
+const BLANK: L = [sp('')]
+const RULE_COLOR = '#3a3a3a'
+const rule = (width: number): L => [sp('─'.repeat(width), { color: RULE_COLOR })]
 
 // The context in its own box, `cap` rows tall from row `top`, with a scroll bar and a line saying what is out of view.
 function contextBox(context: string, width: number, ctx: CtxView): L[] {
@@ -57,18 +62,17 @@ function contextBox(context: string, width: number, ctx: CtxView): L[] {
   const top = Math.min(Math.max(0, ctx.top), Math.max(0, body.length - ctx.cap))
   const bar = scrollBar<Action>(ctx.cap, body.length, top)
   const shown = body.slice(top, top + ctx.cap)
-  const rail = sp<Action>(`${SYMBOL.bar} `, GRAY)
   const lines = shown.map((line, n): L => {
-    const text: L = [sp(' '), ...clipLine(line, inner)]
-    const pad = Math.max(0, inner + 1 - widthOf(text))
-    return [rail, ...text, ...(body.length > ctx.cap ? [sp<Action>(' '.repeat(pad)), ...bar[n]!] : [])]
+    const text = clipLine(line, inner)
+    const pad = Math.max(0, inner - widthOf(text))
+    return [...text, ...(body.length > ctx.cap ? [sp<Action>(' '.repeat(pad)), ...bar[n]!] : [])]
   })
   if (body.length <= ctx.cap) return lines
   const below = body.length - top - ctx.cap
   const where = below > 0 ? `↓ ${below} more line${below === 1 ? '' : 's'}` : `↑ ${top} line${top === 1 ? '' : 's'} above`
   const keys = 'shift+↑↓ or wheel'
-  const gapCells = Math.max(2, width - 2 - widthOf([sp(where), sp(keys)]))
-  return [...lines, [sp(SYMBOL.bar, GRAY), sp(' '), sp(where, DIM), sp(' '.repeat(gapCells)), sp(keys, GRAY)]]
+  const gapCells = Math.max(2, width - widthOf([sp(where), sp(keys)]))
+  return [...lines, [sp(where, DIM), sp(' '.repeat(gapCells)), sp(keys, GRAY)]]
 }
 
 function answerSummary(q: FormQuestion, s: State, i: number): string {
@@ -100,14 +104,14 @@ const kindIcon = (q: FormQuestion) => (choicesOf(q).length === 0 ? ICON.text : q
 function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
   // On the nav row the keys are there, so the answer shows no caret.
   const view = { ...base, focused: base.focused && !s.onNav, pressing: base.pressing && !s.onNav }
-  const bar = rail<Action>(ACCENT)
+  const bar: L = [sp('   ')]
   const lines: L[] = hang([sp(kindIcon(q), ACCENT), sp('  ')], bar, q.label, view.width, { bold: true })
   if (q.multi) lines.push([...bar, sp('pick any number', DIM)])
   if (q.context) lines.push(...hang(bar, bar, q.context, view.width, DIM))
-  lines.push([sp(SYMBOL.bar, ACCENT)])
+  lines.push(BLANK)
   const choices = choicesOf(q)
   if (choices.length === 0) {
-    lines.push([...bar, ...textCursor(s.text[i]!, 'Type your answer', view.focused)])
+    lines.push([sp('  '), ...textCursor(s.text[i]!, 'Type your answer', view.focused)])
     return lines
   }
   lines.push(
@@ -123,6 +127,7 @@ function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
       // The page scrolls instead, so every choice is drawn.
       maxShown: choices.length,
       actionFor: idx => ({ type: 'option', idx }),
+      rail: false,
     }),
   )
   return lines
@@ -144,8 +149,8 @@ function reviewList(form: Form, s: State, view: View): L[] {
 
 function reviewPage(form: Form, s: State, view: View): L[] {
   const missing = unansweredCount(s)
-  const bar = rail<Action>(ACCENT)
-  const lines: L[] = [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, DONE), sp('  Submit your answers?', { bold: true })]]
+  const bar: L = [sp('   ')]
+  const lines: L[] = [...reviewList(form, s, view), BLANK, [sp(ICON.review, DONE), sp('  Submit your answers?', { bold: true })]]
   const warning = form.source === 'gate' ? `${missing} not answered. Answer every question to submit.` : `${missing} not answered; left out if you submit now`
   if (missing > 0) lines.push(...hang(bar, bar, warning, view.width, WARN))
   return lines
@@ -161,8 +166,7 @@ function ending(form: Form, s: State): { text: string; isWarn: boolean } {
 
 function closedPage(form: Form, s: State, view: View): L[] {
   const end = ending(form, s)
-  const rest = [sp<Action>(' '), sp('  ')]
-  return [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], ...hang([sp(SYMBOL.end, GRAY), sp('  ')], rest, end.text, view.width, end.isWarn ? WARN : {})]
+  return [...reviewList(form, s, view), BLANK, ...hang<Action>([], [], end.text, view.width, end.isWarn ? WARN : {})]
 }
 
 // Progress, not navigation targets: a dot per question (answered, current, to do), each still a click to its page,
@@ -177,7 +181,7 @@ function progress(form: Form, s: State, view: View): L {
   const where: L = q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(' review', { bold: true })]
   const missing = unansweredCount(s)
   const left = sp<Action>(missing === 0 ? 'all answered' : `${missing} to answer`, missing === 0 ? DONE : DIM)
-  const line: L = [sp(SYMBOL.bar, GRAY), sp('  '), ...dots, ...where]
+  const line: L = [...dots, ...where]
   const room = view.width - widthOf(line) - widthOf([left])
   return room >= 2 ? [...line, sp(' '.repeat(room)), left] : line
 }
@@ -222,7 +226,7 @@ function navRows(form: Form, s: State, view: View): L[] {
 // A confirm's Client draws only its head; the answers under it are the engine's Buttons (register.tsx), which take a
 // focused pane's keys at once. Its rail stays the unfocused gray all the way down, having no question section.
 function confirmFoot(form: Form, view: View): L[] {
-  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view)]
+  return [BLANK, ...errorLines(form, view)]
 }
 
 // The keys stay on the options, so Submit is never marked; Enter presses it from there.
@@ -251,24 +255,21 @@ function hint(form: Form, s: State): string | undefined {
 
 // The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
 function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
-  const head: L[] = [brandBar<Action>(form.source === 'plugin' ? 'mattstack' : 'mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(SYMBOL.start, GRAY), sp('  '), sp(form.title, { bold: true })]]
+  const head: L[] = [brandBar<Action>(form.source === 'plugin' ? 'mattstack' : 'mattstack decision gate', view.width, { type: 'hide' }), [sp(' ')], [sp(form.title, { bold: true })]]
   if (s.phase !== 'active' || form.status !== 'open') return { head, page: closedPage(form, s, view), foot: [] }
-  const gap: L = [sp(SYMBOL.bar, GRAY)]
+  const gap = BLANK
   head.push(gap)
-  if (form.context && isConfirm(form)) {
-    const indent = rail<Action>(GRAY)
-    head.push(...hang(indent, indent, contextText(form.context), view.width))
-  } else if (form.context) head.push(...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap)
+  if (form.context && isConfirm(form)) head.push(...hang<Action>([], [], contextText(form.context), view.width))
+  else if (form.context) head.push([sp('CONTEXT', GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width), gap)
   if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, view) }
   if (!isSinglePage(form)) head.push(progress(form, s, view), gap)
 
   const q = form.questions[s.page]
-  const accentBar = rail<Action>(ACCENT)
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view)
   const keys = hint(form, s)
-  const hintLines: L[] = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)]
+  const hintLines: L[] = keys === undefined ? [] : [BLANK, ...hang<Action>([], [], keys, view.width, DIM)]
   const nav: L[] = [[sp(' ')], ...(isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view))]
-  const foot: L[] = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), ...nav]
+  const foot: L[] = [...hintLines, BLANK, rule(view.width), ...errorLines(form, view), ...nav]
   return { head, page, foot }
 }
 
@@ -320,7 +321,7 @@ export function fittedLines(form: Form, s: State, view: View, rows: number, whee
   const full = draw(form, s, view, ctx)
   const room = rows - FIXED_TOP - full.foot.length
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
-    const pad = s.phase === 'active' && form.status === 'open' && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] as L } : undefined
+    const pad = s.phase === 'active' && form.status === 'open' && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: BLANK } : undefined
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...kept }
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) }

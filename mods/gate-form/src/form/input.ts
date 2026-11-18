@@ -34,6 +34,19 @@ function sendPicked(form: Form, s: State): Effect {
   return send(form, picked) ?? { state: picked }
 }
 
+// The engine reports single clicks only, so two on the same option within DOUBLE_MS are a double click: the first
+// already picked or ticked it, so the second moves on (submits a one-page form) instead of clicking again.
+const DOUBLE_MS = 450
+
+export function optionClick(form: Form, s: State, idx: number, now: number): Effect | undefined {
+  const last = s.lastClick
+  const isDouble = last !== undefined && last.page === s.page && last.idx === idx && now - last.at < DOUBLE_MS
+  if (!isDouble) return { state: { ...clickChoice(form, s, idx), lastClick: { page: s.page, idx, at: now } } }
+  const once = { ...s, lastClick: undefined }
+  if (isSinglePage(form)) return send(form, once) ?? { state: once }
+  return { state: once.answered[s.page] ? advance(form, once) : once }
+}
+
 // The first press arms it; the second sets the form aside. A gate set aside stays open and answerable.
 function chat(form: Form, s: State): Effect | undefined {
   if (!canChat(form)) return undefined
@@ -72,9 +85,8 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
       return { state: goTo(form, s, action.page) }
     case 'advance':
       return { state: advance(form, s) }
-    case 'option': {
-      return { state: clickChoice(form, s, action.idx) }
-    }
+    case 'option':
+      return optionClick(form, s, action.idx, Date.now())
     case 'send':
       return send(form, s)
     case 'menu':

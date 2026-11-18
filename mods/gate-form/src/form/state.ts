@@ -34,6 +34,8 @@ export type State = {
   // The cursor the scrolled window last moved to show, and the pane's wheel total it last took (view.ts `Fitted`).
   followed?: string
   wheelAt?: number
+  // The last option click, so a second one on the same option soon after reads as a double click.
+  lastClick?: { page: number; idx: number; at: number }
   // The context box's first row in view while the context is taller than its box.
   ctxTop?: number
   // The run control that was sent, for the closed form to name.

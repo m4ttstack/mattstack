@@ -15,6 +15,8 @@ export type SelectSpec<A> = {
   focused: boolean
   actionFor: (idx: number) => A
   maxShown?: number
+  // false drops the clack rail down the left, for a surface that sets its sections apart another way.
+  rail?: boolean
   // A key's activation of the cursor's choice is showing (KitUi `keyPressing`): its label draws pressed, as a click's would.
   pressing?: boolean
 }
@@ -26,7 +28,7 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
   const total = spec.choices.length
   const start = total <= max ? 0 : Math.min(Math.max(0, spec.cursor - Math.floor(max / 2)), total - max)
   const shown = spec.choices.slice(start, start + max)
-  const bar = sp<A>(SYMBOL.bar, ACCENT)
+  const bar = sp<A>(spec.rail === false ? '' : SYMBOL.bar, ACCENT)
   const lines: Line<A>[] = []
   // Every choice takes at least two rows, its description's row left blank when it has none, so every list keeps one rhythm.
   const padded = (rows: Line<A>[]) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, (): Line<A> => [bar])]
@@ -50,7 +52,7 @@ function choiceMark(spec: SelectSpec<unknown>, idx: number): Span<never> {
 const isCursorRow = (spec: SelectSpec<unknown>, idx: number) => spec.focused && idx === spec.cursor
 
 function choiceRows<A>(choice: Choice, idx: number, spec: SelectSpec<A>): Line<A>[] {
-  const bar = sp<A>(SYMBOL.bar, ACCENT)
+  const bar = sp<A>(spec.rail === false ? '' : SYMBOL.bar, ACCENT)
   const isAt = isCursorRow(spec, idx)
   const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { ...ACCENT, bold: true }) : sp('  '), choiceMark(spec, idx), sp(' ')]
   const under = [bar, sp('    ')]

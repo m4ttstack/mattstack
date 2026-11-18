@@ -405,7 +405,7 @@ function selectList(spec) {
   const total = spec.choices.length;
   const start = total <= max ? 0 : Math.min(Math.max(0, spec.cursor - Math.floor(max / 2)), total - max);
   const shown = spec.choices.slice(start, start + max);
-  const bar = sp(SYMBOL.bar, ACCENT);
+  const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const lines = [];
   const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, () => [bar])];
   if (start > 0)
@@ -428,7 +428,7 @@ function choiceMark(spec, idx) {
 }
 var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
 function choiceRows(choice, idx, spec) {
-  const bar = sp(SYMBOL.bar, ACCENT);
+  const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const isAt = isCursorRow(spec, idx);
   const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { ...ACCENT, bold: true }) : sp("  "), choiceMark(spec, idx), sp(" ")];
   const under = [bar, sp("    ")];
@@ -1049,6 +1049,17 @@ function sendPicked(form, s) {
   const picked = toggleAtCursor(form, s);
   return send(form, picked) ?? { state: picked };
 }
+var DOUBLE_MS = 450;
+function optionClick(form, s, idx, now) {
+  const last = s.lastClick;
+  const isDouble = last !== undefined && last.page === s.page && last.idx === idx && now - last.at < DOUBLE_MS;
+  if (!isDouble)
+    return { state: { ...clickChoice(form, s, idx), lastClick: { page: s.page, idx, at: now } } };
+  const once = { ...s, lastClick: undefined };
+  if (isSinglePage(form))
+    return send(form, once) ?? { state: once };
+  return { state: once.answered[s.page] ? advance(form, once) : once };
+}
 function chat(form, s) {
   if (!canChat(form))
     return;
@@ -1087,9 +1098,8 @@ function performOn(action, form, armed) {
       return { state: goTo(form, s, action.page) };
     case "advance":
       return { state: advance(form, s) };
-    case "option": {
-      return { state: clickChoice(form, s, action.idx) };
-    }
+    case "option":
+      return optionClick(form, s, action.idx, Date.now());
     case "send":
       return send(form, s);
     case "menu":
@@ -1246,8 +1256,11 @@ function contextBody(context, width) {
     out.pop();
   return out;
 }
-var BOX_CELLS = 6;
+var BOX_CELLS = 3;
 var MIN_CTX = 3;
+var BLANK = [sp("")];
+var RULE_COLOR = "#3a3a3a";
+var rule = (width) => [sp("─".repeat(width), { color: RULE_COLOR })];
 function contextBox(context, width, ctx) {
   if (ctx.cap <= 0)
     return [];
@@ -1256,19 +1269,18 @@ function contextBox(context, width, ctx) {
   const top = Math.min(Math.max(0, ctx.top), Math.max(0, body.length - ctx.cap));
   const bar = scrollBar(ctx.cap, body.length, top);
   const shown = body.slice(top, top + ctx.cap);
-  const rail = sp(`${SYMBOL.bar} `, GRAY);
   const lines = shown.map((line, n) => {
-    const text = [sp(" "), ...clipLine(line, inner)];
-    const pad = Math.max(0, inner + 1 - widthOf(text));
-    return [rail, ...text, ...body.length > ctx.cap ? [sp(" ".repeat(pad)), ...bar[n]] : []];
+    const text = clipLine(line, inner);
+    const pad = Math.max(0, inner - widthOf(text));
+    return [...text, ...body.length > ctx.cap ? [sp(" ".repeat(pad)), ...bar[n]] : []];
   });
   if (body.length <= ctx.cap)
     return lines;
   const below = body.length - top - ctx.cap;
   const where = below > 0 ? `↓ ${below} more line${below === 1 ? "" : "s"}` : `↑ ${top} line${top === 1 ? "" : "s"} above`;
   const keys = "shift+↑↓ or wheel";
-  const gapCells = Math.max(2, width - 2 - widthOf([sp(where), sp(keys)]));
-  return [...lines, [sp(SYMBOL.bar, GRAY), sp(" "), sp(where, DIM), sp(" ".repeat(gapCells)), sp(keys, GRAY)]];
+  const gapCells = Math.max(2, width - widthOf([sp(where), sp(keys)]));
+  return [...lines, [sp(where, DIM), sp(" ".repeat(gapCells)), sp(keys, GRAY)]];
 }
 function answerSummary(q, s, i) {
   const choices = choicesOf(q);
@@ -1302,16 +1314,16 @@ function wonSummary(q, raw) {
 var kindIcon = (q) => choicesOf(q).length === 0 ? ICON.text : q.multi ? ICON.multi : ICON.single;
 function questionPage(q, s, i, base) {
   const view = { ...base, focused: base.focused && !s.onNav, pressing: base.pressing && !s.onNav };
-  const bar = rail(ACCENT);
+  const bar = [sp("   ")];
   const lines = hang([sp(kindIcon(q), ACCENT), sp("  ")], bar, q.label, view.width, { bold: true });
   if (q.multi)
     lines.push([...bar, sp("pick any number", DIM)]);
   if (q.context)
     lines.push(...hang(bar, bar, q.context, view.width, DIM));
-  lines.push([sp(SYMBOL.bar, ACCENT)]);
+  lines.push(BLANK);
   const choices = choicesOf(q);
   if (choices.length === 0) {
-    lines.push([...bar, ...textCursor(s.text[i], "Type your answer", view.focused)]);
+    lines.push([sp("  "), ...textCursor(s.text[i], "Type your answer", view.focused)]);
     return lines;
   }
   lines.push(...selectList({
@@ -1324,7 +1336,8 @@ function questionPage(q, s, i, base) {
     focused: view.focused,
     ...view.pressing && { pressing: true },
     maxShown: choices.length,
-    actionFor: (idx) => ({ type: "option", idx })
+    actionFor: (idx) => ({ type: "option", idx }),
+    rail: false
   }));
   return lines;
 }
@@ -1339,8 +1352,8 @@ function reviewList2(form, s, view) {
 }
 function reviewPage(form, s, view) {
   const missing = unansweredCount(s);
-  const bar = rail(ACCENT);
-  const lines = [...reviewList2(form, s, view), [sp(SYMBOL.bar, GRAY)], [sp(ICON.review, DONE), sp("  Submit your answers?", { bold: true })]];
+  const bar = [sp("   ")];
+  const lines = [...reviewList2(form, s, view), BLANK, [sp(ICON.review, DONE), sp("  Submit your answers?", { bold: true })]];
   const warning = form.source === "gate" ? `${missing} not answered. Answer every question to submit.` : `${missing} not answered; left out if you submit now`;
   if (missing > 0)
     lines.push(...hang(bar, bar, warning, view.width, WARN));
@@ -1359,8 +1372,7 @@ function ending(form, s) {
 }
 function closedPage(form, s, view) {
   const end = ending(form, s);
-  const rest = [sp(" "), sp("  ")];
-  return [...reviewList2(form, s, view), [sp(SYMBOL.bar, GRAY)], ...hang([sp(SYMBOL.end, GRAY), sp("  ")], rest, end.text, view.width, end.isWarn ? WARN : {})];
+  return [...reviewList2(form, s, view), BLANK, ...hang([], [], end.text, view.width, end.isWarn ? WARN : {})];
 }
 function progress(form, s, view) {
   const n = form.questions.length;
@@ -1372,7 +1384,7 @@ function progress(form, s, view) {
   const where = q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(" review", { bold: true })];
   const missing = unansweredCount(s);
   const left = sp(missing === 0 ? "all answered" : `${missing} to answer`, missing === 0 ? DONE : DIM);
-  const line = [sp(SYMBOL.bar, GRAY), sp("  "), ...dots, ...where];
+  const line = [...dots, ...where];
   const room = view.width - widthOf(line) - widthOf([left]);
   return room >= 2 ? [...line, sp(" ".repeat(room)), left] : line;
 }
@@ -1406,7 +1418,7 @@ function navRows(form, s, view) {
   return [marked(line), ...hung.slice(1)];
 }
 function confirmFoot(form, view) {
-  return [[sp(SYMBOL.end, GRAY)], ...errorLines(form, view)];
+  return [BLANK, ...errorLines(form, view)];
 }
 function submitRow(form, s, view) {
   return buttonRow([{ label: "Submit", action: { type: "send" }, tone: "brand", disabled: !canSubmit(form, s) }], undefined, view.width);
@@ -1432,27 +1444,25 @@ function hint(form, s) {
   return q.multi ? "↑↓ move  space tick  enter next  ←→ pages" : "↑↓ move  space pick  enter pick + next  ←→ pages";
 }
 function draw(form, s, view, ctx) {
-  const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(SYMBOL.start, GRAY), sp("  "), sp(form.title, { bold: true })]];
+  const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(form.title, { bold: true })]];
   if (s.phase !== "active" || form.status !== "open")
     return { head, page: closedPage(form, s, view), foot: [] };
-  const gap = [sp(SYMBOL.bar, GRAY)];
+  const gap = BLANK;
   head.push(gap);
-  if (form.context && isConfirm(form)) {
-    const indent = rail(GRAY);
-    head.push(...hang(indent, indent, contextText(form.context), view.width));
-  } else if (form.context)
-    head.push(...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap);
+  if (form.context && isConfirm(form))
+    head.push(...hang([], [], contextText(form.context), view.width));
+  else if (form.context)
+    head.push([sp("CONTEXT", GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width), gap);
   if (isConfirm(form))
     return { head, page: [], foot: confirmFoot(form, view) };
   if (!isSinglePage(form))
     head.push(progress(form, s, view), gap);
   const q = form.questions[s.page];
-  const accentBar = rail(ACCENT);
   const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
   const keys = hint(form, s);
-  const hintLines = keys === undefined ? [] : [[sp(SYMBOL.bar, ACCENT)], ...hang(accentBar, accentBar, keys, view.width, DIM)];
+  const hintLines = keys === undefined ? [] : [BLANK, ...hang([], [], keys, view.width, DIM)];
   const nav = [[sp(" ")], ...isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view)];
-  const foot = [...hintLines, [sp(SYMBOL.end, ACCENT)], ...errorLines(form, view), ...nav];
+  const foot = [...hintLines, BLANK, rule(view.width), ...errorLines(form, view), ...nav];
   return { head, page, foot };
 }
 function tallestQuestion(form, s, view) {
@@ -1488,7 +1498,7 @@ function fittedLines(form, s, view, rows, wheel) {
   const full = draw(form, s, view, ctx);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
-    const pad = s.phase === "active" && form.status === "open" && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: [sp(SYMBOL.bar, ACCENT)] } : undefined;
+    const pad = s.phase === "active" && form.status === "open" && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: BLANK } : undefined;
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...kept };
   }
   const inner = { ...view, width: Math.max(20, view.width - BAR_CELLS) };
