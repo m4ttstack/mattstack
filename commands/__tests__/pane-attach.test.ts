@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { ChatPane } from "../../packages/rt-client/src/commands.ts";
 import type { PickRequest, PickResult, PickRow, PickSegment } from "../../lib/ui/protocol.ts";
 import { UserActionableError } from "../../lib/errors.ts";
-import { attachRows, paneAttachWith, type AttachDeps } from "../pane-attach.ts";
+import { attachRows, cacheFaceArgv, paneAttachWith, type AttachDeps } from "../pane-attach.ts";
 
 const kirk: ChatPane = {
   paneId: "w1:p3", workspace: "acme", tab: "api", cwd: "/src/acme", repo: "acme", branch: "main", agentStatus: "working", sessionId: "s1",
@@ -206,4 +206,9 @@ test("faces still missing when the picker opens are handed off to be cached", as
   const { d, calls } = deps({ list: async () => ({ ok: true, data: { panes: [kirk, ada, anon] } }), faces: async () => new Map([["kirk", "/faces/kirk.png"]]) });
   await expect(paneAttachWith([], d)).rejects.toThrow("exit 7");
   expect(calls.cachedLater).toEqual([["ada"]]);
+});
+
+test("the detached render draws the size the picker reads", () => {
+  const argv = cacheFaceArgv("ada");
+  expect(argv.slice(-6)).toEqual(["chat", "avatar", "ada", "--size", "128", "--json"]);
 });

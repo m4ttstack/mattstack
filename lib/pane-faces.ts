@@ -7,6 +7,9 @@ import { chatFacePng } from "./chat-face-png.ts";
 import { generatedFace } from "../packages/rt-client/src/face-avatar.ts";
 import { faceSeed, ownTile } from "../packages/rt-client/src/face-tiles.ts";
 
+/** The face size the attach picker reads; the cache keys on it. */
+export const PICKER_FACE_SIZE = 128;
+
 /** The face `rt chat avatar <handle>` draws when nothing is drawn beside it. */
 function ownFace(handle: string, size: number): Promise<string> {
   const seed = faceSeed(handle);
@@ -17,7 +20,7 @@ export async function resolveFaces(
   handles: string[],
   opts: { budgetMs?: number; size?: number; face?: (handle: string, size: number) => Promise<string> } = {},
 ): Promise<Map<string, string>> {
-  const { budgetMs = 1000, size = 128, face = ownFace } = opts;
+  const { budgetMs = 1000, size = PICKER_FACE_SIZE, face = ownFace } = opts;
   const faces = new Map<string, string>();
   const renders = [...new Set(handles)].map((handle) =>
     Promise.resolve().then(() => face(handle, size)).then((path) => { faces.set(handle, path); }, () => {}),

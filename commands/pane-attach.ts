@@ -13,7 +13,7 @@ import {
 } from "../packages/rt-client/src/index.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { paneBadge, type PaneBadgeKind } from "./pane.ts";
-import { resolveFaces } from "../lib/pane-faces.ts";
+import { PICKER_FACE_SIZE, resolveFaces } from "../lib/pane-faces.ts";
 import { rtSelfArgv } from "../lib/rt-self.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
 import { childEnv } from "../lib/subprocess.ts";
@@ -214,6 +214,11 @@ export async function paneAttachWith(args: string[], deps: AttachDeps): Promise<
   await attach(picked.paneId, picked.action === "takeover", deps);
 }
 
+/** The `rt chat avatar` call that caches a handle's face at the size the picker reads. */
+export function cacheFaceArgv(handle: string): string[] {
+  return [...rtSelfArgv(), "chat", "avatar", handle, "--size", String(PICKER_FACE_SIZE), "--json"];
+}
+
 const realDeps: AttachDeps = {
   isTTY: () => Boolean(process.stdin.isTTY),
   selfRef: () => selfPaneRef(),
@@ -226,7 +231,7 @@ const realDeps: AttachDeps = {
   spawn: async (argv, env) => Bun.spawn(argv, { env, stdio: ["inherit", "inherit", "inherit"] }).exited,
   cacheLater: (handles) => {
     for (const handle of handles) {
-      Bun.spawn([...rtSelfArgv(), "chat", "avatar", handle, "--json"], { env: childEnv(), stdio: ["ignore", "ignore", "ignore"] }).unref();
+      Bun.spawn(cacheFaceArgv(handle), { env: childEnv(), stdio: ["ignore", "ignore", "ignore"] }).unref();
     }
   },
   exit: (code) => process.exit(code),
