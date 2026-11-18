@@ -48,3 +48,15 @@
 .focus {
   margin-block: -2px;
 }
+
+/* The head row stays one line: the ticket, decisions and status keep their
+   width, and only the MR line gives way, with an ellipsis. */
+.keep {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.squeeze {
+  min-width: 0;
+  flex-shrink: 1;
+}
