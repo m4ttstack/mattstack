@@ -2,12 +2,13 @@ import { BrandBar, Lines, Panel, gridMove, gridResolve, gridSelection, isButtonI
 import type { GridSelection, PointerState } from '@mattstack/mod-kit'
 
 import { TITLE } from '../items'
-import { stopMessage, viewLines } from './kit-layout'
+import { draftRows, stopMessage, viewLines } from './kit-layout'
 import type { KitView } from './kit-layout'
 import type { PaneButton, PaneMessage } from './model'
 
 // `composing`: the item whose message row is open.
-type Props = { view: KitView; focused: boolean; width: number; composing?: string }
+// `composeLines`: the rows the hooks module gave the open card's draft; the Client asks for more as the draft wraps.
+type Props = { view: KitView; focused: boolean; width: number; composing?: string; composeLines?: number }
 // Once its button has gone (Run became Confirm, Confirm became Stop), the selection falls to the item's filled button.
 // `draft` is the open message row's text, kept here so typing never waits on the hooks module.
 type State = PointerState & { sel?: GridSelection<PaneButton['id']>; draft?: { id: string; text: string } }
@@ -23,7 +24,12 @@ export default kitClient<Props, State>(
     const current = stops[here.at] && stopMessage(stops[here.at]!, here.col)
     const composing = props.composing
     const draft = composing !== undefined && ui.state.draft?.id === composing ? ui.state.draft.text : ''
-    const setDraft = (text: string) => composing !== undefined && ui.setState({ ...ui.state, draft: { id: composing, text } })
+    const setDraft = (text: string) => {
+      if (composing === undefined) return
+      ui.setState({ ...ui.state, draft: { id: composing, text } })
+      const lines = draftRows(text, props.width).length
+      if (lines !== (props.composeLines ?? 1)) ui.post({ type: 'draftLines', lines })
+    }
     // Send and Send & mark done carry the draft; a blank one sends nothing.
     const send = (done: boolean) => {
       if (composing === undefined || draft.trim() === '') return

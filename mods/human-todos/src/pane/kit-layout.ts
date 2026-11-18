@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, WARN, cellWidth, ellipsize, inputField, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrappedButtons } from '@mattstack/mod-kit'
+import { ACCENT, CURSOR_ROW, DIM, DONE, GRAY, PLACEHOLDER, WARN, cellWidth, ellipsize, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrappedButtons } from '@mattstack/mod-kit'
 import type { Line, ListFocus, Style, WindowStop } from '@mattstack/mod-kit'
 
 import { endRows, messageOf } from './model'
@@ -40,11 +40,51 @@ function buttonLines(row: Extract<PaneRow, { kind: 'buttons' }>, room: number): 
 // The open message row's draft and whether its caret shows; the hook's layout passes none, the field is one line either way.
 export type Draft = { text: string; caret: boolean }
 
+// The message card: a tinted block the width of the room, CARD_PAD cells of tint either side of the text.
+const CARD_PAD = 2
+const card = (spans: L, room: number): L => {
+  const tinted = spans.map(span => ({ ...span, bg: span.bg ?? CURSOR_ROW }))
+  const used = tinted.reduce((n, span) => n + cellWidth(span.t), 0)
+  return [...tinted, sp(' '.repeat(Math.max(0, room - used)), { bg: CURSOR_ROW })]
+}
+
+// The cells the draft wraps in, so the Client can tell the hooks module when the card needs another row.
+export const draftWidth = (width: number): number => Math.max(4, roomOf(width) - 2 * CARD_PAD - 1)
+
+// The draft wrapped at the card's width: at least one row, the caret after its last character.
+export function draftRows(text: string, width: number): string[] {
+  return text === '' ? [''] : wrap(text, draftWidth(width))
+}
+
+function composeLines(lines: number, room: number, draft?: Draft): L[] {
+  const pad = sp<PaneMessage>(' '.repeat(CARD_PAD))
+  const text = draft?.text ?? ''
+  if (text === '') return [card([pad, sp(' ', draft?.caret ? { inverse: true } : {}), sp('Message the agent', PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, () => card([pad], room))]
+  const rows = wrap(text, Math.max(4, room - 2 * CARD_PAD - 1))
+  // Past the card's height the newest rows show, as a field scrolls to its caret.
+  const shown = rows.slice(-lines)
+  return Array.from({ length: lines }, (_, n) => {
+    const line = shown[n] ?? ''
+    const isLast = n === shown.length - 1
+    return card([pad, sp(line), ...(isLast && draft?.caret ? [sp(' ', { inverse: true })] : [])], room)
+  })
+}
+
+// The card's last row: its actions as plain words against the right edge, Send bold and last.
+const ACTION_LOOK: Partial<Record<PaneButton['id'], Style>> = { cancelMessage: GRAY, sendDone: DIM, send: { bold: true } }
+function composeActionsLine(buttons: PaneButton[], room: number): L {
+  const words = buttons.flatMap((b, n): L => [sp('   '), sp(b.label, { ...(ACTION_LOOK[b.id] ?? {}), action: messageOf(b) }), ...(n === buttons.length - 1 ? [sp(' '.repeat(CARD_PAD))] : [])])
+  const used = words.reduce((n, span) => n + cellWidth(span.t), 0)
+  return card([sp(' '.repeat(Math.max(0, room - used))), ...words], room)
+}
+
 // The model wraps by characters; a row wider in cells than its room wraps again here.
 function rowLines(row: PaneRow, room: number, draft?: Draft): L[] {
   switch (row.kind) {
-    case 'input':
-      return [[sp(' '.repeat(INDENT)), ...inputField(draft?.text ?? '', 'Message the agent', Math.max(4, room - INDENT), draft?.caret ?? false)]]
+    case 'compose':
+      return composeLines(row.lines, room, draft)
+    case 'composeActions':
+      return [composeActionsLine(row.buttons, room)]
     case 'blank':
       return [[]]
     case 'text': {
@@ -103,7 +143,7 @@ export type KitView = { rows: PaneRow[]; skip: number; top: number; total: numbe
 function keyStops(model: PaneModel, layout: KitLayout): ViewStop[] {
   const stops = new Map<string, ViewStop & { tones: string[] }>()
   model.rows.forEach((row, r) => {
-    if (row.kind !== 'buttons') return
+    if (row.kind !== 'buttons' && row.kind !== 'composeActions') return
     const laid = layout.rows[r]!
     for (const button of row.buttons) {
       const offsetInRow = lineOfAction(layout.lines.slice(laid.first, laid.first + laid.count), messageOf(button))

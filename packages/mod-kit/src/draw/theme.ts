@@ -124,10 +124,11 @@ export function markButtonAt<A>(line: Line<A>, at: number, focus: { pressing?: b
   while (back >= 0 && line[back]!.t === '') back -= 1
   const prev = line[back]
   const keep = <T extends Span<A>[]>(spans: T): Line<A> => Object.assign(spans, line.action === undefined ? {} : { action: line.action })
-  if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
+  // A spacer may carry a fill (a tinted card row); the ❯ keeps it, so the row's tint runs on unbroken.
+  if (prev && prev.action === undefined && /^ +$/.test(prev.t)) {
     const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge
     const rest = prev.t.slice(mark.length)
-    return keep([...line.slice(0, back), ...(rest === '' ? [] : [{ ...prev, t: rest }]), sp<A>(mark, { bold: true }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)])
+    return keep([...line.slice(0, back), ...(rest === '' ? [] : [{ ...prev, t: rest }]), sp<A>(mark, { bold: true, ...(prev.bg && { bg: prev.bg }) }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)])
   }
   return keep([...line.slice(0, at), sp<A>(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)])
 }

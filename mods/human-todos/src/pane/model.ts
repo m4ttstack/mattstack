@@ -12,10 +12,17 @@ export type PaneRow =
   | { kind: 'buttons'; buttons: PaneButton[]; lead?: { text: string; tone: Tone; spin?: true; pad?: true }; flush?: true }
   | { kind: 'finished'; mark: string; tone: Tone; title: string; exit?: number }
   | { kind: 'blank' }
-  // The item's message field: the drawer fills in the draft, which lives in the kit Client, not the store.
-  | { kind: 'input'; todoId: string }
+  // The item's message card: `lines` rows of draft (the kit Client holds the text and says when it wraps onto another
+  // row), then its actions as plain words on the card's last row.
+  | { kind: 'compose'; todoId: string; lines: number }
+  | { kind: 'composeActions'; buttons: PaneButton[] }
 export type PaneModel = { rows: PaneRow[]; spans: { first: number; last: number }[]; hasFinished: boolean }
-export type PaneMessage = { type: 'press'; id: string; button: ButtonId } | { type: 'toggle'; id: string } | { type: 'clear' } | { type: 'send'; id: string; text: string; done: boolean }
+export type PaneMessage =
+  | { type: 'press'; id: string; button: ButtonId }
+  | { type: 'toggle'; id: string }
+  | { type: 'clear' }
+  | { type: 'send'; id: string; text: string; done: boolean }
+  | { type: 'draftLines'; lines: number }
 
 const SCRIPT_ROWS = 2
 const FINISHED_SHOWN = 8
@@ -88,12 +95,13 @@ function buttonsOf(todo: Todo, messages: boolean, isComposing = false): PaneButt
   return messages && todo.status === 'open' ? [...own, { id: 'message', label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: 'quiet', todoId: todo.id }] : own
 }
 
+// Left to right as the card draws them: the quiet way out first, Send last at the edge.
 const composeButtons = (todoId: string): PaneButton[] =>
-  (['send', 'sendDone', 'cancelMessage'] as const).map(id => ({ id, label: LABELS[id], tone: TONES[id], todoId }))
+  (['cancelMessage', 'sendDone', 'send'] as const).map(id => ({ id, label: LABELS[id], tone: TONES[id], todoId }))
 
 // A title wraps at the full inner width; everything else at `width`, two columns narrower.
 // `messages`: the kit drawer, which offers an item's message row; `composing` is the item whose row is open.
-export function paneModel(input: { list: Todo[]; expanded: string[]; spin: string; width: number; messages?: boolean; composing?: string | null }): PaneModel {
+export function paneModel(input: { list: Todo[]; expanded: string[]; spin: string; width: number; messages?: boolean; composing?: string | null; composeLines?: number }): PaneModel {
   const { list, expanded, spin, width } = input
   const messages = input.messages === true
   const inner = width + 2
@@ -157,8 +165,8 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
       if (isConfirming) lines('Are you sure you want to run this script?', width, 'plain', true)
       if (messages && todo.status === 'open' && input.composing === todo.id) {
         blank()
-        rows.push({ kind: 'input', todoId: todo.id })
-        rows.push({ kind: 'buttons', buttons: composeButtons(todo.id) })
+        rows.push({ kind: 'compose', todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) })
+        rows.push({ kind: 'composeActions', buttons: composeButtons(todo.id) })
       }
     }
     spans.push({ first, last: rows.length - 1 })

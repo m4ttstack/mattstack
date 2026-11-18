@@ -1,7 +1,7 @@
 export { hang, hitAt, hoverKeyAt, lineHoverKey, sp, spanHoverKey, widthOf, withAction, wrap } from './draw/text'
 export type { Line, Style } from './draw/text'
 export { cellWidth, chunkCells, cutCells, padCells } from './draw/cells'
-export { ACCENT, BRAND, DIM, DONE, FILL, GRAY, ICON, PLACEHOLDER, QUIET, SCROLL, SYMBOL, WARN, hovered, keySelected, markButtonAt, muted, pressed, rail } from './draw/theme'
+export { ACCENT, BRAND, CURSOR_ROW, DIM, DONE, FILL, GRAY, ICON, PLACEHOLDER, QUIET, SCROLL, SYMBOL, WARN, hovered, keySelected, markButtonAt, muted, pressed, rail } from './draw/theme'
 export { renderLines } from './draw/render'
 export type { Look } from './draw/render'
 

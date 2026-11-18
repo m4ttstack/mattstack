@@ -32,8 +32,8 @@ export async function openPane($: EngineInterface): Promise<void> {
 }
 
 // The kit drawer offers each item's message row; the plain drawer has no field to type in.
-function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null }, width: number, messages = true): PaneModel {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing })
+function modelOf(pane: { list: Todo[]; openIds: string[]; spin: number; composing: string | null; composeLines: number }, width: number, messages = true): PaneModel {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? '', width, messages, composing: pane.composing, composeLines: pane.composeLines })
 }
 
 async function waitingBand($: EngineInterface): Promise<Waiting | undefined> {
@@ -151,7 +151,7 @@ export function registerPane(on: On): void {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read($, scrollAtom)),
       focused: e.props.isFocused || (await read($, keysAtom)),
       width,
-      ...(pane.composing !== null && { composing: pane.composing }),
+      ...(pane.composing !== null && { composing: pane.composing, composeLines: pane.composeLines }),
     }
     return <Client key="human-todos-pane" module="./pane/kit-view.tsx" height={bodyRows} props={props} />
   })

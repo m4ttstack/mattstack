@@ -247,15 +247,15 @@ test('in the kit drawer an open item ends its row with the message button; the p
   expect(ids(paneModel({ list: [todo({ status: 'running', runner: 'local' })], expanded: [], spin: '⠋', width: 38, messages: true }).rows)).not.toContain('message')
 })
 
-test('the item whose message row is open gets the field and Send, Send & mark done and Cancel under its buttons', () => {
-  const { rows, spans } = paneModel({ list: [todo({})], expanded: [], spin: '⠋', width: 38, messages: true, composing: '1' })
-  const at = rows.findIndex(r => r.kind === 'input')
-  expect(rows[at]).toEqual({ kind: 'input', todoId: '1' })
+test('the item whose message card is open gets its draft rows, then Cancel, Send & mark done and Send', () => {
+  const { rows, spans } = paneModel({ list: [todo({})], expanded: [], spin: '⠋', width: 38, messages: true, composing: '1', composeLines: 3 })
+  const at = rows.findIndex(r => r.kind === 'compose')
+  expect(rows[at]).toEqual({ kind: 'compose', todoId: '1', lines: 3 })
   const after = rows[at + 1]
-  expect(after?.kind === 'buttons' && after.buttons.map(b => [b.id, b.label])).toEqual([
-    ['send', 'Send'],
-    ['sendDone', 'Send & mark done'],
+  expect(after?.kind === 'composeActions' && after.buttons.map(b => [b.id, b.label])).toEqual([
     ['cancelMessage', 'Cancel'],
+    ['sendDone', 'Send & mark done'],
+    ['send', 'Send'],
   ])
   expect(spans[0]!.last).toBe(at + 1)
 })

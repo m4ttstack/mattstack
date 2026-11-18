@@ -47,19 +47,6 @@ function cutCells(text, cells) {
   }
   return out;
 }
-function tailCells(text, cells) {
-  if (PRINTABLE_ASCII.test(text))
-    return cells <= 0 ? "" : text.slice(-cells);
-  let used = 0;
-  let out = "";
-  for (const grapheme of graphemes(text).reverse()) {
-    used += graphemeWidth(grapheme);
-    if (used > cells)
-      break;
-    out = grapheme + out;
-  }
-  return out;
-}
 function chunkCells(text, cells) {
   const out = [];
   let piece = "";
@@ -79,9 +66,6 @@ function chunkCells(text, cells) {
 }
 function padCells(text, cells) {
   return text + " ".repeat(Math.max(0, cells - cellWidth(text)));
-}
-function firstGrapheme(text) {
-  return segmenter.segment(text)[Symbol.iterator]().next().value?.segment ?? "";
 }
 
 // packages/mod-kit/src/draw/text.ts
@@ -241,10 +225,10 @@ function markButtonAt(line, at, focus = {}) {
     back -= 1;
   const prev = line[back];
   const keep = (spans) => Object.assign(spans, line.action === undefined ? {} : { action: line.action });
-  if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
+  if (prev && prev.action === undefined && /^ +$/.test(prev.t)) {
     const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
     const rest = prev.t.slice(mark.length);
-    return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
+    return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true, ...prev.bg && { bg: prev.bg } }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
   }
   return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)]);
 }
@@ -266,22 +250,6 @@ function muted(span) {
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
-}
-// packages/mod-kit/src/widgets/input-field.ts
-function inputField(value, placeholder, width, showCursor) {
-  const room = width - 2;
-  const box = (spans) => [
-    sp(" ", FILL.field),
-    ...spans.map((span) => ({ ...span, bg: FILL.field.bg })),
-    sp(" ".repeat(Math.max(0, width - 1 - widthOf(spans))), FILL.field)
-  ];
-  if (value === "") {
-    const hint = cutCells(placeholder, room);
-    const head = firstGrapheme(hint);
-    return box([sp(head || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)]);
-  }
-  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
-  return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
 }
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
@@ -1020,6 +988,7 @@ var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1"
 var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
 var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
 var composing = atom({ plugin: "human-todos", key: "composing" }, null);
+var composeLines = atom({ plugin: "human-todos", key: "composeLines" }, 1);
 var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
 var workspace = atom({ plugin: "human-todos", key: "herdrWorkspace" }, null);
 var loadedFor = atom({ plugin: "human-todos", key: "loadedFor" }, null);
@@ -1143,19 +1112,28 @@ async function resetList($) {
   await update($, todos, () => []);
   await update($, expanded, () => []);
   await update($, composing, () => null);
+  await update($, composeLines, () => 1);
   await update($, nextId, () => 1);
 }
 function peekTodos($) {
   return read($, todos);
 }
 async function readPane2($) {
-  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame), composing: await read($, composing) };
+  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame), composing: await read($, composing), composeLines: await read($, composeLines) };
+}
+var MAX_COMPOSE_LINES = 8;
+async function setComposeLines($, lines) {
+  const next = Math.min(MAX_COMPOSE_LINES, Math.max(1, Math.round(lines)));
+  if (await read($, composeLines) !== next)
+    await update($, composeLines, () => next);
 }
 async function toggleComposing($, id) {
   await update($, composing, (open) => open === id ? null : id);
+  await update($, composeLines, () => 1);
 }
 async function closeComposing($) {
   await update($, composing, () => null);
+  await update($, composeLines, () => 1);
 }
 async function bumpFrame($) {
   await update($, frame, (n) => n + 1);
@@ -1783,7 +1761,7 @@ function buttonsOf(todo, messages, isComposing = false) {
   const own = ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
   return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
 }
-var composeButtons = (todoId) => ["send", "sendDone", "cancelMessage"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
+var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
   const { list, expanded, spin, width } = input;
   const messages = input.messages === true;
@@ -1848,8 +1826,8 @@ function paneModel(input) {
         lines("Are you sure you want to run this script?", width, "plain", true);
       if (messages && todo.status === "open" && input.composing === todo.id) {
         blank();
-        rows.push({ kind: "input", todoId: todo.id });
-        rows.push({ kind: "buttons", buttons: composeButtons(todo.id) });
+        rows.push({ kind: "compose", todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) });
+        rows.push({ kind: "composeActions", buttons: composeButtons(todo.id) });
       }
     }
     spans.push({ first, last: rows.length - 1 });
@@ -1921,6 +1899,8 @@ async function act($, message, surface) {
       return await closeComposing($);
     if (message.type === "send")
       return await sendMessage($, message.id, message.text, message.done);
+    if (message.type === "draftLines")
+      return await setComposeLines($, message.lines);
     if (message.type === "press")
       return await pressTodo($, message.id, message.button, surface);
     if (message.type === "toggle")
@@ -1954,10 +1934,41 @@ function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
   return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
+var CARD_PAD = 2;
+var card = (spans, room) => {
+  const tinted = spans.map((span) => ({ ...span, bg: span.bg ?? CURSOR_ROW }));
+  const used = tinted.reduce((n, span) => n + cellWidth(span.t), 0);
+  return [...tinted, sp(" ".repeat(Math.max(0, room - used)), { bg: CURSOR_ROW })];
+};
+var draftWidth = (width) => Math.max(4, roomOf(width) - 2 * CARD_PAD - 1);
+function draftRows(text, width) {
+  return text === "" ? [""] : wrap(text, draftWidth(width));
+}
+function composeLines2(lines, room, draft) {
+  const pad = sp(" ".repeat(CARD_PAD));
+  const text = draft?.text ?? "";
+  if (text === "")
+    return [card([pad, sp(" ", draft?.caret ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, () => card([pad], room))];
+  const rows = wrap(text, Math.max(4, room - 2 * CARD_PAD - 1));
+  const shown = rows.slice(-lines);
+  return Array.from({ length: lines }, (_, n) => {
+    const line = shown[n] ?? "";
+    const isLast = n === shown.length - 1;
+    return card([pad, sp(line), ...isLast && draft?.caret ? [sp(" ", { inverse: true })] : []], room);
+  });
+}
+var ACTION_LOOK = { cancelMessage: GRAY, sendDone: DIM, send: { bold: true } };
+function composeActionsLine(buttons, room) {
+  const words = buttons.flatMap((b, n) => [sp("   "), sp(b.label, { ...ACTION_LOOK[b.id] ?? {}, action: messageOf(b) }), ...n === buttons.length - 1 ? [sp(" ".repeat(CARD_PAD))] : []]);
+  const used = words.reduce((n, span) => n + cellWidth(span.t), 0);
+  return card([sp(" ".repeat(Math.max(0, room - used))), ...words], room);
+}
 function rowLines(row, room, draft) {
   switch (row.kind) {
-    case "input":
-      return [[sp(" ".repeat(INDENT)), ...inputField(draft?.text ?? "", "Message the agent", Math.max(4, room - INDENT), draft?.caret ?? false)]];
+    case "compose":
+      return composeLines2(row.lines, room, draft);
+    case "composeActions":
+      return [composeActionsLine(row.buttons, room)];
     case "blank":
       return [[]];
     case "text": {
@@ -2002,7 +2013,7 @@ function stopMessage(stop, col) {
 function keyStops(model, layout) {
   const stops = new Map;
   model.rows.forEach((row, r) => {
-    if (row.kind !== "buttons")
+    if (row.kind !== "buttons" && row.kind !== "composeActions")
       return;
     const laid = layout.rows[r];
     for (const button of row.buttons) {
@@ -2157,7 +2168,7 @@ async function openPane($) {
   $.ui.invalidate("ui.render");
 }
 function modelOf(pane, width, messages = true) {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing });
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing, composeLines: pane.composeLines });
 }
 async function waitingBand($) {
   const band = bandModel(await peekTodos($));
@@ -2272,7 +2283,7 @@ function registerPane(on) {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),
       width,
-      ...pane.composing !== null && { composing: pane.composing }
+      ...pane.composing !== null && { composing: pane.composing, composeLines: pane.composeLines }
     };
     return /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",

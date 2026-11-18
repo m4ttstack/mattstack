@@ -2,7 +2,7 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { TITLE, isActionable } from '../items'
 import type { ButtonId } from '../items'
-import { closeComposing, peekTodos, removeTodos, toggleComposing, toggleExpanded } from '../store'
+import { closeComposing, peekTodos, removeTodos, setComposeLines, toggleComposing, toggleExpanded } from '../store'
 import { report } from '../report'
 import { clampScroll, cleanup, press } from '../wiring'
 import { LABELS } from './model'
@@ -39,6 +39,7 @@ export async function act($: EngineInterface, message: PaneMessage, surface: Ren
     if (message.type === 'press' && message.button === 'message') return await toggleComposing($, message.id)
     if (message.type === 'press' && message.button === 'cancelMessage') return await closeComposing($)
     if (message.type === 'send') return await sendMessage($, message.id, message.text, message.done)
+    if (message.type === 'draftLines') return await setComposeLines($, message.lines)
     if (message.type === 'press') return await pressTodo($, message.id, message.button, surface)
     if (message.type === 'toggle') return await toggleExpanded($, message.id)
     if (message.type === 'clear') return await clearFinished($)
