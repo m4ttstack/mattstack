@@ -18,15 +18,51 @@
 .tabs {
   gap: 20px;
   padding: 0 20px;
+  --tab-border-color: var(--tk-border-soft);
+}
+
+.tabs::before {
+  border-color: var(--tk-border-soft);
 }
 
 .tab {
-  padding: 10px 0;
+  padding: 12px 0;
+}
+
+@media (hover: hover) {
+  .tab:hover {
+    background-color: transparent;
+  }
+}
+
+/* The members and invites tables read like console's other lists
+   (rows.module.css): a quiet header band, soft dividers, 20px insets. */
+.table thead {
+  background-color: var(--tk-panel);
+}
+
+.table th {
+  height: 40px;
+  padding-block: 0;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.table td {
+  height: 52px;
+  padding-block: 8px;
+}
+
+.table tbody tr {
+  border-top: 0;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.table tbody tr:last-child {
+  border-bottom: 0;
 }
 
 .th {
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
+  color: var(--tk-text-3);
 }
 
 /* Inter's ascent outweighs its descent, so a normal line height rides the

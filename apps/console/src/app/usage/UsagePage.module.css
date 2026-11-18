@@ -5,8 +5,12 @@
   contain: inline-size;
 }
 
+/* A scroll frame clips its children's shadows, so it keeps room for the
+   cards' shadow inside its edges. */
 .page[data-clamped] {
   height: 100%;
+  margin-inline: -8px;
+  padding: 0 8px 10px;
   overflow-y: auto;
 }
 

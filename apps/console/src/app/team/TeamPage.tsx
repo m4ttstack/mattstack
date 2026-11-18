@@ -139,7 +139,7 @@ function memberRows(team: TeamView): Row[] {
 
 function ColumnHead({ children }: { children: string }) {
   return (
-    <Text fz="xs" fw={600} c="dimmed" lh="normal" className={classes.th}>
+    <Text fz="sm" fw={500} lh="normal" className={classes.th}>
       {children}
     </Text>
   );
@@ -153,7 +153,13 @@ function TeamTable({
   children: ReactNode;
 }) {
   return (
-    <Table variant="soft" noPaper fullWidth horizontalSpacing={20}>
+    <Table
+      variant="soft"
+      noPaper
+      fullWidth
+      horizontalSpacing={20}
+      className={classes.table}
+    >
       <Table.Thead>
         <Table.Tr>
           <Table.Th>
