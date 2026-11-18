@@ -440,7 +440,10 @@ describe('BlockView: a husk pack', () => {
   const full = Array.from({ length: 70 }, (_, i) => `full ${i + 1}`).join('\n');
 
   it('reads the full text under Rendered, never the committed husk', async () => {
-    renderView({ view: 'rendered' }, { renderedPath: '/r.md', huskText: full });
+    renderView(
+      { view: 'rendered' },
+      { renderedPath: '/r.md', renderedSource: { kind: 'husk', text: full } }
+    );
 
     const rendered = await screen.findByTestId('block-rendered');
     expect(rendered).toHaveTextContent('full 1');
@@ -451,7 +454,7 @@ describe('BlockView: a husk pack', () => {
   it("cuts a block's rendered lines from the full text", async () => {
     renderView(
       { block: 'mini/gate', view: 'rendered' },
-      { renderedPath: '/r.md', huskText: full }
+      { renderedPath: '/r.md', renderedSource: { kind: 'husk', text: full } }
     );
 
     const rendered = await screen.findByTestId('block-rendered');
@@ -473,7 +476,7 @@ describe('BlockView: a husk pack', () => {
     });
     const patch = renderView(
       { view: 'husk' },
-      { renderedPath: '/r.md', huskText: full }
+      { renderedPath: '/r.md', renderedSource: { kind: 'husk', text: full } }
     );
 
     const rendered = await screen.findByTestId('block-rendered');
@@ -490,10 +493,33 @@ describe('BlockView: a husk pack', () => {
   it('offers no Husk at a single block', () => {
     renderView(
       { block: 'mini/gate', view: 'husk' },
-      { renderedPath: '/r.md', huskText: full }
+      { renderedPath: '/r.md', renderedSource: { kind: 'husk', text: full } }
     );
     expect(screen.queryByRole('radio', { name: 'Husk' })).toBeNull();
     expect(screen.getByRole('radio', { name: 'Rendered' })).toBeChecked();
+  });
+
+  it('shows nothing while rt has not said whether the pack ships husks', () => {
+    renderView(
+      { view: 'rendered' },
+      { renderedPath: '/r.md', renderedSource: { kind: 'pending' } }
+    );
+    expect(screen.queryByTestId('block-rendered')).toBeNull();
+    expect(sourceGet).not.toHaveBeenCalled();
+  });
+
+  it('says so when rt could not read the skill, rather than show the husk as the skill', () => {
+    renderView(
+      { view: 'rendered' },
+      {
+        renderedPath: '/r.md',
+        renderedSource: { kind: 'error', message: 'rt timed out' },
+      }
+    );
+    expect(screen.getByTestId('block-rendered-none')).toHaveTextContent(
+      'The rendered skill could not be read: rt timed out'
+    );
+    expect(sourceGet).not.toHaveBeenCalled();
   });
 
   it('offers no Husk for a pack that commits full skills', () => {

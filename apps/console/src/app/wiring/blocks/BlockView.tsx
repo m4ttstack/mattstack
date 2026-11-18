@@ -81,9 +81,11 @@ export interface BlockViewProps {
   readOnly?: boolean;
   /** The file the Rendered view reads. */
   renderedPath?: string | null;
-  /** A husk pack's full skill, compiled from the working tree: Rendered
-      reads it, and Husk reads the committed file at `renderedPath`. */
-  huskText?: string | null;
+  /** Where Rendered reads from. A husk pack's full skill comes from rt,
+      compiled from the working tree, and Husk reads the committed file at
+      `renderedPath`; until rt says which kind of pack it is, nothing is
+      shown, since the file may be only the husk. */
+  renderedSource?: RenderedSource;
   skill?: SkillHeader;
   context?: BlockContext | null;
 }
@@ -145,23 +147,46 @@ function trailOf(
 
 const HEADING_OR_GRAPH = /^#{1,6}\s.*$|```mermaid\n[\s\S]*?\n```/gm;
 
+/** Where the Rendered view reads a skill from: its compiled file, a husk
+    pack's full text from rt, or nothing yet while rt has not said which. */
+export type RenderedSource =
+  | { kind: 'file' }
+  | { kind: 'husk'; text: string }
+  | { kind: 'pending' }
+  | { kind: 'error'; message: string };
+
 /** The compiled file, cut to the lines a block renders to. A husk pack's
     full text comes from rt as `text`, since its committed file is the husk. */
 function RenderedText({
   pack,
   path,
-  text = null,
+  source: from,
+  view,
   range,
 }: {
   pack: string;
   path: string | null;
-  text?: string | null;
+  source: RenderedSource;
+  view: DocumentView;
   range: [number, number] | null;
 }) {
-  const source = useSkillSource(pack, text === null ? path : null);
+  const text = from.kind === 'husk' && view === 'rendered' ? from.text : null;
+  const readsFile =
+    text === null && from.kind !== 'pending' && from.kind !== 'error';
+  const source = useSkillSource(pack, readsFile ? path : null);
   const { show: held, bind: heldBind } = useStepLoading(
-    text === null && path !== null && source.isPending
+    from.kind === 'pending' || (readsFile && path !== null && source.isPending)
   );
+  if (from.kind === 'error') {
+    return (
+      <Text fz={13} c="dimmed" data-testid="block-rendered-none">
+        {`The rendered skill could not be read: ${from.message}`}
+      </Text>
+    );
+  }
+  if (from.kind === 'pending' || held) {
+    return <StepLoader {...heldBind} steps={['reading the rendered skill']} />;
+  }
   if (text !== null) return <RenderedLines content={text} range={range} />;
   if (!path) {
     return (
@@ -286,7 +311,7 @@ export function BlockView({
   patch,
   readOnly = false,
   renderedPath = null,
-  huskText = null,
+  renderedSource = { kind: 'file' },
   skill,
   context = null,
 }: BlockViewProps) {
@@ -296,7 +321,7 @@ export function BlockView({
   );
   const block = zoom.level === 'skill' ? null : zoom.block;
   const root = rootOf(payload);
-  const huskPack = huskText !== null;
+  const huskPack = renderedSource.kind === 'husk';
   // Husk is offered only for a husk pack's whole skill; anywhere else it reads as Rendered.
   const view: DocumentView =
     url.view === 'husk' && !(huskPack && zoom.level === 'skill')
@@ -419,7 +444,8 @@ export function BlockView({
         <RenderedText
           pack={pack}
           path={readOnly && block ? block.path : renderedPath}
-          text={view === 'rendered' ? huskText : null}
+          source={renderedSource}
+          view={view}
           range={
             block && view === 'rendered'
               ? renderedRangeOf(payload, block)
