@@ -13,6 +13,8 @@ export type RunStartOpts = {
   runId?: string; spawnedBy?: string; packDirs?: string[]; ticket?: string;
   /** The loaded skill's own directory; provenance is worked out from it unless the old baked flags were given. */
   skillDir?: string;
+  /** For a husk pack's skill, the render tree its body loaded from, whose stamp names the mattstack and rt that built it. */
+  renderTree?: string;
   mattstackSha?: string; mattstackDirty?: boolean; packSha?: string;
   env?: NodeJS.ProcessEnv; now?: number;
 };
@@ -51,7 +53,7 @@ function runProvenance(o: RunStartOpts): PackProvenance {
       dirty: checkouts.dirty || mattstack.dirty ? 1 : 0,
     };
   }
-  const installed = installedProvenance(o.skillDir, realInstalledDeps(home));
+  const installed = installedProvenance(o.skillDir, realInstalledDeps(home), o.renderTree);
   return { commits: installed.tokens, dirty: installed.dirty };
 }
 

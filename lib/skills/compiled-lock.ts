@@ -9,6 +9,9 @@ export type CompiledLock = {
   bases: Record<string, string>;
   mattstackSha: Record<string, string>;
   mattstackDirty: Record<string, 0 | 1>;
+  /** The publisher's mattstack version when the pack's sources last changed. */
+  builtWith?: string;
+  sourcesHash?: string;
 };
 
 function readIfPresent(path: string): string | null {
@@ -20,6 +23,8 @@ function readIfPresent(path: string): string | null {
 }
 
 const emptyLock = (): CompiledLock => ({ targets: {}, bases: {}, mattstackSha: {}, mattstackDirty: {} });
+
+const asString = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
 const asRecord = (v: unknown): Record<string, never> => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, never>) : {});
 
@@ -33,6 +38,8 @@ export function readLock(packDir: string, readFile: (p: string) => string | null
       bases: asRecord(raw.bases),
       mattstackSha: asRecord(raw.mattstackSha),
       mattstackDirty: asRecord(raw.mattstackDirty),
+      builtWith: asString(raw.builtWith),
+      sourcesHash: asString(raw.sourcesHash),
     };
   } catch {
     return emptyLock();
@@ -59,6 +66,8 @@ export function mergeLock(current: CompiledLock, compiled: CompiledLock): Compil
     bases: { ...current.bases, ...compiled.bases },
     mattstackSha: { ...current.mattstackSha },
     mattstackDirty: { ...current.mattstackDirty },
+    builtWith: compiled.builtWith ?? current.builtWith,
+    sourcesHash: compiled.sourcesHash ?? current.sourcesHash,
   };
   for (const target of Object.keys(compiled.targets)) {
     next.targets[target] = compiled.targets[target]!;

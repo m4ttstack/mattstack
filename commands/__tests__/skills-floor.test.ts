@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 
 import { join } from "path";
 import { tmpdir } from "os";
 import { floorWrite } from "../skills.ts";
-import { TEAM_MARKERS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
+import { HUSKS_MIN_ENGINE, TEAM_MARKERS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 
 function setup(engineFloor: string | null) {
   const root = mkdtempSync(join(tmpdir(), "floor-"));
@@ -69,4 +69,15 @@ test("floor rises only with team markers: an engine floor past the marker releas
   const none = setup(null);
   expect(floorWrite(none.resolved, none.read, true, true).written).toEqual(["pack/requires.json"]);
   expect(JSON.parse(readFileSync(join(none.team, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: TEAM_MARKERS_MIN_ENGINE });
+});
+
+test("a husk pack's floor is the husk release, never the engine's own floor", () => {
+  const ahead = setup("9.0.0");
+  expect(floorWrite(ahead.resolved, ahead.read, true, true, true, true).written).toEqual(["pack/requires.json"]);
+  expect(JSON.parse(readFileSync(join(ahead.team, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: HUSKS_MIN_ENGINE });
+
+  const none = setup(null);
+  floorWrite(none.resolved, none.read, true, false, false, true);
+  expect(JSON.parse(readFileSync(join(none.team, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: HUSKS_MIN_ENGINE });
+  expect(floorWrite(none.resolved, none.read, false, false, false, true).stale).toBe(false);
 });

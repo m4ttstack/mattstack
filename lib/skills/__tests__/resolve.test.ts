@@ -395,3 +395,129 @@ describe("resolvePointers: versionless ids", () => {
     expect(skills.warning).toBeUndefined();
   });
 });
+
+describe("resolvePointers: husk packs", () => {
+  const RENDERED = `${HOME}/.mattstack/rt/rendered/acme/widgets/0.4.2`;
+  const husk = (extra: Record<string, string> = {}) => ({
+    [`${V}/pack/skills.jsonc`]: '// opted in\n{ "husks": true }',
+    [`${V}/skills/work/SKILL.md`]: "---\nname: work\n---\n\nCall mcp__mattstack__load_skill.\n",
+    [`${CACHE}/mattstack/mattstack/0.32.76/x`]: "",
+    ...extra,
+  });
+  const tree = (mattstack: string) => ({ ...widgetsFiles(`${RENDERED}/${mattstack}`), [`${RENDERED}/${mattstack}/render.json`]: "{}" });
+
+  test("resolves a husk pack's keys into the render tree, and names the installed husk as its folder", () => {
+    const fs = fakeFs(husk({ ...tree("0.32.76"), ...tree("0.32.80") }));
+    const r = resolvePointers("widgets@0.4.2:work", { fs, home: HOME });
+    expect(r.folder).toBe(`${V}/skills/work`);
+    expect(r.keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/scripts/x.sh`);
+    expect(r.keys["stage-x/parts/d/y.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/../../skills/stage-x/parts/d/y.sh`);
+  });
+
+  test("the installed mattstack is the one Claude Code's registry names, not the newest cache folder", () => {
+    const active = `${CACHE}/mattstack/mattstack/0.32.76`;
+    const fs = fakeFs(husk({
+      ...tree("0.32.76"),
+      ...tree("0.32.80"),
+      [`${active}/.claude-plugin/plugin.json`]: JSON.stringify({ version: "0.32.76" }),
+      [`${CACHE}/mattstack/mattstack/0.32.80/.claude-plugin/plugin.json`]: JSON.stringify({ version: "0.32.80" }),
+      [`${HOME}/.claude/plugins/installed_plugins.json`]: JSON.stringify({ version: 2, plugins: { "mattstack@mattstack": [{ scope: "user", installPath: active, version: "0.32.76" }] } }),
+    }));
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/scripts/x.sh`);
+  });
+
+  test("without the installed mattstack's tree, the newest tree serves", () => {
+    const fs = fakeFs(husk({ ...tree("0.32.70"), ...tree("0.32.80"), [`${RENDERED}/0.32.90.tmp-1-ab/render.json`]: "{}" }));
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.80/skills/work/scripts/x.sh`);
+  });
+
+  test("a door's husk is its folder when the render serves the id from the base unit", () => {
+    const at = `${RENDERED}/0.32.76`;
+    const fs = fakeFs(husk({
+      [`${V}/skills/servers/SKILL.md`]: "husk",
+      [`${at}/render.json`]: "{}",
+      [`${at}/attachments/servers/SKILL.md`]: "",
+      [`${at}/attachments/servers/compiled.json`]: map("widgets@0.4.2:servers", "attachments/servers", {}),
+    }));
+    expect(resolvePointers("widgets@0.4.2:servers", { fs, home: HOME }).folder).toBe(`${V}/skills/servers`);
+  });
+
+  test("a unit with no husk installed keeps the tree's folder", () => {
+    const at = `${RENDERED}/0.32.76`;
+    const fs = fakeFs(husk({
+      [`${at}/render.json`]: "{}",
+      [`${at}/attachments/base-only/SKILL.md`]: "",
+      [`${at}/attachments/base-only/compiled.json`]: map("widgets@0.4.2:base-only", "attachments/base-only", {}),
+    }));
+    expect(resolvePointers("widgets@0.4.2:base-only", { fs, home: HOME }).folder).toBe(`${at}/attachments/base-only`);
+  });
+
+  test("a folder inside a render tree pins its pack version", () => {
+    const at = `${RENDERED}/0.32.76`;
+    const fs = fakeFs(husk({
+      [`${CACHE}/acme/widgets/0.4.9/x`]: "",
+      [`${at}/render.json`]: "{}",
+      [`${at}/skills/work/SKILL.md`]: "",
+      [`${at}/skills/work/x.sh`]: "",
+      [`${at}/skills/work/compiled.json`]: map("widgets:work", "skills/work", { "work/x.sh": "skills/work/x.sh" }),
+    }));
+    const r = resolvePointers("widgets:work", { fs, home: HOME }, `${at}/attachments/stage-x`);
+    expect(r.pinned).toBe(true);
+    expect(r.keys["work/x.sh"]).toBe(`${at}/skills/work/x.sh`);
+  });
+
+  test("reads the render of the org whose clone publishes the installed copy's marketplace", () => {
+    const zeta = `${HOME}/.mattstack/rt/rendered/zeta/widgets/0.4.2/0.32.76`;
+    const fs = fakeFs(husk({
+      ...tree("0.32.76"),
+      ...widgetsFiles(zeta),
+      [`${zeta}/render.json`]: "{}",
+      [`${HOME}/.mattstack/orgs/zeta/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme" }),
+    }));
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).keys["work/scripts/x.sh"]).toBe(`${zeta}/skills/work/scripts/x.sh`);
+  });
+
+  test("a folder inside a render tree resolves against that tree, not the installed mattstack's", () => {
+    const active = `${CACHE}/mattstack/mattstack/0.32.80`;
+    const versionless = (mattstack: string) => {
+      const at = `${RENDERED}/${mattstack}`;
+      return {
+        [`${at}/render.json`]: "{}",
+        [`${at}/skills/work/SKILL.md`]: "",
+        [`${at}/skills/work/scripts/x.sh`]: "",
+        [`${at}/skills/work/compiled.json`]: map("widgets:work", "skills/work", { "work/scripts/x.sh": "skills/work/scripts/x.sh" }),
+      };
+    };
+    const fs = fakeFs(husk({
+      ...versionless("0.32.76"),
+      ...versionless("0.32.80"),
+      [`${active}/.claude-plugin/plugin.json`]: JSON.stringify({ version: "0.32.80" }),
+      [`${HOME}/.claude/plugins/installed_plugins.json`]: JSON.stringify({ version: 2, plugins: { "mattstack@mattstack": [{ scope: "user", installPath: active }] } }),
+    }));
+    const r = resolvePointers("widgets:work", { fs, home: HOME }, `${RENDERED}/0.32.76/skills/work`);
+    expect(r.keys["work/scripts/x.sh"]).toBe(`${RENDERED}/0.32.76/skills/work/scripts/x.sh`);
+  });
+
+  test("refuses a key outside the render tree", () => {
+    const at = `${RENDERED}/0.32.76`;
+    const fs = fakeFs(husk({
+      [`${at}/render.json`]: "{}",
+      [`${at}/skills/work/SKILL.md`]: "",
+      [`${at}/skills/work/compiled.json`]: map("widgets@0.4.2:work", "skills/work", { "work/x": "../../../x" }),
+      [`${RENDERED}/x`]: "",
+    }));
+    expect(refusal(() => resolvePointers("widgets@0.4.2:work", { fs, home: HOME })).code).toBe("skills-resolve-outside");
+  });
+
+  test("refuses with the load-first sentence when no tree exists", () => {
+    const e = refusal(() => resolvePointers("widgets@0.4.2:work", { fs: fakeFs(husk()), home: HOME }));
+    expect(e.message).toBe("Load the skill first: call mcp__mattstack__load_skill.");
+  });
+
+  test("non-husk packs resolve as before", () => {
+    const fs = fakeFs({ ...widgetsFiles(), ...tree("0.32.76"), [`${V}/pack/skills.jsonc`]: "{}" });
+    expect(resolvePointers("widgets@0.4.2:work", { fs, home: HOME }).folder).toBe(`${V}/skills/work`);
+    const bare = refusal(() => resolvePointers("widgets@0.4.2:work", { fs: fakeFs({ [`${V}/skills/work/SKILL.md`]: "", ...tree("0.32.76") }), home: HOME }));
+    expect(bare.code).toBe("skills-resolve-no-map");
+  });
+});
