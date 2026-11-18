@@ -416,7 +416,17 @@ export interface ChatPane {
   presence?: { handle: string; name: string; status: BuddyStatus; rooms: string[] };
   /** herdr's per-pane focus flag; false when herdr itself is backgrounded */
   focused?: boolean;
+  /** The `rt agent` record that launched this pane; absent for a hand-started agent. */
+  agent?: ChatPaneAgent;
+  herd?: ChatPaneHerd;
+  /** The open gate this pane is waiting on. */
+  gate?: ChatPaneGate;
 }
+
+export interface ChatPaneAgent { id: string; provider: string; caller?: string; label?: string; model?: string; effort?: string; account?: string; startedAt: number }
+/** `job` is the herd job's name slug; the herd store keeps no job number or title. */
+export interface ChatPaneHerd { herdId: string; job: string }
+export interface ChatPaneGate { id: string; question: string }
 
 export interface PaneAccount { slot: number; email: string; alias?: string; headroom?: string }
 export interface PaneDirectory { path: string; repo: string; branch?: string }

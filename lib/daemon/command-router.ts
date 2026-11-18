@@ -193,6 +193,7 @@ export function buildRoutedHandlers(opts: {
   });
   const paneHandlers = createPaneHandlers({
     db: opts.stateDb, repoIndex: ctx.repoIndex, bg: opts.bgService, log: ctx.log,
+    herdStore: opts.herdStore, gatesStore: opts.gatesStore,
     herdrRunnerFor: (socket) => defaultHerdrRunner(socket ? { ...process.env, HERDR_SOCKET_PATH: socket } : process.env),
   });
   const agentHandlers = withResumeNotice(createAgentHandlers({

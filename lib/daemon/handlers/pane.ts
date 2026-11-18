@@ -26,6 +26,10 @@ import { listBuddies, listRooms, type PresenceRow, type RegistryDeps } from "../
 import { runCapture } from "../../subprocess.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import type { CommandResult } from "./types.ts";
+import { listAgents } from "../../state/agents-store.ts";
+import type { HerdStore } from "../herd-store.ts";
+import type { GatesStore } from "../gates-store.ts";
+import { paneExtras, type PaneExtrasSources } from "../pane-extras.ts";
 
 const FOCUS_NO_WORKSPACE = "focus for a background pane must run from a herdr pane; HERDR_WORKSPACE_ID is unset";
 
@@ -174,6 +178,9 @@ export function createPaneHandlers(opts: {
   schedule?: (work: Promise<void>) => void;
   /** Claude Code session registry roots for the pane-process fallback; claude-registry.ts's own roots by default. */
   claudeRegistryRoots?: string[];
+  /** Herd and gate stores pane:list joins onto each row; omitted, rows carry no herd or gate. */
+  herdStore?: Pick<HerdStore, "jobsByPane">;
+  gatesStore?: Pick<GatesStore, "list">;
 }):
   // Declared as direct `unknown`-payload members (not `Pick<TypedHandlers, ...>`)
   // rather than the narrower per-command payload types the catalog would
@@ -201,6 +208,16 @@ export function createPaneHandlers(opts: {
   const log = opts.log;
   const schedule = opts.schedule ?? ((work: Promise<void>) => { void work; });
   const claudeRegistryRoots = opts.claudeRegistryRoots;
+  const herdStore = opts.herdStore;
+  const gatesStore = opts.gatesStore;
+
+  function extrasSources(): PaneExtrasSources {
+    return {
+      agents: listAgents({}, db),
+      jobsByPane: herdStore ? (ref) => herdStore.jobsByPane(ref) : () => [],
+      openGates: gatesStore ? gatesStore.list({ open: true }).gates : [],
+    };
+  }
 
   async function snapshot(sockPath?: string): Promise<HerdrResult<{ snapshot: HerdrSnapshot }>> {
     return herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
@@ -272,7 +289,9 @@ export function createPaneHandlers(opts: {
         // call) degrades to "no bg panes this round" rather than failing
         // the whole list -- the visible section is still good news.
       }
-      return { ok: true, data: { panes: sortPanes([...rows, ...bgRows]) } };
+      const sources = extrasSources();
+      const panes = [...rows, ...bgRows].map((row) => ({ ...row, ...paneExtras(row, sources) }));
+      return { ok: true, data: { panes: sortPanes(panes) } };
     },
 
     "pane:peek": async (rawPayload: unknown): Promise<CommandResult<"pane:peek">> => {
