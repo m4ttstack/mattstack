@@ -678,11 +678,14 @@ function selectList(spec) {
   const shown = spec.choices.slice(start, start + max);
   const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const lines = [];
-  const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, () => [bar])];
+  const blank = () => [bar, sp(" ")];
+  const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, blank)];
   if (start > 0)
     lines.push([bar, sp(`  ↑ ${start} more`, DIM)]);
   shown.forEach((choice, n) => {
     const idx = start + n;
+    if (spec.spaced && n > 0)
+      lines.push(blank());
     const rows = padded(choiceRows(choice, idx, spec));
     lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width)) : rows, spec.actionFor(idx)));
   });

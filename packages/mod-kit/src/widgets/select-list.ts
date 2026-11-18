@@ -17,6 +17,8 @@ export type SelectSpec<A> = {
   maxShown?: number
   // false drops the clack rail down the left, for a surface that sets its sections apart another way.
   rail?: boolean
+  // A blank row between choices, for a list with room to breathe.
+  spaced?: boolean
   // A key's activation of the cursor's choice is showing (KitUi `keyPressing`): its label draws pressed, as a click's would.
   pressing?: boolean
 }
@@ -31,10 +33,13 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
   const bar = sp<A>(spec.rail === false ? '' : SYMBOL.bar, ACCENT)
   const lines: Line<A>[] = []
   // Every choice takes at least two rows, its description's row left blank when it has none, so every list keeps one rhythm.
-  const padded = (rows: Line<A>[]) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, (): Line<A> => [bar])]
+  // A blank row keeps a space after the rail, since the engine drops a line with no text when there is no rail.
+  const blank = (): Line<A> => [bar, sp(' ')]
+  const padded = (rows: Line<A>[]) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, blank)]
   if (start > 0) lines.push([bar, sp(`  ↑ ${start} more`, DIM)])
   shown.forEach((choice, n) => {
     const idx = start + n
+    if (spec.spaced && n > 0) lines.push(blank())
     const rows = padded(choiceRows(choice, idx, spec))
     lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width)) : rows, spec.actionFor(idx)))
   })

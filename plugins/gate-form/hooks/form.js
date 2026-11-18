@@ -407,11 +407,14 @@ function selectList(spec) {
   const shown = spec.choices.slice(start, start + max);
   const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const lines = [];
-  const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, () => [bar])];
+  const blank = () => [bar, sp(" ")];
+  const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, blank)];
   if (start > 0)
     lines.push([bar, sp(`  ↑ ${start} more`, DIM)]);
   shown.forEach((choice, n) => {
     const idx = start + n;
+    if (spec.spaced && n > 0)
+      lines.push(blank());
     const rows = padded(choiceRows(choice, idx, spec));
     lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width)) : rows, spec.actionFor(idx)));
   });
@@ -1234,6 +1237,50 @@ function contextText(context) {
   } catch {}
   return context;
 }
+var CODE = { color: "#7fa7ad" };
+function styledWords(text, style) {
+  const parts = text.split("`");
+  const balanced = parts.length % 2 === 1;
+  return parts.flatMap((part, n) => {
+    const isCode = balanced && n % 2 === 1;
+    const piece = !balanced && n > 0 ? `\`${part}` : part;
+    return piece.split(/( +)/).filter((w) => w !== "").map((w) => sp(w, isCode ? { ...style, ...CODE } : style));
+  });
+}
+function richHang(first, rest, text, width, style = {}) {
+  const out = [];
+  let row = [...first];
+  let lead = first;
+  const flush = () => {
+    while (row.length > lead.length && row[row.length - 1].t.trim() === "")
+      row.pop();
+    out.push(row);
+    lead = rest;
+    row = [...rest];
+  };
+  for (const word of styledWords(text, style)) {
+    const isSpace = word.t.trim() === "";
+    if (isSpace && row.length === lead.length)
+      continue;
+    if (widthOf(row) + cellWidth(word.t) > width && row.length > lead.length) {
+      flush();
+      if (isSpace)
+        continue;
+    }
+    const room = Math.max(1, width - widthOf(row));
+    if (cellWidth(word.t) <= room)
+      row.push(word);
+    else
+      for (const chunk of chunkCells(word.t, Math.max(1, width - widthOf(rest)))) {
+        if (row.length > lead.length)
+          flush();
+        row.push({ ...word, t: chunk });
+      }
+  }
+  if (row.length > lead.length || out.length === 0)
+    flush();
+  return out;
+}
 function contextBody(context, width) {
   const out = [];
   for (const raw of contextText(context).split(`
@@ -1244,13 +1291,13 @@ function contextBody(context, width) {
       if (out.length > 0 && out[out.length - 1].length > 0)
         out.push([]);
     } else if (bullet)
-      out.push(...hang([sp("  • ", DIM)], [sp("    ")], t.slice(bullet[0].length), width));
+      out.push(...richHang([sp("  • ", DIM)], [sp("    ")], t.slice(bullet[0].length), width));
     else if (/^#{1,6} /.test(t))
-      out.push(...hang([], [], t.replace(/^#+ +/, ""), width, { bold: true }));
+      out.push(...richHang([], [], t.replace(/^#+ +/, ""), width, { bold: true }));
     else if (t.endsWith(":") && t.length <= 60)
-      out.push(...hang([], [], t.slice(0, -1), width, { bold: true }));
+      out.push(...richHang([], [], t.slice(0, -1), width, { bold: true }));
     else
-      out.push(...hang([], [], t, width));
+      out.push(...richHang([], [], t, width));
   }
   while (out.length > 0 && out[out.length - 1].length === 0)
     out.pop();
@@ -1258,7 +1305,7 @@ function contextBody(context, width) {
 }
 var BOX_CELLS = 3;
 var MIN_CTX = 3;
-var BLANK = [sp("")];
+var BLANK = [sp(" ")];
 var RULE_COLOR = "#3a3a3a";
 var rule = (width) => [sp("─".repeat(width), { color: RULE_COLOR })];
 function contextBox(context, width, ctx) {
@@ -1270,7 +1317,8 @@ function contextBox(context, width, ctx) {
   const bar = scrollBar(ctx.cap, body.length, top);
   const shown = body.slice(top, top + ctx.cap);
   const lines = shown.map((line, n) => {
-    const text = clipLine(line, inner);
+    const clipped = clipLine(line, inner);
+    const text = clipped.length === 0 ? BLANK : clipped;
     const pad = Math.max(0, inner - widthOf(text));
     return [...text, ...body.length > ctx.cap ? [sp(" ".repeat(pad)), ...bar[n]] : []];
   });
@@ -1337,7 +1385,8 @@ function questionPage(q, s, i, base) {
     ...view.pressing && { pressing: true },
     maxShown: choices.length,
     actionFor: (idx) => ({ type: "option", idx }),
-    rail: false
+    rail: false,
+    spaced: true
   }));
   return lines;
 }
@@ -1377,13 +1426,13 @@ function closedPage(form, s, view) {
 function progress(form, s, view) {
   const n = form.questions.length;
   const dots = form.questions.flatMap((_, i) => [
-    sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { ...i === s.page ? ACCENT : s.answered[i] ? DONE : GRAY, action: { type: "page", page: i } }),
+    sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { color: i === s.page ? "white" : s.answered[i] ? "#8a8a8a" : "#555555", action: { type: "page", page: i } }),
     sp(" ")
   ]);
   const q = form.questions[s.page];
   const where = q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(" review", { bold: true })];
   const missing = unansweredCount(s);
-  const left = sp(missing === 0 ? "all answered" : `${missing} to answer`, missing === 0 ? DONE : DIM);
+  const left = sp(missing === 0 ? "all answered" : `${missing} to answer`, DIM);
   const line = [...dots, ...where];
   const room = view.width - widthOf(line) - widthOf([left]);
   return room >= 2 ? [...line, sp(" ".repeat(room)), left] : line;
@@ -1452,18 +1501,19 @@ function draw(form, s, view, ctx) {
   if (form.context && isConfirm(form))
     head.push(...hang([], [], contextText(form.context), view.width));
   else if (form.context)
-    head.push([sp("CONTEXT", GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width), gap);
+    head.push([sp("CONTEXT", GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width));
   if (isConfirm(form))
     return { head, page: [], foot: confirmFoot(form, view) };
-  if (!isSinglePage(form))
-    head.push(progress(form, s, view), gap);
   const q = form.questions[s.page];
-  const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view);
+  const page = [...progressRows(form, s, view), ...q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view)];
   const keys = hint(form, s);
   const hintLines = keys === undefined ? [] : [BLANK, ...hang([], [], keys, view.width, DIM)];
   const nav = [[sp(" ")], ...isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view)];
   const foot = [...hintLines, BLANK, rule(view.width), ...errorLines(form, view), ...nav];
   return { head, page, foot };
+}
+function progressRows(form, s, view) {
+  return isSinglePage(form) ? [BLANK] : [BLANK, progress(form, s, view), BLANK];
 }
 function tallestQuestion(form, s, view) {
   let tallest = 0;
@@ -1474,7 +1524,7 @@ function tallestQuestion(form, s, view) {
       tallest = Math.max(tallest, questionPage(q, at, i, view).length);
     }
   });
-  return tallest;
+  return tallest + progressRows(form, s, view).length;
 }
 var BAR_CELLS = 3;
 var FIXED_TOP = 2;
@@ -1498,6 +1548,10 @@ function fittedLines(form, s, view, rows, wheel) {
   const full = draw(form, s, view, ctx);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
+    if (s.phase === "active" && form.status === "open" && !isConfirm(form)) {
+      const spare = Math.max(0, rows - full.head.length - full.page.length - full.foot.length);
+      return { lines: [...full.head, ...Array.from({ length: spare }, () => BLANK), ...full.page, ...full.foot], top: 0, ...kept };
+    }
     const pad = s.phase === "active" && form.status === "open" && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: BLANK } : undefined;
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...kept };
   }

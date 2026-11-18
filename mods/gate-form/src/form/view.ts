@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, cellWidth, chunkCells, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line, type Span } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -24,8 +24,50 @@ function contextText(context: string): string {
   return context
 }
 
+const CODE = { color: '#7fa7ad' }
+
+// `code` reads dimmed, without its backticks; the rest keeps `style`. An unmatched backtick stays as typed.
+function styledWords(text: string, style: Omit<Span<Action>, 't'>): Span<Action>[] {
+  const parts = text.split('`')
+  const balanced = parts.length % 2 === 1
+  return parts.flatMap((part, n) => {
+    const isCode = balanced && n % 2 === 1
+    const piece = !balanced && n > 0 ? `\`${part}` : part
+    return piece.split(/( +)/).filter(w => w !== '').map(w => sp<Action>(w, isCode ? { ...style, ...CODE } : style))
+  })
+}
+
+// hang for text with inline code: words wrap as hang's do, a word wider than the row is cut, and spaces at a break drop.
+function richHang(first: L, rest: L, text: string, width: number, style: Omit<Span<Action>, 't'> = {}): L[] {
+  const out: L[] = []
+  let row: L = [...first]
+  let lead = first
+  const flush = () => {
+    while (row.length > lead.length && row[row.length - 1]!.t.trim() === '') row.pop()
+    out.push(row)
+    lead = rest
+    row = [...rest]
+  }
+  for (const word of styledWords(text, style)) {
+    const isSpace = word.t.trim() === ''
+    if (isSpace && row.length === lead.length) continue
+    if (widthOf(row) + cellWidth(word.t) > width && row.length > lead.length) {
+      flush()
+      if (isSpace) continue
+    }
+    const room = Math.max(1, width - widthOf(row))
+    if (cellWidth(word.t) <= room) row.push(word)
+    else for (const chunk of chunkCells(word.t, Math.max(1, width - widthOf(rest)))) {
+      if (row.length > lead.length) flush()
+      row.push({ ...word, t: chunk })
+    }
+  }
+  if (row.length > lead.length || out.length === 0) flush()
+  return out
+}
+
 // The context as light markdown: `#` headings and short lines ending in a colon read as bold labels, `-` and `*`
-// items as bullets with a hanging indent, and runs of blank lines collapse to one.
+// items as bullets with a hanging indent, `code` dims without its backticks, and runs of blank lines collapse to one.
 export function contextBody(context: string, width: number): L[] {
   const out: L[] = []
   for (const raw of contextText(context).split('\n')) {
@@ -33,10 +75,10 @@ export function contextBody(context: string, width: number): L[] {
     const bullet = /^\s*[-*] +/.exec(t)
     if (t.trim() === '') {
       if (out.length > 0 && out[out.length - 1]!.length > 0) out.push([])
-    } else if (bullet) out.push(...hang([sp('  • ', DIM)], [sp('    ')], t.slice(bullet[0].length), width))
-    else if (/^#{1,6} /.test(t)) out.push(...hang<Action>([], [], t.replace(/^#+ +/, ''), width, { bold: true }))
-    else if (t.endsWith(':') && t.length <= 60) out.push(...hang<Action>([], [], t.slice(0, -1), width, { bold: true }))
-    else out.push(...hang<Action>([], [], t, width))
+    } else if (bullet) out.push(...richHang([sp('  • ', DIM)], [sp('    ')], t.slice(bullet[0].length), width))
+    else if (/^#{1,6} /.test(t)) out.push(...richHang([], [], t.replace(/^#+ +/, ''), width, { bold: true }))
+    else if (t.endsWith(':') && t.length <= 60) out.push(...richHang([], [], t.slice(0, -1), width, { bold: true }))
+    else out.push(...richHang([], [], t, width))
   }
   while (out.length > 0 && out[out.length - 1]!.length === 0) out.pop()
   return out
@@ -50,7 +92,8 @@ const MIN_CTX = 3
 export type CtxView = { cap: number; top: number }
 
 // No rail runs down the side: sections are set apart by blank rows, a dim label and thin rules.
-const BLANK: L = [sp('')]
+// A blank row holds a space: the engine drops a line with no text at all.
+const BLANK: L = [sp(' ')]
 const RULE_COLOR = '#3a3a3a'
 const rule = (width: number): L => [sp('─'.repeat(width), { color: RULE_COLOR })]
 
@@ -63,7 +106,8 @@ function contextBox(context: string, width: number, ctx: CtxView): L[] {
   const bar = scrollBar<Action>(ctx.cap, body.length, top)
   const shown = body.slice(top, top + ctx.cap)
   const lines = shown.map((line, n): L => {
-    const text = clipLine(line, inner)
+    const clipped = clipLine(line, inner)
+    const text = clipped.length === 0 ? BLANK : clipped
     const pad = Math.max(0, inner - widthOf(text))
     return [...text, ...(body.length > ctx.cap ? [sp<Action>(' '.repeat(pad)), ...bar[n]!] : [])]
   })
@@ -128,6 +172,7 @@ function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
       maxShown: choices.length,
       actionFor: idx => ({ type: 'option', idx }),
       rail: false,
+      spaced: true,
     }),
   )
   return lines
@@ -174,13 +219,13 @@ function closedPage(form: Form, s: State, view: View): L[] {
 function progress(form: Form, s: State, view: View): L {
   const n = form.questions.length
   const dots: L = form.questions.flatMap((_, i): L => [
-    sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { ...(i === s.page ? ACCENT : s.answered[i] ? DONE : GRAY), action: { type: 'page', page: i } }),
+    sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { color: i === s.page ? 'white' : s.answered[i] ? '#8a8a8a' : '#555555', action: { type: 'page', page: i } }),
     sp(' '),
   ])
   const q = form.questions[s.page]
   const where: L = q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(' review', { bold: true })]
   const missing = unansweredCount(s)
-  const left = sp<Action>(missing === 0 ? 'all answered' : `${missing} to answer`, missing === 0 ? DONE : DIM)
+  const left = sp<Action>(missing === 0 ? 'all answered' : `${missing} to answer`, DIM)
   const line: L = [...dots, ...where]
   const room = view.width - widthOf(line) - widthOf([left])
   return room >= 2 ? [...line, sp(' '.repeat(room)), left] : line
@@ -260,17 +305,21 @@ function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
   const gap = BLANK
   head.push(gap)
   if (form.context && isConfirm(form)) head.push(...hang<Action>([], [], contextText(form.context), view.width))
-  else if (form.context) head.push([sp('CONTEXT', GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width), gap)
+  else if (form.context) head.push([sp('CONTEXT', GRAY)], ...contextBox(form.context, view.width, ctx ?? { cap: Number.MAX_SAFE_INTEGER, top: 0 }), gap, rule(view.width))
   if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, view) }
-  if (!isSinglePage(form)) head.push(progress(form, s, view), gap)
 
   const q = form.questions[s.page]
-  const page = q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view)
+  const page = [...progressRows(form, s, view), ...(q ? questionPage(q, s, s.page, view) : reviewPage(form, s, view))]
   const keys = hint(form, s)
   const hintLines: L[] = keys === undefined ? [] : [BLANK, ...hang<Action>([], [], keys, view.width, DIM)]
   const nav: L[] = [[sp(' ')], ...(isSinglePage(form) ? [submitRow(form, s, view)] : navRows(form, s, view))]
   const foot: L[] = [...hintLines, BLANK, rule(view.width), ...errorLines(form, view), ...nav]
   return { head, page, foot }
+}
+
+// The form's own head: a blank row, the progress line and a blank row under it, on a form with more than one page.
+function progressRows(form: Form, s: State, view: View): L[] {
+  return isSinglePage(form) ? [BLANK] : [BLANK, progress(form, s, view), BLANK]
 }
 
 // The tallest any question page gets, over every cursor position (the focused choice wraps its label and description).
@@ -283,7 +332,7 @@ function tallestQuestion(form: Form, s: State, view: View): number {
       tallest = Math.max(tallest, questionPage(q, at, i, view).length)
     }
   })
-  return tallest
+  return tallest + progressRows(form, s, view).length
 }
 
 const BAR_CELLS = 3
@@ -321,6 +370,11 @@ export function fittedLines(form: Form, s: State, view: View, rows: number, whee
   const full = draw(form, s, view, ctx)
   const room = rows - FIXED_TOP - full.foot.length
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
+    // The form docks to the bottom of the pane: the spare rows sit between the context and the question.
+    if (s.phase === 'active' && form.status === 'open' && !isConfirm(form)) {
+      const spare = Math.max(0, rows - full.head.length - full.page.length - full.foot.length)
+      return { lines: [...full.head, ...Array.from({ length: spare }, () => BLANK), ...full.page, ...full.foot], top: 0, ...kept }
+    }
     const pad = s.phase === 'active' && form.status === 'open' && !isConfirm(form) ? { height: tallestQuestion(form, s, view), filler: BLANK } : undefined
     return { lines: fitToRows(full, rows, () => full, pad), top: 0, ...kept }
   }
