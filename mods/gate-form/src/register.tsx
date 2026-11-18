@@ -157,13 +157,14 @@ async function markFailed($: EngineInterface, form: Form, error: string): Promis
 // Whether rt recorded the answer (or another surface's won); false leaves the form open with the error.
 async function recordAnswer($: EngineInterface, form: Form, gateId: string, answers: Record<string, unknown>): Promise<boolean> {
   const session = await $.session.id()
-  const args = ['gate', 'answer', gateId, '--answers', JSON.stringify(answers), '--by', 'pane', '--session', session]
+  const by = form.relay ? 'shepherd' : 'pane'
+  const args = ['gate', 'answer', gateId, '--answers', JSON.stringify(answers), '--by', by, '--session', session]
   let error: string | undefined
   let outcome: 'recorded' | 'elsewhere' = 'recorded'
   try {
     const ran = await runRt($, args)
     if (ran.exitCode !== 0) error = `Not recorded: ${rtError(ran)}`
-    else outcome = answerOutcome(ran.stdout, session)
+    else outcome = answerOutcome(ran.stdout, session, by)
   } catch (failure) {
     error = failureText(failure)
   }
@@ -173,7 +174,8 @@ async function recordAnswer($: EngineInterface, form: Form, gateId: string, answ
   }
   const patch: Partial<Form> = outcome === 'elsewhere' ? { status: 'answered', error: undefined, note: ELSEWHERE } : { status: 'answered', error: undefined }
   const forms = await writeForms($, list => patchForm(list, form.id, patch))
-  if (outcome === 'recorded') await wakeAnswered($, gateId)
+  // A relayed answer wakes the worker through its own `rt gate wait`; the shepherd has nothing to reconcile.
+  if (outcome === 'recorded' && !form.relay) await wakeAnswered($, gateId)
   await showCurrent($, forms, outcome === 'elsewhere' ? ELSEWHERE : undefined)
   return true
 }
@@ -289,14 +291,16 @@ async function gateEnded($: EngineInterface, gateId: string, end: GateEnd): Prom
   if ((await read($, boardAtom)).some(b => b.gateId === gateId)) await update($, boardAtom, list => list.filter(b => b.gateId !== gateId))
   const open = (await readForms($)).filter(f => f.gateId === gateId && f.status === 'open' && !answering.has(f.id))
   if (open.length === 0) return $.ui.invalidate('ui.render')
-  const self = isSelf(end, await $.session.id())
+  const session = await $.session.id()
+  const relay = open.some(f => f.relay)
+  const self = isSelf(end, session) || (relay && end.status === 'answered' && end.by === 'shepherd' && end.session === session)
   const won = end.status === 'answered' ? end.answers : undefined
   const note = self ? undefined : [endNote(end), won && controlText(won)].filter(Boolean).join('. ')
   const patch: Partial<Form> = self
     ? { status: 'answered', error: undefined }
     : { status: end.status === 'answered' ? 'answered' : 'cancelled', error: undefined, note, ...(won && { won }) }
   const forms = await writeForms($, list => list.map(f => (open.some(o => o.id === f.id) ? { ...f, ...patch } : f)))
-  if (self) await wakeAnswered($, gateId)
+  if (self && !relay) await wakeAnswered($, gateId)
   await showCurrent($, forms, note && `${open[0]!.title}: ${note}`)
 }
 
@@ -458,17 +462,19 @@ function withText(result: unknown, text: string): unknown {
   return text
 }
 
-async function takeGate($: EngineInterface, e: ToolCallInput, next: Next): Promise<ToolCallResult> {
+// herd_gate_present always answers in the kit shape, so it takes no kitForm input.
+async function takeGate($: EngineInterface, e: ToolCallInput, next: Next, present = false): Promise<ToolCallResult> {
   if (setting.reading) await setting.reading
   if (!canDraw(e)) return next(e)
-  const out = await next({ ...e, kitForm: true } as ToolCallInput)
+  const out = await next(present ? e : ({ ...e, kitForm: true } as ToolCallInput))
   if (out.deny !== undefined || out.isError) return out
   const text = textOf(out)
   const kit = readKitResult(text)
   const board = kit.kind === 'other' ? readBoardOnly(text) : undefined
   if (board) await addBoard($, { gateId: board.gateId, kind: String((e as unknown as { kind?: unknown }).kind ?? '') }, board.supersededId)
   if (kit.kind === 'other') return out
-  const kind = (e as unknown as { kind?: unknown }).kind
+  // A presented gate's kind is in its result: the shepherd's call names only the gate.
+  const kind = present && kit.kind === 'kit' ? kit.fields.kind : (e as unknown as { kind?: unknown }).kind
   const title = typeof kind === 'string' && kind.trim() !== '' ? kind : GATE_TITLE
   const kindText = typeof kind === 'string' ? kind : ''
   if (kit.kind === 'kit') {
@@ -603,6 +609,7 @@ export function register(on: On): void {
   // A failed takeover leaves the call as the tool answered it: `next` replays a settled call rather than opening a second gate.
   on('tool.call', { tool: 'mcp__plugin_mattstack_mattstack__gate_ask' }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e))
   on('tool.call', { tool: 'mcp__plugin_mattstack_mattstack__gate_open' }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e))
+  on('tool.call', { tool: 'mcp__plugin_mattstack_mattstack__herd_gate_present' }, ($, e, next) => takeGate($, e, next, true)).catch(($, e, next) => next(e))
 
   on('prompt.edit', async ($, e, next) => {
     await setKeysInForm($, false)
