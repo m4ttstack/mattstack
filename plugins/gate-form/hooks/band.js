@@ -249,7 +249,7 @@ function keySelected(span) {
     { ...hoverOf(span), t: span.t.slice(1) }
   ];
 }
-var CURSOR_ROW = "#25343a";
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };

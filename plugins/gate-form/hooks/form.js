@@ -249,7 +249,7 @@ function keySelected(span) {
     { ...hoverOf(span), t: span.t.slice(1) }
   ];
 }
-var CURSOR_ROW = "#25343a";
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -1246,13 +1246,7 @@ function contextBody(context, width) {
   return out;
 }
 var BOX_CELLS = 6;
-var CTX_BG = "#202020";
 var MIN_CTX = 3;
-var tint = (line, width) => {
-  const filled = line.map((span) => span.bg ? span : { ...span, bg: CTX_BG });
-  const room = Math.max(0, width - widthOf(line));
-  return room > 0 ? [...filled, sp(" ".repeat(room), { bg: CTX_BG })] : filled;
-};
 function contextBox(context, width, ctx) {
   if (ctx.cap <= 0)
     return [];
@@ -1262,7 +1256,11 @@ function contextBox(context, width, ctx) {
   const bar = scrollBar(ctx.cap, body.length, top);
   const shown = body.slice(top, top + ctx.cap);
   const rail = sp(`${SYMBOL.bar} `, GRAY);
-  const lines = shown.map((line, n) => [rail, ...tint([sp(" "), ...clipLine(line, inner)], inner + 1), ...body.length > ctx.cap ? bar[n] : []]);
+  const lines = shown.map((line, n) => {
+    const text = [sp(" "), ...clipLine(line, inner)];
+    const pad = Math.max(0, inner + 1 - widthOf(text));
+    return [rail, ...text, ...body.length > ctx.cap ? [sp(" ".repeat(pad)), ...bar[n]] : []];
+  });
   if (body.length <= ctx.cap)
     return lines;
   const below = body.length - top - ctx.cap;

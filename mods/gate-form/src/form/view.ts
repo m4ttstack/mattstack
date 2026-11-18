@@ -44,17 +44,10 @@ export function contextBody(context: string, width: number): L[] {
 
 // The box's rail, its padding cell and the scroll bar's three cells.
 const BOX_CELLS = 6
-const CTX_BG = '#202020'
 // The fewest context rows the box shrinks to before the whole page scrolls instead.
 const MIN_CTX = 3
 
 export type CtxView = { cap: number; top: number }
-
-const tint = (line: L, width: number): L => {
-  const filled = line.map(span => (span.bg ? span : { ...span, bg: CTX_BG }))
-  const room = Math.max(0, width - widthOf(line))
-  return room > 0 ? [...filled, sp(' '.repeat(room), { bg: CTX_BG })] : filled
-}
 
 // The context in its own box, `cap` rows tall from row `top`, with a scroll bar and a line saying what is out of view.
 function contextBox(context: string, width: number, ctx: CtxView): L[] {
@@ -65,7 +58,11 @@ function contextBox(context: string, width: number, ctx: CtxView): L[] {
   const bar = scrollBar<Action>(ctx.cap, body.length, top)
   const shown = body.slice(top, top + ctx.cap)
   const rail = sp<Action>(`${SYMBOL.bar} `, GRAY)
-  const lines = shown.map((line, n): L => [rail, ...tint([sp(' '), ...clipLine(line, inner)], inner + 1), ...(body.length > ctx.cap ? bar[n]! : [])])
+  const lines = shown.map((line, n): L => {
+    const text: L = [sp(' '), ...clipLine(line, inner)]
+    const pad = Math.max(0, inner + 1 - widthOf(text))
+    return [rail, ...text, ...(body.length > ctx.cap ? [sp<Action>(' '.repeat(pad)), ...bar[n]!] : [])]
+  })
   if (body.length <= ctx.cap) return lines
   const below = body.length - top - ctx.cap
   const where = below > 0 ? `↓ ${below} more line${below === 1 ? '' : 's'}` : `↑ ${top} line${top === 1 ? '' : 's'} above`

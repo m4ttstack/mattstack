@@ -123,7 +123,7 @@ export function keySelected<A>(span: Span<A>): Span<A>[] {
 }
 
 // The row the keyboard is on in a list of options, tinted behind its text.
-export const CURSOR_ROW = '#25343a'
+export const CURSOR_ROW = '#2e2e2e'
 
 export const ACCENT: Style = { color: 'cyan' }
 export const GRAY: Style = { color: 'gray' }
