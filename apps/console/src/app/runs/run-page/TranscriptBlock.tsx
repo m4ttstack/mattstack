@@ -60,7 +60,7 @@ export function TranscriptBlock({ repo, runId }: TranscriptBlockProps) {
   if (data.markdown) {
     return (
       <div data-parity="Transcript" data-transcript="markdown">
-        <GateContext text={data.text} fill />
+        <GateContext text={data.text} fill tidy={false} />
       </div>
     );
   }

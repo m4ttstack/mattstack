@@ -125,9 +125,10 @@ export function FieldValue({
         </Text>
       );
     case 'text':
-      // Several lines are a stage writing Markdown (a summary over a list);
-      // one line stays plain, so a name with underscores never turns italic.
-      return v.includes('\n') ? (
+      // Several lines, or one list item, are a stage writing Markdown; any
+      // other single line stays plain, so a name with underscores never
+      // turns italic.
+      return v.includes('\n') || /^[-*]\s/.test(v) ? (
         <div data-kind={kind} data-parity={parity}>
           <GateContext text={v} />
         </div>

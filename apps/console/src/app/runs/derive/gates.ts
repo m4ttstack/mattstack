@@ -242,8 +242,9 @@ export function contextBlocks(text: string): ContextBlock[] {
   return blocks;
 }
 
-/** A short "Label:" opening a paragraph, as agents write section leads. */
-const LEAD_LABEL = /^([A-Z][A-Za-z ]{1,28}):(?=\s+\S)/;
+/** A short "Label:" opening a paragraph or a list item, as agents write
+    section leads and "Fixed: …" items. */
+const LEAD_LABEL = /^(\s*(?:[-*]\s+)?)([A-Z][A-Za-z ]{1,28}):(?=\s+\S)/;
 /** A commit sha, or a cuid-style record id: letters and digits, no words. */
 const ID_TOKEN =
   /\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])([0-9a-f]{7,40}|[a-z0-9]{20,})\b/g;
@@ -256,8 +257,9 @@ const outsideCode = (line: string, fn: (s: string) => string) =>
     .join('');
 
 /** Plain-prose findings given the Markdown an agent rarely writes: a
-    paragraph's "Label:" lead in bold, and shas and record ids as code. */
-export function tidyFindings(text: string): string {
+    paragraph's or list item's "Label:" lead in bold, and shas and record
+    ids as code. */
+export function tidyFindings(text: string, leads = true): string {
   let paragraphStart = true;
   return text
     .split('\n')
@@ -265,7 +267,8 @@ export function tidyFindings(text: string): string {
       const start = paragraphStart;
       paragraphStart = line.trim() === '';
       let out = outsideCode(line, s => s.replace(ID_TOKEN, '`$1`'));
-      if (start) out = out.replace(LEAD_LABEL, '**$1:**');
+      if (leads && (start || /^\s*[-*]\s/.test(line)))
+        out = out.replace(LEAD_LABEL, '$1**$2:**');
       return out;
     })
     .join('\n');

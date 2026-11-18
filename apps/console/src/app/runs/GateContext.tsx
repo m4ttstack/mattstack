@@ -4,6 +4,7 @@ import Markdown, { type Components } from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
+import { tidyFindings } from './derive/gates';
 import classes from './GateContext.module.css';
 
 /** remark-breaks keeps a context written as plain lines (every gate opened
@@ -56,19 +57,26 @@ const SAFE: Components = {
 /** `components` add to the safe defaults, never replace `a` or `img`.
     `fill` lets the text run the width of its column instead of a line
     length that reads comfortably. `breaks={false}` reads a newline as a
-    space, for hard-wrapped Markdown sources. */
+    space, for hard-wrapped Markdown sources. `tidy` marks shas and ids in
+    agent prose as code, a source that is already Markdown turns it off.
+    `leads` also bolds a paragraph's "Label:" opening, for prose with no
+    heading of its own above it. */
 export function GateContext({
   text,
   className,
   components,
   fill = false,
   breaks = true,
+  tidy = true,
+  leads = false,
 }: {
   text: string;
   className?: string;
   components?: Omit<Components, 'a' | 'img'>;
   fill?: boolean;
   breaks?: boolean;
+  tidy?: boolean;
+  leads?: boolean;
 }) {
   return (
     <div
@@ -80,7 +88,7 @@ export function GateContext({
         remarkPlugins={breaks ? REMARK_PLUGINS : REMARK_NO_BREAKS}
         components={{ ...KIT, ...components, ...SAFE }}
       >
-        {text}
+        {tidy ? tidyFindings(text, leads) : text}
       </Markdown>
     </div>
   );

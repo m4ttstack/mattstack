@@ -48,7 +48,7 @@ import { parseBoards } from '../../../shared/gate-boards';
 import { isMine } from '../../../shared/gate-waiting';
 import { client } from '../../api';
 import { formatDuration } from '../derive/duration';
-import { contextBlocks, splitCommand, tidyFindings } from '../derive/gates';
+import { contextBlocks, splitCommand } from '../derive/gates';
 import { Eyebrow } from '../Eyebrow';
 import { GateContext } from '../GateContext';
 import { Glyph } from '../Glyph';
@@ -696,7 +696,7 @@ function Findings({ text, maxHeight }: { text: string; maxHeight: number }) {
                 className={classes.findings}
                 data-parity={i === 0 ? 'lead' : undefined}
               >
-                <GateContext text={tidyFindings(block.text)} />
+                <GateContext text={block.text} leads />
               </div>
             ) : block.kind === 'code' ? (
               <CodeExcerpt key={i} lines={block.lines} />
@@ -708,7 +708,7 @@ function Findings({ text, maxHeight }: { text: string; maxHeight: number }) {
                       {point.label}
                     </Text>
                     <div className={classes.pointText} data-parity="v">
-                      <GateContext text={tidyFindings(point.text)} />
+                      <GateContext text={point.text} leads />
                     </div>
                   </div>
                 ))}

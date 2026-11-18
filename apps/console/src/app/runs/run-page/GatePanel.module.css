@@ -72,16 +72,6 @@
   --gate-context-lh: 22px;
 }
 
-.findings strong {
-  font-weight: 600;
-}
-
-.findings :not(pre) > code {
-  padding: 1px 5px;
-  border: 1px solid var(--tk-border);
-  background-color: var(--tk-inset);
-}
-
 .findings p,
 .findings ul,
 .findings ol {

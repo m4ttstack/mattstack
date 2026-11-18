@@ -335,6 +335,12 @@ describe('tidyFindings', () => {
     );
   });
 
+  it('bolds a list item lead label', () => {
+    expect(tidyFindings('- Fixed: f2 docs\n- Owed: f1')).toBe(
+      '- **Fixed:** f2 docs\n- **Owed:** f1'
+    );
+  });
+
   it('leaves backtick spans, plain words and mid-paragraph lines alone', () => {
     const text = 'Ship it\nNote: `3024b69` stays, deadbeef too';
     expect(tidyFindings(text)).toBe(text);
