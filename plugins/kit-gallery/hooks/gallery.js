@@ -242,7 +242,6 @@ function pressed(span) {
   return span.mark ? { ...out, color: span.mark } : out;
 }
 var CURSOR_ROW = "#2e2e2e";
-var CURSOR_ROW_PRESS = "#3a3a3a";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -504,13 +503,11 @@ function isControl(span, line, row, key) {
 function styleOf(span, line, row, look) {
   if (!look.focused)
     return muted(span);
-  const ownFill = span.bg !== undefined && span.bg !== CURSOR_ROW;
-  if (span.rowTint && look.pressed !== undefined && lineHoverKey(line) === look.pressed)
-    return ownFill ? span : { ...span, bg: CURSOR_ROW_PRESS };
+  const overRow = span.rowTint === true && [look.hover, look.pressed].some((key) => key !== undefined && lineHoverKey(line) === key);
+  if (overRow)
+    return span.bg !== undefined && span.bg !== CURSOR_ROW ? span : { ...span, bg: CURSOR_ROW };
   if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
     return pressed(span);
-  if (span.rowTint && look.hover !== undefined && lineHoverKey(line) === look.hover)
-    return ownFill ? span : { ...span, bg: CURSOR_ROW };
   if (look.hover !== undefined && isControl(span, line, row, look.hover))
     return hovered(span);
   return span;
@@ -693,8 +690,7 @@ function selectList(spec) {
     if (spec.spaced && n > 0)
       lines.push(blank());
     const rows = choice.isWriteIn ? choiceRows(choice, idx, spec) : padded(choiceRows(choice, idx, spec));
-    const fill = spec.pressing ? CURSOR_ROW_PRESS : CURSOR_ROW;
-    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width, fill)) : rows.map((line) => hoverTinted(line, spec.width)), spec.actionFor(idx)));
+    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width, CURSOR_ROW)) : rows.map((line) => hoverTinted(line, spec.width)), spec.actionFor(idx)));
   });
   const below = total - start - shown.length;
   if (below > 0)

@@ -152,11 +152,8 @@ export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean
   if (isConfirm(form)) return false
   if (!isEnter(ev)) return false
   if (s.menu.open) return true
-  if (isSinglePage(form)) return canSubmit(form, s)
-  if (!isOnNav(form, s)) {
-    const q = form.questions[s.page]
-    return q !== undefined && choicesOf(q).length > 0
-  }
+  // Enter on an option picks it with no press to show, as a list row in an OS has none.
+  if (isSinglePage(form) || !isOnNav(form, s)) return false
   return !(navAtOf(form, s) === 'next' && isReview(form, s) && !canSubmit(form, s))
 }
 

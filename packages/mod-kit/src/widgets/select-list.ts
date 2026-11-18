@@ -1,5 +1,5 @@
 import { hang, sp, widthOf, withAction, type Line, type Span } from '../draw/text'
-import { ACCENT, CURSOR_ROW, CURSOR_ROW_PRESS, DIM, DONE, SYMBOL } from '../draw/theme'
+import { ACCENT, CURSOR_ROW, DIM, DONE, SYMBOL } from '../draw/theme'
 import { inputField } from './input-field'
 
 export type Choice = { label: string; description?: string; isWriteIn?: boolean }
@@ -41,8 +41,7 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
     const idx = start + n
     if (spec.spaced && n > 0) lines.push(blank())
     const rows = choice.isWriteIn ? choiceRows(choice, idx, spec) : padded(choiceRows(choice, idx, spec))
-    const fill = spec.pressing ? CURSOR_ROW_PRESS : CURSOR_ROW
-    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width, fill)) : rows.map(line => hoverTinted(line, spec.width)), spec.actionFor(idx)))
+    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width, CURSOR_ROW)) : rows.map(line => hoverTinted(line, spec.width)), spec.actionFor(idx)))
   })
   const below = total - start - shown.length
   if (below > 0) lines.push([bar, sp(`  ↓ ${below} more`, DIM)])
