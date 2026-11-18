@@ -165,3 +165,15 @@ func columnHeaderLine(m *Model, width int) string {
 	lead := 2 + m.rowIndent()
 	return onBg.Render(strings.Repeat(" ", lead)) + ansi.Truncate(sb.String(), width-lead, "")
 }
+
+// groupRuleLine is the group label for a list that also has a column header:
+// lowercase and brighter with a faint rule to the edge, so it reads as a
+// divider rather than a second header line.
+func groupRuleLine(group string, width int) string {
+	label := rtrender.Clean(group)
+	fill := width - 2 - lipgloss.Width(label) - 1
+	if fill < 0 {
+		fill = 0
+	}
+	return onBg.Render("  ") + fg(theme.TextSoft).Render(label) + " " + fg(theme.Rule).Render(strings.Repeat("─", fill))
+}

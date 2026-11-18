@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { ChatPane } from "../../packages/rt-client/src/commands.ts";
 import type { PickRequest, PickResult, PickRow, PickSegment } from "../../lib/ui/protocol.ts";
 import { UserActionableError } from "../../lib/errors.ts";
-import { attachRows, cacheFaceArgv, paneAttachWith, type AttachDeps } from "../pane-attach.ts";
+import { attachRows, attachView, cacheFaceArgv, paneAttachWith, type AttachDeps } from "../pane-attach.ts";
 
 const kirk: ChatPane = {
   paneId: "w1:p3", workspace: "acme", tab: "api", cwd: "/src/acme", repo: "acme", branch: "main", agentStatus: "working", sessionId: "s1",
@@ -32,15 +32,33 @@ test("self excluded", () => {
   expect(rows.map((r) => r.value)).toEqual(["w1:p4"]);
 });
 
-test("badge priority: gate > herd > caller > first room", () => {
-  const rows = attachRows([kirk, anon, worker, other], new Map(), new Map(), undefined);
-  const badge = (id: string) => rowOf(rows, id).left.at(-1)!.text.trim();
-  expect(badge("w2:p1")).toBe("? gate");
-  expect(badge("bg:w9:p1")).toBe("herd h-7c1");
-  expect(badge("w1:p3")).toBe("board:review");
-  expect(badge("w1:p4")).not.toMatch(/gate|herd|#/);
-  const roomOnly = attachRows([{ ...kirk, agent: undefined }], new Map(), new Map(), undefined)[0]!;
-  expect(roomOnly.left.at(-1)!.text.trim()).toBe("#mattstack");
+test("started by: herd > caller > rt agent > by hand", () => {
+  const plainAgent: ChatPane = { ...kirk, paneId: "w1:p7", agent: { id: "a-2", provider: "claude", startedAt: 1 } };
+  const rows = attachRows([kirk, anon, worker, other, plainAgent], new Map(), new Map(), undefined);
+  const startedBy = (id: string) => rowOf(rows, id).left.at(-1)!.text.trim();
+  expect(startedBy("bg:w9:p1")).toBe("herd h-7c1");
+  expect(startedBy("w2:p1")).toBe("herd h-2");
+  expect(startedBy("w1:p3")).toBe("board:review");
+  expect(startedBy("w1:p7")).toBe("rt agent");
+  expect(startedBy("w1:p4")).toBe("by hand");
+});
+
+test("an open gate shows in the status column", () => {
+  const view = attachView([other, kirk], new Map(), new Map(), undefined);
+  const statusOf = (r: PickRow) => r.left[2]!.text.trim();
+  expect(statusOf(rowOf(view.rows, "w2:p1"))).toBe("waiting on a gate");
+  expect(statusOf(rowOf(view.rows, "w1:p3"))).toBe("working");
+});
+
+test("the header names every column and lines up with the rows", () => {
+  const view = attachView([kirk, anon, worker], new Map(), new Map(), undefined);
+  expect(view.header.map((s) => s.text.trim())).toEqual(["AGENT", "STATUS", "REPO · BRANCH", "TAB", "STARTED BY"]);
+  const starts = (segs: PickSegment[]) => segs.reduce<number[]>((acc, s, i) => [...acc, (acc[i - 1] ?? 0) + (i ? Bun.stringWidth(segs[i - 1]!.text) : 0)], []);
+  const headerStarts = starts(view.header);
+  for (const row of view.rows) {
+    const cellStarts = starts([{ text: row.left[0]!.text + row.left[1]!.text }, ...row.left.slice(2)]);
+    expect(cellStarts).toEqual(headerStarts);
+  }
 });
 
 test("not signed in", () => {

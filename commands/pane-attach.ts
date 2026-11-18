@@ -12,7 +12,6 @@ import {
   panePeek as panePeekRt,
 } from "../packages/rt-client/src/index.ts";
 import { UserActionableError } from "../lib/errors.ts";
-import { paneBadge, type PaneBadgeKind } from "./pane.ts";
 import { PICKER_FACE_SIZE, resolveFaces } from "../lib/pane-faces.ts";
 import { rtSelfArgv } from "../lib/rt-self.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
@@ -33,11 +32,19 @@ const STATUS: Record<ChatPane["agentStatus"], { glyph: string; word: string; ton
 
 const PRESENCE: Record<string, string> = { live: "live in chat", idle: "idle in chat", offline: "offline" };
 
-const BADGE_TONE: Record<PaneBadgeKind, string> = { gate: "peach", herd: "lav", caller: "cyan", room: "dim" };
+const GATE_STATUS = { glyph: "◆", word: "waiting on a gate", tone: "peach" };
 
-function badge(p: ChatPane): PickSegment | undefined {
-  const b = paneBadge(p);
-  return b && { text: b.text, tone: BADGE_TONE[b.kind] };
+/** An open gate outranks whatever herdr reports, since it is what the pane is waiting on. */
+function statusOf(p: ChatPane): { glyph: string; word: string; tone: string } {
+  return p.gate ? GATE_STATUS : (STATUS[p.agentStatus] ?? STATUS.unknown);
+}
+
+/** Who started the pane: its herd, the `rt agent` caller, `rt agent` itself, or a person by hand. */
+function startedBy(p: ChatPane): PickSegment {
+  if (p.herd) return { text: `herd ${p.herd.herdId}`, tone: "lav" };
+  if (p.agent?.caller) return { text: p.agent.caller, tone: "cyan" };
+  if (p.agent) return { text: "rt agent", tone: "dim" };
+  return { text: "by hand", tone: "faint" };
 }
 
 function stamp(ms: number): string {
@@ -50,7 +57,7 @@ const plain = (text: string): PickSegment[] => [{ text }];
 const faint = (text: string): PickSegment[] => [{ text, tone: "faint" }];
 
 function preview(p: ChatPane, faces: Map<string, string>, peeks: Map<string, string[]>): PickPreview {
-  const status = STATUS[p.agentStatus] ?? STATUS.unknown;
+  const status = statusOf(p);
   const handle = p.presence?.handle;
   const facePath = handle ? faces.get(handle) : undefined;
 
@@ -107,10 +114,10 @@ function fit(text: string, width: number): string {
   return out + "…" + " ".repeat(Math.max(0, width - 1 - Bun.stringWidth(out)));
 }
 
-interface Cells { glyph: PickSegment; agent: PickSegment; status: PickSegment; repo: PickSegment; tab: PickSegment; flag?: PickSegment }
+interface Cells { glyph: PickSegment; agent: PickSegment; status: PickSegment; repo: PickSegment; tab: PickSegment; startedBy: PickSegment }
 
 function cells(p: ChatPane): Cells {
-  const status = STATUS[p.agentStatus] ?? STATUS.unknown;
+  const status = statusOf(p);
   const bg = p.paneId.startsWith(BG_PREFIX);
   return {
     glyph: { text: `${status.glyph} `, tone: status.tone },
@@ -118,7 +125,7 @@ function cells(p: ChatPane): Cells {
     status: { text: status.word, tone: status.tone },
     repo: { text: [p.repo, p.branch].filter(Boolean).join(" · "), tone: "dim" },
     tab: { text: (bg ? p.herd?.job : p.tab) ?? "", tone: "faint" },
-    flag: badge(p),
+    startedBy: startedBy(p),
   };
 }
 
@@ -148,11 +155,8 @@ export function attachView(panes: ChatPane[], faces: Map<string, string>, peeks:
     repo: colWidth(all.map((c) => c.repo.text), "REPO · BRANCH", CAP.repo),
     tab: colWidth(all.map((c) => c.tab.text), "TAB", CAP.tab),
   };
-  const anyFlag = all.some((c) => c.flag);
   const anyTab = all.some((c) => c.tab.text);
-  const repoW = anyTab || anyFlag ? w.repo + GAP : undefined;
-  const tabW = anyFlag ? w.tab + GAP : undefined;
-  const cell = (text: string, cw: number | undefined) => (cw === undefined ? text : fit(text, cw));
+  const tabW = w.tab + GAP;
 
   const rows = sorted.map((p, i): PickRow => {
     const c = all[i]!;
@@ -163,9 +167,9 @@ export function attachView(panes: ChatPane[], faces: Map<string, string>, peeks:
         c.glyph,
         { ...c.agent, text: fit(c.agent.text, w.agent - glyphW + GAP) },
         { ...c.status, text: fit(c.status.text, w.status + GAP) },
-        { ...c.repo, text: cell(c.repo.text, repoW) },
-        ...(anyTab ? [{ ...c.tab, text: cell(c.tab.text, tabW) }] : []),
-        ...(c.flag ? [c.flag] : []),
+        { ...c.repo, text: fit(c.repo.text, w.repo + GAP) },
+        ...(anyTab ? [{ ...c.tab, text: fit(c.tab.text, tabW) }] : []),
+        c.startedBy,
       ],
       match: [p.presence?.handle, p.repo, p.branch, p.tab, ...(p.presence?.rooms ?? [])].filter(Boolean).join(" "),
       preview: preview(p, faces, peeks),
@@ -174,9 +178,9 @@ export function attachView(panes: ChatPane[], faces: Map<string, string>, peeks:
   const header: PickSegment[] = [
     { text: fit("AGENT", w.agent + GAP) },
     { text: fit("STATUS", w.status + GAP) },
-    { text: cell("REPO · BRANCH", repoW) },
-    ...(anyTab ? [{ text: cell("TAB", tabW) }] : []),
-    ...(anyFlag ? [{ text: "FLAG" }] : []),
+    { text: fit("REPO · BRANCH", w.repo + GAP) },
+    ...(anyTab ? [{ text: fit("TAB", tabW) }] : []),
+    { text: "STARTED BY" },
   ];
   return { rows, header };
 }

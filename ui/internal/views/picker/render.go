@@ -118,7 +118,11 @@ func renderFrame(m *Model, target int) string {
 	thumbTop, thumbH := ThumbSpan(top, h, n)
 	for i := top; i < top+h; i++ {
 		if group, ok := headerBoundary(m, i); ok {
-			lines = append(lines, groupHeaderLine(group))
+			if len(m.req.ColumnHeader) > 0 {
+				lines = append(lines, groupRuleLine(group, rowWidth))
+			} else {
+				lines = append(lines, groupHeaderLine(group))
+			}
 			y++ // a header consumes a display line but is never a hit-zone
 		}
 		line := rowLineWidth(m, i, rowWidth)
