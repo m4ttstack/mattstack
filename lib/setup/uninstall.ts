@@ -377,8 +377,14 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   for (const entry of reEnable) {
     const env = { CLAUDE_CONFIG_DIR: entry.configDir };
     const listed = await ctx.p.exec([...claude.exec, "plugin", "list", "--json"], { env });
-    const forkOn = listed.code === 0 && (parsePluginList(listed.stdout) ?? []).some((e) => e.id === SUPERPOWERS_FORK && e.enabled);
-    if (forkOn) {
+    const entries = listed.code === 0 ? parsePluginList(listed.stdout) : null;
+    if (entries === null) {
+      // Unknown is not gone: turning the stock copy on could put it beside the fork.
+      notes.push(`${entry.configDir}: could not list plugins to check ${SUPERPOWERS_FORK} is gone before turning ${entry.id} back on (${claudeMessage(listed, `exited ${listed.code}`)})`);
+      stillOff.push(entry);
+      continue;
+    }
+    if (entries.some((e) => e.id === SUPERPOWERS_FORK && e.enabled)) {
       // Turning the stock copy on beside the fork would leave two superpowers serving the same skills.
       if (notRemoved.has(SUPERPOWERS_FORK)) stillOff.push(entry);
       else ctx.log("plugins.uninstall", `${entry.configDir}: left ${entry.id} off, since ${SUPERPOWERS_FORK} is still on there and rt did not install it`);
