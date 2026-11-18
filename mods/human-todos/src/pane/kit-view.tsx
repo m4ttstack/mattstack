@@ -1,4 +1,4 @@
-import { BrandBar, Lines, Panel, gridMove, gridResolve, gridSelection, isButtonInView, kitClient, revealButtonOffset, revealOffset, sp } from '@mattstack/mod-kit'
+import { BrandBar, Lines, Panel, editText, gridMove, gridResolve, gridSelection, isButtonInView, kitClient, revealButtonOffset, revealOffset, sp } from '@mattstack/mod-kit'
 import type { GridSelection, PointerState } from '@mattstack/mod-kit'
 
 import { TITLE } from '../items'
@@ -11,7 +11,7 @@ import type { PaneButton, PaneMessage } from './model'
 type Props = { view: KitView; focused: boolean; width: number; composing?: string; composeLines?: number }
 // Once its button has gone (Run became Confirm, Confirm became Stop), the selection falls to the item's filled button.
 // `draft` is the open message row's text, kept here so typing never waits on the hooks module.
-type State = PointerState & { sel?: GridSelection<PaneButton['id']>; draft?: { id: string; text: string } }
+type State = PointerState & { sel?: GridSelection<PaneButton['id']>; draft?: { id: string; text: string; at: number } }
 
 export default kitClient<Props, State>(
   (props, ui) => {
@@ -23,10 +23,12 @@ export default kitClient<Props, State>(
     const here = resolved.hasFallen && stops[resolved.at]?.isItem === false && stops[above]?.isItem ? { at: above, col: stops[above]!.main, hasFallen: true } : resolved
     const current = stops[here.at] && stopMessage(stops[here.at]!, here.col)
     const composing = props.composing
-    const draft = composing !== undefined && ui.state.draft?.id === composing ? ui.state.draft.text : ''
-    const setDraft = (text: string) => {
+    const editing = composing !== undefined && ui.state.draft?.id === composing ? ui.state.draft : undefined
+    const draft = editing?.text ?? ''
+    const at = editing?.at ?? Array.from(draft).length
+    const setDraft = (text: string, caret = Array.from(text).length) => {
       if (composing === undefined) return
-      ui.setState({ ...ui.state, draft: { id: composing, text } })
+      ui.setState({ ...ui.state, draft: { id: composing, text, at: caret } })
       const lines = draftRows(text, props.width).length
       if (lines !== (props.composeLines ?? 1)) ui.post({ type: 'draftLines', lines })
     }
@@ -78,19 +80,16 @@ export default kitClient<Props, State>(
       // With a message row open, typing goes to its field; Enter sends and keeps the item open, unless the keys are on
       // Send & mark done or Cancel; Esc closes the row.
       if (composing !== undefined) {
-        const isSpace = ev.key === ' ' || ev.key === 'space'
         if (ev.key === 'escape') {
           ui.setState({ ...ui.state, draft: undefined })
           ui.post({ type: 'press', id: composing, button: 'cancelMessage' })
           return true
         }
-        if (ev.key === 'backspace' || ev.key === 'delete') {
-          setDraft(draft.slice(0, -1))
-          return true
-        }
-        const ch = isSpace ? ' ' : ev.key
-        if (ch.length === 1 && !ev.ctrl && !ev.meta) {
-          setDraft(draft + ch)
+        // ← → move the caret only once there is text; on an empty draft they move along the buttons as ever.
+        const isArrow = ev.key === 'left' || ev.key === 'right'
+        const edit = isArrow && draft === '' ? undefined : editText({ text: draft, at }, ev)
+        if (edit) {
+          setDraft(edit.text, edit.at)
           return true
         }
         const isEnter = ev.key === 'return' || ev.key === 'enter'
@@ -130,7 +129,7 @@ export default kitClient<Props, State>(
         <BrandBar title={TITLE} onHide={ui.hide} />
         <Lines lines={[[sp(' ')]]} />
         <Lines
-          lines={viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {}, { text: draft, caret: ui.focused })}
+          lines={viewLines(view, props.width, ui.focused && current ? { selected: current, range, marked: ui.keyboard, pressing: ui.keyPressing } : {}, { text: draft, caret: ui.focused, at })}
           onAction={clicked}
         />
       </Panel>

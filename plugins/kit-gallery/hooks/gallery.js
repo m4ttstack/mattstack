@@ -591,7 +591,7 @@ var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
   return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
 });
 // packages/mod-kit/src/widgets/input-field.ts
-function inputField(value, placeholder, width, showCursor) {
+function inputField(value, placeholder, width, showCursor, at) {
   const room = width - 2;
   const box = (spans) => [
     sp(" ", FILL.field),
@@ -603,8 +603,19 @@ function inputField(value, placeholder, width, showCursor) {
     const head = firstGrapheme(hint);
     return box([sp(head || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)]);
   }
-  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
-  return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
+  const chars = Array.from(value);
+  const caret = Math.min(Math.max(0, at ?? chars.length), chars.length);
+  if (caret === chars.length) {
+    const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
+    return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
+  }
+  const look = { color: FILL.field.color };
+  let from = 0;
+  while (from < caret && cellWidth(chars.slice(from, caret + 1).join("")) > room)
+    from++;
+  const before = chars.slice(from, caret).join("");
+  const after = cutCells(chars.slice(caret + 1).join(""), Math.max(0, room - cellWidth(before) - cellWidth(chars[caret])));
+  return box([sp(before, look), sp(chars[caret], showCursor ? { ...look, inverse: true } : look), sp(after, look)]);
 }
 
 // packages/mod-kit/src/components/input-field.tsx

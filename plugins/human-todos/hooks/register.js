@@ -275,6 +275,102 @@ function buttonRow(left, right, width, indent) {
   line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
   return line;
 }
+// packages/mod-kit/src/widgets/text-edit.ts
+var NAMED = new Set(["up", "down", "left", "right", "return", "enter", "tab", "backspace", "delete", "escape", "pageup", "pagedown", "home", "end", "insert"]);
+var isSpace = (ch) => ch !== undefined && /\s/.test(ch);
+function wordBack(chars, at) {
+  let i = at;
+  while (i > 0 && isSpace(chars[i - 1]))
+    i--;
+  while (i > 0 && !isSpace(chars[i - 1]))
+    i--;
+  return i;
+}
+function wordForward(chars, at) {
+  let i = at;
+  while (i < chars.length && isSpace(chars[i]))
+    i++;
+  while (i < chars.length && !isSpace(chars[i]))
+    i++;
+  return i;
+}
+function editText(edit, ev) {
+  const chars = Array.from(edit.text);
+  const at = Math.min(Math.max(0, edit.at), chars.length);
+  const cut = (from, to) => ({ text: [...chars.slice(0, from), ...chars.slice(to)].join(""), at: from });
+  const move = (to) => ({ text: edit.text, at: to });
+  const { key } = ev;
+  if (key === "backspace") {
+    if (ev.meta)
+      return cut(wordBack(chars, at), at);
+    return at === 0 ? move(0) : cut(at - 1, at);
+  }
+  if (key === "delete") {
+    if (ev.meta)
+      return cut(at, wordForward(chars, at));
+    return cut(at, Math.min(chars.length, at + 1));
+  }
+  if (ev.ctrl && key === "w")
+    return cut(wordBack(chars, at), at);
+  if (ev.ctrl && key === "u")
+    return cut(0, at);
+  if (ev.ctrl && key === "k")
+    return cut(at, chars.length);
+  if (ev.ctrl && key === "a" || key === "home")
+    return move(0);
+  if (ev.ctrl && key === "e" || key === "end")
+    return move(chars.length);
+  if (key === "left")
+    return move(ev.meta ? wordBack(chars, at) : Math.max(0, at - 1));
+  if (key === "right")
+    return move(ev.meta ? wordForward(chars, at) : Math.min(chars.length, at + 1));
+  if (ev.meta && key === "b")
+    return move(wordBack(chars, at));
+  if (ev.meta && key === "f")
+    return move(wordForward(chars, at));
+  if (ev.ctrl || ev.meta)
+    return;
+  const ch = key === "space" ? " " : key;
+  if (NAMED.has(ch) || ch === "")
+    return;
+  const typed = Array.from(ch);
+  return { text: [...chars.slice(0, at), ...typed, ...chars.slice(at)].join(""), at: at + typed.length };
+}
+function wrapKeeping(text, width) {
+  const room = Math.max(1, width);
+  const rows = [];
+  let row = [];
+  for (const piece of text.match(/\S+|\s+/g) ?? [""]) {
+    const chars = Array.from(piece);
+    if (/^\s+$/.test(piece) || row.length + chars.length <= room) {
+      row.push(...chars);
+      continue;
+    }
+    if (row.length > 0)
+      rows.push(row.join(""));
+    row = [];
+    for (let i = 0;i < chars.length; i += room) {
+      const chunk = chars.slice(i, i + room);
+      if (chunk.length === room && i + room < chars.length)
+        rows.push(chunk.join(""));
+      else
+        row = chunk;
+    }
+  }
+  rows.push(row.join(""));
+  return rows;
+}
+function caretRow(rows, at) {
+  let left = at;
+  for (let r = 0;r < rows.length; r++) {
+    const len = Array.from(rows[r]).length;
+    if (left <= len && (left < len || r === rows.length - 1))
+      return { row: r, col: left };
+    left -= len;
+  }
+  const last = rows.length - 1;
+  return { row: last, col: Array.from(rows[last] ?? "").length };
+}
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
   if (total <= rows)
@@ -1942,21 +2038,27 @@ var card = (spans, room) => {
 };
 var draftWidth = (width) => Math.max(4, roomOf(width) - 2 * CARD_PAD - 1);
 function draftRows(text, width) {
-  return text === "" ? [""] : wrap(text, draftWidth(width));
+  return wrapKeeping(text, draftWidth(width));
 }
 function composeLines2(lines, room, draft) {
   const pad = sp(" ".repeat(CARD_PAD));
+  const blankRow = () => card([pad], room);
   const text = draft?.text ?? "";
-  const top = card([pad], room);
+  const caretOn = draft?.caret === true;
   if (text === "")
-    return [top, card([pad, sp(" ", draft?.caret ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, () => card([pad], room))];
-  const rows = wrap(text, Math.max(4, room - 2 * CARD_PAD - 1));
-  const shown = rows.slice(-lines);
-  return [top, ...Array.from({ length: lines }, (_, n) => {
-    const line = shown[n] ?? "";
-    const isLast = n === shown.length - 1;
-    return card([pad, sp(line), ...isLast && draft?.caret ? [sp(" ", { inverse: true })] : []], room);
-  })];
+    return [blankRow(), card([pad, sp(" ", caretOn ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, blankRow), blankRow()];
+  const rows = wrapKeeping(text, Math.max(4, room - 2 * CARD_PAD - 1));
+  const caret = caretRow(rows, draft?.at ?? Array.from(text).length);
+  const from = Math.min(Math.max(0, caret.row - lines + 1), Math.max(0, rows.length - lines));
+  const drawn = Array.from({ length: lines }, (_, n) => {
+    const r = from + n;
+    const chars = Array.from(rows[r] ?? "");
+    if (!caretOn || r !== caret.row)
+      return card([pad, sp(chars.join(""))], room);
+    const under = chars[caret.col] ?? " ";
+    return card([pad, sp(chars.slice(0, caret.col).join("")), sp(under, { inverse: true }), sp(chars.slice(caret.col + 1).join(""))], room);
+  });
+  return [blankRow(), ...drawn, blankRow()];
 }
 function composeActionsLine(buttons, room) {
   const spans = buttons.flatMap((b, n) => [sp(n === 0 ? "" : " "), buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1)]);
@@ -1968,7 +2070,7 @@ function rowLines(row, room, draft) {
     case "compose":
       return composeLines2(row.lines, room, draft);
     case "composeActions":
-      return [composeActionsLine(row.buttons, room)];
+      return [composeActionsLine(row.buttons, room), card([], room)];
     case "blank":
       return [[]];
     case "text": {

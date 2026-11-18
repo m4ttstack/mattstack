@@ -1,4 +1,4 @@
-import { ACCENT, CURSOR_ROW, DIM, DONE, GRAY, PLACEHOLDER, WARN, buttonSpan, cellWidth, ellipsize, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrappedButtons } from '@mattstack/mod-kit'
+import { ACCENT, CURSOR_ROW, DIM, DONE, GRAY, PLACEHOLDER, WARN, buttonSpan, caretRow, cellWidth, ellipsize, lineOfAction, maxScroll, scrollBar, sp, windowLines, wrap, wrapKeeping, wrappedButtons } from '@mattstack/mod-kit'
 import type { Line, ListFocus, Style, WindowStop } from '@mattstack/mod-kit'
 
 import { endRows, messageOf } from './model'
@@ -38,7 +38,8 @@ function buttonLines(row: Extract<PaneRow, { kind: 'buttons' }>, room: number): 
 }
 
 // The open message row's draft and whether its caret shows; the hook's layout passes none, the field is one line either way.
-export type Draft = { text: string; caret: boolean }
+// `at` is the caret's place in the text (editText's), the end when left out.
+export type Draft = { text: string; caret: boolean; at?: number }
 
 // The message card: a tinted block the width of the room, CARD_PAD cells of tint either side of the text.
 const CARD_PAD = 2
@@ -51,25 +52,31 @@ const card = (spans: L, room: number): L => {
 // The cells the draft wraps in, so the Client can tell the hooks module when the card needs another row.
 export const draftWidth = (width: number): number => Math.max(4, roomOf(width) - 2 * CARD_PAD - 1)
 
-// The draft wrapped at the card's width: at least one row, the caret after its last character.
+// The draft wrapped at the card's width, every character kept so the caret maps onto a row.
 export function draftRows(text: string, width: number): string[] {
-  return text === '' ? [''] : wrap(text, draftWidth(width))
+  return wrapKeeping(text, draftWidth(width))
 }
 
+// A blank tinted row above the draft and one under it, so the text sits in even padding; the actions row and the
+// card's closing row follow (composeActionsLines).
 function composeLines(lines: number, room: number, draft?: Draft): L[] {
   const pad = sp<PaneMessage>(' '.repeat(CARD_PAD))
+  const blankRow = () => card([pad], room)
   const text = draft?.text ?? ''
-  // A blank tinted row above the draft matches the actions row below it, so the card's padding reads even.
-  const top = card([pad], room)
-  if (text === '') return [top, card([pad, sp(' ', draft?.caret ? { inverse: true } : {}), sp('Message the agent', PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, () => card([pad], room))]
-  const rows = wrap(text, Math.max(4, room - 2 * CARD_PAD - 1))
-  // Past the card's height the newest rows show, as a field scrolls to its caret.
-  const shown = rows.slice(-lines)
-  return [top, ...Array.from({ length: lines }, (_, n) => {
-    const line = shown[n] ?? ''
-    const isLast = n === shown.length - 1
-    return card([pad, sp(line), ...(isLast && draft?.caret ? [sp(' ', { inverse: true })] : [])], room)
-  })]
+  const caretOn = draft?.caret === true
+  if (text === '') return [blankRow(), card([pad, sp(' ', caretOn ? { inverse: true } : {}), sp('Message the agent', PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, blankRow), blankRow()]
+  const rows = wrapKeeping(text, Math.max(4, room - 2 * CARD_PAD - 1))
+  const caret = caretRow(rows, draft?.at ?? Array.from(text).length)
+  // Past the card's height the window follows the caret's row, as a field scrolls to its caret.
+  const from = Math.min(Math.max(0, caret.row - lines + 1), Math.max(0, rows.length - lines))
+  const drawn = Array.from({ length: lines }, (_, n): L => {
+    const r = from + n
+    const chars = Array.from(rows[r] ?? '')
+    if (!caretOn || r !== caret.row) return card([pad, sp(chars.join(''))], room)
+    const under = chars[caret.col] ?? ' '
+    return card([pad, sp(chars.slice(0, caret.col).join('')), sp(under, { inverse: true }), sp(chars.slice(caret.col + 1).join(''))], room)
+  })
+  return [blankRow(), ...drawn, blankRow()]
 }
 
 // The card's last row: its actions as kit buttons against the right edge, Cancel and Send & mark done plain words, Send
@@ -86,7 +93,7 @@ function rowLines(row: PaneRow, room: number, draft?: Draft): L[] {
     case 'compose':
       return composeLines(row.lines, room, draft)
     case 'composeActions':
-      return [composeActionsLine(row.buttons, room)]
+      return [composeActionsLine(row.buttons, room), card([], room)]
     case 'blank':
       return [[]]
     case 'text': {
