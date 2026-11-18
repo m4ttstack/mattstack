@@ -1,4 +1,4 @@
-import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, revealTab, selectList, sp, tabStrip, textCursor, widthOf, type Button, type Drawn, type Line, type Tab } from '@mattstack/mod-kit'
+import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, buttonRow, clipLine, fitToRows, gridLook, hang, maxScroll, menu, revealOffset, scrollBar, rail, reviewList as reviewItems, selectList, sp, textCursor, widthOf, type Button, type Drawn, type Line } from '@mattstack/mod-kit'
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
@@ -118,25 +118,21 @@ function closedPage(form: Form, s: State, view: View): L[] {
   return [...reviewList(form, s, view), [sp(SYMBOL.bar, GRAY)], ...hang([sp(SYMBOL.end, GRAY), sp('  ')], rest, end.text, view.width, end.isWarn ? WARN : {})]
 }
 
-function tabList(form: Form, s: State): Tab<Action>[] {
+// Progress, not navigation targets: a dot per question (answered, current, to do), each still a click to its page,
+// then where you are and how many are left. There is no Submit item; the last page's button goes to the review.
+function progress(form: Form, s: State, view: View): L {
   const n = form.questions.length
-  const list: Tab<Action>[] = form.questions.map((q, i) => ({
-    label: q.header,
-    mark: s.answered[i] ? ICON.done : ICON.todo,
-    isDone: s.answered[i] === true,
-    action: { type: 'page', page: i },
-  }))
-  list.push({ label: 'Submit', isDone: false, action: { type: 'page', page: n } })
-  return list
-}
-
-function tabs(form: Form, s: State, view: View): L {
-  return tabStrip({ tabs: tabList(form, s), current: s.page, width: view.width, from: s.tabsFrom, scrollTo: from => ({ type: 'scroll-tabs', from }) })
-}
-
-// After a page change: the tab strip's start that keeps it still unless the new page is out of view.
-export function withTabInView(form: Form, s: State, width: number): State {
-  return { ...s, tabsFrom: revealTab(tabList(form, s), s.page, width, s.tabsFrom) }
+  const dots: L = form.questions.flatMap((_, i): L => [
+    sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { ...(i === s.page ? ACCENT : s.answered[i] ? DONE : GRAY), action: { type: 'page', page: i } }),
+    sp(' '),
+  ])
+  const q = form.questions[s.page]
+  const where: L = q ? [sp(` ${q.header}`, { bold: true }), sp(`  question ${s.page + 1} of ${n}`, DIM)] : [sp(' review', { bold: true })]
+  const missing = unansweredCount(s)
+  const left = sp<Action>(missing === 0 ? 'all answered' : `${missing} to answer`, missing === 0 ? DONE : DIM)
+  const line: L = [sp(SYMBOL.bar, GRAY), sp('  '), ...dots, ...where]
+  const room = view.width - widthOf(line) - widthOf([left])
+  return room >= 2 ? [...line, sp(' '.repeat(room)), left] : line
 }
 
 const MORE: Action = { type: 'menu', hit: { type: 'toggle' } }
@@ -218,7 +214,7 @@ function draw(form: Form, s: State, view: View): Drawn<Action> {
     head.push(...hang(indent, indent, contextText(form.context), view.width), ...(isConfirm(form) ? [] : [gap, divider, gap]))
   }
   if (isConfirm(form)) return { head, page: [], foot: confirmFoot(form, view) }
-  if (!isSinglePage(form)) head.push(tabs(form, s, view), gap)
+  if (!isSinglePage(form)) head.push(progress(form, s, view), gap)
 
   const q = form.questions[s.page]
   const accentBar = rail<Action>(ACCENT)

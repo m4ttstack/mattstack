@@ -3,7 +3,7 @@ import { Lines, Panel, kitClient } from '@mattstack/mod-kit'
 import type { Form } from '../types'
 import { keyEffect, perform, pressesButton, type Effect } from './form/input'
 import { afterAttempt, initial, type State } from './form/state'
-import { fittedLines, withTabInView } from './form/view'
+import { fittedLines } from './form/view'
 
 // `wheel`: the pane's running wheel total (kit `wheelTotal`), which scrolls a page too tall for the pane.
 type Props = { form: Form; rows: number; cols: number; focused: boolean; wheel?: number }
@@ -17,7 +17,7 @@ export default kitClient<Props, State>(
     const apply = (effect: Effect | undefined) => {
       if (!effect) return false
       if (effect.post !== undefined) ui.post(effect.post)
-      ui.setState(effect.state.page === ui.state.page ? effect.state : withTabInView(form, effect.state, width))
+      ui.setState(effect.state)
       return true
     }
     ui.onKey(ev => {
