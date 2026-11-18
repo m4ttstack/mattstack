@@ -177,29 +177,73 @@
   overflow-wrap: anywhere;
 }
 
-/* The key cap is the row's only mark: it hints the key, and fills with
-   the accent once the row is picked. */
-.cap.cap {
+/* A split key: the number to press, then the check or radio mark, which
+   fills with the accent once the row is picked. Square for pick-any,
+   round for pick-one. */
+.key {
+  display: inline-flex;
   flex-shrink: 0;
   align-self: flex-start;
-  min-width: 22px;
+  height: 22px;
   margin-top: 1px;
-  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--tk-border);
+  border-radius: 6px;
+  background-color: var(--tk-card);
 }
 
-/* Square for pick-any, round for pick-one, as checkboxes and radios are. */
-.cap.cap[data-shape='check'] {
-  border-radius: 5px;
-}
-
-.cap.cap[data-shape='radio'] {
+.key[data-shape='radio'] {
   border-radius: 999px;
 }
 
-.card.card[data-checked] .cap.cap {
+.key[data-picked] {
   border-color: var(--tk-fill-accent);
-  background-color: var(--tk-fill-accent);
+}
+
+.keyNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding-inline: 4px;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  color: var(--tk-text-3);
+}
+
+.key[data-picked] .keyNum {
+  color: var(--tk-text-accent);
+}
+
+.keyMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  background-color: var(--tk-panel);
   color: var(--tk-on-fill-accent);
+}
+
+.key[data-picked] .keyMark {
+  background-color: var(--tk-fill-accent);
+}
+
+.keyGlyph {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--tk-line-2);
+  border-radius: 2px;
+}
+
+.key[data-shape='radio'] .keyGlyph {
+  border-radius: 999px;
+}
+
+.key[data-shape='radio'][data-picked] .keyGlyph {
+  width: 9px;
+  height: 9px;
+  border: 0;
+  background-color: var(--tk-on-fill-accent);
 }
 
 .footer {
