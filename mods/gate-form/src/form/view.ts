@@ -127,6 +127,12 @@ function answerSummary(q: FormQuestion, s: State, i: number): string {
   return values.length === 0 ? 'none' : values.map(label).join(', ')
 }
 
+// A joined split's recorded answer is its parts' picks read as one list.
+function wonOf(q: FormQuestion, won: Record<string, unknown>): unknown {
+  if (!q.parts) return won[q.id]
+  return q.parts.flatMap(part => (Array.isArray(won[part.id]) ? (won[part.id] as unknown[]) : []))
+}
+
 // An answer another surface recorded, in gate_answer's shape, read against this form's options.
 function wonSummary(q: FormQuestion, raw: unknown): string {
   const label = (v: unknown) => q.options.find(o => o.value === v)?.label ?? String(v)
@@ -185,7 +191,7 @@ function reviewList(form: Form, s: State, view: View): L[] {
   return reviewItems<Action>(
     form.questions.map((q, i) => ({
       label: q.label,
-      summary: won ? wonSummary(q, won[q.id]) : s.answered[i] ? answerSummary(q, s, i) : undefined,
+      summary: won ? wonSummary(q, wonOf(q, won)) : s.answered[i] ? answerSummary(q, s, i) : undefined,
       ...(isOpen && { action: { type: 'page', page: i } as const }),
     })),
     view.width,

@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test'
 import type { Form } from '../../types'
 import { agentFields, answerOutcome, boardFields, formFromRow, gateForm, readKitResult, savedResult, spillPaths, spilledGate, toForm } from './parse'
 import { BOARD_INSTRUCTION, GATE_INSTRUCTION } from './reply'
+import { answersOf, initial } from '../form/state'
 
 const QUESTIONS = [
   { id: 'tier', label: 'Plan tier', multi: false, options: [{ value: 'std', label: 'Standard' }, { value: 'light', label: 'Light' }] },
@@ -141,4 +142,36 @@ test('a gate the form cannot draw tells the agent to wait on the board instead',
   expect(fields).toMatchObject({ id: 'g1', paneAction: 'wait', subject: 'run:1' })
   expect(fields.instruction).toBe(BOARD_INSTRUCTION('g1'))
   expect(BOARD_INSTRUCTION('g1')).toContain('rt gate wait g1')
+})
+
+const opt = (value: string) => ({ value, label: value })
+const part = (id: string, values: string[], over: Record<string, unknown> = {}) => ({ id, label: `Which previews? (${id.slice(-1)} of 2)`, multi: true, options: values.map(opt), ...over })
+const ids = (form: Form | string) => (form as Form).questions.map(q => q.id)
+
+test('a pick-any list split into <id>-1, <id>-2 is drawn as one question, and answered back per part', () => {
+  const form = toForm('t', undefined, [part('labels-1', ['a', 'b', 'c', 'd']), part('labels-2', ['e', 'f']), { id: 'after', label: 'After', multi: false, options: [opt('x')] }], 'gate') as Form
+  expect(ids(form)).toEqual(['labels', 'after'])
+  const joined = form.questions[0]!
+  expect(joined.label).toBe('Which previews?')
+  expect(joined.options.map(o => o.value)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+  const s = { ...initial(form), picked: [['b', 'e', 'f'], []], answered: [true, false] }
+  expect(answersOf(form, s)).toEqual({ 'labels-1': ['b'], 'labels-2': ['e', 'f'] })
+  const none = { ...initial(form), picked: [['a'], []], answered: [true, false] }
+  expect(answersOf(form, none)).toEqual({ 'labels-1': ['a'], 'labels-2': [] })
+})
+
+test('anything short of a certain split is left as separate questions', () => {
+  const cases: [string, unknown[]][] = [
+    ['a single-pick part', [part('l-1', ['a']), part('l-2', ['b'], { multi: false })]],
+    ['a write-in part', [part('l-1', ['a']), part('l-2', ['b'], { writeIn: true })]],
+    ['a gap in the numbers', [part('l-1', ['a']), part('l-3', ['b'])]],
+    ['numbering that starts past 1', [part('l-2', ['a']), part('l-3', ['b'])]],
+    ['a lone -1', [part('l-1', ['a'])]],
+    ['a value in two parts', [part('l-1', ['a', 'b']), part('l-2', ['b'])]],
+    ['a question already named the base', [{ id: 'l', label: 'L', multi: true, options: [opt('z')] }, part('l-1', ['a']), part('l-2', ['b'])]],
+  ]
+  for (const [why, questions] of cases) {
+    const form = toForm('t', undefined, questions, 'gate')
+    expect(ids(form), why).toEqual((questions as { id: string }[]).map(q => q.id))
+  }
 })

@@ -575,7 +575,11 @@ function answersOf(form, s) {
       out[q.id] = s.text[i];
     else if (q.multi) {
       const values = s.picked[i].filter((v) => v !== WRITE_IN);
-      out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
+      if (q.parts)
+        for (const part of q.parts)
+          out[part.id] = values.filter((v) => part.values.includes(v));
+      else
+        out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
     } else {
       const value = s.chosen[i];
       out[q.id] = value === WRITE_IN ? { writeIn: typed } : value;
@@ -745,6 +749,44 @@ function toQuestion(q, seen, source) {
     options
   };
 }
+var SPLIT_ID = /^(.+)-(\d+)$/;
+var PART_OF = /\s*\(\d+\s+of\s+\d+\)\s*$/i;
+function joinSplits(questions) {
+  const ids = new Set(questions.map((q) => q.id));
+  const out = [];
+  let i = 0;
+  while (i < questions.length) {
+    const first = SPLIT_ID.exec(questions[i].id);
+    const base = first?.[1];
+    if (!first || first[2] !== "1" || base === undefined || ids.has(base)) {
+      out.push(questions[i]);
+      i += 1;
+      continue;
+    }
+    let end = i + 1;
+    while (end < questions.length && questions[end].id === `${base}-${end - i + 1}`)
+      end += 1;
+    const run = questions.slice(i, end);
+    const values = run.flatMap((q) => q.options.map((o) => o.value));
+    const isSplit = run.length >= 2 && run.every((q) => q.multi && !q.writeIn && !q.other) && new Set(values).size === values.length;
+    if (!isSplit) {
+      out.push(...run);
+      i = end;
+      continue;
+    }
+    const head = run[0];
+    out.push({
+      ...head,
+      id: base,
+      header: head.header === head.id ? base : head.header.replace(SPLIT_ID, "$1"),
+      label: head.label.replace(PART_OF, ""),
+      options: run.flatMap((q) => q.options),
+      parts: run.map((q) => ({ id: q.id, values: q.options.map((o) => o.value) }))
+    });
+    i = end;
+  }
+  return out;
+}
 function toForm(title, context, raw, source) {
   if (!Array.isArray(raw) || raw.length === 0)
     return "questions must be a non-empty array.";
@@ -761,7 +803,7 @@ function toForm(title, context, raw, source) {
     id: `f${Date.now().toString(36)}${counter}`,
     title: isText(title) ? title : DEFAULT_TITLE,
     ...isText(context) && { context },
-    questions,
+    questions: source === "plugin" ? questions : joinSplits(questions),
     status: "open",
     source
   };
