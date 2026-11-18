@@ -139,13 +139,20 @@ export interface GatePanelProps {
   /** The stage the gate stops, or null when the run does not say. */
   stage: string | null;
   now: number;
+  /** Fills a pane with no card edge of its own. */
+  embedded?: boolean;
 }
 
 /** Where Matt answers an open or parked `run:` gate on the live run page:
     what the agent found beside a stepped form, one question at a time. A
     gate a shepherd owns reads neutral and asks before its answer overrides
     the shepherd. */
-export function GatePanel({ gate, stage, now }: GatePanelProps) {
+export function GatePanel({
+  gate,
+  stage,
+  now,
+  embedded = false,
+}: GatePanelProps) {
   const queryClient = useQueryClient();
   const mine = isMine(gate);
   const draft = useGateDraft(gate.id);
@@ -373,7 +380,8 @@ export function GatePanel({ gate, stage, now }: GatePanelProps) {
   return (
     <StatusCard
       tone={mine ? 'bad' : undefined}
-      attention={mine ? 'bad' : undefined}
+      attention={mine && !embedded ? 'bad' : undefined}
+      className={embedded ? classes.embedded : undefined}
       head={
         <>
           <Glyph
@@ -813,6 +821,7 @@ function Question({
         value={note}
         onChange={event => onNote(event.currentTarget.value)}
         wrapperProps={{ 'data-parity': 'note' }}
+        classNames={{ input: classes.noteInput }}
       />
     </>
   );
@@ -824,17 +833,28 @@ export function GatePanels({
   gates,
   stageOf,
   now,
+  embedded = false,
 }: {
   gates: GateRow[];
   stageOf: (gate: GateRow) => string | null;
   now: number;
+  embedded?: boolean;
 }) {
   const ordered = [...gates].sort((a, b) => a.openedAt - b.openedAt);
   return (
-    <Stack gap={14} className={classes.stack}>
+    <Stack gap={embedded ? 0 : 14} className={classes.stack}>
       {ordered.map(g => (
-        <div key={g.id} id={`gate-${g.id}`} className={classes.slot}>
-          <GatePanel gate={g} stage={stageOf(g)} now={now} />
+        <div
+          key={g.id}
+          id={`gate-${g.id}`}
+          className={embedded ? classes.embeddedSlot : classes.slot}
+        >
+          <GatePanel
+            gate={g}
+            stage={stageOf(g)}
+            now={now}
+            embedded={embedded}
+          />
         </div>
       ))}
     </Stack>

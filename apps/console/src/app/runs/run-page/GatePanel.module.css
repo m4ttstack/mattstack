@@ -152,3 +152,24 @@
 .tipTarget {
   display: inline-flex;
 }
+
+.embedded.embedded.embedded.embedded {
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+}
+
+.embeddedSlot {
+  width: 100%;
+  scroll-margin-top: var(--mantine-spacing-xl);
+}
+
+.embeddedSlot + .embeddedSlot {
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+/* Mantine sizes a one-row textarea taller than its padding and line, which
+   leaves the placeholder riding above the centred icon. */
+.noteInput.noteInput {
+  padding-block: 7px;
+}

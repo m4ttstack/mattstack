@@ -24,7 +24,12 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
   const { run, stages, fields, decisions } = data;
   const now = nowOf(data);
   const kind = runKind(run.work_type);
-  const { gates, failed: gatesFailed, retry: retryGates } = useRunGates(runId);
+  const {
+    gates,
+    isLoading: gatesLoading,
+    failed: gatesFailed,
+    retry: retryGates,
+  } = useRunGates(runId);
   const enrich = useRunsEnrich(run.branch ? [run.branch] : []);
   const enrichment = run.branch ? enrich.data?.[run.branch] : undefined;
   const workspace = useLinearWorkspace().data ?? null;
@@ -85,6 +90,7 @@ export function useRunParts(repo: string, runId: string, data: RunPageData) {
     kind,
     gates,
     gatesFailed,
+    gatesLoading,
     retryGates,
     enrichment,
     facts,

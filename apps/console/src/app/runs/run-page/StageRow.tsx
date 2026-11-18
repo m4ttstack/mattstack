@@ -219,6 +219,62 @@ export function StageNavItem({
   );
 }
 
+/** The stage held on a question for you, last in the story's list: picking it
+    shows the question in the pane. */
+export function WaitingNavItem({
+  stage,
+  waitedMs,
+  questions,
+  active,
+  onPick,
+}: {
+  stage: string;
+  waitedMs: number;
+  questions: number;
+  active: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <NavLink
+      component="button"
+      active={active}
+      onClick={onPick}
+      leftSection={
+        <ThemeIcon
+          radius="xl"
+          size={16}
+          color="bad"
+          aria-label="waiting on you"
+          className={classes.keep}
+        />
+      }
+      label={
+        <Group gap={8} wrap="nowrap">
+          <Text span fz="md" fw={500} c="bad" truncate>
+            {stage}
+          </Text>
+          <Text span fz="sm" c="dimmed" className={classes.keep}>
+            waiting {formatDuration(waitedMs)}
+          </Text>
+        </Group>
+      }
+      description={
+        questions === 1
+          ? '1 question for you'
+          : `${questions} questions for you`
+      }
+      classNames={{
+        root: `${classes.nav} ${classes.waitingNav}`,
+        section: classes.navBullet,
+        description: classes.navSummary,
+      }}
+      data-stage={stage}
+      data-testid="story-waiting"
+      aria-current={active ? 'step' : undefined}
+    />
+  );
+}
+
 /** One stage attempt in full: its name and time over its stage doc, fields,
     decisions and evidence. */
 export function StagePane({

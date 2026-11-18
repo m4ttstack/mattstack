@@ -1,10 +1,10 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Paper, Text } from '@mattstack/app-kit/core';
 import type { RunFieldRow } from '@mattstack/rt-client';
 
 import type { StoryEntry } from '../derive/story';
 import { StageDocLink } from './StageDoc';
-import { StageNavItem, StagePane } from './StageRow';
+import { StageNavItem, StagePane, WaitingNavItem } from './StageRow';
 import classes from './Story.module.css';
 
 export interface StoryProps {
@@ -20,7 +20,19 @@ export interface StoryProps {
       decision rings until the next click or key. */
   linkedGateId?: string | null;
   ticket?: string | null;
+  waiting?: StoryWaiting | null;
 }
+
+/** The stage held on questions for you: a last row in the list, picked
+    first, whose pane is the questions themselves. */
+export interface StoryWaiting {
+  stage: string;
+  waitedMs: number;
+  questions: number;
+  pane: ReactNode;
+}
+
+const WAITING_KEY = 'waiting';
 
 const MIN_HEIGHT = 420;
 
@@ -96,9 +108,11 @@ export function Story({
   pathHref,
   linkedGateId = null,
   ticket = null,
+  waiting = null,
 }: StoryProps) {
   const [picked, setPicked] = useState<string | null>(null);
-  const fit = useFitToWindow(entries.length > 1);
+  const rows = entries.length + (waiting ? 1 : 0);
+  const fit = useFitToWindow(rows > 1);
   const [seenLink, setSeenLink] = useState<string | null>(null);
   const linked = keyOfGate(entries, linkedGateId);
   if (linked && linkedGateId !== seenLink) {
@@ -106,7 +120,17 @@ export function Story({
     setPicked(linked);
   }
 
-  if (entries.length === 0) return null;
+  if (rows === 0) return null;
+  if (waiting && entries.length === 0) {
+    return (
+      <Paper variant="ground" withBorder radius={12} className={classes.list}>
+        {waiting.pane}
+      </Paper>
+    );
+  }
+  const showWaiting =
+    waiting !== null &&
+    (picked === WAITING_KEY || (picked === null && linked === null));
   const shown =
     entries.find(e => e.key === picked) ??
     entries.find(e => e.key === startingKey(entries))!;
@@ -133,7 +157,7 @@ export function Story({
         aria-label={label}
         data-parity="Story list"
       >
-        {entries.length > 1 ? (
+        {rows > 1 ? (
           <div
             ref={fit.ref}
             className={classes.split}
@@ -151,21 +175,38 @@ export function Story({
                     <StageNavItem
                       entry={entry}
                       evidenceField={evidenceField}
-                      active={entry.key === shown.key}
+                      active={!showWaiting && entry.key === shown.key}
                       onPick={() => setPicked(entry.key)}
                     />
                   </div>
                 ))}
+                {waiting ? (
+                  <div className={classes.stageRow}>
+                    <WaitingNavItem
+                      stage={waiting.stage}
+                      waitedMs={waiting.waitedMs}
+                      questions={waiting.questions}
+                      active={showWaiting}
+                      onPick={() => setPicked(WAITING_KEY)}
+                    />
+                  </div>
+                ) : null}
               </nav>
             </div>
             <div className={`${classes.column} ${classes.paneColumn}`}>
-              <div className={classes.columnHead}>
-                <Text fz="md" fw={600} lh="normal" truncate>
-                  {shown.label}
-                </Text>
-                <StageDocLink stage={shown.attempt.stage} />
-              </div>
-              <div className={classes.pane}>{pane}</div>
+              {showWaiting ? (
+                <div className={classes.waitingPane}>{waiting!.pane}</div>
+              ) : (
+                <>
+                  <div className={classes.columnHead}>
+                    <Text fz="md" fw={600} lh="normal" truncate>
+                      {shown.label}
+                    </Text>
+                    <StageDocLink stage={shown.attempt.stage} />
+                  </div>
+                  <div className={classes.pane}>{pane}</div>
+                </>
+              )}
             </div>
           </div>
         ) : (
@@ -199,6 +240,7 @@ export function RunStory({
   pathHref,
   linkedGateId,
   ticket,
+  waiting = null,
 }: {
   repo: string;
   runId: string;
@@ -212,6 +254,7 @@ export function RunStory({
   pathHref?: (path: string) => string | null;
   linkedGateId?: string | null;
   ticket?: string | null;
+  waiting?: StoryWaiting | null;
 }) {
   const entries = story ? story.entries : block ? [block] : [];
   return (
@@ -224,6 +267,7 @@ export function RunStory({
       pathHref={pathHref}
       linkedGateId={linkedGateId}
       ticket={ticket}
+      waiting={waiting}
     />
   );
 }
