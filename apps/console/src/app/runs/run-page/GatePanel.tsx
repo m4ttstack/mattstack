@@ -735,11 +735,11 @@ function OptionBody({
     ? splitCommand(description)
     : { prose: '', command: null };
   return (
-    <Group gap={12} wrap="nowrap" className={classes.optionRow}>
+    <Group gap={10} wrap="nowrap" className={classes.optionRow}>
       {multiple ? (
-        <Checkbox.Indicator data-parity="radio" />
+        <Checkbox.Indicator size="xs" data-parity="radio" />
       ) : (
-        <Radio.Indicator data-parity="radio" />
+        <Radio.Indicator size="xs" data-parity="radio" />
       )}
       <Stack gap={3} className={classes.optionText}>
         <Group gap={8} wrap="nowrap">
@@ -802,7 +802,7 @@ function Question({
   const label = <span data-parity="q">{item.prompt}</span>;
   const labelProps = { fz: 'lg', fw: 600, lh: 'normal' };
   const options = (
-    <Stack gap={10}>
+    <Stack gap={0} className={classes.options}>
       {item.choices.map((choice, i) => {
         const body: ReactNode = (
           <OptionBody choice={choice} index={i} multiple={item.multiple} />
