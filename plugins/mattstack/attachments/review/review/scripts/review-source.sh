@@ -5,7 +5,8 @@
 # extras.json: {"target": "!87", "reviewer"?, "round"?, "editable"?,
 # "questions": [<the questions that follow the findings, outcome first>]}.
 # editable true needs a comment on every finding and a summary.comments
-# line for exactly the option values of the extras' outcome question.
+# line for exactly the option values of the extras' outcome question, and
+# summary.noFindingsComments, when present, with those same keys.
 # stdout: {"context": <review@1>, "questions": [thread-1.., findings-1..,
 # skipped-1.., extras questions]}. Findings go Critical, Important, Minor
 # (report order within a tier), four options per findings-N question;

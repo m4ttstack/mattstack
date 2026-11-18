@@ -37,6 +37,7 @@ import {
   draftEdits,
   findOutcomeQuestion,
   hasDiffLine,
+  postsNothing,
   summaryDraftFor,
   type ReviewDrafts,
 } from './review-drafts.ts';
@@ -59,6 +60,7 @@ import {
   CarryoverTally,
   carryoverTexts,
   FindingAnchor,
+  isPosting,
   SkippedEarlier,
 } from './ReviewRoundParts.tsx';
 import { withSeps } from './Sep.tsx';
@@ -573,8 +575,11 @@ function ReviewGateSheet({
     : undefined;
   const verdict =
     typeof selectedOutcome === 'string' ? selectedOutcome : undefined;
-  const nothingTicked =
-    selectedFindings.size === 0 && selectedSkipped.size === 0;
+  const nothingTicked = postsNothing(
+    selectedFindings,
+    selectedSkipped,
+    carryovers.some(p => isPosting(p, form.selections))
+  );
   const summaryDraft =
     drafts && verdict !== undefined
       ? summaryDraftFor(drafts, verdict, nothingTicked)

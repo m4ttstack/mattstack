@@ -1649,6 +1649,21 @@ describe('a gate whose poster honors edited drafts', () => {
       await untickAll();
       expect(valueOf(summaryLine())).toContain(SUMMARY);
     });
+
+    test('no-findings drafts missing a verdict are dropped, keeping the verdict drafts', async () => {
+      const g = draftsGate();
+      await render({
+        ...g,
+        context: j({
+          ...JSON.parse(g.context as string),
+          summaryNoFindingsComments: { comment: NONE_COMMENT },
+        }),
+      });
+      await untickAll();
+      expect(valueOf(summaryLine())).toContain(SUMMARY);
+      await click(submitButton());
+      expect(answers().outcome).toBe('approve');
+    });
   });
 
   test('submitting under comment sends no approve edit', async () => {

@@ -17,6 +17,16 @@ export interface ReviewDrafts {
   noneSummaries?: Record<string, string>;
 }
 
+/** True when the review posts nothing beside its summary: no new finding,
+    no restored skipped finding and no thread reply. */
+export function postsNothing(
+  findings: ReadonlySet<string>,
+  restored: ReadonlySet<string>,
+  postsAReply: boolean
+): boolean {
+  return findings.size === 0 && restored.size === 0 && !postsAReply;
+}
+
 /** The summary draft the selected verdict posts, and the form key its edit
     lives under. With nothing ticked, the no-findings draft when the gate
     carries one, since the verdict draft speaks of findings. */

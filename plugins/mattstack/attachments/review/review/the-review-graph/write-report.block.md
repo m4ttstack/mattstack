@@ -22,7 +22,8 @@ here, before any gate opens.
    the reviewer wants them. None holds an issue list: each ticked finding
    with no diff line joins it at post time (Compose).
 4. `summary.noFindingsComments`: the same keys, one line per verdict for a
-   review the human posts with every finding unticked:
+   review the human posts with nothing beside the summary (every finding
+   unticked, no thread reply):
    `{"comment": "...", "approve": "..."}`. Each is the whole summary line
    for that verdict, in that voice, for a review that posts no findings, so
    it speaks of no notes, nits, comments or findings left. Write it even

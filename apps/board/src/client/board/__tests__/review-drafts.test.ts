@@ -9,6 +9,7 @@ import {
   findOutcomeQuestion,
   hasDiffLine,
   noneSummaryKey,
+  postsNothing,
   summaryDraftFor,
   summaryKey,
 } from '../review-drafts.ts';
@@ -213,6 +214,14 @@ describe('with nothing ticked', () => {
         true
       )
     ).toEqual({ texts: {}, summary: 'Clean edit.' });
+  });
+
+  test('a restored skipped finding or a thread reply means something posts', () => {
+    const empty = new Set<string>();
+    expect(postsNothing(empty, empty, false)).toBe(true);
+    expect(postsNothing(new Set(['f1']), empty, false)).toBe(false);
+    expect(postsNothing(empty, new Set(['restore:r1']), false)).toBe(false);
+    expect(postsNothing(empty, empty, true)).toBe(false);
   });
 
   test('a blank no-findings edit cannot post', () => {
