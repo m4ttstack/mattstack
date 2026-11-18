@@ -91,7 +91,10 @@ function GateRedoNote({
   // Each open note owns its request: one closed (or closed and reopened)
   // while its request was in flight must not touch the editor now open.
   const live = useRef(true);
-  useEffect(() => () => void (live.current = false), []);
+  useEffect(() => {
+    live.current = true;
+    return () => void (live.current = false);
+  }, []);
   const send = async (note: string) => {
     const err = await redo(gate, note);
     if (!live.current) return;
@@ -282,11 +285,17 @@ export function ModePanel({
     .filter(Boolean)
     .join(' · ');
 
+  const pauseErrorId = `mode-pause-error-${runId}`;
   const onPause = async () => {
+    notifications.hide(pauseErrorId);
     setPressed(true);
     const err = await hold();
     setPressed(false);
-    if (err) notifications.error(`Couldn't pause the run: ${err}`);
+    if (err)
+      notifications.error({
+        id: pauseErrorId,
+        message: `Couldn't pause the run: ${err}`,
+      });
   };
 
   return (

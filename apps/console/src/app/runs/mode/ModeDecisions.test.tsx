@@ -1,6 +1,6 @@
 import '../../icons';
 
-import type { ReactNode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { GateRow } from '@mattstack/rt-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -201,6 +201,37 @@ describe('ModePanel', () => {
       )
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  it('a Pause that works after a refusal clears the refusal', async () => {
+    holdPost
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: 'answer the open gate first' }),
+      })
+      .mockResolvedValueOnce(ok());
+    wrap(panel());
+    await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await screen.findByText(/Couldn't pause the run/);
+    await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await waitFor(() =>
+      expect(screen.queryByText(/Couldn't pause the run/)).toBeNull()
+    );
+  });
+
+  it('under StrictMode a sent Redo still closes its note', async () => {
+    redoPost.mockResolvedValue(ok());
+    wrap(<StrictMode>{panel({ defaultOpen: true })}</StrictMode>);
+    await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    await userEvent.type(
+      screen.getByLabelText('What the worker should do differently'),
+      'x'
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Send back to plan' })
+    );
+    await waitFor(() => expect(screen.queryByTestId('redo-note')).toBeNull());
   });
 
   it('a note reopened while its first send is in flight stays open', async () => {
