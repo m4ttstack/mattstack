@@ -866,7 +866,7 @@ function Question({
         value={note}
         onChange={event => onNote(event.currentTarget.value)}
         wrapperProps={{ 'data-parity': 'note' }}
-        classNames={{ input: classes.noteInput }}
+        classNames={{ root: classes.note, input: classes.noteInput }}
       />
     </>
   );
