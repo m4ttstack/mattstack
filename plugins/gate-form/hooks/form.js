@@ -1449,7 +1449,7 @@ function closedPage(form, s, view) {
 function progress(form, s, view) {
   const n = form.questions.length;
   const dots = form.questions.flatMap((_, i) => [
-    sp(i === s.page ? SYMBOL.radioOn : s.answered[i] ? SYMBOL.radioOn : SYMBOL.radioOff, { color: i === s.page ? "white" : s.answered[i] ? "#8a8a8a" : "#555555", action: { type: "page", page: i } }),
+    sp(s.answered[i] ? "☑" : "☐", { color: i === s.page ? "white" : "#8a8a8a", action: { type: "page", page: i } }),
     sp(" ")
   ]);
   const marker = s.contextPaged ? [sp("◆", { color: isContextPage(s) ? "white" : "#8a8a8a", action: { type: "page", page: -1 } }), sp(" ")] : [];
