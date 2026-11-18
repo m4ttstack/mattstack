@@ -66,7 +66,10 @@ const REPORT = {
       rtVersion: "2.32.0",
       pluginVersion: null,
       macosVersion: null,
-      orgs: [{ org: "acme", layout: 5, clone: null, flags: ["behind origin by 3"] }],
+      orgs: [
+        { org: "acme", layout: 5, clone: { pull: "ok" }, flags: ["behind origin by 3"] },
+        { org: "beta", layout: 5, clone: null, flags: [] },
+      ],
       packs: [],
     },
   ],
@@ -102,6 +105,8 @@ describe("telemetryClones", () => {
     await telemetryClones([], {}, cloneDeps());
     expect(cap.stdout()).toContain("dev1");
     expect(cap.stdout()).toContain("behind origin by 3");
+    expect(cap.stdout()).toContain("not reported");
+    expect(cap.stdout()).not.toContain("healthy");
     expect(cap.stdout()).toContain("1 state change");
   });
 

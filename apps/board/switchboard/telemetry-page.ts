@@ -139,6 +139,14 @@ function updateCell(m: TelemetrySnapshot['macs'][number]): Cell {
   return '-';
 }
 
+/** A ping is unauthenticated, so its pull time may not be a date at all. */
+function lastPullCell(lastPullAt: string | null): Cell {
+  const at = lastPullAt ? Date.parse(lastPullAt) : NaN;
+  return Number.isNaN(at)
+    ? '-'
+    : { html: `<span class="nowrap">${time(at).html}</span>` };
+}
+
 function lastCheckCell(m: TelemetrySnapshot['macs'][number]): Cell {
   const at = m.appUpdate?.lastCheckAt
     ? Date.parse(m.appUpdate.lastCheckAt)
@@ -286,7 +294,7 @@ export function renderTelemetryPage(s: TelemetrySnapshot): string {
       { html: `<span class="nowrap">${escapeHtml(c.label)}</span>` },
       c.org,
       list(c.flags),
-      c.lastPullAt ? time(Date.parse(c.lastPullAt)) : '-',
+      lastPullCell(c.lastPullAt),
       String(c.stale),
     ])
   );

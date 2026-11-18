@@ -154,7 +154,7 @@ export async function collectPing(p: Probes, health?: PingHealthDeps): Promise<T
     );
   });
 
-  return {
+  return fitPing({
     installId,
     usernames,
     appVersion: await field("appVersion", null, () => readAppVersion(p)),
@@ -171,5 +171,29 @@ export async function collectPing(p: Probes, health?: PingHealthDeps): Promise<T
     orgs,
     packs,
     appUpdate: await field("appUpdate", null, () => readAppUpdate(p)),
-  };
+  });
+}
+
+/** Under the relay's 64 KB body cap, with room for headers. */
+const PING_BUDGET_BYTES = 60_000;
+
+const bytesOf = (ping: TelemetryPing): number => Buffer.byteLength(JSON.stringify(ping));
+
+/**
+ * The relay drops a whole ping over its cap, so the optional detail gives way
+ * first: dirty paths shrink to 10 per clone, then to none, then the stale
+ * lists go. Counts (`dirtyCount`) always stay true.
+ */
+export function fitPing(ping: TelemetryPing, budget: number = PING_BUDGET_BYTES): TelemetryPing {
+  if (bytesOf(ping) <= budget) return ping;
+  const withDirty = (keep: number): TelemetryPing => ({
+    ...ping,
+    orgs: ping.orgs.map((o) => (o.clone ? { ...o, clone: { ...o.clone, dirty: o.clone.dirty.slice(0, keep) } } : o)),
+  });
+  for (const keep of [10, 0]) {
+    const trimmed = withDirty(keep);
+    if (bytesOf(trimmed) <= budget) return trimmed;
+  }
+  const bare = withDirty(0);
+  return { ...bare, packs: bare.packs.map((p) => (p.stale ? { ...p, stale: null } : p)) };
 }

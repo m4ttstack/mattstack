@@ -115,11 +115,13 @@ describe("staleSkillsOf", () => {
         verbs: [
           { name: "work", status: "stale", staleBecause: ["source"] },
           { name: "review", status: "in-sync" },
+          { name: "ship", status: "never-compiled" },
         ],
         attachments: [{ name: "gate-protocol", status: "stale", staleBecause: ["version", "text"] }],
       }),
     ).toEqual([
       { skill: "work", causes: ["source"] },
+      { skill: "ship", causes: ["never-compiled"] },
       { skill: "gate-protocol", causes: ["version", "text"] },
     ]);
   });
@@ -137,7 +139,12 @@ describe("makePingHealth", () => {
     if (git === "rev-parse --short=12 HEAD") return { code: 0, stdout: "aaaaaaaaaaaa\n", stderr: "" };
     if (git === "rev-parse --short=12 @{u}") return { code: 0, stdout: "bbbbbbbbbbbb\n", stderr: "" };
     if (git === "rev-list --left-right --count @{u}...HEAD") return { code: 0, stdout: "3\t0\n", stderr: "" };
-    if (git === "status --porcelain=v1 --untracked-files=all") return { code: 0, stdout: " M mattstack/teams/web/plugin/skills/work/SKILL.md\n?? mattstack/teams/web/plugin/notes.md\n", stderr: "" };
+    if (git === "status --porcelain=v1 --untracked-files=all -z")
+      return {
+        code: 0,
+        stdout: " M mattstack/teams/web/plugin/skills/work/SKILL.md\0?? mattstack/teams/web/plugin/odd\tname.md\0R  mattstack/new.md\0mattstack/old.md\0",
+        stderr: "",
+      };
     if (argv.includes("check")) return { code: 1, stdout: JSON.stringify({ verbs: [{ name: "work", status: "stale", staleBecause: ["source"] }], attachments: [] }), stderr: "" };
     return { code: 1, stdout: "", stderr: "" };
   };
@@ -166,9 +173,22 @@ describe("makePingHealth", () => {
     expect(clone?.pull).toBe("local-changes");
     expect(clone?.dirty).toEqual([
       { path: "mattstack/teams/web/plugin/skills/work/SKILL.md", status: "M" },
-      { path: "mattstack/teams/web/plugin/notes.md", status: "??" },
+      { path: "mattstack/teams/web/plugin/odd\tname.md", status: "??" },
+      { path: "mattstack/new.md", status: "R" },
     ]);
     expect(await health.cloneHealth("other")).toBeNull();
     expect(await health.staleSkills("acme-pack")).toEqual([{ skill: "work", causes: ["source"] }]);
+  });
+
+  test("a git status that fails reads as no report, not a clean copy", async () => {
+    const failing = (argv: string[]) => (argv.includes("status") ? { code: 128, stdout: "", stderr: "fatal: not a git repository" } : exec(argv));
+    const health = makePingHealth({
+      probes: fakeProbes({ home: "/h", files: {}, exec: failing }),
+      rtArgv: ["rt"],
+      status: () => [
+        { slug: "acme", repoDir: DIR, lastPullAt: 1, lastPullError: null, lastPullSkipped: null, conflicted: null, layoutHold: null, pullOnly: true, firstSeenDirty: {} },
+      ],
+    });
+    await expect(health.cloneHealth("acme")).rejects.toThrow();
   });
 });

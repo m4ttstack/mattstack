@@ -232,6 +232,25 @@ describe('clone health on the telemetry page', () => {
     ]);
   });
 
+  test('a clone whose pull time is not a date still renders the page', () => {
+    const s = store();
+    s.record(
+      ping({
+        orgs: [
+          {
+            org: 'acme',
+            layout: 5,
+            clone: { ...CLONE, lastPullAt: 'not-a-date' },
+          },
+        ],
+      }),
+      null,
+      T0
+    );
+    const html = renderTelemetryPage(s.snapshot(T0));
+    expect(html).toContain('no good pull in 6h+');
+  });
+
   test('the page shows a Clone health panel', () => {
     const s = store();
     s.record(

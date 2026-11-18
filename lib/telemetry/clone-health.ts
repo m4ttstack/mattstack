@@ -10,6 +10,7 @@
  */
 
 import type { SnapshotStatus } from "../daemon/home-snapshot.ts";
+import { parsePorcelainZ } from "../daemon/home-snapshot-plan.ts";
 import type { Probes } from "../setup/probes.ts";
 import { knownDataBranch } from "../team/org-branch.ts";
 import type { PingHealthDeps } from "./ping.ts";
@@ -128,10 +129,15 @@ export function staleSkillsOf(check: unknown): StaleSkill[] {
     staleBecause?: unknown;
   }[];
   return rows
-    .filter((r) => r.status === "stale" && typeof r.name === "string")
+    .filter((r) => (r.status === "stale" || r.status === "never-compiled") && typeof r.name === "string")
     .map((r) => ({
       skill: r.name as string,
-      causes: Array.isArray(r.staleBecause) ? r.staleBecause.filter((c): c is string => typeof c === "string") : [],
+      causes:
+        r.status === "never-compiled"
+          ? ["never-compiled"]
+          : Array.isArray(r.staleBecause)
+            ? r.staleBecause.filter((c): c is string => typeof c === "string")
+            : [],
     }));
 }
 
@@ -150,11 +156,10 @@ export async function readCloneGit(p: Probes, dir: string): Promise<CloneGitFact
   const upstream = await gitText(p, dir, ["rev-parse", `--short=${SHA_LENGTH}`, "@{u}"]);
   const counts = upstream ? await gitText(p, dir, ["rev-list", "--left-right", "--count", "@{u}...HEAD"]) : null;
   const [behind, ahead] = counts ? counts.split(/\s+/).map((n) => Number.parseInt(n, 10)) : [null, null];
-  const porcelain = (await p.exec(["git", "-C", dir, "status", "--porcelain=v1", "--untracked-files=all"], { timeoutMs: GIT_TIMEOUT_MS })).stdout;
-  const dirty = porcelain
-    .split("\n")
-    .filter((line) => line.length > 3)
-    .map((line) => ({ status: line.slice(0, 2).trim(), path: line.slice(3).replace(/^.* -> /, "") }));
+  // NUL-delimited so a path git would quote arrives as written, matching the snapshot's firstSeenDirty keys.
+  const status = await p.exec(["git", "-C", dir, "status", "--porcelain=v1", "--untracked-files=all", "-z"], { timeoutMs: GIT_TIMEOUT_MS });
+  if (status.code !== 0) throw new Error(`git status exited ${status.code}`);
+  const dirty = parsePorcelainZ(status.stdout).map((entry) => ({ status: entry.xy.trim(), path: entry.path }));
   return {
     branch: branch === "HEAD" ? null : branch,
     head,

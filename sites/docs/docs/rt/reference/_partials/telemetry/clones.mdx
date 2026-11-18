@@ -30,7 +30,8 @@ compile, and why (`source`, `version`, `text` and so on).
 | You see | What happened | Fix |
 | --- | --- | --- |
 | `pull: fetch-auth`, an old `lastPullAt` | The copy can't sign in to the forge, often a token or keychain problem after a macOS update | `rt setup status`, then reconnect the forge account |
-| `pull: local-changes`, `behind` above 0, `dirty` listed | Files changed on this Mac block the fast-forward, so the copy is frozen behind origin | On a member's Mac, `rt skills discard --pack <pack>`, then `rt team pull` |
+| `pull: local-changes`, `behind` above 0, `dirty` files inside a pack | Files changed on this Mac block the fast-forward, so the copy is frozen behind origin | On a member's Mac, `rt skills discard --pack <pack>`, then `rt team pull` |
+| `pull: local-changes`, `dirty` files outside any pack (org or team settings) | The same freeze, but discard only touches files inside the pack | Look at each listed file in the person's org copy, keep or undo the change by hand, then `rt team pull` |
 | `stale` skills while `behind` is above 0 | The copy is old, and this Mac's newer mattstack compiles its old sources differently | Fix the pull first; the stale list clears once the copy catches up |
 | `stale` skills while `behind` is 0 | The pack was compiled with a different mattstack than this Mac runs | A team owner recompiles and publishes the pack |
 | `canPublish: false` with `dirty` files | Something wrote into a member's copy | Check `dirtySince` against the timeline to see when, then discard |

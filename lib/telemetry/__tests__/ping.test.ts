@@ -8,7 +8,7 @@ import { MIGRATION_IDS } from "../../setup/migrations/ids.ts";
 import { rtVersion } from "../../setup/update.ts";
 import { ENGINE_PACK_REF } from "../../skills/installed-plugins.ts";
 import type { PluginListEntry } from "../../skills/sources.ts";
-import { collectPing, readPingVersions, runningInVirtualMachine } from "../ping.ts";
+import { collectPing, fitPing, readPingVersions, runningInVirtualMachine } from "../ping.ts";
 
 const HOME = "/h";
 const ORGS = `${HOME}/.mattstack/orgs`;
@@ -317,5 +317,44 @@ describe("collectPing with clone health", () => {
     });
     expect(ping.orgs).toEqual([{ org: "acme", layout: 4, clone: null }]);
     expect(ping.packs).toEqual([{ id: "acme-pack@acme", version: null, stale: null }]);
+  });
+});
+
+describe("fitPing", () => {
+  const longPath = (i: number) => `mattstack/${"deep/".repeat(98)}f${i}.md`;
+  const bigClone = {
+    branch: "mattstack",
+    dataBranch: "mattstack",
+    head: null,
+    upstream: null,
+    behind: 1,
+    ahead: 0,
+    lastPullAt: null,
+    pull: "local-changes" as const,
+    canPublish: false,
+    dirtyCount: 40,
+    dirty: Array.from({ length: 40 }, (_, i) => ({ path: longPath(i), status: "M" })),
+    dirtySince: null,
+    conflicted: false,
+    layoutHold: false,
+  };
+
+  test("a ping under the budget is unchanged", async () => {
+    const ping = await collectPing(world([]));
+    expect(fitPing(ping, 60_000)).toEqual(ping);
+  });
+
+  test("trims dirty paths, then stale lists, to fit, keeping the true counts", async () => {
+    const base = await collectPing(world([]));
+    const ping = {
+      ...base,
+      orgs: ["a", "b", "c", "d"].map((org) => ({ org, layout: 5, clone: bigClone })),
+      packs: [{ id: "web@a", version: null, stale: [{ skill: "work", causes: ["source"] }] }],
+    };
+    expect(JSON.stringify(ping).length).toBeGreaterThan(60_000);
+    const fitted = fitPing(ping, 60_000);
+    expect(Buffer.byteLength(JSON.stringify(fitted))).toBeLessThanOrEqual(60_000);
+    expect(fitted.orgs.every((o) => o.clone?.dirtyCount === 40)).toBe(true);
+    expect(fitted.orgs[0]!.clone!.dirty.length).toBeLessThan(40);
   });
 });

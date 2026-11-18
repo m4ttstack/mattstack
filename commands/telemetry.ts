@@ -46,7 +46,7 @@ export async function telemetryOpen(_args: string[], _ctx: CommandContext = {}, 
 
 /** The relay's `/telemetry/clones.json`, typed only as far as the human view reads it; `--json` passes it through whole. */
 interface CloneReport {
-  macs: { label: string; orgs: { org: string; flags: string[] }[] }[];
+  macs: { label: string; orgs: { org: string; clone: unknown; flags: string[] }[] }[];
   events: unknown[];
 }
 
@@ -94,7 +94,9 @@ export async function telemetryClones(args: string[], _ctx: CommandContext = {},
     out.json(report);
     return;
   }
-  const rows = report.macs.flatMap((m) => m.orgs.map((o) => [m.label, o.org, o.flags.length > 0 ? o.flags.join("; ") : "healthy"]));
+  // A Mac older than clone reports, or one whose copy could not be read, sends no clone.
+  const cloneCell = (o: { clone: unknown; flags: string[] }) => (o.clone === null ? "not reported" : o.flags.length > 0 ? o.flags.join("; ") : "no problems");
+  const rows = report.macs.flatMap((m) => m.orgs.map((o) => [m.label, o.org, cloneCell(o)]));
   const changes = report.events.length;
   out.print(
     rows.length > 0 ? out.table(rows, ["Mac", "Org", "Clone"]) : out.line("pending", "No Mac has reported its clones yet"),
