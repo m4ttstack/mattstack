@@ -3426,7 +3426,7 @@ const SKILLS_VERBS: Record<string, (args: string[]) => Promise<void>> = {
   composition: skillsComposition,
   anatomy: skillsAnatomy,
   changes: skillsChanges,
-  discard: (args) => skillsDiscard(args, discardIo()),
+  discard: (args) => skillsDiscard(args, {}, discardIo()),
 };
 
 /** A run with nobody at the terminal and no shared checkout to guard; a prompt here is a bug. */
@@ -4491,6 +4491,19 @@ describe("skillsDiscard --json", () => {
   });
 });
 
+describe("skillsDiscard as the dispatcher calls it", () => {
+  test("a command context in the second argument still discards", async () => {
+    const { packDir } = makeCommittedPack();
+    writeFile(join(packDir, "pack", "skills.jsonc"), BINDINGS_AFTER);
+    const before = io.stdout().length;
+
+    await skillsDiscard(["--pack", "acme", "--pack-dir", packDir, "--json"], {});
+
+    expect(JSON.parse(io.stdout().slice(before)).discarded).toEqual([{ path: "pack/skills.jsonc", status: "M" }]);
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toBe(BINDINGS_BEFORE);
+  });
+});
+
 describe("skillsDiscard human output", () => {
   test("names the pack and what was thrown away", async () => {
     const { packDir } = makeCommittedPack();
@@ -4509,7 +4522,7 @@ describe("skillsDiscard human output", () => {
 
 async function discardWith(over: Partial<DiscardIo>, argv: string[]): Promise<{ exitCode: number | undefined; stderr: string; stdout: string }> {
   const before = io.stdout().length;
-  const { exitCode, errors } = await runExpectingCleanExit(() => skillsDiscard(argv, discardIo(over)));
+  const { exitCode, errors } = await runExpectingCleanExit(() => skillsDiscard(argv, {}, discardIo(over)));
   return { exitCode, stderr: errors.join("\n"), stdout: io.stdout().slice(before) };
 }
 
