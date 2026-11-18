@@ -170,18 +170,20 @@ test("each stop knows its buttons' lines, so a tall item's button can be brought
   expect(revealButtonOffset(above, 0, 0)).toBe(view.stops[0]!.lines[0]!)
 })
 
-test('in keyboard mode the selected item carries the pink rail in its gutter and a pink mark; the button its pink edge', () => {
+test('in keyboard mode the selected item carries a text-colour rail in its gutter and no pink; the button gets a bold ❯ before it', () => {
   const model = modelAt(many(3), 40)
   const range = rangeOf(model, 40, 40, 1)
   const selected = { type: 'press' as const, id: '2', button: 'done' as const }
   const lines = draw(model, 40, 40, 0, { selected, range, marked: true })
   lines.forEach((line, n) => {
     const inItem = n >= range.first && n <= range.last
-    expect(line[0]!.t === SYMBOL.bar && line[0]!.color === BRAND.pink, `row ${n}`).toBe(inItem)
+    expect(line[0]!.t === SYMBOL.bar && line[0]!.color === undefined, `row ${n}`).toBe(inItem)
   })
-  expect(lines[range.first]!.find(s => s.t === '○')?.color).toBe(BRAND.pink)
-  const edge = lines.flat().find(s => s.t === SYMBOL.selectEdge)
-  expect(edge).toMatchObject({ color: BRAND.pink, action: selected })
+  expect(lines[range.first]!.some(s => s.color === BRAND.pink)).toBe(false)
+  const edge = lines.flat().find(s => s.t.startsWith(SYMBOL.selectEdge))
+  expect(edge).toMatchObject({ bold: true })
+  expect(edge!.color).toBeUndefined()
+  expect(edge!.action).toBeUndefined()
   for (const line of lines) expect(cellWidth(textOf(line))).toBe(40)
 })
 
@@ -199,7 +201,7 @@ test('out of keyboard mode nothing is marked, and a pressing selection draws pre
   const range = rangeOf(model, 40, 40, 0)
   const selected = { type: 'press' as const, id: '1', button: 'done' as const }
   const plain = draw(model, 40, 40, 0, { selected, range, marked: false })
-  expect(plain.flat().some(s => s.t === SYMBOL.selectEdge || (s.t === SYMBOL.bar && s.color === BRAND.pink))).toBe(false)
+  expect(plain.flat().some(s => s.t === SYMBOL.selectEdge || s.t === SYMBOL.bar)).toBe(false)
   const resting = draw(model, 40, 40, 0).flat().find(s => s.t.trim() === 'Done')!
   const pressing = draw(model, 40, 40, 0, { selected, range, marked: true, pressing: true }).flat().find(s => s.t.trim() === 'Done')!
   expect(pressing.bg).not.toBe(resting.bg)

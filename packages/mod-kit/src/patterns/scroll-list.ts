@@ -1,6 +1,6 @@
 import { cellWidth, cutCells } from '../draw/cells'
 import { sp, widthOf, type Line } from '../draw/text'
-import { BRAND, SYMBOL } from '../draw/theme'
+import { BRAND, SYMBOL, markButtonAt } from '../draw/theme'
 import type { GridRow } from '../interact/grid'
 import { gridLook } from '../interact/grid'
 import { buttonRow, type Button } from '../widgets/buttons'
@@ -122,16 +122,17 @@ function markLead<A>(line: Line<A>, glyph: string): Line<A> {
 }
 
 // The window's lines, each in its gutter and ending in its scroll bar cells. The selected button takes the kit's selected
-// look, and its stop carries the pink rail in the gutter, which fills it exactly, so rows keep their place as the selection moves.
+// look, and its stop carries a rail in the text colour in the gutter, which fills it exactly, so rows keep their place as the selection moves.
 export function windowLines<A>(spec: WindowSpec<A>): Line<A>[] {
   const focus = spec.focus ?? {}
   const chosen = focus.selected === undefined ? undefined : JSON.stringify(focus.selected)
   const range = focus.marked ? focus.range : undefined
-  const rail: Line<A> = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(' '.repeat(Math.max(0, spec.gutter - 1)))]
+  const rail: Line<A> = [sp(SYMBOL.bar), sp(' '.repeat(Math.max(0, spec.gutter - 1)))]
   const plain: Line<A> = [sp(' '.repeat(spec.gutter))]
   return spec.shown.map((line, n) => {
     const at = spec.top + n
-    const lit = chosen ? line.flatMap(span => (span.action !== undefined && JSON.stringify(span.action) === chosen ? gridLook(span, focus) : [span])) : line
+    const hit = chosen ? line.findIndex(span => span.action !== undefined && JSON.stringify(span.action) === chosen) : -1
+    const lit = hit < 0 ? line : focus.marked ? markButtonAt(line, hit, focus) : line.flatMap((span, i) => (i === hit ? gridLook(span, focus) : [span]))
     const lead = range && at === range.first && spec.leadGlyph ? markLead(lit, spec.leadGlyph) : lit
     const gutter = range && at >= range.first && at <= range.last ? rail : plain
     return [...clipLine([...gutter, ...lead], spec.width - spec.barCells), ...(spec.bar[n] ?? [])]

@@ -106,7 +106,7 @@ export function paneModel(input: { list: Todo[]; expanded: string[]; spin: strin
     wrapWords(todo.title, inner - 2).forEach((line, n) =>
       rows.push(
         n === 0
-          ? { kind: 'text', text: `${isRunning ? `${spin} ` : '○ '}${line}`, tone: 'title', indent: false, ...(isRunning && { spin: true as const }) }
+          ? { kind: 'text', text: `${isRunning ? `${spin} ` : '☐ '}${line}`, tone: 'title', indent: false, ...(isRunning && { spin: true as const }) }
           : { kind: 'text', text: line, tone: 'title', indent: true },
       ),
     )
