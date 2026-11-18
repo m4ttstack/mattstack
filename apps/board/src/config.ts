@@ -985,9 +985,20 @@ async function boardSecrets(
   deps?: BoardSecretsDeps
 ): Promise<BoardSecretsData> {
   const res = await readBoardSecrets(deps);
-  if (res.ok) return res;
+  if (res.ok) {
+    secretsFailure = null;
+    return res;
+  }
+  secretsFailure = res.message;
   console.warn(`board: secrets unavailable (${res.message})`);
   return {};
+}
+
+let secretsFailure: string | null = null;
+
+/** Why the last board secrets read failed, or null once a read succeeds. */
+export function boardSecretsFailure(): string | null {
+  return secretsFailure;
 }
 
 /** Optional after the rt rewire: only the display-name lookup uses it; the

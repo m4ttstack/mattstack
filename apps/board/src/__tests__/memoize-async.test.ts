@@ -20,6 +20,22 @@ describe('memoizeAsync', () => {
     expect(calls).toBe(1);
   });
 
+  test('invalidate drops a pinned success, so the next call loads again', async () => {
+    let calls = 0;
+    const get = memoizeAsync<string | null>(
+      async () => {
+        calls++;
+        return calls === 1 ? 'old-token' : 'new-token';
+      },
+      v => v === null
+    );
+    expect(await get()).toBe('old-token');
+    get.invalidate();
+    expect(await get()).toBe('new-token');
+    expect(await get()).toBe('new-token');
+    expect(calls).toBe(2);
+  });
+
   test('a failure is cached only for the TTL, then retried; a later success then pins', async () => {
     let calls = 0;
     let clock = 0;
