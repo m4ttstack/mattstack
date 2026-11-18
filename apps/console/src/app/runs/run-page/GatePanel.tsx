@@ -725,10 +725,12 @@ function OptionBody({
   choice,
   index,
   multiple,
+  picked,
 }: {
   choice: GateItemChoice;
   index: number;
   multiple: boolean;
+  picked: boolean;
 }) {
   const description = choice.subtitle ?? choice.description;
   const { prose, command } = description
@@ -736,17 +738,29 @@ function OptionBody({
     : { prose: '', command: null };
   return (
     <Group gap={12} wrap="nowrap" className={classes.optionRow}>
-      {index < 9 && (
-        <Kbd
-          size="sm"
-          className={classes.cap}
-          data-shape={multiple ? 'check' : 'radio'}
-          data-testid="gate-option-key"
-          data-parity={`key ${index + 1}`}
-        >
-          <span data-parity="n">{index + 1}</span>
-        </Kbd>
-      )}
+      <span
+        className={classes.key}
+        data-shape={multiple ? 'check' : 'radio'}
+        data-picked={picked || undefined}
+        data-parity={`key ${index + 1}`}
+      >
+        {index < 9 && (
+          <span
+            className={classes.keyNum}
+            data-testid="gate-option-key"
+            data-parity="n"
+          >
+            {index + 1}
+          </span>
+        )}
+        <span className={classes.keyMark} aria-hidden>
+          {picked && multiple ? (
+            <Icon name="check" size={13} strokeWidth={3} />
+          ) : (
+            <span className={classes.keyGlyph} />
+          )}
+        </span>
+      </span>
       <Stack gap={3} className={classes.optionText}>
         <Group gap={8} wrap="nowrap">
           <Text fz="md" fw={500} lh="normal" data-parity="t">
@@ -801,7 +815,16 @@ function Question({
     <Stack gap={0} className={classes.options}>
       {item.choices.map((choice, i) => {
         const body: ReactNode = (
-          <OptionBody choice={choice} index={i} multiple={item.multiple} />
+          <OptionBody
+            choice={choice}
+            index={i}
+            multiple={item.multiple}
+            picked={
+              Array.isArray(value)
+                ? value.includes(choice.value)
+                : value === choice.value
+            }
+          />
         );
         const parity = `option ${choice.label}`;
         return item.multiple ? (
