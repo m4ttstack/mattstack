@@ -510,6 +510,18 @@ export interface PickRow {
   detail?: PickSegment[];
   /** Marks a row whose primary action can run with extra arguments; render.go's alt-held with-args chrome keys off this. */
   withArgs?: boolean;
+  /** What the preview column shows while this is the cursor row. */
+  preview?: PickPreview;
+}
+
+export interface PickPreview {
+  /** A PNG path, or a glyph for the empty tile ("?") when there is no face. */
+  face?: { path?: string; placeholder?: string };
+  /** Lines beside the face. */
+  header: PickSegment[][];
+  sections: { title: string; rows: { key: string; value: PickSegment[] }[] }[];
+  /** Verbatim tail lines of the pane's screen. */
+  screen?: string[];
 }
 
 export interface PickAction {

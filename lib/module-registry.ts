@@ -33,6 +33,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/logins.ts": () => import("../commands/logins.ts"),
   "./commands/mcp.ts": () => import("../commands/mcp.ts"),
   "./commands/pane.ts": () => import("../commands/pane.ts"),
+  "./commands/pane-attach.ts": () => import("../commands/pane-attach.ts"),
   "./commands/port.ts": () => import("../commands/port.ts"),
   "./commands/reconciler.ts": () => import("../commands/reconciler.ts"),
   "./commands/run.ts": () => import("../commands/run.ts"),

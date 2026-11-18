@@ -11,6 +11,8 @@ import {
   type BoardModel,
   type MissionModel,
   type PickRequest,
+  type PickRow,
+  type PickPreview,
   type PickAction,
   type PickUpdate,
   type PickModal,
@@ -309,4 +311,16 @@ test("the thrown clear fixture ends a step with clear and the failed status", ()
   const events = fixture("steps-stream-clear-thrown.json") as StepEvent[];
   expect(events.map((e) => e.t)).toEqual(["hello", "start", "done"]);
   expect(events.at(-1)).toEqual({ t: "done", title: "Pushing…", status: "failed", clear: true });
+});
+
+test("pick preview fixture round-trips and omits preview on a plain row", () => {
+  const req = fixture("pick-preview.json") as PickRequest;
+  const [face, empty, plain] = req.rows as [PickRow, PickRow, PickRow];
+  const preview: PickPreview = face.preview!;
+  expect(preview.face).toEqual({ path: "/faces/kirk.png" });
+  expect(preview.sections.map((s) => s.title)).toEqual(["WHERE", "HERD"]);
+  expect(preview.screen).toHaveLength(2);
+  expect(empty.preview?.face).toEqual({ placeholder: "?" });
+  expect("preview" in plain).toBe(false);
+  expect(JSON.parse(encodeLine(req))).toEqual(req);
 });

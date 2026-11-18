@@ -50,6 +50,33 @@ type PickRow struct {
 	// badge, and per-row dim all key off this. showPicker
 	// (lib/command-tree.ts) is the only setter on the wire.
 	WithArgs bool `json:"withArgs,omitempty"`
+	// Preview is what the preview column shows while this is the cursor row.
+	Preview *PickPreview `json:"preview,omitempty"`
+}
+
+type PickPreview struct {
+	Face     *PickPreviewFace     `json:"face,omitempty"`
+	Header   [][]PickSegment      `json:"header"`
+	Sections []PickPreviewSection `json:"sections"`
+	// Screen is the pane's last lines, verbatim.
+	Screen []string `json:"screen,omitempty"`
+}
+
+// PickPreviewFace is a PNG path, or a glyph for the empty tile ("?") when
+// there is no face.
+type PickPreviewFace struct {
+	Path        string `json:"path,omitempty"`
+	Placeholder string `json:"placeholder,omitempty"`
+}
+
+type PickPreviewSection struct {
+	Title string           `json:"title"`
+	Rows  []PickPreviewRow `json:"rows"`
+}
+
+type PickPreviewRow struct {
+	Key   string        `json:"key"`
+	Value []PickSegment `json:"value"`
 }
 
 type PickAction struct {

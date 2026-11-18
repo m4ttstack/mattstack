@@ -2524,6 +2524,16 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the focus result as JSON instead of the plain line" },
         ],
       },
+      attach: {
+        description: "Pick one of your Claude agents and jump into its terminal",
+        module: "./commands/pane-attach.ts",
+        fn: "paneAttach",
+        omitBehavior: "picker",
+        args: [
+          { name: "Pane", type: "text", optional: true, placeholder: "w7A:pY", hint: "The herdr pane to attach to; leave it out to pick one" },
+          { name: "Take over", flag: "--takeover", type: "boolean", default: false, hint: "Take the pane over from any other attached terminal" },
+        ],
+      },
       accounts: {
         description: "cswap accounts with rate-limit headroom, for spawn --account",
         module: "./commands/pane.ts",
