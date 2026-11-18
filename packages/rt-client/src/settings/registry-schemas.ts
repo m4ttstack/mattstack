@@ -258,7 +258,7 @@ export const SCHEMAS = {
   }),
   "claude.marketplaces": z.array(z.string()),
   "claude.plugins": z.array(z.string()),
-  "superpowers.execution": z.enum(["native-with-reviews", "subagent-driven", "native", "ask"]),
+  "superpowers.execution": z.enum(["native-with-reviews", "subagent-driven", "native", "ask"]).meta({ title: "Plan execution", description: "How Claude runs a superpowers plan once it is ready: Native with reviews, subagent-driven, Native, or ask each time." }),
   "deck.apps": z.record(
     z.string(),
     z.looseObject({

@@ -2402,7 +2402,9 @@
         "subagent-driven",
         "native",
         "ask"
-      ]
+      ],
+      "title": "Plan execution",
+      "description": "How Claude runs a superpowers plan once it is ready: Native with reviews, subagent-driven, Native, or ask each time."
     }
   }
 }

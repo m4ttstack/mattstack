@@ -5,6 +5,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
+import { SCHEMAS } from "../registry-schemas.ts";
 import type { SettingDef } from "../registry-machinery.ts";
 import { checkSchema, firstIssueText, formatIssuePath, layerJsonSchema, validateJson } from "../schema.ts";
 
@@ -119,5 +121,13 @@ describe("formatIssuePath and firstIssueText", () => {
   test("firstIssueText joins path and message", () => {
     expect(firstIssueText([{ path: [0, "pattern"], message: "expected string, got number" }])).toBe("[0].pattern: expected string, got number");
     expect(firstIssueText([])).toBe("");
+  });
+});
+
+describe("superpowers.execution", () => {
+  test("carries a console title and description", () => {
+    const json = z.toJSONSchema(SCHEMAS["superpowers.execution"], { io: "input" }) as { title?: string; description?: string };
+    expect(json.title).toBe("Plan execution");
+    expect(json.description).toContain("superpowers plan");
   });
 });
