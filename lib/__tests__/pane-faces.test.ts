@@ -32,6 +32,17 @@ test("a failing face is left out", async () => {
   expect(faces.get("ada")).toBe("/faces/ada.png");
 });
 
+test("a face that throws before it starts is left out", async () => {
+  const faces = await resolveFaces(["nadia", "ada"], {
+    face: (h) => {
+      if (h === "nadia") throw new Error("bad seed");
+      return Promise.resolve(`/faces/${h}.png`);
+    },
+  });
+  expect(faces.has("nadia")).toBe(false);
+  expect(faces.get("ada")).toBe("/faces/ada.png");
+});
+
 test("duplicates render once", async () => {
   const calls: string[] = [];
   await resolveFaces(["kirk", "kirk", "ada"], { face: async (h) => { calls.push(h); return `/faces/${h}.png`; } });

@@ -14,6 +14,7 @@ import {
 import { UserActionableError } from "../lib/errors.ts";
 import { paneBadge, type PaneBadgeKind } from "./pane.ts";
 import { resolveFaces } from "../lib/pane-faces.ts";
+import { rtSelfArgv } from "../lib/rt-self.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { runPick } from "../lib/ui/pick.ts";
@@ -138,6 +139,8 @@ export interface AttachDeps {
   pick: (req: Omit<PickRequest, "t" | "protocol">) => Promise<PickResult>;
   /** Runs argv in this terminal with inherited stdio; resolves to its exit code. */
   spawn: (argv: string[], env: Record<string, string | undefined>) => Promise<number>;
+  /** Draws these faces in a process that outlives this one, so the next picker has them. */
+  cacheLater: (handles: string[]) => void;
   exit: (code: number) => never;
 }
 
@@ -173,6 +176,8 @@ async function choose(deps: AttachDeps): Promise<{ paneId: string; action: strin
       return [p.paneId, r?.ok && r.data ? r.data.lines.slice(-SCREEN_LINES) : undefined] as const;
     })),
   ]);
+  const missing = [...new Set(handles)].filter((h) => !faces.has(h));
+  if (missing.length) deps.cacheLater(missing);
   const peeks = new Map(peeked.filter((e): e is readonly [string, string[]] => e[1] !== undefined));
   const waiting = panes.filter((p) => p.agentStatus === "blocked" || p.gate).length;
 
@@ -196,13 +201,15 @@ export async function paneAttachWith(args: string[], deps: AttachDeps): Promise<
   if (!deps.isTTY() || args.includes("--json") || process.env.RT_BATCH) {
     throw new UserActionableError("usage", "Which pane should rt attach to?", {}, { next: USAGE });
   }
+  // Face renders still running in this process would hold it open for up
+  // to 15 s, so a path that does not hand the terminal to herdr exits now.
   const picked = await choose(deps);
-  if (!picked) return;
+  if (!picked) return deps.exit(0);
   if (picked.action === "focus") {
     const callerWorkspace = process.env.HERDR_WORKSPACE_ID;
     const res = await deps.focus({ paneId: picked.paneId, ...(callerWorkspace ? { callerWorkspace } : {}) });
     if (!res.ok) failed(res.error ?? "rt could not focus that pane");
-    return;
+    return deps.exit(0);
   }
   await attach(picked.paneId, picked.action === "takeover", deps);
 }
@@ -217,6 +224,11 @@ const realDeps: AttachDeps = {
   focus: (payload) => paneFocusRt(payload),
   pick: (req) => runPick(req).result,
   spawn: async (argv, env) => Bun.spawn(argv, { env, stdio: ["inherit", "inherit", "inherit"] }).exited,
+  cacheLater: (handles) => {
+    for (const handle of handles) {
+      Bun.spawn([...rtSelfArgv(), "chat", "avatar", handle, "--json"], { env: childEnv(), stdio: ["ignore", "ignore", "ignore"] }).unref();
+    }
+  },
   exit: (code) => process.exit(code),
 };
 

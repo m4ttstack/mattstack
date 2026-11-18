@@ -20,7 +20,7 @@ export async function resolveFaces(
   const { budgetMs = 1000, size = 128, face = ownFace } = opts;
   const faces = new Map<string, string>();
   const renders = [...new Set(handles)].map((handle) =>
-    face(handle, size).then((path) => { faces.set(handle, path); }, () => {}),
+    Promise.resolve().then(() => face(handle, size)).then((path) => { faces.set(handle, path); }, () => {}),
   );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<void>((resolve) => { timer = setTimeout(resolve, budgetMs); });

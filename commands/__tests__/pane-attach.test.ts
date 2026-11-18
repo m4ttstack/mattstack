@@ -112,7 +112,7 @@ test("match carries handle, repo, branch, tab and rooms", () => {
 // ─── the verb ──────────────────────────────────────────────────────────────
 
 function deps(over: Partial<AttachDeps> & { picked?: Partial<PickResult> } = {}) {
-  const calls = { spawned: [] as Array<{ argv: string[]; env: Record<string, string | undefined> }>, plans: [] as Array<{ paneId: string; takeover?: boolean }>, focused: [] as string[], picks: [] as PickRequest[] };
+  const calls = { spawned: [] as Array<{ argv: string[]; env: Record<string, string | undefined> }>, plans: [] as Array<{ paneId: string; takeover?: boolean }>, focused: [] as string[], picks: [] as PickRequest[], cachedLater: [] as string[][] };
   const d: AttachDeps = {
     isTTY: () => true,
     selfRef: () => undefined,
@@ -123,6 +123,7 @@ function deps(over: Partial<AttachDeps> & { picked?: Partial<PickResult> } = {})
     focus: async (p) => { calls.focused.push(p.paneId); return { ok: true, data: { paneId: p.paneId, focused: true } }; },
     pick: async (req) => { calls.picks.push(req as PickRequest); return { t: "result", action: "attach", value: "w1:p3", query: "", ...over.picked } as PickResult; },
     spawn: async (argv, env) => { calls.spawned.push({ argv, env }); return 7; },
+    cacheLater: (handles) => { calls.cachedLater.push(handles); },
     exit: ((code: number) => { throw new Error(`exit ${code}`); }) as AttachDeps["exit"],
     ...over,
   };
@@ -179,16 +180,16 @@ test("ctrl-t asks for a takeover plan", async () => {
   expect(calls.plans).toEqual([{ paneId: "w1:p3", takeover: true }]);
 });
 
-test("ctrl-f focuses and spawns nothing", async () => {
+test("ctrl-f focuses, spawns nothing and exits at once", async () => {
   const { d, calls } = deps({ picked: { action: "focus" } });
-  await paneAttachWith([], d);
+  await expect(paneAttachWith([], d)).rejects.toThrow("exit 0");
   expect(calls.focused).toEqual(["w1:p3"]);
   expect(calls.spawned).toEqual([]);
 });
 
-test("esc leaves quietly", async () => {
+test("esc exits at once without attaching", async () => {
   const { d, calls } = deps({ picked: { action: "cancel", value: null } });
-  await paneAttachWith([], d);
+  await expect(paneAttachWith([], d)).rejects.toThrow("exit 0");
   expect(calls.plans).toEqual([]);
   expect(calls.spawned).toEqual([]);
 });
@@ -198,4 +199,11 @@ test("a failed plan is a plain failure", async () => {
   const err = await paneAttachWith(["bg:w9:p1"], d).catch((e: unknown) => e);
   expect(err).toBeInstanceOf(UserActionableError);
   expect((err as UserActionableError).message).toBe("The background herdr server isn't running");
+});
+
+test("faces still missing when the picker opens are handed off to be cached", async () => {
+  const ada: ChatPane = { ...anon, paneId: "w1:p9", presence: { handle: "ada", name: "ada", status: "live", rooms: [] } };
+  const { d, calls } = deps({ list: async () => ({ ok: true, data: { panes: [kirk, ada, anon] } }), faces: async () => new Map([["kirk", "/faces/kirk.png"]]) });
+  await expect(paneAttachWith([], d)).rejects.toThrow("exit 7");
+  expect(calls.cachedLater).toEqual([["ada"]]);
 });
