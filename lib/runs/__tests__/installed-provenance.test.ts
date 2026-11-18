@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, rmSync } from "fs";
 import { dirname, join } from "path";
-import { installedProvenance, realGit, realOrgCloneFor, type OrgClone } from "../installed-provenance.ts";
+import { installedProvenance, realGit, realInstalledDeps, realOrgCloneFor, type OrgClone } from "../installed-provenance.ts";
 import { bumpAcme, homeWithOrgClone, installedSkill, moveToTrial, PACK_REL, put, seedOrgClone, tmp } from "./installed-fixtures.ts";
 
 const readFile = (p: string): string | null => {
@@ -51,6 +51,39 @@ describe("installedProvenance", () => {
       mattstackSha: { "skills/work": { not: "a sha" } },
     }));
     expect(installedProvenance(skillDir, depsFor(null)).tokens).toEqual(["mattstack=0.32.56"]);
+  });
+
+  test("reads the render stamp for a husk pack", () => {
+    const home = tmp("rt-installed-husk-home-");
+    const cache = join(home, ".claude", "plugins", "cache");
+    const skillDir = installedSkill("0.4.11", {}, cache);
+    const packRoot = dirname(dirname(skillDir));
+    rmSync(join(packRoot, "pack", "compiled.lock.json"));
+    put(join(packRoot, "pack", "skills.jsonc"), '{ "husks": true }');
+    put(join(cache, "mattstack", "mattstack", "0.32.76", ".claude-plugin", "plugin.json"), "{}");
+    const rendered = join(home, ".mattstack", "rt", "rendered", "acme", "acme", "0.4.11");
+    put(join(rendered, "0.32.76", "render.json"), JSON.stringify({ rtBuild: "v1.4.0", mattstack: "0.32.76", inputHash: "h" }));
+    put(join(rendered, "0.32.80", "render.json"), JSON.stringify({ rtBuild: "v1.5.0", mattstack: "0.32.80", inputHash: "h" }));
+    const deps = { ...realInstalledDeps(home), orgCloneFor: () => null };
+    expect(installedProvenance(skillDir, deps).tokens).toEqual(["acme=0.4.11", "mattstack=0.32.76", "rt=1.4.0"]);
+
+    const fromTree = join(rendered, "0.32.80", "skills", "work");
+    expect(installedProvenance(fromTree, deps).tokens).toEqual(["mattstack=0.32.80", "rt=1.5.0"]);
+  });
+
+  test("reads the stamp of the render under the installed copy's own org", () => {
+    const home = tmp("rt-installed-husk-org-");
+    const cache = join(home, ".claude", "plugins", "cache");
+    const skillDir = installedSkill("0.4.11", {}, cache);
+    const packRoot = dirname(dirname(skillDir));
+    rmSync(join(packRoot, "pack", "compiled.lock.json"));
+    put(join(packRoot, "pack", "skills.jsonc"), '{ "husks": true }');
+    put(join(home, ".mattstack", "rt", "marketplaces", "zeta", ".claude-plugin", "marketplace.json"), JSON.stringify({ name: "acme-plugins" }));
+    const rendered = join(home, ".mattstack", "rt", "rendered");
+    put(join(rendered, "acme", "acme", "0.4.11", "0.32.76", "render.json"), JSON.stringify({ rtBuild: "v1.4.0", mattstack: "0.32.76", inputHash: "h" }));
+    put(join(rendered, "zeta", "acme", "0.4.11", "0.32.76", "render.json"), JSON.stringify({ rtBuild: "v1.5.0", mattstack: "0.32.76", inputHash: "h" }));
+    const deps = { ...realInstalledDeps(home), orgCloneFor: () => null };
+    expect(installedProvenance(skillDir, deps).tokens).toContain("rt=1.5.0");
   });
 
   test("reads the data branch while the clone is on a trial branch", () => {

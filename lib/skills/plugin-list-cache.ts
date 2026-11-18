@@ -42,24 +42,47 @@ function isPluginList(value: unknown): value is PluginListEntry[] {
   );
 }
 
-export function cachedPluginList(file: string, inputs: string[], deps: PluginListCacheDeps): PluginListEntry[] {
-  const key = JSON.stringify(inputs.map((p) => [p, deps.stamp(p)]));
+type CacheIo = Omit<PluginListCacheDeps, "list">;
+
+const cacheKey = (inputs: string[], deps: CacheIo) => JSON.stringify(inputs.map((p) => [p, deps.stamp(p)]));
+
+function cacheHit(file: string, key: string, deps: CacheIo): PluginListEntry[] | null {
   const raw = deps.read(file);
-  if (raw !== null) {
-    try {
-      const hit = JSON.parse(raw) as { key?: unknown; at?: unknown; list?: unknown };
-      const fresh = typeof hit.at === "number" && deps.now() - hit.at < PLUGIN_LIST_CACHE_TTL_MS;
-      if (hit.key === key && fresh && isPluginList(hit.list)) return hit.list;
-    } catch {
-      // an unreadable cache is a miss
-    }
+  if (raw === null) return null;
+  try {
+    const hit = JSON.parse(raw) as { key?: unknown; at?: unknown; list?: unknown };
+    const fresh = typeof hit.at === "number" && deps.now() - hit.at < PLUGIN_LIST_CACHE_TTL_MS;
+    return hit.key === key && fresh && isPluginList(hit.list) ? hit.list : null;
+  } catch {
+    // an unreadable cache is a miss
+    return null;
   }
-  const list = deps.list();
+}
+
+function cacheStore(file: string, key: string, list: PluginListEntry[], deps: CacheIo): void {
   try {
     deps.write(file, JSON.stringify({ key, at: deps.now(), list }));
   } catch {
     // a cache that cannot be written only costs the next read a spawn
   }
+}
+
+export function cachedPluginList(file: string, inputs: string[], deps: PluginListCacheDeps): PluginListEntry[] {
+  const key = cacheKey(inputs, deps);
+  const hit = cacheHit(file, key, deps);
+  if (hit) return hit;
+  const list = deps.list();
+  cacheStore(file, key, list, deps);
+  return list;
+}
+
+/** The same cache, for a caller that must not block its event loop on the spawn. */
+export async function cachedPluginListAsync(file: string, inputs: string[], deps: CacheIo & { list(): Promise<PluginListEntry[]> }): Promise<PluginListEntry[]> {
+  const key = cacheKey(inputs, deps);
+  const hit = cacheHit(file, key, deps);
+  if (hit) return hit;
+  const list = await deps.list();
+  cacheStore(file, key, list, deps);
   return list;
 }
 

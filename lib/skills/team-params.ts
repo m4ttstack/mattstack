@@ -26,6 +26,8 @@ export const TEAM_MARKERS_MIN_ENGINE = "0.32.15";
 export const POINTER_KEYS_MIN_ENGINE = "0.32.28";
 /** The first release whose `skills_resolve` takes a `<plugin>:<unit>` id and a `dir`, which a build carrying `@keys` now writes. */
 export const VERSIONLESS_IDS_MIN_ENGINE = "0.32.60";
+/** The first release whose mattstack plugin's mod answers `load_skill`, which every husk tells its reader to call. */
+export const HUSKS_MIN_ENGINE = "0.32.76";
 
 const PARAMS_FILE = "pack/params.jsonc";
 const TEAM_MARKER_RE = /\{\{team\.(section:)?([^}\s?]*)(\?)?\}\}/g;

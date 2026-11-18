@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { LOCK_REL, readLock } from "../../lib/skills/compiled-lock.ts";
+import { inputHash } from "../../lib/skills/render.ts";
+import { HUSKS_MIN_ENGINE } from "../../lib/skills/team-params.ts";
 import { captureSkills, seedTwoVerbPack, setTwoVerbPackVersion } from "../../lib/skills/__tests__/helpers.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
@@ -223,5 +225,138 @@ describe("the compiled lock", () => {
     setBaseVersion(baseDir, "0.2.0");
     await compile(flags);
     expect(readLock(packDir).bases).toEqual({ "acme-base": "0.1.0" });
+  });
+
+  const optIn = (pack: string) => put(join(pack, "pack", "skills.jsonc"), JSON.stringify({ husks: true }));
+  const setMattstackVersion = (ms: string, version: string) =>
+    put(join(ms, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version }));
+  const status = (dir: string) => inRepo(dir, "status", "--porcelain", "--untracked-files=all").split("\n").filter(Boolean).sort();
+  const husk = (id: string) => `Before anything else, call \`mcp__mattstack__load_skill {skill: "${id}", dir: "<this skill's directory>"}\`.`;
+
+  function filesOf(dir: string, prefix = ""): string[] {
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? filesOf(join(dir, e.name), `${prefix}${e.name}/`) : [`${prefix}${e.name}`]);
+  }
+
+  test("a husk pack commits only husks", async () => {
+    const { pack, flags } = seedPipelinePack();
+    await compile(flags);
+    expect(existsSync(join(pack, "attachments", "stage-plan", "parts"))).toBe(true);
+    optIn(pack);
+    await compile(flags);
+
+    const units = [...filesOf(join(pack, "skills")).map((f) => `skills/${f}`), ...filesOf(join(pack, "attachments")).map((f) => `attachments/${f}`)].sort();
+    expect(units).toEqual([
+      "attachments/plan-policy/SKILL.md",
+      "attachments/stage-implement/SKILL.md",
+      "attachments/stage-plan/SKILL.md",
+      "attachments/stage-ship/SKILL.md",
+      "skills/work/SKILL.md",
+    ]);
+    const work = readFileSync(join(pack, "skills", "work", "SKILL.md"), "utf8");
+    expect(work).toContain(husk("acme:work"));
+    expect(work).toContain('  - "mcp__mattstack__load_skill"');
+    expect(work).not.toContain("@stage-plan");
+    expect(readFileSync(join(pack, "attachments", "stage-plan", "SKILL.md"), "utf8")).toContain(husk("acme:stage-plan"));
+    expect(readFileSync(join(pack, "attachments", "plan-policy", "SKILL.md"), "utf8")).toContain("policy text");
+
+    const lock = readLock(pack);
+    expect(lock.targets).toEqual({});
+    expect(lock.builtWith).toBe("1.0.0");
+    expect(lock.sourcesHash).toBe(inputHash(pack, null, ""));
+    expect(JSON.parse(readFileSync(join(pack, "pack", "requires.json"), "utf8"))).toEqual({ minEngine: HUSKS_MIN_ENGINE });
+  });
+
+  test("a husk compile's --json lists the files it wrote for each verb", async () => {
+    const { pack, flags } = seedPipelinePack();
+    optIn(pack);
+    const io = captureSkills();
+    try {
+      await skillsCompile([...flags, "--json"]);
+    } finally {
+      io.restore();
+    }
+    expect(Number(process.exitCode ?? 0)).toBe(0);
+    const rows = (JSON.parse(io.stdout()) as { verbs: { name: string; side: string; files: { path: string }[] }[] }).verbs;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.files.map((f) => f.path)).toEqual(filesOf(join(pack, row.side, row.name)));
+  });
+
+  test("a husk compile leaves inputHash unchanged", async () => {
+    const { pack, flags } = seedPipelinePack();
+    optIn(pack);
+    const before = inputHash(pack, null, "");
+    await compile(flags);
+    expect(inputHash(pack, null, "")).toBe(before);
+  });
+
+  test("a door becomes a husk for its base unit", async () => {
+    const { packDir, flags } = seedOrgBasePack();
+    put(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base", husks: true }));
+    put(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["dev-servers"] }));
+    await compile(flags);
+    await compile(flags);
+    expect(filesOf(join(packDir, "skills"))).toEqual(["dev-servers/SKILL.md"]);
+    expect(existsSync(join(packDir, "attachments"))).toBe(false);
+    const door = readFileSync(join(packDir, "skills", "dev-servers", "SKILL.md"), "utf8");
+    expect(door).toContain('description: "Servers"');
+    expect(door).toContain(husk("widgets:dev-servers"));
+    expect(readLock(packDir).bases).toEqual({ "acme-base": "0.1.0" });
+
+    put(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: [] }));
+    await compile(flags);
+    expect(existsSync(join(packDir, "skills", "dev-servers"))).toBe(false);
+  });
+
+  test("an ordinary fill edit leaves pack/requires.json unchanged", async () => {
+    const { pack, flags } = seedPipelinePack();
+    optIn(pack);
+    inRepo(pack, "init", "-q");
+    await compile(flags);
+    commitAll(pack, "compile");
+    const policy = join(pack, "attachments", "plan-policy", "SKILL.md");
+    writeFileSync(policy, readFileSync(policy, "utf8").replace("policy text", "sharper policy text"));
+    await compile(flags);
+    expect(status(pack)).toEqual([" M attachments/plan-policy/SKILL.md", ` M ${LOCK_REL}`]);
+  });
+
+  test("a mattstack version bump changes no committed file in a husk pack", async () => {
+    const { pack, ms, flags } = seedPipelinePack();
+    optIn(pack);
+    inRepo(pack, "init", "-q");
+    await compile(flags);
+    commitAll(pack, "compile");
+    setMattstackVersion(ms, "1.0.1");
+    await compile(flags);
+    expect(status(pack)).toEqual([]);
+  });
+
+  test("turning husks off drops builtWith and sourcesHash from the lock", async () => {
+    const { pack, flags } = seedPipelinePack();
+    optIn(pack);
+    await compile(flags);
+    expect(readLock(pack).builtWith).toBe("1.0.0");
+    put(join(pack, "pack", "skills.jsonc"), JSON.stringify({ husks: false }));
+    await compile(flags);
+    const lock = readLock(pack);
+    expect(lock.builtWith).toBeUndefined();
+    expect(lock.sourcesHash).toBeUndefined();
+    expect(lock.targets["skills/work"]).toEqual({ mattstack: "1.0.0" });
+    expect(readFileSync(join(pack, "skills", "work", "SKILL.md"), "utf8")).toContain('"read": "@stage-plan/SKILL.md"');
+  });
+
+  test("builtWith moves only when a source changes", async () => {
+    const { pack, ms, flags } = seedPipelinePack();
+    optIn(pack);
+    await compile(flags);
+    expect(readLock(pack).builtWith).toBe("1.0.0");
+    setMattstackVersion(ms, "1.0.1");
+    await compile(flags);
+    expect(readLock(pack).builtWith).toBe("1.0.0");
+    put(join(pack, "attachments", "plan-policy", "SKILL.md"), readFileSync(join(pack, "attachments", "plan-policy", "SKILL.md"), "utf8") + "\nmore\n");
+    await compile(flags);
+    expect(readLock(pack).builtWith).toBe("1.0.1");
+    expect(readLock(pack).sourcesHash).toBe(inputHash(pack, null, ""));
   });
 });

@@ -1,10 +1,12 @@
-import { realpathSync } from "fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
+import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import type { ResolveNext } from "../runs/engine.ts";
 import { flagValue } from "../cli-args.ts";
 import { runEngineOp, runWriteVerb, type EngineOp, type WriteVerb } from "../../commands/runs-write.ts";
 import { listRuns } from "../../packages/rt-client/src/index.ts";
 import { packPluginIdentity } from "../skills/provenance.ts";
+import { installedHuskForTreeDir, renderTreeOfDir } from "../skills/render-paths.ts";
 import { GATE_MODE_ERROR, parseMode } from "../gates/mode.ts";
 import { isPathComponent, runsRoot } from "../runs/paths.ts";
 import { checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolResult } from "./shared.ts";
@@ -44,7 +46,7 @@ export function splitFlags(flags: string): { ok: true; args: string[] } | { ok: 
 }
 
 // The set run-start's own CLI parses (commands/runs-write.ts) minus the ones
-// this tool appends itself (--pack-dirs, --skill-dir, --ticket, --spawned-by): a flags
+// this tool appends itself (--pack-dirs, --skill-dir, --render-tree, --ticket, --spawned-by): a flags
 // string that named one of those would let its value win over the tool's
 // own append, since flagValue resolves the FIRST occurrence in argv.
 const RUN_START_FLAGS = new Set(["--repo", "--work-type", "--pipeline", "--run-id", "--mattstack-sha", "--mattstack-dirty", "--pack-sha"]);
@@ -60,6 +62,24 @@ function checkRunStartFlags(args: string[]): string | undefined {
   return undefined;
 }
 
+const treeFs = {
+  exists: existsSync,
+  readDir(p: string): string[] {
+    try {
+      return readdirSync(p);
+    } catch {
+      return [];
+    }
+  },
+  readFile(p: string): string | null {
+    try {
+      return readFileSync(p, "utf8");
+    } catch {
+      return null;
+    }
+  },
+};
+
 export function packRootFrom(skillDir: string, realpath: (p: string) => string): string {
   return realpath(resolve(skillDir, "..", ".."));
 }
@@ -71,8 +91,13 @@ function prepareStart(input: Record<string, unknown>, deps: RunToolDeps): Prepar
   const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }]) ?? checkOptional(input, [{ name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }, { name: "gateMode", type: "string" }]);
   if (bad) return { error: bad };
   if (typeof input.gateMode === "string" && parseMode(input.gateMode) !== input.gateMode) return { error: GATE_MODE_ERROR };
-  const skillDir = input.skillDir as string;
-  if (!isAbsolute(skillDir)) return { error: '"skillDir" must be an absolute path' };
+  const given = input.skillDir as string;
+  if (!isAbsolute(given)) return { error: '"skillDir" must be an absolute path' };
+  const home = deps.env.HOME || homedir();
+  // A husk pack's render tree is no pack; the run starts from the installed husk that tree was rendered for, and its provenance comes from that tree.
+  const husk = installedHuskForTreeDir(treeFs, home, given);
+  const skillDir = husk ?? given;
+  const renderTree = husk === null ? null : renderTreeOfDir(given, home);
   const split = splitFlags(input.flags as string);
   if (!split.ok) return { error: split.error };
   const flagsBad = checkRunStartFlags(split.args);
@@ -83,6 +108,7 @@ function prepareStart(input: Record<string, unknown>, deps: RunToolDeps): Prepar
   // Spelled under the real pack root, so the skill's target and the cache folders above it read from one path.
   const abs = resolve(skillDir);
   const args = [...split.args, "--pack-dirs", packRoot, "--skill-dir", join(packRoot, basename(dirname(abs)), basename(abs))];
+  if (renderTree !== null) args.push("--render-tree", renderTree);
   if (typeof input.ticket === "string") args.push("--ticket", input.ticket);
   if (typeof input.spawnedBy === "string") args.push("--spawned-by", input.spawnedBy);
   const envMode = deps.env.RT_GATE_MODE;

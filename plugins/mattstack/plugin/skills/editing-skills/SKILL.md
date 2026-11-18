@@ -485,12 +485,24 @@ compare what you expected with what landed. Many errors have been caught
 this way. When nothing compiled (a hand-authored skill), read the skill's
 cached copy under `<config>/plugins/cache/<marketplace>/<plugin>/<version>/`.
 
+A husk pack's installed copy holds only husks (see Husk packs), so read
+each affected skill's text from this Mac's render instead. `load_skill`
+(the mattstack mod's tool, `mcp__mattstack__load_skill`) takes the unit's
+folder in the installed copy:
+`load_skill {skill: "<plugin>:stage-evidence", dir: "<config>/plugins/cache/<marketplace>/<plugin>/<version>/attachments/stage-evidence"}`.
+It returns the full body, and renders the pack first when its tree is
+missing.
+Its other files (references, parts, scripts) sit in the render tree;
+`skills_resolve` returns their paths.
+
 Proof the fix landed: in the installed pack copy
 (`<config>/plugins/cache/<marketplace>/<pack>/<version>/`), the
 `pack/compiled.lock.json` entry for the compiled verb names the new
-mattstack version and the verb's file contains no `{{`. `check` alone
-proves the pack matches the installed mattstack, whichever version that
-is.
+mattstack version and the verb's file contains no `{{`. In a husk pack the
+proof is `load_skill`'s result line, `Loaded <id> (pack <version>,
+mattstack <version>)`, naming the pack version you bumped to, and a body
+that carries the change and no `{{`. `check` alone proves the pack matches
+the installed mattstack, whichever version that is.
 
 ### End the turn; the reload runs in place
 
@@ -572,7 +584,9 @@ starting again at zero. Takes over: the human chases the cache.
   `claude --plugin-dir <monorepo checkout>/plugins/mattstack`, or
   `claude --plugin-dir <pack dir>` for a team pack. For a team pack this is
   the only way to try uncommitted or trial-branch work: the install reads
-  only the data branch's commits.
+  only the data branch's commits. A husk pack's session gets husks there,
+  and `load_skill` serves only an installed copy, so read its working text
+  with the preview in Husk packs instead.
 - Every hand-off from `mattstack:extending-a-pack` or
   `mattstack:creating-a-pack` enters at `What changed?` with no RED
   baseline here. A round that wrote or revised a skill folder already passed
@@ -609,7 +623,8 @@ monorepo pull request. A merged mattstack change reaches sync only once the
 shared monorepo checkout's `main` is current (see Push the org clone's
 checked-out branch). What sync never does is
 author or bump the ENGINE, so everything up to the push stays yours in
-every case.
+every case. In a husk pack the compiled output sync commits is husks, the
+lock and `pack/requires.json`: it commits no bodies.
 
 ## When a pack compiles verbs from a shared engine
 
@@ -641,7 +656,8 @@ Writing a fill:
   attachment with `{{pack.path:<attachment>/<file>}}` (compile copies that
   whole attachment, rendered, into the built skill's own `references/` and
   renders the path to the copy; the file must exist at compile time, and a
-  compiled verb's output is not addressable this way). Nothing else
+  compiled verb's output is not addressable this way; in a husk pack the
+  copy exists only in each member's render). Nothing else
   placeholder-shaped belongs in a fill.
 - Sources keep the three pointer forms above (a file beside the fill,
   `{{verb.path:...}}`, `{{pack.path:...}}`); compile writes each as an
@@ -662,9 +678,50 @@ What `compile` and `check` read:
 | mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache                                                                                                 |
 | the pack's own fills                         | the pack dir `--pack` resolves (the org clone)                                                                                       |
 | everything, for `--pack mattstack` itself    | the monorepo CHECKOUT's plugins/mattstack (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
-| mattstack version each verb was built from   | mattstack's `plugin.json` at compile time, written to the pack's `pack/compiled.lock.json`; `check` does not compare it, so a bump that changed no inlined engine, include, or fill is not drift |
+| mattstack version each verb was built from   | mattstack's `plugin.json` at compile time, written to the pack's `pack/compiled.lock.json`; `check` does not compare it, so a bump that changed no inlined engine, include, or fill is not drift. A husk pack's lock keeps no per-verb versions (Husk packs) |
 | the team pack's `pack/params.jsonc` and `pack/sections/<name>.md` | the pack dir, like its fills: compile fills the org base's `{{team.*}}` markers from them, so an edit is drift to `check` and a source change to sync (mattstack:extending-a-pack) |
-| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json`, raised to the release that resolves `{{team.*}}` markers when the pack's base text uses one, and to the release that reads versionless ids and `@key` pointers when its compiled skills carry keys (never hand-edited; `check` reports a stale one as drift). mattstack's own floor is hand-maintained |
+| the team pack's `pack/requires.json`         | written by compile from the installed mattstack's `pack/requires.json`, raised to the release that resolves `{{team.*}}` markers when the pack's base text uses one, and to the release that reads versionless ids and `@key` pointers when its compiled skills carry keys (never hand-edited; `check` reports a stale one as drift). A husk pack's floor follows its own rules instead (Husk packs). mattstack's own floor is hand-maintained |
+
+## Husk packs
+
+A team pack whose `pack/skills.jsonc` sets `"husks": true` commits husks,
+not compiled bodies. A husk is a compiled skill's frontmatter plus one line
+telling the agent to call `mcp__mattstack__load_skill`. Its compile writes
+only these into the pack:
+
+- a husk `SKILL.md` for each verb, stage and base door;
+- `pack/compiled.lock.json`: the base versions, plus `builtWith`, the
+  mattstack version the sources last changed under; no per-verb versions;
+- `pack/requires.json`: the husk release, or higher when the pack's own
+  text needs it (team markers, `@key` pointers). An ordinary edit never
+  raises it.
+
+Compiled bodies, `references/`, `parts/`, `scripts/`, `compiled.json` maps
+and base copies are never committed. A source edit commits as that source,
+the lock and the version bump. A mattstack update alone changes no
+committed file, unless it changes a stage's description or `allowed-tools`
+or a `pipelines.json` field.
+
+Each member's Mac renders the whole pack with its own installed mattstack
+into `~/.mattstack/rt/rendered/<org>/<plugin>/<pack version>/<mattstack version>/`:
+after a pull of the org clone, after setup installs a plugin, and on a miss
+when `load_skill` asks (it runs the hidden `rt skills render`). A husk
+pack's `@key`s, and so every `{{pack.path}}` copy, resolve through
+`skills_resolve` into that tree.
+
+Checking a husk pack change:
+
+- `rt_verb {args: ["skills", "check", "--pack", "<pack>"]}` compares the
+  husks, the lock and the floor, and renders the working tree to catch
+  compile errors, leftover tokens, bodies over 200,000 characters and a
+  husk `allowed-tools` rule naming the skill-dir variable's `scripts/`,
+  `references/` or `parts/` (those live only in the render).
+- Before the publish, print one unit's compiled text from the working tree
+  on Bash: `rt skills compile --pack <pack> --preview --verb <unit>` <!-- mcp-lint: allow -->
+- After the publish, read it from the installed copy with `load_skill`
+  (Read the compiled output in full).
+- The committed husk carries no rule text, so a change shows only in one of
+  those renders.
 
 ## When a hand-written skill needs shared plugin text
 

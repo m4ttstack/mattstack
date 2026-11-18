@@ -55,6 +55,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/skills-lsp.ts": () => import("../commands/skills-lsp.ts"),
   "./commands/skills-history-classify.ts": () => import("../commands/skills-history-classify.ts"),
   "./commands/skills-resolve.ts": () => import("../commands/skills-resolve.ts"),
+  "./commands/skills-render.ts": () => import("../commands/skills-render.ts"),
   "./commands/skills-writing-style.ts": () => import("../commands/skills-writing-style.ts"),
   "./commands/state.ts": () => import("../commands/state.ts"),
   "./commands/state-backup-init.ts": () => import("../commands/state-backup-init.ts"),

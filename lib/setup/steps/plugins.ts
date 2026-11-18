@@ -208,7 +208,12 @@ function sharedOnly(sources: Provenance[]): boolean {
   return sources.length === 0 || sources.every((s) => isSharedScope(s.scope));
 }
 
-export const __test__ = { sharedOnly };
+export const __test__ = {
+  sharedOnly,
+  setRenderHusks(fn: ((p: Probes) => Promise<HuskRender[]>) | null): void {
+    renderHusksOverride = fn;
+  },
+};
 
 /**
  * The marketplaces BASE_PLUGINS install from are added FIRST, ahead of
@@ -269,6 +274,25 @@ async function runMaterializeAfterInstall(ctx: ApplyContext): Promise<string> {
   }
   for (const r of result.repos.filter((r) => !r.ok && !r.noManifest)) ctx.log("plugins.install", `materialize ${r.name}: ${r.detail}`);
   return materializeTally(result.repos);
+}
+
+type HuskRender = { pack: string; ok: boolean; detail: string };
+let renderHusksOverride: ((p: Probes) => Promise<HuskRender[]>) | null = null;
+
+/** A mattstack update installs a version with no rendered trees yet, so every husk pack renders here too. */
+async function runRenderAfterInstall(ctx: ApplyContext): Promise<string> {
+  // A render problem is a detail of an install that succeeded, never a failed step.
+  try {
+    // Loaded on first use: render-packs reaches the whole compile.
+    const { renderHuskPacks, renderTally } = await import("../../skills/render-packs.ts");
+    const results = await (renderHusksOverride ?? ((p: Probes) => renderHuskPacks(p, {})))(ctx.p);
+    for (const r of results.filter((r) => !r.ok)) ctx.log("plugins.install", `render ${r.pack}: ${r.detail}`);
+    return renderTally(results);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.log("plugins.install", `render: ${message}`);
+    return ". Husk packs were not rendered; load_skill renders them when an agent asks";
+  }
 }
 
 /** An earlier step (org.folder finishing a pending reinstall) relies on this step to put the lines back, so every exit reapplies. */
@@ -563,12 +587,13 @@ async function pluginsInstallBody(ctx: ApplyContext, reapply: () => boolean): Pr
   }
 
   const materializeDetail = await runMaterializeAfterInstall(ctx);
+  const renderNote = await runRenderAfterInstall(ctx);
   const disabledNote = reapply() ? ". Some skills could not have model invocation disabled" : "";
   const pendingNote = pending.length > 0 ? `. ${pending.length} ${pending.length === 1 ? "plugin" : "plugins"} awaiting your approval to enable: ${pending.join(", ")}` : "";
   const heldNote = held.size > 0 ? ` ${[...held].join(" ")}` : "";
   const notUpdatedNote = notUpdated.length > 0 ? `. ${notUpdated.join(", ")} could not be updated` : "";
   const unsourcedNote = unsourced.length > 0 ? `. ${unsourced.join(", ")} ${unsourced.length === 1 ? "was" : "were"} not installed: ${teamSkipped}` : "";
-  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${disabledNote}${pendingNote}${unsourcedNote}${notUpdatedNote}${heldNote}` };
+  return { state: "done", detail: `${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}, ${settledSet.size} plugin${settledSet.size === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}. ${materializeDetail}${renderNote}${disabledNote}${pendingNote}${unsourcedNote}${notUpdatedNote}${heldNote}` };
 }
 
 /** A plugin update replaces the installed copy, so the member's disabled-model-invocation choices go back on; a failure here only warns. True when something was left alone. */
