@@ -243,7 +243,8 @@ Quote each stale row as preflight printed it (pinned vs current). Recommend per 
   so before landing the refresh run `git ls-remote --tags https://github.com/m4ttstack/superpowers.git`
   and check two things: the new pin (the branch tip the refresh wrote) is the peeled `^{}` commit
   of a tag `v<upstream>-groups.<n>`, and the old
-  pin still has its tag, so catalogs already published keep installing it. Either missing: hold
+  pin (the `sha` the refresh's `git diff marketplace/marketplace.json` removes) is still the
+  peeled commit of a tag, so catalogs already published keep installing it. Either missing: hold
   the row and ask Matt to tag the fork; never tag it yourself. The rebase itself happens in the
   fork, never in the release.
 - **Standalone fast-browser**: compared against `m4ttstack/fast-browser`'s main `package.json`
