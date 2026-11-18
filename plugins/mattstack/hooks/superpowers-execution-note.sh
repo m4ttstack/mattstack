@@ -2,16 +2,16 @@
 # SessionStart: names the execution mode superpowers.execution picks, so a
 # session running mattstack's superpowers fork skips the "which execution
 # approach?" question. Silent unless superpowers@mattstack is installed and
-# enabled in this Claude folder; rt failing falls back to the default mode.
+# enabled for this session (user, then project, then local settings, the
+# last that names it winning); an rt that fails or answers late falls back
+# to the default mode.
 command -v python3 >/dev/null 2>&1 || exit 0
-RT_JSON=""
-if command -v rt >/dev/null 2>&1; then
-  RT_JSON="$(rt settings get superpowers.execution --json 2>/dev/null)" || RT_JSON=""
-fi
-RT_JSON="$RT_JSON" CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}" python3 - <<'PY' 2>/dev/null
-import json, os, sys
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}" python3 -c '
+import json, os, shutil, subprocess, sys
 
 FORK = "superpowers@mattstack"
+# Under the 5s hook timeout, with room for python and the checks.
+RT_BUDGET_S = 3
 cfg = os.environ["CFG"]
 
 def load(path):
@@ -21,15 +21,34 @@ def load(path):
     except Exception:
         return {}
 
-if load(os.path.join(cfg, "settings.json")).get("enabledPlugins", {}).get(FORK) is not True:
+try:
+    event = json.load(sys.stdin)
+except Exception:
+    event = {}
+project = os.environ.get("CLAUDE_PROJECT_DIR") or event.get("cwd") or ""
+
+enabled = None
+layers = [os.path.join(cfg, "settings.json")]
+if project:
+    layers += [os.path.join(project, ".claude", "settings.json"), os.path.join(project, ".claude", "settings.local.json")]
+for path in layers:
+    value = load(path).get("enabledPlugins", {}).get(FORK)
+    if isinstance(value, bool):
+        enabled = value
+if enabled is not True:
     sys.exit(0)
 if FORK not in load(os.path.join(cfg, "plugins", "installed_plugins.json")).get("plugins", {}):
     sys.exit(0)
 
-try:
-    mode = json.loads(os.environ.get("RT_JSON") or "{}").get("value")
-except Exception:
-    mode = None
+mode = None
+rt = shutil.which("rt")
+if rt:
+    try:
+        res = subprocess.run([rt, "settings", "get", "superpowers.execution", "--json"], capture_output=True, text=True, timeout=RT_BUDGET_S)
+        if res.returncode == 0:
+            mode = json.loads(res.stdout or "{}").get("value")
+    except Exception:
+        mode = None
 if mode == "ask":
     sys.exit(0)
 
@@ -46,5 +65,5 @@ if mode == "subagent-driven":
 else:
     line += "; use subagent-driven instead when the user asks for it or the plan is long enough to compact mid-run."
 print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": line}}))
-PY
+' 2>/dev/null
 exit 0

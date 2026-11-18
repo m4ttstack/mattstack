@@ -26,6 +26,10 @@ check() { # name expected actual
 stub_rt() { # mode | --fail
   if [ "$1" = "--fail" ]; then
     printf '#!/bin/sh\necho "rt broke" >&2\nexit 3\n' > "$STUB_BIN/rt"
+  elif [ "$1" = "--slow" ]; then
+    printf '#!/bin/sh\nsleep 10\necho '"'"'{"ok":true,"value":"native"}'"'"'\n' > "$STUB_BIN/rt"
+  elif [ "$1" = "--marker" ]; then
+    printf '#!/bin/sh\ntouch "%s/rt-ran"\necho '"'"'{"ok":true,"value":"native"}'"'"'\n' "$SANDBOX" > "$STUB_BIN/rt"
   else
     printf '#!/bin/sh\necho "[needs you] rt is not set up yet" >&2\necho '"'"'{"ok":true,"key":"superpowers.execution","value":"%s","provenance":[{"scope":"default","file":null}]}'"'"'\n' "$1" > "$STUB_BIN/rt"
   fi
@@ -44,8 +48,10 @@ fork_state() { # installed(yes|no) enabled(true|false|absent)
   esac
 }
 
+PROJ="$SANDBOX/proj"
+mkdir -p "$PROJ/.claude"
 run_hook() { # bin-dir
-  echo '{"source":"startup"}' | env -i HOME="$SANDBOX" CLAUDE_CONFIG_DIR="$CFG" PATH="$1:/usr/bin:/bin" sh "$HOOK"
+  echo '{"source":"startup"}' | env -i HOME="$SANDBOX" CLAUDE_CONFIG_DIR="$CFG" CLAUDE_PROJECT_DIR="$PROJ" PATH="$1:/usr/bin:/bin" sh "$HOOK"
 }
 
 ctx_of() { printf '%s' "$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["hookSpecificOutput"]["hookEventName"] + "|" + d["hookSpecificOutput"]["additionalContext"])' 2>/dev/null || echo "not-json: $1"; }
@@ -83,6 +89,34 @@ fork_state yes true
 stub_rt --fail
 check "rt fails: falls back to Native with reviews" "SessionStart|$NWR" "$(ctx_of "$(run_hook "$STUB_BIN")")"
 check "rt absent: falls back to Native with reviews" "SessionStart|$NWR" "$(ctx_of "$(run_hook "$EMPTY_BIN")")"
+
+stub_rt native-with-reviews
+fork_state yes absent
+echo '{"enabledPlugins":{"superpowers@mattstack":true}}' > "$PROJ/.claude/settings.json"
+check "fork enabled only in the project's settings: names the mode" "SessionStart|$NWR" "$(ctx_of "$(run_hook "$STUB_BIN")")"
+fork_state yes true
+echo '{"enabledPlugins":{"superpowers@mattstack":false}}' > "$PROJ/.claude/settings.local.json"
+check "fork turned off in the project's local settings: prints nothing" "" "$(run_hook "$STUB_BIN")"
+rm -f "$PROJ/.claude/settings.json" "$PROJ/.claude/settings.local.json"
+
+fork_state yes false
+stub_rt --marker
+rm -f "$SANDBOX/rt-ran"
+run_hook "$STUB_BIN" >/dev/null
+[ -e "$SANDBOX/rt-ran" ] && ran=yes || ran=no
+check "fork off: rt is never started" "no" "$ran"
+
+fork_state yes true
+stub_rt --slow
+start=$(date +%s)
+out="$(run_hook "$STUB_BIN")"
+took=$(( $(date +%s) - start ))
+check "rt slower than the hook's budget: falls back to Native with reviews" "SessionStart|$NWR" "$(ctx_of "$out")"
+[ "$took" -lt 5 ] && fast=yes || fast=no
+check "rt slower than the hook's budget: answers inside the 5s hook timeout" "yes" "$fast"
+
+[ -x "$HOOK" ] && exe=yes || exe=no
+check "hook file is executable" "yes" "$exe"
 
 [ "$fails" -eq 0 ] && echo "all superpowers-execution-note tests passed" || echo "$fails failure(s)"
 exit $((fails > 0))
