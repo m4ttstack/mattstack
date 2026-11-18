@@ -10,6 +10,8 @@ export type SelectSpec<A> = {
   multi: boolean
   // What is picked, apart from where the cursor is: a single choice's ●, a multi choice's ticked box.
   isPicked: (idx: number) => boolean
+  // A single choice's pick that is only a default so far (not yet accepted): its ● draws dim instead of green.
+  isDefault?: (idx: number) => boolean
   writeIn: string
   width: number
   focused: boolean
@@ -50,7 +52,7 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
 
 function choiceMark(spec: SelectSpec<unknown>, idx: number): Span<never> {
   const isPicked = spec.isPicked(idx)
-  if (!spec.multi) return isPicked ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, DIM)
+  if (!spec.multi) return isPicked ? sp(SYMBOL.radioOn, spec.isDefault?.(idx) ? DIM : DONE) : sp(SYMBOL.radioOff, DIM)
   return isPicked ? sp(SYMBOL.boxOn, DONE) : sp(SYMBOL.boxOff, DIM)
 }
 

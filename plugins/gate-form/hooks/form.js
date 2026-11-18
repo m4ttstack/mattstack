@@ -432,7 +432,7 @@ function selectList(spec) {
 function choiceMark(spec, idx) {
   const isPicked = spec.isPicked(idx);
   if (!spec.multi)
-    return isPicked ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, DIM);
+    return isPicked ? sp(SYMBOL.radioOn, spec.isDefault?.(idx) ? DIM : DONE) : sp(SYMBOL.radioOff, DIM);
   return isPicked ? sp(SYMBOL.boxOn, DONE) : sp(SYMBOL.boxOff, DIM);
 }
 var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
@@ -1402,6 +1402,7 @@ function questionPage(q, s, i, base) {
     cursor: s.cursor[i],
     multi: q.multi,
     isPicked: (idx) => isPicked(q, s, i, idx),
+    isDefault: () => !s.answered[i],
     writeIn: s.text[i],
     width: view.width,
     focused: view.focused,

@@ -162,6 +162,7 @@ function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
       cursor: s.cursor[i]!,
       multi: q.multi,
       isPicked: idx => isPicked(q, s, i, idx),
+      isDefault: () => !s.answered[i],
       writeIn: s.text[i]!,
       width: view.width,
       focused: view.focused,
