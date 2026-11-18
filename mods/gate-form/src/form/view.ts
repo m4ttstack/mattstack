@@ -187,6 +187,7 @@ function reviewList(form: Form, s: State, view: View): L[] {
       ...(isOpen && { action: { type: 'page', page: i } as const }),
     })),
     view.width,
+    { rail: false },
   )
 }
 
@@ -226,7 +227,7 @@ function progress(form: Form, s: State, view: View): L {
   const missing = unansweredCount(s)
   const left = sp<Action>(missing === 0 ? 'all answered' : `${missing} to answer`, DIM)
   // The review page is a step of its own, so it ends the row in a different shape from the question boxes.
-  const review: L = isOneQuestion(form) ? [] : [sp('▢', { color: isReview(form, s) ? 'white' : '#8a8a8a' }), sp(' ')]
+  const review: L = isOneQuestion(form) ? [] : [sp('⏎', { color: isReview(form, s) ? 'white' : '#8a8a8a' }), sp(' ')]
   const line: L = [...marker, ...dots, ...review, ...where]
   const room = view.width - widthOf(line) - widthOf([left])
   return room >= 2 ? [...line, sp(' '.repeat(room)), left] : line

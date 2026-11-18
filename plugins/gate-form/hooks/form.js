@@ -794,8 +794,9 @@ function fitToRows(drawn, rows, withoutContext, pad) {
   const body = [...padded, ...foot];
   return [...head, ...body.slice(Math.max(0, body.length - room))];
 }
-function reviewList(items, width) {
-  const bar = rail(GRAY);
+function reviewList(items, width, options = {}) {
+  const isRailed = options.rail !== false;
+  const bar = isRailed ? rail(GRAY) : [sp("   ")];
   return items.flatMap((item) => {
     const isDone = item.summary !== undefined;
     const symbol = isDone ? sp(ICON.done, DONE) : sp(ICON.missing, WARN);
@@ -806,7 +807,7 @@ function reviewList(items, width) {
     if (item.action !== undefined)
       for (const line of entry)
         line.action = item.action;
-    return [[sp(SYMBOL.bar, GRAY)], ...entry];
+    return [isRailed ? [sp(SYMBOL.bar, GRAY)] : [sp(" ")], ...entry];
   });
 }
 // packages/mod-kit/src/patterns/scroll-list.ts
@@ -1418,7 +1419,7 @@ function reviewList2(form, s, view) {
     label: q.label,
     summary: won ? wonSummary(q, won[q.id]) : s.answered[i] ? answerSummary(q, s, i) : undefined,
     ...isOpen && { action: { type: "page", page: i } }
-  })), view.width);
+  })), view.width, { rail: false });
 }
 function reviewPage(form, s, view) {
   const missing = unansweredCount(s);
@@ -1455,7 +1456,7 @@ function progress(form, s, view) {
   const where = [sp(isContextPage(s) ? ` context, then ${n} question${n === 1 ? "" : "s"}` : q ? ` question ${s.page + 1} of ${n}` : " review", DIM)];
   const missing = unansweredCount(s);
   const left = sp(missing === 0 ? "all answered" : `${missing} to answer`, DIM);
-  const review = isOneQuestion(form) ? [] : [sp("▢", { color: isReview(form, s) ? "white" : "#8a8a8a" }), sp(" ")];
+  const review = isOneQuestion(form) ? [] : [sp("⏎", { color: isReview(form, s) ? "white" : "#8a8a8a" }), sp(" ")];
   const line = [...marker, ...dots, ...review, ...where];
   const room = view.width - widthOf(line) - widthOf([left]);
   return room >= 2 ? [...line, sp(" ".repeat(room)), left] : line;
