@@ -55,31 +55,34 @@ export function LiveLane({
               fz="sm"
               fw={500}
               lh="normal"
+              className={classes.keep}
               data-parity="ticket"
             >
               {ticket}
             </Anchor>
           ) : null}
           {facts.mr ? (
-            <Group gap={5} wrap="nowrap" c="dimmed">
+            <Group gap={5} wrap="nowrap" c="dimmed" className={classes.squeeze}>
               <Icon
                 name="gitPullRequest"
                 size={13}
                 data-parity="git-pull-request"
               />
-              <Text fz="sm" lh="normal" data-parity="mr text">
+              <Text fz="sm" lh="normal" truncate data-parity="mr text">
                 {facts.mr}
               </Text>
             </Group>
           ) : null}
-          <Group gap={5} wrap="nowrap" c="dimmed">
+          <Group gap={5} wrap="nowrap" c="dimmed" className={classes.keep}>
             <Icon name="signpost" size={13} data-parity="signpost" />
             <Text fz="sm" lh="normal" data-parity="decisions">
               {facts.decisions}
             </Text>
           </Group>
           <span className={classes.spacer} />
-          <LivenessBadge liveness={liveness} />
+          <span className={classes.keep}>
+            <LivenessBadge liveness={liveness} />
+          </span>
           {pane ? (
             <Tooltip label="Focus the agent's pane">
               <ActionIcon
