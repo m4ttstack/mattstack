@@ -3,6 +3,7 @@ import { posix } from "path";
 import { UserActionableError } from "../errors.ts";
 import { compareVersions, findPluginVersionDirs, type PluginFs } from "./installed-plugins.ts";
 import { ID_RE, spellFrom, type PointerMap, type Target } from "./pointers.ts";
+import { activeMattstack, installedHuskIn, isHuskPack, orgOfInstalledCopy, pickRenderTree, renderRoot, renderTreeOfDir, STAMP_FILE } from "./render-paths.ts";
 import { isIdSafeVersion, MAP_FILE } from "./unit-maps.ts";
 
 /** `realPath` is null for a path that does not exist. */
@@ -46,6 +47,7 @@ const PLUGIN_ID_RE = /^([^@:]+)(?:@([^:]+))?:(.+)$/;
 const SKILLS_PREFIX = "skills:";
 const SKILL_NAME_RE = /^[a-z0-9][a-z0-9:-]*$/;
 const RELINK = "rt setup update";
+const LOAD_SKILL = "mcp__mattstack__load_skill";
 const UNPINNED_WARNING = "No skill folder was passed, so this run is not pinned to the version it loaded.";
 const RELINK_WHY = "The link may point at an older copy of the skill; relinking points it at the copy installed now.";
 
@@ -96,8 +98,12 @@ function assertLive(fs: ResolveFs, link: string): void {
   }
 }
 
-/** `why` is the sentence every refusal about this copy's own files ends with. */
-type Unit = { folder: string; map: PointerMap; bound: string; fix: string; why: string };
+/**
+ * `why` is the sentence every refusal about this copy's own files ends with.
+ * `installed` is the husk a husk pack's unit was loaded from: the folder a
+ * caller is handed, while its keys point into the render.
+ */
+type Unit = { folder: string; map: PointerMap; bound: string; fix: string; why: string; installed?: string };
 
 function marketplaceOf(versionDir: string): string {
   return posix.basename(posix.dirname(posix.dirname(versionDir)));
@@ -114,18 +120,20 @@ export function dirClimbsOutOfCache(dir: string, home: string): boolean {
 }
 
 /**
- * The version folder `dir` sits in, read from `<cache>/<market>/<plugin>/<version>/`.
- * A path is only looked up on disk once its text sits inside the cache, so
- * nothing outside it is touched.
+ * The version folder `dir` sits in, read from `<cache>/<market>/<plugin>/<version>/`
+ * or a render tree's `<root>/<org>/<plugin>/<version>/`. A path is only
+ * looked up on disk once its text sits inside one of them, so nothing outside
+ * is touched.
  */
-function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
+export function versionOfDir(id: string, plugin: string, dir: string, deps: ResolveDeps): string | null {
   if (!posix.isAbsolute(dir)) return null;
-  const cache = pluginCache(deps.home);
   const text = posix.normalize(dir);
-  if (!within(cache, text)) return null;
+  // A render tree, `<root>/<org>/<plugin>/<version>/<mattstack>/`, names its pack version the way a cache copy does.
+  const root = [pluginCache(deps.home), renderRoot(deps.home)].find((r) => within(r, text));
+  if (root === undefined) return null;
   // The written path, not its normalized text: the OS follows a link before the `..` after it.
   const real = deps.fs.realPath(dir);
-  const [base, path] = real === null ? [cache, text] : [deps.fs.realPath(cache) ?? cache, real];
+  const [base, path] = real === null ? [root, text] : [deps.fs.realPath(root) ?? root, real];
   if (!within(base, path)) return null;
   const [, named, version] = path.slice(base.length + 1).split("/");
   if (!named || !version) return null;
@@ -157,7 +165,8 @@ function highestInstalled(id: string, plugin: string, deps: ResolveDeps): string
   return held[0]!.versions.reduce((best, v) => (compareVersions(v, best) > 0 ? v : best));
 }
 
-function pluginUnit(id: string, plugin: string, version: string, unit: string, deps: ResolveDeps): Unit {
+/** `loaded` is the render tree the caller's folder sits in: the render that supplied the body, which its pointers come from too. */
+function pluginUnit(id: string, plugin: string, version: string, unit: string, deps: ResolveDeps, loaded: string | null = null): Unit {
   const { fs, home } = deps;
   const roots = findPluginVersionDirs(fs, home, plugin, version);
   if (roots.length === 0) {
@@ -171,11 +180,31 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
   const root = roots[0]!;
   const fix = `claude plugin update ${plugin}@${marketplaceOf(root)}`;
   const owner = ownerWhy(plugin);
+  const reads = unitReads(fs, root, unit);
+  if (!reads.some(({ read }) => "map" in read) && isHuskPack(fs.readFile, root)) {
+    const tree = loaded !== null && fs.exists(`${loaded}/${STAMP_FILE}`) ? loaded : pickRenderTree(fs, renderRoot(home), plugin, version, activeMattstack(fs, home)?.version ?? null, orgOfInstalledCopy(fs, home, root));
+    if (tree === null) {
+      throw refuse("skills-resolve-not-rendered", `Load the skill first: call ${LOAD_SKILL}.`, `${plugin} ${version} commits only husks, and this Mac has not rendered it yet.`);
+    }
+    const rendered = unitIn(id, unit, `${plugin} ${version}`, tree, unitReads(fs, tree, unit), fix, owner);
+    const installed = installedHuskIn(fs, root, rendered.map.dir);
+    return installed === null ? rendered : { ...rendered, installed };
+  }
+  return unitIn(id, unit, `${plugin} ${version}`, root, reads, fix, owner);
+}
+
+type UnitRead = { folder: string; read: MapRead };
+
+function unitReads(fs: ResolveFs, root: string, unit: string): UnitRead[] {
   const candidates = [`${root}/skills/${unit}`, `${root}/attachments/${unit}`, ...fs.readDir(`${root}/attachments`).map((group) => `${root}/attachments/${group}/${unit}`)];
-  const reads = candidates.filter((c) => fs.exists(c)).map((folder) => ({ folder, read: readMap(fs, folder) }));
+  return candidates.filter((c) => fs.exists(c)).map((folder) => ({ folder, read: readMap(fs, folder) }));
+}
+
+/** The one folder under `root` whose map claims `id`; `root` is also the bound no pointer may leave. */
+function unitIn(id: string, unit: string, copy: string, root: string, reads: UnitRead[], fix: string, owner: string): Unit {
   const matched = reads.flatMap(({ folder, read }) => ("map" in read && read.map.id === id ? [{ folder, map: read.map }] : []));
   if (matched.length > 1) {
-    throw refuse("skills-resolve-many-units", `More than one folder in ${plugin} ${version} claims ${id}.`, `Folders: ${matched.map((m) => m.folder).join(", ")}. ${owner}`, fix);
+    throw refuse("skills-resolve-many-units", `More than one folder in ${copy} claims ${id}.`, `Folders: ${matched.map((m) => m.folder).join(", ")}. ${owner}`, fix);
   }
   if (matched.length === 0) {
     if (reads.length > 0) {
@@ -184,7 +213,7 @@ function pluginUnit(id: string, plugin: string, version: string, unit: string, d
       const found = "map" in read ? `The map in ${folder} is for ${read.map.id}.` : read.fault;
       throw refuse("skills-resolve-no-map", `${id} has no pointer map in this copy.`, `${found} ${owner}`, fix);
     }
-    throw refuse("skills-resolve-no-unit", `${plugin} ${version} has no unit named ${unit}.`, `Nothing under ${root} carries ${id}. ${owner}`, fix);
+    throw refuse("skills-resolve-no-unit", `${copy} has no unit named ${unit}.`, `Nothing under ${root} carries ${id}. ${owner}`, fix);
   }
   const { folder, map } = matched[0]!;
   const sitsIn = folder.slice(root.length + 1);
@@ -234,11 +263,12 @@ export function resolvePointers(id: string, deps: ResolveDeps, dir?: string): Re
   } else {
     const [, plugin, stamped, leaf] = PLUGIN_ID_RE.exec(id)!;
     let version = stamped ?? (dir === undefined ? null : versionOfDir(id, plugin!, dir, deps));
+    const loaded = stamped === undefined && version !== null && dir !== undefined ? renderTreeOfDir(dir, deps.home) : null;
     if (version === null) {
       pinned = false;
       version = highestInstalled(id, plugin!, deps);
     }
-    unit = pluginUnit(id, plugin!, version, leaf!, deps);
+    unit = pluginUnit(id, plugin!, version, leaf!, deps, loaded);
   }
   const keys: Record<string, string> = {};
   for (const [key, target] of Object.entries(unit.map.keys)) keys[key] = targetPath(id, key, unit, target, deps);
@@ -247,5 +277,5 @@ export function resolvePointers(id: string, deps: ResolveDeps, dir?: string): Re
       throw refuse("skills-resolve-missing-file", `The file behind @${key} is missing.`, `${path} does not exist in this copy of ${id}. ${unit.why}`, unit.fix);
     }
   }
-  return { id, folder: unit.folder, covers: unit.map.covers, keys, pinned, ...(pinned ? {} : { warning: UNPINNED_WARNING }) };
+  return { id, folder: unit.installed ?? unit.folder, covers: unit.map.covers, keys, pinned, ...(pinned ? {} : { warning: UNPINNED_WARNING }) };
 }
