@@ -1883,7 +1883,7 @@ var STYLE = {
 var roomOf = (width) => Math.max(1, width - GUTTER - BAR);
 function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
-  return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, row.flush ? 0 : INDENT);
+  return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
 function rowLines(row, room) {
   switch (row.kind) {

@@ -31,9 +31,10 @@ const STYLE: Record<Tone, Style> = {
 
 const roomOf = (width: number) => Math.max(1, width - GUTTER - BAR)
 
+// Every button row, Clear finished too, starts at the indent: it holds the ❯ when a row's first button is selected.
 function buttonLines(row: Extract<PaneRow, { kind: 'buttons' }>, room: number): L[] {
   const lead: L = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : []
-  return wrappedButtons(lead, row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, row.flush ? 0 : INDENT)
+  return wrappedButtons(lead, row.buttons.map(b => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT)
 }
 
 // The model wraps by characters; a row wider in cells than its room wraps again here.
