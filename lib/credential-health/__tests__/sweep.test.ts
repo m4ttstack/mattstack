@@ -401,3 +401,59 @@ describe("daysUntil", () => {
     expect(daysUntil("2026-09-10", now)).toBe(0);
   });
 });
+
+describe("a saved token rt cannot read", () => {
+  const unreadable = (id: string, title: string): IntegrationTarget => {
+    const t = makeTarget({ id, title });
+    return { ...t, token: "", readError: "the macOS keychain refused the age key" };
+  };
+
+  test("records an error row and notifies once, naming the account", async () => {
+    writeCredentialHealth(db, {
+      integration: "slack", status: "ready", detail: "Connected to acme",
+      expiresAt: null, checkedAt: 500, lastNotifiedAt: null, lastNotifiedKind: null,
+    });
+    const deps = makeDeps(db, [unreadable("slack", "Slack")], 1000);
+    await runAccountsSweep(deps);
+
+    expect(deps.notifications).toHaveLength(1);
+    expect(deps.notifications[0]!.category).toBe("credential_health");
+    expect(deps.notifications[0]!.title).toBe("Can't read your saved Slack token");
+    expect(deps.notifications[0]!.message).toContain("rt setup status");
+    const row = readCredentialHealth(db, "slack");
+    expect(row!.status).toBe("error");
+    expect(row!.detail).toContain("the macOS keychain refused the age key");
+    expect(row!.lastNotifiedKind).toBe("unreadable");
+  });
+
+  test("an integration no sweep has seen a token for is not named", async () => {
+    const deps = makeDeps(db, [unreadable("slack", "Slack")], 1000);
+    await runAccountsSweep(deps);
+    expect(deps.notifications).toHaveLength(0);
+    expect(readCredentialHealth(db, "slack")).toBeNull();
+  });
+
+  test("two unreadable tokens share one notification", async () => {
+    for (const id of ["slack", "linear"])
+      writeCredentialHealth(db, {
+        integration: id, status: "ready", detail: "ok",
+        expiresAt: null, checkedAt: 500, lastNotifiedAt: null, lastNotifiedKind: null,
+      });
+    const deps = makeDeps(db, [unreadable("slack", "Slack"), unreadable("linear", "Linear")], 1000);
+    await runAccountsSweep(deps);
+    expect(deps.notifications).toHaveLength(1);
+    expect(deps.notifications[0]!.title).toBe("Can't read your saved Slack and Linear tokens");
+  });
+
+  test("a sweep within 24h of the notice stays quiet", async () => {
+    const now = 100_000_000;
+    writeCredentialHealth(db, {
+      integration: "slack", status: "error", detail: "unreadable",
+      expiresAt: null, checkedAt: now - 3600_000,
+      lastNotifiedAt: now - 6 * 3600_000, lastNotifiedKind: "unreadable",
+    });
+    const deps = makeDeps(db, [unreadable("slack", "Slack")], now);
+    await runAccountsSweep(deps);
+    expect(deps.notifications).toHaveLength(0);
+  });
+});

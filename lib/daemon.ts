@@ -1016,15 +1016,16 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           const targets: IntegrationTarget[] = [];
           for (const [id, def] of Object.entries(INTEGRATIONS)) {
             if (!def.secret) continue;
+            const ctx = credentialHealthCtxFor(id as Integration, team, overrides);
             let token: string | null;
             try {
               token = await readSecret(def.secret.domain, def.secret.key, accountsSecretsSeams);
             } catch (err) {
               log.warn({ err, integration: id }, "accounts-sweep: readSecret failed");
+              targets.push({ id, def, token: "", ctx, readError: err instanceof Error ? err.message : String(err) });
               continue;
             }
             if (!token) continue;
-            const ctx = credentialHealthCtxFor(id as Integration, team, overrides);
             targets.push({ id, def, token, ctx });
           }
 

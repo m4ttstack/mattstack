@@ -11,6 +11,9 @@ export interface IntegrationTarget {
   def: IntegrationDef;
   token: string;
   ctx: ValidateCtx;
+  /** Set when the saved token could not be read (a keychain or age key
+      failure): nothing is validated, and the person is told. */
+  readError?: string;
 }
 
 export interface SweepDeps {
@@ -40,7 +43,10 @@ export async function runAccountsSweep(deps: SweepDeps): Promise<void> {
 
   const targetIds = new Set(targets.map((t) => t.id));
 
-  for (const { id, def, token, ctx } of targets) {
+  recordUnreadable(deps, targets.filter((t) => t.readError !== undefined), getNow());
+
+  for (const { id, def, token, ctx, readError } of targets) {
+    if (readError !== undefined) continue;
     try {
       await checkOne(deps, id, def, token, ctx, probes, db, getNow());
     } catch (err) {
@@ -70,6 +76,45 @@ export async function runAccountsSweep(deps: SweepDeps): Promise<void> {
       deleteCredentialHealth(db, row.integration);
     }
   }
+}
+
+function joinTitles(titles: string[]): string {
+  return titles.length <= 1 ? titles.join("") : `${titles.slice(0, -1).join(", ")} and ${titles[titles.length - 1]}`;
+}
+
+/**
+ * One notification for every saved token that could not be read, at most once
+ * a day: a locked or refused keychain usually takes them all at once. A read
+ * fails per secrets file, not per token, so only an integration an earlier
+ * sweep saw a token for (it has a health row) is named.
+ */
+function recordUnreadable(deps: SweepDeps, failed: IntegrationTarget[], now: number): void {
+  const seen = failed.map((t) => ({ t, prev: readCredentialHealth(deps.db, t.id) })).filter((x) => x.prev !== null);
+  if (seen.length === 0) return;
+  const unreadable = seen.map((x) => x.t);
+  const prevs = seen.map((x) => x.prev);
+  const notify = prevs.some(
+    (prev) => prev?.lastNotifiedKind !== "unreadable" || prev.lastNotifiedAt == null || now - prev.lastNotifiedAt >= TWENTY_FOUR_HOURS,
+  );
+  unreadable.forEach((t, i) => {
+    const prev = prevs[i];
+    writeCredentialHealth(deps.db, {
+      integration: t.id,
+      status: "error",
+      detail: `rt could not read the saved token: ${t.readError}`,
+      expiresAt: prev?.expiresAt ?? null,
+      checkedAt: now,
+      lastNotifiedAt: notify ? now : (prev?.lastNotifiedAt ?? null),
+      lastNotifiedKind: notify ? "unreadable" : (prev?.lastNotifiedKind ?? null),
+    });
+  });
+  if (!notify) return;
+  const titles = unreadable.map((t) => t.def.title);
+  deps.notifyEnabled(
+    "credential_health",
+    `Can't read your saved ${joinTitles(titles)} ${titles.length === 1 ? "token" : "tokens"}`,
+    "Apps that use them stop working until it's fixed. Run rt setup status to see why.",
+  );
 }
 
 async function checkOne(
