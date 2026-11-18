@@ -128,25 +128,35 @@
   margin-bottom: 10px;
 }
 
-/* One quiet list: hairlines between the rows instead of a card each. */
+/* Rows like a Slack list: no rules, a soft fill under the pointer, a tint
+   when picked. The row's padding hangs into the gutter so the text lines up
+   with the question. */
 .options {
-  overflow: hidden;
-  border: 1px solid var(--tk-border-soft);
-  border-radius: var(--mantine-radius-md);
+  gap: 2px;
+  margin-inline: -10px;
 }
 
 .card.card {
-  padding: 9px 12px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--mantine-radius-md);
+  background-color: transparent;
 }
 
 .card.card:not(:focus-visible) {
   outline: 0;
 }
 
-.card.card + .card.card {
-  border-top: 1px solid var(--tk-border-soft);
+.card.card:hover {
+  background-color: var(--tk-panel);
+}
+
+.card.card[data-checked] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-accent) var(--ui-wash),
+    transparent
+  );
 }
 
 .optionRow {
