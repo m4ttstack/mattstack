@@ -15,4 +15,5 @@ export const MIGRATION_IDS: readonly string[] = [
   "2026-10-22-retire-old-bg-server",
   "2026-10-29-board-cwds-follow-board-repo",
   "2026-11-02-team-packs-from-git",
+  "2026-11-18-superpowers-fork-swap",
 ];

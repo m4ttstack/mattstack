@@ -533,6 +533,14 @@ const ROWS: readonly SettingDef[] = [
     merge: "add",
     description: "Claude Code plugins to install, in order. The org's, the team's and your own lists add up; a plugin from the org or a team is installed but left for you to enable.",
   },
+  {
+    key: "superpowers.execution",
+    type: "string",
+    scopes: ["user", "team"],
+    default: "native-with-reviews",
+    merge: "replace",
+    description: "Which superpowers execution mode plans use without asking; `ask` keeps the three-option question.",
+  },
 
   // --- deck (MAT-384 settings half) ---------------------------------------
   {

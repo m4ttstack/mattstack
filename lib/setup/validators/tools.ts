@@ -21,11 +21,11 @@ import { detectEditors } from "../../editors.ts";
 import { joinNames, planEditorFonts } from "../editor-font.ts";
 import { readSetupState } from "../state.ts";
 import { BACKUP_TOOLS as BACKUP_TOOL_NAMES } from "../../state/backup-tools.ts";
-import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
+import { BASE_PLUGINS, SUPERPOWERS_FORK, resolveBasePlugin } from "../base-plugins.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { integrationDef } from "../integrations.ts";
 import { callableBySkills, claudeJsonPath, linearServerNames, nameTaken, readClaudeConfig } from "../linear-mcp.ts";
-import { parsePluginList, readServedPacks, type ServedPack } from "../pack-cache.ts";
+import { parsePluginList, readServedPacks, type InstalledPack, type ServedPack } from "../pack-cache.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import type { HostArch, PackRequirements, ToolRequirement } from "../requirements.ts";
@@ -669,7 +669,19 @@ function pluginsRow(pluginList: ExecResult, msFloor: Floor, engine: string | nul
   const disabled = expected.filter((id) => byId.get(id)!.enabled !== true);
   if (disabled.length > 0) return row({ ...base, status: "needs-you", detail: `Disabled: ${disabled.join(", ")}`, action: ENABLE_PLUGINS_ACTION });
 
+  const extras = entries.filter((e) => e.enabled && e.id.startsWith("superpowers@") && e.id !== SUPERPOWERS_FORK);
+  // No action: a copy the member turned back on is theirs, and a row with an action would hold a finished Mac on a screen whose button cannot change it.
+  if (extras.length > 0) return row({ ...base, status: "needs-you", detail: secondSuperpowersDetail(extras), action: null });
+
   return row({ ...base, status: "ready", detail: `${BASE_PLUGINS.length} plugins installed` });
+}
+
+
+function secondSuperpowersDetail(extras: InstalledPack[]): string {
+  const steps = extras.map((e) =>
+    e.scope === undefined || e.scope === "user" ? `to keep one, run claude plugin disable ${e.id}` : `${e.id} is enabled at ${e.scope} scope, which rt cannot change; turn it off in that settings file`,
+  );
+  return `Two superpowers plugins are enabled (${SUPERPOWERS_FORK}, ${extras.map((e) => e.id).join(", ")}); the superpowers:* skills may come from either. ${steps.join("; ")}`;
 }
 
 // ─── tool.proxy ─────────────────────────────────────────────────────────────

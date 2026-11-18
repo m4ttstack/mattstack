@@ -22,6 +22,7 @@ import { rowsToChecks } from "../verify.ts";
 import { startSnapshot, teamSnapshotSpec } from "../../lib/daemon/home-snapshot.ts";
 import { createOnPulled } from "../../lib/daemon/team-snapshots.ts";
 import { convergePackCache } from "../../lib/setup/pack-cache.ts";
+import { MATTSTACK_MARKETPLACE_SOURCE } from "../../lib/setup/steps/plugins.ts";
 import { createMaterializePullHook } from "../../lib/daemon/materialize-pull-hook.ts";
 import { composePullHooks } from "../../lib/daemon/pull-hooks.ts";
 import { openStateDb } from "../../lib/state/db.ts";
@@ -166,7 +167,8 @@ function fakeClaude(argv: string[]) {
   if (verb === "list") return ok(JSON.stringify([...installed].map(([id, s]) => ({ id, enabled: s.enabled, version: s.version }))));
   if (verb === "marketplace" && sub === "list") return ok(JSON.stringify([...marketplaces].map(([name, path]) => ({ name, source: "directory", path }))));
   if (verb === "marketplace" && sub === "add" && target) {
-    const name = marketplaceDoc(target)?.name ?? basename(target);
+    // Claude names a marketplace from its marketplace.json; the app's own one is "mattstack".
+    const name = marketplaceDoc(target)?.name ?? (target === MATTSTACK_MARKETPLACE_SOURCE ? "mattstack" : basename(target));
     marketplaces.set(name, target);
     return ok(`Successfully added marketplace: ${name}`);
   }

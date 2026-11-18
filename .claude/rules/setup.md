@@ -109,7 +109,7 @@ this version with no migration pending, or run), and only one run at a time hold
 `~/.mattstack/rt/setup-update.lock` (`lib/setup/update-lock.ts`); a second
 one reports `skipped: "running"`. A run is `org.folder` and `org.pull`, then
 pending migrations, then `team.identity` and the other `StepDef`s with
-`updateSafe: true`, then `verify`, through `runUpdateWith` in
+`updateSafe: true`, then migrations that name `needs`, then `verify`, via `runUpdateWith` in
 `lib/setup/apply.ts`, so a migration that reads the org sees the clone at
 `orgs/<org>` holding what its checked-out branch holds on origin now. No failed outcome stops it, and a migration that
 throws is one more failed item; only a step that throws a plain error
@@ -118,7 +118,7 @@ stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. A
 stamped version runs again at each launch while any migration is still
 unrecorded on this Mac (`decideUpdate`'s `retry`), so one that failed or
 waited finishes without a release or `--force`. A retry runs only
-`org.folder`, `org.pull` and the pending migrations: no other step, no
+`org.folder`, `org.pull`, the steps a pending migration `needs` and the pending migrations: no other step, no
 `verify`, no `apps.restart`, no stamp change and no notification, so a
 stuck migration costs little per launch and a broken item still nags once
 per release. Two

@@ -27,6 +27,9 @@ import { deckIsHealthy, readDeckApiPort } from "./steps/deck.ts";
 import { servicePlists } from "./need.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "./steps/services.ts";
 import { parseMarketplaceList } from "./marketplace-list.ts";
+import { superpowersForkSwapMigration } from "./migrations/superpowers-fork-swap.ts";
+import { isAlreadyEnabled, parsePluginList } from "./pack-cache.ts";
+import { SUPERPOWERS_FORK } from "./base-plugins.ts";
 import { claudeMessage, marketplaceSourceKey } from "./steps/plugins.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Probes } from "./probes.ts";
@@ -99,7 +102,7 @@ export function computeUninstallActions(p: Probes, opts: { keepData: boolean }, 
     actions.push({ id: "extension.uninstall", title: "Uninstall rt's editor extensions", kind: "rt" });
   }
 
-  if (state.plugins.length > 0 || state.marketplaces.length > 0 || generatedMarketplaceFolders(p).length > 0) {
+  if (state.plugins.length > 0 || state.marketplaces.length > 0 || (state.superpowersDisabled ?? []).length > 0 || generatedMarketplaceFolders(p).length > 0) {
     actions.push({ id: "plugins.uninstall", title: "Uninstall the mattstack plugins from Claude Code", kind: "rt" });
   }
 
@@ -324,19 +327,25 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   if (!claude.exec) return { outcome: { state: "skipped", detail: "Claude Code is not installed" } };
 
   const state = readSetupState(ctx.p);
-  if (state.plugins.length === 0 && state.marketplaces.length === 0 && generatedMarketplaceFolders(ctx.p).length === 0) {
+  const reEnable = state.superpowersDisabled ?? [];
+  if (state.plugins.length === 0 && state.marketplaces.length === 0 && reEnable.length === 0 && generatedMarketplaceFolders(ctx.p).length === 0) {
     return { outcome: { state: "skipped", detail: "Nothing recorded to remove" } };
   }
 
   const configDirs = claudeConfigDirs(ctx.p, []);
   const notes: string[] = [];
   const unresolved: string[] = [];
+  // Kept on the record so Retry tries the removal again.
+  const notRemoved = new Set<string>();
 
   for (const dir of configDirs) {
     const env = { CLAUDE_CONFIG_DIR: dir };
     for (const plugin of state.plugins) {
       const res = await ctx.p.exec([...claude.exec, "plugin", "uninstall", plugin], { env });
-      if (res.code !== 0 && !isAlreadyGone(res)) notes.push(`${dir}: uninstall ${plugin} exited ${res.code}`);
+      if (res.code !== 0 && !isAlreadyGone(res)) {
+        notes.push(`${dir}: uninstall ${plugin} exited ${res.code}`);
+        notRemoved.add(plugin);
+      }
     }
     if (state.marketplaces.length === 0) continue;
     // `marketplace remove` takes the registered name, and setup-state records
@@ -362,12 +371,49 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
     }
   }
 
-  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)] }));
+  // After mattstack's superpowers is gone, so the Mac keeps the superpowers it had before setup.
+  const stillOff: typeof reEnable = [];
+  const turnedOn: string[] = [];
+  for (const entry of reEnable) {
+    const env = { CLAUDE_CONFIG_DIR: entry.configDir };
+    const listed = await ctx.p.exec([...claude.exec, "plugin", "list", "--json"], { env });
+    const entries = listed.code === 0 ? parsePluginList(listed.stdout) : null;
+    if (entries === null) {
+      // Unknown is not gone: turning the stock copy on could put it beside the fork.
+      notes.push(`${entry.configDir}: could not list plugins to check ${SUPERPOWERS_FORK} is gone before turning ${entry.id} back on (${claudeMessage(listed, `exited ${listed.code}`)})`);
+      stillOff.push(entry);
+      continue;
+    }
+    if (entries.some((e) => e.id === SUPERPOWERS_FORK && e.enabled)) {
+      // Turning the stock copy on beside the fork would leave two superpowers serving the same skills.
+      if (notRemoved.has(SUPERPOWERS_FORK)) stillOff.push(entry);
+      else ctx.log("plugins.uninstall", `${entry.configDir}: left ${entry.id} off, since ${SUPERPOWERS_FORK} is still on there and rt did not install it`);
+      continue;
+    }
+    const res = await ctx.p.exec([...claude.exec, "plugin", "enable", entry.id, "--scope", "user"], { env });
+    if (res.code === 0 || isAlreadyEnabled(res)) {
+      if (!turnedOn.includes(entry.id)) turnedOn.push(entry.id);
+    } else if (isAlreadyGone(res)) {
+      ctx.log("plugins.uninstall", `${entry.configDir}: ${entry.id} is no longer installed, so there was nothing to turn back on`);
+    } else {
+      notes.push(`${entry.configDir}: enable ${entry.id} (${claudeMessage(res, `exited ${res.code}`)})`);
+      stillOff.push(entry);
+    }
+  }
+  // A reinstall that kept ~/.mattstack must swap again, so the swap is forgotten once nothing it turned off is still off.
+  const forgetSwap = (ids: string[]) => (stillOff.length === 0 ? ids.filter((id) => id !== superpowersForkSwapMigration.id) : ids);
+
+  updateSetupState(ctx.p, (s) => {
+    const { superpowersSkillsCarried: carried, ...rest } = s;
+    const next = { ...rest, plugins: [...notRemoved], marketplaces: [...new Set(unresolved)], superpowersDisabled: stillOff, migrations: forgetSwap(s.migrations) };
+    return stillOff.length === 0 || carried === undefined ? next : { ...next, superpowersSkillsCarried: carried };
+  });
   const generated = await removeGeneratedMarketplaces(ctx, claude.exec, notes);
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };
   const generatedNote = generated > 0 ? `, and deleted ${generated} generated team marketplace folder${generated === 1 ? "" : "s"}` : "";
-  return { outcome: { state: "done", detail: `Removed ${state.plugins.length} plugin${state.plugins.length === 1 ? "" : "s"} and ${state.marketplaces.length} marketplace${state.marketplaces.length === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}${generatedNote}` } };
+  const turnedOnNote = turnedOn.length > 0 ? `; turned ${turnedOn.join(", ")} back on` : "";
+  return { outcome: { state: "done", detail: `Removed ${state.plugins.length} plugin${state.plugins.length === 1 ? "" : "s"} and ${state.marketplaces.length} marketplace${state.marketplaces.length === 1 ? "" : "s"} across ${configDirs.length} Claude config folder${configDirs.length === 1 ? "" : "s"}${generatedNote}${turnedOnNote}` } };
 }
 
 function mattstackDataDir(p: Pick<Probes, "home">): string {
