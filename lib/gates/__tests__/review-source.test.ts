@@ -560,6 +560,23 @@ describe("drafted comments ride whole, board-only", () => {
     expect(errs(mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Needs work.")), load(X))).toBe(""));
   test("editable over a file with no findings needs only the summary drafts", () =>
     expect(errs(mutated(DRAFTS, (j) => (j.findings = [])), editable())).toBe(""));
+  const NONE = { comment: "Nothing to add, over to you.", approve: "Looks good to me, approving." };
+  const withNone = () => mutated(DRAFTS, (j) => (j.summary.noFindingsComments = { ...NONE }));
+  test("review@1 carries every verdict's no-findings draft whole, after the summary drafts", () => {
+    const o = build(withNone(), editable());
+    expect(o.context.summaryNoFindingsComments).toEqual(NONE);
+    expect(Object.keys(o.context).slice(-2)).toEqual(["summaryComments", "summaryNoFindingsComments"]);
+    expect(checkSource(o)).toEqual({ ok: true });
+  });
+  test("a file without no-findings drafts carries no such key", () =>
+    expect(Object.hasOwn(out.context, "summaryNoFindingsComments")).toBe(false));
+  const NONE_LINES = "extras: editable: summary.noFindingsComments needs exactly one line per outcome option when present: comment, approve";
+  const noneRejects: [string, J, J, string][] = [
+    ["no-findings drafts as a string", mutated(DRAFTS, (j) => (j.summary.noFindingsComments = "hi")), load(X), "findings file: summary.noFindingsComments: object of non-blank strings when present"],
+    ["a blank no-findings draft", mutated(DRAFTS, (j) => (j.summary.noFindingsComments = { ...NONE, approve: " " })), load(X), "findings file: summary.noFindingsComments: object of non-blank strings when present"],
+    ["editable missing a verdict's no-findings draft", mutated(DRAFTS, (j) => (j.summary.noFindingsComments = { comment: NONE.comment })), editable(), NONE_LINES],
+  ];
+  for (const [name, f, x, want] of noneRejects) test(`${name} names the field`, () => expect(errs(f, x)).toBe(want));
   test("a three-verdict GitHub gate carries all three summary drafts", () => {
     const f = mutated(DRAFTS, (j) => (j.summary.comments.request_changes = "Two of these need a fix before this merges."));
     const x = mutated(X, (j) => {
