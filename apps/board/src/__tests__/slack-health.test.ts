@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { slackAuthError } from '../slack-health.ts';
+import { slackAuthError, slackIssueFor } from '../slack-health.ts';
 
 describe('slackAuthError', () => {
   test('names the code when Slack rejects the token itself', () => {
@@ -27,5 +27,51 @@ describe('slackAuthError', () => {
 
   test('a network failure is not an auth failure', () => {
     expect(slackAuthError('fetch failed')).toBeNull();
+  });
+});
+
+describe('slackIssueFor', () => {
+  test('a rejected token is reported while the board still holds it', () => {
+    expect(
+      slackIssueFor({
+        token: 'xoxp-a',
+        rejection: { token: 'xoxp-a', error: 'token_revoked' },
+        secretsFailure: null,
+        channels: ['code-review'],
+      })
+    ).toEqual({ kind: 'rejected', error: 'token_revoked' });
+  });
+
+  test('a new token clears an old rejection', () => {
+    expect(
+      slackIssueFor({
+        token: 'xoxp-b',
+        rejection: { token: 'xoxp-a', error: 'token_revoked' },
+        secretsFailure: null,
+        channels: ['code-review'],
+      })
+    ).toBeNull();
+  });
+
+  test('an unreadable store counts when only a tab names a Slack channel', () => {
+    expect(
+      slackIssueFor({
+        token: null,
+        rejection: null,
+        secretsFailure: 'sops failed',
+        channels: ['tab-only-channel'],
+      })
+    ).toEqual({ kind: 'unreadable', detail: 'sops failed' });
+  });
+
+  test('an unreadable store is not reported when no Slack channel is set up', () => {
+    expect(
+      slackIssueFor({
+        token: null,
+        rejection: null,
+        secretsFailure: 'sops failed',
+        channels: [],
+      })
+    ).toBeNull();
   });
 });

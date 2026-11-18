@@ -425,7 +425,7 @@ import {
   type ReactedBy,
 } from './slack-emoji.ts';
 import { slackFaceNames } from './slack-face-names.ts';
-import type { SlackIssue } from './slack-health.ts';
+import { slackIssueFor, type SlackIssue } from './slack-health.ts';
 import {
   attachOwnerPosts,
   attachOwnerPostsLeft,
@@ -5540,16 +5540,13 @@ let autoResolveTimer: ReturnType<typeof setTimeout> | undefined;
 /** The token Slack last rejected, and why; cleared by a sweep Slack accepts. */
 let slackRejection: { token: string; error: string } | null = null;
 
-/** What stops the board using Slack, for the person to fix, or null. An
-    unreadable store only counts when the team has a review channel, so a
-    board with no Slack set up never nags. */
 function currentSlackIssue(token: string | null): SlackIssue | null {
-  if (token && slackRejection?.token === token)
-    return { kind: 'rejected', error: slackRejection.error };
-  const failure = token ? null : boardSecretsFailure();
-  if (failure && config.slack.channel)
-    return { kind: 'unreadable', detail: failure };
-  return null;
+  return slackIssueFor({
+    token,
+    rejection: slackRejection,
+    secretsFailure: token ? null : boardSecretsFailure(),
+    channels: configuredSlackChannels(config),
+  });
 }
 
 async function sweepOnce(

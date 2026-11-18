@@ -21,3 +21,20 @@ export function slackAuthError(line: string): string | null {
     token was rejected, or the secrets holding it could not be read. */
 export type SlackIssue =
   { kind: 'rejected'; error: string } | { kind: 'unreadable'; detail: string };
+
+/** What stops the board using Slack, for the person to fix, or null. A
+    rejection counts only while the board still holds the rejected token,
+    and an unreadable store only when the team or a tab names a Slack
+    channel, so a board with no Slack set up never nags. */
+export function slackIssueFor(o: {
+  token: string | null;
+  rejection: { token: string; error: string } | null;
+  secretsFailure: string | null;
+  channels: string[];
+}): SlackIssue | null {
+  if (o.token && o.rejection?.token === o.token)
+    return { kind: 'rejected', error: o.rejection.error };
+  if (!o.token && o.secretsFailure && o.channels.length > 0)
+    return { kind: 'unreadable', detail: o.secretsFailure };
+  return null;
+}
