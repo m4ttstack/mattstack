@@ -29,7 +29,7 @@ afterAll(() => {
 
 const GATE_ROW = { id: "g1", questions: [{ id: "next", label: "Next?", multi: false, options: [{ value: "ship", label: "Ship" }, "hold"] }, { id: "free", label: "Notes", multi: false, options: [] }] };
 
-function fake(opts: { statusError?: string; statusData?: unknown; pluginListError?: string; answerResult?: unknown; parkedGate?: boolean; gatesError?: string; gateRow?: typeof GATE_ROW } = {}) {
+function fake(opts: { statusError?: string; statusData?: unknown; pluginListError?: string; answerResult?: unknown; parkedGate?: boolean; gatesError?: string; gateRow?: typeof GATE_ROW & Record<string, unknown> } = {}) {
   const tempRoots = [FAKE_TEMP_ROOT];
   // A failed plugin listing leaves only the temp root, as the real resolver does.
   const readRoots = opts.pluginListError
@@ -81,8 +81,10 @@ const SHEPHERD_ONLY: Array<[string, Record<string, unknown>]> = [
   ["herd_diagnose", { herd: "hd-1", job: "j" }],
   ["herd_nudge", { herd: "hd-1", job: "j", gate: "g1" }],
   ["herd_lanes", { herd: "hd-1" }],
+  ["herd_gate_present", { herd: "hd-1", gate: "g1" }],
 ];
-const NEW_TOOLS = ["herd_respawn", "herd_gate_answer", "herd_gate_park", "herd_diagnose", "herd_nudge", "herd_lanes"];
+const READ_ONLY = new Set(["herd_gate_present"]);
+const NEW_TOOLS = ["herd_respawn", "herd_gate_answer", "herd_gate_park", "herd_diagnose", "herd_nudge", "herd_lanes", "herd_gate_present"];
 
 describe("herd tools refuse a caller that does not own the herd", () => {
   test("herd_spawn, herd_close, herd_follow_up, herd_wrap_up, herd_attend and herd_resume refuse in a worker pane, with zero daemon calls", async () => {
@@ -121,7 +123,7 @@ describe("herd tools refuse a caller that does not own the herd", () => {
       const { tool, destructive } = fake();
       const r = await tool(name).handler(input, SESSION);
       expect(r.ok, name).toBe(true);
-      expect(destructive().length, name).toBe(1);
+      expect(destructive().length, name).toBe(READ_ONLY.has(name) ? 0 : 1);
     }
   });
 
@@ -555,6 +557,33 @@ describe("herd respawn, gate answer and park, diagnose, nudge, lanes", () => {
       expect(Array.isArray(forms), name).toBe(false);
       expect((forms.none ?? "").length, name).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("herd_gate_present", () => {
+  const KIT = { questions: [{ id: "next", label: "Next?", multi: false, options: ["ship", "hold"], context: "fitted prose" }], context: "Why", controls: { pause: false, goBack: [] } };
+  test("returns the stored kit form as a kit result", async () => {
+    const { tool, destructive } = fake({ gateRow: { ...GATE_ROW, kind: "plan", subject: "herd:hd-1:j", meta: { kitForm: KIT } } });
+    const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g1" }, SESSION);
+    expect(r.body).toEqual({ id: "g1", kind: "plan", subject: "herd:hd-1:j", presentation: "kit", paneAction: "kit", boardOnly: false, relay: true, kitForm: KIT });
+    expect(destructive()).toEqual([]);
+  });
+  test("builds a form for a herd_ask gate with no stored one", async () => {
+    const { tool } = fake({ gateRow: { ...GATE_ROW, kind: "question", subject: "herd:hd-1:j", meta: { herd: "hd-1", job: "j" }, context: "Pick a path" } });
+    const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g1" }, SESSION);
+    expect((r.body as { kitForm: object }).kitForm).toEqual({ questions: GATE_ROW.questions, context: "Pick a path", controls: { pause: false, goBack: [] } });
+  });
+  test("a row with no context or meta gets a form with no context", async () => {
+    const { tool } = fake();
+    const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g1" }, SESSION);
+    expect((r.body as { kitForm: object }).kitForm).toEqual({ questions: GATE_ROW.questions, controls: { pause: false, goBack: [] } });
+  });
+  test("refuses a closed or unknown gate, and reads parked ones", async () => {
+    const { tool, calls } = fake();
+    const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g-closed" }, SESSION);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("g-closed");
+    expect(calls.find((c) => c.fn === "gates")!.a).toEqual({ herd: "hd-1", includeParked: true });
   });
 });
 

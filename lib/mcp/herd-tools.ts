@@ -10,6 +10,7 @@ import {
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
 import { existsSync, readFileSync } from "fs";
+import { flattenContext } from "../gates/form.ts";
 import { GATE_MODE_ERROR, parseMode } from "../gates/mode.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
 import { runRtVerb } from "./rt-verb.ts";
@@ -104,6 +105,19 @@ async function herdGate(herd: string, gate: string, gates: typeof herdGates, inc
   return row ? { row } : { error: `gate ${gate} is not ${includeParked ? "an open or parked" : "an open"} gate of herd "${herd}"` };
 }
 
+/** The form a herd worker's gate_ask stored when it opened the gate (lib/mcp/gate-tools.ts kitFormOf). */
+function storedKitForm(row: GateRow): unknown {
+  const meta = row.meta as Record<string, unknown> | null | undefined;
+  const kit = meta?.kitForm;
+  return kit && typeof kit === "object" && Array.isArray((kit as { questions?: unknown }).questions) ? kit : undefined;
+}
+
+/** A herd_ask gate opens through the daemon with no stored form, so its form is built from the row; herd runs get no run controls. */
+function builtKitForm(row: GateRow): { questions: GateRow["questions"]; context?: string; controls: { pause: boolean; goBack: string[] } } {
+  const context = typeof row.context === "string" && row.context !== "" ? flattenContext(row.context, { level: "gate" }) : undefined;
+  return { questions: row.questions, ...(context ? { context } : {}), controls: { pause: false, goBack: [] } };
+}
+
 /** Each question checked alone, so every bad answer is reported at once rather than only the first. */
 function invalidAnswers(row: GateRow, answers: Record<string, unknown>): Array<{ question: string; got: unknown; validValues: string[] }> {
   const invalid: Array<{ question: string; got: unknown; validValues: string[] }> = [];
@@ -190,7 +204,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_spawn",
       description: "Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with \"-\"; omitted, the job's stored brief is reused. tree names a registered tree to reuse instead of provisioning (a tree name, never a directory). A job that already has a worktree on disk is refused without tree: relaunch it with herd_respawn. account, model and effort are plain tokens. gateMode (chatty, normal, quiet or yolo) is not stored on the job: a respawn must pass it again, while a worker resuming its run keeps the run's recorded mode. A spawn into a tree another job already holds is a guest (a reviewer): it ticks the host's reviewerRounds budget and returns it as reviewerRound {host, key, budget}. Only the herd's shepherd session may call it. Takes minutes.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, gateMode: { type: "string", description: "chatty, normal, quiet or yolo; the worker's new run starts in this gate mode (it reaches the worker as RT_GATE_MODE)." }, disposable: { type: "boolean" }, tree: { type: "string", description: "A registered tree's name; never a directory." } }, required: ["job"], additionalProperties: false },
-      shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /(?<![\w-])rt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_follow_up, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone, herd_respawn, herd_gate_answer, herd_gate_park, herd_diagnose, herd_nudge, herd_lanes" }],
+      shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /(?<![\w-])rt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_follow_up, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone, herd_respawn, herd_gate_answer, herd_gate_park, herd_gate_present, herd_diagnose, herd_nudge, herd_lanes" }],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         // The server does not enforce additionalProperties, and a caller-chosen dir would land the worker in a folder whose
@@ -263,6 +277,27 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         const winner = res.data?.row.answer;
         if (res.data?.conflict) return ok({ status: "conflict", winner: { answers: winner?.answers ?? null, by: winner?.by ?? null } });
         return ok({ status: "recorded", gate: id, answer: winner });
+      },
+    },
+    {
+      name: "herd_gate_present",
+      description: "Show one of this herd's open or parked gates to the user in this pane's kit form, exactly as its worker would have. Call it once per gate, then end your turn; the answer is recorded by the shepherd and wakes the worker. Only the herd's shepherd session may call it.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, gate: { type: "string" } }, required: ["gate"], additionalProperties: false },
+      shellForms: { none: NO_CLI_TWIN },
+      async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
+        const bad = checkRequired(input, [{ name: "gate", type: "string" }]);
+        if (bad) return err(bad);
+        const h = await shepherdHerd(input, env, deps.status);
+        if ("error" in h) return err(h.error);
+        const g = await herdGate(h.herd, input.gate as string, deps.gates, true);
+        if ("error" in g) return err(g.error);
+        const { row } = g;
+        return ok({
+          id: row.id, kind: row.kind, subject: row.subject,
+          presentation: "kit", paneAction: "kit", boardOnly: false, relay: true,
+          kitForm: storedKitForm(row) ?? builtKitForm(row),
+        });
       },
     },
     {

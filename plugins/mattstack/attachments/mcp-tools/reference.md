@@ -2968,6 +2968,30 @@ Answer one of this herd's open or parked gates as the shepherd. Answer values mu
 }
 ```
 
+### herd_gate_present
+
+<!-- mcp-lint: allow -->
+Show one of this herd's open or parked gates to the user in this pane's kit form, exactly as its worker would have. Call it once per gate, then end your turn; the answer is recorded by the shepherd and wakes the worker. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "gate": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "gate"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### herd_gate_park
 
 <!-- mcp-lint: allow -->
