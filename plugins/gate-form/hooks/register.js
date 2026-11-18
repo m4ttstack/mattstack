@@ -1405,8 +1405,9 @@ async function takeGate($, e, next, present = false) {
   const text = textOf(out);
   const kit = readKitResult(text);
   const board = kit.kind === "other" ? readBoardOnly(text) : undefined;
+  const boardKind = board && present ? JSON.parse(text).kind : e.kind;
   if (board)
-    await addBoard($, { gateId: board.gateId, kind: String(e.kind ?? "") }, board.supersededId);
+    await addBoard($, { gateId: board.gateId, kind: String(boardKind ?? "") }, board.supersededId);
   if (kit.kind === "other")
     return out;
   const kind = present && kit.kind === "kit" ? kit.fields.kind : e.kind;
@@ -1418,6 +1419,8 @@ async function takeGate($, e, next, present = false) {
     const gateId = kit.fields.id;
     if (typeof gateId !== "string" || gateId === "")
       return out;
+    if (present && (await readForms($)).some((f) => f.gateId === gateId && f.status === "open"))
+      return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) };
     const shown = await showKitGate($, gateForm(kit.fields, title), { gateId, kind: kindText }, supersededOf(kit.fields));
     return { result: withText(out.result, JSON.stringify(shown === "form" ? agentFields(kit.fields) : boardFields(kit.fields))) };
   }

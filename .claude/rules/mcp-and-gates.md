@@ -194,7 +194,10 @@ belongs in the list (a test pins this). And what skills still run in a shell
 is `rt gate wait`, which blocks past any tool timeout, and `rt events wait`
 under `Monitor`, covered by `Bash(rt gate *)` and `Bash(rt events wait *)`.
 The shepherdr skill answers and parks gates through `herd_gate_answer` and
-`herd_gate_park`; `rt gate answer --by shepherd` is left for a person.
+`herd_gate_park`, and shows a worker's gate in its own kit form through
+`herd_gate_present`. The agent never runs `rt gate answer --by shepherd`:
+the gate-form mod runs it for the person who submitted that form, and
+otherwise it is left for a person.
 Everything else a skill runs routinely is a tool on the mattstack server.
 Do not widen the list to make a skill work; add a tool or an agent-safe
 verb.

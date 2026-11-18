@@ -10,6 +10,7 @@ import {
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
 import { existsSync, readFileSync } from "fs";
+import { BOARD_ONLY_KINDS } from "../daemon/handlers/gate.ts";
 import { flattenContext } from "../gates/form.ts";
 import { GATE_MODE_ERROR, parseMode } from "../gates/mode.ts";
 import { resolveRepoTarget } from "./mr-target.ts";
@@ -293,6 +294,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         const g = await herdGate(h.herd, input.gate as string, deps.gates, true);
         if ("error" in g) return err(g.error);
         const { row } = g;
+        if (BOARD_ONLY_KINDS.has(row.kind)) return ok({ id: row.id, kind: row.kind, subject: row.subject, presentation: "wait", paneAction: "wait", boardOnly: true });
         return ok({
           id: row.id, kind: row.kind, subject: row.subject,
           presentation: "kit", paneAction: "kit", boardOnly: false, relay: true,

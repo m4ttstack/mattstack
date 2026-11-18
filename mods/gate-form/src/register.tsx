@@ -471,9 +471,10 @@ async function takeGate($: EngineInterface, e: ToolCallInput, next: Next, presen
   const text = textOf(out)
   const kit = readKitResult(text)
   const board = kit.kind === 'other' ? readBoardOnly(text) : undefined
-  if (board) await addBoard($, { gateId: board.gateId, kind: String((e as unknown as { kind?: unknown }).kind ?? '') }, board.supersededId)
-  if (kit.kind === 'other') return out
   // A presented gate's kind is in its result: the shepherd's call names only the gate.
+  const boardKind = board && present ? (JSON.parse(text) as { kind?: unknown }).kind : (e as unknown as { kind?: unknown }).kind
+  if (board) await addBoard($, { gateId: board.gateId, kind: String(boardKind ?? '') }, board.supersededId)
+  if (kit.kind === 'other') return out
   const kind = present && kit.kind === 'kit' ? kit.fields.kind : (e as unknown as { kind?: unknown }).kind
   const title = typeof kind === 'string' && kind.trim() !== '' ? kind : GATE_TITLE
   const kindText = typeof kind === 'string' ? kind : ''
@@ -483,6 +484,8 @@ async function takeGate($: EngineInterface, e: ToolCallInput, next: Next, presen
   if (kit.kind === 'kit') {
     const gateId = kit.fields.id
     if (typeof gateId !== 'string' || gateId === '') return out
+    // A gate presented again (a repeat push, a shepherd that compacted) keeps the form already queued, with its picks.
+    if (present && (await readForms($)).some(f => f.gateId === gateId && f.status === 'open')) return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) as never }
     const shown = await showKitGate($, gateForm(kit.fields, title), { gateId, kind: kindText }, supersededOf(kit.fields))
     return { result: withText(out.result, JSON.stringify(shown === 'form' ? agentFields(kit.fields) : boardFields(kit.fields))) as never }
   }

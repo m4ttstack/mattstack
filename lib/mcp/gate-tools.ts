@@ -382,7 +382,8 @@ export async function askGate(
     : context !== undefined ? flattenContext(context, { level: "gate" }) : undefined);
   const meta: Record<string, unknown> = {};
   // A herd job's gate is drawn in its shepherd's kit form: the stored copy is what herd_gate_present hands back.
-  const relay = typeof env.HERD_JOB === "string" && env.HERD_JOB !== "" && !preAnswer;
+  // A board-only kind waits on the board for the shepherd as for anyone: a pane form can't edit its drafts.
+  const relay = typeof env.HERD_JOB === "string" && env.HERD_JOB !== "" && !preAnswer && !BOARD_ONLY_KINDS.has(kind);
   if (relay) {
     payload.shepherdRelay = true;
     meta.kitForm = kitFormOf(questions, formContext, controls, extra.proseById);

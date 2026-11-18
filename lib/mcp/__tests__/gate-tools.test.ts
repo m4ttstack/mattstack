@@ -1382,9 +1382,19 @@ describe("kit forms", () => {
     test("gate_open stores the pane-fitted prose, as the kit result would carry it", async () => {
       const relayed = fake(WAIT);
       const drawn = fake(KIT);
-      await tool("gate_open", relayed.deps).handler({ kind: "respond-plan", source: plan(), kitForm: true }, HERD);
-      const kit = await tool("gate_open", drawn.deps).handler({ kind: "respond-plan", source: plan(), kitForm: true }, ENV);
+      await tool("gate_open", relayed.deps).handler({ kind: "plan", source: plan(), kitForm: true }, HERD);
+      const kit = await tool("gate_open", drawn.deps).handler({ kind: "plan", source: plan(), kitForm: true }, ENV);
       expect((relayed.asks[0]!.meta as Record<string, unknown>).kitForm).toEqual(body(kit).kitForm);
+    });
+
+    test("a board-only kind is not relayed and stores no kit form: it waits on the board, as outside a herd", async () => {
+      for (const kind of ["review-post", "respond-plan", "respond-post"]) {
+        const relayed = fake(WAIT);
+        const plain = fake(WAIT);
+        await askGate({ questions: [q("q1")], context: "Why", kind, kitForm: true }, HERD, relayed.deps);
+        await askGate({ questions: [q("q1")], context: "Why", kind, kitForm: true }, HERDR, plain.deps);
+        expect(relayed.asks[0], kind).toEqual(plain.asks[0]!);
+      }
     });
 
     test("a preAnswered gate stores no kit form and does not relay", async () => {

@@ -578,6 +578,13 @@ describe("herd_gate_present", () => {
     const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g1" }, SESSION);
     expect((r.body as { kitForm: object }).kitForm).toEqual({ questions: GATE_ROW.questions, controls: { pause: false, goBack: [] } });
   });
+  test("a board-only kind comes back as a board gate, never a kit form", async () => {
+    for (const kind of ["review-post", "respond-plan", "respond-post"]) {
+      const { tool } = fake({ gateRow: { ...GATE_ROW, kind, subject: "run:9", meta: { kitForm: KIT } } });
+      const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g1" }, SESSION);
+      expect(r.body, kind).toEqual({ id: "g1", kind, subject: "run:9", presentation: "wait", paneAction: "wait", boardOnly: true });
+    }
+  });
   test("refuses a closed or unknown gate, and reads parked ones", async () => {
     const { tool, calls } = fake();
     const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g-closed" }, SESSION);

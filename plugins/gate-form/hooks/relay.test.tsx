@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { type Engine, PANE, PRESENT, drawOn, eventually, formOf, ok, relayResult, resultText, world } from './world'
+import { ABOVE, type Engine, PANE, PRESENT, drawOn, eventually, formOf, ok, relayResult, resultText, rowsOf, world } from './world'
 
 const present = ($: Engine, gate: string) => $.tool.call({ tool: PRESENT, herd: 'hd-1', gate } as never)
 const presentEach = { reply: (input: Record<string, unknown>) => ({ text: JSON.stringify(relayResult(String(input.gate))) }) }
@@ -128,6 +128,29 @@ test('a spilled relay result passes through untouched and draws nothing', async 
   expect(resultText(out)).toBe('Output saved to /tmp/spill.json')
   expect(w.panes.size).toBe(0)
   expect(w.ran).toEqual([])
+})
+
+test('a board-only presented gate puts its band in the shepherd’s pane, named by the gate’s kind, and passes through', async ($, on) => {
+  const board = { id: 'g1', kind: 'respond-plan', subject: 'run:9', presentation: 'wait', paneAction: 'wait', boardOnly: true }
+  const w = world(on, { reply: () => ({ text: JSON.stringify(board) }) })
+  await drawOn($, 'terminal')
+  const out = await present($, 'g1')
+  expect(JSON.parse(resultText(out))).toEqual(board)
+  expect(w.panes.size).toBe(0)
+  const band = await $.ui.mount({ ...ABOVE, surface: 'terminal' })
+  const key = (await band.find({ type: 'Client' }))!.key!
+  expect((await rowsOf(band, key)).join('\n')).toContain('Respond plan is waiting on the board')
+  await band.unmount()
+})
+
+test('presenting a gate already on screen keeps that form, picks and all', async ($, on) => {
+  world(on, presentEach)
+  await drawOn($, 'terminal')
+  await present($, 'g1')
+  const before = (await paneForm($))!.id
+  const out = await present($, 'g1')
+  expect(JSON.parse(resultText(out)).instruction).toContain('queued in your kit form')
+  expect((await paneForm($))!.id).toBe(before)
 })
 
 test('with rt.gates.kitForm off, herd_gate_present passes through untouched', async ($, on) => {
