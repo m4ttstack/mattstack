@@ -28,6 +28,12 @@ function send(form: Form, s: State): Effect | undefined {
   return post(form, s, { [form.questions[0]!.id]: chosenValue(form, s) })
 }
 
+// The one-page form's Enter picks the option at the cursor and submits it.
+function sendPicked(form: Form, s: State): Effect {
+  const picked = toggleAtCursor(form, s)
+  return send(form, picked) ?? { state: picked }
+}
+
 // The first press arms it; the second sets the form aside. A gate set aside stays open and answerable.
 function chat(form: Form, s: State): Effect | undefined {
   if (!canChat(form)) return undefined
@@ -157,14 +163,14 @@ function questionKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefin
   const { key } = ev
   const isSpace = key === ' ' || key === 'space'
   const typing = isTyping(form, s)
-  if (isEnter(ev)) return isSinglePage(form) ? (send(form, s) ?? { state: s }) : { state: confirm(form, s) }
+  if (isEnter(ev)) return isSinglePage(form) ? sendPicked(form, s) : { state: confirm(form, s) }
   if (key === 'left' || key === 'right') return { state: goTo(form, s, s.page + (key === 'left' ? -1 : 1)) }
   if (key === 'up' || key === 'down') return gridKey(ev, form, s)
-  if (isSpace && form.questions[s.page]?.multi && !typing) return { state: toggleAtCursor(form, s) }
+  if (isSpace && !typing) return { state: toggleAtCursor(form, s) }
   if (!typing) return undefined
   if (key === 'backspace' || key === 'delete') return { state: deleteChar(s) }
   const ch = isSpace ? ' ' : key
-  if (ch.length === 1 && !ev.ctrl && !ev.meta) return { state: typeChar(s, ch) }
+  if (ch.length === 1 && !ev.ctrl && !ev.meta) return { state: typeChar(form, s, ch) }
   return undefined
 }
 

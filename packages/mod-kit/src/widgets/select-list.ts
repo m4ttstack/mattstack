@@ -1,5 +1,5 @@
 import { hang, sp, widthOf, withAction, type Line, type Span } from '../draw/text'
-import { ACCENT, DIM, DONE, ICON, SYMBOL, pressed } from '../draw/theme'
+import { ACCENT, CURSOR_ROW, DIM, DONE, ICON, SYMBOL, pressed } from '../draw/theme'
 import { inputField } from './input-field'
 
 export type Choice = { label: string; description?: string; isWriteIn?: boolean }
@@ -8,9 +8,8 @@ export type SelectSpec<A> = {
   choices: Choice[]
   cursor: number
   multi: boolean
+  // What is picked, apart from where the cursor is: a single choice's ●, a multi choice's ticked box.
   isPicked: (idx: number) => boolean
-  // A single choice draws its cursor as the chosen ● only when resting there counts as choosing it.
-  cursorIsChoice: boolean
   writeIn: string
   width: number
   focused: boolean
@@ -20,7 +19,8 @@ export type SelectSpec<A> = {
   pressing?: boolean
 }
 
-// Clack's select and multiselect: a window of choices around the cursor, each wrapped in full, the focused one bold.
+// Clack's select and multiselect: a window of choices around the cursor, each wrapped in full. While the list is focused
+// the cursor's choice has a ❯ in its gutter and a tinted row, apart from the pick, so moving never looks like picking.
 export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
   const max = spec.maxShown ?? 8
   const total = spec.choices.length
@@ -31,34 +31,46 @@ export function selectList<A>(spec: SelectSpec<A>): Line<A>[] {
   // Every choice takes at least two rows, its description's row left blank when it has none, so every list keeps one rhythm.
   const padded = (rows: Line<A>[]) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, (): Line<A> => [bar])]
   if (start > 0) lines.push([bar, sp(`  ↑ ${start} more`, DIM)])
-  shown.forEach((choice, n) => lines.push(...withAction(padded(choiceRows(choice, start + n, spec)), spec.actionFor(start + n))))
+  shown.forEach((choice, n) => {
+    const idx = start + n
+    const rows = padded(choiceRows(choice, idx, spec))
+    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map(line => tinted(line, spec.width)) : rows, spec.actionFor(idx)))
+  })
   const below = total - start - shown.length
   if (below > 0) lines.push([bar, sp(`  ↓ ${below} more`, DIM)])
   return lines
 }
 
 function choiceMark(spec: SelectSpec<unknown>, idx: number): Span<never> {
-  const isAt = idx === spec.cursor
-  if (!spec.multi) return isAt ? (spec.cursorIsChoice ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, ACCENT)) : sp(SYMBOL.radioOff, DIM)
-  if (spec.isPicked(idx)) return sp(SYMBOL.boxOn, DONE)
-  return isAt ? sp(SYMBOL.boxActive, ACCENT) : sp(SYMBOL.boxOff, DIM)
+  const isPicked = spec.isPicked(idx)
+  if (!spec.multi) return isPicked ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, DIM)
+  return isPicked ? sp(SYMBOL.boxOn, DONE) : sp(SYMBOL.boxOff, DIM)
 }
+
+const isCursorRow = (spec: SelectSpec<unknown>, idx: number) => spec.focused && idx === spec.cursor
 
 function choiceRows<A>(choice: Choice, idx: number, spec: SelectSpec<A>): Line<A>[] {
   const bar = sp<A>(SYMBOL.bar, ACCENT)
-  const lead = [bar, sp('  '), choiceMark(spec, idx), sp(' ')]
+  const isAt = isCursorRow(spec, idx)
+  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { ...ACCENT, bold: true }) : sp('  '), choiceMark(spec, idx), sp(' ')]
   const under = [bar, sp('    ')]
-  const isAt = idx === spec.cursor
   const rows = choiceLines(choice, idx, spec, lead, under)
-  if (!isAt || !spec.pressing) return rows
-  return rows.map(line => line.map(span => ((span as { isLabel?: boolean }).isLabel ? pressed(span) : span)))
+  return isAt && spec.pressing ? rows.map(line => line.map(span => ((span as { isLabel?: boolean }).isLabel ? pressed(span) : span))) : rows
+}
+
+// The cursor's row, tinted from after the rail to the list's right edge; a span with its own fill (the write-in field) keeps it.
+function tinted<A>(line: Line<A>, width: number): Line<A> {
+  const [rail, ...rest] = line
+  const filled = rest.map(span => (span.bg ? span : { ...span, bg: CURSOR_ROW }))
+  const room = Math.max(0, width - widthOf(line))
+  return [rail!, ...filled, ...(room > 0 ? [sp<A>(' '.repeat(room), { bg: CURSOR_ROW })] : [])]
 }
 
 function choiceLines<A>(choice: Choice, idx: number, spec: SelectSpec<A>, lead: Span<A>[], under: Span<A>[]): Line<A>[] {
   const isAt = idx === spec.cursor
   if (choice.isWriteIn) return writeInRows(choice, isAt, lead, under, spec)
   // Every choice wraps in full, label and description: a cut description hides what the choice means.
-  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...(isAt && { bold: true }) }), ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
+  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...(isCursorRow(spec, idx) && { bold: true }) }), ...(choice.description ? hang(under, under, choice.description, spec.width, DIM) : [])]
 }
 
 // The label stays put; the row under it is the description until the choice is focused, then the line you type on,

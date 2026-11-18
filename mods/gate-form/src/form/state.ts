@@ -15,8 +15,8 @@ export type State = {
   picked: string[][]
   text: string[]
   answered: boolean[]
-  // The cursor was moved by the person, so where it rests is their choice.
-  moved: boolean[]
+  // A single choice's picked value, apart from the cursor; a multi question keeps its picks in `picked`.
+  chosen: (string | undefined)[]
   phase: Phase
   hover?: string
   pressed?: string
@@ -48,14 +48,16 @@ export function choicesOf(q: FormQuestion): FormOption[] {
   return [...q.options, { value: WRITE_IN, label: 'Something else', description: 'Write in your answer' }]
 }
 
+// A single choice starts with its recommended option picked; a multi question starts with nothing ticked.
 export function initial(form: Form): State {
+  const chosen = form.questions.map(q => (isConfirm(form) || q.multi ? undefined : q.options.find(isRecommended)?.value))
   return {
     page: 0,
     cursor: form.questions.map(q => (isConfirm(form) ? 0 : Math.max(0, q.options.findIndex(isRecommended)))),
     picked: form.questions.map(() => []),
     text: form.questions.map(() => ''),
-    answered: form.questions.map(() => false),
-    moved: form.questions.map(() => false),
+    answered: chosen.map(value => value !== undefined),
+    chosen,
     phase: 'active',
     tabsFrom: 0,
     menu: { open: false, selected: 0 },
@@ -69,11 +71,11 @@ export function canSubmit(form: Form, s: State): boolean {
   return form.source !== 'gate' || unansweredCount(s) === 0
 }
 
-// The one-page form's chosen option: the cursor, once it counts as a choice. A sole option is chosen where it rests,
-// since no key can move the cursor onto it.
+// The one-page form's picked option. A sole option counts as picked, since there is nothing else to choose.
 export function chosenValue(form: Form, s: State): string | undefined {
   const q = form.questions[0]
-  return q && (cursorIsChoice(q, s, 0) || choicesOf(q).length === 1) ? choicesOf(q)[s.cursor[0]!]?.value : undefined
+  if (!q) return undefined
+  return s.chosen[0] ?? (choicesOf(q).length === 1 ? choicesOf(q)[0]!.value : undefined)
 }
 
 const PAUSE = 'pause'
@@ -131,7 +133,8 @@ export const unansweredCount = (s: State) => s.answered.filter(a => !a).length
 export function isPicked(q: FormQuestion, s: State, i: number, idx: number): boolean {
   const value = choicesOf(q)[idx]?.value
   if (value === undefined) return false
-  return s.picked[i]!.includes(value) || (value === WRITE_IN && q.multi && s.text[i]!.trim() !== '')
+  if (!q.multi) return s.chosen[i] === value
+  return s.picked[i]!.includes(value) || (value === WRITE_IN && s.text[i]!.trim() !== '')
 }
 
 export function isTyping(form: Form, s: State): boolean {
@@ -152,7 +155,7 @@ export function answersOf(form: Form, s: State): Record<string, unknown> {
       const values = s.picked[i]!.filter(v => v !== WRITE_IN)
       out[q.id] = typed === '' ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed }
     } else {
-      const value = choicesOf(q)[s.cursor[i]!]?.value
+      const value = s.chosen[i]
       out[q.id] = value === WRITE_IN ? { writeIn: typed } : value
     }
   })
@@ -165,31 +168,16 @@ export function goTo(form: Form, s: State, page: number): State {
   return { ...s, page: Math.max(0, Math.min(last, page)) }
 }
 
-// A single choice draws its cursor as the chosen ●, so Next takes that option as the answer.
-// Where a single choice's cursor rests is a choice once it is answered, moved there by the person, or the recommended option;
-// a cursor that merely starts on the first option is not.
-export function cursorIsChoice(q: FormQuestion, s: State, i: number): boolean {
-  const option = choicesOf(q)[s.cursor[i]!]
-  if (!option || (option.value === WRITE_IN && s.text[i]!.trim() === '')) return false
-  return s.answered[i] || s.moved[i] || isRecommended(option)
-}
-
-function takesCursorAsAnswer(form: Form, s: State): boolean {
-  const q = form.questions[s.page]
-  return q !== undefined && !q.multi && !s.answered[s.page] && cursorIsChoice(q, s, s.page)
-}
-
-// The Next (or Review) button: accepts a single choice's cursor, then moves on.
+// Next (or Review) only moves on: a single choice was picked by space, Enter, a click or its recommended default.
 export function advance(form: Form, s: State): State {
-  const answered = takesCursorAsAnswer(form, s) ? markAnswered(s, s.page) : s.answered
-  return goTo(form, { ...s, answered }, s.page + 1)
+  return goTo(form, s, s.page + 1)
 }
 
 export function moveCursor(form: Form, s: State, by: number): State {
   const q = form.questions[s.page]
   const count = q ? choicesOf(q).length : 0
   if (count === 0) return s
-  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page]! + by + count) % count), moved: replaceAt(s.moved, s.page, true) }
+  return { ...s, cursor: replaceAt(s.cursor, s.page, (s.cursor[s.page]! + by + count) % count) }
 }
 
 function toggled(s: State, i: number, value: string): State {
@@ -197,18 +185,31 @@ function toggled(s: State, i: number, value: string): State {
   return { ...s, picked: replaceAt(s.picked, i, has ? s.picked[i]!.filter(p => p !== value) : [...s.picked[i]!, value]), answered: markAnswered(s, i) }
 }
 
+// A single choice's pick. A write-in with nothing typed is not an answer yet.
+function chose(s: State, i: number, value: string): State {
+  if (value === WRITE_IN && s.text[i]!.trim() === '') return s
+  return { ...s, chosen: replaceAt(s.chosen, i, value), answered: markAnswered(s, i) }
+}
+
+// Space: picks a single choice at the cursor, or ticks a multi one.
 export function toggleAtCursor(form: Form, s: State): State {
   const q = form.questions[s.page]
   const value = q && choicesOf(q)[s.cursor[s.page]!]?.value
-  return value === undefined ? s : toggled(s, s.page, value)
+  if (value === undefined) return s
+  return q?.multi ? toggled(s, s.page, value) : chose(s, s.page, value)
 }
 
-// Enter: answers the page and moves on; on a multi it also ticks the focused choice.
+// Enter: picks a single choice at the cursor and moves on; on a multi it ticks the focused choice and moves on.
+// A single choice that stays unanswered (an empty write-in) keeps the page.
 export function confirm(form: Form, s: State): State {
   const i = s.page
   const q = form.questions[i]
   if (!q) return s
   const value = choicesOf(q)[s.cursor[i]!]?.value
+  if (choicesOf(q).length > 0 && !q.multi) {
+    const picked = value === undefined ? s : chose(s, i, value)
+    return picked.answered[i] ? { ...picked, page: i + 1 } : picked
+  }
   const adds = q.multi && value !== undefined && value !== WRITE_IN && !s.picked[i]!.includes(value)
   return { ...s, page: i + 1, answered: markAnswered(s, i), ...(adds && { picked: replaceAt(s.picked, i, [...s.picked[i]!, value]) }) }
 }
@@ -221,12 +222,15 @@ export function clickChoice(form: Form, s: State, idx: number): State {
   const value = choicesOf(q)[idx]?.value
   const cursor = replaceAt(s.cursor, i, idx)
   if (value === undefined || value === WRITE_IN) return { ...s, cursor }
-  if (!q.multi) return { ...s, cursor, answered: markAnswered(s, i) }
+  if (!q.multi) return chose({ ...s, cursor }, i, value)
   return { ...toggled(s, i, value), cursor }
 }
 
-export function typeChar(s: State, ch: string): State {
-  return { ...s, text: replaceAt(s.text, s.page, s.text[s.page]! + ch), answered: markAnswered(s, s.page) }
+// Typing into a single choice's write-in picks it.
+export function typeChar(form: Form, s: State, ch: string): State {
+  const typed = { ...s, text: replaceAt(s.text, s.page, s.text[s.page]! + ch), answered: markAnswered(s, s.page) }
+  const q = form.questions[s.page]
+  return q && !q.multi && choicesOf(q).length > 0 ? { ...typed, chosen: replaceAt(s.chosen, s.page, WRITE_IN) } : typed
 }
 
 export function deleteChar(s: State): State {

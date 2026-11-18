@@ -14,8 +14,8 @@ export const SYMBOL = {
   boxActive: '◻',
   boxOn: '◼',
   boxOff: '◻',
-  // The left edge of the button the keyboard selected.
-  selectEdge: '▎',
+  // The keyboard's place: beside the button it selected, and in the gutter of the option it is on.
+  selectEdge: '❯',
 }
 
 // Nerd Font icons: codicons, plus Material Design for the question kinds, which draw larger (names from the font's cmap). A font without them draws empty boxes.
@@ -111,17 +111,19 @@ export function pressed<S extends Style>(span: S): S {
   return span.mark ? { ...out, color: span.mark } : out
 }
 
-// The button the keyboard selected: its own look, with a pink bar in its left edge cell so the cell count stays.
-// The bar is a mark, so under the pointer it takes the button's hover and press fills and stays pink.
-// On a pink fill (a brand button) a pink bar would vanish, so it is white there.
+// The button the keyboard selected: a cyan ❯ in its left edge cell, drawn outside the fill, and the fill lifted a step,
+// so the cell count stays. The ❯ carries no action, so the pointer lights and presses only the button itself.
 export function keySelected<A>(span: Span<A>): Span<A>[] {
   if (!span.t.startsWith(' ')) return [span]
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? 'white' : BRAND.pink
+  const { bg: _bg, chip: _chip, quiet: _quiet, action: _action, isLabel: _isLabel, mark: _mark, ...bare } = span
   return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) },
+    { ...bare, t: SYMBOL.selectEdge, color: 'cyan', bold: true, dim: false },
+    { ...hoverOf(span), t: span.t.slice(1) },
   ]
 }
+
+// The row the keyboard is on in a list of options, tinted behind its text.
+export const CURSOR_ROW = '#25343a'
 
 export const ACCENT: Style = { color: 'cyan' }
 export const GRAY: Style = { color: 'gray' }

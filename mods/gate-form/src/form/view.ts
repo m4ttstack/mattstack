@@ -2,7 +2,7 @@ import { ACCENT, DIM, DONE, GRAY, ICON, MORE_ACTIONS, SYMBOL, WARN, brandBar, bu
 
 import type { Form, FormQuestion } from '../../types'
 import type { Action } from './input'
-import { canChat, canSubmit, choicesOf, cursorIsChoice, isConfirm, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
+import { canChat, canSubmit, choicesOf, isConfirm, isOnNav, isPicked, isSinglePage, menuRows, navAtOf, navIds, unansweredCount, WRITE_IN, type NavId, type State } from './state'
 
 // `pressing`: a key's activation is showing, on whatever the keys are on (a choice, a nav button, a More actions row).
 export type View = { width: number; focused: boolean; pressing?: boolean }
@@ -28,7 +28,7 @@ function answerSummary(q: FormQuestion, s: State, i: number): string {
   const choices = choicesOf(q)
   if (choices.length === 0) return s.text[i]! === '' ? '(blank)' : s.text[i]!
   const label = (v: string) => (v === WRITE_IN ? `“${s.text[i]!}”` : (choices.find(o => o.value === v)?.label ?? v))
-  if (!q.multi) return label(choices[s.cursor[i]!]?.value ?? '')
+  if (!q.multi) return label(s.chosen[i] ?? '')
   const values = [...s.picked[i]!, ...(s.text[i]!.trim() !== '' ? [WRITE_IN] : [])]
   return values.length === 0 ? 'none' : values.map(label).join(', ')
 }
@@ -69,7 +69,6 @@ function questionPage(q: FormQuestion, s: State, i: number, base: View): L[] {
       cursor: s.cursor[i]!,
       multi: q.multi,
       isPicked: idx => isPicked(q, s, i, idx),
-      cursorIsChoice: !q.multi && cursorIsChoice(q, s, i),
       writeIn: s.text[i]!,
       width: view.width,
       focused: view.focused,
@@ -151,10 +150,10 @@ function spanAt(id: NavId, left: NavId[], line: L): number {
 function navRows(form: Form, s: State, view: View): L[] {
   const n = form.questions.length
   const page = s.page
-  const back: Button<Action> = { label: `${ICON.back} Back`, action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 }
+  const back: Button<Action> = { label: '← Back', action: { type: 'page', page: page - 1 }, tone: 'secondary', disabled: page === 0 }
   const forward = (label: string): Button<Action> => ({ label, action: { type: 'advance' }, tone: 'secondary' })
   const submit: Button<Action> = { label: unansweredCount(s) === 0 || form.source === 'gate' ? 'Submit' : 'Submit anyway', action: { type: 'send' }, tone: 'brand', disabled: !canSubmit(form, s) }
-  const next = page < n - 1 ? forward(`Next ${ICON.next}`) : page === n - 1 ? forward(`Review ${ICON.next}`) : submit
+  const next = page < n - 1 ? forward('Next →') : page === n - 1 ? forward('Review →') : submit
   const aside: Button<Action> | undefined = !canChat(form)
     ? undefined
     : s.chatArmed
@@ -197,13 +196,14 @@ function errorLines(form: Form, view: View): L[] {
 // The same with or without focus: focus changes only how the selection is drawn, never what the form says.
 function hint(form: Form, s: State): string | undefined {
   const q = form.questions[s.page]
-  if (isSinglePage(form)) return '↑↓ choose  enter submit'
+  if (isSinglePage(form)) return '↑↓ move  space pick  enter pick + submit'
   if (!q) {
     const others = navIds(form, s).length > 1 ? '   tab buttons' : ''
     return `← back${others}   enter ${navAtOf(form, s) === 'next' ? 'submit' : 'presses'}`
   }
   if (s.onNav) return '←→ buttons  ↑ answers  enter presses'
-  return choicesOf(q).length === 0 ? '←→ pages  ↓ buttons' : '←→ pages  ↑↓ move'
+  if (choicesOf(q).length === 0) return '←→ pages  ↓ buttons'
+  return q.multi ? '↑↓ move  space tick  enter next  ←→ pages' : '↑↓ move  space pick  enter pick + next  ←→ pages'
 }
 
 // The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
