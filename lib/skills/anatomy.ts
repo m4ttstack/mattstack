@@ -21,7 +21,8 @@ export type AnatomyPayload = {
   public: boolean;
   description: string | null;
   template: AnatomySource;
-  rendered: { path: string; exists: boolean; lines: number };
+  /** A husk pack commits only the husk at `path`; `text` is the full skill compiled from the working tree. */
+  rendered: { path: string; exists: boolean; lines: number; husk?: true; text?: string };
   status: "in-sync" | "stale" | "never-compiled";
   staleBecause: DriftCause[];
   parts: AnatomyPart[];
