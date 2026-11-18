@@ -978,7 +978,11 @@ function answersOf(form, s) {
       out[q.id] = s.text[i];
     else if (q.multi) {
       const values = s.picked[i].filter((v) => v !== WRITE_IN);
-      out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
+      if (q.parts)
+        for (const part of q.parts)
+          out[part.id] = values.filter((v) => part.values.includes(v));
+      else
+        out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
     } else {
       const value = s.chosen[i];
       out[q.id] = value === WRITE_IN ? { writeIn: typed } : value;
@@ -1378,6 +1382,17 @@ function answerSummary(q, s, i) {
   const values = [...s.picked[i], ...s.text[i].trim() !== "" ? [WRITE_IN] : []];
   return values.length === 0 ? "none" : values.map(label).join(", ");
 }
+function wonOf(q, won) {
+  if (!q.parts)
+    return won[q.id];
+  const recorded = q.parts.map((part) => won[part.id]).filter((raw) => raw !== undefined && raw !== null);
+  if (recorded.length === 0)
+    return;
+  const valuesOf = (raw) => Array.isArray(raw) ? raw : typeof raw === "object" && raw !== null && Array.isArray(raw.value) ? raw.value : [];
+  const notes = recorded.flatMap((raw) => typeof raw === "object" && raw !== null && typeof raw.note === "string" ? [raw.note] : []);
+  const value = recorded.flatMap(valuesOf);
+  return notes.length > 0 ? { value, note: notes.join("; ") } : value;
+}
 function wonSummary(q, raw) {
   const label = (v) => q.options.find((o) => o.value === v)?.label ?? String(v);
   const labels = (v) => Array.isArray(v) ? v.length === 0 ? "none" : v.map(label).join(", ") : label(v);
@@ -1434,7 +1449,7 @@ function reviewList2(form, s, view) {
   const won = form.status === "open" ? undefined : form.won;
   return reviewList(form.questions.map((q, i) => ({
     label: q.label,
-    summary: won ? wonSummary(q, won[q.id]) : s.answered[i] ? answerSummary(q, s, i) : undefined,
+    summary: won ? wonSummary(q, wonOf(q, won)) : s.answered[i] ? answerSummary(q, s, i) : undefined,
     ...isOpen && { action: { type: "page", page: i } }
   })), view.width, { rail: false });
 }

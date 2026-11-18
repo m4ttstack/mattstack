@@ -2328,7 +2328,7 @@ digraph gate_protocol {
 }
 ```
 
-<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-45 -->
+<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-53 -->
 ### Build the gate's questions and context
 
 Open before anything that depends on the answer. A question is `{"id",
@@ -2368,8 +2368,16 @@ not your own.
   sentence of context and take the site's `proceed` edge.
 - **Write-ins** go only on a decision question whose free text you can act
   on, never on a review-post, respond, doctor or pane-attention question.
-- **At most 4 options per question**, or the whole gate goes to the wait;
-  a longer list splits into `<id>-1`, `<id>-2`, ... read as one union.
+- **The option cap follows who draws the gate.** Every option of a list
+  goes in ONE question, never split, when the kit form draws the gate: a
+  `gate_ask` or `gate_open` called from the main session (never a
+  subagent), not a `handBack: true` open, with gate-form's `ask` tool
+  (`mcp__gate-form__ask`) in that session. Every other gate keeps the cap:
+  at most 4 options per question (one question over it sends the whole
+  gate to the wait), so a longer list splits into `<id>-1`, `<id>-2`, ...
+  read as one union. A
+  result carrying `formCapExceeded` is already open on the board: follow
+  its `paneAction` and never reopen it.
 
 <!-- part: block:gate-protocol/trigger-site-opened source=mattstack:gate-protocol path=attachments/gate-protocol/trigger-site-opened.block.md lines=6-10 -->
 ### Trigger: a site opened its gate with gate_open

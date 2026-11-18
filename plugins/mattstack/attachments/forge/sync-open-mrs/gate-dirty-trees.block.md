@@ -11,8 +11,11 @@ came back `dirty-tree`. One sentence per tree listing its uncommitted
 `paths` (when `paths` is absent, quote `refusal` instead). The question:
 
 - `retry`: a multi-select "I committed them, retry" of those branches,
-  none pre-selected; over 4 branches it splits into `retry-1`, `retry-2`,
-  ... of up to 4 options each, whose answers read as one union
+  none pre-selected; one question when the kit form draws the gate
+  (opened from the main session, not a subagent or a hand-back, with
+  gate-form's `ask` tool (`mcp__gate-form__ask`) in your session);
+  otherwise, over 4 branches it splits into `retry-1`, `retry-2`, ... of up to 4 options each, whose
+  answers read as one union
 
 Selection `{"retry":[...]}`. Read `next` first: `hold` ends the turn
 with nothing more synced; `proceed` re-syncs the picked trees once and

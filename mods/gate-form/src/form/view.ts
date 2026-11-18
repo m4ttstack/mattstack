@@ -127,6 +127,18 @@ function answerSummary(q: FormQuestion, s: State, i: number): string {
   return values.length === 0 ? 'none' : values.map(label).join(', ')
 }
 
+// A joined split's recorded answer is its parts' picks read as one list, in gate_answer's shape: a bare list, or
+// {value, note} when another surface (the board) attached a note to a part. No part recorded reads as skipped.
+function wonOf(q: FormQuestion, won: Record<string, unknown>): unknown {
+  if (!q.parts) return won[q.id]
+  const recorded = q.parts.map(part => won[part.id]).filter(raw => raw !== undefined && raw !== null)
+  if (recorded.length === 0) return undefined
+  const valuesOf = (raw: unknown): unknown[] => (Array.isArray(raw) ? raw : typeof raw === 'object' && raw !== null && Array.isArray((raw as { value?: unknown }).value) ? ((raw as { value: unknown[] }).value) : [])
+  const notes = recorded.flatMap(raw => (typeof raw === 'object' && raw !== null && typeof (raw as { note?: unknown }).note === 'string' ? [(raw as { note: string }).note] : []))
+  const value = recorded.flatMap(valuesOf)
+  return notes.length > 0 ? { value, note: notes.join('; ') } : value
+}
+
 // An answer another surface recorded, in gate_answer's shape, read against this form's options.
 function wonSummary(q: FormQuestion, raw: unknown): string {
   const label = (v: unknown) => q.options.find(o => o.value === v)?.label ?? String(v)
@@ -185,7 +197,7 @@ function reviewList(form: Form, s: State, view: View): L[] {
   return reviewItems<Action>(
     form.questions.map((q, i) => ({
       label: q.label,
-      summary: won ? wonSummary(q, won[q.id]) : s.answered[i] ? answerSummary(q, s, i) : undefined,
+      summary: won ? wonSummary(q, wonOf(q, won)) : s.answered[i] ? answerSummary(q, s, i) : undefined,
       ...(isOpen && { action: { type: 'page', page: i } as const }),
     })),
     view.width,
