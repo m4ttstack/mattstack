@@ -76,6 +76,7 @@ import {
 } from './codeowner-posts.ts';
 import {
   applyRosterEdit,
+  boardSecretsFailure,
   boardSetting,
   codeownerSlackOn,
   daemonRepoField,
@@ -98,9 +99,7 @@ import {
   saveTabs,
   type BoardConfig,
   type SwitchboardTokenRead,
-  boardSecretsFailure,
 } from './config.ts';
-import type { SlackIssue } from './slack-health.ts';
 import {
   aggregateSyncScope,
   boardDemand,
@@ -426,6 +425,7 @@ import {
   type ReactedBy,
 } from './slack-emoji.ts';
 import { slackFaceNames } from './slack-face-names.ts';
+import type { SlackIssue } from './slack-health.ts';
 import {
   attachOwnerPosts,
   attachOwnerPostsLeft,
@@ -5547,7 +5547,8 @@ function currentSlackIssue(token: string | null): SlackIssue | null {
   if (token && slackRejection?.token === token)
     return { kind: 'rejected', error: slackRejection.error };
   const failure = token ? null : boardSecretsFailure();
-  if (failure && config.slack.channel) return { kind: 'unreadable', detail: failure };
+  if (failure && config.slack.channel)
+    return { kind: 'unreadable', detail: failure };
   return null;
 }
 

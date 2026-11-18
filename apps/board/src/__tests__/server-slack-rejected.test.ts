@@ -32,5 +32,8 @@ async function slackIssue(): Promise<unknown> {
 test('a sweep with a revoked token reports the rejection in /data.json', async () => {
   const res = await fetch(`${board.origin}/slack/refresh`, { method: 'POST' });
   expect(res.status).toBe(200);
-  expect(await slackIssue()).toEqual({ kind: 'rejected', error: 'token_revoked' });
+  expect(await slackIssue()).toEqual({
+    kind: 'rejected',
+    error: 'token_revoked',
+  });
 }, 15_000);

@@ -1,8 +1,8 @@
 import { Database } from 'bun:sqlite';
 
-import { slackAuthError } from './slack-health.ts';
 import { mrNoun } from './mr-ref.ts';
 import type { ReactedBy } from './slack-emoji.ts';
+import { slackAuthError } from './slack-health.ts';
 import {
   getKvValue,
   getStateDb,

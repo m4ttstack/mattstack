@@ -19,9 +19,7 @@ describe('slackAuthError', () => {
   });
 
   test('a channel or message failure is not an auth failure', () => {
-    expect(
-      slackAuthError('slack chat.postMessage: not_in_channel')
-    ).toBeNull();
+    expect(slackAuthError('slack chat.postMessage: not_in_channel')).toBeNull();
     expect(
       slackAuthError('slack conversations.replies: thread_not_found')
     ).toBeNull();

@@ -1,4 +1,4 @@
-import { expect, test, afterAll } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 
 import { bootBoardServer } from './board-server.ts';
 import { slackHealthHome } from './slack-health-home.ts';

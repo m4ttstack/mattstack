@@ -20,5 +20,4 @@ export function slackAuthError(line: string): string | null {
 /** Why the board cannot use Slack right now, shown to the person: the stored
     token was rejected, or the secrets holding it could not be read. */
 export type SlackIssue =
-  | { kind: 'rejected'; error: string }
-  | { kind: 'unreadable'; detail: string };
+  { kind: 'rejected'; error: string } | { kind: 'unreadable'; detail: string };

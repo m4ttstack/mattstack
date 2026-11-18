@@ -95,14 +95,17 @@ globalThis.fetch = (async (
   if (!url.startsWith('https://slack.com/api/'))
     return realFetch(input as never, init);
   // A token Slack has revoked: every method answers token_revoked.
-  if (new Headers(init?.headers).get('authorization') === 'Bearer revoked-token')
+  if (
+    new Headers(init?.headers).get('authorization') === 'Bearer revoked-token'
+  )
     return new Response(JSON.stringify({ ok: false, error: 'token_revoked' }), {
       headers: { 'content-type': 'application/json' },
     });
   const method = url.slice('https://slack.com/api/'.length).split('?')[0]!;
   // A token Slack accepts that lacks the scopes the board reads channels with.
   if (
-    new Headers(init?.headers).get('authorization') === 'Bearer scopeless-token' &&
+    new Headers(init?.headers).get('authorization') ===
+      'Bearer scopeless-token' &&
     method !== 'auth.test'
   )
     return new Response(JSON.stringify({ ok: false, error: 'missing_scope' }), {

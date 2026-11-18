@@ -10,7 +10,14 @@ export function slackHealthHome(prefix: string): {
   stopDaemon: () => void;
 } {
   const home = mkdtempSync(join(tmpdir(), prefix));
-  const orgDir = join(home, '.mattstack', 'orgs', 'testteam', 'mattstack', 'org');
+  const orgDir = join(
+    home,
+    '.mattstack',
+    'orgs',
+    'testteam',
+    'mattstack',
+    'org'
+  );
   mkdirSync(orgDir, { recursive: true });
   writeFileSync(
     join(orgDir, 'settings.org.jsonc'),
@@ -21,7 +28,9 @@ export function slackHealthHome(prefix: string): {
       'board.slack': { autoResolveIntervalMinutes: 0 },
       'mattstack.directory': {
         teams: {
-          web: { slack: { channels: [{ name: 'code-review', kind: 'review' }] } },
+          web: {
+            slack: { channels: [{ name: 'code-review', kind: 'review' }] },
+          },
         },
       },
     })
@@ -58,7 +67,12 @@ export function slackHealthHome(prefix: string): {
       if (new URL(req.url).pathname === '/project-mrs:read')
         return json({
           ok: true,
-          data: { mrs: {}, listSyncedAt: Date.now(), source: 'poll', syncedAt: Date.now() },
+          data: {
+            mrs: {},
+            listSyncedAt: Date.now(),
+            source: 'poll',
+            syncedAt: Date.now(),
+          },
         });
       return json({ ok: false, error: 'not implemented' });
     },
