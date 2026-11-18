@@ -2328,7 +2328,7 @@ digraph gate_protocol {
 }
 ```
 
-<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-45 -->
+<!-- part: block:gate-protocol/build-questions source=mattstack:gate-protocol path=attachments/gate-protocol/build-questions.block.md lines=5-49 -->
 ### Build the gate's questions and context
 
 Open before anything that depends on the answer. A question is `{"id",
@@ -2368,8 +2368,12 @@ not your own.
   sentence of context and take the site's `proceed` edge.
 - **Write-ins** go only on a decision question whose free text you can act
   on, never on a review-post, respond, doctor or pane-attention question.
-- **At most 4 options per question**, or the whole gate goes to the wait;
-  a longer list splits into `<id>-1`, `<id>-2`, ... read as one union.
+- **The option cap follows your tool list.** With gate-form's `ask` tool
+  (`mcp__gate-form__ask`) in your session, the kit form draws the gate:
+  every option of a list goes in ONE question, never split. Without that
+  tool, at most 4 options per question, or the whole gate goes to the
+  wait; a longer list splits into `<id>-1`, `<id>-2`, ... read as one
+  union.
 
 <!-- part: block:gate-protocol/trigger-site-opened source=mattstack:gate-protocol path=attachments/gate-protocol/trigger-site-opened.block.md lines=6-10 -->
 ### Trigger: a site opened its gate with gate_open
