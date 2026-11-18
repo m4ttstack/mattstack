@@ -130,6 +130,9 @@ export function BlockStage({
           patch={patch}
           readOnly={skill.readOnly}
           renderedPath={skill.renderedPath}
+          huskText={
+            anatomy?.rendered.husk ? (anatomy.rendered.text ?? '') : null
+          }
           skill={header}
           context={
             composition && groups

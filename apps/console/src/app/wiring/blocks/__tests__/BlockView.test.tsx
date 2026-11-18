@@ -436,6 +436,72 @@ describe('BlockView: Blocks and Rendered', () => {
   });
 });
 
+describe('BlockView: a husk pack', () => {
+  const full = Array.from({ length: 70 }, (_, i) => `full ${i + 1}`).join('\n');
+
+  it('reads the full text under Rendered, never the committed husk', async () => {
+    renderView({ view: 'rendered' }, { renderedPath: '/r.md', huskText: full });
+
+    const rendered = await screen.findByTestId('block-rendered');
+    expect(rendered).toHaveTextContent('full 1');
+    expect(rendered).toHaveTextContent('full 70');
+    expect(sourceGet).not.toHaveBeenCalled();
+  });
+
+  it("cuts a block's rendered lines from the full text", async () => {
+    renderView(
+      { block: 'mini/gate', view: 'rendered' },
+      { renderedPath: '/r.md', huskText: full }
+    );
+
+    const rendered = await screen.findByTestId('block-rendered');
+    expect(rendered).toHaveTextContent('full 49');
+    expect(rendered).toHaveTextContent('full 56');
+    expect(rendered).not.toHaveTextContent('full 48');
+    expect(rendered).not.toHaveTextContent('full 57');
+  });
+
+  it('offers Husk for the whole skill and reads the committed file there', async () => {
+    sourceGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        path: '/r.md',
+        content: 'Before anything else, call load_skill.',
+        lines: 1,
+      }),
+    });
+    const patch = renderView(
+      { view: 'husk' },
+      { renderedPath: '/r.md', huskText: full }
+    );
+
+    const rendered = await screen.findByTestId('block-rendered');
+    expect(rendered).toHaveTextContent(
+      'Before anything else, call load_skill.'
+    );
+    expect(sourceGet).toHaveBeenCalledWith({
+      query: { pack: 'acme', path: '/r.md' },
+    });
+    await userEvent.click(screen.getByRole('radio', { name: 'Rendered' }));
+    expect(patch).toHaveBeenCalledWith({ view: 'rendered' });
+  });
+
+  it('offers no Husk at a single block', () => {
+    renderView(
+      { block: 'mini/gate', view: 'husk' },
+      { renderedPath: '/r.md', huskText: full }
+    );
+    expect(screen.queryByRole('radio', { name: 'Husk' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Rendered' })).toBeChecked();
+  });
+
+  it('offers no Husk for a pack that commits full skills', () => {
+    renderView({ view: 'rendered' }, { renderedPath: '/r.md' });
+    expect(screen.queryByRole('radio', { name: 'Husk' })).toBeNull();
+  });
+});
+
 describe('BlockView: a hand-written skill', () => {
   const tree = headingTree(
     '# Gadgets\n\nBuilds gadgets.\n\n## Build\n\nBuild them.\n\n## Check\n\nCheck them.',

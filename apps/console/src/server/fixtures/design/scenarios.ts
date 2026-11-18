@@ -26,6 +26,7 @@
  * | `disable-model-invocation` | surface rows show the field on, off, locked and absent |
  * | `trial`            | `unsynced`, with the org copy on the trial branch `try-roles` |
  * | `version-stamps`   | the history gains three syncs that only moved version stamps, between two real commits, and rt reads the release commit as version-only too |
+ * | `husk`             | plan's pack commits husks: its committed file is the husk, and anatomy carries the full text |
  *
  * `runs`, `runs-empty` and `runs-outage` are the runs boards' data
  * (`runsFixture.ts`), with the skills routes answering as `clean`.
@@ -404,7 +405,10 @@ function huskPlan(anatomy: Anatomy): Anatomy {
     template: { ...anatomy.template, builtVersion: null },
     parts: anatomy.parts.map(part =>
       part.source
-        ? { ...part, source: { ...(part.source as object), builtVersion: null } }
+        ? {
+            ...part,
+            source: { ...(part.source as object), builtVersion: null },
+          }
         : part
     ),
     rendered: {

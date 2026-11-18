@@ -81,6 +81,9 @@ export interface BlockViewProps {
   readOnly?: boolean;
   /** The file the Rendered view reads. */
   renderedPath?: string | null;
+  /** A husk pack's full skill, compiled from the working tree: Rendered
+      reads it, and Husk reads the committed file at `renderedPath`. */
+  huskText?: string | null;
   skill?: SkillHeader;
   context?: BlockContext | null;
 }
@@ -283,6 +286,7 @@ export function BlockView({
   patch,
   readOnly = false,
   renderedPath = null,
+  huskText = null,
   skill,
   context = null,
 }: BlockViewProps) {
@@ -292,8 +296,7 @@ export function BlockView({
   );
   const block = zoom.level === 'skill' ? null : zoom.block;
   const root = rootOf(payload);
-  const anatomyRendered = context?.anatomy?.rendered;
-  const huskPack = anatomyRendered?.husk === true;
+  const huskPack = huskText !== null;
   // Husk is offered only for a husk pack's whole skill; anywhere else it reads as Rendered.
   const view: DocumentView =
     url.view === 'husk' && !(huskPack && zoom.level === 'skill')
@@ -416,13 +419,11 @@ export function BlockView({
         <RenderedText
           pack={pack}
           path={readOnly && block ? block.path : renderedPath}
-          text={
-            huskPack && view === 'rendered'
-              ? (anatomyRendered?.text ?? null)
-              : null
-          }
+          text={view === 'rendered' ? huskText : null}
           range={
-            block && view === 'rendered' ? renderedRangeOf(payload, block) : null
+            block && view === 'rendered'
+              ? renderedRangeOf(payload, block)
+              : null
           }
         />
       ) : (

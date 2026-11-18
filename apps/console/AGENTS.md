@@ -140,7 +140,9 @@ reports when its content is ready through `contentReady.ts`, and the unsynced to
   and "Includes" for included trees), a parent block (its document and "Inside this block") or a
   single block (its document with the Layers strip and each prop in a box, Around this block,
   Copy for Claude). The document card (`DocumentCard.tsx`) folds, names its file and opens it in
-  the editor; a row folds open in place and Open goes into its block. An included block shows
+  the editor, and its Blocks | Rendered switch adds Husk for a husk pack's whole skill: Rendered
+  reads anatomy's `rendered.text`, the full skill compiled from the working tree, and Husk reads
+  the committed husk file; a row folds open in place and Open goes into its block. An included block shows
   Used by, and the skill or block its "Files in this block" or "Files in this skill" table
   (`BuiltFrom.tsx`: its own file and the files its props include, each with a role badge and a
   link to any page it has). A fill from another pack carries a "From <pack>" card
