@@ -246,7 +246,7 @@ func (m *Model) refilter() {
 	m.matches = GroupContiguous(Rank(m.query, targets, m.req.Exact), groups)
 }
 
-func (m *Model) Init() tea.Cmd { return m.sendFaces() }
+func (m *Model) Init() tea.Cmd { return m.sendFacesSoon() }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.pinHoldFrames > 0 && !isPinHoldExemptMsg(msg) {
@@ -256,6 +256,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg := msg.(type) {
+	case sendFacesMsg:
+		return m, m.sendFaces()
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -360,7 +362,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // comment on the field.
 func isPinHoldExemptMsg(msg tea.Msg) bool {
 	switch msg.(type) {
-	case tea.MouseMotionMsg, tea.MouseWheelMsg:
+	case tea.MouseMotionMsg, tea.MouseWheelMsg, sendFacesMsg:
 		return true
 	default:
 		return false

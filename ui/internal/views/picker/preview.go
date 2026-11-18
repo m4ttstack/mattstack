@@ -73,6 +73,21 @@ func (m *Model) assignFaceIDs() {
 	}
 }
 
+type sendFacesMsg struct{}
+
+// facesAfterFirstFrame outlasts the first frame. Ghostty keeps kitty images
+// per screen, and bubbletea writes raw output ahead of each frame, so faces
+// sent from Init land on the main screen before the first frame switches to
+// the alternate one, where the placeholders cannot see them.
+const facesAfterFirstFrame = 80 * time.Millisecond
+
+func (m *Model) sendFacesSoon() tea.Cmd {
+	if len(m.faceIDs) == 0 {
+		return nil
+	}
+	return tea.Tick(facesAfterFirstFrame, func(time.Time) tea.Msg { return sendFacesMsg{} })
+}
+
 // sendFaces transmits every face once, at start; the face box then shows
 // each by its placeholder text. A face that cannot be read loses its id and
 // falls back to the empty tile.
