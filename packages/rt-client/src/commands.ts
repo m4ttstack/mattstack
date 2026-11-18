@@ -1394,6 +1394,10 @@ export interface Commands {
           The daemon never reads `rt.gates.kitForm`: the caller sends this only
           when the setting reads on (the gate_ask tool does). */
       kitForm?: boolean;
+      /** Opens the gate as `wait` whatever `kitForm`, the pane or the option
+          count say: a herd job's gate is drawn in its shepherd's pane, not
+          the worker's. */
+      shepherdRelay?: boolean;
       /** Opens the gate already answered, never delivered to a pane or a
           shepherd. `by` is the decider and must start with `mode:`; the
           answers get gate:answer's own validation. */
