@@ -7,13 +7,16 @@ kind: gate
 
 Every open gate you present that is not a milestone gate goes through
 `herd_gate_present {herd, gate}` first: one call per gate, every such gate,
-no cap. Its result is one of two things:
+no cap. Its result is one of three things:
 
 - An `instruction` saying the gate is queued in your kit form. The form
   shows the user exactly what the worker would have shown, records the
   answer `by: shepherd` and wakes the worker, so nothing about that gate
   is left to you. Once every gate is presented, end your turn. A later
   push for a gate you already presented needs nothing.
+- `boardOnly: true`: the gate is answered on the board, and its band is
+  already above your prompt. Tell the user in one line which job's gate
+  waits on the board; nothing else about it is yours.
 - The gate's `kitForm` with no `instruction`: this pane draws no kit form.
   Present that gate in AskUserQuestion, below.
 
