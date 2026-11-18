@@ -1500,12 +1500,15 @@ function errorLines(form, view) {
   return [[sp(" ")], ...hang(lead, [sp("   ")], form.error, view.width, WARN)];
 }
 function contextPage(form, s, view, head, ctx) {
-  head.push(...progressRows(form, s, view), rule(view.width), BLANK);
+  const n = form.questions.length;
+  head.splice(head.length - 1, 1, [sp(`${n} question${n === 1 ? "" : "s"} after this`, DIM)], BLANK);
   const start = { label: "Start →", action: { type: "page", page: 0 }, tone: "secondary" };
   const aside = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: "chat" }, tone: "neutral" } : undefined;
   const line = buttonRow([start], aside, view.width);
   const marked = view.focused ? [...line.slice(0, 1), ...gridLook(line[1], { marked: true, pressing: view.pressing }), ...line.slice(2)] : line;
-  return { head, page: contextBox(form.context ?? "", view.width, ctx), foot: [BLANK, rule(view.width), BLANK, marked] };
+  const first = form.questions[0];
+  const next = first ? clipLine([sp("Next: ", DIM), sp(first.label)], view.width) : BLANK;
+  return { head, page: contextBox(form.context ?? "", view.width, ctx), foot: [BLANK, rule(view.width), BLANK, next, BLANK, marked] };
 }
 function draw(form, s, view, ctx) {
   const head = [brandBar(form.source === "plugin" ? "mattstack" : "mattstack decision gate", view.width, { type: "hide" }), [sp(" ")], [sp(form.title, { bold: true })]];
@@ -1569,7 +1572,11 @@ function fittedLines(form, s, view, rows, wheel) {
   const full = draw(form, s, view, ctx);
   const room = rows - FIXED_TOP - full.foot.length;
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
-    if (s.phase === "active" && form.status === "open" && !isConfirm(form) && !isContextPage(s)) {
+    if (isContextPage(s)) {
+      const spare = Math.max(0, rows - full.head.length - full.page.length - full.foot.length);
+      return { lines: [...full.head, ...full.page, ...Array.from({ length: spare }, () => BLANK), ...full.foot], top: 0, ...kept };
+    }
+    if (s.phase === "active" && form.status === "open" && !isConfirm(form)) {
       const height = Math.max(full.page.length, Math.min(tallestQuestion(form, s, view), rows - full.head.length - full.foot.length));
       const page = [...full.page, ...Array.from({ length: height - full.page.length }, () => BLANK)];
       const spare = Math.max(0, rows - full.head.length - page.length - full.foot.length);

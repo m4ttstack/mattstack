@@ -290,14 +290,17 @@ function errorLines(form: Form, view: View): L[] {
 }
 
 // The context is always drawn, wrapped in full: a page too tall for the pane scrolls to it rather than dropping it.
-// The context page: the whole pane for the context, then Start.
+// The context page, a preface: how many questions follow, the context, then the first question named above Start.
 function contextPage(form: Form, s: State, view: View, head: L[], ctx: CtxView): Drawn<Action> {
-  head.push(...progressRows(form, s, view), rule(view.width), BLANK)
+  const n = form.questions.length
+  head.splice(head.length - 1, 1, [sp(`${n} question${n === 1 ? '' : 's'} after this`, DIM)], BLANK)
   const start: Button<Action> = { label: 'Start →', action: { type: 'page', page: 0 }, tone: 'secondary' }
   const aside: Button<Action> | undefined = canChat(form) ? { label: `${ICON.chat} Chat about this`, action: { type: 'chat' }, tone: 'neutral' } : undefined
   const line = buttonRow([start], aside, view.width)
   const marked: L = view.focused ? [...line.slice(0, 1), ...gridLook(line[1]!, { marked: true, pressing: view.pressing }), ...line.slice(2)] : line
-  return { head, page: contextBox(form.context ?? '', view.width, ctx), foot: [BLANK, rule(view.width), BLANK, marked] }
+  const first = form.questions[0]
+  const next: L = first ? clipLine([sp('Next: ', DIM), sp(first.label)], view.width) : BLANK
+  return { head, page: contextBox(form.context ?? '', view.width, ctx), foot: [BLANK, rule(view.width), BLANK, next, BLANK, marked] }
 }
 
 function draw(form: Form, s: State, view: View, ctx?: CtxView): Drawn<Action> {
@@ -378,7 +381,11 @@ export function fittedLines(form: Form, s: State, view: View, rows: number, whee
   if (full.head.length - FIXED_TOP + full.page.length <= room) {
     // The form docks to the bottom of the pane at the tallest question's height, so the progress line and the buttons
     // keep their rows as you page: a shorter question leaves blank rows under its options, the spare rows sit above.
-    if (s.phase === 'active' && form.status === 'open' && !isConfirm(form) && !isContextPage(s)) {
+    if (isContextPage(s)) {
+      const spare = Math.max(0, rows - full.head.length - full.page.length - full.foot.length)
+      return { lines: [...full.head, ...full.page, ...Array.from({ length: spare }, () => BLANK), ...full.foot], top: 0, ...kept }
+    }
+    if (s.phase === 'active' && form.status === 'open' && !isConfirm(form)) {
       const height = Math.max(full.page.length, Math.min(tallestQuestion(form, s, view), rows - full.head.length - full.foot.length))
       const page = [...full.page, ...Array.from({ length: height - full.page.length }, () => BLANK)]
       const spare = Math.max(0, rows - full.head.length - page.length - full.foot.length)
