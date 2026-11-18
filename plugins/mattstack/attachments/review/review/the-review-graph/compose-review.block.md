@@ -24,7 +24,9 @@ below is taken as it stands, never written here.
   both paths: a board's fresh posting pane has only that json, and nothing
   rewrites it after the gate opens.
 - The summary line: the `outcome` answer's `text` (the caller's
-  `summaryText`), else `summary.comments[<the picked outcome value>]`,
+  `summaryText`); else, when no finding is selected and no `restore:<id>`
+  was picked, `summary.noFindingsComments[<the picked outcome value>]`
+  if the json has it; else `summary.comments[<the picked outcome value>]`,
   the line drafted for that verdict. Never another verdict's line, even
   when readiness or the recommendation points elsewhere: an `approve`
   line never posts under a Comment.
