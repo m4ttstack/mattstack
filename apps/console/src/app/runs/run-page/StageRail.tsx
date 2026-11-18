@@ -37,7 +37,7 @@ const STATUS_ICON: Partial<
 };
 
 const STATUS_SUFFIX: Partial<Record<Status, string>> = {
-  waiting: ' · waiting on you',
+  waiting: ' · waiting',
   held: ' · held',
 };
 
@@ -96,7 +96,7 @@ function Column({
   return (
     <Stack gap={7} data-stage={stage.name} data-status={status}>
       <Bar status={status} parity="bar" />
-      <Group gap={5} wrap="nowrap" data-part="lab">
+      <Group gap={5} wrap="nowrap" pe={12} data-part="lab">
         {icon ? (
           <Glyph
             name={icon.name}
@@ -118,7 +118,7 @@ function Column({
           {STATUS_SUFFIX[status] ?? ''}
         </Text>
       </Group>
-      <Group gap={8} wrap="nowrap" data-part="meta">
+      <Group gap={8} wrap="nowrap" pe={12} data-part="meta">
         <Text fz="sm" lh="normal" c="dimmed" data-parity={duration}>
           {duration}
         </Text>

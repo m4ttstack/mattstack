@@ -46,6 +46,14 @@
   color: var(--tk-text-1);
 }
 
+.nav.waitingNav[data-active] {
+  background-color: color-mix(
+    in srgb,
+    var(--tk-fill-bad) var(--tk-wash),
+    var(--tk-card)
+  );
+}
+
 .navBullet {
   align-self: flex-start;
   margin-top: 2px;

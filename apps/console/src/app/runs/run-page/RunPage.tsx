@@ -151,14 +151,34 @@ export function RunPage({
         )
       : null;
 
+  const inStory = kind === 'work' && (story?.entries.length ?? 0) > 0;
   const gatePanels =
     answerable.length > 0 ? (
       <GatePanels
         gates={answerable}
         stageOf={g => gateStage(g, stages)}
         now={now}
+        embedded={inStory}
       />
     ) : null;
+  const firstGate = answerable.length
+    ? answerable.reduce((a, b) => (a.openedAt <= b.openedAt ? a : b))
+    : null;
+  const waiting =
+    inStory && gatePanels && firstGate
+      ? {
+          stage:
+            gateStage(mine ?? firstGate, stages) ??
+            run.current_stage ??
+            'waiting',
+          waitedMs: now - firstGate.openedAt,
+          questions: answerable.reduce(
+            (n, g) => n + Math.max(1, g.questions?.length ?? 0),
+            0
+          ),
+          pane: gatePanels,
+        }
+      : null;
   let slot: ReactNode = null;
   if (!gatePanels && handoff) {
     slot = (
@@ -170,7 +190,12 @@ export function RunPage({
         />
       </div>
     );
-  } else if (!gatePanels && kind === 'work' && story?.current) {
+  } else if (
+    !gatePanels &&
+    !parts.gatesLoading &&
+    kind === 'work' &&
+    story?.current
+  ) {
     slot = (
       <NowCard
         label={story.currentLabel ?? story.current.stage}
@@ -246,7 +271,7 @@ export function RunPage({
           </Paper>
         ) : null}
         <Stack gap={14} data-parity="Story">
-          {gatePanels ?? slot}
+          {waiting ? null : (gatePanels ?? slot)}
           <RunStory
             repo={repo}
             runId={runId}
@@ -257,6 +282,7 @@ export function RunPage({
             pathHref={pathHref}
             linkedGateId={linkedGateId}
             ticket={parts.facts.hero.ticket}
+            waiting={waiting}
           />
         </Stack>
         <InputsDrawer

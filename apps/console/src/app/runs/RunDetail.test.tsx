@@ -256,6 +256,7 @@ describe('RunDetail: live work run', () => {
   it('never draws plumbing keys or the evidence field as fields', async () => {
     render(workRun(), [gate()]);
     const page = await screen.findByTestId('run-page');
+    await screen.findByTestId('now-card');
     const rows = [...page.querySelectorAll('[data-row]')].map(e =>
       e.getAttribute('data-row')
     );
@@ -268,7 +269,7 @@ describe('RunDetail: live work run', () => {
     ).toBeInTheDocument();
   });
 
-  it('puts an open gate at the top of the main column instead of the Now card', async () => {
+  it('opens the story on a waiting row whose pane is the open gate, with no Now card', async () => {
     render(workRun(), [
       gate({
         status: 'open',
@@ -279,11 +280,32 @@ describe('RunDetail: live work run', () => {
     ]);
     const panel = await screen.findByTestId('gate-panel');
     expect(panel).toHaveAttribute('data-gate-id', 'g-open');
-    const main = panel.closest('[data-parity="Story"]');
-    expect(main?.firstElementChild).toContainElement(panel);
+    expect(screen.getByTestId('story')).toContainElement(panel);
+    const row = screen.getByTestId('story-waiting');
+    expect(row).toHaveAttribute('aria-current', 'step');
+    expect(row).toHaveTextContent('waiting 1m');
+    expect(row).toHaveTextContent('1 question for you');
     expect(screen.queryByTestId('now-card')).toBeNull();
     expect(screen.queryByTestId('liveness')).toBeNull();
-    expect(screen.getByText('waiting 1m')).toBeInTheDocument();
+  });
+
+  it('shows a finished stage in place of the gate when its row is picked', async () => {
+    render(workRun(), [
+      gate({
+        status: 'open',
+        answer: null,
+        id: 'g-open',
+        openedAt: at(62),
+      } as Partial<GateRow>),
+    ]);
+    await screen.findByTestId('gate-panel');
+    const nav = screen.getByRole('navigation', { name: 'Stages' });
+    const first = within(nav).getAllByRole('button')[0]!;
+    await userEvent.click(first);
+    expect(screen.queryByTestId('gate-panel')).toBeNull();
+    expect(first).toHaveAttribute('aria-current', 'step');
+    await userEvent.click(screen.getByTestId('story-waiting'));
+    expect(await screen.findByTestId('gate-panel')).toBeInTheDocument();
   });
 
   it('keeps decisions in the story only, with no side card for them', async () => {

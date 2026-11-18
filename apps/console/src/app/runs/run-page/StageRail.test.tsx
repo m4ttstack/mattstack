@@ -103,7 +103,7 @@ describe('StageRail', () => {
     expect(
       container.querySelector('[data-stage="plan"] [data-part="lab"]')!
         .textContent
-    ).toBe('plan · waiting on you');
+    ).toBe('plan · waiting');
   });
 
   it('draws a running stage as done once the run has finished', () => {
