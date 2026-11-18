@@ -397,7 +397,11 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
   // A reinstall that kept ~/.mattstack must swap again, so the swap is forgotten once nothing it turned off is still off.
   const forgetSwap = (ids: string[]) => (stillOff.length === 0 ? ids.filter((id) => id !== superpowersForkSwapMigration.id) : ids);
 
-  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [...notRemoved], marketplaces: [...new Set(unresolved)], superpowersDisabled: stillOff, migrations: forgetSwap(s.migrations) }));
+  updateSetupState(ctx.p, (s) => {
+    const { superpowersSkillsCarried: carried, ...rest } = s;
+    const next = { ...rest, plugins: [...notRemoved], marketplaces: [...new Set(unresolved)], superpowersDisabled: stillOff, migrations: forgetSwap(s.migrations) };
+    return stillOff.length === 0 || carried === undefined ? next : { ...next, superpowersSkillsCarried: carried };
+  });
   const generated = await removeGeneratedMarketplaces(ctx, claude.exec, notes);
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };

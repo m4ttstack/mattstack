@@ -411,11 +411,12 @@ describe("rt uninstall", () => {
 
       test("uninstall forgets the swap once its copies are back on, so a reinstall that kept ~/.mattstack swaps again", async () => {
         const p = bareProbes({ ...pathTool("claude"), exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
-        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded(), migrations: ["2026-10-01-other", "2026-11-18-superpowers-fork-swap"] }));
+        updateSetupState(p, (s) => ({ ...s, plugins: ["superpowers@mattstack"], superpowersDisabled: recorded(), superpowersSkillsCarried: ["superpowers@claude-plugins-official"], migrations: ["2026-10-01-other", "2026-11-18-superpowers-fork-swap"] }));
         const { ctx } = makeCtx(p);
 
         expect((await runUninstall(ctx, actions)).ok).toBe(true);
         expect(readSetupState(p).migrations).toEqual(["2026-10-01-other"]);
+        expect(readSetupState(p).superpowersSkillsCarried).toBeUndefined();
       });
 
       test("a re-enable that really fails keeps its record and the swap's migration and names the error, so Retry can try again", async () => {

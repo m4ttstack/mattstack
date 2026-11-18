@@ -6,7 +6,8 @@
 # last that names it winning); an rt that fails or answers late falls back
 # to the default mode.
 command -v python3 >/dev/null 2>&1 || exit 0
-CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}" python3 -c '
+# -I: python never imports a module from the session's folder.
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}" python3 -I -c '
 import json, os, shutil, subprocess, sys
 
 FORK = "superpowers@mattstack"

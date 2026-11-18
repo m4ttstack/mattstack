@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runUpdateWith, type ApplyContext, type StepDef } from "../apply.ts";
@@ -220,6 +220,46 @@ describe("2026-11-18-superpowers-fork-swap", () => {
     const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "user" }] } });
     await superpowersForkSwapMigration.run(h.ctx);
     expect(getSetting<Record<string, string[]>>("rt.skills.disableModelInvocation").value["superpowers@mattstack"]).toEqual(["writing-plans"]);
+  });
+
+  test("a fork enabled only at project scope does not stand in for the user's stock copy", async () => {
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "project" }] } });
+    const outcome = await superpowersForkSwapMigration.run(h.ctx);
+    expect(outcome.state).toBe("skipped");
+    expect(h.disables()).toEqual([]);
+  });
+
+  test("skill choices from a stock copy switched on a later run are added to the ones an earlier run carried", async () => {
+    setSetting("rt.skills.disableModelInvocation", { "superpowers@claude-plugins-official": ["brainstorming"], "superpowers@superpowers-marketplace": ["writing-plans"] }, "user");
+    const fork: Listed = { id: "superpowers@mattstack", enabled: true, scope: "user" };
+    const lists: Record<string, Listed[] | ExecResult> = {
+      [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, fork],
+      [sessionDir("1-work")]: { code: 1, stdout: "", stderr: "busy" },
+    };
+    const h = harness({ sessions: ["1-work"], lists });
+    expect((await superpowersForkSwapMigration.run(h.ctx)).state).toBe("failed");
+    lists[defaultDir()] = [{ id: "superpowers@claude-plugins-official", enabled: false, scope: "user" }, fork];
+    lists[sessionDir("1-work")] = [{ id: "superpowers@superpowers-marketplace", enabled: true, scope: "user" }, fork];
+    expect((await superpowersForkSwapMigration.run(h.ctx)).state).toBe("done");
+    expect(getSetting<Record<string, string[]>>("rt.skills.disableModelInvocation").value["superpowers@mattstack"]).toEqual(["brainstorming", "writing-plans"]);
+  });
+
+  test("a copy recorded off whose skill choices were never carried gets them on the next run, with nothing new to turn off", async () => {
+    setSetting("rt.skills.disableModelInvocation", { "superpowers@claude-plugins-official": ["brainstorming"] }, "user");
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: false, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "user" }] } });
+    updateSetupState(h.p, (st) => ({ ...st, superpowersDisabled: [{ configDir: defaultDir(), id: "superpowers@claude-plugins-official" }] }));
+    await superpowersForkSwapMigration.run(h.ctx);
+    expect(getSetting<Record<string, string[]>>("rt.skills.disableModelInvocation").value["superpowers@mattstack"]).toEqual(["brainstorming"]);
+  });
+
+  test("carried skill choices are marked on the fork's installed skill files right away", async () => {
+    const skill = join(defaultDir(), "plugins", "cache", "mattstack", "superpowers", "7.0.2-groups.1", "skills", "brainstorming", "SKILL.md");
+    mkdirSync(join(skill, ".."), { recursive: true });
+    writeFileSync(skill, "---\nname: brainstorming\ndescription: Use when designing\n---\nbody\n");
+    setSetting("rt.skills.disableModelInvocation", { "superpowers@claude-plugins-official": ["brainstorming"] }, "user");
+    const h = harness({ lists: { [defaultDir()]: [{ id: "superpowers@claude-plugins-official", enabled: true, scope: "user" }, { id: "superpowers@mattstack", enabled: true, scope: "user" }] } });
+    await superpowersForkSwapMigration.run(h.ctx);
+    expect(readFileSync(skill, "utf8")).toContain("disable-model-invocation: true");
   });
 
   test("a disable that fails is failed, and the folders that worked stay recorded", async () => {

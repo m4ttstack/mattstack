@@ -122,6 +122,15 @@ stub_rt --pwd
 (cd "$PROJ" && run_hook "$STUB_BIN" >/dev/null)
 check "rt runs from HOME, so a project's bunfig never loads into it" "$(cd "$SANDBOX" && pwd -P)" "$(cat "$SANDBOX/rt-cwd" 2>/dev/null)"
 
+fork_state yes true
+stub_rt native-with-reviews
+printf 'open("%s/planted-ran", "w").close()\n' "$SANDBOX" > "$PROJ/json.py"
+rm -f "$SANDBOX/planted-ran"
+(cd "$PROJ" && run_hook "$STUB_BIN" >/dev/null)
+[ -e "$SANDBOX/planted-ran" ] && planted=yes || planted=no
+check "a json.py in the session's folder is never imported" "no" "$planted"
+rm -f "$PROJ/json.py"
+
 [ -x "$HOOK" ] && exe=yes || exe=no
 check "hook file is executable" "yes" "$exe"
 

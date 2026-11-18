@@ -30,6 +30,8 @@ export interface SetupState {
   claudeFullscreenDirs: string[];
   /** Stock superpowers copies the fork-swap migration turned off, per Claude config folder; `rt uninstall` turns these back on. */
   superpowersDisabled?: SuperpowersDisabled[];
+  /** Stock superpowers ids whose disabled-skill choices the swap already carried to the fork; present once the swap owns the fork's choices. */
+  superpowersSkillsCarried?: string[];
   lastApplyAt?: string;
   /** The rt version the last `rt setup update` run stamped, whatever its outcome. */
   lastUpdate?: { version: string; at: string };

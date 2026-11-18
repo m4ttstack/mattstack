@@ -1,12 +1,13 @@
 import { resolveTool } from "../../deps/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
-import { DISABLE_MODEL_INVOCATION_SETTING, readDisableModelInvocationChoices } from "../../skills/disable-model-invocation.ts";
+import { DISABLE_MODEL_INVOCATION_SETTING, disableModelInvocationConfigDirs, readDisableModelInvocationChoices, reconcileDisableModelInvocation } from "../../skills/disable-model-invocation.ts";
 import { SUPERPOWERS_FORK, isSuperseded } from "../base-plugins.ts";
 import { parseMarketplaceList } from "../marketplace-list.ts";
 import { PACK_EXEC_TIMEOUT_MS, claudeMessage, parsePluginList } from "../pack-cache.ts";
 import type { ExecResult } from "../probes.ts";
 import { readSetupState, updateSetupState, type SuperpowersDisabled } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
+import type { ApplyContext } from "../apply.ts";
 import type { MigrationEventId } from "../contract.ts";
 import type { MigrationDef } from "./index.ts";
 import { dedupedConfigDirs } from "./team-packs-from-git.ts";
@@ -49,10 +50,11 @@ export const superpowersForkSwapMigration: MigrationDef = {
       }
       const stock = entries.filter((e) => isSuperseded(e.id) && e.enabled && (e.scope === undefined || e.scope === "user"));
       if (stock.length === 0) continue;
-      const fork = entries.find((e) => e.id === SUPERPOWERS_FORK);
+      const fork = entries.find((e) => e.id === SUPERPOWERS_FORK && (e.scope === undefined || e.scope === "user"));
       if (!fork?.enabled) {
         // plugins.install only installs into the folders claudeConfigDirs names, never again once the member turned the fork off or removed it, and never from a marketplace the folder has not registered.
-        const installable = managed.has(dir) && fork === undefined && !rtInstalledFork && (await hasMattstackMarketplace(run));
+        const anyFork = entries.some((e) => e.id === SUPERPOWERS_FORK);
+        const installable = managed.has(dir) && !anyFork && !rtInstalledFork && (await hasMattstackMarketplace(run));
         (installable ? waiting : leftOn).push(dir);
         continue;
       }
@@ -62,21 +64,20 @@ export const superpowersForkSwapMigration: MigrationDef = {
           failures.push(`${dir}: claude plugin disable ${entry.id} (${claudeMessage(off, `exited ${off.code}`)})`);
           continue;
         }
-        disabled.push({ configDir: dir, id: entry.id });
+        const off1: SuperpowersDisabled = { configDir: dir, id: entry.id };
+        disabled.push(off1);
+        // Recorded as each one lands, so a run cut short still leaves uninstall what it needs.
+        updateSetupState(ctx.p, (s) => {
+          const had = s.superpowersDisabled ?? [];
+          return had.some((h) => h.configDir === off1.configDir && h.id === off1.id) ? s : { ...s, superpowersDisabled: [...had, off1] };
+        });
       }
     }
 
-    if (disabled.length > 0) {
-      try {
-        carrySkillChoices(disabled.map((d) => d.id));
-      } catch (err) {
-        ctx.log(LOG_ID, `warn: skill choices not carried to ${SUPERPOWERS_FORK}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      updateSetupState(ctx.p, (s) => {
-        const had = s.superpowersDisabled ?? [];
-        const fresh = disabled.filter((d) => !had.some((h) => h.configDir === d.configDir && h.id === d.id));
-        return { ...s, superpowersDisabled: [...had, ...fresh] };
-      });
+    try {
+      carrySkillChoices(ctx);
+    } catch (err) {
+      return { state: "partial", detail: `Could not carry disabled skills over to ${SUPERPOWERS_FORK} (${err instanceof Error ? err.message : String(err)}); trying again next launch` };
     }
     if (failures.length > 0) return { state: "failed", detail: `Could not switch every Claude config folder to mattstack's superpowers: ${failures.join("; ")}` };
     if (waiting.length > 0) return { state: "partial", detail: `Waiting for mattstack's superpowers to install before turning off the stock copy in ${waiting.join(", ")}` };
@@ -86,13 +87,28 @@ export const superpowersForkSwapMigration: MigrationDef = {
   },
 };
 
-/** Skills the member kept Claude from invoking under a stock copy stay that way under the fork, unless they already chose for the fork. */
-function carrySkillChoices(stockIds: string[]): void {
+/**
+ * Skills the member kept Claude from invoking under a stock copy stay that way
+ * under the fork. Works from the record, so a later run picks up a copy an
+ * earlier run turned off but could not carry. A fork choice the member made
+ * before the swap ever carried anything is theirs and is left alone.
+ */
+function carrySkillChoices(ctx: ApplyContext): void {
+  const state = readSetupState(ctx.p);
+  const carried = state.superpowersSkillsCarried;
+  const pending = [...new Set((state.superpowersDisabled ?? []).map((d) => d.id))].filter((id) => !(carried ?? []).includes(id));
+  if (pending.length === 0) return;
   const choices = readDisableModelInvocationChoices();
-  if (Object.hasOwn(choices, SUPERPOWERS_FORK)) return;
-  const names = [...new Set(stockIds.flatMap((id) => choices[id] ?? []))];
-  if (names.length === 0) return;
-  setSetting(DISABLE_MODEL_INVOCATION_SETTING, { ...choices, [SUPERPOWERS_FORK]: names }, "user");
+  const theirs = carried === undefined && Object.hasOwn(choices, SUPERPOWERS_FORK);
+  if (!theirs) {
+    const had = choices[SUPERPOWERS_FORK] ?? [];
+    const names = [...new Set([...had, ...pending.flatMap((id) => choices[id] ?? [])])];
+    if (names.length > had.length) {
+      setSetting(DISABLE_MODEL_INVOCATION_SETTING, { ...choices, [SUPERPOWERS_FORK]: names }, "user");
+      reconcileDisableModelInvocation({ configDirs: disableModelInvocationConfigDirs(ctx.p.env, ctx.p.home), choices: { [SUPERPOWERS_FORK]: names } });
+    }
+  }
+  updateSetupState(ctx.p, (s) => ({ ...s, superpowersSkillsCarried: [...(s.superpowersSkillsCarried ?? []), ...pending] }));
 }
 
 /** A listing rt cannot read counts as registered, so a passing hiccup waits a launch rather than giving up on the swap. */
