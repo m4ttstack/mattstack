@@ -139,7 +139,7 @@ export function kitView(model: PaneModel, width: number, bodyRows: number, offse
 export type KitFocus = ListFocus<PaneMessage>
 
 // The Client's half: the window's rows laid out, each ending in its scroll bar cell.
-// The button the keys selected takes the kit's selected look, and its item carries the pink rail in the gutter and a pink ○.
+// The button the keys selected takes the kit's selected look, and its item carries a rail in the gutter.
 export function viewLines(view: KitView, width: number, focus: KitFocus = {}): L[] {
   const room = roomOf(width)
   const shown = view.rows.flatMap(row => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows)
