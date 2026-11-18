@@ -1189,14 +1189,14 @@ function pressesButton(ev, form, s) {
   return !(navAtOf(form, s) === "next" && isReview(form, s) && !canSubmit(form, s));
 }
 function reviewKey(ev, form, s) {
-  if (ev.key === "left")
-    return { state: goTo(form, s, s.page - 1) };
-  if (ev.key === "right")
-    return { state: s };
-  if (ev.key !== "tab")
-    return;
   const ids = navIds(form, s);
   const at = ids.indexOf(navAtOf(form, s));
+  if (ev.key === "left")
+    return { state: at > 0 ? { ...s, navAt: ids[at - 1] } : goTo(form, s, s.page - 1) };
+  if (ev.key === "right")
+    return { state: at < ids.length - 1 ? { ...s, navAt: ids[at + 1] } : s };
+  if (ev.key !== "tab")
+    return;
   return { state: { ...s, navAt: ids[(at + (ev.shift ? -1 : 1) + ids.length) % ids.length] } };
 }
 function navKey(ev, form, armed, s) {

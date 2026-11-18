@@ -157,13 +157,14 @@ export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean
   return !(navAtOf(form, s) === 'next' && isReview(form, s) && !canSubmit(form, s))
 }
 
-// On the review page ←→ still change page (→ has none to go to), so Tab moves between its buttons.
+// On the review page ← → move along its buttons (Submit, More actions, Chat about this); ← from the first one pages
+// back to the last question. Tab steps the buttons round.
 function reviewKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
-  if (ev.key === 'left') return { state: goTo(form, s, s.page - 1) }
-  if (ev.key === 'right') return { state: s }
-  if (ev.key !== 'tab') return undefined
   const ids = navIds(form, s)
   const at = ids.indexOf(navAtOf(form, s))
+  if (ev.key === 'left') return { state: at > 0 ? { ...s, navAt: ids[at - 1]! } : goTo(form, s, s.page - 1) }
+  if (ev.key === 'right') return { state: at < ids.length - 1 ? { ...s, navAt: ids[at + 1]! } : s }
+  if (ev.key !== 'tab') return undefined
   return { state: { ...s, navAt: ids[(at + (ev.shift ? -1 : 1) + ids.length) % ids.length]! } }
 }
 
