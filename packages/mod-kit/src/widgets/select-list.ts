@@ -83,7 +83,7 @@ function choiceLines<A>(choice: Choice, idx: number, spec: SelectSpec<A>, lead: 
 // The label stays put; the row under it is the description until the choice is focused, then the line you type on,
 // with the description as its placeholder. Typed text shows in that row once you move off.
 function writeInRows<A>(choice: Choice, isAt: boolean, lead: Span<A>[], under: Span<A>[], spec: SelectSpec<A>): Line<A>[] {
-  const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...(isAt && { bold: true }) })]
+  const label = [...lead, sp(`${ICON.edit}  `), sp(choice.label, { isLabel: true, ...(isAt && { bold: true }) })]
   const typed = spec.writeIn
   // The field opens with a pad cell of its own, so the indent gives one up and the text stays where the description was.
   const fieldLead = [...under.slice(0, -1), sp<A>(under[under.length - 1]!.t.slice(1))]

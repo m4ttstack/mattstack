@@ -457,7 +457,7 @@ function choiceLines(choice, idx, spec, lead, under) {
   return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isCursorRow(spec, idx) && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 function writeInRows(choice, isAt, lead, under, spec) {
-  const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
+  const label = [...lead, sp(`${ICON.edit}  `), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
   const typed = spec.writeIn;
   const fieldLead = [...under.slice(0, -1), sp(under[under.length - 1].t.slice(1))];
   if (isAt)
