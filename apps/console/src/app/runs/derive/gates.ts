@@ -260,11 +260,14 @@ const LIST_ITEM = /^\s*[-*]\s+\S/;
 /** A list item that is nothing but one code span. */
 const CODE_ITEM = /^\s*[-*]\s+`([^`]+)`\s*$/;
 const FENCE = /^\s*(```|~~~)/;
+/** A list item that is nothing but a quotation. */
+const QUOTE_ITEM = /^\s*[-*]\s+["“](.+)["”]\s*$/;
 /** A short line ending in a colon: a section's lead-in to the list after it. */
 const SECTION_LEAD = /^[A-Za-z(].{0,88}:$/;
 
 /** Plain-prose findings given the Markdown an agent rarely writes: shas and
-    record ids as code, a list of nothing but code as one code block, and a
+    record ids as code, a list of nothing but code as one code block, a list
+    of nothing but quotations as a quote, and a
     short "Something:" line before a list or code block as a bold subheading.
     `leads` also bolds a paragraph's or list item's "Label:" opening. Text in
     a fenced block is left as written. */
@@ -297,6 +300,19 @@ export function tidyFindings(text: string, leads = true): string {
         continue;
       }
     }
+    if (QUOTE_ITEM.test(line) && !LIST_ITEM.test(prev)) {
+      let end = i;
+      while (end < lines.length && QUOTE_ITEM.test(lines[end]!)) end++;
+      if (!LIST_ITEM.test(lines[end] ?? '')) {
+        const quoted = lines.slice(i, end).map(l => {
+          const body = QUOTE_ITEM.exec(l)![1]!;
+          return `> ${outsideCode(body, s => s.replace(ID_TOKEN, '`$1`'))}`;
+        });
+        out.push(quoted.join('\n>\n'));
+        i = end - 1;
+        continue;
+      }
+    }
     const start = i === 0 || prev.trim() === '' || FENCE.test(prev);
     const next = lines.slice(i + 1).find(l => l.trim() !== '') ?? '';
     let tidied = outsideCode(line, s => s.replace(ID_TOKEN, '`$1`'));
@@ -304,7 +320,8 @@ export function tidyFindings(text: string, leads = true): string {
       start &&
       SECTION_LEAD.test(line.trim()) &&
       !line.includes('**') &&
-      (LIST_ITEM.test(next) || FENCE.test(next))
+      (LIST_ITEM.test(next) || FENCE.test(next)) &&
+      !/['"`]/.test(line)
     )
       tidied = `**${tidied.trim()}**`;
     else if (leads && (start || LIST_ITEM.test(line)))

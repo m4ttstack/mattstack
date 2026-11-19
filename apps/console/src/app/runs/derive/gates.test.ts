@@ -346,6 +346,12 @@ describe('tidyFindings', () => {
     );
   });
 
+  it('turns a list of quotations into a quote', () => {
+    expect(tidyFindings('From the skill:\n- "one"\n- "two"', false)).toBe(
+      '**From the skill:**\n> one\n>\n> two'
+    );
+  });
+
   it('leaves a fenced block and a mixed list as written', () => {
     const text = '```\nabc1234 x: y\n```\n- `a`\n- plain';
     expect(tidyFindings(text, false)).toBe(text);
