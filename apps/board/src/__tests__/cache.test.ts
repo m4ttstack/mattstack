@@ -115,6 +115,34 @@ describe('SnapshotCache failed-refresh backoff', () => {
     expect(counter.calls).toBe(3);
   });
 
+  test('a refresh that started before a config change does not restore the backoff', async () => {
+    const t = { now: 0 };
+    let calls = 0;
+    let rejectFirst: ((err: Error) => void) | undefined;
+    const cache = new SnapshotCache(
+      () => {
+        calls++;
+        if (calls === 2)
+          return new Promise((_, reject) => {
+            rejectFirst = reject;
+          });
+        return Promise.resolve(fetchResult([{ iid: 1 } as any]));
+      },
+      () => t.now,
+      TTL,
+      BACKOFF
+    );
+    await cache.forceRefresh();
+    t.now = TTL + 1000;
+    await cache.get();
+    cache.markStale();
+    rejectFirst!(new Error('daemon down'));
+    await settle();
+    await cache.get();
+    await settle();
+    expect(calls).toBe(3);
+  });
+
   test('a config change during the backoff refetches on the next read', async () => {
     const fail = { on: false };
     const t = { now: 0 };

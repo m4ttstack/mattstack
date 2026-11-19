@@ -129,7 +129,8 @@ export class SnapshotCache {
       .catch(err => {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`refresh failed: ${message}`);
-        this.retryAfter = this.now() + this.failBackoffMs;
+        if (gen === this.generation)
+          this.retryAfter = this.now() + this.failBackoffMs;
         return settle(
           this.snapshot
             ? { ...this.snapshot, fetchError: message }

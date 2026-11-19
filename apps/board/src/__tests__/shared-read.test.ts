@@ -62,4 +62,24 @@ describe('sharedRead', () => {
     await expect(shared('a')).rejects.toThrow('worktree list failed');
     expect(calls.length).toBe(2);
   });
+
+  test('a fresh read skips the cache and a replayed failure, and later reads share its result', async () => {
+    let n = 0;
+    let fail = true;
+    const read = async () => {
+      n++;
+      if (fail) throw new Error('busy');
+      return `v${n}`;
+    };
+    const shared = sharedRead(read, {
+      freshMs: 1000,
+      failMs: 5000,
+      now: () => 0,
+    });
+    await expect(shared('a')).rejects.toThrow('busy');
+    fail = false;
+    expect(await shared('a', { fresh: true })).toBe('v2');
+    expect(await shared('a')).toBe('v2');
+    expect(n).toBe(2);
+  });
 });

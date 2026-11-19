@@ -2519,11 +2519,9 @@ const httpServer = Bun.serve({
         void refreshMemberNames();
         try {
           // The refresh button asks for fresh: it must not get a cached read
-          // or a replayed failure.
+          // or a replayed failure, and later polls then share what it read.
           const fresh = new URL(req.url).searchParams.get('fresh') === '1';
-          const { mrs, fetchedAt } = fresh
-            ? await readMemberMRs(u)
-            : await sharedMemberMRs(u);
+          const { mrs, fetchedAt } = await sharedMemberMRs(u, { fresh });
           // A scoped refresh replaces that member's rows wholesale on the
           // client, so it carries every join the full snapshot does.
           const { mrs: withOrphans } = await withRowState(mrs);

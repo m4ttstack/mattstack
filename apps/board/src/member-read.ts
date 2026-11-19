@@ -1,4 +1,4 @@
-import { sharedRead } from './shared-read.ts';
+import { sharedRead, type SharedRead } from './shared-read.ts';
 
 /** Under the client's 15s member poll, so one tab still gets a fresh read
     each tick while other tabs on the same member share it. */
@@ -10,7 +10,7 @@ export const MEMBER_FAIL_MS = 60_000;
 export function memberRead<T>(
   fetch: (username: string) => Promise<T>,
   now?: () => number
-): (username: string) => Promise<T> {
+): SharedRead<T> {
   return sharedRead(fetch, {
     freshMs: MEMBER_FRESH_MS,
     failMs: MEMBER_FAIL_MS,
