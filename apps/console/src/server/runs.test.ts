@@ -856,7 +856,7 @@ describe('GET /api/runs daemon load', () => {
     vi.useRealTimers();
   });
 
-  it('shares one daemon read between concurrent requests', async () => {
+  it('shares the repo list between concurrent requests but reads runs for each', async () => {
     const app = runsRoutes();
     let release: (() => void) | undefined;
     list().mockImplementationOnce(
@@ -873,7 +873,7 @@ describe('GET /api/runs daemon load', () => {
 
     expect(ra.status).toBe(200);
     expect(rb.status).toBe(200);
-    expect(list()).toHaveBeenCalledTimes(1);
+    expect(list()).toHaveBeenCalledTimes(2);
     expect(repos()).toHaveBeenCalledTimes(1);
   });
 

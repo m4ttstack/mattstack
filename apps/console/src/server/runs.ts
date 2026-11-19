@@ -117,7 +117,9 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           return res.ok ? res.gates : null;
         })
   );
-  const readRuns = sharedRead(key => listRuns(key || undefined));
+  // Not shared in flight: a request made after a run-updated event must not
+  // join a read that started before the write.
+  const readRuns = (key: string) => listRuns(key || undefined);
   // The daemon's `repos` verb runs `git worktree list` in every registered
   // repo, serially, on its single thread; only the repo keys are used here,
   // for the filter choices.
