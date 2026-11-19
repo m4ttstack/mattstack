@@ -29,6 +29,28 @@ describe('heroLiveness', () => {
     ).toEqual({ tone: 'warn', label: 'waiting in the board · 2m' });
   });
 
+  it("reads a run blocked at its shepherd's gate as waiting on the shepherd", () => {
+    const blocked = run({
+      attention: {
+        needs: true,
+        reason: 'blocked',
+        evidence: 'agent waiting at gate g',
+      },
+    });
+    expect(
+      heroLiveness(
+        blocked,
+        { handoff: null, mine: null, shepherd: gate(0) },
+        3 * MIN
+      )
+    ).toEqual({ tone: 'warn', label: 'waiting on its shepherd · 3m' });
+    expect(heroLiveness(blocked, { handoff: null, mine: null }, 0)).toEqual({
+      tone: 'bad',
+      label: 'waiting on you',
+      waiting: true,
+    });
+  });
+
   it('reads a working agent as agent working', () => {
     expect(
       heroLiveness(

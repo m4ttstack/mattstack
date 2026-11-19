@@ -14,10 +14,15 @@ export interface HeroLiveness {
 
 /** What the run page's header chip says: a gate waiting on you or in the
     board comes first, with how long it has waited; otherwise the same ladder
-    the runs list reads, in the header's words. */
+    the runs list reads, in the header's words. A run blocked at a gate its
+    shepherd owns is waiting on the shepherd, not on you. */
 export function heroLiveness(
   run: RunSummary,
-  waiting: { handoff: GateRow | null; mine: GateRow | null },
+  waiting: {
+    handoff: GateRow | null;
+    mine: GateRow | null;
+    shepherd?: GateRow | null;
+  },
   now: number
 ): HeroLiveness {
   const age = (g: GateRow) => formatDuration(now - g.openedAt);
@@ -35,7 +40,12 @@ export function heroLiveness(
   const spec = livenessSpec(run);
   switch (spec.state) {
     case 'blocked':
-      return { tone: 'bad', label: 'waiting on you', waiting: true };
+      return waiting.shepherd
+        ? {
+            tone: 'warn',
+            label: `waiting on its shepherd · ${age(waiting.shepherd)}`,
+          }
+        : { tone: 'bad', label: 'waiting on you', waiting: true };
     case 'failed':
     case 'stale':
       return { tone: 'bad', label: spec.label };
