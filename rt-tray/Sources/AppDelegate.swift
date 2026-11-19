@@ -713,7 +713,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
 
     /// AppKit routes a key equivalent only when a menu item claims it, so an
     /// LSUIElement app's menu has to carry them itself: ⌘, for Settings, and
-    /// ⌘W / ⌘M for the key window, which otherwise do nothing at all.
+    /// ⌘W / ⌘M for the key window, which otherwise do nothing at all, and
+    /// ⌘[ / ⌘] for the showing tab's back and forward.
     private func installMainMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem)
@@ -740,6 +741,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         edit.addItem(.separator())
         edit.addItem(FindMenu.submenuItem())
         editItem.submenu = edit
+        main.addItem(HistoryMenu.menuItem())
         let windowItem = NSMenuItem(); main.addItem(windowItem)
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
