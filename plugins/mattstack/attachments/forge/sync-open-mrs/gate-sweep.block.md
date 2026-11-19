@@ -9,7 +9,8 @@ label: Sweep gate
 Scope `sweep`, once for the whole batch, never per branch. The question:
 
 - `branches` (write-in): a multi-select of the branches to rebase, in
-  order, each option labelled ` (Recommended)` so it starts ticked, per
+  order, each option `{value: "<branch>", label: "<branch> (Recommended)"}`
+  so it starts ticked, per
   the rule under **Plan the sweep** (unticking skips one); one question when the kit form draws the gate (opened from the
   main session, not a subagent or a hand-back, with gate-form's `ask`
   tool (`mcp__gate-form__ask`) in your session); otherwise, over 4
