@@ -172,16 +172,26 @@ function sessionAndMr(run: Pick<RunSummary, "work_type">, fields: RunFieldRow[])
 // computed from this per call, so it can be cached by file signature.
 type RunData = { stages: RunStageRow[]; fields: RunFieldRow[]; decisions: RunDecisionRow[] } | null;
 
-function readRunData(db: Database): RunData {
+/** `cacheable` is false when a query failed for a reason other than a
+    missing table (a lock, say): that answer must not stick until the next
+    write to the run. */
+function readRunData(db: Database): { data: RunData; cacheable: boolean } {
   try {
     return {
-      stages: stageRows(db),
-      fields: db.query("SELECT key, value, produced_by, at FROM fields").all() as RunFieldRow[],
-      decisions: db.query("SELECT contract, scope, selection, decided_by, decided_at FROM decisions").all() as RunDetail["decisions"],
+      data: {
+        stages: stageRows(db),
+        fields: db.query("SELECT key, value, produced_by, at FROM fields").all() as RunFieldRow[],
+        decisions: db.query("SELECT contract, scope, selection, decided_by, decided_at FROM decisions").all() as RunDetail["decisions"],
+      },
+      cacheable: true,
     };
-  } catch {
-    return null;
+  } catch (err) {
+    return { data: null, cacheable: isMissingTable(err) };
   }
+}
+
+function isMissingTable(err: unknown): boolean {
+  return err instanceof Error && /no such table/i.test(err.message);
 }
 
 // A run whose tables are missing is still worth listing -- the store's
@@ -249,8 +259,10 @@ function cachedRunData(repo: string, id: string): { row: RunSummary; data: RunDa
   try {
     const row = runRow(opened.db);
     if (!row) return null;
-    const entry = { sig, row, data: readRunData(opened.db) };
-    runDataCache.set(dbPath, entry);
+    const { data, cacheable } = readRunData(opened.db);
+    const entry = { sig, row, data };
+    if (cacheable) runDataCache.set(dbPath, entry);
+    else runDataCache.delete(dbPath);
     return entry;
   } finally {
     opened.db.close();
@@ -393,13 +405,17 @@ function runSession(repo: string, id: string): string | null {
   const opened = openRun(repo, id);
   if (!opened) return null;
   let session: string | null = null;
+  let cacheable = true;
   try {
     const row = opened.db.query("SELECT value FROM fields WHERE key = 'claude-session'").get() as { value: string } | undefined;
     session = row?.value ?? null;
-  } catch { /* no fields table: no session */ } finally {
+  } catch (err) {
+    cacheable = isMissingTable(err);
+  } finally {
     opened.db.close();
   }
-  sessionCache.set(dbPath, { sig, session });
+  if (cacheable) sessionCache.set(dbPath, { sig, session });
+  else sessionCache.delete(dbPath);
   return session;
 }
 

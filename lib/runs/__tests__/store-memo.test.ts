@@ -30,6 +30,24 @@ test("a run db replaced at the same path with the same size and mtime is read ag
   expect(listRuns("repoA").map((r) => r.status)).toEqual(["failed"]);
 });
 
+test("a transient query failure is not cached: the next list reads the run again", () => {
+  const dir = root();
+  seedRun(dir, "repoA", "run1", 1000, 1, { status: "done" });
+  const original = Database.prototype.query;
+  const spy = spyOn(Database.prototype, "query").mockImplementation(function (this: Database, sql: string) {
+    if (sql.includes("FROM fields")) throw new Error("database is locked");
+    return original.call(this, sql);
+  } as typeof Database.prototype.query);
+  try {
+    expect(listRuns().map((r) => r.ticket)).toEqual([null]);
+    expect(findRunsBySession("sess-x")).toEqual([]);
+  } finally {
+    spy.mockRestore();
+  }
+  expect(listRuns().map((r) => r.ticket)).toEqual(["ACME-1"]);
+  expect(__test__.cachedRunPaths()).toContain(join(dir, "repoA", "run1", "state.db"));
+});
+
 test("a full listing drops cache entries for runs that were deleted", () => {
   const dir = root();
   seedRun(dir, "repoA", "run1", 1000, 1, { status: "done" });
