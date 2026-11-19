@@ -11,7 +11,8 @@ pushed branch can show, which goes on the `owed-evidence` list. A finding
 about code this change did not write is fixed when the reviewer says it
 is reachable from this change, or says nothing about reachability.
 
-Each fix gets its failing test first, then the fix, then a commit. Ship
+A fix with behavior gets its failing test first, then the fix, then a
+commit; a fix to naming, docs or comment wording has no test to write. Ship
 presents and pushes what `commits` names, so the field is rewritten with
 every sha on the branch, fixes included, before the next review round.
 The next round reviews `<branch-point>..HEAD` again, the whole branch,
