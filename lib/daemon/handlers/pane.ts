@@ -17,7 +17,7 @@ import { attendPane, bgTerminalId } from "../attend.ts";
 import { sessionFromPaneProcess, withProcessSession } from "../pane-process-session.ts";
 import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
-import type { HerdrRunner } from "../../agent-herdr.ts";
+import { resolveHerdrBin, type HerdrRunner } from "../../agent-herdr.ts";
 import { shellQuote } from "../../herdr-launch.ts";
 import { repoLabel } from "../../repo-label.ts";
 import { getSetting } from "../../settings/resolve.ts";
@@ -179,8 +179,10 @@ export function createPaneHandlers(opts: {
   /** Claude Code session registry roots for the pane-process fallback; claude-registry.ts's own roots by default. */
   claudeRegistryRoots?: string[];
   /** Herd and gate stores pane:list joins onto each row; omitted, rows carry no herd or gate. */
-  herdStore?: Pick<HerdStore, "jobsByPane">;
+  herdStore?: Pick<HerdStore, "jobsByPane" | "get">;
   gatesStore?: Pick<GatesStore, "list">;
+  /** The herdr binary an attach plan runs; resolveHerdrBin() by default, since herdr is often only in ~/.local/bin. */
+  herdrBin?: string;
 }):
   // Declared as direct `unknown`-payload members (not `Pick<TypedHandlers, ...>`)
   // rather than the narrower per-command payload types the catalog would
@@ -216,6 +218,7 @@ export function createPaneHandlers(opts: {
     return {
       agents: listAgents({}, db),
       jobsByPane: herdStore ? (ref) => herdStore.jobsByPane(ref) : () => [],
+      herdActive: (id) => herdStore?.get(id)?.status === "active",
       openGates: gatesStore ? gatesStore.list({ open: true }).gates : [],
     };
   }
@@ -496,14 +499,14 @@ export function createPaneHandlers(opts: {
       const payload = rawPayload as Commands["pane:attach-plan"]["payload"];
       const { server, paneId } = parsePaneRef(payload.paneId);
       if (server !== "bg") {
-        return { ok: true, data: { argv: ["herdr", "agent", "attach", paneId, ...(payload.takeover ? ["--takeover"] : [])], env: {} } };
+        return { ok: true, data: { argv: [opts.herdrBin ?? resolveHerdrBin(), "agent", "attach", paneId, ...(payload.takeover ? ["--takeover"] : [])], env: {} } };
       }
       if (!bg || !herdrRunnerFor || !(await bg.up())) return { ok: false, error: "The background herdr server isn't running" };
       const term = await bgTerminalId({ socket: bgSocketPath(), paneId, herdrRunnerFor });
       if (!term.ok) return term;
       return {
         ok: true,
-        data: { argv: ["env", "-u", "HERDR_SOCKET_PATH", "herdr", "terminal", "attach", term.termId, "--takeover"], env: { HERDR_SESSION: BG_SESSION } },
+        data: { argv: ["env", "-u", "HERDR_SOCKET_PATH", opts.herdrBin ?? resolveHerdrBin(), "terminal", "attach", term.termId, "--takeover"], env: { HERDR_SESSION: BG_SESSION } },
       };
     },
   };

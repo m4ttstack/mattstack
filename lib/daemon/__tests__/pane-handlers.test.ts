@@ -10,7 +10,7 @@ import type { InboxBinding } from "../../claude-registry.ts";
 import { createChatHandlers } from "../handlers/chat.ts";
 import { createPaneHandlers } from "../handlers/pane.ts";
 import { insertAgent } from "../../state/agents-store.ts";
-import type { HerdJobRow } from "../herd-store.ts";
+import type { HerdJobRow, HerdRow } from "../herd-store.ts";
 import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
 import type { TrayClient, TrayReply } from "../../daemon-client.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
@@ -924,7 +924,7 @@ test("pane:list joins extras", async () => {
   const job = { herd: "h-7c1", name: "docs-sweep" } as unknown as HerdJobRow;
   const gate = { id: "g-1", origin: { paneId: "w1:p2" }, pane: null, questions: [{ id: "q", label: "Merge now?", multi: false, options: [] }] } as unknown as GateRow;
   const { db, pane } = extrasHarness({
-    herdStore: { jobsByPane: (ref: string) => (ref === "bg:wb:p1" ? [job] : []) },
+    herdStore: { jobsByPane: (ref: string) => (ref === "bg:wb:p1" ? [job] : []), get: () => ({ status: "active" }) as HerdRow },
     gatesStore: { list: () => ({ gates: [gate], cursor: 0 }) },
   });
   insertAgent({ id: "a-1", repo: "acme", cwd: "/tmp/acme", provider: "claude", surface: "herdr", sessionId: "sess-signed", caller: "board:review", createdAt: 1000 }, db);
@@ -948,9 +948,9 @@ test("pane:list without stores matches today", async () => {
 // ─── pane:attach-plan ──────────────────────────────────────────────────────
 
 test("pane:attach-plan for a visible pane is herdr agent attach", async () => {
-  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}) });
-  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3" })).toEqual({ ok: true, data: { argv: ["herdr", "agent", "attach", "w1:p3"], env: {} } });
-  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3", takeover: true })).toEqual({ ok: true, data: { argv: ["herdr", "agent", "attach", "w1:p3", "--takeover"], env: {} } });
+  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrBin: "/opt/bin/herdr" });
+  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3" })).toEqual({ ok: true, data: { argv: ["/opt/bin/herdr", "agent", "attach", "w1:p3"], env: {} } });
+  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3", takeover: true })).toEqual({ ok: true, data: { argv: ["/opt/bin/herdr", "agent", "attach", "w1:p3", "--takeover"], env: {} } });
 });
 
 test("pane:attach-plan for a bg pane attaches to its terminal on the bg server", async () => {
@@ -960,11 +960,11 @@ test("pane:attach-plan for a bg pane attaches to its terminal on the bg server",
     if (args[0] === "pane" && args[1] === "get") return { stdout: JSON.stringify({ result: { pane: { terminal_id: "t42" } } }), exitCode: 0 };
     return { stdout: "{}", exitCode: 0 };
   };
-  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrRunnerFor, bg: fakeBg({ up: async () => true }) });
+  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrRunnerFor, bg: fakeBg({ up: async () => true }), herdrBin: "/opt/bin/herdr" });
   const res = await pane["pane:attach-plan"]({ paneId: "bg:w1:p3" });
   expect(res).toEqual({
     ok: true,
-    data: { argv: ["env", "-u", "HERDR_SOCKET_PATH", "herdr", "terminal", "attach", "t42", "--takeover"], env: { HERDR_SESSION: BG_SESSION } },
+    data: { argv: ["env", "-u", "HERDR_SOCKET_PATH", "/opt/bin/herdr", "terminal", "attach", "t42", "--takeover"], env: { HERDR_SESSION: BG_SESSION } },
   });
   expect(calls).toEqual([{ socket: bgSocketPath(), args: ["pane", "get", "w1:p3"] }]);
 });
