@@ -8,6 +8,7 @@ import type { GateRow, MrGetData } from "../../packages/rt-client/src/commands.t
 import { unwrapGateAnswerValue } from "../../packages/rt-client/src/gate-answers.ts";
 import { gateOptionLabel, gateOptionValue } from "../../packages/rt-client/src/gate-options.ts";
 import { mrRole, parseMrRef, readCachedOutcome, writeCachedOutcome, type CachedOutcome } from "../runs/outcome.ts";
+import { parseIdentity, repoIdentitySlug } from "../settings/identity.ts";
 
 export type MrLookup =
   | { ok: true; state: "opened" | "merged" | "closed"; mergedAt?: number; ci: string | null }
@@ -27,7 +28,8 @@ export interface OutcomeRefresherDeps {
   listRunsForOutcome: () => OutcomeRunRow[];
   /** Aborted when the call outlasts `mrTimeoutMs`; a throw or rejection reads as a failed lookup. */
   getMr: (repoName: string, iid: number, signal: AbortSignal) => Promise<MrLookup>;
-  /** The repo index's keys; read at most once per tick. */
+  /** The repo index's keys; read at most once per tick. A run's repo key is
+      matched against them by `runRepoIdentity`. */
   knownRepos: () => ReadonlySet<string>;
   postedFromGates: (runId: string) => string | null;
   emitRunUpdated: (runId: string, repo: string) => void;
@@ -68,6 +70,21 @@ export function postedFromGateRows(rows: GateRow[]): string | null {
   const option = gate.questions.find((q) => q.id === qid)?.options.find((o) => gateOptionValue(o) === value);
   const label = (option === undefined ? value : gateOptionLabel(option)).replace(RECOMMENDED_SUFFIX, "").trim();
   return label || null;
+}
+
+/**
+ * The repo index identity a run's opaque repo key stands for. A run made
+ * since the identity cutover keys by the identity itself; an older one keys
+ * by the identity's flattened slug ("gitlab.com-acme-acme-dev"), the name
+ * its run directory was given. Null when the index has neither.
+ */
+export function runRepoIdentity(runRepo: string, indexKeys: Iterable<string>): string | null {
+  for (const wire of indexKeys) {
+    if (wire === runRepo) return wire;
+    const identity = parseIdentity(wire);
+    if (identity && repoIdentitySlug(identity.id) === runRepo) return wire;
+  }
+  return null;
 }
 
 /** Maps an `mr:get` result onto the cache's MR shape. A locked MR is still open; any other state is no answer. */
@@ -150,7 +167,7 @@ export function createOutcomeRefresher(
     try {
       const now = deps.now();
       let repos: ReadonlySet<string> | null = null;
-      const due: { run: OutcomeRunRow; iid: number; previous: CachedOutcome | null }[] = [];
+      const due: { run: OutcomeRunRow; repo: string; iid: number; previous: CachedOutcome | null }[] = [];
       for (const run of deps.listRunsForOutcome()) {
         const ref = run.mr ? parseMrRef(run.mr.value) : null;
         const role = run.mr ? mrRole(run.mr.produced_by, run.work_type) : null;
@@ -160,7 +177,8 @@ export function createOutcomeRefresher(
           continue;
         }
         repos ??= deps.knownRepos();
-        if (!repos.has(run.repo)) continue;
+        const repo = runRepoIdentity(run.repo, repos);
+        if (repo === null) continue;
         const cached = readCachedOutcome(run.id);
         const previous = cached && cached.iid === ref.iid ? cached : null;
         if (previous) {
@@ -174,11 +192,11 @@ export function createOutcomeRefresher(
           failed = undefined;
         }
         if (failed !== undefined && now - failed.at < Math.min(openTtlMs * 2 ** (failed.failures - 1), maxBackoffMs)) continue;
-        due.push({ run, iid: ref.iid, previous });
+        due.push({ run, repo, iid: ref.iid, previous });
       }
       due.sort((a, b) => (a.previous?.checkedAt ?? 0) - (b.previous?.checkedAt ?? 0));
-      for (const { run, iid, previous } of due.slice(0, batch)) {
-        const mr = await getMrBounded(run.repo, iid);
+      for (const { run, repo, iid, previous } of due.slice(0, batch)) {
+        const mr = await getMrBounded(repo, iid);
         if (!mr.ok) {
           failedAt.set(run.id, { at: now, failures: (failedAt.get(run.id)?.failures ?? 0) + 1, iid });
           continue;

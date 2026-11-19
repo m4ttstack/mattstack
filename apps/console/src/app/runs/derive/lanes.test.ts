@@ -375,6 +375,17 @@ describe('lanes', () => {
         'work'
       )
     ).toBe('!409 open · CI running');
+    expect(
+      laneMrLine(
+        run({
+          outcome: {
+            status: 'running',
+            mr: { iid: 51020, state: 'unknown', url: null },
+          },
+        }),
+        'work'
+      )
+    ).toBe('!51020');
     expect(laneMrLine(run({ work_type: 'watch-ci' }), 'utility')).toBeNull();
   });
 });
