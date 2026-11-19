@@ -31,11 +31,15 @@ function handleName(handle: string): string {
   return handle.replace(/\.[a-z0-9]{4}$/, '');
 }
 
+export function agentDisplayName(row: AgentRow): string {
+  return row.info.label ?? (row.info.handle ? handleName(row.info.handle) : row.title);
+}
+
 export function agentPickText(row: AgentRow, now = Date.now()): { label: string; description: string; detail?: string } {
   const icon = ICONS[row.info.gate ? 'gate' : row.status];
   const word = statusWord(row);
   const handle = row.info.handle;
-  const name = row.info.label ?? (handle ? handleName(handle) : row.title);
+  const name = agentDisplayName(row);
   const when = row.at > 0 ? (row.group === 'recent' ? `ended ${ago(row.at, now)}` : `started ${ago(row.at, now)}`) : '';
   const description = row.group === 'recent' ? (when || word) : [word, when].filter(Boolean).join(' · ');
 

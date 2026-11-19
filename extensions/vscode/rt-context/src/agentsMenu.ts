@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { agentList, agentResume, listRuns, paneAttachPlan, paneList } from '@mattstack/rt-client';
 import { ownerOf, type AgentRow } from './agentRows';
-import { agentPickText } from './agentPickText';
+import { agentDisplayName, agentPickText } from './agentPickText';
 import { attachPlanFor, loadAgentRows, paneForResume, type AgentsDeps } from './agentsLoad';
 import { listWorktrees } from './git';
 import { getCurrentWorktreePath } from './statusBar';
@@ -10,18 +10,41 @@ const DEPS: AgentsDeps = { paneList, agentList, listRuns, agentResume, paneAttac
 
 let agentsItem: vscode.StatusBarItem | undefined;
 
-// VS Code starts the process before the panel is laid out, and herdr refuses a
-// zero-sized terminal, so wait (up to 5 s) for rows and columns first. On a failure,
-// keep the terminal open so herdr's message stays readable.
-const ATTACH_SCRIPT = [
-  'i=0',
-  'while [ "$i" -lt 50 ]; do',
-  '  case "$(stty size 2>/dev/null)" in ""|"0 "*|*" 0") sleep 0.1; i=$((i+1)) ;; *) break ;; esac',
-  'done',
-  '"$@" && exit 0',
-  's=$?',
-  'printf "\\nCould not attach to this agent. Press Enter to close. "; read ans; exit "$s"',
-].join('\n');
+// Runs as `sh -c ATTACH_SCRIPT rt-attach <name> <attach argv...>`.
+// - VS Code starts the process before the panel is laid out, and herdr refuses a
+//   zero-sized terminal, so wait (up to 5 s) for rows and columns first.
+// - When the attach ends (herdr took the pane back, a detach, or a failure), clear
+//   herdr's own output and offer Enter to bring the agent back here.
+// - Never exit non-zero: VS Code turns that into an error popup.
+const ATTACH_SCRIPT = String.raw`
+name="$1"; shift
+i=0
+while [ "$i" -lt 50 ]; do
+  case "$(stty size 2>/dev/null)" in ""|"0 "*|*" 0") sleep 0.1; i=$((i+1)) ;; *) break ;; esac
+done
+while :; do
+  err=$(mktemp -t rt-attach) || err=/dev/null
+  "$@" 2>"$err"; s=$?
+  msg=$(tail -n 1 "$err" 2>/dev/null)
+  [ "$err" != /dev/null ] && rm -f "$err"
+  printf '\033[0m\033[2J\033[3J\033[H'
+  if [ "$s" -eq 0 ]; then
+    printf '\n  Detached from \033[1m%s\033[0m. It keeps running.\n' "$name"
+  else
+    case "$msg" in
+      *"attached client"*|*"taken over"*|*"takeover"*|*"another client"*)
+        printf '\n  \033[1m%s\033[0m is open somewhere else now. It keeps running.\n' "$name" ;;
+      *)
+        printf '\n  \033[1m%s\033[0m left this terminal.\n' "$name"
+        [ -n "$msg" ] && printf '  \033[2m%s\033[0m\n' "$msg" ;;
+    esac
+  fi
+  printf '\n  Press Enter to bring it back here, or close this tab.\n'
+  read ans || exit 0
+done
+`;
+
+const openTerminals = new Map<string, vscode.Terminal>();
 
 interface AgentPick extends vscode.QuickPickItem {
   row?: AgentRow;
@@ -47,6 +70,9 @@ export function initAgentsItem(context: vscode.ExtensionContext, priority: numbe
   context.subscriptions.push(
     agentsItem,
     vscode.window.onDidChangeWindowState((s) => { if (s.focused) void refreshAgentsItem(); }),
+    vscode.window.onDidCloseTerminal((t) => {
+      for (const [key, open] of openTerminals) if (open === t) openTerminals.delete(key);
+    }),
   );
   void refreshAgentsItem();
 }
@@ -100,6 +126,11 @@ export async function showAgents(): Promise<void> {
 }
 
 async function attachRow(row: AgentRow, cwd: string): Promise<void> {
+  const open = openTerminals.get(row.key);
+  if (open && open.exitStatus === undefined) {
+    open.show();
+    return;
+  }
   let paneId: string;
   if (row.target.kind === 'pane') {
     paneId = row.target.paneId;
@@ -116,12 +147,16 @@ async function attachRow(row: AgentRow, cwd: string): Promise<void> {
     vscode.window.showErrorMessage(plan.error);
     return;
   }
-  vscode.window.createTerminal({
-    name: row.title,
+  const name = agentDisplayName(row);
+  const terminal = vscode.window.createTerminal({
+    name,
+    iconPath: new vscode.ThemeIcon('hubot'),
     shellPath: '/bin/sh',
-    shellArgs: ['-c', ATTACH_SCRIPT, 'rt-attach', ...plan.argv],
+    shellArgs: ['-c', ATTACH_SCRIPT, 'rt-attach', name, ...plan.argv],
     env: plan.env,
     cwd,
-  }).show();
+  });
+  openTerminals.set(row.key, terminal);
+  terminal.show();
   void refreshAgentsItem();
 }
