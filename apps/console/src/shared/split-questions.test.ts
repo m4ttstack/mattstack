@@ -51,6 +51,36 @@ describe('joinSplitQuestions', () => {
     });
   });
 
+  it('leaves anything short of a certain split as separate questions', () => {
+    const cases: [string, GateQuestion[]][] = [
+      ['a write-in part', [questions[1]!, { ...questions[2]!, writeIn: true }]],
+      [
+        'a value in two parts',
+        [questions[1]!, { ...questions[2]!, options: [opt('a')] }],
+      ],
+      [
+        'parts with different contexts',
+        [
+          { ...questions[1]!, context: 'api' },
+          { ...questions[2]!, context: 'web' },
+        ],
+      ],
+      [
+        'a question already named the base',
+        [
+          { id: 'labels', label: 'L', multi: true, options: [opt('z')] },
+          questions[1]!,
+          questions[2]!,
+        ],
+      ],
+    ];
+    for (const [why, qs] of cases) {
+      expect(joinSplitQuestions(row({ questions: qs })).questions, why).toBe(
+        qs
+      );
+    }
+  });
+
   it('leaves single-select and differently labelled parts alone', () => {
     const single = questions.map(q => ({ ...q, multi: false }));
     expect(joinSplitQuestions(row({ questions: single })).questions).toBe(
