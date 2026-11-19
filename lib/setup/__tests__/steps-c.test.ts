@@ -684,7 +684,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const outcome = await pluginsInstallStep.run(ctx);
 
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain("4 marketplaces, 5 plugins across 1 Claude config folder");
+      expect(detailOf(outcome)).toContain("4 marketplaces, 7 plugins across 1 Claude config folder");
       expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE); // no mattstack plugin on disk yet in this fake, so materialize honestly skips
       expect(detailOf(outcome)).toContain(`1 Claude config folder. Skills were not materialized: ${ENGINE_PACK_MISSING_CODE}`);
       expect(detailOf(outcome)).not.toContain("awaiting your approval");
@@ -694,7 +694,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const marketAdds = execCalls.filter((c) => c.argv.includes("marketplace") && c.argv.includes("add"));
       const installs = execCalls.filter((c) => c.argv[1] === "plugin" && c.argv[2] === "install");
       expect(marketAdds).toHaveLength(4);
-      expect(installs).toHaveLength(5);
+      expect(installs).toHaveLength(7);
       expect(execCalls.every((c) => c.argv[0] === "/usr/local/bin/claude")).toBe(true);
       expect(execCalls.every((c) => c.env?.CLAUDE_CONFIG_DIR === join(home, ".claude"))).toBe(true);
 
@@ -1289,6 +1289,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         "mattstack@mattstack": false, // a baseline plugin that drifted off
         "fast-browser@mattstack": true,
         "chat@mattstack": true,
+        "gate-form@mattstack": true,
+        "human-todos@mattstack": true,
         "superpowers@mattstack": true,
       };
       const execCalls: string[][] = [];
