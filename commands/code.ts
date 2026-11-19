@@ -212,25 +212,49 @@ export function resolveEditorSync(prefs: Prefs, repoKey: string, legacyKeys: str
   return null; // 0 = will error, 2+ = picker needed
 }
 
+const WORKSPACE_FILE_CLIS = new Set(["code", "code-insiders", "cursor", "codium", "windsurf", "antigravity"]);
+const WORKSPACE_FILE_APPS = new Set([
+  "Visual Studio Code", "Visual Studio Code - Insiders", "Cursor", "VSCodium", "Windsurf", "Antigravity", "Antigravity IDE",
+]);
+
+/** Only VS Code and its forks read a .code-workspace file; any other editor would open the JSON itself. */
+export function takesWorkspaceFile(editor: string): boolean {
+  const app = appNameOf(editor);
+  if (app) return WORKSPACE_FILE_APPS.has(app);
+  return WORKSPACE_FILE_CLIS.has(basename(editor.trim().split(/\s+/)[0]!));
+}
+
+/**
+ * The choice is saved per repo because pool worktrees are provisioned per
+ * task and disposed after: a folder-path key would ask again in every tree.
+ * A folder-path key saved before that is still read.
+ */
+function savedWorkspaceFile(dirPath: string, prefs: Prefs): string | undefined {
+  return prefs.workspaces[editorPrefKey(dirPath)] ?? prefs.workspaces[dirPath];
+}
+
+function workspaceFilesIn(dirPath: string): string[] {
+  try {
+    return readdirSync(dirPath).filter(f => f.endsWith(".code-workspace")).sort();
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Returns the workspace target path if it can be determined without an
- * interactive picker (saved pref, zero files, or exactly one file).
- * Returns null if a picker is required (multiple .code-workspace files).
+ * interactive picker (an editor that takes no workspace file, a saved
+ * choice, zero files, or exactly one file). Returns null if a picker is
+ * required (multiple .code-workspace files).
  */
-export function resolveWorkspaceSync(dirPath: string, prefs: Prefs): string | null {
-  const saved = prefs.workspaces[dirPath];
-  if (saved) {
-    const candidate = join(dirPath, saved);
-    if (existsSync(candidate)) return candidate;
-  }
-  try {
-    const wsFiles = readdirSync(dirPath).filter(f => f.endsWith(".code-workspace")).sort();
-    if (wsFiles.length === 0) return dirPath;
-    if (wsFiles.length === 1) return join(dirPath, wsFiles[0]!); // auto-save on first use
-    return null; // multiple files — picker required
-  } catch {
-    return dirPath;
-  }
+export function resolveWorkspaceSync(dirPath: string, prefs: Prefs, editor: string): string | null {
+  if (!takesWorkspaceFile(editor)) return dirPath;
+  const saved = savedWorkspaceFile(dirPath, prefs);
+  if (saved && existsSync(join(dirPath, saved))) return join(dirPath, saved);
+  const wsFiles = workspaceFilesIn(dirPath);
+  if (wsFiles.length === 0) return dirPath;
+  if (wsFiles.length === 1) return join(dirPath, wsFiles[0]!);
+  return null;
 }
 
 // ─── Async resolvers (with pickers) ─────────────────────────────────────────
@@ -276,21 +300,11 @@ async function ensureEditor(prefs: Prefs, repoKey: string, legacyKeys: string[],
   return selected;
 }
 
-async function resolveWorkspaceTarget(dirPath: string, prefs: Prefs): Promise<string> {
-  // Fast path: sync resolver covers the common case
-  const fast = resolveWorkspaceSync(dirPath, prefs);
-  if (fast) {
-    // Auto-save single workspace file if not yet persisted
-    const wsFile = fast !== dirPath ? fast.split("/").pop()! : null;
-    if (wsFile && !prefs.workspaces[dirPath]) {
-      prefs.workspaces[dirPath] = wsFile;
-      savePrefs(prefs);
-    }
-    return fast;
-  }
+async function resolveWorkspaceTarget(dirPath: string, prefs: Prefs, editor: string): Promise<string> {
+  const fast = resolveWorkspaceSync(dirPath, prefs, editor);
+  if (fast) return fast;
 
-  // Multiple workspace files — show picker
-  const wsFiles = readdirSync(dirPath).filter(f => f.endsWith(".code-workspace")).sort();
+  const wsFiles = workspaceFilesIn(dirPath);
   const { select } = await import("../lib/rt-render.ts");
   const options = [
     ...wsFiles.map(f => ({ value: f, label: f, hint: "workspace file" })),
@@ -303,7 +317,8 @@ async function resolveWorkspaceTarget(dirPath: string, prefs: Prefs): Promise<st
   });
 
   if (selected !== "__folder__") {
-    prefs.workspaces[dirPath] = selected;
+    delete prefs.workspaces[dirPath];
+    prefs.workspaces[editorPrefKey(dirPath)] = selected;
     savePrefs(prefs);
     return join(dirPath, selected);
   }
@@ -407,7 +422,7 @@ export async function openDirectoryInEditor(dirPath: string): Promise<void> {
   const repoKey = editorPrefKey(dirPath);
   const editor = await ensureEditor(prefs, repoKey, [basename], noEditorFailure);
   const editorLabel = editorLabelFor(editor);
-  const target = await resolveWorkspaceTarget(dirPath, prefs);
+  const target = await resolveWorkspaceTarget(dirPath, prefs, editor);
 
   const used = launchEditor(editor, target);
   if (used) {
@@ -456,7 +471,7 @@ export async function openInEditor(args: string[]): Promise<void> {
   // is keyed by basename, and pre-cutover rows by display name.
   const editor = await ensureEditor(prefs, repoKey, [selectedRepo?.repoName, basename].filter((k): k is string => !!k), noEditorFailure);
   const editorLabel = editorLabelFor(editor);
-  const target = await resolveWorkspaceTarget(selectedPath, prefs);
+  const target = await resolveWorkspaceTarget(selectedPath, prefs, editor);
 
   const used = launchEditor(editor, target);
   if (used) {
