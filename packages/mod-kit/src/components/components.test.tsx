@@ -95,7 +95,7 @@ describe('controls', () => {
         <BrandBar title="t" onHide={() => (hidden += 1)} />
       </Panel>
     ))
-    press(handlers, lines[0], 'Hide')
+    press(handlers, lines[0], 'Close')
     expect(hidden).toBe(1)
   })
 

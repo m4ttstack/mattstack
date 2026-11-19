@@ -9,6 +9,7 @@ import { patchTodo } from './store'
 // `spill` is the output a local run held before `outputTail`, as writeRunLog takes it.
 export type Outcome =
   | { kind: 'done' | 'skipped' }
+  | { kind: 'message'; text: string; done: boolean }
   | { kind: 'ran'; exitCode: number; outputTail: string; spill?: string | null }
   | { kind: 'stopped'; outputTail: string; spill?: string | null }
   | { kind: 'ended'; outputTail: string }
@@ -24,9 +25,13 @@ export function settle(todo: Todo, outcome: Outcome, log?: string | null): { pat
   const output = `Output: ${outputLine(log)}`
   switch (outcome.kind) {
     case 'done':
-      return { patch: { status: 'done' }, text: `${who}: the user marked it done.` }
+      return { patch: { status: 'done' }, text: todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` }
     case 'skipped':
       return { patch: { status: 'skipped' }, text: `${who}: the user skipped it.` }
+    case 'message':
+      return outcome.done
+        ? { patch: { status: 'done' }, text: `${who}: the user marked it done and says: ${outcome.text}` }
+        : { patch: {}, text: `${who}: the user says: ${outcome.text}` }
     case 'ran': {
       const outputTail = tail(outcome.outputTail)
       return {

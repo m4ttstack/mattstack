@@ -550,20 +550,20 @@ function brandBar(label, width, hide) {
   const text = `  ${BRAND.glyph}  ${label}`;
   if (hide === undefined)
     return [sp(fit(text, width), look)];
-  const button = ` Hide ${ICON.collapse} `;
+  const button = " Close ";
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 
 // packages/mod-kit/src/components/brand-bar.tsx
 var BrandBar = kitComponent("BrandBar", (props, ctx) => [brandBar(props.title, ctx.width, props.onHide && ctx.bind("hide", props.onHide))]);
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 3 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
   const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
 }
 var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
 var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
@@ -591,7 +591,7 @@ var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
   return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
 });
 // packages/mod-kit/src/widgets/input-field.ts
-function inputField(value, placeholder, width, showCursor) {
+function inputField(value, placeholder, width, showCursor, at) {
   const room = width - 2;
   const box = (spans) => [
     sp(" ", FILL.field),
@@ -603,8 +603,19 @@ function inputField(value, placeholder, width, showCursor) {
     const head = firstGrapheme(hint);
     return box([sp(head || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)]);
   }
-  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
-  return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
+  const chars = Array.from(value);
+  const caret = Math.min(Math.max(0, at ?? chars.length), chars.length);
+  if (caret === chars.length) {
+    const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
+    return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
+  }
+  const look = { color: FILL.field.color };
+  let from = 0;
+  while (from < caret && cellWidth(chars.slice(from, caret + 1).join("")) > room)
+    from++;
+  const before = chars.slice(from, caret).join("");
+  const after = cutCells(chars.slice(caret + 1).join(""), Math.max(0, room - cellWidth(before) - cellWidth(chars[caret])));
+  return box([sp(before, look), sp(chars[caret], showCursor ? { ...look, inverse: true } : look), sp(after, look)]);
 }
 
 // packages/mod-kit/src/components/input-field.tsx
@@ -910,14 +921,14 @@ function barsPage(ui, width) {
     }),
     /* @__PURE__ */ h(Rail, {
       dim: true
-    }, "No Hide button: the pane has nothing to put away."),
+    }, "No close button: the pane has nothing to put away."),
     /* @__PURE__ */ h(BrandBar, {
       title: "mattstack kit gallery",
       onHide: ui.hide
     }),
     /* @__PURE__ */ h(Rail, {
       dim: true
-    }, "With Hide: the button puts this pane away."),
+    }, "With the close button: it puts this pane away."),
     ...heading("InputField: focused on the left, unfocused on the right"),
     field("", "Name the function"),
     field("fetchAllPages", "Name the function"),
