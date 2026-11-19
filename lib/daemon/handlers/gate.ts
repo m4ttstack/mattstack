@@ -837,13 +837,14 @@ export function createGateHandlers(
     const kind = typeof payload?.kind === "string" && payload.kind.trim() ? payload.kind.trim() : "question";
     const boardOnly = BOARD_ONLY_KINDS.has(kind);
     if (preAnswer && boardOnly) return { ok: false as const, error: "preAnswer is not allowed for board-only kinds" };
-    const presentation = boardOnly || preAnswer ? "wait" : gatePresentation({ paneId, sessionId, questions, kit: payload?.kitForm === true });
+    const relay = payload?.shepherdRelay === true;
+    const presentation = boardOnly || preAnswer || relay ? "wait" : gatePresentation({ paneId, sessionId, questions, kit: payload?.kitForm === true });
     // Only when a form was otherwise POSSIBLE: a pane-less ask waits for its
     // own reason, and an advisory there would teach the wrong lesson. The
     // gate still opens either way -- an over-cap wait gate is legitimate
     // (remote cards render any option count) -- the caller just learns WHY
     // the in-pane form never appeared, which no skill prose reached.
-    const overCap = paneId && sessionId && !boardOnly && !preAnswer && presentation !== "kit"
+    const overCap = paneId && sessionId && !boardOnly && !preAnswer && !relay && presentation !== "kit"
       ? questions.filter((q) => q.options.length > GATE_FORM_OPTION_CAP)
       : [];
 
@@ -873,7 +874,8 @@ export function createGateHandlers(
       ...(typeof payload?.agent === "string" && payload.agent.trim() ? { agent: payload.agent } : {}),
       ...(context !== undefined ? { context } : {}),
       ...(paneId && !preAnswer ? { pane: paneId } : {}),
-      ...((presentation === "form" || presentation === "kit") && sessionId ? { nudge: { session: sessionId } } : {}),
+      // A relayed gate keeps the worker's session: its doorbell, the watchdog and herd_nudge all key on the nudge.
+      ...((presentation === "form" || presentation === "kit" || relay) && sessionId ? { nudge: { session: sessionId } } : {}),
       origin,
     }, false, true, preAnswer ? { skipPush: true, opener: { paneId, sessionId }, preAnswered: true } : {});
     if (!opened.ok) return opened;

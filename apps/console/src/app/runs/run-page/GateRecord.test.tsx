@@ -106,8 +106,13 @@ describe('GateRecordView', () => {
     );
     expect(screen.getByText('What the agent found')).toBeInTheDocument();
     expect(
-      screen.getByText('Pipeline green for head abc1234.')
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === 'P' &&
+          el.textContent === 'Pipeline green for head abc1234.'
+      )
     ).toBeInTheDocument();
+    expect(screen.getByText('abc1234').tagName).toBe('CODE');
     expect(screen.queryByText('Then?')).toBeNull();
     expect(screen.getByText('proceed')).toBeInTheDocument();
     expect(screen.getByText('yes').closest('[data-picked]')).not.toBeNull();
