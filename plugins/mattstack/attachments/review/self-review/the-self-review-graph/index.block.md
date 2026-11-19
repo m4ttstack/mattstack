@@ -64,7 +64,7 @@ flowchart TB
     stuck_answer{Self-review stuck finding answer?}
     record_left_open
     fix_round_changed{Did the fix round change code?}
-    run_budget_rereview[/"run_budget {runDb, key: rereview-rounds, limit: 3, stage}"/]
+    run_budget_rereview[/"run_budget {runDb, key: rereview-rounds, limit: <the re-review cap + 1>, stage}"/]
     rereview_spent{rereview-rounds spent?}
     rereview_fix_round
     rereview_findings{Did the re-review raise findings?}
@@ -167,6 +167,7 @@ flowchart TB
     stuck_answer -->|abandon| own_run_close_abandoned
     record_left_open --> next_finding
     fix_round_changed -->|no: nothing fixed, or nothing kept| own_run_close
+    fix_round_changed -->|comments only: no re-review, no charge| own_run_close
     fix_round_changed -->|yes| run_budget_rereview
     run_budget_rereview --> rereview_spent
     rereview_spent -->|no| rereview_fix_round

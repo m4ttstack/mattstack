@@ -11,15 +11,17 @@ self-review, context, runDb, stage, reach: "worktree"}`, `context`
 quoting the draft's Issues and, when the Assessment has one, its `Unanswered rules:` line, and
 naming apart the findings the reviewer marked judgment calls and the
 evidence only the pushed branch can show, since the fix loop records those
-instead of fixing them. One question:
+instead of fixing them. One question, `fix` (write-in), whose options depend on the draft:
 
-- `fix` (write-in): **Fix every finding (Recommended)** (`all`) / **Fix the
-  blocking findings only** (`blocking`: Critical and Important) / **Ship as
-  is** (`none`)
+| Draft | Options (recommended first) |
+|---|---|
+| A re-review's, holding no Critical or Important finding | **Ship as is (Recommended)** (`none`) / **Fix every finding** (`all`) / **Fix the blocking findings only** (`blocking`: Critical and Important) |
+| Any other | **Fix every finding (Recommended)** (`all`) / **Fix the blocking findings only** (`blocking`) / **Ship as is** (`none`) |
 
-`all` is the recommendation on every draft, a re-review's included,
-whatever the buckets hold: a Minor finding is cheap to fix now and costly
-once a teammate raises it.
+A full review's Minor finding is cheap to fix now and costly once a
+teammate raises it, so `all` leads there. A re-review has already approved
+the fixes; Minors left on its draft go to ship recorded as open, rather
+than buying another fix round and another re-review.
 
 The answers map is `{fix}` at scope `self-review`. On a resume, a
 recorded `self-review` decision whose `fix` is `all`, `blocking` or `none`
