@@ -171,7 +171,8 @@ function RenderedText({
 }) {
   // A pinned version's text, held by the caller, wins over every read; the hooks still run in the same order.
   const pinned = text;
-  const huskText = from.kind === 'husk' && view === 'rendered' ? from.text : null;
+  const huskText =
+    from.kind === 'husk' && view === 'rendered' ? from.text : null;
   const readsFile =
     pinned === null &&
     huskText === null &&
@@ -200,7 +201,8 @@ function RenderedText({
   if (waiting || held) {
     return <StepLoader {...heldBind} steps={['reading the rendered skill']} />;
   }
-  if (huskText !== null) return <RenderedLines content={huskText} range={range} />;
+  if (huskText !== null)
+    return <RenderedLines content={huskText} range={range} />;
   if (!path) {
     return (
       <Text fz={13} c="dimmed" data-testid="block-rendered-none">
