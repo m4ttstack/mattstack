@@ -1,3 +1,5 @@
+import '../icons';
+
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { RunDecisionRow } from '@mattstack/rt-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -291,7 +293,9 @@ describe('EffectiveInputs', () => {
     expect(screen.queryByText('Effective inputs')).not.toBeInTheDocument();
 
     await userEvent.click(
-      within(screen.getByTestId('stage-doc-drawer')).getByRole('button')
+      screen
+        .getByTestId('stage-doc-drawer')
+        .querySelector<HTMLElement>('[data-parity="x"]')!
     );
 
     expect(window.location.search).toBe('?inputs');
