@@ -10,6 +10,16 @@ const DEPS: AgentsDeps = { paneList, agentList, listRuns, agentResume, paneAttac
 
 let agentsItem: vscode.StatusBarItem | undefined;
 
+// VS Code starts the process before the panel is laid out, and herdr refuses a
+// zero-sized terminal, so wait (up to 5 s) for rows and columns before attaching.
+const WAIT_FOR_SIZE = [
+  'i=0',
+  'while [ "$i" -lt 50 ]; do',
+  '  case "$(stty size 2>/dev/null)" in ""|"0 "*|*" 0") sleep 0.1; i=$((i+1)) ;; *) break ;; esac',
+  'done',
+  'exec "$@"',
+].join('\n');
+
 interface AgentPick extends vscode.QuickPickItem {
   row?: AgentRow;
 }
@@ -105,8 +115,8 @@ async function attachRow(row: AgentRow, cwd: string): Promise<void> {
   }
   vscode.window.createTerminal({
     name: row.title,
-    shellPath: plan.argv[0],
-    shellArgs: plan.argv.slice(1),
+    shellPath: '/bin/sh',
+    shellArgs: ['-c', WAIT_FOR_SIZE, 'rt-attach', ...plan.argv],
     env: plan.env,
     cwd,
   }).show();
