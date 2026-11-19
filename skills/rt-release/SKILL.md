@@ -230,9 +230,13 @@ Quote each stale row as preflight printed it (pinned vs current). Recommend per 
 - **Plugin catalog**: preflight re-resolves each url-source pin with `git ls-remote`. The cut is
   `bash scripts/release/marketplace.sh --refresh`, which rewrites `marketplace/marketplace.json`
   in place and ignores `--dry-run`; review the diff and land it before the notes commit so the
-  tag publishes current pins. The in-tree plugins, `chat` (`marketplace/plugins/chat`) and
-  `mattstack` (`plugins/mattstack`), have no upstream and never drift; each bumps its own
-  `.claude-plugin/plugin.json` version when it changes. Two guards hold the mattstack version in
+  tag publishes current pins. The in-tree plugins (`chat`, `gate-form`, `human-todos`,
+  `mattstack`) have no upstream and never drift; each bumps its own
+  `.claude-plugin/plugin.json` version when it changes. Every catalog plugin must also be in
+  `BASE_PLUGINS` (`lib/setup/base-plugins.ts`), because `rt setup update` updates only that
+  list and a plugin left off stays at its first-installed version on every Mac.
+  `scripts/__tests__/no-unmanaged-catalog-plugins.test.ts` fails the run when one is missing;
+  the cut is adding it to `BASE_PLUGINS`, never dropping the guard. Two guards hold the mattstack version in
   the run itself: `Assert the baked engine matches the plugin` fails unless
   `env -i HOME=<temp> dist/rt --version --json`'s `engine` equals that `plugin.json` version, and
   the publish refuses a mattstack version below the published one (`older than the published`),
