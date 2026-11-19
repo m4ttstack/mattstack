@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { chmodSync, copyFileSync, rmSync, statSync, utimesSync } from "fs";
+import { chmodSync, copyFileSync, renameSync, rmSync, statSync, utimesSync } from "fs";
 import { join } from "path";
 import type { RunLiveness } from "../attention.ts";
 import { __test__, findRunsBySession, listRuns } from "../store.ts";
@@ -18,10 +18,14 @@ test("a run db replaced at the same path with the same size and mtime is read ag
   expect(listRuns("repoA").map((r) => r.status)).toEqual(["done"]);
   const before = statSync(target);
   expect(statSync(other).size).toBe(before.size);
-  rmSync(target);
-  copyFileSync(other, target);
+  // Copied beside the original and renamed over it: the copy is made while
+  // the original still holds its inode, so the replacement gets a new one.
+  const replacement = `${target}.new`;
+  copyFileSync(other, replacement);
+  renameSync(replacement, target);
   utimesSync(target, 1_000_000, 1_000_000);
   const after = statSync(target);
+  expect(after.ino).not.toBe(before.ino);
   expect([after.mtimeMs, after.size]).toEqual([before.mtimeMs, before.size]);
   expect(listRuns("repoA").map((r) => r.status)).toEqual(["failed"]);
 });
