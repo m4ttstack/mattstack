@@ -62,6 +62,28 @@ func TestGroupRuleFitsALongLabel(t *testing.T) {
 	}
 }
 
+func TestLongPreviewValueWrapsUnderItsKey(t *testing.T) {
+	req := previewRequest()
+	folder := "~/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/eomer"
+	req.Rows[0].Preview.Sections[0].Rows = []protocol.PickPreviewRow{{Key: "folder", Value: []protocol.PickSegment{{Text: folder}}}}
+	m := New(req)
+	m.cursor = 0
+	lines := previewLines(m, 40, 30)
+	joined := ""
+	for _, l := range lines {
+		plain := ansi.Strip(l)
+		if w := ansi.StringWidth(plain); w > 40 {
+			t.Fatalf("line is %d cells, want at most 40: %q", w, plain)
+		}
+		if strings.HasPrefix(plain, "folder") || (joined != "" && strings.HasPrefix(plain, strings.Repeat(" ", previewKeyWidth)) && strings.TrimSpace(plain) != "") {
+			joined += strings.TrimSpace(strings.TrimPrefix(plain, "folder"))
+		}
+	}
+	if joined != folder {
+		t.Fatalf("wrapped folder reads %q, want %q", joined, folder)
+	}
+}
+
 func previewRequest() protocol.PickRequest {
 	seg := func(text string) []protocol.PickSegment { return []protocol.PickSegment{{Text: text}} }
 	return protocol.PickRequest{

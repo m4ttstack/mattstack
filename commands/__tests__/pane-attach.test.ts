@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { ChatPane } from "../../packages/rt-client/src/commands.ts";
 import type { PickRequest, PickResult, PickRow, PickSegment } from "../../lib/ui/protocol.ts";
 import { UserActionableError } from "../../lib/errors.ts";
-import { attachRows, attachView, cacheFaceArgv, paneAttachWith, type AttachDeps } from "../pane-attach.ts";
+import { attachRows, attachView, cacheFaceArgv, paneAttachWith, tildePath, type AttachDeps } from "../pane-attach.ts";
 
 const kirk: ChatPane = {
   paneId: "w1:p3", workspace: "acme", tab: "api", cwd: "/src/acme", repo: "acme", branch: "main", agentStatus: "working", sessionId: "s1",
@@ -25,6 +25,20 @@ test("groups: workspace label, background last", () => {
   expect(rows.map((r) => [r.value, r.group])).toEqual([
     ["w1:p3", "acme"], ["w1:p4", "acme"], ["w2:p1", "mattstack"], ["bg:w9:p1", "background"],
   ]);
+});
+
+test("the agent column shows the chat name, not the full handle", () => {
+  const gordon: ChatPane = { ...kirk, presence: { handle: "gordon.cad6", name: "gordon", status: "idle", rooms: [] } };
+  const row = attachRows([gordon], new Map(), new Map(), undefined)[0]!;
+  expect(text(row.left)).toContain("gordon ");
+  expect(text(row.left)).not.toContain("gordon.cad6");
+  expect(row.match).toContain("gordon.cad6");
+});
+
+test("folders under home show as ~", () => {
+  expect(tildePath("/Users/m/work/x", "/Users/m")).toBe("~/work/x");
+  expect(tildePath("/Users/m", "/Users/m")).toBe("~");
+  expect(tildePath("/Users/mo/x", "/Users/m")).toBe("/Users/mo/x");
 });
 
 test("self excluded", () => {
