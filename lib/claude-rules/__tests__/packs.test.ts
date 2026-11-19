@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createRealProbes, type Probes } from "../../setup/probes.ts";
 import { claudeRulesDir } from "../paths.ts";
 import { memberPackSources, readPackRules, writePackEntry, type PackRulesSource } from "../packs.ts";
-import { cloneDirOf, makeOrg, writeInClone } from "./org-fixture.ts";
+import { cloneDirOf, commit, makeOrg, writeInClone } from "./org-fixture.ts";
 
 let home: string;
 let p: Probes;
@@ -40,6 +40,20 @@ describe("readPackRules", () => {
     const src = memberPackSources(p).find((s) => s.entry === "acme-widgets")!;
     const files = await readPackRules(p, src);
     expect(files).toEqual(new Map([["widgets.md", "# Widgets rule\n"]]));
+  });
+
+  test("rule file names with dots or spaces are read", async () => {
+    makeOrg(home);
+    const src: PackRulesSource = { entry: "acme-gadgets", cloneDir: cloneDirOf(home), ref: "mattstack", repoPath: "mattstack/teams/gadgets/plugin/rules" };
+    expect([...(await readPackRules(p, src))!.keys()].sort()).toEqual(["code.review.md", "gadgets.md", "ticket style.md"]);
+  });
+
+  test("a committed symlink is not copied as a rule", async () => {
+    makeOrg(home);
+    symlinkSync("widgets.md", join(cloneDirOf(home), "mattstack/teams/widgets/plugin/rules/alias.md"));
+    commit(cloneDirOf(home), "add a link");
+    const src = memberPackSources(p).find((s) => s.entry === "acme-widgets")!;
+    expect([...(await readPackRules(p, src))!.keys()]).toEqual(["widgets.md"]);
   });
 
   test("a rules folder only in the working tree is not read", async () => {

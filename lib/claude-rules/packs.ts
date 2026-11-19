@@ -17,6 +17,8 @@ export interface PackRulesSource {
 
 /** Folder names come from a repo other people write; only a plain name may reach a path. */
 const PLAIN_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/** A tree entry name never holds `/`; a leading dot would hide the file. */
+const RULE_FILE = /^[^.].*\.md$/;
 
 export function memberPackSources(p: Probes): PackRulesSource[] {
   const sources: PackRulesSource[] = [];
@@ -35,12 +37,13 @@ export function memberPackSources(p: Probes): PackRulesSource[] {
 export async function readPackRules(p: Probes, src: PackRulesSource): Promise<Map<string, string> | null> {
   const opts = { env: { LC_ALL: "C" }, timeoutMs: PACK_EXEC_TIMEOUT_MS };
   // A path the ref lacks lists nothing and exits 0, so a nonzero exit is always a fault, never "no rules".
-  const listed = await p.exec(["git", "-C", src.cloneDir, "ls-tree", src.ref, `${src.repoPath}/`], opts);
+  const listed = await p.exec(["git", "-C", src.cloneDir, "ls-tree", "-z", src.ref, `${src.repoPath}/`], opts);
   if (listed.code !== 0) throw new Error(`git ls-tree ${src.ref} ${src.repoPath} exited ${listed.code}: ${listed.stderr.trim()}`);
+  // Regular files only: a committed symlink's blob is its target path, not a rule.
   const paths = listed.stdout
-    .split("\n")
-    .map((line) => line.match(/^\d+ blob [0-9a-f]+\t(.+)$/)?.[1])
-    .filter((path): path is string => path !== undefined && path.endsWith(".md") && PLAIN_NAME.test(basename(path, ".md")));
+    .split("\0")
+    .map((line) => line.match(/^100(?:644|755) blob [0-9a-f]+\t(.+)$/)?.[1])
+    .filter((path): path is string => path !== undefined && RULE_FILE.test(basename(path)));
   if (paths.length === 0) return null;
   const files = new Map<string, string>();
   for (const path of paths) {

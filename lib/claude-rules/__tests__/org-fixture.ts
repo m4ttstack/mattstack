@@ -27,6 +27,8 @@ export function makeOrg(home: string): string {
   put(clone, "mattstack/teams/widgets/plugin/rules/widgets.md", "# Widgets rule\n");
   put(clone, "mattstack/teams/widgets/plugin/rules/notes.txt", "not a rule\n");
   put(clone, "mattstack/teams/gadgets/plugin/rules/gadgets.md", "# Gadgets rule\n");
+  put(clone, "mattstack/teams/gadgets/plugin/rules/code.review.md", "# Dotted rule\n");
+  put(clone, "mattstack/teams/gadgets/plugin/rules/ticket style.md", "# Spaced rule\n");
   commit(clone, "seed");
   put(home, ".mattstack/rt/teams/acme.json", JSON.stringify({ dataBranch: "mattstack" }));
   setActiveTeam(home, "widgets");
