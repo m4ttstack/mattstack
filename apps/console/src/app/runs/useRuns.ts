@@ -126,7 +126,7 @@ export function useRunEvents() {
           queryKey => queryClient.isFetching({ queryKey }) > 0
         );
         await invalidateAll();
-        if (busy) await invalidateAll();
+        if (busy && !stopped) await invalidateAll();
       },
       { waitMs: EVENT_SETTLE_MS, maxWaitMs: EVENT_MAX_WAIT_MS }
     );
