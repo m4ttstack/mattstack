@@ -244,15 +244,20 @@ export function latestField(fields: RunFieldRow[]): RunFieldRow | null {
 export const fieldLine = (f: RunFieldRow) => `${fieldLabel(f.key)}: ${f.value}`;
 
 /** A lane's MR line: the run's own MR and its CI, the MR a review read, or
-    that a work run has none yet. Null when neither applies. */
+    that a work run has none yet. Null when neither applies. An MR whose
+    state rt has not read yet still shows, by its number alone. */
 export function laneMrLine(run: RunSummary, kind: RunKind): string | null {
   const reviewed = run.outcome?.reviewed;
   if (reviewed)
     return `reviewing ${mrRefText(forgeOf(reviewed.url, run.repo), reviewed.iid)}`;
   const mr = run.outcome?.mr;
-  if (mr && mr.state !== 'unknown') {
+  if (mr) {
     const ci = ciLabel(run.outcome?.ci);
-    const head = `${mrRefText(forgeOf(mr.url, run.repo), mr.iid)} ${mr.state === 'opened' ? 'open' : mr.state}`;
+    const ref = mrRefText(forgeOf(mr.url, run.repo), mr.iid);
+    const head =
+      mr.state === 'unknown'
+        ? ref
+        : `${ref} ${mr.state === 'opened' ? 'open' : mr.state}`;
     return ci ? `${head} · ${ci}` : head;
   }
   return kind === 'work' ? noMrYet(forgeOf(run.repo)) : null;

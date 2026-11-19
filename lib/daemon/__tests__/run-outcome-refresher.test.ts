@@ -5,6 +5,7 @@ import {
   createOutcomeRefresher,
   lookupFromMrGet,
   postedFromGateRows,
+  runRepoIdentity,
   type MrLookup,
   type OutcomeRefresherDeps,
   type OutcomeRunRow,
@@ -154,6 +155,16 @@ describe("outcome refresher tick", () => {
     expect(h.calls).toHaveLength(0);
     expect(readCachedOutcome(run.id)).toBeNull();
     expect(h.emitted).toHaveLength(0);
+  });
+
+  test("a run keyed by its repo's legacy slug resolves through the index identity", async () => {
+    const wire = "remote:gitlab.acme.test%2Facme%2Fweb";
+    const run = ownRun({ repo: "gitlab.acme.test-acme-web" });
+    const h = harness([run], { knownRepos: () => new Set([wire]) });
+    await createOutcomeRefresher(h.deps).tick();
+    expect(h.calls).toEqual([{ repo: wire, iid: 405 }]);
+    expect(readCachedOutcome(run.id)?.state).toBe("opened");
+    expect(h.emitted).toEqual([{ runId: run.id, repo: "gitlab.acme.test-acme-web" }]);
   });
 
   test("the repo index is read once per tick, whatever the number of runs", async () => {
@@ -422,4 +433,11 @@ describe("lookupFromMrGet", () => {
     expect(lookupFromMrGet(mrOf({ state: "draft" }))).toEqual({ ok: false });
     expect(lookupFromMrGet({ ok: false })).toEqual({ ok: false });
   });
+});
+
+describe("runRepoIdentity", () => {
+  const wire = "remote:gitlab.acme.test%2Facme%2Fweb";
+  test("a run keyed by the identity itself", () => expect(runRepoIdentity(wire, [wire])).toBe(wire));
+  test("a run keyed by the legacy slug", () => expect(runRepoIdentity("gitlab.acme.test-acme-web", [wire])).toBe(wire));
+  test("a key the index does not hold", () => expect(runRepoIdentity("gitlab.acme.test-acme-api", [wire])).toBeNull());
 });
