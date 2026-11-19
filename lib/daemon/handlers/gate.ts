@@ -874,7 +874,8 @@ export function createGateHandlers(
       ...(typeof payload?.agent === "string" && payload.agent.trim() ? { agent: payload.agent } : {}),
       ...(context !== undefined ? { context } : {}),
       ...(paneId && !preAnswer ? { pane: paneId } : {}),
-      ...((presentation === "form" || presentation === "kit") && sessionId ? { nudge: { session: sessionId } } : {}),
+      // A relayed gate keeps the worker's session: its doorbell, the watchdog and herd_nudge all key on the nudge.
+      ...((presentation === "form" || presentation === "kit" || relay) && sessionId ? { nudge: { session: sessionId } } : {}),
       origin,
     }, false, true, preAnswer ? { skipPush: true, opener: { paneId, sessionId }, preAnswered: true } : {});
     if (!opened.ok) return opened;

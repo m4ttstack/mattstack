@@ -585,6 +585,13 @@ describe("herd_gate_present", () => {
       expect(r.body, kind).toEqual({ id: "g1", kind, subject: "run:9", presentation: "wait", paneAction: "wait", boardOnly: true });
     }
   });
+  test("refuses a milestone gate: the shepherd decides it with AskUserQuestion", async () => {
+    const { tool } = fake({ gateRow: { ...GATE_ROW, kind: "milestone", subject: "herd:hd-1:j", meta: { herd: "hd-1", job: "j" } } });
+    const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g1" }, SESSION);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("milestone");
+    expect(r.error).toContain("AskUserQuestion");
+  });
   test("refuses a closed or unknown gate, and reads parked ones", async () => {
     const { tool, calls } = fake();
     const r = await tool("herd_gate_present").handler({ herd: "hd-1", gate: "g-closed" }, SESSION);

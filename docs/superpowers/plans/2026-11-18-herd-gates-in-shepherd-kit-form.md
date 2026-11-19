@@ -246,4 +246,4 @@ git add plugins/mattstack
 git commit -m "shepherdr: present worker gates in the kit form"
 ```
 
-Follow-up outside this repo: the claimview pack's compiled shepherdr picks this block up on its next `rt skills compile` and sync in the org clone.
+Follow-up outside this repo: a team pack's compiled shepherdr picks this block up on its next `rt skills compile` and sync in the org clone.

@@ -294,6 +294,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         const g = await herdGate(h.herd, input.gate as string, deps.gates, true);
         if ("error" in g) return err(g.error);
         const { row } = g;
+        if (row.kind === "milestone") return err(`gate ${row.id} is a milestone gate: present it with AskUserQuestion (Approve / Revise / Spawn a reviewer), never in the kit form`);
         if (BOARD_ONLY_KINDS.has(row.kind)) return ok({ id: row.id, kind: row.kind, subject: row.subject, presentation: "wait", paneAction: "wait", boardOnly: true });
         return ok({
           id: row.id, kind: row.kind, subject: row.subject,
