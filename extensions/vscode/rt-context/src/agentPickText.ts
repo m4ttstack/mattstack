@@ -1,4 +1,4 @@
-import { AGENT_STATUS_WORDS } from '@mattstack/rt-client';
+import { AGENT_STATUS_WORDS, modelWords } from '@mattstack/rt-client';
 import type { AgentRow } from './agentRows';
 
 const ICONS: Record<AgentRow['status'] | 'gate', string> = {
@@ -26,25 +26,26 @@ export function ago(ms: number, now = Date.now()): string {
   return d === 1 ? 'yesterday' : `${d} days ago`;
 }
 
+/** A chat handle ends in a short suffix (`cv-3879-cv3-chrome.lvki`); the part before it is the readable name. */
+function handleName(handle: string): string {
+  return handle.replace(/\.[a-z0-9]{4}$/, '');
+}
+
 export function agentPickText(row: AgentRow, now = Date.now()): { label: string; description: string; detail?: string } {
   const icon = ICONS[row.info.gate ? 'gate' : row.status];
   const word = statusWord(row);
-  const name = row.info.handle ?? row.title;
+  const handle = row.info.handle;
+  const name = row.info.label ?? (handle ? handleName(handle) : row.title);
   const when = row.at > 0 ? (row.group === 'recent' ? `ended ${ago(row.at, now)}` : `started ${ago(row.at, now)}`) : '';
-  const statusPart = row.group === 'recent' ? (when || word) : word;
+  const description = row.group === 'recent' ? (when || word) : [word, when].filter(Boolean).join(' · ');
 
-  const model = [row.info.model, row.info.effort].filter(Boolean).join(' · ');
   const detail = [
     row.info.gate ? `“${row.info.gate}”` : undefined,
-    row.info.label && row.info.label !== name ? row.info.label : undefined,
+    row.startedBy,
+    modelWords(row.info.model, row.info.effort) || undefined,
     row.group === 'running' && row.info.tab ? `tab ${row.info.tab}` : undefined,
-    model || undefined,
-    row.group === 'running' ? when || undefined : undefined,
+    handle && handle !== name ? handle : undefined,
   ].filter(Boolean).join('  ·  ');
 
-  return {
-    label: `${icon} ${name}`,
-    description: `${statusPart} · ${row.startedBy}`,
-    ...(detail ? { detail } : {}),
-  };
+  return { label: `${icon} ${name}`, description, ...(detail ? { detail } : {}) };
 }
