@@ -1,10 +1,11 @@
 import { useCallback } from 'react';
-import { Anchor, Drawer, List, Stack, Text } from '@mattstack/app-kit/core';
+import { Anchor, List, Modal, Stack, Text } from '@mattstack/app-kit/core';
 import { useQuery } from '@tanstack/react-query';
 import type { Components } from 'react-markdown';
 
 import { client } from '../../api';
 import { StepLoader, useStepLoading } from '../../StepLoader';
+import { PinnedSkill } from '../../wiring/blocks/PinnedSkill';
 import { docPreview, packState, stageDocBody } from '../derive/inputs';
 import { useEffectiveInputs } from '../EffectiveInputs';
 import { GateContext } from '../GateContext';
@@ -138,7 +139,13 @@ function StageDocBody({
         No doc at this version.
       </Text>
     );
-  return <StageDocText text={query.data.text} />;
+  return (
+    <PinnedSkill
+      text={query.data.text}
+      skill={stage}
+      pack={query.data.pack ?? ''}
+    />
+  );
 }
 
 function useDocSource(repo: string, runId: string, stage: string | null) {
@@ -156,7 +163,8 @@ function useDocSource(repo: string, runId: string, stage: string | null) {
 }
 
 /** The one stage doc surface, for the story's "Stage doc" link and the
-    inputs' "Open the full doc". */
+    inputs' "Open the full doc": the doc at the version the run used, in the
+    Packs page's block view, in a modal over the run. */
 export function StageDocDrawer({
   repo,
   runId,
@@ -167,11 +175,10 @@ export function StageDocDrawer({
   const { stage, close } = useStageDocDrawer();
   const source = useDocSource(repo, runId, stage);
   return (
-    <Drawer
+    <Modal
       opened={stage !== null}
       onClose={close}
-      position="right"
-      size={640}
+      size={1080}
       padding={24}
       classNames={{ header: drawer.header, body: drawer.body }}
       title={
@@ -188,7 +195,7 @@ export function StageDocDrawer({
       }
       attributes={{
         content: {
-          'data-parity': 'Stage doc drawer',
+          'data-parity': 'Stage doc modal',
           'data-testid': 'stage-doc-drawer',
         },
         header: { 'data-parity': 'head' },
@@ -197,7 +204,7 @@ export function StageDocDrawer({
       }}
     >
       {stage ? <StageDocBody repo={repo} runId={runId} stage={stage} /> : null}
-    </Drawer>
+    </Modal>
   );
 }
 

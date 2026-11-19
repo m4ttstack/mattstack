@@ -81,6 +81,9 @@ export interface BlockViewProps {
   readOnly?: boolean;
   /** The file the Rendered view reads. */
   renderedPath?: string | null;
+  /** That file's text, read already, so the Rendered view shows this
+      version rather than the file on disk. */
+  renderedText?: string | null;
   skill?: SkillHeader;
   context?: BlockContext | null;
 }
@@ -147,15 +150,27 @@ function RenderedText({
   pack,
   path,
   range,
+  text = null,
 }: {
   pack: string;
   path: string | null;
   range: [number, number] | null;
+  /** The file's text, when the caller already holds it (a pinned version). */
+  text?: string | null;
 }) {
-  const source = useSkillSource(pack, path);
+  const source = useSkillSource(pack, text === null ? path : null);
   const { show: held, bind: heldBind } = useStepLoading(
-    path !== null && source.isPending
+    text === null && path !== null && source.isPending
   );
+  if (text !== null) {
+    const lines = text.split('\n');
+    const shown = range ? lines.slice(range[0] - 1, range[1]) : lines;
+    return (
+      <div data-testid="block-rendered">
+        <MarkdownText text={shown.join('\n')} />
+      </div>
+    );
+  }
   if (!path) {
     return (
       <Text fz={13} c="dimmed" data-testid="block-rendered-none">
@@ -269,6 +284,7 @@ export function BlockView({
   patch,
   readOnly = false,
   renderedPath = null,
+  renderedText = null,
   skill,
   context = null,
 }: BlockViewProps) {
@@ -395,6 +411,7 @@ export function BlockView({
           pack={pack}
           path={readOnly && block ? block.path : renderedPath}
           range={block ? renderedRangeOf(payload, block) : null}
+          text={renderedText}
         />
       ) : (
         docText && (
