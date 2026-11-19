@@ -166,6 +166,8 @@ enum AXID {
     static let menuEditFind = "menu.edit.find"
     static let menuEditFindNext = "menu.edit.findNext"
     static let menuEditFindPrevious = "menu.edit.findPrevious"
+    static let menuHistoryBack = "menu.history.back"
+    static let menuHistoryForward = "menu.history.forward"
     static let findBarField = "findBar.field"
     static let findBarPrevious = "findBar.previous"
     static let findBarNext = "findBar.next"

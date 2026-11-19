@@ -157,8 +157,19 @@ final class FindBarContainer: NSView {
     }
 }
 
+// MARK: History routing
+
+extension FindBarContainer {
+    /// History ▸ Back with focus in the tab but not in its web view (the find
+    /// bar): a focused web view answers this selector itself.
+    @objc func goBack(_ sender: Any?) { webView.goBack() }
+    @objc func goForward(_ sender: Any?) { webView.goForward() }
+}
+
 extension FindBarContainer: NSUserInterfaceValidations {
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(goBack(_:)) { return webView.canGoBack }
+        if item.action == #selector(goForward(_:)) { return webView.canGoForward }
         guard item.action == #selector(performTextFinderAction(_:)) else { return true }
         guard let action = NSTextFinder.Action(rawValue: item.tag) else { return false }
         return canPerform(action)
