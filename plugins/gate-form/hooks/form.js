@@ -447,7 +447,7 @@ function choiceMark(spec, idx) {
   const isPicked = spec.isPicked(idx);
   if (!spec.multi)
     return isPicked ? sp(SYMBOL.radioOn, spec.isDefault?.(idx) ? DIM : DONE) : sp(SYMBOL.radioOff, DIM);
-  return isPicked ? sp(SYMBOL.boxOn, DONE) : sp(SYMBOL.boxOff, DIM);
+  return isPicked ? sp(SYMBOL.boxOn, spec.isDefault?.(idx) ? DIM : DONE) : sp(SYMBOL.boxOff, DIM);
 }
 var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
 function choiceRows(choice, idx, spec) {
@@ -902,7 +902,7 @@ function initial(form) {
   return {
     page: 0,
     cursor: form.questions.map(() => 0),
-    picked: form.questions.map(() => []),
+    picked: form.questions.map((q) => isConfirm(form) || !q.multi ? [] : q.options.filter(isRecommended).map((o) => o.value)),
     text: form.questions.map(() => ""),
     answered: form.questions.map(() => false),
     chosen,
@@ -1010,7 +1010,7 @@ var isContextPage = (s) => s.page < 0;
 function advance(form, s) {
   const i = s.page;
   const q = form.questions[i];
-  const accepts = q !== undefined && !q.multi && s.chosen[i] !== undefined;
+  const accepts = q !== undefined && (q.multi ? s.picked[i].length > 0 : s.chosen[i] !== undefined);
   return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1);
 }
 function moveCursor(form, s, by) {

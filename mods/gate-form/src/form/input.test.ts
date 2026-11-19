@@ -84,3 +84,18 @@ test('a key between two clicks on the same option breaks the double click', () =
   expect(clicked.lastClick).toBeDefined()
   expect(keyEffect({ key: 'down' }, sample, clicked)!.state.lastClick).toBeUndefined()
 })
+
+test('a pick-any question starts with its (Recommended) options ticked as defaults, which Next accepts', () => {
+  const options = [
+    { value: 'a', label: 'Alpha (Recommended)' },
+    { value: 'b', label: 'Beta' },
+    { value: 'c', label: 'Gamma (Recommended)' },
+  ]
+  const form = toForm('t', undefined, [{ id: 'push', label: 'Push which?', multi: true, options }, { id: 'more', label: 'More', options }], 'gate') as Form
+  const s = initial(form)
+  expect(s.picked[0]).toEqual(['a', 'c'])
+  expect(s.answered[0]).toBe(false)
+  const next = perform({ type: 'advance' }, form, s)!.state
+  expect(next.answered[0]).toBe(true)
+  expect(answersOf(form, next).push).toEqual(['a', 'c'])
+})

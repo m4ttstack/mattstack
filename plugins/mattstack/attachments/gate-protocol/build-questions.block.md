@@ -27,9 +27,13 @@ not your own.
   question's own `context` sets up that question alone; an option's
   `description` is its one-line why.
 - **Options** are `{value, label}` objects when values are not
-  human-readable; a recommended pick's `label` ends ` (Recommended)`, its
-  `value` bare. In a site table headed `Options (recommended first)`, mark
-  the option the table writes; a row with none marks none.
+  human-readable, and always when the label carries the marker. A `label`
+  ending ` (Recommended)`, its `value` the bare text, makes that option a default: the one pre-picked option of a single
+  choice, or each pre-ticked option of a multi-select. A site's
+  "pre-selected" options each carry it. The native in-pane form ticks
+  nothing, so there the label is only a hint. In a site table headed
+  `Options (recommended first)`, mark the option the table writes; a row
+  with none marks none.
 - **The questions are the site's table, and only those.** A gate asks no
   navigation question: an answer with no `next` reads as `proceed`, and a
   write-in is the way to ask for a change (`Act on a write-in`). The
