@@ -852,7 +852,7 @@ func Run(ctx context.Context, req protocol.PickRequest, input io.Reader, output 
 	}
 
 	m := New(req)
-	if m.hasPreviews() && termimage.KittySupported(kittyQueryWait) {
+	if m.hasPreviews() && kittyFaces(os.Getenv, func() bool { return termimage.KittySupported(kittyQueryWait) }) {
 		m.assignFaceIDs()
 	}
 	m.events = make(chan []byte, eventBufferSize)

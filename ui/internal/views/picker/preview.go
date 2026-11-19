@@ -56,6 +56,17 @@ var faceCache = map[string]string{}
 // before it settles on half-blocks.
 const kittyQueryWait = 150 * time.Millisecond
 
+// kittyFaces decides whether faces go out as kitty images. herdr answers the
+// kitty query OK but draws nothing in Flock, which attaches panes through
+// `herdr terminal session control` and that path drops image output, so a
+// herdr pane gets half-blocks without asking.
+func kittyFaces(getenv func(string) string, query func() bool) bool {
+	if getenv("HERDR_PANE_ID") != "" {
+		return false
+	}
+	return query()
+}
+
 // firstFaceID keeps the picker's kitty image ids clear of low ids other
 // programs in the same terminal are likely to use.
 const firstFaceID = 0x52540
