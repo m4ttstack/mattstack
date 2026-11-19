@@ -949,8 +949,8 @@ test("pane:list without stores matches today", async () => {
 
 test("pane:attach-plan for a visible pane is herdr agent attach", async () => {
   const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrBin: "/opt/bin/herdr" });
-  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3" })).toEqual({ ok: true, data: { argv: ["/opt/bin/herdr", "agent", "attach", "w1:p3"], env: {} } });
-  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3", takeover: true })).toEqual({ ok: true, data: { argv: ["/opt/bin/herdr", "agent", "attach", "w1:p3", "--takeover"], env: {} } });
+  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3" })).toEqual({ ok: true, data: { argv: ["env", "-u", "HERDR_SESSION", "/opt/bin/herdr", "agent", "attach", "w1:p3"], env: {} } });
+  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3", takeover: true })).toEqual({ ok: true, data: { argv: ["env", "-u", "HERDR_SESSION", "/opt/bin/herdr", "agent", "attach", "w1:p3", "--takeover"], env: {} } });
 });
 
 test("pane:attach-plan for a bg pane attaches to its terminal on the bg server", async () => {

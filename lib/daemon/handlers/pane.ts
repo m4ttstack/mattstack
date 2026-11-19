@@ -499,7 +499,7 @@ export function createPaneHandlers(opts: {
       const payload = rawPayload as Commands["pane:attach-plan"]["payload"];
       const { server, paneId } = parsePaneRef(payload.paneId);
       if (server !== "bg") {
-        return { ok: true, data: { argv: [opts.herdrBin ?? resolveHerdrBin(), "agent", "attach", paneId, ...(payload.takeover ? ["--takeover"] : [])], env: {} } };
+        return { ok: true, data: { argv: ["env", "-u", "HERDR_SESSION", opts.herdrBin ?? resolveHerdrBin(), "agent", "attach", paneId, ...(payload.takeover ? ["--takeover"] : [])], env: {} } };
       }
       if (!bg || !herdrRunnerFor || !(await bg.up())) return { ok: false, error: "The background herdr server isn't running" };
       const term = await bgTerminalId({ socket: bgSocketPath(), paneId, herdrRunnerFor });

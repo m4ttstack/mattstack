@@ -205,6 +205,19 @@ test("ctrl-f focuses, spawns nothing and exits at once", async () => {
   expect(calls.spawned).toEqual([]);
 });
 
+test("--takeover through the picker takes over on a plain enter", async () => {
+  const { d, calls } = deps();
+  await expect(paneAttachWith(["--takeover"], d)).rejects.toThrow("exit 7");
+  expect(calls.plans).toEqual([{ paneId: "w1:p3", takeover: true }]);
+});
+
+test("ctrl-f on a pane herdr did not focus is a failure", async () => {
+  const { d, calls } = deps({ picked: { action: "focus" }, focus: async (p) => ({ ok: true, data: { paneId: p.paneId, focused: false } }) });
+  const err = await paneAttachWith([], d).catch((e: unknown) => e);
+  expect((err as Error).message).toBe("rt could not focus that pane");
+  expect(calls.spawned).toEqual([]);
+});
+
 test("esc exits at once without attaching", async () => {
   const { d, calls } = deps({ picked: { action: "cancel", value: null } });
   await expect(paneAttachWith([], d)).rejects.toThrow("exit 0");

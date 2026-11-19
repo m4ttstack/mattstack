@@ -45,6 +45,23 @@ func TestKittyFacesAsksTheTerminalOutsideHerdr(t *testing.T) {
 	}
 }
 
+func TestFaceTileFitsAWidePlaceholder(t *testing.T) {
+	m := New(previewRequest())
+	lines := m.faceLines(&protocol.PickPreviewFace{Placeholder: strings.Repeat("W", 40)})
+	for i, l := range lines {
+		if w := ansi.StringWidth(l); w != faceCols {
+			t.Fatalf("line %d is %d cells, want %d", i, w, faceCols)
+		}
+	}
+}
+
+func TestGroupRuleFitsALongLabel(t *testing.T) {
+	line := groupRuleLine(strings.Repeat("workspace-", 12), 40)
+	if w := ansi.StringWidth(line); w > 40 {
+		t.Fatalf("group rule is %d cells, want at most 40", w)
+	}
+}
+
 func previewRequest() protocol.PickRequest {
 	seg := func(text string) []protocol.PickSegment { return []protocol.PickSegment{{Text: text}} }
 	return protocol.PickRequest{

@@ -272,9 +272,10 @@ export async function paneAttachWith(args: string[], deps: AttachDeps): Promise<
     const callerWorkspace = process.env.HERDR_WORKSPACE_ID;
     const res = await deps.focus({ paneId: picked.paneId, ...(callerWorkspace ? { callerWorkspace } : {}) });
     if (!res.ok) failed(res.error ?? "rt could not focus that pane");
+    if (!res.data?.focused) failed("rt could not focus that pane");
     return deps.exit(0);
   }
-  await attach(picked.paneId, picked.action === "takeover", deps);
+  await attach(picked.paneId, takeover || picked.action === "takeover", deps);
 }
 
 /** The `rt chat avatar` call that caches a handle's face at the size the picker reads. */

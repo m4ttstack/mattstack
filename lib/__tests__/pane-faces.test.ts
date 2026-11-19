@@ -7,17 +7,17 @@ test("fast faces all land", async () => {
 });
 
 test("slow face is left out but keeps rendering", async () => {
+  let finish: (path: string) => void = () => {};
   let slow: Promise<string> | undefined;
   const face = (h: string) => {
     if (h !== "fred") return Promise.resolve(`/faces/${h}.png`);
-    slow = new Promise<string>((resolve) => setTimeout(() => resolve("/faces/fred.png"), 50));
+    slow = new Promise<string>((resolve) => { finish = resolve; });
     return slow;
   };
-  const started = Date.now();
   const faces = await resolveFaces(["kirk", "fred"], { budgetMs: 10, face });
-  expect(Date.now() - started).toBeLessThan(45);
   expect(faces.get("kirk")).toBe("/faces/kirk.png");
   expect(faces.has("fred")).toBe(false);
+  finish("/faces/fred.png");
   expect(await slow!).toBe("/faces/fred.png");
 });
 

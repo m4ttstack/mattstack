@@ -140,7 +140,7 @@ func (m *Model) faceLines(face *protocol.PickPreviewFace) []string {
 	}
 	glyph := "?"
 	if face != nil && face.Placeholder != "" {
-		glyph = face.Placeholder
+		glyph = ansi.Truncate(rtrender.Clean(face.Placeholder), faceCols, "")
 	}
 	tile := lipgloss.NewStyle().Background(theme.Surface).Foreground(theme.Faint)
 	lines := make([]string, faceRows)
@@ -243,7 +243,7 @@ func columnHeaderLine(m *Model, width int) string {
 // lowercase and brighter with a faint rule to the edge, so it reads as a
 // divider rather than a second header line.
 func groupRuleLine(group string, width int) string {
-	label := rtrender.Clean(group)
+	label := ansi.Truncate(rtrender.Clean(group), max(width-3, 0), "…")
 	fill := width - 2 - lipgloss.Width(label) - 1
 	if fill < 0 {
 		fill = 0
