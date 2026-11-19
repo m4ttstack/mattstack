@@ -13,6 +13,12 @@ let daemonQueryPolicyChecks: [Check] = [
         c.expect(!DaemonHTTPFallback.socketMayRetry(after: URLError(.networkConnectionLost)))
         c.expect(!DaemonHTTPFallback.socketMayRetry(after: CocoaError(.fileReadUnknown)))
     },
+    Check("daemon http fallback: a 401 retries over the socket, other replies never do") { c in
+        c.expect(DaemonHTTPFallback.socketMayRetry(afterStatus: 401))
+        c.expect(!DaemonHTTPFallback.socketMayRetry(afterStatus: 500))
+        c.expect(!DaemonHTTPFallback.socketMayRetry(afterStatus: 503))
+        c.expect(!DaemonHTTPFallback.socketMayRetry(afterStatus: 404))
+    },
     Check("throttled probe: due on first use, then not again until the interval passes") { c in
         var probe = ThrottledProbe(interval: 55)
         let start = Date(timeIntervalSince1970: 1_000)

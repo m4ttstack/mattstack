@@ -116,7 +116,10 @@ class DaemonClient {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return .failed }
+            guard let http = response as? HTTPURLResponse else { return .failed }
+            guard http.statusCode == 200 else {
+                return DaemonHTTPFallback.socketMayRetry(afterStatus: http.statusCode) ? .couldNotConnect : .failed
+            }
             do {
                 return .value(try JSONDecoder().decode(T.self, from: data))
             } catch {
