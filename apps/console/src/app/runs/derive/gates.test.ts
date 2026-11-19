@@ -335,6 +335,22 @@ describe('tidyFindings', () => {
     );
   });
 
+  it('turns a code-only list into a code block and bolds its lead-in', () => {
+    expect(
+      tidyFindings(
+        'Where the flag is read (useCaseViewCaseData.ts):\n- `const a = 1;`\n- `const b = 2;`',
+        false
+      )
+    ).toBe(
+      '**Where the flag is read (useCaseViewCaseData.ts):**\n```\nconst a = 1;\nconst b = 2;\n```'
+    );
+  });
+
+  it('leaves a fenced block and a mixed list as written', () => {
+    const text = '```\nabc1234 x: y\n```\n- `a`\n- plain';
+    expect(tidyFindings(text, false)).toBe(text);
+  });
+
   it('bolds a list item lead label', () => {
     expect(tidyFindings('- Fixed: f2 docs\n- Owed: f1')).toBe(
       '- **Fixed:** f2 docs\n- **Owed:** f1'

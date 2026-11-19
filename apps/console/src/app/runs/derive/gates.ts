@@ -256,20 +256,60 @@ const outsideCode = (line: string, fn: (s: string) => string) =>
     .map((part, i) => (i % 2 === 1 ? part : fn(part)))
     .join('');
 
-/** Plain-prose findings given the Markdown an agent rarely writes: a
-    paragraph's or list item's "Label:" lead in bold, and shas and record
-    ids as code. */
+const LIST_ITEM = /^\s*[-*]\s+\S/;
+/** A list item that is nothing but one code span. */
+const CODE_ITEM = /^\s*[-*]\s+`([^`]+)`\s*$/;
+const FENCE = /^\s*(```|~~~)/;
+/** A short line ending in a colon: a section's lead-in to the list after it. */
+const SECTION_LEAD = /^[A-Za-z(].{0,88}:$/;
+
+/** Plain-prose findings given the Markdown an agent rarely writes: shas and
+    record ids as code, a list of nothing but code as one code block, and a
+    short "Something:" line before a list or code block as a bold subheading.
+    `leads` also bolds a paragraph's or list item's "Label:" opening. Text in
+    a fenced block is left as written. */
 export function tidyFindings(text: string, leads = true): string {
-  let paragraphStart = true;
-  return text
-    .split('\n')
-    .map(line => {
-      const start = paragraphStart;
-      paragraphStart = line.trim() === '';
-      let out = outsideCode(line, s => s.replace(ID_TOKEN, '`$1`'));
-      if (leads && (start || /^\s*[-*]\s/.test(line)))
-        out = out.replace(LEAD_LABEL, '$1**$2:**');
-      return out;
-    })
-    .join('\n');
+  const lines = text.split('\n');
+  const out: string[] = [];
+  let fenced = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (FENCE.test(line)) {
+      fenced = !fenced;
+      out.push(line);
+      continue;
+    }
+    if (fenced) {
+      out.push(line);
+      continue;
+    }
+    const prev = i > 0 ? lines[i - 1]! : '';
+    if (CODE_ITEM.test(line) && !LIST_ITEM.test(prev)) {
+      let end = i;
+      while (end < lines.length && CODE_ITEM.test(lines[end]!)) end++;
+      if (!LIST_ITEM.test(lines[end] ?? '')) {
+        out.push(
+          '```',
+          ...lines.slice(i, end).map(l => CODE_ITEM.exec(l)![1]!),
+          '```'
+        );
+        i = end - 1;
+        continue;
+      }
+    }
+    const start = i === 0 || prev.trim() === '' || FENCE.test(prev);
+    const next = lines.slice(i + 1).find(l => l.trim() !== '') ?? '';
+    let tidied = outsideCode(line, s => s.replace(ID_TOKEN, '`$1`'));
+    if (
+      start &&
+      SECTION_LEAD.test(line.trim()) &&
+      !line.includes('**') &&
+      (LIST_ITEM.test(next) || FENCE.test(next))
+    )
+      tidied = `**${tidied.trim()}**`;
+    else if (leads && (start || LIST_ITEM.test(line)))
+      tidied = tidied.replace(LEAD_LABEL, '$1**$2:**');
+    out.push(tidied);
+  }
+  return out.join('\n');
 }

@@ -29,7 +29,10 @@
   font-weight: 600;
 }
 
+/* A span that wraps keeps its edge and fill on every line it runs onto. */
 .prose :not(pre) > code {
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
   padding: 1px 5px;
   border: 1px solid var(--tk-border);
   background-color: var(--tk-inset);
@@ -43,4 +46,9 @@
 .list:has(input[type='checkbox']) {
   padding-inline-start: 0;
   list-style: none;
+}
+
+/* A paragraph after a list or a code block starts a new section. */
+.prose > :is(ul, ol, pre) + p {
+  margin-top: var(--mantine-spacing-md);
 }
