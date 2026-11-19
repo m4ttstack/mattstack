@@ -712,7 +712,7 @@ function choiceMark(spec, idx) {
   const isPicked = spec.isPicked(idx);
   if (!spec.multi)
     return isPicked ? sp(SYMBOL.radioOn, spec.isDefault?.(idx) ? DIM : DONE) : sp(SYMBOL.radioOff, DIM);
-  return isPicked ? sp(SYMBOL.boxOn, DONE) : sp(SYMBOL.boxOff, DIM);
+  return isPicked ? sp(SYMBOL.boxOn, spec.isDefault?.(idx) ? DIM : DONE) : sp(SYMBOL.boxOff, DIM);
 }
 var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
 function choiceRows(choice, idx, spec) {
