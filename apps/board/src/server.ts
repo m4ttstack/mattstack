@@ -273,6 +273,7 @@ import {
   resolveLaunchSkill,
   type BoardSkillKind,
 } from './manifest-bindings.ts';
+import { memberRead } from './member-read.ts';
 import { memoizeAsync } from './memoize-async.ts';
 import { parseMrActionBody } from './mr-action.ts';
 import { forgeWord, mrNoun, mrNouns, mrRef, onGitHub } from './mr-ref.ts';
@@ -2138,6 +2139,8 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   return mrs;
 }
 
+const sharedMemberMRs = memberRead(fetchMemberMRs);
+
 /** Display names resolved from GitLab profiles, keyed by username. Long TTL. */
 const memberNames = new Map<string, string | null>();
 let namesFetchedAt = 0;
@@ -2506,7 +2509,7 @@ const httpServer = Bun.serve({
         }
         void refreshMemberNames();
         try {
-          const mrs = await fetchMemberMRs(u);
+          const mrs = await sharedMemberMRs(u);
           // A scoped refresh replaces that member's rows wholesale on the
           // client, so it carries every join the full snapshot does.
           const { mrs: withOrphans } = await withRowState(mrs);

@@ -18,6 +18,7 @@ import {
   type Merging,
   type OptimisticState,
 } from './optimistic.ts';
+import { skipWhileBusy } from './poll-guard.ts';
 import { pushSyncLine, resetSyncLines } from './sync-lines.ts';
 
 /** Thin useState/useEffect wrapper over the pure optimistic-lifecycle
@@ -244,8 +245,9 @@ export function useBoardData(
   // view keeps the slower full poll above.
   useEffect(() => {
     if (member === 'all') return;
+    const poll = skipWhileBusy(() => fetchMember(member));
     const timer = setInterval(() => {
-      if (!document.hidden) fetchMember(member).catch(() => {});
+      if (!document.hidden) poll();
     }, 15_000);
     return () => clearInterval(timer);
   }, [member, fetchMember]);
