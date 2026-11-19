@@ -88,6 +88,8 @@ import type { PullHold } from "../lib/team/org-layout.ts";
 
 export interface TeamDeps {
   useTeamSeams?: UseTeamSeams;
+  /** Re-links the shared Claude rules after a team switch; the real deps run reconcileClaudeRules. */
+  claudeRules?: (p: Probes) => Promise<unknown>;
   secrets?: SecretsSeams;
   secretPresence?: SecretPresence;
   /** Tests must resolve a fixture executable instead of the installed app. */
@@ -206,7 +208,14 @@ async function defaultReadCode(json: boolean): Promise<string> {
 }
 
 export function realTeamDeps(): TeamDeps {
-  return { probes: createRealProbes(), print: (s) => out.payload(`${s}\n`), exit: process.exit, ageKeySeam: createRealAgeKeySeam(), readCode: defaultReadCode };
+  return {
+    probes: createRealProbes(),
+    print: (s) => out.payload(`${s}\n`),
+    exit: process.exit,
+    ageKeySeam: createRealAgeKeySeam(),
+    readCode: defaultReadCode,
+    claudeRules: async (p) => (await import("../lib/claude-rules/reconcile.ts")).reconcileClaudeRules(p),
+  };
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -1416,6 +1425,11 @@ export async function teamUse(args: string[], _ctx: CommandContext = {}, deps: T
       } else usageError(deps, json, "Which team do you want to work as?", "rt team use <team> [--json]");
     }
     const result = await useTeam(team, seams);
+    try {
+      await deps.claudeRules?.(deps.probes);
+    } catch (err) {
+      warn("team", `linking the shared Claude rules after switching team: ${err instanceof Error ? err.message : String(err)}`);
+    }
     if (json) { deps.print(JSON.stringify(envelope(result))); return; }
     out.print(
       out.line("done", `You are working as the ${result.team} team`, result.previous && result.previous !== result.team ? `was ${result.previous}` : undefined),
