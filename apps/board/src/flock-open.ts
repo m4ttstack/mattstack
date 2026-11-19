@@ -272,14 +272,15 @@ const sharedTrees = sharedRead(
 const sharedRuns = sharedRead(
   async () => {
     const res = await listRuns();
-    return res.ok && res.data ? res.data.runs : [];
+    if (!res.ok || !res.data) throw new Error(res.error ?? 'runs list failed');
+    return res.data.runs;
   },
   { freshMs: READ_FRESH_MS, failMs: READ_FAIL_MS }
 );
 
 export const defaultFlockIo: FlockIo = {
   listTrees: sharedTrees,
-  listRuns: () => sharedRuns(''),
+  listRuns: () => sharedRuns('').catch(() => []),
   async runWorktree(run) {
     const res = await rtCommand<Commands['runs:get']['data']>(
       'runs:get',
