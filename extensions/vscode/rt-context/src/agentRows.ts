@@ -62,15 +62,23 @@ export function worktreeAgentRows(input: {
     return hasRecord ? 'rt agent' : 'by hand';
   };
 
-  const running: AgentRow[] = [];
+  // Every live pane counts, in any worktree: a record shown as ended while its session runs
+  // elsewhere would be resumed a second time.
   const liveSessions = new Set<string>();
+  const liveAgentIds = new Set<string>();
+  for (const p of input.panes) {
+    if (p.sessionId) liveSessions.add(p.sessionId);
+    const agentId = p.agent?.id ?? (p.sessionId ? recordBySession.get(p.sessionId)?.id : undefined);
+    if (agentId) liveAgentIds.add(agentId);
+  }
+
+  const running: AgentRow[] = [];
   for (const p of input.panes) {
     if (!mine(p.cwd)) continue;
     const rec = p.sessionId ? recordBySession.get(p.sessionId) : undefined;
     const caller = p.agent?.caller ?? rec?.caller;
     const label = p.agent?.label ?? rec?.label;
     const agentId = p.agent?.id ?? rec?.id;
-    if (p.sessionId) liveSessions.add(p.sessionId);
     running.push({
       key: p.sessionId ?? p.paneId,
       group: 'running',
@@ -84,7 +92,7 @@ export function worktreeAgentRows(input: {
 
   const recent: AgentRow[] = [];
   for (const r of input.agents) {
-    if (!mine(r.cwd) || liveSessions.has(r.sessionId)) continue;
+    if (!mine(r.cwd) || liveSessions.has(r.sessionId) || liveAgentIds.has(r.id)) continue;
     recent.push({
       key: r.sessionId || r.id,
       group: 'recent',

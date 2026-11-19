@@ -96,6 +96,22 @@ describe('worktreeAgentRows', () => {
     expect(out.map((r) => r.key)).toEqual(['mine']);
   });
 
+  test('a session live in another worktree is not a recent row here', () => {
+    const out = rows({
+      panes: [pane({ paneId: 'elsewhere', cwd: '/r/lib', sessionId: 's5' })],
+      agents: [record({ sessionId: 's5', cwd: WT })],
+    });
+    expect(out).toEqual([]);
+  });
+
+  test('a record live in a pane with no session id is not a recent row', () => {
+    const out = rows({
+      panes: [pane({ paneId: 'w1-4', sessionId: undefined, agent: { id: 'ag3', provider: 'claude', startedAt: 2 } })],
+      agents: [record({ id: 'ag3', sessionId: 's6' })],
+    });
+    expect(out.map((r) => r.group)).toEqual(['running']);
+  });
+
   test('recent rows are newest first', () => {
     const out = rows({
       agents: [
