@@ -34,7 +34,7 @@ var (
 	TopBarHoverBg = lipgloss.Color("#363058")
 	SelBg         = lipgloss.Color("#37284B")
 	WarnBg        = lipgloss.Color("#2A2033")
-	Rule          = lipgloss.Color("#2A2340")
+	Rule          = lipgloss.Color("#3E3760")
 	Panel         = lipgloss.Color("#34304E")
 
 	Pink     = lipgloss.Color("#FF6B9D")

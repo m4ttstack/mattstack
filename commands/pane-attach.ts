@@ -11,6 +11,7 @@ import {
   paneList as paneListRt,
   panePeek as panePeekRt,
 } from "../packages/rt-client/src/index.ts";
+import { homedir } from "os";
 import { UserActionableError } from "../lib/errors.ts";
 import { PICKER_FACE_SIZE, resolveFaces } from "../lib/pane-faces.ts";
 import { rtSelfArgv } from "../lib/rt-self.ts";
@@ -54,6 +55,10 @@ function stamp(ms: number): string {
 }
 
 const plain = (text: string): PickSegment[] => [{ text }];
+
+export function tildePath(path: string, home = homedir()): string {
+  return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
+}
 const faint = (text: string): PickSegment[] => [{ text, tone: "faint" }];
 
 function preview(p: ChatPane, faces: Map<string, string>, peeks: Map<string, string[]>): PickPreview {
@@ -70,7 +75,7 @@ function preview(p: ChatPane, faces: Map<string, string>, peeks: Map<string, str
 
   const where = [
     { key: "repo", value: plain([p.repo, p.branch].filter(Boolean).join(" · ") || "unknown") },
-    ...(p.cwd ? [{ key: "folder", value: plain(p.cwd) }] : []),
+    ...(p.cwd ? [{ key: "folder", value: plain(tildePath(p.cwd)) }] : []),
     { key: "herdr", value: plain(`${[p.workspace, p.tab].filter(Boolean).join(" › ")} · pane ${p.paneId}`) },
   ];
   const startedBy = p.agent
@@ -121,7 +126,7 @@ function cells(p: ChatPane): Cells {
   const bg = p.paneId.startsWith(BG_PREFIX);
   return {
     glyph: { text: `${status.glyph} `, tone: status.tone },
-    agent: p.presence ? { text: p.presence.handle, bold: true } : { text: "not signed in", tone: "faint" },
+    agent: p.presence ? { text: p.presence.name || p.presence.handle, bold: true } : { text: "not signed in", tone: "faint" },
     status: { text: status.word, tone: status.tone },
     repo: { text: [p.repo, p.branch].filter(Boolean).join(" · "), tone: "dim" },
     tab: { text: (bg ? p.herd?.job : p.tab) ?? "", tone: "faint" },
