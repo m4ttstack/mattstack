@@ -7,6 +7,7 @@ type Node = { children?: unknown[] }
 
 export const ASK = 'mcp__plugin_mattstack_mattstack__gate_ask'
 export const OPEN = 'mcp__plugin_mattstack_mattstack__gate_open'
+export const PRESENT = 'mcp__plugin_mattstack_mattstack__herd_gate_present'
 export const SESSION = 'sess-kit'
 export const HOME = '/home/tester'
 
@@ -26,6 +27,18 @@ export const kitResult = (id: string, over: Record<string, unknown> = {}) => ({
   formChunks: [],
   kitForm: { questions: QUESTIONS, context: 'Pick a tier.', controls: CONTROLS },
   ...over,
+})
+
+// What herd_gate_present returns: a herd worker's gate, in gate_ask's kit shape, for the shepherd's form.
+export const relayResult = (id: string) => ({
+  id,
+  kind: 'plan',
+  subject: 'herd:hd-1:j',
+  presentation: 'kit',
+  paneAction: 'kit',
+  boardOnly: false,
+  relay: true,
+  kitForm: { questions: QUESTIONS, context: 'Pick a tier.', controls: { pause: false, goBack: [] } },
 })
 
 export const boardResult = (id: string, over: Record<string, unknown> = {}) => ({

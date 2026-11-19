@@ -27,6 +27,9 @@ export function agentReply(form: Form, outcome: Outcome): string {
 export const GATE_INSTRUCTION = (gateId: string) =>
   `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`
 
+export const RELAY_INSTRUCTION = (gateId: string) =>
+  `Gate \`${gateId}\` is queued in your kit form. Present any other open gates, then end your turn. The answer is recorded as the shepherd's and wakes its worker; don't wait on it or reconcile it.`
+
 export const BOARD_INSTRUCTION = (gateId: string) =>
   `The kit form can't draw this gate, so it waits on the board. Run \`rt gate wait ${gateId}\` as a background Bash task, then end your turn holding at gate \`${gateId}\`.`
 

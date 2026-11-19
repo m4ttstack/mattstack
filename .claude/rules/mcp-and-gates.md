@@ -115,7 +115,7 @@ prompt, which is why that setting is user or machine scope only;
 `git_pull` is `--ff-only`; `branch_sync` runs `rt sync` only after a
 preflight that refuses to reset over unpushed commits or force-push over
 commits only origin has. `herd_spawn`, `herd_respawn`, `herd_gate_answer`,
-`herd_gate_park`, `herd_diagnose`, `herd_nudge`, `herd_lanes`, `herd_close`,
+`herd_gate_park`, `herd_gate_present`, `herd_diagnose`, `herd_nudge`, `herd_lanes`, `herd_close`,
 `herd_follow_up`, `herd_attend` and `herd_wrap_up` run only from the session
 the daemon records as the herd's shepherd, never from a worker pane, and every caller-named path a herd tool
 or `rt_verb` takes (a brief, a template, an out file) is confined by
@@ -194,7 +194,7 @@ belongs in the list (a test pins this). And what skills still run in a shell
 is `rt gate wait`, which blocks past any tool timeout, and `rt events wait`
 under `Monitor`, covered by `Bash(rt gate *)` and `Bash(rt events wait *)`.
 The shepherdr skill answers and parks gates through `herd_gate_answer` and
-`herd_gate_park`; `rt gate answer --by shepherd` is left for a person.
+`herd_gate_park`, shows a worker's gate through `herd_gate_present`, and leaves `rt gate answer --by shepherd` to the gate-form mod and a person.
 Everything else a skill runs routinely is a tool on the mattstack server.
 Do not widen the list to make a skill work; add a tool or an agent-safe
 verb.
