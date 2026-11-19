@@ -237,6 +237,8 @@ export {
   listWorktreeRows,
 } from "./worktrees.ts";
 export type { PickableWorktreeRow, PickableSort, ListPickableOpts } from "./worktrees.ts";
+export { AGENT_STATUS_WORDS, agentStatusKey, agentStartedBy } from "./agent-words.ts";
+export type { AgentStatusKey, StartedByKind } from "./agent-words.ts";
 
 export { decidePlacement, openSmartPane } from "./smart-pane.ts";
 export type { Placement, PlacementOpts, HerdrCall } from "./smart-pane.ts";

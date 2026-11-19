@@ -1,5 +1,5 @@
 import { sep } from 'path';
-import type { AgentRecord, AgentStatus, ChatPane, RunSummary } from '@mattstack/rt-client';
+import { agentStartedBy, type AgentRecord, type AgentStatus, type ChatPane, type RunSummary } from '@mattstack/rt-client';
 
 export type AgentRowStatus = 'working' | 'waiting' | 'idle' | 'done' | 'ended';
 
@@ -11,6 +11,18 @@ export interface AgentRow {
   startedBy: string;
   at: number;
   target: { kind: 'pane'; paneId: string } | { kind: 'resume'; agentId: string };
+  info: AgentRowInfo;
+}
+
+export interface AgentRowInfo {
+  handle?: string;
+  label?: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
+  tab?: string;
+  herd?: string;
+  gate?: string;
 }
 
 export function ownerOf(cwd: string, worktreeRoots: string[]): string | null {
@@ -55,12 +67,8 @@ export function worktreeAgentRows(input: {
     }
   }
 
-  const startedBy = (session: string | undefined, caller: string | undefined, hasRecord: boolean): string => {
-    if (caller) return caller;
-    const runType = session ? runTypeBySession.get(session) : undefined;
-    if (runType && hasRecord) return runType;
-    return hasRecord ? 'rt agent' : 'by hand';
-  };
+  const startedBy = (session: string | undefined, caller: string | undefined, hasRecord: boolean, herdId?: string): string =>
+    agentStartedBy({ herdId, caller, runType: session ? runTypeBySession.get(session) : undefined, hasRecord }).text;
 
   // Every live pane counts, in any worktree: a record shown as ended while its session runs
   // elsewhere would be resumed a second time.
@@ -84,9 +92,19 @@ export function worktreeAgentRows(input: {
       group: 'running',
       title: p.presence?.handle ?? label ?? agentId ?? p.paneId,
       status: p.gate ? 'waiting' : LIVE_STATUS[p.agentStatus] ?? 'idle',
-      startedBy: startedBy(p.sessionId, caller, !!(p.agent || rec)),
+      startedBy: startedBy(p.sessionId, caller, !!(p.agent || rec), p.herd?.herdId),
       at: p.agent?.startedAt ?? 0,
       target: { kind: 'pane', paneId: p.paneId },
+      info: {
+        handle: p.presence?.handle ?? rec?.handle,
+        label,
+        provider: p.agent?.provider ?? rec?.provider,
+        model: p.agent?.model ?? rec?.model,
+        effort: p.agent?.effort ?? rec?.effort,
+        tab: p.tab,
+        herd: p.herd?.herdId,
+        gate: p.gate?.question,
+      },
     });
   }
 
@@ -101,6 +119,7 @@ export function worktreeAgentRows(input: {
       startedBy: startedBy(r.sessionId, r.caller, true),
       at: recordAt(r),
       target: { kind: 'resume', agentId: r.id },
+      info: { handle: r.handle, label: r.label, provider: r.provider, model: r.model, effort: r.effort },
     });
   }
   recent.sort((a, b) => b.at - a.at);

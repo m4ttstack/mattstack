@@ -73,7 +73,7 @@ describe('worktreeAgentRows', () => {
       runs: [run({ session: 's2', work_type: 'work' }), run({ id: 'run2', session: 'other', work_type: 'review' })],
     });
     expect(out).toHaveLength(1);
-    expect(out[0].startedBy).toBe('work');
+    expect(out[0].startedBy).toBe('work run');
   });
 
   test('a run on another branch does not label the row', () => {

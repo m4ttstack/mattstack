@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { agentList, agentResume, listRuns, paneAttachPlan, paneList } from '@mattstack/rt-client';
 import { ownerOf, type AgentRow } from './agentRows';
+import { agentPickText } from './agentPickText';
 import { attachPlanFor, loadAgentRows, paneForResume, type AgentsDeps } from './agentsLoad';
 import { listWorktrees } from './git';
 import { getCurrentWorktreePath } from './statusBar';
@@ -24,24 +25,6 @@ async function worktreeContext(): Promise<{ worktreePath: string; worktreeRoots:
   const branch = worktrees.find((w) => w.dirPath === worktreePath)?.branch ?? null;
   return { worktreePath, worktreeRoots, branch };
 }
-
-function ago(ms: number): string {
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return 'just now';
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h} h ago`;
-  return `${Math.round(h / 24)} d ago`;
-}
-
-const STATUS_WORDS: Record<AgentRow['status'], string> = {
-  working: 'working',
-  waiting: 'waiting on you',
-  idle: 'idle',
-  done: 'done',
-  ended: 'ended',
-};
 
 export function initAgentsItem(context: vscode.ExtensionContext, priority: number): void {
   agentsItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, priority - 3);
@@ -90,16 +73,15 @@ export async function showAgents(): Promise<void> {
     if (!rows.length) continue;
     items.push({ label, kind: vscode.QuickPickItemKind.Separator });
     for (const row of rows) {
-      items.push({
-        label: row.title,
-        description: `${STATUS_WORDS[row.status]} · ${row.startedBy}`,
-        detail: row.at > 0 ? ago(row.at) : undefined,
-        row,
-      });
+      items.push({ ...agentPickText(row), row });
     }
   }
 
-  const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Attach to an agent in this worktree' });
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: 'Pick an agent to attach to in a terminal',
+    matchOnDescription: true,
+    matchOnDetail: true,
+  });
   if (!picked?.row) return;
   await attachRow(picked.row, ctx.worktreePath);
 }
