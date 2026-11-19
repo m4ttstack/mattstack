@@ -512,6 +512,20 @@ test("pane list at a terminal: one row per pane, background panes under their ow
   expect(rows[2]).toMatch(/^bg:w9:p1 +idle +not signed in +acme · nightly +acme · main *$/);
 });
 
+test("pane list at a terminal: a badge cell names the open gate, herd or caller", () => {
+  const panes = [
+    { ...PANE, gate: { id: "g-1", question: "Merge?" }, herd: { herdId: "h-7c1", job: "x" } },
+    { ...PANE, paneId: "w1:p2", herd: { herdId: "h-7c1", job: "docs" }, agent: { id: "a", provider: "claude", caller: "board:review", startedAt: 1 } },
+    { ...PANE, paneId: "w1:p3", agent: { id: "a", provider: "claude", caller: "board:review", startedAt: 1 } },
+    { ...PANE, paneId: "w1:p4" },
+  ];
+  const rows = renderPlain(paneListBlocks(panes as never)).split("\n");
+  expect(rows[0]).toMatch(/acme · main +\? gate +#build$/);
+  expect(rows[1]).toMatch(/acme · main +herd h-7c1 +#build$/);
+  expect(rows[2]).toMatch(/acme · main +board:review +#build$/);
+  expect(rows[3]).toMatch(/acme · main +#build$/);
+});
+
 test("no panes says so", () => {
   expect(renderPlain(paneListBlocks([]))).toBe("[skipped] No Claude panes\n");
 });

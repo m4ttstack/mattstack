@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"rt-ui/internal/protocol"
+	"rt-ui/internal/termimage"
 	"rt-ui/internal/tty"
 )
 
@@ -37,7 +38,11 @@ type heldModifiers struct {
 // filter, action, modal, and mouse tasks need is scaffolded now so each one
 // only fills in behavior, never reshapes the struct.
 type Model struct {
-	req         protocol.PickRequest
+	req protocol.PickRequest
+	// faceIDs maps each preview face path to the kitty image id it was sent
+	// as; empty when the terminal did not answer the kitty query, and faces
+	// draw as half-blocks.
+	faceIDs     map[string]uint32
 	query       string
 	cursor      int
 	viewportTop int
@@ -241,7 +246,7 @@ func (m *Model) refilter() {
 	m.matches = GroupContiguous(Rank(m.query, targets, m.req.Exact), groups)
 }
 
-func (m *Model) Init() tea.Cmd { return nil }
+func (m *Model) Init() tea.Cmd { return m.sendFacesSoon() }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.pinHoldFrames > 0 && !isPinHoldExemptMsg(msg) {
@@ -251,6 +256,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg := msg.(type) {
+	case sendFacesMsg:
+		return m, m.sendFaces()
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -355,7 +362,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // comment on the field.
 func isPinHoldExemptMsg(msg tea.Msg) bool {
 	switch msg.(type) {
-	case tea.MouseMotionMsg, tea.MouseWheelMsg:
+	case tea.MouseMotionMsg, tea.MouseWheelMsg, sendFacesMsg:
 		return true
 	default:
 		return false
@@ -845,6 +852,9 @@ func Run(ctx context.Context, req protocol.PickRequest, input io.Reader, output 
 	}
 
 	m := New(req)
+	if m.hasPreviews() && kittyFaces(os.Getenv, func() bool { return termimage.KittySupported(kittyQueryWait) }) {
+		m.assignFaceIDs()
+	}
 	m.events = make(chan []byte, eventBufferSize)
 	writerDone := m.startEventWriter(output)
 

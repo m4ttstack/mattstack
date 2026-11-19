@@ -1,0 +1,34 @@
+{
+  "t": "pick",
+  "protocol": 1,
+  "message": "Which pane should rt attach to?",
+  "layout": "fullscreen",
+  "breadcrumb": ["rt", "pane attach"],
+  "columnHeader": [{ "text": "AGENT  ", "tone": "faint" }, { "text": "STATUS", "tone": "faint" }],
+  "rows": [
+    {
+      "value": "w1:p3",
+      "left": [{ "text": "●", "tone": "mint" }, { "text": " kirk", "bold": true }],
+      "group": "acme",
+      "preview": {
+        "face": { "path": "/faces/kirk.png" },
+        "header": [[{ "text": "kirk", "bold": true }], [{ "text": "working", "tone": "mint" }, { "text": " · live in chat", "tone": "dim" }]],
+        "sections": [
+          { "title": "WHERE", "rows": [{ "key": "repo", "value": [{ "text": "acme · main" }] }] },
+          { "title": "HERD", "rows": [{ "key": "", "value": [{ "text": "not in a herd", "tone": "faint" }] }] }
+        ],
+        "screen": ["✻ Running tests…", "  12 passed"]
+      }
+    },
+    {
+      "value": "w1:p4",
+      "left": [{ "text": "○", "tone": "faint" }, { "text": " not signed in", "tone": "faint" }],
+      "group": "acme",
+      "preview": { "face": { "placeholder": "?" }, "header": [], "sections": [] }
+    },
+    {
+      "value": "w1:p5",
+      "left": [{ "text": "plain row" }]
+    }
+  ]
+}

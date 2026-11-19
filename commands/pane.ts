@@ -70,13 +70,27 @@ const PANE_STATUS: Record<ChatPane["agentStatus"], { word: string; role: Segment
   unknown: { word: "unknown", role: "skipped" },
 };
 
+export type PaneBadgeKind = "gate" | "herd" | "caller" | "room";
+
+/** The one thing worth flagging about a pane, highest first: an open gate, its herd, the caller that launched it, its first chat room. */
+export function paneBadge(p: ChatPane): { kind: PaneBadgeKind; text: string } | undefined {
+  if (p.gate) return { kind: "gate", text: "? gate" };
+  if (p.herd) return { kind: "herd", text: `herd ${p.herd.herdId}` };
+  if (p.agent?.caller) return { kind: "caller", text: p.agent.caller };
+  const room = p.presence?.rooms[0];
+  return room ? { kind: "room", text: `#${room}` } : undefined;
+}
+
 function paneRow(p: ChatPane): out.CellInput[] {
   const name = p.presence ? (p.presence.name ?? p.presence.handle) : undefined;
   const status = PANE_STATUS[p.agentStatus] ?? PANE_STATUS.unknown;
   const where = [p.workspace, p.title && p.title !== name ? p.title : undefined].filter(Boolean).join(" · ");
   const repo = [p.repo, p.branch].filter(Boolean).join(" · ");
   const rooms = p.presence?.rooms.length ? `#${p.presence.rooms.join(" #")}` : "";
-  return [out.strong(p.paneId), { text: status.word, role: status.role }, name ?? out.dim("not signed in"), out.dim(where), out.dim(repo), out.dim(rooms)];
+  // The rooms cell already lists every room, so a room badge would repeat it.
+  const badge = paneBadge(p);
+  const badgeCell: out.CellInput = !badge || badge.kind === "room" ? "" : badge.kind === "gate" ? { text: badge.text, role: "needs-you" } : badge.text;
+  return [out.strong(p.paneId), { text: status.word, role: status.role }, name ?? out.dim("not signed in"), out.dim(where), out.dim(repo), badgeCell, out.dim(rooms)];
 }
 
 export function paneListBlocks(panes: ChatPane[]): Block[] {

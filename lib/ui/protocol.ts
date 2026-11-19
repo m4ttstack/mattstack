@@ -510,6 +510,18 @@ export interface PickRow {
   detail?: PickSegment[];
   /** Marks a row whose primary action can run with extra arguments; render.go's alt-held with-args chrome keys off this. */
   withArgs?: boolean;
+  /** What the preview column shows while this is the cursor row. */
+  preview?: PickPreview;
+}
+
+export interface PickPreview {
+  /** A PNG path, or a glyph for the empty tile ("?") when there is no face. */
+  face?: { path?: string; placeholder?: string };
+  /** Lines beside the face. */
+  header: PickSegment[][];
+  sections: { title: string; rows: { key: string; value: PickSegment[] }[] }[];
+  /** Verbatim tail lines of the pane's screen. */
+  screen?: string[];
 }
 
 export interface PickAction {
@@ -548,6 +560,8 @@ export interface PickRequest {
   selectedPanel?: boolean;
   /** Faint count-slot text shown while the query is empty (nav's "N folders · M files"); a non-empty query falls back to the cyan matched-count. */
   idleCount?: string;
+  /** A line naming the list's columns, painted above the rows at their indent; the caller pads rows and header to the same widths. */
+  columnHeader?: PickSegment[];
   /** Faint run appended after the bold breadcrumb segments (nav's non-default sort suffix), so it never reads as another bold segment. */
   crumbSuffix?: string;
   /** Enter on a no-match filter resolves with `{action:"select", value:null, query}` instead of leaving the picker open. */
