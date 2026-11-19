@@ -11,6 +11,7 @@ import (
 	"rt-ui/internal/protocol"
 	rtrender "rt-ui/internal/render"
 	"rt-ui/internal/termimage"
+	"rt-ui/internal/textwrap"
 	"rt-ui/internal/theme"
 )
 
@@ -155,6 +156,13 @@ func (m *Model) faceLines(face *protocol.PickPreviewFace) []string {
 	return lines
 }
 
+func segText(s protocol.PickSegment) string { return s.Text }
+
+func withSegText(s protocol.PickSegment, t string) protocol.PickSegment {
+	s.Text = t
+	return s
+}
+
 func previewSegs(segs []protocol.PickSegment) string {
 	var sb strings.Builder
 	for _, s := range segs {
@@ -188,7 +196,11 @@ func previewLines(m *Model, width, height int) []string {
 			out = append(out, "", fg(theme.Meta).Render(strings.ToUpper(rtrender.Clean(sec.Title))))
 			for _, r := range sec.Rows {
 				key := ansi.Truncate(rtrender.Clean(r.Key), previewKeyWidth-1, "")
-				out = append(out, fg(theme.Faint).Render(key+strings.Repeat(" ", previewKeyWidth-lipgloss.Width(key)))+previewSegs(r.Value))
+				lead := fg(theme.Faint).Render(key + strings.Repeat(" ", previewKeyWidth-lipgloss.Width(key)))
+				for _, row := range textwrap.SpansWith(r.Value, width-previewKeyWidth, textwrap.Options{WordsOnly: true, Separators: "/\\-_.:"}, segText, withSegText) {
+					out = append(out, lead+previewSegs(row))
+					lead = strings.Repeat(" ", previewKeyWidth)
+				}
 			}
 		}
 		if len(p.Screen) > 0 {
