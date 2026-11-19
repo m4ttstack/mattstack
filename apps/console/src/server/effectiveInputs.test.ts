@@ -484,7 +484,9 @@ describe('effective-inputs route', () => {
     const body = await res.json();
     expect(body.config).toHaveLength(CONFIG_DEPS.length - 1);
     expect(
-      (body.config as { key: string }[]).some(row => row.key === 'rt.variations')
+      (body.config as { key: string }[]).some(
+        row => row.key === 'rt.variations'
+      )
     ).toBe(false);
   });
 
@@ -526,7 +528,9 @@ describe('effective-inputs route', () => {
     const body = await res.json();
     expect(body.config).toHaveLength(CONFIG_DEPS.length - 1);
     expect(
-      (body.config as { key: string }[]).some(row => row.key === 'rt.variations')
+      (body.config as { key: string }[]).some(
+        row => row.key === 'rt.variations'
+      )
     ).toBe(false);
     expect(rt.getSetting).not.toHaveBeenCalledWith('rt.variations');
   });
