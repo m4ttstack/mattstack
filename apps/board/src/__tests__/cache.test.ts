@@ -114,4 +114,23 @@ describe('SnapshotCache failed-refresh backoff', () => {
     await settle();
     expect(counter.calls).toBe(3);
   });
+
+  test('a config change during the backoff refetches on the next read', async () => {
+    const fail = { on: false };
+    const t = { now: 0 };
+    const { cache, counter } = cacheWith(fail, t);
+    await cache.forceRefresh();
+    fail.on = true;
+    t.now = TTL + 1000;
+    await cache.get();
+    await settle();
+    expect(counter.calls).toBe(2);
+
+    fail.on = false;
+    cache.markStale();
+    t.now += 1000;
+    await cache.get();
+    await settle();
+    expect(counter.calls).toBe(3);
+  });
 });

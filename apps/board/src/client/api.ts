@@ -123,9 +123,11 @@ export function getData(fresh = false): Promise<BoardData> {
 /** A scoped, single-member refresh -- the 15s poll and the "refresh now"
     button use this instead of the whole-team snapshot. */
 export function getMember(
-  username: string
+  username: string,
+  { fresh = false }: { fresh?: boolean } = {}
 ): Promise<{ mrs: BoardMRWithReview[]; fetchedAt: number }> {
-  return fetch(`/member?u=${encodeURIComponent(username)}`).then(r =>
+  const query = `u=${encodeURIComponent(username)}${fresh ? '&fresh=1' : ''}`;
+  return fetch(`/member?${query}`).then(r =>
     r.ok
       ? (r.json() as Promise<{ mrs: BoardMRWithReview[]; fetchedAt: number }>)
       : Promise.reject(new Error('bad status'))

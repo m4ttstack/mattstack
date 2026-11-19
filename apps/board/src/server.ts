@@ -2141,7 +2141,14 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   return mrs;
 }
 
-const sharedMemberMRs = memberRead(fetchMemberMRs);
+async function readMemberMRs(
+  username: string
+): Promise<{ mrs: BoardMR[]; fetchedAt: number }> {
+  const mrs = await fetchMemberMRs(username);
+  return { mrs, fetchedAt: Date.now() };
+}
+
+const sharedMemberMRs = memberRead(readMemberMRs);
 
 /** Display names resolved from GitLab profiles, keyed by username. Long TTL. */
 const memberNames = new Map<string, string | null>();
@@ -2511,16 +2518,18 @@ const httpServer = Bun.serve({
         }
         void refreshMemberNames();
         try {
-          const mrs = await sharedMemberMRs(u);
+          // The refresh button asks for fresh: it must not get a cached read
+          // or a replayed failure.
+          const fresh = new URL(req.url).searchParams.get('fresh') === '1';
+          const { mrs, fetchedAt } = fresh
+            ? await readMemberMRs(u)
+            : await sharedMemberMRs(u);
           // A scoped refresh replaces that member's rows wholesale on the
           // client, so it carries every join the full snapshot does.
           const { mrs: withOrphans } = await withRowState(mrs);
-          return new Response(
-            JSON.stringify({ mrs: withOrphans, fetchedAt: Date.now() }),
-            {
-              headers: { 'content-type': 'application/json' },
-            }
-          );
+          return new Response(JSON.stringify({ mrs: withOrphans, fetchedAt }), {
+            headers: { 'content-type': 'application/json' },
+          });
         } catch (err) {
           return new Response(
             `member fetch failed: ${err instanceof Error ? err.message : err}`,

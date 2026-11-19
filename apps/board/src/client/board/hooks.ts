@@ -235,8 +235,10 @@ export function useBoardData(
   );
 
   const fetchMember = useCallback(
-    (username: string) =>
-      getMember(username).then(d => mergeMember(username, d.mrs, d.fetchedAt)),
+    (username: string, opts?: { fresh?: boolean }) =>
+      getMember(username, opts).then(d =>
+        mergeMember(username, d.mrs, d.fetchedAt)
+      ),
     [mergeMember]
   );
 
@@ -255,7 +257,8 @@ export function useBoardData(
   const [refreshing, setRefreshing] = useState(false);
   const refreshNow = useCallback(() => {
     setRefreshing(true);
-    const task = member === 'all' ? load(true) : fetchMember(member);
+    const task =
+      member === 'all' ? load(true) : fetchMember(member, { fresh: true });
     task.catch(() => {}).finally(() => setRefreshing(false));
   }, [member, load, fetchMember]);
 

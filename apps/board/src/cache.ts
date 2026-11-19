@@ -73,6 +73,7 @@ export class SnapshotCache {
   markStale(): void {
     this.stale = true;
     this.generation++;
+    this.retryAfter = 0;
   }
 
   async get(): Promise<Snapshot> {
