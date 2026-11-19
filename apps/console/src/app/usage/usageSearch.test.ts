@@ -25,8 +25,8 @@ describe('parseUsageSearch', () => {
 });
 
 describe('parseUsageSearch order', () => {
-  it('defaults to the costliest first', () => {
-    expect(parseUsageSearch('').order).toEqual({ sort: 'cost', dir: 'desc' });
+  it('defaults to the most recently active first', () => {
+    expect(parseUsageSearch('').order).toEqual({ sort: 'date', dir: 'desc' });
   });
 
   it('reads a sort and direction', () => {
@@ -38,7 +38,7 @@ describe('parseUsageSearch order', () => {
 
   it('reads an unknown sort as the default', () => {
     expect(parseUsageSearch('?sort=nope&dir=up').order).toEqual({
-      sort: 'cost',
+      sort: 'date',
       dir: 'desc',
     });
   });

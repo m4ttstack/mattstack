@@ -1,5 +1,5 @@
 .table {
-  --columns: minmax(0, 1fr) 316px 76px 76px 84px 304px 16px;
+  --columns: minmax(0, 1fr) 316px 92px 76px 84px 304px 16px;
 
   display: flex;
   flex: 0 1 auto;
@@ -45,6 +45,10 @@
   font: inherit;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.sort > svg {
+  flex: none;
 }
 
 .sort:hover,

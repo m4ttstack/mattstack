@@ -75,7 +75,7 @@ export function parseUsageSearch(search: string): {
     view: params.get('view') === 'trends' ? 'trends' : 'mrs',
     repo: params.get('repo'),
     order: {
-      sort: MR_SORTS.find(s => s === params.get('sort')) ?? 'cost',
+      sort: MR_SORTS.find(s => s === params.get('sort')) ?? 'date',
       dir: params.get('dir') === 'asc' ? 'asc' : 'desc',
     },
   };
@@ -100,7 +100,7 @@ function useUsageUrl() {
   const sortBy = (sort: MrSort) => {
     const next = nextMrOrder(order, sort);
     update({
-      sort: next.sort === 'cost' ? null : next.sort,
+      sort: next.sort === 'date' ? null : next.sort,
       dir: next.dir === 'desc' ? null : next.dir,
     });
   };
