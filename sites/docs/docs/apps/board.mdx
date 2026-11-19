@@ -84,6 +84,8 @@ The board finds each MR's Slack post on its own: the first post in the MR's chan
 
 On the same 15 minute schedule, the board checks that each post it found is still in Slack. When someone deleted the post, the MR counts as not posted again, and **post to slack** is offered again.
 
+When the board can't use Slack, a banner above the header says why: Slack rejected the board's token (run `rt setup slack connect` to reconnect), or the board can't read its Slack token (run `rt setup status` to see why). The board picks up a reconnect without a restart.
+
 ### agent actions
 
 Every item here needs a local board. Each row links to what that agent does. The labels follow one pattern: **focus** shows an agent that is still running, **resume** reopens an earlier conversation, and **redo** starts the work again from scratch.
@@ -144,7 +146,7 @@ When it finishes, its findings come back to you on the board, each with the comm
 
 The review's sheet reads top to bottom:
 
-- **Summary comment** comes first, as it will post on the MR. The agent drafts a summary line for each result, and the card shows the one for the result you picked. A finding with no line in the diff joins the summary as its own part, which you can remove.
+- **Summary comment** comes first, as it will post on the MR. The agent drafts a summary line for each result, and the card shows the one for the result you picked. A finding with no line in the diff joins the summary as its own part, which you can remove. When you untick every finding, the board posts the agent's no-findings summary instead.
 - The findings follow, grouped by severity, each group with **all** and **none**. A finding you tick opens into three parts: **The Code** (the file and line, with the diff around it), **Agent Finding** and **Comment**, the text that posts.
 - **view full diff**, or a click on the code, opens the whole file's diff, centred on the finding you came from. Every finding on that file sits pinned at its line, and a link opens the file on GitLab or GitHub.
 - A comment is always editable. **Preview** shows it as it will read on the MR. An edited comment is marked **edited**, and **reset to draft** brings back the agent's text.

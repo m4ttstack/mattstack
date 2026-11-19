@@ -19,7 +19,7 @@ Gates are primarily agent-facing: a herd worker opens one when it needs a decisi
 
 ## Asking a question with `rt gate ask`
 
-`rt gate ask` is the high-level interface. It resolves the subject automatically, determines the presentation mode, and nudges the operator. The presentation is a form only when the asking session has a pane and every question has at most 4 options; otherwise it is wait, and an over-cap question is reported back as `formCapExceeded`.
+`rt gate ask` is the high-level interface. It resolves the subject automatically, determines the presentation mode, and nudges the operator. The presentation is a form only when the asking session has a pane and every question has at most 4 options; otherwise it is wait, and an over-cap question is reported back as `formCapExceeded`. The cap does not apply when the gate-form plugin's kit form draws the gate: a main-session gate that is not a hand-back, in a session with gate-form's ask tool, keeps a long pick-any list as one question.
 
 ```bash
 rt gate ask \
