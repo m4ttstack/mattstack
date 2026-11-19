@@ -157,5 +157,23 @@
     "installPath": "/Users/user/.claude/plugins/cache/mattstack/superpowers/7.0.2-groups.1",
     "installedAt": "2026-08-26T13:28:09.485Z",
     "lastUpdated": "2026-09-22T17:09:10.860Z"
+  },
+  {
+    "id": "gate-form@mattstack",
+    "version": "0.5.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/Users/user/.claude/plugins/cache/mattstack/gate-form/0.5.0",
+    "installedAt": "2026-11-18T16:04:44.751Z",
+    "lastUpdated": "2026-11-18T16:04:44.751Z"
+  },
+  {
+    "id": "human-todos@mattstack",
+    "version": "0.5.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/Users/user/.claude/plugins/cache/mattstack/human-todos/0.5.0",
+    "installedAt": "2026-11-18T16:04:44.751Z",
+    "lastUpdated": "2026-11-18T16:04:44.751Z"
   }
 ]
