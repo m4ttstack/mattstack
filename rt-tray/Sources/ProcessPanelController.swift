@@ -56,6 +56,9 @@ class ProcessPanelController: ObservableObject {
     private let daemonClient = DaemonClient()
     private var pollTimer: Timer?
     private var statusGeneration = 0
+    /// Set by a user refresh, including one that arrives while a poll is in
+    /// flight and joins it, so that poll's failure still reaches the user.
+    private var refreshReportsFailure = false
 
     private struct KillAttempt {
         let startedAt: Date
@@ -102,18 +105,22 @@ class ProcessPanelController: ObservableObject {
     }
 
     func refresh(userInitiated: Bool = false) {
+        if userInitiated { refreshReportsFailure = true }
+        guard !isRefreshing else { return }
         isRefreshing = true
         Task {
             let data = await daemonClient.querySystemProcesses()
             await MainActor.run {
                 self.isLoading = false
                 self.isRefreshing = false
+                let reportFailure = self.refreshReportsFailure
+                self.refreshReportsFailure = false
                 if let data = data {
                     self.lastRefreshFailed = false
                     self.applySnapshot(data)
                 } else {
                     self.lastRefreshFailed = true
-                    if userInitiated {
+                    if reportFailure {
                         self.setStatus("Couldn't reach the rt daemon", isError: true)
                     }
                 }

@@ -18,7 +18,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "fs";
 import { parse, type ParseError } from "jsonc-parser";
-import { join } from "path";
+import { join, resolve } from "path";
 import { orgSettingsPath, orgsDir, teamFoldersDir, teamSettingsPath } from "./paths.ts";
 
 export interface StoreFile {
@@ -48,17 +48,65 @@ const EMPTY_STORE = (file: string, exists: boolean): StoreFile => ({
  *    `global`/`repos`.
  */
 export function readStore(file: string): StoreFile {
-  if (!existsSync(file)) return EMPTY_STORE(file, false);
+  const key = resolve(file);
+  const sig = fileSignature(key);
+  if (sig === MISSING) {
+    storeCache.delete(key);
+    return EMPTY_STORE(file, false);
+  }
+  const hit = sig === null ? undefined : storeCache.get(key);
+  if (hit !== undefined && hit.sig === sig) {
+    return { global: structuredClone(hit.global), repos: structuredClone(hit.repos), file, exists: true };
+  }
 
   let raw: string;
   try {
     raw = readFileSync(file, "utf8");
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return EMPTY_STORE(file, false);
     console.warn(`rt: failed to read settings store ${file}, ignoring: ${(err as Error).message}`);
     return EMPTY_STORE(file, true);
   }
 
-  return parseStoreText(file, raw);
+  const strict = parseStoreTextStrict(file, raw);
+  if (strict === null) {
+    storeCache.delete(key);
+    return parseStoreText(file, raw);
+  }
+  if (sig !== null) {
+    if (storeCache.size >= STORE_CACHE_LIMIT) storeCache.clear();
+    storeCache.set(key, { sig, global: structuredClone(strict.global), repos: structuredClone(strict.repos) });
+  }
+  return strict;
+}
+
+const MISSING = "missing";
+const STORE_CACHE_LIMIT = 256;
+const storeCache = new Map<string, { sig: string; global: Record<string, unknown>; repos: Record<string, Record<string, unknown>> }>();
+
+/**
+ * Nanosecond mtime and ctime, so a same-size rewrite within one millisecond
+ * still changes the signature. Null means stat failed for a reason other
+ * than absence: the caller reads without caching.
+ */
+function fileSignature(path: string): string | null {
+  try {
+    const s = statSync(path, { bigint: true });
+    return `${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR" ? MISSING : null;
+  }
+}
+
+/** Drops the cached read of `file`, or with no argument every cached store read and the orgs listing. */
+export function forgetStoreReads(file?: string): void {
+  if (file === undefined) {
+    storeCache.clear();
+    orgsCache = null;
+    return;
+  }
+  storeCache.delete(resolve(file));
 }
 
 /** `readStore`'s parse step, for a caller that already holds the file's text. Never throws. */
@@ -116,24 +164,41 @@ export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
  */
 export function listOrgs(): string[] {
   const dir = orgsDir();
-  if (!existsSync(dir)) return [];
-  let entries: Dirent[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (err) {
-    console.warn(`rt: failed to list orgs in ${dir}, treating as none: ${(err as Error).message}`);
-    return [];
-  }
   const orgs: string[] = [];
-  for (const entry of entries) {
+  for (const entry of orgEntries(dir)) {
     try {
-      const isDir = entry.isDirectory() || (entry.isSymbolicLink() && statSync(join(dir, entry.name)).isDirectory());
+      const isDir = entry.kind === "dir" || (entry.kind === "link" && statSync(join(dir, entry.name)).isDirectory());
       if (isDir && existsSync(orgSettingsPath(entry.name))) orgs.push(entry.name);
     } catch (err) {
       console.warn(`rt: skipping unreadable entry ${join(dir, entry.name)}: ${(err as Error).message}`);
     }
   }
   return orgs;
+}
+
+interface OrgEntry {
+  name: string;
+  kind: "dir" | "link" | "other";
+}
+
+let orgsCache: { dir: string; sig: string; entries: OrgEntry[] } | null = null;
+
+/** Only the listing is cached: a symlink's target and an org store inside a clone change without touching the orgs dir. */
+function orgEntries(dir: string): OrgEntry[] {
+  const sig = fileSignature(dir);
+  if (sig === MISSING) return [];
+  if (sig !== null && orgsCache !== null && orgsCache.dir === dir && orgsCache.sig === sig) return orgsCache.entries;
+  let dirents: Dirent[];
+  try {
+    dirents = readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    orgsCache = null;
+    console.warn(`rt: failed to list orgs in ${dir}, treating as none: ${(err as Error).message}`);
+    return [];
+  }
+  const entries: OrgEntry[] = dirents.map((d) => ({ name: d.name, kind: d.isDirectory() ? "dir" : d.isSymbolicLink() ? "link" : "other" }));
+  orgsCache = sig === null ? null : { dir, sig, entries };
+  return entries;
 }
 
 /** One org per Mac; with several clones the first by name is the one read. */

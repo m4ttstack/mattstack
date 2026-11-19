@@ -79,20 +79,27 @@ class DaemonClient {
     // MARK: - Query (HTTP API with Unix socket fallback)
 
     /// Query the daemon. Tries the HTTP API on :9401 first (reliable, uses
-    /// URLSession), falls back to the Unix socket if the TCP port is unreachable.
+    /// URLSession), falls back to the Unix socket only when the TCP port
+    /// could not be connected to.
     private func query<T: Decodable>(_ command: String) async -> T? {
-        // Primary: HTTP API on localhost:9401 (URLSession, robust)
-        if let result: T = await queryHTTP(command) {
-            return result
+        let outcome: HTTPOutcome<T> = await queryHTTP(command)
+        switch outcome {
+        case .value(let result): return result
+        case .failed: return nil
+        case .couldNotConnect: return await querySocket(command)
         }
-        // Fallback: Unix socket (NWConnection, can get stuck)
-        return await querySocket(command)
+    }
+
+    private enum HTTPOutcome<T> {
+        case value(T)
+        case couldNotConnect
+        case failed
     }
 
     private static let apiPort = 9401
 
     /// HTTP GET via URLSession to localhost:9401. Fast, reliable, no NWConnection issues.
-    private func queryHTTP<T: Decodable>(_ command: String) async -> T? {
+    private func queryHTTP<T: Decodable>(_ command: String) async -> HTTPOutcome<T> {
         let path: String
         switch command {
         case "tray:status": path = "/api/status"
@@ -102,23 +109,26 @@ class DaemonClient {
         default:            path = "/api/\(command)"
         }
 
-        guard let url = URL(string: "http://127.0.0.1:\(Self.apiPort)\(path)") else { return nil }
+        guard let url = URL(string: "http://127.0.0.1:\(Self.apiPort)\(path)") else { return .couldNotConnect }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            guard let http = response as? HTTPURLResponse else { return .failed }
+            guard http.statusCode == 200 else {
+                return DaemonHTTPFallback.socketMayRetry(afterStatus: http.statusCode) ? .couldNotConnect : .failed
+            }
             do {
-                return try JSONDecoder().decode(T.self, from: data)
+                return .value(try JSONDecoder().decode(T.self, from: data))
             } catch {
                 let preview = String(data: data.prefix(500), encoding: .utf8) ?? "<binary>"
                 TrayLog.error("decode \(command) failed", ["err": String(describing: error), "preview": preview])
-                return nil
+                return .failed
             }
         } catch {
-            return nil
+            return DaemonHTTPFallback.socketMayRetry(after: error) ? .couldNotConnect : .failed
         }
     }
 

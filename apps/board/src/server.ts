@@ -157,7 +157,9 @@ import {
 import { shiftPeerReviews } from './fixture-peer-reviews.ts';
 import {
   actionCommand,
+  actionFlockIo,
   buildFlockMenu,
+  defaultFlockIo,
   flockOpenUrl,
   openInFlock,
   parseFlockCommands,
@@ -273,6 +275,7 @@ import {
   resolveLaunchSkill,
   type BoardSkillKind,
 } from './manifest-bindings.ts';
+import { memberRead } from './member-read.ts';
 import { memoizeAsync } from './memoize-async.ts';
 import { parseMrActionBody } from './mr-action.ts';
 import { forgeWord, mrNoun, mrNouns, mrRef, onGitHub } from './mr-ref.ts';
@@ -2138,6 +2141,15 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   return mrs;
 }
 
+async function readMemberMRs(
+  username: string
+): Promise<{ mrs: BoardMR[]; fetchedAt: number }> {
+  const mrs = await fetchMemberMRs(username);
+  return { mrs, fetchedAt: Date.now() };
+}
+
+const sharedMemberMRs = memberRead(readMemberMRs);
+
 /** Display names resolved from GitLab profiles, keyed by username. Long TTL. */
 const memberNames = new Map<string, string | null>();
 let namesFetchedAt = 0;
@@ -2506,16 +2518,16 @@ const httpServer = Bun.serve({
         }
         void refreshMemberNames();
         try {
-          const mrs = await fetchMemberMRs(u);
+          // The refresh button asks for fresh: it must not get a cached read
+          // or a replayed failure, and later polls then share what it read.
+          const fresh = new URL(req.url).searchParams.get('fresh') === '1';
+          const { mrs, fetchedAt } = await sharedMemberMRs(u, { fresh });
           // A scoped refresh replaces that member's rows wholesale on the
           // client, so it carries every join the full snapshot does.
           const { mrs: withOrphans } = await withRowState(mrs);
-          return new Response(
-            JSON.stringify({ mrs: withOrphans, fetchedAt: Date.now() }),
-            {
-              headers: { 'content-type': 'application/json' },
-            }
-          );
+          return new Response(JSON.stringify({ mrs: withOrphans, fetchedAt }), {
+            headers: { 'content-type': 'application/json' },
+          });
         } catch (err) {
           return new Response(
             `member fetch failed: ${err instanceof Error ? err.message : err}`,
@@ -4072,7 +4084,8 @@ const httpServer = Bun.serve({
           menu = await buildFlockMenu(
             { webUrl: mrUrl, sourceBranch: mr.sourceBranch },
             repoName,
-            commands
+            commands,
+            pathname === '/flock/open' ? actionFlockIo : defaultFlockIo
           );
         } catch (err) {
           return new Response(

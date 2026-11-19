@@ -1,6 +1,7 @@
 import type { Snapshot } from './data.ts';
 
 const TTL_MS = 60_000;
+const FAIL_BACKOFF_MS = 60_000;
 
 /** What one fetch produces: everything the snapshot carries except the
     cache's own bookkeeping fields (fetchedAt, fetchError). */
@@ -14,6 +15,9 @@ export type FetchResult = Omit<Snapshot, 'fetchedAt' | 'fetchError'>;
  * refresh (concurrent visitors share it). A failed refresh keeps the last good
  * data and stamps the error -- this is what lets forceRefresh() fall back to
  * stale data instead of an empty board when the forced fetch itself fails.
+ * It also holds get() off refetching for a backoff: the failed snapshot is
+ * still stale, and fast polls from several tabs would otherwise run full
+ * refreshes back to back against a daemon that is already down.
  *
  * Only the caller of forceRefresh() (or invalidate()) ever waits; concurrent
  * get() callers keep being served the current snapshot throughout.
@@ -26,11 +30,13 @@ export class SnapshotCache {
   /** Bumped on every markStale(), so a refetch that started before a change can
       be recognised as already-outdated when it lands. */
   private generation = 0;
+  private retryAfter = 0;
 
   constructor(
     private readonly fetchMRs: () => Promise<FetchResult>,
     private readonly now: () => number = Date.now,
-    private readonly ttlMs: number = TTL_MS
+    private readonly ttlMs: number = TTL_MS,
+    private readonly failBackoffMs: number = FAIL_BACKOFF_MS
   ) {}
 
   /**
@@ -67,6 +73,7 @@ export class SnapshotCache {
   markStale(): void {
     this.stale = true;
     this.generation++;
+    this.retryAfter = 0;
   }
 
   async get(): Promise<Snapshot> {
@@ -77,6 +84,7 @@ export class SnapshotCache {
     ) {
       return this.snapshot;
     }
+    if (this.snapshot && this.now() < this.retryAfter) return this.snapshot;
     const refresh = this.refresh();
     if (this.snapshot) {
       // Stale data beats waiting; refresh continues in the background.
@@ -114,12 +122,15 @@ export class SnapshotCache {
       return snapshot;
     };
     this.inflight = this.fetchMRs()
-      .then(result =>
-        settle({ ...result, fetchedAt: this.now(), fetchError: null })
-      )
+      .then(result => {
+        this.retryAfter = 0;
+        return settle({ ...result, fetchedAt: this.now(), fetchError: null });
+      })
       .catch(err => {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`refresh failed: ${message}`);
+        if (gen === this.generation)
+          this.retryAfter = this.now() + this.failBackoffMs;
         return settle(
           this.snapshot
             ? { ...this.snapshot, fetchError: message }

@@ -18,6 +18,7 @@ import {
   type Merging,
   type OptimisticState,
 } from './optimistic.ts';
+import { skipWhileBusy } from './poll-guard.ts';
 import { pushSyncLine, resetSyncLines } from './sync-lines.ts';
 
 /** Thin useState/useEffect wrapper over the pure optimistic-lifecycle
@@ -234,8 +235,10 @@ export function useBoardData(
   );
 
   const fetchMember = useCallback(
-    (username: string) =>
-      getMember(username).then(d => mergeMember(username, d.mrs, d.fetchedAt)),
+    (username: string, opts?: { fresh?: boolean }) =>
+      getMember(username, opts).then(d =>
+        mergeMember(username, d.mrs, d.fetchedAt)
+      ),
     [mergeMember]
   );
 
@@ -244,8 +247,9 @@ export function useBoardData(
   // view keeps the slower full poll above.
   useEffect(() => {
     if (member === 'all') return;
+    const poll = skipWhileBusy(() => fetchMember(member));
     const timer = setInterval(() => {
-      if (!document.hidden) fetchMember(member).catch(() => {});
+      if (!document.hidden) poll();
     }, 15_000);
     return () => clearInterval(timer);
   }, [member, fetchMember]);
@@ -253,7 +257,8 @@ export function useBoardData(
   const [refreshing, setRefreshing] = useState(false);
   const refreshNow = useCallback(() => {
     setRefreshing(true);
-    const task = member === 'all' ? load(true) : fetchMember(member);
+    const task =
+      member === 'all' ? load(true) : fetchMember(member, { fresh: true });
     task.catch(() => {}).finally(() => setRefreshing(false));
   }, [member, load, fetchMember]);
 
