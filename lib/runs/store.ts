@@ -225,7 +225,7 @@ function runFilesSignature(dbPath: string): string | null {
       const w = statSync(`${dbPath}-wal`);
       wal = `${w.mtimeMs}:${w.size}`;
     } catch { /* no -wal file: the run is checkpointed or never wrote in WAL */ }
-    return `${db.mtimeMs}:${db.size}:${wal}`;
+    return `${db.ino}:${db.mtimeMs}:${db.size}:${wal}`;
   } catch {
     return null;
   }
@@ -238,7 +238,10 @@ const runDataCache = new Map<string, { sig: string; row: RunSummary; data: RunDa
 function cachedRunData(repo: string, id: string): { row: RunSummary; data: RunData } | null {
   const dbPath = join(runsRoot(), repo, id, "state.db");
   const sig = runFilesSignature(dbPath);
-  if (sig === null) return null;
+  if (sig === null) {
+    runDataCache.delete(dbPath);
+    return null;
+  }
   const hit = runDataCache.get(dbPath);
   if (hit && hit.sig === sig) return hit;
   const opened = openRun(repo, id);
@@ -259,14 +262,17 @@ export function listRuns(repo?: string, liveness?: RunLiveness, opts: { includeT
   const repos = repo ? [repo] : dirs(runsRoot());
   const out: RunSummary[] = [];
   const cachedFor = lazyCachedOutcomes();
+  const seen = new Set<string>();
   for (const r of repos) {
     for (const id of dirs(join(runsRoot(), r))) {
+      seen.add(join(runsRoot(), r, id, "state.db"));
       const read = cachedRunData(r, id);
       if (!read) continue;
       const { summary, src } = withAttention(read.row, read.data, liveness);
       out.push(withOutcome(summary, src, src.mrField ? cachedFor(summary.id) : null));
     }
   }
+  if (repo == null) pruneRunCaches(seen);
   const shown = opts.includeTests ? out : out.filter((r) => !r.test);
   return shown.sort((a, b) => b.started_at - a.started_at);
 }
@@ -396,6 +402,21 @@ function runSession(repo: string, id: string): string | null {
   sessionCache.set(dbPath, { sig, session });
   return session;
 }
+
+/** Drops cache entries under the current runs root whose run DB a full
+    listing no longer saw: the daemon is long-lived and runs get pruned. */
+function pruneRunCaches(seen: ReadonlySet<string>): void {
+  const root = runsRoot();
+  for (const cache of [runDataCache, settledRuns, sessionCache] as Map<string, unknown>[]) {
+    for (const path of cache.keys()) {
+      if (path.startsWith(root) && !seen.has(path)) cache.delete(path);
+    }
+  }
+}
+
+export const __test__ = {
+  cachedRunPaths: (): string[] => [...new Set([...runDataCache.keys(), ...settledRuns.keys(), ...sessionCache.keys()])],
+};
 
 export function findRunsBySession(sessionId: string, liveness?: RunLiveness): RunSessionMatch[] {
   const out: RunSessionMatch[] = [];

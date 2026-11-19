@@ -1,12 +1,43 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { chmodSync } from "fs";
+import { chmodSync, copyFileSync, rmSync, statSync, utimesSync } from "fs";
 import { join } from "path";
 import type { RunLiveness } from "../attention.ts";
-import { findRunsBySession, listRuns } from "../store.ts";
+import { __test__, findRunsBySession, listRuns } from "../store.ts";
 import { root, seedRun } from "./fixtures.ts";
 
 afterEach(() => { delete process.env.RT_RUNS_ROOT; });
+
+test("a run db replaced at the same path with the same size and mtime is read again", () => {
+  const dir = root();
+  seedRun(dir, "repoA", "run1", 1000, 1, { status: "done" });
+  seedRun(dir, "repoB", "run1", 1000, 1, { status: "failed" });
+  const target = join(dir, "repoA", "run1", "state.db");
+  const other = join(dir, "repoB", "run1", "state.db");
+  utimesSync(target, 1_000_000, 1_000_000);
+  expect(listRuns("repoA").map((r) => r.status)).toEqual(["done"]);
+  const before = statSync(target);
+  expect(statSync(other).size).toBe(before.size);
+  rmSync(target);
+  copyFileSync(other, target);
+  utimesSync(target, 1_000_000, 1_000_000);
+  const after = statSync(target);
+  expect([after.mtimeMs, after.size]).toEqual([before.mtimeMs, before.size]);
+  expect(listRuns("repoA").map((r) => r.status)).toEqual(["failed"]);
+});
+
+test("a full listing drops cache entries for runs that were deleted", () => {
+  const dir = root();
+  seedRun(dir, "repoA", "run1", 1000, 1, { status: "done" });
+  seedRun(dir, "repoA", "run2", 2000, 1, { status: "done" });
+  listRuns();
+  const gone = join(dir, "repoA", "run1", "state.db");
+  expect(__test__.cachedRunPaths()).toContain(gone);
+  rmSync(join(dir, "repoA", "run1"), { recursive: true });
+  listRuns();
+  expect(__test__.cachedRunPaths()).not.toContain(gone);
+  expect(__test__.cachedRunPaths()).toContain(join(dir, "repoA", "run2", "state.db"));
+});
 
 test("a finished run's db is opened once, then served from the cache", () => {
   const dir = root();
