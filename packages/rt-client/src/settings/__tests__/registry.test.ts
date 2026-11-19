@@ -447,12 +447,13 @@ describe("settings/registry", () => {
         "rt.evidence.foldScreenshots",
         "rt.notify.sounds",
         "review.ruleSelector",
+        "review.rereviewRounds",
         "rt.gates.kitForm",
         "rt.work.gateMode",
         "rt.work.gateModeShadow",
         "superpowers.execution",
       ];
-      expect(suiteKeys).toHaveLength(112);
+      expect(suiteKeys).toHaveLength(113);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
