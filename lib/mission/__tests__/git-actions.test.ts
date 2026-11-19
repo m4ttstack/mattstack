@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scrubGitEnv } from "../../../packages/git-core/src/exec.ts";
 import type { GitWorktreeBadge } from "../../../packages/rt-client/src/commands.ts";
-import { deriveAction, failureDetail, parseFilesToBeOverwritten, publishRepo, runAction } from "../git-actions.ts";
+import { actionFailureLogger, deriveAction, failureDetail, parseFilesToBeOverwritten, publishRepo, runAction } from "../git-actions.ts";
 
 describe("parseFilesToBeOverwritten (GHD's port)", () => {
   test("reads the tab-indented list under the error line and stops at the first unindented line", () => {
@@ -526,7 +526,11 @@ describe("publishRepo: gh repo create", () => {
     try {
       const gh = fakeGh(bin, 1, "GraphQL: Name already exists on this account (createRepository)");
       const result = await publishRepo(a.dir, { name: "acme-app", private: true }, gh.path);
-      expect(result).toEqual({ ok: false, detail: "GraphQL: Name already exists on this account (createRepository)" });
+      expect(result).toEqual({
+        ok: false,
+        detail: "GraphQL: Name already exists on this account (createRepository)",
+        stderr: "GraphQL: Name already exists on this account (createRepository)",
+      });
     } finally {
       rmSync(bin, { recursive: true, force: true });
       await a.cleanup();
@@ -729,5 +733,35 @@ describe("deriveAction: meta relative wording", () => {
       busy: false,
     });
     expect(action.meta).toBe("Last fetched 3 minutes ago");
+  });
+});
+
+describe("actionFailureLogger", () => {
+  test("writes one error line on the glitter module with credentials scrubbed out", () => {
+    const lines: unknown[][] = [];
+    const log = actionFailureLogger((...args) => lines.push(args));
+
+    log({
+      action: "pull",
+      worktree: "/repo",
+      branch: "main",
+      detail: "fatal: unable to access 'https://x:ghp_SECRET@github.com/o/r/'",
+      stderr: "remote: token=ghp_SECRET\nfatal: unable to access 'https://x:ghp_SECRET@github.com/o/r/'\n",
+    });
+
+    expect(lines).toHaveLength(1);
+    const [level, module, message, context] = lines[0] as [string, string, string, Record<string, string>];
+    expect([level, module, message]).toEqual(["error", "glitter", "pull failed"]);
+    expect(context.worktree).toBe("/repo");
+    expect(context.branch).toBe("main");
+    expect(JSON.stringify(context)).not.toContain("ghp_SECRET");
+    expect(context.stderr).toContain("fatal: unable to access");
+  });
+
+  test("a write that throws never escapes", () => {
+    const log = actionFailureLogger(() => {
+      throw new Error("disk full");
+    });
+    expect(() => log({ action: "fetch", worktree: "/repo", branch: null, detail: "x" })).not.toThrow();
   });
 });

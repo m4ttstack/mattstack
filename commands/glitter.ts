@@ -8,7 +8,8 @@ import { existsSync } from "fs";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { createFileActions } from "../lib/file-actions.ts";
 import { MissionDriver, type MissionDeps } from "../lib/mission/driver.ts";
-import { publishRepo, runAction } from "../lib/mission/git-actions.ts";
+import { actionFailureLogger, publishRepo, runAction } from "../lib/mission/git-actions.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
 import { pickableRepos, resolveGlitterStart, readLastRepo, writeLastRepo, type PickResult } from "../lib/mission/launch.ts";
 import { randomSkewMs } from "../lib/mission/indicator-updater.ts";
 import { isRepoRegistered } from "../lib/repo-index.ts";
@@ -76,6 +77,7 @@ export async function glitterCommand(_args: string[], _ctx: CommandContext): Pro
     identityOf: identityForRootReadOnly,
     isRegistered: isRepoRegistered,
     saveLastRepo: writeLastRepo,
+    logActionFailure: actionFailureLogger(logCliEvent),
     indicatorTimers: {
       setTimer: (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; },
       clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),

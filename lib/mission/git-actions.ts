@@ -1,4 +1,5 @@
 import { scrubGitEnv } from "../../packages/git-core/src/exec.ts";
+import { withoutUrls } from "../team/redact.ts";
 import type { GitWorktreeBadge } from "../../packages/rt-client/src/commands.ts";
 
 export type ActionKind =
@@ -23,6 +24,8 @@ export interface ActionState {
 export interface ActionResult {
   ok: boolean;
   detail: string;
+  /** git's (or gh's) whole stderr on a failure, for the log; detail is the one line the notice shows. */
+  stderr?: string;
   /** GHD's PushNotFastForward: the remote has commits this branch lacks, so the view offers to fetch them. */
   pushNeedsPull?: boolean;
   /** GHD's MergeWithLocalChanges or RebaseWithLocalChanges: uncommitted changes blocked a pull, so the view offers to stash them. */
@@ -128,13 +131,13 @@ async function spawnGitStderr(cwd: string, args: string[]): Promise<{ ok: boolea
 
 async function spawnGit(cwd: string, args: string[]): Promise<ActionResult> {
   const { ok, stderr } = await spawnGitStderr(cwd, args);
-  return ok ? { ok: true, detail: "" } : { ok: false, detail: failureDetail(stderr) };
+  return ok ? { ok: true, detail: "" } : { ok: false, detail: failureDetail(stderr), stderr };
 }
 
 async function push(cwd: string, remote: string): Promise<ActionResult> {
   const { ok, stderr } = await spawnGitStderr(cwd, ["push", remote]);
   if (ok) return { ok: true, detail: "" };
-  return { ok: false, detail: failureDetail(stderr), pushNeedsPull: PUSH_NOT_FAST_FORWARD.test(stderr) };
+  return { ok: false, detail: failureDetail(stderr), stderr, pushNeedsPull: PUSH_NOT_FAST_FORWARD.test(stderr) };
 }
 
 // getRemoteDefaultBranch's local-first path (mission's own interactive
@@ -188,6 +191,7 @@ export async function runAction(
       return {
         ok: false,
         detail: failureDetail(stderr),
+        stderr,
         ...(blocked ? { localChangesOverwritten: { files: parseFilesToBeOverwritten(stderr) } } : {}),
       };
     }
@@ -226,6 +230,24 @@ export async function publishRepo(
     new Response(proc.stderr as ReadableStream).text(),
     proc.exited,
   ]);
-  if (code !== 0) return { ok: false, detail: failureDetail(err) };
+  if (code !== 0) return { ok: false, detail: failureDetail(err), stderr: err };
   return { ok: true, detail: "" };
+}
+
+/**
+ * The CLI log line for a failed remote action. git can quote a remote URL
+ * that carries a token, so every free-text field is scrubbed first.
+ */
+export function actionFailureLogger(
+  write: (level: "error", module: string, message: string, context: Record<string, unknown>) => void,
+): (entry: { action: string; worktree: string; branch: string | null; detail: string; stderr?: string }) => void {
+  return (entry) => {
+    try {
+      write("error", "glitter", `${entry.action} failed`, {
+        ...entry,
+        detail: withoutUrls(entry.detail),
+        ...(entry.stderr !== undefined ? { stderr: withoutUrls(entry.stderr) } : {}),
+      });
+    } catch { /* a log write must never fail the action it records */ }
+  };
 }
