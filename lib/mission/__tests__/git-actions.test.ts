@@ -791,6 +791,16 @@ describe("actionFailureLogger", () => {
     expect(stderr.endsWith("error: the real reason")).toBe(true);
   });
 
+  test("a secret straddling the cut point is scrubbed before the tail is taken", () => {
+    const lines: unknown[][] = [];
+    const log = actionFailureLogger((...args) => lines.push(args));
+    const secret = "zq9SECRETzq9SECRETzq9SECRETzq9SECRET";
+
+    log({ action: "push", worktree: "/repo", branch: "main", detail: "x", stderr: `remote: DEPLOY_TOKEN=${secret}\n${"x".repeat(7_980)}` });
+
+    expect((lines[0]![3] as { stderr: string }).stderr).not.toContain("zq9SECRET");
+  });
+
   test("a write that throws never escapes", () => {
     const log = actionFailureLogger(() => {
       throw new Error("disk full");

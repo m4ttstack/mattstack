@@ -252,11 +252,12 @@ export function actionFailureLogger(
 ): (entry: { action: string; worktree: string; branch: string | null; detail: string; stderr?: string; stack?: string }) => void {
   return (entry) => {
     try {
-      const stderr = entry.stderr === undefined ? undefined : entry.stderr.slice(-STDERR_LOG_LIMIT);
+      // Scrubbed whole, then cut: a cut inside NAME=value would orphan the value from the name its pattern needs.
+      const stderr = entry.stderr === undefined ? undefined : scrubForLog(entry.stderr).slice(-STDERR_LOG_LIMIT);
       write("error", "glitter", `${entry.action} failed`, {
         ...entry,
         detail: scrubForLog(entry.detail),
-        ...(stderr !== undefined ? { stderr: scrubForLog(stderr) } : {}),
+        ...(stderr !== undefined ? { stderr } : {}),
         ...(entry.stack !== undefined ? { stack: scrubForLog(entry.stack) } : {}),
       });
     } catch { /* a log write must never fail the action it records */ }
