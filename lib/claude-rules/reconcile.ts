@@ -3,7 +3,7 @@ import { cswapConfigDirs } from "../cswap.ts";
 import type { Probes } from "../setup/probes.ts";
 import { claudeConfigDirs } from "../setup/tools-install.ts";
 import { memberPackSources, readPackRules, writePackEntry } from "./packs.ts";
-import { claudeRulesDir, distinctConfigDirs, linkConfigDir, mattstackRulesSource, realPath } from "./paths.ts";
+import { claudeRulesDir, distinctConfigDirs, linkConfigDir, mattstackRulesSource, realPath, type MattstackRulesSource } from "./paths.ts";
 
 export interface ClaudeRulesResult {
   mattstack: "linked" | "ok" | { skipped: string };
@@ -19,12 +19,19 @@ function removeEntry(p: Probes, path: string): void {
   else p.removeDir(path);
 }
 
-function pointMattstack(p: Probes, dir: string, source: { path: string } | { skipped: string }): ClaudeRulesResult["mattstack"] {
+/** The first config dir whose marketplace list names a usable mattstack marketplace; else the first dir's reason, an unreadable list first. */
+function findMattstackSource(p: Probes, configDirs: string[]): MattstackRulesSource {
+  const tried = configDirs.map((dir) => mattstackRulesSource(p, dir));
+  return tried.find((s) => "path" in s) ?? tried.find((s) => "skipped" in s && s.unreadable) ?? tried[0]!;
+}
+
+function pointMattstack(p: Probes, dir: string, source: MattstackRulesSource): ClaudeRulesResult["mattstack"] {
   const entry = join(dir, MATTSTACK_ENTRY);
   const present = p.exists(entry) || p.readlink(entry) !== null;
   if ("skipped" in source) {
+    if (source.unreadable && present) return "ok";
     if (present) removeEntry(p, entry);
-    return source;
+    return { skipped: source.skipped };
   }
   const current = p.readlink(entry);
   if (current !== null && realPath(resolve(dir, current)) === realPath(source.path)) return "ok";
@@ -37,9 +44,9 @@ function pointMattstack(p: Probes, dir: string, source: { path: string } | { ski
 export async function reconcileClaudeRules(p: Probes): Promise<ClaudeRulesResult> {
   const dir = claudeRulesDir(p.home);
   p.mkdirp(dir);
-  const configDirs = distinctConfigDirs(claudeConfigDirs(p, cswapConfigDirs(p)));
+  const configDirs = distinctConfigDirs(claudeConfigDirs(p, cswapConfigDirs(p)), "rules");
 
-  const mattstack = pointMattstack(p, dir, mattstackRulesSource(p, configDirs[0]!));
+  const mattstack = pointMattstack(p, dir, findMattstackSource(p, configDirs));
 
   const packs: ClaudeRulesResult["packs"] = [];
   const kept = new Set([MATTSTACK_ENTRY]);

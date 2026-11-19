@@ -27,14 +27,17 @@ function insideHome(path: string, home: string): boolean {
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
-export function mattstackRulesSource(p: Pick<Probes, "readFile" | "exists" | "home">, configDir: string): { path: string } | { skipped: string } {
+/** `unreadable` marks a list Claude may be rewriting right now: the caller keeps what it had rather than act on it. */
+export type MattstackRulesSource = { path: string } | { skipped: string; unreadable?: true };
+
+export function mattstackRulesSource(p: Pick<Probes, "readFile" | "exists" | "home">, configDir: string): MattstackRulesSource {
   const raw = p.readFile(join(configDir, "plugins", "known_marketplaces.json"));
   if (raw === null) return { skipped: "Claude has no marketplaces registered yet" };
   let known: unknown;
   try {
     known = JSON.parse(raw);
   } catch {
-    return { skipped: "Claude's marketplace list could not be read" };
+    return { skipped: "Claude's marketplace list could not be read", unreadable: true };
   }
   const loc = (known as Record<string, { installLocation?: unknown } | undefined>)?.[MATTSTACK_MARKETPLACE]?.installLocation;
   if (typeof loc !== "string" || loc === "") return { skipped: "the mattstack marketplace is not registered with Claude" };
@@ -55,11 +58,11 @@ export function linkConfigDir(p: Probes, configDir: string, target: string): "cr
   return "created";
 }
 
-/** One config dir per distinct `plugins/` folder, keeping the first (the default dir leads). */
-export function distinctConfigDirs(dirs: string[]): string[] {
+/** One config dir per distinct `<dir>/<sub>` folder, keeping the first (the default dir leads). cswap sessions often share `plugins/` but not `rules/`, so callers pick the folder they write into. */
+export function distinctConfigDirs(dirs: string[], sub: "plugins" | "rules" = "plugins"): string[] {
   const seen = new Set<string>();
   return dirs.filter((dir) => {
-    const key = realPath(join(dir, "plugins"));
+    const key = realPath(join(dir, sub));
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

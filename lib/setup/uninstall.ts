@@ -326,7 +326,7 @@ async function removeGeneratedMarketplaces(ctx: ApplyContext, exec: string[], no
 /** Only a `rules/mattstack` that links to rt's rules folder is rt's; anything else there rt did not make, so rt leaves it alone. */
 function removeClaudeRulesLinks(p: Probes): void {
   const target = realPath(claudeRulesDir(p.home));
-  for (const dir of distinctConfigDirs(claudeConfigDirs(p, cswapConfigDirs(p)))) {
+  for (const dir of distinctConfigDirs(claudeConfigDirs(p, cswapConfigDirs(p)), "rules")) {
     const rules = join(dir, "rules");
     const link = join(rules, "mattstack");
     const current = p.readlink(link);

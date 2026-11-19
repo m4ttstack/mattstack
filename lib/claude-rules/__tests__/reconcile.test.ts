@@ -106,9 +106,50 @@ describe("reconcileClaudeRules", () => {
   test("a marketplace that goes away takes its stale link with it", async () => {
     freshMac();
     await reconcileClaudeRules(p);
-    rmSync(join(home, ".claude", "plugins", "known_marketplaces.json"));
+    writeFileSync(join(home, ".claude", "plugins", "known_marketplaces.json"), JSON.stringify({ other: { installLocation: join(home, "x") } }));
     await reconcileClaudeRules(p);
     expect(existsSync(join(claudeRulesDir(home), "mattstack"))).toBe(false);
+  });
+
+  test("a marketplace list caught mid-write keeps the working mattstack link", async () => {
+    freshMac();
+    await reconcileClaudeRules(p);
+    writeFileSync(join(home, ".claude", "plugins", "known_marketplaces.json"), "{\"mattstack\": {");
+    const r = await reconcileClaudeRules(p);
+    expect(r.mattstack).toBe("ok");
+    expect(readFileSync(join(claudeRulesDir(home), "mattstack", "chat.md"), "utf8")).toBe("# Chat rule\n");
+  });
+
+  test("the mattstack source comes from any config dir that registers it", async () => {
+    const other = join(home, "other-claude");
+    mkdirSync(join(other, "plugins"), { recursive: true });
+    const acct = join(home, ".claude-swap-backup", "sessions", "work");
+    marketplace(acct);
+    p = { ...p, env: { HOME: home, CLAUDE_CONFIG_DIR: other } };
+    const r = await reconcileClaudeRules(p);
+    expect(r.mattstack).toBe("linked");
+  });
+
+  test("a cswap session sharing ~/.claude's plugins folder still gets its own link", async () => {
+    freshMac();
+    const acct = join(home, ".claude-swap-backup", "sessions", "work");
+    mkdirSync(acct, { recursive: true });
+    symlinkSync(join(home, ".claude", "plugins"), join(acct, "plugins"));
+    const r = await reconcileClaudeRules(p);
+    expect(r.links).toEqual([
+      { configDir: join(home, ".claude"), state: "created" },
+      { configDir: acct, state: "created" },
+    ]);
+  });
+
+  test("a session whose rules folder is ~/.claude/rules is linked once", async () => {
+    freshMac();
+    const acct = join(home, ".claude-swap-backup", "sessions", "work");
+    mkdirSync(join(home, ".claude", "rules"), { recursive: true });
+    mkdirSync(acct, { recursive: true });
+    symlinkSync(join(home, ".claude", "rules"), join(acct, "rules"));
+    const r = await reconcileClaudeRules(p);
+    expect(r.links).toEqual([{ configDir: join(home, ".claude"), state: "created" }]);
   });
 
   test("CLAUDE_CONFIG_DIR is where the link goes", async () => {

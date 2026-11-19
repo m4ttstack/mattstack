@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, join } from "path";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
@@ -367,6 +367,18 @@ describe("rt uninstall", () => {
         updateSetupState(p, (s) => ({ ...s, plugins: ["mattstack@mattstack"] }));
         await runUninstall(makeCtx(p).ctx, actions);
         expect(p.calls.removed.some((r) => r.startsWith(link()))).toBe(false);
+      });
+
+      test("a cswap session sharing ~/.claude's plugins folder loses its link too", async () => {
+        const acct = join(home, ".claude-swap-backup", "sessions", "work");
+        mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+        mkdirSync(acct, { recursive: true });
+        symlinkSync(join(home, ".claude", "plugins"), join(acct, "plugins"));
+        const acctLink = join(acct, "rules", "mattstack");
+        const p = bareProbes({ ...pathTool("claude"), links: { [link()]: claudeRulesDir(home), [acctLink]: claudeRulesDir(home) }, dirs: { [claudeRulesDir(home)]: [], [join(home, ".claude-swap-backup", "sessions")]: ["work"] }, statPaths: { [acct]: { isDirectory: true, writable: true } } });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["mattstack@mattstack"] }));
+        await runUninstall(makeCtx(p).ctx, actions);
+        expect(p.calls.removed).toContain(acctLink);
       });
 
       test("a link elsewhere stays", async () => {
