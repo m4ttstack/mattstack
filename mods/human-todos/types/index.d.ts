@@ -10,6 +10,8 @@ export type AddInput = {
   url?: string
   paths?: string[]
   cwd?: string
+  // The Done button's own words for this item, e.g. "I've signed in"; plain Done when left out.
+  doneLabel?: string
 }
 
 export type Todo = {
@@ -21,6 +23,7 @@ export type Todo = {
   url?: string
   paths?: string[]
   cwd?: string
+  doneLabel?: string
   status: TodoStatus
   exitCode?: number
   outputTail?: string
@@ -41,6 +44,8 @@ declare module 'claude-code' {
       todos: Shaped<Todo[]>
       nextId: number
       expanded: string[]
+      composing: string | null
+      composeLines: number
       loadedFor: string | null
       isSaveFailed: boolean
       frame: number

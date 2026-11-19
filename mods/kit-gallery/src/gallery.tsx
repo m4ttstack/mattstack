@@ -73,7 +73,7 @@ const LONG: Choice[] = ['Rename', 'Extract', 'Inline', 'Move', 'Split', 'Merge',
 const TAB_NAMES = ['Overview', 'Install', 'Configure', 'Usage', 'Hooks', 'Commands', 'Settings', 'Tools', 'Panes', 'Themes', 'Testing', 'Release', 'Upgrade', 'Support', 'Billing', 'Audit', 'Export', 'Import', 'Sync', 'Search']
 
 // The filled tones, each drawn beside its FILL swatch; quiet has no fill to show.
-type FilledTone = Exclude<ButtonTone, 'quiet'>
+type FilledTone = Exclude<ButtonTone, 'quiet' | 'plain'>
 const TONES: FilledTone[] = ['primary', 'secondary', 'neutral', 'caution', 'brand']
 
 function toneRow(ui: Ui, tone: FilledTone) {
@@ -134,9 +134,9 @@ function barsPage(ui: Ui, width: number) {
   return [
     ...heading('BrandBar'),
     <BrandBar title="mattstack kit gallery" />,
-    <Rail dim>No Hide button: the pane has nothing to put away.</Rail>,
+    <Rail dim>No close button: the pane has nothing to put away.</Rail>,
     <BrandBar title="mattstack kit gallery" onHide={ui.hide} />,
-    <Rail dim>With Hide: the button puts this pane away.</Rail>,
+    <Rail dim>With the close button: it puts this pane away.</Rail>,
     ...heading('InputField: focused on the left, unfocused on the right'),
     field('', 'Name the function'),
     field('fetchAllPages', 'Name the function'),

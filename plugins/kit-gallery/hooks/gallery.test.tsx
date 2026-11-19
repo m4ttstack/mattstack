@@ -128,7 +128,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 
-  test(`the Hide button on the bars page asks the hooks module to close the pane (${surface})`, async ($, on) => {
+  test(`the Close button on the bars page asks the hooks module to close the pane (${surface})`, async ($, on) => {
     const seen = stubEngine(on)
     const ui = await $.ui.mount({ ...PANE, surface })
     const key = (await ui.find({ type: 'Client' }))!.key!
@@ -139,7 +139,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.pointer({ type: 'up', ...tab, button: 'left' })
 
     const rows = await rowsOf(ui, key)
-    const button = `Hide \u{EAB4}`
+    const button = 'Close'
     const hide = { y: rows.findIndex(r => r.includes(button)), x: 0 }
     expect(hide.y).toBeGreaterThan(-1)
     hide.x = rows[hide.y]!.indexOf(button) + 2
