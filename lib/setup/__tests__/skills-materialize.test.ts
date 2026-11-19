@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
 import { execFileSync } from "node:child_process";
+import * as repoIndex from "../../repo-index.ts";
 import { updateRepoIndex } from "../../repo-index.ts";
 import { setSetting } from "../../settings/write.ts";
 import { UserActionableError } from "../../errors.ts";
@@ -103,6 +104,22 @@ describe("materializeSkills", () => {
     expect(row.ok).toBe(true);
     expect(row.packs?.[0]).toMatchObject({ pack: "widgets", ok: true, path: join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc") });
     expect(row.detail).toBe("Wrote 1 pack file: widgets");
+  });
+
+  test("lists repos without the sync repo scan, which blocks the daemon thread after a team pull", async () => {
+    const { name } = seedRepo("https://gitlab.example.com/acme/widgets.git");
+    seedZone();
+    const sync = spyOn(repoIndex, "getKnownRepos");
+    try {
+      const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+      const result = await materializeSkills(p, {});
+      expect(sync).not.toHaveBeenCalled();
+      expect(result.skipped).toBe(false);
+      if (result.skipped) return;
+      expect(result.repos.find((r) => r.name === name)?.ok).toBe(true);
+    } finally {
+      sync.mockRestore();
+    }
   });
 
   test("a repo with no remote is noManifest, not a failure", async () => {
