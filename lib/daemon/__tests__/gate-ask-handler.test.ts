@@ -664,6 +664,23 @@ describe("gate:ask kit presentation", () => {
     expect(store.get(res.data.id)!.nudge ?? null).toBeNull();
   });
 
+  test("shepherdRelay opens a gate with a pane and kitForm as wait, keeping the worker's nudge, with no advisory", async () => {
+    const { handlers, store } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({ ...base, questions: fiveOptionQuestion(), kitForm: true, shepherdRelay: true });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.presentation).toBe("wait");
+    expect(res.data.boardOnly).toBe(false);
+    expect(res.data.formCapAdvisory).toBeUndefined();
+    expect(store.get(res.data.id)!.nudge).toEqual({ session: "sess-1" });
+  });
+
+  test("without shepherdRelay the same ask still opens as kit", async () => {
+    const { handlers } = harness({ resolveSubject });
+    const res = await handlers["gate:ask"]({ ...base, questions: twoOptionQuestion(), kitForm: true, shepherdRelay: false });
+    expect(res.ok && res.data.presentation).toBe("kit");
+  });
+
   test("a normal kind reports boardOnly false", async () => {
     const { handlers } = harness({ resolveSubject });
     const res = await handlers["gate:ask"]({ ...base, questions: twoOptionQuestion() });

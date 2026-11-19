@@ -1,6 +1,6 @@
 {
   "name": "gate-form",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Draws mattstack gate questions as a form in a pane, with no question or option caps.",
   "author": {
     "name": "Matthew Goodwin"

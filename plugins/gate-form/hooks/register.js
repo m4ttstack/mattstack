@@ -691,6 +691,7 @@ function agentReply(form, outcome) {
 `);
 }
 var GATE_INSTRUCTION = (gateId) => `The gate is open in the kit form. Open any boards first (per \`boards_to_open\`), then end your turn holding at gate \`${gateId}\`. The answer arrives as your next input.`;
+var RELAY_INSTRUCTION = (gateId) => `Gate \`${gateId}\` is queued in your kit form. Present any other open gates, then end your turn. The answer is recorded as the shepherd's and wakes its worker; don't wait on it or reconcile it.`;
 var BOARD_INSTRUCTION = (gateId) => `The kit form can't draw this gate, so it waits on the board. Run \`rt gate wait ${gateId}\` as a background Bash task, then end your turn holding at gate \`${gateId}\`.`;
 var BOARD_TOAST = (title, reason) => `${title} can't show in the form: ${reason} Answer it on the board.`;
 var GATE_ANSWERED = (gateId) => `Gate ${gateId} was answered in the kit form. Call gate_reconcile for it.`;
@@ -859,11 +860,13 @@ function gateFormOf(id, title, context, questions, controls) {
 }
 function gateForm(fields, title) {
   const kit = isObject2(fields.kitForm) ? fields.kitForm : {};
-  return gateFormOf(fields.id, title, kit.context, kit.questions, kit.controls);
+  const form = gateFormOf(fields.id, title, kit.context, kit.questions, kit.controls);
+  return typeof form === "string" || fields.relay !== true ? form : { ...form, relay: true };
 }
 function agentFields(fields) {
   const { kitForm: _, ...rest } = fields;
-  return { ...rest, instruction: GATE_INSTRUCTION(String(fields.id)) };
+  const id = String(fields.id);
+  return { ...rest, instruction: fields.relay === true ? RELAY_INSTRUCTION(id) : GATE_INSTRUCTION(id) };
 }
 function boardFields(fields) {
   const { kitForm: _, ...rest } = fields;
@@ -910,7 +913,7 @@ function formFromRow(row) {
   const controls = isObject2(row.meta) ? row.meta.kitControls : undefined;
   return gateFormOf(row.id, isText(row.kind) ? row.kind : DEFAULT_TITLE, row.context, row.questions, controls);
 }
-function answerOutcome(stdout, session) {
+function answerOutcome(stdout, session, by = "pane") {
   let parsed;
   try {
     parsed = JSON.parse(stdout);
@@ -920,7 +923,7 @@ function answerOutcome(stdout, session) {
   if (!isObject2(parsed) || parsed.conflict !== true)
     return "recorded";
   const answer = isObject2(parsed.row) && isObject2(parsed.row.answer) ? parsed.row.answer : {};
-  return answer.by === "pane" && answer.session === session ? "recorded" : "elsewhere";
+  return answer.by === by && answer.session === session ? "recorded" : "elsewhere";
 }
 
 // mods/gate-form/src/gate/rt.ts
@@ -1165,7 +1168,8 @@ async function markFailed($, form, error) {
 }
 async function recordAnswer($, form, gateId, answers) {
   const session = await $.session.id();
-  const args = ["gate", "answer", gateId, "--answers", JSON.stringify(answers), "--by", "pane", "--session", session];
+  const by = form.relay ? "shepherd" : "pane";
+  const args = ["gate", "answer", gateId, "--answers", JSON.stringify(answers), "--by", by, "--session", session];
   let error;
   let outcome = "recorded";
   try {
@@ -1173,7 +1177,7 @@ async function recordAnswer($, form, gateId, answers) {
     if (ran.exitCode !== 0)
       error = `Not recorded: ${rtError(ran)}`;
     else
-      outcome = answerOutcome(ran.stdout, session);
+      outcome = answerOutcome(ran.stdout, session, by);
   } catch (failure) {
     error = failureText(failure);
   }
@@ -1183,7 +1187,7 @@ async function recordAnswer($, form, gateId, answers) {
   }
   const patch = outcome === "elsewhere" ? { status: "answered", error: undefined, note: ELSEWHERE } : { status: "answered", error: undefined };
   const forms = await writeForms($, (list) => patchForm(list, form.id, patch));
-  if (outcome === "recorded")
+  if (outcome === "recorded" && !form.relay)
     await wakeAnswered($, gateId);
   await showCurrent($, forms, outcome === "elsewhere" ? ELSEWHERE : undefined);
   return true;
@@ -1303,12 +1307,14 @@ async function gateEnded($, gateId, end) {
   const open = (await readForms($)).filter((f) => f.gateId === gateId && f.status === "open" && !answering.has(f.id));
   if (open.length === 0)
     return $.ui.invalidate("ui.render");
-  const self = isSelf(end, await $.session.id());
+  const session = await $.session.id();
+  const relay = open.some((f) => f.relay);
+  const self = isSelf(end, session) || relay && end.status === "answered" && end.by === "shepherd" && end.session === session;
   const won = end.status === "answered" ? end.answers : undefined;
   const note = self ? undefined : [endNote(end), won && controlText(won)].filter(Boolean).join(". ");
   const patch = self ? { status: "answered", error: undefined } : { status: end.status === "answered" ? "answered" : "cancelled", error: undefined, note, ...won && { won } };
   const forms = await writeForms($, (list) => list.map((f) => open.some((o) => o.id === f.id) ? { ...f, ...patch } : f));
-  if (self)
+  if (self && !relay)
     await wakeAnswered($, gateId);
   await showCurrent($, forms, note && `${open[0].title}: ${note}`);
 }
@@ -1464,28 +1470,33 @@ function withText(result, text) {
     return { ...result, content: [{ type: "text", text }], structuredContent: undefined };
   return text;
 }
-async function takeGate($, e, next) {
+async function takeGate($, e, next, present = false) {
   if (setting.reading)
     await setting.reading;
   if (!canDraw(e))
     return next(e);
-  const out = await next({ ...e, kitForm: true });
+  const out = await next(present ? e : { ...e, kitForm: true });
   if (out.deny !== undefined || out.isError)
     return out;
   const text = textOf(out);
   const kit = readKitResult(text);
   const board = kit.kind === "other" ? readBoardOnly(text) : undefined;
+  const boardKind = board && present ? JSON.parse(text).kind : e.kind;
   if (board)
-    await addBoard($, { gateId: board.gateId, kind: String(e.kind ?? "") }, board.supersededId);
+    await addBoard($, { gateId: board.gateId, kind: String(boardKind ?? "") }, board.supersededId);
   if (kit.kind === "other")
     return out;
-  const kind = e.kind;
+  const kind = present && kit.kind === "kit" ? kit.fields.kind : e.kind;
   const title = typeof kind === "string" && kind.trim() !== "" ? kind : GATE_TITLE;
   const kindText = typeof kind === "string" ? kind : "";
+  if (present && (kit.kind !== "kit" || typeof gateForm(kit.fields, GATE_TITLE) === "string"))
+    return out;
   if (kit.kind === "kit") {
     const gateId = kit.fields.id;
     if (typeof gateId !== "string" || gateId === "")
       return out;
+    if (present && (await readForms($)).some((f) => f.gateId === gateId && f.status === "open"))
+      return { result: withText(out.result, JSON.stringify(agentFields(kit.fields))) };
     const shown = await showKitGate($, gateForm(kit.fields, title), { gateId, kind: kindText }, supersededOf(kit.fields));
     return { result: withText(out.result, JSON.stringify(shown === "form" ? agentFields(kit.fields) : boardFields(kit.fields))) };
   }
@@ -1610,6 +1621,7 @@ function register(on) {
   });
   on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_ask" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));
   on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__gate_open" }, ($, e, next) => takeGate($, e, next)).catch(($, e, next) => next(e));
+  on("tool.call", { tool: "mcp__plugin_mattstack_mattstack__herd_gate_present" }, ($, e, next) => takeGate($, e, next, true)).catch(($, e, next) => next(e));
   on("prompt.edit", async ($, e, next) => {
     await setKeysInForm($, false);
     return next(e);

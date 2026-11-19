@@ -5,9 +5,25 @@ kind: gate
 
 # Present the open gates
 
-Present up to 4 open gates in one AskUserQuestion call. Options are the
-gate's `label` (else text) and `description`, the recommendation first,
-never reworded, merged or reordered.
+Every open gate you present that is not a milestone gate goes through
+`herd_gate_present {herd, gate}` first: one call per gate, every such gate,
+no cap. Its result is one of three things:
+
+- An `instruction` saying the gate is queued in your kit form. The form
+  shows the user exactly what the worker would have shown, records the
+  answer `by: shepherd` and wakes the worker, so nothing about that gate
+  is left to you. Once every gate is presented, end your turn. A later
+  push for a gate you already presented needs nothing.
+- `boardOnly: true`: the gate is answered on the board (with the kit form
+  on, a band for it shows above your prompt). Tell the user in one line which job's gate
+  waits on the board; nothing else about it is yours.
+- The gate's `kitForm` with no `instruction`: this pane draws no kit form.
+  Present that gate in AskUserQuestion, below.
+
+AskUserQuestion takes milestone gates and the gates the kit form did not
+take, up to 4 per call. Options are the gate's `label` (else text) and
+`description`, the recommendation first, never reworded, merged or
+reordered.
 
 - A herd question gate (`kind: question`, subject `herd:<id>/<job>`): one sentence naming the job and what it needs decided, then the form with the gate question's `label`.
 - Any other gate: its full context.

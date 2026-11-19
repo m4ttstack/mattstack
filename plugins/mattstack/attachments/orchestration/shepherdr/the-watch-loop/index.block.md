@@ -95,6 +95,7 @@ flowchart TB
     open_gates_returned -->|none: a stale id is normal| end_turn_wait
     answer_literal_in_brief -->|yes| herd_gate_answer
     answer_literal_in_brief -->|no| present_open_gates
+    present_open_gates -->|every gate queued in the kit form| end_turn_wait
     present_open_gates -->|the user answers| herd_gate_answer
     present_open_gates -->|the user parks it| herd_gate_park
     herd_gate_park --> end_turn_wait

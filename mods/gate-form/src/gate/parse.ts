@@ -1,6 +1,6 @@
 import type { Controls, Form, FormOption, FormQuestion } from '../../types'
 import { WRITE_IN } from '../form/state'
-import { BOARD_INSTRUCTION, GATE_INSTRUCTION } from './reply'
+import { BOARD_INSTRUCTION, GATE_INSTRUCTION, RELAY_INSTRUCTION } from './reply'
 
 const DEFAULT_TITLE = 'Questions'
 
@@ -182,13 +182,15 @@ function gateFormOf(id: unknown, title: string, context: unknown, questions: unk
 
 export function gateForm(fields: Fields, title: string): Form | string {
   const kit = isObject(fields.kitForm) ? fields.kitForm : {}
-  return gateFormOf(fields.id, title, kit.context, kit.questions, kit.controls)
+  const form = gateFormOf(fields.id, title, kit.context, kit.questions, kit.controls)
+  return typeof form === 'string' || fields.relay !== true ? form : { ...form, relay: true }
 }
 
 // What the agent reads: every field of the tool's result but the form it no longer has to draw, and what to do now.
 export function agentFields(fields: Fields): Fields {
   const { kitForm: _, ...rest } = fields
-  return { ...rest, instruction: GATE_INSTRUCTION(String(fields.id)) }
+  const id = String(fields.id)
+  return { ...rest, instruction: fields.relay === true ? RELAY_INSTRUCTION(id) : GATE_INSTRUCTION(id) }
 }
 
 // What the agent reads when the form can't draw the gate: the wait branch, so it holds with `rt gate wait`.
@@ -277,7 +279,7 @@ export function formFromRow(row: GateRow): Form | string {
 
 // What `rt gate answer` exiting 0 means: recorded, unless it lost the race, when its winning row says by whom.
 // This pane's own earlier answer (a retried submit) is as good as recorded; output that won't parse is recorded.
-export function answerOutcome(stdout: string, session: string): 'recorded' | 'elsewhere' {
+export function answerOutcome(stdout: string, session: string, by: 'pane' | 'shepherd' = 'pane'): 'recorded' | 'elsewhere' {
   let parsed: unknown
   try {
     parsed = JSON.parse(stdout)
@@ -286,5 +288,5 @@ export function answerOutcome(stdout: string, session: string): 'recorded' | 'el
   }
   if (!isObject(parsed) || parsed.conflict !== true) return 'recorded'
   const answer = isObject(parsed.row) && isObject(parsed.row.answer) ? parsed.row.answer : {}
-  return answer.by === 'pane' && answer.session === session ? 'recorded' : 'elsewhere'
+  return answer.by === by && answer.session === session ? 'recorded' : 'elsewhere'
 }
