@@ -219,8 +219,11 @@ const WORKSPACE_FILE_APPS = new Set([
 
 /** Only VS Code and its forks read a .code-workspace file; any other editor would open the JSON itself. */
 export function takesWorkspaceFile(editor: string): boolean {
-  const app = appNameOf(editor);
-  if (app) return WORKSPACE_FILE_APPS.has(app);
+  const open = editor.trim().match(/^open\s(?:.*\s)?-a\s+(?:"([^"]+)"|'([^']+)'|(\S+))/);
+  if (open) {
+    const target = (open[1] ?? open[2] ?? open[3])!;
+    return WORKSPACE_FILE_APPS.has(target.endsWith(".app") ? basename(target, ".app") : target);
+  }
   return WORKSPACE_FILE_CLIS.has(basename(editor.trim().split(/\s+/)[0]!));
 }
 

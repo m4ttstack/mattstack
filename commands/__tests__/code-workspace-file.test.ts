@@ -17,12 +17,13 @@ describe("takesWorkspaceFile", () => {
   test.each([
     "code", "cursor", "codium", "windsurf", "code -n",
     'open -a "Cursor"', 'open -a "Visual Studio Code"', 'open -a "Antigravity"',
-    'open -a "Antigravity IDE"', 'open -a "Windsurf"',
+    'open -a "Antigravity IDE"', 'open -a "Windsurf"', 'open -n -a "Cursor"',
+    "open -a /Applications/Cursor.app",
   ])("%s opens a workspace file", (editor) => {
     expect(takesWorkspaceFile(editor)).toBe(true);
   });
 
-  test.each(["zed", 'open -a "Zed"', "subl", "idea", 'open -a "Sublime Text"'])(
+  test.each(["zed", 'open -a "Zed"', 'open -n -a "Zed"', "subl", "idea", 'open -a "Sublime Text"'])(
     "%s gets the folder",
     (editor) => {
       expect(takesWorkspaceFile(editor)).toBe(false);
