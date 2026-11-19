@@ -56,7 +56,7 @@ function stamp(ms: number): string {
 
 const plain = (text: string): PickSegment[] => [{ text }];
 
-function tildePath(path: string, home = homedir()): string {
+export function tildePath(path: string, home = homedir()): string {
   return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
 }
 const faint = (text: string): PickSegment[] => [{ text, tone: "faint" }];
