@@ -37,6 +37,14 @@ export const EXAMPLES: Record<string, Example> = {
     good: ["chatty", "normal", "quiet", "yolo"],
     bad: [{ value: "quite", path: [] }],
   },
+  "review.rereviewRounds": {
+    good: [0, 2, 5],
+    bad: [
+      { value: -1, path: [] },
+      { value: 1.5, path: [] },
+      { value: "2", path: [] },
+    ],
+  },
   "rt.work.gateModeShadow": {
     good: [true, false],
     bad: [{ value: "yes", path: [] }],

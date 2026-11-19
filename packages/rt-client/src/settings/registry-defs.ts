@@ -345,6 +345,14 @@ const ROWS: readonly SettingDef[] = [
     description: "Turns on the team pack's review rule selector. The pack's rule-selector fill reads it on every review.",
   },
   {
+    key: "review.rereviewRounds",
+    type: "number",
+    scopes: ["team", "user", "machine"],
+    default: 2,
+    merge: "replace",
+    description: "How many times self-review re-reviews its own fixes. Once they are used up, a fix round that changes code stops the run and waits for you.",
+  },
+  {
     key: "rt.logLevel",
     type: "string",
     scopes: ["machine", "user"],

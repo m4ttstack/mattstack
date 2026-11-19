@@ -379,6 +379,7 @@ export const SCHEMAS = {
   "rt.gates.kitForm": z.boolean(),
   "rt.work.gateMode": z.enum(["chatty", "normal", "quiet", "yolo"]),
   "rt.work.gateModeShadow": z.boolean(),
+  "review.rereviewRounds": z.number().int().min(0).max(9),
   "agent.persona": z.looseObject({
     name: z.string().regex(/\S/).meta({ title: "Name", description: "What the agent calls itself in every Slack message." }),
     emoji: z.string().regex(/\S/).meta({ title: "Emoji", description: "Shown beside the name in the prefix of every Slack message." }),
