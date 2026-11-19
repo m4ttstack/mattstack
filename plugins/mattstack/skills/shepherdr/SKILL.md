@@ -708,8 +708,8 @@ no cap. Its result is one of three things:
   answer `by: shepherd` and wakes the worker, so nothing about that gate
   is left to you. Once every gate is presented, end your turn. A later
   push for a gate you already presented needs nothing.
-- `boardOnly: true`: the gate is answered on the board, and its band is
-  already above your prompt. Tell the user in one line which job's gate
+- `boardOnly: true`: the gate is answered on the board (with the kit form
+  on, a band for it shows above your prompt). Tell the user in one line which job's gate
   waits on the board; nothing else about it is yours.
 - The gate's `kitForm` with no `instruction`: this pane draws no kit form.
   Present that gate in AskUserQuestion, below.

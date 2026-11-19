@@ -20,6 +20,7 @@ import { useGraphFocus } from '../graph/useGraphFocus';
 import { useAnatomy, usePendingChanges } from '../useWiring';
 import classes from './blocks.module.css';
 import { BlockView, type SkillHeader } from './BlockView';
+import { renderedSourceOf } from './model/renderedSource';
 import { skillKindOf } from './skillKind';
 import { useSkillBlocks } from './useSkillBlocks';
 
@@ -64,6 +65,18 @@ export function BlockStage({
       workType: known ? workType : null,
     });
   }, [anatomy, composition, check, changes, focused.step, pipeline]);
+
+  const renderedSource = renderedSourceOf({
+    fromFile,
+    ready: skill.state === 'ready',
+    readOnly: skill.state === 'ready' && skill.readOnly,
+    anatomy,
+    anatomyError: anatomyQuery.isError
+      ? (anatomyQuery.error as Error).message
+      : null,
+    anatomyFetching: anatomyQuery.isFetching,
+    blocksFetching: skill.state === 'ready' && skill.fetching,
+  });
 
   const header: SkillHeader = {
     title: focused.command
@@ -130,6 +143,7 @@ export function BlockStage({
           patch={patch}
           readOnly={skill.readOnly}
           renderedPath={skill.renderedPath}
+          renderedSource={renderedSource}
           skill={header}
           context={
             composition && groups

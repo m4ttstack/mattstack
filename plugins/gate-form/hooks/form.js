@@ -250,10 +250,10 @@ function markButtonAt(line, at, focus = {}) {
     back -= 1;
   const prev = line[back];
   const keep = (spans) => Object.assign(spans, line.action === undefined ? {} : { action: line.action });
-  if (prev && prev.action === undefined && !prev.bg && /^ +$/.test(prev.t)) {
+  if (prev && prev.action === undefined && /^ +$/.test(prev.t)) {
     const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
     const rest = prev.t.slice(mark.length);
-    return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
+    return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true, ...prev.bg && { bg: prev.bg } }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
   }
   return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)]);
 }
@@ -284,17 +284,17 @@ function brandBar(label, width, hide) {
   const text = `  ${BRAND.glyph}  ${label}`;
   if (hide === undefined)
     return [sp(fit(text, width), look)];
-  const button = ` Hide ${ICON.collapse} `;
+  const button = " Close ";
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
 var ROOMY = { indent: 3, pad: 2, gap: 3 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
   const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
 }
 var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
 var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
@@ -392,7 +392,7 @@ function scrollBar(rows, total, offset) {
   return Array.from({ length: rows }, (_, n) => [sp(" "), sp(" ", { bg: n >= top && n < top + size ? SCROLL.thumb : SCROLL.track }), sp(" ")]);
 }
 // packages/mod-kit/src/widgets/input-field.ts
-function inputField(value, placeholder, width, showCursor) {
+function inputField(value, placeholder, width, showCursor, at) {
   const room = width - 2;
   const box = (spans) => [
     sp(" ", FILL.field),
@@ -404,8 +404,19 @@ function inputField(value, placeholder, width, showCursor) {
     const head = firstGrapheme(hint);
     return box([sp(head || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)]);
   }
-  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
-  return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
+  const chars = Array.from(value);
+  const caret = Math.min(Math.max(0, at ?? chars.length), chars.length);
+  if (caret === chars.length) {
+    const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
+    return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
+  }
+  const look = { color: FILL.field.color };
+  let from = 0;
+  while (from < caret && cellWidth(chars.slice(from, caret + 1).join("")) > room)
+    from++;
+  const before = chars.slice(from, caret).join("");
+  const after = cutCells(chars.slice(caret + 1).join(""), Math.max(0, room - cellWidth(before) - cellWidth(chars[caret])));
+  return box([sp(before, look), sp(chars[caret], showCursor ? { ...look, inverse: true } : look), sp(after, look)]);
 }
 
 // packages/mod-kit/src/widgets/select-list.ts
@@ -978,7 +989,11 @@ function answersOf(form, s) {
       out[q.id] = s.text[i];
     else if (q.multi) {
       const values = s.picked[i].filter((v) => v !== WRITE_IN);
-      out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
+      if (q.parts)
+        for (const part of q.parts)
+          out[part.id] = values.filter((v) => part.values.includes(v));
+      else
+        out[q.id] = typed === "" ? values : values.length > 0 ? { value: values, note: typed } : { writeIn: typed };
     } else {
       const value = s.chosen[i];
       out[q.id] = value === WRITE_IN ? { writeIn: typed } : value;
@@ -1378,6 +1393,17 @@ function answerSummary(q, s, i) {
   const values = [...s.picked[i], ...s.text[i].trim() !== "" ? [WRITE_IN] : []];
   return values.length === 0 ? "none" : values.map(label).join(", ");
 }
+function wonOf(q, won) {
+  if (!q.parts)
+    return won[q.id];
+  const recorded = q.parts.map((part) => won[part.id]).filter((raw) => raw !== undefined && raw !== null);
+  if (recorded.length === 0)
+    return;
+  const valuesOf = (raw) => Array.isArray(raw) ? raw : typeof raw === "object" && raw !== null && Array.isArray(raw.value) ? raw.value : [];
+  const notes = recorded.flatMap((raw) => typeof raw === "object" && raw !== null && typeof raw.note === "string" ? [raw.note] : []);
+  const value = recorded.flatMap(valuesOf);
+  return notes.length > 0 ? { value, note: notes.join("; ") } : value;
+}
 function wonSummary(q, raw) {
   const label = (v) => q.options.find((o) => o.value === v)?.label ?? String(v);
   const labels = (v) => Array.isArray(v) ? v.length === 0 ? "none" : v.map(label).join(", ") : label(v);
@@ -1434,7 +1460,7 @@ function reviewList2(form, s, view) {
   const won = form.status === "open" ? undefined : form.won;
   return reviewList(form.questions.map((q, i) => ({
     label: q.label,
-    summary: won ? wonSummary(q, won[q.id]) : s.answered[i] ? answerSummary(q, s, i) : undefined,
+    summary: won ? wonSummary(q, wonOf(q, won)) : s.answered[i] ? answerSummary(q, s, i) : undefined,
     ...isOpen && { action: { type: "page", page: i } }
   })), view.width, { rail: false });
 }

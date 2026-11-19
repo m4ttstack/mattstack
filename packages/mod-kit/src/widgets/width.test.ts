@@ -15,11 +15,11 @@ describe('narrow panes', () => {
     expect(widthOf(brandBar('Questions', WIDTH, 'hide'))).toBe(WIDTH)
   })
 
-  test('brandBar with the real label cuts the label and keeps Hide whole', () => {
+  test('brandBar with the real label cuts the label and keeps Close whole', () => {
     const line = brandBar('mattstack decision gate', WIDTH, 'hide')
     expect(widthOf(line)).toBe(WIDTH)
     const hide = line.find(span => span.action === 'hide')
-    expect(hide?.t).toBe(` Hide ${ICON.collapse} `)
+    expect(hide?.t).toBe(' Close ')
     // Flat on the bar at rest, the deeper pink only under the pointer.
     expect(hide).toMatchObject({ bg: BRAND.pink, chip: BRAND.pinkDeep, bold: true })
     expect(hovered(hide!).bg).toBe(BRAND.pinkDeep)

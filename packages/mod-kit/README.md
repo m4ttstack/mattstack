@@ -129,7 +129,7 @@ lines and draws them. One per Client.
 
 ### `BrandBar`
 
-`<BrandBar title onHide?>`. The pink header bar. With `onHide` it shows a Hide
+`<BrandBar title onHide?>`. The pink header bar. With `onHide` it shows a Close
 button.
 
 ### `Button` and `ButtonRow`
@@ -425,7 +425,9 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `brandBar(label, width, hide?)`
 - `buttonRow(left, right, width, indent?)` (`indent` replaces the row's own lead-in, in cells) and `buttonSpan(button, pad?)`, with `Button` data `{ label, action, tone?, disabled? }` and `ButtonTone`
 - `selectList(spec)` with `SelectSpec` and `Choice`
-- `inputField(value, placeholder, width, showCursor)` and `textCursor(value, placeholder, showCursor)`
+- `inputField(value, placeholder, width, showCursor, at?)` (`at` is the caret's place, the end when left out) and `textCursor(value, placeholder, showCursor)`
+- `editText({ text, at }, key)` applies one key to a one-line text, `TextEdit`, with the macOS motions as terminals send them: option+delete and ctrl+w delete a word, cmd+delete (ctrl+u) and ctrl+k to an end, option+← → a word, cmd+← → (home, end, ctrl+a, ctrl+e) to an end. A key that is not an edit returns undefined. `wrapKeeping(text, width)` wraps keeping every character, and `caretRow(rows, at)` finds the caret's row and column in it
+- `CURSOR_ROW`, the tint behind a list's cursor row, for a mod that draws its own tinted rows
 - `tabStrip(spec)` with `Tab` and `TabStripSpec`, and `revealTab`
 - `menu(spec)` with `MenuSpec` and `MenuHit` (a click: `toggle`, or a row's index `at`), `menuHit(state, rows, hit)` for a click and `menuKey` for a key, and `MORE_ACTIONS`, the button's label
 - `scrollBar(rows, total, offset)`: a scroll bar for a window of `rows` over `total`, one three-cell line per row (a blank, the track or thumb, a blank). Blank lines when the list fits. Colours in `SCROLL`.
@@ -440,7 +442,7 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `widthOf(spans)`: display width of a line, in terminal cells.
 - `withAction(lines, action)`: attaches an action to every line.
 
-Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Hide does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
+Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Close does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
 
 ### `cellWidth`, `cutCells`, `padCells` and `chunkCells`
 

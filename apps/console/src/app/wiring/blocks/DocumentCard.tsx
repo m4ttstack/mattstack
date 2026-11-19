@@ -15,10 +15,16 @@ import { useEditorHref } from '../../editorHref';
 import classes from './blocks.module.css';
 import { documentLayers } from './model/layers';
 
-const VIEWS = [
+export type DocumentView = 'template' | 'rendered' | 'husk';
+
+const VIEWS: { label: string; value: DocumentView }[] = [
   { label: 'Blocks', value: 'template' },
   { label: 'Rendered', value: 'rendered' },
 ];
+const HUSK_VIEW: { label: string; value: DocumentView } = {
+  label: 'Husk',
+  value: 'husk',
+};
 
 const lines = (n: number) => `${n} ${n === 1 ? 'line' : 'lines'}`;
 
@@ -86,14 +92,15 @@ function LayerStrip({
 
 /**
  * A block's text as a document: its file and the Blocks | Rendered switch in
- * a bar on top, at a single block the layers' share of it, then the text,
- * which the bar's chevron folds away.
+ * a bar on top (plus Husk for a husk pack's whole skill), at a single block
+ * the layers' share of it, then the text, which the bar's chevron folds away.
  */
 export function DocumentCard({
   payload,
   block,
-  rendered,
-  onRendered,
+  view,
+  onView,
+  husk = false,
   strip = false,
   note = null,
   children,
@@ -101,8 +108,10 @@ export function DocumentCard({
   payload: BlocksPayload;
   /** The block whose file the bar names; null for a skill with no root. */
   block: PayloadBlock | null;
-  rendered: boolean;
-  onRendered: (rendered: boolean) => void;
+  view: DocumentView;
+  onView: (view: DocumentView) => void;
+  /** Offer the committed husk beside the full rendered text. */
+  husk?: boolean;
   /** Show the layers' strip under the bar. */
   strip?: boolean;
   /** A word after the file's name, as when it holds a heading alone. */
@@ -164,9 +173,9 @@ export function DocumentCard({
         <SegmentedControl
           size="xs"
           className={classes.docViews}
-          data={VIEWS}
-          value={rendered ? 'rendered' : 'template'}
-          onChange={value => onRendered(value === 'rendered')}
+          data={husk ? [...VIEWS, HUSK_VIEW] : VIEWS}
+          value={view === 'husk' && !husk ? 'rendered' : view}
+          onChange={value => onView(value as DocumentView)}
         />
       </header>
       <Collapse expanded={open}>

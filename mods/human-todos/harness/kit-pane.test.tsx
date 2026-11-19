@@ -99,7 +99,7 @@ for (const surface of SURFACES) {
     expect(String(client.props.module)).toMatch(/pane\/kit-view\.js$/)
     const rows = await rowsOf(pane)
     expect(rows[0]).toContain('Human Todos')
-    expect(rows[0]).toContain('Hide')
+    expect(rows[0]).toContain('Close')
     expect(rows.some(r => r.includes('☐ Deploy'))).toBe(true)
     await pane.unmount()
   })
@@ -146,14 +146,14 @@ for (const surface of SURFACES) {
     await pane.unmount()
   })
 
-  test(`Hide closes the pane and the band's Show brings it back (${surface})`, async ($, on) => {
+  test(`Close closes the pane and the band's Show brings it back (${surface})`, async ($, on) => {
     const { opened } = await seeded($, on, [todo({})])
     await $.command.run({ command: 'todos', args: '' })
     const band = await $.ui.mount({ ...BAND, surface })
     expect(await band.find({ type: 'Client' })).toBeUndefined()
     const pane = await $.ui.mount({ ...PANE, surface })
 
-    await click(pane, 'Hide')
+    await click(pane, 'Close')
     const shownBand = await rowsOf(band)
     expect(shownBand[0]).toContain('Human Todos waiting')
     expect(shownBand[0]).toContain('1 to-do')
@@ -296,7 +296,7 @@ test('the mod scrolls the kit drawer: the brand bar stays, the window moves, the
   const rows = await rowsOf(pane)
   expect(rows).toHaveLength(20)
   expect(rows[0]).toContain('Human Todos')
-  expect(rows[0]).toContain('Hide')
+  expect(rows[0]).toContain('Close')
   // The first body row is model row 5, the blank under Item 2's title; rows 6 and 8 follow: Item 2's buttons, then Item 3's title.
   // The scroll bar shows the place, so no row is given over to an "N more" hint.
   expect(rows[2]?.trim()).toBe('')
