@@ -11,12 +11,12 @@ self-review, context, runDb, stage, reach: "worktree"}`, `context`
 quoting the draft's Issues and, when the Assessment has one, its `Unanswered rules:` line, and
 naming apart the findings the reviewer marked judgment calls and the
 evidence only the pushed branch can show, since the fix loop records those
-instead of fixing them. One question, `fix` (write-in), whose options depend on the draft:
+instead of fixing them. One question, `fix`, worded by the draft:
 
-| Draft | Options (recommended first) |
-|---|---|
-| A re-review's, holding no Critical or Important finding | **Ship as is (Recommended)** (`none`) / **Fix every finding** (`all`) / **Fix the blocking findings only** (`blocking`: Critical and Important) |
-| Any other | **Fix every finding (Recommended)** (`all`) / **Fix the blocking findings only** (`blocking`) / **Ship as is** (`none`) |
+| Question | Options (recommended first) | Shown when |
+|---|---|---|
+| `fix` (write-in) | **Ship as is (Recommended)** (`none`) / **Fix every finding** (`all`) | the draft is a re-review's and holds no Critical or Important finding |
+| `fix` (write-in) | **Fix every finding (Recommended)** (`all`) / **Fix the blocking findings only** (`blocking`: Critical and Important) / **Ship as is** (`none`) | any other draft |
 
 A full review's Minor finding is cheap to fix now and costly once a
 teammate raises it, so `all` leads there. A re-review has already approved

@@ -166,8 +166,7 @@ flowchart TB
     stuck_answer -->|hold| run_hold
     stuck_answer -->|abandon| own_run_close_abandoned
     record_left_open --> next_finding
-    fix_round_changed -->|no: nothing fixed, or nothing kept| own_run_close
-    fix_round_changed -->|comments only: no re-review, no charge| own_run_close
+    fix_round_changed -->|no: nothing kept, or comment text only| own_run_close
     fix_round_changed -->|yes| run_budget_rereview
     run_budget_rereview --> rereview_spent
     rereview_spent -->|no| rereview_fix_round
