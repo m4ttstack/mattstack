@@ -31,10 +31,12 @@ export function memberPackSources(p: Probes): PackRulesSource[] {
   return sources;
 }
 
+/** Null when the ref publishes no rules for the pack; throws when git could not read the ref. */
 export async function readPackRules(p: Probes, src: PackRulesSource): Promise<Map<string, string> | null> {
   const opts = { env: { LC_ALL: "C" }, timeoutMs: PACK_EXEC_TIMEOUT_MS };
+  // A path the ref lacks lists nothing and exits 0, so a nonzero exit is always a fault, never "no rules".
   const listed = await p.exec(["git", "-C", src.cloneDir, "ls-tree", src.ref, `${src.repoPath}/`], opts);
-  if (listed.code !== 0) return null;
+  if (listed.code !== 0) throw new Error(`git ls-tree ${src.ref} ${src.repoPath} exited ${listed.code}: ${listed.stderr.trim()}`);
   const paths = listed.stdout
     .split("\n")
     .map((line) => line.match(/^\d+ blob [0-9a-f]+\t(.+)$/)?.[1])
@@ -43,7 +45,7 @@ export async function readPackRules(p: Probes, src: PackRulesSource): Promise<Ma
   const files = new Map<string, string>();
   for (const path of paths) {
     const shown = await p.exec(["git", "-C", src.cloneDir, "show", `${src.ref}:${path}`], opts);
-    if (shown.code !== 0) return null;
+    if (shown.code !== 0) throw new Error(`git show ${src.ref}:${path} exited ${shown.code}: ${shown.stderr.trim()}`);
     files.set(basename(path), shown.stdout);
   }
   return files;

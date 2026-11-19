@@ -7,7 +7,8 @@ import { claudeRulesDir, distinctConfigDirs, linkConfigDir, mattstackRulesSource
 
 export interface ClaudeRulesResult {
   mattstack: "linked" | "ok" | { skipped: string };
-  packs: { entry: string; state: "written" | "ok" | "removed" }[];
+  /** `unreadable`: git could not read the pack, so its entry was left as it was. */
+  packs: { entry: string; state: "written" | "ok" | "removed" | "unreadable" }[];
   links: { configDir: string; state: "created" | "ok" | "foreign" }[];
 }
 
@@ -43,7 +44,14 @@ export async function reconcileClaudeRules(p: Probes): Promise<ClaudeRulesResult
   const packs: ClaudeRulesResult["packs"] = [];
   const kept = new Set([MATTSTACK_ENTRY]);
   for (const src of memberPackSources(p)) {
-    const files = await readPackRules(p, src);
+    let files: Map<string, string> | null;
+    try {
+      files = await readPackRules(p, src);
+    } catch {
+      packs.push({ entry: src.entry, state: "unreadable" });
+      kept.add(src.entry);
+      continue;
+    }
     if (files === null) continue;
     packs.push({ entry: src.entry, state: writePackEntry(p, dir, src.entry, files) });
     kept.add(src.entry);
@@ -63,10 +71,12 @@ function count(n: number, noun: string): string {
 }
 
 export function claudeRulesDetail(r: ClaudeRulesResult): string {
-  const packs = r.packs.filter((x) => x.state !== "removed").length;
+  const packs = r.packs.filter((x) => x.state === "written" || x.state === "ok").length;
+  const unreadable = r.packs.filter((x) => x.state === "unreadable").length;
   const what = [...(typeof r.mattstack === "string" ? ["mattstack's rules"] : []), ...(packs > 0 ? [count(packs, "pack")] : [])];
   const linked = r.links.filter((l) => l.state !== "foreign").length;
   const parts = [`Linked ${what.length > 0 ? what.join(" and ") : "the shared rules folder"} into ${count(linked, "Claude folder")}`];
+  if (unreadable > 0) parts.push(`could not read ${count(unreadable, "pack")} from the org's data branch, so left ${unreadable === 1 ? "it as it was" : "them as they were"}`);
   if (typeof r.mattstack !== "string") parts.push(`left out mattstack's rules: ${r.mattstack.skipped}`);
   for (const l of r.links.filter((x) => x.state === "foreign")) parts.push(`rt did not make ${join(l.configDir, "rules", "mattstack")}, so rt left it alone`);
   return parts.join("; ");

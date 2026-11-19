@@ -84,6 +84,16 @@ describe("reconcileClaudeRules", () => {
     expect(existsSync(join(claudeRulesDir(home), "mattstack", "chat.md"))).toBe(true);
   });
 
+  test("a pack git cannot read keeps its entry as it was", async () => {
+    freshMac();
+    await reconcileClaudeRules(p);
+    writeFileSync(join(home, ".mattstack", "rt", "teams", "acme.json"), JSON.stringify({ dataBranch: "gone" }));
+    const r = await reconcileClaudeRules(p);
+    expect(r.packs).toEqual([{ entry: "acme-widgets", state: "unreadable" }]);
+    expect(readFileSync(join(claudeRulesDir(home), "acme-widgets", "widgets.md"), "utf8")).toBe("# Widgets rule\n");
+    expect(claudeRulesDetail(r)).toContain("could not read 1 pack");
+  });
+
   test("no marketplace skips only mattstack's rules", async () => {
     makeOrg(home);
     const r = await reconcileClaudeRules(p);

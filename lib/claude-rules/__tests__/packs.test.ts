@@ -57,6 +57,14 @@ describe("readPackRules", () => {
   });
 });
 
+describe("readPackRules failures", () => {
+  test("a ref git cannot read throws rather than reading as no rules", async () => {
+    makeOrg(home);
+    const src: PackRulesSource = { entry: "acme-widgets", cloneDir: cloneDirOf(home), ref: "gone", repoPath: "mattstack/teams/widgets/plugin/rules" };
+    await expect(readPackRules(p, src)).rejects.toThrow();
+  });
+});
+
 describe("writePackEntry", () => {
   test("writes, then reports ok for the same files", () => {
     const dir = claudeRulesDir(home);
