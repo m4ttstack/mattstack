@@ -54,7 +54,7 @@ public enum SoundTier: Int, CaseIterable, Comparable, Sendable {
         switch category {
         case "pipeline_passed", "mr_approved", "mr_merged", "mr_ready":
             self = .positive
-        case "pipeline_failed", "mr_closed", "merge_conflicts", "merge_error", "runaway_process", readyHeldCategory:
+        case "pipeline_failed", "mr_closed", "merge_conflicts", "merge_error", readyHeldCategory:
             self = .warning
         default:
             self = .neutral

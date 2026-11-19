@@ -20,22 +20,3 @@ public enum DaemonHTTPFallback {
         status == 401
     }
 }
-
-/// Lets a frequent tick run an expensive probe at a slower cadence.
-public struct ThrottledProbe {
-    public let interval: TimeInterval
-    private var lastRunAt: Date?
-
-    public init(interval: TimeInterval) {
-        self.interval = interval
-    }
-
-    public func isDue(now: Date) -> Bool {
-        guard let lastRunAt else { return true }
-        return now.timeIntervalSince(lastRunAt) >= interval
-    }
-
-    public mutating func markRun(at now: Date) {
-        lastRunAt = now
-    }
-}
