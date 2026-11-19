@@ -27,6 +27,7 @@ export const STEP_PHASES: Readonly<Record<StepId, StepPhase>> = {
   "board.cwds": { weight: 1, paused: "Couldn't set up the board" },
   "cron.triage": { weight: 1, paused: "Couldn't set up the board" },
   "plugins.install": { weight: 6, paused: "Couldn't install Claude plugins" },
+  "claude.rules": { weight: 1, paused: "Couldn't set up Claude" },
   "linear.mcp": { weight: 1, paused: "Couldn't connect Linear" },
   "claude.permissions": { weight: 1, paused: "Couldn't set up Claude" },
   "editor.terminal-font": { weight: 2, paused: "Couldn't set up your editor's terminal font" },

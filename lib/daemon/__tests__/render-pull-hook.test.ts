@@ -142,13 +142,14 @@ describe("renderInChild", () => {
 });
 
 describe("teamPullHooks", () => {
-  test("runs after materialize", () => {
+  test("runs after materialize, with the Claude rules before tool notices", () => {
     const tagged = (name: string) => Object.assign(async () => {}, { tag: name });
     const hooks = teamPullHooks(() => fakeLog(), tagged("tool-notices"), {
       intercepts: () => tagged("intercepts"),
       materialize: () => tagged("materialize"),
       render: () => tagged("render"),
+      claudeRules: () => tagged("claude-rules"),
     });
-    expect(hooks.map((h) => (h as unknown as { tag: string }).tag)).toEqual(["intercepts", "materialize", "render", "tool-notices"]);
+    expect(hooks.map((h) => (h as unknown as { tag: string }).tag)).toEqual(["intercepts", "materialize", "render", "claude-rules", "tool-notices"]);
   });
 });

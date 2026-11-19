@@ -14,6 +14,7 @@ const UPDATE_SAFE: StepId[] = [
   "skills.link",
   "intercepts.install",
   "plugins.install",
+  "claude.rules",
   "claude.permissions",
   "editor.terminal-font",
   "fastbrowser.setup",

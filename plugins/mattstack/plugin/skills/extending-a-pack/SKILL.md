@@ -191,6 +191,18 @@ Bash, and only as a one-time lookup, not a per-round call.
 | the wording of an existing verb | its `description` in `pack/stubs.jsonc` |
 | one kind of work (accessibility, a bug fix) that runs its own stages or its own fills | a pipeline in `pack/skills.jsonc` plus a `work-<kind>` verb that names it (see Add a specialized pipeline) |
 | taking a pipeline's override back off | one `bind --pipeline <name> --unset`, then check (see Undo a pipeline's override) |
+| an instruction every Claude session of the team's members follows, always, in any repo | a Claude rule file, `rules/<name>.md` at the pack root (see below) |
+
+A Claude rule is plain markdown, one rule per file, a `#` title and no
+frontmatter, in the pack's `rules/` folder beside `pack/`: the team pack's
+`plugin/rules/`, or `org/packs/<base>/rules/` in a base pack for every
+member of the org. Only `.md` files whose names do not start with a dot are
+copied. Once committed on the data branch, each member's next org pull
+copies them into `~/.mattstack/claude/rules/<org>-<pack>/`, which Claude
+Code loads in every session; a base pack's reach every member, a team
+pack's only members whose active team it is. A rule needs no compile, no
+bind and no certify, but goes out with the pack's version bump like any
+other edit.
 
 `props.md` beside this file maps asks to blocks, and lists every block's
 props with their merge, contract and default.

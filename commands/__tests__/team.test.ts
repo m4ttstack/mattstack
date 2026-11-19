@@ -1504,6 +1504,26 @@ describe("teamUse", () => {
     expect(body).toEqual({ contract: 1, team: "gadgets", previous: "widgets", pack: { installed: true, enabled: true, detail: "1 pack" }, disabled: "widgets@acme-market", restarted: ["board", "boxscore"] });
     expect(effects).toEqual(["mattstack.activeTeam=gadgets"]);
   });
+  test("re-links the shared Claude rules for the new team", async () => {
+    let runs = 0;
+    const { deps } = world({ claudeRules: async () => { runs++; } });
+    await teamActions.teamUse(["gadgets", "--json"], {}, deps);
+    expect(runs).toBe(1);
+  });
+  test("a failed Claude rules link never fails the switch", async () => {
+    const { deps, effects } = world({ claudeRules: async () => { throw new Error("disk full"); } });
+    const warned: string[] = [];
+    warnTest.reset();
+    setWarningLog((_module, message) => { warned.push(message); });
+    try {
+      await teamActions.teamUse(["gadgets", "--json"], {}, deps);
+    } finally {
+      warnTest.reset();
+    }
+    expect(JSON.parse(deps.lines[0]!).team).toBe("gadgets");
+    expect(effects).toEqual(["mattstack.activeTeam=gadgets"]);
+    expect(warned.some((m) => m.includes("disk full"))).toBe(true);
+  });
   test("missing team under JSON exits 2 without opening the picker", async () => {
     const { deps, effects } = world({ interactive: () => true, selectTeam: async () => { throw new Error("must not pick"); } });
     expect(await runExpectingProcessExit(() => teamActions.teamUse(["--json"], {}, deps))).toBe(2);
