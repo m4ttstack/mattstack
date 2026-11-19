@@ -157,7 +157,9 @@ import {
 import { shiftPeerReviews } from './fixture-peer-reviews.ts';
 import {
   actionCommand,
+  actionFlockIo,
   buildFlockMenu,
+  defaultFlockIo,
   flockOpenUrl,
   openInFlock,
   parseFlockCommands,
@@ -4075,7 +4077,8 @@ const httpServer = Bun.serve({
           menu = await buildFlockMenu(
             { webUrl: mrUrl, sourceBranch: mr.sourceBranch },
             repoName,
-            commands
+            commands,
+            pathname === '/flock/open' ? actionFlockIo : defaultFlockIo
           );
         } catch (err) {
           return new Response(

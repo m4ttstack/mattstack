@@ -218,29 +218,33 @@ export function flockInstalledFrom(mdfindOut: string): boolean {
 const READ_FRESH_MS = 15_000;
 const READ_FAIL_MS = 60_000;
 
-const sharedTrees = sharedRead(
-  async repoName => {
-    const res = await rtCommand<Commands['worktree:list']['data']>(
-      'worktree:list',
-      { repoName },
-      { timeoutMs: 20_000 }
-    );
-    if (!res.ok || !res.data)
-      throw new Error(res.error ?? 'worktree list failed');
-    return res.data.trees;
-  },
-  { freshMs: READ_FRESH_MS, failMs: READ_FAIL_MS }
-);
+async function readTrees(repoName: string): Promise<WorktreeTreeRow[]> {
+  const res = await rtCommand<Commands['worktree:list']['data']>(
+    'worktree:list',
+    { repoName },
+    { timeoutMs: 20_000 }
+  );
+  if (!res.ok || !res.data)
+    throw new Error(res.error ?? 'worktree list failed');
+  return res.data.trees;
+}
 
-const sharedRuns = sharedRead(
-  async () => {
-    const res = await listRuns();
-    if (!res.ok || !res.data) throw new Error(res.error ?? 'runs list failed');
-    return res.data.runs;
-  },
-  { freshMs: READ_FRESH_MS, failMs: READ_FAIL_MS }
-);
+async function readRuns(): Promise<RunSummary[]> {
+  const res = await listRuns();
+  if (!res.ok || !res.data) throw new Error(res.error ?? 'runs list failed');
+  return res.data.runs;
+}
 
+const sharedTrees = sharedRead(readTrees, {
+  freshMs: READ_FRESH_MS,
+  failMs: READ_FAIL_MS,
+});
+const sharedRuns = sharedRead(() => readRuns(), {
+  freshMs: READ_FRESH_MS,
+  failMs: READ_FAIL_MS,
+});
+
+/** For drawing the menu: shared, and up to READ_FRESH_MS old. */
 export const defaultFlockIo: FlockIo = {
   listTrees: sharedTrees,
   listRuns: () => sharedRuns('').catch(() => []),
@@ -264,6 +268,14 @@ export const defaultFlockIo: FlockIo = {
     await proc.exited;
     return flockInstalledFrom(out);
   },
+};
+
+/** For acting on a pick: a resume dedupes on the session's live pane, which
+    a cached run list can miss for a launch made seconds ago. */
+export const actionFlockIo: FlockIo = {
+  ...defaultFlockIo,
+  listTrees: readTrees,
+  listRuns: () => readRuns().catch(() => []),
 };
 
 export async function buildFlockMenu(
