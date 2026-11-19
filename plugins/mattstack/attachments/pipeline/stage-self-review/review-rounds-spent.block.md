@@ -2,7 +2,7 @@
 node: review_rounds_spent
 ---
 
-# Review rounds = 3?
+# review-rounds spent?
 
 Read `exhausted` from the `run_budget` call just made, which charges this
 review: never count rounds from context. The count lives on the run per
