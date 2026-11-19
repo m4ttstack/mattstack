@@ -11,7 +11,9 @@ of those unasked, never one by one as each rebase completes. The
 questions, each its own question (never fold one list into another):
 
 - `branches`: a multi-select of the clean, still-unpushed branches to
-  push with force-with-lease, all pre-selected; one question when the
+  push with force-with-lease, each option
+  `{value: "<branch>", label: "<branch> (Recommended)"}` so it starts
+  ticked; one question when the
   kit form draws the gate (opened from the main session, not a subagent
   or a hand-back, with gate-form's `ask` tool (`mcp__gate-form__ask`) in
   your session); otherwise, over 4 branches it splits into `branches-1`, `branches-2`, ... of
