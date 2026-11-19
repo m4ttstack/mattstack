@@ -17,8 +17,11 @@ interface Joined {
   parts: GateQuestion[];
 }
 
-/** Runs of consecutive multi-select parts that share a base id and a label,
-    numbered 1..n with n of at least 2. */
+/** Runs that are certainly one split list, the same rule the gate-form mod
+    joins by: consecutive multi-select parts `<id>-1..n` (n of at least 2)
+    that ask the same thing (one label once "(1 of 2)" is dropped, one
+    context), with no write-in, no option value in two parts, and no other
+    question already named `<id>`. Anything less stays as it came. */
 function joinedRuns(questions: GateQuestion[]): Joined[] {
   const runs: Joined[] = [];
   let i = 0;
@@ -47,7 +50,14 @@ function joinedRuns(questions: GateQuestion[]): Joined[] {
       j++;
     }
     const clash = questions.some(q => q.id === base);
-    if (parts.length >= 2 && !clash) runs.push({ id: base, parts });
+    const values = parts.flatMap(p => p.options.map(gateOptionValue));
+    const context = parts[0]!.context ?? '';
+    const certain =
+      parts.length >= 2 &&
+      !clash &&
+      parts.every(p => p.writeIn !== true && (p.context ?? '') === context) &&
+      new Set(values).size === values.length;
+    if (certain) runs.push({ id: base, parts });
     i = j;
   }
   return runs;
@@ -64,24 +74,12 @@ function joinQuestions(questions: GateQuestion[], runs: Joined[]) {
       out.push(q);
       continue;
     }
-    const seen = new Set<string>();
-    const options = run.parts
-      .flatMap(p => p.options)
-      .filter(o => {
-        const v = gateOptionValue(o);
-        if (seen.has(v)) return false;
-        seen.add(v);
-        return true;
-      });
-    const writeIn = run.parts.some(p => p.writeIn === true);
-    const context = run.parts.find(p => p.context)?.context;
     out.push({
       id: run.id,
       label: q.label.replace(PART_LABEL, ''),
       multi: true,
-      options,
-      ...(context ? { context } : {}),
-      ...(writeIn ? { writeIn: true as const } : {}),
+      options: run.parts.flatMap(p => p.options),
+      ...(q.context ? { context: q.context } : {}),
     });
   }
   return out;
@@ -142,8 +140,8 @@ export function joinSplitQuestions(row: GateRow): GateRow {
 }
 
 /** A joined answer split back into the parts the gate was opened with: each
-    pick goes to the part that offered it, and a note or write-in rides on
-    the first part. */
+    pick goes to the part that offered it, and a note rides on the first
+    part. */
 export function splitJoinedAnswers(
   questions: GateQuestion[],
   answers: Answers
@@ -162,16 +160,6 @@ export function splitJoinedAnswers(
       run.parts[0]!;
     run.parts.forEach((part, i) => {
       const mine = picks.filter(v => owner(v) === part);
-      if (
-        i === 0 &&
-        answer &&
-        typeof answer === 'object' &&
-        !Array.isArray(answer) &&
-        'writeIn' in answer
-      ) {
-        out[part.id] = answer;
-        return;
-      }
       out[part.id] = i === 0 && note ? { value: mine, note } : mine;
     });
   }
