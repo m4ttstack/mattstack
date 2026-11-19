@@ -14,6 +14,7 @@ import {
 
 import { client } from '../api';
 import { runDetailKey } from './derive/day';
+import { createRefreshCoalescer } from './refreshCoalescer';
 
 /** The spec's slow-poll safety net. The websocket is the live path; this is
     what catches a socket that dropped without us noticing. */
@@ -84,6 +85,13 @@ export function useRunList(repo?: string) {
   });
 }
 
+const LIVE_SURFACES = [['runs'], ['run'], ['gates']];
+
+/** run-updated fires on every pipeline write, so a busy run sends bursts;
+    each refresh costs the daemon a runs read per open tab. */
+const EVENT_SETTLE_MS = 1_000;
+const EVENT_MAX_WAIT_MS = 3_000;
+
 /**
  * One socket per tab. Invalidating on EVERY message is safe only because the
  * server already filtered the upstream relay to two topics -- run-updated
@@ -102,11 +110,27 @@ export function useRunEvents() {
     // fires on every pipeline write (emit_update in pipeline-state.sh),
     // gate/* on every gate open/answer/park -- this is what keeps the
     // detail page and the gate surfaces both live.
-    const refresh = () => {
-      void queryClient.invalidateQueries({ queryKey: ['runs'] });
-      void queryClient.invalidateQueries({ queryKey: ['run'] });
-      void queryClient.invalidateQueries({ queryKey: ['gates'] });
-    };
+    // cancelRefetch: false joins a fetch already in flight instead of
+    // aborting it: an aborted browser fetch does not stop the server's
+    // daemon read, so cancelling only stacks up daemon work. A fetch that
+    // was in flight may predate the event, hence the one follow-up.
+    const invalidateAll = () =>
+      Promise.all(
+        LIVE_SURFACES.map(queryKey =>
+          queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false })
+        )
+      );
+    const coalescer = createRefreshCoalescer(
+      async () => {
+        const busy = LIVE_SURFACES.some(
+          queryKey => queryClient.isFetching({ queryKey }) > 0
+        );
+        await invalidateAll();
+        if (busy) await invalidateAll();
+      },
+      { waitMs: EVENT_SETTLE_MS, maxWaitMs: EVENT_MAX_WAIT_MS }
+    );
+    const refresh = coalescer.flush;
     let socket: WebSocket;
     let stopped = false;
     let attempt = 0;
@@ -121,7 +145,7 @@ export function useRunEvents() {
         // Events sent while the socket was down are gone, not queued.
         if (reopened) refresh();
       };
-      socket.onmessage = refresh;
+      socket.onmessage = coalescer.schedule;
       socket.onclose = () => {
         if (stopped) return;
         timer = setTimeout(connect, Math.min(30_000, 1_000 * 2 ** attempt++));
@@ -131,6 +155,7 @@ export function useRunEvents() {
     return () => {
       stopped = true;
       clearTimeout(timer);
+      coalescer.stop();
       socket.close();
     };
   }, [queryClient]);

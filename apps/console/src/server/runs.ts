@@ -37,6 +37,7 @@ import { listAllRunGates } from './gates';
 import { LEGACY_IMAGE_MIME, legacyImagePath } from './legacyEvidence';
 import { repoChoices } from './repoChoices';
 import { markSeen, readSeen } from './seen';
+import { sharedRead } from './sharedRead';
 
 /** Hono's c.req.param() always URI-decodes a captured segment; a repo
     identity is itself percent-encoded (its internal slash is %2F), so that
@@ -101,6 +102,8 @@ export function resumePrompt(runId: string, fields: RunFieldRow[]): string {
 /** The board's address in the design fixture, which has no deck to ask. */
 const FIXTURE_BOARD_ORIGIN = 'http://localhost:11006';
 
+const REPOS_TTL_MS = 5 * 60_000;
+
 export function runsRoutes(fixture: RunsFixture | null = null) {
   const boardLink = boardLinkResolver(
     fixture
@@ -114,6 +117,11 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           return res.ok ? res.gates : null;
         })
   );
+  const readRuns = sharedRead(key => listRuns(key || undefined));
+  // The daemon's `repos` verb runs `git worktree list` in every registered
+  // repo, serially, on its single thread; only the repo keys are used here,
+  // for the filter choices.
+  const readRepos = sharedRead(() => rtCommand('repos', {}), REPOS_TTL_MS);
   return (
     new Hono()
       .get('/api/runs', async c => {
@@ -132,8 +140,8 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           );
         }
         const [res, known] = await Promise.all([
-          listRuns(repo),
-          rtCommand('repos', {}),
+          readRuns(repo ?? ''),
+          readRepos(''),
         ]);
         if (!res.ok) return c.json({ error: res.error }, 502);
         const registered = known.ok

@@ -844,3 +844,66 @@ describe('POST /api/runs/:repo/:runId/resume', () => {
     await expect(res.json()).resolves.toEqual({ error: 'herdr unavailable' });
   });
 });
+
+describe('GET /api/runs daemon load', () => {
+  const list = () => vi.mocked(rt.listRuns);
+  const repos = () => vi.mocked(rt.rtCommand);
+  beforeEach(() => {
+    list().mockClear();
+    repos().mockClear();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shares one daemon read between concurrent requests', async () => {
+    const app = runsRoutes();
+    let release: (() => void) | undefined;
+    list().mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ ok: true, data: { runs: [] } });
+        })
+    );
+    const a = app.fetch(new Request('http://localhost/api/runs'));
+    const b = app.fetch(new Request('http://localhost/api/runs'));
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    release!();
+    const [ra, rb] = await Promise.all([a, b]);
+
+    expect(ra.status).toBe(200);
+    expect(rb.status).toBe(200);
+    expect(list()).toHaveBeenCalledTimes(1);
+    expect(repos()).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps per-repo reads apart', async () => {
+    const app = runsRoutes();
+    await Promise.all([
+      app.fetch(new Request('http://localhost/api/runs?repo=a')),
+      app.fetch(new Request('http://localhost/api/runs?repo=b')),
+    ]);
+    expect(list().mock.calls.map(c => c[0])).toEqual(['a', 'b']);
+  });
+
+  it('reads runs fresh each time but reuses the repo list for five minutes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const app = runsRoutes();
+    await app.fetch(new Request('http://localhost/api/runs'));
+    await app.fetch(new Request('http://localhost/api/runs'));
+    expect(list()).toHaveBeenCalledTimes(2);
+    expect(repos()).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(5 * 60_000);
+    await app.fetch(new Request('http://localhost/api/runs'));
+    expect(repos()).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks for the repo list again after a failed read', async () => {
+    const app = runsRoutes();
+    repos().mockResolvedValueOnce({ ok: false, error: 'busy' });
+    await app.fetch(new Request('http://localhost/api/runs'));
+    await app.fetch(new Request('http://localhost/api/runs'));
+    expect(repos()).toHaveBeenCalledTimes(2);
+  });
+});
