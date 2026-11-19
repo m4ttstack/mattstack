@@ -61,9 +61,10 @@ export function initial(form: Form): State {
   return {
     page: 0,
     cursor: form.questions.map(() => 0),
-    picked: form.questions.map(() => []),
+    // A pick-any question starts with its (Recommended) options ticked, as defaults the same way a radio's is.
+    picked: form.questions.map(q => (isConfirm(form) || !q.multi ? [] : q.options.filter(isRecommended).map(o => o.value))),
     text: form.questions.map(() => ''),
-    // A pre-picked radio is a default, not an answer: space, Enter, a click or the Next button answers it.
+    // A pre-picked radio or pre-ticked box is a default, not an answer: space, Enter, a click or the Next button answers it.
     answered: form.questions.map(() => false),
     chosen,
     phase: 'active',
@@ -184,11 +185,11 @@ export function goTo(form: Form, s: State, page: number): State {
 export const firstPage = (s: State) => (s.contextPaged ? -1 : 0)
 export const isContextPage = (s: State) => s.page < 0
 
-// The Next (or Review) button: a deliberate act, so it accepts a single choice's pick, default or not, then moves on.
+// The Next (or Review) button: a deliberate act, so it accepts the page's picks, defaults or not, then moves on.
 export function advance(form: Form, s: State): State {
   const i = s.page
   const q = form.questions[i]
-  const accepts = q !== undefined && !q.multi && s.chosen[i] !== undefined
+  const accepts = q !== undefined && (q.multi ? s.picked[i]!.length > 0 : s.chosen[i] !== undefined)
   return goTo(form, accepts ? { ...s, answered: markAnswered(s, i) } : s, i + 1)
 }
 
