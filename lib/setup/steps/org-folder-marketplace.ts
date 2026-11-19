@@ -19,6 +19,7 @@
 
 import { realpathSync } from "fs";
 import { basename, join, resolve } from "path";
+import { distinctConfigDirs } from "../../claude-rules/paths.ts";
 import { cswapConfigDirs } from "../../cswap.ts";
 import { stripJsonc } from "../../jsonc.ts";
 import { resolveTool } from "../../deps/resolve.ts";
@@ -100,17 +101,6 @@ function real(path: string): string {
 
 function samePath(a: string, b: string): boolean {
   return real(a) === real(b);
-}
-
-/** One config dir per distinct `plugins/` folder, keeping the first (the default dir leads). */
-function distinctConfigDirs(dirs: string[]): string[] {
-  const seen = new Set<string>();
-  return dirs.filter((dir) => {
-    const key = real(join(dir, "plugins"));
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 /** `rt uninstall` finds the registration by the source setup-state recorded, so every older spelling follows it to the generated folder. */
