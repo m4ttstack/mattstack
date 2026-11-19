@@ -11,6 +11,8 @@ export const BASE_PLUGINS: string[] = [
   "mattstack@mattstack",
   "fast-browser@mattstack",
   "chat@mattstack",
+  "gate-form@mattstack",
+  "human-todos@mattstack",
   // The mattstack skills and every compiled team pack invoke superpowers:*
   // skills; without it a pipeline dies mid-run on a missing skill. This is
   // mattstack's fork (task groups, Native with reviews), listed in the
