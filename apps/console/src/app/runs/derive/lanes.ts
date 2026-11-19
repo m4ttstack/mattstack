@@ -263,6 +263,15 @@ export function laneMrLine(run: RunSummary, kind: RunKind): string | null {
   return kind === 'work' ? noMrYet(forgeOf(run.repo)) : null;
 }
 
+/** The oldest open gate a shepherd owns, which a blocked run waits on. */
+export function shepherdGate(gates: GateRow[]): GateRow | null {
+  return (
+    gates
+      .filter(g => g.status === 'open' && !isMine(g))
+      .sort((a, b) => a.openedAt - b.openedAt)[0] ?? null
+  );
+}
+
 export interface LaneFacts {
   kind: RunKind;
   liveness: HeroLiveness;
@@ -314,7 +323,11 @@ export function laneFacts({
     kind,
     liveness: heroLiveness(
       run,
-      { mine, handoff: waitingHandoff(gates.filter(isMine)) },
+      {
+        mine,
+        handoff: waitingHandoff(gates.filter(isMine)),
+        shepherd: shepherdGate(gates),
+      },
       now
     ),
     focusPane: run.agent && run.agent.status !== 'done' ? run.agent.pane : null,

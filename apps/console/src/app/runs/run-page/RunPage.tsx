@@ -6,6 +6,7 @@ import { useSearch } from 'wouter';
 import { useUsageRun } from '../../usage/useUsage';
 import { formatDuration } from '../derive/duration';
 import { gateStage } from '../derive/gates';
+import { shepherdGate } from '../derive/lanes';
 import { heroLiveness } from '../derive/liveness';
 import { modeFeed, pauseStateOf, runModeOf } from '../derive/modeFeed';
 import { liveCost } from '../derive/record';
@@ -219,7 +220,11 @@ export function RunPage({
           ticketUrl={facts.hero.ticketUrl}
           meta={facts.hero.meta}
           title={parts.title}
-          liveness={heroLiveness(run, { handoff, mine }, now)}
+          liveness={heroLiveness(
+            run,
+            { handoff, mine, shepherd: shepherdGate(gates) },
+            now
+          )}
           rail={rail}
           finished={!live}
           focusPane={
