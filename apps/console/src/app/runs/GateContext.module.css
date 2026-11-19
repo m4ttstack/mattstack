@@ -29,17 +29,52 @@
   font-weight: 600;
 }
 
-/* A span that wraps keeps its edge and fill on every line it runs onto. */
-.prose :not(pre) > code {
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-  padding: 1px 5px;
-  border: 1px solid var(--tk-border);
-  background-color: var(--tk-inset);
+/* Inline code is a neutral wash of the text colour, so it reads on any
+   surface in either scheme. Its padding sits only at the span's two ends,
+   never where it wraps, so a broken span lines up with the text beside it.
+   A short span never wraps. */
+.prose :not(pre) > code.code {
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 4px;
+  background-color: color-mix(in srgb, currentColor 9%, transparent);
+}
+
+.prose :not(pre) > code.short.short {
+  white-space: nowrap;
 }
 
 .quote {
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+
+/* The quote's fill dims its text and swallows a code span's fill, so its
+   text takes the primary colour and its code sits on the card. */
+.quote p {
+  margin-bottom: 6px;
+  color: var(--tk-text-1);
+}
+
+.quote :not(pre) > code.code {
+  background-color: var(--tk-card);
+}
+
+/* A code block reads as its own panel, apart from the prose around it. */
+.prose pre {
+  padding: 10px 12px;
+  border: 1px solid var(--tk-border-soft);
+  border-radius: var(--mantine-radius-sm);
+  background-color: var(--tk-inset);
+  overflow-x: auto;
+}
+
+.list li + li {
+  margin-top: 6px;
+}
+
+/* A subheading sits closer to what it introduces than to what came before. */
+.prose p:has(> strong:only-child) {
+  margin-bottom: 6px;
 }
 
 /* A task list's checkbox is its marker, so the bullet goes. */
@@ -49,6 +84,6 @@
 }
 
 /* A paragraph after a list or a code block starts a new section. */
-.prose > :is(ul, ol, pre) + p {
-  margin-top: var(--mantine-spacing-md);
+.prose > :is(ul, ol, pre, blockquote) + p {
+  margin-top: var(--mantine-spacing-lg);
 }

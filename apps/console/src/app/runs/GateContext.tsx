@@ -12,6 +12,9 @@ import classes from './GateContext.module.css';
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const REMARK_NO_BREAKS = [remarkGfm];
 
+/** Inline code this short stays on one line. */
+const SHORT_CODE = 32;
+
 /** A fenced block's text: Markdown renders it as `pre > code`, and `code`
     is already the inline kit Code by the time `pre` sees it. */
 function fencedText(children: ReactNode): ReactNode {
@@ -23,7 +26,17 @@ function fencedText(children: ReactNode): ReactNode {
 /** Markdown's elements as kit components; a caller's `components` replace
     these. */
 const KIT: Components = {
-  code: ({ children }) => <Code>{children}</Code>,
+  code: ({ children }) => (
+    <Code
+      className={
+        typeof children === 'string' && children.length <= SHORT_CODE
+          ? `${classes.code} ${classes.short}`
+          : classes.code
+      }
+    >
+      {children}
+    </Code>
+  ),
   pre: ({ children }) => <Code block>{fencedText(children)}</Code>,
   blockquote: ({ children }) => (
     <Blockquote color="gray" className={classes.quote}>
