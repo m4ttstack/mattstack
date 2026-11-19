@@ -2,12 +2,11 @@ import type { ClientKeyEvent, JsonValue } from 'claude-code'
 import { gridMove, menuHit, menuKey, type GridRow, type GridSpot, type MenuHit, type MenuMove } from '@mattstack/mod-kit'
 
 import type { Form } from '../../types'
-import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isOnNav, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
+import { advance, answersOf, canChat, canSubmit, chosenValue, choicesOf, clickChoice, confirm, controlAnswers, deleteChar, goTo, isConfirm, isContextPage, isPicked, isOnNav, isOneQuestion, isReview, isSinglePage, isTyping, menuRows, moveCursor, navAtOf, navIds, toggleAtCursor, typeChar, type NavId, type State } from './state'
 
 export type Action =
   | { type: 'page'; page: number }
   | { type: 'hide' }
-  | { type: 'scroll-tabs'; from: number }
   | { type: 'advance' }
   | { type: 'option'; idx: number }
   | { type: 'send' }
@@ -28,6 +27,30 @@ function send(form: Form, s: State): Effect | undefined {
   return post(form, s, { [form.questions[0]!.id]: chosenValue(form, s) })
 }
 
+// The one-page form's Enter picks the option at the cursor and submits it.
+function sendPicked(form: Form, s: State): Effect {
+  const picked = toggleAtCursor(form, s)
+  return send(form, picked) ?? { state: picked }
+}
+
+// The engine reports single clicks only, so two on the same option within DOUBLE_MS are a double click: the first
+// already picked or ticked it, so the second moves on (submits a one-page form) instead of clicking again.
+const DOUBLE_MS = 450
+
+export function optionClick(form: Form, s: State, idx: number, now: number): Effect | undefined {
+  const last = s.lastClick
+  const isDouble = last !== undefined && last.page === s.page && last.idx === idx && now - last.at < DOUBLE_MS
+  if (!isDouble) return { state: { ...clickChoice(form, s, idx), lastClick: { page: s.page, idx, at: now } } }
+  const once = { ...s, lastClick: undefined }
+  // The double click moves on only with the clicked option taken: an empty write-in is not, whatever was picked before.
+  const q = form.questions[s.page]
+  const value = q && choicesOf(q)[idx]?.value
+  const isTaken = q !== undefined && value !== undefined && (q.multi ? isPicked(q, once, s.page, idx) : once.chosen[s.page] === value)
+  if (!isTaken) return { state: once }
+  if (isSinglePage(form)) return send(form, once) ?? { state: once }
+  return { state: advance(form, once) }
+}
+
 // The first press arms it; the second sets the form aside. A gate set aside stays open and answerable.
 function chat(form: Form, s: State): Effect | undefined {
   if (!canChat(form)) return undefined
@@ -44,13 +67,18 @@ function moved(form: Form, s: State, move: MenuMove | undefined): Effect | undef
 }
 
 // A new page starts with the keyboard on its answers and the nav row back on its forward button.
-function settled(before: State, effect: Effect | undefined): Effect | undefined {
+// A form with one question has no review page: moving past its question submits it.
+function settled(form: Form, before: State, effect: Effect | undefined): Effect | undefined {
   if (!effect || effect.state.page === before.page) return effect
+  if (isOneQuestion(form) && effect.state.page > 0 && effect.post === undefined && effect.state.phase === 'active') {
+    const kept = { ...effect.state, page: 0 }
+    return send(form, kept) ?? { state: kept }
+  }
   return { ...effect, state: { ...effect.state, onNav: undefined, navAt: 'next', pageTop: undefined, followed: undefined } }
 }
 
 export function perform(action: Action, form: Form, armed: State): Effect | undefined {
-  return settled(armed, performOn(action, form, armed))
+  return settled(form, armed, performOn(action, form, armed))
 }
 
 function performOn(action: Action, form: Form, armed: State): Effect | undefined {
@@ -58,17 +86,15 @@ function performOn(action: Action, form: Form, armed: State): Effect | undefined
   if (action.type === 'hide') return { state: armed, post: { type: 'hide', formId: form.id } }
   if (armed.phase !== 'active') return undefined
   if (action.type === 'chat') return chat(form, armed)
-  const s = disarm(armed)
+  // Any act between two option clicks breaks them up, so only two clicks in a row count as a double click.
+  const s = action.type === 'option' ? disarm(armed) : { ...disarm(armed), lastClick: undefined }
   switch (action.type) {
-    case 'scroll-tabs':
-      return { state: { ...s, tabsFrom: action.from } }
     case 'page':
       return { state: goTo(form, s, action.page) }
     case 'advance':
       return { state: advance(form, s) }
-    case 'option': {
-      return { state: clickChoice(form, s, action.idx) }
-    }
+    case 'option':
+      return optionClick(form, s, action.idx, Date.now())
     case 'send':
       return send(form, s)
     case 'menu':
@@ -129,21 +155,19 @@ export function pressesButton(ev: ClientKeyEvent, form: Form, s: State): boolean
   if (isConfirm(form)) return false
   if (!isEnter(ev)) return false
   if (s.menu.open) return true
-  if (isSinglePage(form)) return canSubmit(form, s)
-  if (!isOnNav(form, s)) {
-    const q = form.questions[s.page]
-    return q !== undefined && choicesOf(q).length > 0
-  }
+  // Enter on an option picks it with no press to show, as a list row in an OS has none.
+  if (isSinglePage(form) || !isOnNav(form, s)) return false
   return !(navAtOf(form, s) === 'next' && isReview(form, s) && !canSubmit(form, s))
 }
 
-// On the review page ←→ still change page (→ has none to go to), so Tab moves between its buttons.
+// On the review page ← → move along its buttons (Submit, More actions, Chat about this); ← from the first one pages
+// back to the last question. Tab steps the buttons round.
 function reviewKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefined {
-  if (ev.key === 'left') return { state: goTo(form, s, s.page - 1) }
-  if (ev.key === 'right') return { state: s }
-  if (ev.key !== 'tab') return undefined
   const ids = navIds(form, s)
   const at = ids.indexOf(navAtOf(form, s))
+  if (ev.key === 'left') return { state: at > 0 ? { ...s, navAt: ids[at - 1]! } : goTo(form, s, s.page - 1) }
+  if (ev.key === 'right') return { state: at < ids.length - 1 ? { ...s, navAt: ids[at + 1]! } : s }
+  if (ev.key !== 'tab') return undefined
   return { state: { ...s, navAt: ids[(at + (ev.shift ? -1 : 1) + ids.length) % ids.length]! } }
 }
 
@@ -157,25 +181,37 @@ function questionKey(ev: ClientKeyEvent, form: Form, s: State): Effect | undefin
   const { key } = ev
   const isSpace = key === ' ' || key === 'space'
   const typing = isTyping(form, s)
-  if (isEnter(ev)) return isSinglePage(form) ? (send(form, s) ?? { state: s }) : { state: confirm(form, s) }
-  if (key === 'left' || key === 'right') return { state: goTo(form, s, s.page + (key === 'left' ? -1 : 1)) }
+  if (isEnter(ev)) return isSinglePage(form) ? sendPicked(form, s) : { state: confirm(form, s) }
+  // With one question there is no page to step to, and → must not submit by accident.
+  if (key === 'left' || key === 'right') return { state: isOneQuestion(form) && key === 'right' ? s : goTo(form, s, s.page + (key === 'left' ? -1 : 1)) }
   if (key === 'up' || key === 'down') return gridKey(ev, form, s)
-  if (isSpace && form.questions[s.page]?.multi && !typing) return { state: toggleAtCursor(form, s) }
+  if (isSpace && !typing) return { state: toggleAtCursor(form, s) }
   if (!typing) return undefined
   if (key === 'backspace' || key === 'delete') return { state: deleteChar(s) }
   const ch = isSpace ? ' ' : key
-  if (ch.length === 1 && !ev.ctrl && !ev.meta) return { state: typeChar(s, ch) }
+  if (ch.length === 1 && !ev.ctrl && !ev.meta) return { state: typeChar(form, s, ch) }
   return undefined
+}
+
+// The context page: ↑↓ scroll it, Enter, → or Tab start the questions.
+function contextKey(ev: ClientKeyEvent, form: Form, s: State): Effect {
+  if (ev.key === 'up' || ev.key === 'down') return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === 'up' ? -1 : 1)) } }
+  if (isEnter(ev) || ev.key === 'right' || (ev.key === 'tab' && !ev.shift)) return { state: goTo(form, s, 0) }
+  return { state: s }
 }
 
 export function keyEffect(ev: ClientKeyEvent, form: Form, armed: State): Effect | undefined {
   if (armed.phase !== 'active') return undefined
   if (ev.ctrl && (ev.key === 'x' || ev.key === 'c')) return chat(form, armed)
-  const s = disarm(armed)
+  const s = { ...disarm(armed), lastClick: undefined }
   // A confirm's answers are the engine's Buttons, drawn by the hooks module, which take the keys themselves.
   if (isConfirm(form)) return undefined
+  if (isContextPage(s)) return settled(form, s, contextKey(ev, form, s))
+  // shift+↑↓ scrolls the context box; the view clamps it to the context's height.
+  if (ev.shift && (ev.key === 'up' || ev.key === 'down')) return { state: { ...s, ctxTop: Math.max(0, (s.ctxTop ?? 0) + (ev.key === 'up' ? -1 : 1)) } }
   // Tab forward is Next (it takes a chosen cursor as the answer); shift+Tab only looks back.
-  if (ev.key === 'tab' && isSinglePage(form)) return { state: s }
-  if (ev.key === 'tab' && !isReview(form, s)) return settled(s, { state: ev.shift ? goTo(form, s, s.page - 1) : advance(form, s) })
-  return settled(s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s))
+  if (ev.key === 'tab' && (isSinglePage(form) || isOneQuestion(form))) return { state: s }
+  // Tab looks around like the arrows; only the Next button, Enter, space or a click answers.
+  if (ev.key === 'tab' && !isReview(form, s)) return settled(form, s, { state: goTo(form, s, s.page + (ev.shift ? -1 : 1)) })
+  return settled(form, s, isOnNav(form, s) ? navKey(ev, form, armed, s) : questionKey(ev, form, s))
 }

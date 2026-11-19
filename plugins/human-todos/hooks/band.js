@@ -140,7 +140,7 @@ var SYMBOL = {
   boxActive: "◻",
   boxOn: "◼",
   boxOff: "◻",
-  selectEdge: "▎"
+  selectEdge: "❯"
 };
 var ICON = {
   layers: "",
@@ -171,6 +171,7 @@ var FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
+var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -214,15 +215,24 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
-function keySelected(span) {
-  if (!span.t.startsWith(" "))
-    return [span];
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
-  return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) }
-  ];
+function markButtonAt(line, at, focus = {}) {
+  const button = line[at];
+  if (!button)
+    return line;
+  const lit = focus.pressing ? pressed(button) : hoverOf(button);
+  let back = at - 1;
+  while (back >= 0 && line[back].t === "")
+    back -= 1;
+  const prev = line[back];
+  const keep = (spans) => Object.assign(spans, line.action === undefined ? {} : { action: line.action });
+  if (prev && prev.action === undefined && /^ +$/.test(prev.t)) {
+    const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
+    const rest = prev.t.slice(mark.length);
+    return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true, ...prev.bg && { bg: prev.bg } }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
+  }
+  return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)]);
 }
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -240,6 +250,30 @@ function muted(span) {
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
+}
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
 }
 // packages/mod-kit/src/interact/pointer.ts
 function lookOf(state, focused) {
@@ -485,6 +519,9 @@ function isControl(span, line, row, key) {
 function styleOf(span, line, row, look) {
   if (!look.focused)
     return muted(span);
+  const overRow = span.rowTint === true && [look.hover, look.pressed].some((key) => key !== undefined && lineHoverKey(line) === key);
+  if (overRow)
+    return span.bg !== undefined && span.bg !== CURSOR_ROW ? span : { ...span, bg: CURSOR_ROW };
   if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
     return pressed(span);
   if (look.hover !== undefined && isControl(span, line, row, look.hover))
@@ -521,31 +558,6 @@ function Panel(props) {
   const lines = ctxFor(render, "panel", { width: props.width ?? render.width, focused: render.focused }).layout(props.children);
   render.lines = lines;
   return renderLines(lines, render.elements, render.look);
-}
-
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
 }
 
 // packages/mod-kit/src/components/reopen-band.tsx

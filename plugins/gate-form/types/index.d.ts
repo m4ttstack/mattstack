@@ -10,6 +10,9 @@ export type FormQuestion = {
   other: boolean
   context?: string
   options: FormOption[]
+  // A pick-any list an agent split across `<id>-1`, `<id>-2`, ... (the native form's four-option cap), drawn here as one
+  // question: each part's id and the option values it owns, so the answer goes back in the shape the agent asked for.
+  parts?: { id: string; values: string[] }[]
 }
 
 // The run controls a gate offers; More actions shows a row for each that is set.

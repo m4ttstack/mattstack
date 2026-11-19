@@ -31,8 +31,10 @@ export function navRow<A>(spec: NavSpec<A>, width: number): Line<A> {
 // An item with no `summary` reads "not answered". One with an `action` is clickable as a whole, so the list is also how a person goes back.
 export type ReviewItem<A> = { label: string; summary?: string; action?: A }
 
-export function reviewList<A>(items: ReviewItem<A>[], width: number): Line<A>[] {
-  const bar = rail<A>(GRAY)
+// `rail: false` drops the clack rail down the left, for a surface that sets its sections apart another way.
+export function reviewList<A>(items: ReviewItem<A>[], width: number, options: { rail?: boolean } = {}): Line<A>[] {
+  const isRailed = options.rail !== false
+  const bar = isRailed ? rail<A>(GRAY) : [sp<A>('   ')]
   return items.flatMap(item => {
     const isDone = item.summary !== undefined
     const symbol = isDone ? sp<A>(ICON.done, DONE) : sp<A>(ICON.missing, WARN)
@@ -41,6 +43,6 @@ export function reviewList<A>(items: ReviewItem<A>[], width: number): Line<A>[] 
       ...(isDone ? hang(bar, bar, item.summary!, width, DIM) : [[...bar, sp('not answered', WARN)] as Line<A>]),
     ]
     if (item.action !== undefined) for (const line of entry) line.action = item.action
-    return [[sp(SYMBOL.bar, GRAY)] as Line<A>, ...entry]
+    return [(isRailed ? [sp(SYMBOL.bar, GRAY)] : [sp(' ')]) as Line<A>, ...entry]
   })
 }

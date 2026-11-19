@@ -52,8 +52,11 @@ re-renders.
 A clarify question through gate-protocol, scope
 `clarify:redaction-which:<n>`, in a form of its own: which boards of the
 opening need something hidden, multiple choice, one option per board (its
-case and claim), at most four options per question, so more boards spread
-over consecutive questions in that form. The form's one-line context says that boards left unpicked count as
+case and claim). When the kit form draws the gate (opened from the main
+session, not a subagent or a hand-back, with gate-form's `ask` tool
+(`mcp__gate-form__ask`) in your session), every board goes in one
+question; otherwise at most four options per question, so more boards spread over consecutive questions in
+that form. The form's one-line context says that boards left unpicked count as
 confirmed, and that picking none confirms them all. Their earlier words
 travel with each board they pick. A `hold` answer is Held at
 evidence-redaction.

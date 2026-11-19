@@ -15,7 +15,7 @@ test('an open run item clips the script to two rows, then offers Show all, the c
   const { rows } = build([todo({ kind: 'run', title: 'Deploy', detail: 'To staging', script: script5, cwd: '/tmp' })])
 
   expect(rows).toEqual([
-    text('○ Deploy', 'title'),
+    text('☐ Deploy', 'title'),
     text('To staging', 'dim', true),
     text('$ one', 'script', true),
     text('two', 'script', true),
@@ -27,7 +27,7 @@ test('an open run item clips the script to two rows, then offers Show all, the c
       buttons: [
         { id: 'run', label: 'Run', tone: 'primary', todoId: '1' },
         { id: 'copy', label: 'Copy', tone: 'quiet', todoId: '1' },
-        { id: 'done', label: 'Done', tone: 'quiet', todoId: '1' },
+        { id: 'done', label: 'Done', tone: 'secondary', todoId: '1' },
         { id: 'skip', label: 'Skip', tone: 'quiet', todoId: '1' },
       ],
     },
@@ -61,15 +61,15 @@ test('a confirming item shows the whole script, then its buttons, then the confi
   ])
 })
 
-test("an item's first button is its only filled one: the main action, or Stop while it runs", () => {
+test("an item's main button and Done are filled: the main action, or Stop while it runs, and Done always looks the same", () => {
   const tones = (over: Partial<Todo>) => {
     const row = build([todo(over)]).rows.filter(r => r.kind === 'buttons').at(-1) as { buttons: { id: string; tone: string }[] }
     return row.buttons.map(b => `${b.id}:${b.tone}`)
   }
   expect(tones({ kind: 'task' })).toEqual(['done:secondary', 'skip:quiet'])
-  expect(tones({ kind: 'terminal', script: 'sudo ls' })).toEqual(['copy:neutral', 'done:quiet', 'skip:quiet'])
-  expect(tones({ kind: 'link', url: 'https://example.com' })).toEqual(['open:primary', 'done:quiet', 'skip:quiet'])
-  expect(tones({ kind: 'image', paths: ['/a.png'] })).toEqual(['open:primary', 'done:quiet', 'skip:quiet'])
+  expect(tones({ kind: 'terminal', script: 'sudo ls' })).toEqual(['copy:neutral', 'done:secondary', 'skip:quiet'])
+  expect(tones({ kind: 'link', url: 'https://example.com' })).toEqual(['open:primary', 'done:secondary', 'skip:quiet'])
+  expect(tones({ kind: 'image', paths: ['/a.png'] })).toEqual(['open:primary', 'done:secondary', 'skip:quiet'])
   expect(tones({ kind: 'run', script: 'ls', status: 'running', runner: 'local' })).toEqual(['openLog:quiet', 'stop:caution'])
   expect(tones({ kind: 'run', script: 'ls', status: 'running', runner: 'herdr', isStopping: true })).toEqual(['show:quiet', 'forceStop:caution'])
 })
@@ -82,7 +82,7 @@ test("a note shows under the detail, link and image rows are cyan, and a long ti
   ])
 
   expect(rows.slice(0, 4)).toEqual([
-    text('○ Store the token for the replay', 'title'),
+    text('☐ Store the token for the replay', 'title'),
     text('workspace before the pilot runs', 'title', true),
     text('D', 'dim', true),
     text('Stopped', 'warning', true),
@@ -237,4 +237,30 @@ test('messageOf gives each button the one message both drawers act on', () => {
   expect(messageOf({ id: 'run', todoId: '3' })).toEqual({ type: 'press', id: '3', button: 'run' })
   expect(messageOf({ id: 'more', todoId: '3' })).toEqual({ type: 'toggle', id: '3' })
   expect(messageOf({ id: 'clear' })).toEqual({ type: 'clear' })
+})
+
+test('in the kit drawer an open item ends its row with the message button; the plain drawer has none', () => {
+  const kit = paneModel({ list: [todo({})], expanded: [], spin: '⠋', width: 38, messages: true })
+  const ids = (rows: PaneRow[]) => rows.flatMap(r => (r.kind === 'buttons' ? r.buttons.map(b => b.id) : []))
+  expect(ids(kit.rows)).toEqual(['done', 'skip', 'message'])
+  expect(ids(build([todo({})]).rows)).toEqual(['done', 'skip'])
+  expect(ids(paneModel({ list: [todo({ status: 'running', runner: 'local' })], expanded: [], spin: '⠋', width: 38, messages: true }).rows)).not.toContain('message')
+})
+
+test('the item whose message card is open gets its draft rows, then Cancel, Send & mark done and Send', () => {
+  const { rows, spans } = paneModel({ list: [todo({})], expanded: [], spin: '⠋', width: 38, messages: true, composing: '1', composeLines: 3 })
+  const at = rows.findIndex(r => r.kind === 'compose')
+  expect(rows[at]).toEqual({ kind: 'compose', todoId: '1', lines: 3 })
+  const after = rows[at + 1]
+  expect(after?.kind === 'composeActions' && after.buttons.map(b => [b.id, b.label])).toEqual([
+    ['cancelMessage', 'Cancel'],
+    ['sendDone', 'Send & mark done'],
+    ['send', 'Send'],
+  ])
+  expect(spans[0]!.last).toBe(at + 1)
+})
+
+test("an agent's doneLabel replaces the Done button's word, and Done keeps its fill", () => {
+  const row = build([todo({ doneLabel: "I've signed in" })]).rows.find(r => r.kind === 'buttons') as { buttons: { id: string; label: string; tone: string }[] }
+  expect(row.buttons[0]).toMatchObject({ id: 'done', label: "I've signed in", tone: 'secondary' })
 })

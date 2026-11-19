@@ -10,7 +10,12 @@ type AnatomySource = SkillsAnatomy['template'];
 /** `unmeasured` is check having no row for the skill, which says nothing
     about its files. */
 export type FileStatus =
-  'unchanged' | 'current' | 'changed' | 'not built' | 'unmeasured';
+  | 'unchanged'
+  | 'current'
+  | 'changed'
+  | 'not built'
+  | 'unmeasured'
+  | 'renders per Mac';
 
 export type BuiltFromRow = {
   path: string;
@@ -79,6 +84,9 @@ export function builtFrom(
   const stale = row?.status === 'stale';
   const causes = row?.staleBecause ?? anatomy.staleBecause;
   const statusOf = (source: AnatomySource, changed: boolean): FileStatus => {
+    // A husk pack commits no built copy: each Mac renders it from these files.
+    if (anatomy.rendered.husk)
+      return stale && changed ? 'changed' : 'renders per Mac';
     if (source.builtVersion === null) return 'not built';
     if (!row) return 'unmeasured';
     if (row.status === 'never-compiled') return 'not built';
@@ -183,6 +191,8 @@ export function blockNote(rows: BuiltFromRow[], skill: string): string {
   const changed = rows.filter(row => row.status === 'changed');
   if (changed.length > 0)
     return `${changed.map(row => row.file).join(', ')} changed after ${skill} was built, so this block is out of date until a sync rebuilds it.`;
+  if (rows.some(row => row.status === 'renders per Mac'))
+    return `${skill} ships as a husk: each Mac renders it from these files, so it holds no built copy to fall behind.`;
   if (rows.some(row => row.status === 'not built'))
     return `${skill} has never been built, so it holds no copy of this block yet.`;
   if (rows.some(row => row.status === 'unmeasured'))

@@ -99,8 +99,8 @@ for (const surface of SURFACES) {
     expect(String(client.props.module)).toMatch(/pane\/kit-view\.js$/)
     const rows = await rowsOf(pane)
     expect(rows[0]).toContain('Human Todos')
-    expect(rows[0]).toContain('Hide')
-    expect(rows.some(r => r.includes('○ Deploy'))).toBe(true)
+    expect(rows[0]).toContain('Close')
+    expect(rows.some(r => r.includes('☐ Deploy'))).toBe(true)
     await pane.unmount()
   })
 
@@ -146,14 +146,14 @@ for (const surface of SURFACES) {
     await pane.unmount()
   })
 
-  test(`Hide closes the pane and the band's Show brings it back (${surface})`, async ($, on) => {
+  test(`Close closes the pane and the band's Show brings it back (${surface})`, async ($, on) => {
     const { opened } = await seeded($, on, [todo({})])
     await $.command.run({ command: 'todos', args: '' })
     const band = await $.ui.mount({ ...BAND, surface })
     expect(await band.find({ type: 'Client' })).toBeUndefined()
     const pane = await $.ui.mount({ ...PANE, surface })
 
-    await click(pane, 'Hide')
+    await click(pane, 'Close')
     const shownBand = await rowsOf(band)
     expect(shownBand[0]).toContain('Human Todos waiting')
     expect(shownBand[0]).toContain('1 to-do')
@@ -288,7 +288,7 @@ test('the mod scrolls the kit drawer: the brand bar stays, the window moves, the
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const top = await rowsOf(pane)
   expect(top).toHaveLength(20)
-  expect(top[2]).toContain('○ Item 1')
+  expect(top[2]).toContain('☐ Item 1')
   expect(await thumbRows(pane)).toContain(2)
 
   expect(await scrollBy($, 5)).toEqual({})
@@ -296,12 +296,12 @@ test('the mod scrolls the kit drawer: the brand bar stays, the window moves, the
   const rows = await rowsOf(pane)
   expect(rows).toHaveLength(20)
   expect(rows[0]).toContain('Human Todos')
-  expect(rows[0]).toContain('Hide')
+  expect(rows[0]).toContain('Close')
   // The first body row is model row 5, the blank under Item 2's title; rows 6 and 8 follow: Item 2's buttons, then Item 3's title.
   // The scroll bar shows the place, so no row is given over to an "N more" hint.
   expect(rows[2]?.trim()).toBe('')
   expect(rows[3]).toContain('Done')
-  expect(rows[5]).toContain('○ Item 3')
+  expect(rows[5]).toContain('☐ Item 3')
   expect(rows[19]).toContain('Done')
   expect(rows.some(r => /[↑↓] \d+ more/.test(r))).toBe(false)
   expect((await propsOf(pane)).offset).toBe(5)
@@ -311,7 +311,7 @@ test('the mod scrolls the kit drawer: the brand bar stays, the window moves, the
 
   await scrollBy($, -100)
   expect((await propsOf(pane)).offset).toBe(0)
-  expect((await rowsOf(pane))[2]).toContain('○ Item 1')
+  expect((await rowsOf(pane))[2]).toContain('☐ Item 1')
 
   await scrollBy($, 1000)
   const bottom = await rowsOf(pane)
@@ -393,12 +393,12 @@ test('the plain drawer keeps the engine scroll: the move passes beneath and the 
 
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await propsOf(pane)).offset).toBe(0)
-  expect((await rowsOf(pane))[2]).toContain('○ Item 1')
+  expect((await rowsOf(pane))[2]).toContain('☐ Item 1')
   await pane.unmount()
 })
 
-// Keyboard: the rows carrying the pink rail, and the label of the button with the pink edge.
-const EDGE = '▎'
+// Keyboard: the rows carrying the rail, and the label of the button with the ❯ cursor.
+const EDGE = '❯'
 const railRows = (rows: string[]) => rows.flatMap((r, n) => (r.startsWith('│') ? [n] : []))
 const edged = (rows: string[]) => {
   const row = rows.find(r => r.includes(EDGE))
@@ -428,7 +428,7 @@ test('keyboard: no marks until a key; the first key only reveals the first item 
 
   await pane.key({ key: 'down' })
   let rows = await rowsOf(pane)
-  expect(titleAbove(rows)).toBe('○ Deploy')
+  expect(titleAbove(rows)).toBe('☐ Deploy')
   expect(edged(rows)).toBe('Run')
 
   await pane.key({ key: 'right' })
@@ -439,16 +439,16 @@ test('keyboard: no marks until a key; the first key only reveals the first item 
 
   await pane.key({ key: 'down' })
   rows = await rowsOf(pane)
-  expect(titleAbove(rows)).toBe('○ Item 1')
+  expect(titleAbove(rows)).toBe('☐ Item 1')
   expect(edged(rows)).toBe('Done')
   await pane.key({ key: 'tab' })
-  expect(titleAbove(await rowsOf(pane))).toBe('○ Item 2')
+  expect(titleAbove(await rowsOf(pane))).toBe('☐ Item 2')
   await pane.key({ key: 'tab' })
-  expect(titleAbove(await rowsOf(pane))).toBe('○ Item 2')
+  expect(titleAbove(await rowsOf(pane))).toBe('☐ Item 2')
   await pane.key({ key: 'tab', shift: true })
   await pane.key({ key: 'up' })
   await pane.key({ key: 'up' })
-  expect(titleAbove(await rowsOf(pane))).toBe('○ Deploy')
+  expect(titleAbove(await rowsOf(pane))).toBe('☐ Deploy')
   await pane.unmount()
 })
 
@@ -458,7 +458,7 @@ test('keyboard: the rail covers every row of the selected item, and Clear finish
   await pane.key({ key: 'down' })
   let rows = await rowsOf(pane)
   const rail = railRows(rows)
-  expect(rows[rail[0]!]).toContain('○ One')
+  expect(rows[rail[0]!]).toContain('☐ One')
   expect(rows.slice(rail[0], rail.at(-1)! + 1).join('\n')).toContain('Its detail')
   expect(rows[rail.at(-1)!]).toContain('Skip')
   expect(rail).toEqual(Array.from({ length: rail.length }, (_, n) => rail[0]! + n))
@@ -490,7 +490,7 @@ test('keyboard: a pointer move hides the marks, a click moves the selection, and
   // Item 2 has gone, so the selection falls to the next item on its filled button.
   await pane.key({ key: 'right' })
   const after = await rowsOf(pane)
-  expect(titleAbove(after)).toBe('○ Item 3')
+  expect(titleAbove(after)).toBe('☐ Item 3')
   expect(edged(after)).toBe('Done')
   await pane.unmount()
 })
@@ -514,7 +514,7 @@ test('keyboard: Enter draws the button pressed for a moment, ignores keys meanwh
 
   // Item 1 went, so the selection falls to Item 2 on its filled button; the next Enter acts on it.
   const rows = await rowsOf(pane)
-  expect(titleAbove(rows)).toBe('○ Item 2')
+  expect(titleAbove(rows)).toBe('☐ Item 2')
   expect(edged(rows)).toBe('Done')
   await pane.key({ key: 'return' })
   await pane.advance(160)
@@ -529,7 +529,7 @@ test('keyboard: moving the selection past the window scrolls it into view', asyn
   for (let n = 0; n < 8; n++) await pane.key({ key: 'down' })
   const rows = await rowsOf(pane)
   expect((await propsOf(pane)).offset).toBeGreaterThan(0)
-  expect(titleAbove(rows)).toBe('○ Item 9')
+  expect(titleAbove(rows)).toBe('☐ Item 9')
   expect(edged(rows)).toBe('Done')
   await pane.unmount()
 })
@@ -560,14 +560,14 @@ test('keyboard: when the selected item goes, the window follows the selection to
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await pane.key({ key: 'down' })
   for (let n = 0; n < 11; n++) await pane.key({ key: 'tab' })
-  expect(titleAbove(await rowsOf(pane))).toBe('○ Item 12')
+  expect(titleAbove(await rowsOf(pane))).toBe('☐ Item 12')
   await scrollBy($, -1000)
   expect((await propsOf(pane)).offset).toBe(0)
 
   await $.tool.call({ tool: 'mcp__human-todos__withdraw', id: '12' })
   const rows = await rowsOf(pane)
   expect((await propsOf(pane)).offset).toBeGreaterThan(0)
-  expect(titleAbove(rows)).toBe('○ Item 11')
+  expect(titleAbove(rows)).toBe('☐ Item 11')
   expect(edged(rows)).toBe('Done')
   await pane.unmount()
 })

@@ -2,7 +2,8 @@ import type { EngineInterface, RenderSurface } from 'claude-code'
 
 import { TITLE, isActionable } from '../items'
 import type { ButtonId } from '../items'
-import { peekTodos, removeTodos, toggleExpanded } from '../store'
+import { closeComposing, peekTodos, removeTodos, setComposeLines, toggleComposing, toggleExpanded } from '../store'
+import { report } from '../report'
 import { clampScroll, cleanup, press } from '../wiring'
 import { LABELS } from './model'
 import type { PaneMessage } from './model'
@@ -17,6 +18,14 @@ async function pressTodo($: EngineInterface, todoId: string, button: ButtonId, s
   }
 }
 
+// A message goes to the agent through the same channel as Done and Skip; Send & mark done also finishes the item.
+async function sendMessage($: EngineInterface, todoId: string, text: string, done: boolean): Promise<void> {
+  const todo = (await peekTodos($)).find(t => t.id === todoId)
+  await closeComposing($)
+  if (!todo || todo.status !== 'open' || text.trim() === '') return
+  await report($, todo, { kind: 'message', text: text.trim(), done })
+}
+
 async function clearFinished($: EngineInterface): Promise<void> {
   const gone = await removeTodos($, t => !isActionable(t))
   await clampScroll($)
@@ -27,7 +36,15 @@ async function clearFinished($: EngineInterface): Promise<void> {
 // Neither caller awaits it, so it says what failed instead of rejecting.
 export async function act($: EngineInterface, message: PaneMessage, surface: RenderSurface): Promise<void> {
   try {
-    if (message.type === 'press') return await pressTodo($, message.id, message.button, surface)
+    if (message.type === 'press' && message.button === 'message') return await toggleComposing($, message.id)
+    if (message.type === 'press' && message.button === 'cancelMessage') return await closeComposing($)
+    if (message.type === 'send') return await sendMessage($, message.id, message.text, message.done)
+    if (message.type === 'draftLines') return await setComposeLines($, message.lines)
+    if (message.type === 'press') {
+      // Any other button on the item shuts its message row, so no hidden draft keeps taking keys.
+      await closeComposing($)
+      return await pressTodo($, message.id, message.button, surface)
+    }
     if (message.type === 'toggle') return await toggleExpanded($, message.id)
     if (message.type === 'clear') return await clearFinished($)
   } catch {

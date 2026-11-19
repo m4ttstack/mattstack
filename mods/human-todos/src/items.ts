@@ -5,7 +5,8 @@ import type { AddInput, Todo } from '../types'
 export const PLUGIN = 'human-todos'
 export const TITLE = 'Human Todos'
 
-export type ButtonId = 'run' | 'open' | 'copy' | 'done' | 'skip' | 'confirm' | 'cancel' | 'show' | 'stop' | 'forceStop' | 'openLog'
+// `message` opens the item's message row; `send`, `sendDone` and `cancelMessage` are that row's buttons (kit drawer only).
+export type ButtonId = 'run' | 'open' | 'copy' | 'done' | 'skip' | 'confirm' | 'cancel' | 'show' | 'stop' | 'forceStop' | 'openLog' | 'message' | 'send' | 'sendDone' | 'cancelMessage'
 
 export const KINDS = ['task', 'run', 'terminal', 'link', 'image'] as const
 export const LIVE_LINES_LOCAL = 15
@@ -28,6 +29,9 @@ export function checkKind(input: AddInput): string | undefined {
   return undefined
 }
 
+// Long enough for a short phrase; the button row wraps past this, and a sentence belongs in `detail`.
+const DONE_LABEL_MAX = 32
+
 export function toTodo(id: string, input: AddInput): Todo {
   const hasScript = input.kind === 'run' || input.kind === 'terminal'
   return {
@@ -40,6 +44,7 @@ export function toTodo(id: string, input: AddInput): Todo {
     ...(input.kind === 'link' && input.url !== undefined && { url: input.url }),
     ...(input.kind === 'image' && input.paths !== undefined && { paths: [...input.paths] }),
     ...(input.kind === 'run' && input.cwd !== undefined && { cwd: input.cwd }),
+    ...(input.doneLabel?.trim() && { doneLabel: input.doneLabel.trim().slice(0, DONE_LABEL_MAX) }),
   }
 }
 

@@ -103,3 +103,9 @@ test('tail caps each line and the whole tail, keeping the newest lines', () => {
   expect(kept.endsWith(`029${'y'.repeat(297)}`)).toBe(true)
   expect(kept.split('\n').length).toBeLessThan(30)
 })
+
+test('toTodo keeps a trimmed doneLabel, clipped to a short phrase, and drops a blank one', () => {
+  expect(toTodo('6', { kind: 'task', title: 't', doneLabel: '  Approved it  ' }).doneLabel).toBe('Approved it')
+  expect(toTodo('7', { kind: 'task', title: 't', doneLabel: '   ' }).doneLabel).toBeUndefined()
+  expect(toTodo('8', { kind: 'task', title: 't', doneLabel: 'x'.repeat(80) }).doneLabel).toHaveLength(32)
+})

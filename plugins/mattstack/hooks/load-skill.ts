@@ -109,7 +109,7 @@ async function loadSkill($: EngineInterface, input: { skill?: unknown; dir?: unk
   const pieces = splitPieces(env.body)
   const stale = typeof env.staleBecause === 'string' ? `; served the last good render: ${env.staleBecause}` : ''
   return {
-    result: `Loaded ${String(env.id)} (pack ${String(env.packVersion)}, mattstack ${String(env.mattstack)}): ${env.body.length} characters in ${pieces.length} parts${stale}`,
+    result: `Loaded ${String(env.id)} (pack ${String(env.packVersion)}, mattstack ${String(env.mattstack)}): ${env.body.length} characters in ${pieces.length} parts${stale}. Its full text follows as context: follow it as the skill. Where it says this skill's directory, use ${dir}.`,
     context: pieces,
   }
 }

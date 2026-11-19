@@ -435,7 +435,8 @@ test('in an 80-column pane the review page and its open menu fit the width', asy
     await pane.pointer({ type: 'down', ...cell, button: 'left' })
     await pane.pointer({ type: 'up', ...cell, button: 'left' })
   }
-  await click('Submit')
+  await click('Next')
+  await click('Review')
   await click('More actions')
   const rows = await rowsOf(pane, key)
   for (const row of rows) expect([...row].length, row).toBeLessThanOrEqual(78)

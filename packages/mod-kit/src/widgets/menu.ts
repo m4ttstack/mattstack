@@ -1,6 +1,6 @@
 import { cellWidth, cutCells } from '../draw/cells'
 import { sp, type Line } from '../draw/text'
-import { ACCENT, DIM, GRAY, keySelected, pressed } from '../draw/theme'
+import { ACCENT, DIM, GRAY, markButtonAt, pressed } from '../draw/theme'
 import { buttonSpan } from './buttons'
 
 // A heading names the rows after it, which hang indented under it; it is drawn as a dim label and is never selected or picked.
@@ -62,7 +62,8 @@ export function menu<A = MenuHit>(spec: MenuSpec<A>): Line<A>[] {
   const act = spec.actionFor ?? ((hit: MenuHit) => hit as A)
   const indent = spec.indent ?? 0
   const button = buttonSpan<A>({ label: spec.label, action: act({ type: 'toggle' }), tone: 'quiet' })
-  const head: Line<A> = [sp(' '.repeat(indent)), ...(spec.isSelected ? keySelected(button) : [button])]
+  const plainHead: Line<A> = [sp(' '.repeat(indent)), button]
+  const head = spec.isSelected ? markButtonAt(plainHead, 1) : plainHead
   if (!spec.open || spec.rows.length === 0) return [head]
 
   const width = spec.width ?? Number.POSITIVE_INFINITY
