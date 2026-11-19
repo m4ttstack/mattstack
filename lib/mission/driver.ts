@@ -62,11 +62,12 @@ type RunActionFn = (cwd: string, kind: RunnableAction, opts: { remote?: string; 
 type PublishRepoFn = (cwd: string, opts: { name: string; private: boolean }) => Promise<ActionResult>;
 
 export interface ActionFailureLog {
-  action: RunnableAction | "publish-repo";
+  action: RunnableAction | "publish-repo" | "stash-and-retry";
   worktree: string;
   branch: string | null;
   detail: string;
   stderr?: string;
+  stack?: string;
 }
 type CommitStagedFn = (cwd: string, message: string, opts?: { amend?: boolean; noVerify?: boolean; allowEmpty?: boolean; coAuthors?: string[] }) => string;
 type AmendStagedFn = (cwd: string, opts?: { message?: string; noVerify?: boolean }) => string;
@@ -971,7 +972,11 @@ export class MissionDriver {
       try {
         result = await run();
       } catch (err) {
-        this.deps.logActionFailure({ ...failed, detail: err instanceof Error ? err.message : String(err) });
+        this.deps.logActionFailure({
+          ...failed,
+          detail: err instanceof Error ? err.message : String(err),
+          ...(err instanceof Error && err.stack !== undefined ? { stack: err.stack } : {}),
+        });
         throw err;
       }
       if (!result.ok) this.deps.logActionFailure({ ...failed, detail: result.detail, ...(result.stderr !== undefined ? { stderr: result.stderr } : {}) });
@@ -1008,7 +1013,7 @@ export class MissionDriver {
     const client = this.deps.client(cwd);
     const nothingDone: ActionResult = { ok: true, detail: "" };
     await this.runBusy(
-      retry,
+      "stash-and-retry",
       async () => {
         const snapshot = await client.snapshot();
         const branch = snapshot.branch;

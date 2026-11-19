@@ -1,4 +1,5 @@
 import { scrubGitEnv } from "../../packages/git-core/src/exec.ts";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { withoutUrls } from "../team/redact.ts";
 import type { GitWorktreeBadge } from "../../packages/rt-client/src/commands.ts";
 
@@ -234,19 +235,29 @@ export async function publishRepo(
   return { ok: true, detail: "" };
 }
 
+// A chatty pre-receive hook can print pages; the reason git failed is at the end.
+const STDERR_LOG_LIMIT = 8_000;
+
+function scrubForLog(text: string): string {
+  return withoutUrls(redactCredentials(text));
+}
+
 /**
  * The CLI log line for a failed remote action. git can quote a remote URL
- * that carries a token, so every free-text field is scrubbed first.
+ * or a hook's env that carries a token, so every free-text field is
+ * scrubbed first.
  */
 export function actionFailureLogger(
   write: (level: "error", module: string, message: string, context: Record<string, unknown>) => void,
-): (entry: { action: string; worktree: string; branch: string | null; detail: string; stderr?: string }) => void {
+): (entry: { action: string; worktree: string; branch: string | null; detail: string; stderr?: string; stack?: string }) => void {
   return (entry) => {
     try {
+      const stderr = entry.stderr === undefined ? undefined : entry.stderr.slice(-STDERR_LOG_LIMIT);
       write("error", "glitter", `${entry.action} failed`, {
         ...entry,
-        detail: withoutUrls(entry.detail),
-        ...(entry.stderr !== undefined ? { stderr: withoutUrls(entry.stderr) } : {}),
+        detail: scrubForLog(entry.detail),
+        ...(stderr !== undefined ? { stderr: scrubForLog(stderr) } : {}),
+        ...(entry.stack !== undefined ? { stack: scrubForLog(entry.stack) } : {}),
       });
     } catch { /* a log write must never fail the action it records */ }
   };

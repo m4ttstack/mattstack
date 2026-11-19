@@ -758,6 +758,39 @@ describe("actionFailureLogger", () => {
     expect(context.stderr).toContain("fatal: unable to access");
   });
 
+  test("scrubs ssh passwords, other forge token shapes and hook env secrets", () => {
+    const lines: unknown[][] = [];
+    const log = actionFailureLogger((...args) => lines.push(args));
+
+    log({
+      action: "push",
+      worktree: "/repo",
+      branch: "main",
+      detail: "fatal: Could not read from remote repository.",
+      stderr: [
+        "fatal: unable to access 'ssh://deploy:s3cr3tpass@git.example.com/o/r.git'",
+        "remote: denied with token gldt-abcdef1234567890xyz",
+        "remote: DEPLOY_TOKEN=supersecretvalue",
+      ].join("\n"),
+    });
+
+    const logged = JSON.stringify(lines[0]![3]);
+    expect(logged).not.toContain("s3cr3tpass");
+    expect(logged).not.toContain("gldt-abcdef1234567890xyz");
+    expect(logged).not.toContain("supersecretvalue");
+  });
+
+  test("keeps only the tail of a very long stderr", () => {
+    const lines: unknown[][] = [];
+    const log = actionFailureLogger((...args) => lines.push(args));
+
+    log({ action: "push", worktree: "/repo", branch: "main", detail: "x", stderr: `${"remote: chatter\n".repeat(2_000)}error: the real reason` });
+
+    const stderr = (lines[0]![3] as { stderr: string }).stderr;
+    expect(stderr.length).toBeLessThanOrEqual(8_000);
+    expect(stderr.endsWith("error: the real reason")).toBe(true);
+  });
+
   test("a write that throws never escapes", () => {
     const log = actionFailureLogger(() => {
       throw new Error("disk full");

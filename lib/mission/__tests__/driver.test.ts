@@ -838,7 +838,7 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
   });
 
   test("a remote action that throws is logged and still clears the busy segment", async () => {
-    const logged: { action: string; detail: string }[] = [];
+    const logged: { action: string; detail: string; stack?: string }[] = [];
     const session = new FakeSession([
       { t: "intent", name: "mission:fetch" },
       { t: "intent", name: "quit" },
@@ -851,9 +851,10 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
       logActionFailure: (entry) => logged.push(entry),
     });
 
-    await new MissionDriver(deps, START).run().catch(() => {});
+    await new MissionDriver(deps, START).run();
 
     expect(logged.map((e) => [e.action, e.detail])).toEqual([["fetch", "spawn git ENOENT"]]);
+    expect(logged[0]!.stack).toContain("spawn git ENOENT");
     expect((session.pushed.at(-1) as MissionModel).action.kind).not.toBe("busy");
   });
 
