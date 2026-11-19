@@ -50,7 +50,7 @@ export async function reconcileClaudeRules(p: Probes): Promise<ClaudeRulesResult
 
   const packs: ClaudeRulesResult["packs"] = [];
   const kept = new Set([MATTSTACK_ENTRY]);
-  for (const src of memberPackSources(p)) {
+  for (const src of await memberPackSources(p)) {
     let files: Map<string, string> | null;
     try {
       files = await readPackRules(p, src);

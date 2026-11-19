@@ -20,24 +20,38 @@ afterEach(() => {
 });
 
 describe("memberPackSources", () => {
-  test("lists every base pack and the active team, not another team in the clone", () => {
+  test("lists every base pack and the active team, not another team in the clone", async () => {
     makeOrg(home);
     const clone = cloneDirOf(home);
-    expect(memberPackSources(p)).toEqual([
+    expect(await memberPackSources(p)).toEqual([
       { entry: "acme-base", cloneDir: clone, ref: "mattstack", repoPath: "mattstack/org/packs/base/rules" },
       { entry: "acme-widgets", cloneDir: clone, ref: "mattstack", repoPath: "mattstack/teams/widgets/plugin/rules" },
     ]);
   });
 
-  test("no org on this Mac lists nothing", () => {
-    expect(memberPackSources(p)).toEqual([]);
+  test("no org on this Mac lists nothing", async () => {
+    expect(await memberPackSources(p)).toEqual([]);
+  });
+
+  test("base packs come from the data branch, not the working tree", async () => {
+    makeOrg(home);
+    rmSync(join(cloneDirOf(home), "mattstack", "org", "packs"), { recursive: true, force: true });
+    writeInClone(home, "mattstack/org/packs/draft/rules/d.md", "# Unpublished\n");
+    expect((await memberPackSources(p)).map((s) => s.entry)).toEqual(["acme-base", "acme-widgets"]);
+  });
+
+  test("a base pack and the active team sharing a name get distinct entries", async () => {
+    makeOrg(home);
+    writeInClone(home, "mattstack/org/packs/widgets/rules/shared.md", "# Base widgets\n");
+    commit(cloneDirOf(home), "base pack named like the team");
+    expect((await memberPackSources(p)).map((s) => s.entry)).toEqual(["acme-base", "acme-widgets", "acme-widgets-team"]);
   });
 });
 
 describe("readPackRules", () => {
   test("returns committed .md files and skips anything else", async () => {
     makeOrg(home);
-    const src = memberPackSources(p).find((s) => s.entry === "acme-widgets")!;
+    const src = (await memberPackSources(p)).find((s) => s.entry === "acme-widgets")!;
     const files = await readPackRules(p, src);
     expect(files).toEqual(new Map([["widgets.md", "# Widgets rule\n"]]));
   });
@@ -52,7 +66,7 @@ describe("readPackRules", () => {
     makeOrg(home);
     symlinkSync("widgets.md", join(cloneDirOf(home), "mattstack/teams/widgets/plugin/rules/alias.md"));
     commit(cloneDirOf(home), "add a link");
-    const src = memberPackSources(p).find((s) => s.entry === "acme-widgets")!;
+    const src = (await memberPackSources(p)).find((s) => s.entry === "acme-widgets")!;
     expect([...(await readPackRules(p, src))!.keys()]).toEqual(["widgets.md"]);
   });
 
@@ -66,7 +80,7 @@ describe("readPackRules", () => {
   test("a working-tree edit to a published rule reads as published", async () => {
     makeOrg(home);
     writeInClone(home, "mattstack/teams/widgets/plugin/rules/widgets.md", "# Edited, not published\n");
-    const src = memberPackSources(p).find((s) => s.entry === "acme-widgets")!;
+    const src = (await memberPackSources(p)).find((s) => s.entry === "acme-widgets")!;
     expect((await readPackRules(p, src))?.get("widgets.md")).toBe("# Widgets rule\n");
   });
 });

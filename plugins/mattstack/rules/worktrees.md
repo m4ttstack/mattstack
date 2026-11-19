@@ -7,7 +7,9 @@ Prefer working in a worktree.
   step (see the `rt:worktree` skill). Never hand-roll `git worktree add`
   there.
 - In any other repo, use `.claude/worktrees/<name>/` or
-  `.worktrees/<name>/`.
+  `.worktrees/<name>/`, and first make sure git ignores that folder
+  (`.gitignore` or `.git/info/exclude`), so the main checkout never stages
+  the nested tree.
 - Never create a worktree as a sibling of the repo's main checkout.
 - A tree that already exists but the session has not entered (for example
   one `rt worktree provision` made) is entered with EnterWorktree's path

@@ -5,7 +5,7 @@ import { join } from "path";
 import { createRealProbes, type Probes } from "../../setup/probes.ts";
 import { claudeRulesDir } from "../paths.ts";
 import { claudeRulesDetail, reconcileClaudeRules } from "../reconcile.ts";
-import { makeOrg, setActiveTeam } from "./org-fixture.ts";
+import { commit, makeOrg, setActiveTeam } from "./org-fixture.ts";
 
 let home: string;
 let p: Probes;
@@ -32,6 +32,7 @@ function freshMac(): void {
   marketplace();
   makeOrg(home);
   rmSync(join(home, ".mattstack", "orgs", "acme", "mattstack", "org", "packs"), { recursive: true, force: true });
+  commit(join(home, ".mattstack", "orgs", "acme"), "drop the base pack");
 }
 
 describe("reconcileClaudeRules", () => {

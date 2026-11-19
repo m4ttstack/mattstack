@@ -13,7 +13,8 @@ To show the user a screenshot or other image, add one Human Todos item with
 The pane lists the files, and its Open button shows them in the user's image
 app. In your reply, say what to look at and that the to-do is in the pane.
 
-- Never run `open` on an image, and never wrap `open` in a `run` to-do.
+- Never run `open` on an image, and never wrap `open` in a `run` to-do
+  (the older human-todos fallback below is the one exception).
 - One to-do per question, with every image for it in that item (both colour
   schemes together).
 - A screenshot taken only to check your own work gets no to-do.
