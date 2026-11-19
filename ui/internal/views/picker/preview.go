@@ -56,12 +56,13 @@ var faceCache = map[string]string{}
 // before it settles on half-blocks.
 const kittyQueryWait = 150 * time.Millisecond
 
-// kittyFaces decides whether faces go out as kitty images. herdr answers the
-// kitty query OK but draws nothing in Flock, which attaches panes through
-// `herdr terminal session control` and that path drops image output, so a
-// herdr pane gets half-blocks without asking.
+// kittyFaces decides whether faces go out as kitty images. A herdr pane
+// answers the kitty query OK even when its server never draws images for
+// session-control clients such as Flock; a server that does sets
+// HERDR_SESSION_CONTROL_IMAGES=1 on its panes, and any other herdr pane gets
+// half-blocks without asking.
 func kittyFaces(getenv func(string) string, query func() bool) bool {
-	if getenv("HERDR_PANE_ID") != "" {
+	if getenv("HERDR_PANE_ID") != "" && getenv("HERDR_SESSION_CONTROL_IMAGES") != "1" {
 		return false
 	}
 	return query()
