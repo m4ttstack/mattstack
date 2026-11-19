@@ -23,6 +23,7 @@ import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 import { computeUninstallActions, runUninstall, RT_CONTEXT_EXTENSION_ID, SKILL_BLOCKS_EXTENSION_ID, type UninstallAction, type UninstallSeams } from "../uninstall.ts";
 import type { ApplyEvent } from "../contract.ts";
+import { claudeRulesDir } from "../../claude-rules/paths.ts";
 
 // ─── shared fakes (mirrors steps-b/c.test.ts's trivial no-ops) ─────────────
 
@@ -348,6 +349,32 @@ describe("rt uninstall", () => {
       expect(result.ok).toBe(false);
       expect(result.failed).toBe("proxy.remove");
       expect(events.filter((e) => e.event === "step" && (e as { id: string }).id === "app.trash")).toEqual([]);
+    });
+
+    describe("plugins.uninstall removes the shared Claude rules link rt made", () => {
+      const actions: UninstallAction[] = [{ id: "plugins.uninstall", title: "x", kind: "rt" }];
+      const link = () => join(home, ".claude", "rules", "mattstack");
+
+      test("rt's link is removed", async () => {
+        const p = bareProbes({ ...pathTool("claude"), links: { [link()]: claudeRulesDir(home) }, dirs: { [claudeRulesDir(home)]: [] } });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["mattstack@mattstack"] }));
+        await runUninstall(makeCtx(p).ctx, actions);
+        expect(p.calls.removed).toContain(link());
+      });
+
+      test("a rules/mattstack rt did not make stays", async () => {
+        const p = bareProbes({ ...pathTool("claude"), dirs: { [link()]: ["own.md"] }, files: { [join(link(), "own.md")]: "mine" } });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["mattstack@mattstack"] }));
+        await runUninstall(makeCtx(p).ctx, actions);
+        expect(p.calls.removed.some((r) => r.startsWith(link()))).toBe(false);
+      });
+
+      test("a link elsewhere stays", async () => {
+        const p = bareProbes({ ...pathTool("claude"), links: { [link()]: join(home, "elsewhere") } });
+        updateSetupState(p, (s) => ({ ...s, plugins: ["mattstack@mattstack"] }));
+        await runUninstall(makeCtx(p).ctx, actions);
+        expect(p.calls.removed).not.toContain(link());
+      });
     });
 
     describe("plugins.uninstall turns back on the stock superpowers the swap turned off", () => {

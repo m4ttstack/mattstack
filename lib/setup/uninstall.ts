@@ -12,6 +12,7 @@
 
 import { existsSync, readFileSync, realpathSync } from "fs";
 import { basename, isAbsolute, join, resolve } from "path";
+import { claudeRulesDir, distinctConfigDirs, realPath } from "../claude-rules/paths.ts";
 import { cswapConfigDirs } from "../cswap.ts";
 import { markDaemonUninstalled } from "../daemon-config.ts";
 import { otherFlavor, processFlavor } from "../flavor.ts";
@@ -322,7 +323,19 @@ async function removeGeneratedMarketplaces(ctx: ApplyContext, exec: string[], no
   return removed;
 }
 
+/** Only a `rules/mattstack` that links to rt's rules folder is rt's; anything else there rt did not make, so rt leaves it alone. */
+function removeClaudeRulesLinks(p: Probes): void {
+  const target = realPath(claudeRulesDir(p.home));
+  for (const dir of distinctConfigDirs(claudeConfigDirs(p, cswapConfigDirs(p)))) {
+    const rules = join(dir, "rules");
+    const link = join(rules, "mattstack");
+    const current = p.readlink(link);
+    if (current !== null && realPath(resolve(rules, current)) === target) p.removeFile(link);
+  }
+}
+
 async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
+  removeClaudeRulesLinks(ctx.p);
   const claude = resolveTool(ctx.p, "claude");
   if (!claude.exec) return { outcome: { state: "skipped", detail: "Claude Code is not installed" } };
 
