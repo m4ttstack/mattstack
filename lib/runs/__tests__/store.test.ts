@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { findRun, findRunningRunByWorktree, findRunsBySession, listRuns, readRun } from "../store.ts";
 import { writeCachedOutcome } from "../outcome.ts";
@@ -354,15 +354,25 @@ describe("findRunningRunByWorktree", () => {
     const dir = root();
     seedRun(dir, "alpha", "20260821-060606-ffff", 1000, 1, { status: "done" });
     setWorktreeField(dir, "alpha", "20260821-060606-ffff", "/w/job-f");
-    expect(findRunningRunByWorktree("/w/job-f")).toEqual({ kind: "none" });
-    const db = new Database(join(dir, "alpha", "20260821-060606-ffff", "state.db"));
+    const dbPath = join(dir, "alpha", "20260821-060606-ffff", "state.db");
+    const db = new Database(dbPath);
     db.exec("PRAGMA journal_mode=WAL;");
-    db.exec("UPDATE runs SET status = 'running';");
-    expect(findRunningRunByWorktree("/w/job-f")).toEqual({
-      kind: "match",
-      run: { id: "20260821-060606-ffff", currentStage: "plan" },
-    });
-    db.close();
+    db.exec("PRAGMA wal_autocheckpoint=0;");
+    // A readonly open of a WAL db fails until a write has created its -wal.
+    db.exec("UPDATE runs SET status = 'done';");
+    try {
+      expect(findRunningRunByWorktree("/w/job-f")).toEqual({ kind: "none" });
+      const before = statSync(dbPath);
+      db.exec("UPDATE runs SET status = 'running';");
+      const after = statSync(dbPath);
+      expect([after.mtimeMs, after.size]).toEqual([before.mtimeMs, before.size]);
+      expect(findRunningRunByWorktree("/w/job-f")).toEqual({
+        kind: "match",
+        run: { id: "20260821-060606-ffff", currentStage: "plan" },
+      });
+    } finally {
+      db.close();
+    }
   });
 });
 
