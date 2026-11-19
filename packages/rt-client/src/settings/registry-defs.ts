@@ -171,15 +171,6 @@ const ROWS: readonly SettingDef[] = [
     description: "Age floor in days for pruning finished pipeline run directories under ~/.mattstack/runs (default 30).",
   },
   {
-    key: "rt.runaway",
-    type: "object",
-    scopes: ["machine"],
-    default: { cpuThreshold: 80, sustainMs: 300000, graceMs: 120000 },
-    merge: "deep",
-    migrated: true,
-    description: "Thresholds for the runaway-process guard that kills stuck dev servers. Restart the daemon to apply changes.",
-  },
-  {
     key: "rt.workspacePrefs",
     type: "object",
     scopes: ["machine"],

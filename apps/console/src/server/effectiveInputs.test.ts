@@ -49,7 +49,6 @@ const CONFIG_DEPS = [
   'rt.branchNaming',
   'rt.presets',
   'rt.variations',
-  'rt.runaway',
   'rt.runsPruneDays',
 ];
 
@@ -467,7 +466,7 @@ describe('effective-inputs route', () => {
       data: baseDetail({ run: baseRun({ pack_commits: null }) }),
     });
     vi.mocked(rt.getSetting).mockImplementation((key: string) => {
-      if (key === 'rt.runaway') throw new Error('rt: unregistered key');
+      if (key === 'rt.variations') throw new Error('rt: unregistered key');
       return { value: `val:${key}`, provenance: [] };
     });
 
@@ -485,7 +484,7 @@ describe('effective-inputs route', () => {
     const body = await res.json();
     expect(body.config).toHaveLength(CONFIG_DEPS.length - 1);
     expect(
-      (body.config as { key: string }[]).some(row => row.key === 'rt.runaway')
+      (body.config as { key: string }[]).some(row => row.key === 'rt.variations')
     ).toBe(false);
   });
 
@@ -500,7 +499,7 @@ describe('effective-inputs route', () => {
     }));
     vi.mocked(rt.getDef).mockImplementation(
       (key: string): SettingDef | undefined =>
-        key === 'rt.runaway'
+        key === 'rt.variations'
           ? {
               key,
               type: 'boolean',
@@ -527,9 +526,9 @@ describe('effective-inputs route', () => {
     const body = await res.json();
     expect(body.config).toHaveLength(CONFIG_DEPS.length - 1);
     expect(
-      (body.config as { key: string }[]).some(row => row.key === 'rt.runaway')
+      (body.config as { key: string }[]).some(row => row.key === 'rt.variations')
     ).toBe(false);
-    expect(rt.getSetting).not.toHaveBeenCalledWith('rt.runaway');
+    expect(rt.getSetting).not.toHaveBeenCalledWith('rt.variations');
   });
 
   it('translates an unknown run into 404, not 502', async () => {

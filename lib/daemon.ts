@@ -1611,7 +1611,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         });
 
         pollersHandle = startPollers({
-          log, refreshCache, portCacheRef, broadcast: emit, systemProcessScanner,
+          log, refreshCache, portCacheRef, broadcast: emit,
           repoIndex: loadRepoIndex,
           checkAndRepairHooksPath: hooksGuard.checkAndRepairHooksPath,
         });

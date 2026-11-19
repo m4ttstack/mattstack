@@ -85,11 +85,8 @@ export function createSystemProcessHandlers(
   scanner: SystemProcessScanner,
   ctx: Pick<HandlerContext, "portCacheRef" | "cache">,
 ): Record<"system-processes", (payload: any, signal?: AbortSignal) => Promise<any>> & HandlerMap {
-  // The background scanner refreshes every 10s; the tray polls far faster
-  // while its panel is open. Re-discover on read when the cache is older than
-  // this so a poll reflects current reality (new/dead processes) instead of
-  // up-to-10s-stale data. `refresh` deliberately skips the runaway sample
-  // window, so scanning more often here can't trip a premature alert.
+  // Nothing scans in the background, so a read older than this re-discovers;
+  // reads inside it (the tray panel polls every 2s) reuse the last gather.
   const STALE_READ_MS = 1500;
 
   return {
@@ -111,7 +108,10 @@ export function createSystemProcessHandlers(
         // post-rekey the scanner tags rows with serialized identities, so the
         // display label goes down the wire instead. Kill actions route by
         // pid/chainPids, never by this string.
-        return { ...proc, repo: repoLabel(proc.repo), linearTicket };
+        // isRunaway/runawayDurationMs stay on the wire as constants: a tray
+        // built before runaway detection was removed decodes isRunaway as a
+        // required Bool, and its process panel would fail to decode without it.
+        return { ...proc, repo: repoLabel(proc.repo), linearTicket, isRunaway: false, runawayDurationMs: null };
       });
 
       const tree = buildProcessTree(processes);

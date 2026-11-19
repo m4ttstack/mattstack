@@ -64,7 +64,6 @@ const CONFIG_DEPS = [
   'rt.branchNaming',
   'rt.presets',
   'rt.variations',
-  'rt.runaway',
   'rt.runsPruneDays',
 ] as const;
 

@@ -45,7 +45,7 @@ export const GROUPS: Group[] = [
     blurb:
       "The rt daemon's own ports, logs, janitors and snapshot loops. Most need a daemon restart.",
     match: pattern(
-      /^rt\.(log|runsPruneDays$|apiPort$|daemonPath$|runaway$|homeSnapshot$|teamSnapshot$|trustedBrowserOrigins$|workspacePrefs$|mcp\.)/
+      /^rt\.(log|runsPruneDays$|apiPort$|daemonPath$|homeSnapshot$|teamSnapshot$|trustedBrowserOrigins$|workspacePrefs$|mcp\.)/
     ),
   },
   {

@@ -377,13 +377,13 @@ describe('EffectiveInputs', () => {
     effectiveInputsGet.mockResolvedValue(
       ok({
         ...PAYLOAD,
-        config: [{ key: 'rt.runaway', provenance: [] }],
+        config: [{ key: 'rt.variations', provenance: [] }],
       })
     );
 
     renderPanel();
 
-    const row = await screen.findByTestId('config-row-rt.runaway');
+    const row = await screen.findByTestId('config-row-rt.variations');
     expect(within(row).getByText('unset')).toBeInTheDocument();
     expect(row).not.toHaveTextContent('undefined');
   });

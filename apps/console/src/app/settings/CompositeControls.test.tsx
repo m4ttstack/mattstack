@@ -1189,7 +1189,7 @@ describe('composite rows', () => {
   it('an unset read-only composite summarises as unset, as text', () => {
     renderWithProviders(
       <SettingRow
-        def={def('rt.runaway', {
+        def={def('rt.homeSnapshot', {
           type: 'object',
           writable: false,
           effective: { scope: null, file: null },
@@ -1200,7 +1200,7 @@ describe('composite rows', () => {
       />
     );
     expect(screen.getAllByRole('button', { expanded: false })).toEqual([
-      screen.getByRole('button', { name: 'open rt.runaway' }),
+      screen.getByRole('button', { name: 'open rt.homeSnapshot' }),
     ]);
     expect(screen.getAllByText('unset')).toHaveLength(2);
   });

@@ -117,16 +117,6 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
     },
     additionalProperties: {},
   },
-  'rt.runaway': {
-    $schema: D,
-    type: 'object',
-    properties: {
-      cpuThreshold: { type: 'number' },
-      sustainMs: { type: 'number' },
-      graceMs: { type: 'number' },
-    },
-    additionalProperties: {},
-  },
   'boxscore.roles': {
     $schema: D,
     type: 'object',
@@ -309,7 +299,6 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
 export const DEEP_KEYS = new Set([
   'board.slack',
   'rt.homeSnapshot',
-  'rt.runaway',
   'rt.cron',
   'rt.roles',
   'gitq.forges',

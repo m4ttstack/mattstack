@@ -388,27 +388,6 @@ describe("removeFromQueueWithRetry (busy-swallowed post-push removal)", () => {
 });
 
 describe("createNotifier instance isolation (R031 fix round 1)", () => {
-  test("checkRunawayProcesses routes its notify call through the constructing instance's own broadcast hook, not a shared default", () => {
-    const eventsA: Array<[string, unknown]> = [];
-    const eventsB: Array<[string, unknown]> = [];
-    const notifierA = createNotifier({ broadcast: (type, data) => eventsA.push([type, data]) });
-    const notifierB = createNotifier({ broadcast: (type, data) => eventsB.push([type, data]) });
-
-    const proc = {
-      pid: 90001, ppid: 1, command: "node", fullCommand: "node server.js",
-      cpuPercent: 99, rssKb: 0, uptime: "10:00", cwd: "/tmp", repo: "repo-iso-a",
-      worktree: null, branch: null, relativeDir: ".", port: null, linearTicket: null,
-      isRunaway: true, runawayDurationMs: 999_999, firstSeen: Date.now(), packageScript: null,
-    } as any;
-
-    notifierA.checkRunawayProcesses([proc], () => {}, () => false);
-
-    expect(eventsA.length).toBe(1);
-    expect(eventsA[0]![0]).toBe("notification");
-    // notifierB's own hook never fires for work done on notifierA.
-    expect(eventsB.length).toBe(0);
-  });
-
   test("checkAndNotify routes its notify call through the constructing instance's own broadcast hook, not a shared default", () => {
     const eventsA: Array<[string, unknown]> = [];
     const eventsB: Array<[string, unknown]> = [];
