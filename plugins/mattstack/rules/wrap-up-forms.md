@@ -2,7 +2,8 @@
 
 When a turn ends with decisions the user must make, invoke
 `mattstack:wrap-up`, so they arrive as a form instead of a list to type
-back. Skip it when a skill already loaded asks for its own form.
+back. Skip it when a loaded skill or your instructions already call for a
+form.
 
 During `superpowers:brainstorming`, end every turn that asks the user a
 question with `mattstack:wrap-up`:
