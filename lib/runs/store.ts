@@ -291,6 +291,26 @@ export type RunningRunScan =
   | { kind: "none" }
   | { kind: "incomplete" };
 
+/** Run DBs the worktree scan last read as not running, keyed by state.db
+    path to the signature of its files then. Runs write in WAL mode, so a
+    write can land in -wal and leave state.db's mtime alone: the signature
+    covers both, and any write to the run reopens it. */
+const settledRuns = new Map<string, string>();
+
+function runFilesSignature(dbPath: string): string | null {
+  try {
+    const db = statSync(dbPath);
+    let wal = "0";
+    try {
+      const w = statSync(`${dbPath}-wal`);
+      wal = `${w.mtimeMs}:${w.size}`;
+    } catch { /* no -wal file: the run is checkpointed or never wrote in WAL */ }
+    return `${db.mtimeMs}:${db.size}:${wal}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Scans every run DB for a live run anchored at `worktree`, guarding herd
     close/dispose against a filesystem a running pipeline still owns.
     Distinguishes "found nothing" from "could not finish looking": a run dir
@@ -305,6 +325,8 @@ export function findRunningRunByWorktree(worktree: string): RunningRunScan {
       if (!isPathComponent(repo) || !isPathComponent(id)) continue;
       const path = join(runsRoot(), repo, id, "state.db");
       if (!existsSync(path)) continue;
+      const sig = runFilesSignature(path);
+      if (sig !== null && settledRuns.get(path) === sig) continue;
       let db: Database;
       try {
         db = new Database(path, { readonly: true });
@@ -316,7 +338,10 @@ export function findRunningRunByWorktree(worktree: string): RunningRunScan {
         const run = db.query("SELECT status, current_stage FROM runs LIMIT 1").get() as
           { status: string; current_stage: string | null } | undefined;
         if (!run) { incomplete = true; continue; }
-        if (run.status !== "running") continue;
+        if (run.status !== "running") {
+          if (sig !== null) settledRuns.set(path, sig);
+          continue;
+        }
         const field = db.query("SELECT value FROM fields WHERE key = 'worktree'").get() as
           { value: string } | undefined;
         if (field?.value === worktree) return { kind: "match", run: { id, currentStage: run.current_stage ?? "" } };
