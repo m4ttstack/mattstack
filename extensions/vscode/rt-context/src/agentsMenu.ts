@@ -11,24 +11,16 @@ const DEPS: AgentsDeps = { paneList, agentList, listRuns, agentResume, paneAttac
 let agentsItem: vscode.StatusBarItem | undefined;
 
 // VS Code starts the process before the panel is laid out, and herdr refuses a
-// zero-sized terminal, so wait (up to 5 s) for rows and columns first. herdr also
-// refuses a pane another client already shows; offer the takeover right there, and
-// keep the terminal open on any other failure so herdr's error stays readable.
+// zero-sized terminal, so wait (up to 5 s) for rows and columns first. On a failure,
+// keep the terminal open so herdr's message stays readable.
 const ATTACH_SCRIPT = [
   'i=0',
   'while [ "$i" -lt 50 ]; do',
   '  case "$(stty size 2>/dev/null)" in ""|"0 "*|*" 0") sleep 0.1; i=$((i+1)) ;; *) break ;; esac',
   'done',
-  '"$@"; s=$?',
-  '[ "$s" -eq 0 ] && exit 0',
-  'for a in "$@"; do [ "$a" = --takeover ] && taken=1; done',
-  'if [ -z "$taken" ]; then',
-  '  printf "\\nPress y to take this agent over here (the other window lets it go), or Enter to close. "',
-  '  read ans',
-  '  case "$ans" in y|Y) exec "$@" --takeover ;; esac',
-  '  exit "$s"',
-  'fi',
-  'printf "\\nPress Enter to close. "; read ans; exit "$s"',
+  '"$@" && exit 0',
+  's=$?',
+  'printf "\\nCould not attach to this agent. Press Enter to close. "; read ans; exit "$s"',
 ].join('\n');
 
 interface AgentPick extends vscode.QuickPickItem {

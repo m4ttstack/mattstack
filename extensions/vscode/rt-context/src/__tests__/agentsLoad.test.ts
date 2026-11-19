@@ -65,7 +65,7 @@ describe('paneForResume', () => {
 });
 
 describe('attachPlanFor', () => {
-  test('attachPlanFor returns argv and env', async () => {
+  test('attachPlanFor asks for the takeover plan and returns argv and env', async () => {
     let asked: unknown;
     const res = await attachPlanFor('w1-3', deps({
       paneAttachPlan: async (a: unknown) => {
@@ -74,7 +74,7 @@ describe('attachPlanFor', () => {
       },
     }));
     expect(res).toEqual({ argv: ['/bin/herdr', 'agent', 'attach', 'w1-3'], env: { HERDR_X: '1' } });
-    expect(asked).toEqual({ paneId: 'w1-3' });
+    expect(asked).toEqual({ paneId: 'w1-3', takeover: true });
   });
 
   test('attachPlanFor passes the daemon error through', async () => {

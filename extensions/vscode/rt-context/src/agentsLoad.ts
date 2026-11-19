@@ -56,7 +56,8 @@ export async function attachPlanFor(
   paneId: string,
   deps: AgentsDeps,
 ): Promise<{ argv: string[]; env: Record<string, string> } | Failure> {
-  const res = await settle(() => deps.paneAttachPlan({ paneId }));
+  // herdr's own window nearly always shows a visible pane, so a plain attach is refused; picking it here moves it here.
+  const res = await settle(() => deps.paneAttachPlan({ paneId, takeover: true }));
   if ('error' in res) return res;
   return { argv: res.data.argv, env: res.data.env };
 }
