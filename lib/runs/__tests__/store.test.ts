@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { findRun, findRunningRunByWorktree, findRunsBySession, listRuns, readRun } from "../store.ts";
 import { writeCachedOutcome } from "../outcome.ts";
@@ -331,6 +331,48 @@ describe("findRunningRunByWorktree", () => {
     seedRun(dir, "alpha", "20260821-040404-dddd", 1000);
     setWorktreeField(dir, "alpha", "20260821-040404-dddd", "/w/nope");
     expect(findRunningRunByWorktree("/w/job-a")).toEqual({ kind: "incomplete" });
+  });
+
+  // The scan runs on the daemon thread, so a settled run it has already read
+  // is not reopened while its files are unchanged. chmod leaves mtime alone:
+  // a reopen would throw and report incomplete.
+  test("a settled run whose files have not changed is not reopened", () => {
+    const dir = root();
+    seedRun(dir, "alpha", "20260821-050505-eeee", 1000, 1, { status: "done" });
+    setWorktreeField(dir, "alpha", "20260821-050505-eeee", "/w/job-e");
+    expect(findRunningRunByWorktree("/w/job-e")).toEqual({ kind: "none" });
+    const dbPath = join(dir, "alpha", "20260821-050505-eeee", "state.db");
+    chmodSync(dbPath, 0o000);
+    try {
+      expect(findRunningRunByWorktree("/w/job-e")).toEqual({ kind: "none" });
+    } finally {
+      chmodSync(dbPath, 0o644);
+    }
+  });
+
+  test("a settled run that starts running again is seen on the next scan", () => {
+    const dir = root();
+    seedRun(dir, "alpha", "20260821-060606-ffff", 1000, 1, { status: "done" });
+    setWorktreeField(dir, "alpha", "20260821-060606-ffff", "/w/job-f");
+    const dbPath = join(dir, "alpha", "20260821-060606-ffff", "state.db");
+    const db = new Database(dbPath);
+    db.exec("PRAGMA journal_mode=WAL;");
+    db.exec("PRAGMA wal_autocheckpoint=0;");
+    // A readonly open of a WAL db fails until a write has created its -wal.
+    db.exec("UPDATE runs SET status = 'done';");
+    try {
+      expect(findRunningRunByWorktree("/w/job-f")).toEqual({ kind: "none" });
+      const before = statSync(dbPath);
+      db.exec("UPDATE runs SET status = 'running';");
+      const after = statSync(dbPath);
+      expect([after.mtimeMs, after.size]).toEqual([before.mtimeMs, before.size]);
+      expect(findRunningRunByWorktree("/w/job-f")).toEqual({
+        kind: "match",
+        run: { id: "20260821-060606-ffff", currentStage: "plan" },
+      });
+    } finally {
+      db.close();
+    }
   });
 });
 

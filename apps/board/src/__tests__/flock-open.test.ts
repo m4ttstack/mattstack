@@ -337,3 +337,20 @@ describe('buildFlockMenu', () => {
     expect(menu.resume).toBe(null);
   });
 });
+
+describe('buildFlockMenu repo scope', () => {
+  test("asks for the MR's own repo's trees only", async () => {
+    let asked: string | undefined;
+    await buildFlockMenu({ webUrl: MR, sourceBranch: 'feat' }, REPO, [], {
+      listTrees: async repoName => {
+        asked = repoName;
+        return [];
+      },
+      listRuns: async () => [],
+      runWorktree: async () => null,
+      exists: () => true,
+      flockInstalled: async () => true,
+    });
+    expect(asked).toBe(REPO);
+  });
+});

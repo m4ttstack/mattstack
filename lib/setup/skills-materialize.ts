@@ -8,7 +8,7 @@
  */
 
 import { basename, join, resolve } from "path";
-import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
+import { getKnownReposAsync, type KnownRepo } from "../repo-index.ts";
 import { repoLabel } from "../repo-label.ts";
 import { tryResolveRepoArg } from "../repo-arg.ts";
 import { parseRemote } from "../skills/init.ts";
@@ -75,8 +75,9 @@ export function setAsideLine(count: number): string {
   return `Set aside ${count} stale bindings file${count === 1 ? "" : "s"}`;
 }
 
-function registeredKnownRepos(): Pick<KnownRepo, "repoName" | "worktrees">[] {
-  return getKnownRepos().filter((r) => r.registered !== false);
+/** Async because the daemon's team-pull hook runs this: the sync scan's execSync calls block its thread. */
+async function registeredKnownRepos(): Promise<Pick<KnownRepo, "repoName" | "worktrees">[]> {
+  return (await getKnownReposAsync()).filter((r) => r.registered !== false);
 }
 
 async function originRemote(p: Probes, dir: string): Promise<string | null> {
@@ -91,7 +92,7 @@ async function originRemote(p: Probes, dir: string): Promise<string | null> {
 
 /** The first registered checkout whose remote is the forge repo `slug` names (the `repos/<slug>` directory), or null. */
 export async function registeredCheckoutForSlug(p: Probes, slug: string): Promise<string | null> {
-  for (const repo of registeredKnownRepos()) {
+  for (const repo of await registeredKnownRepos()) {
     const path = repo.worktrees[0]!.path;
     const remote = await originRemote(p, path);
     if (remote && parseRemote(remote)?.slug === slug) return path;
@@ -104,7 +105,7 @@ async function resolveTargets(opts: { repo?: string; dir?: string }): Promise<{ 
     const dir = resolve(opts.dir);
     return [{ name: basename(dir), path: dir }];
   }
-  const known = registeredKnownRepos();
+  const known = await registeredKnownRepos();
   if (!opts.repo) return known.map((r) => ({ name: repoLabel(r.repoName), path: r.worktrees[0]!.path }));
   // Rows are keyed by serialized identity, so a typed name resolves to one
   // before matching. The raw-spelling fallback is for kind "none" ONLY: on an

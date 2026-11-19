@@ -45,11 +45,35 @@ describe('useRunEvents', () => {
     vi.unstubAllGlobals();
   });
 
-  it('refreshes runs, run and gates on every message', () => {
+  it('refreshes runs, run and gates a second after a burst of messages', () => {
+    const { invalidate, Wrap } = harness();
+    renderHook(() => useRunEvents(), { wrapper: Wrap });
+    act(() => {
+      FakeSocket.all[0]!.onmessage?.();
+      FakeSocket.all[0]!.onmessage?.();
+      FakeSocket.all[0]!.onmessage?.();
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(keys(invalidate)).toEqual(['runs', 'run', 'gates']);
+  });
+
+  it('leaves an in-flight fetch running instead of cancelling it', () => {
     const { invalidate, Wrap } = harness();
     renderHook(() => useRunEvents(), { wrapper: Wrap });
     act(() => FakeSocket.all[0]!.onmessage?.());
-    expect(keys(invalidate)).toEqual(['runs', 'run', 'gates']);
+    act(() => vi.advanceTimersByTime(1_000));
+    for (const call of invalidate.mock.calls)
+      expect(call[1]).toMatchObject({ cancelRefetch: false });
+  });
+
+  it('drops a pending refresh once unmounted', () => {
+    const { invalidate, Wrap } = harness();
+    const { unmount } = renderHook(() => useRunEvents(), { wrapper: Wrap });
+    act(() => FakeSocket.all[0]!.onmessage?.());
+    unmount();
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(invalidate).not.toHaveBeenCalled();
   });
 
   it('reopens a dropped socket and catches up on what it missed', () => {

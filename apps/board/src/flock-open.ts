@@ -19,6 +19,7 @@ import {
   type RunSummary,
   type WorktreeTreeRow,
 } from '@mattstack/rt-client';
+import { sharedRead } from './shared-read.ts';
 import { shellSingleQuote } from './shell-quote.ts';
 
 export type FlockAction = 'shell' | 'claude' | 'resume' | 'command';
@@ -198,7 +199,7 @@ export function actionCommand(
 }
 
 export interface FlockIo {
-  listTrees(): Promise<WorktreeTreeRow[]>;
+  listTrees(repoName: string): Promise<WorktreeTreeRow[]>;
   listRuns(): Promise<RunSummary[]>;
   runWorktree(run: RunSummary): Promise<string | null>;
   exists(path: string): boolean;
@@ -212,21 +213,41 @@ export function flockInstalledFrom(mdfindOut: string): boolean {
   return mdfindOut.trim().length > 0;
 }
 
+// The board warms every own MR's menu on each refresh, so these reads are
+// shared across MRs rather than made once per MR.
+const READ_FRESH_MS = 15_000;
+const READ_FAIL_MS = 60_000;
+
+async function readTrees(repoName: string): Promise<WorktreeTreeRow[]> {
+  const res = await rtCommand<Commands['worktree:list']['data']>(
+    'worktree:list',
+    { repoName },
+    { timeoutMs: 20_000 }
+  );
+  if (!res.ok || !res.data)
+    throw new Error(res.error ?? 'worktree list failed');
+  return res.data.trees;
+}
+
+async function readRuns(): Promise<RunSummary[]> {
+  const res = await listRuns();
+  if (!res.ok || !res.data) throw new Error(res.error ?? 'runs list failed');
+  return res.data.runs;
+}
+
+const sharedTrees = sharedRead(readTrees, {
+  freshMs: READ_FRESH_MS,
+  failMs: READ_FAIL_MS,
+});
+const sharedRuns = sharedRead(() => readRuns(), {
+  freshMs: READ_FRESH_MS,
+  failMs: READ_FAIL_MS,
+});
+
+/** For drawing the menu: shared, and up to READ_FRESH_MS old. */
 export const defaultFlockIo: FlockIo = {
-  async listTrees() {
-    const res = await rtCommand<Commands['worktree:list']['data']>(
-      'worktree:list',
-      {},
-      { timeoutMs: 20_000 }
-    );
-    if (!res.ok || !res.data)
-      throw new Error(res.error ?? 'worktree list failed');
-    return res.data.trees;
-  },
-  async listRuns() {
-    const res = await listRuns();
-    return res.ok && res.data ? res.data.runs : [];
-  },
+  listTrees: sharedTrees,
+  listRuns: () => sharedRuns('').catch(() => []),
   async runWorktree(run) {
     const res = await rtCommand<Commands['runs:get']['data']>(
       'runs:get',
@@ -249,6 +270,14 @@ export const defaultFlockIo: FlockIo = {
   },
 };
 
+/** For acting on a pick: a resume dedupes on the session's live pane, which
+    a cached run list can miss for a launch made seconds ago. */
+export const actionFlockIo: FlockIo = {
+  ...defaultFlockIo,
+  listTrees: readTrees,
+  listRuns: () => readRuns().catch(() => []),
+};
+
 export async function buildFlockMenu(
   mr: { webUrl: string; sourceBranch: string },
   repoName: string,
@@ -263,7 +292,10 @@ export async function buildFlockMenu(
       resume: null,
       commands: [],
     };
-  const [trees, runs] = await Promise.all([io.listTrees(), io.listRuns()]);
+  const [trees, runs] = await Promise.all([
+    io.listTrees(repoName),
+    io.listRuns(),
+  ]);
   const { tree, repoRoot } = pickMrTree(trees, repoName, mr.sourceBranch);
   const run = pickResumeRun(runs, mr.webUrl);
   let resume: FlockMenu['resume'] = null;

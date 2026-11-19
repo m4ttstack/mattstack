@@ -98,7 +98,7 @@ import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } 
 import { orgOwnersAsk, roleOf, writeRefusalFor, type OrgRole } from "./org-roles.ts";
 import { orgStoreChangeRefusal } from "./org-store-guard.ts";
 import { expandVariables, getSetting } from "./resolve.ts";
-import { currentOrg, parseStoreText, readStore, TEAM_NAME_RE } from "./stores.ts";
+import { currentOrg, forgetStoreReads, parseStoreText, readStore, TEAM_NAME_RE } from "./stores.ts";
 import { readForgeUsername } from "./team-local-read.ts";
 import { directoryIssues } from "./team-directory.ts";
 import { validateWrite } from "./validate-write.ts";
@@ -660,6 +660,7 @@ function writeTempThenRename(storePath: string, finalText: string): void {
   try {
     writeFileSync(tmp, finalText);
     renameSync(tmp, storePath);
+    forgetStoreReads(storePath);
   } catch (err) {
     try {
       unlinkSync(tmp);
