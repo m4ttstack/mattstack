@@ -198,7 +198,7 @@ export function actionCommand(
 }
 
 export interface FlockIo {
-  listTrees(): Promise<WorktreeTreeRow[]>;
+  listTrees(repoName: string): Promise<WorktreeTreeRow[]>;
   listRuns(): Promise<RunSummary[]>;
   runWorktree(run: RunSummary): Promise<string | null>;
   exists(path: string): boolean;
@@ -212,21 +212,74 @@ export function flockInstalledFrom(mdfindOut: string): boolean {
   return mdfindOut.trim().length > 0;
 }
 
-export const defaultFlockIo: FlockIo = {
-  async listTrees() {
+/** One read per key at a time, its result reused for `freshMs` and its
+    failure replayed for `failMs`. The board warms every own MR's menu on each
+    refresh, so a slow daemon must not get one read per MR per refresh, each
+    timing out and retried on the next: that load is what keeps it slow. */
+export function sharedRead<T>(
+  read: (key: string) => Promise<T>,
+  opts: { freshMs: number; failMs: number; now?: () => number }
+): (key: string) => Promise<T> {
+  const now = opts.now ?? Date.now;
+  const settled = new Map<
+    string,
+    { at: number; ok: true; value: T } | { at: number; ok: false; err: unknown }
+  >();
+  const inFlight = new Map<string, Promise<T>>();
+  return key => {
+    const hit = settled.get(key);
+    if (hit) {
+      const age = now() - hit.at;
+      if (hit.ok && age < opts.freshMs) return Promise.resolve(hit.value);
+      if (!hit.ok && age < opts.failMs) return Promise.reject(hit.err);
+    }
+    const pending = inFlight.get(key);
+    if (pending) return pending;
+    const p = read(key)
+      .then(
+        value => {
+          settled.set(key, { at: now(), ok: true, value });
+          return value;
+        },
+        (err: unknown) => {
+          settled.set(key, { at: now(), ok: false, err });
+          throw err;
+        }
+      )
+      .finally(() => inFlight.delete(key));
+    inFlight.set(key, p);
+    return p;
+  };
+}
+
+const READ_FRESH_MS = 15_000;
+const READ_FAIL_MS = 60_000;
+
+const sharedTrees = sharedRead(
+  async repoName => {
     const res = await rtCommand<Commands['worktree:list']['data']>(
       'worktree:list',
-      {},
+      { repoName },
       { timeoutMs: 20_000 }
     );
     if (!res.ok || !res.data)
       throw new Error(res.error ?? 'worktree list failed');
     return res.data.trees;
   },
-  async listRuns() {
+  { freshMs: READ_FRESH_MS, failMs: READ_FAIL_MS }
+);
+
+const sharedRuns = sharedRead(
+  async () => {
     const res = await listRuns();
     return res.ok && res.data ? res.data.runs : [];
   },
+  { freshMs: READ_FRESH_MS, failMs: READ_FAIL_MS }
+);
+
+export const defaultFlockIo: FlockIo = {
+  listTrees: sharedTrees,
+  listRuns: () => sharedRuns(''),
   async runWorktree(run) {
     const res = await rtCommand<Commands['runs:get']['data']>(
       'runs:get',
@@ -263,7 +316,10 @@ export async function buildFlockMenu(
       resume: null,
       commands: [],
     };
-  const [trees, runs] = await Promise.all([io.listTrees(), io.listRuns()]);
+  const [trees, runs] = await Promise.all([
+    io.listTrees(repoName),
+    io.listRuns(),
+  ]);
   const { tree, repoRoot } = pickMrTree(trees, repoName, mr.sourceBranch);
   const run = pickResumeRun(runs, mr.webUrl);
   let resume: FlockMenu['resume'] = null;

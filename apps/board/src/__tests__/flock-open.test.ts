@@ -24,6 +24,7 @@ import {
   pickResumeRun,
   readFlockToken,
   redactToken,
+  sharedRead,
   type FlockIo,
 } from '../flock-open.ts';
 
@@ -335,5 +336,84 @@ describe('buildFlockMenu', () => {
       io({ listRuns: async () => [] })
     );
     expect(menu.resume).toBe(null);
+  });
+});
+
+describe('buildFlockMenu repo scope', () => {
+  test("asks for the MR's own repo's trees only", async () => {
+    let asked: string | undefined;
+    await buildFlockMenu({ webUrl: MR, sourceBranch: 'feat' }, REPO, [], {
+      listTrees: async repoName => {
+        asked = repoName;
+        return [];
+      },
+      listRuns: async () => [],
+      runWorktree: async () => null,
+      exists: () => true,
+      flockInstalled: async () => true,
+    });
+    expect(asked).toBe(REPO);
+  });
+});
+
+describe('sharedRead', () => {
+  function counter(result: () => Promise<string>) {
+    const calls: string[] = [];
+    const read = (key: string) => {
+      calls.push(key);
+      return result();
+    };
+    return { calls, read };
+  }
+
+  test('concurrent callers for one key share a single read', async () => {
+    const { calls, read } = counter(async () => 'v');
+    const shared = sharedRead(read, { freshMs: 1000, failMs: 1000 });
+    const got = await Promise.all([shared('a'), shared('a'), shared('a')]);
+    expect(got).toEqual(['v', 'v', 'v']);
+    expect(calls).toEqual(['a']);
+  });
+
+  test('keys read separately', async () => {
+    const { calls, read } = counter(async () => 'v');
+    const shared = sharedRead(read, { freshMs: 1000, failMs: 1000 });
+    await Promise.all([shared('a'), shared('b')]);
+    expect(calls).toEqual(['a', 'b']);
+  });
+
+  test('reuses a result while fresh and reads again once stale', async () => {
+    let t = 0;
+    const { calls, read } = counter(async () => 'v');
+    const shared = sharedRead(read, {
+      freshMs: 1000,
+      failMs: 5000,
+      now: () => t,
+    });
+    await shared('a');
+    t = 999;
+    await shared('a');
+    expect(calls.length).toBe(1);
+    t = 1000;
+    await shared('a');
+    expect(calls.length).toBe(2);
+  });
+
+  test('a failure is replayed without reading until the backoff passes', async () => {
+    let t = 0;
+    const { calls, read } = counter(async () => {
+      throw new Error('worktree list failed');
+    });
+    const shared = sharedRead(read, {
+      freshMs: 1000,
+      failMs: 5000,
+      now: () => t,
+    });
+    await expect(shared('a')).rejects.toThrow('worktree list failed');
+    t = 4999;
+    await expect(shared('a')).rejects.toThrow('worktree list failed');
+    expect(calls.length).toBe(1);
+    t = 5000;
+    await expect(shared('a')).rejects.toThrow('worktree list failed');
+    expect(calls.length).toBe(2);
   });
 });
