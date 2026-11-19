@@ -36,6 +36,7 @@ there? Read its rule file first.
 | `.claude/rules/setup-tools.md` | Org requirements, new tool notices, the tools stage and its rows | `lib/setup/**`, `commands/setup.ts`, more in the file |
 | `.claude/rules/writing-style.md` | Writing-style presets: resolution, the setup row, the new-Mac seed | `lib/skills/writing-style.ts`, `commands/skills-writing-style.ts`, `lib/setup/validators/writing-style.ts`, more in the file |
 | `.claude/rules/state.md` | State backup, claiming `SCHEMA_VERSION` | `lib/state/**`, `commands/state*.ts` |
+| `.claude/rules/claude-rules.md` | The shared Claude rules folder, its reconcile and the rules mattstack ships | `lib/claude-rules/**`, `plugins/mattstack/rules/**`, more in the file |
 | `.claude/rules/dev-app.md` | How a change reaches the dev app: served apps, manifests, tray rebuilds | `rt-tray/**`, `apps/deck/**`, `apps/*/mattstack.deck.json`, more in the file |
 | `.claude/rules/ci-and-tests.md` | How CI shards and scopes the unit suite, `no-*` naming, timings | `scripts/ci/**`, `.github/workflows/checks.yml`, `test-timings.json`, more in the file |
 | `.claude/rules/workspace-packages.md` | Private packages, stale `dist/` in rt-client and glance | `packages/rt-client/**`, `packages/glance/**`, `packages/settings-kit/**`, more in the file |
