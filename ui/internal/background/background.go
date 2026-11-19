@@ -255,41 +255,50 @@ const queryCap = 750 * time.Millisecond
 
 const queryBytes = "\x1b]11;?\x1b\\\x1b[c"
 
-// query never runs over input someone already typed: in raw mode it would be
-// read here and lost. Canonical mode only counts whole lines, so a partial
-// line is checked for again once the mode is raw.
 func query(t TTY, limit time.Duration, now func() time.Time) (color.Color, bool) {
-	if n, err := t.Pending(); err != nil || n > 0 {
+	got, _, failed := ask(t, queryBytes, limit, now)
+	if failed {
 		return nil, false
+	}
+	c, ok, _ := parseReply(got)
+	return c, ok
+}
+
+// ask never runs over input someone already typed: in raw mode it would be
+// read here and lost. Canonical mode only counts whole lines, so a partial
+// line is checked for again once the mode is raw. It returns what the
+// terminal answered, whether that ended with the DA1 reply, and whether the
+// exchange failed outright (no raw mode, a short write, a read error).
+func ask(t TTY, q string, limit time.Duration, now func() time.Time) (got []byte, answered, failed bool) {
+	if n, err := t.Pending(); err != nil || n > 0 {
+		return nil, false, true
 	}
 	restore, err := t.Raw()
 	if err != nil {
-		return nil, false
+		return nil, false, true
 	}
 	defer restore()
 	if n, err := t.Pending(); err != nil || n > 0 {
-		return nil, false
+		return nil, false, true
 	}
-	if n, err := t.Write([]byte(queryBytes)); err != nil || n != len(queryBytes) {
-		return nil, false
+	if n, err := t.Write([]byte(q)); err != nil || n != len(q) {
+		return nil, false, true
 	}
 	deadline := now().Add(limit)
-	var got []byte
 	// One byte at a time, so a key typed after the DA1 reply stays unread.
 	buf := make([]byte, 1)
 	for {
 		left := deadline.Sub(now())
 		if left <= 0 {
-			c, ok, _ := parseReply(got)
-			return c, ok
+			return got, false, false
 		}
 		n, err := t.ReadTimeout(buf, left)
 		got = append(got, buf[:n]...)
-		if c, ok, done := parseReply(got); done {
-			return c, ok
+		if da1 := bytes.Index(got, []byte("\x1b[?")); da1 >= 0 && bytes.IndexByte(got[da1:], 'c') >= 0 {
+			return got, true, false
 		}
 		if err != nil {
-			return nil, false
+			return got, false, true
 		}
 	}
 }

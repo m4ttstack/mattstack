@@ -13,6 +13,9 @@ import type { BudgetCounter } from "./herd-budgets.ts";
 export type HerdStatus = "active" | "wrapped";
 export type HerdJobStatus = "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal";
 
+/** A job whose worker is still at it: the statuses herd notices act on. */
+export const WATCHED_JOB_STATUSES: ReadonlySet<string> = new Set(["spawning", "active", "at-gate", "at-milestone", "stuck-at-modal"]);
+
 export interface HerdRow {
   id: string; repo: string; room: string; workspace: string;
   shepherdSession: string; shepherdHandle: string; shepherdPane: string | null;

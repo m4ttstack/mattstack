@@ -416,7 +416,17 @@ export interface ChatPane {
   presence?: { handle: string; name: string; status: BuddyStatus; rooms: string[] };
   /** herdr's per-pane focus flag; false when herdr itself is backgrounded */
   focused?: boolean;
+  /** The `rt agent` record that launched this pane; absent for a hand-started agent. */
+  agent?: ChatPaneAgent;
+  herd?: ChatPaneHerd;
+  /** The open gate this pane is waiting on. */
+  gate?: ChatPaneGate;
 }
+
+export interface ChatPaneAgent { id: string; provider: string; caller?: string; label?: string; model?: string; effort?: string; account?: string; startedAt: number }
+/** `job` is the herd job's name slug; the herd store keeps no job number or title. */
+export interface ChatPaneHerd { herdId: string; job: string }
+export interface ChatPaneGate { id: string; question: string }
 
 export interface PaneAccount { slot: number; email: string; alias?: string; headroom?: string }
 export interface PaneDirectory { path: string; repo: string; branch?: string }
@@ -1180,6 +1190,8 @@ export interface Commands {
   /** `callerWorkspace` (HERDR_WORKSPACE_ID) is required only for a `bg:`
       ref, whose focus opens an attend tab in the caller's own workspace. */
   "pane:focus": { payload: { paneId: string; callerWorkspace?: string }; data: PaneFocusResult };
+  /** The command that attaches the caller's terminal to a pane: run `argv` with `env` merged over the caller's own. */
+  "pane:attach-plan": { payload: { paneId: string; takeover?: boolean }; data: { argv: string[]; env: Record<string, string> } };
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read": { payload: { branches?: string[]; maxAgeMs?: number; repoIdentity?: string }; data: Record<string, BranchEnrichment> };
@@ -1624,6 +1636,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "pane:send",
   "pane:self",
   "pane:focus",
+  "pane:attach-plan",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

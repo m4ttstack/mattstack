@@ -6,6 +6,22 @@
  */
 import type { HerdrRunner } from "../agent-herdr.ts";
 
+/** The terminal id behind a pane on the bg/hidden server; shell-inert, since callers splice it into a command line. */
+export async function bgTerminalId(opts: {
+  socket: string;
+  paneId: string;
+  herdrRunnerFor: (socket: string | null) => HerdrRunner;
+}): Promise<{ ok: true; termId: string } | { ok: false; error: string }> {
+  const got = await opts.herdrRunnerFor(opts.socket)(["pane", "get", opts.paneId]);
+  if (got.exitCode !== 0) return { ok: false, error: `herdr pane get failed: ${got.stdout.slice(0, 200)}` };
+  try {
+    const parsed = JSON.parse(got.stdout)?.result;
+    const raw = parsed?.pane?.terminal_id ?? parsed?.terminal_id;
+    if (typeof raw === "string" && /^[A-Za-z0-9_.:-]+$/.test(raw)) return { ok: true, termId: raw };
+  } catch { /* handled below */ }
+  return { ok: false, error: "hidden pane reported no terminal id" };
+}
+
 export async function attendPane(opts: {
   /** The bg/hidden server the pane lives on. */
   socket: string;
@@ -20,18 +36,9 @@ export async function attendPane(opts: {
   herdrRunnerFor: (socket: string | null) => HerdrRunner;
 }): Promise<{ ok: true; tab: string; pane: string } | { ok: false; error: string }> {
   const { socket, paneId, session, label, callerWorkspace, herdrRunnerFor } = opts;
-  const hiddenRunner = herdrRunnerFor(socket);
-  const got = await hiddenRunner(["pane", "get", paneId]);
-  if (got.exitCode !== 0) return { ok: false, error: `herdr pane get failed: ${got.stdout.slice(0, 200)}` };
-  let termId: string | undefined;
-  try {
-    const parsed = JSON.parse(got.stdout)?.result;
-    const raw = parsed?.pane?.terminal_id ?? parsed?.terminal_id;
-    // termId rides into a shell command unquoted (the `attach` line below),
-    // so it must be shell-inert on top of being a string.
-    if (typeof raw === "string" && /^[A-Za-z0-9_.:-]+$/.test(raw)) termId = raw;
-  } catch { /* handled below */ }
-  if (!termId) return { ok: false, error: "hidden pane reported no terminal id" };
+  const term = await bgTerminalId({ socket, paneId, herdrRunnerFor });
+  if (!term.ok) return term;
+  const termId = term.termId;
   const visible = herdrRunnerFor(null);
   const tab = await visible(["tab", "create", "--workspace", callerWorkspace, "--label", label, "--focus"]);
   if (tab.exitCode !== 0) return { ok: false, error: `herdr tab create failed: ${tab.stdout.slice(0, 200)}` };

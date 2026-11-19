@@ -237,3 +237,31 @@ func TestPickResultValueNullRoundTrips(t *testing.T) {
 		t.Fatalf("null round-trip drift: got %s", back)
 	}
 }
+
+func TestPickPreviewFixtureRoundTrips(t *testing.T) {
+	raw := fixture(t, "pick-preview.json")
+	var r PickRequest
+	if err := json.Unmarshal(raw, &r); err != nil {
+		t.Fatal(err)
+	}
+	p := r.Rows[0].Preview
+	if p == nil || p.Face == nil || p.Face.Path != "/faces/kirk.png" || len(p.Header) != 2 || len(p.Sections) != 2 || len(p.Screen) != 2 {
+		t.Fatalf("preview decoded wrong: %+v", p)
+	}
+	if p.Sections[0].Rows[0].Key != "repo" || p.Sections[0].Rows[0].Value[0].Text != "acme · main" {
+		t.Fatalf("section rows decoded wrong: %+v", p.Sections[0])
+	}
+	if len(r.ColumnHeader) != 2 || r.ColumnHeader[1].Text != "STATUS" {
+		t.Fatalf("column header decoded wrong: %+v", r.ColumnHeader)
+	}
+	if r.Rows[1].Preview.Face.Placeholder != "?" || r.Rows[2].Preview != nil {
+		t.Fatalf("placeholder or plain row wrong: %+v %+v", r.Rows[1].Preview, r.Rows[2].Preview)
+	}
+	back, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical(t, back) != canonical(t, raw) {
+		t.Fatalf("re-encode drift\n got %s\nwant %s", back, raw)
+	}
+}

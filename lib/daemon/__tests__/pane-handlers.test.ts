@@ -9,8 +9,11 @@ import { openStateDb, type RegistryDeps } from "../../state/index.ts";
 import type { InboxBinding } from "../../claude-registry.ts";
 import { createChatHandlers } from "../handlers/chat.ts";
 import { createPaneHandlers } from "../handlers/pane.ts";
+import { insertAgent } from "../../state/agents-store.ts";
+import type { HerdJobRow, HerdRow } from "../herd-store.ts";
+import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
 import type { TrayClient, TrayReply } from "../../daemon-client.ts";
-import { bgSocketPath, type BgService } from "../bg-service.ts";
+import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
 
@@ -894,4 +897,82 @@ test("pane:spawn refuses a prompt that opens a Slack chat before it makes a pane
     expect(res).toMatchObject({ ok: false, failure: { code: "slack-chat" } });
   }
   expect(seen).toEqual([]);
+});
+
+function extrasHarness(stores: { herdStore?: Parameters<typeof createPaneHandlers>[0]["herdStore"]; gatesStore?: Parameters<typeof createPaneHandlers>[0]["gatesStore"] }) {
+  const { sock: visibleSock, stop: stopVisible } = fakeHerdr((method) =>
+    method === "session.snapshot" ? SNAPSHOT : new HerdrFakeError("invalid_request", method));
+  stops.push(stopVisible);
+  const bgSnapshot = {
+    type: "session_snapshot",
+    snapshot: {
+      version: "0.8.0", protocol: 19, tabs: [], layouts: [], agents: [],
+      workspaces: [{ workspace_id: "wb", label: "bg" }],
+      panes: [{ pane_id: "wb:p1", terminal_id: "tb1", workspace_id: "wb", tab_id: "wb:t1", focused: false, agent: "claude", agent_status: "idle", cwd: "/tmp/bg-job", terminal_title_stripped: "job-a", revision: 1 }],
+    },
+  };
+  const { sock: bgSock, stop: stopBg } = fakeHerdr((method) =>
+    method === "session.snapshot" ? bgSnapshot : new HerdrFakeError("invalid_request", method));
+  stops.push(stopBg);
+  const db = freshDb();
+  const herdr: typeof herdrRequest = (method, params, o) => herdrRequest(method, params, { ...o, sockPath: o?.sockPath ?? visibleSock });
+  const bg = fakeBg({ socketPath: () => bgSock, up: async () => true });
+  return { db, pane: createPaneHandlers({ db, repoIndex: () => ({}), herdr, exec: CSWAP_EXEC, bg, ...stores }) };
+}
+
+test("pane:list joins extras", async () => {
+  const job = { herd: "h-7c1", name: "docs-sweep" } as unknown as HerdJobRow;
+  const gate = { id: "g-1", origin: { paneId: "w1:p2" }, pane: null, questions: [{ id: "q", label: "Merge now?", multi: false, options: [] }] } as unknown as GateRow;
+  const { db, pane } = extrasHarness({
+    herdStore: { jobsByPane: (ref: string) => (ref === "bg:wb:p1" ? [job] : []), get: () => ({ status: "active" }) as HerdRow },
+    gatesStore: { list: () => ({ gates: [gate], cursor: 0 }) },
+  });
+  insertAgent({ id: "a-1", repo: "acme", cwd: "/tmp/acme", provider: "claude", surface: "herdr", sessionId: "sess-signed", caller: "board:review", createdAt: 1000 }, db);
+  const res = await pane["pane:list"]({});
+  if (!res.ok) throw new Error(res.error);
+  const by = (id: string) => res.data.panes.find((p) => p.paneId === id)!;
+  expect(by("w1:p1").agent).toEqual({ id: "a-1", provider: "claude", caller: "board:review", startedAt: 1000 });
+  expect(by("w1:p1").herd).toBeUndefined();
+  expect(by("w1:p2").gate).toEqual({ id: "g-1", question: "Merge now?" });
+  expect(by("bg:wb:p1").herd).toEqual({ herdId: "h-7c1", job: "docs-sweep" });
+  expect(by("bg:wb:p1").gate).toBeUndefined();
+});
+
+test("pane:list without stores matches today", async () => {
+  const { pane } = extrasHarness({});
+  const res = await pane["pane:list"]({});
+  if (!res.ok) throw new Error(res.error);
+  for (const p of res.data.panes) for (const k of ["agent", "herd", "gate"]) expect(Object.keys(p)).not.toContain(k);
+});
+
+// ─── pane:attach-plan ──────────────────────────────────────────────────────
+
+test("pane:attach-plan for a visible pane is herdr agent attach", async () => {
+  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrBin: "/opt/bin/herdr" });
+  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3" })).toEqual({ ok: true, data: { argv: ["env", "-u", "HERDR_SESSION", "/opt/bin/herdr", "agent", "attach", "w1:p3"], env: {} } });
+  expect(await pane["pane:attach-plan"]({ paneId: "w1:p3", takeover: true })).toEqual({ ok: true, data: { argv: ["env", "-u", "HERDR_SESSION", "/opt/bin/herdr", "agent", "attach", "w1:p3", "--takeover"], env: {} } });
+});
+
+test("pane:attach-plan for a bg pane attaches to its terminal on the bg server", async () => {
+  const calls: Array<{ socket: string | null; args: string[] }> = [];
+  const herdrRunnerFor = (socket: string | null): HerdrRunner => async (args: string[]) => {
+    calls.push({ socket, args });
+    if (args[0] === "pane" && args[1] === "get") return { stdout: JSON.stringify({ result: { pane: { terminal_id: "t42" } } }), exitCode: 0 };
+    return { stdout: "{}", exitCode: 0 };
+  };
+  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrRunnerFor, bg: fakeBg({ up: async () => true }), herdrBin: "/opt/bin/herdr" });
+  const res = await pane["pane:attach-plan"]({ paneId: "bg:w1:p3" });
+  expect(res).toEqual({
+    ok: true,
+    data: { argv: ["env", "-u", "HERDR_SOCKET_PATH", "/opt/bin/herdr", "terminal", "attach", "t42", "--takeover"], env: { HERDR_SESSION: BG_SESSION } },
+  });
+  expect(calls).toEqual([{ socket: bgSocketPath(), args: ["pane", "get", "w1:p3"] }]);
+});
+
+test("pane:attach-plan for a bg pane while the bg server is down says so plainly", async () => {
+  let called = false;
+  const herdrRunnerFor = (): HerdrRunner => async () => { called = true; return { stdout: "{}", exitCode: 0 }; };
+  const pane = createPaneHandlers({ db: freshDb(), repoIndex: () => ({}), herdrRunnerFor, bg: fakeBg({ up: async () => false }) });
+  expect(await pane["pane:attach-plan"]({ paneId: "bg:w1:p3" })).toEqual({ ok: false, error: "The background herdr server isn't running" });
+  expect(called).toBe(false);
 });

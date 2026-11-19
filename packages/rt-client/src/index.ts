@@ -75,6 +75,7 @@ export {
   paneSend,
   paneSelf,
   paneFocus,
+  paneAttachPlan,
   reconcilerStatus,
   reconcilerClear,
   gateOpen,

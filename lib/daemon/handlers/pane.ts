@@ -13,11 +13,11 @@ import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
 import { SLACK_OPEN_REFUSAL, opensSlackChat, slackOpenRefused } from "../../slack/format.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
-import { attendPane } from "../attend.ts";
+import { attendPane, bgTerminalId } from "../attend.ts";
 import { sessionFromPaneProcess, withProcessSession } from "../pane-process-session.ts";
 import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
-import type { HerdrRunner } from "../../agent-herdr.ts";
+import { resolveHerdrBin, type HerdrRunner } from "../../agent-herdr.ts";
 import { shellQuote } from "../../herdr-launch.ts";
 import { repoLabel } from "../../repo-label.ts";
 import { getSetting } from "../../settings/resolve.ts";
@@ -26,6 +26,10 @@ import { listBuddies, listRooms, type PresenceRow, type RegistryDeps } from "../
 import { runCapture } from "../../subprocess.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import type { CommandResult } from "./types.ts";
+import { listAgents } from "../../state/agents-store.ts";
+import type { HerdStore } from "../herd-store.ts";
+import type { GatesStore } from "../gates-store.ts";
+import { paneExtras, type PaneExtrasSources } from "../pane-extras.ts";
 
 const FOCUS_NO_WORKSPACE = "focus for a background pane must run from a herdr pane; HERDR_WORKSPACE_ID is unset";
 
@@ -174,6 +178,11 @@ export function createPaneHandlers(opts: {
   schedule?: (work: Promise<void>) => void;
   /** Claude Code session registry roots for the pane-process fallback; claude-registry.ts's own roots by default. */
   claudeRegistryRoots?: string[];
+  /** Herd and gate stores pane:list joins onto each row; omitted, rows carry no herd or gate. */
+  herdStore?: Pick<HerdStore, "jobsByPane" | "get">;
+  gatesStore?: Pick<GatesStore, "list">;
+  /** The herdr binary an attach plan runs; resolveHerdrBin() by default, since herdr is often only in ~/.local/bin. */
+  herdrBin?: string;
 }):
   // Declared as direct `unknown`-payload members (not `Pick<TypedHandlers, ...>`)
   // rather than the narrower per-command payload types the catalog would
@@ -187,6 +196,7 @@ export function createPaneHandlers(opts: {
   & { "pane:send": (payload: unknown) => Promise<CommandResult<"pane:send">> }
   & { "pane:self": (payload: unknown) => Promise<CommandResult<"pane:self">> }
   & { "pane:focus": (payload: unknown) => Promise<CommandResult<"pane:focus">> }
+  & { "pane:attach-plan": (payload: unknown) => Promise<CommandResult<"pane:attach-plan">> }
   & { "pane:spawn": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"pane:spawn">> } {
   const { db, repoIndex } = opts;
   const herdr = opts.herdr ?? herdrRequest;
@@ -201,6 +211,17 @@ export function createPaneHandlers(opts: {
   const log = opts.log;
   const schedule = opts.schedule ?? ((work: Promise<void>) => { void work; });
   const claudeRegistryRoots = opts.claudeRegistryRoots;
+  const herdStore = opts.herdStore;
+  const gatesStore = opts.gatesStore;
+
+  function extrasSources(): PaneExtrasSources {
+    return {
+      agents: listAgents({}, db),
+      jobsByPane: herdStore ? (ref) => herdStore.jobsByPane(ref) : () => [],
+      herdActive: (id) => herdStore?.get(id)?.status === "active",
+      openGates: gatesStore ? gatesStore.list({ open: true }).gates : [],
+    };
+  }
 
   async function snapshot(sockPath?: string): Promise<HerdrResult<{ snapshot: HerdrSnapshot }>> {
     return herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
@@ -272,7 +293,9 @@ export function createPaneHandlers(opts: {
         // call) degrades to "no bg panes this round" rather than failing
         // the whole list -- the visible section is still good news.
       }
-      return { ok: true, data: { panes: sortPanes([...rows, ...bgRows]) } };
+      const sources = extrasSources();
+      const panes = [...rows, ...bgRows].map((row) => ({ ...row, ...paneExtras(row, sources) }));
+      return { ok: true, data: { panes: sortPanes(panes) } };
     },
 
     "pane:peek": async (rawPayload: unknown): Promise<CommandResult<"pane:peek">> => {
@@ -467,6 +490,24 @@ export function createPaneHandlers(opts: {
       if (reply.status < 200 || reply.status >= 300 || reply.json?.ok === false)
         return { ok: false, error: reply.json?.error ?? `tray focus failed (${reply.status})` };
       return { ok: true, data: { paneId: payload.paneId, focused: reply.json?.focused ?? true } };
+    },
+
+    // A plain `herdr agent attach` only reaches the visible server, so a bg
+    // pane attaches to its terminal on the hidden server, the way attendPane
+    // does, but in the caller's own terminal.
+    "pane:attach-plan": async (rawPayload: unknown): Promise<CommandResult<"pane:attach-plan">> => {
+      const payload = rawPayload as Commands["pane:attach-plan"]["payload"];
+      const { server, paneId } = parsePaneRef(payload.paneId);
+      if (server !== "bg") {
+        return { ok: true, data: { argv: ["env", "-u", "HERDR_SESSION", opts.herdrBin ?? resolveHerdrBin(), "agent", "attach", paneId, ...(payload.takeover ? ["--takeover"] : [])], env: {} } };
+      }
+      if (!bg || !herdrRunnerFor || !(await bg.up())) return { ok: false, error: "The background herdr server isn't running" };
+      const term = await bgTerminalId({ socket: bgSocketPath(), paneId, herdrRunnerFor });
+      if (!term.ok) return term;
+      return {
+        ok: true,
+        data: { argv: ["env", "-u", "HERDR_SOCKET_PATH", opts.herdrBin ?? resolveHerdrBin(), "terminal", "attach", term.termId, "--takeover"], env: { HERDR_SESSION: BG_SESSION } },
+      };
     },
   };
 }

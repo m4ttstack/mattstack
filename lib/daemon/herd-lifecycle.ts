@@ -7,7 +7,7 @@ import type { Logger } from "pino";
 import { formatPaneRef, parsePaneRef } from "../../packages/rt-client/src/index.ts";
 import type { EventsBus } from "./events-bus.ts";
 import type { GatesStore } from "./gates-store.ts";
-import { herdSubject, type HerdStore, type HerdJobRow } from "./herd-store.ts";
+import { herdSubject, WATCHED_JOB_STATUSES, type HerdStore, type HerdJobRow } from "./herd-store.ts";
 import { subscribeHerdrEvents as defaultSubscribe, type HerdrEvent, type HerdrSubscription } from "../herdr/subscribe.ts";
 import { herdrRequest as defaultHerdrRequest } from "../herdr/client.ts";
 import { safeTimeout } from "./safe-timers.ts";
@@ -51,7 +51,7 @@ export const paneStatusSubscription = (pane: string) => [{ type: "pane.agent_sta
 // `stuck-at-modal` belongs here for the exit path above all: a worker parked on
 // the trust dialog whose pane is then closed has crashed like any other, and its
 // open gates must close with it.
-const WATCHED: ReadonlySet<string> = new Set(["spawning", "active", "at-gate", "at-milestone", "stuck-at-modal"]);
+const WATCHED = WATCHED_JOB_STATUSES;
 // A done job's pane stays subscribed: a follow-up round runs in the same
 // pane after the report, and the watchdog's quiet clock only sees it through
 // lastStatusChange (RT-355). WATCHED stays the set the notices act on.
