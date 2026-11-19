@@ -73,7 +73,7 @@ const LONG: Choice[] = ['Rename', 'Extract', 'Inline', 'Move', 'Split', 'Merge',
 const TAB_NAMES = ['Overview', 'Install', 'Configure', 'Usage', 'Hooks', 'Commands', 'Settings', 'Tools', 'Panes', 'Themes', 'Testing', 'Release', 'Upgrade', 'Support', 'Billing', 'Audit', 'Export', 'Import', 'Sync', 'Search']
 
 // The filled tones, each drawn beside its FILL swatch; quiet has no fill to show.
-type FilledTone = Exclude<ButtonTone, 'quiet'>
+type FilledTone = Exclude<ButtonTone, 'quiet' | 'plain'>
 const TONES: FilledTone[] = ['primary', 'secondary', 'neutral', 'caution', 'brand']
 
 function toneRow(ui: Ui, tone: FilledTone) {
@@ -134,9 +134,9 @@ function barsPage(ui: Ui, width: number) {
   return [
     ...heading('BrandBar'),
     <BrandBar title="mattstack kit gallery" />,
-    <Rail dim>No Hide button: the pane has nothing to put away.</Rail>,
+    <Rail dim>No close button: the pane has nothing to put away.</Rail>,
     <BrandBar title="mattstack kit gallery" onHide={ui.hide} />,
-    <Rail dim>With Hide: the button puts this pane away.</Rail>,
+    <Rail dim>With the close button: it puts this pane away.</Rail>,
     ...heading('InputField: focused on the left, unfocused on the right'),
     field('', 'Name the function'),
     field('fetchAllPages', 'Name the function'),
@@ -148,12 +148,12 @@ function barsPage(ui: Ui, width: number) {
 function singlePage(ui: Ui) {
   return [
     ...heading('SelectList, single, no descriptions: click a choice'),
-    <SelectList choices={PLAIN} cursor={cursorOf(ui, 'single')} cursorIsChoice onPick={idx => moveCursor(ui, 'single', idx)} />,
+    <SelectList choices={PLAIN} cursor={cursorOf(ui, 'single')} isPicked={idx => idx === cursorOf(ui, 'single')} onPick={idx => moveCursor(ui, 'single', idx)} />,
     ...heading('SelectList, single, with descriptions'),
-    <SelectList choices={DESCRIBED} cursor={cursorOf(ui, 'described')} cursorIsChoice onPick={idx => moveCursor(ui, 'described', idx)} />,
+    <SelectList choices={DESCRIBED} cursor={cursorOf(ui, 'described')} isPicked={idx => idx === cursorOf(ui, 'described')} onPick={idx => moveCursor(ui, 'described', idx)} />,
     ...heading('SelectList, single, unfocused: muted, nothing to click'),
     <Unfocused>
-      <SelectList choices={DESCRIBED.slice(0, 2)} cursor={0} cursorIsChoice />
+      <SelectList choices={DESCRIBED.slice(0, 2)} cursor={0} isPicked={idx => idx === 0} />
     </Unfocused>,
   ]
 }
@@ -190,7 +190,7 @@ function writeInPage() {
 function longPage(ui: Ui) {
   return [
     ...heading('SelectList of 10: eight show at a time, and the window follows the cursor'),
-    <SelectList choices={LONG} cursor={cursorOf(ui, 'long')} cursorIsChoice onPick={idx => moveCursor(ui, 'long', idx)} />,
+    <SelectList choices={LONG} cursor={cursorOf(ui, 'long')} isPicked={idx => idx === cursorOf(ui, 'long')} onPick={idx => moveCursor(ui, 'long', idx)} />,
   ]
 }
 
@@ -242,7 +242,7 @@ function shellPage(ui: Ui) {
     >
       <Rail bold>{`Page ${at + 1} of ${last + 1}`}</Rail>
       <Rail dim>Pages are different heights; the foot stays on one row.</Rail>
-      <SelectList choices={DESCRIBED.slice(0, at + 1)} cursor={0} cursorIsChoice />
+      <SelectList choices={DESCRIBED.slice(0, at + 1)} cursor={0} isPicked={idx => idx === 0} />
     </PageShell>,
   ]
 }

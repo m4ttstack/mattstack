@@ -129,7 +129,7 @@ lines and draws them. One per Client.
 
 ### `BrandBar`
 
-`<BrandBar title onHide?>`. The pink header bar. With `onHide` it shows a Hide
+`<BrandBar title onHide?>`. The pink header bar. With `onHide` it shows a Close
 button.
 
 ### `Button` and `ButtonRow`
@@ -149,12 +149,17 @@ pushed to the right edge.
 
 ### `SelectList`
 
-`<SelectList choices cursor multi? cursorIsChoice? isPicked? writeIn? onPick? maxShown?>`.
+`<SelectList choices cursor multi? isPicked? writeIn? onPick? maxShown?>`.
 Clack's select and multiselect. `choices` are `{ label, description?, isWriteIn? }`.
-The focused choice shows in full, the rest in one row each. `maxShown` defaults
-to 8 and the list windows around the cursor ("N more"). `writeIn` is the text of
-the "Something else" row. `cursorIsChoice` draws the single-select cursor as
-chosen.
+`maxShown` defaults to 8 and the list windows around the cursor ("N more").
+The cursor and the pick are separate: while focused, the cursor's choice has a
+`❯` in its gutter and a tinted row, and `isPicked` draws the ● or ticked box,
+so moving never looks like picking. The pointer over a choice gives it the same
+tint, held down or not. A write-in choice is one row: its label is the
+placeholder, and with the cursor on it you type there; `writeIn` is the typed
+text. The widget's `rail`, `spaced` and `isDefault` options (`selectList`) drop
+the rail, add a blank row between choices, and draw a not-yet-accepted single
+pick as a dim ●.
 
 ### `Menu`
 
@@ -363,10 +368,11 @@ is the button a move onto the row lands on).
   With `tabSteps`, Tab and Shift+Tab step rows.
 - `gridSelection(rows, spot)` turns a spot back into a selection to store.
 
-- `gridLook(span, { marked?, pressing? })` draws the selected button: pressed
-  while `pressing` (pass `ui.keyPressing`), with the `keySelected` edge while
-  `marked` (pass `ui.keyboard`, or true where the mod always shows the
-  selection). The edge is pink, or white on a pink (brand) fill.
+- `gridLook(span, { marked?, pressing? })` draws a lone selected button:
+  pressed while `pressing` (pass `ui.keyPressing`), with the `keySelected`
+  look while `marked` (pass `ui.keyboard`, or true where the mod always shows
+  the selection). In a row, use `markButtonAt` instead, so the button keeps
+  its width.
 
 The mod keeps the selection in its state. Enter calls
 `ui.pressFor(() => ...)`, so the button shows its press before it acts. See `mods/human-todos/src/pane/kit-view.tsx` and
@@ -390,7 +396,7 @@ covers).
   (`{ shown, top, width, gutter, bar, barCells, focus?, leadGlyph? }`) and draws the window's lines. Each line sits in its gutter, clipped, and ends in
   its scroll bar cells. `focus` is a `ListFocus` (`{ selected, range, marked,
   pressing }`). The selected action takes `gridLook`. While `marked`, the
-  stop's lines get the pink rail and its `leadGlyph` turns pink.
+  stop's lines get a rail in the terminal's text colour and its `leadGlyph` turns pink.
 - `wrappedButtons(lead, buttons, room, indent)` lays out a lead and buttons,
   carried onto more rows as the room runs out.
 - `lineOfAction(lines, action)` finds the line that holds an action.
@@ -419,7 +425,9 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `brandBar(label, width, hide?)`
 - `buttonRow(left, right, width, indent?)` (`indent` replaces the row's own lead-in, in cells) and `buttonSpan(button, pad?)`, with `Button` data `{ label, action, tone?, disabled? }` and `ButtonTone`
 - `selectList(spec)` with `SelectSpec` and `Choice`
-- `inputField(value, placeholder, width, showCursor)` and `textCursor(value, placeholder, showCursor)`
+- `inputField(value, placeholder, width, showCursor, at?)` (`at` is the caret's place, the end when left out) and `textCursor(value, placeholder, showCursor)`
+- `editText({ text, at }, key)` applies one key to a one-line text, `TextEdit`, with the macOS motions as terminals send them: option+delete and ctrl+w delete a word, cmd+delete (ctrl+u) and ctrl+k to an end, option+← → a word, cmd+← → (home, end, ctrl+a, ctrl+e) to an end. A key that is not an edit returns undefined. `wrapKeeping(text, width)` wraps keeping every character, and `caretRow(rows, at)` finds the caret's row and column in it
+- `CURSOR_ROW`, the tint behind a list's cursor row, for a mod that draws its own tinted rows
 - `tabStrip(spec)` with `Tab` and `TabStripSpec`, and `revealTab`
 - `menu(spec)` with `MenuSpec` and `MenuHit` (a click: `toggle`, or a row's index `at`), `menuHit(state, rows, hit)` for a click and `menuKey` for a key, and `MORE_ACTIONS`, the button's label
 - `scrollBar(rows, total, offset)`: a scroll bar for a window of `rows` over `total`, one three-cell line per row (a blank, the track or thumb, a blank). Blank lines when the list fits. Colours in `SCROLL`.
@@ -434,7 +442,7 @@ matching builder. Reach for them when you build lines by hand for `<Lines>`.
 - `widthOf(spans)`: display width of a line, in terminal cells.
 - `withAction(lines, action)`: attaches an action to every line.
 
-Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Hide does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
+Types: `Line`, `Style`. Beside the colours, a `Style` can carry three fields that draw nothing themselves but tell the pointer shades how to light a span: `quiet` (a quiet button's own hover and press fills), `chip` (the fill a control drawn flat on a coloured bar takes under the pointer, as the brand bar's Close does) and `mark` (a foreground the hover and press shades keep, as `keySelected`'s edge does).
 
 ### `cellWidth`, `cutCells`, `padCells` and `chunkCells`
 
@@ -477,10 +485,13 @@ call. `kitClient` does all of this.
 `BRAND`, `FILL`, `QUIET`, `SCROLL`, `SYMBOL`, `ICON`, `PLACEHOLDER`, `ACCENT`, `GRAY`, `DONE`,
 `WARN`, `DIM` are the palette and glyph tables. `rail(style)` is the left rail
 spans. `hovered(span)`, `pressed(span)` and `muted(span)` give the state
-shades. `keySelected(span)` marks the button the keyboard selected: its own
-look with a pink `SYMBOL.selectEdge` in its left edge cell, as two spans of the
-same width. The edge is a `mark`, a foreground the pointer states keep, so it
-takes the button's hover and press fills. Icons are Nerd Font codepoints.
+shades. `markButtonAt(line, at, { pressing? })` marks the button the keyboard
+selected at `line[at]`: its fill lifted a step and a `❯` (`SYMBOL.selectEdge`,
+in the terminal's own text colour) in the blank spacer cells before it, so the
+button keeps its width and the row its cell count. With no blank cell before
+it the `❯` is added. `keySelected(span)` does the same for a lone button. The
+`❯` carries no action, so the pointer lights only the button. Icons are Nerd
+Font codepoints.
 
 ## Checks
 

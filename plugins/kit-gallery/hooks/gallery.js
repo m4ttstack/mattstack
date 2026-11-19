@@ -166,7 +166,7 @@ var SYMBOL = {
   boxActive: "◻",
   boxOn: "◼",
   boxOff: "◻",
-  selectEdge: "▎"
+  selectEdge: "❯"
 };
 var ICON = {
   layers: "",
@@ -241,6 +241,7 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -502,6 +503,9 @@ function isControl(span, line, row, key) {
 function styleOf(span, line, row, look) {
   if (!look.focused)
     return muted(span);
+  const overRow = span.rowTint === true && [look.hover, look.pressed].some((key) => key !== undefined && lineHoverKey(line) === key);
+  if (overRow)
+    return span.bg !== undefined && span.bg !== CURSOR_ROW ? span : { ...span, bg: CURSOR_ROW };
   if (look.pressed !== undefined && isControl(span, line, row, look.pressed))
     return pressed(span);
   if (look.hover !== undefined && isControl(span, line, row, look.hover))
@@ -546,20 +550,20 @@ function brandBar(label, width, hide) {
   const text = `  ${BRAND.glyph}  ${label}`;
   if (hide === undefined)
     return [sp(fit(text, width), look)];
-  const button = ` Hide ${ICON.collapse} `;
+  const button = " Close ";
   return [sp(fit(text, width - cellWidth(button) - 1), look), sp(button, { ...look, chip: BRAND.pinkDeep, action: hide }), sp(" ", look)];
 }
 
 // packages/mod-kit/src/components/brand-bar.tsx
 var BrandBar = kitComponent("BrandBar", (props, ctx) => [brandBar(props.title, ctx.width, props.onHide && ctx.bind("hide", props.onHide))]);
 // packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
 var COMPACT = { indent: 1, pad: 1, gap: 1 };
 function buttonSpan(button, pad = ROOMY.pad) {
   const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
   const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
 }
 var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
 var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
@@ -587,7 +591,7 @@ var ButtonRow = kitComponent("ButtonRow", (props, ctx) => {
   return [buttonRow(buttons(props.children), buttons(props.right)[0], ctx.width)];
 });
 // packages/mod-kit/src/widgets/input-field.ts
-function inputField(value, placeholder, width, showCursor) {
+function inputField(value, placeholder, width, showCursor, at) {
   const room = width - 2;
   const box = (spans) => [
     sp(" ", FILL.field),
@@ -599,8 +603,19 @@ function inputField(value, placeholder, width, showCursor) {
     const head = firstGrapheme(hint);
     return box([sp(head || " ", showCursor ? { ...PLACEHOLDER, inverse: true } : PLACEHOLDER), sp(hint.slice(head.length), PLACEHOLDER)]);
   }
-  const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
-  return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
+  const chars = Array.from(value);
+  const caret = Math.min(Math.max(0, at ?? chars.length), chars.length);
+  if (caret === chars.length) {
+    const shown = cellWidth(value) >= room ? tailCells(value, room - 1) : value;
+    return box([sp(shown, { color: FILL.field.color }), ...showCursor ? [sp(" ", { color: FILL.field.color, inverse: true })] : []]);
+  }
+  const look = { color: FILL.field.color };
+  let from = 0;
+  while (from < caret && cellWidth(chars.slice(from, caret + 1).join("")) > room)
+    from++;
+  const before = chars.slice(from, caret).join("");
+  const after = cutCells(chars.slice(caret + 1).join(""), Math.max(0, room - cellWidth(before) - cellWidth(chars[caret])));
+  return box([sp(before, look), sp(chars[caret], showCursor ? { ...look, inverse: true } : look), sp(after, look)]);
 }
 
 // packages/mod-kit/src/components/input-field.tsx
@@ -675,49 +690,65 @@ function selectList(spec) {
   const total = spec.choices.length;
   const start = total <= max ? 0 : Math.min(Math.max(0, spec.cursor - Math.floor(max / 2)), total - max);
   const shown = spec.choices.slice(start, start + max);
-  const bar = sp(SYMBOL.bar, ACCENT);
+  const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
   const lines = [];
-  const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, () => [bar])];
+  const blank = () => [bar, sp(" ")];
+  const padded = (rows) => [...rows, ...Array.from({ length: Math.max(0, 2 - rows.length) }, blank)];
   if (start > 0)
     lines.push([bar, sp(`  ↑ ${start} more`, DIM)]);
-  shown.forEach((choice, n) => lines.push(...withAction(padded(choiceRows(choice, start + n, spec)), spec.actionFor(start + n))));
+  shown.forEach((choice, n) => {
+    const idx = start + n;
+    if (spec.spaced && n > 0)
+      lines.push(blank());
+    const rows = choice.isWriteIn ? choiceRows(choice, idx, spec) : padded(choiceRows(choice, idx, spec));
+    lines.push(...withAction(isCursorRow(spec, idx) ? rows.map((line) => tinted(line, spec.width, CURSOR_ROW)) : rows.map((line) => hoverTinted(line, spec.width)), spec.actionFor(idx)));
+  });
   const below = total - start - shown.length;
   if (below > 0)
     lines.push([bar, sp(`  ↓ ${below} more`, DIM)]);
   return lines;
 }
 function choiceMark(spec, idx) {
-  const isAt = idx === spec.cursor;
+  const isPicked = spec.isPicked(idx);
   if (!spec.multi)
-    return isAt ? spec.cursorIsChoice ? sp(SYMBOL.radioOn, DONE) : sp(SYMBOL.radioOff, ACCENT) : sp(SYMBOL.radioOff, DIM);
-  if (spec.isPicked(idx))
-    return sp(SYMBOL.boxOn, DONE);
-  return isAt ? sp(SYMBOL.boxActive, ACCENT) : sp(SYMBOL.boxOff, DIM);
+    return isPicked ? sp(SYMBOL.radioOn, spec.isDefault?.(idx) ? DIM : DONE) : sp(SYMBOL.radioOff, DIM);
+  return isPicked ? sp(SYMBOL.boxOn, DONE) : sp(SYMBOL.boxOff, DIM);
 }
+var isCursorRow = (spec, idx) => spec.focused && idx === spec.cursor;
 function choiceRows(choice, idx, spec) {
-  const bar = sp(SYMBOL.bar, ACCENT);
-  const lead = [bar, sp("  "), choiceMark(spec, idx), sp(" ")];
-  const under = [bar, sp("    ")];
-  const isAt = idx === spec.cursor;
+  const bar = sp(spec.rail === false ? "" : SYMBOL.bar, ACCENT);
+  const isAt = isCursorRow(spec, idx);
+  const gap = spec.multi ? "  " : " ";
+  const lead = [bar, isAt ? sp(`${SYMBOL.selectEdge} `, { bold: true }) : sp("  "), choiceMark(spec, idx), sp(gap)];
+  const under = [bar, sp(`   ${gap}`)];
   const rows = choiceLines(choice, idx, spec, lead, under);
-  if (!isAt || !spec.pressing)
-    return rows;
-  return rows.map((line) => line.map((span) => span.isLabel ? pressed(span) : span));
+  return rows;
+}
+function tinted(line, width, fill) {
+  const [rail, ...rest] = line;
+  const filled = rest.map((span) => span.bg ? span : { ...span, bg: fill, rowTint: true });
+  const room = Math.max(0, width - widthOf(line));
+  return [rail, ...filled, ...room > 0 ? [sp(" ".repeat(room), { bg: fill, rowTint: true })] : []];
+}
+function hoverTinted(line, width) {
+  const [rail, ...rest] = line;
+  const room = Math.max(0, width - widthOf(line));
+  return [rail, ...rest.map((span) => ({ ...span, rowTint: true })), ...room > 0 ? [sp(" ".repeat(room), { rowTint: true })] : []];
 }
 function choiceLines(choice, idx, spec, lead, under) {
   const isAt = idx === spec.cursor;
   if (choice.isWriteIn)
     return writeInRows(choice, isAt, lead, under, spec);
-  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isAt && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
+  return [...hang(lead, under, choice.label, spec.width, { isLabel: true, ...isCursorRow(spec, idx) && { bold: true } }), ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
 }
 function writeInRows(choice, isAt, lead, under, spec) {
-  const label = [...lead, sp(`${ICON.edit} `, ACCENT), sp(choice.label, { isLabel: true, ...isAt && { bold: true } })];
   const typed = spec.writeIn;
+  const fieldLead = lead.slice(0, -1);
   if (isAt)
-    return [label, [...under, ...inputField(typed, choice.description ?? "", spec.width - widthOf(under), spec.focused)]];
+    return [[...fieldLead, ...inputField(typed, choice.label, spec.width - widthOf(fieldLead), spec.focused)]];
   if (typed !== "")
-    return [label, ...hang(under, under, `“${typed}”`, spec.width, {})];
-  return [label, ...choice.description ? hang(under, under, choice.description, spec.width, DIM) : []];
+    return hang(lead, under, typed, spec.width, {});
+  return hang(lead, under, choice.label, spec.width, { ...DIM, isLabel: true });
 }
 
 // packages/mod-kit/src/components/select-list.tsx
@@ -725,7 +756,6 @@ var SelectList = kitComponent("SelectList", (props, ctx) => selectList({
   choices: props.choices,
   cursor: props.cursor,
   multi: props.multi ?? false,
-  cursorIsChoice: props.cursorIsChoice ?? false,
   isPicked: props.isPicked ?? (() => false),
   writeIn: props.writeIn ?? "",
   width: ctx.width,
@@ -891,14 +921,14 @@ function barsPage(ui, width) {
     }),
     /* @__PURE__ */ h(Rail, {
       dim: true
-    }, "No Hide button: the pane has nothing to put away."),
+    }, "No close button: the pane has nothing to put away."),
     /* @__PURE__ */ h(BrandBar, {
       title: "mattstack kit gallery",
       onHide: ui.hide
     }),
     /* @__PURE__ */ h(Rail, {
       dim: true
-    }, "With Hide: the button puts this pane away."),
+    }, "With the close button: it puts this pane away."),
     ...heading("InputField: focused on the left, unfocused on the right"),
     field("", "Name the function"),
     field("fetchAllPages", "Name the function"),
@@ -914,21 +944,21 @@ function singlePage(ui) {
     /* @__PURE__ */ h(SelectList, {
       choices: PLAIN,
       cursor: cursorOf(ui, "single"),
-      cursorIsChoice: true,
+      isPicked: (idx) => idx === cursorOf(ui, "single"),
       onPick: (idx) => moveCursor(ui, "single", idx)
     }),
     ...heading("SelectList, single, with descriptions"),
     /* @__PURE__ */ h(SelectList, {
       choices: DESCRIBED,
       cursor: cursorOf(ui, "described"),
-      cursorIsChoice: true,
+      isPicked: (idx) => idx === cursorOf(ui, "described"),
       onPick: (idx) => moveCursor(ui, "described", idx)
     }),
     ...heading("SelectList, single, unfocused: muted, nothing to click"),
     /* @__PURE__ */ h(Unfocused, null, /* @__PURE__ */ h(SelectList, {
       choices: DESCRIBED.slice(0, 2),
       cursor: 0,
-      cursorIsChoice: true
+      isPicked: (idx) => idx === 0
     }))
   ];
 }
@@ -992,7 +1022,7 @@ function longPage(ui) {
     /* @__PURE__ */ h(SelectList, {
       choices: LONG,
       cursor: cursorOf(ui, "long"),
-      cursorIsChoice: true,
+      isPicked: (idx) => idx === cursorOf(ui, "long"),
       onPick: (idx) => moveCursor(ui, "long", idx)
     })
   ];
@@ -1065,7 +1095,7 @@ function shellPage(ui) {
     }, "Pages are different heights; the foot stays on one row."), /* @__PURE__ */ h(SelectList, {
       choices: DESCRIBED.slice(0, at + 1),
       cursor: 0,
-      cursorIsChoice: true
+      isPicked: (idx) => idx === 0
     }))
   ];
 }

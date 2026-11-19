@@ -195,6 +195,6 @@ test('a form stored under form-3 loads as the one form in the list', async ($, o
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const client = await ui.find({ type: 'Client' })
   expect((client!.props.props as { form: { id: string; source: string } }).form).toMatchObject({ id: 'f-old', source: 'ask' })
-  expect((await rowsOf(ui, client!.key!)).join('\n')).toContain('Something else')
+  expect((await rowsOf(ui, client!.key!)).join('\n')).toContain('Type something.')
   await ui.unmount()
 })

@@ -1,4 +1,4 @@
-import { sp, type Span, type Style } from './text'
+import { sp, type Line, type Span, type Style } from './text'
 
 // Clack's unicode symbols and colours, from @clack/prompts (MIT).
 export const SYMBOL = {
@@ -14,8 +14,8 @@ export const SYMBOL = {
   boxActive: '◻',
   boxOn: '◼',
   boxOff: '◻',
-  // The left edge of the button the keyboard selected.
-  selectEdge: '▎',
+  // The keyboard's place: beside the button it selected, and in the gutter of the option it is on.
+  selectEdge: '❯',
 }
 
 // Nerd Font icons: codicons, plus Material Design for the question kinds, which draw larger (names from the font's cmap). A font without them draws empty boxes.
@@ -111,17 +111,35 @@ export function pressed<S extends Style>(span: S): S {
   return span.mark ? { ...out, color: span.mark } : out
 }
 
-// The button the keyboard selected: its own look, with a pink bar in its left edge cell so the cell count stays.
-// The bar is a mark, so under the pointer it takes the button's hover and press fills and stays pink.
-// On a pink fill (a brand button) a pink bar would vanish, so it is white there.
-export function keySelected<A>(span: Span<A>): Span<A>[] {
-  if (!span.t.startsWith(' ')) return [span]
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? 'white' : BRAND.pink
-  return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) },
-  ]
+// The button the keyboard selected, at `line[at]`: its fill lifted a step and a ❯ in the terminal's own text colour in the blank cells before it,
+// taken from the spacer there, so the button keeps its full width and the row its cell count. With no blank cell
+// before it the ❯ is added and the row grows by one. The ❯ carries no action: the pointer lights only the button.
+export function markButtonAt<A>(line: Line<A>, at: number, focus: { pressing?: boolean } = {}): Line<A> {
+  const button = line[at]
+  if (!button) return line
+  const lit = focus.pressing ? pressed(button) : hoverOf(button)
+  // The spacer is the nearest span before the button with any width: a row can hold empty spans between them
+  // (a zero indent), and stopping at one would add the cell and push every button over.
+  let back = at - 1
+  while (back >= 0 && line[back]!.t === '') back -= 1
+  const prev = line[back]
+  const keep = <T extends Span<A>[]>(spans: T): Line<A> => Object.assign(spans, line.action === undefined ? {} : { action: line.action })
+  // A spacer may carry a fill (a tinted card row); the ❯ keeps it, so the row's tint runs on unbroken.
+  if (prev && prev.action === undefined && /^ +$/.test(prev.t)) {
+    const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge
+    const rest = prev.t.slice(mark.length)
+    return keep([...line.slice(0, back), ...(rest === '' ? [] : [{ ...prev, t: rest }]), sp<A>(mark, { bold: true, ...(prev.bg && { bg: prev.bg }) }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)])
+  }
+  return keep([...line.slice(0, at), sp<A>(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)])
 }
+
+// A lone button span with the keyboard on it, for a caller with no row around it: the ❯ is added before it.
+export function keySelected<A>(span: Span<A>): Span<A>[] {
+  return markButtonAt<A>([span], 0)
+}
+
+// The row the keyboard is on in a list of options, tinted behind its text.
+export const CURSOR_ROW = '#2e2e2e'
 
 export const ACCENT: Style = { color: 'cyan' }
 export const GRAY: Style = { color: 'gray' }

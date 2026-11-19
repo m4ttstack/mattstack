@@ -61,12 +61,14 @@ const submitSpan = (s: State) =>
     .flat()
     .find(span => span.t.trim() === 'Submit')
 
-test('Submit is disabled until an option is chosen, and Enter does nothing until then', () => {
+test('Submit is disabled until an option is chosen; Enter picks the option at the cursor and submits it', () => {
   expect(submitSpan(initial(form))).toBeDefined()
   expect(submitSpan(initial(form))?.action).toBeUndefined()
   expect(perform({ type: 'send' }, form, initial(form))).toBeUndefined()
-  expect(keyEffect({ key: 'return' }, form, initial(form))?.post).toBeUndefined()
-  const chosen = keyEffect({ key: 'up' }, form, keyEffect({ key: 'down' }, form, initial(form))!.state)!.state
+  expect(keyEffect({ key: 'return' }, form, initial(form))?.post).toEqual({ type: 'answer', formId: form.id, answers: { choice: 'close' } })
+  const arrowed = keyEffect({ key: 'up' }, form, keyEffect({ key: 'down' }, form, initial(form))!.state)!.state
+  expect(submitSpan(arrowed)?.action).toBeUndefined()
+  const chosen = keyEffect({ key: 'space' }, form, arrowed)!.state
   expect(submitSpan(chosen)?.action).toEqual({ type: 'send' })
   expect(keyEffect({ key: 'return' }, form, chosen)?.post).toEqual({ type: 'answer', formId: form.id, answers: { choice: 'close' } })
 })
@@ -88,10 +90,10 @@ test('a sole option is chosen where it rests, so Enter submits it with no cursor
   expect(keyEffect({ key: 'return' }, one, initial(one))?.post).toEqual({ type: 'answer', formId: one.id, answers: { choice: 'close' } })
 })
 
-test('a plugin form is one page: no tab strip, no review page, no Back, no page hint', () => {
+test('a plugin form is one page: no progress line, no review page, no Back, no hint', () => {
   const page = screen(initial(form))
   for (const gone of ['Choice', 'Review', 'Back', '←→', 'pages']) expect(page).not.toContain(gone)
-  expect(page).toContain('↑↓ choose  enter submit')
+  expect(page).not.toContain('enter submit')
   expect(page).toContain('rt is cleaning up this worktree')
   expect(keyEffect({ key: 'right' }, form, initial(form))!.state.page).toBe(0)
   expect(keyEffect({ key: 'tab' }, form, initial(form))!.state).toEqual(initial(form))
@@ -109,7 +111,7 @@ test('with no context, nothing sits between the title and the question, and no d
   const bare = pluginForm({ ...ARGS, context: undefined }) as Form
   const lines = visibleLines(bare, initial(bare), { width: 70, focused: true }, 80).map(textOf)
   const title = lines.findIndex(line => line.includes('PR #1144 merged'))
-  expect(lines[title + 1]!.trim()).toBe('│')
-  expect(lines[title + 2]).toContain('What should this session do?')
-  expect(lines.join('\n')).not.toContain('├')
+  const question = lines.findIndex(line => line.includes('What should this session do?'))
+  expect(lines.slice(title + 1, question).every(line => line.trim() === '')).toBe(true)
+  expect(lines.join('\n')).not.toMatch(/[├│]/)
 })

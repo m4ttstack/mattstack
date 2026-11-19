@@ -3,7 +3,7 @@ import { useSearch } from 'wouter';
 import { navigate } from 'wouter/use-browser-location';
 
 export type WiringTab = 'graph' | 'config' | 'history';
-export type WiringView = 'template' | 'rendered';
+export type WiringView = 'template' | 'rendered' | 'husk';
 /** The block view's two graphs, as `select` names them: the block map and
     Every step. */
 export type BlockGraphSelect = 'graph' | 'graph-steps';
@@ -26,7 +26,7 @@ const FOLDED_TABS: Readonly<Record<string, WiringTab>> = {
   surface: 'config',
   health: 'config',
 };
-const VIEWS: readonly WiringView[] = ['template', 'rendered'];
+const VIEWS: readonly WiringView[] = ['template', 'rendered', 'husk'];
 
 const DEFAULT_TAB: WiringTab = 'graph';
 

@@ -95,7 +95,7 @@ describe('controls', () => {
         <BrandBar title="t" onHide={() => (hidden += 1)} />
       </Panel>
     ))
-    press(handlers, lines[0], 'Hide')
+    press(handlers, lines[0], 'Close')
     expect(hidden).toBe(1)
   })
 
@@ -254,7 +254,7 @@ describe('drawing pieces', () => {
   test('lines in a Panel draw exactly as renderLines draws them, under the pointer anywhere and focused or not', () => {
     type Act = { type: string; n?: number }
     const raw: Line<Act>[] = [
-      ...selectList<Act>({ choices: [{ label: 'One', description: 'first' }, { label: 'Two' }], cursor: 0, multi: false, isPicked: () => false, cursorIsChoice: true, writeIn: '', width: 40, focused: true, actionFor: n => ({ type: 'option', n }) }),
+      ...selectList<Act>({ choices: [{ label: 'One', description: 'first' }, { label: 'Two' }], cursor: 0, multi: false, isPicked: () => false, writeIn: '', width: 40, focused: true, actionFor: n => ({ type: 'option', n }) }),
       buttonRow<Act>([{ label: 'Back', action: { type: 'page', n: 0 } }, { label: 'Next', action: { type: 'page', n: 1 } }], { label: 'Chat', action: { type: 'chat' } }, 40),
     ]
     const drawLines = (look: { focused: boolean; hover?: string; pressed?: string }) =>

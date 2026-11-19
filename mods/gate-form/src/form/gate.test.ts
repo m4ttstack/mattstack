@@ -20,15 +20,15 @@ const textOf = (line: { t: string }[]) => line.map(s => s.t).join('')
 const linesAt = (form: Form, s: State, width = 70) => visibleLines(form, s, { width, focused: true }, 80)
 const screen = (form: Form, s: State, width = 70) => linesAt(form, s, width).map(textOf).join('\n')
 const atReview = (form: Form) => goTo(form, initial(form), form.questions.length)
-const answeredAll = (form: Form): State => ({ ...atReview(form), answered: form.questions.map(() => true), moved: form.questions.map(() => true) })
+const answeredAll = (form: Form): State => ({ ...atReview(form), answered: form.questions.map(() => true), chosen: ['std', 'no'] })
 const run = (form: Form, s: State, ...actions: Action[]): Effect | undefined =>
   actions.reduce<Effect | undefined>((effect, action) => (effect ? perform(action, form, effect.state) ?? { state: effect.state } : undefined), { state: s })
 const keys = (form: Form, s: State, ...names: string[]): Effect | undefined =>
   names.reduce<Effect | undefined>((effect, key) => (effect ? keyEffect({ key }, form, effect.state) ?? { state: effect.state, post: effect.post } : undefined), { state: s })
 
-test('Something else shows only on the writeIn question', () => {
-  expect(screen(gate, goTo(gate, initial(gate), 0))).not.toContain('Something else')
-  expect(screen(gate, goTo(gate, initial(gate), 1))).toContain('Something else')
+test('Type something shows only on the writeIn question', () => {
+  expect(screen(gate, goTo(gate, initial(gate), 0))).not.toContain('Type something.')
+  expect(screen(gate, goTo(gate, initial(gate), 1))).toContain('Type something.')
 })
 
 test('Submit is disabled until every question is answered', () => {
@@ -73,16 +73,18 @@ test('keyboard: Tab selects More actions, Enter opens it, arrows move past the h
   expect(picked?.post).toEqual({ type: 'answer', formId: gate.id, answers: { next: 'go-back', to: 'provision' } })
 })
 
-test('keyboard: left closes the menu, then pages back from the review page', () => {
+test('keyboard: left closes the menu, then moves along the review buttons and pages back from the first', () => {
   const open = keys(gate, atReview(gate), 'tab', 'return')!.state
   expect(open.menu.open).toBe(true)
   const closed = keyEffect({ key: 'left' }, gate, open)!.state
   expect(keyEffect({ key: 'backspace' }, gate, open)!.state.menu.open).toBe(false)
   expect(closed.menu.open).toBe(false)
-  expect(keyEffect({ key: 'left' }, gate, closed)!.state.page).toBe(REVIEW - 1)
+  const onSubmit = keyEffect({ key: 'left' }, gate, closed)!.state
+  expect(onSubmit.page).toBe(REVIEW)
+  expect(keyEffect({ key: 'left' }, gate, onSubmit)!.state.page).toBe(REVIEW - 1)
 })
 
-test('the review page has no Back button: left pages back, right stays, Enter submits', () => {
+test('the review page has no Back button: left from the first button pages back, right stays, Enter submits', () => {
   const s = answeredAll(gate)
   const nav = linesAt(gate, s).find(line => textOf(line).includes('Submit'))!
   expect(textOf(nav)).not.toContain('Back')

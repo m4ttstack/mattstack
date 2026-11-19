@@ -140,7 +140,7 @@ var SYMBOL = {
   boxActive: "◻",
   boxOn: "◼",
   boxOff: "◻",
-  selectEdge: "▎"
+  selectEdge: "❯"
 };
 var ICON = {
   layers: "",
@@ -171,6 +171,7 @@ var FILL = {
   brand: { bg: BRAND.pink, color: BRAND.plum }
 };
 var SCROLL = { track: "#383838", thumb: "#707070" };
+var PLACEHOLDER = { color: "#7a7a7a" };
 var HOVER_FILL = {
   [BRAND.pink]: "#ff94b9",
   [BRAND.pinkDeep]: "#f57ba6",
@@ -214,15 +215,24 @@ function pressed(span) {
   const out = pressOf(span);
   return span.mark ? { ...out, color: span.mark } : out;
 }
-function keySelected(span) {
-  if (!span.t.startsWith(" "))
-    return [span];
-  const edge = span.bg === BRAND.pink || span.bg === BRAND.pinkDeep ? "white" : BRAND.pink;
-  return [
-    { ...span, t: SYMBOL.selectEdge, color: edge, mark: edge, bold: false, dim: false },
-    { ...span, t: span.t.slice(1) }
-  ];
+function markButtonAt(line, at, focus = {}) {
+  const button = line[at];
+  if (!button)
+    return line;
+  const lit = focus.pressing ? pressed(button) : hoverOf(button);
+  let back = at - 1;
+  while (back >= 0 && line[back].t === "")
+    back -= 1;
+  const prev = line[back];
+  const keep = (spans) => Object.assign(spans, line.action === undefined ? {} : { action: line.action });
+  if (prev && prev.action === undefined && /^ +$/.test(prev.t)) {
+    const mark = prev.t.length >= 2 ? `${SYMBOL.selectEdge} ` : SYMBOL.selectEdge;
+    const rest = prev.t.slice(mark.length);
+    return keep([...line.slice(0, back), ...rest === "" ? [] : [{ ...prev, t: rest }], sp(mark, { bold: true, ...prev.bg && { bg: prev.bg } }), ...line.slice(back + 1, at), lit, ...line.slice(at + 1)]);
+  }
+  return keep([...line.slice(0, at), sp(SYMBOL.selectEdge, { bold: true }), lit, ...line.slice(at + 1)]);
 }
+var CURSOR_ROW = "#2e2e2e";
 var ACCENT = { color: "cyan" };
 var GRAY = { color: "gray" };
 var DONE = { color: "green" };
@@ -240,6 +250,133 @@ function muted(span) {
   if (span.color)
     return { ...span, color: MUTED[span.color] ?? span.color, dim: false };
   return { ...span, color: span.dim ? "#808080" : "#b8b8b8", dim: false };
+}
+// packages/mod-kit/src/widgets/buttons.ts
+var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true }, plain: { color: QUIET.muted, quiet: true } };
+var ROOMY = { indent: 3, pad: 2, gap: 3 };
+var COMPACT = { indent: 1, pad: 1, gap: 1 };
+function buttonSpan(button, pad = ROOMY.pad) {
+  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
+  const edge = " ".repeat(pad);
+  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet" && button.tone !== "plain", ...!button.disabled && { action: button.action } });
+}
+var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
+var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
+function buttonRow(left, right, width, indent) {
+  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
+  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
+  const line = [sp(" ".repeat(space.indent))];
+  for (const button of left)
+    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
+  if (!right)
+    return line;
+  const room = width - widthOf(line) - space.gap - 2 * space.pad;
+  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
+  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
+  return line;
+}
+// packages/mod-kit/src/widgets/text-edit.ts
+var NAMED = new Set(["up", "down", "left", "right", "return", "enter", "tab", "backspace", "delete", "escape", "pageup", "pagedown", "home", "end", "insert"]);
+var isSpace = (ch) => ch !== undefined && /\s/.test(ch);
+function wordBack(chars, at) {
+  let i = at;
+  while (i > 0 && isSpace(chars[i - 1]))
+    i--;
+  while (i > 0 && !isSpace(chars[i - 1]))
+    i--;
+  return i;
+}
+function wordForward(chars, at) {
+  let i = at;
+  while (i < chars.length && isSpace(chars[i]))
+    i++;
+  while (i < chars.length && !isSpace(chars[i]))
+    i++;
+  return i;
+}
+function editText(edit, ev) {
+  const chars = Array.from(edit.text);
+  const at = Math.min(Math.max(0, edit.at), chars.length);
+  const cut = (from, to) => ({ text: [...chars.slice(0, from), ...chars.slice(to)].join(""), at: from });
+  const move = (to) => ({ text: edit.text, at: to });
+  const { key } = ev;
+  if (key === "backspace") {
+    if (ev.meta)
+      return cut(wordBack(chars, at), at);
+    return at === 0 ? move(0) : cut(at - 1, at);
+  }
+  if (key === "delete") {
+    if (ev.meta)
+      return cut(at, wordForward(chars, at));
+    return cut(at, Math.min(chars.length, at + 1));
+  }
+  if (ev.ctrl && key === "w")
+    return cut(wordBack(chars, at), at);
+  if (ev.ctrl && key === "u")
+    return cut(0, at);
+  if (ev.ctrl && key === "k")
+    return cut(at, chars.length);
+  if (ev.ctrl && key === "a" || key === "home")
+    return move(0);
+  if (ev.ctrl && key === "e" || key === "end")
+    return move(chars.length);
+  if (key === "left")
+    return move(ev.meta ? wordBack(chars, at) : Math.max(0, at - 1));
+  if (key === "right")
+    return move(ev.meta ? wordForward(chars, at) : Math.min(chars.length, at + 1));
+  if (ev.meta && key === "b")
+    return move(wordBack(chars, at));
+  if (ev.meta && key === "f")
+    return move(wordForward(chars, at));
+  if (ev.ctrl || ev.meta)
+    return;
+  const ch = key === "space" ? " " : key;
+  if (NAMED.has(ch) || ch === "")
+    return;
+  const typed = Array.from(ch);
+  return { text: [...chars.slice(0, at), ...typed, ...chars.slice(at)].join(""), at: at + typed.length };
+}
+function wrapKeeping(text, width) {
+  const room = Math.max(1, width);
+  const rows = [];
+  let row = [];
+  let used = 0;
+  const flush = () => {
+    rows.push(row.join(""));
+    row = [];
+    used = 0;
+  };
+  const place = (ch) => {
+    const w = cellWidth(ch);
+    if (used + w > room && row.length > 0)
+      flush();
+    row.push(ch);
+    used += w;
+  };
+  for (const piece of text.match(/\S+|\s+/g) ?? [""]) {
+    const chars = Array.from(piece);
+    const wide = cellWidth(piece);
+    if (/^\s+$/.test(piece) || used + wide <= room) {
+      chars.forEach(place);
+      continue;
+    }
+    if (row.length > 0)
+      flush();
+    chars.forEach(place);
+  }
+  rows.push(row.join(""));
+  return rows;
+}
+function caretRow(rows, at) {
+  let left = at;
+  for (let r = 0;r < rows.length; r++) {
+    const len = Array.from(rows[r]).length;
+    if (left <= len && (left < len || r === rows.length - 1))
+      return { row: r, col: left };
+    left -= len;
+  }
+  const last = rows.length - 1;
+  return { row: last, col: Array.from(rows[last] ?? "").length };
 }
 // packages/mod-kit/src/widgets/scroll-bar.ts
 function scrollBar(rows, total, offset) {
@@ -288,31 +425,7 @@ function gridMove(rows, here, ev, options = {}) {
 }
 function gridLook(span, focus) {
   const base = focus.pressing ? pressed(span) : span;
-  return focus.marked ? keySelected(base) : [base];
-}
-// packages/mod-kit/src/widgets/buttons.ts
-var TONE_FILL = { primary: FILL.primary, secondary: FILL.secondary, neutral: FILL.neutral, caution: FILL.caution, brand: FILL.brand, quiet: { color: QUIET.label, bg: QUIET.rest, quiet: true } };
-var ROOMY = { indent: 3, pad: 2, gap: 2 };
-var COMPACT = { indent: 1, pad: 1, gap: 1 };
-function buttonSpan(button, pad = ROOMY.pad) {
-  const fill = button.disabled ? FILL.disabled : TONE_FILL[button.tone ?? "secondary"];
-  const edge = " ".repeat(pad);
-  return sp(`${edge}${button.label}${edge}`, { ...fill, bold: !button.disabled && button.tone !== "quiet", ...!button.disabled && { action: button.action } });
-}
-var widthWith = (left, right, { indent, pad, gap }) => indent + left.reduce((n, button) => n + cellWidth(button.label) + 2 * pad + gap, 0) + (right ? gap + cellWidth(right.label) + 2 * pad : 0);
-var cut = (label, room) => cellWidth(label) <= room ? label : `${cutCells(label, Math.max(0, room - 1))}…`;
-function buttonRow(left, right, width, indent) {
-  const roomy = { ...ROOMY, indent: indent ?? ROOMY.indent };
-  const space = widthWith(left, right, roomy) <= width ? roomy : { ...COMPACT, indent: indent ?? COMPACT.indent };
-  const line = [sp(" ".repeat(space.indent))];
-  for (const button of left)
-    line.push(buttonSpan(button, space.pad), sp(" ".repeat(space.gap)));
-  if (!right)
-    return line;
-  const room = width - widthOf(line) - space.gap - 2 * space.pad;
-  const end = buttonSpan({ ...right, label: cut(right.label, Math.max(1, room)) }, space.pad);
-  line.push(sp(" ".repeat(Math.max(space.gap, width - widthOf(line) - cellWidth(end.t)))), end);
-  return line;
+  return focus.marked ? markButtonAt([span], 0, { pressing: focus.pressing }) : [base];
 }
 // packages/mod-kit/src/patterns/hideable-pane.tsx
 var DEFAULT_BAND_LABEL = "mattstack waiting";
@@ -462,11 +575,12 @@ function windowLines(spec) {
   const focus = spec.focus ?? {};
   const chosen = focus.selected === undefined ? undefined : JSON.stringify(focus.selected);
   const range = focus.marked ? focus.range : undefined;
-  const rail = [sp(SYMBOL.bar, { color: BRAND.pink }), sp(" ".repeat(Math.max(0, spec.gutter - 1)))];
+  const rail = [sp(SYMBOL.bar), sp(" ".repeat(Math.max(0, spec.gutter - 1)))];
   const plain = [sp(" ".repeat(spec.gutter))];
   return spec.shown.map((line, n) => {
     const at = spec.top + n;
-    const lit = chosen ? line.flatMap((span) => span.action !== undefined && JSON.stringify(span.action) === chosen ? gridLook(span, focus) : [span]) : line;
+    const hit = chosen ? line.findIndex((span) => span.action !== undefined && JSON.stringify(span.action) === chosen) : -1;
+    const lit = hit < 0 ? line : focus.marked ? markButtonAt(line, hit, focus) : line.flatMap((span, i) => i === hit ? gridLook(span, focus) : [span]);
     const lead = range && at === range.first && spec.leadGlyph ? markLead(lit, spec.leadGlyph) : lit;
     const gutter = range && at >= range.first && at <= range.last ? rail : plain;
     return [...clipLine([...gutter, ...lead], spec.width - spec.barCells), ...spec.bar[n] ?? []];
@@ -500,6 +614,7 @@ function checkKind(input) {
   }
   return;
 }
+var DONE_LABEL_MAX = 32;
 function toTodo(id, input) {
   const hasScript = input.kind === "run" || input.kind === "terminal";
   return {
@@ -511,7 +626,8 @@ function toTodo(id, input) {
     ...hasScript && input.script !== undefined && { script: input.script },
     ...input.kind === "link" && input.url !== undefined && { url: input.url },
     ...input.kind === "image" && input.paths !== undefined && { paths: [...input.paths] },
-    ...input.kind === "run" && input.cwd !== undefined && { cwd: input.cwd }
+    ...input.kind === "run" && input.cwd !== undefined && { cwd: input.cwd },
+    ...input.doneLabel?.trim() && { doneLabel: input.doneLabel.trim().slice(0, DONE_LABEL_MAX) }
   };
 }
 function buttonsFor(todo) {
@@ -976,6 +1092,8 @@ async function resumeWatching($) {
 var todos = atom({ plugin: "human-todos", key: "todos" }, [], { shape: "todos-1" });
 var nextId = atom({ plugin: "human-todos", key: "nextId" }, 1);
 var expanded = atom({ plugin: "human-todos", key: "expanded" }, []);
+var composing = atom({ plugin: "human-todos", key: "composing" }, null);
+var composeLines = atom({ plugin: "human-todos", key: "composeLines" }, 1);
 var frame = atom({ plugin: "human-todos", key: "frame" }, 0);
 var workspace = atom({ plugin: "human-todos", key: "herdrWorkspace" }, null);
 var loadedFor = atom({ plugin: "human-todos", key: "loadedFor" }, null);
@@ -1098,13 +1216,32 @@ async function leaveList($) {
 async function resetList($) {
   await update($, todos, () => []);
   await update($, expanded, () => []);
+  await update($, composing, () => null);
+  await update($, composeLines, () => 1);
   await update($, nextId, () => 1);
 }
 function peekTodos($) {
   return read($, todos);
 }
 async function readPane2($) {
-  return { list: await read($, todos), openIds: await read($, expanded), spin: await read($, frame) };
+  const list = await read($, todos);
+  const open = await read($, composing);
+  const isLive = open !== null && list.some((t) => t.id === open && t.status === "open");
+  return { list, openIds: await read($, expanded), spin: await read($, frame), composing: isLive ? open : null, composeLines: isLive ? await read($, composeLines) : 1 };
+}
+var MAX_COMPOSE_LINES = 8;
+async function setComposeLines($, lines) {
+  const next = Math.min(MAX_COMPOSE_LINES, Math.max(1, Math.round(lines)));
+  if (await read($, composeLines) !== next)
+    await update($, composeLines, () => next);
+}
+async function toggleComposing($, id) {
+  await update($, composing, (open) => open === id ? null : id);
+  await update($, composeLines, () => 1);
+}
+async function closeComposing($) {
+  await update($, composing, () => null);
+  await update($, composeLines, () => 1);
 }
 async function bumpFrame($) {
   await update($, frame, (n) => n + 1);
@@ -1161,9 +1298,11 @@ function settle(todo, outcome, log) {
   const output = `Output: ${outputLine(log)}`;
   switch (outcome.kind) {
     case "done":
-      return { patch: { status: "done" }, text: `${who}: the user marked it done.` };
+      return { patch: { status: "done" }, text: todo.doneLabel ? `${who}: the user pressed "${todo.doneLabel}" (done).` : `${who}: the user marked it done.` };
     case "skipped":
       return { patch: { status: "skipped" }, text: `${who}: the user skipped it.` };
+    case "message":
+      return outcome.done ? { patch: { status: "done" }, text: `${who}: the user marked it done and says: ${outcome.text}` } : { patch: {}, text: `${who}: the user says: ${outcome.text}` };
     case "ran": {
       const outputTail = tail(outcome.outputTail);
       return {
@@ -1683,7 +1822,11 @@ var LABELS = {
   show: "Show",
   stop: "Stop",
   forceStop: "Force stop",
-  openLog: "Open log"
+  openLog: "Open log",
+  message: "",
+  send: "Send",
+  sendDone: "Send & mark done",
+  cancelMessage: "Cancel"
 };
 var TONES = {
   run: "primary",
@@ -1696,7 +1839,11 @@ var TONES = {
   copy: "neutral",
   openLog: "neutral",
   stop: "caution",
-  forceStop: "caution"
+  forceStop: "caution",
+  message: "quiet",
+  send: "neutral",
+  sendDone: "plain",
+  cancelMessage: "plain"
 };
 var ESCAPES = new RegExp("\\x1b\\[[0-?]*[ -/]*[@-~]|\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)?|\\x1b[@-_]", "g");
 var CONTROLS = new RegExp("[\\x00-\\x08\\x0b-\\x1f\\x7f]", "g");
@@ -1716,13 +1863,17 @@ function markFor(todo) {
     return { mark: "–", tone: "inactive" };
   return { mark: "✓", tone: "success" };
 }
-function buttonsOf(todo) {
+function buttonsOf(todo, messages, isComposing = false) {
   const ids = buttonsFor(todo);
   const main = ids.find((id) => id === "stop" || id === "forceStop") ?? ids[0];
-  return ids.map((id) => ({ id, label: LABELS[id], tone: id === main ? TONES[id] : "quiet", todoId: todo.id }));
+  const label = (id) => id === "done" && todo.doneLabel ? todo.doneLabel : LABELS[id];
+  const own = ids.map((id) => ({ id, label: label(id), tone: id === main || id === "done" ? TONES[id] : "quiet", todoId: todo.id }));
+  return messages && todo.status === "open" ? [...own, { id: "message", label: `${LABELS.message} ${isComposing ? ICON.collapse : ICON.next}`, tone: "quiet", todoId: todo.id }] : own;
 }
+var composeButtons = (todoId) => ["cancelMessage", "sendDone", "send"].map((id) => ({ id, label: LABELS[id], tone: TONES[id], todoId }));
 function paneModel(input) {
   const { list, expanded, spin, width } = input;
+  const messages = input.messages === true;
   const inner = width + 2;
   const actionable = list.filter(isActionable);
   const finished = list.filter((t) => !isActionable(t));
@@ -1747,7 +1898,7 @@ function paneModel(input) {
     const hidden = script.length - SCRIPT_ROWS;
     const tail = (todo.liveTail ?? []).slice(todo.runner === "local" ? -LIVE_LINES_LOCAL : -LIVE_LINES_HERDR).map(cleanLine);
     const isRunning = todo.status === "running";
-    wrapWords(todo.title, inner - 2).forEach((line, n) => rows.push(n === 0 ? { kind: "text", text: `${isRunning ? `${spin} ` : "○ "}${line}`, tone: "title", indent: false, ...isRunning && { spin: true } } : { kind: "text", text: line, tone: "title", indent: true }));
+    wrapWords(todo.title, inner - 2).forEach((line, n) => rows.push(n === 0 ? { kind: "text", text: `${isRunning ? `${spin} ` : "☐ "}${line}`, tone: "title", indent: false, ...isRunning && { spin: true } } : { kind: "text", text: line, tone: "title", indent: true }));
     if (todo.detail)
       lines(todo.detail, width, "dim", true);
     if (!isRunning && todo.note)
@@ -1776,12 +1927,17 @@ function paneModel(input) {
         spin: true,
         pad: true
       };
-      rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo) });
+      rows.push({ kind: "buttons", lead, buttons: buttonsOf(todo, messages) });
     } else {
       blank();
-      rows.push({ kind: "buttons", buttons: buttonsOf(todo) });
+      rows.push({ kind: "buttons", buttons: buttonsOf(todo, messages, input.composing === todo.id) });
       if (isConfirming)
         lines("Are you sure you want to run this script?", width, "plain", true);
+      if (messages && todo.status === "open" && input.composing === todo.id) {
+        blank();
+        rows.push({ kind: "compose", todoId: todo.id, lines: Math.max(1, input.composeLines ?? 1) });
+        rows.push({ kind: "composeActions", buttons: composeButtons(todo.id) });
+      }
     }
     spans.push({ first, last: rows.length - 1 });
     blank();
@@ -1832,6 +1988,13 @@ async function pressTodo($, todoId, button, surface) {
     $.ui.toast(`Could not ${LABELS[button].toLowerCase()} #${todo.id}`);
   }
 }
+async function sendMessage($, todoId, text, done) {
+  const todo = (await peekTodos($)).find((t) => t.id === todoId);
+  await closeComposing($);
+  if (!todo || todo.status !== "open" || text.trim() === "")
+    return;
+  await report($, todo, { kind: "message", text: text.trim(), done });
+}
 async function clearFinished($) {
   const gone = await removeTodos($, (t) => !isActionable(t));
   await clampScroll($);
@@ -1839,8 +2002,18 @@ async function clearFinished($) {
 }
 async function act($, message, surface) {
   try {
-    if (message.type === "press")
+    if (message.type === "press" && message.button === "message")
+      return await toggleComposing($, message.id);
+    if (message.type === "press" && message.button === "cancelMessage")
+      return await closeComposing($);
+    if (message.type === "send")
+      return await sendMessage($, message.id, message.text, message.done);
+    if (message.type === "draftLines")
+      return await setComposeLines($, message.lines);
+    if (message.type === "press") {
+      await closeComposing($);
       return await pressTodo($, message.id, message.button, surface);
+    }
     if (message.type === "toggle")
       return await toggleExpanded($, message.id);
     if (message.type === "clear")
@@ -1870,10 +2043,63 @@ var STYLE = {
 var roomOf = (width) => Math.max(1, width - GUTTER - BAR);
 function buttonLines(row, room) {
   const lead = row.lead ? [sp(row.lead.pad ? `${row.lead.text} ` : row.lead.text, STYLE[row.lead.tone])] : [];
-  return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, row.flush ? 0 : INDENT);
+  return wrappedButtons(lead, row.buttons.map((b) => ({ label: b.label, tone: b.tone, action: messageOf(b) })), room, INDENT);
 }
-function rowLines(row, room) {
+var CARD_PAD = 2;
+var card = (spans, room) => {
+  const tinted = spans.map((span) => ({ ...span, bg: span.bg ?? CURSOR_ROW }));
+  const used = tinted.reduce((n, span) => n + cellWidth(span.t), 0);
+  return [...tinted, sp(" ".repeat(Math.max(0, room - used)), { bg: CURSOR_ROW })];
+};
+var draftWidth = (width) => Math.max(4, roomOf(width) - 2 * CARD_PAD - 1);
+function draftRows(text, width) {
+  return wrapKeeping(text, draftWidth(width));
+}
+function composeLines2(lines, room, draft) {
+  const pad = sp(" ".repeat(CARD_PAD));
+  const blankRow = () => card([pad], room);
+  const text = draft?.text ?? "";
+  const caretOn = draft?.caret === true;
+  if (text === "")
+    return [blankRow(), card([pad, sp(" ", caretOn ? { inverse: true } : {}), sp("Message the agent", PLACEHOLDER)], room), ...Array.from({ length: lines - 1 }, blankRow), blankRow()];
+  const rows = wrapKeeping(text, Math.max(4, room - 2 * CARD_PAD - 1));
+  const caret = caretRow(rows, draft?.at ?? Array.from(text).length);
+  const from = Math.min(Math.max(0, caret.row - lines + 1), Math.max(0, rows.length - lines));
+  const drawn = Array.from({ length: lines }, (_, n) => {
+    const r = from + n;
+    const chars = Array.from(rows[r] ?? "");
+    if (!caretOn || r !== caret.row)
+      return card([pad, sp(chars.join(""))], room);
+    const under = chars[caret.col] ?? " ";
+    return card([pad, sp(chars.slice(0, caret.col).join("")), sp(under, { inverse: true }), sp(chars.slice(caret.col + 1).join(""))], room);
+  });
+  return [blankRow(), ...drawn, blankRow()];
+}
+function composeActionsLines(buttons, room) {
+  const spans = buttons.map((b) => buttonSpan({ label: b.label, tone: b.tone, action: messageOf(b) }, 1));
+  const rows = [[]];
+  let used = CARD_PAD;
+  for (const span of spans) {
+    const w = cellWidth(span.t) + 1;
+    if (used + w > room && rows.at(-1).length > 0) {
+      rows.push([]);
+      used = CARD_PAD;
+    }
+    rows.at(-1).push([sp(" "), span]);
+    used += w;
+  }
+  return rows.map((row) => {
+    const line = row.flat();
+    const width = line.reduce((n, span) => n + cellWidth(span.t), 0) + CARD_PAD;
+    return card([sp(" ".repeat(Math.max(0, room - width))), ...line, sp(" ".repeat(CARD_PAD))], room);
+  });
+}
+function rowLines(row, room, draft) {
   switch (row.kind) {
+    case "compose":
+      return composeLines2(row.lines, room, draft);
+    case "composeActions":
+      return [...composeActionsLines(row.buttons, room), card([], room)];
     case "blank":
       return [[]];
     case "text": {
@@ -1918,7 +2144,7 @@ function stopMessage(stop, col) {
 function keyStops(model, layout) {
   const stops = new Map;
   model.rows.forEach((row, r) => {
-    if (row.kind !== "buttons")
+    if (row.kind !== "buttons" && row.kind !== "composeActions")
       return;
     const laid = layout.rows[r];
     for (const button of row.buttons) {
@@ -1953,11 +2179,11 @@ function kitView(model, width, bodyRows, offset) {
     stops: keyStops(model, layout)
   };
 }
-function viewLines(view, width, focus = {}) {
+function viewLines(view, width, focus = {}, draft) {
   const room = roomOf(width);
-  const shown = view.rows.flatMap((row) => rowLines(row, room)).slice(view.skip, view.skip + view.windowRows);
+  const shown = view.rows.flatMap((row) => rowLines(row, room, draft)).slice(view.skip, view.skip + view.windowRows);
   const bar = scrollBar(view.windowRows, view.total, view.top);
-  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus, leadGlyph: "○" });
+  return windowLines({ shown, top: view.top, width, gutter: GUTTER, bar, barCells: BAR, focus });
 }
 
 // mods/human-todos/src/pane/plain-view.tsx
@@ -2072,8 +2298,8 @@ async function openPane($) {
   await $.ui.open({ id: PANE, title: TITLE });
   $.ui.invalidate("ui.render");
 }
-function modelOf(pane, width) {
-  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width });
+function modelOf(pane, width, messages = true) {
+  return paneModel({ list: pane.list, expanded: pane.openIds, spin: SPIN[pane.spin % SPIN.length] ?? "", width, messages, composing: pane.composing, composeLines: pane.composeLines });
 }
 async function waitingBand($) {
   const band = bandModel(await peekTodos($));
@@ -2103,7 +2329,8 @@ function registerPane(on) {
     return { text: `${TITLE} pane opened.` };
   });
   on("prompt.edit", async ($, e, next) => {
-    await setKeysInPane($, false);
+    if ((await readPane2($)).composing === null)
+      await setKeysInPane($, false);
     return next(e);
   });
   on("prompt.submit", async ($, e, next) => {
@@ -2178,7 +2405,7 @@ function registerPane(on) {
     const pane = await readPane2($);
     if (e.surface !== "terminal" && e.surface !== "desktop") {
       const inner = Math.max(22, paneColumns(e) - 4);
-      return drawPlainPane($, e, modelOf(pane, inner - 2), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
+      return drawPlainPane($, e, modelOf(pane, inner - 2, false), e.props.scroll ?? { offset: 0, bodyRows: Number.POSITIVE_INFINITY }, PANE);
     }
     const { Client } = $.ui.resolve(e);
     const width = paneColumns(e);
@@ -2187,7 +2414,8 @@ function registerPane(on) {
     const props = {
       view: kitView(modelOf(pane, modelWidth(width)), width, bodyRows, await read2($, scrollAtom)),
       focused: e.props.isFocused || await read2($, keysAtom),
-      width
+      width,
+      ...pane.composing !== null && { composing: pane.composing, composeLines: pane.composeLines }
     };
     return /* @__PURE__ */ h(Client, {
       key: "human-todos-pane",
@@ -2200,7 +2428,7 @@ function registerPane(on) {
 // mods/human-todos/src/contract.ts
 var PREFIX = "mcp__human-todos__";
 function addDescription(paneTitle) {
-  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, skip, stop or run it, so never ask them to type "done".`;
+  return `Add a step only the user can do to their "${paneTitle}" pane, which stays beside the transcript while replies scroll away. Use it whenever you need the user to act: a command you cannot run (denied, needs sudo, a TTY, a login or a credential), a step in a browser or another app, or an account or physical action. Add the step as soon as you hit the wall, instead of only writing it in your reply, and keep working on anything else meanwhile. Pick the kind: task (by hand), run (a command the pane runs for them and reports back), terminal (needs their terminal: sudo, password or login prompts), link (a web page), image (screenshots or other images for them to look at, opened in their default image app). You get a message when they finish, skip, stop or run it, or write to you about it from the pane, so never ask them to type "done".`;
 }
 function guidance(names) {
   return `# To-dos for the user
@@ -2211,7 +2439,8 @@ When you need the user to do something you cannot do yourself (a command that ne
   - \`terminal\`: a command that needs their terminal (sudo, a login or password prompt). Give \`script\`; the pane offers Copy.
   - \`link\`: a step on a web page. Give \`url\`; the pane offers Open.
   - \`image\`: images for the user to look at (screenshots, captures). Give \`paths\`, one absolute path per image; the pane offers Open, which opens them all in their default image app. Use it instead of running \`open\` yourself or wrapping \`open\` in a run script.
-- When the user ticks, skips or runs an item, you receive a message saying so. Do not ask them to type "done".
+- Give \`doneLabel\` when finishing the step has a natural name ("I've signed in", "Approved it"); it replaces the Done button's word.
+- When the user ticks, skips or runs an item, or writes to you about it from the pane (optionally marking it done), you receive a message saying so. Do not ask them to type "done".
 - Use ${names.list} to see what is still open, and ${names.withdraw} when an item is no longer needed.`;
 }
 function registerContract(on) {
@@ -2238,7 +2467,11 @@ function registerContract(on) {
             items: { type: "string" },
             description: "For kind image: one absolute path per image file (png, jpg, gif, webp, heic, tiff, bmp, svg); Open opens them all in the default image app"
           },
-          cwd: { type: "string", description: "For kind run: directory to run in; defaults to the session cwd" }
+          cwd: { type: "string", description: "For kind run: directory to run in; defaults to the session cwd" },
+          doneLabel: {
+            type: "string",
+            description: `Optional words for the Done button, saying what finishing this step means, e.g. "I've signed in" or "Approved it". Two to four words; plain Done when left out.`
+          }
         },
         required: ["kind", "title"]
       }

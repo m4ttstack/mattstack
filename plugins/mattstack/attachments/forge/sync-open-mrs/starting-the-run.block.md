@@ -5,7 +5,8 @@ order: 1
 # Starting the run
 
 The `run_enter` nodes: `flags` is the compiled flag text below, verbatim;
-`skillDir` is this skill's own directory; `stage` is `sync-open-mrs`;
+`skillDir` is the folder holding the SKILL.md you are following (the `dir`
+you passed `load_skill`, or the folder of the file you read); `stage` is `sync-open-mrs`;
 `runDb` only when a caller handed one; add `spawnedBy` when a board or
 another surface launched this pane.
 
