@@ -20,6 +20,7 @@ import { servicesRegisterStep, proxyInstallStep } from "./services.ts";
 import { deckManagedStep } from "./deck.ts";
 import { skillsMaterializeStep, skillsLinkStep, boardKeysStep, boardCwdsStep, boardRestartStep, cronTriageStep } from "./skills.ts";
 import { pluginsInstallStep } from "./plugins.ts";
+import { claudeRulesStep } from "./claude-rules.ts";
 import { linearMcpStep } from "./linear-mcp.ts";
 import { claudePermissionsStep } from "./claude-permissions.ts";
 import { editorFontStep } from "./editor-font.ts";
@@ -83,6 +84,7 @@ export const STEPS: StepDef[] = [
   cronTriageStep,
   interceptsInstallStep,
   pluginsInstallStep,
+  claudeRulesStep,
   linearMcpStep,
   claudePermissionsStep,
   editorFontStep,

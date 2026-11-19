@@ -39,6 +39,10 @@ exports[`the setup plan's shape and copy apply phases: the copy is what the copy
     "paused": "Couldn't set up Claude",
     "weight": 1,
   },
+  "claude.rules": {
+    "paused": "Couldn't set up Claude",
+    "weight": 1,
+  },
   "cron.triage": {
     "paused": "Couldn't set up the board",
     "weight": 1,

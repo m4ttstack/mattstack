@@ -204,6 +204,7 @@ export const STEP_IDS = [
   "cron.triage",
   "intercepts.install",
   "plugins.install",
+  "claude.rules",
   "linear.mcp",
   "claude.permissions",
   "editor.terminal-font",
