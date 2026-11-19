@@ -40,7 +40,7 @@
         "source": "url",
         "url": "https://github.com/m4ttstack/superpowers.git",
         "ref": "mattstack",
-        "sha": "4e49c04aba058d593eaa02e9de3d70c030ab6973"
+        "sha": "8d29f8b8c4bce856f53ec2284685cf9f02d90e16"
       },
       "description": "Superpowers with task groups and Native with reviews: mattstack's fork of obra/superpowers."
     }
