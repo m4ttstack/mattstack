@@ -152,8 +152,12 @@ Where schemas live:
   validator runs on a request, and the payload
   is still built by `coerceQueryParams` / `readCommandBody` exactly as today.
   *(My call, forced by the no-wire-change anti-goal.)*
-- **Request schemas are the rt-client payload schemas**, one definition per
-  command. Because nothing is validated at the REST layer, the clash with
+- **Request schemas are the rt-client payload schemas** for the generic
+  routes, one definition per command. The five special routes describe
+  what REST really reads instead (`/api/secrets`: the header token only;
+  `/api/cache/{branch}`: the branch and `repoIdentity`; `/api/hooks/{repo}/repair`
+  and `/api/runs/{repo}/{runId}`: path params only; `/api/cache` with
+  `repoIdentity` ignores every other parameter). Because nothing is validated at the REST layer, the clash with
   `coerceQueryParams` (it turns `?runId=123` into the number 123) never
   surfaces. That coercion quirk is pre-existing and stays out of scope; the
   spec documents the intended types. *(My call.)*
@@ -195,7 +199,9 @@ and the daemon binds handlers to them. *(My call.)*
 
 ### Tests
 
-- The existing `lib/daemon/__tests__/api-*.ts` files pass unchanged. They are
+- The existing `lib/daemon/__tests__/api-*.ts` files pass unchanged, except
+  `api-server-cors-ws.test.ts`'s `root.docs` assertion, which follows `docs`
+  to `/docs` (`GET /` is exempt from the wire rule). They are
   the no-wire-change gate.
 - A test that every route in the Hono app appears in `/openapi.json` and in
   `GET /`, and that `/openapi.json` is a valid OpenAPI 3.1 document.
