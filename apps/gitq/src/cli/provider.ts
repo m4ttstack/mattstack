@@ -35,6 +35,8 @@ export interface ForgeProviderOptions {
    * so it needs a repo to be granted against (MAT-33).
    */
   repoPath?: string;
+  /** Main checkout of `repoPath` when it is a linked worktree; see resolveForgeToken. */
+  mainCheckoutPath?: string | null;
 }
 
 /**
@@ -75,6 +77,7 @@ export async function createForgeProvider(
   const { token, reason } = await resolveForgeToken(forge.slug, {
     ...(opts.env ? { env: opts.env } : {}),
     ...(opts.repoPath ? { repoPath: opts.repoPath } : {}),
+    ...(opts.mainCheckoutPath ? { mainCheckoutPath: opts.mainCheckoutPath } : {}),
     tokenEnv: forge.tokenEnv,
   });
   if (!token) {

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { realpathSync } from 'node:fs';
+import { basename, dirname } from 'node:path';
 
 const exec = promisify(execFile);
 
@@ -36,4 +37,9 @@ export async function createContext(
     args,
     flags,
   };
+}
+
+/** The checkout whose `.git` is this common dir, or null for a bare repo. */
+export function mainCheckoutOf(commonDir: string): string | null {
+  return basename(commonDir) === '.git' ? dirname(commonDir) : null;
 }

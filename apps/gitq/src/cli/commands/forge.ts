@@ -5,7 +5,7 @@ import { ForgeSync, type PublishNodeResult, type PublishSkip } from '../../core/
 import { ForgePush, type PushNodeResult, type PushPlanEntry } from '../../core/push.ts';
 import { GitShell } from '../../core/git-shell.ts';
 import { loadStore, updateStore } from '../../core/persistence.ts';
-import type { CliContext } from '../context.ts';
+import { mainCheckoutOf, type CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
 import { requireStackFree } from '../slots.ts';
 import { listLeases } from '../../core/leases.ts';
@@ -123,7 +123,7 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
   if (guarded !== null) return guarded;
 
   const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(ctx.repoRoot));
-  const { provider, projectPath } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot });
+  const { provider, projectPath } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot, mainCheckoutPath: mainCheckoutOf(ctx.commonDir) });
 
   const result = await ForgeSync.publishStack(provider, stack, projectPath, ctx.repoRoot, descriptions);
 
@@ -206,7 +206,7 @@ export async function importCommand(ctx: CliContext): Promise<number> {
   }
 
   const remoteUrl = await GitShell.getRemoteUrl(ctx.repoRoot);
-  const { provider } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot });
+  const { provider } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot, mainCheckoutPath: mainCheckoutOf(ctx.commonDir) });
 
   const { store, openMRs, scopedMRs, projectPath } = await ForgeSync.importFromForge(
     provider,

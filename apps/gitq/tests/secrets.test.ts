@@ -74,6 +74,22 @@ describe('resolveForgeToken', () => {
     expect(res).toEqual({ token: 'glpat-daemon' });
   });
 
+  test('a worktree rt does not know falls back to its registered main checkout', async () => {
+    let asked: string | undefined;
+    const res = await resolveForgeToken('gitlab', {
+      env: {},
+      repoPath: '/pool/worktrees/haldir',
+      mainCheckoutPath: TRACKED_REPO,
+      reposJsonPath,
+      daemonToken: (async (repoName: string) => {
+        asked = repoName;
+        return { ok: true, data: { token: 'glpat-main' } };
+      }) as never,
+    });
+    expect(res).toEqual({ token: 'glpat-main' });
+    expect(asked).toBe('gitq');
+  });
+
   test("the daemon's refusal comes back verbatim as the reason", async () => {
     const res = await resolveForgeToken('gitlab', {
       env: {},
