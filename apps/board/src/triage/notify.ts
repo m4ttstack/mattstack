@@ -8,7 +8,12 @@ import type { AskKind } from '../peer/envelope.ts';
 /** rt-tray's notify socket; contract matches repo-tools commands/settings.ts
     test-push: POST /notify {id, title, message, category, timestamp, url?}.
     The tray opens `url` on a banner click only when it is http(s). */
-export const TRAY_SOCK = join(homedir(), '.mattstack', 'rt', 'tray.sock');
+export const TRAY_SOCK = join(
+  process.env.HOME ?? homedir(),
+  '.mattstack',
+  'rt',
+  'tray.sock'
+);
 
 /** The board page a notification about `mrUrl` opens on click: the `?mr=`
     deep link that lands on that MR's row. */

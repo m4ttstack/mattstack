@@ -28,7 +28,7 @@ export function herdrBin(
   exists: (path: string) => boolean = existsSync
 ): string {
   if (env.HERDR_BIN) return env.HERDR_BIN;
-  const installed = join(homedir(), '.local', 'bin', 'herdr');
+  const installed = join(env.HOME ?? homedir(), '.local', 'bin', 'herdr');
   return (
     [installed, '/opt/homebrew/bin/herdr', '/usr/local/bin/herdr'].find(
       exists
@@ -56,7 +56,7 @@ export async function ensureHerdr(
 }
 const HERDR_SOCKET_PATH =
   process.env.HERDR_SOCKET_PATH ||
-  join(homedir(), '.config', 'herdr', 'herdr.sock');
+  join(process.env.HOME ?? homedir(), '.config', 'herdr', 'herdr.sock');
 
 /** Runs the herdr CLI and returns stdout. Absolute binary + socket, since the server runs under a minimal launchd env. */
 export const defaultRunner: HerdrRunner = async args => {

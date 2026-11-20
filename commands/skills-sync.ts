@@ -241,7 +241,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     else out.note(out.line("refused", message), out.callout("why", why));
     process.exit(2);
   }
-  const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+  const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME ?? homedir(), ".claude");
   const deps: SyncDeps = overrides?.deps ?? {
     mayCompile: (name) => {
       const dir = packs.find(p => p.name === name)?.dir;
@@ -257,7 +257,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     compilePack: (name) => compilePackAll({ pack: name, ...target }),
     materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
-    cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
+    cswapSessionsDir: join(process.env.HOME ?? homedir(), ".claude-swap-backup", "sessions"),
     inTreeRoot: resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
     orgsRoot: orgsDir(),
     orgInstallRef: (cloneDir) => generatedMarketplaceRef(createRealProbes(), cloneDir),

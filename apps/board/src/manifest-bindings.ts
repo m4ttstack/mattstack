@@ -102,7 +102,8 @@ export function resolveBoardSkill(
   };
   if (!pack) return fallback;
 
-  const home = mattstackHome ?? join(homedir(), '.mattstack');
+  const home =
+    mattstackHome ?? join(process.env.HOME ?? homedir(), '.mattstack');
   const manifestPath = join(
     home,
     'repos',
