@@ -151,7 +151,7 @@ Which branches gitq knows about. None of these touch git refs.
 ### Surgery
 
 - `gitq absorb [--at <branch>[:<glob>]]... [--preview] [--stack <name>]`: distribute uncommitted changes to the branches that own the lines each edit sits on, then restack. Attribution blames the changed lines and takes the deepest stack branch owning any of them, falling back to "whose commits touched this file at all" when blame has no answer (a new file, a binary one, lines from outside the stack).
-- `gitq split <branch> --at <sha> --name <newBranch> [--stack <name>]`: tail split. Moves everything from `<sha>` onward on `<branch>` into a new child branch.
+- `gitq split <branch> --at <lastKeptSha> --name <newBranch> [--stack <name>]`: tail split. `<lastKeptSha>` stays on `<branch>`; the commits after it move into a new child branch.
 - `gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]`: split by file. Moves files matching the glob(s) off `<branch>` into a new branch.
 - `gitq fold <branch> [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent.
 - `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch onto a different parent and cascade rebase its descendants.

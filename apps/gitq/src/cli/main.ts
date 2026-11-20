@@ -62,7 +62,7 @@ export const USAGE: Record<string, string> = {
   continue: 'gitq continue [--stack <name>] [--json]',
   abort: 'gitq abort [--stack <name>] [--json]',
   absorb: 'gitq absorb [--at <branch>[:<glob>]]... [--preview] [--stack <name>] [--json]',
-  split: 'gitq split <branch> (--at <sha> | --files <glob[,glob...]>) --name <newBranch> [--stack <name>] [--json]',
+  split: 'gitq split <branch> (--at <lastKeptSha> | --files <glob[,glob...]>) --name <newBranch> [--stack <name>] [--json]',
   fold: 'gitq fold <branch> [--stack <name>] [--json]',
   reparent: 'gitq reparent <branch> --onto <branch> [--stack <name>] [--json]',
   rename: 'gitq rename <oldBranch> <newBranch> [--stack <name>] [--json]',

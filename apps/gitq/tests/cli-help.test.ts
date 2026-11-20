@@ -29,4 +29,8 @@ describe('cli help', () => {
     expect(text).toContain('--preview');
     expect(text).not.toContain('gitq reparent');
   });
+
+  test('split usage names which side of --at the commit lands on', () => {
+    expect(USAGE.split).toContain('--at <lastKeptSha>');
+  });
 });
