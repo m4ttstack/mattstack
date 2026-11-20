@@ -152,6 +152,18 @@ export interface StagePaneProps {
 
 function Bullet({ entry, size = 18 }: { entry: StoryEntry; size?: number }) {
   const bullet = STAGE_BULLET[entry.attempt.status];
+  if (entry.attempt.status === 'running')
+    return (
+      <span
+        role="img"
+        aria-label="running"
+        className={`${classes.keep} ${classes.ring}`}
+        style={{ width: size, height: size }}
+        data-parity="bullet"
+      >
+        <span className={classes.ringArc} data-parity={bullet.layer} />
+      </span>
+    );
   return (
     <ThemeIcon
       radius="xl"
@@ -161,7 +173,8 @@ function Bullet({ entry, size = 18 }: { entry: StoryEntry; size?: number }) {
       className={classes.keep}
       data-parity="bullet"
     >
-      <Icon name={bullet.icon} size={size - 7} data-parity={bullet.layer} />
+      {/* An odd gap sits the glyph on a half pixel, off centre. */}
+      <Icon name={bullet.icon} size={size - 6} data-parity={bullet.layer} />
     </ThemeIcon>
   );
 }
