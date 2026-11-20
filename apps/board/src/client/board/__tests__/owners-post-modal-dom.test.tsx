@@ -310,7 +310,7 @@ test('each channel shows the message it will get, with the link as a chip', asyn
   expect(acme.querySelectorAll('.tui-owners-link')).toHaveLength(1);
 });
 
-test('an edit changes only that channel\'s message', async () => {
+test("an edit changes only that channel's message", async () => {
   const calls = await open({
     '/slack/owners/preview': ok(PREVIEW),
     '/slack/owners/post': ok({ posted: [], failed: [] }),
@@ -372,7 +372,7 @@ test('a message emptied or without its link cannot be posted', async () => {
   });
   expect(confirmButton()!.disabled).toBe(true);
   expect(document.body.textContent).toContain(
-    "#pod-acme's message lost its link. Undo to bring it back"
+    "#pod-acme's message lost its link. Undo, or reopen to start over"
   );
   await React.act(async () => {
     el.replaceChildren(document.createTextNode('   '));
@@ -380,6 +380,57 @@ test('a message emptied or without its link cannot be posted', async () => {
   });
   expect(confirmButton()!.disabled).toBe(true);
   expect(document.body.textContent).toContain("#pod-acme's message is empty");
+});
+
+test('deleting the text after the link keeps a place to type after it', async () => {
+  await open({ '/slack/owners/preview': ok(PREVIEW) });
+  const el = editor('code-review')!;
+  await React.act(async () => {
+    el.lastChild!.remove();
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(el.lastChild!.nodeType).toBe(Node.TEXT_NODE);
+  expect(el.lastChild!.previousSibling).toBe(
+    el.querySelector('.tui-owners-link')
+  );
+});
+
+test('text typed after a last link posts without the caret spot', async () => {
+  const calls = await open({
+    '/slack/owners/preview': ok(PREVIEW),
+    '/slack/owners/post': ok({ posted: [], failed: [] }),
+  });
+  const el = editor('code-review')!;
+  await React.act(async () => {
+    el.lastChild!.textContent = `${el.lastChild!.textContent} thanks`;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(confirmButton()!);
+  expect(
+    (calls[1]!.payload as { texts: Record<string, string> }).texts[
+      'code-review'
+    ]
+  ).toBe(`${PREVIEW.text} thanks`);
+});
+
+test('a zero-width space written into a message survives an edit', async () => {
+  const text = `@\u200Bhere please review ${MR_URL}`;
+  const calls = await open({
+    '/slack/owners/preview': ok({ ...PREVIEW, text }),
+    '/slack/owners/post': ok({ posted: [], failed: [] }),
+  });
+  const el = editor('code-review')!;
+  await React.act(async () => {
+    el.firstChild!.textContent = `${el.firstChild!.textContent}`;
+    el.lastChild!.textContent = `${el.lastChild!.textContent}!`;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(confirmButton()!);
+  expect(
+    (calls[1]!.payload as { texts: Record<string, string> }).texts[
+      'code-review'
+    ]
+  ).toBe(`${text}!`);
 });
 
 test('a message ending on the link keeps a place to type after it', async () => {

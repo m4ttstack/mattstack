@@ -76,13 +76,33 @@ function changedRanges(e: InputEvent, el: HTMLElement): AbstractRange[] {
   return [range];
 }
 
-/** The message as Slack gets it: each chip back to the full link. */
+const isChip = (node: Node | null): boolean =>
+  node instanceof HTMLElement && 'link' in node.dataset;
+
+/** Puts the caret spot back after a chip that now ends the message. */
+function keepCaretRoom(el: HTMLElement) {
+  const last = el.lastChild;
+  if (isChip(last)) el.append(CARET_ROOM);
+  else if (
+    last?.nodeType === Node.TEXT_NODE &&
+    !last.textContent &&
+    isChip(last.previousSibling)
+  )
+    last.textContent = CARET_ROOM;
+}
+
+/** The message as Slack gets it: each chip back to the full link, and the
+    caret spot (one leading U+200B right after a chip) dropped. */
 function readMessage(el: HTMLElement, link: string): string {
   let out = '';
   for (const node of el.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE)
-      out += (node.textContent ?? '').replaceAll(CARET_ROOM, '');
-    else if (node instanceof HTMLElement && 'link' in node.dataset) out += link;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? '';
+      out +=
+        isChip(node.previousSibling) && text.startsWith(CARET_ROOM)
+          ? text.slice(CARET_ROOM.length)
+          : text;
+    } else if (isChip(node)) out += link;
     else if (node.nodeName === 'BR') out += '\n';
     else if (node instanceof HTMLElement) out += readMessage(node, link);
   }
@@ -101,9 +121,8 @@ function drawMessage(
     if (i > 0) nodes.push(chip(label));
     if (part) nodes.push(document.createTextNode(part));
   });
-  if (parts.length > 1 && !parts[parts.length - 1])
-    nodes.push(document.createTextNode(CARET_ROOM));
   el.replaceChildren(...nodes);
+  keepCaretRoom(el);
 }
 
 /** One channel's message, editable, with the MR link drawn as a chip that
@@ -152,6 +171,7 @@ function OwnerMessageEditor({
         contentEditable={disabled ? false : 'plaintext-only'}
         suppressContentEditableWarning
         onInput={e => {
+          keepCaretRoom(e.currentTarget);
           const next = readMessage(e.currentTarget, link);
           drawn.current = next;
           onChange(next);

@@ -119,7 +119,7 @@ function OwnersPostModal({
       const m = messageFor(c).trim();
       if (!m) return `#${c}'s message is empty`;
       if (defaultFor(c).includes(link) && !m.includes(link))
-        return `#${c}'s message lost its link. Undo to bring it back`;
+        return `#${c}'s message lost its link. Undo, or reopen to start over`;
       return null;
     })
     .find(Boolean);
