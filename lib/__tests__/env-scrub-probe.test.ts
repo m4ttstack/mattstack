@@ -23,3 +23,14 @@ test("the forbidden-socket list is armed for the rtCommand guard", () => {
     expect(forbidden).toContain(process.env.PROBE_EXPECT_FORBIDDEN);
   }
 });
+
+test("herd and herdr pane variables are scrubbed from the test process env", () => {
+  const leaked = Object.keys(process.env).filter((k) => k.startsWith("HERD_") || k.startsWith("HERDR_"));
+  expect(leaked).toEqual([]);
+});
+
+test("config and runs pointers that override the scratch HOME are scrubbed", () => {
+  for (const key of ["XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "GH_CONFIG_DIR", "RT_RUNS_ROOT", "RT_RUN_DB"]) {
+    expect(process.env[key], key).toBeUndefined();
+  }
+});

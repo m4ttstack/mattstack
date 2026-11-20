@@ -2,8 +2,10 @@ import { existsSync, readdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
+// os.homedir() is fixed at process start, so a test preload's scratch HOME
+// never reaches it; reading HOME here keeps test runs off the real runs tree.
 export function runsRoot(): string {
-  return process.env.RT_RUNS_ROOT ?? join(homedir(), ".mattstack", "runs");
+  return process.env.RT_RUNS_ROOT ?? join(process.env.HOME ?? homedir(), ".mattstack", "runs");
 }
 
 // repo/runId reach a path join straight from a network-reachable readonly

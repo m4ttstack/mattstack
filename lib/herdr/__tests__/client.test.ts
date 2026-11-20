@@ -1,13 +1,26 @@
 import { afterEach, expect, test } from "bun:test";
 import { tmpdir } from "os";
 import { join } from "path";
-import { HERDR_UNAVAILABLE, herdrAvailable, herdrRequest, waitTimeout } from "../client.ts";
+import { HERDR_UNAVAILABLE, herdrAvailable, herdrRequest, herdrSocketPath, waitTimeout } from "../client.ts";
 import { fakeHerdr, HerdrFakeError } from "./fake-herdr.ts";
 
 const stops: Array<() => void> = [];
 afterEach(() => {
   for (const stop of stops) stop();
   stops.length = 0;
+});
+
+test("the default socket path follows HOME at call time", () => {
+  const saved = { home: process.env.HOME, sock: process.env.HERDR_SOCKET_PATH };
+  try {
+    delete process.env.HERDR_SOCKET_PATH;
+    process.env.HOME = join(tmpdir(), "herdr-fake-home");
+    expect(herdrSocketPath()).toBe(join(tmpdir(), "herdr-fake-home", ".config", "herdr", "herdr.sock"));
+  } finally {
+    process.env.HOME = saved.home;
+    if (saved.sock === undefined) delete process.env.HERDR_SOCKET_PATH;
+    else process.env.HERDR_SOCKET_PATH = saved.sock;
+  }
 });
 
 test("a success reply comes back as ok with the result object", async () => {
