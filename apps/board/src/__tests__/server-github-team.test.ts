@@ -395,6 +395,13 @@ type Row = {
   gates: Array<{ gateId: string }>;
 };
 
+// The server's stderr reaches output() asynchronously, after the response
+// that caused it, so a log assertion waits for its line first.
+async function settled(done: () => boolean, ms = 20_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline && !done()) await Bun.sleep(100);
+}
+
 describe('a GitHub team', () => {
   test('boots the real board, not the setup page', async () => {
     const res = await fetch(`${base()}/healthz`);
@@ -580,6 +587,10 @@ describe('a GitHub team', () => {
         posted: true,
         noteId: 555,
       });
+      await settled(
+        () => server.output().includes('could not record the draft'),
+        5_000
+      );
       expect(server.output()).toContain('could not record the draft');
     } finally {
       db.run('DROP TRIGGER no_posted');
@@ -631,10 +642,6 @@ describe('a GitHub team', () => {
 });
 
 describe('the re-review latch on a GitHub team', () => {
-  async function settled(done: () => boolean, ms = 20_000): Promise<void> {
-    const deadline = Date.now() + ms;
-    while (Date.now() < deadline && !done()) await Bun.sleep(100);
-  }
   test('a review done with comments checks the login, uploads, then posts the thread', async () => {
     await settled(() => latchCalls.some(c => c.cmd === 'mr:comment-file'));
     const order = latchCalls
@@ -660,10 +667,13 @@ describe('the re-review latch on a GitHub team', () => {
   test('another login on the daemon sends no write and logs both logins once per step', async () => {
     await settled(() => latchCalls.some(c => c.cmd === 'mr:comment-file'));
     expect(latchCalls.filter(c => c.body.iid === 22)).toEqual([]);
-    const lines = server
-      .output()
-      .split('\n')
-      .filter(l => l.includes('ivasco'));
+    const loginLines = () =>
+      server
+        .output()
+        .split('\n')
+        .filter(l => l.includes('ivasco'));
+    await settled(() => loginLines().length >= 2, 5_000);
+    const lines = loginLines();
     expect(lines).toHaveLength(2);
     for (const line of lines) expect(line).toContain('alice');
   }, 30_000);

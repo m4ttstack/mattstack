@@ -21,6 +21,28 @@ let windowRecoveryChecks: [Check] = [
         c.expectEqual(MainFrameResponse.verdict(isMainFrame: true, status: 600), .allow)
         c.expectEqual(MainFrameResponse.verdict(isMainFrame: true, status: nil), .allow)
     },
+    Check("window recovery: a finished page with a stylesheet that never loaded counts as failed") { c in
+        c.expect(StylesheetProbe.failed(result: NSNumber(value: 1)))
+        c.expect(StylesheetProbe.failed(result: NSNumber(value: 2)))
+    },
+    Check("window recovery: every stylesheet loaded, or no answer from the page, leaves the tab alone") { c in
+        c.expect(!StylesheetProbe.failed(result: NSNumber(value: 0)))
+        c.expect(!StylesheetProbe.failed(result: nil))
+        c.expect(!StylesheetProbe.failed(result: "1"))
+    },
+    Check("window recovery: the probe skips disabled links and counts only empty sheets nothing was transferred for") { c in
+        c.expect(StylesheetProbe.script.contains("link[rel~=\"stylesheet\"]"))
+        c.expect(StylesheetProbe.script.contains("l.disabled"))
+        c.expect(StylesheetProbe.script.contains("cssRules.length"))
+        c.expect(StylesheetProbe.script.contains("transferSize"))
+    },
+    Check("window recovery: a stylesheet failure reloads the tab after 2, 5 and 10 seconds, then stops") { c in
+        c.expectEqual(StylesheetRetry.delay(afterFailures: 1), 2)
+        c.expectEqual(StylesheetRetry.delay(afterFailures: 2), 5)
+        c.expectEqual(StylesheetRetry.delay(afterFailures: 3), 10)
+        c.expectEqual(StylesheetRetry.delay(afterFailures: 4), nil)
+        c.expectEqual(StylesheetRetry.delay(afterFailures: 0), nil)
+    },
     Check("window recovery: retry after a failed first load loads the app, not reload()") { c in
         let home = URL(string: "https://board.mattstack")!
         c.expectEqual(WindowReload.action(failedURL: nil, hasCommittedPage: false, home: home), .load(home))
