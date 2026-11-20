@@ -11,6 +11,24 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
   }
 }
 
+async function waitFor(what: string, cond: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await Bun.sleep(100);
+  }
+}
+
+const PARKED_LINE = "parked, retrying with backoff";
+
+function daemonLogHas(rtDir: string, text: string): boolean {
+  const dir = join(rtDir, "logs");
+  if (!existsSync(dir)) return false;
+  return readdirSync(dir)
+    .filter((name) => name.startsWith("daemon"))
+    .some((name) => readFileSync(join(dir, name), "utf8").includes(text));
+}
+
 /** Grab a free TCP port by binding port 0 and releasing it. */
 function freePort(): number {
   const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
@@ -51,20 +69,21 @@ describe("fatal boot", () => {
         stderr: "pipe",
       });
 
-      // Give bindApiServerWithRetry's own ~3s inner retry a full cycle to
-      // exhaust and reach the outer park-retry loop; it must still be alive
-      // (parked, not crashed) and must not have written rt.sock/rt.pid yet
-      // (neither server has bound).
-      await Bun.sleep(4_000);
+      // Parked means the outer park-retry loop has logged, after
+      // bindApiServerWithRetry's own inner retry ran out. Until then neither
+      // server has bound, so rt.sock and rt.pid must not exist.
+      await waitFor("the daemon to log that it parked", () => daemonLogHas(rtDir, PARKED_LINE), 30_000);
       expect(daemon.exitCode).toBeNull();
       expect(existsSync(join(rtDir, "rt.sock"))).toBe(false);
       expect(existsSync(join(rtDir, "rt.pid"))).toBe(false);
 
       squatter.stop(true);
 
+      // rt.sock appears when the socket server binds; rt.pid follows a step
+      // later in the boot order, so it is awaited, not checked at once.
       await waitForSocket(join(rtDir, "rt.sock"), 40_000);
+      await waitFor("rt.pid", () => existsSync(join(rtDir, "rt.pid")), 10_000);
       expect(daemon.exitCode).toBeNull();
-      expect(existsSync(join(rtDir, "rt.pid"))).toBe(true);
     } finally {
       squatter.stop(true);
       try { daemon?.kill(); } catch { /* already gone */ }
@@ -99,7 +118,7 @@ describe("fatal boot", () => {
         stderr: "pipe",
       });
 
-      await Bun.sleep(4_000);
+      await waitFor("the daemon to log that it parked", () => daemonLogHas(rtDir, PARKED_LINE), 30_000);
       expect(daemon.exitCode).toBeNull();
 
       const parked = await rt(["daemon", "status", "--json"], { home, env: { RT_API_PORT: String(port) } });
@@ -108,6 +127,7 @@ describe("fatal boot", () => {
 
       squatter.stop(true);
       await waitForSocket(join(rtDir, "rt.sock"), 40_000);
+      await waitFor("rt.pid", () => existsSync(join(rtDir, "rt.pid")), 10_000);
 
       const recovered = await rt(["daemon", "status", "--json"], { home, env: { RT_API_PORT: String(port) } });
       expect(recovered.exitCode).toBe(0);
