@@ -4,6 +4,11 @@ import type { AbsorbResult, AbsorbTarget } from '../../core/absorb.ts';
 import { BranchSplitter } from '../../core/branch-splitter.ts';
 import { foldBranch } from '../../core/branch-fold.ts';
 import { reparentBranch } from '../../core/reparent.ts';
+import { closeFoldedRemote, foldLeftovers, type FoldLeftovers, type FoldRemoteStep } from '../../core/fold-remote.ts';
+import type { GitProvider } from '@mattstack/glance';
+import { createForgeProvider } from '../provider.ts';
+import { changeNoun, changeRef, readForgeOverrides, resolveForge } from '../../core/forges.ts';
+import { hostFromRemoteUrl } from '../../core/forge-helpers.ts';
 import { renameBranch } from '../../core/branch-rename.ts';
 import { resetToRemote } from '../../core/branch-reset.ts';
 import { GitShell } from '../../core/git-shell.ts';
@@ -12,7 +17,7 @@ import { StackManager } from '../../core/stack-manager.ts';
 import { getWorktreeMap, findSlotForBranch, describeSlot } from '../../core/worktrees.ts';
 import type { SlotInfo } from '../../core/worktrees.ts';
 import type { Stack, StackStore } from '../../core/types.ts';
-import type { CliContext } from '../context.ts';
+import { mainCheckoutOf, type CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
 import { requireStackFree, withLeasedSlot } from '../slots.ts';
 import { withOperationLog } from '../op-log.ts';
@@ -282,21 +287,71 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
 
 export async function foldCommand(ctx: CliContext): Promise<number> {
   const [branch] = ctx.args;
-  if (!branch) return fail('usage: gitq fold <branch> [--stack <name>]');
+  if (!branch) return fail('usage: gitq fold <branch> [--close-remote] [--stack <name>]');
 
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStackVia(store, ctx.flags, branch);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
+  const remoteRef = await GitShell.resolveRef(ctx.repoRoot, `refs/remotes/origin/${branch}`);
+  const leftovers = foldLeftovers(stack, branch, remoteRef.kind === 'resolved');
+  const forgeSlug = leftovers?.mrIid != null ? await forgeSlugFor(ctx, store.remoteUrl) : null;
+
+  // Resolved before the fold so missing forge access refuses with nothing done.
+  const closeRemote = ctx.flags['close-remote'] === true && leftovers !== null;
+  let forge: { provider: GitProvider; projectPath: string } | null = null;
+  if (closeRemote) {
+    const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(ctx.repoRoot));
+    forge = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot, mainCheckoutPath: mainCheckoutOf(ctx.commonDir) });
+  }
+
   return withLeasedSlot(ctx, stack, 'fold', (workDir) =>
     withOperationLog(ctx, stack, 'fold', async () => {
       const result = await foldBranch(ctx.repoRoot, stack, branch, workDir);
       await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
-      emit(ctx, `folded ${result.foldedBranch} into ${result.intoParent}`, { stack: result.newStack, result });
+      const headline = `folded ${result.foldedBranch} into ${result.intoParent}`;
+
+      if (forge && leftovers) {
+        const remote = await closeFoldedRemote(forge.provider, result.newStack, leftovers, result.reParentedChildren, forge.projectPath);
+        await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, remote.stack));
+        const lines = remote.steps.map((step) => formatFoldRemoteStep(step, forge!.provider.providerName));
+        emit(ctx, [headline, ...lines].join('\n'), { stack: remote.stack, result, leftovers, remoteSteps: remote.steps });
+        return remote.steps.every((step) => step.success) ? 0 : 1;
+      }
+
+      const hint = leftovers ? `\n${describeLeftovers(leftovers, forgeSlug)}; close them with gitq fold --close-remote next time, or by hand` : '';
+      emit(ctx, `${headline}${hint}`, { stack: result.newStack, result, leftovers });
       return 0;
     }),
   );
+}
+
+/** The forge slug for change-request copy; null (read as GitLab) when the remote names none gitq knows. */
+async function forgeSlugFor(ctx: CliContext, storedRemoteUrl: string): Promise<string | null> {
+  try {
+    const host = hostFromRemoteUrl(storedRemoteUrl || (await GitShell.getRemoteUrl(ctx.repoRoot)));
+    return host ? (resolveForge(host, await readForgeOverrides())?.slug ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function describeLeftovers(leftovers: FoldLeftovers, forge: string | null): string {
+  const parts: string[] = [];
+  if (leftovers.mrIid !== null) parts.push(`its ${changeRef(forge, leftovers.mrIid)}${leftovers.mrUrl ? ` (${leftovers.mrUrl})` : ''} is still open`);
+  if (leftovers.remoteBranch) parts.push(`origin/${leftovers.branch} still exists`);
+  return `${leftovers.branch} is folded locally only: ${parts.join(' and ')}`;
+}
+
+function formatFoldRemoteStep(step: FoldRemoteStep, forge: string): string {
+  const what =
+    step.step === 'retarget'
+      ? `retargeted ${step.target}'s ${changeNoun(forge)}`
+      : step.step === 'close'
+        ? `closed ${step.target}'s ${changeNoun(forge)}`
+        : `deleted origin/${step.target}`;
+  return step.success ? what : `${what}: FAILED (${step.error})`;
 }
 
 export async function reparentCommand(ctx: CliContext): Promise<number> {
