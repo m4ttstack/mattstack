@@ -2,7 +2,7 @@
  * Decides what the unit shards and the path-gated jobs run for one CI event
  * and prints the answer for checks.yml and e2e.yml (docs/ci.md has the
  * table). Usage:
- *   bun scripts/ci/test-scope.ts             writes mode=, dirs=, always=, plugins=, macos=, go=, deck=, e2e=, glitter=, website= to $GITHUB_OUTPUT
+ *   bun scripts/ci/test-scope.ts             writes mode=, dirs=, always=, plugins=, macos=, go=, deck=, tray=, e2e=, glitter=, website= to $GITHUB_OUTPUT
  *   bun scripts/ci/test-scope.ts --explain   prints the decision and its reason only
  */
 import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from "fs";
@@ -82,6 +82,7 @@ function isProse(f: string): boolean {
 const CHECKS_WORKFLOW = ".github/workflows/checks.yml";
 const E2E_WORKFLOW = ".github/workflows/e2e.yml";
 const SCOPE_SCRIPT = "scripts/ci/test-scope.ts";
+const TRAY_COMPILE_SCRIPT = "scripts/ci/tray-compile.sh";
 
 function isOtherCiConfig(f: string): boolean {
   return f.startsWith(".github/") && f !== CHECKS_WORKFLOW;
@@ -235,6 +236,12 @@ function deckReads(f: string): boolean {
   return (f.startsWith("packages/") || !f.includes("/")) && !isProse(f) && !isModTree(f);
 }
 
+// The tray compile reads the whole rt-tray/ tree (project.yml, Sources, the
+// pre-build script) and its own script.
+function trayReads(f: string): boolean {
+  return f.startsWith("rt-tray/") || f === TRAY_COMPILE_SCRIPT || f === CHECKS_WORKFLOW || f === SCOPE_SCRIPT;
+}
+
 function isGoSource(f: string): boolean {
   return f.startsWith("ui/") && (f.endsWith(".go") || f === "ui/go.mod" || f === "ui/go.sum");
 }
@@ -261,6 +268,7 @@ function e2eIgnores(f: string, reach?: ReadonlySet<string>): boolean {
     isPluginTree(f) ||
     isModTree(f) ||
     f.startsWith("rt-tray/") ||
+    f === TRAY_COMPILE_SCRIPT ||
     isGoSource(f) ||
     (f.startsWith(".github/") && f !== E2E_WORKFLOW)
   );
@@ -299,17 +307,18 @@ export const GLITTER_TRIGGERS = [
   SCOPE_SCRIPT,
 ];
 
-export type Jobs = { go: boolean; deck: boolean; e2e: boolean; glitter: boolean; website: boolean };
+export type Jobs = { go: boolean; deck: boolean; tray: boolean; e2e: boolean; glitter: boolean; website: boolean };
 
 // Which path-gated jobs a CI event runs. Anything but a pull request (the
 // merge queue's run, a push) runs them all: that tree is what lands and what
 // releases cut from, so a wrong rule fails there rather than ships. Without
 // e2eReach, every rt TypeScript file counts.
 export function jobsFor(event: string, changed: string[], reach?: ReadonlySet<string>): Jobs {
-  if (event !== "pull_request") return { go: true, deck: true, e2e: true, glitter: true, website: true };
+  if (event !== "pull_request") return { go: true, deck: true, tray: true, e2e: true, glitter: true, website: true };
   return {
     go: changed.some(goReads),
     deck: changed.some(deckReads),
+    tray: changed.some(trayReads),
     e2e: changed.some((f) => !e2eIgnores(f, reach)),
     glitter: changed.some((f) => GLITTER_TRIGGERS.some((t) => f.startsWith(t))),
     website: websiteChanged(changed),
@@ -408,8 +417,8 @@ function invisible(input: ScopeInput, f: string): string | undefined {
   return undefined;
 }
 
-// A file in a tree the shards never run: docs, the docs site, the tray, the
-// apps and plugin trees, workflows other than checks.yml, repo metadata, and
+// A file in a tree the shards never run: docs, the docs site, the tray and its
+// compile script, the apps and plugin trees, workflows other than checks.yml, repo metadata, and
 // the e2e tree where no unit test imports it.
 function outsideShards(input: ScopeInput, f: string): boolean {
   return (
@@ -419,6 +428,7 @@ function outsideShards(input: ScopeInput, f: string): boolean {
     isWebsiteTree(f) ||
     isOtherCiConfig(f) ||
     META_FILES.has(f) ||
+    f === TRAY_COMPILE_SCRIPT ||
     (f.startsWith("e2e/") && !input.sources.has(f)) ||
     ((isDocs(f) || isTrayTree(f)) && !isFixture(f))
   );

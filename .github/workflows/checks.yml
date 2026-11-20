@@ -32,6 +32,7 @@ jobs:
       plugins: ${{ steps.scope.outputs.plugins }}
       go: ${{ steps.scope.outputs.go }}
       deck: ${{ steps.scope.outputs.deck }}
+      tray: ${{ steps.scope.outputs.tray }}
       website: ${{ steps.scope.outputs.website }}
       macos_runner: ${{ steps.runner.outputs.macos_runner }}
     steps:
@@ -188,6 +189,27 @@ jobs:
         env:
           TURBO_TELEMETRY_DISABLED: "1"
         run: scripts/turbo.sh test --filter=deck --output-logs=errors-only
+
+  # Compiles the tray app unsigned, so a change that breaks its build fails
+  # here rather than at the next dev app build or release.
+  tray-compile:
+    needs: scope
+    if: needs.scope.outputs.tray == 'true'
+    # Never the Mac mini: the tray builds against an SDK whose Xcode needs
+    # Apple silicon, and the Intel mini has no Xcode it could run.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .git/tray-swiftpm
+          key: tray-swiftpm-${{ runner.os }}-${{ hashFiles('rt-tray/project.yml') }}
+          restore-keys: tray-swiftpm-${{ runner.os }}-
+      - name: Compile the tray app
+        env:
+          TRAY_PACKAGES: ${{ github.workspace }}/.git/tray-swiftpm
+        run: scripts/ci/tray-compile.sh
 
   # The suite minus scripts/ci/macos-only-tests.txt, which unit-macos runs.
   # A --changed run takes one to three shards, sized by scope from the
@@ -550,7 +572,7 @@ jobs:
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, plugin-gate-form, plugin-kit-gallery, website]
+    needs: [scope, static, go, deck-macos, tray-compile, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, plugin-gate-form, plugin-kit-gallery, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -561,6 +583,7 @@ jobs:
           STATIC: ${{ needs.static.result }}
           GO: ${{ needs.go.result }}
           DECK: ${{ needs.deck-macos.result }}
+          TRAY: ${{ needs.tray-compile.result }}
           UNIT: ${{ needs.unit.result }}
           UNIT_MACOS: ${{ needs.unit-macos.result }}
           GUARDS: ${{ needs.guards.result }}
@@ -573,15 +596,17 @@ jobs:
           MODE: ${{ needs.scope.outputs.mode }}
           RUN_GO: ${{ needs.scope.outputs.go }}
           RUN_DECK: ${{ needs.scope.outputs.deck }}
+          RUN_TRAY: ${{ needs.scope.outputs.tray }}
           RUN_MACOS: ${{ needs.scope.outputs.macos }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS gate-form=$GATE_FORM kit-gallery=$KIT_GALLERY website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK tray-compile=$TRAY unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS gate-form=$GATE_FORM kit-gallery=$KIT_GALLERY website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
-          # go, deck-macos, unit-macos and guards may skip only when scope said so.
+          # go, deck-macos, tray-compile, unit-macos and guards may skip only when scope said so.
           [ "$GO" = success ] || { [ "$GO" = skipped ] && [ "$RUN_GO" = false ]; } || { echo "go did not succeed"; exit 1; }
           [ "$DECK" = success ] || { [ "$DECK" = skipped ] && [ "$RUN_DECK" = false ]; } || { echo "deck-macos did not succeed"; exit 1; }
+          [ "$TRAY" = success ] || { [ "$TRAY" = skipped ] && [ "$RUN_TRAY" = false ]; } || { echo "tray-compile did not succeed"; exit 1; }
           [ "$UNIT_MACOS" = success ] || { [ "$UNIT_MACOS" = skipped ] && [ -z "$RUN_MACOS" ]; } || { echo "unit-macos did not succeed"; exit 1; }
           [ "$GUARDS" = success ] || { [ "$GUARDS" = skipped ] && [ "$MODE" = full ]; } || { echo "guards did not succeed"; exit 1; }
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
