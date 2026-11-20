@@ -219,6 +219,11 @@
         "multiItem": {
           "type": "string"
         },
+        "ownerPrefix": {
+          "title": "Code owner prefix",
+          "description": "Put before posts in other teams' code owner channels. {sections} names the sections asked; MR placeholders like {title} work too.",
+          "type": "string"
+        },
         "autoResolveIntervalMinutes": {
           "type": "number"
         },

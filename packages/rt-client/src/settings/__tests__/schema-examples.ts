@@ -366,6 +366,7 @@ export const EXAMPLES: Record<string, Example> = {
         singleTemplate: "{title}: {url}",
         multiHeader: "{count} MRs ready for review",
         multiItem: "- {title}: {url}",
+        ownerPrefix: "Code owner review ({sections}):",
         autoResolveIntervalMinutes: 15,
         emoji: { looking: "eyes", commented: "speech_balloon", approved: "white_check_mark" },
       },
@@ -373,6 +374,7 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [
       { value: { autoResolveIntervalMinutes: "15" }, path: ["autoResolveIntervalMinutes"] },
       { value: { emoji: { looking: 1 } }, path: ["emoji", "looking"] },
+      { value: { ownerPrefix: 1 }, path: ["ownerPrefix"] },
     ],
     layer: [{ emoji: { approved: "tada" } }],
   },
