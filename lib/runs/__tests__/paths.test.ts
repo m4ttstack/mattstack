@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { root } from "./fixtures.ts";
-import { runDirExists } from "../paths.ts";
+import { runDirExists, runsRoot } from "../paths.ts";
 
 afterEach(() => { delete process.env.RT_RUNS_ROOT; });
 
@@ -25,4 +25,16 @@ test("runDirExists keeps (true) when the runs root cannot be read for another re
   writeFileSync(file, "");
   process.env.RT_RUNS_ROOT = file;
   expect(runDirExists("20261008-1")).toBe(true);
+});
+
+test("runsRoot follows HOME at call time when RT_RUNS_ROOT is unset", () => {
+  const savedHome = process.env.HOME;
+  const fakeHome = mkdtempSync(join(tmpdir(), "rt-runs-home-"));
+  try {
+    delete process.env.RT_RUNS_ROOT;
+    process.env.HOME = fakeHome;
+    expect(runsRoot()).toBe(join(fakeHome, ".mattstack", "runs"));
+  } finally {
+    process.env.HOME = savedHome;
+  }
 });
