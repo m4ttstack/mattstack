@@ -44,9 +44,9 @@
 - Test (temporary, deleted in Step 6): `packages/rt-client/test/command-schemas-parity.test.ts`
 
 **Interfaces:**
-- Produces, in `command-schemas.ts`, one exported zod schema per type, named `<TypeName>Schema`: `BranchEnrichmentSchema`, `EventsBusEventSchema`, `AttentionSchema`, `RunSummarySchema`, `RunOutcomeSchema`, `RunAgentSchema`, `RunStageRowSchema`, `RunFieldRowSchema`, `RunDecisionRowSchema`, `RunDetailSchema`, `UsageKindSchema`, `UsageTotalsSchema`, `UsageModelRowSchema`, `UsageSplitsSchema`, `UsageBillingSchema`, `UsageAccountSchema`, `UsageMrRowSchema`, `UsageMrsDataSchema`, `UsageOutsideSchema`, `UsageStageRowSchema`, `UsageMrEntrySchema`, `UsageMrDataSchema`, `UsageRunDataSchema`, `UsageWeekRowSchema`, `UsagePipelineRowSchema`, `UsageTrendsDataSchema`, `UsageStatusDataSchema`, `AgentSurfaceSchema`, `ExecutorStateSchema`, `ExecutorViewSchema`, `ReconcilerStatusSchema`, `HealthLevelSchema`, `HealthMetricsSchema`, `HealthEventLoopSchema`, `ReadyHeldRepoSchema`, `TrayStatusDataSchema`, `PortEntrySchema`, `PortsDataSchema`, `RtNotificationEventSchema`, `ReposDataSchema`, plus new `SystemProcessesDataSchema`, `SdmRecentsReplySchema`, `SdmReconnectReplySchema`, `ShutdownDataSchema`, `SecretsReadDataSchema`.
-- Produces one payload schema per REST command, named `<camelCmd>PayloadSchema` (`tray:status` → `trayStatusPayloadSchema`, `cache:read` → `cacheReadPayloadSchema`, `runs:get` → `runsGetPayloadSchema`, and so on for: `tray:status`, `ports`, `cache:read`, `repos`, `notifications`, `cache:refresh`, `shutdown`, `system-processes`, `sdm:recents`, `sdm:reconnect`, `events:emit`, `events:list`, `runs:list`, `runs:get`, `usage:mrs`, `usage:mr`, `usage:run`, `usage:trends`, `usage:status`, `reconciler:status`, `reconciler:clear`, `hooks:repair`, `secrets:read`). An empty payload (`Record<string, never>` today) is `z.object({}).strict()`.
-- Produces in `commands.ts`: every listed type keeps its exported name as `export type X = z.infer<typeof S.XSchema>` with `import type * as S from "./command-schemas.ts"` and `import type { z } from "zod"`. Each REST `Commands` entry's `payload` becomes `z.infer<typeof S.<cmd>PayloadSchema>`. A new `"shutdown"` entry is added (add it to `COMMAND_NAMES` too).
+- Produces, in `command-schemas.ts`, one exported zod schema per type, named `<TypeName>Schema`: `BranchEnrichmentSchema`, `EventsBusEventSchema`, `AttentionSchema`, `RunSummarySchema`, `RunOutcomeSchema`, `RunAgentSchema`, `RunStageRowSchema`, `RunFieldRowSchema`, `RunDecisionRowSchema`, `RunDetailSchema`, `UsageKindSchema`, `UsageTotalsSchema`, `UsageModelRowSchema`, `UsageSplitsSchema`, `UsageBillingSchema`, `UsageAccountSchema`, `UsageMrRowSchema`, `UsageMrsDataSchema`, `UsageOutsideSchema`, `UsageStageRowSchema`, `UsageMrEntrySchema`, `UsageMrDataSchema`, `UsageRunDataSchema`, `UsageWeekRowSchema`, `UsagePipelineRowSchema`, `UsageTrendsDataSchema`, `UsageStatusDataSchema`, `AgentSurfaceSchema`, `ExecutorStateSchema`, `ExecutorViewSchema`, `ReconcilerStatusSchema`, `HealthLevelSchema`, `HealthMetricsSchema`, `HealthEventLoopSchema`, `ReadyHeldRepoSchema`, `TrayStatusDataSchema`, `PortEntrySchema`, `PortsDataSchema`, `RtNotificationEventSchema`, `ReposDataSchema`, plus new `SystemProcessesDataSchema`, `SdmRecentsReplySchema`, `SdmReconnectReplySchema`, `SecretsReadDataSchema`.
+- Produces, for each of the 22 REST commands (`tray:status`, `ports`, `cache:read`, `repos`, `notifications`, `cache:refresh`, `system-processes`, `sdm:recents`, `sdm:reconnect`, `events:emit`, `events:list`, `runs:list`, `runs:get`, `usage:mrs`, `usage:mr`, `usage:run`, `usage:trends`, `usage:status`, `reconciler:status`, `reconciler:clear`, `hooks:repair`, `secrets:read`), a `<camelCmd>PayloadSchema` and a `<camelCmd>DataSchema` (`tray:status` → `trayStatusPayloadSchema` / `trayStatusDataSchema`, `runs:get` → `runsGetPayloadSchema` / `runsGetDataSchema`). A data schema whose type is already named is that named schema (`runsGetDataSchema = RunDetailSchema`); the ten inline ones (`events:emit`, `events:list`, `runs:list`, `cache:read`, `cache:refresh`, `notifications`, `reconciler:clear`, `hooks:repair`, `usage:mr`, `usage:run`) are written out here. An empty payload (`Record<string, never>` today) is `z.object({}).strict()`.
+- Produces in `commands.ts`: every listed type keeps its exported name as `export type X = z.infer<typeof S.XSchema>` with `import type * as S from "./command-schemas.ts"` and `import type { z } from "zod"`. Each REST `Commands` entry's `payload` and `data` become `z.infer` of its two schemas. For `system-processes`, `data` becomes `z.infer<typeof S.SystemProcessesDataSchema>`; for `sdm:recents` and `sdm:reconnect`, `data` becomes the reply's fields minus `ok` (documenting the flat extras the way `hooks:repair`'s entry already does). `shutdown` gets no `Commands` entry: its handler is the `routeCommand` switch (`lib/daemon.ts:502`), and `lib/daemon/__tests__/rt-client-commands.test.ts` requires every `COMMAND_NAMES` entry to be a routed handler. Its reply schema lives in Task 2.
 
 - [ ] **Step 1: Write the parity test**
 
@@ -55,37 +55,37 @@ Copy each listed interface verbatim from `commands.ts` into the test file as `Le
 ```ts
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const _runSummary: Equals<RunSummary, LegacyRunSummary> = true;
-// ...one line per listed type, and one per REST Commands payload
+// ...one line per listed type, and one per REST Commands payload and data
 test("parity file typechecks", () => expect(true).toBe(true));
 ```
 
-For the four types that are `unknown` today (`system-processes`, `sdm:recents`, `sdm:reconnect` data) and the new `shutdown` entry there is no legacy shape; skip them here.
+For the three data types that are `unknown` today (`system-processes`, `sdm:recents`, `sdm:reconnect`) there is no legacy shape; skip them here.
 
 - [ ] **Step 2: Run tsc to verify it fails**
 
-Run: `cd packages/rt-client && bun run check-types`
-Expected: FAIL, `Cannot find module './command-schemas.ts'` or missing schema exports.
+rt-client's own tsconfig includes only `src/`, so the root typecheck is the one that reads `test/`.
+Run: `bun run typecheck`
+Expected: FAIL, `Cannot find module '../src/command-schemas.ts'` or missing schema exports.
 
 - [ ] **Step 3: Write `command-schemas.ts` and switch `commands.ts` to derived types**
 
 Map shapes one to one: `?:` → `.optional()`, `T | null` → `.nullable()`, `interface A extends B` → `BSchema.extend({...})`, `Record<UsageBilling, X>` → `z.record(UsageBillingSchema, XSchema)` (zod 4 makes enum-keyed records exhaustive, matching today), `unknown` → `z.unknown()`. Use plain `z.object` (not `.strict()`) for data, so extra wire fields still parse. Move each interface's JSDoc onto its schema field with `.describe()` where the text helps an API reader, otherwise as a comment.
 
 For the new data schemas read the handler, not the old type:
-- `SystemProcessesDataSchema`: `{ processes: ProcessNode[], updatedAt: number, ready: boolean }` from `lib/daemon/handlers/system-processes.ts:92-128`, with the recursive `children` via `z.lazy`, and the constant `isRunaway: false`, `runawayDurationMs: null` fields kept (the tray decodes them).
+- `SystemProcessesDataSchema`: `{ processes: ProcessNode[], updatedAt: number, ready: boolean }` from `lib/daemon/handlers/system-processes.ts:92-128`, with the recursive `children` via `z.lazy` and a named OpenAPI component (`.openapi("ProcessNode")` or the zod 4 `.meta({ id })` equivalent, so the generator emits a `$ref` instead of recursing), and the constant `isRunaway: false`, `runawayDurationMs: null` fields kept (the tray decodes them).
 - `SdmRecentsReplySchema` and `SdmReconnectReplySchema`: these handlers answer a flat envelope (`{ ok: true, health, recents }`; `sdm:reconnect`'s failures carry `outcome` and `resource` beside `error`), from `lib/daemon/handlers/sdm.ts:79-120`. Model the whole reply.
-- `ShutdownDataSchema`: what `lib/daemon.ts` answers in its `case "shutdown":` branch.
 - `SecretsReadDataSchema`: the three-way union now on the `secrets:read` entry.
 
 The handlers that are deliberately loose (`Promise<any>` in `system-processes.ts`, `sdm.ts`) stay loose; do not tighten them in this task.
 
 - [ ] **Step 4: Run tsc and the rt-client guards**
 
-Run: `cd packages/rt-client && bun run check-types && bun run build`, then from the worktree root `bun test packages/rt-client/test/command-schemas-parity.test.ts packages/rt-client/test/no-zod-in-dist.test.ts packages/rt-client/test/dist-freshness.test.ts packages/rt-client/test/index-surface.test.ts`
-Expected: all PASS. `no-zod-in-dist` proves the type-only import held.
+Run: `cd packages/rt-client && bun run check-types && bun run build`, then from the worktree root `bun run typecheck && bun test packages/rt-client/test/command-schemas-parity.test.ts packages/rt-client/test/no-zod-in-dist.test.ts packages/rt-client/test/dist-freshness.test.ts packages/rt-client/test/index-surface.test.ts lib/daemon/__tests__/rt-client-commands.test.ts`
+Expected: all PASS. The root typecheck is what checks the parity assertions; `no-zod-in-dist` proves the type-only import held.
 
 - [ ] **Step 5: Typecheck every consumer**
 
-Run from the worktree root: `bun run typecheck && bun run console:typecheck && bun run board:typecheck`
+Run from the worktree root: `bun run console:typecheck && bun run board:typecheck`
 Expected: PASS. A failure here is a parity gap the test missed; fix the schema, not the consumer.
 
 - [ ] **Step 6: Delete the parity test and commit**
@@ -104,7 +104,8 @@ git commit -m "rt-client: derive REST command types from zod schemas"
 **Files:**
 - Create: `packages/rt-client/src/daemon-api/envelopes.ts`, `routes.ts`, `document.ts`, `client.ts`, `index.ts`
 - Modify: `packages/rt-client/package.json` (exports `./daemon-api`, a build step `bun build src/daemon-api/index.ts --outfile dist/daemon-api.js --target node --format esm --packages external`, dependencies `hono` and `@hono/zod-openapi`)
-- Modify: root `package.json` (catalog entries for `@hono/zod-openapi` ^1.6.3 and `@scalar/api-reference` 1.82.0)
+- Modify: root `package.json` (catalog entries for `@hono/zod-openapi` ^1.6.3 and `@scalar/api-reference` 1.82.0; `@scalar/api-reference` added to the root package's devDependencies as `catalog:`, beside `hono`, so it installs into the root `node_modules` that Task 4's import path reads)
+- Modify: `packages/rt-client/test/dist-freshness.test.ts` (mirror the new build entry)
 - Test: `packages/rt-client/test/daemon-api-document.test.ts`, `packages/rt-client/test/daemon-api-samples.test.ts`, `packages/rt-client/test/daemon-api-client.test.ts`
 
 **Interfaces:**
@@ -125,18 +126,28 @@ export interface DaemonRoute {
   cmd: string;                      // daemon command, e.g. "runs:get"
   summary: string;                  // today's index description, verbatim
   token: boolean;                   // needs X-RT-Token
+  kind: "generic" | "special";      // generic = a row of today's REST_ROUTES; only these answer 405 on a wrong method
   request: { query?: z.ZodObject; params?: z.ZodObject; body?: z.ZodType };
   success: z.ZodType;               // the 200 envelope as the handler really answers it
 }
 export const runsListRoute = { id: "runs.list", /* ... */ } as const satisfies DaemonRoute; // one exported const per route, named <camelId>Route
 export const DAEMON_ROUTES = [runsListRoute /* , ...every route */] as const;
 export const WEBSOCKET_EVENTS: readonly { type: string; description: string }[]; // today's four, verbatim
+export const API_VERSION = "1.0.0";  // today's index version; the API contract's version, not rt's
+export const ShutdownReplySchema;    // flat, like cache:refresh: okFlat({ message: z.string() }) — lib/daemon.ts:502 answers { ok: true, message: "shutting down" }
 ```
+
+  `request` describes what the REST route really reads, which for the generic routes is the command payload (Task 1's payload schema) and for the five special routes is not:
+  - `GET /api/secrets`: no query; the `X-RT-Token` header only (forwarded as `{ token }`).
+  - `GET /api/cache/{branch}`: params `branch`, query `repoIdentity` only (`maxAgeMs` is dropped today).
+  - `GET /api/cache`: the `cache:read` payload; the description says a `repoIdentity` query ignores every other parameter.
+  - `POST /api/hooks/{repo}/repair`: params `repo`; no body.
+  - `GET /api/runs/{repo}/{runId}`: params only.
 
   Each route is its own `as const satisfies DaemonRoute` export so `contractApp()` keeps every schema's precise type; a widened `DaemonRoute[]` would leave the typed client with `unknown` bodies.
 
-  One entry per row of today's `buildApiIndex` plus `/api/usage/run` (summary: "One run's usage beside its MR's cost (?runId=)"). `honoPath` for the parameterized routes is a wildcard (`/api/cache/*`, `/api/hooks/*`, `/api/runs/*`), because dispatch slices the raw path itself. The success envelope per route follows the handler, not an assumed `{ok,data}`: `cache:refresh` is `okFlat({ message })`, `hooks:repair` is `okFlat({ repaired })`, `cache:read` adds `source` beside `data`, `sdm:*` use Task 1's flat reply schemas. Check every other route against its handler's actual `return`.
-- Produces in `document.ts`: `buildOpenApiDocument(opts: { version: string; serverUrl: string }): OpenAPIObject`, which registers every `DAEMON_ROUTES` entry on an `OpenAPIRegistry` (`registerPath`), adds an `apiKey` security scheme `rtToken` in header `X-RT-Token` applied to `token: true` routes, and the shared 401/404/405/413/500 responses, then runs `OpenApiGeneratorV31`. `info.description` names `/ws` and lists `WEBSOCKET_EVENTS`.
+  One entry per row of today's `buildApiIndex` plus `/api/usage/run` (summary: "One run's usage beside its MR's cost (?runId=)"). `honoPath` for the parameterized routes is a wildcard (`/api/cache/*`, `/api/hooks/*`, `/api/runs/*`), because dispatch slices the raw path itself. The success envelope per route follows the handler, not an assumed `{ok,data}`: `cache:refresh` is `okFlat({ message })`, `hooks:repair` is `okFlat({ repaired })`, `cache:read` adds `source` beside `data`, `sdm:*` use Task 1's flat reply schemas, `shutdown` uses `ShutdownReplySchema`. Every other route's success is `okData(<camelCmd>DataSchema)`; check each against its handler's actual `return`.
+- Produces in `document.ts`: `buildOpenApiDocument(): OpenAPI31Document` where `type OpenAPI31Document = ReturnType<OpenAPIHono["getOpenAPI31Document"]>`. It creates `new OpenAPIHono()`, registers every `DAEMON_ROUTES` entry with `app.openAPIRegistry.registerPath(...)`, registers an `apiKey` security scheme `rtToken` in header `X-RT-Token` (`registerComponent`) applied to `token: true` routes, adds the shared 401/404/405/413/500 responses, and returns `app.getOpenAPI31Document({ openapi: "3.1.0", info: { title: "rt daemon", version: API_VERSION, description }, servers: [{ url: "/" }] })`. The relative server URL makes try-it calls same-origin from whichever host serves `/docs`. `description` names `/ws` and lists `WEBSOCKET_EVENTS`. (`OpenAPIRegistry`, `OpenApiGeneratorV31` and `OpenAPIObject` are not exported by `@hono/zod-openapi`; do not add their packages.)
 - Produces in `client.ts`:
   - a function `contractApp()` that chains `new OpenAPIHono().openapi(createRoute(...), handler)` over every route with `handler` typed `never`-returning, never called at runtime
   - `export type DaemonAppType = ReturnType<typeof contractApp>`
@@ -157,7 +168,10 @@ export const WEBSOCKET_EVENTS: readonly { type: string; description: string }[];
 ```ts
 const c = createDaemonClient("http://127.0.0.1:1");
 type Runs = Awaited<ReturnType<Awaited<ReturnType<typeof c.api.runs.$get>>["json"]>>;
-const _x: Equals<Runs, z.infer<(typeof runsListRoute)["success"]>> = true;
+type Expected = z.infer<(typeof runsListRoute)["success"]>;
+// Mutual assignability, not exact equality: hc wraps bodies in JSONParsed.
+const _a: Expected = null as unknown as Runs;
+const _b: Runs = null as unknown as Expected;
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -167,10 +181,12 @@ Expected: FAIL, missing module `../src/daemon-api/index.ts`.
 
 - [ ] **Step 3: Implement the five files and the package wiring**
 
+`packages/rt-client/test/dist-freshness.test.ts` rebuilds each `bun build` entry by hand and diffs the listing, so mirror the new `daemon-api` entry in it.
+
 - [ ] **Step 4: Run the tests, tsc, build and the guards**
 
-Run: `cd packages/rt-client && bun run check-types && bun run build`, then from the root `bun test packages/rt-client/test/daemon-api-*.test.ts packages/rt-client/test/no-zod-in-dist.test.ts packages/rt-client/test/dist-freshness.test.ts`
-Expected: all PASS.
+Run: `cd packages/rt-client && bun run check-types && bun run build`, then from the root `bun run typecheck && bun test packages/rt-client/test/daemon-api-*.test.ts packages/rt-client/test/no-zod-in-dist.test.ts packages/rt-client/test/dist-freshness.test.ts`
+Expected: all PASS. The root typecheck is what checks `daemon-api-client.test.ts`.
 
 - [ ] **Step 5: Commit**
 
@@ -193,9 +209,9 @@ git commit -m "rt-client: add daemon-api route table, OpenAPI document and typed
 - Produces: `createApiApp(deps: { handleCommand: ApiServerDeps["handleCommand"]; log: Logger; apiToken: string; port: number }): Hono`. `startApiServer`'s `fetch` keeps the `/ws` branch first, then returns `app.fetch(req)`.
 
 Behaviour, in today's order (read `lib/daemon/api-server.ts:430-563` side by side):
-1. A `*` middleware computes `trusted` and `corsHeaders` exactly as today and stores them on the context; `OPTIONS` returns 204 with them for any path; then the `needsToken`/`tokenOk` gate returns the 401 body for any path.
-2. One Hono handler per `DAEMON_ROUTES` entry on `route.method` + `route.honoPath`, all calling one `dispatch(route, c)` that reproduces today's per-route logic on `new URL(c.req.raw.url)`: the `/api/cache` repo filter, the three parameterized routes via `pathParam`/`repoPathParam`/`splitRepoAndRest` (a `/api/runs/x` shape mismatch falls to the 404), `/api/secrets` token forwarding, `readCommandBody(c.req.raw, route.cmd)` for POST, `coerceQueryParams` for GET, `x-rt-client` → `payload._client`. Every reply is `Response.json(body, { status, headers: corsHeaders })`.
-3. `notFound`: if the path matches a route with another method, the 405 body `use <METHOD>`; otherwise the 404 body with `docs`. `GET /` keeps serving `buildApiIndex(port)` for now.
+1. A `*` middleware computes `trusted` and `corsHeaders` exactly as today and stores them on the context; `OPTIONS` returns 204 with them for any path; then the `needsToken`/`tokenOk` gate returns the 401 body for any path. A `HEAD` request never reaches a route handler (Hono would otherwise run the GET handler): the middleware sends it straight to the not-found logic in rule 3, which is what today's code does with it.
+2. One Hono handler per `DAEMON_ROUTES` entry on `route.method` + `route.honoPath`, all calling one `dispatch(route, c)` that reproduces today's per-route logic on `new URL(c.req.raw.url)`: the `/api/cache` repo filter, the three parameterized routes via `pathParam`/`repoPathParam`/`splitRepoAndRest`, `/api/secrets` forwarding exactly `{ token }`, `readCommandBody(c.req.raw, route.cmd)` for POST, `coerceQueryParams` for GET, `x-rt-client` → `payload._client` on generic routes only. Register exact paths before the wildcards: Hono's `/api/runs/*` also matches `/api/runs` (likewise `/api/cache/*`, `/api/hooks/*`). A wildcard whose shape does not match (`/api/runs/x`, `/api/hooks/x` with no `/repair`) answers the 404, not the 400; the 400 is only for bad %-encoding. Replies reuse today's constructions unchanged: `Response.json(body, { status, headers: corsHeaders })` for JSON, the plain `Response` that `readCommandBody`'s refusal builds for the 413, and the bare 204 for OPTIONS. `buildCorsHeaders` always returns the Allow-Methods and Allow-Headers pair; only the origin pair depends on trust.
+3. `notFound`: if the path is a `kind: "generic"` route's path and the method differs (including `HEAD`), the 405 body `use <METHOD>`; anything else, including a special route hit with the wrong method (`POST /api/secrets`, `GET /api/hooks/x/repair`), the 404 body with `docs`. `GET /` keeps serving `buildApiIndex(port)` for now.
 4. `onError`: `log.error({ err, url }, "api request failed")` and the 500 body with `failure: deriveFailure(err)`.
 
 - [ ] **Step 1: Write the failing wire tests**
@@ -206,6 +222,11 @@ Start the server as `api-server.test.ts` does (free port, stub `handleCommand` r
 - `test("serialized identity survives hooks repair")`: an identity from `serializeIdentity` in the path → `hooks:repair` with that exact string.
 - `test("malformed percent-encoding is a 400")`: `GET /api/cache/%E0%A4%A` → 400 `{ok:false,error:"malformed path parameter"}`.
 - `test("wrong method on a known path is 405")`: `POST /api/status` → 405 `{ok:false,error:"use GET"}`.
+- `test("wrong method on a special route is 404")`: `POST /api/secrets` (with the token), `GET /api/hooks/x/repair`, `POST /api/cache/x`, `POST /api/runs/a/b` (with the token) → each 404 with the `docs` body.
+- `test("HEAD never reaches a handler")`: `HEAD /api/status` → 405, `HEAD /api/cache/x` → 404; `handleCommand` not called.
+- `test("exact routes win over wildcards")`: `GET /api/runs` → `runs:list`; `GET /api/hooks/x` → 404.
+- `test("secrets forwards exactly the header token")`: `GET /api/secrets?scope=deck` with the token → `handleCommand("secrets:read", { token })`, no `scope`, no `_client`.
+- `test("X-RT-Client lands on generic routes only")`: `GET /api/runs` and `POST /api/refresh` with `X-RT-Client: tray` → payload has `_client: "tray"`; `GET /api/cache/main` with it → payload has no `_client`.
 - `test("OPTIONS on an unknown path is 204")`.
 - `test("token gate fires before routing")`: `POST /api/shutdown` without the token → 401 `{ok:false,error:"unauthorized"}`, and `handleCommand` not called; `POST /api/nope` without the token is also 401 (gated before the 404); `GET /api/notifications` without the token is 401.
 - `test("oversized POST body keeps the 413 body")`: a body over `bodyLimitFor("events:emit")` → 413 with today's body.
@@ -237,13 +258,14 @@ git commit -m "daemon: route REST requests through Hono"
 
 **Files:**
 - Create: `lib/daemon/api-docs.ts`
-- Modify: `lib/daemon/api-app.ts` (mount the docs routes), `lib/daemon/api-server.ts` (`buildApiIndex` generated), `lib/daemon.ts` (header comment names `/docs` and `/openapi.json`)
+- Modify: `lib/daemon/api-app.ts` (mount the docs routes), `lib/daemon/api-server.ts` (delete `buildApiIndex`; `GET /` serves `apiIndex`), `lib/daemon.ts` (header comment names `/docs` and `/openapi.json`)
+- Modify: `lib/daemon/__tests__/api-server-cors-ws.test.ts:90` (its `root.docs` assertion becomes `http://localhost:${port}/docs`, the one deliberate edit to the existing API tests)
 - Test: `lib/daemon/__tests__/api-docs.test.ts`
 
 **Interfaces:**
 - Consumes: `buildOpenApiDocument`, `DAEMON_ROUTES`, `WEBSOCKET_EVENTS`.
 - Produces in `api-docs.ts`: `docsHtml(): string`, `SCALAR_JS: string` (the embed), `apiIndex(port: number)` returning today's index shape with `endpoints` = every `DAEMON_ROUTES` entry (`method` upper-case, Hono-style `:param` path, `summary` as `description`) plus `GET /docs` and `GET /openapi.json`, `docs: "http://localhost:<port>/docs"`, `websocket_events: WEBSOCKET_EVENTS`, `auth` unchanged.
-- Routes: `GET /openapi.json` (document with `serverUrl: http://127.0.0.1:<port>`), `GET /docs` (`text/html; charset=utf-8`), `GET /docs/scalar.js` (`text/javascript; charset=utf-8`, `Cache-Control: max-age=86400`), `GET /` (`apiIndex`). All carry the context's CORS headers.
+- Routes: `GET /openapi.json` (`buildOpenApiDocument()`, built once and cached; its relative server URL keeps try-it same-origin whether the page was opened as `localhost` or `127.0.0.1`), `GET /docs` (`text/html; charset=utf-8`), `GET /docs/scalar.js` (`text/javascript; charset=utf-8`, `Cache-Control: max-age=86400`), `GET /` (`apiIndex`). All carry the context's CORS headers.
 
 The embed: `import scalarJs from "../../node_modules/@scalar/api-reference/dist/browser/standalone.js" with { type: "text" };` (verified: Bun refuses the bare specifier because the package's `exports` omit it, and the relative form compiles into a `--compile` binary, adding about 4.6 MB). tsc needs a declaration for the path; add the narrowest one that works and keep a one-line comment saying why the path is relative.
 
@@ -266,17 +288,17 @@ Expected: FAIL (404s).
 
 - [ ] **Step 4: Run the docs tests and the wire tests**
 
-Run: `bun test lib/daemon/__tests__/api-docs.test.ts lib/daemon/__tests__/api-app-wire.test.ts lib/daemon/__tests__/api-server.test.ts && bun run typecheck`
+Run: `bun test lib/daemon/__tests__/api-docs.test.ts lib/daemon/__tests__/api-app-wire.test.ts lib/daemon/__tests__/api-server.test.ts lib/daemon/__tests__/api-server-cors-ws.test.ts && bun run typecheck`
 Expected: all PASS.
 
 - [ ] **Step 5: Look at it in a browser, both colour schemes**
 
-Start a stub server in the scratchpad: a script that calls `startApiServer({ handleCommand: async () => ({ ok: true, data: {} }), log })` with `RT_API_PORT` set to a free port and `HOME` set to a temp folder. Through Fast Browser, open `http://127.0.0.1:<port>/docs`, screenshot light and dark, and read the network requests. Expected: every request goes to `127.0.0.1:<port>`; the page lists all routes grouped sensibly; try-it on `GET /api/status` returns the stub body. Say plainly anything that reads wrong. Stop the stub server.
+Start a stub server in the scratchpad: a script that calls `startApiServer({ handleCommand: async () => ({ ok: true, data: {} }), log })` with `RT_API_PORT` set to a free port and `HOME` set to a temp folder. Through Fast Browser, open the URL the index advertises (`http://localhost:<port>/docs`), screenshot light and dark, and read the network requests. Expected: every request goes to `localhost:<port>`; the page lists all routes grouped sensibly; try-it on `GET /api/status` returns the stub body. Say plainly anything that reads wrong. Stop the stub server.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/daemon/api-docs.ts lib/daemon/api-app.ts lib/daemon/api-server.ts lib/daemon.ts
+git add lib/daemon/api-docs.ts lib/daemon/api-app.ts lib/daemon/api-server.ts lib/daemon.ts lib/daemon/__tests__/api-docs.test.ts lib/daemon/__tests__/api-server-cors-ws.test.ts
 git commit -m "daemon: serve /openapi.json, Scalar at /docs and a generated index"
 ```
 
@@ -286,7 +308,7 @@ git commit -m "daemon: serve /openapi.json, Scalar at /docs and a generated inde
 
 **Files:**
 - Modify: the REST handlers under `lib/daemon/handlers/` that defeat their `CommandResult<K>` type (found in Step 1)
-- Test: `lib/daemon/handlers/__tests__/` existing handler tests for usage, runs and the others that have one
+- Test: the existing handler tests: `lib/daemon/handlers/__tests__/usage.test.ts` and the `lib/daemon/__tests__/*-handlers.test.ts` files (runs, reconciler, events, repos, hooks, sdm, secrets, and any other found in Step 1)
 
 **Interfaces:**
 - Consumes: Task 1's derived types, Task 2's `DAEMON_ROUTES`.
@@ -312,6 +334,6 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/daemon/handlers packages/rt-client
+git add lib/daemon/handlers lib/daemon/__tests__ packages/rt-client
 git commit -m "daemon: type REST handlers against the zod-derived results"
 ```
