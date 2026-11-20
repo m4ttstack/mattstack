@@ -61,6 +61,22 @@ describe('StackManager', () => {
     expect(() => StackManager.removeNode(stack, 'feat/a')).toThrow(StackError);
   });
 
+  test('removing a merged node hands its children to its parent', () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.updateNode(stack, 'feat/a', { status: 'merged' });
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.updateNode(stack, 'feat/b', { forkPoint: 'sha-a' });
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+
+    stack = StackManager.removeNode(stack, 'feat/a');
+
+    expect(stack.nodes.map((n) => n.branch)).toEqual(['feat/b', 'feat/c']);
+    expect(StackManager.findNode(stack, 'feat/b')!.parent).toBe('main');
+    expect(StackManager.findNode(stack, 'feat/b')!.forkPoint).toBe('sha-a');
+    expect(StackManager.findNode(stack, 'feat/c')!.parent).toBe('feat/b');
+  });
+
   test('throws when removing a non-existent node', () => {
     const stack = StackManager.createStack('auth', 'main');
     expect(() => StackManager.removeNode(stack, 'nope')).toThrow(StackError);
