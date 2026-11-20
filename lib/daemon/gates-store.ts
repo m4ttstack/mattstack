@@ -22,6 +22,7 @@ import {
   type ExecutorState,
 } from "../../packages/rt-client/src/commands.ts";
 import { normalizeGateQuestions } from "../../packages/rt-client/src/gate-options.ts";
+import { assertNotRealDataInTest } from "../../packages/rt-client/src/test-isolation.ts";
 
 export type { GateStatus, GateQuestion, GateAnswer, GateRow, GateOrigin, GateSubscription, ExecutorState };
 export { GATE_BY_PANE };
@@ -265,6 +266,7 @@ export function createGatesStore(opts: {
   /** When set, a terminal `run:<id>` gate is kept for as long as this says the run exists. */
   runExists?: (runId: string) => boolean;
 }): GatesStore {
+  assertNotRealDataInTest(opts.dbPath);
   const log = opts.log.child({ module: "gates" });
   // Same defaults as events-bus.ts's retention family: a week, with a row
   // floor so a quiet week never drops below it.

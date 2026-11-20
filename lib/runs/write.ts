@@ -11,6 +11,7 @@ import { dirname } from "path";
 import { validateEvidence } from "../../packages/rt-client/src/evidence.ts";
 import { TICKETS_FIELD, ticketsWriteProblem } from "../evidence/tickets-field.ts";
 import { recordIdentity } from "./identity.ts";
+import { assertNotRealDataInTest } from "../../packages/rt-client/src/test-isolation.ts";
 
 export const KNOWN_SCHEMA_VERSION = 3;
 
@@ -73,6 +74,7 @@ export function migrate(db: Database): void {
 }
 
 export function createRunDb(path: string): Database {
+  assertNotRealDataInTest(path);
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.run("PRAGMA journal_mode=WAL");
@@ -83,6 +85,7 @@ export function createRunDb(path: string): Database {
 }
 
 export function openRunDb(path: string): Database {
+  assertNotRealDataInTest(path);
   const db = new Database(path);
   db.run("PRAGMA busy_timeout=5000");
   migrate(db);

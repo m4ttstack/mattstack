@@ -13,10 +13,36 @@ import {
   guardTestDaemonEnv,
   parsePasswdHome,
   realDaemonRefusal,
+  realDataRefusal,
   realStateDbRefusal,
   realStoreRefusal,
   testRunSignal,
 } from "../src/test-isolation.ts";
+
+describe("realDataRefusal", () => {
+  const account = "/Users/someone";
+  const signal = "NODE_ENV=test";
+  const check = (target: string) => realDataRefusal({ target, account, home: "/scratch", signal });
+
+  test("refuses a database file under the real ~/.mattstack", () => {
+    expect(check("/Users/someone/.mattstack/rt/herds.db")).toMatch(/refusing to write \/Users\/someone\/\.mattstack\/rt\/herds\.db/);
+    expect(check("/Users/someone/.mattstack/runs/repo/1/run.db")).not.toBeNull();
+  });
+
+  test("lets in-memory databases through", () => {
+    expect(check(":memory:")).toBeNull();
+    expect(check("")).toBeNull();
+    expect(check("file::memory:?cache=shared")).toBeNull();
+  });
+
+  test("lets paths inside rt's worktree folder through, where a pool tree's test run starts", () => {
+    expect(check("/Users/someone/.mattstack/rt/worktrees/gh-org-repo/legolas/tmp/x.db")).toBeNull();
+  });
+
+  test("ignores paths outside the account's ~/.mattstack", () => {
+    expect(check("/scratch/.mattstack/rt/herds.db")).toBeNull();
+  });
+});
 
 describe("guardTestDaemonEnv", () => {
   test("scrubs RT_DAEMON_SOCK and RT_APP_SOCKET and forbids both the old sock and HOME's rt.sock", () => {
