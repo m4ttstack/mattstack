@@ -28,14 +28,6 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
   }
 }
 
-function freePort(): number {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = srv.port;
-  srv.stop(true);
-  if (!port) throw new Error("failed to allocate a free port");
-  return port;
-}
-
 let apiPort = 0;
 const children: Array<ReturnType<typeof Bun.spawn>> = [];
 
@@ -91,7 +83,7 @@ describe("AskUserQuestion hook e2e", () => {
   }
 
   beforeAll(async () => {
-    apiPort = freePort();
+    apiPort = 0;
     ({ path: home, cleanup } = createTestHome());
     tree = realpathSync(mkdtempSync(join(tmpdir(), "rt-e2e-fork-tree-")));
     const daemon = spawnTracked([RT_BINARY, "--daemon"], baseEnv(home, {}));

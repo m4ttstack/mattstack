@@ -95,14 +95,6 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
   }
 }
 
-function freePort(): number {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = srv.port;
-  srv.stop(true);
-  if (!port) throw new Error("failed to allocate a free port");
-  return port;
-}
-
 let home = "";
 let cleanupHome: () => void = () => {};
 let apiPort = 0;
@@ -139,7 +131,7 @@ async function finished(proc: ReturnType<typeof runRt>) {
 }
 
 async function startDaemonForHome(homeDir: string, extraEnv: Record<string, string> = {}): Promise<void> {
-  apiPort = freePort();
+  apiPort = 0;
   runRt(["--daemon"], homeDir, extraEnv);
   await waitForSocket(join(homeDir, ".mattstack", "rt", "rt.sock"));
 }

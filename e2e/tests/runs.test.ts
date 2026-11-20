@@ -8,7 +8,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { createTestHome, RT_BINARY } from "../harness.ts";
+import { createTestHome, daemonApiPort, RT_BINARY } from "../harness.ts";
 import type { RunDetail, RunSummary } from "../../packages/rt-client/src/commands.ts";
 
 // REST envelope shape (lib/daemon.ts's handleCommand): { ok: true, data } |
@@ -22,15 +22,6 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
     if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
     await Bun.sleep(100);
   }
-}
-
-/** Grab a free TCP port by binding port 0 and releasing it. */
-function freePort(): number {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = srv.port;
-  srv.stop(true);
-  if (!port) throw new Error("failed to allocate a free port");
-  return port;
 }
 
 // Same seed SQL as lib/runs/__tests__/store.test.ts's seedRun — written
@@ -109,7 +100,7 @@ describe("rt runs (read-side e2e)", () => {
   const WIRE_RUN_ID = "20260821-130000-wire1";
 
   beforeAll(async () => {
-    apiPort = freePort();
+    apiPort = 0;
     ({ path: home, cleanup } = createTestHome());
 
     // No RT_RUNS_ROOT here — the point of this suite is proving the daemon
@@ -123,9 +114,10 @@ describe("rt runs (read-side e2e)", () => {
     if (daemon.exitCode !== null) {
       throw new Error(
         `daemon process exited (code ${daemon.exitCode}) right after creating its socket — ` +
-          `port ${apiPort} collision or daemon boot crash; check the daemon's stderr.`,
+          `daemon boot crash; check the daemon's stderr.`,
       );
     }
+    apiPort = await daemonApiPort(home, daemon.pid);
   });
 
   afterAll(async () => {

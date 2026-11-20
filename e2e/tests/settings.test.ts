@@ -4,7 +4,7 @@
  *
  * Everything runs inside one hermetic test HOME with its own daemon on a
  * per-run free `RT_API_PORT` (the RT-45/RT-28 pattern from `events.test.ts` and
- * `endpoint.test.ts`, copied deliberately: freePort(), child tracking, reaping
+ * `endpoint.test.ts`, copied deliberately: the port-0 daemon, child tracking, reaping
  * in afterAll, `/usr/sbin` on the child PATH for `lsof`).
  *
  * The scenario is the whole RT-47 contract in one file:
@@ -59,15 +59,6 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
     if (Date.now() > deadline) throw new Error(`daemon socket never appeared at ${sockPath}`);
     await Bun.sleep(100);
   }
-}
-
-/** Grab a free TCP port by binding port 0 and releasing it. */
-function freePort(): number {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = srv.port;
-  srv.stop(true);
-  if (!port) throw new Error("failed to allocate a free port");
-  return port;
 }
 
 /**
@@ -315,7 +306,7 @@ function machineStoreText(): string {
 
 describe("rt settings (four stores, one resolver — e2e)", () => {
   beforeAll(async () => {
-    apiPort = freePort();
+    apiPort = 0;
     poolBase = findFreePoolBase();
     ({ path: home, cleanup } = createTestHome());
 
@@ -386,7 +377,7 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     if (daemon.exitCode !== null) {
       throw new Error(
         `daemon process exited (code ${daemon.exitCode}) right after creating its socket — ` +
-          `port ${apiPort} collision or daemon boot crash; check the daemon's stderr.`,
+          `daemon boot crash; check the daemon's stderr.`,
       );
     }
   }, 60_000);

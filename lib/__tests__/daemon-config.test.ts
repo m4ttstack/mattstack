@@ -35,6 +35,20 @@ describe("activeLaunchdLabel", () => {
   });
 });
 
+describe("API_PORT", () => {
+  test("RT_API_PORT=0 means port 0, never the live daemon's 9401", async () => {
+    const prev = process.env.RT_API_PORT;
+    process.env.RT_API_PORT = "0";
+    try {
+      const fresh = (await import(`../daemon-config.ts?api-port-zero=${Date.now()}`)) as typeof import("../daemon-config.ts");
+      expect(fresh.API_PORT).toBe(0);
+    } finally {
+      if (prev !== undefined) process.env.RT_API_PORT = prev;
+      else delete process.env.RT_API_PORT;
+    }
+  });
+});
+
 describe("resolveApiPort", () => {
   test("env wins, then setting, then 9401", () => {
     const prev = process.env.RT_API_PORT;
