@@ -66,3 +66,22 @@ review. A team-shared prefix in `board.slack` does that at post time.
 - Tests: the render helper, the post route (prefix on owner channels only,
   none on the team post, none when unset), and a modal DOM test for the
   muted line. UI checked in Storybook or the fixture board, both schemes.
+
+## Superseded during build
+
+Matt reworked the dialog while it was built: after a hover note and four
+pen.dev boards, he approved design D (`docs/apps/design/board/owners-post.pen`).
+
+- Each channel is one group in the post dialog: its switch, its sections and
+  its own editable message. There is no shared message box. The code owner
+  messages start pre-filled with the rendered prefix.
+- The post request sends `texts`, a message per channel, and the server posts
+  each as given. The server only renders `ownerPrefix` for the preview's
+  default messages and for a channel the request sends no text for.
+- The MR link is drawn as a chip that cannot be deleted. The server refuses an
+  edited message that drops the link, when that channel's default message had
+  it.
+- The prefix wording the team uses is `Codeowner review [{sections}]:`.
+
+Approach A, the non-goal "per-channel message editing", and the Dialog bullet
+above describe the first build, not the shipped one.

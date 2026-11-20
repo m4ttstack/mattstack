@@ -101,6 +101,8 @@
 
 ### Task 4: Show the prefix in the dialog, document it
 
+> Superseded during build: the dialog shipped as design D. See the spec's "Superseded during build" section.
+
 **Files:**
 - Modify: `apps/board/src/client/board/OwnersPostModal.tsx` (`SlackPostPreview` ~12, channel rows ~189)
 - Test: `apps/board/src/client/board/__tests__/owners-post-modal-dom.test.tsx`
