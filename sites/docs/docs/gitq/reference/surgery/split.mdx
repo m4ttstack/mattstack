@@ -10,7 +10,7 @@ Splits one branch into two. Two mutually exclusive modes: `--at` cuts a branch b
 ## Usage
 
 ```bash
-gitq split <branch> --at <rev> --name <newBranch> [--stack <name>]
+gitq split <branch> --at <lastKeptSha> --name <newBranch> [--stack <name>]
 gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]
 ```
 
@@ -18,7 +18,7 @@ gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]
 
 | flag | meaning |
 |------|---------|
-| `--at <rev>` | Tail-split mode: move every commit after `<rev>` into the new branch. Any revision git resolves to a commit: short sha, full sha, tag, `HEAD~2`, branch name. It has to be one of `<branch>`'s own commits, above where `<branch>` forks from its stack parent. Mutually exclusive with `--files`. |
+| `--at <lastKeptSha>` | Tail-split mode: `<lastKeptSha>` stays on `<branch>`, and every commit after it moves into the new branch. Any revision git resolves to a commit: short sha, full sha, tag, `HEAD~2`, branch name. It has to be one of `<branch>`'s own commits, above where `<branch>` forks from its stack parent. Mutually exclusive with `--files`. |
 | `--files <glob[,glob...]>` | File-split mode: move files matching the comma separated glob(s) into the new branch. Mutually exclusive with `--at`. |
 | `--name <newBranch>` | Required in both modes. Name of the branch the split mode creates. |
 | `--stack <name>` | Which tracked stack `<branch>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/gitq/reference/global-flags#the---stack-rule). |
@@ -29,7 +29,7 @@ Refuses with usage help unless `<branch>` and `--name` are given and exactly one
 
 ### `--at`: pure ref surgery
 
-No working tree is read or written. The new branch is created at the source's current head first (so nothing is ever unreachable, even across a crash), then the source ref is rewound to the split point by compare-and-swap (`BranchSplitter.tailSplit`, `src/core/branch-splitter.ts:64-168`). Existing children of the source are reparented onto the new branch, since their base now lives there. Runs directly, without a leased work slot.
+No working tree is read or written. The new branch is created at the source's current head first (so nothing is ever unreachable, even across a crash), then the source ref is rewound to the split point by compare-and-swap (`BranchSplitter.tailSplit`, `src/core/branch-splitter.ts:64-168`). Existing children of the source are reparented onto the new branch, since their base now lives there, and then restacked onto its head in a leased work slot, so a child that was behind the source ends up on the new branch's head. A conflict there pauses like `gitq sync` (exit `2`, then `gitq continue` or `gitq abort`). A source with no children needs no slot and runs directly.
 
 - **The split point is whatever git resolves.** `--at` goes through `git rev-parse --verify <rev>^{commit}` (`GitShell.resolveRef`, `src/core/git-shell.ts:164`), so a short sha copied out of `git log --oneline` works, as do a full sha, an annotated tag, `HEAD~2`, or a branch name. The `^{commit}` peel is what lets an abbreviation shared with a blob or tree still land on the commit, exactly as git itself would read it. An abbreviation shared only with blobs or trees resolves to no commit at all, and is reported that way rather than as an ambiguity you could type your way out of.
 - **`HEAD~n` counts from your checkout, not from `<branch>`.** git resolves `HEAD` before gitq sees it, so standing on `main` and running `--at HEAD~2` names one of `main`'s commits, not one of `<branch>`'s. Spell it `<branch>~2` to count back from the branch being split.
@@ -51,7 +51,7 @@ No working tree is read or written. The new branch is created at the source's cu
 Needs a tree, so it runs detached in a leased work slot; your launch worktree is never touched (`BranchSplitter.splitByFile`, `src/core/branch-splitter.ts:207-330`). The new branch is a **sibling** of the source (a second child of the source's parent), not a child of it, built from the source's merge-base with one commit holding the matched files. The source keeps its own commits, its tip amended to drop the moved files (or rewound to the merge-base if every file moved).
 
 - The patterns match against files the source changed relative to its parent; a pattern matching nothing there is an error, not a no-op.
-- **Never cascades.** Any existing child of the source is left on the old, now-stale head every time; run `gitq sync` afterward to bring it forward.
+- **Never cascades.** Any existing child of the source is left on the old, now-stale head every time, and the output names them: `<child> still sits on the old <branch>; run gitq sync to restack`.
 - Refusals, all exit `1`: no file matches the patterns (`No files match the patterns: <patterns>`); the branch changed nothing relative to its parent; `<branch>` or `<newBranch>` name conflicts, same shape as `--at`; the source is checked out in a **dirty** slot elsewhere (`branch is checked out in slot "<slot>" (<path>) which is dirty; commit or stash there, or free the slot, then retry`). A clean slot holding the source is fine, it gets reset to the rewritten tip.
 
 ## Exit codes
@@ -59,7 +59,9 @@ Needs a tree, so it runs detached in a leased work slot; your launch worktree is
 - `0`: the split completed.
 - `1`: bad usage, a lease held, or `<branch>`/`<newBranch>` not resolving. Also the `--at` revision resolving to nothing, ambiguously, to a commit off the branch, or to one at or below the branch's fork with its parent. Also no files matching the patterns, or the source checked out dirty elsewhere.
 
-Never exits `2`. See [Exit codes](/gitq/reference/exit-codes) for the general contract.
+- `2`: an `--at` split whose restack of the reparented children paused on a conflict. The split itself is done; finish the restack with `gitq continue` or `gitq abort`.
+
+See [Exit codes](/gitq/reference/exit-codes) for the general contract.
 
 ## See also
 

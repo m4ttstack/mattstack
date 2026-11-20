@@ -15,9 +15,9 @@ gitq stacks
 
 ## Behavior
 
-Loads the store and prints one line per tracked stack: `<stackName> (root <rootBranch>): <branch> -> <branch> -> ...` (`src/cli/commands/stacks.ts:9-13`). A stack with no nodes yet prints `empty` for the chain. A repo with no tracked stacks prints `no stacks`.
+Loads the store and prints one line per tracked stack: `<stackName> (root <rootBranch>): <branch> -> <branch> -> ...` in tree order, parent before child (`formatStackLine`, `src/cli/commands/stacks.ts`). A stack with no nodes yet prints `empty` for the chain. A repo with no tracked stacks prints `no stacks`.
 
-- **The chain is printed in the order nodes are stored, not topological order.** A `reparent` moves a node without reordering the underlying list, so after enough surgery the printed order can put a branch before its own parent (`src/cli/commands/stacks.ts:12`). Use `gitq diagnose --json` when you need the real parent/child edges.
+- **A fork starts a new chain that names its parent.** A chain runs through each branch's first child; every later child starts its own chain, separated by `; `: `a -> b; a -> c` is `a` with two children. `--json` keeps the nodes in stored order, so read `parent` there rather than the array order.
 - This is the store's view, not git's. It says nothing about whether a branch is up to date or still exists in git; see [`gitq diagnose`](/gitq/reference/read-only/diagnose) for that.
 - Takes no flags beyond the global ones. Under `--json`, the document is `{ stacks, worktrees }`: the full `Stack[]` from the store, plus a `worktrees` array describing every worktree of the repo and which lease (if any) it holds. See [JSON output](/gitq/reference/json-output).
 

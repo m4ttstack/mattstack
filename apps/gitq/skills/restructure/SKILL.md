@@ -341,7 +341,7 @@ Then choose from the surgery set, one node in the graph per operation:
 |---|---|---|
 | tail split | `split <branch> --at <lastKeptSha> --name <newBranch>` | `<lastKeptSha>` stays on `<branch>`; the commits after it move to a new child of `<branch>` |
 | file split | `split <branch> --files <glob[,glob...]> --name <newBranch>` | the files matching the globs move to a new branch |
-| fold | `fold <branch>` | folds the branch into its parent, deletes it, and reparents its children onto that parent |
+| fold | `fold <branch> [--close-remote]` | folds the branch into its parent, deletes it, and reparents its children onto that parent; its open MR and `origin/<branch>` stay (the output names them) unless `--close-remote` retargets the children's MRs, closes the folded MR and deletes the remote branch |
 | reparent | `reparent <branch> --onto <newParent>` | moves the branch, with its descendants, onto a new parent |
 | rename | `rename <old> <new>` | renames a branch |
 | reset | `reset <branch>` | makes the branch match `origin/<branch>` again |

@@ -30,6 +30,8 @@ $ gitq add featx --parent main
 gitq: --stack required (have: demo, second)
 ```
 
+A command that names a branch (`add`'s `--parent`, or the branch `remove`, `split`, `fold`, `reparent`, `rename` and `reset` act on) needs no `--stack` when that branch is a node of exactly one stack. `add` goes one further: a `--parent` that is a root several stacks share picks the only one of them with no branches yet, which is the stack `gitq track` just made.
+
 `pickStack` backs `add`, `remove`, `sync`, `absorb`, `split`, `fold`, `reparent`, `rename`, `reset`, and `publish`. `continue` and `abort` read `ctx.flags.stack` directly instead of calling `pickStack`. They use it to pick which *parked* cascade to resume when more than one stack is parked at once (`findParkedLease`, `src/cli/slots.ts:99-110`). With only one parked cascade, no flag is needed there either. With none at all, both commands say `nothing to continue (no parked cascade)` regardless of whether you asked for `continue` or `abort`. `track` and `untrack` take the stack name as a plain positional argument instead of `--stack`. `track` is creating a new stack, so there is nothing yet to disambiguate, and `untrack` names the one it removes. `stacks`, `diagnose`, `preflight`, `log`, `undo`, and `import` never take `--stack` at all:
 
 - The first four report on every tracked stack in one call.

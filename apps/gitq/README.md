@@ -153,7 +153,7 @@ Which branches gitq knows about. None of these touch git refs.
 - `gitq absorb [--at <branch>[:<glob>]]... [--preview] [--stack <name>]`: distribute uncommitted changes to the branches that own the lines each edit sits on, then restack. Attribution blames the changed lines and takes the deepest stack branch owning any of them, falling back to "whose commits touched this file at all" when blame has no answer (a new file, a binary one, lines from outside the stack).
 - `gitq split <branch> --at <lastKeptSha> --name <newBranch> [--stack <name>]`: tail split. `<lastKeptSha>` stays on `<branch>`; the commits after it move into a new child branch.
 - `gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]`: split by file. Moves files matching the glob(s) off `<branch>` into a new branch.
-- `gitq fold <branch> [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent.
+- `gitq fold <branch> [--close-remote] [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent. Its open MR and `origin/<branch>` are reported and left alone unless `--close-remote` is passed, which retargets the children's MRs, closes the folded MR and deletes the remote branch.
 - `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch onto a different parent and cascade rebase its descendants.
 - `gitq rename <old> <new> [--stack <name>]`: rename a branch, in git and in the stack tree.
 - `gitq reset <branch> [--stack <name>]`: reset a local branch to match `origin/<branch>`, for when it diverged because someone force pushed.

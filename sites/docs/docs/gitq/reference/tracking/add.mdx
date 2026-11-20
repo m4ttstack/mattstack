@@ -18,7 +18,7 @@ gitq add <branch> --parent <parentBranch> [--stack <name>]
 | flag | meaning |
 |------|---------|
 | `--parent <branch>` | Required. The node this branch attaches under: another node's branch, or the stack's root. |
-| `--stack <name>` | Which tracked stack to add to. Optional when the repo has exactly one; required otherwise. See [Global flags](/gitq/reference/global-flags#the---stack-rule). |
+| `--stack <name>` | Which tracked stack to add to. Optional when the repo has exactly one, when `--parent` is a node of one stack, or when `--parent` is a root shared by several stacks and exactly one of them has no branches yet (the stack `gitq track` just made); required otherwise. See [Global flags](/gitq/reference/global-flags#the---stack-rule). |
 
 ## Behavior
 

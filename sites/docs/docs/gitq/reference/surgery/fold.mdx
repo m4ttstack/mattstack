@@ -10,13 +10,14 @@ Folds a branch into its parent: replays its commits onto the parent, deletes the
 ## Usage
 
 ```bash
-gitq fold <branch> [--stack <name>]
+gitq fold <branch> [--close-remote] [--stack <name>]
 ```
 
 ## Flags
 
 | flag | meaning |
 |------|---------|
+| `--close-remote` | Also close what the fold leaves on the forge: retarget the children's open MRs onto the parent, close the folded branch's MR, then delete `origin/<branch>`. Forge access is checked before anything folds. |
 | `--stack <name>` | Which tracked stack `<branch>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/gitq/reference/global-flags#the---stack-rule). |
 
 ## Behavior
@@ -28,6 +29,18 @@ Guarded by the stack lease, and always runs detached in a leased [work slot](/gi
 3. **Its children are reparented** onto the parent.
 
 **Fold does not cascade the reparented children.** Usually the replay produces no new commits, because the parent was already sitting at the folded branch's base. Then the children are already on the right head and there is nothing to do. When the parent had moved ahead and the replay produced new commits, the children are left behind their new parent and want a `gitq sync`.
+
+### What it leaves on the forge
+
+The fold itself is local. When the folded branch still has an open MR or `origin/<branch>` still exists, the output names them (`<branch> is folded locally only: its MR !<iid> (<url>) is still open and origin/<branch> still exists; ...`) and `--json` carries them as `leftovers: { branch, mrIid, mrUrl, remoteBranch }`.
+
+With `--close-remote`, fold cleans them up after the local fold, in this order (`closeFoldedRemote`, `src/core/fold-remote.ts`):
+
+1. Each reparented child with an open MR is retargeted onto its new parent.
+2. The folded branch's MR is closed.
+3. `origin/<branch>` is deleted, unless a child failed to retarget: a forge can close an MR whose target branch disappears, so the branch is kept and the step reports `kept: a child MR still targets it`.
+
+Each step prints its own line and lands in `--json` as `remoteSteps`. A failed step exits `1`, but the local fold stays done. Forge access is resolved before the fold, so a missing token refuses with nothing changed. `gitq push` afterwards sends the parent's new commits.
 
 ### The one exception to checkout neutrality
 
@@ -43,7 +56,7 @@ Recorded to the operation log under `fold` on a clean exit, but **not reversible
 ## Exit codes
 
 - `0`: the fold completed.
-- `1`: `<branch>` not found in the stack, the branch checked out in a dirty worktree elsewhere, a replay conflict, or a lease held.
+- `1`: `<branch>` not found in the stack, a `--close-remote` step failing (the local fold is still done), no forge access with `--close-remote`, the branch checked out in a dirty worktree elsewhere, a replay conflict, or a lease held.
 
 Never exits `2`: fold has no pause protocol. See [Exit codes](/gitq/reference/exit-codes) for the general contract.
 

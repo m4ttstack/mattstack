@@ -22,7 +22,7 @@ gitq reparent <branch> --onto <newParent> [--stack <name>]
 
 ## Behavior
 
-Guarded by the stack lease, and always runs detached in a leased [work slot](/gitq/concepts/work-slots) (`src/cli/commands/surgery.ts:209-231`). If `--onto` names the branch's current parent, it is a no-op: returns immediately, nothing rebased (`src/core/reparent.ts:47-55`).
+Guarded by the stack lease, and always runs detached in a leased [work slot](/gitq/concepts/work-slots) (`src/cli/commands/surgery.ts:209-231`). If `--onto` names the branch's current parent and the branch already contains that parent's head, nothing moves and the output says `<branch> is already on <parent>; nothing moved`. A branch left behind its current parent (by a split or an amend, say) is rebased onto the parent's head instead, the same as any other reparent (`src/core/reparent.ts`).
 
 Refuses up front, before anything runs: `--onto` naming neither the stack root nor an existing node (`New parent "<newParent>" not found in stack "<id>"`), or a move that would make the branch its own ancestor (`Cannot reparent "<branch>" under "<newParent>" — would create a cycle`, `src/core/reparent.ts:57-66`).
 
