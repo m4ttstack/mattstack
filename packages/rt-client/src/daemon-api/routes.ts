@@ -22,6 +22,8 @@ export interface DaemonRoute {
   description?: string;
   /** Needs `X-RT-Token`. */
   token: boolean;
+  /** Every reply past the token gate carries `Cache-Control: no-store`, so no browser cache keeps it. */
+  noStore?: boolean;
   /** `generic` builds the command payload from the query or body, and only these answer 405 on a wrong method; `special` reads its own inputs. */
   kind: "generic" | "special";
   request: { query?: z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig>; params?: z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig>; body?: z.ZodType };
@@ -283,6 +285,7 @@ export const secretsReadRoute = {
   description:
     "Reads no query; only the `X-RT-Token` header is forwarded to the handler, which checks it again, so the reply is always the `extension` scope.",
   token: true,
+  noStore: true,
   kind: "special",
   request: {},
   success: okData(S.SecretsReadExtensionDataSchema),

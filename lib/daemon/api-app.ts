@@ -315,11 +315,14 @@ export function createApiApp(deps: ApiAppDeps): Hono<ApiEnv> {
     app.on(route.method.toUpperCase(), route.honoPath, async (c) => {
       // Hono's onError only sees Error instances; a thrown non-Error still
       // gets the 500 envelope here.
+      let res: Response;
       try {
-        return await dispatch(route, c);
+        res = await dispatch(route, c);
       } catch (err) {
-        return failed(err, c);
+        res = failed(err, c);
       }
+      if ("noStore" in route && route.noStore) res.headers.set("Cache-Control", "no-store");
+      return res;
     });
   }
 

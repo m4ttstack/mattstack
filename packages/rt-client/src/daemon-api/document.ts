@@ -11,6 +11,13 @@ export type OpenAPI31Document = ReturnType<OpenAPIHono["getOpenAPI31Document"]>;
 // shared schemas are registered as JSON Schema instead.
 const FAILURE = FailureEnvelopeSchema.meta({ id: "Failure" });
 
+const NO_STORE_HEADERS = {
+  "Cache-Control": {
+    description: "`no-store` on every reply past the token gate, refusals and 500s included.",
+    schema: { type: "string", const: "no-store" },
+  },
+} as const;
+
 function description(): string {
   const events = WEBSOCKET_EVENTS.map((e) => `- \`${e.type}\`: ${e.description}`).join("\n");
   return [
@@ -50,6 +57,7 @@ export function buildOpenApiDocument(): OpenAPI31Document {
     const responses: Record<string, { $ref: string } | { description: string; content: object }> = {
       200: {
         description: "Answered. A handler that refuses or throws also answers 200, with the failure body.",
+        ...(route.noStore ? { headers: NO_STORE_HEADERS } : {}),
         content: { "application/json": { schema: z.union([route.success, FAILURE]) } },
       },
     };

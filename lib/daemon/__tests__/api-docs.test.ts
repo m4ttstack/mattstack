@@ -55,6 +55,22 @@ describe("daemon API docs", () => {
     }
   });
 
+  test("/openapi.json documents Cache-Control: no-store on the secrets route only", async () => {
+    type Op = { responses: Record<string, { headers?: Record<string, { schema?: { const?: string } }> }> };
+    const doc = (await (await hit("/openapi.json")).json()) as { paths: Record<string, Record<string, Op>> };
+    const withHeader: string[] = [];
+    for (const [path, ops] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(ops)) {
+        const header = op.responses["200"]?.headers?.["Cache-Control"];
+        if (header) {
+          withHeader.push(`${method} ${path}`);
+          expect(header.schema?.const).toBe("no-store");
+        }
+      }
+    }
+    expect(withHeader).toEqual(["get /api/secrets"]);
+  });
+
   test("GET / lists every route plus the docs routes", async () => {
     const res = await hit("/");
     expect(res.status).toBe(200);

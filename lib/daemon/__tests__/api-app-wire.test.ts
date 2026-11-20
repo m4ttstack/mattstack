@@ -203,6 +203,27 @@ describe("REST wire behaviour", () => {
     expect(calls).toEqual([{ cmd: "secrets:read", payload: { token } }]);
   });
 
+  test("secrets replies carry Cache-Control: no-store, refusals and throws too", async () => {
+    const SECRETS_HEADERS = [...ALWAYS, "cache-control"].sort();
+
+    const ok = await hit("/api/secrets", { headers: withToken() });
+    expect(ok.status).toBe(200);
+    expect(headerNames(ok)).toEqual(SECRETS_HEADERS);
+    expect(ok.headers.get("cache-control")).toBe("no-store");
+
+    reply = async () => ({ ok: false, error: "unauthorized" });
+    const refused = await hit("/api/secrets", { headers: withToken() });
+    expect(refused.status).toBe(200);
+    expect(headerNames(refused)).toEqual(SECRETS_HEADERS);
+    expect(refused.headers.get("cache-control")).toBe("no-store");
+
+    reply = async () => { throw new Error("boom"); };
+    const threw = await hit("/api/secrets", { headers: withToken() });
+    expect(threw.status).toBe(500);
+    expect(headerNames(threw)).toEqual(SECRETS_HEADERS);
+    expect(threw.headers.get("cache-control")).toBe("no-store");
+  });
+
   test("X-RT-Client lands on generic routes only", async () => {
     const client = { "X-RT-Client": "tray" };
     await hit("/api/runs", { headers: client });
