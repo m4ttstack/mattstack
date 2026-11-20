@@ -6,6 +6,8 @@
  */
 import type { EvidenceAddress, EvidenceImageKey, EvidenceTextKey } from "./evidence.ts";
 import type { ApprovalRuleLite, PullRequest, MRDetail, MergeQueueStatus, Pipeline, PipelineJob } from "@mattstack/glance";
+import type { z } from "zod";
+import type * as S from "./command-schemas.ts";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -155,20 +157,7 @@ export interface MrListLiveData {
   truncated: boolean;
 }
 
-/**
- * Trimmed, structural view of the daemon's `CacheEntry` (lib/state/branch-cache.ts) --
- * rt-client cannot import daemon/lib internals, so this names only the fields
- * console's run-view rows read, spelled exactly as they land on the wire
- * (`mr` is `toMRInfo(pr)`, i.e. `getMRDashboardProps` -- camelCase `webUrl`,
- * nested `pipeline.status`, no `ciStatus`). Extra wire fields (including the
- * rest of `pipeline`) are fine; anything this shape doesn't name is simply
- * not surfaced.
- */
-export interface BranchEnrichment {
-  ticket: { identifier: string; title: string; url: string } | null;
-  mr: { iid: number; webUrl: string | null; state: string; pipeline: { status: string } | null } | null;
-  fetchedAt: number;
-}
+export type BranchEnrichment = z.infer<typeof S.BranchEnrichmentSchema>;
 
 /** Forges the daemon can hold a token for. */
 export type ForgeSlug = "gitlab" | "github";
@@ -177,11 +166,8 @@ export interface ForgeTokenData {
   token: string;
 }
 
-/**
- * Duplicated shape on purpose (RT-44): rt-client cannot import daemon
- * internals, so this mirrors lib/daemon/events-bus.ts's BusEvent.
- */
-export interface EventsBusEvent { id: number; topic: string; payload: unknown; emittedAt: number }
+/** Mirrors lib/daemon/events-bus.ts's BusEvent (RT-44): rt-client cannot import daemon internals. */
+export type EventsBusEvent = z.infer<typeof S.EventsBusEventSchema>;
 
 /**
  * Duplicated shape on purpose, same reasoning as EventsBusEvent above:
@@ -195,8 +181,7 @@ export interface EventsBusEvent { id: number; topic: string; payload: unknown; e
 export const GATE_BY_PANE = "pane";
 
 export type GateStatus = "open" | "answered" | "parked" | "closed";
-/** Reconciler's view of an agent's liveness; also the value `GateRow.executor` is stamped with. */
-export type ExecutorState = "live" | "blocked" | "hidden" | "gone" | "cleared" | "unknown";
+export type ExecutorState = z.infer<typeof S.ExecutorStateSchema>;
 export type GateOption = string | { value: string; label: string; recommended?: boolean; description?: string };
 export interface GateOrigin {
   paneId?: string;
@@ -441,187 +426,29 @@ export interface PaneSendResult { paneId: string; delivered: PaneDelivery; reaso
     that tab's id. */
 export interface PaneFocusResult { paneId: string; focused: boolean; attendTab?: string }
 
-// SKILLS-53: one judgment, computed once in rt, so the console and the tray
-// never derive two verdicts that can disagree.
-export type Attention = {
-  needs: boolean;
-  reason: "failed" | "stale" | "stranded" | "blocked" | null;
-  evidence: string;
-};
+export type Attention = z.infer<typeof S.AttentionSchema>;
 
-export interface RunSummary {
-  id: string; repo: string; work_type: string; pipeline: string;
-  status: string; current_stage: string | null; spawned_by: string | null;
-  started_at: number; ended_at: number | null;
-  // v2. Null on runs written before schema v2; pack_dirty means the pack tree
-  // had uncommitted changes, so the as-run text may exist in no commit.
-  pack_commits: string | null; pack_dirty: number;
-  attention: Attention;
-  /** Max over stage, field, and decision timestamps; falls back to
-      `started_at` when the run has produced no events yet. The board orders
-      by silence, so this — not `started_at` — is its sort key. */
-  last_event_at: number;
-  /** Denormalized from the run's `ticket` / `branch` fields so the LIST view
-      can render and search them without a detail fetch per row. Null when
-      the run has not produced that field yet. */
-  ticket: string | null;
-  branch: string | null;
-  /** The run's `test` field, recorded from `RT_RUN_TEST` when a validation harness started it. `runs:list` leaves these runs out unless asked. */
-  test?: string | null;
-  /** The run's `claude-session` field; always set by the daemon, null when unrecorded. */
-  session?: string | null;
-  /** The run's own MR url (latest `mr` field, produced by a work stage, an http(s) url); null when none or cleared. */
-  mr?: string | null;
-  /** The herdr agent attributed to this run (matched by recorded claude
-      session, else by worktree), mirrored live from `herdr agent list`.
-      Null when no agent matches or herdr is unavailable; absent on
-      pre-mirror daemons. */
-  agent?: RunAgent | null;
-  /** Executed stages only, in run order — the pipeline may define more that have not started. */
-  stages?: { name: string; status: string; started_at: number | null; ended_at?: number | null; attempt?: number }[];
-  decision_count?: number;
-  /** Images the run's `evidence` field records (each base and each annotated copy); 0 for legacy or absent evidence. */
-  evidence_count?: number;
-  /** Cases the run's `evidence` field records (v1 counts as one); 0 for legacy or absent evidence. */
-  evidence_cases?: number;
-  /** Links a legacy (pre-v1) `evidence` field names; 0 for v1 or absent evidence. */
-  evidence_links?: number;
-  /** How the run ended up: its own status plus the MR it opened or reviewed. Absent on pre-outcome daemons. */
-  outcome?: RunOutcome;
-  /** A pause that applies to the current attempt (the `hold` field written during it), else null. Absent on older daemons. */
-  hold?: { reason: string; at: number } | null;
-  /** An operator's Redo waiting for the worker's next `run_next`, else null. Absent on older daemons. */
-  redo?: { gate: string; to: string; note: string } | null;
-}
-/** `mr` is the run's own MR (written by ship or watch-ci); `reviewed` is the MR a review or respond run looked at and never counts as merged. */
-export interface RunOutcome {
-  status: "running" | "done" | "abandoned" | "failed";
-  mr?: { iid: number; state: "opened" | "merged" | "closed" | "unknown"; url: string | null; mergedAt?: number };
-  reviewed?: { iid: number; url: string | null; posted: string | null };
-  ci?: string | null;
-}
-export interface RunAgent {
-  status: "working" | "idle" | "blocked" | "done" | "unknown";
-  pane: string;
-}
-export interface RunStageRow {
-  name: string; status: string; attempt: number;
-  started_at: number | null; ended_at: number | null;
-  reason: string | null; detail_path: string | null;
-}
-export interface RunFieldRow { key: string; value: string; produced_by: string; at: number; }
-export interface RunDecisionRow { contract: string; scope: string; selection: string; decided_by: string; decided_at: number; }
-export interface RunDetail { run: RunSummary; stages: RunStageRow[]; fields: RunFieldRow[]; decisions: RunDecisionRow[]; schemaAhead: boolean; }
+export type RunSummary = z.infer<typeof S.RunSummarySchema>;
+export type RunOutcome = z.infer<typeof S.RunOutcomeSchema>;
+export type RunAgent = z.infer<typeof S.RunAgentSchema>;
+export type RunStageRow = z.infer<typeof S.RunStageRowSchema>;
+export type RunFieldRow = z.infer<typeof S.RunFieldRowSchema>;
+export type RunDecisionRow = z.infer<typeof S.RunDecisionRowSchema>;
+export type RunDetail = z.infer<typeof S.RunDetailSchema>;
 
-/** Duplicated shape on purpose: mirrors lib/usage/mr-key.ts's UsageKind. */
-export type UsageKind = "work" | "review" | "respond" | "doctor" | "other";
-
-export interface UsageTotals {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  messages: number;
-  /** Estimated USD, covering priced models only. */
-  cost: number;
-  /** Tokens from models with no price, so a new model reads as incomplete rather than cheap. */
-  unpricedTokens: number;
-}
-
-export interface UsageModelRow { model: string | null; totals: UsageTotals }
-
-export interface UsageSplits { byModel: UsageModelRow[]; main: UsageTotals; subagent: UsageTotals }
-
-/**
- * `metered` bills per token, `plan` rides a subscription, `unknown` has no account recorded.
- * A `byBilling` split always adds up to the `totals` beside it.
- */
-export type UsageBilling = "metered" | "plan" | "unknown";
-
-export interface UsageAccount { account: string; label: string | null; billing: UsageBilling }
-
-export interface UsageMrRow {
-  mrKey: string;
-  url: string | null;
-  ticket: string | null;
-  branch: string | null;
-  firstActivity: number;
-  lastActivity: number;
-  totals: UsageTotals;
-  byBilling: Record<UsageBilling, UsageTotals>;
-  costByKind: Record<UsageKind, number>;
-  runCount: number;
-  roundCount: number;
-}
-
-export interface UsageMrsData {
-  mrs: UsageMrRow[];
-  summary: { mrCount: number; totals: UsageTotals; byBilling: Record<UsageBilling, UsageTotals>; medianCost: number };
-}
-
-/**
- * When a run's message fell outside every stage; `none` is a run with no stages at all.
- * `session` is the run's session before it started or after it ended: shown, never counted.
- */
-export type UsageOutside = "before" | "between" | "after" | "none" | "session";
-
-/** `name` and `attempt` are null, and `outside` set, on a row of a run's messages outside every stage. */
-export interface UsageStageRow {
-  name: string | null;
-  attempt: number | null;
-  outside: UsageOutside | null;
-  status: string | null;
-  startedAt: number | null;
-  endedAt: number | null;
-  /** The messages' own span, null on a stage with none. */
-  firstActivity: number | null;
-  lastActivity: number | null;
-  subagentCost: number;
-  totals: UsageTotals;
-}
-
-/** One run, or one agent-only session when `runId` is null. */
-export interface UsageMrEntry extends UsageSplits {
-  runId: string | null;
-  sessionId: string | null;
-  kind: UsageKind;
-  /** Position among the MR's respond runs, from 1. Null on every other kind. */
-  round: number | null;
-  pipeline: string | null;
-  status: string | null;
-  startedAt: number | null;
-  endedAt: number | null;
-  firstActivity: number;
-  lastActivity: number;
-  totals: UsageTotals;
-  byBilling: Record<UsageBilling, UsageTotals>;
-  /** In the order the entry first ran on each; empty when none was recorded. */
-  accounts: UsageAccount[];
-  stages: UsageStageRow[];
-}
-
-export interface UsageMrData extends UsageSplits {
-  mrKey: string;
-  url: string | null;
-  ticket: string | null;
-  branch: string | null;
-  firstActivity: number;
-  lastActivity: number;
-  totals: UsageTotals;
-  byBilling: Record<UsageBilling, UsageTotals>;
-  costByKind: Record<UsageKind, number>;
-  /** The runs' sessions outside the runs themselves, which none of the totals above count. */
-  outsideRuns: UsageTotals;
-  runs: UsageMrEntry[];
-}
-
-/** What one run cost, beside the MR it counts toward. `mrCost` is null with no MR. */
-export interface UsageRunData {
-  runId: string;
-  mrKey: string | null;
-  totals: UsageTotals;
-  mrCost: number | null;
-}
+export type UsageKind = z.infer<typeof S.UsageKindSchema>;
+export type UsageTotals = z.infer<typeof S.UsageTotalsSchema>;
+export type UsageModelRow = z.infer<typeof S.UsageModelRowSchema>;
+export type UsageSplits = z.infer<typeof S.UsageSplitsSchema>;
+export type UsageBilling = z.infer<typeof S.UsageBillingSchema>;
+export type UsageAccount = z.infer<typeof S.UsageAccountSchema>;
+export type UsageMrRow = z.infer<typeof S.UsageMrRowSchema>;
+export type UsageMrsData = z.infer<typeof S.UsageMrsDataSchema>;
+export type UsageOutside = z.infer<typeof S.UsageOutsideSchema>;
+export type UsageStageRow = z.infer<typeof S.UsageStageRowSchema>;
+export type UsageMrEntry = z.infer<typeof S.UsageMrEntrySchema>;
+export type UsageMrData = z.infer<typeof S.UsageMrDataSchema>;
+export type UsageRunData = z.infer<typeof S.UsageRunDataSchema>;
 
 /** One row of an MR's steps: a run, or an agent-only session, narrowed to a stage or an outside window. */
 export interface UsageActivityQuery {
@@ -644,52 +471,14 @@ export interface UsageActivityData {
   tools: Array<{ name: string; count: number }>;
 }
 
-/** `weekStart` is local Monday midnight, epoch ms. */
-export interface UsageWeekRow { weekStart: number; totals: UsageTotals; byKind: Record<UsageKind, UsageTotals> }
+export type UsageWeekRow = z.infer<typeof S.UsageWeekRowSchema>;
+export type UsagePipelineRow = z.infer<typeof S.UsagePipelineRowSchema>;
+export type UsageTrendsData = z.infer<typeof S.UsageTrendsDataSchema>;
+export type UsageStatusData = z.infer<typeof S.UsageStatusDataSchema>;
 
-export interface UsagePipelineRow { pipeline: string | null; totals: UsageTotals }
-
-export interface UsageTrendsData {
-  /** Weeks with no messages are left out. */
-  weeks: UsageWeekRow[];
-  totals: UsageTotals;
-  byBilling: Record<UsageBilling, UsageTotals>;
-  byPipeline: UsagePipelineRow[];
-  byModel: UsageModelRow[];
-}
-
-export interface UsageStatusData {
-  lastSweepAt: number | null;
-  lastSweepMs: number | null;
-  messages: number;
-  runs: number;
-  skippedLines: number;
-  conflicts: number;
-  skippedRate: number;
-  unpricedModels: string[];
-  sessionsMissingTranscript: number;
-}
-
-export type AgentSurface = "herdr" | "headless";
-
-/** The reconciler's per-agent snapshot: one row per agent it knows about, live or not. */
-export interface ExecutorView {
-  agentId: string;
-  repo: string | null;
-  subject: string | null;
-  surface: AgentSurface;
-  sessionId: string;
-  paneRef: string | null;
-  state: ExecutorState;
-  since: number;
-  openGateIds: string[];
-}
-
-export interface ReconcilerStatus {
-  sweptAt: number;
-  herdrReachable: boolean;
-  executors: ExecutorView[];
-}
+export type AgentSurface = z.infer<typeof S.AgentSurfaceSchema>;
+export type ExecutorView = z.infer<typeof S.ExecutorViewSchema>;
+export type ReconcilerStatus = z.infer<typeof S.ReconcilerStatusSchema>;
 
 /** What a claude spawn's folder-trust check established, when one ran:
     `none` = no dialog was up, `accepted` = one was answered, `stuck` = one is
@@ -721,10 +510,9 @@ export interface AgentRecord {
 // all separate OS processes, so any command reachable from one counts as
 // "external" here even when the only known caller today is rt's own CLI.
 
-/** Duplicated shape on purpose (see EventsBusEvent above): mirrors lib/daemon/health.ts's HealthSnapshot. */
-export type HealthLevel = "ok" | "degraded" | "unhealthy";
-export interface HealthMetrics { rss: number; heapUsed: number; external: number; uptimeMs: number; wsClients: number; watchers: number }
-export interface HealthEventLoop { maxLagMs: number; lastStallAt: number | null; lastStallCmd: string | null; stalls: number }
+export type HealthLevel = z.infer<typeof S.HealthLevelSchema>;
+export type HealthMetrics = z.infer<typeof S.HealthMetricsSchema>;
+export type HealthEventLoop = z.infer<typeof S.HealthEventLoopSchema>;
 export interface DaemonIdentity { flavor: "dev" | "prod"; version: string; sourceRev: string | null; startedAt: number }
 
 export interface PingData extends DaemonIdentity {
@@ -744,49 +532,12 @@ export interface StatusData {
   worktreePool: { dormant: true; repos: string[]; message: string } | { dormant: false };
 }
 
-/** Duplicated shape on purpose: mirrors lib/worktree/ready-held.ts's ReadyHeldRepo. */
-export interface ReadyHeldRepo {
-  /** Serialized repo identity. A key, never displayed. */
-  repo: string;
-  /** Decoded display name. Never sent back as a key. */
-  label: string;
-  hash: string;
-  approveCommand: string;
-}
-
-export interface TrayStatusData {
-  pid: number; uptime: number; memoryUsage: number; watchedRepos: number; cacheEntries: number;
-  portsCached: number; portCacheAge: number | null; lastRefresh: number | null;
-  portsByRepo: Record<string, number>; pendingNotifications: number;
-  health: { level: HealthLevel; reasons: string[] }; metrics: HealthMetrics; eventLoop: HealthEventLoop;
-  /** Optional because a daemon older than RT-98 does not send it. */
-  worktreeReadyHeld?: ReadyHeldRepo[];
-}
-
-/** Duplicated shape on purpose: mirrors lib/port-scanner.ts's PortEntry. */
-export interface PortEntry {
-  port: number; pid: number; command: string; cwd: string;
-  repo: string | null; worktree: string | null; branch: string | null;
-  relativeDir: string; uptime: string;
-}
-
-export interface PortsData {
-  ports: PortEntry[];
-  grouped: Record<string, Record<string, PortEntry[]>>;
-  updatedAt: number;
-  age: number | null;
-}
-
-/** Duplicated shape on purpose: mirrors lib/state/notifier-store.ts's NotificationEvent. */
-export interface RtNotificationEvent {
-  id: string; title: string; message: string; url?: string;
-  category: string; timestamp: number; pids?: number[];
-}
-
-export interface ReposData {
-  repos: Record<string, { path: string; worktrees: Array<{ path: string; branch: string }> }>;
-  watched: string[];
-}
+export type ReadyHeldRepo = z.infer<typeof S.ReadyHeldRepoSchema>;
+export type TrayStatusData = z.infer<typeof S.TrayStatusDataSchema>;
+export type PortEntry = z.infer<typeof S.PortEntrySchema>;
+export type PortsData = z.infer<typeof S.PortsDataSchema>;
+export type RtNotificationEvent = z.infer<typeof S.RtNotificationEventSchema>;
+export type ReposData = z.infer<typeof S.ReposDataSchema>;
 
 export interface TccCheckData {
   blocked: Array<{ name: string; path: string; error: string }>;
@@ -1011,7 +762,7 @@ export interface Commands {
    * merged bag of every key — that makes a caller narrowing on the wrong
    * scope's fields a compile error instead of a silent `undefined`. Every
    * key optional (present only when set). Not a general secrets export —
-   * extend a whitelist here, in lockstep with
+   * extend a whitelist in command-schemas.ts, in lockstep with
    * lib/daemon/handlers/secrets.ts and (for "extension")
    * extensions/vscode/rt-context/src/secrets.ts, if a consumer needs another
    * key.
@@ -1023,20 +774,7 @@ export interface Commands {
    * socket callers must read ~/.mattstack/rt/api-token themselves. The gate
    * applies identically to every scope.
    */
-  "secrets:read": {
-    payload: { token?: string; scope?: "extension" | "deck" | "board" };
-    data:
-      | { linearApiKey?: string; gitlabToken?: string }
-      | { cfApiToken?: string; cfZoneId?: string }
-      | {
-          slackToken?: string;
-          slackClientSecret?: string;
-          slackSigningSecret?: string;
-          gitlabToken?: string;
-          switchboardToken?: string;
-          switchboardAdminToken?: string;
-        };
-  };
+  "secrets:read": { payload: z.infer<typeof S.secretsReadPayloadSchema>; data: z.infer<typeof S.secretsReadDataSchema> };
   /**
    * Socket-only, never in the daemon's REST routes: the Fast Browser
    * launcher's per-fill read of one saved dev login. The daemon compares the
@@ -1064,25 +802,25 @@ export interface Commands {
     payload: { token?: string; client?: string; pid?: number; origin?: string };
     data: { origin: string; fields: { email: string; password: string } } | { none: true };
   };
-  "events:emit": { payload: { topic: string; payload?: unknown }; data: { id: number } };
+  "events:emit": { payload: z.infer<typeof S.eventsEmitPayloadSchema>; data: z.infer<typeof S.eventsEmitDataSchema> };
   "events:wait": { payload: { pattern: string; after?: number; waitMs?: number }; data: { events: EventsBusEvent[]; cursor: number } };
-  "events:list": { payload: { pattern: string; after?: number; limit?: number }; data: { events: EventsBusEvent[]; cursor: number } };
+  "events:list": { payload: z.infer<typeof S.eventsListPayloadSchema>; data: z.infer<typeof S.eventsListDataSchema> };
   "events:head": { payload: Record<string, never>; data: { cursor: number } };
-  "runs:list": { payload: { repo?: string; includeTests?: boolean }; data: { runs: RunSummary[] } };
-  "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
+  "runs:list": { payload: z.infer<typeof S.runsListPayloadSchema>; data: z.infer<typeof S.runsListDataSchema> };
+  "runs:get": { payload: z.infer<typeof S.runsGetPayloadSchema>; data: z.infer<typeof S.runsGetDataSchema> };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
   "runs:hold": { payload: { runId: string; repo?: string }; data: { held: true; stage: string; already?: true } };
   /** The run, the stage to go back to and the commit come from the gate row, never the caller. */
   "runs:redo": { payload: { gate: string; note: string }; data: { runId: string; repo: string; to: string; headCommit: string | null } };
   "runs:evidence": { payload: { runId: string; repo?: string } & ({ key: EvidenceImageKey | EvidenceTextKey } | EvidenceAddress); data: { mime: string; base64?: string; text?: string } };
-  "usage:mrs": { payload: { days?: number; repo?: string }; data: UsageMrsData };
+  "usage:mrs": { payload: z.infer<typeof S.usageMrsPayloadSchema>; data: z.infer<typeof S.usageMrsDataSchema> };
   /** `data` is null when no MR has that key. */
-  "usage:mr": { payload: { mrKey: string }; data: UsageMrData | null };
-  "usage:run": { payload: { runId: string }; data: UsageRunData | null };
+  "usage:mr": { payload: z.infer<typeof S.usageMrPayloadSchema>; data: z.infer<typeof S.usageMrDataSchema> };
+  "usage:run": { payload: z.infer<typeof S.usageRunPayloadSchema>; data: z.infer<typeof S.usageRunDataSchema> };
   /** Socket only: this carries prompt text, so it has no REST route. */
   "usage:activity": { payload: UsageActivityQuery; data: UsageActivityData | null };
-  "usage:trends": { payload: { days: number; repo?: string }; data: UsageTrendsData };
-  "usage:status": { payload: Record<string, never>; data: UsageStatusData };
+  "usage:trends": { payload: z.infer<typeof S.usageTrendsPayloadSchema>; data: z.infer<typeof S.usageTrendsDataSchema> };
+  "usage:status": { payload: z.infer<typeof S.usageStatusPayloadSchema>; data: z.infer<typeof S.usageStatusDataSchema> };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
   /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
@@ -1194,19 +932,19 @@ export interface Commands {
   "pane:attach-plan": { payload: { paneId: string; takeover?: boolean }; data: { argv: string[]; env: Record<string, string> } };
 
   // ─── R013/R016 ────────────────────────────────────────────────
-  "cache:read": { payload: { branches?: string[]; maxAgeMs?: number; repoIdentity?: string }; data: Record<string, BranchEnrichment> };
+  "cache:read": { payload: z.infer<typeof S.cacheReadPayloadSchema>; data: z.infer<typeof S.cacheReadDataSchema> };
   /** `source` ("cache"|"fresh"|"empty") rides alongside `data` on the wire, not nested under it. */
   "branch:enrich": { payload: { branch: string; repoPath?: string; remoteUrl?: string; repoIdentity?: string }; data: BranchEnrichment | null };
   /** Fire-and-forget kickoff; wire reply is `{ok, message}`, not `{ok,data}`. */
-  "cache:refresh": { payload: Record<string, never>; data: { message: string } };
+  "cache:refresh": { payload: z.infer<typeof S.cacheRefreshPayloadSchema>; data: z.infer<typeof S.cacheRefreshDataSchema> };
   "daemon:log-level": { payload: { level?: "trace" | "debug" | "info" | "warn" | "error" }; data: { level: string } };
   "ping": { payload: Record<string, never>; data: PingData };
   "status": { payload: Record<string, never>; data: StatusData };
-  "tray:status": { payload: Record<string, never>; data: TrayStatusData };
+  "tray:status": { payload: z.infer<typeof S.trayStatusPayloadSchema>; data: z.infer<typeof S.trayStatusDataSchema> };
   "tcc:check": { payload: Record<string, never>; data: TccCheckData };
-  "repos": { payload: Record<string, never>; data: ReposData };
-  "ports": { payload: { repo?: string; refresh?: boolean }; data: PortsData };
-  "notifications": { payload: Record<string, never>; data: RtNotificationEvent[] };
+  "repos": { payload: z.infer<typeof S.reposPayloadSchema>; data: z.infer<typeof S.reposDataSchema> };
+  "ports": { payload: z.infer<typeof S.portsPayloadSchema>; data: z.infer<typeof S.portsDataSchema> };
+  "notifications": { payload: z.infer<typeof S.notificationsPayloadSchema>; data: z.infer<typeof S.notificationsDataSchema> };
 
   "discussions:refresh": { payload: { repoName: string; iid: number }; data: DiscussionsWriteData };
   "discussions:resolve": { payload: { repoName: string; iid: number; discussionId: string; resolved?: boolean }; data: DiscussionsWriteData };
@@ -1373,9 +1111,9 @@ export interface Commands {
 
   // ─── Reconciler (executor state; lib/daemon/reconciler.ts) ───────────────
   /** Read-only: the last sweep's snapshot. Never triggers a sweep itself. */
-  "reconciler:status": { payload: Record<string, never>; data: ReconcilerStatus };
+  "reconciler:status": { payload: z.infer<typeof S.reconcilerStatusPayloadSchema>; data: z.infer<typeof S.reconcilerStatusDataSchema> };
   /** Manual override: marks the agent cleared and closes its open/parked gates (reconciler.ts's clear()). */
-  "reconciler:clear": { payload: { agentId: string }; data: { cleared: true } };
+  "reconciler:clear": { payload: z.infer<typeof S.reconcilerClearPayloadSchema>; data: z.infer<typeof S.reconcilerClearDataSchema> };
 
   // ─── Gate facility (BOARD-20/21) ─────────────────────────────────────────
   "gate:open": { payload: { /** UUID the caller minted so the question can name its own gate; omit it to let the daemon mint one. */ id?: string; subject: string; kind: string; questions: GateQuestion[]; meta?: Record<string, unknown>; agent?: string; pane?: string; nudge?: { session: string }; context?: string; origin?: GateOrigin }; data: { id: string; supersededId: string | null } };
@@ -1511,15 +1249,20 @@ export interface Commands {
   /** Wire reply on success is always `{ok:true, repaired}` (no `data`
    *  wrapper) — `data` here documents the extra field the same way PingData
    *  does for `ping`, not the literal wire nesting (R3). */
-  "hooks:repair": { payload: { repo: string }; data: { repaired: boolean } };
+  "hooks:repair": { payload: z.infer<typeof S.hooksRepairPayloadSchema>; data: z.infer<typeof S.hooksRepairDataSchema> };
   "hooks:watch": { payload: { repo: string }; data: Record<string, never> };
 
   "sdm:catalog": { payload: { refresh?: boolean }; data: unknown };
   "sdm:snapshot": { payload: { force?: boolean }; data: unknown };
-  "sdm:recents": { payload: Record<string, never>; data: unknown };
-  "sdm:reconnect": { payload: { key: string }; data: unknown };
+  /** Wire reply is flat, `{ok:true, health, recents}` (no `data` wrapper);
+   *  `data` documents the extra fields the way `hooks:repair` does. */
+  "sdm:recents": { payload: z.infer<typeof S.sdmRecentsPayloadSchema>; data: z.infer<typeof S.sdmRecentsDataSchema> };
+  /** Wire reply is flat, `{ok:true, address, verifyAttempts}`; a failure may
+   *  carry `outcome` and `resource` beside or instead of `error`
+   *  (`SdmReconnectReplySchema` models every branch). */
+  "sdm:reconnect": { payload: z.infer<typeof S.sdmReconnectPayloadSchema>; data: z.infer<typeof S.sdmReconnectDataSchema> };
 
-  "system-processes": { payload: Record<string, never>; data: unknown };
+  "system-processes": { payload: z.infer<typeof S.systemProcessesPayloadSchema>; data: z.infer<typeof S.SystemProcessesDataSchema> };
 
   "worktree:provision-check": { payload: { repoName: string; ticket?: string; ticketTitle?: string; branch?: string }; data: WorktreeProvisionCheckData };
   "worktree:provision": { payload: { repoName: string; branch?: string; ticket?: string; ticketTitle?: string; disposal?: "job" | "merge"; owner?: string }; data: WorktreeProvisionData };
