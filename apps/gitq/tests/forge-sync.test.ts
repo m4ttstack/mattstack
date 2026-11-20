@@ -685,6 +685,53 @@ describe('ForgeSync.publishStack', () => {
     expect(node.mrUrl).toBeTruthy();
   });
 
+  test('links an open MR the branch already has instead of opening a second one', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    const existing = mockPR({ iid: 7, sourceBranch: 'feat/a', targetBranch: 'main', title: 'Existing work' });
+
+    let created = 0;
+    const provider: GitProvider = {
+      ...publishableProvider([]),
+      fetchPullRequestByBranch: async (_project, branch) => (branch === 'feat/a' ? existing : null),
+      createPullRequest: async () => {
+        created++;
+        throw new Error('must not create');
+      },
+    };
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(created).toBe(0);
+    expect(result.results).toEqual([
+      { branch: 'feat/a', success: true, action: 'linked', changes: [], mrIid: 7, mrUrl: existing.webUrl!, targetBranch: 'main' },
+    ]);
+    const node = StackManager.findNode(result.updatedStack, 'feat/a')!;
+    expect(node).toMatchObject({ mrIid: 7, mrUrl: existing.webUrl, mrTitle: 'Existing work', status: 'synced' });
+  });
+
+  test('retargets a linked MR that points somewhere other than its parent', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.updateNode(stack, 'feat/a', { mrIid: 5, status: 'synced' });
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    const parentMr = mockPR({ iid: 5, sourceBranch: 'feat/a', targetBranch: 'main' });
+    const existing = mockPR({ iid: 8, sourceBranch: 'feat/b', targetBranch: 'main' });
+
+    const updates: Array<{ iid: number; targetBranch?: string }> = [];
+    const provider: GitProvider = {
+      ...publishableProvider([parentMr]),
+      fetchPullRequestByBranch: async (_project, branch) => (branch === 'feat/b' ? existing : null),
+      updatePullRequest: async (_project, iid, input) => {
+        updates.push({ iid, targetBranch: input.targetBranch });
+        return existing;
+      },
+    };
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(updates).toEqual([{ iid: 8, targetBranch: 'feat/a' }]);
+    expect(result.results[0]).toMatchObject({ branch: 'feat/b', action: 'linked', changes: ['target'] });
+  });
+
   test('skips nodes that already have an MR', async () => {
     let stack = StackManager.createStack('auth', 'main');
     stack = StackManager.addNode(stack, 'feat/a', 'main');

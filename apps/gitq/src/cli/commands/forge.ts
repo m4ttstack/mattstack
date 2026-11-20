@@ -79,15 +79,16 @@ export async function parseMrMeta(path: string): Promise<Record<string, { title?
  * Says which of the two things happened — a new MR, or an edit to one that was
  * already there — since both now come back from the same command.
  */
-function formatPublishResult(r: PublishNodeResult): string {
+export function formatPublishResult(r: PublishNodeResult): string {
   if (!r.success) return `${r.branch}: FAILED (${r.error})`;
 
-  if (r.action === 'updated') {
+  if (r.action === 'updated' || r.action === 'linked') {
     const changes = (r.changes ?? []).map((c) =>
       c === 'target' ? `retargeted to ${r.targetBranch}` : 'title/description',
     );
     const detail = changes.length > 0 ? ` (${changes.join(', ')})` : '';
-    return `${r.branch}: updated${detail} ${r.mrUrl}`;
+    const verb = r.action === 'linked' ? 'linked existing' : 'updated';
+    return `${r.branch}: ${verb}${detail} ${r.mrUrl}`;
   }
 
   return `${r.branch}: created ${r.mrUrl}`;

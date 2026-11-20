@@ -50,9 +50,12 @@ export interface PublishNodeResult {
   mrIid?: number;
   mrUrl?: string | undefined;
   error?: string;
-  /** Whether the MR was opened by this run or was already there and got updated. */
-  action: 'created' | 'updated';
-  /** Which parts of an existing MR changed. Only set when `action` is 'updated'. */
+  /**
+   * Whether the MR was opened by this run, was already there and got updated,
+   * or was an open MR of the branch that gitq did not know about and adopted.
+   */
+  action: 'created' | 'updated' | 'linked';
+  /** Which parts of an existing MR changed. Set when `action` is 'updated' or 'linked'. */
   changes?: PublishChange[];
   /** The branch the MR targets after this run: the nearest live ancestor of the node's parent. */
   targetBranch?: string;
@@ -398,6 +401,63 @@ export const ForgeSync = {
 
       if (node.mrIid === null) {
         if (node.status !== 'local-only') continue;
+
+        // A branch can already have an open MR gitq never recorded (tracked
+        // after the MR was opened). Creating another would be a duplicate.
+        let existing: PullRequest | null;
+        try {
+          existing = await provider.fetchPullRequestByBranch(projectPath, node.branch, 'opened');
+        } catch (err) {
+          results.push({
+            branch: node.branch,
+            success: false,
+            action: 'created',
+            error: `could not check for an open ${changeNoun(provider.providerName)} of ${node.branch}: ${toErrorMessage(err)}`,
+            targetBranch,
+          });
+          break;
+        }
+        if (existing) {
+          updatedStack = StackManager.updateNode(updatedStack, node.branch, {
+            mrIid: existing.iid,
+            mrUrl: existing.webUrl,
+            mrTitle: existing.title,
+            status: 'synced',
+          });
+          const changes: PublishChange[] = [];
+          try {
+            if (existing.targetBranch !== targetBranch) {
+              updatedStack = await ForgeSync.retargetMR(provider, updatedStack, node.branch, projectPath);
+              changes.push('target');
+            }
+            if (meta) {
+              await provider.updatePullRequest(projectPath, existing.iid, meta);
+              changes.push('metadata');
+            }
+          } catch (err) {
+            results.push({
+              branch: node.branch,
+              success: false,
+              action: 'linked',
+              changes,
+              mrIid: existing.iid,
+              mrUrl: existing.webUrl ?? undefined,
+              error: toErrorMessage(err),
+              targetBranch,
+            });
+            continue;
+          }
+          results.push({
+            branch: node.branch,
+            success: true,
+            action: 'linked',
+            changes,
+            mrIid: existing.iid,
+            mrUrl: existing.webUrl ?? undefined,
+            targetBranch,
+          });
+          continue;
+        }
 
         try {
           if (cwd) {
