@@ -16,29 +16,34 @@ function app() {
   return createApiApp({ handleCommand: async () => ({ ok: true }), log: noopLog, apiToken: "token", port: () => 9401 });
 }
 
-/** `METHOD honoPath` for every route handler, leaving out `app.use` middleware. */
+/** `METHOD honoPath` for every route handler, leaving out the one `app.use("*")` middleware. */
 function registered(): string[] {
   return app()
-    .routes.filter((r) => r.method !== "ALL")
+    .routes.filter((r) => !(r.method === "ALL" && (r.path === "*" || r.path === "/*")))
     .map((r) => `${r.method} ${r.path}`);
 }
 
-/** Wildcard routes cover parameterized paths; exact routes match only themselves. */
-function covers(route: string, described: string): boolean {
-  const [method, path] = route.split(" ") as [string, string];
-  const [dMethod, dPath] = described.split(" ") as [string, string];
-  if (method !== dMethod) return false;
-  if (!path.endsWith("/*")) return path === dPath;
-  const prefix = path.slice(0, -1);
-  return dPath.startsWith(prefix) && dPath.length > prefix.length;
-}
+const isWildcard = (route: string) => route.endsWith("/*");
+const methodOf = (key: string) => key.slice(0, key.indexOf(" "));
+const pathOf = (key: string) => key.slice(key.indexOf(" ") + 1);
 
+/**
+ * An exact route needs its own entry. A wildcard needs at least one
+ * documented path that it is the longest-prefix wildcard for, so a broad
+ * hand-added `/api/*` cannot borrow the paths `/api/runs/*` already covers.
+ */
 function uncovered(routes: string[], described: string[]): string[] {
-  const exact = new Set(routes.filter((r) => !r.endsWith("/*")));
-  return routes.filter((route) => {
-    if (exact.has(route)) return !described.includes(route);
-    return !described.some((d) => !exact.has(d) && covers(route, d));
-  });
+  const exact = new Set(routes.filter((r) => !isWildcard(r)));
+  const wildcards = routes.filter(isWildcard);
+  const owner = (d: string): string | undefined =>
+    wildcards
+      .filter((w) => {
+        const prefix = pathOf(w).slice(0, -1);
+        return methodOf(w) === methodOf(d) && pathOf(d).startsWith(prefix) && pathOf(d).length > prefix.length;
+      })
+      .sort((a, b) => b.length - a.length)[0];
+  const owned = new Set(described.filter((d) => !exact.has(d)).map(owner));
+  return routes.filter((route) => (isWildcard(route) ? !owned.has(route) : !described.includes(route)));
 }
 
 describe("API route coverage", () => {

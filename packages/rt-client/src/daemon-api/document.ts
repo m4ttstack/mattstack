@@ -13,7 +13,7 @@ const FAILURE = FailureEnvelopeSchema.meta({ id: "Failure" });
 
 const NO_STORE_HEADERS = {
   "Cache-Control": {
-    description: "`no-store` on every reply past the token gate, refusals and 500s included.",
+    description: "`no-store`. This route's refusals and its 500 send it too.",
     schema: { type: "string", const: "no-store" },
   },
 } as const;
@@ -22,14 +22,23 @@ const CLIENT_HEADER = z.object({
   "X-RT-Client": z
     .string()
     .optional()
-    .describe("Names the caller (`tray`, `deck`). The daemon passes it to the command as `_client`."),
+    .describe(
+      "Names the caller in the daemon's command log (rt-client sends `rt-client/<pid>`). Rides on the command payload as `_client`; `GET /api/cache?repoIdentity=` ignores it.",
+    ),
 });
 
-const ENCODE_NOTE =
-  "Percent-encode it with `encodeURIComponent`: the typed client puts it into the path as given. An encoded repo identity resolves the same as the bare one.";
+const ENCODE_NOTE = "Percent-encode it with `encodeURIComponent`: the typed client puts it into the path as given.";
+const REPO_NOTE = " An encoded repo identity resolves the same as the bare one.";
 
 function encodedParams(params: z.ZodObject<z.ZodRawShape>): z.ZodObject<z.ZodRawShape> {
-  return z.object(Object.fromEntries(Object.entries(params.shape).map(([name, schema]) => [name, (schema as z.ZodType).describe(ENCODE_NOTE)])));
+  return z.object(
+    Object.fromEntries(
+      Object.entries(params.shape).map(([name, schema]) => [
+        name,
+        (schema as z.ZodType).describe(name === "repo" ? ENCODE_NOTE + REPO_NOTE : ENCODE_NOTE),
+      ]),
+    ),
+  );
 }
 
 function description(): string {

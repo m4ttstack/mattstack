@@ -136,7 +136,7 @@ describe("startApiServer — binds via resolveApiPort() (S043 caller-side wiring
     server = undefined;
   });
 
-  test("binds the port resolveApiPort() picks, not the hardcoded 9401 default", async () => {
+  test("binds the port the RT_API_PORT override names, not the hardcoded 9401 default", async () => {
     const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
     server = await startEphemeralApiServer({ handleCommand: async () => ({ ok: true }), log });
     expect(server.port).toBeGreaterThan(0);
