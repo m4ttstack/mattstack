@@ -7,6 +7,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { activeLaunchdLabel, resolveApiPort } from "../daemon-config.ts";
 import { DEV_MODE_TAG } from "../dev-mode.ts";
+import { setSetting, unsetSetting } from "../settings/write.ts";
 
 const WRAPPER_PATH = join(process.env.HOME!, ".local", "bin", "rt");
 
@@ -43,6 +44,18 @@ describe("resolveApiPort", () => {
     expect(resolveApiPort()).toBe(9401); // default setting value
     if (prev !== undefined) process.env.RT_API_PORT = prev;
     else delete process.env.RT_API_PORT;
+  });
+
+  test("the rt.apiPort setting wins over the default when the env is unset", () => {
+    const prev = process.env.RT_API_PORT;
+    delete process.env.RT_API_PORT;
+    setSetting("rt.apiPort", 12346, "user");
+    try {
+      expect(resolveApiPort()).toBe(12346);
+    } finally {
+      unsetSetting("rt.apiPort", "user");
+      if (prev !== undefined) process.env.RT_API_PORT = prev;
+    }
   });
 
   // R2: RT_API_PORT="0" is a deliberate override (bind an OS-assigned

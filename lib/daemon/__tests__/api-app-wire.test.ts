@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import type { Server } from "bun";
-import { startApiServer, type ApiServerDeps } from "../api-server.ts";
+import type { ApiServerDeps } from "../api-server.ts";
+import { startEphemeralApiServer } from "./ephemeral-api-server.ts";
 import { getApiToken } from "../api-auth.ts";
 import { deriveFailure } from "../failure.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
@@ -9,7 +10,6 @@ const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => 
 
 let server: Server<any> | undefined;
 let port = 0;
-let previousPortEnv: string | undefined;
 let token = "";
 let calls: Array<{ cmd: string; payload: any }> = [];
 let reply: (cmd: string, payload: any) => Promise<any> = async () => ({ ok: true, data: "stub" });
@@ -20,17 +20,13 @@ const handleCommand: ApiServerDeps["handleCommand"] = async (cmd, payload) => {
 };
 
 beforeAll(async () => {
-  previousPortEnv = process.env.RT_API_PORT;
-  process.env.RT_API_PORT = "0";
-  server = await startApiServer({ handleCommand, log: noopLog });
+  server = await startEphemeralApiServer({ handleCommand, log: noopLog });
   port = server.port!;
   token = getApiToken();
 });
 
 afterAll(() => {
   server?.stop(true);
-  if (previousPortEnv === undefined) delete process.env.RT_API_PORT;
-  else process.env.RT_API_PORT = previousPortEnv;
 });
 
 beforeEach(() => {

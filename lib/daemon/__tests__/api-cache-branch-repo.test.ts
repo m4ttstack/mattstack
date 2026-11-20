@@ -5,10 +5,10 @@
  */
 import { describe, test, expect } from "bun:test";
 import type { Server } from "bun";
-import { startApiServer, type ApiServerDeps } from "../api-server.ts";
+import type { ApiServerDeps } from "../api-server.ts";
 import { createCacheHandlers } from "../handlers/cache.ts";
 import { composeKey } from "../../state/branch-cache.ts";
-import { setSetting, unsetSetting } from "../../settings/write.ts";
+import { startEphemeralApiServer } from "./ephemeral-api-server.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 
 const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
@@ -16,27 +16,16 @@ const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => 
 const REPO_A = "remote:github.com%2Fo%2Fa";
 const REPO_B = "remote:github.com%2Fo%2Fb";
 
-async function ephemeralPort(): Promise<number> {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-  const port = probe.port;
-  probe.stop(true);
-  if (port === undefined) throw new Error("Bun.serve did not report a bound port");
-  return port;
-}
-
 async function withApiServer(
   handleCommand: ApiServerDeps["handleCommand"],
   run: (port: number) => Promise<void>,
 ): Promise<void> {
-  const port = await ephemeralPort();
-  setSetting("rt.apiPort", port, "user");
   let server: Server<any> | undefined;
   try {
-    server = await startApiServer({ handleCommand, log: noopLog });
-    await run(port);
+    server = await startEphemeralApiServer({ handleCommand, log: noopLog });
+    await run(server.port!);
   } finally {
     server?.stop(true);
-    unsetSetting("rt.apiPort", "user");
   }
 }
 

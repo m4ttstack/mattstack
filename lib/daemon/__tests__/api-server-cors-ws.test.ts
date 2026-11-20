@@ -1,8 +1,8 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import type { Server } from "bun";
-import { buildCorsHeaders, startApiServer } from "../api-server.ts";
+import { buildCorsHeaders } from "../api-server.ts";
 import { getApiToken } from "../api-auth.ts";
-import { setSetting, unsetSetting } from "../../settings/write.ts";
+import { startEphemeralApiServer } from "./ephemeral-api-server.ts";
 
 describe("buildCorsHeaders", () => {
   test("no Origin header: no Access-Control-Allow-Origin is set (non-browser request, CORS is irrelevant)", () => {
@@ -34,16 +34,12 @@ describe("token-authenticated browser preflight (S-C1: off-allowlist Origin, X-R
   afterEach(() => {
     server?.stop(true);
     server = undefined;
-    unsetSetting("rt.apiPort", "user");
   });
 
   test("an OPTIONS preflight requesting X-RT-Token from an off-allowlist Origin still gets Access-Control-Allow-Origin, so the browser proceeds to the real token-bearing request", async () => {
-    const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-    const port = probe.port;
-    probe.stop(true);
-    setSetting("rt.apiPort", port, "user");
     const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
-    server = await startApiServer({ handleCommand: async () => ({ ok: true }), log });
+    server = await startEphemeralApiServer({ handleCommand: async () => ({ ok: true }), log });
+    const port = server.port!;
 
     const apiToken = getApiToken();
     const origin = "http://off-allowlist.example";
@@ -74,17 +70,13 @@ describe("advertised URLs use the resolved bind port, not the compile-time defau
   afterEach(() => {
     server?.stop(true);
     server = undefined;
-    unsetSetting("rt.apiPort", "user");
   });
 
   test("GET / and a 404 both report the actually-bound port when it differs from 9401", async () => {
-    const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-    const port = probe.port;
-    probe.stop(true);
-    expect(port).not.toBe(9401);
-    setSetting("rt.apiPort", port, "user");
     const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
-    server = await startApiServer({ handleCommand: async () => ({ ok: true }), log });
+    server = await startEphemeralApiServer({ handleCommand: async () => ({ ok: true }), log });
+    const port = server.port!;
+    expect(port).not.toBe(9401);
 
     const root = await (await fetch(`http://127.0.0.1:${port}/`)).json() as { docs: string; websocket: string };
     expect(root.docs).toBe(`http://localhost:${port}/docs`);
@@ -95,13 +87,10 @@ describe("advertised URLs use the resolved bind port, not the compile-time defau
   });
 
   test("a POST over 1 MiB to a REST route gets 413 with the CORS headers and never reaches handleCommand", async () => {
-    const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-    const port = probe.port;
-    probe.stop(true);
-    setSetting("rt.apiPort", port, "user");
     const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
     const calls: string[] = [];
-    server = await startApiServer({ handleCommand: async (cmd) => { calls.push(cmd); return { ok: true }; }, log });
+    server = await startEphemeralApiServer({ handleCommand: async (cmd) => { calls.push(cmd); return { ok: true }; }, log });
+    const port = server.port!;
 
     const origin = "http://off-allowlist.example";
     const res = await fetch(`http://127.0.0.1:${port}/api/refresh`, {
