@@ -21,13 +21,6 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
   }
 }
 
-function freePort(): number {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = srv.port;
-  srv.stop(true);
-  if (!port) throw new Error("failed to allocate a free port");
-  return port;
-}
 
 let apiPort = 0;
 const children: Array<ReturnType<typeof Bun.spawn>> = [];
@@ -66,14 +59,14 @@ describe("rt reconciler (e2e)", () => {
   let daemon: ReturnType<typeof runRt>;
 
   beforeAll(async () => {
-    apiPort = freePort();
+    apiPort = 0;
     ({ path: home, cleanup } = createTestHome());
     daemon = runRt(["--daemon"], home);
     await waitForSocket(join(home, ".mattstack", "rt", "rt.sock"));
     if (daemon.exitCode !== null) {
       throw new Error(
         `daemon process exited (code ${daemon.exitCode}) right after creating its socket -- ` +
-          `port ${apiPort} collision or daemon boot crash; check the daemon's stderr.`,
+          `daemon boot crash; check the daemon's stderr.`,
       );
     }
   });

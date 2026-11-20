@@ -11,14 +11,6 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
   }
 }
 
-/** Grab a free TCP port by binding port 0 and releasing it. */
-function freePort(): number {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = srv.port;
-  srv.stop(true);
-  if (!port) throw new Error("failed to allocate a free port");
-  return port;
-}
 
 // Assigned in beforeAll; every spawned rt process (daemon and CLI) shares it.
 let apiPort = 0;
@@ -65,14 +57,14 @@ describe("rt events (bus e2e)", () => {
     // The spawned foreground daemon binds its HTTP/WS server on RT_API_PORT
     // (RT-45): a per-run free port, so this suite is hermetic and never
     // collides with a live local rt daemon on the default 9401.
-    apiPort = freePort();
+    apiPort = 0;
     ({ path: home, cleanup } = createTestHome());
     daemon = runRt(["--daemon"], home);
     await waitForSocket(join(home, ".mattstack", "rt", "rt.sock"));
     if (daemon.exitCode !== null) {
       throw new Error(
         `daemon process exited (code ${daemon.exitCode}) right after creating its socket — ` +
-          `port ${apiPort} collision or daemon boot crash; check the daemon's stderr.`,
+          `daemon boot crash; check the daemon's stderr.`,
       );
     }
   });

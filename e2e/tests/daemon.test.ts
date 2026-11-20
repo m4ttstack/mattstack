@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
-import { createTestHome, rt, RT_BINARY } from "../harness.ts";
+import { createTestHome, daemonApiPort, rt, RT_BINARY } from "../harness.ts";
 
 async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -27,15 +27,6 @@ function daemonLogHas(rtDir: string, text: string): boolean {
   return readdirSync(dir)
     .filter((name) => name.startsWith("daemon"))
     .some((name) => readFileSync(join(dir, name), "utf8").includes(text));
-}
-
-/** Grab a free TCP port by binding port 0 and releasing it. */
-function freePort(): number {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = srv.port;
-  srv.stop(true);
-  if (!port) throw new Error("failed to allocate a free port");
-  return port;
 }
 
 describe("fatal boot", () => {
@@ -151,7 +142,7 @@ describe("fatal boot", () => {
       mkdirSync(rtDir, { recursive: true });
       writeFileSync(join(rtDir, "events.db"), "not a sqlite file at all");
 
-      const apiPort = freePort();
+      const apiPort = 0;
       daemon = Bun.spawn([RT_BINARY, "--daemon"], {
         env: {
           HOME: home,
@@ -247,17 +238,8 @@ describe("health surfaces", () => {
   let apiPort = 0;
   let daemon: ReturnType<typeof Bun.spawn>;
 
-  /** Grab a free TCP port by binding port 0 and releasing it. */
-  function freePort(): number {
-    const srv = Bun.serve({ port: 0, fetch: () => new Response("") });
-    const port = srv.port;
-    srv.stop(true);
-    if (!port) throw new Error("failed to allocate a free port");
-    return port;
-  }
-
   beforeAll(async () => {
-    apiPort = freePort();
+    apiPort = 0;
     ({ path: home, cleanup } = createTestHome());
     // `rt daemon status` short-circuits to "not installed" before it ever
     // reaches a liveness classification, install first.
@@ -278,10 +260,10 @@ describe("health surfaces", () => {
     await waitForSocket(join(home, ".mattstack", "rt", "rt.sock"));
     if (daemon.exitCode !== null) {
       throw new Error(
-        `daemon process exited (code ${daemon.exitCode}) right after creating its socket ` +
-          `(port ${apiPort} collision or daemon boot crash; check the daemon's stderr).`,
+        `daemon process exited (code ${daemon.exitCode}) right after creating its socket; check the daemon's stderr.`,
       );
     }
+    apiPort = await daemonApiPort(home);
   }, 60_000);
 
   afterAll(async () => {

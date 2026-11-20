@@ -1,8 +1,39 @@
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
 export const RT_BINARY = process.env.RT_BINARY || join(import.meta.dir, "..", "dist", "rt");
+
+/**
+ * A daemon started with RT_API_PORT=0 binds a port the OS picks, so no test
+ * races another process for a probed port. The daemon reports that port only
+ * in its "api server listening" log line.
+ */
+export async function daemonApiPort(home: string, timeoutMs = 15_000): Promise<number> {
+  const logs = join(home, ".mattstack", "rt", "logs");
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const port = existsSync(logs) ? listeningPort(logs) : null;
+    if (port !== null) return port;
+    if (Date.now() > deadline) throw new Error(`the daemon under ${home} never logged its API port`);
+    await Bun.sleep(100);
+  }
+}
+
+function listeningPort(logs: string): number | null {
+  for (const name of readdirSync(logs).filter((n) => n.startsWith("daemon"))) {
+    for (const line of readFileSync(join(logs, name), "utf8").split("\n")) {
+      if (!line.includes("api server listening")) continue;
+      try {
+        const port = (JSON.parse(line) as { port?: unknown }).port;
+        if (typeof port === "number" && port > 0) return port;
+      } catch {
+        // A line still being written is not JSON yet; the next poll reads it whole.
+      }
+    }
+  }
+  return null;
+}
 
 interface RunResult {
   stdout: string;
