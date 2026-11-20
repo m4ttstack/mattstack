@@ -155,6 +155,8 @@ describe("REST wire behaviour", () => {
 
     const gated = await hit("/api/secrets", { method: "HEAD" });
     expect(gated.status).toBe(401);
+    expect(headerNames(gated)).toEqual(HEAD_HEADERS);
+    expect(gated.headers.get("content-length")).toBe(byteLength({ ok: false, error: "unauthorized" }));
     expect(calls).toEqual([]);
   });
 
