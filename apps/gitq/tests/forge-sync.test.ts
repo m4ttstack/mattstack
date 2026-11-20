@@ -693,7 +693,7 @@ describe('ForgeSync.publishStack', () => {
     let created = 0;
     const provider: GitProvider = {
       ...publishableProvider([]),
-      fetchPullRequestByBranch: async (_project, branch) => (branch === 'feat/a' ? existing : null),
+      fetchPullRequestsByBranches: async (_project, branches) => new Map(branches.map((b) => [b, b === 'feat/a' ? existing : null])),
       createPullRequest: async () => {
         created++;
         throw new Error('must not create');
@@ -720,7 +720,7 @@ describe('ForgeSync.publishStack', () => {
     const updates: Array<{ iid: number; targetBranch?: string }> = [];
     const provider: GitProvider = {
       ...publishableProvider([parentMr]),
-      fetchPullRequestByBranch: async (_project, branch) => (branch === 'feat/b' ? existing : null),
+      fetchPullRequestsByBranches: async (_project, branches) => new Map(branches.map((b) => [b, b === 'feat/b' ? existing : null])),
       updatePullRequest: async (_project, iid, input) => {
         updates.push({ iid, targetBranch: input.targetBranch });
         return existing;
@@ -730,6 +730,64 @@ describe('ForgeSync.publishStack', () => {
 
     expect(updates).toEqual([{ iid: 8, targetBranch: 'feat/a' }]);
     expect(result.results[0]).toMatchObject({ branch: 'feat/b', action: 'linked', changes: ['target'] });
+  });
+
+  test('a failed MR lookup stops publish before anything is pushed or created', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    let created = 0;
+    const provider: GitProvider = {
+      ...publishableProvider([]),
+      fetchPullRequestsByBranches: async () => {
+        throw new Error('502 Bad Gateway');
+      },
+      createPullRequest: async () => {
+        created++;
+        throw new Error('must not create');
+      },
+    };
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(created).toBe(0);
+    expect(result.results).toEqual([
+      expect.objectContaining({ branch: 'feat/a', success: false, error: expect.stringContaining('502 Bad Gateway') }),
+    ]);
+  });
+
+  test('an incomplete MR lookup for a branch stops publish at that branch', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    let created = 0;
+    const provider: GitProvider = {
+      ...publishableProvider([]),
+      fetchPullRequestsByBranches: async (_project, branches, _state, options) => {
+        options?.onWarning?.({ source: 'fill', message: 'fill failed', branch: 'feat/a' } as never);
+        return new Map(branches.map((b) => [b, null]));
+      },
+      createPullRequest: async () => {
+        created++;
+        throw new Error('must not create');
+      },
+    };
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(created).toBe(0);
+    expect(result.results[0]).toMatchObject({ branch: 'feat/a', success: false, error: expect.stringContaining('fill failed') });
+  });
+
+  test('a fork PR on the same branch name is not linked', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    const forkPr = { ...mockPR({ iid: 9, sourceBranch: 'feat/a', targetBranch: 'main' }), sourceProjectPath: 'someone/fork' };
+    const base = publishableProvider([]);
+    const provider: GitProvider = {
+      ...base,
+      capabilities: { ...base.capabilities, canReportSourceProject: true },
+      fetchPullRequestsByBranches: async (_project, branches) => new Map(branches.map((b) => [b, b === 'feat/a' ? forkPr : null])),
+    };
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(result.results[0]).toMatchObject({ branch: 'feat/a', success: true, action: 'created' });
   });
 
   test('skips nodes that already have an MR', async () => {
