@@ -48,6 +48,12 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
       singleTemplate: { type: 'string' },
       multiHeader: { type: 'string' },
       multiItem: { type: 'string' },
+      ownerPrefix: {
+        type: 'string',
+        title: 'Code owner prefix',
+        description:
+          "Put before posts in other teams' code owner channels. {sections} names the sections asked; MR placeholders like {title} work too.",
+      },
       autoResolveIntervalMinutes: { type: 'number' },
       emoji: {
         type: 'object',
