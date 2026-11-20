@@ -95,7 +95,6 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
   }
 }
 
-
 let home = "";
 let cleanupHome: () => void = () => {};
 let apiPort = 0;

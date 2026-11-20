@@ -11,8 +11,7 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
   }
 }
 
-
-// Assigned in beforeAll; every spawned rt process (daemon and CLI) shares it.
+// Every spawned rt process (daemon and CLI) gets RT_API_PORT=0, so the daemon binds a port the OS picks.
 let apiPort = 0;
 // Every spawned child, so afterAll can reap waiters orphaned by a mid-test
 // assertion failure instead of leaving them to their own --timeout.
@@ -54,9 +53,8 @@ describe("rt events (bus e2e)", () => {
   let daemon: ReturnType<typeof runRt>;
 
   beforeAll(async () => {
-    // The spawned foreground daemon binds its HTTP/WS server on RT_API_PORT
-    // (RT-45): a per-run free port, so this suite is hermetic and never
-    // collides with a live local rt daemon on the default 9401.
+    // RT_API_PORT=0 (RT-45, RT-598): the daemon binds a port the OS picks, so
+    // this suite never collides with a live local rt daemon on 9401.
     apiPort = 0;
     ({ path: home, cleanup } = createTestHome());
     daemon = runRt(["--daemon"], home);

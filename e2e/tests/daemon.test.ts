@@ -230,8 +230,8 @@ describe("daemon", () => {
 // Additive coverage for the health snapshot (level/reasons + metrics +
 // eventLoop) that computeHealth (lib/daemon/health.ts) attaches to every
 // status-shaped surface, and for the heartbeat file the loop monitor writes
-// alongside it. A live foreground daemon on a per-run free RT_API_PORT, same
-// pattern as e2e/tests/events.test.ts and e2e/tests/endpoint.test.ts.
+// alongside it. A live foreground daemon on RT_API_PORT=0, with its bound port
+// read back from its log (daemonApiPort).
 describe("health surfaces", () => {
   let home: string;
   let cleanup: () => void;
@@ -263,7 +263,7 @@ describe("health surfaces", () => {
         `daemon process exited (code ${daemon.exitCode}) right after creating its socket; check the daemon's stderr.`,
       );
     }
-    apiPort = await daemonApiPort(home);
+    apiPort = await daemonApiPort(home, daemon.pid);
   }, 60_000);
 
   afterAll(async () => {

@@ -64,7 +64,14 @@ export const TRAY_SOCK_PATH = join(RT_DIR, "tray.sock");
  *  re-declaring the constant. RT_API_PORT overrides it so an isolated daemon
  *  (e2e spawns a real foreground one) never collides with a live local
  *  daemon's hardcoded port (RT-45). */
-export const API_PORT = Number(process.env.RT_API_PORT) || 9401;
+export const API_PORT = envApiPort() ?? 9401;
+
+/** RT_API_PORT="0" is a deliberate override (bind any free port), not "unset". */
+function envApiPort(): number | undefined {
+  if (process.env.RT_API_PORT === undefined) return undefined;
+  const port = Number(process.env.RT_API_PORT);
+  return Number.isNaN(port) ? undefined : port;
+}
 
 /**
  * Call-time API port resolution: RT_API_PORT env wins (e2e isolation, RT-45),
@@ -73,13 +80,8 @@ export const API_PORT = Number(process.env.RT_API_PORT) || 9401;
  * getSetting() reads the settings stores off ambient HOME.
  */
 export function resolveApiPort(): number {
-  // process.env.RT_API_PORT === "0" is a deliberate override, not "unset" —
-  // `Number(env) || ...` treats 0 as falsy and silently falls through to the
-  // setting/default instead of honoring it (R2).
-  if (process.env.RT_API_PORT !== undefined) {
-    const env = Number(process.env.RT_API_PORT);
-    if (!Number.isNaN(env)) return env;
-  }
+  const env = envApiPort();
+  if (env !== undefined) return env;
   try {
     return getSetting<number>("rt.apiPort").value || 9401;
   } catch {

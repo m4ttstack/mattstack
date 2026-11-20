@@ -117,7 +117,7 @@ describe("rt runs (read-side e2e)", () => {
           `daemon boot crash; check the daemon's stderr.`,
       );
     }
-    apiPort = await daemonApiPort(home);
+    apiPort = await daemonApiPort(home, daemon.pid);
   });
 
   afterAll(async () => {

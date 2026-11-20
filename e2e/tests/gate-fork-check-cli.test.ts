@@ -28,7 +28,6 @@ async function waitForSocket(sockPath: string, timeoutMs = 15_000): Promise<void
   }
 }
 
-
 let apiPort = 0;
 const children: Array<ReturnType<typeof Bun.spawn>> = [];
 
