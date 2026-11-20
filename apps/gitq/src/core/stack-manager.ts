@@ -123,12 +123,19 @@ export const StackManager = {
       );
     }
 
+    // Past every merged ancestor: a merged parent would send the child back
+    // through the tombstone path, which ignores the fork point set here.
+    let adopter = node.parent;
+    while (adopter !== stack.root && StackManager.findNode(stack, adopter)?.status === 'merged') {
+      adopter = StackManager.findNode(stack, adopter)!.parent;
+    }
+
     return {
       ...stack,
       nodes: stack.nodes
         .filter((n) => n.branch !== branch)
         .map((n) => (n.parent === branch
-          ? { ...n, parent: node.parent, forkPoint: n.forkPoint ?? node.lastKnownHead }
+          ? { ...n, parent: adopter, forkPoint: n.forkPoint ?? node.lastKnownHead }
           : n)),
     };
   },

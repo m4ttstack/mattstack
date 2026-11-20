@@ -140,7 +140,7 @@ Which branches gitq knows about. None of these touch git refs.
 - `gitq track <stackName> --root <branch>`: start tracking a new stack rooted at `<branch>`.
 - `gitq untrack <stackName>`: stop tracking a stack.
 - `gitq add <branch> --parent <branch> [--stack <name>]`: add a branch node to a stack under a parent.
-- `gitq remove <branch> [--stack <name>]`: remove a branch node from a stack. A merged branch hands its children to its own parent, and the next `gitq sync` restacks them; any other branch with children is refused, so reparent or remove those first.
+- `gitq remove <branch> [--stack <name>]`: remove a branch node from a stack. A merged branch hands its children to its nearest unmerged ancestor, and the next `gitq sync` restacks them; any other branch with children is refused, so reparent or remove those first.
 
 ### Cascade rebase
 
