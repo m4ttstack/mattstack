@@ -1,0 +1,23 @@
+---
+sidebar_position: 12
+title: Lore
+---
+
+# Lore
+
+Lore is an open file format for the rules a team expects every change to follow: the domain knowledge a linter can't check. Rules live in `.lore` files next to the code, and each rule says which files and changes it applies to.
+
+Its documentation lives on its own site: [m4ttstack.github.io/lore](https://m4ttstack.github.io/lore/).
+
+| Read | For |
+| --- | --- |
+| [Quick start](https://m4ttstack.github.io/lore/guide/quick-start) | Writing one rule and checking a change against it. |
+| [Format reference](https://m4ttstack.github.io/lore/reference/format/rule) | Every element and key of a `.lore` file. |
+| [CLI reference](https://m4ttstack.github.io/lore/reference/cli) | The `lore` command: `check`, `select`, `verdicts`, `audit` and `review`. |
+| [Specification](https://m4ttstack.github.io/lore/spec/introduction) | The rules every Lore tool follows. |
+
+## Lore and review rules
+
+A [rule selector](/skills/rule-selector) works with any rule files a tool can match against a diff. Lore files are one such format. `lore select` reads a diff and prints the rules that apply, with the verdict format a reviewer answers in.
+
+To turn an existing review guide into Lore rules, give an agent the `writing-lore` skill from the [Lore repository](https://github.com/m4ttstack/lore/tree/main/skills/writing-lore).
