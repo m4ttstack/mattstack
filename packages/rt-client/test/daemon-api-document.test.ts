@@ -51,4 +51,18 @@ describe("buildOpenApiDocument", () => {
     const ids = DAEMON_ROUTES.map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  test("every operation has exactly one tag, listed at the top level", () => {
+    const listed = (doc.tags ?? []).map((t) => t.name);
+    expect(new Set(listed).size).toBe(listed.length);
+    for (const tag of doc.tags ?? []) expect(tag.description, tag.name).toBeTruthy();
+    const used = new Set<string>();
+    for (const route of DAEMON_ROUTES) {
+      const tags = operation(route)?.tags as string[] | undefined;
+      expect(tags, route.id).toHaveLength(1);
+      expect(listed, route.id).toContain(tags![0]!);
+      used.add(tags![0]!);
+    }
+    expect([...used].sort()).toEqual([...listed].sort());
+  });
 });
