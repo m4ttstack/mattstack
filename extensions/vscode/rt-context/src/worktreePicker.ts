@@ -5,7 +5,9 @@ import { extractLinearId } from './branchParser';
 import { branchCache } from './cache';
 import { fetchBranchData, openLinearUrl } from './statusBar';
 import { listWorktrees, getGitApi, findWorkspaceRepo } from './git';
-import { pickerWorktrees } from './worktreeParse';
+import { fallbackWorktrees, fromPickerRows, pickerLayout, type OrderedWorktree } from './worktreeParse';
+import { daemonQuery } from './daemonClient';
+import type { WorktreePickerData } from '@mattstack/rt-client';
 import { resolveRepoForge } from './repoForge';
 import { forgeWords, ownBranchData } from './forge';
 
@@ -105,7 +107,11 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
   const repoForge = resolveRepoForge(repo);
   const w = forgeWords(repoForge.forge);
   const cwd = repo.rootUri.fsPath;
-  const worktrees = pickerWorktrees(await listWorktrees(cwd));
+  const fromRt = await daemonQuery(`/api/worktrees/picker?path=${encodeURIComponent(cwd)}`);
+  const grouped = !!fromRt?.ok;
+  const worktrees: OrderedWorktree[] = grouped
+    ? fromPickerRows((fromRt!.data as WorktreePickerData).trees, cwd)
+    : fallbackWorktrees(await listWorktrees(cwd));
 
   if (!worktrees.length) {
     vscode.window.showInformationMessage('No worktrees found.');
@@ -133,13 +139,6 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
     tooltip: `Open ${w.site} ${w.long}`,
   };
 
-  const currentWorktree = worktrees.find((wt) => wt.isCurrent);
-  const otherWorktrees = worktrees.filter((wt) => !wt.isCurrent);
-
-  if (!otherWorktrees.length && !currentWorktree) {
-    vscode.window.showInformationMessage('No worktrees found.');
-    return;
-  }
 
   // Build items from cache first (instant), then re-fetch in background
   function buildPickItem(wt: import('./types').WorktreeEntry): WorktreePickItem {
@@ -181,19 +180,18 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
     return { label, description, detail, dirPath: wt.dirPath, isCurrent: wt.isCurrent, ticketUrl, mrUrl, buttons };
   }
 
-  // Build the list: current worktree first (disabled), then a separator, then others
-  const allItems: (WorktreePickItem | vscode.QuickPickItem)[] = [];
-  if (currentWorktree) {
-    allItems.push(buildPickItem(currentWorktree));
-    allItems.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
-  }
-  const otherItems = otherWorktrees.map(buildPickItem);
-  allItems.push(...otherItems);
+  const layout = pickerLayout(worktrees, grouped);
+  const buildItems = () =>
+    layout.map((slot) =>
+      slot.kind === 'tree'
+        ? buildPickItem(slot.tree)
+        : { label: slot.label, kind: vscode.QuickPickItemKind.Separator },
+    ) as WorktreePickItem[];
 
   const picker = vscode.window.createQuickPick<WorktreePickItem>();
   picker.title = 'All Worktrees';
   picker.placeholder = 'Select a worktree to open in a new window';
-  picker.items = allItems as WorktreePickItem[];
+  picker.items = buildItems();
   picker.matchOnDescription = true;
   picker.matchOnDetail = true;
   picker.busy = true;
@@ -202,23 +200,15 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
   let pickerDisposed = false;
 
   // Background re-fetch: update picker items if data changes
-  const allWorktreesToFetch = currentWorktree ? [currentWorktree, ...otherWorktrees] : otherWorktrees;
   Promise.all(
-    allWorktreesToFetch.map(async (wt) => {
+    worktrees.map(async (wt) => {
       if (!wt.branch) return;
       const fresh = await fetchBranchData(context, wt.branch, repoForge);
       if (fresh) branchCache.set(wt.branch, fresh);
     }),
   ).then(() => {
     if (pickerDisposed) return;
-    const refreshedAll: (WorktreePickItem | vscode.QuickPickItem)[] = [];
-    if (currentWorktree) {
-      refreshedAll.push(buildPickItem(currentWorktree));
-      refreshedAll.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
-    }
-    const refreshedOther = otherWorktrees.map(buildPickItem);
-    refreshedAll.push(...refreshedOther);
-    picker.items = refreshedAll as WorktreePickItem[];
+    picker.items = buildItems();
     picker.busy = false;
   });
 
