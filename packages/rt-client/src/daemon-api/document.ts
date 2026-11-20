@@ -1,27 +1,10 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
-import {
-  FailureEnvelopeSchema,
-  MalformedPathSchema,
-  MethodNotAllowedSchema,
-  NotFoundSchema,
-  TooLargeSchema,
-  UnauthorizedSchema,
-} from "./envelopes.ts";
+import { FailureEnvelopeSchema } from "./envelopes.ts";
 import { API_VERSION, DAEMON_ROUTES, ROUTE_TAGS, WEBSOCKET_EVENTS, type DaemonRoute } from "./routes.ts";
+import { SHARED_RESPONSES, sharedResponsesFor } from "./shared-responses.ts";
 
 export type OpenAPI31Document = ReturnType<OpenAPIHono["getOpenAPI31Document"]>;
-
-const SHARED_RESPONSES = {
-  MalformedPath: { status: 400, schema: MalformedPathSchema, description: "A path parameter is not valid %-encoding." },
-  Unauthorized: { status: 401, schema: UnauthorizedSchema, description: "`X-RT-Token` is missing or wrong." },
-  NotFound: { status: 404, schema: NotFoundSchema, description: "No route has this path." },
-  MethodNotAllowed: { status: 405, schema: MethodNotAllowedSchema, description: "The route takes another method." },
-  TooLarge: { status: 413, schema: TooLargeSchema, description: "The request body is over the command's size limit." },
-  Failure: { status: 500, schema: FailureEnvelopeSchema, description: "The REST layer threw; a handler's own throw answers 200 with this body." },
-} as const;
-
-type SharedResponse = keyof typeof SHARED_RESPONSES;
 
 // Every 200 references this, so the generator emits it as a component; the
 // generator ignores zod schemas handed to registerComponent, so the other
@@ -39,16 +22,6 @@ function description(): string {
     "",
     "A path no route serves answers 404 with the shared not-found body.",
   ].join("\n");
-}
-
-function sharedResponsesFor(route: DaemonRoute): SharedResponse[] {
-  const out: SharedResponse[] = [];
-  if (route.request.params) out.push("MalformedPath");
-  if (route.token) out.push("Unauthorized");
-  if (route.kind === "generic") out.push("MethodNotAllowed");
-  if (route.kind === "generic" && route.method === "post") out.push("TooLarge");
-  out.push("Failure");
-  return out;
 }
 
 export function buildOpenApiDocument(): OpenAPI31Document {

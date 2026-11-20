@@ -4,6 +4,14 @@ import { z } from "zod";
 import { FailureEnvelopeSchema } from "./envelopes.ts";
 import * as R from "./routes.ts";
 import type { DaemonRoute } from "./routes.ts";
+import { SHARED_RESPONSES, sharedResponsesFor, type SharedResponsesFor } from "./shared-responses.ts";
+
+type SharedResponseEntries<T extends DaemonRoute> = {
+  [K in SharedResponsesFor<T> as (typeof SHARED_RESPONSES)[K]["status"]]: {
+    description: string;
+    content: { "application/json": { schema: (typeof SHARED_RESPONSES)[K]["schema"] } };
+  };
+};
 
 type ContractRoute<T extends DaemonRoute> = {
   method: T["method"];
@@ -21,7 +29,7 @@ type ContractRoute<T extends DaemonRoute> = {
       description: string;
       content: { "application/json": { schema: z.ZodUnion<[T["success"], typeof FailureEnvelopeSchema]> } };
     };
-  };
+  } & SharedResponseEntries<T>;
 };
 
 function contract<T extends DaemonRoute>(route: T): ContractRoute<T> {
@@ -38,6 +46,12 @@ function contract<T extends DaemonRoute>(route: T): ContractRoute<T> {
         description: route.summary,
         content: { "application/json": { schema: z.union([route.success, FailureEnvelopeSchema]) } },
       },
+      ...Object.fromEntries(
+        sharedResponsesFor(route).map((name) => {
+          const shared = SHARED_RESPONSES[name];
+          return [shared.status, { description: shared.description, content: { "application/json": { schema: shared.schema } } }];
+        }),
+      ),
     },
   } as ContractRoute<T>;
 }
