@@ -62,7 +62,7 @@ function StepLine({
     );
   const group = row.level === 'group';
   return (
-    <Table.Tr className={group ? classes.group : undefined}>
+    <Table.Tr>
       <Table.Td className={group ? undefined : classes.child}>
         <UnstyledButton
           className={classes.stepOpen}
