@@ -25,7 +25,7 @@ gitq publish [--stack <name>] [--mr-meta <path>]
 **`publish` creates MRs and updates existing ones.** It walks the stack in topological order and does one of two things per node (`ForgeSync.publishStack`, `src/core/forge-sync.ts:369-522`):
 
 - A node whose `status` is `local-only` **and** whose `mrIid` is still `null` is **created**: pushed, then opened as a draft MR against its target (`src/core/forge-sync.ts:397-445`).
-- A `local-only` node whose branch already has an open MR on the forge (opened before the branch was tracked) is **linked**: publish looks the MR up by source branch before creating, records its iid, URL and title, and retargets it or applies `--mr-meta` like an update. Nothing is pushed and no second MR is opened. A failed lookup stops the walk, like a failed create.
+- A `local-only` node whose branch already has an open MR on the forge is **linked**. Publish looks MRs up by source branch before creating any. A match is recorded (iid, URL, title), then retargeted or given its `--mr-meta` like an update. Nothing is pushed and no second MR is opened. A PR from a fork with the same branch name is not a match. A failed or incomplete lookup stops the walk, like a failed create.
 - A node that already has an open MR is **updated**: the MR is retargeted when its target on the forge no longer matches the node's target here, and its title and description are rewritten when `--mr-meta` names that branch. The branch itself is **not** pushed (`src/core/forge-sync.ts:447-518`).
 
 A node needing neither is left untouched and does not appear in the results at all. The retarget goes through `ForgeSync.retargetMR` (`src/core/forge-sync.ts:534-544`), the same function you can call on a single branch.
