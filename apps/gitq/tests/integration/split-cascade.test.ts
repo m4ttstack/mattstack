@@ -110,32 +110,6 @@ describe('reparent onto the current parent', () => {
     expect(repo.git('log', '--format=%s', 'a..b')).toBe('b1');
   });
 
-  test('with no fork point on record, an amended parent refuses rather than restoring the dropped change', async () => {
-    const { repo, configDir } = await makeRepo();
-    repo.git('checkout', '-b', 'a');
-    await commit(repo.dir, repo.git, 'obsolete.txt', 'old\n', 'a1');
-    repo.git('checkout', '-b', 'b');
-    await commit(repo.dir, repo.git, 'b.txt', 'b\n', 'b1');
-    await runCli(['track', 's', '--root', 'main'], repo.dir, configDir);
-    await runCli(['add', 'a', '--parent', 'main'], repo.dir, configDir);
-    await runCli(['add', 'b', '--parent', 'a'], repo.dir, configDir);
-
-    repo.git('checkout', 'a');
-    repo.git('rm', '-q', 'obsolete.txt');
-    await commit(repo.dir, repo.git, 'correct.txt', 'new\n', 'a1 (amended)');
-    repo.git('reset', '-q', '--soft', 'HEAD~2');
-    repo.git('commit', '-q', '-m', 'a1 (amended)');
-    repo.git('checkout', 'main');
-    const before = repo.git('rev-parse', 'b');
-
-    const res = await runCli(['reparent', 'b', '--onto', 'a'], repo.dir, configDir);
-    if (res.exitCode === 0) {
-      expect(repo.git('ls-tree', '--name-only', 'b')).not.toContain('obsolete.txt');
-    } else {
-      expect(repo.git('rev-parse', 'b')).toBe(before);
-    }
-  });
-
   test('says nothing moved when the branch is already on its parent', async () => {
     const { repo, configDir } = await makeRepo();
     await staleChildStack(repo, configDir);

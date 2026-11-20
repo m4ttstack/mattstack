@@ -502,12 +502,6 @@ async function resolveBestOldBase(
     candidates.add(await GitShell.getMergeBase(cwd, node.branch, parentRef));
   } catch { /* candidate unavailable */ }
 
-  // The parent's reflog still knows its pre-amend heads when nothing in the
-  // stack recorded them, which is what keeps an amended parent's dropped
-  // commits out of the child's replay range.
-  const reflogForkPoint = await GitShell.getMergeBaseForkPoint(cwd, parentRef, node.branch).catch(() => null);
-  if (reflogForkPoint) candidates.add(reflogForkPoint);
-
   const ordered = [...candidates];
   if (ordered.length === 0) return null;
   if (ordered.length === 1) return ordered[0] ?? null;

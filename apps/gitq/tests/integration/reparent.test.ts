@@ -238,8 +238,8 @@ describe('reparentBranch integration', () => {
       // Reparent B to its current parent (feat/A) — should be a no-op
       const result = await reparentBranch(r.dir, stack, 'feat/B', 'feat/A');
 
-      expect(result.newStack).toBe(stack);
-      expect(result.cascadeResult).toBeNull();
+      expect(result.alreadyInPlace).toBe(true);
+      expect(StackManager.findNode(result.newStack, 'feat/B')!.parent).toBe('feat/A');
 
       // SHA unchanged
       const currentBHead = await GitShell.getBranchHead(r.dir, 'feat/B');
