@@ -1,27 +1,106 @@
 import * as path from 'path';
-import { existsSync } from 'fs';
-import { isPickableWorktree } from '@mattstack/rt-client';
+import { existsSync, realpathSync } from 'fs';
+import { isPickableWorktree, type WorktreePickerRow } from '@mattstack/rt-client';
 import type { WorktreeEntry } from './types';
 
+export type PickerGroup = NonNullable<WorktreePickerRow['group']>;
+
+export interface OrderedWorktree extends WorktreeEntry {
+  group: PickerGroup | null;
+}
+
+function safeRealpath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
 /**
- * The trees `rt cd` offers, in its order: git's first row (the main checkout)
- * first and exempt from the folder check, the rest through rt-client's shared
- * pickable rule and sorted A to Z by branch, else folder. The window's own
+ * The daemon's rows are rt cd's own order and groups; this only marks the
+ * window's tree current. Never sort here: the order is rt's to decide.
+ */
+export function fromPickerRows(
+  rows: WorktreePickerRow[],
+  currentRoot: string,
+  real: (p: string) => string = safeRealpath,
+): OrderedWorktree[] {
+  const current = real(currentRoot);
+  return rows.map((r) => ({
+    dirPath: r.path,
+    name: path.basename(r.path),
+    branch: r.branch,
+    isCurrent: real(r.path) === current,
+    group: r.group,
+  }));
+}
+
+/**
+ * rt hides some trees (disposable, on-deck) that a window can still be open
+ * in; the picker keeps that tree so it can pin it as current.
+ */
+export function withCurrent(trees: OrderedWorktree[], current: WorktreeEntry | undefined): OrderedWorktree[] {
+  if (!current || trees.some((t) => t.isCurrent)) return trees;
+  return [{ ...current, isCurrent: true, group: null }, ...trees];
+}
+
+/**
+ * With the daemon down there is no rt order to show, so this keeps git's own
+ * order, ungrouped, through rt-client's shared pickable rule. The window's own
  * tree always stays so the picker can mark it current.
  */
-export function pickerWorktrees(
+export function fallbackWorktrees(
   entries: WorktreeEntry[],
   exists: (p: string) => boolean = existsSync,
-): WorktreeEntry[] {
-  const keep = (wt: WorktreeEntry, has: (p: string) => boolean) =>
-    wt.isCurrent || isPickableWorktree({ path: wt.dirPath, branch: wt.branch }, has);
-  const [main, ...rest] = entries;
-  if (!main) return [];
-  const label = (wt: WorktreeEntry) => wt.branch || wt.name;
-  const kept = rest
-    .filter((wt) => keep(wt, exists))
-    .sort((a, b) => label(a).localeCompare(label(b), undefined, { sensitivity: 'base' }));
-  return keep(main, () => true) ? [main, ...kept] : kept;
+): OrderedWorktree[] {
+  return entries
+    .filter((wt, i) => wt.isCurrent || isPickableWorktree({ path: wt.dirPath, branch: wt.branch }, i === 0 ? () => true : exists))
+    .map((wt) => ({ ...wt, group: null }));
+}
+
+/**
+ * A row's PR/MR part. With no ticket title to show, the PR's own title fills
+ * in, minus a leading "<ticket id>:" the row already shows.
+ */
+export function prDetail(short: string, prTitle: string | null, linearId: string | null, maxLen: number): string {
+  let title = prTitle?.trim() ?? '';
+  if (linearId && title.toUpperCase().startsWith(`${linearId.toUpperCase()}:`)) {
+    title = title.slice(linearId.length + 1).trim();
+  }
+  if (!title) return `$(git-pull-request) ${short}`;
+  if (maxLen > 0 && title.length > maxLen) title = title.slice(0, maxLen - 1) + '…';
+  return `$(git-pull-request) ${short}: ${title}`;
+}
+
+export const UNGROUPED_LABEL = "git order: rt's order needs the rt daemon";
+
+export type PickerSlot =
+  | { kind: 'tree'; tree: OrderedWorktree }
+  | { kind: 'separator'; label: string };
+
+/**
+ * The window's tree pinned on top (the extension's one difference from rt
+ * cd), then the rest in the order given, with a labelled separator wherever
+ * the recency group changes.
+ */
+export function pickerLayout(trees: OrderedWorktree[], grouped: boolean): PickerSlot[] {
+  const slots: PickerSlot[] = [];
+  const current = trees.find((t) => t.isCurrent);
+  if (current) {
+    slots.push({ kind: 'tree', tree: current });
+    slots.push({ kind: 'separator', label: grouped ? '' : UNGROUPED_LABEL });
+  } else if (!grouped) {
+    slots.push({ kind: 'separator', label: UNGROUPED_LABEL });
+  }
+  let group: PickerGroup | null = null;
+  for (const t of trees) {
+    if (t.isCurrent) continue;
+    if (t.group && t.group !== group) slots.push({ kind: 'separator', label: t.group });
+    group = t.group ?? group;
+    slots.push({ kind: 'tree', tree: t });
+  }
+  return slots;
 }
 
 /**

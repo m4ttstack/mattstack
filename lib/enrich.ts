@@ -40,6 +40,7 @@ import { readUserIntegrationOverrides } from "./setup/team-settings.ts";
 import { remoteDefaultRef, runGit } from "./worktree/git-async.ts";
 import {
   loadSecrets,
+  repoLinearKey,
   extractLinearId,
   type LinearTicket,
 } from "./linear.ts";
@@ -214,7 +215,10 @@ export async function defaultBranchOf(cwd: string | undefined): Promise<string |
 
 /** loadSecrets with githubToken filled from the gh session, asked only for a GitHub remote so other repos never pay the spawn. */
 async function loadSecretsForRemote(remoteUrl: string | undefined): Promise<Awaited<ReturnType<typeof loadSecrets>>> {
-  const secrets = await loadSecrets();
+  let secrets = await loadSecrets();
+  const parsed = remoteUrl ? identityFromRemote(remoteUrl) : null;
+  const repoKey = await repoLinearKey(parsed?.kind === "remote" ? parsed.id : null);
+  if (repoKey) secrets = { ...secrets, linearApiKey: repoKey };
   if (secrets.githubToken || !isGitHubRemote(remoteUrl)) return secrets;
   const gh = await resolveGithubToken(undefined);
   return gh ? { ...secrets, githubToken: gh.token } : secrets;

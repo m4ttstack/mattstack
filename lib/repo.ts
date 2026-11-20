@@ -21,10 +21,10 @@ export { updateRepoIndex, getKnownRepos, getKnownReposCached, findKnownRepo, rep
 // ─── Internal imports ────────────────────────────────────────────────────────
 
 import { getRepoRoot, getRemoteUrl } from "./git.ts";
-import { updateRepoIndex, getKnownRepos, findKnownRepo, repoOption, repoOptions, repoFromOptionValue, pickerWorktrees, type KnownRepo } from "./repo-index.ts";
+import { updateRepoIndex, getKnownRepos, findKnownRepo, repoOption, repoOptions, repoFromOptionValue, type KnownRepo } from "./repo-index.ts";
 import { repoLabel, repoLabelFull } from "./repo-label.ts";
 import * as out from "./ui/out.ts";
-import { groupWorktrees } from "./worktree-groups.ts";
+import { pickerOrder } from "./worktree-groups.ts";
 import type { PickRow } from "./ui/protocol.ts";
 
 /** The failure every caller draws in place of working in a repo whose folder is gone. */
@@ -346,7 +346,7 @@ export async function pickWorktreeFromRepo(
     }).trim();
   } catch { /* no remote */ }
 
-  const { worktrees, groupOf } = groupWorktrees(repo.repoName, pickerWorktrees(repo));
+  const { worktrees, groupOf } = pickerOrder(repo);
   const enriched = await enrichBranches(
     worktrees.map(wt => ({ path: wt.path, branch: wt.branch })),
     remoteUrl,
@@ -400,8 +400,9 @@ export async function pickRepoInteractive(): Promise<RepoIdentity> {
       }).trim();
     } catch { /* no remote */ }
 
+    const ordered = pickerOrder(currentRepo);
     const enriched = await enrichBranches(
-      pickerWorktrees(currentRepo).map((wt) => ({ path: wt.path, branch: wt.branch })),
+      ordered.worktrees.map((wt) => ({ path: wt.path, branch: wt.branch })),
       remoteUrl,
     );
 
@@ -410,7 +411,8 @@ export async function pickRepoInteractive(): Promise<RepoIdentity> {
 
     const rows: PickRow[] = enriched.map((eb) => {
       const { left, right, match } = formatBranchSegments(eb);
-      return { value: eb.path, left, right, match };
+      const group = ordered.groupOf.get(eb.path);
+      return { value: eb.path, left, right, match, ...(group ? { group } : {}) };
     });
     rows.push({
       value: "__all_repos__",

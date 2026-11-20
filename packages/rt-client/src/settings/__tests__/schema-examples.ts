@@ -204,6 +204,10 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [{ value: { template: 1 }, path: ["template"] }],
     layer: [{ template: "${teamPrefix}/${ticketNumber}-${llmSlug:4}" }],
   },
+  "rt.linearKey": {
+    good: ["linearApiKey", "linearApiKey.mattstack"],
+    bad: [{ value: "gitlabToken", path: [] }, { value: "linearApiKey.", path: [] }],
+  },
   "rt.variations": {
     good: [{}, { ".:dev": [{ name: "staging", command: "pnpm dev --mode staging" }], "apps/backend:test": [] }],
     bad: [{ value: { ".:dev": [{ name: "staging" }] }, path: [".:dev", 0, "command"] }],

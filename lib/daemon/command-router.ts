@@ -47,6 +47,7 @@ import { createSettingsHandlers } from "./handlers/settings.ts";
 import { createHomeHandlers } from "./handlers/home.ts";
 import { createTeamSnapshotHandlers } from "./handlers/team-snapshot.ts";
 import { createReposHandlers } from "./handlers/repos.ts";
+import { createWorktreePickerHandlers } from "./handlers/worktree-picker.ts";
 import { createOrgHandlers } from "./handlers/org.ts";
 import { createGitStatusHandlers } from "./handlers/git-status.ts";
 import type { GitBadgesStore } from "./git-badges-store.ts";
@@ -346,6 +347,7 @@ export function buildRoutedHandlers(opts: {
     ...createHomeHandlers(opts.homeSnapshot),
     ...createTeamSnapshotHandlers(opts.teamSnapshots),
     ...createReposHandlers({ ...opts.repos, emitEvent }),
+    ...createWorktreePickerHandlers(),
     ...createOrgHandlers({ ...opts.repos, emitEvent, teamSnapshots: opts.teamSnapshots }),
     ...createGitStatusHandlers({ store: opts.gitBadges, sweep: opts.gitStatusSweep }),
     ...createHerdrHandlers({ start: startHerdr }),

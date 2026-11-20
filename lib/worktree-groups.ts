@@ -8,6 +8,7 @@ import { readFileSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { canon } from "./fs-canon.ts";
 import { hasRegistry, loadRegistry, type TreeRecord } from "./worktree/registry.ts";
+import { pickerWorktrees, type KnownRepo } from "./repo-index.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -86,4 +87,17 @@ export function groupWorktrees<T extends { path: string }>(
     buckets.get(group)!.push(wt);
   }
   return { worktrees: [lead, ...RECENCY_GROUPS.flatMap((g) => buckets.get(g)!)], groupOf };
+}
+
+/**
+ * rt cd's worktree order, which every rt worktree picker and the VS Code
+ * extension (through the daemon's `worktrees:picker`) show. Deck's go-live
+ * list is the one deliberate exception: it sorts by recency for its own job.
+ */
+export function pickerOrder(
+  repo: Pick<KnownRepo, "repoName" | "worktrees">,
+  seams: WorktreeGroupSeams = defaultWorktreeGroupSeams(),
+  exists?: (path: string) => boolean,
+): { worktrees: KnownRepo["worktrees"]; groupOf: Map<string, RecencyGroup> } {
+  return groupWorktrees(repo.repoName, pickerWorktrees(repo, exists), seams);
 }
