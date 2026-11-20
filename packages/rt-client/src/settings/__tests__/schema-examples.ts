@@ -366,7 +366,7 @@ export const EXAMPLES: Record<string, Example> = {
         singleTemplate: "{title}: {url}",
         multiHeader: "{count} MRs ready for review",
         multiItem: "- {title}: {url}",
-        ownerPrefix: "Code owner review ({sections}):",
+        ownerPrefix: "Codeowner review [{sections}]:",
         autoResolveIntervalMinutes: 15,
         emoji: { looking: "eyes", commented: "speech_balloon", approved: "white_check_mark" },
       },
