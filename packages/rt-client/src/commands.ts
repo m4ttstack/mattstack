@@ -554,6 +554,8 @@ export interface WorktreeTreeRow {
   lastActiveAt?: string | null;
   [extra: string]: unknown;
 }
+export type WorktreePickerRow = z.infer<typeof S.WorktreePickerRowSchema>;
+export type WorktreePickerData = z.infer<typeof S.WorktreePickerDataSchema>;
 export interface WorktreeListData {
   trees: WorktreeTreeRow[];
   dormant?: true; dormantRepos?: string[]; message?: string;
@@ -944,6 +946,7 @@ export interface Commands {
   "tray:status": { payload: z.infer<typeof S.trayStatusPayloadSchema>; data: z.infer<typeof S.trayStatusDataSchema> };
   "tcc:check": { payload: Record<string, never>; data: TccCheckData };
   "repos": { payload: z.infer<typeof S.reposPayloadSchema>; data: z.infer<typeof S.reposDataSchema> };
+  "worktrees:picker": { payload: z.infer<typeof S.worktreesPickerPayloadSchema>; data: z.infer<typeof S.worktreesPickerDataSchema> };
   "ports": { payload: z.infer<typeof S.portsPayloadSchema>; data: z.infer<typeof S.portsDataSchema> };
   "notifications": { payload: z.infer<typeof S.notificationsPayloadSchema>; data: z.infer<typeof S.notificationsDataSchema> };
 
@@ -1392,6 +1395,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "tray:status",
   "tcc:check",
   "repos",
+  "worktrees:picker",
   "ports",
   "notifications",
   "discussions:refresh",

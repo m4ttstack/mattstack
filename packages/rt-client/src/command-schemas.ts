@@ -467,6 +467,20 @@ export const ReposDataSchema = z.object({
   watched: z.array(z.string()),
 });
 
+// Read off lib/daemon/handlers/worktree-picker.ts; the groups mirror lib/worktree-groups.ts's RECENCY_GROUPS.
+export const WorktreePickerRowSchema = z
+  .object({
+    path: z.string(),
+    branch: z.string().nullable(),
+    group: z.enum(["today", "this week", "idle 7d+"]).nullable().describe("Null only for the lead (main) tree."),
+  })
+  .describe("One row of rt cd's worktree order.");
+
+export const WorktreePickerDataSchema = z.object({
+  repoName: z.string(),
+  trees: z.array(WorktreePickerRowSchema),
+});
+
 // ─── System processes ───────────────────────────────────────────────────────
 
 // Read off lib/daemon/handlers/system-processes.ts, not lib's SystemProcess:
@@ -618,6 +632,9 @@ export const cacheReadDataSchema = z.record(z.string(), BranchEnrichmentSchema);
 
 export const reposPayloadSchema = emptyPayload();
 export const reposDataSchema = ReposDataSchema;
+
+export const worktreesPickerPayloadSchema = z.object({ path: z.string() });
+export const worktreesPickerDataSchema = WorktreePickerDataSchema;
 
 export const notificationsPayloadSchema = emptyPayload();
 export const notificationsDataSchema = z.array(RtNotificationEventSchema);

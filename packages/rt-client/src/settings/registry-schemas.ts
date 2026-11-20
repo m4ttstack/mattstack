@@ -181,6 +181,7 @@ export const SCHEMAS = {
     ).optional(),
   }),
   "rt.branchNaming": z.looseObject({ template: z.string().optional() }),
+  "rt.linearKey": z.union([z.literal("linearApiKey"), z.string().regex(/^linearApiKey\.[A-Za-z0-9_-]+$/)]),
   "rt.variations": z.record(z.string(), z.array(z.looseObject({ name: z.string(), command: z.string() }))),
   "rt.presets": z.record(z.string(), z.looseObject({ entries: z.array(presetEntry) })),
   "rt.dopplerTemplate": z.array(z.looseObject({ path: z.string(), project: z.string(), config: z.string() })),

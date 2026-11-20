@@ -219,6 +219,16 @@ const ROWS: readonly SettingDef[] = [
     description: "Branch-naming template for a repo, read by the VS Code extension (extensions/vscode/rt-context). rt itself has no CLI-side reader.",
   },
   {
+    key: "rt.linearKey",
+    type: "string",
+    scopes: ALL_SCOPES,
+    merge: "replace",
+    repoScoped: true,
+    repoOnly: true,
+    default: "linearApiKey",
+    description: "Which Linear API key this repo's tickets are looked up with: the name of a secret in your rt secrets, such as linearApiKey.mattstack for a second Linear workspace.",
+  },
+  {
     key: "rt.variations",
     type: "object",
     scopes: ALL_SCOPES,
