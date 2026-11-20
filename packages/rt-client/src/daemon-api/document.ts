@@ -11,6 +11,36 @@ export type OpenAPI31Document = ReturnType<OpenAPIHono["getOpenAPI31Document"]>;
 // shared schemas are registered as JSON Schema instead.
 const FAILURE = FailureEnvelopeSchema.meta({ id: "Failure" });
 
+const NO_STORE_HEADERS = {
+  "Cache-Control": {
+    description: "`no-store`. This route's refusals and its 500 send it too.",
+    schema: { type: "string", const: "no-store" },
+  },
+} as const;
+
+const CLIENT_HEADER = z.object({
+  "X-RT-Client": z
+    .string()
+    .optional()
+    .describe(
+      "Names the caller in the daemon's command log (rt-client sends `rt-client/<pid>`). Rides on the command payload as `_client`; `GET /api/cache?repoIdentity=` ignores it.",
+    ),
+});
+
+const ENCODE_NOTE = "Percent-encode it with `encodeURIComponent`: the typed client puts it into the path as given.";
+const REPO_NOTE = " An encoded repo identity resolves the same as the bare one.";
+
+function encodedParams(params: z.ZodObject<z.ZodRawShape>): z.ZodObject<z.ZodRawShape> {
+  return z.object(
+    Object.fromEntries(
+      Object.entries(params.shape).map(([name, schema]) => [
+        name,
+        (schema as z.ZodType).describe(name === "repo" ? ENCODE_NOTE + REPO_NOTE : ENCODE_NOTE),
+      ]),
+    ),
+  );
+}
+
 function description(): string {
   const events = WEBSOCKET_EVENTS.map((e) => `- \`${e.type}\`: ${e.description}`).join("\n");
   return [
@@ -50,6 +80,7 @@ export function buildOpenApiDocument(): OpenAPI31Document {
     const responses: Record<string, { $ref: string } | { description: string; content: object }> = {
       200: {
         description: "Answered. A handler that refuses or throws also answers 200, with the failure body.",
+        ...(route.noStore ? { headers: NO_STORE_HEADERS } : {}),
         content: { "application/json": { schema: z.union([route.success, FAILURE]) } },
       },
     };
@@ -67,7 +98,8 @@ export function buildOpenApiDocument(): OpenAPI31Document {
       ...(route.token ? { security: [{ rtToken: [] }] } : {}),
       request: {
         ...(route.request.query ? { query: route.request.query } : {}),
-        ...(route.request.params ? { params: route.request.params } : {}),
+        ...(route.request.params ? { params: encodedParams(route.request.params) } : {}),
+        ...(route.kind === "generic" ? { headers: CLIENT_HEADER } : {}),
         ...(route.request.body
           ? { body: { required: false, content: { "application/json": { schema: route.request.body } } } }
           : {}),

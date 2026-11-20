@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type { Server } from "bun";
-import { startApiServer } from "../api-server.ts";
+import { startEphemeralApiServer } from "./ephemeral-api-server.ts";
 import { DAEMON_ROUTES } from "../../../packages/rt-client/src/daemon-api/index.ts";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -10,13 +10,10 @@ const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => 
 
 let server: Server<any> | undefined;
 let port = 0;
-let previousPortEnv: string | undefined;
 let calls: string[] = [];
 
 beforeAll(async () => {
-  previousPortEnv = process.env.RT_API_PORT;
-  process.env.RT_API_PORT = "0";
-  server = await startApiServer({
+  server = await startEphemeralApiServer({
     handleCommand: async (cmd) => {
       calls.push(cmd);
       return { ok: true, data: {} };
@@ -28,8 +25,6 @@ beforeAll(async () => {
 
 afterAll(() => {
   server?.stop(true);
-  if (previousPortEnv === undefined) delete process.env.RT_API_PORT;
-  else process.env.RT_API_PORT = previousPortEnv;
 });
 
 function hit(path: string, init: RequestInit = {}): Promise<Response> {
@@ -53,6 +48,22 @@ describe("daemon API docs", () => {
     for (const route of DAEMON_ROUTES) {
       expect(doc.paths[route.path]?.[route.method]).toBeDefined();
     }
+  });
+
+  test("/openapi.json documents Cache-Control: no-store on the secrets route only", async () => {
+    type Op = { responses: Record<string, { headers?: Record<string, { schema?: { const?: string } }> }> };
+    const doc = (await (await hit("/openapi.json")).json()) as { paths: Record<string, Record<string, Op>> };
+    const withHeader: string[] = [];
+    for (const [path, ops] of Object.entries(doc.paths)) {
+      for (const [method, op] of Object.entries(ops)) {
+        const header = op.responses["200"]?.headers?.["Cache-Control"];
+        if (header) {
+          withHeader.push(`${method} ${path}`);
+          expect(header.schema?.const).toBe("no-store");
+        }
+      }
+    }
+    expect(withHeader).toEqual(["get /api/secrets"]);
   });
 
   test("GET / lists every route plus the docs routes", async () => {

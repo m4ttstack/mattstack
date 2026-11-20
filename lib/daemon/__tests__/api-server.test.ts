@@ -1,39 +1,22 @@
 import { describe, test, expect } from "bun:test";
 import type { Server } from "bun";
-import { startApiServer, type ApiServerDeps } from "../api-server.ts";
+import type { ApiServerDeps } from "../api-server.ts";
 import { getApiToken } from "../api-auth.ts";
-import { setSetting, unsetSetting } from "../../settings/write.ts";
+import { startEphemeralApiServer } from "./ephemeral-api-server.ts";
 
 const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
 
-/** A genuinely free port, released immediately so startApiServer binds it back. */
-async function ephemeralPort(): Promise<number> {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-  const port = probe.port;
-  probe.stop(true);
-  if (port === undefined) throw new Error("Bun.serve did not report a bound port");
-  return port;
-}
-
-/**
- * Starts a real server on a fresh ephemeral port with the given fake
- * handleCommand, runs `run` against it, and always tears down the server and
- * the port setting afterward, even when an assertion inside `run` throws.
- */
+/** Runs `run` against a real server and stops it even when an assertion throws. */
 async function withApiServer(
   handleCommand: ApiServerDeps["handleCommand"],
   run: (port: number) => Promise<void>,
 ): Promise<void> {
-  const port = await ephemeralPort();
-  setSetting("rt.apiPort", port, "user");
   let server: Server<any> | undefined;
   try {
-    server = await startApiServer({ handleCommand, log: noopLog });
-    expect(server.port).toBe(port);
-    await run(port);
+    server = await startEphemeralApiServer({ handleCommand, log: noopLog });
+    await run(server.port!);
   } finally {
     server?.stop(true);
-    unsetSetting("rt.apiPort", "user");
   }
 }
 
