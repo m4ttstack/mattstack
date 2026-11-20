@@ -89,6 +89,11 @@
   color: var(--tk-text-1);
 }
 
+.author {
+  font-size: 12px;
+  color: var(--tk-text-2);
+}
+
 .meta {
   display: flex;
   flex-wrap: wrap;

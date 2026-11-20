@@ -265,6 +265,9 @@ export function HistorySidebar({ pack }: { pack: string }) {
         data-testid={`commit-${commit.shortSha}`}
       >
         <span className={classes.subject}>{commit.subject}</span>
+        {commit.author && (
+          <span className={classes.author}>{commit.author}</span>
+        )}
         <span className={classes.meta}>
           <span className={classes.sha}>{commit.shortSha}</span>
           <span>{relativeTime(commit.authoredAt)}</span>
