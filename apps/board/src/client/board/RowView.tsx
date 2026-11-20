@@ -352,7 +352,7 @@ function RowView({
           </div>
           <StatusLine mr={mr} status={status} ctx={ctx} />
           {(mr.note || noteOpen) && (
-            <RowNote mr={mr} ctx={ctx} editing={noteOpen} />
+            <RowNote mr={mr} ctx={ctx} editing={noteOpen} now={now} />
           )}
         </div>
         <AskBand mr={mr} ctx={ctx} />
