@@ -132,46 +132,114 @@ describe('sync with a squash-merged parent', () => {
   });
 });
 
+/** A store where feature-a is still published as MR !1, the way gitq left it before the merge. */
+async function publishedStore(repo: SandboxRepoWithRemote, stack: Stack): Promise<void> {
+  const published: Stack = {
+    ...stack,
+    nodes: stack.nodes.map((n) => (n.branch === 'feature-a' ? { ...n, status: 'synced' as const, mrIid: 1 } : n)),
+  };
+  const configDir = `${repo.dir}-config`;
+  cleanups.push(configDir);
+  setConfigDir(configDir);
+  await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: 'https://gitlab.com/acme/app.git', stacks: [published] });
+}
+
+function mergedMR(sha: string, iid = 1, sourceBranch = 'feature-a'): PullRequest {
+  return {
+    iid, state: 'merged', sourceBranch, targetBranch: 'main', sha,
+    title: 'a', webUrl: `https://gitlab.com/acme/app/-/merge_requests/${iid}`,
+    pipeline: null, unresolvedThreadCount: 0, diffStats: null,
+  } as unknown as PullRequest;
+}
+
+/** A provider that answers only an iid read scoped to acme/app. */
+function iidProvider(prs: PullRequest[], calls: unknown[] = []): GitProvider {
+  return {
+    fetchPullRequests: (opts: { projectPath?: string; iids?: number[] } = {}) => {
+      calls.push(opts);
+      if (opts.projectPath !== 'acme/app' || !opts.iids) return Promise.reject(new Error('unscoped read'));
+      return Promise.resolve(prs.filter((p) => opts.iids!.includes(p.iid)));
+    },
+  } as unknown as GitProvider;
+}
+
+async function runSync(repo: SandboxRepoWithRemote, provider: GitProvider, flags: Record<string, string | boolean> = {}): Promise<number> {
+  const ctx = await createContext(repo.dir, [], { stack: 'sq', ...flags });
+  try {
+    return await syncCommand(ctx, {
+      createForgeProvider: () => Promise.resolve({ provider, projectPath: 'acme/app' }),
+    });
+  } finally {
+    const slots = repo.git('worktree', 'list', '--porcelain').split('\n')
+      .filter((l) => l.startsWith('worktree ')).map((l) => l.slice('worktree '.length))
+      .filter((p) => p !== repo.dir);
+    cleanups.push(...slots);
+  }
+}
+
 describe('gitq sync reads merged MRs from the forge', () => {
   test('marks the squash-merged parent merged and restacks its children past it', async () => {
     const { repo, stack, heads } = await squashMergedScenario();
-    const published: Stack = {
-      ...stack,
-      nodes: stack.nodes.map((n) => (n.branch === 'feature-a' ? { ...n, status: 'synced' as const } : n)),
-    };
-    const configDir = `${repo.dir}-config`;
-    cleanups.push(configDir);
-    setConfigDir(configDir);
-    await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: 'https://gitlab.com/acme/app.git', stacks: [published] });
+    await publishedStore(repo, stack);
+    const calls: unknown[] = [];
 
-    const mergedMR = {
-      iid: 1, state: 'merged', sourceBranch: 'feature-a', targetBranch: 'main', sha: heads.a,
-      title: 'a', webUrl: 'https://gitlab.com/acme/app/-/merge_requests/1',
-      pipeline: null, unresolvedThreadCount: 0, diffStats: null,
-    } as unknown as PullRequest;
-    const provider = {
-      fetchPullRequests: () => Promise.resolve([mergedMR]),
-      fetchSingleMR: () => Promise.resolve(null),
-    } as unknown as GitProvider;
-
-    const ctx = await createContext(repo.dir, [], { stack: 'sq' });
-    let code: number;
-    try {
-      code = await syncCommand(ctx, {
-        createForgeProvider: () => Promise.resolve({ provider, projectPath: 'acme/app' }),
-      });
-    } finally {
-      const slots = repo.git('worktree', 'list', '--porcelain').split('\n')
-        .filter((l) => l.startsWith('worktree ')).map((l) => l.slice('worktree '.length))
-        .filter((p) => p !== repo.dir);
-      cleanups.push(...slots);
-    }
+    const code = await runSync(repo, iidProvider([mergedMR(heads.a!)], calls));
 
     expect(code).toBe(0);
+    expect(calls).toEqual([{ projectPath: 'acme/app', iids: [1] }]);
     const saved = (await loadStore(repo.dir)).stacks[0]!;
     expect(StackManager.findNode(saved, 'feature-a')!.status).toBe('merged');
     expect(repo.git('rev-parse', 'feature-a')).toBe(heads.a!);
     expect(repo.git('log', '--format=%s', 'origin/main..feature-b')).toBe('b: rework a lines');
     expect(repo.git('log', '--format=%s', 'feature-b..feature-c')).toBe('c: add c');
+  });
+
+  test('a branch with commits after its MR merged is not marked merged', async () => {
+    const { repo, stack, heads } = await squashMergedScenario();
+    repo.git('checkout', 'feature-a');
+    await writeFile(join(repo.dir, 'late.txt'), 'late\n', 'utf-8');
+    repo.git('add', '.');
+    repo.git('commit', '-m', 'a: after the merge');
+    repo.git('checkout', 'main');
+    await publishedStore(repo, stack);
+
+    await runSync(repo, iidProvider([mergedMR(heads.a!)]));
+
+    const saved = (await loadStore(repo.dir)).stacks[0]!;
+    expect(StackManager.findNode(saved, 'feature-a')!.status).not.toBe('merged');
+  });
+
+  test('a node with no recorded MR is never matched to a merged MR by branch name', async () => {
+    const { repo, stack, heads } = await squashMergedScenario();
+    await publishedStore(repo, stack);
+    const calls: unknown[] = [];
+
+    await runSync(repo, iidProvider([mergedMR(heads.b!, 7, 'feature-b')], calls));
+
+    const saved = (await loadStore(repo.dir)).stacks[0]!;
+    expect(StackManager.findNode(saved, 'feature-b')!.status).not.toBe('merged');
+    expect(calls).toEqual([{ projectPath: 'acme/app', iids: [1] }]);
+  });
+
+  test('an unreadable forge leaves the stack as stored and still restacks', async () => {
+    const { repo, stack } = await squashMergedScenario();
+    await publishedStore(repo, stack);
+    const failing = { fetchPullRequests: () => Promise.reject(new Error('503')) } as unknown as GitProvider;
+
+    const code = await runSync(repo, failing);
+
+    expect(code).not.toBe(1);
+    const saved = (await loadStore(repo.dir)).stacks[0]!;
+    expect(StackManager.findNode(saved, 'feature-a')!.status).toBe('synced');
+  });
+
+  test('--no-fetch does not read the forge', async () => {
+    const { repo, stack, heads } = await squashMergedScenario();
+    await publishedStore(repo, stack);
+    const calls: unknown[] = [];
+
+    await runSync(repo, iidProvider([mergedMR(heads.a!)], calls), { 'no-fetch': true });
+
+    expect(calls).toEqual([]);
   });
 });

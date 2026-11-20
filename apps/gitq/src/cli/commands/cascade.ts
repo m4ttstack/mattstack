@@ -100,9 +100,12 @@ async function refreshFromForge(ctx: CliContext, stack: Stack, storedRemoteUrl: 
       repoPath: ctx.repoRoot,
       mainCheckoutPath: mainCheckoutOf(ctx.commonDir),
     });
-    const { updatedStack, newlyMerged } = await ForgeSync.syncStack(provider, stack, projectPath);
-    if (newlyMerged.length > 0) console.error(`gitq: merged on the forge: ${newlyMerged.join(', ')}`);
-    return updatedStack;
+    const refresh = await ForgeSync.refreshMergedState(provider, stack, projectPath, ctx.repoRoot);
+    if (refresh.merged.length > 0) console.error(`gitq: merged on the forge: ${refresh.merged.join(', ')}`);
+    for (const branch of refresh.aheadOfMerge) {
+      console.error(`gitq: ${branch}'s MR merged, but the branch has commits after the merge; left it in the stack as is`);
+    }
+    return refresh.stack;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`gitq: could not read MR states, so merged branches are not detected (${detail})`);
