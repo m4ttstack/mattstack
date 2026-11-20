@@ -8,7 +8,7 @@ import {
   TooLargeSchema,
   UnauthorizedSchema,
 } from "./envelopes.ts";
-import { API_VERSION, DAEMON_ROUTES, WEBSOCKET_EVENTS, type DaemonRoute } from "./routes.ts";
+import { API_VERSION, DAEMON_ROUTES, ROUTE_TAGS, WEBSOCKET_EVENTS, type DaemonRoute } from "./routes.ts";
 
 export type OpenAPI31Document = ReturnType<OpenAPIHono["getOpenAPI31Document"]>;
 
@@ -89,6 +89,7 @@ export function buildOpenApiDocument(): OpenAPI31Document {
       path: route.path,
       operationId: route.id,
       summary: route.summary,
+      ...(route.tag ? { tags: [route.tag] } : {}),
       ...(route.description ? { description: route.description } : {}),
       ...(route.token ? { security: [{ rtToken: [] }] } : {}),
       request: {
@@ -106,5 +107,6 @@ export function buildOpenApiDocument(): OpenAPI31Document {
     openapi: "3.1.0",
     info: { title: "rt daemon", version: API_VERSION, description: description() },
     servers: [{ url: "/" }],
+    tags: ROUTE_TAGS.map((tag) => ({ ...tag })),
   });
 }
