@@ -134,6 +134,9 @@ const editor = (channel: string) =>
   document.querySelector(
     `[role="textbox"][aria-label="message to #${channel}"]`
   ) as HTMLElement | null;
+/** What the editor shows, without the caret-room space after a last chip. */
+const shown = (el: HTMLElement) =>
+  (el.textContent ?? '').replaceAll('\u200B', '');
 const typeInto = (el: HTMLElement, before: string) =>
   React.act(async () => {
     el.firstChild!.textContent = before;
@@ -157,7 +160,7 @@ test('asks for the preview on open and lists each channel, checked, with its sec
   expect(text).toContain('team review');
   expect(text).toContain('#pod-acme');
   expect(text).toContain('Acme, Acme Jobs');
-  expect(editor('code-review')!.textContent).toBe('please review !1418');
+  expect(shown(editor('code-review')!)).toBe('please review !1418');
   expect(confirmButton()!.textContent).toBe('post to 3 channels');
   expect(confirmButton()!.disabled).toBe(false);
 });
@@ -301,7 +304,7 @@ test('a channel the board could not read for an earlier post says so', async () 
 test('each channel shows the message it will get, with the link as a chip', async () => {
   await open({ '/slack/owners/preview': ok(PREVIEW) });
   const acme = editor('pod-acme')!;
-  expect(acme.textContent).toBe(
+  expect(shown(acme)).toBe(
     'Codeowner review [Acme, Acme Jobs]: please review !1418'
   );
   expect(acme.querySelectorAll('.tui-owners-link')).toHaveLength(1);
@@ -368,11 +371,33 @@ test('a message emptied or without its link cannot be posted', async () => {
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
   expect(confirmButton()!.disabled).toBe(true);
+  expect(document.body.textContent).toContain(
+    "#pod-acme's message lost its link. Undo to bring it back"
+  );
   await React.act(async () => {
     el.replaceChildren(document.createTextNode('   '));
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
   expect(confirmButton()!.disabled).toBe(true);
+  expect(document.body.textContent).toContain("#pod-acme's message is empty");
+});
+
+test('a message ending on the link keeps a place to type after it', async () => {
+  const calls = await open({
+    '/slack/owners/preview': ok(PREVIEW),
+    '/slack/owners/post': ok({ posted: [], failed: [] }),
+  });
+  const el = editor('code-review')!;
+  expect(el.lastChild!.nodeType).toBe(Node.TEXT_NODE);
+  expect(el.lastChild!.previousSibling).toBe(
+    el.querySelector('.tui-owners-link')
+  );
+  await click(confirmButton()!);
+  expect(
+    (calls[1]!.payload as { texts: Record<string, string> }).texts[
+      'code-review'
+    ]
+  ).toBe(PREVIEW.text);
 });
 
 test('a preview handed in is shown without asking again', async () => {

@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 
 const SVG = 'http://www.w3.org/2000/svg';
+/** After a chip that ends the message: WebKit puts no caret after a
+    non-editable inline at the end of a block without it. */
+const CARET_ROOM = '\u200B';
 const LINK_GLYPH = 'M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8';
 
 /** The kit Icon's geometry, built by hand: the chip lives in a
@@ -77,7 +80,8 @@ function changedRanges(e: InputEvent, el: HTMLElement): AbstractRange[] {
 function readMessage(el: HTMLElement, link: string): string {
   let out = '';
   for (const node of el.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE) out += node.textContent ?? '';
+    if (node.nodeType === Node.TEXT_NODE)
+      out += (node.textContent ?? '').replaceAll(CARET_ROOM, '');
     else if (node instanceof HTMLElement && 'link' in node.dataset) out += link;
     else if (node.nodeName === 'BR') out += '\n';
     else if (node instanceof HTMLElement) out += readMessage(node, link);
@@ -97,6 +101,8 @@ function drawMessage(
     if (i > 0) nodes.push(chip(label));
     if (part) nodes.push(document.createTextNode(part));
   });
+  if (parts.length > 1 && !parts[parts.length - 1])
+    nodes.push(document.createTextNode(CARET_ROOM));
   el.replaceChildren(...nodes);
 }
 

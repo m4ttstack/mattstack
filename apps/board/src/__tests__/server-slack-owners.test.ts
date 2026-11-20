@@ -686,6 +686,15 @@ test('each channel gets exactly the message written for it', async () => {
   });
 }, 20_000);
 
+test('with no ownerPrefix set, a code owner message is the team template alone', async () => {
+  const body = (await (
+    await postTo(noLinkBoard.port, '/slack/owners/preview', {
+      mrUrl: url('g/p', 701),
+    })
+  ).json()) as Preview;
+  expect(body.channels.map(c => c.text)).toEqual(['ACME-1 An MR']);
+}, 15_000);
+
 test('a team whose template has no link can post a message without one', async () => {
   const res = await postTo(noLinkBoard.port, '/slack/owners/post', {
     mrUrl: url('g/p', 711),

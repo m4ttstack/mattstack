@@ -114,10 +114,15 @@ function OwnersPostModal({
       ? preview?.text
       : preview?.channels.find(c => c.channel === channel)?.text) ?? '';
   const link = mr.webUrl ?? '';
-  const blank = chosen.some(c => {
-    const m = messageFor(c).trim();
-    return !m || (defaultFor(c).includes(link) && !m.includes(link));
-  });
+  const unpostable = chosen
+    .map(c => {
+      const m = messageFor(c).trim();
+      if (!m) return `#${c}'s message is empty`;
+      if (defaultFor(c).includes(link) && !m.includes(link))
+        return `#${c}'s message lost its link. Undo to bring it back`;
+      return null;
+    })
+    .find(Boolean);
   const flip = (channel: string) =>
     setOff(prev => {
       const next = new Set(prev);
@@ -261,6 +266,9 @@ function OwnersPostModal({
       )}
       <div className="tui-draft-actions">
         {error && <span className="tui-draft-error">{error}</span>}
+        {!error && unpostable && (
+          <span className="tui-draft-error">{unpostable}</span>
+        )}
         {outcome && (
           <span className="tui-draft-error">
             {withSeps([
@@ -278,7 +286,7 @@ function OwnersPostModal({
             intent="accent"
             variant="filled"
             busy={posting}
-            disabled={chosen.length === 0 || blank}
+            disabled={chosen.length === 0 || !!unpostable}
             onClick={() => void confirm()}
           >
             {posting
