@@ -12,6 +12,7 @@ import { readyLadderHash, writeReadyApproval } from "../../worktree/ready-approv
 import { resetHeldReadyLaddersCache } from "../../worktree/ready-held.ts";
 import { createStatusHandlers } from "../handlers/status.ts";
 import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { statusGetRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 const IDENTITY = "gitlab.com/acme/tray-held";
 const WIRE = "remote:gitlab.com%2Facme%2Ftray-held";
@@ -76,6 +77,7 @@ describe("tray:status worktreeReadyHeld", () => {
         approveCommand: "rt worktree ready-approve tray-held",
       },
     ]);
+    expect(statusGetRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("an approved ladder publishes an empty list, not an omitted field", async () => {

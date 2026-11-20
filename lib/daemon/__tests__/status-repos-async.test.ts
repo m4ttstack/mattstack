@@ -10,6 +10,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createStatusHandlers } from "../handlers/status.ts";
+import { reposListRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 let tmpRoot: string;
 
@@ -55,6 +56,7 @@ describe("status handlers — repos (S055 async worktree listing)", () => {
     // WorktreeEntry carries isBare internally; the wire payload must not.
     expect(worktrees.every((w: any) => !("isBare" in w))).toBe(true);
     expect(worktrees.every((w: any) => Object.keys(w).sort().join(",") === "branch,path")).toBe(true);
+    expect(reposListRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("a repo whose git command fails (bad repoPath) yields no worktrees, not a throw", async () => {

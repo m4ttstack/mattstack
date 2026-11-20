@@ -89,18 +89,27 @@ export type HandlerMap = Record<string, Handler>;
 // response types instead of `any`. Renaming a command, drifting a payload
 // field, or changing a data shape in commands.ts without touching the
 // handler is a tsc error here, not a runtime `ok: false` in a consumer.
-// Daemon-internal commands (cache, hooks, status, ...) have no external
-// contract and stay on the loose Handler type.
+// Commands off the catalog type through `InternalCommands` below or stay on
+// the loose Handler type.
 
 import type { Commands, CommandName } from "../../../packages/rt-client/src/commands.ts";
+
+export type CommandFailure = { ok: false; error: string; failure?: { code: string; message: string } };
 
 /** The daemon's reply envelope for one cataloged command. */
 export type CommandResult<K extends CommandName> =
   | { ok: true; data: Commands[K]["data"] }
-  | { ok: false; error: string; failure?: { code: string; message: string } };
+  | CommandFailure;
+
+/** Typed commands whose success reply spreads `data`'s fields beside `ok` instead of nesting them under `data`. */
+export type FlatCommandName = Extract<CommandName, "cache:refresh" | "hooks:repair">;
+
+export type FlatCommandResult<K extends FlatCommandName> =
+  | ({ ok: true } & Commands[K]["data"])
+  | CommandFailure;
 
 export type TypedHandlers = {
-  [K in CommandName]: (payload: Commands[K]["payload"]) => Promise<CommandResult<K>>;
+  [K in CommandName]: (payload: Commands[K]["payload"]) => Promise<K extends FlatCommandName ? FlatCommandResult<K> : CommandResult<K>>;
 };
 
 // ── Daemon-internal command surface (R016) ────────────────────────────────

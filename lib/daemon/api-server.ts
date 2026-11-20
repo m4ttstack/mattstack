@@ -10,85 +10,13 @@
 import type { Server, ServerWebSocket } from "bun";
 import type { Logger } from "pino";
 import { API_PORT, resolveApiPort } from "../daemon-config.ts";
-import { needsToken, tokenOk, getApiToken, resolveOriginTrust, isTokenPreflight } from "./api-auth.ts";
-import { deriveFailure } from "./failure.ts";
+import { getApiToken, resolveOriginTrust } from "./api-auth.ts";
+import { createApiApp } from "./api-app.ts";
 import { getAggregatedConnection } from "./freshness.ts";
-import { GATE_REQUEST_LIMIT_BYTES, readCommandBody } from "./request-limits.ts";
-import { parseIdentity } from "../settings/identity.ts";
+import { GATE_REQUEST_LIMIT_BYTES } from "./request-limits.ts";
 import { runCapture } from "../subprocess.ts";
 
-function buildApiIndex(port: number) {
-  return {
-  name: "rt daemon",
-  version: "1.0.0",
-  docs: `http://localhost:${port}/`,
-  websocket: `ws://localhost:${port}/ws`,
-  endpoints: [
-    { method: "GET",  path: "/api/status",        description: "Daemon health, uptime, memory, cache stats" },
-    { method: "GET",  path: "/api/ports",          description: "Listening ports grouped by repo/worktree" },
-    { method: "GET",  path: "/api/cache",           description: "All branch cache entries (MR or PR, Linear, pipeline); ?repoIdentity=<serialized identity> keeps that repo's" },
-    { method: "GET",  path: "/api/cache/:branch",   description: "Single branch cache entry; ?repoIdentity=<serialized identity> picks that repo's entry" },
-    { method: "GET",  path: "/api/repos",           description: "Tracked repos with worktrees and watched status" },
-    { method: "GET",  path: "/api/worktrees/picker", description: "A repo's worktrees in rt cd's order with recency groups (?path=<any worktree of the repo>)" },
-    { method: "GET",  path: "/api/processes/system", description: "All repo-associated processes with CPU, memory and ports, read on demand" },
-    { method: "GET",  path: "/api/notifications",   description: "Pending notifications (drains queue)" },
-    { method: "POST", path: "/api/refresh",         description: "Trigger a background cache refresh" },
-    { method: "POST", path: "/api/hooks/:repo/repair", description: "Repair hooks path for a repo" },
-    { method: "POST", path: "/api/shutdown",        description: "Gracefully stop the daemon" },
-    { method: "GET",  path: "/api/sdm/recents",     description: "Recent StrongDM connections with live connected state" },
-    { method: "POST", path: "/api/sdm/reconnect",   description: "Reconnect a StrongDM recent (promptless; fails if an access request is needed)" },
-    { method: "POST", path: "/api/events/emit",     description: "Emit an event onto the pane-communication bus" },
-    { method: "GET",  path: "/api/events",          description: "List events matching a topic pattern" },
-    { method: "GET",  path: "/api/secrets",          description: "Whitelisted secret values (linearApiKey, gitlabToken) — token-gated" },
-    { method: "GET",  path: "/api/runs",            description: "Pipeline runs, newest first (?repo= to scope)" },
-    { method: "GET",  path: "/api/runs/:repo/:runId", description: "One run: stages, fields, decisions" },
-    { method: "GET",  path: "/api/usage/mrs",        description: "Token usage and estimated cost per MR or PR (?days= &repo= to scope)" },
-    { method: "GET",  path: "/api/usage/mr",         description: "One MR or PR's usage by run and stage (?mrKey=, URL-encoded)" },
-    { method: "GET",  path: "/api/usage/trends",     description: "Weekly usage by kind, pipeline and model (?days= required, ?repo=)" },
-    { method: "GET",  path: "/api/usage/status",     description: "Usage sweep health: last sweep, skipped lines, unpriced models" },
-    { method: "GET",  path: "/api/reconciler",       description: "Executor reconciler's last sweep snapshot" },
-    { method: "POST", path: "/api/reconciler/clear", description: "Manually clear an agent's reconciler state and open/parked gates" },
-  ],
-  websocket_events: [
-    { type: "status",         description: "Full daemon status — after each cache refresh (~5 min)" },
-    { type: "ports",          description: "Full port list — after each port scan (~30s)" },
-    { type: "notification",   description: "Notification event — when a transition fires" },
-    { type: "event",          description: "Events-bus broadcast frame; topic run-updated announces pipeline run writes" },
-  ],
-  auth: {
-    header: "X-RT-Token",
-    description: "Required on mutating routes (shutdown, sdm reconnect, events emit) and /api/secrets. Token at ~/.mattstack/rt/api-token.",
-  },
-  };
-}
-
-const REST_ROUTES: Record<string, { cmd: string; method: string }> = {
-  "/api/status":        { cmd: "tray:status", method: "GET" },
-  "/api/ports":         { cmd: "ports", method: "GET" },
-  "/api/cache":         { cmd: "cache:read", method: "GET" },
-  "/api/repos":         { cmd: "repos", method: "GET" },
-  "/api/worktrees/picker": { cmd: "worktrees:picker", method: "GET" },
-  "/api/notifications": { cmd: "notifications", method: "GET" },
-  "/api/refresh":       { cmd: "cache:refresh", method: "POST" },
-  "/api/shutdown":      { cmd: "shutdown", method: "POST" },
-  "/api/processes/system": { cmd: "system-processes", method: "GET" },
-  "/api/sdm/recents":   { cmd: "sdm:recents", method: "GET" },
-  "/api/sdm/reconnect": { cmd: "sdm:reconnect", method: "POST" },
-  "/api/events/emit":   { cmd: "events:emit", method: "POST" },
-  "/api/events":        { cmd: "events:list", method: "GET" },
-  "/api/runs":          { cmd: "runs:list", method: "GET" },
-  "/api/usage/mrs":     { cmd: "usage:mrs", method: "GET" },
-  "/api/usage/mr":      { cmd: "usage:mr", method: "GET" },
-  "/api/usage/run":     { cmd: "usage:run", method: "GET" },
-  "/api/usage/trends":  { cmd: "usage:trends", method: "GET" },
-  "/api/usage/status":  { cmd: "usage:status", method: "GET" },
-  "/api/reconciler":       { cmd: "reconciler:status", method: "GET" },
-  "/api/reconciler/clear": { cmd: "reconciler:clear", method: "POST" },
-  // "/api/secrets" is NOT here — see the dedicated block in fetch() below:
-  // it needs its header token forwarded into the command payload (the
-  // secrets:read handler checks payload.token itself, not just this layer),
-  // which the generic query-params-as-payload path below doesn't do.
-};
+export { buildCorsHeaders, pathParam, repoPathParam, splitRepoAndRest, coerceQueryParams } from "./api-app.ts";
 
 /** Per-connection data on the :9401 WebSocket broadcast channel. */
 interface ApiWSData {
@@ -170,137 +98,6 @@ export function broadcast(type: string, data: any): void {
 /** Drop all broadcast clients (shutdown). */
 export function clearWsClients(): void {
   wsClients.clear();
-}
-
-/**
- * CORS default-deny: a browser page on an untrusted Origin still gets
- * its request served (127.0.0.1 loopback + the per-route token gate are the
- * real defenses), but the response carries no Access-Control-Allow-Origin,
- * so the page's own JavaScript cannot read the body. A request with no
- * Origin at all (every non-browser consumer today) needs no CORS headers.
- */
-export function buildCorsHeaders(origin: string | null, trusted: boolean): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-RT-Token, X-RT-Client",
-  };
-  if (origin && trusted) {
-    headers["Access-Control-Allow-Origin"] = origin;
-    headers["Vary"] = "Origin";
-  }
-  return headers;
-}
-
-/**
- * Decodes one path segment between a fixed prefix (and optional suffix),
- * returning `undefined` (never throwing) on any shape mismatch or malformed
- * %-encoding. Before this, each parameterized route hand-rolled its
- * own decodeURIComponent inside the route's try block, so a malformed
- * segment fell through to the OUTER catch and came back as a logged 500;
- * every route using this helper instead gets a clean 400.
- */
-export function pathParam(pathname: string, prefix: string, suffix = ""): string | undefined {
-  const raw = rawPathParam(pathname, prefix, suffix);
-  if (raw === undefined) return undefined;
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return undefined;
-  }
-}
-
-/** `pathParam`'s shape checks and slicing, without the decode. */
-function rawPathParam(pathname: string, prefix: string, suffix = ""): string | undefined {
-  if (!pathname.startsWith(prefix)) return undefined;
-  if (suffix && !pathname.endsWith(suffix)) return undefined;
-  const end = suffix ? pathname.length - suffix.length : pathname.length;
-  if (end <= prefix.length) return undefined;
-  return pathname.slice(prefix.length, end);
-}
-
-/** `decodeURIComponent`, undefined on malformed %-encoding. */
-function decodeOrUndefined(raw: string): string | undefined {
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * A repo path segment. A serialized identity is ALREADY one slash-free
- * segment, which is what `serializeIdentity`'s percent-encoding buys, so the
- * raw segment IS the key, and decoding it turns its `%2F` back into route
- * separators. That silently destroyed the identity: `hooks:repair` refused the
- * non-canonical result and still answered ok, and `runs:get` split the repo in
- * half and never found the run.
- *
- * A client that re-encoded the wire anyway still resolves, because the two
- * spellings are disjoint: a canonical wire never decodes to another canonical
- * wire, since `parseIdentity` requires the id to re-encode to itself. A string
- * canonical under neither reading (a legacy plain name) decodes as before.
- */
-export function repoPathParam(pathname: string, prefix: string, suffix = ""): string | undefined {
-  const raw = rawPathParam(pathname, prefix, suffix);
-  if (raw === undefined) return undefined;
-  return parseIdentity(raw) ? raw : decodeOrUndefined(raw);
-}
-
-/**
- * The `repoIdentity` query value, accepted both double-encoded and appended
- * as the bare wire, by the same disjointness `repoPathParam` relies on.
- */
-function repoIdentityQueryParam(url: URL): string | null {
-  const decoded = url.searchParams.get("repoIdentity");
-  if (decoded === null) return null;
-  const raw = /(?:^\?|&)repoIdentity=([^&]*)/.exec(url.search)?.[1];
-  return raw !== undefined && parseIdentity(raw) ? raw : decoded;
-}
-
-/**
- * `/api/<thing>/:repo/:rest`. The repo is split off the RAW path so a wire
- * identity survives whole; only `rest` is decoded. Splitting after a
- * whole-remainder decode (what this replaced) could not tell the wire's own
- * `%2F` from the route separator.
- *
- * `undefined` is a shape mismatch (the caller falls through to its 404);
- * `"malformed"` is bad %-encoding, which keeps the clean 400 every other
- * parameterized route answers.
- */
-export function splitRepoAndRest(
-  pathname: string,
-  prefix: string,
-): { repo: string; rest: string } | "malformed" | undefined {
-  const raw = rawPathParam(pathname, prefix);
-  if (raw === undefined) return undefined;
-  const slash = raw.indexOf("/");
-  if (slash <= 0 || slash >= raw.length - 1) return undefined;
-
-  const rawRepo = raw.slice(0, slash);
-  const repo = parseIdentity(rawRepo) ? rawRepo : decodeOrUndefined(rawRepo);
-  const rest = decodeOrUndefined(raw.slice(slash + 1));
-  return repo === undefined || rest === undefined ? "malformed" : { repo, rest };
-}
-
-const PLAIN_NUMBER_RE = /^-?\d+(\.\d+)?$/;
-
-/**
- * REST query strings arrive as strings no matter what the client meant:
- * "?maxAgeMs=60000" and "?refresh=true" reached handlers that do a
- * strict `typeof x === "number"` or `x === true` check, so the documented
- * flag silently no-op'd over HTTP while working over the socket (where
- * payloads are real JSON). One coercion at the REST seam fixes every such
- * flag at once instead of a per-handler private parser.
- */
-export function coerceQueryParams(params: URLSearchParams): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of params) {
-    if (value === "true") out[key] = true;
-    else if (value === "false") out[key] = false;
-    else if (value !== "" && PLAIN_NUMBER_RE.test(value)) out[key] = Number(value);
-    else out[key] = value;
-  }
-  return out;
 }
 
 export interface ApiServerDeps {
@@ -416,6 +213,8 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
   apiServerLog = log;
   const apiToken = getApiToken();
   const port = resolveApiPort();
+  let boundPort = port;
+  const app = createApiApp({ handleCommand, log, apiToken, port: () => boundPort });
 
   const server = await bindApiServerWithRetry(() => Bun.serve<ApiWSData, never>({
     port,
@@ -443,127 +242,7 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
         return new Response("WebSocket upgrade failed", { status: 400 });
       }
 
-      // CORS: default-deny. A trusted Origin (token or allowlist) gets its
-      // Origin echoed back; anything else gets no Access-Control-Allow-Origin
-      // at all, so a malicious page's own JS cannot read the response.
-      // resolveOriginTrust only resolves the allowlist when origin is set,
-      // since the settings read behind it is synchronous disk I/O.
-      const trusted = resolveOriginTrust(origin, req.headers.get("x-rt-token"), apiToken)
-        || isTokenPreflight(req.method, req.headers.get("access-control-request-headers"));
-      const corsHeaders = buildCorsHeaders(origin, trusted);
-
-      if (req.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers: corsHeaders });
-      }
-
-      // Gate mutating routes behind the local token. CORS default-deny only
-      // stops a malicious page from reading the response; it can still fire
-      // the request itself (a classic CSRF), so the token is the actual
-      // defense against a malicious page driving control endpoints.
-      if (needsToken(req.method, url.pathname) && !tokenOk(req.headers.get("x-rt-token"), apiToken)) {
-        return Response.json({ ok: false, error: "unauthorized" }, { status: 401, headers: corsHeaders });
-      }
-
-      try {
-        // Self-describing root
-        if (url.pathname === "/" || url.pathname === "") {
-          return Response.json(buildApiIndex(port), { headers: corsHeaders });
-        }
-
-        if (url.pathname === "/api/cache" && req.method === "GET") {
-          const repoIdentity = repoIdentityQueryParam(url);
-          if (repoIdentity !== null) {
-            if (parseIdentity(repoIdentity) === null) {
-              return Response.json({ ok: true, data: {} }, { headers: corsHeaders });
-            }
-            const result = await handleCommand("cache:read", { repoIdentity }, req.signal);
-            return Response.json(result, { headers: corsHeaders });
-          }
-        }
-
-        // Single branch lookup: /api/cache/:branch
-        if (url.pathname.startsWith("/api/cache/") && req.method === "GET") {
-          const branch = pathParam(url.pathname, "/api/cache/");
-          if (branch === undefined) {
-            return Response.json({ ok: false, error: "malformed path parameter" }, { status: 400, headers: corsHeaders });
-          }
-          const repoIdentity = repoIdentityQueryParam(url);
-          if (repoIdentity === null) {
-            const result = await handleCommand("cache:read", { branches: [branch] }, req.signal);
-            return Response.json(result, { headers: corsHeaders });
-          }
-          if (parseIdentity(repoIdentity) === null) {
-            return Response.json({ ok: true, data: {} }, { headers: corsHeaders });
-          }
-          const result = await handleCommand("cache:read", { branches: [branch], repoIdentity }, req.signal);
-          return Response.json(result, { headers: corsHeaders });
-        }
-
-        // Hooks repair: /api/hooks/:repo/repair
-        if (url.pathname.startsWith("/api/hooks/") && url.pathname.endsWith("/repair") && req.method === "POST") {
-          const repo = repoPathParam(url.pathname, "/api/hooks/", "/repair");
-          if (repo === undefined) {
-            return Response.json({ ok: false, error: "malformed path parameter" }, { status: 400, headers: corsHeaders });
-          }
-          const result = await handleCommand("hooks:repair", { repo }, req.signal);
-          return Response.json(result, { headers: corsHeaders });
-        }
-
-        // Runs detail: /api/runs/:repo/:runId
-        if (url.pathname.startsWith("/api/runs/") && req.method === "GET") {
-          const split = splitRepoAndRest(url.pathname, "/api/runs/");
-          if (split === "malformed") {
-            return Response.json({ ok: false, error: "malformed path parameter" }, { status: 400, headers: corsHeaders });
-          }
-          if (split) {
-            const result = await handleCommand("runs:get", { repo: split.repo, runId: split.rest }, req.signal);
-            return Response.json(result, { headers: corsHeaders });
-          }
-          // falls through to the 404 path below for a shape mismatch, e.g. "/api/runs/onlyonesegment"
-        }
-
-        // Secrets: forward the X-RT-Token header (already verified above by
-        // needsToken/tokenOk) into the command payload — secrets:read's own
-        // handler-level check (the enforcement point that also covers the
-        // unix socket transport) needs it there, not just on this request.
-        if (url.pathname === "/api/secrets" && req.method === "GET") {
-          const result = await handleCommand("secrets:read", { token: req.headers.get("x-rt-token") ?? undefined }, req.signal);
-          return Response.json(result, { headers: corsHeaders });
-        }
-
-        // Static routes
-        const route = REST_ROUTES[url.pathname];
-        if (!route) {
-          return Response.json({ ok: false, error: "not found", docs: `http://localhost:${port}/` }, { status: 404, headers: corsHeaders });
-        }
-
-        if (req.method !== route.method && req.method !== "OPTIONS") {
-          return Response.json({ ok: false, error: `use ${route.method}` }, { status: 405, headers: corsHeaders });
-        }
-
-        // Build payload from query params (GET) or body (POST)
-        let payload: any = {};
-        if (req.method === "POST") {
-          const body = await readCommandBody(req, route.cmd);
-          if ("refused" in body) {
-            return new Response(body.refused.body, { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          }
-          payload = body.payload;
-        } else {
-          payload = coerceQueryParams(url.searchParams);
-        }
-
-        const client = req.headers.get("x-rt-client");
-        if (client) payload._client = client;
-        const result = await handleCommand(route.cmd, payload, req.signal);
-        return Response.json(result, { headers: corsHeaders });
-      } catch (err) {
-        log.error({ err, url: req.url }, "api request failed");
-        return Response.json(
-          { ok: false, error: String(err), failure: deriveFailure(err) },
-          { status: 500, headers: corsHeaders },
-        );
-      }
+      return app.fetch(req);
     },
     websocket: {
       // 960 is Bun's per-socket max; combined with the default pings this
@@ -589,7 +268,8 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
       },
     },
   }), { sleep: (ms) => Bun.sleep(ms), log }, port);
+  boundPort = server.port ?? port;
 
-  log.info({ port }, "api server listening");
+  log.info({ port: boundPort }, "api server listening");
   return server;
 }
