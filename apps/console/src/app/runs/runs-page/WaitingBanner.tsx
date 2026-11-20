@@ -41,13 +41,31 @@ export function WaitingBanner({
       head={
         <>
           <Glyph name="hand" size={14} color="bad" data-parity="hand" />
-          <Text fz="md" fw={500} lh="normal" c="bad" data-parity="title">
+          <Text fz="sm" fw={500} lh="normal" c="bad" data-parity="title">
             Waiting on you
           </Text>
-          <Text fz="md" lh="normal" c="bad" data-parity="gate">
-            {gateName(gate.kind)} · opened {formatDuration(now - gate.openedAt)}{' '}
-            ago
+          <Text fz="sm" lh="normal" c="bad" data-parity="gate">
+            · {gateName(gate.kind)}
+            {count > 1 ? ` · ${count} questions` : ''} · opened{' '}
+            {formatDuration(now - gate.openedAt)} ago
           </Text>
+          <Group
+            gap={6}
+            wrap="nowrap"
+            ml="auto"
+            data-testid="key-hint"
+            data-parity="hint"
+          >
+            <Text fz="xs" lh="normal" c="bad">
+              press
+            </Text>
+            <Kbd size="xs" data-parity="key g">
+              <span data-parity="g">g</span>
+            </Kbd>
+            <Text fz="xs" lh="normal" c="bad">
+              to answer
+            </Text>
+          </Group>
         </>
       }
       headProps={{ 'data-parity': 'Header' }}
@@ -56,11 +74,11 @@ export function WaitingBanner({
       data-gate-id={gate.id}
     >
       <div className={classes.body}>
-        <Stack gap={6} className={classes.left}>
+        <Stack gap={4} className={classes.left}>
           <Group gap={8} wrap="nowrap">
             {ticket ? (
               <Text
-                fz="lg"
+                fz="sm"
                 fw={500}
                 lh="normal"
                 c="accent"
@@ -69,36 +87,28 @@ export function WaitingBanner({
                 {ticket}
               </Text>
             ) : null}
-            <Text fz="lg" fw={500} lh="normal" truncate data-parity="title">
+            <Text fz="sm" lh="normal" c="dimmed" truncate data-parity="title">
               {title}
             </Text>
           </Group>
           {question ? (
-            <Text fz="h3" fw={500} lh="normal" data-parity="q">
+            <Text fz="lg" fw={500} lh={1.45} data-parity="q">
               {question.label}
             </Text>
           ) : null}
         </Stack>
-        <Stack gap={8} align="flex-end" className={classes.right}>
-          <Button
-            component={Link}
-            href={href}
-            rightSection={
-              <Icon name="arrowRight" size={14} data-parity="arrow-right" />
-            }
-            data-parity="Answer btn"
-          >
-            <span data-parity="label">Answer gate</span>
-          </Button>
-          <Group gap={6} wrap="nowrap" data-testid="key-hint">
-            <Text fz="md" lh="normal" c="dimmed" data-parity="or">
-              {count > 1 ? `1 of ${count} questions · or press` : 'or press'}
-            </Text>
-            <Kbd size="sm" data-parity="key g">
-              <span data-parity="g">g</span>
-            </Kbd>
-          </Group>
-        </Stack>
+        <Button
+          component={Link}
+          href={href}
+          size="sm"
+          className={classes.right}
+          rightSection={
+            <Icon name="arrowRight" size={14} data-parity="arrow-right" />
+          }
+          data-parity="Answer btn"
+        >
+          <span data-parity="label">Answer gate</span>
+        </Button>
       </div>
     </StatusCard>
   );

@@ -390,17 +390,18 @@ describe('RunsPage', () => {
     );
     renderPage();
     const banner = await screen.findByTestId('waiting-banner');
+    expect(banner).toHaveTextContent('· 3 questions ·');
     expect(within(banner).getByTestId('key-hint')).toHaveTextContent(
-      /^1 of 3 questions · or press\s*g$/
+      /^press\s*g\s*to answer$/
     );
-    expect(banner).not.toHaveTextContent('press g to jump');
   });
 
   it('offers only the g key when the gate has one question', async () => {
     renderPage();
     const banner = await screen.findByTestId('waiting-banner');
+    expect(banner).not.toHaveTextContent('questions');
     expect(within(banner).getByTestId('key-hint')).toHaveTextContent(
-      /^or press\s*g$/
+      /^press\s*g\s*to answer$/
     );
   });
 
