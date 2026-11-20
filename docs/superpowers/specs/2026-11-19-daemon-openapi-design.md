@@ -153,7 +153,7 @@ Where schemas live:
   is still built by `coerceQueryParams` / `readCommandBody` exactly as today.
   *(My call, forced by the no-wire-change anti-goal.)*
 - **Request schemas are the rt-client payload schemas** for the generic
-  routes, one definition per command. The five special routes describe
+  routes, one definition per command. The four special routes describe
   what REST really reads instead (`/api/secrets`: the header token only;
   `/api/cache/{branch}`: the branch and `repoIdentity`; `/api/hooks/{repo}/repair`
   and `/api/runs/{repo}/{runId}`: path params only; `/api/cache` with

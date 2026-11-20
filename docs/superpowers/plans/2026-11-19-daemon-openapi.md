@@ -65,14 +65,14 @@ For the three data types that are `unknown` today (`system-processes`, `sdm:rece
 
 rt-client's own tsconfig includes only `src/`, so the root typecheck is the one that reads `test/`.
 Run: `bun run typecheck`
-Expected: FAIL, `Cannot find module '../src/command-schemas.ts'` or missing schema exports.
+Expected: PASS. The parity file compares today's types with verbatim copies, so it is a baseline that must pass before and after the conversion (like Task 3 Step 2); a failure here is a bad copy.
 
 - [ ] **Step 3: Write `command-schemas.ts` and switch `commands.ts` to derived types**
 
 Map shapes one to one: `?:` → `.optional()`, `T | null` → `.nullable()`, `interface A extends B` → `BSchema.extend({...})`, `Record<UsageBilling, X>` → `z.record(UsageBillingSchema, XSchema)` (zod 4 makes enum-keyed records exhaustive, matching today), `unknown` → `z.unknown()`. Use plain `z.object` (not `.strict()`) for data, so extra wire fields still parse. Move each interface's JSDoc onto its schema field with `.describe()` where the text helps an API reader, otherwise as a comment.
 
 For the new data schemas read the handler, not the old type:
-- `SystemProcessesDataSchema`: `{ processes: ProcessNode[], updatedAt: number, ready: boolean }` from `lib/daemon/handlers/system-processes.ts:92-128`, with the recursive `children` via `z.lazy` and a named OpenAPI component (`.openapi("ProcessNode")` or the zod 4 `.meta({ id })` equivalent, so the generator emits a `$ref` instead of recursing), and the constant `isRunaway: false`, `runawayDurationMs: null` fields kept (the tray decodes them).
+- `SystemProcessesDataSchema`: `{ processes: ProcessNode[], updatedAt: number, ready: boolean }` from `lib/daemon/handlers/system-processes.ts:92-128`, with the recursive `children` via `z.lazy` and a named OpenAPI component (zod 4's `.meta({ id: "ProcessNode" })`, since `.openapi()` needs `@hono/zod-openapi`, which arrives only in Task 2; so the generator emits a `$ref` instead of recursing), and the constant `isRunaway: false`, `runawayDurationMs: null` fields kept (the tray decodes them).
 - `SdmRecentsReplySchema` and `SdmReconnectReplySchema`: these handlers answer a flat envelope (`{ ok: true, health, recents }`; `sdm:reconnect`'s failures carry `outcome` and `resource` beside `error`), from `lib/daemon/handlers/sdm.ts:79-120`. Model the whole reply.
 - `SecretsReadDataSchema`: the three-way union now on the `secrets:read` entry.
 
@@ -137,12 +137,13 @@ export const API_VERSION = "1.0.0";  // today's index version; the API contract'
 export const ShutdownReplySchema;    // flat, like cache:refresh: okFlat({ message: z.string() }) — lib/daemon.ts:502 answers { ok: true, message: "shutting down" }
 ```
 
-  `request` describes what the REST route really reads, which for the generic routes is the command payload (Task 1's payload schema) and for the five special routes is not:
+  `request` describes what the REST route really reads, which for the generic routes is the command payload (Task 1's payload schema) and for the four special routes is not:
   - `GET /api/secrets`: no query; the `X-RT-Token` header only (forwarded as `{ token }`).
   - `GET /api/cache/{branch}`: params `branch`, query `repoIdentity` only (`maxAgeMs` is dropped today).
-  - `GET /api/cache`: the `cache:read` payload; the description says a `repoIdentity` query ignores every other parameter.
   - `POST /api/hooks/{repo}/repair`: params `repo`; no body.
   - `GET /api/runs/{repo}/{runId}`: params only.
+
+  `GET /api/cache` is `kind: "generic"` (it is a `REST_ROUTES` row): its `request` is the `cache:read` payload, dispatch applies the `repoIdentity` filter before the generic path, and the description says a `repoIdentity` query ignores every other parameter.
 
   Each route is its own `as const satisfies DaemonRoute` export so `contractApp()` keeps every schema's precise type; a widened `DaemonRoute[]` would leave the typed client with `unknown` bodies.
 
@@ -217,16 +218,16 @@ Behaviour, in today's order (read `lib/daemon/api-server.ts:430-563` side by sid
 - [ ] **Step 1: Write the failing wire tests**
 
 Start the server as `api-server.test.ts` does (free port, stub `handleCommand` recording calls). Each test asserts status, the full body and the exact `content-type`:
-- `test("JSON replies keep today's content-type")`: `GET /api/status` → `content-type` equals what `Response.json({}).headers.get("content-type")` gives in the same process; no header beyond today's set (`content-type`, `content-length`, `date`, the CORS pair when trusted).
+- `test("JSON replies keep today's content-type")`: `GET /api/status` → `content-type` equals what `Response.json({}).headers.get("content-type")` gives in the same process; no header beyond today's set (`content-type`, `content-length`, `date`, the always-present Allow-Methods/Allow-Headers pair, and the origin pair when trusted).
 - `test("branch with slashes reaches cache:read whole")`: `GET /api/cache/feature/x%2Fy` → `handleCommand("cache:read", { branches: ["feature/x/y"] })`.
 - `test("serialized identity survives hooks repair")`: an identity from `serializeIdentity` in the path → `hooks:repair` with that exact string.
 - `test("malformed percent-encoding is a 400")`: `GET /api/cache/%E0%A4%A` → 400 `{ok:false,error:"malformed path parameter"}`.
 - `test("wrong method on a known path is 405")`: `POST /api/status` → 405 `{ok:false,error:"use GET"}`.
-- `test("wrong method on a special route is 404")`: `POST /api/secrets` (with the token), `GET /api/hooks/x/repair`, `POST /api/cache/x`, `POST /api/runs/a/b` (with the token) → each 404 with the `docs` body.
+- `test("wrong method on a special route is 404")`: `POST /api/secrets` (with the token), `GET /api/hooks/x/repair`, `POST /api/cache/x` (with the token), `POST /api/runs/a/b` (with the token) → each 404 with the `docs` body; `POST /api/cache` (with the token) → 405 `use GET`, since `/api/cache` is generic.
 - `test("HEAD never reaches a handler")`: `HEAD /api/status` → 405, `HEAD /api/cache/x` → 404; `handleCommand` not called.
 - `test("exact routes win over wildcards")`: `GET /api/runs` → `runs:list`; `GET /api/hooks/x` → 404.
 - `test("secrets forwards exactly the header token")`: `GET /api/secrets?scope=deck` with the token → `handleCommand("secrets:read", { token })`, no `scope`, no `_client`.
-- `test("X-RT-Client lands on generic routes only")`: `GET /api/runs` and `POST /api/refresh` with `X-RT-Client: tray` → payload has `_client: "tray"`; `GET /api/cache/main` with it → payload has no `_client`.
+- `test("X-RT-Client lands on generic routes only")`: `GET /api/runs`, `GET /api/cache` (no `repoIdentity`) and `POST /api/refresh` with `X-RT-Client: tray` → payload has `_client: "tray"`; `GET /api/cache/main` with it → payload has no `_client`.
 - `test("OPTIONS on an unknown path is 204")`.
 - `test("token gate fires before routing")`: `POST /api/shutdown` without the token → 401 `{ok:false,error:"unauthorized"}`, and `handleCommand` not called; `POST /api/nope` without the token is also 401 (gated before the 404); `GET /api/notifications` without the token is 401.
 - `test("oversized POST body keeps the 413 body")`: a body over `bodyLimitFor("events:emit")` → 413 with today's body.
