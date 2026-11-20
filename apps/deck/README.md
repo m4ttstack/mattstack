@@ -55,17 +55,25 @@ below for the rest. Nothing here requires any of them.
 
 ## Installation
 
-```bash
-curl -fsSL deck.mattstack.dev | sh
-```
+Deck ships inside the mattstack app as `Contents/Helpers/deck`, and the app
+supervises it through its bundle helper. Install the app from
+[mattstack.dev](https://mattstack.dev) and deck is running; there is no
+separate installer.
 
-Deck v1 is macOS only; Linux support is designed for but not shipped yet.
-The installer downloads the `deck` binary to `~/.mattstack/deck/bin`, adds
-that directory to your `PATH` if it isn't already there, and finishes by
-running `deck setup`.
+Deck is macOS only; Linux support is designed for but not shipped yet.
 
-`deck setup` needs two prerequisites in place, and tells you exactly
-what's missing if you skip this:
+On a machine where the mattstack app is installed, `deck setup` refuses and
+changes nothing, and the helper boots out and archives any hand-installed
+`com.mattstack.deck` agent it finds, so two supervisors never fight over
+deck's ports and state.
+
+### Without the app
+
+To run deck from a source checkout instead, run `bun run deploy` in
+`apps/deck` on `main`. It compiles `dist/deck`, installs it over
+`~/.local/bin/deck`, and restarts deck. `deck setup` then needs two
+prerequisites in place, and tells you exactly what's missing if you skip
+this:
 
 ```bash
 # Node 24+ (portless's own requirement)
@@ -76,12 +84,6 @@ npm install -g portless
 portless trust
 portless service install
 ```
-
-On a machine where the mattstack app is installed, the app supervises deck
-through its bundle helper instead. There `deck setup` refuses and changes
-nothing, and the helper boots out and archives any hand-installed
-`com.mattstack.deck` agent it finds, so two supervisors never fight over
-deck's ports and state.
 
 ## Quickstart
 
