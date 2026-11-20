@@ -50,6 +50,8 @@ export function fallbackWorktrees(
     .map((wt) => ({ ...wt, group: null }));
 }
 
+export const UNGROUPED_LABEL = "git order: rt's order needs the rt daemon";
+
 export type PickerSlot =
   | { kind: 'tree'; tree: OrderedWorktree }
   | { kind: 'separator'; label: string };
@@ -64,9 +66,9 @@ export function pickerLayout(trees: OrderedWorktree[], grouped: boolean): Picker
   const current = trees.find((t) => t.isCurrent);
   if (current) {
     slots.push({ kind: 'tree', tree: current });
-    slots.push({ kind: 'separator', label: grouped ? '' : 'git order: rt daemon not running' });
+    slots.push({ kind: 'separator', label: grouped ? '' : UNGROUPED_LABEL });
   } else if (!grouped) {
-    slots.push({ kind: 'separator', label: 'git order: rt daemon not running' });
+    slots.push({ kind: 'separator', label: UNGROUPED_LABEL });
   }
   let group: PickerGroup | null = null;
   for (const t of trees) {

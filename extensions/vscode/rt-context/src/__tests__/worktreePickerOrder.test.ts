@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { fallbackWorktrees, fromPickerRows, pickerLayout, type OrderedWorktree } from '../worktreeParse';
+import { fallbackWorktrees, fromPickerRows, pickerLayout, UNGROUPED_LABEL, type OrderedWorktree } from '../worktreeParse';
 import type { WorktreeEntry } from '../types';
 
 const wt = (dirPath: string, branch: string | null, isCurrent = false): WorktreeEntry => ({
@@ -91,6 +91,6 @@ describe('pickerLayout', () => {
 
   test('says the order is git’s when the daemon is down', () => {
     const trees = [tree('main', null, true), tree('a', null)];
-    expect(slots(trees, false)).toEqual(['main', '-- git order: rt daemon not running', 'a']);
+    expect(slots(trees, false)).toEqual(['main', `-- ${UNGROUPED_LABEL}`, 'a']);
   });
 });
