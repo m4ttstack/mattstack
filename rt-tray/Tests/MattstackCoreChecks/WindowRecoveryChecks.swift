@@ -21,6 +21,20 @@ let windowRecoveryChecks: [Check] = [
         c.expectEqual(MainFrameResponse.verdict(isMainFrame: true, status: 600), .allow)
         c.expectEqual(MainFrameResponse.verdict(isMainFrame: true, status: nil), .allow)
     },
+    Check("window recovery: a finished page with a stylesheet that never loaded fails the tab") { c in
+        c.expect(StylesheetProbe.failed(result: NSNumber(value: 1)))
+        c.expect(StylesheetProbe.failed(result: NSNumber(value: 2)))
+    },
+    Check("window recovery: every stylesheet loaded, or no answer from the page, leaves the tab alone") { c in
+        c.expect(!StylesheetProbe.failed(result: NSNumber(value: 0)))
+        c.expect(!StylesheetProbe.failed(result: nil))
+        c.expect(!StylesheetProbe.failed(result: "1"))
+    },
+    Check("window recovery: the stylesheet probe counts linked sheets that are missing or have no rules") { c in
+        c.expect(StylesheetProbe.script.contains("link[rel~=\"stylesheet\"]"))
+        c.expect(StylesheetProbe.script.contains("!l.sheet"))
+        c.expect(StylesheetProbe.script.contains("cssRules.length === 0"))
+    },
     Check("window recovery: retry after a failed first load loads the app, not reload()") { c in
         let home = URL(string: "https://board.mattstack")!
         c.expectEqual(WindowReload.action(failedURL: nil, hasCommittedPage: false, home: home), .load(home))

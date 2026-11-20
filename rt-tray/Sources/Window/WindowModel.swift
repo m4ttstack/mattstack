@@ -51,6 +51,12 @@ final class WindowNavigationDelegate: NSObject, WKNavigationDelegate, WKUIDelega
         model?.store.noteLoaded(appName)
         model?.loadFailures[appName] = false
         model?.loadingApps.remove(appName)
+        webView.evaluateJavaScript(StylesheetProbe.script) { [weak self] result, _ in
+            guard let self, StylesheetProbe.failed(result: result) else { return }
+            TrayLog.warn("window stylesheet failed to load", ["app": self.appName, "count": "\(result ?? "")"])
+            self.model?.store.noteFailedLoad(self.appName, url: webView.url)
+            self.model?.loadFailures[self.appName] = true
+        }
     }
 
     /// WebKit treats any HTTP answer as a finished navigation, so without

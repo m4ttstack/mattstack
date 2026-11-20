@@ -14,6 +14,26 @@ public enum MainFrameResponse {
     }
 }
 
+/// WebKit reports a page finished even when its stylesheets were refused: a
+/// served app restarting between the HTML and its CSS answers the stylesheet
+/// with the proxy's 502 page, and the tab draws unstyled with nothing to
+/// retry it. WebKit still hands such a link a sheet, one with no rules, so
+/// the probe counts empty sheets; a cross-origin sheet throws on cssRules
+/// and counts as loaded.
+public enum StylesheetProbe {
+    public static let script = """
+        Array.from(document.querySelectorAll('link[rel~="stylesheet"]')).filter(l => {
+          if (!l.sheet) return true;
+          try { return l.sheet.cssRules.length === 0; } catch (e) { return false; }
+        }).length
+        """
+
+    public static func failed(result: Any?) -> Bool {
+        guard let count = result as? NSNumber else { return false }
+        return count.intValue > 0
+    }
+}
+
 public enum WindowReloadAction: Equatable, Sendable {
     case reload
     case load(URL)
