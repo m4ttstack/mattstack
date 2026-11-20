@@ -63,6 +63,15 @@ So response shapes must be real, not placeholders.
 - `hono` (4.13) and `zod` (4.x) are already catalog/dev dependencies; rt does
   not import either at runtime today. `@hono/zod-openapi` must be a version
   that supports zod 4.
+- rt-client's `dist/index.js` must never import zod (it sits on rt's startup
+  path; `packages/rt-client/test/no-zod-in-dist.test.ts`). The schemas live
+  in their own module and `commands.ts` imports them with `import type`
+  only; zod loads at runtime only through the `./daemon-api` subpath, which
+  only the daemon (a dynamic import from `cli.ts`) pulls in.
+- Scalar's `exports` map does not expose its standalone script, so the embed
+  imports it by relative path from the root `node_modules`, with the package
+  pinned to an exact version. Verified to compile into a `--compile` binary
+  (about 4.6 MB).
 - rt-client's `dist/` goes stale after source edits (see
   `.claude/rules/workspace-packages.md`); rebuild it and keep
   `packages/rt-client/test/dist-freshness.test.ts` green.
@@ -118,22 +127,29 @@ Where schemas live:
 
 ### Router (rt)
 
-- A Hono `OpenAPIHono` app owns every non-`/ws` route. `Bun.serve`'s `fetch`
-  keeps the `/ws` upgrade first, then hands everything else to `app.fetch`.
+- A Hono app owns every non-`/ws` route. `Bun.serve`'s `fetch` keeps the
+  `/ws` upgrade first, then hands everything else to `app.fetch`.
+- One route table (in rt-client's `./daemon-api`) drives routing, the spec
+  and the typed client. Routing uses plain Hono handlers, so no zod validator
+  ever reads a request (an `OpenAPIHono` validator would reject bad input and
+  consume POST bodies before `readCommandBody`'s 413 check). The spec comes
+  from registering the same table on the zod-to-openapi registry, and
+  `AppType` from a type-level contract app that is never run. *(My call,
+  found while planning.)*
 - Middleware, in today's order, calling the existing functions rather than
   Hono's built-ins: origin trust and CORS headers (`resolveOriginTrust`,
   `buildCorsHeaders`, `isTokenPreflight`), OPTIONS 204, the token gate
   (`needsToken`, `tokenOk`). No `hono/cors`.
-- Each route is a `createRoute` definition: method, path, request schema
-  (query/params/body), response schemas per status, and whether it needs the
-  token (an OpenAPI security requirement on `X-RT-Token`). Handlers still call
-  `handleCommand(cmd, payload, signal)`.
+- Each route in the table carries: method, OpenAPI path, Hono match pattern,
+  command, summary, request schema (query/params/body), success envelope, and
+  whether it needs the token (an OpenAPI security requirement on
+  `X-RT-Token`). Handlers still call `handleCommand(cmd, payload, signal)`.
 - **Request schemas describe; they do not reject.** Today the REST layer
   refuses only a malformed path param (400) and an oversized body (413);
   everything else reaches the handler, which answers its own
   `{ ok:false, error }`. Rejecting at the REST layer would change those
-  answers, so request schemas feed the spec and the typed client only. The
-  route's validation hook forwards the raw input unchanged, and the payload
+  answers, so request schemas feed the spec and the typed client only. No
+  validator runs on a request, and the payload
   is still built by `coerceQueryParams` / `readCommandBody` exactly as today.
   *(My call, forced by the no-wire-change anti-goal.)*
 - **Request schemas are the rt-client payload schemas**, one definition per
