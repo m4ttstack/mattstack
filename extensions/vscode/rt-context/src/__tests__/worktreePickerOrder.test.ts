@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { fallbackWorktrees, fromPickerRows, pickerLayout, prDetail, UNGROUPED_LABEL, type OrderedWorktree } from '../worktreeParse';
+import { fallbackWorktrees, fromPickerRows, pickerLayout, prDetail, UNGROUPED_LABEL, withCurrent, type OrderedWorktree } from '../worktreeParse';
 import type { WorktreeEntry } from '../types';
 
 const wt = (dirPath: string, branch: string | null, isCurrent = false): WorktreeEntry => ({
@@ -28,6 +28,30 @@ describe('fromPickerRows', () => {
       ['zed', 'today', false],
       ['amy', 'idle 7d+', true],
     ]);
+  });
+});
+
+describe('withCurrent', () => {
+  test("adds the window's tree when rt's rows hide it, and keeps rt's order", () => {
+    const rows = fromPickerRows(
+      [
+        { path: '/r/main', branch: 'main', group: null },
+        { path: '/pool/a', branch: 'a', group: 'today' as const },
+      ],
+      '/pool/gone',
+      same,
+    );
+    const out = withCurrent(rows, wt('/pool/gone', 'merged', true));
+    expect(out.map((t) => [t.name, t.isCurrent])).toEqual([
+      ['gone', true],
+      ['main', false],
+      ['a', false],
+    ]);
+  });
+
+  test('changes nothing when the current tree is already there', () => {
+    const rows = fromPickerRows([{ path: '/r/main', branch: 'main', group: null }], '/r/main', same);
+    expect(withCurrent(rows, wt('/r/main', 'main', true))).toBe(rows);
   });
 });
 

@@ -5,7 +5,7 @@ import { extractLinearId } from './branchParser';
 import { branchCache } from './cache';
 import { fetchBranchData, openLinearUrl } from './statusBar';
 import { listWorktrees, getGitApi, findWorkspaceRepo } from './git';
-import { fallbackWorktrees, fromPickerRows, pickerLayout, prDetail, type OrderedWorktree } from './worktreeParse';
+import { fallbackWorktrees, fromPickerRows, pickerLayout, prDetail, withCurrent, type OrderedWorktree } from './worktreeParse';
 import { daemonQuery } from './daemonClient';
 import type { WorktreePickerData } from '@mattstack/rt-client';
 import { resolveRepoForge } from './repoForge';
@@ -109,9 +109,12 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
   const cwd = repo.rootUri.fsPath;
   const fromRt = await daemonQuery(`/api/worktrees/picker?path=${encodeURIComponent(cwd)}`);
   const grouped = !!fromRt?.ok;
-  const worktrees: OrderedWorktree[] = grouped
+  let worktrees: OrderedWorktree[] = grouped
     ? fromPickerRows((fromRt!.data as WorktreePickerData).trees, cwd)
     : fallbackWorktrees(await listWorktrees(cwd));
+  if (grouped && !worktrees.some((t) => t.isCurrent)) {
+    worktrees = withCurrent(worktrees, (await listWorktrees(cwd)).find((t) => t.isCurrent));
+  }
 
   if (!worktrees.length) {
     vscode.window.showInformationMessage('No worktrees found.');

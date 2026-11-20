@@ -37,6 +37,15 @@ export function fromPickerRows(
 }
 
 /**
+ * rt hides some trees (disposable, on-deck) that a window can still be open
+ * in; the picker keeps that tree so it can pin it as current.
+ */
+export function withCurrent(trees: OrderedWorktree[], current: WorktreeEntry | undefined): OrderedWorktree[] {
+  if (!current || trees.some((t) => t.isCurrent)) return trees;
+  return [{ ...current, isCurrent: true, group: null }, ...trees];
+}
+
+/**
  * With the daemon down there is no rt order to show, so this keeps git's own
  * order, ungrouped, through rt-client's shared pickable rule. The window's own
  * tree always stays so the picker can mark it current.

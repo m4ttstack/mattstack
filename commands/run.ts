@@ -974,10 +974,10 @@ export async function resolveRun(
       // The single-worktree case re-enters the same worktree and re-renders the
       // package picker just backed out of, so back reads as a flash and needs a
       // second press; drop the seed and start one level up, at the repo picker.
-      // Same existsSync filter the worktree section applies, so this asks the
-      // question about the rows that will actually be shown.
+      // Same pickerOrder and existsSync filter the worktree section applies, so
+      // this asks the question about the rows that will actually be shown.
       const resolvedOffersWorktreeChoice =
-        !!resolvedRepo && resolvedRepo.worktrees.filter((wt) => existsSync(wt.path)).length > 1;
+        !!resolvedRepo && pickerOrder(resolvedRepo).worktrees.filter((wt) => existsSync(wt.path)).length > 1;
       let selectedRepo: KnownRepo | undefined = resolvedIdentity
         ? (resolvedOffersWorktreeChoice ? resolvedRepo : undefined)
         : knownRepos.length === 1
