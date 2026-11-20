@@ -104,6 +104,15 @@ function buildIntoTempDir(): string {
   );
   if (faceAvatar.exitCode !== 0) throw new Error(`bun build (face-avatar) failed:\n${faceAvatar.stderr.toString()}`);
 
+  // Mirrors the package build's ninth entry: the daemon route table, OpenAPI
+  // document and typed client (target node, zod and hono external) for the
+  // ./daemon-api subpath.
+  const daemonApi = Bun.spawnSync(
+    ["bun", "build", "src/daemon-api/index.ts", "--outfile", join(outDir, "daemon-api.js"), "--target", "node", "--format", "esm", "--packages", "external"],
+    { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },
+  );
+  if (daemonApi.exitCode !== 0) throw new Error(`bun build (daemon-api) failed:\n${daemonApi.stderr.toString()}`);
+
   const types = Bun.spawnSync(
     ["bunx", "tsc", "-p", "tsconfig.json", "--outDir", outDir],
     { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },

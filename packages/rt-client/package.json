@@ -52,6 +52,12 @@
       "import": "./dist/ci-lease.js",
       "default": "./dist/ci-lease.js"
     },
+    "./daemon-api": {
+      "types": "./dist/daemon-api/index.d.ts",
+      "bun": "./src/daemon-api/index.ts",
+      "import": "./dist/daemon-api.js",
+      "default": "./dist/daemon-api.js"
+    },
     "./test/fake-daemon.ts": "./test/fake-daemon.ts"
   },
   "peerDependencies": {
@@ -61,6 +67,8 @@
     "@cfworker/json-schema": "^4.1.1",
     "@dicebear/core": "9.4.2",
     "@dicebear/personas": "9.4.2",
+    "@hono/zod-openapi": "catalog:",
+    "hono": "catalog:",
     "jsonc-parser": "^3.3.1",
     "zod": "catalog:"
   },
@@ -86,12 +94,13 @@
     "bun": ">=1.0.0"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --packages external && bun build src/settings/identity-codec.ts --outfile dist/settings/identity-codec.js --target browser --format esm && bun build src/gate.ts --outfile dist/gate.js --target browser --format esm && bun build src/ci-lease.ts --outfile dist/ci-lease.js --target node --format esm --packages external && bun build src/evidence.ts --outfile dist/evidence.js --target browser --format esm && bun build src/face-zoom.ts --outfile dist/face-zoom.js --target browser --format esm && bun build src/face-tiles.ts --outfile dist/face-tiles.js --target browser --format esm && bun build src/face-avatar.ts --outfile dist/face-avatar.js --target browser --format esm && tsc -p tsconfig.json",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --packages external && bun build src/settings/identity-codec.ts --outfile dist/settings/identity-codec.js --target browser --format esm && bun build src/gate.ts --outfile dist/gate.js --target browser --format esm && bun build src/ci-lease.ts --outfile dist/ci-lease.js --target node --format esm --packages external && bun build src/evidence.ts --outfile dist/evidence.js --target browser --format esm && bun build src/face-zoom.ts --outfile dist/face-zoom.js --target browser --format esm && bun build src/face-tiles.ts --outfile dist/face-tiles.js --target browser --format esm && bun build src/face-avatar.ts --outfile dist/face-avatar.js --target browser --format esm && bun build src/daemon-api/index.ts --outfile dist/daemon-api.js --target node --format esm --packages external && tsc -p tsconfig.json",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "prepack": "bun run build"
   },
   "devDependencies": {
     "@mattstack/glance": "workspace:*",
+    "@scalar/openapi-parser": "catalog:",
     "typescript": "^5.9.2"
   }
 }
