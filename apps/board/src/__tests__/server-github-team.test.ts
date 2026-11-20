@@ -580,6 +580,15 @@ describe('a GitHub team', () => {
         posted: true,
         noteId: 555,
       });
+      // The server's stderr reaches output() asynchronously, so the 200 can
+      // arrive before the line does.
+      const deadline = Date.now() + 5_000;
+      while (
+        !server.output().includes('could not record the draft') &&
+        Date.now() < deadline
+      ) {
+        await Bun.sleep(25);
+      }
       expect(server.output()).toContain('could not record the draft');
     } finally {
       db.run('DROP TRIGGER no_posted');
