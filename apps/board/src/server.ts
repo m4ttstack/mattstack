@@ -1866,7 +1866,8 @@ async function ownersPreviewOrPost(
       const sent = await postToOwnerChannel(
         slackToken,
         { name, id: planned.channels.get(name)!.id },
-        written(name) ?? ownerText(plan.channels.find(c => c.channel === name)!),
+        written(name) ??
+          ownerText(plan.channels.find(c => c.channel === name)!),
         mr.webUrl!
       );
       posted.push({ channel: name, permalink: sent.permalink });

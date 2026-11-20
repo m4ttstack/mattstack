@@ -346,7 +346,10 @@ describe('loadConfig: store values get the normalization and validation parseCon
 
   test('a store ownerPrefix reaches the slack config', () => {
     const cfg = loadConfig(
-      fakeResolve({ ...TEAM, 'board.slack': { ownerPrefix: 'CO ({sections}):' } })
+      fakeResolve({
+        ...TEAM,
+        'board.slack': { ownerPrefix: 'CO ({sections}):' },
+      })
     );
     expect(cfg.slack.ownerPrefix).toBe('CO ({sections}):');
   });

@@ -8,9 +8,9 @@ import {
   renderPost,
   sanitizeHeader,
   selectionHeader,
+  withOwnerPrefix,
   type MrFacts,
   type SlackTemplates,
-  withOwnerPrefix,
 } from '../template.ts';
 
 const F: MrFacts = {

@@ -657,7 +657,10 @@ test('an empty message for a channel is refused, and nothing posts', async () =>
     mrUrl: url('g/p', 710),
     team: true,
     channels: ['acme-channel'],
-    texts: { 'code-review': `please look ${url('g/p', 710)}`, 'acme-channel': '   ' },
+    texts: {
+      'code-review': `please look ${url('g/p', 710)}`,
+      'acme-channel': '   ',
+    },
   });
   expect(res.status).toBe(400);
   expect(await res.text()).toBe('the message for #acme-channel is empty');
