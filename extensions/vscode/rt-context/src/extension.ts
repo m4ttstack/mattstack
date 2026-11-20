@@ -16,6 +16,7 @@ import { onDaemonRefresh } from './daemonClient';
 import { showBranchSwitcher } from './branchSwitcher';
 import { showAllWorktrees } from './worktreePicker';
 import { forgeWords } from './forge';
+import { initAgentsItem, refreshAgentsItem, showAgents } from './agentsMenu';
 
 export function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration('rtContext');
@@ -24,6 +25,7 @@ export function activate(context: vscode.ExtensionContext) {
   branchCache.init(context);
   branchListCache.init(context);
   initStatusBar(context, priority);
+  initAgentsItem(context, priority);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('rtContext.openTicket', async () => {
@@ -75,6 +77,8 @@ export function activate(context: vscode.ExtensionContext) {
       showAllWorktrees(context),
     ),
 
+    vscode.commands.registerCommand('rtContext.showAgents', () => showAgents()),
+
     vscode.commands.registerCommand('rtContext.switchBranch', () =>
       showBranchSwitcher(context),
     ),
@@ -95,7 +99,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   waitForGitAndStart(context);
 
-  context.subscriptions.push(onDaemonRefresh(() => scheduleUpdate(context)));
+  context.subscriptions.push(onDaemonRefresh(() => {
+    scheduleUpdate(context);
+    void refreshAgentsItem();
+  }));
 
   void noticeEditorTokens(context);
 }

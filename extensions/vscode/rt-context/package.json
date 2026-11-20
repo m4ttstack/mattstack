@@ -30,6 +30,10 @@
         "title": "RT Context: Show All Worktrees"
       },
       {
+        "command": "rtContext.showAgents",
+        "title": "RT Context: Show Agents"
+      },
+      {
         "command": "rtContext.switchBranch",
         "title": "RT Context: Switch Branch"
       },
