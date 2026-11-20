@@ -71,6 +71,7 @@ import {
   NO_REVIEW_CHANNEL,
   ownerRulesFromApprovalState,
   planOwnersPost,
+  sectionLabel,
   type OwnerRule,
   type OwnersPostPlan,
 } from './codeowner-posts.ts';
@@ -469,8 +470,10 @@ import {
 import styleCss from './style.css' with { type: 'text' };
 import {
   MAX_HEADER_LEN,
+  renderOwnerPrefix,
   renderPost,
   sanitizeHeader,
+  withOwnerPrefix,
   type MrFacts,
 } from './template.ts';
 import {
@@ -1419,8 +1422,8 @@ function withSlackChannel<T extends BoardMR>(
 /** The review-request text for these MRs, from the board's Slack templates.
     A header forces the multi rendering even for one MR, since the single
     template has no header line to put it on. */
-function mrPostText(mrs: BoardMR[], header: string | null = null): string {
-  const facts: MrFacts[] = mrs.map(m => ({
+function mrFacts(m: BoardMR): MrFacts {
+  return {
     iid: m.iid,
     title: m.title,
     url: m.webUrl ?? '',
@@ -1428,7 +1431,11 @@ function mrPostText(mrs: BoardMR[], header: string | null = null): string {
     author: m.author.username,
     sourceBranch: m.sourceBranch,
     targetBranch: m.targetBranch,
-  }));
+  };
+}
+
+function mrPostText(mrs: BoardMR[], header: string | null = null): string {
+  const facts = mrs.map(mrFacts);
   return renderPost(
     {
       single: config.slack.singleTemplate,
@@ -1755,6 +1762,12 @@ async function ownersPreviewOrPost(
   const team = await teamThread(mr, slackToken);
   const defaultText = mrPostText([mr]);
   const { plan } = planned;
+  const prefixFor = (c: { channel: string; sections: string[] }) =>
+    renderOwnerPrefix(
+      config.slack.ownerPrefix,
+      mrFacts(mr),
+      c.sections.map(s => sectionLabel(s, c.channel)).join(', ')
+    );
   if (request === null) {
     const direct =
       !team.posted &&
@@ -1765,6 +1778,10 @@ async function ownersPreviewOrPost(
     return Response.json({
       text: defaultText,
       ...plan,
+      channels: plan.channels.map(c => {
+        const prefix = prefixFor(c);
+        return prefix ? { ...c, prefix } : c;
+      }),
       team,
       direct,
       unchecked: planned.unchecked,
@@ -1818,11 +1835,15 @@ async function ownersPreviewOrPost(
       });
   }
   for (const name of channels as string[]) {
+    const ownerText = withOwnerPrefix(
+      prefixFor(plan.channels.find(c => c.channel === name)!),
+      text
+    );
     try {
       const sent = await postToOwnerChannel(
         slackToken,
         { name, id: planned.channels.get(name)!.id },
-        text,
+        ownerText,
         mr.webUrl!
       );
       posted.push({ channel: name, permalink: sent.permalink });

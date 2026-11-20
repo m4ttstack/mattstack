@@ -86,6 +86,7 @@ const PRS: Record<string, ReturnType<typeof fakePr>[]> = {
     fakePr('g/p', 707, 'alice'),
     fakePr('g/p', 708, 'alice'),
     fakePr('g/p', 709, 'alice'),
+    fakePr('g/p', 710, 'alice'),
   ],
   'g/q': [fakePr('g/q', 801, 'alice')],
 };
@@ -149,6 +150,10 @@ const APPROVAL_BY_IID: Record<string, unknown> = {
     rules: [rule('Ours - #ours-channel'), rule('Acme - #acme-channel')],
   },
   '709': { rules: [rule('Acme - #acme-channel')] },
+  // 710 posts the team row and an owner channel together.
+  '710': {
+    rules: [rule('Ours - #ours-channel'), rule('Acme - #acme-channel')],
+  },
 };
 
 const forgeSeen: Array<{ repoName: string; path: string }> = [];
@@ -158,9 +163,11 @@ const forgeSeen: Array<{ repoName: string; path: string }> = [];
 function bootBoard({
   directory,
   recheckMs,
+  teamSettings = {},
 }: {
   directory: unknown;
   recheckMs?: number;
+  teamSettings?: Record<string, unknown>;
 }) {
   const home = mkdtempSync(join(tmpdir(), 'board-slack-owners-'));
   const orgDir = join(home, '.mattstack', 'orgs', 'testteam', 'mattstack');
@@ -193,7 +200,10 @@ function bootBoard({
     })
   );
   mkdirSync(join(orgDir, 'teams', 'web'), { recursive: true });
-  writeFileSync(join(orgDir, 'teams', 'web', 'settings.team.jsonc'), '{}');
+  writeFileSync(
+    join(orgDir, 'teams', 'web', 'settings.team.jsonc'),
+    JSON.stringify(teamSettings)
+  );
   const userDir = join(home, '.mattstack', 'user');
   mkdirSync(userDir, { recursive: true });
   writeFileSync(
@@ -316,6 +326,11 @@ const board = bootBoard({
       },
     },
   },
+  teamSettings: {
+    'board.slack': {
+      ownerPrefix: 'Code owner review ({sections}) for {ticket}:',
+    },
+  },
 });
 const noChannelBoard = bootBoard({
   directory: {
@@ -362,7 +377,7 @@ interface Preview {
   team: { channel: string; posted: boolean; permalink?: string };
   direct: boolean;
   ownSections: string[];
-  channels: Array<{ channel: string; sections: string[] }>;
+  channels: Array<{ channel: string; sections: string[]; prefix?: string }>;
   skipped: Array<{
     section: string;
     reason: string;
@@ -391,6 +406,7 @@ test('preview groups unapproved sections by channel and says why the rest are sk
     {
       channel: 'acme-channel',
       sections: ['Acme - #acme-channel', 'Acme Jobs - #acme-channel'],
+      prefix: 'Code owner review (Acme, Acme Jobs) for ACME-1:',
     },
   ]);
   expect(body.skipped).toEqual([
@@ -479,7 +495,9 @@ test('post sends once per confirmed channel, remembers it, and leaves the review
   const messages = sent();
   expect(messages).toHaveLength(1);
   expect(messages[0]!.channel).toBe('C_ACME');
-  expect(messages[0]!.text).toContain(url('g/p', 701));
+  expect(messages[0]!.text).toBe(
+    `Code owner review (Acme, Acme Jobs) for ACME-1: ACME-1 An MR: ${url('g/p', 701)}`
+  );
 
   const again = (await (
     await post('/slack/owners/preview', { mrUrl: url('g/p', 701) })
@@ -577,7 +595,11 @@ test('our own section is the team row, never our code owner channel', async () =
   expect(body.team).toEqual({ channel: 'code-review', posted: false });
   expect(body.ownSections).toEqual(['Ours - #ours-channel']);
   expect(body.channels).toEqual([
-    { channel: 'acme-channel', sections: ['Acme - #acme-channel'] },
+    {
+      channel: 'acme-channel',
+      sections: ['Acme - #acme-channel'],
+      prefix: 'Code owner review (Acme) for ACME-1:',
+    },
   ]);
   expect(body.skipped).toEqual([]);
   expect(body.direct).toBe(false);
@@ -610,6 +632,25 @@ test('posting only the team row leaves the other channels to post later', async 
   });
   expect(rest.status).toBe(200);
   expect((await boardMr(706)).ownerPostsLeft).toEqual([]);
+}, 20_000);
+
+test('an edited message goes to the team channel as typed and to an owner channel after the prefix', async () => {
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 710),
+    team: true,
+    channels: ['acme-channel'],
+    text: 'please look',
+  });
+  expect(res.status).toBe(200);
+  const texts = Object.fromEntries(
+    sent()
+      .filter(m => m.text.includes('please look'))
+      .map(m => [m.channel, m.text])
+  );
+  expect(texts).toEqual({
+    C_DEFAULT: 'please look',
+    C_ACME: 'Code owner review (Acme) for ACME-1: please look',
+  });
 }, 20_000);
 
 test('an MR needing only our own approval posts straight to the team channel', async () => {
