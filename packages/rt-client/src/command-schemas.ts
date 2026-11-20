@@ -417,7 +417,7 @@ export const TrayStatusDataSchema = z.object({
   portsCached: z.number(),
   portCacheAge: z.number().nullable(),
   lastRefresh: z.number().nullable(),
-  portsByRepo: z.record(z.string(), z.number()),
+  portsByRepo: z.record(z.string(), z.number()).meta({ examples: [{"acme-web":2}] }),
   pendingNotifications: z.number(),
   health: z.object({ level: HealthLevelSchema, reasons: z.array(z.string()) }),
   metrics: HealthMetricsSchema,
@@ -443,7 +443,9 @@ export const PortEntrySchema = z.object({
 
 export const PortsDataSchema = z.object({
   ports: z.array(PortEntrySchema),
-  grouped: z.record(z.string(), z.record(z.string(), z.array(PortEntrySchema))),
+  grouped: z
+    .record(z.string(), z.record(z.string(), z.array(PortEntrySchema)))
+    .meta({ examples: [{"acme-web":{"main":[{"port":5173,"pid":4242,"command":"bun","cwd":"/Users/you/code/acme-web","repo":"acme-web","worktree":"main","branch":"main","relativeDir":".","uptime":"2h"}]}}] }),
   updatedAt: z.number(),
   age: z.number().nullable(),
 });
@@ -463,7 +465,7 @@ export const ReposDataSchema = z.object({
   repos: z.record(
     z.string(),
     z.object({ path: z.string(), worktrees: z.array(z.object({ path: z.string(), branch: z.string() })) }),
-  ),
+  ).meta({ examples: [{"acme-web":{"path":"/Users/you/code/acme-web","worktrees":[{"path":"/Users/you/code/acme-web","branch":"main"}]}}] }),
   watched: z.array(z.string()),
 });
 
@@ -628,7 +630,9 @@ export const cacheReadPayloadSchema = z.object({
   maxAgeMs: z.number().optional(),
   repoIdentity: z.string().optional(),
 });
-export const cacheReadDataSchema = z.record(z.string(), BranchEnrichmentSchema);
+export const cacheReadDataSchema = z.record(z.string(), BranchEnrichmentSchema).meta({
+  examples: [{"feature/login":{"ticket":{"identifier":"ACME-12","title":"Add login","url":"https://linear.app/acme/issue/ACME-12"},"mr":{"iid":42,"webUrl":"https://github.com/acme/web/pull/42","state":"opened","pipeline":{"status":"success"}},"fetchedAt":1763650000000}}],
+});
 
 export const reposPayloadSchema = emptyPayload();
 export const reposDataSchema = ReposDataSchema;

@@ -23,7 +23,7 @@ const CLIENT_HEADER = z.object({
     .string()
     .optional()
     .describe(
-      "Names the caller in the daemon's command log (rt-client sends `rt-client/<pid>`). Rides on the command payload as `_client`; `GET /api/cache?repoIdentity=` ignores it.",
+      "Names the caller in the daemon's command log (rt-client sends `rt-client/<pid>`). Rides on the command payload as `_client`.",
     ),
 });
 

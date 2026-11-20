@@ -57,7 +57,7 @@ export function apiIndex(port: number) {
       ...DAEMON_ROUTES.map((route) => ({
         method: route.method.toUpperCase(),
         path: route.path.replace(/\{([^}]+)\}/g, ":$1"),
-        description: route.summary,
+        description: `${route.summary}. ${route.description}`,
       })),
       ...DOCS_ROUTES,
     ],
