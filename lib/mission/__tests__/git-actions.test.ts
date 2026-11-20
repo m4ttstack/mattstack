@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scrubGitEnv } from "../../../packages/git-core/src/exec.ts";
 import type { GitWorktreeBadge } from "../../../packages/rt-client/src/commands.ts";
-import { deriveAction, failureDetail, parseFilesToBeOverwritten, publishRepo, runAction } from "../git-actions.ts";
+import { actionFailureLogger, deriveAction, failureDetail, parseFilesToBeOverwritten, publishRepo, runAction } from "../git-actions.ts";
 
 describe("parseFilesToBeOverwritten (GHD's port)", () => {
   test("reads the tab-indented list under the error line and stops at the first unindented line", () => {
@@ -526,7 +526,11 @@ describe("publishRepo: gh repo create", () => {
     try {
       const gh = fakeGh(bin, 1, "GraphQL: Name already exists on this account (createRepository)");
       const result = await publishRepo(a.dir, { name: "acme-app", private: true }, gh.path);
-      expect(result).toEqual({ ok: false, detail: "GraphQL: Name already exists on this account (createRepository)" });
+      expect(result).toEqual({
+        ok: false,
+        detail: "GraphQL: Name already exists on this account (createRepository)",
+        stderr: "GraphQL: Name already exists on this account (createRepository)",
+      });
     } finally {
       rmSync(bin, { recursive: true, force: true });
       await a.cleanup();
@@ -729,5 +733,78 @@ describe("deriveAction: meta relative wording", () => {
       busy: false,
     });
     expect(action.meta).toBe("Last fetched 3 minutes ago");
+  });
+});
+
+describe("actionFailureLogger", () => {
+  test("writes one error line on the glitter module with credentials scrubbed out", () => {
+    const lines: unknown[][] = [];
+    const log = actionFailureLogger((...args) => lines.push(args));
+
+    log({
+      action: "pull",
+      worktree: "/repo",
+      branch: "main",
+      detail: "fatal: unable to access 'https://x:ghp_SECRET@github.com/o/r/'",
+      stderr: "remote: token=ghp_SECRET\nfatal: unable to access 'https://x:ghp_SECRET@github.com/o/r/'\n",
+    });
+
+    expect(lines).toHaveLength(1);
+    const [level, module, message, context] = lines[0] as [string, string, string, Record<string, string>];
+    expect([level, module, message]).toEqual(["error", "glitter", "pull failed"]);
+    expect(context.worktree).toBe("/repo");
+    expect(context.branch).toBe("main");
+    expect(JSON.stringify(context)).not.toContain("ghp_SECRET");
+    expect(context.stderr).toContain("fatal: unable to access");
+  });
+
+  test("scrubs ssh passwords, other forge token shapes and hook env secrets", () => {
+    const lines: unknown[][] = [];
+    const log = actionFailureLogger((...args) => lines.push(args));
+
+    log({
+      action: "push",
+      worktree: "/repo",
+      branch: "main",
+      detail: "fatal: Could not read from remote repository.",
+      stderr: [
+        "fatal: unable to access 'ssh://deploy:s3cr3tpass@git.example.com/o/r.git'",
+        "remote: denied with token gldt-abcdef1234567890xyz",
+        "remote: DEPLOY_TOKEN=supersecretvalue",
+      ].join("\n"),
+    });
+
+    const logged = JSON.stringify(lines[0]![3]);
+    expect(logged).not.toContain("s3cr3tpass");
+    expect(logged).not.toContain("gldt-abcdef1234567890xyz");
+    expect(logged).not.toContain("supersecretvalue");
+  });
+
+  test("keeps only the tail of a very long stderr", () => {
+    const lines: unknown[][] = [];
+    const log = actionFailureLogger((...args) => lines.push(args));
+
+    log({ action: "push", worktree: "/repo", branch: "main", detail: "x", stderr: `${"remote: chatter\n".repeat(2_000)}error: the real reason` });
+
+    const stderr = (lines[0]![3] as { stderr: string }).stderr;
+    expect(stderr.length).toBeLessThanOrEqual(8_000);
+    expect(stderr.endsWith("error: the real reason")).toBe(true);
+  });
+
+  test("a secret straddling the cut point is scrubbed before the tail is taken", () => {
+    const lines: unknown[][] = [];
+    const log = actionFailureLogger((...args) => lines.push(args));
+    const secret = "zq9SECRETzq9SECRETzq9SECRETzq9SECRET";
+
+    log({ action: "push", worktree: "/repo", branch: "main", detail: "x", stderr: `remote: DEPLOY_TOKEN=${secret}\n${"x".repeat(7_980)}` });
+
+    expect((lines[0]![3] as { stderr: string }).stderr).not.toContain("zq9SECRET");
+  });
+
+  test("a write that throws never escapes", () => {
+    const log = actionFailureLogger(() => {
+      throw new Error("disk full");
+    });
+    expect(() => log({ action: "fetch", worktree: "/repo", branch: null, detail: "x" })).not.toThrow();
   });
 });

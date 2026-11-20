@@ -1,4 +1,6 @@
 import { scrubGitEnv } from "../../packages/git-core/src/exec.ts";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
+import { withoutUrls } from "../team/redact.ts";
 import type { GitWorktreeBadge } from "../../packages/rt-client/src/commands.ts";
 
 export type ActionKind =
@@ -23,6 +25,8 @@ export interface ActionState {
 export interface ActionResult {
   ok: boolean;
   detail: string;
+  /** git's (or gh's) whole stderr on a failure, for the log; detail is the one line the notice shows. */
+  stderr?: string;
   /** GHD's PushNotFastForward: the remote has commits this branch lacks, so the view offers to fetch them. */
   pushNeedsPull?: boolean;
   /** GHD's MergeWithLocalChanges or RebaseWithLocalChanges: uncommitted changes blocked a pull, so the view offers to stash them. */
@@ -128,13 +132,13 @@ async function spawnGitStderr(cwd: string, args: string[]): Promise<{ ok: boolea
 
 async function spawnGit(cwd: string, args: string[]): Promise<ActionResult> {
   const { ok, stderr } = await spawnGitStderr(cwd, args);
-  return ok ? { ok: true, detail: "" } : { ok: false, detail: failureDetail(stderr) };
+  return ok ? { ok: true, detail: "" } : { ok: false, detail: failureDetail(stderr), stderr };
 }
 
 async function push(cwd: string, remote: string): Promise<ActionResult> {
   const { ok, stderr } = await spawnGitStderr(cwd, ["push", remote]);
   if (ok) return { ok: true, detail: "" };
-  return { ok: false, detail: failureDetail(stderr), pushNeedsPull: PUSH_NOT_FAST_FORWARD.test(stderr) };
+  return { ok: false, detail: failureDetail(stderr), stderr, pushNeedsPull: PUSH_NOT_FAST_FORWARD.test(stderr) };
 }
 
 // getRemoteDefaultBranch's local-first path (mission's own interactive
@@ -188,6 +192,7 @@ export async function runAction(
       return {
         ok: false,
         detail: failureDetail(stderr),
+        stderr,
         ...(blocked ? { localChangesOverwritten: { files: parseFilesToBeOverwritten(stderr) } } : {}),
       };
     }
@@ -226,6 +231,35 @@ export async function publishRepo(
     new Response(proc.stderr as ReadableStream).text(),
     proc.exited,
   ]);
-  if (code !== 0) return { ok: false, detail: failureDetail(err) };
+  if (code !== 0) return { ok: false, detail: failureDetail(err), stderr: err };
   return { ok: true, detail: "" };
+}
+
+// A chatty pre-receive hook can print pages; the reason git failed is at the end.
+const STDERR_LOG_LIMIT = 8_000;
+
+function scrubForLog(text: string): string {
+  return withoutUrls(redactCredentials(text));
+}
+
+/**
+ * The CLI log line for a failed remote action. git can quote a remote URL
+ * or a hook's env that carries a token, so every free-text field is
+ * scrubbed first.
+ */
+export function actionFailureLogger(
+  write: (level: "error", module: string, message: string, context: Record<string, unknown>) => void,
+): (entry: { action: string; worktree: string; branch: string | null; detail: string; stderr?: string; stack?: string }) => void {
+  return (entry) => {
+    try {
+      // Scrubbed whole, then cut: a cut inside NAME=value would orphan the value from the name its pattern needs.
+      const stderr = entry.stderr === undefined ? undefined : scrubForLog(entry.stderr).slice(-STDERR_LOG_LIMIT);
+      write("error", "glitter", `${entry.action} failed`, {
+        ...entry,
+        detail: scrubForLog(entry.detail),
+        ...(stderr !== undefined ? { stderr } : {}),
+        ...(entry.stack !== undefined ? { stack: scrubForLog(entry.stack) } : {}),
+      });
+    } catch { /* a log write must never fail the action it records */ }
+  };
 }

@@ -58,8 +58,17 @@ import { SessionDied } from "../runner/runner.ts";
 type OpenSessionFn = (view: string, model: unknown) => Promise<SessionHandle>;
 type DaemonQueryFn = typeof daemonQuery;
 type SubscribeFn = (onEvent: (ev: DaemonEvent) => void, opts?: { onStatusChange?: (status: "connecting" | "connected" | "disconnected") => void }) => DaemonSubscription;
-type RunActionFn = (cwd: string, kind: RunnableAction, opts: { remote?: string; branch: string | null }) => Promise<{ ok: boolean; detail: string }>;
-type PublishRepoFn = (cwd: string, opts: { name: string; private: boolean }) => Promise<{ ok: boolean; detail: string }>;
+type RunActionFn = (cwd: string, kind: RunnableAction, opts: { remote?: string; branch: string | null }) => Promise<ActionResult>;
+type PublishRepoFn = (cwd: string, opts: { name: string; private: boolean }) => Promise<ActionResult>;
+
+export interface ActionFailureLog {
+  action: RunnableAction | "publish-repo" | "stash-and-retry";
+  worktree: string;
+  branch: string | null;
+  detail: string;
+  stderr?: string;
+  stack?: string;
+}
 type CommitStagedFn = (cwd: string, message: string, opts?: { amend?: boolean; noVerify?: boolean; allowEmpty?: boolean; coAuthors?: string[] }) => string;
 type AmendStagedFn = (cwd: string, opts?: { message?: string; noVerify?: boolean }) => string;
 type GuardFn = typeof checkBranchGuard;
@@ -120,6 +129,8 @@ export interface MissionDeps {
   isRegistered: (identity: string) => boolean;
   saveLastRepo: (value: LastRepo) => void;
   indicatorTimers: { setTimer: (fn: () => void, ms: number) => unknown; clearTimer: (h: unknown) => void; skewMs: number };
+  /** Every failed or thrown remote action, so a notice that scrolled away is still on disk. Must never throw. */
+  logActionFailure: (entry: ActionFailureLog) => void;
 }
 
 interface StagePayload {
@@ -809,6 +820,7 @@ export class MissionDriver {
         break;
       case "mission:fetch":
         await this.runBusy(
+          "fetch",
           () => this.deps.runAction(this.state.currentWorktree, "fetch", { remote: this.remoteName ?? undefined, branch: this.snapshot.branch }),
           () => this.toast(ACTION_TOASTS.fetch!),
         );
@@ -919,6 +931,7 @@ export class MissionDriver {
       return;
     }
     await this.runBusy(
+      kind,
       () => this.deps.runAction(this.state.currentWorktree, kind, { remote: this.remoteName ?? undefined, branch: this.snapshot.branch }),
       () => {
         if (kind === "push" || kind === "force-push") this.state.forcePushRecommended = false;
@@ -933,6 +946,7 @@ export class MissionDriver {
     const name = typeof payload?.name === "string" ? payload.name.trim() : "";
     if (name === "") return;
     await this.runBusy(
+      "publish-repo",
       () => this.deps.publishRepo(this.state.currentWorktree, { name, private: payload?.private !== false }),
       () => this.toast("Published repository"),
     );
@@ -943,12 +957,29 @@ export class MissionDriver {
    * either way it refreshes, since a failure can still change the repo (gh
    * adds origin before the push that fails, so remoteName moves).
    */
-  private async runBusy(run: () => Promise<ActionResult>, onOk?: () => void, retry?: RunnableAction): Promise<void> {
+  private async runBusy(
+    action: ActionFailureLog["action"],
+    run: () => Promise<ActionResult>,
+    onOk?: () => void,
+    retry?: RunnableAction,
+  ): Promise<void> {
     this.state.busyAction = true;
     this.recomputeAction();
     this.push();
+    const failed = { action, worktree: this.state.currentWorktree, branch: this.snapshot.branch };
     try {
-      const result = await run();
+      let result: ActionResult;
+      try {
+        result = await run();
+      } catch (err) {
+        this.deps.logActionFailure({
+          ...failed,
+          detail: err instanceof Error ? err.message : String(err),
+          ...(err instanceof Error && err.stack !== undefined ? { stack: err.stack } : {}),
+        });
+        throw err;
+      }
+      if (!result.ok) this.deps.logActionFailure({ ...failed, detail: result.detail, ...(result.stderr !== undefined ? { stderr: result.stderr } : {}) });
       const blocked = result.localChangesOverwritten;
       this.notify(result.ok || result.pushNeedsPull || (blocked && retry) ? "" : result.detail);
       if (result.ok) onOk?.();
@@ -982,6 +1013,7 @@ export class MissionDriver {
     const client = this.deps.client(cwd);
     const nothingDone: ActionResult = { ok: true, detail: "" };
     await this.runBusy(
+      "stash-and-retry",
       async () => {
         const snapshot = await client.snapshot();
         const branch = snapshot.branch;

@@ -181,6 +181,7 @@ function baseDeps(over: DepOptions & { session: SessionHandle; client: GitClient
     readRepoCache: () => [],
     identityOf: (root: string) => `path:${root}`,
     isRegistered: () => true,
+    logActionFailure: () => {},
     saveLastRepo: () => {},
     indicatorTimers: { setTimer: () => null, clearTimer: () => {}, skewMs: 0 },
   };
