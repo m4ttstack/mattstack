@@ -119,13 +119,17 @@ describe('reparentBranch', () => {
     expect(result.cascadeResult).not.toBeNull();
   });
 
-  test('same parent is a no-op', async () => {
+  test('same parent is a no-op when the branch already sits on it', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: { ...GitShell, isAncestor: mock(() => Promise.resolve(true)) },
+    }));
     const { reparentBranch } = await import('../src/core/reparent.ts');
     const stack = buildLinearStack();
     const result = await reparentBranch('/tmp/repo', stack, 'feat/B', 'feat/A');
 
     expect(result.newStack).toBe(stack);
     expect(result.cascadeResult).toBeNull();
+    expect(result.alreadyInPlace).toBe(true);
   });
 
   test('reparent to descendant throws (cycle detection)', async () => {

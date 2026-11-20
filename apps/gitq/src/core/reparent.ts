@@ -11,6 +11,8 @@ export interface ReparentResult {
   /** Cascade result for the moved branch's descendants (if any). */
   cascadeResult: CascadeResult | null;
   newStack: Stack;
+  /** True when the branch already sat on its parent's head, so nothing moved. */
+  alreadyInPlace?: boolean;
 }
 
 /**
@@ -44,13 +46,16 @@ export async function reparentBranch(
 
   const oldParent = node.parent;
 
-  if (oldParent === newParentBranch) {
+  // Reparenting onto the current parent still means "put it on top of that
+  // parent": a branch behind its parent (a split, an amend) gets the rebase.
+  if (oldParent === newParentBranch && (await GitShell.isAncestor(cwd, newParentBranch, branch))) {
     return {
       branch,
       oldParent,
       newParent: newParentBranch,
       cascadeResult: null,
       newStack: stack,
+      alreadyInPlace: true,
     };
   }
 

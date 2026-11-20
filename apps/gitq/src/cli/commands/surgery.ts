@@ -7,6 +7,7 @@ import { reparentBranch } from '../../core/reparent.ts';
 import { renameBranch } from '../../core/branch-rename.ts';
 import { resetToRemote } from '../../core/branch-reset.ts';
 import { GitShell } from '../../core/git-shell.ts';
+import { RebaseEngine } from '../../core/rebase-engine.ts';
 import { StackManager } from '../../core/stack-manager.ts';
 import { getWorktreeMap, findSlotForBranch, describeSlot } from '../../core/worktrees.ts';
 import type { SlotInfo } from '../../core/worktrees.ts';
@@ -223,15 +224,39 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
   // slot. A source branch checked out elsewhere is handled by the slot
   // policy inside finalizeBranchRef (clean: auto-reset, dirty: refuse).
   if (at) {
-    return withOperationLog(ctx, stack, 'split', async () => {
+    const tailSplit = async (workDir?: string): Promise<number> => {
       const result = await BranchSplitter.tailSplit(ctx.repoRoot, stack, branch, name, at);
-      await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
-      emit(ctx, `split ${branch}: moved ${result.movedCommits.length} commit(s) to ${result.newBranch}`, {
-        stack: result.updatedStack,
+      const headline = `split ${branch}: moved ${result.movedCommits.length} commit(s) to ${result.newBranch}`;
+      if (!workDir) {
+        await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
+        emit(ctx, headline, { stack: result.updatedStack, result });
+        return 0;
+      }
+
+      // The source's children now sit under the new branch, but a child that
+      // was behind the source is still behind it in git.
+      const cascadeResult = await RebaseEngine.restackFrom(ctx.repoRoot, result.updatedStack, result.newBranch, workDir);
+      if (cascadeResult.state === 'paused') return finishCascade(ctx, stack.id, cascadeResult, workDir);
+
+      await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, cascadeResult.updatedStack));
+      const restacked = cascadeResult.results
+        .map((r) => `${r.branch} ${r.success ? 'ok' : `FAILED (${r.error})`}`)
+        .join(', ');
+      emit(ctx, `${headline}\nrestacked onto ${result.newBranch}: ${restacked}`, {
+        stack: cascadeResult.updatedStack,
         result,
+        cascadeResult,
       });
-      return 0;
-    });
+      return cascadeResult.results.every((r) => r.success) ? 0 : 1;
+    };
+
+    // A split with no children never rebases, so it needs no work slot.
+    if (StackManager.getChildren(stack, branch).length === 0) {
+      return withOperationLog(ctx, stack, 'split', () => tailSplit());
+    }
+    return withLeasedSlot(ctx, stack, 'split', (workDir) =>
+      withOperationLog(ctx, stack, 'split', () => tailSplit(workDir), (code) => code !== 2),
+    );
   }
 
   return withLeasedSlot(ctx, stack, 'split', (workDir) =>
@@ -239,7 +264,14 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
       const patterns = files!.split(',').map((p) => p.trim()).filter(Boolean);
       const result = await BranchSplitter.splitByFile(ctx.repoRoot, stack, branch, patterns, name, workDir);
       await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
-      emit(ctx, `split ${branch}: moved ${result.movedFiles.length} file(s) to ${result.newBranch}`, {
+      // File split never cascades: a child restacked onto the rewritten source
+      // would lose the moved files, which is the caller's call to make.
+      const stale = StackManager.getChildren(result.newStack, branch)
+        .map((c) => c.branch)
+        .filter((child) => child !== result.newBranch);
+      const headline = `split ${branch}: moved ${result.movedFiles.length} file(s) to ${result.newBranch}`;
+      const hint = stale.length > 0 ? `\n${stale.join(', ')} still sits on the old ${branch}; run gitq sync to restack` : '';
+      emit(ctx, `${headline}${hint}`, {
         stack: result.newStack,
         result,
       });
@@ -296,7 +328,10 @@ export async function reparentCommand(ctx: CliContext): Promise<number> {
       }
 
       await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
-      emit(ctx, `reparented ${result.branch} from ${result.oldParent} onto ${result.newParent}`, {
+      const headline = result.alreadyInPlace
+        ? `${result.branch} is already on ${result.newParent}; nothing moved`
+        : `reparented ${result.branch} from ${result.oldParent} onto ${result.newParent}`;
+      emit(ctx, headline, {
         stack: result.newStack,
         result,
       });
