@@ -195,7 +195,9 @@ jobs:
   tray-compile:
     needs: scope
     if: needs.scope.outputs.tray == 'true'
-    runs-on: ${{ fromJSON(needs.scope.outputs.macos_runner) }}
+    # Never the Mac mini: the tray builds against an SDK whose Xcode needs
+    # Apple silicon, and the Intel mini has no Xcode it could run.
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

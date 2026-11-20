@@ -59,4 +59,5 @@ queue still lands the tree.
 runner's hook enforces, from a copy `scripts/ci/mac-runner/install.sh` installs.
 A new macOS job in `checks.yml` or `e2e.yml` takes its `runs-on` from
 `macos_runner`, and a change to the rule needs the installer rerun (`docs/ci.md`,
-"The Mac runner").
+"The Mac runner"). The one exception is `tray-compile`, pinned to
+`macos-latest` because the Intel mini cannot run the Xcode the tray needs.
