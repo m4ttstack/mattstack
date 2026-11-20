@@ -9,9 +9,10 @@
 
 import { API_VERSION, DAEMON_ROUTES, WEBSOCKET_EVENTS } from "../../packages/rt-client/src/daemon-api/routes.ts";
 import type { OpenAPI31Document } from "../../packages/rt-client/src/daemon-api/document.ts";
-import scalarPackage from "../../node_modules/@scalar/api-reference/package.json" with { type: "json" };
 
-export const SCALAR_VERSION: string = scalarPackage.version;
+// Pinned to the installed package by api-docs.test.ts; reading its package.json
+// here would make daemon boot load the Scalar package.
+export const SCALAR_VERSION = "1.82.0";
 
 let openApiDocument: Promise<OpenAPI31Document> | undefined;
 
