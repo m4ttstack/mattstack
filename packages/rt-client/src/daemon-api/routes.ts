@@ -132,6 +132,20 @@ export const reposListRoute = {
   success: okData(S.reposDataSchema),
 } as const satisfies DaemonRoute;
 
+export const worktreesPickerRoute = {
+  id: "worktrees.picker",
+  method: "get",
+  path: "/api/worktrees/picker",
+  honoPath: "/api/worktrees/picker",
+  cmd: "worktrees:picker",
+  tag: "Repos",
+  summary: "A repo's worktrees in rt cd's order with recency groups (?path=<any worktree of the repo>)",
+  token: false,
+  kind: "generic",
+  request: { query: S.worktreesPickerPayloadSchema },
+  success: okData(S.worktreesPickerDataSchema),
+} as const satisfies DaemonRoute;
+
 export const processesListRoute = {
   id: "processes.list",
   method: "get",
@@ -407,6 +421,7 @@ export const DAEMON_ROUTES = [
   cacheListRoute,
   cacheGetRoute,
   reposListRoute,
+  worktreesPickerRoute,
   processesListRoute,
   notificationsDrainRoute,
   cacheRefreshRoute,

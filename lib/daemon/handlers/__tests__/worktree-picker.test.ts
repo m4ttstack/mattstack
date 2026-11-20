@@ -5,6 +5,7 @@ import { join } from "path";
 import { createWorktreePickerHandlers } from "../worktree-picker.ts";
 import { pickerOrder } from "../../../worktree-groups.ts";
 import type { KnownRepo } from "../../../repo-index.ts";
+import { worktreesPickerRoute } from "../../../../packages/rt-client/src/daemon-api/index.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.parse("2026-11-19T18:00:00Z");
@@ -60,6 +61,7 @@ describe("worktrees:picker", () => {
       ["alpha", "idle 7d+"],
     ]);
     expect(res.data.repoName).toBe("gh:o/x");
+    expect(worktreesPickerRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("finds the repo from any of its worktrees", async () => {
