@@ -96,6 +96,16 @@ afterAll(() => {
   rmSync(testBoardRoot, { recursive: true, force: true });
 });
 
+// The afterEach guard below never sees an exitCode a file's afterAll leaves
+// after the run's last test, so the run would exit 1 with "0 fail" and no
+// name. Registered after the cleanup hook so a throw here cannot skip it.
+afterAll(() => {
+  const leaked = repairExitCode();
+  if (leaked) {
+    throw new Error(`process.exitCode was left at ${JSON.stringify(leaked)} when the run ended, by an afterAll in the last file. Restore it in that hook.`);
+  }
+});
+
 // A HOME left unset, "undefined" or relative sends every later HOME-derived
 // path into the cwd (the repo checkout) or, via os.homedir(), the real home.
 // A process.exitCode a test sets (to assert a CLI exit path) and never

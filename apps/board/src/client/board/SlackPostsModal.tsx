@@ -59,6 +59,7 @@ function SlackPostsModal({
                 </>
               }
               value={stage || when ? withSeps([stage, when]) : undefined}
+              external
               onClick={() => {
                 onOpen(post.permalink);
                 onClose();

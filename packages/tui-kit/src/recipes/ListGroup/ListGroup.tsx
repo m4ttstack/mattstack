@@ -90,9 +90,12 @@ export interface ListGroupNavOwnProps {
   value?: ReactNode;
   onClick(): void;
   disabled?: boolean;
+  /** The row leaves the app (a browser tab, Slack): it ends in an
+      outside-link arrow instead of the chevron. */
+  external?: boolean;
 }
 
-function Nav({ label, value, onClick, disabled }: ListGroupNavOwnProps) {
+function Nav({ label, value, onClick, disabled, external }: ListGroupNavOwnProps) {
   // An explicit `label, value` name only where both sides are known plain
   // text: a `${value}` template on a non-primitive ReactNode would stringify
   // it uselessly ("[object Object]"). Anything else falls back to the
@@ -123,7 +126,7 @@ function Nav({ label, value, onClick, disabled }: ListGroupNavOwnProps) {
             </span>
           )}
           <span className={classes.chevron} data-part={LISTGROUP_PARTS.chevron} aria-hidden="true">
-            {"›"}
+            {external ? "↗" : "›"}
           </span>
         </span>
       </button>

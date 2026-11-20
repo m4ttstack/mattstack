@@ -220,7 +220,7 @@ Everything but **open in gitlab** needs a local board, and everything but **open
 | <BoardIcon name="merge" /> | merge | Merges the MR on GitLab, after a second click on "really merge?". It sends no squash or delete-branch choice, so the project's own merge settings decide, the same as GitLab's button. Greyed with GitLab's reason when it cannot merge yet, such as "pipeline must pass", "needs approval" or "open threads". |
 | <BoardIcon name="autoMerge" /> | set auto-merge | Turns on GitLab's merge when the pipeline succeeds. Greyed "draft" or "not mergeable yet" when GitLab does not offer it. |
 | <BoardIcon name="autoMerge" /> | cancel auto-merge | Turns it off again. Takes the place of set auto-merge while auto-merge is on. |
-| <BoardIcon name="draft" /> | mark as draft / mark ready | Adds `Draft: ` to the MR's title, or removes it. |
+| <BoardIcon name="draft" /> | mark as draft / mark ready | Adds `Draft: ` to the MR's title, or removes it. On your own draft, mark ready sits at the top of the menu. |
 | <BoardIcon name="out" /> | open in gitlab | Opens the MR in GitLab in a new tab. |
 | <BoardIcon name="refresh" /> | refresh from gitlab | Reads this one MR from GitLab again, for a change the board's regular sync missed, such as a new approval. |
 
@@ -281,7 +281,7 @@ On your own MR, when Flock is installed on this Mac, the **flock** flyout opens 
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="note" /> | add a note / edit note | Opens a note on the row, up to 2000 characters. It is saved on this Mac only and never sent to the forge, Slack or an agent. Save it empty to delete it. |
+| <BoardIcon name="note" /> | add a note / edit note | Opens a note on the row, up to 2000 characters. The row shows it on one line with how long ago it was saved, and each link in it as its site's name. It is saved on this Mac only and never sent to the forge, Slack or an agent. Save it empty to delete it. |
 | <BoardIcon name="dismiss" /> | auto-doctor: ignore this MR | Stops auto-doctor, the board's automatic doctor runs, on your MR, or on the whole stack ("ignore this stack") when other MRs sit on it. A doctor already running on them is told to stop, and its pane is not resumed. The row then carries an "auto-doctor off" flag. Greyed "auto-doctor is off" when auto-doctor is turned off for the board. |
 | <BoardIcon name="dismiss" /> | re-enable auto-doctor | Lets auto-doctor act on the MR again. It starts nothing by itself. |
 
