@@ -335,6 +335,19 @@ const board = bootBoard({
     },
   },
 });
+const noLinkBoard = bootBoard({
+  directory: {
+    teams: {
+      web: {
+        slack: {
+          codeOwnersChannel: 'ours-channel',
+          channels: [{ name: 'code-review', kind: 'review' }],
+        },
+      },
+    },
+  },
+  teamSettings: { 'board.slack': { singleTemplate: '{title}' } },
+});
 const noChannelBoard = bootBoard({
   directory: {
     teams: { web: { slack: { codeOwnersChannel: 'ours-channel' } } },
@@ -352,6 +365,7 @@ const postLog = join(fakeHome, 'slack-posts.ndjson');
 afterAll(() => {
   board.stop();
   noChannelBoard.stop();
+  noLinkBoard.stop();
   lateDirectoryBoard.stop();
 });
 
@@ -671,6 +685,15 @@ test('each channel gets exactly the message written for it', async () => {
     C_ACME: `Codeowner review [Acme]: acme, please look ${url('g/p', 710)}`,
   });
 }, 20_000);
+
+test('a team whose template has no link can post a message without one', async () => {
+  const res = await postTo(noLinkBoard.port, '/slack/owners/post', {
+    mrUrl: url('g/p', 711),
+    channels: ['acme-channel'],
+    texts: { 'acme-channel': 'please look' },
+  });
+  expect(res.status).toBe(200);
+}, 15_000);
 
 test('a message without the link to the MR is refused, and nothing posts', async () => {
   const before = sent().length;

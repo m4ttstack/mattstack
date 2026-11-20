@@ -1817,8 +1817,17 @@ async function ownersPreviewOrPost(
       return new Response(`the message for #${channel} is empty`, {
         status: 400,
       });
-    // The board finds a channel's post, and its reactions, by this link.
-    if (typeof t === 'string' && !t.includes(mr.webUrl!))
+    // The board finds a channel's post, and its reactions, by this link, so
+    // an edit may not drop it; a template without one never had it.
+    const unedited =
+      channel === team.channel
+        ? defaultText
+        : ownerText(plan.channels.find(c => c.channel === channel)!);
+    if (
+      typeof t === 'string' &&
+      unedited.includes(mr.webUrl!) &&
+      !t.includes(mr.webUrl!)
+    )
       return new Response(
         `the message for #${channel} has no link to the ${boardNoun()}`,
         { status: 400 }
