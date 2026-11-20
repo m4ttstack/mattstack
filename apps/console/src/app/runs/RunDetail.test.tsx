@@ -1187,7 +1187,7 @@ describe('RunDetail: chrome', () => {
     );
     expect(screen.queryByTestId('command-provenance')).toBeNull();
     expect(screen.getByTestId('run-freshness')).toHaveTextContent(
-      /^live · updated \d/
+      /^live • updated \d/
     );
   });
 });

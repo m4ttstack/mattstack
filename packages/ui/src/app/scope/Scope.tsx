@@ -137,7 +137,7 @@ export function TeamPill({ team }: { team: string }) {
 /** The rule between two scopes: org / team. */
 export function ScopeSlash() {
   return (
-    <Text fz={16} c="var(--tk-text-4)" aria-hidden>
+    <Text fz={16} c="var(--tk-bar-rule, var(--tk-text-4))" aria-hidden>
       /
     </Text>
   );
