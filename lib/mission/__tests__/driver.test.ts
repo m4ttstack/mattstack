@@ -304,6 +304,7 @@ function baseDeps(over: {
   isRegistered?: MissionDeps["isRegistered"];
   saveLastRepo?: MissionDeps["saveLastRepo"];
   indicatorTimers?: MissionDeps["indicatorTimers"];
+  logActionFailure?: MissionDeps["logActionFailure"];
 }): MissionDeps {
   const client = over.client ?? makeFakeClient();
   return {
@@ -343,6 +344,7 @@ function baseDeps(over: {
     readRepoCache: over.readRepoCache ?? (() => []),
     identityOf: over.identityOf ?? ((root: string) => `path:${root}`),
     isRegistered: over.isRegistered ?? (() => true),
+    logActionFailure: over.logActionFailure ?? (() => {}),
     saveLastRepo: over.saveLastRepo ?? (() => {}),
     indicatorTimers: over.indicatorTimers ?? { setTimer: () => null, clearTimer: () => {}, skewMs: 0 },
   };
@@ -803,6 +805,57 @@ describe("MissionDriver: real remote name, pull.rebase, and guards", () => {
     expect(models.at(-1)!.pushNeedsPullPrompt).toBeNull();
     expect(models.some((m) => m.notice.includes("fast-forwards"))).toBe(false);
     expect(models.every((m) => m.toast === null)).toBe(true);
+  });
+
+  test("a failed remote action is logged with git's full output, a successful one is not", async () => {
+    const logged: unknown[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:fetch" },
+      { t: "intent", name: "mission:action" },
+      { t: "intent", name: "quit" },
+    ]);
+    let calls = 0;
+    const deps = baseDeps({
+      session,
+      runAction: async () =>
+        ++calls === 1
+          ? { ok: false, detail: "fatal: unable to access remote", stderr: "error: RPC failed\nfatal: unable to access remote\n" }
+          : { ok: true, detail: "" },
+      logActionFailure: (entry) => logged.push(entry),
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    expect(logged).toEqual([
+      {
+        action: "fetch",
+        worktree: START.worktree,
+        branch: "main",
+        detail: "fatal: unable to access remote",
+        stderr: "error: RPC failed\nfatal: unable to access remote\n",
+      },
+    ]);
+  });
+
+  test("a remote action that throws is logged and still clears the busy segment", async () => {
+    const logged: { action: string; detail: string; stack?: string }[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:fetch" },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      runAction: async () => {
+        throw new Error("spawn git ENOENT");
+      },
+      logActionFailure: (entry) => logged.push(entry),
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    expect(logged.map((e) => [e.action, e.detail])).toEqual([["fetch", "spawn git ENOENT"]]);
+    expect(logged[0]!.stack).toContain("spawn git ENOENT");
+    expect((session.pushed.at(-1) as MissionModel).action.kind).not.toBe("busy");
   });
 
   test("the dialog's Fetch runs a fetch whatever the action segment says", async () => {
