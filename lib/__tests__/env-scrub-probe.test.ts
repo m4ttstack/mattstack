@@ -23,3 +23,12 @@ test("the forbidden-socket list is armed for the rtCommand guard", () => {
     expect(forbidden).toContain(process.env.PROBE_EXPECT_FORBIDDEN);
   }
 });
+
+test("herd and herdr pane variables are scrubbed from the test process env", () => {
+  const leaked = Object.keys(process.env).filter((k) => k.startsWith("HERD_") || k.startsWith("HERDR_"));
+  expect(leaked).toEqual([]);
+});
+
+test("git cannot find a global config outside the scratch HOME", () => {
+  expect(process.env.XDG_CONFIG_HOME).toBeUndefined();
+});

@@ -47,6 +47,19 @@ export function guardTestDaemonEnv(env: NodeJS.ProcessEnv = process.env): void {
   env.RT_TEST_FORBID_SOCKS = JSON.stringify([...forbidden]);
 }
 
+/**
+ * A test run started from a herdr pane inherits the pane's HERDR_* and a herd
+ * worker's HERD_* variables, which send code under test to the real herdr and
+ * the live herd. XDG_CONFIG_HOME would point git (and gh) at the real config
+ * folder over the top of the scratch HOME.
+ */
+export function scrubAmbientAgentEnv(env: NodeJS.ProcessEnv = process.env): void {
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("HERD_") || key.startsWith("HERDR_")) delete env[key];
+  }
+  delete env.XDG_CONFIG_HOME;
+}
+
 const TEST_FILE = /[._](test|spec)\.[cm]?[jt]sx?$/;
 
 /**

@@ -13,7 +13,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "fs";
 import { spawn } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
-import { guardTestDaemonEnv } from "./packages/rt-client/src/test-isolation.ts";
+import { guardTestDaemonEnv, scrubAmbientAgentEnv } from "./packages/rt-client/src/test-isolation.ts";
 import { homeProblem } from "./lib/__tests__/home-env.ts";
 import { removeTree } from "./lib/__tests__/remove-tree.ts";
 
@@ -22,6 +22,7 @@ import { removeTree } from "./lib/__tests__/remove-tree.ts";
 // wins over HOME inside rtCommand) and forbids the real rt.sock for the
 // whole run, including children spawned with a process.env spread.
 guardTestDaemonEnv();
+scrubAmbientAgentEnv();
 
 // `gh auth token` honors GH_TOKEN and the macOS keyring regardless of HOME, so
 // the GitHub token fallback (lib/github-token.ts) needs its own off switch.
