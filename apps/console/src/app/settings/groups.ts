@@ -32,9 +32,10 @@ export const GROUPS: Group[] = [
     id: 'worktrees',
     label: 'Worktrees & repos',
     tier: 'rt',
-    blurb: 'Where rt finds repos, how worktrees are pooled, and branch sync.',
+    blurb:
+      'Where rt finds repos, how worktrees are pooled, branch sync, and which Linear key a repo uses.',
     match: key =>
-      /^rt\.(worktree|repo|branchNaming$|sync$|hooks$|roles$|intercepts$|dopplerTemplate$|gitStatus$|ignoredMrs$)/.test(
+      /^rt\.(worktree|repo|branchNaming$|linearKey$|sync$|hooks$|roles$|intercepts$|dopplerTemplate$|gitStatus$|ignoredMrs$)/.test(
         key
       ) || key === 'mattstack.tracking',
   },
