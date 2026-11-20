@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeEach } from 'bun:test';
+import { describe, expect, test, mock, beforeEach, spyOn } from 'bun:test';
 import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
@@ -119,13 +119,17 @@ describe('reparentBranch', () => {
     expect(result.cascadeResult).not.toBeNull();
   });
 
-  test('same parent is a no-op', async () => {
+  test('same parent restacks nothing when the branch already sits on it', async () => {
+    const { RebaseEngine } = await import('../src/core/rebase-engine.ts');
+    spyOn(RebaseEngine, 'restackBranch').mockImplementation((_cwd, stack) =>
+      Promise.resolve({ results: [], updatedStack: stack, state: 'completed', rebasedBranches: [] }),
+    );
     const { reparentBranch } = await import('../src/core/reparent.ts');
     const stack = buildLinearStack();
     const result = await reparentBranch('/tmp/repo', stack, 'feat/B', 'feat/A');
 
-    expect(result.newStack).toBe(stack);
-    expect(result.cascadeResult).toBeNull();
+    expect(result.alreadyInPlace).toBe(true);
+    expect(StackManager.findNode(result.newStack, 'feat/B')!.parent).toBe('feat/A');
   });
 
   test('reparent to descendant throws (cycle detection)', async () => {

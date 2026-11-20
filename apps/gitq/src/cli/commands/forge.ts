@@ -5,7 +5,7 @@ import { ForgeSync, type PublishNodeResult, type PublishSkip } from '../../core/
 import { ForgePush, type PushNodeResult, type PushPlanEntry } from '../../core/push.ts';
 import { GitShell } from '../../core/git-shell.ts';
 import { loadStore, updateStore } from '../../core/persistence.ts';
-import type { CliContext } from '../context.ts';
+import { mainCheckoutOf, type CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
 import { requireStackFree } from '../slots.ts';
 import { listLeases } from '../../core/leases.ts';
@@ -79,15 +79,16 @@ export async function parseMrMeta(path: string): Promise<Record<string, { title?
  * Says which of the two things happened — a new MR, or an edit to one that was
  * already there — since both now come back from the same command.
  */
-function formatPublishResult(r: PublishNodeResult): string {
+export function formatPublishResult(r: PublishNodeResult): string {
   if (!r.success) return `${r.branch}: FAILED (${r.error})`;
 
-  if (r.action === 'updated') {
+  if (r.action === 'updated' || r.action === 'linked') {
     const changes = (r.changes ?? []).map((c) =>
       c === 'target' ? `retargeted to ${r.targetBranch}` : 'title/description',
     );
     const detail = changes.length > 0 ? ` (${changes.join(', ')})` : '';
-    return `${r.branch}: updated${detail} ${r.mrUrl}`;
+    const verb = r.action === 'linked' ? 'linked existing' : 'updated';
+    return `${r.branch}: ${verb}${detail} ${r.mrUrl}`;
   }
 
   return `${r.branch}: created ${r.mrUrl}`;
@@ -123,7 +124,7 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
   if (guarded !== null) return guarded;
 
   const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(ctx.repoRoot));
-  const { provider, projectPath } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot });
+  const { provider, projectPath } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot, mainCheckoutPath: mainCheckoutOf(ctx.commonDir) });
 
   const result = await ForgeSync.publishStack(provider, stack, projectPath, ctx.repoRoot, descriptions);
 
@@ -206,7 +207,7 @@ export async function importCommand(ctx: CliContext): Promise<number> {
   }
 
   const remoteUrl = await GitShell.getRemoteUrl(ctx.repoRoot);
-  const { provider } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot });
+  const { provider } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot, mainCheckoutPath: mainCheckoutOf(ctx.commonDir) });
 
   const { store, openMRs, scopedMRs, projectPath } = await ForgeSync.importFromForge(
     provider,

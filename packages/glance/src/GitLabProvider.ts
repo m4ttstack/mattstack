@@ -610,6 +610,12 @@ interface MRBatchResponse {
   project: { mergeRequests: { nodes: GQLMR[] } } | null;
 }
 
+interface MRBranchPageResponse {
+  project: {
+    mergeRequests: { nodes: GQLMR[]; pageInfo?: { hasNextPage: boolean; endCursor: string | null } };
+  } | null;
+}
+
 /** All MRs in a project by a single author, with full dashboard fields. */
 const MR_BY_AUTHOR_QUERY = `
   query GlanceMRByAuthor($projectPath: ID!, $author: String!, $state: MergeRequestState) {
@@ -1873,11 +1879,14 @@ export class GitLabProvider implements GitProvider {
     state: 'opened' | 'merged' | 'closed' | 'all' = 'opened',
     _options?: ByBranchReadOptions,
   ): Promise<Map<string, PullRequest | null>> {
-    // Single GraphQL query using sourceBranches array filter
+    // A caller acts on a miss (gitq publish opens an MR for one), so an
+    // unreadable project throws and every page is read, rather than either
+    // answering a branch with "no MR" it never actually checked.
     const MR_BY_BRANCHES_QUERY = `
-      query GlanceMRByBranches($projectPath: ID!, $branches: [String!], $state: MergeRequestState) {
+      query GlanceMRByBranches($projectPath: ID!, $branches: [String!], $state: MergeRequestState, $after: String) {
         project(fullPath: $projectPath) {
-          mergeRequests(sourceBranches: $branches, state: $state, first: 100) {
+          mergeRequests(sourceBranches: $branches, state: $state, first: 100, after: $after) {
+            pageInfo { hasNextPage endCursor }
             nodes {
               ...MRDashboardFields
             }
@@ -1887,18 +1896,24 @@ export class GitLabProvider implements GitProvider {
       ${MR_DASHBOARD_FRAGMENT}
     `;
 
-    const resp = await this.runQuery<MRBatchResponse>('fetchPullRequestsByBranches', MR_BY_BRANCHES_QUERY, {
-      projectPath,
-      branches,
-      state: state === 'all' ? undefined : state,
-    });
-
-    const nodes = resp.project?.mergeRequests?.nodes ?? [];
     const prsByBranch = new Map<string, PullRequest>();
-    for (const gql of nodes) {
-      const pr = toMR(gql, 'author', this.baseURL, null, this.token);
-      prsByBranch.set(pr.sourceBranch, pr);
-    }
+    let after: string | null = null;
+    do {
+      const resp: MRBranchPageResponse = await this.runQuery<MRBranchPageResponse>(
+        'fetchPullRequestsByBranches',
+        MR_BY_BRANCHES_QUERY,
+        { projectPath, branches, state: state === 'all' ? undefined : state, after },
+      );
+      if (!resp.project) {
+        throw new Error(`fetchPullRequestsByBranches failed: GitLab reported no project ${projectPath}`);
+      }
+      for (const gql of resp.project.mergeRequests.nodes) {
+        const pr = toMR(gql, 'author', this.baseURL, null, this.token);
+        prsByBranch.set(pr.sourceBranch, pr);
+      }
+      const pageInfo = resp.project.mergeRequests.pageInfo;
+      after = pageInfo?.hasNextPage ? pageInfo.endCursor : null;
+    } while (after);
 
     // Assemble result map — null for branches with no MR
     const result = new Map<string, PullRequest | null>();

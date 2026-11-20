@@ -59,7 +59,7 @@ digraph gitq_restructure {
     "gitq -C <repoPath> diagnose --json (restructure verify)" [shape=plaintext];
     "<status-bin> job-status <state> done \"<summary>\"" [shape=plaintext];
     "Report the new tree shape (restructure)" [shape=box];
-    "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> [--stack <stackName>] --json" [shape=plaintext];
+    "gitq -C <repoPath> split <branch> --at <lastKeptSha> --name <newBranch> [--stack <stackName>] --json" [shape=plaintext];
     "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <stackName>] --json" [shape=plaintext];
     "gitq -C <repoPath> fold <branch> [--stack <stackName>] --json" [shape=plaintext];
     "gitq -C <repoPath> reparent <branch> --onto <newParent> [--stack <stackName>] --json" [shape=plaintext];
@@ -130,8 +130,8 @@ digraph gitq_restructure {
     "Plan answer (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="hand back"];
     "Plan rounds = 3 (restructure)?" -> "Map the instruction to surgery operations (restructure)" [label="no"];
     "Plan rounds = 3 (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="yes: budget spent"];
-    "Next approved operation (restructure)?" -> "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> [--stack <stackName>] --json" [label="split at a commit"];
-    "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
+    "Next approved operation (restructure)?" -> "gitq -C <repoPath> split <branch> --at <lastKeptSha> --name <newBranch> [--stack <stackName>] --json" [label="split at a commit"];
+    "gitq -C <repoPath> split <branch> --at <lastKeptSha> --name <newBranch> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
     "Next approved operation (restructure)?" -> "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <stackName>] --json" [label="split by files"];
     "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
     "Next approved operation (restructure)?" -> "gitq -C <repoPath> fold <branch> [--stack <stackName>] --json" [label="fold"];
@@ -339,9 +339,9 @@ Then choose from the surgery set, one node in the graph per operation:
 
 | Operation | Call (as `gitq -C <repoPath> ...`, with `[--stack <stackName>] --json`) | What it does to the tree |
 |---|---|---|
-| tail split | `split <branch> --at <sha> --name <newBranch>` | everything from `<sha>` onward moves to a new child of `<branch>` |
+| tail split | `split <branch> --at <lastKeptSha> --name <newBranch>` | `<lastKeptSha>` stays on `<branch>`; the commits after it move to a new child of `<branch>` |
 | file split | `split <branch> --files <glob[,glob...]> --name <newBranch>` | the files matching the globs move to a new branch |
-| fold | `fold <branch>` | folds the branch into its parent, deletes it, and reparents its children onto that parent |
+| fold | `fold <branch> [--close-remote]` | folds the branch into its parent, deletes it, and reparents its children onto that parent; its open MR and `origin/<branch>` stay (the output names them) unless `--close-remote` retargets the children's MRs, closes the folded MR and deletes the remote branch |
 | reparent | `reparent <branch> --onto <newParent>` | moves the branch, with its descendants, onto a new parent |
 | rename | `rename <old> <new>` | renames a branch |
 | reset | `reset <branch>` | makes the branch match `origin/<branch>` again |

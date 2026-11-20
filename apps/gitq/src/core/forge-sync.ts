@@ -50,9 +50,12 @@ export interface PublishNodeResult {
   mrIid?: number;
   mrUrl?: string | undefined;
   error?: string;
-  /** Whether the MR was opened by this run or was already there and got updated. */
-  action: 'created' | 'updated';
-  /** Which parts of an existing MR changed. Only set when `action` is 'updated'. */
+  /**
+   * Whether the MR was opened by this run, was already there and got updated,
+   * or was an open MR of the branch that gitq did not know about and adopted.
+   */
+  action: 'created' | 'updated' | 'linked';
+  /** Which parts of an existing MR changed. Set when `action` is 'updated' or 'linked'. */
   changes?: PublishChange[];
   /** The branch the MR targets after this run: the nearest live ancestor of the node's parent. */
   targetBranch?: string;
@@ -140,6 +143,55 @@ export interface ImportResult {
  * Uses `@mattstack/glance` GitProvider to fetch MR data and reconcile
  * with the local StackStore.
  */
+/** Open MRs found for a set of source branches, and the branches whose answer was incomplete. */
+export interface OpenChangeLookup {
+  byBranch: Map<string, PullRequest>;
+  /** Branch -> why its lookup cannot be trusted. A null answer for these is not "no MR". */
+  incomplete: Map<string, string>;
+}
+
+/**
+ * Look up the open MR of each source branch in this project.
+ *
+ * The batched read throws when its list request fails, on both forges, so a
+ * failure never reads as "no MR"; a partial answer arrives as a warning and
+ * marks that branch incomplete. A PR whose source lives in another
+ * repository (a fork using the same branch name) is not this branch's MR.
+ */
+export async function findOpenChangesByBranch(
+  provider: GitProvider,
+  projectPath: string,
+  branches: string[],
+): Promise<OpenChangeLookup> {
+  const byBranch = new Map<string, PullRequest>();
+  const incomplete = new Map<string, string>();
+  if (branches.length === 0) return { byBranch, incomplete };
+
+  const onWarning = (warning: { message: string; branch?: string }): void => {
+    for (const branch of warning.branch ? [warning.branch] : branches) {
+      if (!incomplete.has(branch)) incomplete.set(branch, warning.message);
+    }
+  };
+
+  let found: Map<string, PullRequest | null>;
+  if (provider.fetchPullRequestsByBranches) {
+    found = await provider.fetchPullRequestsByBranches(projectPath, branches, 'opened', { onWarning });
+  } else {
+    found = new Map();
+    for (const branch of branches) {
+      found.set(branch, await provider.fetchPullRequestByBranch(projectPath, branch, 'opened', { onWarning }));
+    }
+  }
+
+  const checksSource = provider.capabilities?.canReportSourceProject === true;
+  for (const [branch, pr] of found) {
+    if (!pr) continue;
+    if (checksSource && pr.sourceProjectPath?.toLowerCase() !== projectPath.toLowerCase()) continue;
+    byBranch.set(branch, pr);
+  }
+  return { byBranch, incomplete };
+}
+
 export const ForgeSync = {
   /**
    * Discover stack-like MR chains from the forge.
@@ -391,6 +443,17 @@ export const ForgeSync = {
     const skipped: PublishSkip[] = [];
     let updatedStack = stack;
 
+    // A branch can already have an open MR gitq never recorded (tracked after
+    // the MR was opened). Creating another would be a duplicate.
+    const unpublished = sorted.filter((n) => n.mrIid === null && n.status === 'local-only').map((n) => n.branch);
+    let lookup: OpenChangeLookup = { byBranch: new Map(), incomplete: new Map() };
+    let lookupError: string | null = null;
+    try {
+      lookup = await findOpenChangesByBranch(provider, projectPath, unpublished);
+    } catch (err) {
+      lookupError = toErrorMessage(err);
+    }
+
     for (const node of sorted) {
       const desc = descriptions?.[node.branch];
       const meta = metaUpdate(desc);
@@ -398,6 +461,60 @@ export const ForgeSync = {
 
       if (node.mrIid === null) {
         if (node.status !== 'local-only') continue;
+
+        const lookupProblem = lookupError ?? lookup.incomplete.get(node.branch) ?? null;
+        if (lookupProblem !== null) {
+          results.push({
+            branch: node.branch,
+            success: false,
+            action: 'created',
+            error: `could not confirm ${node.branch} has no open ${changeNoun(provider.providerName)} yet: ${lookupProblem}`,
+            targetBranch,
+          });
+          break;
+        }
+        const existing = lookup.byBranch.get(node.branch);
+        if (existing) {
+          updatedStack = StackManager.updateNode(updatedStack, node.branch, {
+            mrIid: existing.iid,
+            mrUrl: existing.webUrl,
+            mrTitle: existing.title,
+            status: 'synced',
+          });
+          const changes: PublishChange[] = [];
+          try {
+            if (existing.targetBranch !== targetBranch) {
+              updatedStack = await ForgeSync.retargetMR(provider, updatedStack, node.branch, projectPath);
+              changes.push('target');
+            }
+            if (meta) {
+              await provider.updatePullRequest(projectPath, existing.iid, meta);
+              changes.push('metadata');
+            }
+          } catch (err) {
+            results.push({
+              branch: node.branch,
+              success: false,
+              action: 'linked',
+              changes,
+              mrIid: existing.iid,
+              mrUrl: existing.webUrl ?? undefined,
+              error: toErrorMessage(err),
+              targetBranch,
+            });
+            continue;
+          }
+          results.push({
+            branch: node.branch,
+            success: true,
+            action: 'linked',
+            changes,
+            mrIid: existing.iid,
+            mrUrl: existing.webUrl ?? undefined,
+            targetBranch,
+          });
+          continue;
+        }
 
         try {
           if (cwd) {

@@ -62,8 +62,8 @@ export const USAGE: Record<string, string> = {
   continue: 'gitq continue [--stack <name>] [--json]',
   abort: 'gitq abort [--stack <name>] [--json]',
   absorb: 'gitq absorb [--at <branch>[:<glob>]]... [--preview] [--stack <name>] [--json]',
-  split: 'gitq split <branch> (--at <sha> | --files <glob[,glob...]>) --name <newBranch> [--stack <name>] [--json]',
-  fold: 'gitq fold <branch> [--stack <name>] [--json]',
+  split: 'gitq split <branch> (--at <lastKeptSha> | --files <glob[,glob...]>) --name <newBranch> [--stack <name>] [--json]',
+  fold: 'gitq fold <branch> [--close-remote] [--stack <name>] [--json]',
   reparent: 'gitq reparent <branch> --onto <branch> [--stack <name>] [--json]',
   rename: 'gitq rename <oldBranch> <newBranch> [--stack <name>] [--json]',
   reset: 'gitq reset <branch> [--stack <name>] [--json]',
@@ -149,6 +149,7 @@ export async function main(argv: string[]): Promise<number> {
       preview: { type: 'boolean' },
       'mr-meta': { type: 'string' },
       replace: { type: 'boolean' },
+      'close-remote': { type: 'boolean' },
     },
   });
 

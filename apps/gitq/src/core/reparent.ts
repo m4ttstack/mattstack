@@ -11,6 +11,8 @@ export interface ReparentResult {
   /** Cascade result for the moved branch's descendants (if any). */
   cascadeResult: CascadeResult | null;
   newStack: Stack;
+  /** True when the branch already sat on its parent's head, so nothing moved. */
+  alreadyInPlace?: boolean;
 }
 
 /**
@@ -44,13 +46,18 @@ export async function reparentBranch(
 
   const oldParent = node.parent;
 
+  // Reparenting onto the current parent still means "put it on top of that
+  // parent": a branch behind its parent (a split, an amend) gets restacked.
   if (oldParent === newParentBranch) {
+    const cascadeResult = await RebaseEngine.restackBranch(cwd, stack, branch, workDir);
+    const moved = (cascadeResult.rebasedBranches ?? []).length > 0 || cascadeResult.state === 'paused';
     return {
       branch,
       oldParent,
       newParent: newParentBranch,
-      cascadeResult: null,
-      newStack: stack,
+      cascadeResult,
+      newStack: cascadeResult.updatedStack,
+      alreadyInPlace: !moved,
     };
   }
 

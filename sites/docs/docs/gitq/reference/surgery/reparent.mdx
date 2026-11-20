@@ -22,16 +22,16 @@ gitq reparent <branch> --onto <newParent> [--stack <name>]
 
 ## Behavior
 
-Guarded by the stack lease, and always runs detached in a leased [work slot](/gitq/concepts/work-slots) (`src/cli/commands/surgery.ts:209-231`). If `--onto` names the branch's current parent, it is a no-op: returns immediately, nothing rebased (`src/core/reparent.ts:47-55`).
+Guarded by the stack lease, and always runs detached in a leased [work slot](/gitq/concepts/work-slots) (`src/cli/commands/surgery.ts:209-231`). If `--onto` names the branch's current parent and the branch already contains that parent's head, nothing moves and the output says `<branch> is already on <parent>; nothing moved`. A branch left behind its current parent (by a split or an amend, say) is restacked onto the parent's head instead. That runs through the cascade engine `sync` uses (`RebaseEngine.restackBranch`). Its old base comes from its recorded fork point, the parent's last recorded head or the parent's reflog, not only a bare merge-base. So an amended parent's dropped commits are not replayed. Its descendants follow.
 
 Refuses up front, before anything runs: `--onto` naming neither the stack root nor an existing node (`New parent "<newParent>" not found in stack "<id>"`), or a move that would make the branch its own ancestor (`Cannot reparent "<branch>" under "<newParent>" — would create a cycle`, `src/core/reparent.ts:57-66`).
 
 `reparentBranch` (`src/core/reparent.ts:33-114`) then runs in two phases:
 
 1. **The branch's own rebase.** `git rebase --onto <newParentHead> <oldBase> <branch>`, detached in the slot, finalized by compare-and-swap.
-2. **The descendant cascade**, if the branch has any children. This is the same cascade engine `sync` uses (`RebaseEngine.restackFrom`, whose sole caller in the whole codebase is `reparent.ts:107`). It is seeded with the branch's pre-move head, so children compute their fork point off the old head rather than a merge-base against the rewritten one.
+2. **The descendant cascade**, if the branch has any children. This is the same cascade engine `sync` uses (`RebaseEngine.restackFrom`, which `split --at` also calls to restack the children it reparents). It is seeded with the branch's pre-move head, so children compute their fork point off the old head rather than a merge-base against the rewritten one.
 
-`reparent` is the only surgery command that runs that shared cascade loop, and the only one whose descendants can leave you mid-rebase.
+`reparent` and `split --at` are the surgery commands that run that shared cascade loop, and the ones whose descendants can leave you mid-rebase.
 
 ### Conflict shape one: the branch itself won't replay
 

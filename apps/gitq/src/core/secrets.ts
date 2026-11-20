@@ -26,6 +26,12 @@ interface ResolveOptions {
    * its repo has nothing to be granted against.
    */
   repoPath?: string;
+  /**
+   * The main checkout `repoPath` shares its git common dir with, when
+   * `repoPath` is a linked worktree. rt registers checkouts, not worktrees, so
+   * this is looked up when `repoPath` itself is not registered.
+   */
+  mainCheckoutPath?: string | null;
   /** Test seam for the daemon call. */
   daemonToken?: (repoName: string, forge: ForgeSlug) => Promise<RtResponse<ForgeTokenData>>;
 }
@@ -64,7 +70,9 @@ export async function resolveForgeToken(forge: ForgeSlug, opts: ResolveOptions =
   if (!opts.repoPath) {
     return { token: null, reason: `${tokenSourceHint(forge)}; no repo path was available for an rt lookup` };
   }
-  const repoName = repoNameForPath(opts.repoPath, opts.reposJsonPath);
+  const repoName =
+    repoNameForPath(opts.repoPath, opts.reposJsonPath) ??
+    (opts.mainCheckoutPath ? repoNameForPath(opts.mainCheckoutPath, opts.reposJsonPath) : null);
   if (!repoName) {
     return {
       token: null,
