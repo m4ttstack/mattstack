@@ -1,48 +1,42 @@
-The rt daemon now publishes its REST API as an OpenAPI document with browsable docs, and it stays responsive under slow scans and busy clients. VS Code gets an agents menu, and `rt pane attach` jumps into a Claude agent's terminal. Every mattstack Mac now shares the same Claude Code rules.
+The board's code owner Slack posts can carry a team prefix, and each channel gets its own editable message. Row notes are redesigned, and gitq smooths seven rough edges found while restructuring a real stack.
 
-### rt and the daemon
+### Board
 
-- the daemon serves its REST API as `/openapi.json`, with browsable docs at `/docs` and a generated index; requests now route through Hono (#1196, #1198)
-- the daemon's API docs use short route titles, with details in the descriptions and keyed examples
-- clients and slow scans no longer stall the daemon (#1185)
-- idle daemons stop scanning: runaway-process detection is gone (#1190)
-- `rt pane attach` picks one of your Claude agents and jumps into its terminal, with bare agent names, a wrapped preview folder and visible rules (#1183, #1188)
-- `rt code` saves the workspace-file choice per repo, and only for VS Code-family editors (#1184)
-- every rt picker shares one worktree order, and the new `rt.linearKey` setting names which Linear key a repo's tickets are looked up with (#1195)
-
-### Setup
-
-- shared Claude Code rules are linked into every Claude config dir on every mattstack Mac, and kept current on each update and org pull (#1186)
-- gate-form and human-todos stay current like the other baseline plugins (#1187)
-
-### VS Code
-
-- the status bar has an **Agents** menu that attaches to this worktree's live and finished Claude sessions (#1192)
-- the worktree picker shows `rt cd`'s order and groups, and a PR or MR title when a row has no ticket title (#1195)
+- code owner posts can start with a team-shared prefix (the new `board.slack.ownerPrefix` setting), and the post to Slack dialog gives each channel its own editable message (#1205)
+- the row note is redesigned: one line on the row with how long ago it was saved, links shown by their site, and editing in place (#1206)
+- **mark ready** leads the row menu on your own draft
+- **open in Slack** rows end in an outside-link arrow, and the team review row gets its spacing back
 
 ### Console
 
-- **Changes** shows each commit's author on its own line, and usage step rows sit on the card (#1199)
-- the usage MR list opens on Last active, and its sort arrow keeps its full size
+- running stages show a spinning ring, and the app bar's separators are quieter (#1202)
+- the waiting banner is tighter
 
-### Skills and plugins
+### gitq
 
-- self-review no longer fails the unbound path on an optional nit (#1182)
-- the worktree-leave hook's Close drops the worktree session before exiting, so Claude Code no longer asks whether to keep or remove it
+- `publish` links a branch's open MR instead of opening a duplicate, and falls back to the main checkout's token grant from an rt worktree (#1201)
+- `fold` names the open MR and remote branch it leaves, and `fold --close-remote` retargets the children's MRs, closes the folded MR and deletes the remote branch (#1201)
+- `split --at` restacks the children it reparents, `split --files` names the children it leaves, and `reparent` onto the current parent rebases a branch left behind (#1201)
+- `gitq stacks` prints tree order, and `add` picks the only empty stack on a shared root (#1201)
+- the restructure skill and usage now say `<lastKeptSha>` stays on the branch (#1201)
 
-### App and CI
+### App
 
-- glitter logs every failed remote action to the CLI log (#1189)
-- the tray panel's notification names are restored (#1191)
-- CI compiles the tray app on PRs that touch it (#1193)
+- a window tab whose stylesheets failed to load retries on its own (#1200)
+
+### Tests and CI
+
+- a test run that ends with an exit code set now fails, and console tests pin UTC and en-US (#1208)
+- e2e daemons bind port 0 and wait for their log lines instead of fixed sleeps (#1204, #1207)
+- test runs keep the runs folder and herdr socket under their own HOME, and the preload scrubs agent and config env (#1203)
 
 ### Docs
 
-- a Lore pointer page on the Skills tab (#1194)
+- the deck README says deck installs with the mattstack app, not a curl installer
 
-### Held
+### Held pins
 
-- bun stays at 1.4.4 (1.4.5 is out).
-- Sparkle stays at 2.10.0 (2.10.1 is out): a Sparkle bump gets its own tested release.
+- bun stays at 1.4.4 (1.4.5 is out), held for a later release
+- Sparkle stays at 2.10.0 (2.10.1 is out); a Sparkle bump gets its own tested release
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.33.0...v2.34.0
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.34.0...v2.35.0

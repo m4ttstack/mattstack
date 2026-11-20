@@ -3,6 +3,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 import { createRoot, type Root } from 'react-dom/client';
 
+import { LISTGROUP_PARTS } from '@mattstack/tui-kit';
 import type { BoardMRWithReview } from '../../types.ts';
 import { SlackPostsModal } from '../SlackPostsModal.tsx';
 
@@ -61,4 +62,16 @@ test('a GitHub row names its PR the GitHub way, with no MR in sight', async () =
   expect(document.querySelector('[aria-label="open #9 in slack"]')).not.toBe(
     null
   );
+});
+
+test('each row says it opens Slack, outside the board', async () => {
+  await render({
+    iid: 7,
+    title: 'Add refunds',
+    webUrl: 'https://gitlab.example.com/acme/webapp/-/merge_requests/7',
+  } as unknown as BoardMRWithReview);
+  const ends = [
+    ...document.querySelectorAll(`[data-part="${LISTGROUP_PARTS.chevron}"]`),
+  ].map(el => el.textContent);
+  expect(ends).toEqual(['↗', '↗']);
 });
