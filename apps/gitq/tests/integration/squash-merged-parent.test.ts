@@ -4,7 +4,14 @@ import { writeFile } from 'node:fs/promises';
 import { createSandboxRepoWithRemote, cleanupRepo } from './helpers.ts';
 import type { SandboxRepoWithRemote } from './helpers.ts';
 import { reparentBranch } from '../../src/core/reparent.ts';
+import { RebaseEngine } from '../../src/core/rebase-engine.ts';
 import type { Stack, StackNode } from '../../src/core/types.ts';
+import type { GitProvider, PullRequest } from '@mattstack/glance';
+import { setConfigDir } from '../../src/core/config-paths.ts';
+import { loadStore, saveStore } from '../../src/core/persistence.ts';
+import { StackManager } from '../../src/core/stack-manager.ts';
+import { createContext } from '../../src/cli/context.ts';
+import { syncCommand } from '../../src/cli/commands/cascade.ts';
 
 const cleanups: string[] = [];
 afterEach(async () => {
@@ -95,6 +102,75 @@ describe('reparent off a squash-merged parent', () => {
 
     await reparentBranch(repo.dir, stack, 'feature-b', 'main', workDir);
 
+    expect(repo.git('log', '--format=%s', 'origin/main..feature-b')).toBe('b: rework a lines');
+    expect(repo.git('log', '--format=%s', 'feature-b..feature-c')).toBe('c: add c');
+  });
+});
+
+describe('sync with a squash-merged parent', () => {
+  test('leaves the merged branch alone and restacks its children onto the trunk', async () => {
+    const { repo, stack, workDir, heads } = await squashMergedScenario();
+
+    const result = await RebaseEngine.syncLocalStack(repo.dir, stack, workDir, { noFetch: true });
+
+    expect(result.state).toBe('completed');
+    expect(repo.git('rev-parse', 'feature-a')).toBe(heads.a!);
+    expect(repo.git('rev-parse', 'feature-b^')).toBe(repo.git('rev-parse', 'origin/main'));
+    expect(repo.git('log', '--format=%s', 'origin/main..feature-b')).toBe('b: rework a lines');
+    expect(repo.git('log', '--format=%s', 'feature-b..feature-c')).toBe('c: add c');
+  });
+
+  test('restacks the children when the merged branch is already deleted', async () => {
+    const { repo, stack, workDir } = await squashMergedScenario();
+    repo.git('branch', '-D', 'feature-a');
+
+    const result = await RebaseEngine.syncLocalStack(repo.dir, stack, workDir, { noFetch: true });
+
+    expect(result.state).toBe('completed');
+    expect(repo.git('log', '--format=%s', 'origin/main..feature-b')).toBe('b: rework a lines');
+    expect(repo.git('log', '--format=%s', 'feature-b..feature-c')).toBe('c: add c');
+  });
+});
+
+describe('gitq sync reads merged MRs from the forge', () => {
+  test('marks the squash-merged parent merged and restacks its children past it', async () => {
+    const { repo, stack, heads } = await squashMergedScenario();
+    const published: Stack = {
+      ...stack,
+      nodes: stack.nodes.map((n) => (n.branch === 'feature-a' ? { ...n, status: 'synced' as const } : n)),
+    };
+    const configDir = `${repo.dir}-config`;
+    cleanups.push(configDir);
+    setConfigDir(configDir);
+    await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: 'https://gitlab.com/acme/app.git', stacks: [published] });
+
+    const mergedMR = {
+      iid: 1, state: 'merged', sourceBranch: 'feature-a', targetBranch: 'main', sha: heads.a,
+      title: 'a', webUrl: 'https://gitlab.com/acme/app/-/merge_requests/1',
+      pipeline: null, unresolvedThreadCount: 0, diffStats: null,
+    } as unknown as PullRequest;
+    const provider = {
+      fetchPullRequests: () => Promise.resolve([mergedMR]),
+      fetchSingleMR: () => Promise.resolve(null),
+    } as unknown as GitProvider;
+
+    const ctx = await createContext(repo.dir, [], { stack: 'sq' });
+    let code: number;
+    try {
+      code = await syncCommand(ctx, {
+        createForgeProvider: () => Promise.resolve({ provider, projectPath: 'acme/app' }),
+      });
+    } finally {
+      const slots = repo.git('worktree', 'list', '--porcelain').split('\n')
+        .filter((l) => l.startsWith('worktree ')).map((l) => l.slice('worktree '.length))
+        .filter((p) => p !== repo.dir);
+      cleanups.push(...slots);
+    }
+
+    expect(code).toBe(0);
+    const saved = (await loadStore(repo.dir)).stacks[0]!;
+    expect(StackManager.findNode(saved, 'feature-a')!.status).toBe('merged');
+    expect(repo.git('rev-parse', 'feature-a')).toBe(heads.a!);
     expect(repo.git('log', '--format=%s', 'origin/main..feature-b')).toBe('b: rework a lines');
     expect(repo.git('log', '--format=%s', 'feature-b..feature-c')).toBe('c: add c');
   });
