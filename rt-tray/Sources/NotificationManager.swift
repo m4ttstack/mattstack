@@ -3,6 +3,15 @@ import AppKit
 import MattstackCore
 import UserNotifications
 
+// MARK: - Notification.Name
+
+extension Notification.Name {
+    static let showProcessPanel = Notification.Name("showProcessPanel")
+    static let detachProcessPanel = Notification.Name("detachProcessPanel")
+    static let showKeyboardConflict = Notification.Name("showKeyboardConflict")
+    static let showWorktreePanel = Notification.Name("showWorktreePanel")
+}
+
 // MARK: - NotificationManager
 
 /// Manages UNUserNotificationCenter — permission, categories, firing, and action handling.
