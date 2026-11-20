@@ -570,11 +570,13 @@ export const SdmReconnectReplySchema = z.union([
 // and, for "extension", extensions/vscode/rt-context/src/secrets.ts.
 // Every key is optional, so the branches are strict: a plain object would
 // let the first branch match any reply and strip the other scopes' keys.
+export const SecretsReadExtensionDataSchema = z
+  .strictObject({ linearApiKey: z.string().optional(), gitlabToken: z.string().optional() })
+  .describe("scope `extension`, the default");
+
 export const SecretsReadDataSchema = z
   .union([
-    z
-      .strictObject({ linearApiKey: z.string().optional(), gitlabToken: z.string().optional() })
-      .describe("scope `extension`, the default"),
+    SecretsReadExtensionDataSchema,
     z
       .strictObject({
         cfApiToken: z.string().optional(),

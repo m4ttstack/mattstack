@@ -18,7 +18,7 @@ const SHARED_RESPONSES = {
   NotFound: { status: 404, schema: NotFoundSchema, description: "No route has this path." },
   MethodNotAllowed: { status: 405, schema: MethodNotAllowedSchema, description: "The route takes another method." },
   TooLarge: { status: 413, schema: TooLargeSchema, description: "The request body is over the command's size limit." },
-  Failure: { status: 500, schema: FailureEnvelopeSchema, description: "The daemon threw while serving the request." },
+  Failure: { status: 500, schema: FailureEnvelopeSchema, description: "The REST layer threw; a handler's own throw answers 200 with this body." },
 } as const;
 
 type SharedResponse = keyof typeof SHARED_RESPONSES;
@@ -76,7 +76,7 @@ export function buildOpenApiDocument(): OpenAPI31Document {
   for (const route of DAEMON_ROUTES as readonly DaemonRoute[]) {
     const responses: Record<string, { $ref: string } | { description: string; content: object }> = {
       200: {
-        description: "Answered. A handler that refuses the request also answers 200, with the failure body.",
+        description: "Answered. A handler that refuses or throws also answers 200, with the failure body.",
         content: { "application/json": { schema: z.union([route.success, FAILURE]) } },
       },
     };

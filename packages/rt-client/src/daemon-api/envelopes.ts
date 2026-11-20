@@ -12,9 +12,13 @@ export const FailureEnvelopeSchema = z
   .object({
     ok: z.literal(false),
     error: z.string(),
-    failure: z.object({ code: z.string(), message: z.string() }).optional().describe("Set on a 500 only."),
+    failure: z
+      .object({ code: z.string(), message: z.string() })
+      .optional()
+      .describe("Always set on a 500. On a 200, set when the handler threw or refused with a code."),
+    reqId: z.string().optional().describe("The daemon log's request id; set on every 200 refusal or handler throw."),
   })
-  .describe("A refused or failed request. A handler's own refusal answers 200 with this body.");
+  .describe("A refused or failed request. A handler that refuses or throws answers 200 with this body.");
 
 export const UnauthorizedSchema = z.object({ ok: z.literal(false), error: z.literal("unauthorized") });
 
