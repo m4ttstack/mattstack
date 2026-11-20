@@ -755,7 +755,8 @@ export interface Commands {
    * A per-`scope` whitelisted subset of secrets, each scope reading its own
    * encrypted domain(s): "extension" (default, so the VS Code extension
    * needs no change) is linearApiKey/gitlabToken from the `rt` domain;
-   * "deck" is cfApiToken/cfZoneId from the `deck` domain; "board" is
+   * "deck" is cfApiToken/cfZoneId/cfDnsToken/railwayToken/railwayApiToken
+   * from the `deck` domain; "board" is
    * cross-domain — slackToken/slackClientSecret/slackSigningSecret from the
    * `board` domain plus gitlabToken/switchboardToken/switchboardAdminToken
    * from the `rt` domain. `data` is a union of the per-scope shapes, not a

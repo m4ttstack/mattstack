@@ -553,27 +553,39 @@ const SdmReconnectConnectedSchema = z.object({
   verifyAttempts: z.number(),
 });
 
+// z.union takes the first branch that parses and strips keys it does not
+// name, so the bare-`error` branch must come after every `outcome` branch.
 export const SdmReconnectReplySchema = z.union([
   SdmReconnectConnectedSchema,
-  z.object({ ok: z.literal(false), error: z.string() }).describe("An unknown recents key."),
   z
     .object({ ok: z.literal(false), outcome: z.literal("needs-access-request"), resource: z.string() })
     .describe("Reconnect never submits an access request; the tray routes the human through one instead."),
   z.object({ ok: z.literal(false), outcome: z.enum(["aborted", "failed"]), error: z.string() }),
+  z.object({ ok: z.literal(false), error: z.string() }).describe("An unknown recents key."),
 ]);
 
 // ─── Secrets ────────────────────────────────────────────────────────────────
 
 // Extend a whitelist only in lockstep with lib/daemon/handlers/secrets.ts
 // and, for "extension", extensions/vscode/rt-context/src/secrets.ts.
+// Every key is optional, so the branches are strict: a plain object would
+// let the first branch match any reply and strip the other scopes' keys.
 export const SecretsReadDataSchema = z
   .union([
     z
-      .object({ linearApiKey: z.string().optional(), gitlabToken: z.string().optional() })
+      .strictObject({ linearApiKey: z.string().optional(), gitlabToken: z.string().optional() })
       .describe("scope `extension`, the default"),
-    z.object({ cfApiToken: z.string().optional(), cfZoneId: z.string().optional() }).describe("scope `deck`"),
     z
-      .object({
+      .strictObject({
+        cfApiToken: z.string().optional(),
+        cfZoneId: z.string().optional(),
+        cfDnsToken: z.string().optional().describe("Cloudflare Zone.DNS:Edit token, distinct from the Access-scoped `cfApiToken`."),
+        railwayToken: z.string().optional().describe("Railway project token."),
+        railwayApiToken: z.string().optional().describe("Railway account or team token."),
+      })
+      .describe("scope `deck`"),
+    z
+      .strictObject({
         slackToken: z.string().optional(),
         slackClientSecret: z.string().optional(),
         slackSigningSecret: z.string().optional(),
