@@ -45,7 +45,9 @@ So response shapes must be real, not placeholders.
 
 - **Any wire change.** Every existing caller (tray, console, boxscore, deck,
   the event bridge, rt-client relay) must see byte-identical status codes,
-  headers and bodies for every request it makes today.
+  headers and bodies for every `/api/*` request it makes today. `GET /` is
+  exempt: its body changes by design (generated `endpoints`, `docs` moves to
+  `/docs`), and nothing reads its `endpoints` or `websocket_events`.
 - **Weakening the control surface.** The origin trust check, default-deny
   CORS, `X-RT-Token` gate on mutating routes and `/api/secrets`, loopback-only
   bind, and the request body limit must behave exactly as today. `/docs` and
@@ -126,14 +128,23 @@ Where schemas live:
   (query/params/body), response schemas per status, and whether it needs the
   token (an OpenAPI security requirement on `X-RT-Token`). Handlers still call
   `handleCommand(cmd, payload, signal)`.
-- Query coercion keeps today's `coerceQueryParams` semantics; the schemas
-  must accept exactly what it produces.
+- **Request schemas describe; they do not reject.** Today the REST layer
+  refuses only a malformed path param (400) and an oversized body (413);
+  everything else reaches the handler, which answers its own
+  `{ ok:false, error }`. Rejecting at the REST layer would change those
+  answers, so request schemas feed the spec and the typed client only. The
+  route's validation hook forwards the raw input unchanged, and the payload
+  is still built by `coerceQueryParams` / `readCommandBody` exactly as today.
+  *(My call, forced by the no-wire-change anti-goal.)*
+- **Request schemas are the rt-client payload schemas**, one definition per
+  command. Because nothing is validated at the REST layer, the clash with
+  `coerceQueryParams` (it turns `?runId=123` into the number 123) never
+  surfaces. That coercion quirk is pre-existing and stays out of scope; the
+  spec documents the intended types. *(My call.)*
 - `x-rt-client` still lands on the payload as `_client`; the special cases
   (`/api/cache` repo filter, `/api/cache/:branch`, `/api/hooks/:repo/repair`,
   `/api/runs/:repo/:runId`, `/api/secrets` token forwarding) keep their
   behaviour.
-- Request validation failures must produce the same status and body each
-  route returns today for that input, not zod's default error shape.
 - Responses are not validated at runtime. Contract tests (below) check them.
 
 ### Docs surface
@@ -146,14 +157,25 @@ Where schemas live:
 - `GET /`: the existing index shape (`name`, `version`, `docs`, `websocket`,
   `endpoints`, `websocket_events`, `auth`), with `endpoints` generated from
   the route definitions. `docs` points at `/docs`.
-- These three routes are reads with no secrets and follow the same CORS rules
-  as other GET routes.
+- These routes are reads with no secrets and follow the same CORS rules as
+  other GET routes. `endpoints` in `GET /` lists every `/api/*` route plus
+  `/docs` and `/openapi.json`; the spec itself lists only `/api/*` routes.
+  The Scalar script route appears in neither. *(My call.)*
 
-### Typed client
+### Route contracts and the typed client
 
-- Export `AppType` from the daemon routes and a small `hc<AppType>` factory
-  from rt-client, so TypeScript callers can opt in. No caller is migrated in
-  this build.
+rt-client cannot import daemon internals (the RT-44 comment above
+`EventsBusEvent` in `commands.ts`), so the route contracts live in rt-client
+and the daemon binds handlers to them. *(My call.)*
+
+- A new rt-client subpath export (for example
+  `@mattstack/rt-client/daemon-api`) holds the `createRoute` definitions
+  (no handlers), `AppType`, and an `hc<AppType>` factory. `hono` and
+  `@hono/zod-openapi` become rt-client dependencies, imported only by that
+  subpath, so consumers that never import it pull nothing new.
+- The daemon imports the contracts and registers a handler for each, which
+  calls `handleCommand`.
+- No caller is migrated to the typed client in this build.
 
 ### Tests
 
@@ -161,8 +183,15 @@ Where schemas live:
   the no-wire-change gate.
 - A test that every route in the Hono app appears in `/openapi.json` and in
   `GET /`, and that `/openapi.json` is a valid OpenAPI 3.1 document.
-- Contract tests: for each route, real handler output from the existing
-  fixtures parses against its response schema.
+- **Typecheck is the main drift guard.** Handlers already return
+  `CommandResult<"cmd">` (for example `lib/daemon/handlers/runs.ts`,
+  `status.ts`), so once the types derive from the schemas, a handler whose
+  output drifts fails `tsc`. The builder audits the REST handlers for casts
+  or `any` that would defeat this and removes them.
+- Contract tests: each route's response schema parses one representative
+  sample (hand-built or captured from a real daemon). Where a handler test
+  already exists (usage and others), it also parses the real handler output.
+  No new real-handler fixtures for routes that have none. *(My call.)*
 - A test that `/docs` makes no outside request: the page references only
   daemon-local URLs.
 - rt-client's existing type tests and `dist-freshness` stay green.
