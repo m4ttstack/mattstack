@@ -22,7 +22,7 @@ describe("daemon docs payload loads lazily", () => {
     const loaded = loadedAfter(`
       const { createApiApp } = await import("./lib/daemon/api-app.ts");
       const { apiIndex, docsHtml } = await import("./lib/daemon/api-docs.ts");
-      createApiApp({ handleCommand: async () => ({ ok: true }), log: console, apiToken: "t", port: 1 });
+      createApiApp({ handleCommand: async () => ({ ok: true }), log: console, apiToken: "t", port: () => 1 });
       apiIndex(1);
       docsHtml();
     `);

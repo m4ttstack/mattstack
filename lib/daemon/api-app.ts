@@ -16,7 +16,8 @@ export interface ApiAppDeps {
   handleCommand: (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
   log: Logger;
   apiToken: string;
-  port: number;
+  /** The bound port, read per request. */
+  port: () => number;
 }
 
 /**
@@ -156,6 +157,8 @@ type ApiContext = Context<ApiEnv>;
 type Route = (typeof DAEMON_ROUTES)[number];
 type SpecialRoute = Extract<Route, { kind: "special" }>;
 
+const DOCS_PATHS = new Set(["/openapi.json", "/docs", "/docs/scalar.js"]);
+
 function isWildcard(route: Route): boolean {
   return route.honoPath.endsWith("/*");
 }
@@ -181,10 +184,10 @@ export function createApiApp(deps: ApiAppDeps): Hono<ApiEnv> {
 
   const unrouted = (c: ApiContext): Response => {
     const pathname = new URL(c.req.raw.url).pathname;
-    if (pathname === "/" || pathname === "") return reply(c, apiIndex(port));
+    if (pathname === "/" || pathname === "") return reply(c, apiIndex(port()));
     const method = genericMethods.get(pathname);
     if (method === undefined) {
-      return reply(c, { ok: false, error: "not found", docs: `http://localhost:${port}/` }, 404);
+      return reply(c, { ok: false, error: "not found", docs: `http://localhost:${port()}/` }, 404);
     }
     return reply(c, { ok: false, error: `use ${method}` }, 405);
   };
@@ -280,13 +283,20 @@ export function createApiApp(deps: ApiAppDeps): Hono<ApiEnv> {
 
     // CORS default-deny only stops a page reading the reply, not firing the
     // request; the token is the defense against a page driving these routes.
-    if (needsToken(req.method, new URL(req.url).pathname) && !tokenOk(req.headers.get("x-rt-token"), apiToken)) {
+    const pathname = new URL(req.url).pathname;
+    if (needsToken(req.method, pathname) && !tokenOk(req.headers.get("x-rt-token"), apiToken)) {
       const unauthorized = Response.json({ ok: false, error: "unauthorized" }, { status: 401, headers: corsHeaders });
       return req.method === "HEAD" ? forHead(unauthorized) : unauthorized;
     }
 
-    // A HEAD request never reaches a route handler.
-    if (req.method === "HEAD") return forHead(unrouted(c));
+    // A HEAD request never reaches an /api handler: GET /api/notifications
+    // drains the queue.
+    if (req.method === "HEAD") {
+      if (!DOCS_PATHS.has(pathname)) return forHead(unrouted(c));
+      await next();
+      await forHead(c.res);
+      return;
+    }
 
     await next();
   });

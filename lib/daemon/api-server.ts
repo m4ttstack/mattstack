@@ -213,7 +213,8 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
   apiServerLog = log;
   const apiToken = getApiToken();
   const port = resolveApiPort();
-  const app = createApiApp({ handleCommand, log, apiToken, port });
+  let boundPort = port;
+  const app = createApiApp({ handleCommand, log, apiToken, port: () => boundPort });
 
   const server = await bindApiServerWithRetry(() => Bun.serve<ApiWSData, never>({
     port,
@@ -267,7 +268,8 @@ export async function startApiServer(deps: ApiServerDeps): Promise<Server<any>> 
       },
     },
   }), { sleep: (ms) => Bun.sleep(ms), log }, port);
+  boundPort = server.port ?? port;
 
-  log.info({ port }, "api server listening");
+  log.info({ port: boundPort }, "api server listening");
   return server;
 }

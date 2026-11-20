@@ -43,6 +43,10 @@ const DOCS_ROUTES = [
   { method: "GET", path: "/openapi.json", description: "This API's OpenAPI 3.1 document" },
 ];
 
+function gatedReads(): string[] {
+  return DAEMON_ROUTES.filter((route) => route.token && route.method === "get").map((route) => `GET ${route.path}`);
+}
+
 export function apiIndex(port: number) {
   return {
     name: "rt daemon",
@@ -60,7 +64,7 @@ export function apiIndex(port: number) {
     websocket_events: WEBSOCKET_EVENTS,
     auth: {
       header: "X-RT-Token",
-      description: "Required on mutating routes (shutdown, sdm reconnect, events emit) and /api/secrets. Token at ~/.mattstack/rt/api-token.",
+      description: `Required on every mutating (POST) route and on ${gatedReads().join(", ")}. Token at ~/.mattstack/rt/api-token.`,
     },
   };
 }
