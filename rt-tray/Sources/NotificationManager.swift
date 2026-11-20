@@ -71,13 +71,6 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             options: .foreground
         )
 
-        // No .foreground — killing shouldn't drag the app to the front
-        let killProcesses = UNNotificationAction(
-            identifier: "KILL_PROCESSES",
-            title: "Kill",
-            options: .destructive
-        )
-
         let fixKeyboard = UNNotificationAction(
             identifier: "FIX_KEYBOARD",
             title: "Show Me How",
@@ -170,11 +163,6 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             UNNotificationCategory(
                 identifier: "stale_port",
                 actions: [showProcesses],
-                intentIdentifiers: []
-            ),
-            UNNotificationCategory(
-                identifier: "runaway_process",
-                actions: [killProcesses, showProcesses],
                 intentIdentifiers: []
             ),
             UNNotificationCategory(
@@ -360,11 +348,6 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         // Stash the URL in userInfo so we can open it on click
         if let url = event.url {
             content.userInfo["url"] = url
-        }
-
-        // Stash pids so the Kill action can target them
-        if let pids = event.pids, !pids.isEmpty {
-            content.userInfo["pids"] = pids
         }
 
         // Stash the pane id so a click focuses the pane instead of opening the URL
@@ -642,11 +625,6 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         case "SHOW_PROCESSES":
             NotificationCenter.default.post(name: .showProcessPanel, object: nil)
 
-        case "KILL_PROCESSES":
-            if let pids = userInfo["pids"] as? [Int], !pids.isEmpty {
-                Self.killPids(pids)
-            }
-
         case "FIX_KEYBOARD":
             NotificationCenter.default.post(name: .showKeyboardConflict, object: nil)
 
@@ -659,41 +637,4 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
         completionHandler()
     }
-
-    // MARK: - Kill action
-
-    /// SIGTERM the pids (process group when the pid leads one), then escalate
-    /// survivors to SIGKILL after 5s — same semantics as the process panel.
-    static func killPids(_ pids: [Int]) {
-        TrayLog.info("notification kill action", ["pids": pids])
-        for pid in pids {
-            _ = sendSignal(pid, SIGTERM)
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
-            let survivors = pids.filter { kill(Int32($0), 0) == 0 }
-            for pid in survivors {
-                _ = sendSignal(pid, SIGKILL)
-            }
-            if !survivors.isEmpty {
-                TrayLog.warn("notification kill escalated to SIGKILL", ["pids": survivors])
-            }
-        }
-    }
-
-    private static func sendSignal(_ pid: Int, _ signal: Int32) -> Bool {
-        let p = Int32(pid)
-        if getpgid(p) == p, kill(-p, signal) == 0 {
-            return true
-        }
-        return kill(p, signal) == 0
-    }
-}
-
-// MARK: - Notification.Name
-
-extension Notification.Name {
-    static let showProcessPanel = Notification.Name("showProcessPanel")
-    static let detachProcessPanel = Notification.Name("detachProcessPanel")
-    static let showKeyboardConflict = Notification.Name("showKeyboardConflict")
-    static let showWorktreePanel = Notification.Name("showWorktreePanel")
 }

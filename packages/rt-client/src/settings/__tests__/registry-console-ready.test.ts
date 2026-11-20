@@ -106,7 +106,6 @@ const UNANNOTATED_YET: readonly string[] = [
   "rt.presets",
   "rt.repoTracking",
   "rt.roles",
-  "rt.runaway",
   "rt.sync",
   "rt.teamSnapshot",
   "rt.variations",

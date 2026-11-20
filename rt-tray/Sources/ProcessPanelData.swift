@@ -16,8 +16,6 @@ struct SystemProcess: Codable, Identifiable {
     let port: Int?
     let linearTicket: String?
     let packageScript: String?
-    let isRunaway: Bool
-    let runawayDurationMs: Int?
     let firstSeen: Double
     var children: [SystemProcess]?
     let totalCpuPercent: Double?

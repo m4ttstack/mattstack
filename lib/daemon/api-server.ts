@@ -29,7 +29,7 @@ function buildApiIndex(port: number) {
     { method: "GET",  path: "/api/cache",           description: "All branch cache entries (MR or PR, Linear, pipeline); ?repoIdentity=<serialized identity> keeps that repo's" },
     { method: "GET",  path: "/api/cache/:branch",   description: "Single branch cache entry; ?repoIdentity=<serialized identity> picks that repo's entry" },
     { method: "GET",  path: "/api/repos",           description: "Tracked repos with worktrees and watched status" },
-    { method: "GET",  path: "/api/processes/system", description: "All repo-associated processes with CPU, memory, ports, runaway status" },
+    { method: "GET",  path: "/api/processes/system", description: "All repo-associated processes with CPU, memory and ports, read on demand" },
     { method: "GET",  path: "/api/notifications",   description: "Pending notifications (drains queue)" },
     { method: "POST", path: "/api/refresh",         description: "Trigger a background cache refresh" },
     { method: "POST", path: "/api/hooks/:repo/repair", description: "Repair hooks path for a repo" },
@@ -52,7 +52,6 @@ function buildApiIndex(port: number) {
     { type: "status",         description: "Full daemon status — after each cache refresh (~5 min)" },
     { type: "ports",          description: "Full port list — after each port scan (~30s)" },
     { type: "notification",   description: "Notification event — when a transition fires" },
-    { type: "system-processes", description: "Repo processes with CPU/memory — after each 10s scan" },
     { type: "event",          description: "Events-bus broadcast frame; topic run-updated announces pipeline run writes" },
   ],
   auth: {

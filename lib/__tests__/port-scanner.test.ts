@@ -130,7 +130,7 @@ describe("parseEtimeMs", () => {
 // S097: lsof reports the kernel's resolved (real) cwd; the repo index and
 // worktree map carry whatever path the user cd'd through when registering
 // a repo. A symlinked repo root (~/code -> /Volumes/Dev/code) previously
-// matched nothing at all — no ports, no runaway detection, and stale dev
+// matched nothing at all — no ports, no process rows, and stale dev
 // servers kept running past dispose because killWorktreeProcesses found
 // nothing either.
 describe("canonicalizeRepoIndex / canonicalizeWorktreeMap (S097)", () => {

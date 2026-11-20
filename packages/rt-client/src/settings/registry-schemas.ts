@@ -163,7 +163,6 @@ export const SCHEMAS = {
   }).partial(),
   "rt.cron": z.looseObject({ triggers: z.array(cronTrigger).optional() }),
   "rt.repoTracking": z.record(z.string(), trackingEntry),
-  "rt.runaway": z.looseObject({ cpuThreshold: z.number().optional(), sustainMs: z.number().optional(), graceMs: z.number().optional() }),
   "rt.workspacePrefs": z.looseObject({
     editors: stringMap.optional(),
     workspaces: stringMap.optional(),

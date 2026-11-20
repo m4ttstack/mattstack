@@ -1873,11 +1873,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// A restart's own refresh that arrived mid-poll; the poll runs once more.
     private var deckRefreshQueued = false
     private var consecutiveStatusFailures = 0
-    /// `system-processes` forces a fresh scan on the daemon, so the 10s tick
-    /// reads it only every sixth tick; under 60 so timer drift cannot push it
-    /// to the seventh.
-    private var runawayProbe = ThrottledProbe(interval: 55)
-    private var hasRunawayProcess = false
     /// Stamped whenever `setHealth(.starting)` runs. `.starting` has no
     /// natural "it failed" signal of its own -- unlike `.down`, which the
     /// failed-poll count already demotes into -- so this is what lets
@@ -1941,17 +1936,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         consecutiveStatusFailures = 0
 
         var health: DaemonHealth = status.pendingNotifications > 0 ? .warning : .healthy
-
-        let now = Date()
-        if runawayProbe.isDue(now: now) {
-            runawayProbe.markRun(at: now)
-            if let procData = await daemonClient.querySystemProcesses() {
-                hasRunawayProcess = procData.processes.contains(where: { $0.isRunaway })
-            }
-        }
-        if hasRunawayProcess {
-            health = .warning
-        }
 
         // Phase 2 health level: a degraded/unhealthy daemon-reported level
         // outranks the local heuristics above — it names the actual failing

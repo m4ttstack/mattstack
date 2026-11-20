@@ -313,7 +313,7 @@ export function matchesSchema(def: SettingDefWire, value: unknown): boolean {
     lib/__tests__/notification-shape-parity.test.ts fails when the two drift. */
 export const NOTIFICATION_EVENTS = [
   "pipeline_failed", "pipeline_passed", "mr_approved", "mr_merged", "mr_closed", "mr_ready",
-  "merge_conflicts", "needs_rebase", "merge_error", "new_comment", "stale_port", "runaway_process",
+  "merge_conflicts", "needs_rebase", "merge_error", "new_comment", "stale_port",
   "evidence_batch_ready", "evidence_failed", "chat_mention", "credential_health", "member_joined",
   "worktree_triage",
   "setup_update",

@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { recordDemand, demandedWithin, wrapWithDemand } from "../demand-tracker.ts";
+import { test, expect, spyOn } from "bun:test";
+import { DEMAND_COMMANDS, recordDemand, demandedWithin, wrapWithDemand } from "../demand-tracker.ts";
 
 test("demandedWithin reflects a recent recordDemand", () => {
   recordDemand();
@@ -21,4 +21,33 @@ test("wrapWithDemand records demand and delegates to the inner handler", async (
   expect(called).toBe(true);
   expect(demandedWithin(1000)).toBe(true);
   void before;
+});
+
+test("ports and system-processes stamp demand; tray:status does not", async () => {
+  expect([...DEMAND_COMMANDS].sort()).toEqual(["ports", "system-processes"]);
+
+  const handlers: Record<string, (...args: any[]) => Promise<{ ok: boolean }>> = {
+    "ports": async () => ({ ok: true }),
+    "system-processes": async () => ({ ok: true }),
+    "tray:status": async () => ({ ok: true }),
+  };
+  wrapWithDemand(handlers, [...DEMAND_COMMANDS]);
+
+  // Starts past real time: earlier tests stamped demand with the real clock.
+  let now = Date.now() + 60_000;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    now += 1_000;
+    await handlers["tray:status"]!(undefined as any);
+    expect(demandedWithin(20)).toBe(false);
+
+    for (const cmd of DEMAND_COMMANDS) {
+      now += 1_000;
+      expect(demandedWithin(20)).toBe(false);
+      await handlers[cmd]!(undefined as any);
+      expect(demandedWithin(20)).toBe(true);
+    }
+  } finally {
+    clock.mockRestore();
+  }
 });

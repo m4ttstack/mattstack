@@ -96,7 +96,7 @@ const EVENT_MAX_WAIT_MS = 3_000;
  * One socket per tab. Invalidating on EVERY message is safe only because the
  * server already filtered the upstream relay to two topics -- run-updated
  * ('runs') and gate/* ('gates'), see src/server/index.ts's relay list --
- * the daemon multiplexes ports/status/system-processes/project-mrs through
+ * the daemon multiplexes ports/status/project-mrs through
  * the same upstream socket, and without that filter this would refetch on
  * every unrelated daemon tick.
  */

@@ -639,18 +639,6 @@ struct ProcessOutlineView: NSViewRepresentable {
             stack.alignment = .centerY
             stack.translatesAutoresizingMaskIntoConstraints = false
 
-            if proc.isRunaway {
-                let dot = NSView(frame: NSRect(x: 0, y: 0, width: 6, height: 6))
-                dot.wantsLayer = true
-                dot.layer?.backgroundColor = NSColor.systemOrange.cgColor
-                dot.layer?.cornerRadius = 3
-                dot.translatesAutoresizingMaskIntoConstraints = false
-                dot.widthAnchor.constraint(equalToConstant: 6).isActive = true
-                dot.heightAnchor.constraint(equalToConstant: 6).isActive = true
-                dot.toolTip = runawayTooltip(proc)
-                stack.addArrangedSubview(dot)
-            }
-
             // Split breadcrumb chain (e.g. "bun › node › foo") into ancestry + leaf
             let parts = proc.command.components(separatedBy: " › ")
             let leafName = parts.last ?? proc.command
@@ -766,14 +754,6 @@ struct ProcessOutlineView: NSViewRepresentable {
                 label.bottomAnchor.constraint(equalTo: badge.bottomAnchor, constant: -1),
             ])
             return badge
-        }
-
-        /// Matches the daemon's definition: flagged after sustained high CPU.
-        private func runawayTooltip(_ proc: SystemProcess) -> String {
-            guard let ms = proc.runawayDurationMs else { return "Runaway process: sustained high CPU" }
-            let mins = ms / 60_000
-            let duration = mins >= 60 ? "\(mins / 60)h \(mins % 60)m" : "\(mins)m"
-            return "Runaway process: high CPU for \(duration)"
         }
 
         private func cellConfig(_ proc: SystemProcess, _ column: ProcessColumn)
