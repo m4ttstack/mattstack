@@ -214,6 +214,8 @@ export type {
   HerdLaneRow,
   HerdStatusData,
   WorktreeTreeRow,
+  WorktreePickerRow,
+  WorktreePickerData,
   WorktreeListData,
   WorktreeTreeRef,
   WorktreeProvisionCheckData,

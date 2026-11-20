@@ -19,7 +19,8 @@ import { join, relative, basename } from "path";
 
 const SHELL = process.env.SHELL ?? "bash";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { getKnownRepos, pickerWorktrees } from "../lib/repo-index.ts";
+import { getKnownRepos } from "../lib/repo-index.ts";
+import { pickerOrder } from "../lib/worktree-groups.ts";
 import { rtDir } from "../lib/rt-paths.ts";
 import { ensureHistoryHook } from "../lib/shell-integration.ts";
 import { getWorkspacePackages, type KnownRepo } from "../lib/repo.ts";
@@ -1003,7 +1004,8 @@ export async function resolveRun(
           selectedRepo = repoFromOptionValue(knownRepos, repoResult.value!)!;
         }
 
-        const worktrees = pickerWorktrees(selectedRepo).filter((wt) =>
+        const ordered = pickerOrder(selectedRepo);
+        const worktrees = ordered.worktrees.filter((wt) =>
           existsSync(wt.path),
         );
         if (worktrees.length === 0) {
@@ -1031,7 +1033,8 @@ export async function resolveRun(
             const wtResult = await runSegmentPicker({
               rows: enriched.map((eb) => {
                 const { left, right, match } = formatBranchSegments(eb);
-                return { value: eb.path, left, right, match };
+                const group = ordered.groupOf.get(eb.path);
+                return { value: eb.path, left, right, match, ...(group ? { group } : {}) };
               }),
               message: `${repoLabel(selectedRepo.repoName)} worktrees`,
               headerParts: [
