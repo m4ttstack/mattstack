@@ -3,6 +3,7 @@ import type { Server } from "bun";
 import { startApiServer } from "../api-server.ts";
 import { setSetting, unsetSetting } from "../../settings/write.ts";
 import { DAEMON_ROUTES } from "../../../packages/rt-client/src/daemon-api/index.ts";
+import scalarPackage from "../../../node_modules/@scalar/api-reference/package.json" with { type: "json" };
 
 const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
 
@@ -75,18 +76,24 @@ describe("daemon API docs", () => {
     expect(html).not.toContain("http://");
     expect(html).not.toContain("https://");
     const srcs = [...html.matchAll(/<script[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]);
-    expect(srcs).toEqual(["/docs/scalar.js"]);
+    expect(srcs).toEqual([`/docs/scalar.js?v=${scalarPackage.version}`]);
     expect(html).toContain("withDefaultFonts: false");
     expect(html).toContain("hideClientButton: true");
     expect(html).not.toContain("proxyUrl");
   });
 
-  test("/docs/scalar.js serves the embedded script", async () => {
-    const res = await hit("/docs/scalar.js");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
-    expect(res.headers.get("cache-control")).toBe("max-age=86400");
-    expect((await res.text()).length).toBeGreaterThan(1024 * 1024);
+  test("/docs/scalar.js serves the embedded script, with or without the version query", async () => {
+    const bodies: string[] = [];
+    for (const path of ["/docs/scalar.js", `/docs/scalar.js?v=${scalarPackage.version}`]) {
+      const res = await hit(path);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+      expect(res.headers.get("cache-control")).toBe("max-age=86400");
+      bodies.push(await res.text());
+    }
+    expect(bodies[0]!.length).toBeGreaterThan(1024 * 1024);
+    expect(bodies[0]!).toContain("createApiReference");
+    expect(bodies[1]).toBe(bodies[0]!);
   });
 
   test("docs routes are not token-gated", async () => {
