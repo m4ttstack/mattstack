@@ -3,8 +3,11 @@
  * attach this terminal to it. The daemon says which herdr command reaches
  * the pane (`pane:attach-plan`); this verb gathers the rows and runs it.
  */
-import type { ChatPane, PaneFocusResult, RtResponse } from "../packages/rt-client/src/index.ts";
+import type { AgentStatusKey, ChatPane, PaneFocusResult, RtResponse, StartedByKind } from "../packages/rt-client/src/index.ts";
 import {
+  AGENT_STATUS_WORDS,
+  agentStartedBy,
+  agentStatusKey,
   BG_PREFIX,
   paneAttachPlan as paneAttachPlanRt,
   paneFocus as paneFocusRt,
@@ -23,29 +26,28 @@ import type { PickAction, PickPreview, PickRequest, PickResult, PickRow, PickSeg
 const USAGE = "rt pane attach <pane>";
 const SCREEN_LINES = 3;
 
-const STATUS: Record<ChatPane["agentStatus"], { glyph: string; word: string; tone: string }> = {
-  working: { glyph: "●", word: "working", tone: "mint" },
-  blocked: { glyph: "◆", word: "waiting on you", tone: "peach" },
-  idle: { glyph: "○", word: "idle", tone: "dim" },
-  done: { glyph: "✓", word: "done", tone: "cyan" },
-  unknown: { glyph: "·", word: "unknown", tone: "faint" },
+const GLYPHS: Record<AgentStatusKey, { glyph: string; tone: string }> = {
+  working: { glyph: "●", tone: "mint" },
+  blocked: { glyph: "◆", tone: "peach" },
+  idle: { glyph: "○", tone: "dim" },
+  done: { glyph: "✓", tone: "cyan" },
+  unknown: { glyph: "·", tone: "faint" },
+  gate: { glyph: "◆", tone: "peach" },
+  ended: { glyph: "·", tone: "faint" },
 };
 
 const PRESENCE: Record<string, string> = { live: "live in chat", idle: "idle in chat", offline: "offline" };
 
-const GATE_STATUS = { glyph: "◆", word: "waiting on a gate", tone: "peach" };
-
-/** An open gate outranks whatever herdr reports, since it is what the pane is waiting on. */
 function statusOf(p: ChatPane): { glyph: string; word: string; tone: string } {
-  return p.gate ? GATE_STATUS : (STATUS[p.agentStatus] ?? STATUS.unknown);
+  const key = agentStatusKey(p);
+  return { ...GLYPHS[key], word: AGENT_STATUS_WORDS[key] };
 }
 
-/** Who started the pane: its herd, the `rt agent` caller, `rt agent` itself, or a person by hand. */
+const STARTED_BY_TONE: Record<StartedByKind, string> = { herd: "lav", caller: "cyan", run: "cyan", agent: "dim", hand: "faint" };
+
 function startedBy(p: ChatPane): PickSegment {
-  if (p.herd) return { text: `herd ${p.herd.herdId}`, tone: "lav" };
-  if (p.agent?.caller) return { text: p.agent.caller, tone: "cyan" };
-  if (p.agent) return { text: "rt agent", tone: "dim" };
-  return { text: "by hand", tone: "faint" };
+  const s = agentStartedBy({ herdId: p.herd?.herdId, caller: p.agent?.caller, hasRecord: !!p.agent });
+  return { text: s.text, tone: STARTED_BY_TONE[s.kind] };
 }
 
 function stamp(ms: number): string {

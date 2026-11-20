@@ -7,6 +7,7 @@
  *
  * Ported verbatim from mr-board's src/rt-client.ts.
  */
+import { request } from "node:http";
 import { homedir } from "os";
 import { join } from "path";
 import { assertNotRealDaemonInTest, parseForbidSocks } from "./test-isolation.ts";
@@ -96,18 +97,14 @@ export async function rtCommand<T = unknown>(
   const timeoutMs = opts.timeoutMs ?? 15_000;
   try {
     const body = JSON.stringify(payload);
-    const res = await fetch(`http://localhost/${cmd}`, {
-      unix: sockPath,
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-RT-Client": `rt-client/${process.pid}` },
-      body,
-      signal: AbortSignal.timeout(timeoutMs),
-      // Bun's `unix` fetch option isn't in the standard RequestInit type.
-    } as RequestInit);
-    const text = await res.text();
+    const headers = { "Content-Type": "application/json", "X-RT-Client": `rt-client/${process.pid}` };
+    const res = typeof (globalThis as { Bun?: unknown }).Bun === "undefined"
+      ? await postOverSocket(sockPath, cmd, body, headers, timeoutMs)
+      : await postWithBunFetch(sockPath, cmd, body, headers, timeoutMs);
+    const text = res.text;
     let parsed: unknown;
     try { parsed = JSON.parse(text); } catch { /* not JSON */ }
-    if (res.ok && parsed !== undefined) return parsed as RtResponse<T>;
+    if (res.status >= 200 && res.status < 300 && parsed !== undefined) return parsed as RtResponse<T>;
     const envelope = parsed as RtResponse<T> | null | undefined;
     if (envelope && typeof envelope === "object" && typeof envelope.ok === "boolean") return envelope;
     if (res.status === 413) {
@@ -126,4 +123,42 @@ export async function rtCommand<T = unknown>(
       : err instanceof Error ? err.message : String(err);
     return { ok: false, error: `${DAEMON_UNREACHABLE_PREFIX}${sockPath}: ${msg}` };
   }
+}
+
+async function postWithBunFetch(
+  sockPath: string, cmd: string, body: string, headers: Record<string, string>, timeoutMs: number,
+): Promise<{ status: number; text: string }> {
+  const res = await fetch(`http://localhost/${cmd}`, {
+    unix: sockPath,
+    method: "POST",
+    headers,
+    body,
+    signal: AbortSignal.timeout(timeoutMs),
+    // Bun's `unix` fetch option isn't in the standard RequestInit type.
+  } as RequestInit);
+  return { status: res.status, text: await res.text() };
+}
+
+/** Node's fetch ignores Bun's `unix` option, so a Node host (the VS Code extension) posts through node:http. */
+export function postOverSocket(
+  sockPath: string, cmd: string, body: string, headers: Record<string, string>, timeoutMs: number,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      { socketPath: sockPath, path: `/${cmd}`, method: "POST", headers: { ...headers, "Content-Length": Buffer.byteLength(body) } },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => { clearTimeout(timer); resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }); });
+        res.on("error", (e) => { clearTimeout(timer); reject(e); });
+      },
+    );
+    const timer = setTimeout(() => {
+      const err = new Error(`${cmd} timed out after ${timeoutMs}ms`);
+      err.name = "TimeoutError";
+      req.destroy(err);
+    }, timeoutMs);
+    req.on("error", (e) => { clearTimeout(timer); reject(e); });
+    req.end(body);
+  });
 }
