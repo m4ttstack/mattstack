@@ -166,7 +166,7 @@ describe("REST wire behaviour", () => {
     expect(res.headers.get("content-type")).toBe(JSON_CONTENT_TYPE);
     const body = (await res.json()) as { name: string; docs: string };
     expect(body.name).toBe("rt daemon");
-    expect(body.docs).toBe(`http://localhost:${port}/`);
+    expect(body.docs).toBe(`http://localhost:${port}/docs`);
 
     const head = await hit("/", { method: "HEAD" });
     expect(head.status).toBe(200);

@@ -10,56 +10,13 @@ import { needsToken, tokenOk, resolveOriginTrust, isTokenPreflight } from "./api
 import { deriveFailure } from "./failure.ts";
 import { readCommandBody } from "./request-limits.ts";
 import { parseIdentity } from "../settings/identity.ts";
+import { apiIndex, docsHtml, openApiJson, SCALAR_JS } from "./api-docs.ts";
 
 export interface ApiAppDeps {
   handleCommand: (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
   log: Logger;
   apiToken: string;
   port: number;
-}
-
-function buildApiIndex(port: number) {
-  return {
-  name: "rt daemon",
-  version: "1.0.0",
-  docs: `http://localhost:${port}/`,
-  websocket: `ws://localhost:${port}/ws`,
-  endpoints: [
-    { method: "GET",  path: "/api/status",        description: "Daemon health, uptime, memory, cache stats" },
-    { method: "GET",  path: "/api/ports",          description: "Listening ports grouped by repo/worktree" },
-    { method: "GET",  path: "/api/cache",           description: "All branch cache entries (MR or PR, Linear, pipeline); ?repoIdentity=<serialized identity> keeps that repo's" },
-    { method: "GET",  path: "/api/cache/:branch",   description: "Single branch cache entry; ?repoIdentity=<serialized identity> picks that repo's entry" },
-    { method: "GET",  path: "/api/repos",           description: "Tracked repos with worktrees and watched status" },
-    { method: "GET",  path: "/api/processes/system", description: "All repo-associated processes with CPU, memory and ports, read on demand" },
-    { method: "GET",  path: "/api/notifications",   description: "Pending notifications (drains queue)" },
-    { method: "POST", path: "/api/refresh",         description: "Trigger a background cache refresh" },
-    { method: "POST", path: "/api/hooks/:repo/repair", description: "Repair hooks path for a repo" },
-    { method: "POST", path: "/api/shutdown",        description: "Gracefully stop the daemon" },
-    { method: "GET",  path: "/api/sdm/recents",     description: "Recent StrongDM connections with live connected state" },
-    { method: "POST", path: "/api/sdm/reconnect",   description: "Reconnect a StrongDM recent (promptless; fails if an access request is needed)" },
-    { method: "POST", path: "/api/events/emit",     description: "Emit an event onto the pane-communication bus" },
-    { method: "GET",  path: "/api/events",          description: "List events matching a topic pattern" },
-    { method: "GET",  path: "/api/secrets",          description: "Whitelisted secret values (linearApiKey, gitlabToken) — token-gated" },
-    { method: "GET",  path: "/api/runs",            description: "Pipeline runs, newest first (?repo= to scope)" },
-    { method: "GET",  path: "/api/runs/:repo/:runId", description: "One run: stages, fields, decisions" },
-    { method: "GET",  path: "/api/usage/mrs",        description: "Token usage and estimated cost per MR or PR (?days= &repo= to scope)" },
-    { method: "GET",  path: "/api/usage/mr",         description: "One MR or PR's usage by run and stage (?mrKey=, URL-encoded)" },
-    { method: "GET",  path: "/api/usage/trends",     description: "Weekly usage by kind, pipeline and model (?days= required, ?repo=)" },
-    { method: "GET",  path: "/api/usage/status",     description: "Usage sweep health: last sweep, skipped lines, unpriced models" },
-    { method: "GET",  path: "/api/reconciler",       description: "Executor reconciler's last sweep snapshot" },
-    { method: "POST", path: "/api/reconciler/clear", description: "Manually clear an agent's reconciler state and open/parked gates" },
-  ],
-  websocket_events: [
-    { type: "status",         description: "Full daemon status — after each cache refresh (~5 min)" },
-    { type: "ports",          description: "Full port list — after each port scan (~30s)" },
-    { type: "notification",   description: "Notification event — when a transition fires" },
-    { type: "event",          description: "Events-bus broadcast frame; topic run-updated announces pipeline run writes" },
-  ],
-  auth: {
-    header: "X-RT-Token",
-    description: "Required on mutating routes (shutdown, sdm reconnect, events emit) and /api/secrets. Token at ~/.mattstack/rt/api-token.",
-  },
-  };
 }
 
 /**
@@ -222,7 +179,7 @@ export function createApiApp(deps: ApiAppDeps): Hono<ApiEnv> {
 
   const unrouted = (c: ApiContext): Response => {
     const pathname = new URL(c.req.raw.url).pathname;
-    if (pathname === "/" || pathname === "") return reply(c, buildApiIndex(port));
+    if (pathname === "/" || pathname === "") return reply(c, apiIndex(port));
     const method = genericMethods.get(pathname);
     if (method === undefined) {
       return reply(c, { ok: false, error: "not found", docs: `http://localhost:${port}/` }, 404);
@@ -317,6 +274,13 @@ export function createApiApp(deps: ApiAppDeps): Hono<ApiEnv> {
 
     await next();
   });
+
+  const text = (c: ApiContext, body: string, contentType: string, extra: Record<string, string> = {}): Response =>
+    new Response(body, { headers: { ...c.get("corsHeaders"), "Content-Type": contentType, ...extra } });
+
+  app.get("/openapi.json", (c) => reply(c, openApiJson()));
+  app.get("/docs", (c) => text(c, docsHtml(), "text/html; charset=utf-8"));
+  app.get("/docs/scalar.js", (c) => text(c, SCALAR_JS, "text/javascript; charset=utf-8", { "Cache-Control": "max-age=86400" }));
 
   // Hono's `/x/*` also matches `/x`, and the first registered handler wins.
   const ordered = [...DAEMON_ROUTES.filter((r) => !isWildcard(r)), ...DAEMON_ROUTES.filter(isWildcard)];

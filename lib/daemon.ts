@@ -5,7 +5,8 @@
  *
  * Runs as a long-lived Bun process managed by launchd.
  * Listens on a Unix domain socket at ~/.mattstack/rt/rt.sock (CLI/tray IPC) and on
- * 127.0.0.1:9401 (REST + WebSocket for external clients).
+ * 127.0.0.1:9401 (REST + WebSocket for external clients; the API describes
+ * itself at /openapi.json and renders that document at /docs).
  *
  * Responsibilities:
  *  1. Watch .git/config for known repos → re-apply core.hooksPath if clobbered
