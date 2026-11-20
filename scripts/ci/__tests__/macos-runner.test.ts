@@ -99,10 +99,15 @@ describe("workflow wiring", () => {
     ["e2e.yml", "changes", ["e2e-tests", "glitter-pty"]],
   ] as const)("%s routes every macOS job through %s", (file, router, macosJobs) => {
     const all = jobs(file);
-    const notUbuntu = Object.keys(all).filter((name) => all[name]!["runs-on"] !== "ubuntu-latest");
+    const pinned = Object.keys(all).filter((name) => all[name]!["runs-on"] === "macos-latest");
+    const notUbuntu = Object.keys(all).filter((name) => all[name]!["runs-on"] !== "ubuntu-latest" && !pinned.includes(name));
     expect(notUbuntu.sort()).toEqual([...macosJobs]);
     for (const name of macosJobs) {
       expect(all[name]!["runs-on"]).toBe(`\${{ fromJSON(needs.${router}.outputs.macos_runner) }}`);
     }
+  });
+
+  test("tray-compile is pinned to GitHub's macOS pool, never the Intel mini", () => {
+    expect(jobs("checks.yml")["tray-compile"]!["runs-on"]).toBe("macos-latest");
   });
 });

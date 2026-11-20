@@ -91,6 +91,10 @@ describe("decide", () => {
     expect(decide(pr(["rt-tray/LaunchAgent.plist"])).mode).toBe("skip");
   });
 
+  test("the tray compile script skips the shards", () => {
+    expect(decide(pr(["scripts/ci/tray-compile.sh"])).mode).toBe("skip");
+  });
+
   test("a markdown fixture is full even when nothing names it", () => {
     expect(decide(pr(["lib/__tests__/fixtures/compile-native/pack/notes.md"])).mode).toBe("full");
   });
@@ -520,7 +524,7 @@ describe("workflow wiring", () => {
   });
 
   describe("the checks gate on unit-macos", () => {
-    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", GATE_FORM: "success", KIT_GALLERY: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_MACOS: "./a.test.ts" };
+    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", TRAY: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", GATE_FORM: "success", KIT_GALLERY: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_TRAY: "true", RUN_MACOS: "./a.test.ts" };
     function gate(env: Record<string, string>): number {
       const script = jobs("checks.yml").checks!.steps!.find((step) => step.name === "Every gate passed")!.run!;
       return Bun.spawnSync(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", ...passing, ...env }, stdout: "pipe", stderr: "pipe" }).exitCode;
@@ -537,6 +541,13 @@ describe("workflow wiring", () => {
     });
     test.each(["failure", "cancelled"])("a %s fails", (result) => {
       expect(gate({ UNIT_MACOS: result })).toBe(1);
+    });
+    test("a tray-compile skip passes only when scope said the tray was untouched", () => {
+      expect(gate({ TRAY: "skipped", RUN_TRAY: "false" })).toBe(0);
+      expect(gate({ TRAY: "skipped" })).toBe(1);
+    });
+    test.each(["failure", "cancelled"])("a tray-compile %s fails", (result) => {
+      expect(gate({ TRAY: result })).toBe(1);
     });
   });
 
@@ -870,8 +881,8 @@ describe("workflow files", () => {
 });
 
 describe("jobsFor", () => {
-  const none = { go: false, deck: false, e2e: false, glitter: false, website: false };
-  const every = { go: true, deck: true, e2e: true, glitter: true, website: true };
+  const none = { go: false, deck: false, tray: false, e2e: false, glitter: false, website: false };
+  const every = { go: true, deck: true, tray: true, e2e: true, glitter: true, website: true };
 
   test("a push to main or a merge-queue run runs every job", () => {
     expect(jobsFor("push", [])).toEqual(every);
@@ -892,6 +903,14 @@ describe("jobsFor", () => {
 
   test.each([
     ["swift", ["rt-tray/Sources-core/Tray/Menu.swift"]],
+    ["the tray project", ["rt-tray/project.yml"]],
+    ["the tray's pre-build script", ["rt-tray/scripts/render-launchagents.sh"]],
+    ["the tray compile script", ["scripts/ci/tray-compile.sh"]],
+  ])("%s runs the tray compile only", (_, changed) => {
+    expect(jobsFor("pull_request", changed)).toEqual({ ...none, tray: true });
+  });
+
+  test.each([
     ["a plugin", ["plugins/herdr-chat/src/lib.rs"]],
     ["another workflow", [".github/workflows/renovate.yml"]],
     ["another app", ["apps/board/src/App.tsx"]],
@@ -942,12 +961,12 @@ describe("jobsFor", () => {
   });
 
   test("root manifests run deck and e2e, and package.json also go and the pty gate", () => {
-    expect(jobsFor("pull_request", ["package.json"])).toEqual({ ...every, website: false });
+    expect(jobsFor("pull_request", ["package.json"])).toEqual({ ...every, tray: false, website: false });
     expect(jobsFor("pull_request", ["bun.lock"])).toEqual({ ...none, deck: true, e2e: true });
   });
 
   test("checks.yml runs every checks job", () => {
-    expect(jobsFor("pull_request", [".github/workflows/checks.yml"])).toEqual({ ...none, go: true, deck: true, website: true });
+    expect(jobsFor("pull_request", [".github/workflows/checks.yml"])).toEqual({ ...none, go: true, deck: true, tray: true, website: true });
   });
 
   test("e2e.yml runs both e2e jobs", () => {
