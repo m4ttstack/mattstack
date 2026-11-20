@@ -106,6 +106,9 @@ test('own MR with lanes running, a broken pipeline, a draft and a stack above it
   expect(menuLines()).toMatchInlineSnapshot(`
     [
       "# !1420",
+      "# gitlab actions",
+      "mark ready",
+      "---",
       "# agent actions",
       "focus review",
       "redo response",
@@ -121,6 +124,7 @@ test('own MR with lanes running, a broken pipeline, a draft and a stack above it
   `);
   expect(await clickEach(ownBusy, busyEnv)).toMatchInlineSnapshot(`
     [
+      "mark ready → draft:false",
       "focus review → launch:review:focus",
       "redo response → launch:respond",
       "call doctor → launch:doctor",
@@ -129,7 +133,6 @@ test('own MR with lanes running, a broken pipeline, a draft and a stack above it
       "resume response → launch:resume-respond",
       "mergedraft → (nothing) (stays open)",
       "set auto-mergedraft → (nothing) (stays open)",
-      "mark ready → draft:false",
       "open in gitlab → open:https://gitlab.example.com/acme/webapp/-/merge_requests/1420",
       "refresh from gitlab → refresh",
       "copy for slack → copy",

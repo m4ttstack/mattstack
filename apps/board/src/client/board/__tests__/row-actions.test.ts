@@ -1358,6 +1358,24 @@ test('approved and only waiting on ci: set auto-merge leads the menu', () => {
   expect(bulk.find(e => e.key === 'setAutoMerge')?.section).toBe('gitlab');
 });
 
+test('a draft of your own: mark ready leads the menu', () => {
+  const draft = mrx(1418, { ...ownIdle, isDraft: true } as never);
+  expect(sections(draft, ownEnv).slice(0, 2)).toEqual([
+    'top:mark-ready',
+    'top:post-slack',
+  ]);
+  expect(sections(draft, ownEnv)).not.toContain('gitlab:mark-ready');
+  expect(
+    rowActions(draft, actionEnvOf(ownEnv, draft)).find(
+      a => a.key === 'mark-ready'
+    )?.from
+  ).toBe('gitlab');
+  expect(sections(ownIdle, ownEnv)).toContain('gitlab:mark-draft');
+
+  const bulk = bulkActions([draft], actionEnvOf(ownEnv, draft));
+  expect(bulk.find(e => e.key === 'mark-ready')?.section).toBe('gitlab');
+});
+
 const FORGE_WRITES = [
   'merge',
   'setAutoMerge',

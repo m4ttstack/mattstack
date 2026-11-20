@@ -699,15 +699,16 @@ export function rowActions(
             }
           )
     );
-    gitlab.push(
+    // A draft of your own waits on you to mark it ready, so that leads too.
+    (mrx.isDraft ? top : gitlab).push(
       mrx.isDraft
         ? item(
-            'gitlab',
+            'top',
             'mark-ready',
             'mark ready',
             DRAFT,
             { kind: 'draft', draft: false },
-            { bulk: 'mark ready' }
+            { bulk: 'mark ready', from: 'gitlab' }
           )
         : item(
             'gitlab',
