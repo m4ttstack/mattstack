@@ -9,11 +9,6 @@ function operation(route: (typeof DAEMON_ROUTES)[number]): Record<string, unknow
   return item?.[route.method];
 }
 
-// The rule lib/daemon/api-auth.ts's needsToken applies; rt-client cannot import it.
-function gatedByToken(route: (typeof DAEMON_ROUTES)[number]): boolean {
-  return route.method === "post" || route.path === "/api/secrets" || route.path === "/api/notifications";
-}
-
 describe("buildOpenApiDocument", () => {
   test("every route is in the document", () => {
     for (const route of DAEMON_ROUTES) {
@@ -36,13 +31,10 @@ describe("buildOpenApiDocument", () => {
 
   test("token routes carry the rtToken security requirement", () => {
     expect(doc.components?.securitySchemes?.rtToken).toMatchObject({ type: "apiKey", in: "header", name: "X-RT-Token" });
-    const gated = DAEMON_ROUTES.filter(gatedByToken).map((r) => r.id);
-    expect(gated).toContain("secrets.read");
-    expect(gated).toContain("notifications.drain");
+    // lib/daemon/__tests__/api-route-token-gate.test.ts ties `route.token` to the daemon's real gate.
     for (const route of DAEMON_ROUTES) {
-      expect(route.token, route.id).toBe(gatedByToken(route));
       const security = operation(route)?.security;
-      if (gatedByToken(route)) expect(security, route.id).toEqual([{ rtToken: [] }]);
+      if (route.token) expect(security, route.id).toEqual([{ rtToken: [] }]);
       else expect(security, route.id).toBeUndefined();
     }
   });
