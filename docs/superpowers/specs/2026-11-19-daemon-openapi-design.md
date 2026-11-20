@@ -80,7 +80,10 @@ So response shapes must be real, not placeholders.
   answers `{ ok, repaired }` with no `data`, `cache:read` carries `source`
   beside `data`. Response schemas describe the actual envelope per route, as
   documented on each `Commands` entry, not an assumed `{ ok, data }`.
-- Failure bodies are `{ ok: false, error }` plus `failure` on a 500, `401
+- Failure bodies are `{ ok: false, error }`, with `failure` always on a 500
+  (the REST layer threw) and on a 200 when the handler threw or refused with a
+  code (`createHandleCommand` turns a handler throw into a 200), and `reqId` on
+  every 200 refusal or handler throw; `401
   { ok:false, error:"unauthorized" }`, `404 { ok:false, error:"not found",
   docs }`, `405 { ok:false, error:"use <METHOD>" }`, and the `readCommandBody`
   413 body. These go in the spec as shared responses.
@@ -172,8 +175,9 @@ Where schemas live:
 - `GET /openapi.json`: the generated document, with the `X-RT-Token` security
   scheme and the shared error responses.
 - `GET /docs`: an HTML page that loads Scalar's standalone script from a
-  daemon route (embedded with `with { type: "text" }`), pointed at
-  `/openapi.json`.
+  daemon route (embedded with `with { type: "text" }`, its `src` carrying the
+  Scalar version as `?v=`), pointed at `/openapi.json`. The document builder
+  and the Scalar text load on the first docs request, never at daemon boot.
 - `GET /`: the existing index shape (`name`, `version`, `docs`, `websocket`,
   `endpoints`, `websocket_events`, `auth`), with `endpoints` generated from
   the route definitions. `docs` points at `/docs`.
