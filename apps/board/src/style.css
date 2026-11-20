@@ -3605,8 +3605,12 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-4);
 }
 .tui-owners-sections {
+  margin-left: 0.6rem;
   color: var(--text-3);
   font-size: var(--font-size-px12);
+}
+.tui-owners-row-head .tui-owners-sections {
+  margin-left: 0;
 }
 .tui-owners-modal .tui-owners-message-text {
   padding: 0.55rem 0.75rem;

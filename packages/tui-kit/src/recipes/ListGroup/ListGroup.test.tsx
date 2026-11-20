@@ -58,6 +58,19 @@ describe("ListGroup (browser)", () => {
   });
 
   describe("Nav", () => {
+    it("an external row ends in an outside-link arrow instead of the chevron", async () => {
+      const screen = await renderWithTheme(
+        <ListGroup>
+          <ListGroup.Nav label="Inside" onClick={() => {}} />
+          <ListGroup.Nav label="Outside" onClick={() => {}} external />
+        </ListGroup>,
+      );
+      const [inside, outside] = allOf(screen.container, LISTGROUP_PARTS.chevron);
+      expect(inside!.textContent).toBe("›");
+      expect(outside!.textContent).toBe("↗");
+      expect(outside!.getAttribute("aria-hidden")).toBe("true");
+    });
+
     it("is a button whose accessible name is the label alone when there is no value", async () => {
       const screen = await renderWithTheme(
         <ListGroup>
