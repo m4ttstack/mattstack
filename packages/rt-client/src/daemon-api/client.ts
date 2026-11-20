@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { hc } from "hono/client";
-import type { z } from "zod";
+import { z } from "zod";
+import { FailureEnvelopeSchema } from "./envelopes.ts";
 import * as R from "./routes.ts";
 import type { DaemonRoute } from "./routes.ts";
 
@@ -14,7 +15,13 @@ type ContractRoute<T extends DaemonRoute> = {
       ? { content: { "application/json": { schema: B } } }
       : undefined;
   };
-  responses: { 200: { description: string; content: { "application/json": { schema: T["success"] } } } };
+  // A handler's own refusal also answers 200, so callers must narrow on `ok`.
+  responses: {
+    200: {
+      description: string;
+      content: { "application/json": { schema: z.ZodUnion<[T["success"], typeof FailureEnvelopeSchema]> } };
+    };
+  };
 };
 
 function contract<T extends DaemonRoute>(route: T): ContractRoute<T> {
@@ -26,7 +33,12 @@ function contract<T extends DaemonRoute>(route: T): ContractRoute<T> {
       params: route.request.params,
       body: route.request.body ? { content: { "application/json": { schema: route.request.body } } } : undefined,
     },
-    responses: { 200: { description: route.summary, content: { "application/json": { schema: route.success } } } },
+    responses: {
+      200: {
+        description: route.summary,
+        content: { "application/json": { schema: z.union([route.success, FailureEnvelopeSchema]) } },
+      },
+    },
   } as ContractRoute<T>;
 }
 

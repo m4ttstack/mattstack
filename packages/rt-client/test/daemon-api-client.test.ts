@@ -4,30 +4,56 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { z } from "zod";
-import { createDaemonClient, runsGetRoute, runsListRoute, sdmReconnectRoute } from "../src/daemon-api/index.ts";
+import {
+  createDaemonClient,
+  type FailureEnvelopeSchema,
+  runsGetRoute,
+  runsListRoute,
+  sdmReconnectRoute,
+} from "../src/daemon-api/index.ts";
 
 const c = createDaemonClient("http://127.0.0.1:1");
+
+type Failure = z.infer<typeof FailureEnvelopeSchema>;
 
 // Mutual assignability, not exact equality: hc wraps bodies in JSONParsed.
 type Runs = Awaited<ReturnType<Awaited<ReturnType<typeof c.api.runs.$get>>["json"]>>;
 type ExpectedRuns = z.infer<(typeof runsListRoute)["success"]>;
-const _runsA: ExpectedRuns = null as unknown as Runs;
-const _runsB: Runs = null as unknown as ExpectedRuns;
-// Fails to compile if inference collapsed to `any`.
-// @ts-expect-error a runs body is not a failure body
-const _runsNotAny: { ok: false } = null as unknown as Runs;
+// @ts-expect-error a 200 may carry a refusal, so the body is not a runs body until narrowed on `ok`
+const _runsUnnarrowed: ExpectedRuns = null as unknown as Runs;
+function narrowRuns(body: Runs): void {
+  if (body.ok) {
+    const _a: ExpectedRuns = body;
+    const _b: typeof body = null as unknown as ExpectedRuns;
+    // Fails to compile if inference collapsed to `any`.
+    // @ts-expect-error a narrowed runs body is not a failure body
+    const _notAny: { ok: false } = body;
+  } else {
+    const _failure: Failure = body;
+  }
+}
 
 type Run = Awaited<ReturnType<Awaited<ReturnType<(typeof c.api.runs)[":repo"][":runId"]["$get"]>>["json"]>>;
 type ExpectedRun = z.infer<(typeof runsGetRoute)["success"]>;
-const _runA: ExpectedRun = null as unknown as Run;
-const _runB: Run = null as unknown as ExpectedRun;
-// @ts-expect-error a run body is not a failure body
-const _runNotAny: { ok: false } = null as unknown as Run;
+function narrowRun(body: Run): void {
+  if (body.ok) {
+    const _a: ExpectedRun = body;
+    const _b: typeof body = null as unknown as ExpectedRun;
+    // @ts-expect-error a narrowed run body is not a failure body
+    const _notAny: { ok: false } = body;
+  }
+}
 
+// sdm:reconnect's success already models its refusals, so the whole body is compared.
 type Reconnect = Awaited<ReturnType<Awaited<ReturnType<typeof c.api.sdm.reconnect.$post>>["json"]>>;
-type ExpectedReconnect = z.infer<(typeof sdmReconnectRoute)["success"]>;
+type ExpectedReconnect = z.infer<(typeof sdmReconnectRoute)["success"]> | Failure;
 const _reconnectA: ExpectedReconnect = null as unknown as Reconnect;
 const _reconnectB: Reconnect = null as unknown as ExpectedReconnect;
+// @ts-expect-error a reconnect body is not always connected
+const _reconnectNotAny: { ok: true; address: string } = null as unknown as Reconnect;
+
+void narrowRuns;
+void narrowRun;
 
 describe("createDaemonClient", () => {
   test("builds request urls from the route table", () => {

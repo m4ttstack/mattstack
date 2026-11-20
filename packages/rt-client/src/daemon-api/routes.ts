@@ -20,7 +20,7 @@ export interface DaemonRoute {
   description?: string;
   /** Needs `X-RT-Token`. */
   token: boolean;
-  /** `generic` is a row of the daemon's REST_ROUTES; only these answer 405 on a wrong method. */
+  /** `generic` builds the command payload from the query or body, and only these answer 405 on a wrong method; `special` reads its own inputs. */
   kind: "generic" | "special";
   request: { query?: z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig>; params?: z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig>; body?: z.ZodType };
   /** The 200 envelope as the handler really answers it. */
@@ -74,7 +74,8 @@ export const cacheListRoute = {
   description: "A `repoIdentity` query ignores every other parameter.",
   token: false,
   kind: "generic",
-  request: { query: S.cacheReadPayloadSchema },
+  // A query string carries one scalar per key, so the payload's `branches` array is not readable here.
+  request: { query: z.object({ maxAgeMs: z.number().optional(), repoIdentity: z.string().optional() }) },
   success: okData(S.cacheReadDataSchema),
 } as const satisfies DaemonRoute;
 
