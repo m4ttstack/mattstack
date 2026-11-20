@@ -1,7 +1,7 @@
 import type { GitProvider } from '@mattstack/glance';
 import type { Stack } from './types.ts';
 import { StackManager } from './stack-manager.ts';
-import { ForgeSync } from './forge-sync.ts';
+import { ForgeSync, findOpenChangesByBranch, type OpenChangeLookup } from './forge-sync.ts';
 import { toErrorMessage } from './error-utils.ts';
 
 /** What a local fold leaves open on the forge for the folded branch. */
@@ -44,6 +44,31 @@ export async function closeFoldedRemote(
 ): Promise<{ stack: Stack; steps: FoldRemoteStep[] }> {
   const steps: FoldRemoteStep[] = [];
   let stack = stackAfter;
+
+  // A child with no recorded MR can still have an open one targeting the
+  // folded branch, so it is looked up before the branch can be deleted.
+  const unrecorded = reParentedChildren.filter((child) => {
+    const node = StackManager.findNode(stack, child);
+    return node !== undefined && node.mrIid === null && node.status !== 'merged';
+  });
+  let lookup: OpenChangeLookup = { byBranch: new Map(), incomplete: new Map() };
+  let lookupError: string | null = null;
+  try {
+    lookup = await findOpenChangesByBranch(provider, projectPath, unrecorded);
+  } catch (err) {
+    lookupError = toErrorMessage(err);
+  }
+  for (const child of unrecorded) {
+    const problem = lookupError ?? lookup.incomplete.get(child);
+    if (problem !== undefined) {
+      steps.push({ step: 'retarget', target: child, success: false, error: problem });
+      continue;
+    }
+    const pr = lookup.byBranch.get(child);
+    if (pr) {
+      stack = StackManager.updateNode(stack, child, { mrIid: pr.iid, mrUrl: pr.webUrl, mrTitle: pr.title, status: 'synced' });
+    }
+  }
 
   for (const child of reParentedChildren) {
     const node = StackManager.findNode(stack, child);

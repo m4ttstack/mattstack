@@ -69,6 +69,39 @@ describe('closeFoldedRemote', () => {
     expect(result.steps.every((s) => s.success)).toBe(true);
   });
 
+  test('finds and retargets a child MR gitq never recorded before deleting the branch', async () => {
+    const calls: Call[] = [];
+    const stack = StackManager.updateNode(stackAfterFold(), 'c', { mrIid: null, mrUrl: null, status: 'local-only' });
+    const leftovers = foldLeftovers(stackBeforeFold(), 'b', true)!;
+    const provider = {
+      ...recordingProvider(calls),
+      fetchPullRequestsByBranches: async (_project: string, branches: string[]) =>
+        new Map(branches.map((b) => [b, b === 'c' ? { iid: 6, sourceBranch: 'c', targetBranch: 'b', webUrl: 'https://x/6' } : null])),
+    } as unknown as GitProvider;
+
+    await closeFoldedRemote(provider, stack, leftovers, ['c'], 'acme/app');
+
+    expect(calls).toEqual(['retarget !6 -> a', 'close !5', 'delete b']);
+  });
+
+  test('keeps the remote branch when a child with no recorded MR cannot be looked up', async () => {
+    const calls: Call[] = [];
+    const stack = StackManager.updateNode(stackAfterFold(), 'c', { mrIid: null, mrUrl: null, status: 'local-only' });
+    const leftovers = foldLeftovers(stackBeforeFold(), 'b', true)!;
+    const provider = {
+      ...recordingProvider(calls),
+      fetchPullRequestsByBranches: async () => {
+        throw new Error('502');
+      },
+    } as unknown as GitProvider;
+
+    const result = await closeFoldedRemote(provider, stack, leftovers, ['c'], 'acme/app');
+
+    expect(calls).toEqual(['close !5']);
+    expect(result.steps).toContainEqual({ step: 'retarget', target: 'c', success: false, error: '502' });
+    expect(result.steps).toContainEqual({ step: 'delete', target: 'b', success: false, error: 'kept: a child MR still targets it' });
+  });
+
   test('keeps the remote branch when a child could not be retargeted', async () => {
     const calls: Call[] = [];
     const leftovers = foldLeftovers(stackBeforeFold(), 'b', true)!;
