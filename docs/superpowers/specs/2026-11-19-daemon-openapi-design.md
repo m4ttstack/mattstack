@@ -77,8 +77,8 @@ So response shapes must be real, not placeholders.
   `packages/rt-client/test/dist-freshness.test.ts` green.
 - **The wire envelope is not uniform.** Most routes answer `{ ok, data }`, but
   some do not: `cache:refresh` answers `{ ok, message }`, `hooks:repair`
-  answers `{ ok, repaired }` with no `data`, `cache:read` carries `source`
-  beside `data`. Response schemas describe the actual envelope per route, as
+  answers `{ ok, repaired }` with no `data`. (`branch:enrich` carries
+  `source` beside `data`, but no REST route serves it.) Response schemas describe the actual envelope per route, as
   documented on each `Commands` entry, not an assumed `{ ok, data }`.
 - Failure bodies are `{ ok: false, error }`, with `failure` always on a 500
   (the REST layer threw) and on a 200 when the handler threw or refused with a
