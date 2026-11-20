@@ -3547,7 +3547,7 @@ a.tui-id-card-ref:focus-visible {
   padding: 0.55rem 0.75rem;
   font-size: var(--font-size-px13);
   line-height: 1.6;
-  border-color: var(--border-soft);
+  border-color: var(--border);
 }
 .tui-owners-modal .tui-owners-message-text:focus {
   outline: none;
@@ -3566,7 +3566,7 @@ a.tui-id-card-ref:focus-visible {
   line-height: 1.5;
   vertical-align: middle;
   color: var(--text-accent-small);
-  background: var(--surface-wash-accent-7);
+  background: var(--surface-wash-accent-14);
   user-select: all;
 }
 .tui-owners-link svg {
