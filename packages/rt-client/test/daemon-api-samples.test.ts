@@ -112,6 +112,17 @@ const SAMPLES: Record<string, unknown> = {
       watched: ["repo"],
     },
   },
+  "worktrees.picker": {
+    ok: true,
+    data: {
+      repoName: "gh:acme/repo",
+      trees: [
+        { path: "/Users/dev/repo", branch: "main", group: null },
+        { path: "/Users/dev/repo-wt", branch: null, group: "today" },
+        { path: "/Users/dev/repo-old", branch: "rt-1-thing", group: "idle 7d+" },
+      ],
+    },
+  },
   "processes.list": {
     ok: true,
     data: {

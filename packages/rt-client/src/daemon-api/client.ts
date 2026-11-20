@@ -68,6 +68,7 @@ export function contractApp() {
     .openapi(contract(R.cacheListRoute), contractOnly)
     .openapi(contract(R.cacheGetRoute), contractOnly)
     .openapi(contract(R.reposListRoute), contractOnly)
+    .openapi(contract(R.worktreesPickerRoute), contractOnly)
     .openapi(contract(R.processesListRoute), contractOnly)
     .openapi(contract(R.notificationsDrainRoute), contractOnly)
     .openapi(contract(R.cacheRefreshRoute), contractOnly)

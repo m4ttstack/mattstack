@@ -75,6 +75,14 @@ describe("REST wire behaviour", () => {
     expect(calls).toEqual([{ cmd: "cache:read", payload: { branches: ["feature/x/y"] } }]);
   });
 
+  test("worktrees picker forwards ?path= to worktrees:picker", async () => {
+    const res = await hit("/api/worktrees/picker?path=%2FUsers%2Fdev%2Frepo");
+    expect(res.status).toBe(200);
+    expect(headerNames(res)).toEqual(ALWAYS);
+    expect(await res.json()).toEqual({ ok: true, data: "stub" });
+    expect(calls).toEqual([{ cmd: "worktrees:picker", payload: { path: "/Users/dev/repo" } }]);
+  });
+
   test("serialized identity survives hooks repair", async () => {
     const identity = serializeIdentity({ kind: "remote", id: "github.com/acme/widgets" });
     const res = await hit(`/api/hooks/${identity}/repair`, { method: "POST", headers: withToken() });
