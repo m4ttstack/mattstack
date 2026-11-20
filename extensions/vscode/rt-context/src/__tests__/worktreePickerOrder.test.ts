@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { fallbackWorktrees, fromPickerRows, pickerLayout, UNGROUPED_LABEL, type OrderedWorktree } from '../worktreeParse';
+import { fallbackWorktrees, fromPickerRows, pickerLayout, prDetail, UNGROUPED_LABEL, type OrderedWorktree } from '../worktreeParse';
 import type { WorktreeEntry } from '../types';
 
 const wt = (dirPath: string, branch: string | null, isCurrent = false): WorktreeEntry => ({
@@ -92,5 +92,22 @@ describe('pickerLayout', () => {
   test('says the order is git’s when the daemon is down', () => {
     const trees = [tree('main', null, true), tree('a', null)];
     expect(slots(trees, false)).toEqual(['main', `-- ${UNGROUPED_LABEL}`, 'a']);
+  });
+});
+
+describe('prDetail', () => {
+  test('shows the PR title when there is no ticket title', () => {
+    expect(prDetail('PR', 'rt-context: agents menu', null, 50)).toBe('$(git-pull-request) PR: rt-context: agents menu');
+  });
+
+  test('drops a leading ticket id the row already shows', () => {
+    expect(prDetail('PR', 'BOARD-71: board separators are a drawn dot', 'BOARD-71', 50)).toBe(
+      '$(git-pull-request) PR: board separators are a drawn dot',
+    );
+  });
+
+  test('stays bare with no title and truncates a long one', () => {
+    expect(prDetail('MR', null, null, 50)).toBe('$(git-pull-request) MR');
+    expect(prDetail('PR', 'abcdefghij', null, 5)).toBe('$(git-pull-request) PR: abcd…');
   });
 });

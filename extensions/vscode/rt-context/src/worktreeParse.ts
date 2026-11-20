@@ -50,6 +50,20 @@ export function fallbackWorktrees(
     .map((wt) => ({ ...wt, group: null }));
 }
 
+/**
+ * A row's PR/MR part. With no ticket title to show, the PR's own title fills
+ * in, minus a leading "<ticket id>:" the row already shows.
+ */
+export function prDetail(short: string, prTitle: string | null, linearId: string | null, maxLen: number): string {
+  let title = prTitle?.trim() ?? '';
+  if (linearId && title.toUpperCase().startsWith(`${linearId.toUpperCase()}:`)) {
+    title = title.slice(linearId.length + 1).trim();
+  }
+  if (!title) return `$(git-pull-request) ${short}`;
+  if (maxLen > 0 && title.length > maxLen) title = title.slice(0, maxLen - 1) + '…';
+  return `$(git-pull-request) ${short}: ${title}`;
+}
+
 export const UNGROUPED_LABEL = "git order: rt's order needs the rt daemon";
 
 export type PickerSlot =

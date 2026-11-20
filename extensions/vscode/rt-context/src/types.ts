@@ -5,6 +5,7 @@ import type * as vscode from 'vscode';
 export interface CachedBranchData {
   ticket: import('./linear').LinearTicket | null;
   mrUrl: string | null;
+  mrTitle?: string | null;
   linearId: string | null;
   fetchedAt: number;
   repoIdentity?: string;

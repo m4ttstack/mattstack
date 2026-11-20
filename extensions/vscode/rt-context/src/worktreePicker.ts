@@ -5,7 +5,7 @@ import { extractLinearId } from './branchParser';
 import { branchCache } from './cache';
 import { fetchBranchData, openLinearUrl } from './statusBar';
 import { listWorktrees, getGitApi, findWorkspaceRepo } from './git';
-import { fallbackWorktrees, fromPickerRows, pickerLayout, type OrderedWorktree } from './worktreeParse';
+import { fallbackWorktrees, fromPickerRows, pickerLayout, prDetail, type OrderedWorktree } from './worktreeParse';
 import { daemonQuery } from './daemonClient';
 import type { WorktreePickerData } from '@mattstack/rt-client';
 import { resolveRepoForge } from './repoForge';
@@ -171,7 +171,7 @@ export async function showAllWorktrees(context: vscode.ExtensionContext): Promis
     const description = wt.isCurrent ? `$(git-branch) ${branch}  (current)` : `$(git-branch) ${branch}`;
     const detailParts: string[] = [];
     if (ticketLabel) detailParts.push(ticketLabel);
-    if (mrUrl) detailParts.push(`$(git-pull-request) ${w.short}`);
+    if (mrUrl) detailParts.push(prDetail(w.short, ticket ? null : cached?.mrTitle ?? null, linearId, maxLen));
     const detail = detailParts.length ? detailParts.join('  │  ') : undefined;
     const buttons: vscode.QuickInputButton[] = [];
     if (ticketUrl) buttons.push(openTicketButton);

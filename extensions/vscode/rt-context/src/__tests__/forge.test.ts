@@ -323,3 +323,22 @@ describe('ownBranchData', () => {
     expect(ownBranchData(undefined, 'github', REMOTE)).toBeNull();
   });
 });
+
+describe('branchDataFromDaemonEntry PR title', () => {
+  test('carries the own PR title and the GitLab MR title', () => {
+    const gh = branchDataFromDaemonEntry({ mr: { webUrl: OWN_PR, title: 'Fix it' }, fetchedAt: 1 }, 'github', REMOTE, BRANCH);
+    expect(gh.mrTitle).toBe('Fix it');
+    const gl = branchDataFromDaemonEntry({ mr: { webUrl: 'https://gitlab.com/g/p/-/merge_requests/2', title: 'MR t' } }, 'gitlab', null, BRANCH, 1);
+    expect(gl.mrTitle).toBe('MR t');
+  });
+
+  test("drops another repo's PR title with its URL", () => {
+    const foreign = branchDataFromDaemonEntry(
+      { mr: { webUrl: 'https://github.com/x/y/pull/1', title: 'Not ours' }, fetchedAt: 1 },
+      'github',
+      REMOTE,
+      BRANCH,
+    );
+    expect(foreign.mrTitle).toBeUndefined();
+  });
+});
