@@ -31,10 +31,6 @@
   overflow: hidden;
 }
 
-.group {
-  background: var(--tk-panel);
-}
-
 .child {
   padding-left: 34px;
 }
