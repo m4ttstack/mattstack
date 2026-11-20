@@ -502,6 +502,12 @@ async function resolveBestOldBase(
     candidates.add(await GitShell.getMergeBase(cwd, node.branch, parentRef));
   } catch { /* candidate unavailable */ }
 
+  // The parent's reflog still knows its pre-amend heads when nothing in the
+  // stack recorded them, which is what keeps an amended parent's dropped
+  // commits out of the child's replay range.
+  const reflogForkPoint = await GitShell.getMergeBaseForkPoint(cwd, parentRef, node.branch).catch(() => null);
+  if (reflogForkPoint) candidates.add(reflogForkPoint);
+
   const ordered = [...candidates];
   if (ordered.length === 0) return null;
   if (ordered.length === 1) return ordered[0] ?? null;
@@ -1381,6 +1387,30 @@ export const RebaseEngine = {
   /** Abort a paused cascade rebase. Runs `git rebase --abort`. */
   async abortCascade(cwd: string, workDir?: string): Promise<void> {
     await GitShell.rebaseAbort(workDir ?? cwd);
+  },
+
+  /**
+   * Restack one branch onto its current parent, then its descendants.
+   *
+   * The branch's old base comes from the cascade resolver (its recorded fork
+   * point, the parent's pre-rewrite head), never a bare merge-base, so a
+   * parent that was amended does not replay the commits it rewrote.
+   */
+  async restackBranch(cwd: string, stack: Stack, branch: string, workDir?: string): Promise<CascadeResult> {
+    const node = StackManager.findNode(stack, branch);
+    if (!node) throw new Error(`Branch "${branch}" not found in stack "${stack.id}"`);
+    const nodes = [node, ...StackManager.getDescendants(stack, branch)];
+    const { resolveBase } = makeCascadeResolvers(cwd, stack, stack.root, {});
+    return doCascadeLoop(
+      cwd,
+      stack,
+      nodes,
+      resolveBase,
+      (n) => n.parent,
+      { mergedBranch: null, newBase: node.parent },
+      {},
+      workDir,
+    );
   },
 
   /**

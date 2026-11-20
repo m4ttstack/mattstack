@@ -47,15 +47,17 @@ export async function reparentBranch(
   const oldParent = node.parent;
 
   // Reparenting onto the current parent still means "put it on top of that
-  // parent": a branch behind its parent (a split, an amend) gets the rebase.
-  if (oldParent === newParentBranch && (await GitShell.isAncestor(cwd, newParentBranch, branch))) {
+  // parent": a branch behind its parent (a split, an amend) gets restacked.
+  if (oldParent === newParentBranch) {
+    const cascadeResult = await RebaseEngine.restackBranch(cwd, stack, branch, workDir);
+    const moved = (cascadeResult.rebasedBranches ?? []).length > 0 || cascadeResult.state === 'paused';
     return {
       branch,
       oldParent,
       newParent: newParentBranch,
-      cascadeResult: null,
-      newStack: stack,
-      alreadyInPlace: true,
+      cascadeResult,
+      newStack: cascadeResult.updatedStack,
+      alreadyInPlace: !moved,
     };
   }
 
