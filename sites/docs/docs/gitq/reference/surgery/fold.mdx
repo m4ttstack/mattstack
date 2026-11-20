@@ -40,7 +40,7 @@ With `--close-remote`, fold cleans them up after the local fold, in this order (
 2. The folded branch's MR is closed.
 3. `origin/<branch>` is deleted, unless a child failed to retarget: a forge can close an MR whose target branch disappears, so the branch is kept and the step reports `kept: a child MR still targets it`.
 
-Each step prints its own line and lands in `--json` as `remoteSteps`. A failed step exits `1`, but the local fold stays done. Forge access is resolved before the fold, so a missing token refuses with nothing changed. `gitq push` afterwards sends the parent's new commits.
+Each step prints its own line and lands in `--json` as `remoteSteps`. A failed step exits `1`, but the local fold stays done. Forge access is resolved before the fold, so a missing token refuses with nothing changed. Afterwards, `gitq push` sends the parent's new commits when the parent has an MR. It skips a parent with no MR, the stack root included, so push that one with `git push origin <parent>`.
 
 ### The one exception to checkout neutrality
 
