@@ -4,11 +4,13 @@ import {
   MAX_HEADER_LEN,
   renderMr,
   renderMulti,
+  renderOwnerPrefix,
   renderPost,
   sanitizeHeader,
   selectionHeader,
   type MrFacts,
   type SlackTemplates,
+  withOwnerPrefix,
 } from '../template.ts';
 
 const F: MrFacts = {
@@ -265,5 +267,48 @@ describe('sanitizeHeader', () => {
     // A string that's short enough pre-escape and still within the cap post-escape passes.
     const short = '<'.repeat(20);
     expect(sanitizeHeader(short)).toBe('&lt;'.repeat(20));
+  });
+});
+
+describe('renderOwnerPrefix', () => {
+  const facts: MrFacts = {
+    iid: 7,
+    title: 'ACME-1 Add refunds',
+    url: 'https://gitlab.example.com/a/b/-/merge_requests/7',
+    ticket: 'ACME-1',
+    author: 'dev1',
+    sourceBranch: 'f',
+    targetBranch: 'main',
+  };
+
+  test('fills {sections} and the MR placeholders', () => {
+    expect(
+      renderOwnerPrefix(
+        'Code owner review ({sections}) for {ticket}:',
+        facts,
+        'Acme, Acme Jobs'
+      )
+    ).toBe('Code owner review (Acme, Acme Jobs) for ACME-1:');
+  });
+
+  test('an empty or blank prefix renders empty', () => {
+    expect(renderOwnerPrefix('', facts, 'Acme')).toBe('');
+    expect(renderOwnerPrefix('   ', facts, 'Acme')).toBe('');
+  });
+
+  test('an unknown placeholder is left as typed', () => {
+    expect(renderOwnerPrefix('{foo} {sections}', facts, 'Acme')).toBe(
+      '{foo} Acme'
+    );
+  });
+});
+
+describe('withOwnerPrefix', () => {
+  test('an empty prefix leaves the body as it is', () => {
+    expect(withOwnerPrefix('', 'body')).toBe('body');
+  });
+
+  test('a prefix joins the body with one space', () => {
+    expect(withOwnerPrefix('CO:', 'body')).toBe('CO: body');
   });
 });

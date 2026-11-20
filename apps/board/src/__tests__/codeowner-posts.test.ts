@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   ownerRulesFromApprovalState,
   planOwnersPost,
+  sectionLabel,
 } from '../codeowner-posts.ts';
 
 describe('ownerRulesFromApprovalState', () => {
@@ -197,5 +198,16 @@ describe('planOwnersPost', () => {
         posted: {},
       }).ownSections
     ).toEqual([]);
+  });
+});
+
+describe('sectionLabel', () => {
+  test('drops the channel the row already shows', () => {
+    expect(sectionLabel('Acme - #pod-acme', 'pod-acme')).toBe('Acme');
+  });
+
+  test('a section with no channel suffix reads whole', () => {
+    expect(sectionLabel('Docs', undefined)).toBe('Docs');
+    expect(sectionLabel('Docs', 'pod-acme')).toBe('Docs');
   });
 });

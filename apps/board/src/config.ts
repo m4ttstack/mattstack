@@ -291,6 +291,8 @@ export interface SlackConfig {
   multiHeader: string;
   /** Per-MR line under the multi header. */
   multiItem: string;
+  /** Put before posts in other teams' code owner channels; '' adds nothing. */
+  ownerPrefix: string;
   /** How often the server sweeps the board and resolves missing Slack refs, in minutes.
       Set to 0 to disable the sweeper (client can still resolve on-demand). */
   autoResolveIntervalMinutes: number;
@@ -303,6 +305,7 @@ const DEFAULT_SLACK: SlackConfig = {
   singleTemplate: '{title}: {url}',
   multiHeader: "{count} MR's ready for review :pray:",
   multiItem: '- {title}: {url}',
+  ownerPrefix: '',
   autoResolveIntervalMinutes: 15,
   emoji: DEFAULT_SLACK_EMOJI,
   emojiAliases: {},
@@ -561,6 +564,9 @@ function parseSlack(
       throw new Error(`${source} "slack.${key}" must be a non-empty string`);
     }
   }
+  if (s.ownerPrefix !== undefined && typeof s.ownerPrefix !== 'string') {
+    throw new Error(`${source} "slack.ownerPrefix" must be a string`);
+  }
   if (
     s.autoResolveIntervalMinutes !== undefined &&
     (typeof s.autoResolveIntervalMinutes !== 'number' ||
@@ -575,6 +581,7 @@ function parseSlack(
     singleTemplate: s.singleTemplate ?? DEFAULT_SLACK.singleTemplate,
     multiHeader: s.multiHeader ?? multiHeader,
     multiItem: s.multiItem ?? DEFAULT_SLACK.multiItem,
+    ownerPrefix: s.ownerPrefix ?? DEFAULT_SLACK.ownerPrefix,
     autoResolveIntervalMinutes:
       s.autoResolveIntervalMinutes ?? DEFAULT_SLACK.autoResolveIntervalMinutes,
     emoji: parseSlackEmoji(s.emoji, source),

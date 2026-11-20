@@ -34,6 +34,22 @@ export function renderMr(template: string, facts: MrFacts): string {
   return replace(template, values);
 }
 
+/** The code owner prefix for one channel: `{sections}` plus the MR
+    placeholders. Blank renders '' so the post gains no leading space. */
+export function renderOwnerPrefix(
+  template: string,
+  facts: MrFacts,
+  sections: string
+): string {
+  const values: Record<string, string> = { sections };
+  for (const k of KEYS) values[k] = String(facts[k] ?? '');
+  return replace(template, values).trim();
+}
+
+export function withOwnerPrefix(prefix: string, body: string): string {
+  return prefix === '' ? body : `${prefix} ${body}`;
+}
+
 export function renderMulti(
   header: string,
   item: string,

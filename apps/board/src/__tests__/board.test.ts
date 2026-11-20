@@ -60,6 +60,7 @@ const config: BoardConfig = {
     singleTemplate: '{title}: {url}',
     multiHeader: "{count} MR's ready for review",
     multiItem: '- {title}: {url}',
+    ownerPrefix: '',
     autoResolveIntervalMinutes: 0,
     emoji: DEFAULT_SLACK_EMOJI,
     emojiAliases: {},

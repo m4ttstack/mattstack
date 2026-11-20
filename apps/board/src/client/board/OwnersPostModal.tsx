@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 
 import { Button, ListGroup, Modal, Spinner } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
-import type { OwnerSkip, OwnersPostPlan } from '../../codeowner-posts.ts';
+import {
+  sectionLabel,
+  type OwnerSkip,
+  type OwnersPostPlan,
+} from '../../codeowner-posts.ts';
 import type { BoardMR } from '../../data.ts';
 import { postAction, type ActionResult } from '../api.ts';
 import { cleanTitle } from './format.ts';
@@ -20,16 +24,6 @@ export type SlackPostPreview = OwnersPostPlan & {
 interface PostOutcome {
   posted: Array<{ channel: string; permalink: string }>;
   failed: Array<{ channel: string; error: string }>;
-}
-
-/** A section name without the channel it carries: `Acme - #pod-acme` reads
-    `Acme` beside a row that already shows the channel. */
-function sectionLabel(section: string, channel?: string): string {
-  if (!channel) return section;
-  const bare = section
-    .replace(new RegExp(`\\s*-?\\s*#${channel}\\s*$`, 'i'), '')
-    .trim();
-  return bare || section;
 }
 
 function skipReason(skip: OwnerSkip) {
