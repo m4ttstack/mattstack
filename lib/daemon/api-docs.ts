@@ -16,14 +16,24 @@ export const SCALAR_VERSION: string = scalarPackage.version;
 let openApiDocument: Promise<OpenAPI31Document> | undefined;
 
 export function openApiJson(): Promise<OpenAPI31Document> {
-  openApiDocument ??= import("../../packages/rt-client/src/daemon-api/document.ts").then((m) => m.buildOpenApiDocument());
+  openApiDocument ??= import("../../packages/rt-client/src/daemon-api/document.ts")
+    .then((m) => m.buildOpenApiDocument())
+    .catch((err) => {
+      openApiDocument = undefined;
+      throw err;
+    });
   return openApiDocument;
 }
 
 let scalarBytes: Promise<Uint8Array> | undefined;
 
 export function scalarJs(): Promise<Uint8Array> {
-  scalarBytes ??= import("./api-docs-scalar.ts").then((m) => new TextEncoder().encode(m.SCALAR_JS));
+  scalarBytes ??= import("./api-docs-scalar.ts")
+    .then((m) => new TextEncoder().encode(m.SCALAR_JS))
+    .catch((err) => {
+      scalarBytes = undefined;
+      throw err;
+    });
   return scalarBytes;
 }
 
