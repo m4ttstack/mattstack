@@ -23,6 +23,7 @@ export function sharedResponsesFor(route: DaemonRoute): SharedResponse[] {
   const out: SharedResponse[] = [];
   if (route.request.params) out.push("MalformedPath");
   if (route.token) out.push("Unauthorized");
+  if (route.shapeNotFound) out.push("NotFound");
   if (route.kind === "generic") out.push("MethodNotAllowed");
   if (route.kind === "generic" && route.method === "post") out.push("TooLarge");
   out.push("Failure");
@@ -33,6 +34,7 @@ export function sharedResponsesFor(route: DaemonRoute): SharedResponse[] {
 export type SharedResponsesFor<T extends DaemonRoute> =
   | (T["request"] extends { params: object } ? "MalformedPath" : never)
   | (T["token"] extends true ? "Unauthorized" : never)
+  | (T extends { shapeNotFound: true } ? "NotFound" : never)
   | (T["kind"] extends "generic" ? "MethodNotAllowed" : never)
   | (T extends { kind: "generic"; method: "post" } ? "TooLarge" : never)
   | "Failure";

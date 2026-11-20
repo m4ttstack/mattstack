@@ -39,6 +39,46 @@ describe("buildOpenApiDocument", () => {
     }
   });
 
+  type Parameter = { in: string; name: string; required?: boolean; description?: string };
+  const parameters = (route: (typeof DAEMON_ROUTES)[number]) => (operation(route)?.parameters ?? []) as Parameter[];
+
+  test("generic routes document the optional X-RT-Client header; special routes read none", () => {
+    for (const route of DAEMON_ROUTES) {
+      const header = parameters(route).find((p) => p.in === "header" && p.name === "X-RT-Client");
+      if (route.kind === "generic") {
+        expect(header, route.id).toBeDefined();
+        expect(header!.required ?? false, route.id).toBe(false);
+        expect(header!.description, route.id).toContain("_client");
+      } else {
+        expect(header, route.id).toBeUndefined();
+      }
+    }
+  });
+
+  test("every path parameter tells the caller to percent-encode it", () => {
+    let seen = 0;
+    for (const route of DAEMON_ROUTES) {
+      for (const p of parameters(route).filter((p) => p.in === "path")) {
+        seen++;
+        expect(p.description, `${route.id} ${p.name}`).toContain("encodeURIComponent");
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  test("runs.get and hooks.repair document the 404 a wrong-shaped path answers", () => {
+    const with404 = DAEMON_ROUTES.filter((route) => {
+      const responses = operation(route)?.responses as Record<string, unknown>;
+      return responses["404"] !== undefined;
+    }).map((route) => route.id);
+    expect(with404.sort()).toEqual(["hooks.repair", "runs.get"]);
+    for (const id of with404) {
+      const route = DAEMON_ROUTES.find((r) => r.id === id)!;
+      expect((operation(route)?.responses as Record<string, unknown>)["404"]).toEqual({ $ref: "#/components/responses/NotFound" });
+      expect(operation(route)?.description as string, id).toContain("404");
+    }
+  });
+
   test("ids are unique", () => {
     const ids = DAEMON_ROUTES.map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);

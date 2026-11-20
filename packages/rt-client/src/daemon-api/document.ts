@@ -18,6 +18,20 @@ const NO_STORE_HEADERS = {
   },
 } as const;
 
+const CLIENT_HEADER = z.object({
+  "X-RT-Client": z
+    .string()
+    .optional()
+    .describe("Names the caller (`tray`, `deck`). The daemon passes it to the command as `_client`."),
+});
+
+const ENCODE_NOTE =
+  "Percent-encode it with `encodeURIComponent`: the typed client puts it into the path as given. An encoded repo identity resolves the same as the bare one.";
+
+function encodedParams(params: z.ZodObject<z.ZodRawShape>): z.ZodObject<z.ZodRawShape> {
+  return z.object(Object.fromEntries(Object.entries(params.shape).map(([name, schema]) => [name, (schema as z.ZodType).describe(ENCODE_NOTE)])));
+}
+
 function description(): string {
   const events = WEBSOCKET_EVENTS.map((e) => `- \`${e.type}\`: ${e.description}`).join("\n");
   return [
@@ -75,7 +89,8 @@ export function buildOpenApiDocument(): OpenAPI31Document {
       ...(route.token ? { security: [{ rtToken: [] }] } : {}),
       request: {
         ...(route.request.query ? { query: route.request.query } : {}),
-        ...(route.request.params ? { params: route.request.params } : {}),
+        ...(route.request.params ? { params: encodedParams(route.request.params) } : {}),
+        ...(route.kind === "generic" ? { headers: CLIENT_HEADER } : {}),
         ...(route.request.body
           ? { body: { required: false, content: { "application/json": { schema: route.request.body } } } }
           : {}),

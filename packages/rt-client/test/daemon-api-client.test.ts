@@ -85,7 +85,7 @@ describe("createDaemonClient", () => {
     const statuses = (path: string, method: string) =>
       Object.keys((doc.paths?.[path] as Record<string, { responses: object }>)[method]!.responses).sort();
     expect(statuses("/api/notifications", "get")).toEqual(["200", "401", "405", "500"]);
-    expect(statuses("/api/runs/{repo}/{runId}", "get")).toEqual(["200", "400", "500"]);
+    expect(statuses("/api/runs/{repo}/{runId}", "get")).toEqual(["200", "400", "404", "500"]);
     expect(statuses("/api/events/emit", "post")).toEqual(["200", "401", "405", "413", "500"]);
   });
 
