@@ -5,7 +5,8 @@
  *
  * Runs as a long-lived Bun process managed by launchd.
  * Listens on a Unix domain socket at ~/.mattstack/rt/rt.sock (CLI/tray IPC) and on
- * 127.0.0.1:9401 (REST + WebSocket for external clients).
+ * 127.0.0.1:9401 (REST + WebSocket for external clients; the API describes
+ * itself at /openapi.json and renders that document at /docs).
  *
  * Responsibilities:
  *  1. Watch .git/config for known repos → re-apply core.hooksPath if clobbered
@@ -43,6 +44,8 @@ import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_C
 import { readInviteRecords } from "./team/invite-records.ts";
 import { createRelayClient } from "./team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
+import type { z } from "zod";
+import type { ShutdownReplySchema } from "../packages/rt-client/src/daemon-api/index.ts";
 import { openReply } from "./team/invite-crypto.ts";
 import { base64ToKey, isValidAgePublicKey } from "./team/members.ts";
 import { hasKvValue, setKvValueCritical } from "./state/kv-blob.ts";
@@ -516,7 +519,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             process.exit(0);
           })();
         }, 100);
-        return { ok: true, message: "shutting down" };
+        return { ok: true, message: "shutting down" } satisfies z.infer<typeof ShutdownReplySchema>;
 
       default:
         return unknownCommandReply(cmd, rtVersion());

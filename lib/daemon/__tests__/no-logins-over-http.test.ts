@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { DAEMON_ROUTES } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 test("no HTTP route reaches a logins verb", () => {
-  const src = readFileSync(join(import.meta.dir, "..", "api-server.ts"), "utf8");
-  expect(src).not.toContain("logins:");
+  expect(DAEMON_ROUTES.filter((route) => route.cmd.startsWith("logins:")).map((route) => route.cmd)).toEqual([]);
 });

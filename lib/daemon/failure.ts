@@ -1,9 +1,7 @@
 /**
  * Shared code/message derivation for a thrown error reaching a request
- * boundary (fetch()'s own routing/dispatch bugs in api-server.ts and
- * socket-server.ts, and createHandleCommand's throw-to-envelope path in
- * daemon.ts). R1: previously duplicated three times, each copy able to
- * drift from the other two.
+ * boundary: the REST layer's own throws in api-app.ts, socket-server.ts's,
+ * and createHandleCommand's throw-to-envelope path in daemon.ts.
  */
 export function deriveFailure(err: unknown): { code: string; message: string } {
   const message = err instanceof Error ? err.message : String(err);

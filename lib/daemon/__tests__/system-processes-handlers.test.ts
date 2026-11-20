@@ -3,6 +3,7 @@ import { describe, test, expect } from "bun:test";
 import { createSystemProcessHandlers } from "../handlers/system-processes.ts";
 import { SystemProcessScanner, type SystemProcess } from "../system-process-scanner.ts";
 import { composeKey } from "../../state/branch-cache.ts";
+import { processesListRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 function makeProcess(overrides: Partial<SystemProcess> = {}): SystemProcess {
   return {
@@ -33,6 +34,7 @@ function setup(processes: SystemProcess[], cacheEntries: Record<string, any> = {
     getProcesses: () => processes,
     msSinceLastScan: () => 0,
     refresh: () => processes,
+    hasCompletedScan: true,
   } as any;
   const ctx = { cache: { entries: cacheEntries }, portCacheRef: { ports: [] } } as any;
   return createSystemProcessHandlers(scanner, ctx);
@@ -49,6 +51,7 @@ describe("system-processes handler", () => {
     expect(res.data.processes).toHaveLength(1);
     expect(res.data.processes[0].pid).toBe(1234);
     expect(typeof res.data.updatedAt).toBe("number");
+    expect(processesListRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("enriches processes with Linear ticket from branch cache", async () => {
@@ -112,6 +115,7 @@ describe("system-processes handler", () => {
     expect(row.command).toBe("doppler › node");
     expect(row.pid).toBe(345);
     expect(row.chainPids).toEqual([345, 406]);
+    expect(processesListRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("three-deep chain collects all pids in order", async () => {
@@ -137,6 +141,7 @@ describe("system-processes handler", () => {
     expect(res.data.processes).toHaveLength(1);
     expect(res.data.processes[0].chainPids).toBeUndefined();
     expect(res.data.processes[0].children).toHaveLength(2);
+    expect(processesListRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("answers on demand with no background scan: the first read gathers, a read within 1.5s reuses it", async () => {
@@ -159,6 +164,7 @@ describe("system-processes handler", () => {
     // Constants kept for trays built before runaway detection was removed.
     expect(first.data.processes[0]).toMatchObject({ isRunaway: false, runawayDurationMs: null });
     expect(gathers).toBe(1);
+    expect(processesListRoute.success.safeParse(first).error).toBeUndefined();
 
     await handlers["system-processes"]!({});
     expect(gathers).toBe(1);

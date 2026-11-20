@@ -9,16 +9,17 @@
 import { parseIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { decodeRepo } from "../identity-decoder.ts";
-import type { HandlerContext, HandlerMap } from "./types.ts";
+import type { FlatCommandResult, HandlerContext, HandlerMap } from "./types.ts";
 
-// "hooks:repair"/"hooks:watch" are shipped rt-client commands (RT-28's CLI +
-// the REST hooks-repair route); "hooks:status" has no known out-of-process
-// caller and stays off the catalog (see types.ts's InternalCommands). The
-// two shipped ones keep their existing flat wire replies (no `data` field)
-// verbatim via the loose `Promise<any>` escape hatch, same as endpoint.ts.
+// "hooks:status" has no known out-of-process caller and stays off the
+// catalog (see types.ts's InternalCommands). "hooks:watch" answers a bare
+// `{ok:true}`, which FlatCommandResult cannot express over its empty data
+// type, so it stays on the loose `Promise<any>` escape hatch.
 export function createHooksHandlers(
   ctx: Pick<HandlerContext, "repoIndex" | "checkAndRepairHooksPath" | "startWatchingRepo">,
-): Record<"hooks:repair" | "hooks:watch", (payload: any, signal?: AbortSignal) => Promise<any>> & HandlerMap {
+): { "hooks:repair": (payload: unknown, signal?: AbortSignal) => Promise<FlatCommandResult<"hooks:repair">> }
+  & Record<"hooks:watch", (payload: any, signal?: AbortSignal) => Promise<any>>
+  & HandlerMap {
   return {
     "hooks:status": async (payload) => {
       if (!(payload as { repo?: string } | undefined)?.repo) return { ok: false, error: "missing repo" };
