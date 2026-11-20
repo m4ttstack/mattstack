@@ -61,6 +61,47 @@ describe('StackManager', () => {
     expect(() => StackManager.removeNode(stack, 'feat/a')).toThrow(StackError);
   });
 
+  test('removing a merged node hands its children to its parent', () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.updateNode(stack, 'feat/a', { status: 'merged' });
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.updateNode(stack, 'feat/b', { forkPoint: 'sha-a' });
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+
+    stack = StackManager.removeNode(stack, 'feat/a');
+
+    expect(stack.nodes.map((n) => n.branch)).toEqual(['feat/b', 'feat/c']);
+    expect(StackManager.findNode(stack, 'feat/b')!.parent).toBe('main');
+    expect(StackManager.findNode(stack, 'feat/b')!.forkPoint).toBe('sha-a');
+    expect(StackManager.findNode(stack, 'feat/c')!.parent).toBe('feat/b');
+  });
+
+  test('a child with no recorded fork point takes the merged node\'s last head as one', () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.updateNode(stack, 'feat/a', { status: 'merged', lastKnownHead: 'sha-a' });
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+
+    stack = StackManager.removeNode(stack, 'feat/a');
+
+    expect(StackManager.findNode(stack, 'feat/b')!.forkPoint).toBe('sha-a');
+  });
+
+  test('children of a merged node under another merged node go to the nearest unmerged ancestor', () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/p', 'main');
+    stack = StackManager.updateNode(stack, 'feat/p', { status: 'merged', lastKnownHead: 'sha-p' });
+    stack = StackManager.addNode(stack, 'feat/a', 'feat/p');
+    stack = StackManager.updateNode(stack, 'feat/a', { status: 'merged', lastKnownHead: 'sha-a' });
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+
+    stack = StackManager.removeNode(stack, 'feat/a');
+
+    expect(StackManager.findNode(stack, 'feat/b')!.parent).toBe('main');
+    expect(StackManager.findNode(stack, 'feat/b')!.forkPoint).toBe('sha-a');
+  });
+
   test('throws when removing a non-existent node', () => {
     const stack = StackManager.createStack('auth', 'main');
     expect(() => StackManager.removeNode(stack, 'nope')).toThrow(StackError);

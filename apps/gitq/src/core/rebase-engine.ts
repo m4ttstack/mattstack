@@ -473,7 +473,7 @@ async function detectForkPointSweep(
  * sweeps the parent's own commits into the child's range, which is exactly
  * what picking the smallest range avoids.
  */
-async function resolveBestOldBase(
+export async function resolveBestOldBase(
   cwd: string,
   node: StackNode,
   parentRef: string,

@@ -113,6 +113,14 @@ export interface TeamStack {
 }
 
 /** Result of a background sync refresh (populateNodeData + reconcile in one pass). */
+export interface MergedRefresh {
+  stack: Stack;
+  /** Branches this read marked merged. */
+  merged: string[];
+  /** Branches whose MR merged but which carry commits the merge did not include. */
+  aheadOfMerge: string[];
+}
+
 export interface SyncResult {
   updatedStack: Stack;
   reconcile: ReconcileResult;
@@ -723,6 +731,44 @@ export const ForgeSync = {
     }
 
     return teamStacks;
+  },
+
+  /**
+   * Mark the nodes whose MR has merged, reading each node's own MR by the iid
+   * gitq recorded for it, in this project only. A branch name alone is never
+   * trusted: names get reused, and a name can carry an open MR and an older
+   * merged one at once.
+   *
+   * A node is marked only when its head (or, with the branch gone, its
+   * lastKnownHead) is part of what merged. A branch with commits on top of
+   * the merge is reported in `aheadOfMerge` and left alone, so a restack does
+   * not strand that work.
+   */
+  async refreshMergedState(provider: GitProvider, stack: Stack, projectPath: string, cwd: string): Promise<MergedRefresh> {
+    const open = stack.nodes.filter((n) => n.mrIid !== null && n.status !== 'merged');
+    if (open.length === 0) return { stack, merged: [], aheadOfMerge: [] };
+
+    const prs = await provider.fetchPullRequests({ projectPath, iids: open.map((n) => n.mrIid as number) });
+    const byIid = new Map(prs.map((pr) => [pr.iid, pr]));
+
+    let updated = stack;
+    const merged: string[] = [];
+    const aheadOfMerge: string[] = [];
+    for (const node of open) {
+      const pr = byIid.get(node.mrIid as number);
+      if (pr?.state !== 'merged') continue;
+      const head = await GitShell.getBranchHead(cwd, node.branch).catch(() => node.lastKnownHead);
+      if (head && pr.sha && head !== pr.sha && !(await GitShell.isAncestor(cwd, head, pr.sha).catch(() => false))) {
+        aheadOfMerge.push(node.branch);
+        continue;
+      }
+      updated = StackManager.updateNode(updated, node.branch, {
+        status: 'merged',
+        lastKnownHead: head ?? pr.sha ?? node.lastKnownHead,
+      });
+      merged.push(node.branch);
+    }
+    return { stack: updated, merged, aheadOfMerge };
   },
 
   /**

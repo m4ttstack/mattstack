@@ -106,7 +106,9 @@ export const StackManager = {
 
   /**
    * Remove a node from the stack.
-   * Throws if the node has children — they must be removed or re-parented first.
+   * A merged node hands its children to its own parent; their git history
+   * is left as is, and their recorded fork points let the next sync restack
+   * them. Any other node with children throws.
    */
   removeNode(stack: Stack, branch: string): Stack {
     const node = StackManager.findNode(stack, branch);
@@ -115,15 +117,26 @@ export const StackManager = {
     }
 
     const children = StackManager.getChildren(stack, branch);
-    if (children.length > 0) {
+    if (children.length > 0 && node.status !== 'merged') {
       throw new StackError(
         `Cannot remove "${branch}" — it has ${children.length} child branch(es). Remove or re-parent them first.`,
       );
     }
 
+    // Past every merged ancestor: a merged parent would send the child back
+    // through the tombstone path, which ignores the fork point set here.
+    let adopter = node.parent;
+    while (adopter !== stack.root && StackManager.findNode(stack, adopter)?.status === 'merged') {
+      adopter = StackManager.findNode(stack, adopter)!.parent;
+    }
+
     return {
       ...stack,
-      nodes: stack.nodes.filter((n) => n.branch !== branch),
+      nodes: stack.nodes
+        .filter((n) => n.branch !== branch)
+        .map((n) => (n.parent === branch
+          ? { ...n, parent: adopter, forkPoint: n.forkPoint ?? node.lastKnownHead }
+          : n)),
     };
   },
 

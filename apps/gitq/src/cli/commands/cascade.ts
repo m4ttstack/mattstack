@@ -8,6 +8,15 @@ import { pickStack } from './crud.ts';
 import { readPause, writePause, clearPause } from '../pause-file.ts';
 import { withOperationLog } from '../op-log.ts';
 import { findParkedLease, requireStackFree, slotGitDir, withLeasedSlot } from '../slots.ts';
+import { ForgeSync } from '../../core/forge-sync.ts';
+import { hostFromRemoteUrl } from '../../core/forge-helpers.ts';
+import type { Stack } from '../../core/types.ts';
+import { mainCheckoutOf } from '../context.ts';
+import { createForgeProvider } from '../provider.ts';
+
+export interface SyncDeps {
+  createForgeProvider: typeof createForgeProvider;
+}
 
 /**
  * Persist a CascadeResult: writes the pause file (before saving the store,
@@ -58,7 +67,7 @@ export async function finishCascade(
   return result.results.every((r) => r.success) ? 0 : 1;
 }
 
-export async function syncCommand(ctx: CliContext): Promise<number> {
+export async function syncCommand(ctx: CliContext, deps: SyncDeps = { createForgeProvider }): Promise<number> {
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
   const guarded = await requireStackFree(ctx, stack.id);
@@ -71,10 +80,37 @@ export async function syncCommand(ctx: CliContext): Promise<number> {
       // below syncLocalStack's fetch still applies, so a trunk that was
       // never fetched remains a hard failure rather than a silent no-op.
       const noFetch = ctx.flags['no-fetch'] === true;
-      const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, stack, workDir, { noFetch });
+      const current = noFetch ? stack : await refreshFromForge(ctx, stack, store.remoteUrl, deps);
+      const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, current, workDir, { noFetch });
       return finishCascade(ctx, stack.id, result, workDir);
     }, (code) => code !== 2),
   );
+}
+
+/**
+ * Read the stack's MR states so a squash-merged branch is marked merged
+ * before the restack: the cascade then leaves it alone and moves its
+ * children past it. A forge that cannot be read leaves the stack as stored.
+ */
+async function refreshFromForge(ctx: CliContext, stack: Stack, storedRemoteUrl: string, deps: SyncDeps): Promise<Stack> {
+  const remoteUrl = storedRemoteUrl || (await GitShell.getRemoteUrl(ctx.repoRoot).catch(() => ''));
+  if (!hostFromRemoteUrl(remoteUrl)) return stack;
+  try {
+    const { provider, projectPath } = await deps.createForgeProvider(remoteUrl, {
+      repoPath: ctx.repoRoot,
+      mainCheckoutPath: mainCheckoutOf(ctx.commonDir),
+    });
+    const refresh = await ForgeSync.refreshMergedState(provider, stack, projectPath, ctx.repoRoot);
+    if (refresh.merged.length > 0) console.error(`gitq: merged on the forge: ${refresh.merged.join(', ')}`);
+    for (const branch of refresh.aheadOfMerge) {
+      console.error(`gitq: ${branch}'s MR merged, but the branch has commits after the merge; left it in the stack as is`);
+    }
+    return refresh.stack;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`gitq: could not read MR states, so merged branches are not detected (${detail})`);
+    return stack;
+  }
 }
 
 export async function continueCommand(ctx: CliContext): Promise<number> {

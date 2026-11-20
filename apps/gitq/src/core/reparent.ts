@@ -1,7 +1,7 @@
 import type { Stack } from './types.ts';
 import { StackManager, StackError } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
-import { RebaseEngine, finalizeBranchRef, type CascadeResult } from './rebase-engine.ts';
+import { RebaseEngine, finalizeBranchRef, resolveBestOldBase, type CascadeResult } from './rebase-engine.ts';
 import { assertCleanTree } from './git-guards.ts';
 
 export interface ReparentResult {
@@ -74,8 +74,13 @@ export async function reparentBranch(
 
   if (!workDir) await assertCleanTree(cwd);
 
-  const oldBase = await GitShell.getMergeBase(cwd, branch, oldParent);
-  const newParentHead = await GitShell.getBranchHead(cwd, newParentBranch);
+  const oldBase = await resolveBestOldBase(cwd, node, oldParent, {}, StackManager.findNode(stack, oldParent));
+  if (!oldBase) {
+    throw new StackError(
+      `Cannot tell where "${branch}" forked from "${oldParent}": that branch is gone and no fork point is recorded`,
+    );
+  }
+  const newParentHead = await resolveNewParentHead(cwd, stack, newParentBranch);
   const oldHead = await GitShell.getBranchHead(cwd, branch);
 
   if (workDir) {
@@ -107,7 +112,7 @@ export async function reparentBranch(
   const newBranchHead = await GitShell.getBranchHead(cwd, branch);
 
   let newStack = StackManager.moveNode(stack, branch, newParentBranch);
-  newStack = StackManager.updateNode(newStack, branch, { lastKnownHead: newBranchHead });
+  newStack = StackManager.updateNode(newStack, branch, { lastKnownHead: newBranchHead, forkPoint: newParentHead });
 
   let cascadeResult: CascadeResult | null = null;
   if (descendants.length > 0) {
@@ -118,4 +123,16 @@ export async function reparentBranch(
   }
 
   return { branch, oldParent, newParent: newParentBranch, cascadeResult, newStack };
+}
+
+/** Onto the root, land where sync would: the fetched origin/<root>, since the local trunk can lag a merge. */
+async function resolveNewParentHead(cwd: string, stack: Stack, newParentBranch: string): Promise<string> {
+  if (newParentBranch === stack.root) {
+    try {
+      return await GitShell.getBranchHead(cwd, `origin/${stack.root}`);
+    } catch {
+      // no remote-tracking ref: the local root is all there is
+    }
+  }
+  return GitShell.getBranchHead(cwd, newParentBranch);
 }

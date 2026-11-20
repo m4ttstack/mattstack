@@ -44,6 +44,7 @@ describe('reparentBranch', () => {
         hasStagedChanges: mock(() => Promise.resolve(false)),
         getMergeBase: mock(() => Promise.resolve('merge-base-sha')),
         getBranchHead: mock((_, branch: string) => {
+          if (branch === 'origin/main') return Promise.reject(new Error('no remote-tracking ref'));
           if (branch === 'main') return Promise.resolve('main-head');
           return Promise.resolve('new-head');
         }),

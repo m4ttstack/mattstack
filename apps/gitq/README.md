@@ -140,11 +140,11 @@ Which branches gitq knows about. None of these touch git refs.
 - `gitq track <stackName> --root <branch>`: start tracking a new stack rooted at `<branch>`.
 - `gitq untrack <stackName>`: stop tracking a stack.
 - `gitq add <branch> --parent <branch> [--stack <name>]`: add a branch node to a stack under a parent.
-- `gitq remove <branch> [--stack <name>]`: remove a leaf branch node from a stack. Refuses if it has children; reparent or remove those first.
+- `gitq remove <branch> [--stack <name>]`: remove a branch node from a stack. A merged branch hands its children to its nearest unmerged ancestor, and the next `gitq sync` restacks them; any other branch with children is refused, so reparent or remove those first.
 
 ### Cascade rebase
 
-- `gitq sync [--no-fetch] [--stack <name>]`: rebase every branch in the stack onto its parent's new head, in order. Exits `2` and leaves git mid-rebase on a conflict. `--no-fetch` restacks onto the local `origin/<trunk>` without touching the network, for parent-child restacks after local commits or when the remote is unreachable.
+- `gitq sync [--no-fetch] [--stack <name>]`: rebase every branch in the stack onto its parent's new head, in order. It first reads the stack's MR states from the forge: a branch whose MR merged is marked merged and left alone, and its children move past it from their recorded fork points. If the forge can't be read, sync says so and restacks with the states it has. Exits `2` and leaves git mid-rebase on a conflict. `--no-fetch` restacks onto the local `origin/<trunk>` without touching the network or the forge, for parent-child restacks after local commits or when the remote is unreachable.
 - `gitq continue`: resume a paused cascade once you have resolved the conflict and staged it. May exit `2` again on the next conflict.
 - `gitq abort`: abort the in-progress rebase and clear the pause file.
 
@@ -154,7 +154,7 @@ Which branches gitq knows about. None of these touch git refs.
 - `gitq split <branch> --at <lastKeptSha> --name <newBranch> [--stack <name>]`: tail split. `<lastKeptSha>` stays on `<branch>`; the commits after it move into a new child branch.
 - `gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]`: split by file. Moves files matching the glob(s) off `<branch>` into a new branch.
 - `gitq fold <branch> [--close-remote] [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent. Its open MR and `origin/<branch>` are reported and left alone unless `--close-remote` is passed, which retargets the children's MRs, closes the folded MR and deletes the remote branch.
-- `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch onto a different parent and cascade rebase its descendants.
+- `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch onto a different parent and cascade rebase its descendants. It replays only the branch's own commits, from its recorded fork point, so it still works after the old parent's branch is deleted. Onto the stack's root, it lands on `origin/<root>`, the same as sync.
 - `gitq rename <old> <new> [--stack <name>]`: rename a branch, in git and in the stack tree.
 - `gitq reset <branch> [--stack <name>]`: reset a local branch to match `origin/<branch>`, for when it diverged because someone force pushed.
 
