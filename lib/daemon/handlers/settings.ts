@@ -9,13 +9,11 @@
  * honest answer here. A caller needing expansion resolves locally instead
  * (lib/settings/resolve.ts is daemon-free and safe to call in-process).
  *
- * Payload arrives over GET as `Object.fromEntries(url.searchParams)` (see
- * lib/daemon/api-server.ts) — every field is a string, so values are
- * trimmed/undefined-coerced the same way handlers/events.ts's `num()` does
- * for its query params.
+ * No REST route serves these; they answer over the unix socket only. String
+ * fields are trimmed, and a blank one counts as absent.
  *
- * These are daemon-internal handlers, not part of the typed rt-client
- * command surface — no catalog changes, plain HandlerMap like hooks.ts.
+ * These are daemon-internal handlers, not part of the rt-client catalog
+ * (their types live in `InternalCommands`, handlers/types.ts).
  */
 
 import { getSetting, listSettings } from "../../settings/resolve.ts";

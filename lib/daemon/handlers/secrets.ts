@@ -25,7 +25,7 @@
  * HERE, in the handler, not only at the HTTP layer: the unix-socket
  * transport (socket-server.ts) has no auth of its own, so a handler-only
  * check would leave that transport wide open. `payload.token` carries the
- * proof for BOTH transports — api-server.ts forwards its already-verified
+ * proof for BOTH transports — api-app.ts forwards its already-verified
  * X-RT-Token header into the payload so HTTP callers (the extension) don't
  * need to change; a socket caller must read ~/.mattstack/rt/api-token
  * itself and pass it the same way.
