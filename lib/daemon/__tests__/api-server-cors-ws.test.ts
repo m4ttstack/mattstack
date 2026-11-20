@@ -87,7 +87,7 @@ describe("advertised URLs use the resolved bind port, not the compile-time defau
     server = await startApiServer({ handleCommand: async () => ({ ok: true }), log });
 
     const root = await (await fetch(`http://127.0.0.1:${port}/`)).json() as { docs: string; websocket: string };
-    expect(root.docs).toBe(`http://localhost:${port}/`);
+    expect(root.docs).toBe(`http://localhost:${port}/docs`);
     expect(root.websocket).toBe(`ws://localhost:${port}/ws`);
 
     const notFound = await (await fetch(`http://127.0.0.1:${port}/nope`)).json() as { docs: string };
