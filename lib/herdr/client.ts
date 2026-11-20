@@ -9,9 +9,13 @@ export type HerdrResult<T> = { ok: true; result: T } | { ok: false; code: string
 const PLAIN_TIMEOUT_MS = 5_000;
 const WAIT_MARGIN_MS = 5_000;
 
-/** The daemon runs outside any pane, so the path is configured, never inherited from herdr. */
+/**
+ * The daemon runs outside any pane, so the path is configured, never inherited
+ * from herdr. HOME is read at call time because os.homedir() is fixed at
+ * process start and would keep a test run on the live herdr socket.
+ */
 export function herdrSocketPath(): string {
-  return process.env.HERDR_SOCKET_PATH ?? join(homedir(), ".config", "herdr", "herdr.sock");
+  return process.env.HERDR_SOCKET_PATH ?? join(process.env.HOME ?? homedir(), ".config", "herdr", "herdr.sock");
 }
 
 /** herdr answers a waiting call at its budget, not before; the socket must outlive it. */

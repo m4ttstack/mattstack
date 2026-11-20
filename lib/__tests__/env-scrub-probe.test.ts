@@ -29,6 +29,8 @@ test("herd and herdr pane variables are scrubbed from the test process env", () 
   expect(leaked).toEqual([]);
 });
 
-test("git cannot find a global config outside the scratch HOME", () => {
-  expect(process.env.XDG_CONFIG_HOME).toBeUndefined();
+test("config and runs pointers that override the scratch HOME are scrubbed", () => {
+  for (const key of ["XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "GH_CONFIG_DIR", "RT_RUNS_ROOT", "RT_RUN_DB"]) {
+    expect(process.env[key], key).toBeUndefined();
+  }
 });

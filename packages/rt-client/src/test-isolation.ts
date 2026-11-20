@@ -50,14 +50,16 @@ export function guardTestDaemonEnv(env: NodeJS.ProcessEnv = process.env): void {
 /**
  * A test run started from a herdr pane inherits the pane's HERDR_* and a herd
  * worker's HERD_* variables, which send code under test to the real herdr and
- * the live herd. XDG_CONFIG_HOME would point git (and gh) at the real config
- * folder over the top of the scratch HOME.
+ * the live herd. The config and runs pointers each win over the scratch HOME
+ * and would aim git, gh or the runs store at the developer's real files.
  */
+const HOME_OVERRIDING_KEYS = ["XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "GH_CONFIG_DIR", "RT_RUNS_ROOT", "RT_RUN_DB"];
+
 export function scrubAmbientAgentEnv(env: NodeJS.ProcessEnv = process.env): void {
   for (const key of Object.keys(env)) {
     if (key.startsWith("HERD_") || key.startsWith("HERDR_")) delete env[key];
   }
-  delete env.XDG_CONFIG_HOME;
+  for (const key of HOME_OVERRIDING_KEYS) delete env[key];
 }
 
 const TEST_FILE = /[._](test|spec)\.[cm]?[jt]sx?$/;
