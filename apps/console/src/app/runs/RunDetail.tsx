@@ -93,7 +93,7 @@ function Freshness({ repo, runId }: { repo: string; runId: string }) {
       <Group gap={6} wrap="nowrap" data-testid="run-freshness">
         <Dot tone="ok" />
         <Text span fz="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-          {`live · updated ${formatClock(data.asOf ?? query.dataUpdatedAt)}`}
+          {`live • updated ${formatClock(data.asOf ?? query.dataUpdatedAt)}`}
         </Text>
       </Group>
     </>

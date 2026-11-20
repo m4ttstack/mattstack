@@ -607,8 +607,15 @@ body {
   --tk-text-2: rgb(255 255 255 / 90%);
   --tk-text-3: rgb(255 255 255 / 90%);
   --tk-text-4: rgb(255 255 255 / 90%);
+  --tk-bar-rule: rgb(255 255 255 / 45%);
   --mantine-color-text: white;
   --mantine-color-dimmed: rgb(255 255 255 / 90%);
+}
+
+/* Separators in the bar (crumb slashes, vertical rules) sit back from its
+   text rather than matching it. */
+.mantine-AppShell-header .mantine-Divider-root {
+  --divider-color: var(--tk-bar-rule);
 }
 
 :is(.mantine-AppShell-header, .mantine-AppShell-navbar)
