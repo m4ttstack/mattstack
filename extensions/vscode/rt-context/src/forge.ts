@@ -14,7 +14,7 @@ export interface ForgeWords {
 
 export interface DaemonCacheEntry {
   ticket?: LinearTicket | null;
-  mr?: { webUrl?: string | null; provider?: string } | null;
+  mr?: { webUrl?: string | null; title?: string | null; provider?: string } | null;
   linearId?: string | null;
   fetchedAt?: number;
   repoName?: string;
@@ -123,6 +123,10 @@ function isForeignEntry(
   return hasMr && !(webUrl && prBelongsToRemote(webUrl, remoteUrl));
 }
 
+function titleOf(title: string | null | undefined): { mrTitle?: string } {
+  return title ? { mrTitle: title } : {};
+}
+
 export function branchDataFromDaemonEntry(
   entry: DaemonCacheEntry,
   forge: Forge | null,
@@ -137,6 +141,7 @@ export function branchDataFromDaemonEntry(
     return {
       ticket: entry.ticket ?? null,
       mrUrl: mr?.webUrl ?? null,
+      ...titleOf(mr?.title),
       linearId: entry.linearId || null,
       fetchedAt,
     };
@@ -147,6 +152,7 @@ export function branchDataFromDaemonEntry(
     return {
       ticket: entry.ticket ?? null,
       mrUrl: mr?.webUrl ?? null,
+      ...titleOf(mr?.title),
       linearId: entry.linearId || null,
       fetchedAt,
       ...(mr !== null || isSerializedIdentity(entry.repoName) ? identityField : {}),
@@ -159,6 +165,7 @@ export function branchDataFromDaemonEntry(
   return {
     ticket: ticket !== null && named !== null && ticket.identifier === named ? ticket : keepOwnPr?.ticket ?? null,
     mrUrl: keepOwnPr?.mrUrl ?? null,
+    ...titleOf(keepOwnPr?.mrTitle),
     linearId: keepOwnPr?.linearId ?? null,
     fetchedAt,
     ...identityField,

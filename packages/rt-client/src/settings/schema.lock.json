@@ -1628,6 +1628,22 @@
       }
     }
   },
+  "rt.linearKey": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "linearApiKey"
+        },
+        {
+          "type": "string",
+          "pattern": "^linearApiKey\\.[A-Za-z0-9_-]+$"
+        }
+      ]
+    }
+  },
   "rt.mcp.uploadRoots": {
     "storeVersion": 1,
     "schema": {

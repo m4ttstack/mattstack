@@ -8,8 +8,8 @@
 import { execSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { groupWorktrees } from "./worktree-groups.ts";
-import { pickWorktreeFromRepo, getWorkspacePackages, repoOptions, repoFromOptionValue, missingRepoFailure, pickerWorktrees, type KnownRepo } from "./repo.ts";
+import { pickerOrder } from "./worktree-groups.ts";
+import { pickWorktreeFromRepo, getWorkspacePackages, repoOptions, repoFromOptionValue, missingRepoFailure, type KnownRepo } from "./repo.ts";
 import { enrichBranches, formatBranchSegments, type EnrichedBranch } from "./enrich.ts";
 import { repoLabel } from "./repo-label.ts";
 import * as out from "./ui/out.ts";
@@ -112,7 +112,7 @@ export async function pickWorktreeWithSwitch(
   if (repo.worktrees.length === 0) return SWITCH_REPO;
 
   let liveHandle: PickHandle | undefined;
-  const { worktrees, groupOf } = groupWorktrees(repo.repoName, pickerWorktrees(repo));
+  const { worktrees, groupOf } = pickerOrder(repo);
   const options = worktrees.map((wt) => ({ value: wt.path, label: wt.branch || dirNameOf(wt.path) }));
 
   const resultPromise = filterableSelect(

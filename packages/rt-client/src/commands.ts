@@ -803,6 +803,16 @@ export interface WorktreeTreeRow {
   lastActiveAt?: string | null;
   [extra: string]: unknown;
 }
+/** One row of rt cd's worktree order; `group` is null only for the lead (main) tree. */
+export interface WorktreePickerRow {
+  path: string;
+  branch: string | null;
+  group: "today" | "this week" | "idle 7d+" | null;
+}
+export interface WorktreePickerData {
+  repoName: string;
+  trees: WorktreePickerRow[];
+}
 export interface WorktreeListData {
   trees: WorktreeTreeRow[];
   dormant?: true; dormantRepos?: string[]; message?: string;
@@ -1205,6 +1215,7 @@ export interface Commands {
   "tray:status": { payload: Record<string, never>; data: TrayStatusData };
   "tcc:check": { payload: Record<string, never>; data: TccCheckData };
   "repos": { payload: Record<string, never>; data: ReposData };
+  "worktrees:picker": { payload: { path: string }; data: WorktreePickerData };
   "ports": { payload: { repo?: string; refresh?: boolean }; data: PortsData };
   "notifications": { payload: Record<string, never>; data: RtNotificationEvent[] };
 

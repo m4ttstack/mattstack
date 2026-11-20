@@ -15,6 +15,8 @@
 
 import { readSecret, writeSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
 import { createRealAgeKeySeam } from "./home/age-key.ts";
+import { getSetting } from "./settings/resolve.ts";
+import { warn } from "./ui/warn.ts";
 
 // ─── Secrets ─────────────────────────────────────────────────────────────────
 
@@ -85,6 +87,25 @@ export async function loadSecrets(seams: SecretsSeams = defaultSecretsSeams()): 
   const { values, failure } = await readEncryptedRtSecrets(seams);
   if (failure) throw failure;
   return values;
+}
+
+/**
+ * The Linear key `rt.linearKey` names for a repo, or null when the repo uses
+ * `linearApiKey` or the named secret is missing (logged, then the caller keeps
+ * `linearApiKey`).
+ */
+export async function repoLinearKey(
+  repoIdentity: string | null,
+  deps: { readName?: (repoIdentity: string) => string; readValue?: (name: string) => Promise<string | null> } = {},
+): Promise<string | null> {
+  if (!repoIdentity) return null;
+  const readName = deps.readName ?? ((r) => getSetting<string>("rt.linearKey", { repoIdentity: r }).value);
+  const readValue = deps.readValue ?? ((n) => readSecret(RT_SECRET_DOMAIN, n, defaultSecretsSeams()));
+  const name = readName(repoIdentity);
+  if (name === "linearApiKey") return null;
+  const value = await readValue(name);
+  if (!value) warn("linear", `rt.linearKey names ${name}, which is not in rt's secrets; using linearApiKey`, { context: { repoIdentity } });
+  return value;
 }
 
 export async function saveSecret(
