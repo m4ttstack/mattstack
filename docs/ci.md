@@ -23,6 +23,7 @@ own changes.
 | checks | `guards` | ubuntu | whenever `unit` is not `full`: runs the `no-*` guards |
 | checks | `go` | ubuntu | `ui/`, `package.json`, `checks.yml`, the scope script |
 | checks | `deck-macos` | macOS | `apps/deck/`, any non-docs file under `packages/` (but not `packages/mod-kit/`) or at the repo root, `scripts/turbo.sh`, `checks.yml`, the scope script |
+| checks | `tray-compile` | macOS | `rt-tray/`, `scripts/ci/tray-compile.sh`, `checks.yml`, the scope script. Compiles the tray app's `mattstack` scheme unsigned, Release and Debug, with no bundling |
 | checks | `website` | ubuntu | `sites/docs/`, the docs generators and checkers, `lib/command-tree-def.ts`, `checks.yml`, the scope script |
 | checks | `plugin-<name>` | per plugin | `plugins/<name>/`, the rt paths in `RT_PLUGIN_TRIGGERS`, `checks.yml`, the scope script; for a mod, also `mods/<name>/` and `packages/mod-kit/` (every mod) |
 | e2e | `changes` | ubuntu | always |
@@ -110,8 +111,8 @@ Matt's PRs and queue runs can use self-hosted runners on his Intel Mac mini
 (2018, 6 cores, 12 threads) instead of GitHub's macOS pool, so a GitHub macOS
 outage does not stop them landing. Everything else stays on `macos-latest`:
 another author's PR, a queue batch holding one, and the nightly. Only the macOS
-legs run there: `unit-macos`, `deck-macos`, `plugin-herdr-chat`, `e2e-tests`
-and `glitter-pty`. A typecheck takes about three times as long as on Apple
+legs run there: `unit-macos`, `deck-macos`, `tray-compile`, `plugin-herdr-chat`,
+`e2e-tests` and `glitter-pty`. A typecheck takes about three times as long as on Apple
 silicon, while light tests run about the same.
 
 The `scope` and `changes` jobs run `scripts/ci/macos-runner.ts`, and the macOS
@@ -140,6 +141,12 @@ dies, so a test must still take a free port, never a fixed one.
   picks the runner build for the Mac's CPU, Intel or Apple silicon. It needs
   `gh` signed in, a home folder at `chmod 700`, and a bun: the one on PATH, or
   the mattstack app's. A rerun with a smaller count removes the runners above it.
+- **Tray compile tools:** `tray-compile` needs a full Xcode (`xcode-select -p`
+  pointing into an `Xcode.app`) and `xcodegen` on the runner's PATH. GitHub's
+  images have Xcode, and the script installs `xcodegen` with brew there. The
+  runner user cannot write your Homebrew prefix, so on the Mac run
+  `brew install xcodegen` yourself; `/usr/local/bin` and `/opt/homebrew/bin`
+  are on the runners' PATH.
 - **Back to GitHub's runners:** `gh variable delete MAC_RUNNER`. A run picks the
   variable up when it starts.
 - **Remove:** clear the variable, then `scripts/ci/mac-runner/uninstall.sh`.

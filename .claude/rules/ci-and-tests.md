@@ -25,7 +25,7 @@ path outside them will flake under this and must be fixed, not serialized.
 Each process still runs many files, so a test that leaves HOME, an env var
 or module state behind fails a later file only when a shard happens to pair
 them. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
-the shards and for every path-gated job (`go`, `deck-macos`, `e2e-tests`,
+the shards and for every path-gated job (`go`, `deck-macos`, `tray-compile`, `e2e-tests`,
 `glitter-pty`, `website`, the plugin jobs); `docs/ci.md` has the table.
 Its "The unit shards' modes" section says which diffs skip the shards,
 which run `--changed=HEAD^1` and which run the full suite. Whenever the shards

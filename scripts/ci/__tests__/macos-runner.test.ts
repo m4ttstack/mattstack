@@ -95,7 +95,7 @@ describe("workflow wiring", () => {
     (Bun.YAML.parse(readFileSync(join(ROOT, ".github", "workflows", file), "utf8")) as { jobs: Record<string, Job> }).jobs;
 
   test.each([
-    ["checks.yml", "scope", ["deck-macos", "plugin-herdr-chat", "unit-macos"]],
+    ["checks.yml", "scope", ["deck-macos", "plugin-herdr-chat", "tray-compile", "unit-macos"]],
     ["e2e.yml", "changes", ["e2e-tests", "glitter-pty"]],
   ] as const)("%s routes every macOS job through %s", (file, router, macosJobs) => {
     const all = jobs(file);
