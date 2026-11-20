@@ -77,6 +77,17 @@ describe('StackManager', () => {
     expect(StackManager.findNode(stack, 'feat/c')!.parent).toBe('feat/b');
   });
 
+  test('a child with no recorded fork point takes the merged node\'s last head as one', () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.updateNode(stack, 'feat/a', { status: 'merged', lastKnownHead: 'sha-a' });
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+
+    stack = StackManager.removeNode(stack, 'feat/a');
+
+    expect(StackManager.findNode(stack, 'feat/b')!.forkPoint).toBe('sha-a');
+  });
+
   test('throws when removing a non-existent node', () => {
     const stack = StackManager.createStack('auth', 'main');
     expect(() => StackManager.removeNode(stack, 'nope')).toThrow(StackError);

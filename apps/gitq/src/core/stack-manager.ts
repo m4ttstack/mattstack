@@ -127,7 +127,9 @@ export const StackManager = {
       ...stack,
       nodes: stack.nodes
         .filter((n) => n.branch !== branch)
-        .map((n) => (n.parent === branch ? { ...n, parent: node.parent } : n)),
+        .map((n) => (n.parent === branch
+          ? { ...n, parent: node.parent, forkPoint: n.forkPoint ?? node.lastKnownHead }
+          : n)),
     };
   },
 
