@@ -52,10 +52,8 @@ final class WindowNavigationDelegate: NSObject, WKNavigationDelegate, WKUIDelega
         model?.loadFailures[appName] = false
         model?.loadingApps.remove(appName)
         webView.evaluateJavaScript(StylesheetProbe.script) { [weak self] result, _ in
-            guard let self, StylesheetProbe.failed(result: result) else { return }
-            TrayLog.warn("window stylesheet failed to load", ["app": self.appName, "count": "\(result ?? "")"])
-            self.model?.store.noteFailedLoad(self.appName, url: webView.url)
-            self.model?.loadFailures[self.appName] = true
+            guard let self else { return }
+            self.model?.noteStylesheetProbe(self.appName, failed: StylesheetProbe.failed(result: result))
         }
     }
 
@@ -143,6 +141,7 @@ final class WindowModel: ObservableObject {
     @Published private(set) var catalogFresh = false
     @Published var activeApp: String = ""
     @Published var loadFailures: [String: Bool] = [:]
+    private var stylesheetFailures: [String: Int] = [:]
     /// Apps whose webview has a navigation in flight, so the content area can
     /// say "loading" instead of showing a blank page.
     @Published var loadingApps: Set<String> = []
@@ -393,6 +392,27 @@ final class WindowModel: ObservableObject {
     /// was still starting before deck was ready.
     private func reloadFailedTabs() {
         for (name, failed) in loadFailures where failed { store.reload(name) }
+    }
+
+    /// Each finished load reports its own probe, so a failure that lands after
+    /// a restart retry has already looked still gets its reloads.
+    func noteStylesheetProbe(_ name: String, failed: Bool) {
+        guard failed else {
+            stylesheetFailures[name] = nil
+            return
+        }
+        let failures = (stylesheetFailures[name] ?? 0) + 1
+        stylesheetFailures[name] = failures
+        guard let delay = StylesheetRetry.delay(afterFailures: failures) else {
+            TrayLog.warn("window stylesheet still failing; leaving the tab as it is", ["app": name])
+            return
+        }
+        TrayLog.warn("window stylesheet failed to load; reloading", ["app": name, "attempt": "\(failures)"])
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard self.stylesheetFailures[name] == failures else { return }
+            self.store.reload(name)
+        }
     }
 
     /// A served-app restart runs after deck's ready reload, so a tab that

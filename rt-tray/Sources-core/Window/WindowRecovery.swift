@@ -17,20 +17,38 @@ public enum MainFrameResponse {
 /// WebKit reports a page finished even when its stylesheets were refused: a
 /// served app restarting between the HTML and its CSS answers the stylesheet
 /// with the proxy's 502 page, and the tab draws unstyled with nothing to
-/// retry it. WebKit still hands such a link a sheet, one with no rules, so
-/// the probe counts empty sheets; a cross-origin sheet throws on cssRules
-/// and counts as loaded.
+/// retry it. WebKit still hands such a link a sheet, one with no rules and a
+/// transferSize of 0; a stylesheet that is really empty still transfers its
+/// headers. A disabled link is never fetched, and a cross-origin sheet throws
+/// on cssRules, so neither counts.
 public enum StylesheetProbe {
     public static let script = """
         Array.from(document.querySelectorAll('link[rel~="stylesheet"]')).filter(l => {
+          if (l.disabled) return false;
           if (!l.sheet) return true;
-          try { return l.sheet.cssRules.length === 0; } catch (e) { return false; }
+          let rules;
+          try { rules = l.sheet.cssRules.length; } catch (e) { return false; }
+          if (rules > 0) return false;
+          const entry = performance.getEntriesByName(l.href)[0];
+          return !entry || entry.transferSize === 0;
         }).length
         """
 
     public static func failed(result: Any?) -> Bool {
         guard let count = result as? NSNumber else { return false }
         return count.intValue > 0
+    }
+}
+
+/// The probe is a heuristic, so a page it flags is reloaded a few times and
+/// then left as it is, never covered with the failure overlay.
+public enum StylesheetRetry {
+    public static let delays: [TimeInterval] = [2, 5, 10]
+
+    /// Seconds before the next reload, or nil once the retries are spent.
+    public static func delay(afterFailures failures: Int) -> TimeInterval? {
+        guard failures >= 1, failures <= delays.count else { return nil }
+        return delays[failures - 1]
     }
 }
 
