@@ -44,7 +44,8 @@ while :; do
 done
 `;
 
-const openTerminals = new Map<string, vscode.Terminal>();
+const openTerminals = new Map<string, { terminal: vscode.Terminal; paneId: string }>();
+const attaching = new Map<string, Promise<void>>();
 
 interface AgentPick extends vscode.QuickPickItem {
   row?: AgentRow;
@@ -71,7 +72,7 @@ export function initAgentsItem(context: vscode.ExtensionContext, priority: numbe
     agentsItem,
     vscode.window.onDidChangeWindowState((s) => { if (s.focused) void refreshAgentsItem(); }),
     vscode.window.onDidCloseTerminal((t) => {
-      for (const [key, open] of openTerminals) if (open === t) openTerminals.delete(key);
+      for (const [key, open] of openTerminals) if (open.terminal === t) openTerminals.delete(key);
     }),
   );
   void refreshAgentsItem();
@@ -125,10 +126,20 @@ export async function showAgents(): Promise<void> {
   await attachRow(picked.row, ctx.worktreePath);
 }
 
-async function attachRow(row: AgentRow, cwd: string): Promise<void> {
+function attachRow(row: AgentRow, cwd: string): Promise<void> {
+  const inFlight = attaching.get(row.key);
+  if (inFlight) return inFlight;
+  const job = attachRowNow(row, cwd).finally(() => attaching.delete(row.key));
+  attaching.set(row.key, job);
+  return job;
+}
+
+async function attachRowNow(row: AgentRow, cwd: string): Promise<void> {
+  // The wrapper shell outlives the attach, so a live tab can hold a pane that has since ended.
   const open = openTerminals.get(row.key);
-  if (open && open.exitStatus === undefined) {
-    open.show();
+  const alive = open && open.terminal.exitStatus === undefined ? open : undefined;
+  if (alive && row.target.kind === 'pane' && row.target.paneId === alive.paneId) {
+    alive.terminal.show();
     return;
   }
   let paneId: string;
@@ -147,6 +158,7 @@ async function attachRow(row: AgentRow, cwd: string): Promise<void> {
     vscode.window.showErrorMessage(plan.error);
     return;
   }
+  alive?.terminal.dispose();
   const name = agentDisplayName(row);
   const terminal = vscode.window.createTerminal({
     name,
@@ -156,7 +168,7 @@ async function attachRow(row: AgentRow, cwd: string): Promise<void> {
     env: plan.env,
     cwd,
   });
-  openTerminals.set(row.key, terminal);
+  openTerminals.set(row.key, { terminal, paneId });
   terminal.show();
   void refreshAgentsItem();
 }

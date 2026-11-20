@@ -111,6 +111,8 @@ export function worktreeAgentRows(input: {
   const recent: AgentRow[] = [];
   for (const r of input.agents) {
     if (!mine(r.cwd) || liveSessions.has(r.sessionId) || liveAgentIds.has(r.id)) continue;
+    // A running headless agent has no pane, so pane:list never shows it; only finishedAt says it ended.
+    if (r.surface === 'headless' && r.finishedAt === undefined) continue;
     recent.push({
       key: r.sessionId || r.id,
       group: 'recent',

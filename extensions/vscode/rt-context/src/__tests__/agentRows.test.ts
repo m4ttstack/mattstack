@@ -112,6 +112,12 @@ describe('worktreeAgentRows', () => {
     expect(out.map((r) => r.group)).toEqual(['running']);
   });
 
+  test('a headless record still running is not a recent row', () => {
+    const running = record({ id: 'h1', sessionId: 'sh1', surface: 'headless' });
+    const done = record({ id: 'h2', sessionId: 'sh2', surface: 'headless', finishedAt: 5 });
+    expect(rows({ agents: [running, done] }).map((r) => r.key)).toEqual(['sh2']);
+  });
+
   test('recent rows are newest first', () => {
     const out = rows({
       agents: [

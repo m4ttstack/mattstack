@@ -26,7 +26,7 @@ export function ago(ms: number, now = Date.now()): string {
   return d === 1 ? 'yesterday' : `${d} days ago`;
 }
 
-/** A chat handle ends in a short suffix (`cv-3879-cv3-chrome.lvki`); the part before it is the readable name. */
+/** A chat handle ends in a short suffix (`acme-1234-login-fix.lvki`); the part before it is the readable name. */
 function handleName(handle: string): string {
   return handle.replace(/\.[a-z0-9]{4}$/, '');
 }

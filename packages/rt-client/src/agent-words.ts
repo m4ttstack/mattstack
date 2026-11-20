@@ -22,7 +22,7 @@ export function agentStatusKey(p: { agentStatus: AgentStatus; gate?: unknown }):
   return p.gate ? "gate" : p.agentStatus;
 }
 
-/** A herd id ends in its start stamp (`cv-trio-20261118-105050`); show its name and day instead. */
+/** A herd id ends in its start stamp (`acme-trio-20261118-105050`); show its name and day instead. */
 export function herdWords(herdId: string): string {
   const m = /^(.*)-(\d{4})(\d{2})(\d{2})-\d{6}$/.exec(herdId);
   if (!m) return `herd ${herdId}`;
@@ -36,7 +36,7 @@ export function modelWords(model?: string, effort?: string): string {
   if (model) {
     const ctx = /\[(\w+)\]$/.exec(model)?.[1];
     const base = model.replace(/\[\w+\]$/, "").replace(/^claude-/, "");
-    const [family, ...ver] = base.split("-");
+    const [family = "", ...ver] = base.split("-");
     text = [family.charAt(0).toUpperCase() + family.slice(1), ver.join("."), ctx?.toUpperCase()].filter(Boolean).join(" ");
   }
   if (effort) text = text ? `${text}, ${effort} effort` : `${effort} effort`;
