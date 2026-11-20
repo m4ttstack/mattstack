@@ -44,6 +44,8 @@ import { checkInviteReplies, INVITE_REPLIES_NS, listInviteSlugs, MEMBER_JOINED_C
 import { readInviteRecords } from "./team/invite-records.ts";
 import { createRelayClient } from "./team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
+import type { z } from "zod";
+import type { ShutdownReplySchema } from "../packages/rt-client/src/daemon-api/index.ts";
 import { openReply } from "./team/invite-crypto.ts";
 import { base64ToKey, isValidAgePublicKey } from "./team/members.ts";
 import { hasKvValue, setKvValueCritical } from "./state/kv-blob.ts";
@@ -517,7 +519,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             process.exit(0);
           })();
         }, 100);
-        return { ok: true, message: "shutting down" };
+        return { ok: true, message: "shutting down" } satisfies z.infer<typeof ShutdownReplySchema>;
 
       default:
         return unknownCommandReply(cmd, rtVersion());

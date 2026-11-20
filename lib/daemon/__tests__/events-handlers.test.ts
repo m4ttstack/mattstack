@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import pino from "pino";
 import { createEventsBus, type EventsBus } from "../events-bus.ts";
 import { createEventsHandlers } from "../handlers/events.ts";
+import { eventsEmitRoute, eventsListRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 const log = pino({ level: "silent" });
 
@@ -31,6 +32,7 @@ describe("events handlers", () => {
     const res = await handlers["events:emit"]({ topic: "job/x/q", payload: { a: 1 } });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.data.id).toBeGreaterThan(0);
+    expect(eventsEmitRoute.success.safeParse(res).error).toBeUndefined();
     expect(frames).toHaveLength(1);
     expect(frames[0]!.type).toBe("event");
     expect(frames[0]!.data.topic).toBe("job/x/q");
@@ -42,6 +44,7 @@ describe("events handlers", () => {
     const res = await handlers["events:list"]({ pattern: "job/**", after: "0", limit: "1" } as any);
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.data.events).toHaveLength(1);
+    expect(eventsListRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("events:wait passes the abort signal through to the bus", async () => {

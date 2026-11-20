@@ -5,6 +5,7 @@ import { join } from "path";
 import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
 import { createHooksHandlers } from "../handlers/hooks.ts";
 import type { HandlerContext } from "../handlers/types.ts";
+import { hooksRepairRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 function fakeCtx(
   repos: Record<string, string> = {},
@@ -29,6 +30,7 @@ describe("hooks handlers — identity-only guard", () => {
     const res = await h["hooks:repair"]!({ repo: "repo" }) as any;
     expect(res.ok).toBe(true);
     expect((res as { repaired: boolean }).repaired).toBe(false);
+    expect(hooksRepairRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("hooks:watch refuses a bare display name and never starts a watch", async () => {

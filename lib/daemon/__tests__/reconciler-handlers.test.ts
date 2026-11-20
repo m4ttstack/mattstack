@@ -7,6 +7,7 @@
 import { describe, test, expect } from "bun:test";
 import { createReconcilerHandlers } from "../handlers/reconciler.ts";
 import type { ReconcilerStatus } from "../../../packages/rt-client/src/commands.ts";
+import { reconcilerClearRoute, reconcilerStatusRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 function fakeReconciler(status: ReconcilerStatus): {
   reconciler: { status(): ReconcilerStatus; clear(agentId: string): void };
@@ -38,12 +39,14 @@ describe("reconciler handlers", () => {
 
     const res = await handlers["reconciler:status"]({});
     expect(res).toEqual({ ok: true, data: SAMPLE_STATUS });
+    expect(reconcilerStatusRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("reconciler:status defaults to the empty snapshot when no reconciler is wired", async () => {
     const handlers = createReconcilerHandlers({});
     const res = await handlers["reconciler:status"]({});
     expect(res).toEqual({ ok: true, data: { sweptAt: 0, herdrReachable: false, executors: [] } });
+    expect(reconcilerStatusRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("reconciler:clear rejects a missing agentId", async () => {
@@ -70,6 +73,7 @@ describe("reconciler handlers", () => {
 
     const res = await handlers["reconciler:clear"]({ agentId: "ag-1" });
     expect(res).toEqual({ ok: true, data: { cleared: true } });
+    expect(reconcilerClearRoute.success.safeParse(res).error).toBeUndefined();
     expect(clearedIds).toEqual(["ag-1"]);
   });
 });
