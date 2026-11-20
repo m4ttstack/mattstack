@@ -816,7 +816,6 @@
     "lib/__tests__/prompt-secret.test.ts": 2,
     "lib/__tests__/remove-tree.test.ts": 2,
     "lib/__tests__/repos-status.test.ts": 2,
-    "lib/__tests__/runaway-process-notifications.test.ts": 2,
     "lib/__tests__/settings-paths-parity.test.ts": 2,
     "lib/__tests__/shell-integration-remove.test.ts": 2,
     "lib/__tests__/worktree-cli-args.test.ts": 2,

@@ -19,12 +19,4 @@ let daemonQueryPolicyChecks: [Check] = [
         c.expect(!DaemonHTTPFallback.socketMayRetry(afterStatus: 503))
         c.expect(!DaemonHTTPFallback.socketMayRetry(afterStatus: 404))
     },
-    Check("throttled probe: due on first use, then not again until the interval passes") { c in
-        var probe = ThrottledProbe(interval: 55)
-        let start = Date(timeIntervalSince1970: 1_000)
-        c.expect(probe.isDue(now: start))
-        probe.markRun(at: start)
-        let dueAt = stride(from: 10.0, through: 60, by: 10).map { probe.isDue(now: start.addingTimeInterval($0)) }
-        c.expectEqual(dueAt, [false, false, false, false, false, true])
-    },
 ]

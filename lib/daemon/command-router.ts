@@ -52,7 +52,7 @@ import { createGitStatusHandlers } from "./handlers/git-status.ts";
 import type { GitBadgesStore } from "./git-badges-store.ts";
 import type { GitStatusSweep } from "./git-status-sweep.ts";
 import { reconcileFreshness, getFreshnessSnapshot } from "./freshness.ts";
-import { wrapWithDemand } from "./demand-tracker.ts";
+import { DEMAND_COMMANDS, wrapWithDemand } from "./demand-tracker.ts";
 import type { SystemProcessScanner } from "./system-process-scanner.ts";
 import { findRun, findRunningRunByWorktree, findRunsBySession } from "../runs/store.ts";
 import { presenceForSession } from "../state/presence-store.ts";
@@ -366,9 +366,11 @@ export function buildRoutedHandlers(opts: {
       return { ok: true };
     },
   };
-  // A tray/CLI/console read of any scan-backed command means "someone is
-  // watching", which un-gates the background scans (see pollers.ts, S058/S093).
-  return wrapWithDemand(handlers, ["ports", "system-processes", "tray:status"]);
+  // A read of a port-backed command means "someone is watching", which
+  // un-gates the background port scan (see pollers.ts, S058/S093). tray:status
+  // stays out: the tray polls it every 10s for liveness and shows nothing
+  // port-derived, and the daemon's own post-refresh status broadcast calls it.
+  return wrapWithDemand(handlers, [...DEMAND_COMMANDS]);
 }
 
 /** A run's repo key is the pack manifest's repo dir (`repoIdentitySlug` of the raw id), the serialized wire, or a pre-cutover bare name; a path matches when any key rt registered it under names that repo. */

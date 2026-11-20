@@ -1,21 +1,17 @@
 /**
  * System process scanner — discovers all processes whose cwd is inside a
- * tracked repo, samples CPU/memory, and maintains a rolling history window
- * for runaway detection.
+ * tracked repo and samples CPU/memory, on demand for the tray's process panel.
  *
  * Unlike port-scanner.ts (which only looks at processes with a listening
  * port), this scans ALL processes system-wide and filters down to those
  * rooted in a tracked repo — catching build daemons, watchers, and other
- * non-listening processes that can still run away with CPU/memory.
+ * non-listening processes.
  */
 
 import { lazyChildLogger } from "./../daemon-logger.ts";
 import { runCapture } from "../subprocess.ts";
 
 const log = lazyChildLogger("process-scan");
-import { homedir } from "os";
-import { getSetting } from "../settings/resolve.ts";
-import type { Value } from "../settings/registry-schemas.ts";
 import {
   loadRepoIndex,
   buildWorktreeMap,
@@ -41,8 +37,6 @@ export interface SystemProcess {
   /** Reconstructed package-script invocation ("pnpm start:lite:watch") from
    *  the process env; null when not launched via a package-manager script. */
   packageScript: string | null;
-  isRunaway: boolean;
-  runawayDurationMs: number | null;
   firstSeen: number;
   children?: SystemProcess[];
   /** Pids collapsed into this row (chain root → leaf) when single-child
@@ -50,61 +44,19 @@ export interface SystemProcess {
   chainPids?: number[];
 }
 
-/**
- * A discovered process before runaway/tracking state is applied. `scan` and
- * `refresh` each finalize these into a full `SystemProcess` differently.
- */
-type GatheredProcess = Omit<
-  SystemProcess,
-  "isRunaway" | "runawayDurationMs" | "firstSeen" | "children"
->;
-
-interface ProcessSample {
-  pid: number;
-  cpuPercent: number;
-  rssKb: number;
-  uptime: string;
-  command: string;
-  fullCommand: string;
-}
-
-interface TrackedProcess {
-  pid: number;
-  firstSeen: number;
-  samples: number[]; // rolling CPU% samples
-  runawayStartedAt: number | null;
-  runawayNotified: boolean;
-}
-
-export const RUNAWAY_DEFAULTS = { cpuThreshold: 80, sustainMs: 5 * 60 * 1000, graceMs: 2 * 60 * 1000 } as const;
-const DEFAULT_CPU_THRESHOLD = RUNAWAY_DEFAULTS.cpuThreshold;
-const DEFAULT_SUSTAIN_MS = RUNAWAY_DEFAULTS.sustainMs;
-const DEFAULT_GRACE_MS = RUNAWAY_DEFAULTS.graceMs;
-const MAX_SAMPLES = 60; // 10 minutes at 10s intervals
-
-export type ScannerConfig = Value<"rt.runaway">;
-
-/** A resolver throw (unexpandable ${...} variable) degrades to {} — the same
-    "use the DEFAULT_* constants" fallback a missing/corrupt file gave today. */
-export function loadRunawayConfig(): ScannerConfig {
-  try {
-    const raw = getSetting<ScannerConfig | undefined>("rt.runaway").value;
-    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-  } catch {
-    return {};
-  }
-}
+/** A discovered process before `firstSeen` and the tree fields are applied. */
+type GatheredProcess = Omit<SystemProcess, "firstSeen" | "children">;
 
 export function parseProcessList(
   psOutput: string,
   repos: Record<string, string>,
   cwdMap: Map<number, string>,
   worktreeMap: Map<string, { repo: string; branch: string }> = new Map(),
-): Omit<SystemProcess, "port" | "linearTicket" | "packageScript" | "isRunaway" | "runawayDurationMs" | "firstSeen" | "children">[] {
+): Omit<SystemProcess, "port" | "linearTicket" | "packageScript" | "firstSeen" | "children">[] {
   // No positional header skip: the daemon's `ps -o pid=,...` output is
   // headerless, so dropping the first line would drop a real process. A
   // header line (from `ps` without `=`) fails the pid regex and is skipped.
-  const results: Omit<SystemProcess, "port" | "linearTicket" | "packageScript" | "isRunaway" | "runawayDurationMs" | "firstSeen" | "children">[] = [];
+  const results: Omit<SystemProcess, "port" | "linearTicket" | "packageScript" | "firstSeen" | "children">[] = [];
 
   for (const line of psOutput.trim().split("\n")) {
     const trimmed = line.trim();
@@ -231,8 +183,8 @@ async function getAllRepoPids(trackedPaths: string[]): Promise<Map<number, strin
   );
   if (exitCode !== 0 && !stdout) {
     // null (not an empty Map) so callers can tell "lsof failed" apart from
-    // "genuinely no tracked-cwd processes" and preserve runaway state instead
-    // of pruning every tracked pid on a transient scan failure.
+    // "genuinely no tracked-cwd processes" and keep the last list instead of
+    // showing an empty panel on a transient scan failure.
     log.warn({ exitCode }, "lsof scan failed; preserving prior process state");
     return null;
   }
@@ -240,112 +192,12 @@ async function getAllRepoPids(trackedPaths: string[]): Promise<Map<number, strin
 }
 
 export class SystemProcessScanner {
-  private tracked = new Map<number, TrackedProcess>();
+  private firstSeen = new Map<number, number>();
   private lastResult: SystemProcess[] = [];
-  private config: Required<ScannerConfig>;
   private lastScanAt: number | null = null;
   private refreshInFlight: Promise<SystemProcess[]> | null = null;
 
-  constructor(config: ScannerConfig = {}) {
-    const storeConfig = loadRunawayConfig();
-    const merged = { ...storeConfig, ...config };
-    this.config = {
-      cpuThreshold: merged.cpuThreshold ?? DEFAULT_CPU_THRESHOLD,
-      sustainMs: merged.sustainMs ?? DEFAULT_SUSTAIN_MS,
-      graceMs: merged.graceMs ?? DEFAULT_GRACE_MS,
-    };
-  }
-
-  /**
-   * Full scan: discover processes AND update the runaway sample window.
-   * Runs on the daemon's fixed 10s background timer — the runaway math
-   * (samplesNeeded = sustainMs / 10s) assumes that cadence, so ONLY this
-   * path may feed samples. On-demand reads use `refresh` instead.
-   */
-  async scan(portEntries: PortEntry[] = []): Promise<SystemProcess[]> {
-    const gathered = await this.gather(portEntries);
-    if (gathered === null) return this.lastResult; // failed tick: preserve tracked/lastResult/lastScanAt
-    try {
-      const now = Date.now();
-
-      const currentPids = new Set<number>();
-      const results: SystemProcess[] = [];
-
-      for (const proc of gathered) {
-        currentPids.add(proc.pid);
-
-        let track = this.tracked.get(proc.pid);
-        if (!track) {
-          track = {
-            pid: proc.pid,
-            firstSeen: now,
-            samples: [],
-            runawayStartedAt: null,
-            runawayNotified: false,
-          };
-          this.tracked.set(proc.pid, track);
-        }
-
-        // Rolling CPU sample window
-        track.samples.push(proc.cpuPercent);
-        if (track.samples.length > MAX_SAMPLES) {
-          track.samples.shift();
-        }
-
-        // Runaway detection
-        const age = now - track.firstSeen;
-        let isRunaway = false;
-        let runawayDurationMs: number | null = null;
-
-        if (age > this.config.graceMs) {
-          // Count consecutive recent samples above threshold
-          const samplesNeeded = Math.ceil(this.config.sustainMs / 10_000);
-          const recent = track.samples.slice(-samplesNeeded);
-          const allAbove = recent.length >= samplesNeeded &&
-            recent.every(s => s >= this.config.cpuThreshold);
-
-          if (allAbove) {
-            if (!track.runawayStartedAt) {
-              track.runawayStartedAt = now;
-            }
-            isRunaway = true;
-            runawayDurationMs = now - track.runawayStartedAt;
-          } else {
-            track.runawayStartedAt = null;
-          }
-        }
-
-        results.push({
-          ...proc,
-          isRunaway,
-          runawayDurationMs,
-          firstSeen: track.firstSeen,
-        });
-      }
-
-      // Prune dead PIDs
-      for (const pid of this.tracked.keys()) {
-        if (!currentPids.has(pid)) {
-          this.tracked.delete(pid);
-        }
-      }
-
-      this.lastResult = results;
-      return results;
-    } finally {
-      // Even a zero-result scan is a completed scan — consumers use this to
-      // tell "no processes" apart from "haven't looked yet".
-      this.lastScanAt = Date.now();
-    }
-  }
-
-  /**
-   * On-demand refresh for the tray panel: re-discovers the process list so a
-   * poll sees current reality (new/dead processes) WITHOUT touching the
-   * runaway sample window. Runaway flags are carried forward from the last
-   * full `scan`, so badges persist but faster polling can't trip a premature
-   * alert. Also advances `lastScanAt` so freshness checks see the update.
-   */
+  /** Re-discovers the process list for an on-demand read. */
   refresh(portEntries: PortEntry[] = []): Promise<SystemProcess[]> {
     // One gather serves every caller queued behind it (RT-128): tray polls
     // outpace a gather on a machine whose spawns are slow, and a per-caller
@@ -360,29 +212,28 @@ export class SystemProcessScanner {
 
   private async refreshOnce(portEntries: PortEntry[]): Promise<SystemProcess[]> {
     const gathered = await this.gather(portEntries);
-    if (gathered === null) return this.lastResult; // failed tick: preserve tracked/lastResult/lastScanAt
+    if (gathered === null) return this.lastResult; // failed tick: preserve lastResult/lastScanAt
     try {
-      const prev = new Map(this.lastResult.map(p => [p.pid, p]));
+      const now = Date.now();
+      const seen = new Map<number, number>();
       const results = gathered.map<SystemProcess>(proc => {
-        const before = prev.get(proc.pid);
-        return {
-          ...proc,
-          isRunaway: before?.isRunaway ?? false,
-          runawayDurationMs: before?.runawayDurationMs ?? null,
-          firstSeen: before?.firstSeen ?? this.tracked.get(proc.pid)?.firstSeen ?? Date.now(),
-        };
+        const firstSeen = this.firstSeen.get(proc.pid) ?? now;
+        seen.set(proc.pid, firstSeen);
+        return { ...proc, firstSeen };
       });
+      this.firstSeen = seen;
       this.lastResult = results;
       return results;
     } finally {
+      // Even a zero-result scan is a completed scan — consumers use this to
+      // tell "no processes" apart from "haven't looked yet".
       this.lastScanAt = Date.now();
     }
   }
 
   /**
    * Discovery half of a scan: find every process rooted in a tracked repo and
-   * decorate it with port + package-script, but no runaway/tracking state.
-   * Shared by `scan` (adds tracking) and `refresh` (carries flags forward).
+   * decorate it with port + package-script.
    */
   protected async gather(portEntries: PortEntry[]): Promise<GatheredProcess[] | null> {
     const repos = loadRepoIndex();
@@ -426,35 +277,13 @@ export class SystemProcessScanner {
     }));
   }
 
-  /** Ms since the last `scan`/`refresh` completed; Infinity if never. */
+  /** Ms since the last `refresh` completed; Infinity if never. */
   msSinceLastScan(): number {
     return this.lastScanAt === null ? Infinity : Date.now() - this.lastScanAt;
   }
 
   getProcesses(): SystemProcess[] {
     return this.lastResult;
-  }
-
-  getRunawayProcesses(): SystemProcess[] {
-    return this.lastResult.filter(p => p.isRunaway);
-  }
-
-  getTracked(pid: number): TrackedProcess | undefined {
-    return this.tracked.get(pid);
-  }
-
-  isRunawayNotified(pid: number): boolean {
-    return this.tracked.get(pid)?.runawayNotified ?? false;
-  }
-
-  markRunawayNotified(pid: number): void {
-    const track = this.tracked.get(pid);
-    if (track) track.runawayNotified = true;
-  }
-
-  clearRunawayNotified(pid: number): void {
-    const track = this.tracked.get(pid);
-    if (track) track.runawayNotified = false;
   }
 
   get hasCompletedScan(): boolean {

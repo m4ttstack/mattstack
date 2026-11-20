@@ -6,8 +6,7 @@
  * can never leak a stale key that would suppress a real notification if the
  * branch returns.
  *
- * `notify()` is mocked out (same convention as
- * lib/__tests__/runaway-process-notifications.test.ts) so these tests never
+ * `notify()` is mocked out so these tests never
  * touch the notify_queue, the tray socket, or the 10s CLI-notifier fallback
  * timer — only the persisted kv state (`fired`/`branches`) is under test.
  *

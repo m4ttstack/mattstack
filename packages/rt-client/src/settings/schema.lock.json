@@ -1677,9 +1677,6 @@
         "stale_port": {
           "type": "boolean"
         },
-        "runaway_process": {
-          "type": "boolean"
-        },
         "evidence_batch_ready": {
           "type": "boolean"
         },
@@ -2017,25 +2014,6 @@
         },
         "additionalProperties": {}
       }
-    }
-  },
-  "rt.runaway": {
-    "storeVersion": 1,
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "properties": {
-        "cpuThreshold": {
-          "type": "number"
-        },
-        "sustainMs": {
-          "type": "number"
-        },
-        "graceMs": {
-          "type": "number"
-        }
-      },
-      "additionalProperties": {}
     }
   },
   "rt.skills.disableModelInvocation": {

@@ -1,7 +1,7 @@
 // lib/daemon/__tests__/system-processes-handlers.test.ts
 import { describe, test, expect } from "bun:test";
 import { createSystemProcessHandlers } from "../handlers/system-processes.ts";
-import type { SystemProcess } from "../system-process-scanner.ts";
+import { SystemProcessScanner, type SystemProcess } from "../system-process-scanner.ts";
 import { composeKey } from "../../state/branch-cache.ts";
 
 function makeProcess(overrides: Partial<SystemProcess> = {}): SystemProcess {
@@ -21,8 +21,6 @@ function makeProcess(overrides: Partial<SystemProcess> = {}): SystemProcess {
     port: null,
     linearTicket: null,
     packageScript: null,
-    isRunaway: false,
-    runawayDurationMs: null,
     firstSeen: Date.now(),
     ...overrides,
   };
@@ -139,5 +137,30 @@ describe("system-processes handler", () => {
     expect(res.data.processes).toHaveLength(1);
     expect(res.data.processes[0].chainPids).toBeUndefined();
     expect(res.data.processes[0].children).toHaveLength(2);
+  });
+
+  test("answers on demand with no background scan: the first read gathers, a read within 1.5s reuses it", async () => {
+    let gathers = 0;
+    class OnDemandScanner extends SystemProcessScanner {
+      protected override async gather(): Promise<any[] | null> {
+        gathers++;
+        const { firstSeen: _firstSeen, ...rest } = makeProcess({ pid: 777, branch: null });
+        return [rest];
+      }
+    }
+    const handlers = createSystemProcessHandlers(new OnDemandScanner(), {
+      cache: { entries: {} },
+      portCacheRef: { ports: [], updatedAt: 0 },
+    } as any);
+
+    const first = await handlers["system-processes"]!({}) as any;
+    expect(first.data.ready).toBe(true);
+    expect(first.data.processes.map((p: SystemProcess) => p.pid)).toEqual([777]);
+    // Constants kept for trays built before runaway detection was removed.
+    expect(first.data.processes[0]).toMatchObject({ isRunaway: false, runawayDurationMs: null });
+    expect(gathers).toBe(1);
+
+    await handlers["system-processes"]!({});
+    expect(gathers).toBe(1);
   });
 });

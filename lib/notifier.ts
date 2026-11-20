@@ -30,10 +30,7 @@ import { RT_DIR } from "./daemon-config.ts";
 import { getSetting } from "./settings/resolve.ts";
 import { setSetting } from "./settings/write.ts";
 import { parseEtimeMs, type PortEntry } from "./port-scanner.ts";
-import type { SystemProcess } from "./daemon/system-process-scanner.ts";
-import { agentSessionPids } from "./daemon/worktree-process-kill.ts";
 import { lazyChildLogger } from "./daemon-logger.ts";
-import { repoLabel } from "./repo-label.ts";
 import { branchOf } from "./state/branch-cache.ts";
 import { numericUserId } from "./enrich.ts";
 import {
@@ -123,7 +120,6 @@ export const NOTIFICATION_TYPES = [
   { key: "merge_error",       label: "Merge error",         description: "When auto-merge or merge train fails" },
   { key: "new_comment",       label: "New comment",         description: "When someone comments on an MR or PR you're tracking" },
   { key: "stale_port",        label: "Stale processes",     description: "When a dev server has been running 6h+" },
-  { key: "runaway_process",   label: "Runaway processes",   description: "When a process is pegged at high CPU for 5+ minutes" },
   { key: "evidence_batch_ready", label: "Evidence batch ready", description: "All evidence requests for a branch settled; captures await review" },
   { key: "evidence_failed",      label: "Evidence capture failed", description: "A queued evidence capture failed in the sandbox" },
   { key: CHAT_NOTIFICATION_CATEGORY, label: "Chat mention", description: "When an agent mentions you in a chat room" },
@@ -474,11 +470,6 @@ export interface Notifier {
    */
   notifyEnabled(category: string, title: string, message: string, url?: string, pids?: number[], id?: string): void;
   checkAndNotify(cacheEntries: Record<string, CacheEntry>, ports?: PortEntry[], self?: number | null | SelfIds): void;
-  checkRunawayProcesses(
-    processes: SystemProcess[],
-    markNotified: (pid: number) => void,
-    isNotified: (pid: number) => boolean,
-  ): void;
   drainNotifications(): NotificationEvent[];
   peekNotifications(): NotificationEvent[];
 }
@@ -497,7 +488,7 @@ type NotifyFn = (
 ) => void;
 
 /**
- * R031: `checkAndNotify`/`checkRunawayProcesses`/`notifyEnabled` call
+ * R031: `checkAndNotify`/`notifyEnabled` call
  * `api.notify(...)`, a property lookup on this instance's own `api` object
  * at call time, and `detectBranchTransitions`/`detectStalePortTransitions`
  * take that same `api.notify` in as an explicit `notifyFn` parameter rather
@@ -680,70 +671,12 @@ export function createNotifier(deps: NotifierDeps = {}): Notifier {
     saveState(state);
   }
 
-  function checkRunawayProcesses(
-    processes: SystemProcess[],
-    markNotified: (pid: number) => void,
-    isNotified: (pid: number) => boolean,
-  ): void {
-    const prefs = loadNotificationPrefs();
-    if (!isEnabled(prefs, "runaway_process")) return;
-
-    // AI agent sessions and their live subprocesses burn CPU as part of normal
-    // work — never worth an alert. Deliberately not marked notified: if the
-    // agent exits and the orphan is still runaway, it surfaces then.
-    const agentPids = agentSessionPids(processes.map(p => ({
-      pid: p.pid, ppid: p.ppid, command: p.command, fullCommand: p.fullCommand,
-    })));
-
-    const fresh = processes.filter(p =>
-      p.isRunaway && !isNotified(p.pid) && !agentPids.has(p.pid),
-    );
-    if (fresh.length === 0) return;
-
-    if (fresh.length === 1) {
-      const proc = fresh[0]!;
-      const durationMin = proc.runawayDurationMs
-        ? Math.round(proc.runawayDurationMs / 60_000)
-        : 0;
-      const branchInfo = proc.branch ? ` (branch: ${proc.branch})` : "";
-
-      api.notify(
-        "Runaway Process",
-        `${proc.packageScript ?? proc.command} in ${repoLabel(proc.repo)}${branchInfo} at ${Math.round(proc.cpuPercent)}% CPU for ${durationMin || "<1"} minutes`,
-        undefined,
-        "runaway_process",
-        [proc.pid],
-      );
-    } else {
-      // A burst of runaways in one tick collapses into a single summary so the
-      // user gets one actionable notification instead of a pile.
-      const shown = fresh.slice(0, 2).map(p =>
-        `${p.packageScript ?? p.command} (${repoLabel(p.repo)} ${Math.round(p.cpuPercent)}%)`,
-      );
-      const rest = fresh.length - shown.length;
-      const summary = rest > 0 ? `${shown.join(", ")}, +${rest} more` : shown.join(", ");
-
-      api.notify(
-        `${fresh.length} Runaway Processes`,
-        summary,
-        undefined,
-        "runaway_process",
-        fresh.map(p => p.pid),
-      );
-    }
-
-    for (const proc of fresh) {
-      markNotified(proc.pid);
-    }
-  }
-
   const api: Notifier & { __setFallbackNotifier(path: string | null): void; __notifyFallback: typeof notifyFallback } = {
     onNotification,
     notify,
     notifyEvent,
     notifyEnabled,
     checkAndNotify,
-    checkRunawayProcesses,
     drainNotifications,
     peekNotifications,
     /** Test-only seam; see __test__ below. */
@@ -1028,14 +961,6 @@ function getDefaultNotifier() {
   return defaultNotifier ??= createNotifier();
 }
 
-export function checkRunawayProcesses(
-  processes: SystemProcess[],
-  markNotified: (pid: number) => void,
-  isNotified: (pid: number) => boolean,
-): void {
-  getDefaultNotifier().checkRunawayProcesses(processes, markNotified, isNotified);
-}
-
 export function checkAndNotify(
   cacheEntries: Record<string, CacheEntry>,
   ports?: PortEntry[],
@@ -1106,7 +1031,7 @@ export const __test__ = {
    * The lazily-created default Notifier instance, for tests that need to
    * spy on its `notify` (or another method) directly. Spying on the
    * top-level `export function notify` would only replace that export's
-   * own binding: checkAndNotify/checkRunawayProcesses call `api.notify`
+   * own binding: checkAndNotify calls `api.notify`
    * on THIS object, so this is the thing to spy on to intercept them.
    */
   getDefaultNotifier,

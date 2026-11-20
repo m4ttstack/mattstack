@@ -30,19 +30,21 @@ function fakeProcess(pid: number, cpuPercent: number) {
   };
 }
 
-test("a failed gather (null) keeps tracked windows and lastResult intact", async () => {
+test("a failed gather (null) keeps lastResult and firstSeen intact", async () => {
   const s = new FakeScanner();
 
   s.next = [fakeProcess(4242, 95)];
-  const first = await s.scan();
-  expect(first.find((p) => p.pid === 4242)).toBeTruthy();
-  const firstSeen = s.getTracked(4242)?.firstSeen;
+  const first = await s.refresh();
+  const firstSeen = first.find((p) => p.pid === 4242)?.firstSeen;
   expect(firstSeen).toBeDefined();
 
   s.next = null;
-  const during = await s.scan();
-  expect(s.getTracked(4242)?.firstSeen).toBe(firstSeen);
-  expect(during.find((p) => p.pid === 4242)).toBeTruthy();
+  const during = await s.refresh();
+  expect(during.find((p) => p.pid === 4242)?.firstSeen).toBe(firstSeen);
+
+  s.next = [fakeProcess(4242, 95)];
+  const after = await s.refresh();
+  expect(after.find((p) => p.pid === 4242)?.firstSeen).toBe(firstSeen);
 });
 
 // RT-128: with the tray polling faster than a gather finishes (a machine

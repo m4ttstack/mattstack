@@ -1,46 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { setSetting } from "../../settings/write.ts";
-import { getDef } from "../../settings/registry.ts";
-import { SystemProcessScanner, loadRunawayConfig, RUNAWAY_DEFAULTS } from "../system-process-scanner.ts";
-
-test("rt.runaway's registry default is the scanner's own", () => {
-  expect(getDef("rt.runaway")!.default).toEqual({ ...RUNAWAY_DEFAULTS });
-});
-
-describe("loadRunawayConfig through the settings resolver", () => {
-  const origHome = process.env.HOME;
-  let home: string;
-
-  beforeEach(() => {
-    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-runaway-")));
-    process.env.HOME = home;
-  });
-
-  afterEach(() => {
-    process.env.HOME = origHome;
-    rmSync(home, { recursive: true, force: true });
-  });
-
-  test("empty store → the registry default", () => {
-    expect(loadRunawayConfig()).toEqual({ ...RUNAWAY_DEFAULTS });
-  });
-
-  test("a store-seeded value resolves through the loader over the default", () => {
-    setSetting("rt.runaway", { cpuThreshold: 90, sustainMs: 60_000 }, "machine");
-
-    expect(loadRunawayConfig()).toEqual({ ...RUNAWAY_DEFAULTS, cpuThreshold: 90, sustainMs: 60_000 });
-  });
-
-  test("an unexpandable ${repoRoot} in a stored value degrades to {} instead of throwing", () => {
-    setSetting("rt.runaway", { note: "${repoRoot}" }, "machine");
-
-    expect(() => loadRunawayConfig()).not.toThrow();
-    expect(loadRunawayConfig()).toEqual({});
-  });
-});
 
 describe("SystemProcessScanner", () => {
   let dataDir: string;
@@ -265,56 +226,6 @@ describe("parsePackageScripts", () => {
     // Without both halves we can't honestly reconstruct an invocation
     expect(result.has(300)).toBe(false);
     expect(result.has(400)).toBe(false);
-  });
-});
-
-describe("runaway detection", () => {
-  test("flags process as runaway after sustained high CPU", () => {
-    const scanner = new SystemProcessScanner({
-      cpuThreshold: 80,
-      sustainMs: 30_000, // 30s for test speed (3 samples at 10s)
-      graceMs: 0, // no grace for tests
-    });
-
-    // Simulate feeding scan results -- we test the tracking logic directly
-    const track = {
-      pid: 1234,
-      firstSeen: Date.now() - 60_000,
-      samples: [95, 92, 88, 91], // 4 consecutive samples above 80
-      runawayStartedAt: null as number | null,
-      runawayNotified: false,
-    };
-
-    // With sustainMs=30_000 and 10s intervals, need 3 consecutive samples
-    const samplesNeeded = Math.ceil(30_000 / 10_000); // 3
-    const recent = track.samples.slice(-samplesNeeded);
-    const allAbove = recent.length >= samplesNeeded &&
-      recent.every(s => s >= 80);
-
-    expect(allAbove).toBe(true);
-    expect(samplesNeeded).toBe(3);
-  });
-
-  test("does not flag during grace period", () => {
-    const scanner = new SystemProcessScanner({
-      cpuThreshold: 80,
-      sustainMs: 30_000,
-      graceMs: 120_000, // 2 minutes
-    });
-
-    // A process seen 30 seconds ago should not be flagged
-    const age = 30_000;
-    const graceMs = 120_000;
-    expect(age > graceMs).toBe(false);
-  });
-
-  test("clears runaway when CPU drops", () => {
-    const samples = [95, 92, 88, 91, 50, 60]; // drops below threshold
-    const samplesNeeded = 3;
-    const recent = samples.slice(-samplesNeeded);
-    const allAbove = recent.every(s => s >= 80);
-
-    expect(allAbove).toBe(false);
   });
 });
 

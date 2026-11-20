@@ -1,7 +1,7 @@
 /**
  * rt settings get/set/list/explain — the resolver-backed settings verbs
  * (RT-47 Task 6). Kept separate from commands/settings.ts (token/notification/
- * dev-mode/runaway leaves) so this file owns only the four resolver verbs.
+ * dev-mode leaves) so this file owns only the four resolver verbs.
  *
  *   rt settings get <key> [--repo <name>] [--json]
  *   rt settings set <key> <json-value> --scope user|org|team|machine [--repo <name>] [--team <name>]

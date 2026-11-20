@@ -84,7 +84,6 @@ class ProcessPanelController: ObservableObject {
         // Poll fast (2s) — this timer only runs while the panel is on-screen
         // (the host's WindowScopedPolling starts and stops it), so the daemon's
         // matching scan-on-read cost is paid only while the user is watching.
-        // The daemon's own background scan stays at 10s for runaway detection.
         // .common mode so polls don't stall while a menu is open or the
         // user is scrolling (both put the run loop in tracking mode).
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in

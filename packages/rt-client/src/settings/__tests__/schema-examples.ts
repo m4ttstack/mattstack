@@ -176,11 +176,6 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [{ value: { [TRACKED]: 1 }, path: [TRACKED] }],
     layer: [{ [TRACKED]: { mode: "poll" } }],
   },
-  "rt.runaway": {
-    good: [{}, { cpuThreshold: 90, sustainMs: 600000, graceMs: 120000 }],
-    bad: [{ value: { cpuThreshold: "90" }, path: ["cpuThreshold"] }],
-    layer: [{ cpuThreshold: 95 }],
-  },
   "rt.workspacePrefs": {
     good: [{}, { editors: { app: "zed" }, workspaces: { "/Users/dev/app": "/Users/dev/app/app.code-workspace" }, defaultEditor: "cursor" }],
     bad: [{ value: { editors: { app: 1 } }, path: ["editors", "app"] }],
