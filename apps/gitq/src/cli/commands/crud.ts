@@ -33,6 +33,23 @@ export function pickStackVia(store: StackStore, flags: Record<string, string | b
   return pickStack(store, flags);
 }
 
+/**
+ * pickStackVia for `add`, plus one more inference: a --parent that is a root
+ * several stacks share picks the only one of them with no branches yet, which
+ * is the stack `gitq track` just made.
+ */
+export function pickStackForAdd(
+  store: StackStore,
+  flags: Record<string, string | boolean | string[]>,
+  parent: string,
+): Stack {
+  if (typeof flags.stack !== 'string' && !store.stacks.some((s) => s.nodes.some((n) => n.branch === parent))) {
+    const emptyOnRoot = store.stacks.filter((s) => s.root === parent && s.nodes.length === 0);
+    if (emptyOnRoot.length === 1) return emptyOnRoot[0]!;
+  }
+  return pickStackVia(store, flags, parent);
+}
+
 function replaceStack(store: StackStore, updated: Stack): StackStore {
   return { ...store, stacks: store.stacks.map((s) => (s.id === updated.id ? updated : s)) };
 }
@@ -72,7 +89,7 @@ export async function addCommand(ctx: CliContext): Promise<number> {
   const parent = typeof ctx.flags.parent === 'string' ? ctx.flags.parent : null;
   if (!branch || !parent) return fail('usage: gitq add <branch> --parent <branch> [--stack <name>]');
   const store = await loadStore(ctx.repoRoot);
-  const stack = pickStackVia(store, ctx.flags, parent);
+  const stack = pickStackForAdd(store, ctx.flags, parent);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
   const updated = StackManager.addNode(stack, branch, parent);
