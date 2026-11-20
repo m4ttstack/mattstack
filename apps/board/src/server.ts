@@ -71,6 +71,7 @@ import {
   NO_REVIEW_CHANNEL,
   ownerRulesFromApprovalState,
   planOwnersPost,
+  sectionLabel,
   type OwnerRule,
   type OwnersPostPlan,
 } from './codeowner-posts.ts';
@@ -469,8 +470,10 @@ import {
 import styleCss from './style.css' with { type: 'text' };
 import {
   MAX_HEADER_LEN,
+  renderOwnerPrefix,
   renderPost,
   sanitizeHeader,
+  withOwnerPrefix,
   type MrFacts,
 } from './template.ts';
 import {
@@ -1419,8 +1422,8 @@ function withSlackChannel<T extends BoardMR>(
 /** The review-request text for these MRs, from the board's Slack templates.
     A header forces the multi rendering even for one MR, since the single
     template has no header line to put it on. */
-function mrPostText(mrs: BoardMR[], header: string | null = null): string {
-  const facts: MrFacts[] = mrs.map(m => ({
+function mrFacts(m: BoardMR): MrFacts {
+  return {
     iid: m.iid,
     title: m.title,
     url: m.webUrl ?? '',
@@ -1428,7 +1431,11 @@ function mrPostText(mrs: BoardMR[], header: string | null = null): string {
     author: m.author.username,
     sourceBranch: m.sourceBranch,
     targetBranch: m.targetBranch,
-  }));
+  };
+}
+
+function mrPostText(mrs: BoardMR[], header: string | null = null): string {
+  const facts = mrs.map(mrFacts);
   return renderPost(
     {
       single: config.slack.singleTemplate,
@@ -1746,7 +1753,7 @@ const ownerPostsRunning = new Set<string>();
 async function ownersPreviewOrPost(
   mr: BoardMR,
   slackToken: string,
-  request: { team?: unknown; channels?: unknown; text?: unknown } | null
+  request: { team?: unknown; channels?: unknown; texts?: unknown } | null
 ): Promise<Response> {
   if (!withReviewChannel(() => channelForMR(config, mr), Boolean))
     return new Response(NO_REVIEW_CHANNEL, { status: 400 });
@@ -1755,6 +1762,15 @@ async function ownersPreviewOrPost(
   const team = await teamThread(mr, slackToken);
   const defaultText = mrPostText([mr]);
   const { plan } = planned;
+  const ownerText = (c: { channel: string; sections: string[] }) =>
+    withOwnerPrefix(
+      renderOwnerPrefix(
+        config.slack.ownerPrefix,
+        mrFacts(mr),
+        c.sections.map(s => sectionLabel(s, c.channel)).join(', ')
+      ),
+      defaultText
+    );
   if (request === null) {
     const direct =
       !team.posted &&
@@ -1765,15 +1781,12 @@ async function ownersPreviewOrPost(
     return Response.json({
       text: defaultText,
       ...plan,
+      channels: plan.channels.map(c => ({ ...c, text: ownerText(c) })),
       team,
       direct,
       unchecked: planned.unchecked,
     });
   }
-  const edited = typeof request.text === 'string' ? request.text.trim() : '';
-  if (request.text !== undefined && !edited)
-    return new Response('the message is empty', { status: 400 });
-  const text = edited || defaultText;
   const offered = new Set(plan.channels.map(c => c.channel));
   const channels = request.channels ?? [];
   const wantsTeam = request.team === true;
@@ -1789,6 +1802,37 @@ async function ownersPreviewOrPost(
       { status: 400 }
     );
   }
+  const texts = request.texts ?? {};
+  if (typeof texts !== 'object' || Array.isArray(texts))
+    return new Response('texts must name a message per channel', {
+      status: 400,
+    });
+  const written = (channel: string): string | undefined => {
+    const t = (texts as Record<string, unknown>)[channel];
+    return typeof t === 'string' ? t.trim() : undefined;
+  };
+  for (const channel of [...(wantsTeam ? [team.channel] : []), ...channels]) {
+    const t = (texts as Record<string, unknown>)[channel];
+    if (t !== undefined && (typeof t !== 'string' || !t.trim()))
+      return new Response(`the message for #${channel} is empty`, {
+        status: 400,
+      });
+    // The board finds a channel's post, and its reactions, by this link, so
+    // an edit may not drop it; a template without one never had it.
+    const unedited =
+      channel === team.channel
+        ? defaultText
+        : ownerText(plan.channels.find(c => c.channel === channel)!);
+    if (
+      typeof t === 'string' &&
+      unedited.includes(mr.webUrl!) &&
+      !t.includes(mr.webUrl!)
+    )
+      return new Response(
+        `the message for #${channel} has no link to the ${boardNoun()}`,
+        { status: 400 }
+      );
+  }
   const posted: Array<{
     channel: string;
     permalink: string;
@@ -1802,7 +1846,7 @@ async function ownersPreviewOrPost(
       [mr],
       team.channel,
       null,
-      edited || undefined
+      written(team.channel)
     );
     if (result.kind === 'posted' || result.kind === 'linked')
       posted.push({
@@ -1822,7 +1866,8 @@ async function ownersPreviewOrPost(
       const sent = await postToOwnerChannel(
         slackToken,
         { name, id: planned.channels.get(name)!.id },
-        text,
+        written(name) ??
+          ownerText(plan.channels.find(c => c.channel === name)!),
         mr.webUrl!
       );
       posted.push({ channel: name, permalink: sent.permalink });
@@ -5433,11 +5478,11 @@ const httpServer = Bun.serve({
         } catch {
           return new Response('invalid json', { status: 400 });
         }
-        const { mrUrl, team, channels, text } = (body ?? {}) as {
+        const { mrUrl, team, channels, texts } = (body ?? {}) as {
           mrUrl?: unknown;
           team?: unknown;
           channels?: unknown;
-          text?: unknown;
+          texts?: unknown;
         };
         if (typeof mrUrl !== 'string')
           return new Response('expected { mrUrl: string }', { status: 400 });
@@ -5462,7 +5507,7 @@ const httpServer = Bun.serve({
           return await ownersPreviewOrPost(mr, slackToken, {
             team,
             channels,
-            text,
+            texts,
           });
         } finally {
           ownerPostsRunning.delete(mrUrl);

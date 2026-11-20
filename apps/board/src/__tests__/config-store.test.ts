@@ -337,10 +337,27 @@ describe('loadConfig: store values get the normalization and validation parseCon
       singleTemplate: '{url}',
       multiHeader: "{count} MR's ready for review :pray:",
       multiItem: '- {title}: {url}',
+      ownerPrefix: '',
       autoResolveIntervalMinutes: 15,
       emoji: DEFAULT_SLACK_EMOJI,
       emojiAliases: {},
     });
+  });
+
+  test('a store ownerPrefix reaches the slack config', () => {
+    const cfg = loadConfig(
+      fakeResolve({
+        ...TEAM,
+        'board.slack': { ownerPrefix: 'CO ({sections}):' },
+      })
+    );
+    expect(cfg.slack.ownerPrefix).toBe('CO ({sections}):');
+  });
+
+  test('an ownerPrefix that is not a string is refused', () => {
+    expect(() =>
+      loadConfig(fakeResolve({ ...TEAM, 'board.slack': { ownerPrefix: 3 } }))
+    ).toThrow('"slack.ownerPrefix" must be a string');
   });
 
   test('a board.switchboardUrl an older rt left in the store is never read', () => {

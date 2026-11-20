@@ -86,6 +86,8 @@ const PRS: Record<string, ReturnType<typeof fakePr>[]> = {
     fakePr('g/p', 707, 'alice'),
     fakePr('g/p', 708, 'alice'),
     fakePr('g/p', 709, 'alice'),
+    fakePr('g/p', 710, 'alice'),
+    fakePr('g/p', 711, 'alice'),
   ],
   'g/q': [fakePr('g/q', 801, 'alice')],
 };
@@ -149,6 +151,12 @@ const APPROVAL_BY_IID: Record<string, unknown> = {
     rules: [rule('Ours - #ours-channel'), rule('Acme - #acme-channel')],
   },
   '709': { rules: [rule('Acme - #acme-channel')] },
+  // 710 posts the team row and an owner channel together.
+  '710': {
+    rules: [rule('Ours - #ours-channel'), rule('Acme - #acme-channel')],
+  },
+  // 711 is only ever refused.
+  '711': { rules: [rule('Acme - #acme-channel')] },
 };
 
 const forgeSeen: Array<{ repoName: string; path: string }> = [];
@@ -158,9 +166,11 @@ const forgeSeen: Array<{ repoName: string; path: string }> = [];
 function bootBoard({
   directory,
   recheckMs,
+  teamSettings = {},
 }: {
   directory: unknown;
   recheckMs?: number;
+  teamSettings?: Record<string, unknown>;
 }) {
   const home = mkdtempSync(join(tmpdir(), 'board-slack-owners-'));
   const orgDir = join(home, '.mattstack', 'orgs', 'testteam', 'mattstack');
@@ -193,7 +203,10 @@ function bootBoard({
     })
   );
   mkdirSync(join(orgDir, 'teams', 'web'), { recursive: true });
-  writeFileSync(join(orgDir, 'teams', 'web', 'settings.team.jsonc'), '{}');
+  writeFileSync(
+    join(orgDir, 'teams', 'web', 'settings.team.jsonc'),
+    JSON.stringify(teamSettings)
+  );
   const userDir = join(home, '.mattstack', 'user');
   mkdirSync(userDir, { recursive: true });
   writeFileSync(
@@ -316,6 +329,24 @@ const board = bootBoard({
       },
     },
   },
+  teamSettings: {
+    'board.slack': {
+      ownerPrefix: 'Codeowner review [{sections}]:',
+    },
+  },
+});
+const noLinkBoard = bootBoard({
+  directory: {
+    teams: {
+      web: {
+        slack: {
+          codeOwnersChannel: 'ours-channel',
+          channels: [{ name: 'code-review', kind: 'review' }],
+        },
+      },
+    },
+  },
+  teamSettings: { 'board.slack': { singleTemplate: '{title}' } },
 });
 const noChannelBoard = bootBoard({
   directory: {
@@ -334,6 +365,7 @@ const postLog = join(fakeHome, 'slack-posts.ndjson');
 afterAll(() => {
   board.stop();
   noChannelBoard.stop();
+  noLinkBoard.stop();
   lateDirectoryBoard.stop();
 });
 
@@ -362,7 +394,7 @@ interface Preview {
   team: { channel: string; posted: boolean; permalink?: string };
   direct: boolean;
   ownSections: string[];
-  channels: Array<{ channel: string; sections: string[] }>;
+  channels: Array<{ channel: string; sections: string[]; text: string }>;
   skipped: Array<{
     section: string;
     reason: string;
@@ -391,6 +423,7 @@ test('preview groups unapproved sections by channel and says why the rest are sk
     {
       channel: 'acme-channel',
       sections: ['Acme - #acme-channel', 'Acme Jobs - #acme-channel'],
+      text: `Codeowner review [Acme, Acme Jobs]: ACME-1 An MR: ${url('g/p', 701)}`,
     },
   ]);
   expect(body.skipped).toEqual([
@@ -479,7 +512,9 @@ test('post sends once per confirmed channel, remembers it, and leaves the review
   const messages = sent();
   expect(messages).toHaveLength(1);
   expect(messages[0]!.channel).toBe('C_ACME');
-  expect(messages[0]!.text).toContain(url('g/p', 701));
+  expect(messages[0]!.text).toBe(
+    `Codeowner review [Acme, Acme Jobs]: ACME-1 An MR: ${url('g/p', 701)}`
+  );
 
   const again = (await (
     await post('/slack/owners/preview', { mrUrl: url('g/p', 701) })
@@ -577,7 +612,11 @@ test('our own section is the team row, never our code owner channel', async () =
   expect(body.team).toEqual({ channel: 'code-review', posted: false });
   expect(body.ownSections).toEqual(['Ours - #ours-channel']);
   expect(body.channels).toEqual([
-    { channel: 'acme-channel', sections: ['Acme - #acme-channel'] },
+    {
+      channel: 'acme-channel',
+      sections: ['Acme - #acme-channel'],
+      text: `Codeowner review [Acme]: ACME-1 An MR: ${url('g/p', 706)}`,
+    },
   ]);
   expect(body.skipped).toEqual([]);
   expect(body.direct).toBe(false);
@@ -611,6 +650,76 @@ test('posting only the team row leaves the other channels to post later', async 
   expect(rest.status).toBe(200);
   expect((await boardMr(706)).ownerPostsLeft).toEqual([]);
 }, 20_000);
+
+test('an empty message for a channel is refused, and nothing posts', async () => {
+  const before = sent().length;
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 710),
+    team: true,
+    channels: ['acme-channel'],
+    texts: {
+      'code-review': `please look ${url('g/p', 710)}`,
+      'acme-channel': '   ',
+    },
+  });
+  expect(res.status).toBe(400);
+  expect(await res.text()).toBe('the message for #acme-channel is empty');
+  expect(sent()).toHaveLength(before);
+}, 15_000);
+
+test('each channel gets exactly the message written for it', async () => {
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 710),
+    team: true,
+    channels: ['acme-channel'],
+    texts: {
+      'code-review': `  please look ${url('g/p', 710)}  `,
+      'acme-channel': `Codeowner review [Acme]: acme, please look ${url('g/p', 710)}`,
+    },
+  });
+  expect(res.status).toBe(200);
+  const texts = Object.fromEntries(
+    sent()
+      .filter(m => m.text.includes('please look'))
+      .map(m => [m.channel, m.text])
+  );
+  expect(texts).toEqual({
+    C_DEFAULT: `please look ${url('g/p', 710)}`,
+    C_ACME: `Codeowner review [Acme]: acme, please look ${url('g/p', 710)}`,
+  });
+}, 20_000);
+
+test('with no ownerPrefix set, a code owner message is the team template alone', async () => {
+  const body = (await (
+    await postTo(noLinkBoard.port, '/slack/owners/preview', {
+      mrUrl: url('g/p', 701),
+    })
+  ).json()) as Preview;
+  expect(body.channels.map(c => c.text)).toEqual(['ACME-1 An MR']);
+}, 15_000);
+
+test('a team whose template has no link can post a message without one', async () => {
+  const res = await postTo(noLinkBoard.port, '/slack/owners/post', {
+    mrUrl: url('g/p', 711),
+    channels: ['acme-channel'],
+    texts: { 'acme-channel': 'please look' },
+  });
+  expect(res.status).toBe(200);
+}, 15_000);
+
+test('a message without the link to the MR is refused, and nothing posts', async () => {
+  const before = sent().length;
+  const res = await post('/slack/owners/post', {
+    mrUrl: url('g/p', 711),
+    channels: ['acme-channel'],
+    texts: { 'acme-channel': 'Codeowner review [Acme]: please look' },
+  });
+  expect(res.status).toBe(400);
+  expect(await res.text()).toBe(
+    'the message for #acme-channel has no link to the MR'
+  );
+  expect(sent()).toHaveLength(before);
+}, 15_000);
 
 test('an MR needing only our own approval posts straight to the team channel', async () => {
   const body = (await (

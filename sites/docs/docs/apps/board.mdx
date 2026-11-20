@@ -251,12 +251,12 @@ On GitLab, in a repo whose `board.codeowners` setting turns on `slack.fromSectio
 
 In these repos the item is never greyed, since a push can reset approvals.
 
-The dialog lists one switch per channel, each on by default:
+Under **post to**, the dialog lists each channel with a switch, on by default, and the message that channel gets:
 
 - The team channel comes first, labelled "team review". Your team's own code owners sections ride on this row: any section whose channel is one of your team's channels in the team directory. Your own sections' channel is where other teams ask you, so it is never offered for your own MR.
-- One switch for each other team's code owners channel still to ask.
+- Then each other team's code owners channel still to ask. When your team sets the `ownerPrefix` key of `board.slack`, these messages start with it. In `ownerPrefix`, `{sections}` names the sections that channel is asked for, and `{title}`, `{ticket}` and `{url}` work too. For example, `Codeowner review [{sections}]:`.
 
-Below them, the dialog lists what it will not post, each with its reason:
+Under **not posting**, the dialog lists what it will not post, each with its reason:
 
 - already approved.
 - no channel in its name.
@@ -264,7 +264,7 @@ Below them, the dialog lists what it will not post, each with its reason:
 - Slack has no such channel.
 - you are not in the channel.
 
-The dialog shows the message it will post, and you can edit it first. **post to N channels** posts the message once in each channel you leave on, under your name. After posting to only some of them, the item reads **post to other codeowners…** at the top of the menu.
+You can edit each channel's message before posting. A message's link to the MR shows as a chip, such as **!1418**. You cannot delete it, since the board finds the post by that link. If a message loses it anyway, the dialog says so and won't post it. Switching a channel off folds its message away. **post to N channels** posts each message in its channel, under your name. After posting to only some of them, the item reads **post to other codeowners…** at the top of the menu.
 
 ### flock
 

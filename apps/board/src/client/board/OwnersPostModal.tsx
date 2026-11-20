@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react';
 
-import { Button, ListGroup, Modal, Spinner } from '@mattstack/tui-kit';
-import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
-import type { OwnerSkip, OwnersPostPlan } from '../../codeowner-posts.ts';
+import { Button, ListGroup, Modal, Spinner, Switch } from '@mattstack/tui-kit';
+import {
+  sectionLabel,
+  type OwnerSkip,
+  type OwnersPostPlan,
+} from '../../codeowner-posts.ts';
 import type { BoardMR } from '../../data.ts';
 import { postAction, type ActionResult } from '../api.ts';
 import { cleanTitle } from './format.ts';
 import { mrRef } from './MrLinks.tsx';
+import { OwnerMessageEditor } from './OwnerMessageEditor.tsx';
 import { Sep, withSeps } from './Sep.tsx';
 
-export type SlackPostPreview = OwnersPostPlan & {
+export type SlackPostPreview = Omit<OwnersPostPlan, 'channels'> & {
+  /** `text`: the message that channel gets unless edited, prefix included. */
+  channels: Array<OwnersPostPlan['channels'][number] & { text: string }>;
+  /** The team channel's message unless edited. */
   text: string;
   team: { channel: string; posted: boolean; permalink?: string };
   /** Only the team channel is left to post to: no dialog needed. */
@@ -20,16 +27,6 @@ export type SlackPostPreview = OwnersPostPlan & {
 interface PostOutcome {
   posted: Array<{ channel: string; permalink: string }>;
   failed: Array<{ channel: string; error: string }>;
-}
-
-/** A section name without the channel it carries: `Acme - #pod-acme` reads
-    `Acme` beside a row that already shows the channel. */
-function sectionLabel(section: string, channel?: string): string {
-  if (!channel) return section;
-  const bare = section
-    .replace(new RegExp(`\\s*-?\\s*#${channel}\\s*$`, 'i'), '')
-    .trim();
-  return bare || section;
 }
 
 function skipReason(skip: OwnerSkip) {
@@ -91,9 +88,7 @@ function OwnersPostModal({
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<PostOutcome | null>(null);
   const [posting, setPosting] = useState(false);
-  const [edited, setEdited] = useState<string | null>(null);
-  const message = edited ?? preview?.text ?? '';
-  const messageRef = useAutoGrowTextarea([message]);
+  const [edits, setEdits] = useState<Readonly<Record<string, string>>>({});
 
   const load = async () => {
     const res = await post('/slack/owners/preview', { mrUrl: mr.webUrl });
@@ -113,6 +108,21 @@ function OwnersPostModal({
     ...(preview?.channels ?? []).map(c => c.channel),
   ];
   const chosen = rows.filter(c => !off.has(c));
+  const messageFor = (channel: string) => edits[channel] ?? defaultFor(channel);
+  const defaultFor = (channel: string) =>
+    (channel === team
+      ? preview?.text
+      : preview?.channels.find(c => c.channel === channel)?.text) ?? '';
+  const link = mr.webUrl ?? '';
+  const unpostable = chosen
+    .map(c => {
+      const m = messageFor(c).trim();
+      if (!m) return `#${c}'s message is empty`;
+      if (defaultFor(c).includes(link) && !m.includes(link))
+        return `#${c}'s message lost its link. Undo, or reopen to start over`;
+      return null;
+    })
+    .find(Boolean);
   const flip = (channel: string) =>
     setOff(prev => {
       const next = new Set(prev);
@@ -126,7 +136,7 @@ function OwnersPostModal({
     setOutcome(null);
     const res = await post('/slack/owners/post', {
       mrUrl: mr.webUrl,
-      ...(edited !== null && edited !== preview?.text ? { text: edited } : {}),
+      texts: Object.fromEntries(chosen.map(c => [c, messageFor(c)])),
       team: !!team && chosen.includes(team),
       channels: (preview?.channels ?? [])
         .map(c => c.channel)
@@ -172,85 +182,93 @@ function OwnersPostModal({
         </p>
       )}
       {preview && rows.length > 0 && (
-        <ListGroup footer="One message per channel. Switch off any you do not want.">
-          {team && (
-            <ListGroup.Toggle
-              label={
-                <>
-                  #{team}
-                  <span className="tui-owners-sections">{teamSections}</span>
-                </>
-              }
-              aria-label={`post to #${team}`}
-              checked={!off.has(team)}
-              onChange={() => flip(team)}
-            />
-          )}
-          {preview.channels.map(c => (
-            <ListGroup.Toggle
-              key={c.channel}
-              label={
-                <>
-                  #{c.channel}
-                  <span className="tui-owners-sections">
-                    {c.sections.map(s => sectionLabel(s, c.channel)).join(', ')}
-                    {unchecked.has(c.channel) && (
-                      <>
-                        <Sep />
-                        could not check for an earlier post
-                      </>
-                    )}
-                  </span>
-                </>
-              }
-              aria-label={`post to #${c.channel}`}
-              checked={!off.has(c.channel)}
-              onChange={() => flip(c.channel)}
-            />
-          ))}
-        </ListGroup>
+        <section className="tui-owners-section">
+          <p className="tui-owners-label">post to</p>
+          <ListGroup>
+            {rows.map(channel => {
+              const owner = preview.channels.find(c => c.channel === channel);
+              const on = !off.has(channel);
+              return (
+                <li
+                  key={channel}
+                  className="tui-owners-row"
+                  data-off={on ? undefined : ''}
+                >
+                  <div className="tui-owners-row-head">
+                    <span className="tui-owners-channel">#{channel}</span>
+                    <span className="tui-owners-sections">
+                      {owner
+                        ? owner.sections
+                            .map(s => sectionLabel(s, channel))
+                            .join(', ')
+                        : teamSections}
+                      {unchecked.has(channel) && (
+                        <>
+                          <Sep />
+                          could not check for an earlier post
+                        </>
+                      )}
+                    </span>
+                    <Switch
+                      checked={on}
+                      onChange={() => flip(channel)}
+                      aria-label={`post to #${channel}`}
+                    />
+                  </div>
+                  {on && (
+                    <OwnerMessageEditor
+                      value={messageFor(channel)}
+                      link={mr.webUrl ?? ''}
+                      linkLabel={mrRef(mr)}
+                      label={`message to #${channel}`}
+                      disabled={posting}
+                      onChange={text =>
+                        setEdits(prev => ({ ...prev, [channel]: text }))
+                      }
+                    />
+                  )}
+                </li>
+              );
+            })}
+          </ListGroup>
+        </section>
       )}
       {preview && rows.length === 0 && (
         <p className="tui-owners-note">nothing to post</p>
       )}
       {preview && (preview.team.posted || preview.skipped.length > 0) && (
-        <ListGroup footer="Not posting for these.">
-          {preview.team.posted && (
-            <ListGroup.Fact
-              label="team review"
-              value={
-                <a
-                  href={preview.team.permalink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  already posted to #{preview.team.channel}
-                </a>
-              }
-            />
-          )}
-          {preview.skipped.map(s => (
-            <ListGroup.Fact
-              key={s.section}
-              label={sectionLabel(s.section, s.channel)}
-              value={skipReason(s)}
-            />
-          ))}
-        </ListGroup>
-      )}
-      {preview && rows.length > 0 && (
-        <textarea
-          ref={messageRef}
-          className="tui-draft-body tui-draft-edit"
-          rows={3}
-          value={message}
-          aria-label="message to post"
-          disabled={posting}
-          onChange={e => setEdited(e.currentTarget.value)}
-        />
+        <section className="tui-owners-section">
+          <p className="tui-owners-label">not posting</p>
+          <ListGroup>
+            {preview.team.posted && (
+              <ListGroup.Fact
+                label="team review"
+                value={
+                  <a
+                    href={preview.team.permalink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    already posted to #{preview.team.channel}
+                  </a>
+                }
+              />
+            )}
+            {preview.skipped.map(s => (
+              <ListGroup.Fact
+                key={s.section}
+                label={sectionLabel(s.section, s.channel)}
+                value={skipReason(s)}
+              />
+            ))}
+          </ListGroup>
+        </section>
       )}
       <div className="tui-draft-actions">
         {error && <span className="tui-draft-error">{error}</span>}
+        {!error && unpostable && (
+          <span className="tui-draft-error">{unpostable}</span>
+        )}
         {outcome && (
           <span className="tui-draft-error">
             {withSeps([
@@ -268,7 +286,7 @@ function OwnersPostModal({
             intent="accent"
             variant="filled"
             busy={posting}
-            disabled={chosen.length === 0 || !message.trim()}
+            disabled={chosen.length === 0 || !!unpostable}
             onClick={() => void confirm()}
           >
             {posting

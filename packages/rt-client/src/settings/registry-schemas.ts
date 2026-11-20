@@ -285,6 +285,10 @@ export const SCHEMAS = {
     singleTemplate: z.string().optional(),
     multiHeader: z.string().optional(),
     multiItem: z.string().optional(),
+    ownerPrefix: z.string().optional().meta({
+      title: "Code owner prefix",
+      description: "Put before posts in other teams' code owner channels. {sections} names the sections asked; MR placeholders like {title} work too.",
+    }),
     autoResolveIntervalMinutes: z.number().optional(),
     emoji: z.looseObject({
       looking: z.string().optional().meta({ placeholder: "eyes" }),

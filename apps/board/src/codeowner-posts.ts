@@ -109,3 +109,13 @@ export function planOwnersPost(
     ownSections,
   };
 }
+
+/** A section name without the channel it carries: `Acme - #pod-acme` reads
+    `Acme` beside a row that already shows the channel. */
+export function sectionLabel(section: string, channel?: string): string {
+  if (!channel) return section;
+  const bare = section
+    .replace(new RegExp(`\\s*-?\\s*#${channel}\\s*$`, 'i'), '')
+    .trim();
+  return bare || section;
+}

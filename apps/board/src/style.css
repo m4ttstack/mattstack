@@ -3496,10 +3496,81 @@ a.tui-id-card-ref:focus-visible {
   padding-top: 0;
   padding-bottom: 20vh;
 }
-.tui-owners-sections {
-  margin-left: 0.6rem;
+.tui-owners-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.tui-owners-label {
+  margin: 0;
   color: var(--text-3);
-  font-size: 0.76rem;
+  font-size: var(--font-size-px12);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.tui-owners-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem 0.85rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+.tui-owners-row:last-child {
+  border-bottom: none;
+}
+.tui-owners-row[data-off] {
+  padding-bottom: 0.75rem;
+}
+.tui-owners-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.tui-owners-row-head > :last-child {
+  margin-left: auto;
+}
+.tui-owners-channel {
+  color: var(--text-1);
+  font-size: var(--font-size-px13);
+  font-weight: 500;
+}
+.tui-owners-row[data-off] .tui-owners-channel,
+.tui-owners-row[data-off] .tui-owners-sections {
+  color: var(--text-4);
+}
+.tui-owners-sections {
+  color: var(--text-3);
+  font-size: var(--font-size-px12);
+}
+.tui-owners-modal .tui-owners-message-text {
+  padding: 0.55rem 0.75rem;
+  font-size: var(--font-size-px13);
+  line-height: 1.6;
+  border-color: var(--border);
+}
+.tui-owners-modal .tui-owners-message-text:focus {
+  outline: none;
+  border-color: var(--fill-accent);
+}
+.tui-owners-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--surface-wash-accent-16);
+  border-radius: 5px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-px12);
+  font-weight: 500;
+  line-height: 1.5;
+  vertical-align: middle;
+  color: var(--text-accent-small);
+  background: var(--surface-wash-accent-14);
+  user-select: all;
+}
+.tui-owners-link svg {
+  flex-shrink: 0;
 }
 .tui-draft-body {
   font-family: var(--font-mono);
