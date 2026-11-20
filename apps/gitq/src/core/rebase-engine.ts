@@ -1394,7 +1394,12 @@ export const RebaseEngine = {
     const node = StackManager.findNode(stack, branch);
     if (!node) throw new Error(`Branch "${branch}" not found in stack "${stack.id}"`);
     const nodes = [node, ...StackManager.getDescendants(stack, branch)];
-    const { resolveBase } = makeCascadeResolvers(cwd, stack, stack.root, {});
+    // With nothing recorded, the parent's reflog still knows the head this
+    // branch forked from. Seeded as the parent's pre-rewrite head, it is one
+    // more candidate for the resolver, which keeps the closest.
+    const reflogForkPoint = await GitShell.getMergeBaseForkPoint(cwd, node.parent, branch);
+    const seeds: Record<string, string> = reflogForkPoint ? { [node.parent]: reflogForkPoint } : {};
+    const { resolveBase } = makeCascadeResolvers(cwd, stack, stack.root, seeds);
     return doCascadeLoop(
       cwd,
       stack,
@@ -1402,7 +1407,7 @@ export const RebaseEngine = {
       resolveBase,
       (n) => n.parent,
       { mergedBranch: null, newBase: node.parent },
-      {},
+      seeds,
       workDir,
     );
   },
