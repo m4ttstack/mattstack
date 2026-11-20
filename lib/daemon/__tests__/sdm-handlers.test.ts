@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { createSdmHandlers, type SdmHandlerDeps } from "../handlers/sdm.ts";
 import type { HandlerContext } from "../handlers/types.ts";
+import { sdmReconnectRoute, sdmRecentsRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 import type { SdmSnapshot } from "../../sdm/core.ts";
 import type { SdmResource } from "../../sdm/scan.ts";
 
@@ -84,6 +85,7 @@ describe("sdm handlers", () => {
     const r = await h["sdm:recents"]!({}) as any;
     expect(r.ok).toBe(true);
     expect(r.recents[0].connected).toBe(true);
+    expect(sdmRecentsRoute.success.safeParse(r).error).toBeUndefined();
   });
 
   test("sdm:reconnect refuses when an access request is needed", async () => {
@@ -91,6 +93,7 @@ describe("sdm handlers", () => {
     const r = await h["sdm:reconnect"]!({ key: "demo:alpha" }) as any;
     expect(r.ok).toBe(false);
     expect(r.outcome).toBe("needs-access-request");
+    expect(sdmReconnectRoute.success.safeParse(r).error).toBeUndefined();
   });
 
   test("sdm:reconnect connects, verifies, and returns the address", async () => {
@@ -104,6 +107,7 @@ describe("sdm handlers", () => {
     const r = await h["sdm:reconnect"]!({ key: "demo:alpha" }) as any;
     expect(r.ok).toBe(true);
     expect(r.address).toBe("127.0.0.1:15432");
+    expect(sdmReconnectRoute.success.safeParse(r).error).toBeUndefined();
     expect(recorded.tier).toBe("staging");
     expect(recorded.reasonSuggestion).toBe("investigating alpha staging data");
   });
@@ -113,5 +117,6 @@ describe("sdm handlers", () => {
     const r = await h["sdm:reconnect"]!({ key: "nope:missing" }) as any;
     expect(r.ok).toBe(false);
     expect(r.error).toContain("unknown");
+    expect(sdmReconnectRoute.success.safeParse(r).error).toBeUndefined();
   });
 });

@@ -11,6 +11,7 @@ import { setSetting } from "../../settings/write.ts";
 import { loadRepoTracking } from "../../repo-tracking.ts";
 import type { AdminSource } from "../../team/board-peers.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import { secretsReadRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 const fakeCtx = { log: { info: () => {}, debug: () => {} } } as any;
 
@@ -162,6 +163,7 @@ describe("secrets:read", () => {
     const res = await h({ token: "test-token" });
 
     expect(res).toEqual({ ok: true, data: { linearApiKey: "lin_api_x", gitlabToken: "glpat-x" } });
+    expect(secretsReadRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("omits a key entirely (never a blank string) when it isn't set", async () => {
@@ -244,6 +246,7 @@ describe("secrets:read scope", () => {
 
     expect(res).toEqual({ ok: true, data: { cfApiToken: "cf-tok", cfZoneId: "zone-1" } });
     expect("linearApiKey" in (res as any).data).toBe(false);
+    expect(secretsReadRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("deck scope omits a key entirely when it isn't set", async () => {
@@ -372,6 +375,7 @@ describe("secrets:read scope \"board\"", () => {
         switchboardAdminToken: "sb-admin",
       },
     });
+    expect(secretsReadRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("omits keys entirely (never a blank string) when they aren't set", async () => {

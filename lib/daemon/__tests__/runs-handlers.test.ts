@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createRunsHandlers } from "../handlers/runs.ts";
 import { root, seedRun } from "../../runs/__tests__/fixtures.ts";
+import { runsGetRoute, runsListRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 afterEach(() => { delete process.env.RT_RUNS_ROOT; });
 
@@ -25,6 +26,8 @@ describe("runs handlers", () => {
     expect((byBoth as any).data.run.repo).toBe("remote:alpha");
     const byId = await getHandler({ runId: "20260821-010101-aaaa" });
     expect((byId as any).data.run.repo).toBe("remote:alpha");
+    expect(runsListRoute.success.safeParse(list).error).toBeUndefined();
+    expect(runsGetRoute.success.safeParse(byId).error).toBeUndefined();
     const missing = await getHandler({ runId: "nope" });
     expect(missing.ok).toBe(false);
   });
@@ -42,6 +45,8 @@ describe("runs handlers", () => {
     expect(list.data.runs[0].attention).toMatchObject({ needs: true, reason: "blocked" });
     const get = (await (h["runs:get"] as any)({ runId: "20260821-010101-kitg" })) as any;
     expect(get.data.run.attention.reason).toBe("blocked");
+    expect(runsListRoute.success.safeParse(list).error).toBeUndefined();
+    expect(runsGetRoute.success.safeParse(get).error).toBeUndefined();
   });
 
   test("runs:get without runId is a validation error", async () => {

@@ -9,6 +9,7 @@ import { describe, test, expect } from "bun:test";
 import { createCacheHandlers } from "../handlers/cache.ts";
 import { composeKey } from "../../state/branch-cache.ts";
 import { fakeStore } from "./fake-cache-store.ts";
+import { cacheListRoute } from "../../../packages/rt-client/src/daemon-api/index.ts";
 
 function makeCtx(entries: Record<string, any>) {
   const ctx = {
@@ -29,6 +30,7 @@ describe("cache:read: bare-branch output", () => {
 
     expect(Object.keys(res.data)).toEqual(["main"]);
     expect(res.data.main.linearId).toBe("A");
+    expect(cacheListRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("a filtered read (branches list) resolves a bare branch by suffix match when repoIdentity is absent", async () => {
@@ -84,5 +86,6 @@ describe("cache:read: a whole-cache read scoped to one repo", () => {
     expect(Object.keys(res.data).sort()).toEqual(["legacy", "main"]);
     expect(res.data.main.linearId).toBe("A");
     expect(res.data.legacy.linearId).toBe("BARE");
+    expect(cacheListRoute.success.safeParse(res).error).toBeUndefined();
   });
 });

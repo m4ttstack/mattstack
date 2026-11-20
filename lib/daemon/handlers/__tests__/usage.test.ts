@@ -4,7 +4,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createUsageHandlers } from "../usage.ts";
 import { coerceQueryParams } from "../../api-server.ts";
-import { DAEMON_ROUTES } from "../../../../packages/rt-client/src/daemon-api/index.ts";
+import {
+  DAEMON_ROUTES, usageMrRoute, usageMrsRoute, usageStatusRoute, usageTrendsRoute,
+} from "../../../../packages/rt-client/src/daemon-api/index.ts";
 import { openUsageDb } from "../../../usage/store.ts";
 
 const log = { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} } as any;
@@ -39,6 +41,7 @@ describe("usage handlers", () => {
     const res = await make()["usage:mrs"]({});
     expect(res.ok).toBe(true);
     expect(res.data.mrs).toEqual([]);
+    expect(usageMrsRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("usage:mr with no mrKey is refused", async () => {
@@ -50,6 +53,7 @@ describe("usage handlers", () => {
   test("usage:mr with an unknown key returns null data", async () => {
     const res = await make()["usage:mr"]({ mrKey: "remote:none!1" });
     expect(res).toEqual({ ok: true, data: null });
+    expect(usageMrRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("days must be a positive number", async () => {
@@ -63,6 +67,8 @@ describe("usage handlers", () => {
     expect((await h["usage:trends"]({ days: 30 })).ok).toBe(true);
     expect((await h["usage:mrs"]({ days: 3650 })).ok).toBe(true);
     expect((await h["usage:trends"]({ days: 3650 })).ok).toBe(true);
+    seed();
+    expect(usageTrendsRoute.success.safeParse(await h["usage:trends"]({ days: 30 })).error).toBeUndefined();
   });
 
   test("usage:activity needs a run or a session, and has no REST route", async () => {
@@ -77,6 +83,7 @@ describe("usage handlers", () => {
     const res = await make()["usage:status"]({});
     expect(res.ok).toBe(true);
     expect(res.data.messages).toBe(0);
+    expect(usageStatusRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("an mrKey with % ! : survives a REST query string to the handler", async () => {
@@ -87,6 +94,7 @@ describe("usage handlers", () => {
     const res = await make()["usage:mr"](payload);
     expect(res.ok).toBe(true);
     expect(res.data.mrKey).toBe(KEY);
+    expect(usageMrRoute.success.safeParse(res).error).toBeUndefined();
   });
 
   test("REST days arrives as a number and the handler accepts it", async () => {
@@ -96,5 +104,6 @@ describe("usage handlers", () => {
     const res = await make()["usage:mrs"](payload);
     expect(res.ok).toBe(true);
     expect(res.data.mrs.length).toBe(1);
+    expect(usageMrsRoute.success.safeParse(res).error).toBeUndefined();
   });
 });
