@@ -5,6 +5,8 @@ const REPO_ROOT = join(import.meta.dir, "..", "..");
 const ALREADY_SET = "process.exitCode was already";
 let out = "";
 let outBoth = "";
+let outLast = "";
+let lastExit = 0;
 
 beforeAll(() => {
   const run = Bun.spawnSync(
@@ -18,6 +20,19 @@ beforeAll(() => {
     { cwd: REPO_ROOT, env: process.env, stdout: "pipe", stderr: "pipe" },
   );
   outBoth = runBoth.stdout.toString() + runBoth.stderr.toString();
+
+  const runLast = Bun.spawnSync(
+    [process.execPath, "test", "./lib/__tests__/fixtures/exitcode-guard-last-afterall-file.ts"],
+    { cwd: REPO_ROOT, env: process.env, stdout: "pipe", stderr: "pipe" },
+  );
+  outLast = runLast.stdout.toString() + runLast.stderr.toString();
+  lastExit = runLast.exitCode ?? 0;
+});
+
+test("an afterAll that leaves process.exitCode set after the last test fails the run with a message, not a bare exit 1", () => {
+  expect(lastExit).not.toBe(0);
+  expect(outLast).toContain("process.exitCode was left at 2 when the run ended");
+  expect(outLast).toMatch(/\b1 fail\b/);
 });
 
 test("the preload guard fails the test that leaves process.exitCode set, not the next one", () => {
