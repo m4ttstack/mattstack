@@ -5,12 +5,12 @@
 
 import { Hono, type Context } from "hono";
 import type { Logger } from "pino";
-import { DAEMON_ROUTES, type DaemonRoute } from "../../packages/rt-client/src/daemon-api/index.ts";
+import { DAEMON_ROUTES } from "../../packages/rt-client/src/daemon-api/routes.ts";
 import { needsToken, tokenOk, resolveOriginTrust, isTokenPreflight } from "./api-auth.ts";
 import { deriveFailure } from "./failure.ts";
 import { readCommandBody } from "./request-limits.ts";
 import { parseIdentity } from "../settings/identity.ts";
-import { apiIndex, docsHtml, openApiJson, SCALAR_JS } from "./api-docs.ts";
+import { apiIndex, docsHtml, openApiJson, scalarJs } from "./api-docs.ts";
 
 export interface ApiAppDeps {
   handleCommand: (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
@@ -153,8 +153,10 @@ export function coerceQueryParams(params: URLSearchParams): Record<string, unkno
 
 type ApiEnv = { Variables: { corsHeaders: Record<string, string> } };
 type ApiContext = Context<ApiEnv>;
+type Route = (typeof DAEMON_ROUTES)[number];
+type SpecialRoute = Extract<Route, { kind: "special" }>;
 
-function isWildcard(route: DaemonRoute): boolean {
+function isWildcard(route: Route): boolean {
   return route.honoPath.endsWith("/*");
 }
 
@@ -187,42 +189,56 @@ export function createApiApp(deps: ApiAppDeps): Hono<ApiEnv> {
     return reply(c, { ok: false, error: `use ${method}` }, 405);
   };
 
-  const dispatch = async (route: DaemonRoute, c: ApiContext): Promise<Response> => {
+  const malformed = (c: ApiContext) => reply(c, { ok: false, error: "malformed path parameter" }, 400);
+
+  // Keyed by every special route id, so a special route without a handler
+  // here fails to compile instead of falling through to the generic payload.
+  const specials: { [Id in SpecialRoute["id"]]: (c: ApiContext, route: SpecialRoute) => Promise<Response> } = {
+    "cache.get": async (c, route) => {
+      const req = c.req.raw;
+      const url = new URL(req.url);
+      const branch = pathParam(url.pathname, "/api/cache/");
+      if (branch === undefined) return malformed(c);
+      const repoIdentity = repoIdentityQueryParam(url);
+      if (repoIdentity === null) return reply(c, await handleCommand(route.cmd, { branches: [branch] }, req.signal));
+      if (parseIdentity(repoIdentity) === null) return reply(c, { ok: true, data: {} });
+      return reply(c, await handleCommand(route.cmd, { branches: [branch], repoIdentity }, req.signal));
+    },
+    "hooks.repair": async (c, route) => {
+      const req = c.req.raw;
+      const url = new URL(req.url);
+      if (!url.pathname.endsWith("/repair")) return unrouted(c);
+      const repo = repoPathParam(url.pathname, "/api/hooks/", "/repair");
+      if (repo === undefined) return malformed(c);
+      return reply(c, await handleCommand(route.cmd, { repo }, req.signal));
+    },
+    "runs.get": async (c, route) => {
+      const req = c.req.raw;
+      const split = splitRepoAndRest(new URL(req.url).pathname, "/api/runs/");
+      if (split === "malformed") return malformed(c);
+      if (split === undefined) return unrouted(c);
+      return reply(c, await handleCommand(route.cmd, { repo: split.repo, runId: split.rest }, req.signal));
+    },
+    "secrets.read": async (c, route) => {
+      const req = c.req.raw;
+      // The secrets:read handler re-checks the token itself, since it also
+      // serves the unix socket, so the verified header rides in the payload.
+      return reply(c, await handleCommand(route.cmd, { token: req.headers.get("x-rt-token") ?? undefined }, req.signal));
+    },
+  };
+
+  const dispatch = async (route: Route, c: ApiContext): Promise<Response> => {
+    if (route.kind === "special") return specials[route.id](c, route);
+
     const req = c.req.raw;
     const url = new URL(req.url);
-    const malformed = () => reply(c, { ok: false, error: "malformed path parameter" }, 400);
 
-    switch (route.id) {
-      case "cache.list": {
-        const repoIdentity = repoIdentityQueryParam(url);
-        if (repoIdentity === null) break;
+    if (route.id === "cache.list") {
+      const repoIdentity = repoIdentityQueryParam(url);
+      if (repoIdentity !== null) {
         if (parseIdentity(repoIdentity) === null) return reply(c, { ok: true, data: {} });
         return reply(c, await handleCommand(route.cmd, { repoIdentity }, req.signal));
       }
-      case "cache.get": {
-        const branch = pathParam(url.pathname, "/api/cache/");
-        if (branch === undefined) return malformed();
-        const repoIdentity = repoIdentityQueryParam(url);
-        if (repoIdentity === null) return reply(c, await handleCommand(route.cmd, { branches: [branch] }, req.signal));
-        if (parseIdentity(repoIdentity) === null) return reply(c, { ok: true, data: {} });
-        return reply(c, await handleCommand(route.cmd, { branches: [branch], repoIdentity }, req.signal));
-      }
-      case "hooks.repair": {
-        if (!url.pathname.endsWith("/repair")) return unrouted(c);
-        const repo = repoPathParam(url.pathname, "/api/hooks/", "/repair");
-        if (repo === undefined) return malformed();
-        return reply(c, await handleCommand(route.cmd, { repo }, req.signal));
-      }
-      case "runs.get": {
-        const split = splitRepoAndRest(url.pathname, "/api/runs/");
-        if (split === "malformed") return malformed();
-        if (split === undefined) return unrouted(c);
-        return reply(c, await handleCommand(route.cmd, { repo: split.repo, runId: split.rest }, req.signal));
-      }
-      case "secrets.read":
-        // The secrets:read handler re-checks the token itself, since it also
-        // serves the unix socket, so the verified header rides in the payload.
-        return reply(c, await handleCommand(route.cmd, { token: req.headers.get("x-rt-token") ?? undefined }, req.signal));
     }
 
     let payload: any;
@@ -275,12 +291,13 @@ export function createApiApp(deps: ApiAppDeps): Hono<ApiEnv> {
     await next();
   });
 
-  const text = (c: ApiContext, body: string, contentType: string, extra: Record<string, string> = {}): Response =>
+  const text = (c: ApiContext, body: string | Uint8Array, contentType: string, extra: Record<string, string> = {}): Response =>
     new Response(body, { headers: { ...c.get("corsHeaders"), "Content-Type": contentType, ...extra } });
 
-  app.get("/openapi.json", (c) => reply(c, openApiJson()));
+  app.get("/openapi.json", async (c) => reply(c, await openApiJson()));
   app.get("/docs", (c) => text(c, docsHtml(), "text/html; charset=utf-8"));
-  app.get("/docs/scalar.js", (c) => text(c, SCALAR_JS, "text/javascript; charset=utf-8", { "Cache-Control": "max-age=86400" }));
+  app.get("/docs/scalar.js", async (c) =>
+    text(c, await scalarJs(), "text/javascript; charset=utf-8", { "Cache-Control": "max-age=86400" }));
 
   // Hono's `/x/*` also matches `/x`, and the first registered handler wins.
   const ordered = [...DAEMON_ROUTES.filter((r) => !isWildcard(r)), ...DAEMON_ROUTES.filter(isWildcard)];

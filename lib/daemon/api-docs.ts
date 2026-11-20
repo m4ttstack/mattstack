@@ -2,25 +2,29 @@
  * The daemon's self-description: the index at `/`, the OpenAPI document at
  * `/openapi.json` and the Scalar viewer at `/docs`, which loads its script
  * from the daemon so the page reaches nothing outside it.
+ *
+ * The document builder (with `@hono/zod-openapi`) and the Scalar bundle load
+ * on first request, so a daemon nobody asks for docs never holds them.
  */
 
-// Relative because the package's `exports` omit this file, so Bun refuses the bare specifier.
-import scalarJs from "../../node_modules/@scalar/api-reference/dist/browser/standalone.js" with { type: "text" };
-import {
-  API_VERSION,
-  DAEMON_ROUTES,
-  WEBSOCKET_EVENTS,
-  buildOpenApiDocument,
-  type OpenAPI31Document,
-} from "../../packages/rt-client/src/daemon-api/index.ts";
+import { API_VERSION, DAEMON_ROUTES, WEBSOCKET_EVENTS } from "../../packages/rt-client/src/daemon-api/routes.ts";
+import type { OpenAPI31Document } from "../../packages/rt-client/src/daemon-api/document.ts";
+import scalarPackage from "../../node_modules/@scalar/api-reference/package.json" with { type: "json" };
 
-export const SCALAR_JS: string = scalarJs;
+export const SCALAR_VERSION: string = scalarPackage.version;
 
-let openApiDocument: OpenAPI31Document | undefined;
+let openApiDocument: Promise<OpenAPI31Document> | undefined;
 
-export function openApiJson(): OpenAPI31Document {
-  openApiDocument ??= buildOpenApiDocument();
+export function openApiJson(): Promise<OpenAPI31Document> {
+  openApiDocument ??= import("../../packages/rt-client/src/daemon-api/document.ts").then((m) => m.buildOpenApiDocument());
   return openApiDocument;
+}
+
+let scalarBytes: Promise<Uint8Array> | undefined;
+
+export function scalarJs(): Promise<Uint8Array> {
+  scalarBytes ??= import("./api-docs-scalar.ts").then((m) => new TextEncoder().encode(m.SCALAR_JS));
+  return scalarBytes;
 }
 
 const DOCS_ROUTES = [
@@ -63,7 +67,7 @@ export function docsHtml(): string {
   </head>
   <body>
     <div id="app"></div>
-    <script src="/docs/scalar.js"></script>
+    <script src="/docs/scalar.js?v=${SCALAR_VERSION}"></script>
     <script>
       Scalar.createApiReference("#app", {
         url: "/openapi.json",
