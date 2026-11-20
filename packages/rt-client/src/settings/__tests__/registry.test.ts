@@ -218,6 +218,7 @@ describe("settings/registry", () => {
         "rt.hooks",
         "rt.ignoredMrs",
         "rt.intercepts",
+        "rt.linearKey",
         "rt.presets",
         "rt.roles",
         "rt.sync",
@@ -328,7 +329,7 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 24 migrated:true keys and the 109 suite keys", () => {
+    test("has exactly the 24 migrated:true keys and the 114 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
@@ -415,6 +416,7 @@ describe("settings/registry", () => {
         "rt.mcp.uploadRoots",
         "rt.picker.hidden",
         "rt.ui.background",
+        "rt.linearKey",
         "rt.daemonPath",
         "rt.notify.eventBridges",
         "rt.notify.usageLimits",
@@ -452,7 +454,7 @@ describe("settings/registry", () => {
         "rt.work.gateModeShadow",
         "superpowers.execution",
       ];
-      expect(suiteKeys).toHaveLength(113);
+      expect(suiteKeys).toHaveLength(114);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
