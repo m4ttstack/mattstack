@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createUsageHandlers } from "../usage.ts";
 import { coerceQueryParams } from "../../api-server.ts";
+import { DAEMON_ROUTES } from "../../../../packages/rt-client/src/daemon-api/index.ts";
 import { openUsageDb } from "../../../usage/store.ts";
 
 const log = { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} } as any;
@@ -69,8 +70,7 @@ describe("usage handlers", () => {
     const res = await make()["usage:activity"]({ runId: "missing" });
     expect(res.ok).toBe(true);
     expect(res.data).toBeNull();
-    const routes = await Bun.file(new URL("../../api-server.ts", import.meta.url)).text();
-    expect(routes).not.toContain("usage:activity");
+    expect(DAEMON_ROUTES.map((route) => route.cmd)).not.toContain("usage:activity");
   });
 
   test("usage:status returns ok with no database", async () => {
