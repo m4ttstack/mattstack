@@ -1753,7 +1753,7 @@ const ownerPostsRunning = new Set<string>();
 async function ownersPreviewOrPost(
   mr: BoardMR,
   slackToken: string,
-  request: { team?: unknown; channels?: unknown; text?: unknown } | null
+  request: { team?: unknown; channels?: unknown; texts?: unknown } | null
 ): Promise<Response> {
   if (!withReviewChannel(() => channelForMR(config, mr), Boolean))
     return new Response(NO_REVIEW_CHANNEL, { status: 400 });
@@ -1762,11 +1762,14 @@ async function ownersPreviewOrPost(
   const team = await teamThread(mr, slackToken);
   const defaultText = mrPostText([mr]);
   const { plan } = planned;
-  const prefixFor = (c: { channel: string; sections: string[] }) =>
-    renderOwnerPrefix(
-      config.slack.ownerPrefix,
-      mrFacts(mr),
-      c.sections.map(s => sectionLabel(s, c.channel)).join(', ')
+  const ownerText = (c: { channel: string; sections: string[] }) =>
+    withOwnerPrefix(
+      renderOwnerPrefix(
+        config.slack.ownerPrefix,
+        mrFacts(mr),
+        c.sections.map(s => sectionLabel(s, c.channel)).join(', ')
+      ),
+      defaultText
     );
   if (request === null) {
     const direct =
@@ -1778,19 +1781,12 @@ async function ownersPreviewOrPost(
     return Response.json({
       text: defaultText,
       ...plan,
-      channels: plan.channels.map(c => {
-        const prefix = prefixFor(c);
-        return prefix ? { ...c, prefix } : c;
-      }),
+      channels: plan.channels.map(c => ({ ...c, text: ownerText(c) })),
       team,
       direct,
       unchecked: planned.unchecked,
     });
   }
-  const edited = typeof request.text === 'string' ? request.text.trim() : '';
-  if (request.text !== undefined && !edited)
-    return new Response('the message is empty', { status: 400 });
-  const text = edited || defaultText;
   const offered = new Set(plan.channels.map(c => c.channel));
   const channels = request.channels ?? [];
   const wantsTeam = request.team === true;
@@ -1806,6 +1802,28 @@ async function ownersPreviewOrPost(
       { status: 400 }
     );
   }
+  const texts = request.texts ?? {};
+  if (typeof texts !== 'object' || Array.isArray(texts))
+    return new Response('texts must name a message per channel', {
+      status: 400,
+    });
+  const written = (channel: string): string | undefined => {
+    const t = (texts as Record<string, unknown>)[channel];
+    return typeof t === 'string' ? t.trim() : undefined;
+  };
+  for (const channel of [...(wantsTeam ? [team.channel] : []), ...channels]) {
+    const t = (texts as Record<string, unknown>)[channel];
+    if (t !== undefined && (typeof t !== 'string' || !t.trim()))
+      return new Response(`the message for #${channel} is empty`, {
+        status: 400,
+      });
+    // The board finds a channel's post, and its reactions, by this link.
+    if (typeof t === 'string' && !t.includes(mr.webUrl!))
+      return new Response(
+        `the message for #${channel} has no link to the ${boardNoun()}`,
+        { status: 400 }
+      );
+  }
   const posted: Array<{
     channel: string;
     permalink: string;
@@ -1819,7 +1837,7 @@ async function ownersPreviewOrPost(
       [mr],
       team.channel,
       null,
-      edited || undefined
+      written(team.channel)
     );
     if (result.kind === 'posted' || result.kind === 'linked')
       posted.push({
@@ -1835,15 +1853,11 @@ async function ownersPreviewOrPost(
       });
   }
   for (const name of channels as string[]) {
-    const ownerText = withOwnerPrefix(
-      prefixFor(plan.channels.find(c => c.channel === name)!),
-      text
-    );
     try {
       const sent = await postToOwnerChannel(
         slackToken,
         { name, id: planned.channels.get(name)!.id },
-        ownerText,
+        written(name) ?? ownerText(plan.channels.find(c => c.channel === name)!),
         mr.webUrl!
       );
       posted.push({ channel: name, permalink: sent.permalink });
@@ -5454,11 +5468,11 @@ const httpServer = Bun.serve({
         } catch {
           return new Response('invalid json', { status: 400 });
         }
-        const { mrUrl, team, channels, text } = (body ?? {}) as {
+        const { mrUrl, team, channels, texts } = (body ?? {}) as {
           mrUrl?: unknown;
           team?: unknown;
           channels?: unknown;
-          text?: unknown;
+          texts?: unknown;
         };
         if (typeof mrUrl !== 'string')
           return new Response('expected { mrUrl: string }', { status: 400 });
@@ -5483,7 +5497,7 @@ const httpServer = Bun.serve({
           return await ownersPreviewOrPost(mr, slackToken, {
             team,
             channels,
-            text,
+            texts,
           });
         } finally {
           ownerPostsRunning.delete(mrUrl);
