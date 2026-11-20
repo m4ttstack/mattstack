@@ -246,6 +246,9 @@ export type BoardMRWithReview = BoardMR & {
   /** The seat's own note on this MR (B10), kept in the board's state db and
       shown as the row's last line. */
   note?: string;
+  /** When the note was last saved (ISO); absent on notes saved before the
+      board kept a time. */
+  noteAt?: string;
   peerReviews?: PeerReviewInfo[];
   sentNudge?: SentNudgeInfo;
   /** Each gate carries `executor` when the reconciler sweep's `openGateIds`

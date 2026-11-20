@@ -58,15 +58,21 @@ function note(body: unknown): Promise<Response> {
 test('writes the note, then clears it on an empty save', async () => {
   const res = await note({ mrUrl: MR, text: '  rebase after !8 lands ' });
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({
+  const body = (await res.json()) as { noteAt: string };
+  expect(body as unknown).toEqual({
     ok: true,
     note: 'rebase after !8 lands',
+    noteAt: expect.any(String),
   });
-  expect(readNotes(db).get(MR)).toBe('rebase after !8 lands');
+  expect(Number.isNaN(Date.parse(body.noteAt))).toBe(false);
+  expect(readNotes(db).get(MR)).toEqual({
+    text: 'rebase after !8 lands',
+    at: body.noteAt,
+  });
 
   const cleared = await note({ mrUrl: MR, text: '' });
   expect(cleared.status).toBe(200);
-  expect(await cleared.json()).toEqual({ ok: true, note: null });
+  expect(await cleared.json()).toEqual({ ok: true, note: null, noteAt: null });
   expect(readNotes(db).has(MR)).toBe(false);
 }, 15_000);
 

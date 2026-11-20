@@ -210,20 +210,19 @@ try {
     await page.waitForSelector('.tui-row:hover');
     await shoot(page, `rowhover-${theme}`);
     await page.mouse.move(0, 0);
-    // the row's note (B10): the band at rest, then the same row with its
-    // editor open.
+    // the row's note (B10): the line under the pointer, then the same row
+    // with its editor open.
     const noted = await required(
       page.locator('.tui-row[data-note]').first(),
       'a row with a note'
     );
     {
-      // The band's own hover, not the row's: the dismiss verb belongs to the
-      // note and only appears (dim) when the pointer is on it.
+      // The note's own hover, not the row's: edit and clear belong to the
+      // note and only appear when the pointer is on it.
       await noted.locator('.tui-row-note').hover();
       await page.waitForSelector('.tui-row[data-note] .tui-row-note');
       await shoot(page, `note-${theme}`);
-      // The band itself is the edit affordance now; click its left end, clear
-      // of the dismiss verb.
+      // The note's text is the edit affordance; click its left end.
       await noted.locator('.tui-row-note').click({ position: { x: 20, y: 8 } });
       await page.waitForSelector('.tui-row-note[data-editing]');
       await shoot(page, `noteedit-${theme}`);

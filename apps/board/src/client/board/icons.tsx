@@ -165,14 +165,10 @@ export function MessageGlyph() {
   );
 }
 
-/** The row note's mark (B10): a sticky note with its corner folded, drawn
-    at the same 13px the row's other tools use. */
-export function NoteGlyph({ size = 13 }: { size?: number }) {
+export function LinkGlyph() {
   return (
-    <svg {...GLYPH} width={size} height={size}>
-      <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2Z" />
-      <path d="M14 21v-5a2 2 0 0 1 2-2h5" />
-      <path d="M7 8h8M7 12h5" />
+    <svg {...GLYPH}>
+      <path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8" />
     </svg>
   );
 }

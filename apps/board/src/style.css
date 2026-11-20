@@ -1518,97 +1518,146 @@ button.tui-status-more-verb:active {
   color: var(--text-ok-small);
 }
 /* ── the row's note (B10) ─────────────────────────────────────────────
-   The seat's own line, under everything the row already says. A band, not
-   a status line: it carries no tone and never takes a lane's hue, and its
-   cyan is the one hue the row does not spend on a verb. */
+   The seat's line to its future self, under everything the row already
+   says. Plain ink behind a cyan rule: it carries no tone and never takes a
+   lane's hue, and cyan is the one hue the row does not spend on a verb. */
 .tui-row-note {
   position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 9px;
+  align-items: center;
+  gap: 8px;
   margin-top: 8px;
-  padding: 6px 12px 6px 10px;
-  border-radius: var(--radius-px5);
-  /* Opaque, mixed into the panel the rows sit on, never an alpha wash: a
-     translucent band would take the row's hover tint and the ground's grid
-     with it, so the same note would read a different color under the
-     pointer than at rest. */
-  background: color-mix(in srgb, var(--fill-cyan) 8%, var(--panel));
+  padding: 1px 0 1px 10px;
+  border-left: 2px solid var(--text-cyan-vivid);
   color: var(--text-1);
-  font-size: 0.72rem;
-  line-height: 1.35;
+  font-size: var(--type-small);
+  line-height: 1.45;
+}
+.tui-row-note:not([data-editing]) {
   cursor: text;
-  text-align: left;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
 }
-/* Set on the first line's middle, not the band's: a note that wraps keeps
-   its glyph beside the words it starts with. */
-.tui-row-note > svg {
-  flex: 0 0 auto;
-  margin-top: 2px;
-  color: var(--text-cyan-small);
+.tui-row-note-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+/* Links sit on their own line under the words, so the sentence keeps the
+   row's full width. */
+.tui-row-note-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* One line at rest, so a long note costs the row one line. */
 .tui-row-note-text {
   flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-/* The quick clear rides ABOVE the band rather than in it: absolute, so it
-   reserves no room at rest (the note would otherwise end early for a button
-   that isn't there), and opaque with a shadow so it reads over whatever
-   words it lands on. */
-.tui-row-note-dismiss {
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  transform: translateY(-50%);
-  margin: 0;
-  border: 0;
-  padding: 1px 7px;
+/* At the note's own size and line height, with no border: the chip is
+   no taller than the words above it. */
+.tui-row-note-link {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.45rem;
   border-radius: var(--radius-px5);
-  /* Translucent, so the words it lands on still read underneath, with a
-     shadow to lift it off them. */
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
-  backdrop-filter: blur(2px);
-  box-shadow: 0 1px 5px rgb(0 0 0 / 16%);
-  font: 600 0.72rem / 16px var(--font-sans);
-  color: var(--text-4);
-  cursor: pointer;
-  display: none;
-  transition:
-    opacity 0.12s ease,
-    background-color 0.12s ease;
+  font-family: var(--font-sans);
+  font-size: inherit;
+  font-weight: 500;
+  line-height: inherit;
+  color: var(--text-accent-small);
+  background: var(--surface-wash-accent-14);
+  text-decoration: none;
 }
-/* It belongs to the note, not the row: the band's own hover brings it in,
-   dim enough to stay out of the reading, and only the pointer on the verb
-   itself brings it up to full. */
-.tui-row-note:is(:hover, :focus-within) .tui-row-note-dismiss {
-  display: block;
-  opacity: 0.4;
+.tui-row-note-link svg {
+  flex-shrink: 0;
 }
-/* Keyed off the band too, or the dim rule above (two classes and a
-   pseudo-class) would outrank this one and the verb would never come up. */
-.tui-row-note:is(:hover, :focus-within) .tui-row-note-dismiss:hover {
-  opacity: 1;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  color: var(--text-1);
+.tui-row-note-link-host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-/* Editing: the band keeps its place and its color; the text becomes the
-   same auto-growing textarea the selection bar and the launch note use. */
-.tui-row-note[data-editing] {
-  display: block;
-  cursor: default;
-  outline: 1px solid var(--fill-accent);
-}
-.tui-row-note-lead {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-}
-.tui-row-note-lead > svg {
+.tui-row-note-age {
   flex: 0 0 auto;
-  margin-top: 2px;
-  color: var(--text-cyan-small);
+  white-space: nowrap;
+  color: var(--text-4);
+}
+.tui-row-note-age[data-stale] {
+  color: var(--text-warn-small);
+}
+.tui-row-note-verbs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+}
+/* The row's own verb, at the note's size and line height so revealing it
+   never changes the line's height. */
+.tui-status-verb.tui-row-note-verb {
+  padding-block: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--text-2);
+}
+.tui-status-verb.tui-row-note-verb[data-tone='accent'] {
+  --verb-wash: var(--fill-accent);
+  color: var(--text-accent-small);
+}
+/* Under a pointer the verbs wait clipped to a point, never display: none,
+   so focus can still reach them; hovering puts edit and clear where the
+   age was. The note stays one line, so the row never changes height under
+   the pointer; the full text is the tooltip and the editor. */
+@media (hover: hover) {
+  .tui-row-note-link:hover {
+    text-decoration: underline;
+  }
+  .tui-row-note:not([data-editing]):not(:focus-within) .tui-row-note-verbs {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tui-row-note:not([data-editing]):hover .tui-row-note-verbs {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+  .tui-row-note:hover .tui-row-note-age {
+    display: none;
+  }
+}
+.tui-row-note:focus-within .tui-row-note-age {
+  display: none;
+}
+/* Editing: the same line becomes a field, in place. */
+.tui-row-note[data-editing] {
+  border-left-color: var(--fill-accent);
+  padding-block: 0;
+}
+.tui-row-note-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 4px 6px 4px 8px;
+  border: 1px solid var(--fill-accent);
+  border-radius: var(--radius-px5);
+  background: var(--card);
+  box-shadow: 0 0 0 3px var(--surface-wash-accent-14);
 }
 .tui-row-note-input {
   flex: 1 1 auto;
@@ -1618,6 +1667,7 @@ button.tui-status-more-verb:active {
   padding: 0;
   background: none;
   font: inherit;
+  line-height: inherit;
   color: var(--text-1);
   resize: none;
   overflow: hidden;
@@ -1625,13 +1675,28 @@ button.tui-status-more-verb:active {
 .tui-row-note-input:focus-visible {
   outline: none;
 }
-.tui-row-note-hint {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: 12px;
-  margin-top: 2px;
-  font-size: 0.66rem;
-  color: var(--text-4);
+.tui-row-note-save {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  border: 0;
+  padding: 0 0 0 4px;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  color: var(--text-accent-small);
+  cursor: pointer;
+}
+.tui-row-note-save[data-clear] {
+  color: var(--text-bad-small);
+}
+.tui-row-note-save .tui-key-cap {
+  min-width: 0;
+  padding: 0 0.35em;
+  font-size: var(--type-micro);
+  line-height: 1.3;
 }
 /* Under a pointer, secondary verbs wait out of sight at rest but never out
    of the tab order: clipped to a point, not display: none, so focus-within

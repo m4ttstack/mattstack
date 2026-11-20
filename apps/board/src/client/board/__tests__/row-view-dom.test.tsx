@@ -549,18 +549,147 @@ test("a review a peer board lost on a teammate's MR leaves the row without a ban
   expect(row.querySelector('.tui-ask')).toBeNull();
 });
 
-test('"dismiss note" saves an empty note, which is the clear', async () => {
+test('"clear" saves an empty note, which is the clear', async () => {
   const saved: Array<[number, string]> = [];
   await render(
     [mr({ note: 'rebase after !1290 lands' })],
     ctx({ onSaveNote: (m, text) => saved.push([m.iid, text]) })
   );
-  const button = container.querySelector<HTMLButtonElement>(
-    '.tui-row-note-dismiss'
+  const verbs = [
+    ...container.querySelectorAll<HTMLButtonElement>('.tui-row-note-verb'),
+  ];
+  expect(verbs.map(v => v.textContent)).toEqual(['edit', 'clear']);
+  await React.act(async () => verbs[1]!.click());
+  expect(saved).toEqual([[1418, '']]);
+});
+
+test("a note's links show by host on their own line, and open without editing", async () => {
+  const edits: Array<string | null> = [];
+  await render(
+    [
+      mr({
+        note: 'rolled out to staging https://claude.ai/artifact/Xa91?sk=07 https://www.example.com/qa',
+      }),
+    ],
+    ctx({ onEditNote: url => edits.push(url) })
+  );
+  const note = container.querySelector('.tui-row-note')!;
+  expect(note.querySelector('.tui-row-note-text')!.textContent).toBe(
+    'rolled out to staging'
+  );
+  const links = [
+    ...note.querySelectorAll<HTMLAnchorElement>(
+      '.tui-row-note-links .tui-row-note-link'
+    ),
+  ];
+  expect(links.map(a => [a.textContent, a.getAttribute('href')])).toEqual([
+    ['claude.ai', 'https://claude.ai/artifact/Xa91?sk=07'],
+    ['example.com', 'https://www.example.com/qa'],
+  ]);
+  expect(links[0]!.getAttribute('target')).toBe('_blank');
+  await React.act(async () => links[0]!.click());
+  expect(edits).toEqual([]);
+});
+
+test('a note says when it was written, and turns stale after a week', async () => {
+  await render([
+    mr({
+      note: 'waiting on QA',
+      noteAt: new Date(NOW - 2 * 24 * 3600_000).toISOString(),
+    }),
+  ]);
+  let age = container.querySelector('.tui-row-note-age')!;
+  expect(age.textContent).toBe('noted 2d');
+  expect(age.getAttribute('data-stale')).toBeNull();
+
+  await render([
+    mr({
+      note: 'waiting on QA',
+      noteAt: new Date(NOW - 15 * 24 * 3600_000).toISOString(),
+    }),
+  ]);
+  age = container.querySelector('.tui-row-note-age')!;
+  expect(age.textContent).toBe('noted 15d ago');
+  expect(age.getAttribute('data-stale')).toBe('true');
+
+  await render([mr({ note: 'saved before notes kept a time' })]);
+  expect(container.querySelector('.tui-row-note-age')).toBeNull();
+});
+
+test('the editor offers "clear note" once a saved note is emptied', async () => {
+  const saved: Array<[number, string]> = [];
+  await render(
+    [mr({ note: 'waiting on QA' })],
+    ctx({
+      noteEditing: URL,
+      onSaveNote: (m, text) => saved.push([m.iid, text]),
+    })
+  );
+  const box = container.querySelector<HTMLTextAreaElement>(
+    '.tui-row-note-input'
   )!;
-  expect(button.textContent).toBe('dismiss note');
+  const button =
+    container.querySelector<HTMLButtonElement>('.tui-row-note-save')!;
+  expect(button.textContent).toBe('save');
+  await React.act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value'
+    )!.set!.call(box, '');
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(button.textContent).toBe('clear note');
+  expect(button.getAttribute('data-clear')).toBe('true');
   await React.act(async () => button.click());
   expect(saved).toEqual([[1418, '']]);
+});
+
+test('a new note starts on "save", and saving it unchanged only closes the editor', async () => {
+  const saved: Array<[number, string]> = [];
+  const edits: Array<string | null> = [];
+  await render(
+    [mr({ note: 'waiting on QA' })],
+    ctx({
+      noteEditing: URL,
+      onSaveNote: (m, text) => saved.push([m.iid, text]),
+      onEditNote: url => edits.push(url),
+    })
+  );
+  await React.act(async () =>
+    container.querySelector<HTMLButtonElement>('.tui-row-note-save')!.click()
+  );
+  expect(saved).toEqual([]);
+  expect(edits).toEqual([null]);
+
+  await render([mr()], ctx({ noteEditing: URL }));
+  expect(container.querySelector('.tui-row-note-save')!.textContent).toBe(
+    'save'
+  );
+});
+
+test('a click anywhere in the note opens its editor, never the MR', async () => {
+  const edits: Array<string | null> = [];
+  const opened: string[] = [];
+  const realOpen = window.open;
+  window.open = ((url: string) => {
+    opened.push(url);
+    return null;
+  }) as typeof window.open;
+  try {
+    await render(
+      [mr({ note: 'waiting on QA https://example.com/qa' })],
+      ctx({ onEditNote: url => edits.push(url) })
+    );
+    await React.act(async () =>
+      container
+        .querySelector<HTMLElement>('.tui-row-note-links')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    );
+    expect(edits).toEqual([URL]);
+    expect(opened).toEqual([]);
+  } finally {
+    window.open = realOpen;
+  }
 });
 
 test('the row has no hover note or copy tools, and the editor saves on Enter', async () => {
