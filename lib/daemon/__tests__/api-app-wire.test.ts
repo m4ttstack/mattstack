@@ -3,14 +3,13 @@ import type { Server } from "bun";
 import { startApiServer, type ApiServerDeps } from "../api-server.ts";
 import { getApiToken } from "../api-auth.ts";
 import { deriveFailure } from "../failure.ts";
-import { bodyLimitFor } from "../request-limits.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
-import { setSetting, unsetSetting } from "../../settings/write.ts";
 
 const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
 
 let server: Server<any> | undefined;
 let port = 0;
+let previousPortEnv: string | undefined;
 let token = "";
 let calls: Array<{ cmd: string; payload: any }> = [];
 let reply: (cmd: string, payload: any) => Promise<any> = async () => ({ ok: true, data: "stub" });
@@ -21,17 +20,17 @@ const handleCommand: ApiServerDeps["handleCommand"] = async (cmd, payload) => {
 };
 
 beforeAll(async () => {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-  port = probe.port!;
-  probe.stop(true);
-  setSetting("rt.apiPort", port, "user");
+  previousPortEnv = process.env.RT_API_PORT;
+  process.env.RT_API_PORT = "0";
   server = await startApiServer({ handleCommand, log: noopLog });
+  port = server.port!;
   token = getApiToken();
 });
 
 afterAll(() => {
   server?.stop(true);
-  unsetSetting("rt.apiPort", "user");
+  if (previousPortEnv === undefined) delete process.env.RT_API_PORT;
+  else process.env.RT_API_PORT = previousPortEnv;
 });
 
 beforeEach(() => {
@@ -270,7 +269,7 @@ describe("REST wire behaviour", () => {
   });
 
   test("oversized POST body keeps the 413 body", async () => {
-    const limit = bodyLimitFor("events:emit");
+    const limit = 1024 * 1024;
     const res = await hit("/api/events/emit", {
       method: "POST",
       headers: withToken({ "Content-Type": "application/json" }),

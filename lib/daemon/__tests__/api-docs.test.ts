@@ -1,7 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type { Server } from "bun";
 import { startApiServer } from "../api-server.ts";
-import { setSetting, unsetSetting } from "../../settings/write.ts";
 import { DAEMON_ROUTES } from "../../../packages/rt-client/src/daemon-api/index.ts";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -11,13 +10,12 @@ const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => 
 
 let server: Server<any> | undefined;
 let port = 0;
+let previousPortEnv: string | undefined;
 let calls: string[] = [];
 
 beforeAll(async () => {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-  port = probe.port!;
-  probe.stop(true);
-  setSetting("rt.apiPort", port, "user");
+  previousPortEnv = process.env.RT_API_PORT;
+  process.env.RT_API_PORT = "0";
   server = await startApiServer({
     handleCommand: async (cmd) => {
       calls.push(cmd);
@@ -25,11 +23,13 @@ beforeAll(async () => {
     },
     log: noopLog,
   });
+  port = server.port!;
 });
 
 afterAll(() => {
   server?.stop(true);
-  unsetSetting("rt.apiPort", "user");
+  if (previousPortEnv === undefined) delete process.env.RT_API_PORT;
+  else process.env.RT_API_PORT = previousPortEnv;
 });
 
 function hit(path: string, init: RequestInit = {}): Promise<Response> {
@@ -102,6 +102,28 @@ describe("daemon API docs", () => {
     expect(bodies[0]!.length).toBeGreaterThan(1024 * 1024);
     expect(bodies[0]!).toContain("createApiReference");
     expect(bodies[1]).toBe(bodies[0]!);
+  });
+
+  test("HEAD on a docs route answers the GET's status and headers with no body", async () => {
+    calls = [];
+    for (const path of ["/openapi.json", "/docs", "/docs/scalar.js"]) {
+      const get = await hit(path);
+      const length = (await get.arrayBuffer()).byteLength;
+      const head = await hit(path, { method: "HEAD" });
+      expect(head.status).toBe(200);
+      expect(head.headers.get("content-type")).toBe(get.headers.get("content-type"));
+      expect(head.headers.get("cache-control")).toBe(get.headers.get("cache-control"));
+      expect(head.headers.get("content-length")).toBe(String(length));
+      expect((await head.arrayBuffer()).byteLength).toBe(0);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("the index names every token-gated GET", async () => {
+    const index = (await (await hit("/")).json()) as { auth: { description: string } };
+    expect(index.auth.description).toContain("GET /api/notifications");
+    expect(index.auth.description).toContain("GET /api/secrets");
+    expect(index.auth.description).toContain("mutating (POST)");
   });
 
   test("docs routes are not token-gated", async () => {
