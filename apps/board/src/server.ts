@@ -4691,9 +4691,14 @@ const httpServer = Bun.serve({
             status: 400,
           });
         const note = writeNote(mrUrl, text);
-        return new Response(JSON.stringify({ ok: true, note: note ?? null }), {
-          headers: { 'content-type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            note: note?.text ?? null,
+            noteAt: note?.at ?? null,
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        );
       }
       case '/reconciler/clear': {
         // Proxies the daemon's `reconciler:clear` command: tombstones a
