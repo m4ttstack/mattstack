@@ -1562,7 +1562,9 @@ button.tui-status-more-verb:active {
 /* At the note's own size and line height, with no border: the chip is
    no taller than the words above it. */
 .tui-row-note-link {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -1578,6 +1580,12 @@ button.tui-status-more-verb:active {
 }
 .tui-row-note-link svg {
   flex-shrink: 0;
+}
+.tui-row-note-link-host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tui-row-note-age {
   flex: 0 0 auto;

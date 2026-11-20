@@ -160,7 +160,7 @@ export function RowNote({
               onClick={e => e.stopPropagation()}
             >
               <LinkGlyph />
-              {link.host}
+              <span className="tui-row-note-link-host">{link.host}</span>
             </a>
           ))}
         </div>
