@@ -297,6 +297,12 @@ describe("shared error samples", () => {
     ).not.toThrow();
     expect(() => FailureEnvelopeSchema.parse({ ok: false, error: "missing runId" })).not.toThrow();
   });
+  test("200 handler refusal and handler throw carry reqId", () => {
+    const refusal = { ok: false, error: "missing runId", reqId: "a1b2c3" } as const;
+    const thrown = { ok: false, error: "boom", failure: { code: "internal", message: "boom" }, reqId: "d4e5f6" } as const;
+    expect(FailureEnvelopeSchema.parse(refusal)).toEqual(refusal);
+    expect(FailureEnvelopeSchema.parse(thrown)).toEqual(thrown);
+  });
   test("401 unauthorized", () => {
     expect(() => UnauthorizedSchema.parse({ ok: false, error: "unauthorized" })).not.toThrow();
   });

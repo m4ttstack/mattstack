@@ -266,11 +266,12 @@ export const secretsReadRoute = {
   cmd: "secrets:read",
   tag: "Secrets",
   summary: "Whitelisted secret values (linearApiKey, gitlabToken) — token-gated",
-  description: "Reads no query; the `X-RT-Token` header is forwarded to the handler, which checks it again.",
+  description:
+    "Reads no query; only the `X-RT-Token` header is forwarded to the handler, which checks it again, so the reply is always the `extension` scope.",
   token: true,
   kind: "special",
   request: {},
-  success: okData(S.secretsReadDataSchema),
+  success: okData(S.SecretsReadExtensionDataSchema),
 } as const satisfies DaemonRoute;
 
 export const runsListRoute = {

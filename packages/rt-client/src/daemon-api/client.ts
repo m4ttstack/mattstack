@@ -15,7 +15,7 @@ type ContractRoute<T extends DaemonRoute> = {
       ? { content: { "application/json": { schema: B } } }
       : undefined;
   };
-  // A handler's own refusal also answers 200, so callers must narrow on `ok`.
+  // A handler that refuses or throws also answers 200, so callers must narrow on `ok`.
   responses: {
     200: {
       description: string;
