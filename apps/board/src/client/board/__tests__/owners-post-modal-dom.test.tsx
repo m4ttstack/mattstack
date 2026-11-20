@@ -53,8 +53,13 @@ const PREVIEW: SlackPostPreview = {
     {
       channel: 'pod-acme',
       sections: ['Acme - #pod-acme', 'Acme Jobs - #pod-acme'],
+      text: `Codeowner review [Acme, Acme Jobs]: please review ${MR_URL}`,
     },
-    { channel: 'pod-docs', sections: ['Docs - #pod-docs'] },
+    {
+      channel: 'pod-docs',
+      sections: ['Docs - #pod-docs'],
+      text: `Codeowner review [Docs]: please review ${MR_URL}`,
+    },
   ],
   skipped: [
     {
@@ -125,6 +130,15 @@ const toggle = (channel: string) =>
   document.querySelector(
     `input[aria-label="post to #${channel}"]`
   ) as HTMLInputElement;
+const editor = (channel: string) =>
+  document.querySelector(
+    `[role="textbox"][aria-label="message to #${channel}"]`
+  ) as HTMLElement | null;
+const typeInto = (el: HTMLElement, before: string) =>
+  React.act(async () => {
+    el.firstChild!.textContent = before;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 const click = (el: Element) =>
   React.act(async () => {
     (el as HTMLElement).click();
@@ -143,7 +157,7 @@ test('asks for the preview on open and lists each channel, checked, with its sec
   expect(text).toContain('team review');
   expect(text).toContain('#pod-acme');
   expect(text).toContain('Acme, Acme Jobs');
-  expect(text).toContain(`please review ${MR_URL}`);
+  expect(editor('code-review')!.textContent).toBe('please review !1418');
   expect(confirmButton()!.textContent).toBe('post to 3 channels');
   expect(confirmButton()!.disabled).toBe(false);
 });
@@ -194,7 +208,15 @@ test('confirm sends only the channels still checked, then reports them', async (
   await click(confirmButton()!);
   expect(calls[1]).toEqual({
     path: '/slack/owners/post',
-    payload: { mrUrl: MR_URL, team: true, channels: ['pod-acme'] },
+    payload: {
+      mrUrl: MR_URL,
+      texts: {
+        'code-review': PREVIEW.text,
+        'pod-acme': PREVIEW.channels[0]!.text,
+      },
+      team: true,
+      channels: ['pod-acme'],
+    },
   });
   expect(posted).toEqual([['pod-acme']]);
 });
@@ -248,6 +270,10 @@ test('a team thread already posted shows its link and is not sent again', async 
   await click(confirmButton()!);
   expect(calls[1]!.payload).toEqual({
     mrUrl: MR_URL,
+    texts: {
+      'pod-acme': PREVIEW.channels[0]!.text,
+      'pod-docs': PREVIEW.channels[1]!.text,
+    },
     team: false,
     channels: ['pod-acme', 'pod-docs'],
   });
@@ -270,6 +296,83 @@ test('a channel the board could not read for an earlier post says so', async () 
   expect(document.body.textContent).toContain(
     'could not check for an earlier post'
   );
+});
+
+test('each channel shows the message it will get, with the link as a chip', async () => {
+  await open({ '/slack/owners/preview': ok(PREVIEW) });
+  const acme = editor('pod-acme')!;
+  expect(acme.textContent).toBe(
+    'Codeowner review [Acme, Acme Jobs]: please review !1418'
+  );
+  expect(acme.querySelectorAll('.tui-owners-link')).toHaveLength(1);
+});
+
+test('an edit changes only that channel\'s message', async () => {
+  const calls = await open({
+    '/slack/owners/preview': ok(PREVIEW),
+    '/slack/owners/post': ok({ posted: [], failed: [] }),
+  });
+  await typeInto(editor('pod-acme')!, 'Codeowner review [Acme]: look ');
+  await click(confirmButton()!);
+  expect(
+    (calls[1]!.payload as { texts: Record<string, string> }).texts
+  ).toEqual({
+    'code-review': PREVIEW.text,
+    'pod-acme': `Codeowner review [Acme]: look ${MR_URL}`,
+    'pod-docs': PREVIEW.channels[1]!.text,
+  });
+});
+
+test('the link chip cannot be deleted', async () => {
+  await open({ '/slack/owners/preview': ok(PREVIEW) });
+  const el = editor('pod-acme')!;
+  const chip = el.querySelector('.tui-owners-link')!;
+  const tryInput = (range: Range, inputType: string) => {
+    const sel = getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const e = new InputEvent('beforeinput', {
+      inputType,
+      bubbles: true,
+      cancelable: true,
+    });
+    el.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+  const afterChip = document.createRange();
+  afterChip.setStartAfter(chip);
+  afterChip.collapse(true);
+  expect(tryInput(afterChip, 'deleteContentBackward')).toBe(true);
+  const whole = document.createRange();
+  whole.selectNodeContents(el);
+  expect(tryInput(whole, 'insertText')).toBe(true);
+  expect(tryInput(whole, 'deleteByCut')).toBe(true);
+  const inText = document.createRange();
+  inText.setStart(el.firstChild!, 5);
+  inText.collapse(true);
+  expect(tryInput(inText, 'deleteContentBackward')).toBe(false);
+});
+
+test('a switched-off channel folds its message away', async () => {
+  await open({ '/slack/owners/preview': ok(PREVIEW) });
+  await click(toggle('pod-docs'));
+  expect(editor('pod-docs')).toBeNull();
+  expect(editor('pod-acme')).not.toBeNull();
+});
+
+test('a message emptied or without its link cannot be posted', async () => {
+  await open({ '/slack/owners/preview': ok(PREVIEW) });
+  const el = editor('pod-acme')!;
+  await React.act(async () => {
+    el.replaceChildren(document.createTextNode('no link here'));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(confirmButton()!.disabled).toBe(true);
+  await React.act(async () => {
+    el.replaceChildren(document.createTextNode('   '));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(confirmButton()!.disabled).toBe(true);
 });
 
 test('a preview handed in is shown without asking again', async () => {

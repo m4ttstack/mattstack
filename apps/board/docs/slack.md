@@ -84,6 +84,7 @@ The board has no default channel.
 | `singleTemplate` | template for one MR, used for both clipboard copy and posting. Default `{title}: {url}` |
 | `multiHeader` | header line for a multi-MR summary. Default `{count} MR's ready for review :pray:` |
 | `multiItem` | per-MR line under the header. Default `- {title}: {url}` |
+| `ownerPrefix` | put before posts in other teams' code owner channels, e.g. `Codeowner review [{sections}]:`. `{sections}` names the sections asked; the MR placeholders work too. The team review post never gets it, and each channel's message can still be edited in the post dialog. Default empty |
 | `autoResolveIntervalMinutes` | how often the server sweeps the board resolving missing Slack references. Default `15`; `0` disables the sweeper, and the client can still resolve on demand |
 
 ## Filtering to what has been posted
