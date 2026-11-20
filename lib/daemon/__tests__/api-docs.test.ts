@@ -3,7 +3,9 @@ import type { Server } from "bun";
 import { startApiServer } from "../api-server.ts";
 import { setSetting, unsetSetting } from "../../settings/write.ts";
 import { DAEMON_ROUTES } from "../../../packages/rt-client/src/daemon-api/index.ts";
-import scalarPackage from "../../../node_modules/@scalar/api-reference/package.json" with { type: "json" };
+import { readFileSync } from "fs";
+import { join } from "path";
+import { SCALAR_VERSION } from "../api-docs.ts";
 
 const noopLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any;
 
@@ -37,6 +39,12 @@ function hit(path: string, init: RequestInit = {}): Promise<Response> {
 const honoStyle = (path: string) => path.replace(/\{([^}]+)\}/g, ":$1");
 
 describe("daemon API docs", () => {
+  test("SCALAR_VERSION matches the installed @scalar/api-reference", () => {
+    const pkgPath = join(import.meta.dir, "..", "..", "..", "node_modules", "@scalar", "api-reference", "package.json");
+    const installed = (JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string }).version;
+    expect(SCALAR_VERSION).toBe(installed);
+  });
+
   test("/openapi.json lists every route", async () => {
     const res = await hit("/openapi.json");
     expect(res.status).toBe(200);
@@ -76,7 +84,7 @@ describe("daemon API docs", () => {
     expect(html).not.toContain("http://");
     expect(html).not.toContain("https://");
     const srcs = [...html.matchAll(/<script[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]);
-    expect(srcs).toEqual([`/docs/scalar.js?v=${scalarPackage.version}`]);
+    expect(srcs).toEqual([`/docs/scalar.js?v=${SCALAR_VERSION}`]);
     expect(html).toContain("withDefaultFonts: false");
     expect(html).toContain("hideClientButton: true");
     expect(html).not.toContain("proxyUrl");
@@ -84,7 +92,7 @@ describe("daemon API docs", () => {
 
   test("/docs/scalar.js serves the embedded script, with or without the version query", async () => {
     const bodies: string[] = [];
-    for (const path of ["/docs/scalar.js", `/docs/scalar.js?v=${scalarPackage.version}`]) {
+    for (const path of ["/docs/scalar.js", `/docs/scalar.js?v=${SCALAR_VERSION}`]) {
       const res = await hit(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
