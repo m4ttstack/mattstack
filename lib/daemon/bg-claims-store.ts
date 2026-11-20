@@ -10,6 +10,7 @@ import { mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
 import type { Logger } from "pino";
 import { isCorruptionError } from "../state/db.ts";
+import { assertNotRealDataInTest } from "../../packages/rt-client/src/test-isolation.ts";
 
 export interface BgClaimsStore {
   claim(owner: string, pane?: string): void;
@@ -31,6 +32,7 @@ function quarantine(path: string, log: Logger): void {
 }
 
 export function createBgClaimsStore(opts: { dbPath: string; log: Logger }): BgClaimsStore {
+  assertNotRealDataInTest(opts.dbPath);
   const log = opts.log.child({ module: "bg-claims" });
   mkdirSync(dirname(opts.dbPath), { recursive: true });
   const openDb = () => {

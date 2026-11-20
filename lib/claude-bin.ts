@@ -4,7 +4,7 @@ import { join } from "path";
 
 /** Checked in order after PATH, when `claude` is not on it. */
 export const CLAUDE_BIN_FALLBACKS = [
-  join(homedir(), ".claude", "local", "claude"),
+  join(process.env.HOME ?? homedir(), ".claude", "local", "claude"),
   "/opt/homebrew/bin/claude",
   "/usr/local/bin/claude",
 ];

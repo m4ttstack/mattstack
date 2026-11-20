@@ -95,6 +95,20 @@ export function realStoreRefusal({ target, account, home, signal }: StoreWriteCh
   );
 }
 
+/**
+ * The refusal message when a database file `target` sits in the account's
+ * real ~/.mattstack, else null. In-memory databases and rt's worktree folder
+ * pass: a test run started inside a pool tree has its cwd there, so its
+ * relative and scratch paths resolve under ~/.mattstack/rt/worktrees.
+ */
+export function realDataRefusal({ target, account, home, signal }: StoreWriteCheck): string | null {
+  if (target === "" || target === ":memory:" || target.startsWith("file::memory:")) return null;
+  const worktrees = join(resolve(account), ".mattstack", "rt", "worktrees");
+  const path = resolve(target);
+  if (path === worktrees || path.startsWith(`${worktrees}${sep}`)) return null;
+  return realStoreRefusal({ target, account, home, signal });
+}
+
 const ISOLATION_FIX =
   "Run bun test from the repo root so the bunfig.toml test preload points HOME at a scratch dir. " +
   "If the preload was loaded, look for a test that unsets HOME or a Bun.spawn with no env.";
@@ -166,6 +180,14 @@ export function assertNotRealStoreInTest(target: string): void {
   const signal = testRunSignal(process.env, entryModule());
   if (signal === null) return;
   const refusal = realStoreRefusal({ target, account: accountHome(), home: process.env.HOME, signal });
+  if (refusal !== null) throw new Error(refusal);
+}
+
+/** Throws before a test run opens a database file in the account's real ~/.mattstack; a no-op outside test runs. */
+export function assertNotRealDataInTest(target: string): void {
+  const signal = testRunSignal(process.env, entryModule());
+  if (signal === null) return;
+  const refusal = realDataRefusal({ target, account: accountHome(), home: process.env.HOME, signal });
   if (refusal !== null) throw new Error(refusal);
 }
 

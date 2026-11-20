@@ -12,6 +12,7 @@ import { mkdirSync, renameSync } from "fs";
 import { dirname } from "path";
 import type { Logger } from "pino";
 import { isCorruptionError } from "../state/db.ts";
+import { assertNotRealDataInTest } from "../../packages/rt-client/src/test-isolation.ts";
 
 export interface BusEvent { id: number; topic: string; payload: unknown; emittedAt: number }
 export interface WaitResult { events: BusEvent[]; cursor: number }
@@ -117,6 +118,7 @@ export function createEventsBus(opts: {
   retentionFloor?: number;
   retentionMs?: number;
 }): EventsBus {
+  assertNotRealDataInTest(opts.dbPath);
   const log = opts.log.child({ module: "events" });
   const retentionFloor = opts.retentionFloor ?? 50_000;
   const retentionMs = opts.retentionMs ?? 7 * 24 * 60 * 60 * 1000;

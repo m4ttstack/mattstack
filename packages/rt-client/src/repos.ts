@@ -18,7 +18,7 @@ function defaultReposJsonPath(): string {
   // Duplicates the ~/.mattstack/rt layout: rt-client has no dependency on rt's
   // lib/, so this literal cannot import rtDir(). repo-tools/lib/rt-paths.ts is
   // the authority — change there first, mirror here.
-  return join(homedir(), ".mattstack", "rt", "repos.json");
+  return join(process.env.HOME ?? homedir(), ".mattstack", "rt", "repos.json");
 }
 
 interface RepoIndexRow {

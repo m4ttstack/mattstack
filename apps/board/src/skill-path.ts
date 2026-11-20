@@ -24,7 +24,12 @@ export type PluginListRunner = (opts?: {
   fresh?: boolean;
 }) => Promise<PluginListResult>;
 
-const PRIMARY_CLAUDE_BIN = join(homedir(), '.local', 'bin', 'claude');
+const PRIMARY_CLAUDE_BIN = join(
+  process.env.HOME ?? homedir(),
+  '.local',
+  'bin',
+  'claude'
+);
 
 /** Where Claude Code may live: PATH, then ~/.local/bin, then the install
     paths lib/claude-bin.ts falls back to, the order rt's pane launcher
@@ -38,7 +43,7 @@ export function claudeBinCandidates(
   return [
     ...(onPath ? [onPath] : []),
     PRIMARY_CLAUDE_BIN,
-    join(homedir(), '.claude', 'local', 'claude'),
+    join(process.env.HOME ?? homedir(), '.claude', 'local', 'claude'),
     '/opt/homebrew/bin/claude',
     '/usr/local/bin/claude',
   ];

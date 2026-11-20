@@ -220,7 +220,8 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
           }
 
           const runsRoot =
-            process.env.RT_RUNS_ROOT ?? join(homedir(), '.mattstack', 'runs');
+            process.env.RT_RUNS_ROOT ??
+            join(process.env.HOME ?? homedir(), '.mattstack', 'runs');
           const roots = [join(runsRoot, repo, runId)];
 
           // Stage skills write a triage report into the worktree, not the run
@@ -283,7 +284,11 @@ export function runsRoutes(fixture: RunsFixture | null = null) {
                 return null;
               }
             },
-            evidenceRoot: join(homedir(), '.mattstack', 'evidence'),
+            evidenceRoot: join(
+              process.env.HOME ?? homedir(),
+              '.mattstack',
+              'evidence'
+            ),
           });
           const mime = LEGACY_IMAGE_MIME[extname(path).toLowerCase()];
           if (resolved === null || !mime)

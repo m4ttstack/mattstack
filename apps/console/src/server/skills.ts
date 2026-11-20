@@ -919,7 +919,8 @@ const APP_SKILL_REF = /^[\w-]+:[\w-]+$/;
 /** The skills folder Claude Code loads installed skills from. */
 function installedSkillsDir(): string {
   return join(
-    process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'),
+    process.env.CLAUDE_CONFIG_DIR ||
+      join(process.env.HOME ?? homedir(), '.claude'),
     'skills'
   );
 }

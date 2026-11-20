@@ -26,7 +26,7 @@ export type DiscoverOpts = {
 };
 
 function claudeSettingsPath(): string {
-  const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+  const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME ?? homedir(), ".claude");
   return join(configDir, "settings.json");
 }
 
@@ -188,7 +188,7 @@ export function discoverPacks(opts: DiscoverOpts = {}): PackInfo[] {
     for (const [marketplaceKey, marketplace] of Object.entries(settings.extraKnownMarketplaces ?? {})) {
       const src = marketplace.source;
       if (!src || src.source !== "directory" || !src.path) continue;
-      const marketDir = src.path.startsWith("~") ? join(homedir(), src.path.slice(1)) : src.path;
+      const marketDir = src.path.startsWith("~") ? join(process.env.HOME ?? homedir(), src.path.slice(1)) : src.path;
       const manifest = join(marketDir, ".claude-plugin", "marketplace.json");
       if (!existsSync(manifest)) continue;
       let entries: MarketplaceEntry[] = [];

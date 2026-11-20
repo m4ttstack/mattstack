@@ -9,6 +9,7 @@ import { dirname } from "path";
 import type { Logger } from "pino";
 import { isCorruptionError } from "../state/db.ts";
 import type { BudgetCounter } from "./herd-budgets.ts";
+import { assertNotRealDataInTest } from "../../packages/rt-client/src/test-isolation.ts";
 
 export type HerdStatus = "active" | "wrapped";
 export type HerdJobStatus = "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal";
@@ -112,6 +113,7 @@ function quarantine(path: string, log: Logger): void {
 }
 
 export function createHerdStore(opts: { dbPath: string; log: Logger }): HerdStore {
+  assertNotRealDataInTest(opts.dbPath);
   const log = opts.log.child({ module: "herds" });
   mkdirSync(dirname(opts.dbPath), { recursive: true });
   const openDb = () => {

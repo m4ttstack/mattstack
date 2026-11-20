@@ -9,7 +9,7 @@ import type { JobAction } from './job-state.ts';
     then a Homebrew prefix (Apple silicon, then Intel). */
 export function herdrBin(env: NodeJS.ProcessEnv = process.env, exists: (path: string) => boolean = existsSync): string {
   if (env.HERDR_BIN) return env.HERDR_BIN;
-  const installed = join(homedir(), '.local', 'bin', 'herdr');
+  const installed = join(env.HOME ?? homedir(), '.local', 'bin', 'herdr');
   return [installed, '/opt/homebrew/bin/herdr', '/usr/local/bin/herdr'].find(exists) ?? installed;
 }
 
@@ -24,7 +24,7 @@ export async function ensureHerdr(start: HerdrStart = herdrStart): Promise<void>
     throw new Error(res.data.detail ?? "herdr isn't installed. Open mattstack Setup to install it");
 }
 
-const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH || join(homedir(), '.config', 'herdr', 'herdr.sock');
+const HERDR_SOCKET_PATH = process.env.HERDR_SOCKET_PATH || join(process.env.HOME ?? homedir(), '.config', 'herdr', 'herdr.sock');
 
 export type HerdrRunner = (args: string[]) => Promise<string>;
 
