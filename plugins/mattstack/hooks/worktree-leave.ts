@@ -86,6 +86,8 @@ async function pass($: EngineInterface, token: string, left: { tree: string | nu
   if (choice === 'stale' || !(await isCurrent($, token))) return 'stop'
   if (!within(await $.session.cwd(), tree)) return 'again'
   if (choice === 'close') {
+    // /exit from an EnterWorktree session asks keep or remove; rt removes the tree, so the session drops it first.
+    await $.tool.call({ tool: 'ExitWorktree', action: 'keep' }).catch(() => undefined)
     const exited = await $.command.run({ command: 'exit' }).then(
       () => true,
       () => false,

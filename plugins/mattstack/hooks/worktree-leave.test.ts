@@ -36,6 +36,8 @@ function world(on: On, opts: WorldOptions = {}) {
   const timeouts: (number | undefined)[] = []
   const tools: Record<string, unknown>[] = []
   const commands: { command: string; args: string }[] = []
+  // Tool calls and commands together, in the order they ran.
+  const order: string[] = []
   const logs: string[] = []
   const appended: { type: string; text: string }[] = []
   const asked: Record<string, unknown>[] = []
@@ -85,11 +87,13 @@ function world(on: On, opts: WorldOptions = {}) {
   })
   on('tool.call', (_, e) => {
     tools.push(e as unknown as Record<string, unknown>)
+    order.push(`tool:${e.tool}`)
     if (e.tool === 'ExitWorktree' && opts.exitMoves) state.cwd = MAIN
     return { result: [{ type: 'text', text: 'ok' }], text: 'ok' } as never
   })
   on('command.run', (_, e) => {
     commands.push({ command: e.command, args: e.args })
+    order.push(`command:${e.command}`)
     if (e.command === 'exit' && opts.exitDenied) throw new Error('refused')
     if (e.command === 'cd' && !opts.cdQueued) state.cwd = e.args
     return {}
@@ -104,7 +108,7 @@ function world(on: On, opts: WorldOptions = {}) {
     return next(e)
   })
 
-  return { clock, state, awaits, timeouts, tools, commands, logs, appended, asked, waited }
+  return { clock, state, awaits, timeouts, tools, commands, order, logs, appended, asked, waited }
 }
 
 const FAKE_GATE_FORM = 'fake-gate-form'
@@ -194,7 +198,7 @@ test('a refused read of the watch token does not end the watch', async ($, on) =
   expect(w.logs).toEqual([`This worktree was reused: left the worktree; now in ${MAIN}`])
 })
 
-test('leaving and a Close pick runs /exit', { plugins: [GATE_FORM] }, async ($, on) => {
+test('leaving and a Close pick runs ExitWorktree keep, then /exit', { plugins: [GATE_FORM] }, async ($, on) => {
   const w = world(on, { answers: [LEAVING], waits: [{ pending: true }, { value: 'close' }] })
   await start($)
   await w.clock.settle()
@@ -210,8 +214,9 @@ test('leaving and a Close pick runs /exit', { plugins: [GATE_FORM] }, async ($, 
     timeoutMs: 120_000,
   })
   expect(w.asked[0]).not.toHaveProperty('label')
+  expect(w.order).toEqual(['tool:ExitWorktree', 'command:exit'])
+  expect(w.tools).toEqual([expect.objectContaining({ tool: 'ExitWorktree', action: 'keep' })])
   expect(w.commands).toEqual([{ command: 'exit', args: '' }])
-  expect(w.tools).toEqual([])
   await w.clock.advance(5 * POLL_MS)
   expect(w.awaits.length).toBe(1)
 })
@@ -358,8 +363,7 @@ test('a refused /exit falls through to leaving', { plugins: [GATE_FORM] }, async
   await start($)
   await w.clock.settle()
 
-  expect(w.commands).toEqual([{ command: 'exit', args: '' }])
-  expect(w.tools).toEqual([expect.objectContaining({ tool: 'ExitWorktree', action: 'keep' })])
+  expect(w.order).toEqual(['tool:ExitWorktree', 'command:exit', 'tool:ExitWorktree'])
   expect(w.logs).toEqual([`${WHY}: left the worktree; now in ${MAIN}`])
 })
 
