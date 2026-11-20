@@ -19,9 +19,13 @@ The `rt-context` extension shows your current worktree, branch, and linked Linea
 📁 main-worktree  │  🔖 ACME-1287: Add damage photo uploads
 ```
 
-Clicking the item opens a short menu. It opens the linked Linear ticket or the MR or PR, or shows the worktree in Finder. Two more items sit beside it. **Worktrees** lists the repo's worktrees, hiding the spare, golden and gitq trees that `rt cd` hides. The branch item switches branches.
+Clicking the item opens a short menu. It opens the linked Linear ticket or the MR or PR, or shows the worktree in Finder. Three more items sit beside it:
 
-Ticket titles and links come from the rt daemon, which reads your Linear key and GitLab token from rt's secrets. Set them with `rt secrets set rt linearApiKey` and `rt secrets set rt gitlabToken`.
+- **Worktrees** lists the repo's worktrees in the same order and groups as `rt cd`, hiding the spare, golden and gitq trees it hides. A row with no ticket title shows its MR or PR title instead.
+- **Agents** lists this worktree's Claude agents: live Claude panes in the worktree, finished `rt agent` sessions recorded for it, and sessions from work and review runs on its branch. The count beside it is the live ones. Picking a row opens an integrated terminal attached to that session, the way `rt pane attach` does in a terminal.
+- The branch item switches branches.
+
+Ticket titles and links come from the rt daemon, which reads your Linear key and GitLab token from rt's secrets. Set them with `rt secrets set rt linearApiKey` and `rt secrets set rt gitlabToken`. A repo whose tickets live in a second Linear workspace can name a different secret with the `rt.linearKey` setting, such as `linearApiKey.mattstack`.
 
 ## Skill Blocks
 

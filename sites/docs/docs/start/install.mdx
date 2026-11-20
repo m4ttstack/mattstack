@@ -220,7 +220,9 @@ Setup seeds a baseline `permissions.allow` list into every Claude Code config di
 
 Everything else a skill runs routinely is a tool on the [MCP server](/skills/mcp). Existing entries stay; rt adds only missing ones. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays. A config dir with no `tui` setting gets `"tui": "fullscreen"`, the Claude Code layout rt's pane tools expect. To change it back, remove the `tui` line from that dir's `settings.json`; an update does not put it back.
 
-It installs the `mattstack`, `fast-browser`, `chat`, and `superpowers` plugins from the mattstack marketplace. `superpowers` is mattstack's fork of obra/superpowers, which the mattstack skills and every team pack call; see [Superpowers](/skills#superpowers) for what changes on a machine that already has the stock copy.
+It also links shared Claude rules into every Claude Code config dir, as `rules/mattstack`. The rules are mattstack's own plus your base packs' and your active team pack's, and they load in every session, in every repo. Each app update and each org pull refresh them. To opt out, put a real folder at `rules/mattstack` in that config dir; rt leaves a folder it did not make alone.
+
+It installs the `mattstack`, `fast-browser`, `chat`, `superpowers`, `gate-form` and `human-todos` plugins from the mattstack marketplace, and each app update keeps them current. `superpowers` is mattstack's fork of obra/superpowers, which the mattstack skills and every team pack call; see [Superpowers](/skills#superpowers) for what changes on a machine that already has the stock copy.
 
 ## What gets installed
 
