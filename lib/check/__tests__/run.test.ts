@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { GitRunner } from "../../mcp/git-tools.ts";
 import type { RunResult } from "../../subprocess.ts";
-import { hasCheck, readConfig, runCheck, treeState, type RunDeps } from "../run.ts";
+import { failureExcerpt, hasCheck, readConfig, runCheck, treeState, type RunDeps } from "../run.ts";
 
 type Script = Record<string, { code?: number; stdout?: string }>;
 
@@ -275,4 +275,56 @@ describe("treeState", () => {
   test("a git status that fails counts as dirty", async () => {
     expect(await treeState("/tree", { git: fakeGit({ "status --porcelain": { code: 128 } }) })).toEqual({ sha: "abc123", dirty: true });
   });
+});
+
+describe("failureExcerpt", () => {
+  const filler = (n: number, tag: string) => Array.from({ length: n }, (_, i) => `${tag} ${i + 1}`);
+
+  test("a long diff keeps its error line and source, back past ten lines", () => {
+    const output = [
+      "lib/a.test.ts:",
+      ...filler(5, "earlier"),
+      "12 |   expect(rows).toEqual(want);",
+      "     ^",
+      "error: expect(received).toEqual(expected)",
+      ...filler(15, "diff"),
+      "      at <anonymous> (lib/a.test.ts:12:16)",
+      "(fail) rows match [3.00ms]",
+    ].join("\n");
+    const excerpt = failureExcerpt(output);
+    expect(excerpt).toContain("12 |   expect(rows).toEqual(want);");
+    expect(excerpt).toContain("error: expect(received).toEqual(expected)");
+    expect(excerpt.endsWith("(fail) rows match [3.00ms]")).toBe(true);
+    expect(excerpt).not.toContain("lib/a.test.ts:\n");
+  });
+
+  test("a crash keeps its marker and the error printed after it", () => {
+    const output = [...filler(30, "noise"), "# Unhandled error between tests", "error: Cannot find module './gone.ts'", "      at load (lib/b.test.ts:1:1)", ...filler(30, "later")].join("\n");
+    const excerpt = failureExcerpt(output);
+    expect(excerpt.startsWith("# Unhandled error between tests\nerror: Cannot find module './gone.ts'")).toBe(true);
+    expect(excerpt).not.toContain("noise 30");
+  });
+
+  test("failures past the cap are counted, not dropped silently", () => {
+    const one = (n: number) => [...filler(10, `src${n}`), `error: boom ${n}`, ...filler(18, `diff${n}`), `(fail) test ${n} [1.00ms]`];
+    const excerpt = failureExcerpt([...one(1), ...one(2), ...one(3), ...one(4)].join("\n"));
+    expect(excerpt).toContain("(fail) test 2 [1.00ms]");
+    expect(excerpt).not.toContain("(fail) test 3");
+    expect(excerpt.split("\n").length).toBeLessThanOrEqual(61);
+    expect(excerpt.endsWith("... and 2 more")).toBe(true);
+  });
+
+  test("no failure marker falls back to the last 20 lines", () => {
+    expect(failureExcerpt(filler(30, "line").join("\n"))).toBe(filler(30, "line").slice(-20).join("\n"));
+  });
+});
+
+test("an error verdict keeps the last lines, where local-check's own error is", async () => {
+  const stdout = ["(fail) an earlier shard [1.00ms]", ...Array.from({ length: 25 }, (_, i) => `line ${i + 1}`), '{"mode":"error"}'].join("\n");
+  const { deps } = harness({ exitCode: 1, stdout });
+  const r = await runCheck("/tree", {}, deps);
+  if (!r.configured) throw new Error("unconfigured");
+  expect(r.verdict).toBe("error");
+  expect(r.outputTail.endsWith('{"mode":"error"}')).toBe(true);
+  expect(r.outputTail).not.toContain("(fail)");
 });
