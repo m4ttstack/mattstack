@@ -26,7 +26,8 @@
     "check-types:live": "tsc -p tsconfig.tests.json --noEmit",
     "check:node": "bun run build && node tests/node-smoke.mjs",
     "typecheck": "bun run check-types",
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "complexity:gitlab": "bun tests/live/probe/gitlabComplexityProbe.ts"
   },
   "license": "MIT",
   "repository": {

@@ -61,6 +61,28 @@ In-repo consumers link the workspace package, gitq included (`workspace:*`);
 only an npm-installed `@mattstack/gitq` resolves glance by version, so a
 behaviour change needs a bump and a publish before that install sees it.
 
+## GitLab GraphQL documents are held to a measured complexity score
+
+gitlab.com refuses any document it scores over 250, before running it, and
+the score moves with fields, nesting and page sizes in ways only GitLab can
+compute. A stubbed `runQuery` never sees the refusal. So every document
+`GitLabProvider` can send is listed in `GITLAB_GRAPHQL_DOCUMENTS`:
+`runQuery` takes only `measured('<label>')`, so one that is not listed
+fails the typecheck, and `tests/gitlab-complexity-budget.test.ts` fails
+when a listed one changes, until it is measured again:
+
+```
+bun run complexity:gitlab --write   # in packages/glance, needs harness_credentials.json
+```
+
+The probe is read-only and safe to run any time, unlike the live suite. It
+refuses to write a score over the cap, and without `--write` it exits 1 when
+gitlab.com scores an unchanged document differently from the budget file,
+which is how a re-weighting on GitLab's side shows up. Commit the updated
+`tests/gitlab-complexity-budget.json` with the change. The dashboard and
+by-author documents sit at 247: one more field on `MRDashboardFields` puts
+them over, so lower their page size or move the field to `MR_DETAIL_QUERY`.
+
 ## Invariants from recent releases
 
 - **0.27.0, unresolved-thread blocker.** `hasUnresolvedDiscussions` in
