@@ -7,14 +7,15 @@
  * while the daemon's branch refresh failed against the real API.
  *
  * So each document is held to the digest and score the live probe last
- * recorded. Changing a document fails here until it is measured again.
+ * recorded. Changing a document fails here until it is measured again, and
+ * runQuery's parameter type accepts only a registered document, so the
+ * typecheck is what keeps an unmeasured one from being sent.
  */
 import { describe, expect, test } from 'bun:test';
 import { GITLAB_GRAPHQL_DOCUMENTS } from '../src/GitLabProvider.ts';
 import budgetJson from './gitlab-complexity-budget.json';
 import {
   documentDigest,
-  operationName,
   readProbedScore,
   withComplexityProbe,
   type ComplexityBudget,
@@ -24,14 +25,6 @@ const budget = budgetJson as ComplexityBudget;
 const REMEASURE = 'measure it on gitlab.com: `bun run complexity:gitlab --write` in packages/glance';
 
 describe('GitLab GraphQL complexity budget', () => {
-  test('every query the provider declares is in the registry', async () => {
-    const source = await Bun.file(new URL('../src/GitLabProvider.ts', import.meta.url)).text();
-    const declared = new Set([...source.matchAll(/\bquery\s+(Glance\w+)/g)].map((m) => m[1]!));
-    const registered = new Set(Object.values(GITLAB_GRAPHQL_DOCUMENTS).map(operationName));
-
-    expect([...declared].filter((name) => !registered.has(name))).toEqual([]);
-  });
-
   test('every registered document matches the digest that was measured', () => {
     const changed = Object.entries(GITLAB_GRAPHQL_DOCUMENTS)
       .filter(([label, document]) => budget.documents[label]?.digest !== documentDigest(document))

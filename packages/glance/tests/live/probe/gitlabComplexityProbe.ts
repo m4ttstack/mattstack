@@ -9,17 +9,21 @@
  * which the offline budget test holds the documents to.
  *
  * Run from packages/glance:
- *   bun run complexity:gitlab            # print the scores, change nothing
- *   bun run complexity:gitlab --write    # also record them in the budget file
+ *   bun run complexity:gitlab            # compare the scores to the budget file
+ *   bun run complexity:gitlab --write    # record them in the budget file
  *   bun run complexity:gitlab --credentials <path to harness_credentials.json>
  *
- * Read-only: complexity is scored from the document alone, so the variables
- * only need to type-check and nothing in the fixture project is touched. The
- * score still moves with a page size passed as a variable, so `first` is
- * sent at the provider's own default.
+ * Read-only: GitLab scores a document before running it, so nothing in the
+ * fixture project is touched. Two variables move the score and are sent at
+ * the worst case production sends: `first` (a page size passed as a
+ * variable) at the provider's default of 100, and `iids` non-empty (an
+ * empty list scores GlanceMRApprovalRulesByIid at 29 instead of 85).
  *
- * Exits 1 when any document is over the cap, and refuses to write then.
+ * Exits 1 when any document is over the cap (and refuses to write then), or,
+ * without --write, when gitlab.com now scores an unchanged document
+ * differently from the budget file.
  */
+import { fileURLToPath } from 'node:url';
 import { GITLAB_GRAPHQL_DOCUMENTS } from '../../../src/GitLabProvider.ts';
 import { gitlabRepo, loadCredentials, ownerUser } from '../credentials.ts';
 import {
@@ -30,7 +34,7 @@ import {
   type ComplexityBudget,
 } from './gitlabComplexity.ts';
 
-const BUDGET_PATH = new URL('../../gitlab-complexity-budget.json', import.meta.url).pathname;
+const BUDGET_PATH = fileURLToPath(new URL('../../gitlab-complexity-budget.json', import.meta.url));
 const GITLAB_GRAPHQL_URL = 'https://gitlab.com/api/graphql';
 
 function flagValue(name: string): string | undefined {
@@ -97,6 +101,20 @@ async function main(): Promise<number> {
   if (process.argv.includes('--write')) {
     await Bun.write(BUDGET_PATH, `${JSON.stringify(budget, null, 2)}\n`);
     console.log(`wrote ${BUDGET_PATH}`);
+    return 0;
+  }
+
+  const recorded = (await Bun.file(BUDGET_PATH).json()) as ComplexityBudget;
+  const drifted = Object.entries(budget.documents)
+    .filter(([label, now]) => {
+      const before = recorded.documents[label];
+      return before?.digest === now.digest && before.score !== now.score;
+    })
+    .map(([label, now]) => `${label}: ${recorded.documents[label]!.score} recorded, ${now.score} now`);
+  if (recorded.limit !== limit) drifted.push(`cap: ${recorded.limit} recorded, ${limit} now`);
+  if (drifted.length > 0) {
+    console.error(`gitlab.com scores these differently from the budget file:\n  ${drifted.join('\n  ')}`);
+    return 1;
   }
   return 0;
 }

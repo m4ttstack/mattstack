@@ -15,12 +15,6 @@ export function documentDigest(document: string): string {
   return createHash('sha256').update(document.replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
 }
 
-export function operationName(document: string): string {
-  const match = /\bquery\s+(\w+)/.exec(document);
-  if (!match) throw new Error(`no named query in document: ${document.slice(0, 80)}`);
-  return match[1]!;
-}
-
 const PROBE_FIELD = 'queryComplexity { score limit }';
 
 /** GitLab's own cost for the probe field, measured rather than assumed. */
