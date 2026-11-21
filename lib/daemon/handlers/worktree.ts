@@ -520,6 +520,13 @@ export function createWorktreeHandlers(
           checkout = await runGit(tree.path, ["checkout", branch], { timeoutMs: MUTATING_TIMEOUT_MS });
           branchState = "existing-clean";
           if (checkout.exitCode === 0 && (await remoteRefExists(tree.path, branch))) {
+            // A branch cut from a sha and pushed without -u has no upstream,
+            // and respond_post_execute refuses to push without one. An upstream
+            // already configured is the user's choice and stays.
+            const upstream = await runGit(tree.path, ["config", "--get", `branch.${branch}.remote`]);
+            if (upstream.exitCode !== 0) {
+              await runGit(tree.path, ["branch", `--set-upstream-to=origin/${branch}`, branch]);
+            }
             const counts = await divergence(tree.path, branch);
             if (counts && counts.ahead > 0 && counts.behind > 0) branchState = "diverged";
             else if (counts && counts.behind > 0) branchState = "behind";
