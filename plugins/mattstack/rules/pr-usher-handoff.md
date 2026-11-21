@@ -6,9 +6,9 @@ babysitting it yourself.
 
 Right after you open a PR and mark it ready for review (never a draft):
 
-1. Run `rt chat who --json`. A live usher for your repo is a row whose
-   `statusText` is `pr-usher`, whose `status` is not `offline`, and whose
-   `repo` matches yours.
+1. Call the `chat_buddies` tool (or run `rt chat buddies --json`). A
+   live usher for your repo is a row whose `statusText` is `pr-usher`,
+   whose `status` is not `offline`, and whose `repo` matches yours.
 2. If there is one, DM it this line, with nothing before it:
    `rt chat dm <usher handle> "pr-usher handoff: <PR url> author=<your handle>"`
    A second line of context after it is fine.
