@@ -231,7 +231,7 @@ describe("runReadySteps — nvm", () => {
 describe("runReadySteps — intercept shims", () => {
   let home: string;
   let repo: string;
-  const savedHome = process.env.HOME;
+  const saved = { HOME: process.env.HOME, NVM_DIR: process.env.NVM_DIR };
 
   function fakeTool(dir: string, name: string, says: string): void {
     mkdirSync(dir, { recursive: true });
@@ -243,10 +243,13 @@ describe("runReadySteps — intercept shims", () => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rtready-shim-home-")));
     repo = makeRepo();
     process.env.HOME = home;
+    delete process.env.NVM_DIR;
   });
 
   afterEach(() => {
-    process.env.HOME = savedHome;
+    process.env.HOME = saved.HOME;
+    if (saved.NVM_DIR === undefined) delete process.env.NVM_DIR;
+    else process.env.NVM_DIR = saved.NVM_DIR;
   });
 
   // brew shellenv in ~/.zprofile runs path_helper, which puts Homebrew ahead of
