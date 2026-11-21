@@ -46,6 +46,8 @@ usher gets each PR reviewed, settled, green and merged.
 
 - `plugins/mattstack/skills/pr-usher/SKILL.md`: the usher's loop.
   1. Sign in (status `pr-usher`), join `#pr-usher`, refuse if one is live.
+     Announce in the repo's chat room that an usher is on duty (and again
+     on sign-out), so agents already running hear about it.
   2. Each tick: list open ready PRs in this repo (handed off or not).
   3. Per PR, walk: review requested -> findings relayed -> threads settled ->
      CI green -> merged (via `mr_merge`, honouring a merge queue).
