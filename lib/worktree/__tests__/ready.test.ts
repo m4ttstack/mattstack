@@ -227,3 +227,37 @@ describe("runReadySteps — nvm", () => {
     expect(warnings).toEqual([]);
   });
 });
+
+describe("runReadySteps — intercept shims", () => {
+  let home: string;
+  let repo: string;
+  const savedHome = process.env.HOME;
+
+  function fakeTool(dir: string, name: string, says: string): void {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, name), `#!/bin/sh\necho ${says}\n`);
+    chmodSync(join(dir, name), 0o755);
+  }
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rtready-shim-home-")));
+    repo = makeRepo();
+    process.env.HOME = home;
+  });
+
+  afterEach(() => {
+    process.env.HOME = savedHome;
+  });
+
+  // brew shellenv in ~/.zprofile runs path_helper, which puts Homebrew ahead of
+  // ~/.local/bin in every login shell, whatever prepended it earlier.
+  test("a step runs the ~/.local/bin shim even when the login profile puts another copy first", async () => {
+    fakeTool(join(home, ".local", "bin"), "doppler", "shim");
+    fakeTool(join(home, "brew", "bin"), "doppler", "brew");
+    writeFileSync(join(home, ".zprofile"), 'export PATH="$HOME/brew/bin:$PATH"\n');
+
+    const result = await runReadySteps(repo, [{ run: "doppler > which-doppler" }]);
+    expect(result).toEqual({ ok: true });
+    expect(readFileSync(join(repo, "which-doppler"), "utf8").trim()).toBe("shim");
+  });
+});
