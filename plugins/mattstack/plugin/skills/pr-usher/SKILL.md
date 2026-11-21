@@ -61,7 +61,8 @@ digraph pr_usher {
     merge_result [label="mr_merge result?" shape=diamond];
     head_moved [label="Head moved since settled?" shape=diamond];
     chat_post_merged [label="chat_post {room: \"pr-usher\", body: \"merged <PR url> (<title>)\"}" shape=plaintext];
-    drops [label="Queue drops on this PR = 2?" shape=diamond];
+    refused_before [label="Refused at this settled head before, or no permission?" shape=diamond];
+    drops [label="Second counted queue drop on this PR?" shape=diamond];
     route_drop [label="Route the drop's fix" shape=box];
     off_duty_asked [label="Off duty asked?" shape=diamond];
     schedule_wakeup [label="ScheduleWakeup {delaySeconds: 300 or 1200}" shape=plaintext];
@@ -115,15 +116,17 @@ digraph pr_usher {
     mr_merge -> merge_result;
     mr_merge_requeue -> merge_result;
     merge_result -> chat_post_merged [label="merged"];
-    merge_result -> drops [label="dropped"];
+    merge_result -> route_drop [label="dropped"];
     merge_result -> pr_left [label="still queued, or requested and not verified"];
     merge_result -> head_moved [label="refused"];
     head_moved -> pr_left [label="yes: walk it next tick"];
-    head_moved -> park_pr [label="no"];
+    head_moved -> refused_before [label="no"];
+    refused_before -> pr_left [label="no: retry next tick"];
+    refused_before -> park_pr [label="yes"];
     chat_post_merged -> pr_left;
-    drops -> route_drop [label="no"];
+    route_drop -> drops;
+    drops -> pr_left [label="no"];
     drops -> park_pr [label="yes"];
-    route_drop -> pr_left;
     off_duty_asked -> schedule_wakeup [label="no"];
     off_duty_asked -> hand_back_prs [label="yes"];
     schedule_wakeup -> start_tick;
@@ -151,8 +154,9 @@ stage, `reviewed@<sha>` (by `coderabbit` or `opus`: the newest head a
 review covered), `settled@<sha>` (the head on which every thread was
 resolved and CI went green), when you nudged CodeRabbit, when you sent
 the owner findings and whether the 15-minute reminder went, usher fix
-rounds, queue drops (and `drop-unrequeued` from a counted drop until the
-requeue), a background Opus review in flight
+rounds, queue drops counted and the `at` of the last one counted,
+`drop-unrequeued` from a drop until a requeue goes through, a merge
+refusal seen at the settled head, a background Opus review in flight
 (`opus-running@<sha>`), and `parked: <reason>` or `owner-kept` when set.
 `summary-finding` lines sit under their PR's line. The first ledger line
 is `on duty since <time>`. The forge is the truth for
@@ -338,27 +342,36 @@ enqueue or merge when the head has moved. On GitHub it also waits for the
 merge queue with `wait: true`, for at most 240 seconds so chat and handoff
 acks keep flowing; a PR still queued from an earlier tick is only waited
 on, and a drop since then comes back as `dropped`. Pass `requeue: true`
-only when the ledger says `drop-unrequeued`, then clear it. On GitLab
+only when the ledger says `drop-unrequeued`, and clear it only on a
+result other than a refusal (queued, merged or a new drop). On GitLab
 there is no queue: call it with no `wait`, `requeue` or `maxWaitSeconds`
 (GitLab refuses them).
 
 A refusal: re-read the head with `mr_view`. Moved past `settled@` sends
-the PR back to the next tick; any other refusal (checks the forge calls
-not ready, no merge permission) parks it as a merge refusal. A result of
+the PR back to the next tick. A refusal for checks the forge does not yet
+call ready often clears on its own, so the first one at a settled head is
+recorded and retried next tick; a second at the same head, or a refusal
+for missing permission, parks it as a merge refusal. A result of
 `requested` with `verified: false` is re-read on the next tick, never
 assumed merged. After it merges, also DM the owner that it
 landed.
 
 ### Route the drop's fix
 
-A drop carries its reason. Read the failing job's log with
-`mr_job_trace`. A failure in a file the diff does not touch, which also
+A drop carries its reason and `at`. Count it only when its `at` differs
+from the last drop counted, so one drop read twice counts once, and write
+`drop-unrequeued` either way. A removal that is not a check failure (the
+branch was pushed to, someone dequeued it) is not counted and has no job
+to read: the next settled pass requeues it. For a check failure, read the
+failing job's log with `mr_job_trace`. A failure in a file the diff does not touch, which also
 failed on recent main runs (`pipeline_list` on the target branch) or is a runner or network error, is flaky or
 infrastructure and needs no fix: mark the PR settled and green again so the next
-tick re-verifies and requeues it. A real failure is a finding: route it to the owner, or
-fix it yourself when the owner is offline. Add one to the ledger's queue
-drops either way and write `drop-unrequeued`; the next pinned merge
-requeues it once the fix is reviewed, settled and green.
+tick re-verifies and requeues it. A real failure ran on the merge group,
+not the PR head, so the head still looks settled: record it as
+`summary-finding: queue drop <reason> open`, which blocks placement until
+the owner's fix is pushed and reviewed (or you fix it when the owner is
+offline). The next pinned merge requeues it once the fix is settled and
+green. A second counted drop parks the PR.
 
 ### Hand back the PRs in flight
 
