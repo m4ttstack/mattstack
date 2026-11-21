@@ -1,0 +1,125 @@
+{
+  "limit": 250,
+  "documents": {
+    "GlanceDashboardAuthored": {
+      "digest": "0f1103044d86704f",
+      "score": 247
+    },
+    "GlanceDashboardReviewing": {
+      "digest": "cda40e8e52427844",
+      "score": 247
+    },
+    "GlanceDashboardAssigned": {
+      "digest": "6681824ab0363285",
+      "score": 247
+    },
+    "GlanceMRDetail": {
+      "digest": "0b5508dbf3f1b52a",
+      "score": 122
+    },
+    "GlanceMRByAuthor": {
+      "digest": "48e817d3382d81cd",
+      "score": 247
+    },
+    "GlanceMRByAuthor.excludingTargets": {
+      "digest": "e4db7b4986cd8761",
+      "score": 247
+    },
+    "GlanceMRProject": {
+      "digest": "9ea3a80eb25a7def",
+      "score": 190
+    },
+    "GlanceMRProject.excludingTargets": {
+      "digest": "e5b508b47ba7928b",
+      "score": 190
+    },
+    "GlanceMRProjectAll": {
+      "digest": "3daced9b4a1318a5",
+      "score": 190
+    },
+    "GlanceMRProjectAll.excludingTargets": {
+      "digest": "285bd1ee948730b5",
+      "score": 190
+    },
+    "GlanceMRProjectList": {
+      "digest": "07063dcbf320ae20",
+      "score": 163
+    },
+    "GlanceMRProjectList.excludingTargets": {
+      "digest": "c1d0baa973ab0fb3",
+      "score": 163
+    },
+    "GlanceMRProjectListAll": {
+      "digest": "d23872bd4a34c169",
+      "score": 163
+    },
+    "GlanceMRProjectListAll.excludingTargets": {
+      "digest": "a7427af0f5172bd2",
+      "score": 163
+    },
+    "GlanceMRApprovalRules": {
+      "digest": "d14552b723d29df7",
+      "score": 35
+    },
+    "GlanceMRApprovalRules.excludingTargets": {
+      "digest": "aa884097fd239eff",
+      "score": 35
+    },
+    "GlanceMRApprovalRulesByIid": {
+      "digest": "3d3fcbc465da78ab",
+      "score": 85
+    },
+    "GlanceCodeownersBlobs": {
+      "digest": "344b69cdc60a9327",
+      "score": 16
+    },
+    "GlanceMRIndex.group": {
+      "digest": "cfd7819042806f19",
+      "score": 57
+    },
+    "GlanceMRIndex.group.state": {
+      "digest": "3e938ce70a17bf0b",
+      "score": 57
+    },
+    "GlanceMRIndex.group.excludingTargets": {
+      "digest": "3d972fa7ee11483b",
+      "score": 57
+    },
+    "GlanceMRIndex.group.state.excludingTargets": {
+      "digest": "70b528c7a8c785de",
+      "score": 57
+    },
+    "GlanceMRIndex.project": {
+      "digest": "d9ae813daac874d3",
+      "score": 57
+    },
+    "GlanceMRIndex.project.state": {
+      "digest": "f504f380f0956977",
+      "score": 57
+    },
+    "GlanceMRIndex.project.excludingTargets": {
+      "digest": "a14462276a07635e",
+      "score": 57
+    },
+    "GlanceMRIndex.project.state.excludingTargets": {
+      "digest": "b1ccb3a7981abe98",
+      "score": 57
+    },
+    "GlanceMRMetrics": {
+      "digest": "1252e5910608cc0d",
+      "score": 44
+    },
+    "GlanceMRMetricsNotes": {
+      "digest": "b7578b8f767cc1d9",
+      "score": 22
+    },
+    "GlanceGroupProjects": {
+      "digest": "c932d6b9c2419f8f",
+      "score": 33
+    },
+    "GlanceMRByBranches": {
+      "digest": "6793eb323454c5fd",
+      "score": 190
+    }
+  }
+}
