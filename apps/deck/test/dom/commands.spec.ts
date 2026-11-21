@@ -32,7 +32,11 @@ test('renders a button per command and POSTs on click', async () => {
 test('no command buttons when the row omits commands', async () => {
   await withBoard(
     async page => {
-      expect(await page.locator('[aria-label="deploy atlas"]').count()).toBe(0);
+      expect(await page.locator('[aria-label="deploy atlas"]').count()).toBe(1);
+      for (const name of ['build', 'deploy'])
+        expect(
+          await page.locator(`[aria-label="${name} ledger"]`).count()
+        ).toBe(0);
     },
     { fixture: 'status.json' }
   );
