@@ -57,8 +57,9 @@ type Server = { proc: ReturnType<typeof Bun.spawn>; base: string };
 
 // A cold start on a loaded machine can take several seconds, and a probed port
 // can be taken before the server binds it, so a server that exits while
-// starting is retried on a fresh port.
-const HEALTHY_WITHIN_MS = 20_000;
+// starting is retried on a fresh port. The wait stays under the shortest
+// per-test timeout in the specs (10s).
+const HEALTHY_WITHIN_MS = 8_000;
 const START_ATTEMPTS = 3;
 
 async function startServer(
@@ -86,7 +87,8 @@ async function startServer(
       }
     );
     const deadline = Date.now() + HEALTHY_WITHIN_MS;
-    while (Date.now() < deadline && proc.exitCode === null) {
+    const running = () => proc.exitCode === null && proc.signalCode === null;
+    while (Date.now() < deadline && running()) {
       try {
         if ((await fetch(`${base}/healthz`)).ok) return { proc, base };
       } catch {
@@ -94,12 +96,12 @@ async function startServer(
       }
       await new Promise(r => setTimeout(r, 100));
     }
-    const exited = proc.exitCode !== null;
+    const exit = running() ? null : (proc.signalCode ?? proc.exitCode);
     proc.kill();
     await proc.exited;
-    if (!exited || attempt === START_ATTEMPTS)
+    if (exit === null || attempt === START_ATTEMPTS)
       throw new Error(
-        `fixture server on ${base} did not become healthy${exited ? ` (exited ${proc.exitCode})` : ''}`
+        `fixture server on ${base} did not become healthy${exit === null ? '' : ` (exited ${exit})`}`
       );
   }
 }
@@ -121,9 +123,9 @@ export async function withBoard(
     fixtureDir = fixtureTmp;
   }
 
-  const { proc, base } = await startServer(fixtureDir, stateDir);
-
+  let server: Server | null = null;
   try {
+    server = await startServer(fixtureDir, stateDir);
     const browser = await getBrowser();
     // Granted globally, not per-spec: the logs screen's "copy all" is the
     // only thing that needs it, and an ungranted context makes
@@ -143,15 +145,17 @@ export async function withBoard(
     page.on('pageerror', err => errors.push(String(err)));
 
     try {
-      await page.goto(base);
+      await page.goto(server.base);
       await page.waitForSelector('[data-board-ready]');
       await fn(page);
     } finally {
       await context.close();
     }
   } finally {
-    proc.kill();
-    await proc.exited;
+    if (server) {
+      server.proc.kill();
+      await server.proc.exited;
+    }
     rmSync(stateDir, { recursive: true, force: true });
     if (fixtureTmp) rmSync(fixtureTmp, { recursive: true, force: true });
   }
