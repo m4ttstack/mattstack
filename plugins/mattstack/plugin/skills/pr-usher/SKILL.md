@@ -180,20 +180,26 @@ branch, and DM that owner once that you are ushering the PR. No owner
 found counts as offline. Online and answering means a `status` of `live`
 or `idle`, and fewer than 6 silent ticks (30 minutes) since you sent it
 findings; at 3 silent ticks DM it once more. At 6 it counts as offline,
-whatever its row says, and its findings go down the fix path. Check the
-owner's `status` every tick: an owner back online after you fixed its PR
-gets it handed back (see `Fix it in your own worktree`).
+whatever its row says, and its findings go down the fix path. The owner
+is back when it acts: it DMs you, replies on a thread or pushes, or its
+row turns from `offline` to `live`. A row that only stays `idle` is not
+back. An owner back after you fixed its PR gets it handed back (see `Fix
+it in your own worktree`).
 
 A new head since the last tick sends the PR back through placement. With
-CodeRabbit as the reviewer, give it one tick (5 minutes) after a push to
-post its incremental review, then move `reviewed@` to the new head. With
+CodeRabbit as the reviewer, move `reviewed@` to the new head only once
+coderabbitai has posted on it (its incremental review or summary names
+the new commits). If it says it is rate limited, or has said nothing 15
+minutes after the push, the PR goes back to **needs review** for an Opus
+review of the commits after `reviewed@`. With
 `opus` as the reviewer (CodeRabbit absent), the PR goes back to **needs
 review** for a fallback review of the commits after `reviewed@`.
 
 ### Get it reviewed
 
-A re-review of commits after an Opus `reviewed@` skips the CodeRabbit
-clocks and dispatches the fallback at once. Otherwise CodeRabbit reviews a
+A re-review of commits after `reviewed@` (Opus reviewer, or CodeRabbit
+silent or rate limited on the new head) skips the CodeRabbit clocks and
+dispatches the fallback at once. Otherwise CodeRabbit reviews a
 ready PR by itself; nothing to do while it may still come. Clocks run from when the PR went ready on the forge (`mr_view`), so a PR
 that waited before you came on duty may be owed the nudge at once. With nothing
 from coderabbitai after 10 minutes, post
@@ -226,8 +232,9 @@ Otherwise you fix it.
 
 ### Fix it in your own worktree
 
-Before you start, and again before you push, check `chat_buddies`:
-if the owner came back online, stop, DM it what you pushed so far and send
+Before you start, and again before you push, check whether the owner is
+back (it acted, as `Place the PR on its walk` defines; a stale `idle` row
+is not back): if it is, stop, DM it what you pushed so far and send
 it the rest. Otherwise:
 
 1. `worktree_provision {repoName, branch: <source branch>, owner: <your handle>}`,
