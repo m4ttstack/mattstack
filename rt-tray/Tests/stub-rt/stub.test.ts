@@ -772,11 +772,13 @@ function backdate(dir: string, key: string, ms: number): void {
 
 async function waitForFile(path: string, timeoutMs = 10_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
-  while (!existsSync(path)) {
+  for (;;) {
+    // writeFileSync truncates before it writes, so an empty file is still being written.
+    const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+    if (text) return text;
     if (Date.now() > deadline) throw new Error(`${path} never appeared`);
     await Bun.sleep(20);
   }
-  return readFileSync(path, "utf8");
 }
 
 test("a set speed holds the approval until its wait has passed", async () => {

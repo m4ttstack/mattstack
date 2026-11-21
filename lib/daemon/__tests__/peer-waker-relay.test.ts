@@ -55,6 +55,7 @@ test("a publish reaches the recipient's waker in seconds, long before its held w
   const woke: number[] = [];
   let waitOpened!: () => void;
   const opened = new Promise<void>((resolve) => { waitOpened = resolve; });
+  let firstWaitAnswered = false;
   const waker = startPeerWaker({
     log: quiet,
     emit: (type) => {
@@ -65,12 +66,16 @@ test("a publish reaches the recipient's waker in seconds, long before its held w
     waitSeconds: WAIT_SECONDS,
     fetch: ((input: string | URL | Request, init?: RequestInit) => {
       const res = fetch(input, init);
+      res.finally(() => { firstWaitAnswered = true; }).catch(() => {});
       waitOpened();
       return res;
     }) as typeof fetch,
   });
   await opened;
+  // The relay reports no held waiters, so give the request time to reach it,
+  // then check the wait is still held rather than already answered.
   await Bun.sleep(150);
+  expect(firstWaitAnswered).toBe(false);
   const sent = Date.now();
   await fetch(`${base}/envelopes`, {
     method: "POST",
