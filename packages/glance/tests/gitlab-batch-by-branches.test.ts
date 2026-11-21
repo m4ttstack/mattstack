@@ -59,4 +59,72 @@ describe('GitLabProvider.fetchPullRequestsByBranches', () => {
     expect(result.get('a')?.iid).toBe(1);
     expect(result.get('b')?.iid).toBe(2);
   });
+
+  test('a branch with several MRs answers with the newest, the first GitLab lists', async () => {
+    const provider = new GitLabProvider('https://gitlab.example', 't');
+    (provider as any).runQuery = async () => ({
+      project: {
+        mergeRequests: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [gqlMr(20, 'a'), { ...gqlMr(10, 'a'), state: 'closed' }],
+        },
+      },
+    });
+
+    const result = await provider.fetchPullRequestsByBranches('g/p', ['a'], 'all');
+
+    expect(result.get('a')?.iid).toBe(20);
+  });
+
+  test('asks GitLab for newest first, the order the first-seen rule depends on', async () => {
+    const provider = new GitLabProvider('https://gitlab.example', 't');
+    let sent = '';
+    (provider as any).runQuery = async (_op: string, query: string) => {
+      sent = query;
+      return { project: { mergeRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+    };
+
+    await provider.fetchPullRequestsByBranches('g/p', ['a']);
+
+    expect(sent).toContain('sort: CREATED_DESC');
+  });
+
+  test('stops reading once every branch has its MR', async () => {
+    const provider = new GitLabProvider('https://gitlab.example', 't');
+    let calls = 0;
+    (provider as any).runQuery = async () => {
+      calls++;
+      return {
+        project: {
+          mergeRequests: { pageInfo: { hasNextPage: true, endCursor: `c${calls}` }, nodes: [gqlMr(1, 'a'), gqlMr(2, 'b')] },
+        },
+      };
+    };
+
+    const result = await provider.fetchPullRequestsByBranches('g/p', ['a', 'b'], 'all');
+
+    expect(calls).toBe(1);
+    expect(result.get('b')?.iid).toBe(2);
+  });
+
+  test('throws when GitLab says there is another page but gives no cursor for it', async () => {
+    const provider = new GitLabProvider('https://gitlab.example', 't');
+    (provider as any).runQuery = async () => ({
+      project: { mergeRequests: { pageInfo: { hasNextPage: true, endCursor: null }, nodes: [gqlMr(1, 'a')] } },
+    });
+
+    await expect(provider.fetchPullRequestsByBranches('g/p', ['a', 'b'])).rejects.toThrow('non-advancing cursor');
+  });
+
+  test('throws when GitLab hands back the same cursor again', async () => {
+    const provider = new GitLabProvider('https://gitlab.example', 't');
+    let calls = 0;
+    (provider as any).runQuery = async () => {
+      calls++;
+      return { project: { mergeRequests: { pageInfo: { hasNextPage: true, endCursor: 'same' }, nodes: [gqlMr(1, 'a')] } } };
+    };
+
+    await expect(provider.fetchPullRequestsByBranches('g/p', ['a', 'b'])).rejects.toThrow('non-advancing cursor');
+    expect(calls).toBe(2);
+  });
 });

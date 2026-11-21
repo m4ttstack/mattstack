@@ -930,7 +930,7 @@ const GROUP_PROJECTS_QUERY = `
 const MR_BY_BRANCHES_QUERY = `
   query GlanceMRByBranches($projectPath: ID!, $branches: [String!], $state: MergeRequestState, $after: String) {
     project(fullPath: $projectPath) {
-      mergeRequests(sourceBranches: $branches, state: $state, first: 50, after: $after) {
+      mergeRequests(sourceBranches: $branches, state: $state, first: 50, after: $after, sort: CREATED_DESC) {
         pageInfo { hasNextPage endCursor }
         nodes {
           ...MRDashboardFields
@@ -948,7 +948,7 @@ const MR_BY_BRANCHES_QUERY = `
  * entry to the score last measured there. A document left out of this map
  * is one nothing measures.
  */
-export const GITLAB_GRAPHQL_DOCUMENTS: Record<string, string> = {
+export const GITLAB_GRAPHQL_DOCUMENTS = {
   GlanceDashboardAuthored: AUTHORED_QUERY,
   GlanceDashboardReviewing: REVIEWING_QUERY,
   GlanceDashboardAssigned: ASSIGNED_QUERY,
@@ -979,7 +979,14 @@ export const GITLAB_GRAPHQL_DOCUMENTS: Record<string, string> = {
   GlanceMRMetricsNotes: MR_METRICS_NOTES_QUERY,
   GlanceGroupProjects: GROUP_PROJECTS_QUERY,
   GlanceMRByBranches: MR_BY_BRANCHES_QUERY,
-};
+} as const satisfies Record<string, string>;
+
+type MeasuredDocument = string & { readonly __measured: true };
+
+/** runQuery takes only what this returns, so a document nothing measures does not compile. */
+function measured(label: keyof typeof GITLAB_GRAPHQL_DOCUMENTS): MeasuredDocument {
+  return GITLAB_GRAPHQL_DOCUMENTS[label] as MeasuredDocument;
+}
 
 interface GroupProjectsResponse {
   group: {
@@ -1153,7 +1160,7 @@ export class GitLabProvider implements GitProvider {
     let divergedCommitsCount: number | null = null;
     try {
       [resp] = await Promise.all([
-        this.runQuery<MRDetailResponse>('fetchSingleMR', MR_DETAIL_QUERY, {
+        this.runQuery<MRDetailResponse>('fetchSingleMR', measured('GlanceMRDetail'), {
           projectPath,
           iid: String(mrIid),
         }),
@@ -1226,7 +1233,7 @@ export class GitLabProvider implements GitProvider {
       const wanted = new Set<string>(states.length > 0 ? states : ['opened']);
       const iids = [...new Set(options.iids.map(String))];
       const resps = await mapInFlight(iids, IID_READS_IN_FLIGHT, (iid) =>
-        this.runQuery<MRDetailResponse>('fetchPullRequests.iids', MR_DETAIL_QUERY, { projectPath, iid }),
+        this.runQuery<MRDetailResponse>('fetchPullRequests.iids', measured('GlanceMRDetail'), { projectPath, iid }),
       );
       return resps
         .map((resp) => resp.project?.mergeRequest)
@@ -1242,7 +1249,7 @@ export class GitLabProvider implements GitProvider {
 
     if (options?.authorUsernames) {
       const projectPath = requireProjectPath(options.projectPath, 'authorUsernames');
-      const query = exclude ? excludingTargets(MR_BY_AUTHOR_QUERY) : MR_BY_AUTHOR_QUERY;
+      const query = measured(exclude ? 'GlanceMRByAuthor.excludingTargets' : 'GlanceMRByAuthor');
       const perAuthor = await Promise.all(
         options.authorUsernames.map((author) =>
           this.runQuery<MRBatchResponse>('fetchPullRequests.byAuthor', query, {
@@ -1272,12 +1279,12 @@ export class GitLabProvider implements GitProvider {
       const useStateFilter = !needsAllStates;
       const base = options.listWeight
         ? useStateFilter
-          ? MR_PROJECT_LIST_QUERY
-          : MR_PROJECT_LIST_QUERY_NO_STATE
+          ? 'GlanceMRProjectList'
+          : 'GlanceMRProjectListAll'
         : useStateFilter
-          ? MR_PROJECT_QUERY
-          : MR_PROJECT_QUERY_NO_STATE;
-      const query = exclude ? excludingTargets(base) : base;
+          ? 'GlanceMRProject'
+          : 'GlanceMRProjectAll';
+      const query = measured(exclude ? (`${base}.excludingTargets` as const) : base);
       const out: PullRequest[] = [];
       let after: string | null = null;
       do {
@@ -1303,9 +1310,9 @@ export class GitLabProvider implements GitProvider {
     // Role-based path — 3 queries (authored + reviewing + assigned)
     const stateVar = { state: apiState };
     const [authored, reviewing, assigned] = await Promise.all([
-      this.runQuery<AuthoredResponse>('fetchPullRequests.authored', AUTHORED_QUERY, stateVar),
-      this.runQuery<ReviewingResponse>('fetchPullRequests.reviewing', REVIEWING_QUERY, stateVar),
-      this.runQuery<AssignedResponse>('fetchPullRequests.assigned', ASSIGNED_QUERY, stateVar),
+      this.runQuery<AuthoredResponse>('fetchPullRequests.authored', measured('GlanceDashboardAuthored'), stateVar),
+      this.runQuery<ReviewingResponse>('fetchPullRequests.reviewing', measured('GlanceDashboardReviewing'), stateVar),
+      this.runQuery<AssignedResponse>('fetchPullRequests.assigned', measured('GlanceDashboardAssigned'), stateVar),
     ]);
 
     // Merge all three sets, deduplicating by MR global ID.
@@ -1372,7 +1379,7 @@ export class GitLabProvider implements GitProvider {
       for (let i = 0; i < options.iids.length; i += chunkSize) {
         const chunk = options.iids.slice(i, i + chunkSize).map(String);
         const resp = await this.runQuery<ApprovalRulesResponse>(
-          'fetchApprovalRules.iids', MR_APPROVAL_RULES_BY_IID_QUERY,
+          'fetchApprovalRules.iids', measured('GlanceMRApprovalRulesByIid'),
           { projectPath, iids: chunk },
         );
         out.push(...mapNodes(resp));
@@ -1388,7 +1395,7 @@ export class GitLabProvider implements GitProvider {
     }
     const first = options.pageSize ?? 100;
     const exclude = targetsToExclude(options.excludeTargetBranches);
-    const query = exclude ? excludingTargets(MR_APPROVAL_RULES_QUERY) : MR_APPROVAL_RULES_QUERY;
+    const query = measured(exclude ? 'GlanceMRApprovalRules.excludingTargets' : 'GlanceMRApprovalRules');
     const out: MRApprovalRules[] = [];
     let after: string | null = null;
     do {
@@ -1419,7 +1426,7 @@ export class GitLabProvider implements GitProvider {
    */
   async fetchCodeownerSections(options: { projectPath: string }): Promise<string[] | null> {
     const resp = await this.runQuery<CodeownersBlobsResponse>(
-      'fetchCodeownerSections', CODEOWNERS_BLOBS_QUERY,
+      'fetchCodeownerSections', measured('GlanceCodeownersBlobs'),
       { projectPath: options.projectPath, paths: [...CODEOWNERS_PATHS] },
     );
     const nodes = resp.project?.repository?.blobs?.nodes ?? [];
@@ -1454,8 +1461,9 @@ export class GitLabProvider implements GitProvider {
     const out: MergeRequestIndexRow[] = [];
     const exclude = targetsToExclude(options.excludeTargetBranches);
     for (const scope of scopes) {
-      const base = mrIndexQuery(scope.root, apiState !== null);
-      const query = exclude ? excludingTargets(base) : base;
+      const query = measured(
+        `GlanceMRIndex.${scope.root}${apiState !== null ? '.state' : ''}${exclude ? '.excludingTargets' : ''}` as const,
+      );
       let after: string | null = null;
       do {
         const vars: Record<string, unknown> = { fullPath: scope.fullPath, ua: options.updatedAfter, after };
@@ -1487,7 +1495,7 @@ export class GitLabProvider implements GitProvider {
   ): Promise<MergeRequestMetrics | null> {
     const io: RequestIO = { signal: options?.signal, retry: true };
     const vars = { fullPath: projectPath, iid: String(mrIid) };
-    const resp = await this.runQuery<MRMetricsResponse>('fetchMergeRequestMetrics', MR_METRICS_QUERY, vars, io);
+    const resp = await this.runQuery<MRMetricsResponse>('fetchMergeRequestMetrics', measured('GlanceMRMetrics'), vars, io);
     const mr = resp.project?.mergeRequest;
     if (!mr) return null;
 
@@ -1498,7 +1506,7 @@ export class GitLabProvider implements GitProvider {
     let after: string | null = mr.notes.pageInfo.hasNextPage ? mr.notes.pageInfo.endCursor : null;
     while (after) {
       const more: MRMetricsNotesResponse = await this.runQuery<MRMetricsNotesResponse>(
-        'fetchMergeRequestMetrics.notes', MR_METRICS_NOTES_QUERY, { ...vars, after }, io,
+        'fetchMergeRequestMetrics.notes', measured('GlanceMRMetricsNotes'), { ...vars, after }, io,
       );
       const conn = more.project?.mergeRequest?.notes;
       if (!conn) {
@@ -1558,7 +1566,7 @@ export class GitLabProvider implements GitProvider {
     let after: string | null = null;
     do {
       const resp: GroupProjectsResponse = await this.runQuery<GroupProjectsResponse>(
-        'fetchGroupProjects', GROUP_PROJECTS_QUERY, { fullPath: groupPath, after }, io,
+        'fetchGroupProjects', measured('GlanceGroupProjects'), { fullPath: groupPath, after }, io,
       );
       const conn = resp.group?.projects;
       if (!conn) throw new Error(`fetchGroupProjects: no group at ${groupPath}`);
@@ -1939,14 +1947,17 @@ export class GitLabProvider implements GitProvider {
     _options?: ByBranchReadOptions,
   ): Promise<Map<string, PullRequest | null>> {
     // A caller acts on a miss (gitq publish opens an MR for one), so an
-    // unreadable project throws and every page is read, rather than either
-    // answering a branch with "no MR" it never actually checked.
+    // unreadable project or a cursor that cannot advance throws, rather than
+    // answering a branch with "no MR" it never actually checked. Pages come
+    // newest first and a branch keeps the first MR seen, the one
+    // fetchPullRequestByBranch returns, so reading can stop once every
+    // branch has its answer.
     const prsByBranch = new Map<string, PullRequest>();
     let after: string | null = null;
     do {
       const resp: MRBranchPageResponse = await this.runQuery<MRBranchPageResponse>(
         'fetchPullRequestsByBranches',
-        MR_BY_BRANCHES_QUERY,
+        measured('GlanceMRByBranches'),
         { projectPath, branches, state: state === 'all' ? undefined : state, after },
       );
       if (!resp.project) {
@@ -1954,10 +1965,15 @@ export class GitLabProvider implements GitProvider {
       }
       for (const gql of resp.project.mergeRequests.nodes) {
         const pr = toMR(gql, 'author', this.baseURL, null, this.token);
-        prsByBranch.set(pr.sourceBranch, pr);
+        if (!prsByBranch.has(pr.sourceBranch)) prsByBranch.set(pr.sourceBranch, pr);
       }
+      if (branches.every((branch) => prsByBranch.has(branch))) break;
       const pageInfo = resp.project.mergeRequests.pageInfo;
-      after = pageInfo?.hasNextPage ? pageInfo.endCursor : null;
+      const next = pageInfo?.hasNextPage ? (pageInfo.endCursor ?? null) : null;
+      if (pageInfo?.hasNextPage && (next === null || next === after)) {
+        throw new Error(`fetchPullRequestsByBranches: non-advancing cursor '${next}' for ${projectPath}`);
+      }
+      after = next;
     } while (after);
 
     // Assemble result map — null for branches with no MR
@@ -2974,7 +2990,7 @@ export class GitLabProvider implements GitProvider {
     return new Error(`${label} failed: ${String(err)}`);
   }
 
-  private async runQuery<T>(op: string, query: string, variables?: Record<string, unknown>, io?: RequestIO): Promise<T> {
+  private async runQuery<T>(op: string, query: MeasuredDocument, variables?: Record<string, unknown>, io?: RequestIO): Promise<T> {
     const url = `${this.baseURL}/api/graphql`;
     const body = JSON.stringify({ query, variables: variables ?? {} });
 
