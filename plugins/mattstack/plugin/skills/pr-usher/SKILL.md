@@ -54,11 +54,12 @@ digraph pr_usher {
     reverify [label="Re-verify head, threads and CI" shape=box];
     still_ready [label="Ready, same head, settled and green?" shape=diamond];
     forge [label="Forge?" shape=diamond];
-    mr_merge_gitlab [label="mr_merge {repoName, iid}" shape=plaintext];
-    rt_pr_enqueue [label="rt pr enqueue <iid> --head <settled sha> --json" shape=plaintext];
-    enqueued [label="Queued at the settled head?" shape=diamond];
-    mr_merge [label="mr_merge {repoName, iid, wait: true, maxWaitSeconds: 240}" shape=plaintext];
+    mr_merge_gitlab [label="mr_merge {repoName, iid, expectedHeadSha: <settled sha>}" shape=plaintext];
+    dropped_before [label="Drop counted and not yet requeued?" shape=diamond];
+    mr_merge [label="mr_merge {repoName, iid, expectedHeadSha: <settled sha>, wait: true, maxWaitSeconds: 240}" shape=plaintext];
+    mr_merge_requeue [label="mr_merge {repoName, iid, expectedHeadSha: <settled sha>, wait: true, requeue: true, maxWaitSeconds: 240}" shape=plaintext];
     merge_result [label="mr_merge result?" shape=diamond];
+    head_moved [label="Head moved since settled?" shape=diamond];
     chat_post_merged [label="chat_post {room: \"pr-usher\", body: \"merged <PR url> (<title>)\"}" shape=plaintext];
     drops [label="Queue drops on this PR = 2?" shape=diamond];
     route_drop [label="Route the drop's fix" shape=box];
@@ -105,18 +106,20 @@ digraph pr_usher {
     park_pr -> pr_left;
     reverify -> still_ready;
     still_ready -> forge [label="yes"];
-    forge -> rt_pr_enqueue [label="GitHub"];
+    forge -> dropped_before [label="GitHub"];
     forge -> mr_merge_gitlab [label="GitLab"];
     mr_merge_gitlab -> merge_result;
     still_ready -> pr_left [label="no: walk it next tick"];
-    rt_pr_enqueue -> enqueued;
-    enqueued -> mr_merge [label="yes"];
-    enqueued -> pr_left [label="no: head moved, walk it next tick"];
+    dropped_before -> mr_merge [label="no"];
+    dropped_before -> mr_merge_requeue [label="yes"];
     mr_merge -> merge_result;
+    mr_merge_requeue -> merge_result;
     merge_result -> chat_post_merged [label="merged"];
     merge_result -> drops [label="dropped"];
     merge_result -> pr_left [label="still queued, or requested and not verified"];
-    merge_result -> park_pr [label="refused"];
+    merge_result -> head_moved [label="refused"];
+    head_moved -> pr_left [label="yes: walk it next tick"];
+    head_moved -> park_pr [label="no"];
     chat_post_merged -> pr_left;
     drops -> route_drop [label="no"];
     drops -> park_pr [label="yes"];
@@ -146,10 +149,13 @@ Chat history does not survive compaction, so keep one line per PR in
 tick: number, head sha, owner and how you found them (handoff or branch),
 stage, `reviewed@<sha>` (by `coderabbit` or `opus`: the newest head a
 review covered), `settled@<sha>` (the head on which every thread was
-resolved and CI went green), when you nudged CodeRabbit, owner silent
-ticks, usher fix rounds, queue drops, a background Opus review in flight
+resolved and CI went green), when you nudged CodeRabbit, when you sent
+the owner findings and whether the 15-minute reminder went, usher fix
+rounds, queue drops (and `drop-unrequeued` from a counted drop until the
+requeue), a background Opus review in flight
 (`opus-running@<sha>`), and `parked: <reason>` or `owner-kept` when set.
-The first ledger line is `on duty since <time>`. The forge is the truth for
+`summary-finding` lines sit under their PR's line. The first ledger line
+is `on duty since <time>`. The forge is the truth for
 threads, CI and draft state; the ledger holds only what the forge cannot.
 
 ### Tell the human which usher is on duty
@@ -211,7 +217,7 @@ a completed pass.
   `maxWaitSeconds`), or the owner has been sent findings and has not
   pushed or replied since. Record in the ledger when you sent it.
 - **findings or red CI open**: an unresolved thread nobody has answered on
-  the current head, or a failed required check.
+  the current head, an open `summary-finding`, or a failed required check.
 - **settled and green**: `reviewed@` is the current head, every thread
   is resolved, no `summary-finding` is open, and CI is green on that head. Record `settled@<sha>`.
 
@@ -279,7 +285,8 @@ must be settled like any other.
 
 ### Route findings to the owner
 
-Collect the open threads and failing checks on the current head into one
+Collect the open threads, open `summary-finding`s and failing checks on
+the current head into one
 message: each finding's link and a one-line summary, and for red CI the
 failed job and its trace tail (`ci_watch` returns them). Ask the owner to
 fix or answer each thread and to DM you what it pushed. Questions about the
@@ -298,7 +305,8 @@ it the rest. Otherwise:
    held by the owner's tree, for instance) means park the PR.
 2. Fix each finding, run the targeted tests for what you touched, commit.
 3. Push with `git_push {tree}`, then answer each thread with
-   `mr_reply_thread` and resolve it with `mr_resolve_thread`.
+   `mr_reply_thread` and resolve it with `mr_resolve_thread`, and mark each
+   `summary-finding` you fixed `answered` in the ledger.
 4. DM the owner what you pushed, so it pulls before its next push.
 5. Add one to the ledger's usher fix rounds.
 
@@ -321,19 +329,22 @@ refusal, a worktree refusal.
 
 Immediately before merging, read the PR again: still `draft: false`, the
 head sha equals the ledger's `settled@` (and so `reviewed@`), no open
-thread, and CI green on that sha. Anything moved sends the PR back to the
+thread or `summary-finding`, and CI green on that sha. Anything moved sends the PR back to the
 next tick's placement.
 
-On GitHub, a re-read alone leaves a window for a push before the merge,
-so pin the head: `rt pr enqueue <iid> --head <settled sha> --json` puts
-the PR in the merge queue only if its branch is still at that sha (the
-forge checks it), and it re-enters a PR the queue dropped. A refusal
-because the head moved sends the PR back to the next tick. Then
-`mr_merge {wait: true, maxWaitSeconds: 240}` waits for the queued PR to
-land or drop, short enough that chat and handoff acks keep flowing. On
-GitLab there is no queue and no pinned merge: call `mr_merge` with no
-`wait`, `requeue` or `maxWaitSeconds` (GitLab refuses them), straight
-after the re-read. A result of
+A re-read alone leaves a window for a push before the merge, so every
+`mr_merge` passes `expectedHeadSha: <settled sha>`: the forge refuses the
+enqueue or merge when the head has moved. On GitHub it also waits for the
+merge queue with `wait: true`, for at most 240 seconds so chat and handoff
+acks keep flowing; a PR still queued from an earlier tick is only waited
+on, and a drop since then comes back as `dropped`. Pass `requeue: true`
+only when the ledger says `drop-unrequeued`, then clear it. On GitLab
+there is no queue: call it with no `wait`, `requeue` or `maxWaitSeconds`
+(GitLab refuses them).
+
+A refusal: re-read the head with `mr_view`. Moved past `settled@` sends
+the PR back to the next tick; any other refusal (checks the forge calls
+not ready, no merge permission) parks it as a merge refusal. A result of
 `requested` with `verified: false` is re-read on the next tick, never
 assumed merged. After it merges, also DM the owner that it
 landed.
@@ -346,8 +357,8 @@ failed on recent main runs (`pipeline_list` on the target branch) or is a runner
 infrastructure and needs no fix: mark the PR settled and green again so the next
 tick re-verifies and requeues it. A real failure is a finding: route it to the owner, or
 fix it yourself when the owner is offline. Add one to the ledger's queue
-drops either way; the pinned enqueue puts it back in the queue once the
-fix is reviewed, settled and green.
+drops either way and write `drop-unrequeued`; the next pinned merge
+requeues it once the fix is reviewed, settled and green.
 
 ### Hand back the PRs in flight
 
@@ -376,7 +387,7 @@ again, and the Opus fallback always runs in the background.
 | "The owner is online but slow; I'll push the fix." | Never push to an online owner's branch. DM it and wait. |
 | "CodeRabbit is silent, the diff is tiny, merge it." | No PR merges unreviewed. Dispatch the Opus fallback. |
 | "I'll post the Opus findings as one comment." | Findings go in `mr_review_submit` so each is a thread you can settle. |
-| "I re-read the head, so merging now is safe." | On GitHub, enqueue with `--head <settled sha>` so the forge refuses a moved head. |
+| "I re-read the head, so merging now is safe." | Pass `expectedHeadSha` so the forge refuses a moved head. |
 | "Another usher shows idle, it's probably dead." | Idle counts as live. Tell the human and stop. |
 | "The owner answered the thread, so it's settled." | Resolve it yourself with `mr_resolve_thread`; settled means resolved. |
 | "The owner's row says idle, so I keep waiting." | Thirty silent minutes and it counts as offline. Fix or park. |
