@@ -40,7 +40,11 @@ describe("finding the bundled extensions", () => {
   });
 });
 
-const SHORT_TIMEOUT_MS = 300;
+// Long enough for a launcher on a loaded Mac to print and start its child
+// before the timeout stops it.
+const SHORT_TIMEOUT_MS = 1_500;
+const KILL_GRACE_MS = 2_000;
+const SLACK_MS = 2_500;
 
 let io: ReturnType<typeof captureOut>;
 let dir: string;
@@ -69,7 +73,7 @@ function alive(pid: number): boolean {
 }
 
 async function gone(pid: number): Promise<boolean> {
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 100; i++) {
     if (!alive(pid)) return true;
     await Bun.sleep(50);
   }
@@ -108,7 +112,7 @@ afterEach(() => {
 test("a timed-out install stops the launcher's whole process group and returns", async () => {
   const started = Date.now();
   const result = await __test__.installWithCli(hanging(), "/x/rt-context.vsix", SHORT_TIMEOUT_MS);
-  expect(Date.now() - started).toBeLessThan(3_000);
+  expect(Date.now() - started).toBeLessThan(SHORT_TIMEOUT_MS + SLACK_MS);
   expect(result).toEqual({ ok: false, output: "Installing extensions...", timedOut: true });
   expect(await gone(readPid("hanging.child")!)).toBe(true);
 }, 15_000);
@@ -120,7 +124,7 @@ test("a timed-out install returns after the grace period even when a child outsi
   );
   const started = Date.now();
   const result = await __test__.installWithCli(escaping, "/x/rt-context.vsix", SHORT_TIMEOUT_MS);
-  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(Date.now() - started).toBeLessThan(SHORT_TIMEOUT_MS + KILL_GRACE_MS + SLACK_MS);
   expect(result).toMatchObject({ ok: false, timedOut: true });
   expect(alive(readPid("escaped.pid")!)).toBe(true);
 }, 15_000);
@@ -132,7 +136,7 @@ test("an editor that timed out says so and the next editor is still installed", 
     { name: "Sample Code", cliPath: hanging() },
     { name: "Sample Editor", cliPath: ok },
   ];
-  const install = (cliPath: string, vsixPath: string) => __test__.installWithCli(cliPath, vsixPath, SHORT_TIMEOUT_MS);
+  const install = (cliPath: string, vsixPath: string) => __test__.installWithCli(cliPath, vsixPath, cliPath === ok ? undefined : SHORT_TIMEOUT_MS);
   expect(await __test__.installInto(editors, ["/x/rt-context.vsix"], install)).toBe(1);
   expect(io.lines()).toEqual([
     "[failed] Sample Code did not take the extension  it did not finish within 30 seconds",

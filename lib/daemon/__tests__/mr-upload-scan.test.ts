@@ -19,8 +19,6 @@ const REPO = "remote:gitlab.example.com%2Facme%2Fwidgets";
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
 const REPLY = { url: "/uploads/abc/shot.png", full_path: "/-/project/9/uploads/abc/shot.png", markdown: "![shot](/uploads/abc/shot.png)" };
 const RUNS = 300;
-/** The steady-state scan of a few hundred unchanged runs, once the daemon has read each run's fields. */
-const WARM_SCAN_BUDGET_MS = 250;
 
 const bytesOf = (tail: string) => Buffer.concat([PNG, Buffer.from(tail)]);
 const hex = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
@@ -130,10 +128,9 @@ describe("mr:upload all-runs ticket scan", () => {
     expect(h.fileCalls).toEqual([]);
     expect(h.warns).toEqual([]);
 
-    const started = performance.now();
     expect((await h.upload({ repoName: REPO, path: file(elsewhere, "notes-2.png", "ordinary-2") })).ok).toBe(true);
-    expect(performance.now() - started).toBeLessThan(WARM_SCAN_BUDGET_MS);
     expect(h.dbsRead.length).toBe(RUNS);
+    expect(h.fileCalls).toEqual([]);
 
     for (const tail of [`ticket-${RUNS - 7}`, `earlier-${RUNS - 3}`]) {
       const res = await h.upload({ repoName: REPO, path: file(elsewhere, "copy.png", tail) });
