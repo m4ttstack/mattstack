@@ -114,6 +114,44 @@ describe("mergeOnGitHub", () => {
   });
 });
 
+describe("mergeOnGitHub with expectedHeadSha", () => {
+  const SHA = "a".repeat(40);
+  function pinned(queue: Status) {
+    const inputs: unknown[] = [];
+    const made = github(queue, {
+      enqueuePullRequest: (async (_p: string, _i: number, input: unknown) => {
+        inputs.push(input);
+        return { position: 1, state: "QUEUED" };
+      }) as GithubMergeProvider["enqueuePullRequest"],
+    });
+    return { ...made, inputs };
+  }
+
+  test("enqueues pinned to the expected head", async () => {
+    const { provider, inputs } = pinned({ enabled: true, inQueue: false });
+    expect((await mergeOnGitHub(TARGET, { expectedHeadSha: SHA }, { provider })).body).toEqual({ queued: true, position: 1, state: "QUEUED" });
+    expect(inputs).toEqual([{ expectedHeadSha: SHA }]);
+  });
+
+  test("a requeue after a drop is pinned too", async () => {
+    const { provider, inputs } = pinned({ enabled: true, inQueue: false, lastRemoval: { at: "2026-01-01T00:00:00Z", reason: "failed_checks" } });
+    await mergeOnGitHub(TARGET, { requeue: true, expectedHeadSha: SHA }, { provider });
+    expect(inputs).toEqual([{ expectedHeadSha: SHA }]);
+  });
+
+  test("a repo with no queue merges only at the expected head", async () => {
+    const { provider, calls } = github({ enabled: false, inQueue: false });
+    await mergeOnGitHub(TARGET, { expectedHeadSha: SHA }, { provider });
+    expect(calls).toEqual([`merge {"sha":"${SHA}"}`]);
+  });
+
+  test("without it, the enqueue carries no head", async () => {
+    const { provider, inputs } = pinned({ enabled: true, inQueue: false });
+    await mergeOnGitHub(TARGET, {}, { provider });
+    expect(inputs).toEqual([undefined]);
+  });
+});
+
 describe("mergeOnGitHub with wait", () => {
   /** Each poll reads the next status; the last one repeats. */
   function polling(first: Status, later: Array<Status | Error>) {

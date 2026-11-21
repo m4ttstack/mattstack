@@ -1856,6 +1856,25 @@ describe("mcpTools", () => {
       expect(calls.map((c) => c.name)).toEqual(["mr:action"]);
     });
 
+    test("expectedHeadSha pins a GitLab merge to that head", async () => {
+      const sha = "b".repeat(40);
+      const calls = mergeFake(() => cacheWith({ state: "merged" }));
+      expect(await run({ expectedHeadSha: sha })).toEqual({ ok: true, body: { merged: true } });
+      expect(calls[0]!.payload).toMatchObject({ action: "merge", args: [{ sha }] });
+    });
+
+    test("expectedHeadSha must be a full sha, and cannot pin auto-merge, with no daemon call", async () => {
+      const calls: Array<{ name: string; payload: any }> = [];
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: async (name: string, payload: unknown) => { calls.push({ name, payload }); return { ok: true, data: {} }; } }));
+      const short = await run({ expectedHeadSha: "abc123" });
+      expect(short.ok).toBe(false);
+      expect(short.error).toContain("expectedHeadSha");
+      const auto = await run({ expectedHeadSha: "c".repeat(40), whenPipelineSucceeds: true });
+      expect(auto.ok).toBe(false);
+      expect(auto.error).toContain("expectedHeadSha");
+      expect(calls).toEqual([]);
+    });
+
     test("mr_merge refuses a non-boolean squash", async () => {
       const tool = mcpTools().find((t) => t.name === "mr_merge")!;
       const res = await tool.handler({ repoName: ID, iid: 4, squash: "yes" }, {} as NodeJS.ProcessEnv);

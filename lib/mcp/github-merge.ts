@@ -31,6 +31,8 @@ export interface GithubMergeOptions {
   /** Enter the queue again after a drop. */
   requeue?: boolean;
   maxWaitSeconds?: number;
+  /** The forge refuses the enqueue or merge unless the PR's head is still this sha. */
+  expectedHeadSha?: string;
 }
 
 export interface GithubMergeSeams {
@@ -175,7 +177,8 @@ export async function mergeOnGitHub(
         return ok({ queued: true, alreadyQueued: true });
       }
       if (queue.lastRemoval && !options.requeue) return droppedResult(queue.lastRemoval);
-      const entry = await github.enqueuePullRequest(projectPath, iid);
+      const pin = options.expectedHeadSha === undefined ? undefined : { expectedHeadSha: options.expectedHeadSha };
+      const entry = await github.enqueuePullRequest(projectPath, iid, pin);
       if (options.wait) return await waitForQueue(github, target, priorRemovalAt, maxWait, clock);
       return ok({ queued: true, position: entry.position, state: entry.state });
     }
@@ -186,6 +189,7 @@ export async function mergeOnGitHub(
     const pr = await github.mergePullRequest(projectPath, iid, {
       ...(options.squash !== undefined && { squash: options.squash }),
       ...(options.removeSourceBranch !== undefined && { shouldRemoveSourceBranch: options.removeSourceBranch }),
+      ...(options.expectedHeadSha !== undefined && { sha: options.expectedHeadSha }),
     });
     const cleanup = pr.sourceBranchNotDeleted === undefined ? {} : { sourceBranchNotDeleted: pr.sourceBranchNotDeleted };
     if (pr.state === "merged") return ok({ merged: true, ...cleanup });

@@ -824,10 +824,10 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "mr_merge",
-      description: `Merge an MR or PR on GitLab or GitHub. On GitHub it asks GitHub whether the PR goes through a merge queue and takes the right path: queued PRs return {queued: true, position, state} or {queued: true, alreadyQueued: true}, and landing is still to come. wait: true holds until the PR leaves the queue, up to maxWaitSeconds (default ${MERGE_WAIT_DEFAULT_SECONDS}, cap ${MERGE_WAIT_MAX_SECONDS}), and returns {merged: true}, {dropped: true, reason, at} or {queued: true, timedOut: true}; call again with wait: true to keep waiting, which is also how to pick up a PR queued earlier. A dropped PR stays out, even after a push: every call returns {dropped: true, reason, at} until requeue: true is passed, which enters the queue again, so pass it only once the cause is fixed and the new head has been reviewed. A PR that has already merged returns {merged: true}. Chat messages reach you only between calls. A PR enters the queue only once it is ready (approved, required checks green); before that GitHub refuses and the error says why, so wait for green and call again. A queue applies its own merge settings and waits for checks, so squash, removeSourceBranch and whenPipelineSucceeds are refused there. Otherwise it merges now (the forge still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. The result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning the forge accepted the request but the outcome was not observed, so re-read the MR before assuming either way. On GitHub, a merge that landed but left its source branch adds sourceBranchNotDeleted (why), and a merge GitHub put in the queue itself returns {queued: true, position, state}, never merged. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
+      description: `Merge an MR or PR on GitLab or GitHub. On GitHub it asks GitHub whether the PR goes through a merge queue and takes the right path: queued PRs return {queued: true, position, state} or {queued: true, alreadyQueued: true}, and landing is still to come. wait: true holds until the PR leaves the queue, up to maxWaitSeconds (default ${MERGE_WAIT_DEFAULT_SECONDS}, cap ${MERGE_WAIT_MAX_SECONDS}), and returns {merged: true}, {dropped: true, reason, at} or {queued: true, timedOut: true}; call again with wait: true to keep waiting, which is also how to pick up a PR queued earlier. A dropped PR stays out, even after a push: every call returns {dropped: true, reason, at} until requeue: true is passed, which enters the queue again, so pass it only once the cause is fixed and the new head has been reviewed. A PR that has already merged returns {merged: true}. Chat messages reach you only between calls. A PR enters the queue only once it is ready (approved, required checks green); before that GitHub refuses and the error says why, so wait for green and call again. A queue applies its own merge settings and waits for checks, so squash, removeSourceBranch and whenPipelineSucceeds are refused there. Otherwise it merges now (the forge still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. Pass expectedHeadSha, the full sha you reviewed, and the forge refuses the enqueue or merge when the PR's head has moved, so a push after your last read never lands unreviewed; re-read the MR to tell a moved head from any other refusal. It cannot be combined with whenPipelineSucceeds. The result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning the forge accepted the request but the outcome was not observed, so re-read the MR before assuming either way. On GitHub, a merge that landed but left its source branch adds sourceBranchNotDeleted (why), and a merge GitHub put in the queue itself returns {queued: true, position, state}, never merged. ${REPO_NAME_RULE} ${PR_URL_NOTE}`,
       inputSchema: {
         type: "object",
-        properties: { ...MR_TARGET_PROPS, squash: { type: "boolean" }, removeSourceBranch: { type: "boolean" }, whenPipelineSucceeds: { type: "boolean" }, wait: { type: "boolean" }, requeue: { type: "boolean" }, maxWaitSeconds: { type: "number" } },
+        properties: { ...MR_TARGET_PROPS, squash: { type: "boolean" }, removeSourceBranch: { type: "boolean" }, whenPipelineSucceeds: { type: "boolean" }, wait: { type: "boolean" }, requeue: { type: "boolean" }, maxWaitSeconds: { type: "number" }, expectedHeadSha: { type: "string", description: "The full head sha you reviewed: the forge refuses the merge or enqueue when the head has moved." } },
         additionalProperties: false,
       },
       shellForms: ["glab mr merge", "gh pr merge"],
@@ -836,6 +836,9 @@ export function mcpTools(): McpToolDef[] {
         if (bad) return err(bad);
         const maxWait = input.maxWaitSeconds as number | undefined;
         if (maxWait !== undefined && !(Number.isInteger(maxWait) && maxWait >= 0 && maxWait <= MERGE_WAIT_MAX_SECONDS)) return err(`"maxWaitSeconds" must be an integer from 0 to ${MERGE_WAIT_MAX_SECONDS}`);
+        const headSha = input.expectedHeadSha;
+        if (headSha !== undefined && (typeof headSha !== "string" || !/^[0-9a-f]{40}$/.test(headSha))) return err('"expectedHeadSha" must be a full 40-character lowercase hex sha');
+        if (headSha !== undefined && input.whenPipelineSucceeds === true) return err("expectedHeadSha cannot pin auto-merge, which merges whatever head is there when the pipeline passes; merge without whenPipelineSucceeds");
         if (input.whenPipelineSucceeds === true && (input.squash !== undefined || input.removeSourceBranch !== undefined)) {
           return err("whenPipelineSucceeds enables auto-merge, which uses the project's merge settings and cannot take squash or removeSourceBranch");
         }
@@ -849,6 +852,7 @@ export function mcpTools(): McpToolDef[] {
             ...(input.wait === true && { wait: true }),
             ...(input.requeue === true && { requeue: true }),
             ...(maxWait !== undefined && { maxWaitSeconds: maxWait }),
+            ...(headSha !== undefined && { expectedHeadSha: headSha as string }),
           }, { ...(signal && { signal }), ...(progress && { progress }) }), "the PR's state");
         }
         const target = await resolveMrTarget(input);
@@ -858,7 +862,8 @@ export function mcpTools(): McpToolDef[] {
           const set = withLandingHint(await runMrAction(target, "setAutoMerge", [], null), "the MR's state");
           return set.ok ? verifyMerge(target, "autoMerge") : set;
         }
-        const merge: { squash?: boolean; shouldRemoveSourceBranch?: boolean } = {};
+        const merge: { squash?: boolean; shouldRemoveSourceBranch?: boolean; sha?: string } = {};
+        if (headSha !== undefined) merge.sha = headSha as string;
         if (typeof input.squash === "boolean") merge.squash = input.squash;
         if (typeof input.removeSourceBranch === "boolean") merge.shouldRemoveSourceBranch = input.removeSourceBranch;
         const done = withLandingHint(await runMrAction(target, "merge", [merge], null), "the MR's state");
