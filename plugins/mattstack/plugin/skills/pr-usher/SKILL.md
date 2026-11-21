@@ -55,9 +55,9 @@ digraph pr_usher {
     still_ready [label="Ready, same head, settled and green?" shape=diamond];
     forge [label="Forge?" shape=diamond];
     mr_merge_gitlab [label="mr_merge {repoName, iid}" shape=plaintext];
-    dropped_before [label="Dropped from the queue before?" shape=diamond];
+    rt_pr_enqueue [label="rt pr enqueue <iid> --head <settled sha> --json" shape=plaintext];
+    enqueued [label="Queued at the settled head?" shape=diamond];
     mr_merge [label="mr_merge {repoName, iid, wait: true, maxWaitSeconds: 240}" shape=plaintext];
-    mr_merge_requeue [label="mr_merge {repoName, iid, wait: true, requeue: true, maxWaitSeconds: 240}" shape=plaintext];
     merge_result [label="mr_merge result?" shape=diamond];
     chat_post_merged [label="chat_post {room: \"pr-usher\", body: \"merged <PR url> (<title>)\"}" shape=plaintext];
     drops [label="Queue drops on this PR = 2?" shape=diamond];
@@ -105,14 +105,14 @@ digraph pr_usher {
     park_pr -> pr_left;
     reverify -> still_ready;
     still_ready -> forge [label="yes"];
-    forge -> dropped_before [label="GitHub"];
+    forge -> rt_pr_enqueue [label="GitHub"];
     forge -> mr_merge_gitlab [label="GitLab"];
     mr_merge_gitlab -> merge_result;
     still_ready -> pr_left [label="no: walk it next tick"];
-    dropped_before -> mr_merge [label="no"];
-    dropped_before -> mr_merge_requeue [label="yes"];
+    rt_pr_enqueue -> enqueued;
+    enqueued -> mr_merge [label="yes"];
+    enqueued -> pr_left [label="no: head moved, walk it next tick"];
     mr_merge -> merge_result;
-    mr_merge_requeue -> merge_result;
     merge_result -> chat_post_merged [label="merged"];
     merge_result -> drops [label="dropped"];
     merge_result -> pr_left [label="still queued, or requested and not verified"];
@@ -209,11 +209,11 @@ summary still marked in progress is not a review. Set `reviewed@` only on
 a completed pass.
 - **waiting**: CI is still running on the head (`ci_watch` with a short
   `maxWaitSeconds`), or the owner has been sent findings and has not
-  pushed or replied since. Count the owner's silent ticks in the ledger.
+  pushed or replied since. Record in the ledger when you sent it.
 - **findings or red CI open**: an unresolved thread nobody has answered on
   the current head, or a failed required check.
 - **settled and green**: `reviewed@` is the current head, every thread
-  is resolved, and CI is green on that head. Record `settled@<sha>`.
+  is resolved, no `summary-finding` is open, and CI is green on that head. Record `settled@<sha>`.
 
 Threads close through you. When the owner's push fixes a thread, or its
 reply answers one with a reason you accept, reply on the thread if the
@@ -228,8 +228,8 @@ Owner: the handoff's `author=` handle; with no handoff, the row in
 `chat_buddies` for this repo whose `branch` is the PR's source
 branch, and DM that owner once that you are ushering the PR. No owner
 found counts as offline. Online and answering means a `status` of `live`
-or `idle`, and fewer than 6 silent ticks (30 minutes) since you sent it
-findings; at 3 silent ticks DM it once more. At 6 it counts as offline,
+or `idle`, and less than 30 minutes since you sent it findings with no
+push or reply; at 15 minutes DM it once more. At 30 it counts as offline,
 whatever its row says, and its findings go down the fix path. The owner
 is back when it acts: it DMs you, replies on a thread or pushes, or its
 row turns from `offline` to `live`. A row that only stays `idle` is not
@@ -267,7 +267,11 @@ finding as path, line and body. Post them in one
 `mr_review_submit {repoName, iid, outcome: "comment", expectedHeadSha, comments, summary}`
 so each finding is a thread; with no findings, submit the `summary` alone
 ("no findings at <sha>") so the review is on the PR's record. On `bad-anchors`, move those findings into
-`summary` and submit again; on `head-moved`, review the new head. Record
+`summary` and submit again, and record each one in the ledger as
+`summary-finding: <one line> open`: it has no thread, so the ledger is
+what blocks the merge. Route it to the owner like a thread and mark it
+`answered` only when the owner fixes it (a push you checked) or answers
+it with a reason you accept; on `head-moved`, review the new head. Record
 `reviewed@<sha>` by `opus` in the ledger. Never merge a head that no
 review has covered;
 a CodeRabbit review that arrives after the fallback adds threads that
@@ -318,10 +322,18 @@ refusal, a worktree refusal.
 Immediately before merging, read the PR again: still `draft: false`, the
 head sha equals the ledger's `settled@` (and so `reviewed@`), no open
 thread, and CI green on that sha. Anything moved sends the PR back to the
-next tick's placement. Merge only with `mr_merge`. On GitHub it waits for
-the merge queue with `wait: true`, for at most 240 seconds so chat and
-handoff acks keep flowing. On GitLab there is no queue: call it with no
-`wait`, `requeue` or `maxWaitSeconds` (GitLab refuses them). A result of
+next tick's placement.
+
+On GitHub, a re-read alone leaves a window for a push before the merge,
+so pin the head: `rt pr enqueue <iid> --head <settled sha> --json` puts
+the PR in the merge queue only if its branch is still at that sha (the
+forge checks it), and it re-enters a PR the queue dropped. A refusal
+because the head moved sends the PR back to the next tick. Then
+`mr_merge {wait: true, maxWaitSeconds: 240}` waits for the queued PR to
+land or drop, short enough that chat and handoff acks keep flowing. On
+GitLab there is no queue and no pinned merge: call `mr_merge` with no
+`wait`, `requeue` or `maxWaitSeconds` (GitLab refuses them), straight
+after the re-read. A result of
 `requested` with `verified: false` is re-read on the next tick, never
 assumed merged. After it merges, also DM the owner that it
 landed.
@@ -334,8 +346,8 @@ failed on recent main runs (`pipeline_list` on the target branch) or is a runner
 infrastructure and needs no fix: mark the PR settled and green again so the next
 tick re-verifies and requeues it. A real failure is a finding: route it to the owner, or
 fix it yourself when the owner is offline. Add one to the ledger's queue
-drops either way; the requeue happens through `Dropped from the queue
-before?` once the fix is reviewed and green.
+drops either way; the pinned enqueue puts it back in the queue once the
+fix is reviewed, settled and green.
 
 ### Hand back the PRs in flight
 
@@ -347,8 +359,9 @@ itself from here. Return to your own checkout and dispose of any fix tree
 ## Pace
 
 `ScheduleWakeup` with `prompt: "/mattstack:pr-usher"` (the `/loop` input) and
-300 seconds while any PR is in flight (not merged,
-parked or waiting only on its owner), 1200 seconds otherwise. A chat
+300 seconds while any PR is open and not parked or `owner-kept` (one
+waiting on its owner included, so the 15- and 30-minute marks land on
+time), 1200 seconds otherwise. A chat
 message wakes the usher sooner. Keep `ci_watch` and `mr_merge` waits short
 enough that a handoff gets its ack well inside the author's 10 minutes:
 `maxWaitSeconds` 120 for `ci_watch` and 240 for `mr_merge`. An `mr_merge`
@@ -363,7 +376,7 @@ again, and the Opus fallback always runs in the background.
 | "The owner is online but slow; I'll push the fix." | Never push to an online owner's branch. DM it and wait. |
 | "CodeRabbit is silent, the diff is tiny, merge it." | No PR merges unreviewed. Dispatch the Opus fallback. |
 | "I'll post the Opus findings as one comment." | Findings go in `mr_review_submit` so each is a thread you can settle. |
-| "Pin the sha with the shell enqueue command." | Merge only with `mr_merge`; re-verify the head first. |
+| "I re-read the head, so merging now is safe." | On GitHub, enqueue with `--head <settled sha>` so the forge refuses a moved head. |
 | "Another usher shows idle, it's probably dead." | Idle counts as live. Tell the human and stop. |
 | "The owner answered the thread, so it's settled." | Resolve it yourself with `mr_resolve_thread`; settled means resolved. |
-| "The owner's row says idle, so I keep waiting." | Six silent ticks and it counts as offline. Fix or park. |
+| "The owner's row says idle, so I keep waiting." | Thirty silent minutes and it counts as offline. Fix or park. |
