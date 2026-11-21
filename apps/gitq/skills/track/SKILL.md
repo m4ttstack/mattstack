@@ -5,8 +5,7 @@ description: >-
   chain someone built by hand, adopting branches that already have open
   MRs/PRs, or starting a new stack from scratch. Also use when a stack is
   already tracked but has the wrong root or the wrong parents. Invoked by
-  hand as "/gitq:track [repoPath]"; the board has no track action, so this
-  is the only way in.
+  hand as "/gitq:track [repoPath]".
 ---
 
 # gitq track
@@ -288,9 +287,6 @@ digraph gitq_track {
     "Reproduce the Step 1 block and say why the run stopped (track)" -> "Handed back (track): the run stopped before a clean hand back";
 }
 ```
-
-Track writes no board status: it is launched by hand only, with no
-`--state` or `--status-bin` flags.
 
 ## Asking the human
 

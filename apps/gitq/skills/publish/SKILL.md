@@ -3,10 +3,9 @@ name: gitq:publish
 description: >-
   Push a tracked gitq stack's unpublished branches and create or update its
   merge/pull request chain on GitLab or GitHub, writing the MR titles and
-  descriptions itself. Launched by the
-  gitq board as "/gitq:publish <repoPath> <stackName> --state <path>
-  --status-bin <path>", or invoked by hand without those flags. Holds a
-  human gate before anything leaves the machine.
+  descriptions itself. Invoked by hand as
+  "/gitq:publish <repoPath> <stackName>". Holds a human gate before anything
+  leaves the machine.
 ---
 
 # gitq publish runner
@@ -22,8 +21,6 @@ human approves at the publish gate.
 |------|---------|
 | `<repoPath>` (positional) | absolute path of the repo checkout |
 | `<stackName>` (positional) | the tracked stack to publish |
-| `--state <path>` | lifecycle status file the board polls (optional) |
-| `--status-bin <path>` | absolute path to the gitq executable, called as `<status-bin> job-status` (optional) |
 
 ## What gitq publish does per branch
 
@@ -51,12 +48,10 @@ branches are left alone and appear in neither list.
 digraph gitq_publish {
     rankdir=TB;
 
-    "Trigger: /gitq:publish <repoPath> <stackName> [--state <path> --status-bin <path>]" [shape=ellipse];
+    "Trigger: /gitq:publish <repoPath> <stackName>" [shape=ellipse];
     "gitq --version (publish)" [shape=plaintext];
     "gitq on PATH (publish)?" [shape=diamond];
-    "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" [shape=plaintext];
     "gitq missing: told the human to run rt deps link gitq (publish)" [shape=doublecircle];
-    "<status-bin> job-status <state> working \"publishing <stackName>\"" [shape=plaintext];
     "gitq -C <repoPath> stacks --json (publish)" [shape=plaintext];
     "gitq -C <repoPath> diagnose --json (publish)" [shape=plaintext];
     "Stack state (publish)?" [shape=diamond];
@@ -79,22 +74,18 @@ digraph gitq_publish {
     "Held (publish): the refusal waits on the human" [shape=doublecircle];
     "Name each skipped branch and its reason (publish, exit 0)" [shape=box];
     "Name each skipped branch and its reason (publish, exit 1)" [shape=box];
-    "<status-bin> job-status <state> done \"<n> MRs created, <m> updated\"" [shape=plaintext];
     "Report the MR URLs in stack order" [shape=box];
     "Stack published (publish)" [shape=doublecircle style=filled fillcolor=lightgreen];
-    "<status-bin> job-status <state> error \"<reason>\" (publish)" [shape=plaintext];
     "Report the failure and what went through (publish)" [shape=box];
     "publish failed: reported" [shape=doublecircle];
 
-    "Trigger: /gitq:publish <repoPath> <stackName> [--state <path> --status-bin <path>]" -> "gitq --version (publish)";
+    "Trigger: /gitq:publish <repoPath> <stackName>" -> "gitq --version (publish)";
     "gitq --version (publish)" -> "gitq on PATH (publish)?";
-    "gitq on PATH (publish)?" -> "<status-bin> job-status <state> working \"publishing <stackName>\"" [label="yes"];
-    "gitq on PATH (publish)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" [label="no"];
-    "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" -> "gitq missing: told the human to run rt deps link gitq (publish)";
-    "<status-bin> job-status <state> working \"publishing <stackName>\"" -> "gitq -C <repoPath> stacks --json (publish)";
+    "gitq on PATH (publish)?" -> "gitq -C <repoPath> stacks --json (publish)" [label="yes"];
+    "gitq on PATH (publish)?" -> "gitq missing: told the human to run rt deps link gitq (publish)" [label="no"];
     "gitq -C <repoPath> stacks --json (publish)" -> "gitq -C <repoPath> diagnose --json (publish)";
     "gitq -C <repoPath> diagnose --json (publish)" -> "Stack state (publish)?";
-    "Stack state (publish)?" -> "<status-bin> job-status <state> error \"<reason>\" (publish)" [label="a parked lease on this stack, or a rebase in progress"];
+    "Stack state (publish)?" -> "Report the failure and what went through (publish)" [label="a parked lease on this stack, or a rebase in progress"];
     "Stack state (publish)?" -> "Write each branch's MR title and description" [label="ready; behind or conflicted branches noted for the gate"];
     "Stack state (publish)?" -> "STOP: publish never rewrites git; a stack that needs a sync is named at the gate" [label="tempted to sync or rebase first"];
     "STOP: publish never rewrites git; a stack that needs a sync is named at the gate" -> "Stack state (publish)?";
@@ -104,11 +95,11 @@ digraph gitq_publish {
     "Publish gate answer (publish)?" -> "gitq -C <repoPath> publish --stack <stackName> --mr-meta <tempPath> --json" [label="take: approve"];
     "Publish gate answer (publish)?" -> "Draft rounds = 3 (publish)?" [label="iterate: revise the drafts with the note"];
     "Publish gate answer (publish)?" -> "Held (publish): nothing pushed" [label="hold"];
-    "Publish gate answer (publish)?" -> "<status-bin> job-status <state> error \"<reason>\" (publish)" [label="hand back"];
+    "Publish gate answer (publish)?" -> "Report the failure and what went through (publish)" [label="hand back"];
     "Publish gate answer (publish)?" -> "STOP: nothing leaves the machine before an approve at the publish gate" [label="tempted to publish without an approve"];
     "STOP: nothing leaves the machine before an approve at the publish gate" -> "publish gate: approve the MR chain";
     "Draft rounds = 3 (publish)?" -> "Write each branch's MR title and description" [label="no"];
-    "Draft rounds = 3 (publish)?" -> "<status-bin> job-status <state> error \"<reason>\" (publish)" [label="yes: budget spent"];
+    "Draft rounds = 3 (publish)?" -> "Report the failure and what went through (publish)" [label="yes: budget spent"];
 
     "gitq -C <repoPath> publish --stack <stackName> --mr-meta <tempPath> --json" -> "gitq publish exit (publish)?";
     "gitq publish exit (publish)?" -> "Name each skipped branch and its reason (publish, exit 0)" [label="0"];
@@ -122,24 +113,18 @@ digraph gitq_publish {
     "Refusal answer (publish)?" -> "Publish attempts = 2 (publish)?" [label="take: the human fixed the token or forge entry"];
     "Refusal answer (publish)?" -> "Refusal rounds = 2 (publish)?" [label="iterate: retry with the note"];
     "Refusal answer (publish)?" -> "Held (publish): the refusal waits on the human" [label="hold"];
-    "Refusal answer (publish)?" -> "<status-bin> job-status <state> error \"<reason>\" (publish)" [label="hand back"];
+    "Refusal answer (publish)?" -> "Report the failure and what went through (publish)" [label="hand back"];
     "Publish attempts = 2 (publish)?" -> "gitq -C <repoPath> publish --stack <stackName> --mr-meta <tempPath> --json" [label="no: publish again"];
-    "Publish attempts = 2 (publish)?" -> "<status-bin> job-status <state> error \"<reason>\" (publish)" [label="yes: budget spent"];
+    "Publish attempts = 2 (publish)?" -> "Report the failure and what went through (publish)" [label="yes: budget spent"];
     "Refusal rounds = 2 (publish)?" -> "gitq -C <repoPath> publish --stack <stackName> --mr-meta <tempPath> --json" [label="no: publish again"];
-    "Refusal rounds = 2 (publish)?" -> "<status-bin> job-status <state> error \"<reason>\" (publish)" [label="yes: budget spent"];
+    "Refusal rounds = 2 (publish)?" -> "Report the failure and what went through (publish)" [label="yes: budget spent"];
 
-    "Name each skipped branch and its reason (publish, exit 0)" -> "<status-bin> job-status <state> done \"<n> MRs created, <m> updated\"";
-    "<status-bin> job-status <state> done \"<n> MRs created, <m> updated\"" -> "Report the MR URLs in stack order";
+    "Name each skipped branch and its reason (publish, exit 0)" -> "Report the MR URLs in stack order";
     "Report the MR URLs in stack order" -> "Stack published (publish)";
-    "Name each skipped branch and its reason (publish, exit 1)" -> "<status-bin> job-status <state> error \"<reason>\" (publish)";
-    "<status-bin> job-status <state> error \"<reason>\" (publish)" -> "Report the failure and what went through (publish)";
+    "Name each skipped branch and its reason (publish, exit 1)" -> "Report the failure and what went through (publish)";
     "Report the failure and what went through (publish)" -> "publish failed: reported";
 }
 ```
-
-Every `<status-bin> job-status` node is skipped when `--state` and
-`--status-bin` were not given (a manual launch), and a hold writes nothing,
-so the board badge keeps `working` while the pane waits.
 
 ## Asking the human
 
@@ -192,8 +177,7 @@ the gate's answer diamond. An answer that carries a note brings it in the
 answer's `note` or `text`.
 
 The presentation comes from `gate_ask`'s result alone: `gate_ask result (publish)?`
-branches on the `presentation` it returns, never on your own choice or on
-the launch flags. On `form`, put up the AskUserQuestion form and call
+branches on the `presentation` it returns, never on your own choice. On `form`, put up the AskUserQuestion form and call
 `gate_answer {id, answers}` with its answers in the same turn, back to
 back: the answer is not recorded until `gate_answer` runs, so a turn that
 ends between the two leaves the gate open and unanswered.
@@ -204,7 +188,7 @@ End the turn with one line saying what the gate asks. Do not poll, do not
 guess the answer, and do not keep working on the stack: the next turn starts
 when the background wait finishes or the human replies in the pane, and it
 reads that answer as the gate's. A human who never answers leaves the pane
-holding: nothing is published and nothing is written.
+holding: nothing is published.
 
 ### Fix what the refusal names (publish)
 
@@ -280,10 +264,10 @@ Context, quoted and never trimmed:
 
 | Question | Options (recommended first) |
 |---|---|
-| Publish this MR chain? | `take: approve and publish`: I run gitq publish with these drafts, pushing new branches and opening or updating their MRs. `iterate: revise the drafts`: I rewrite the titles and descriptions with your note and ask again. `hold: leave it with you`: this run ends with nothing pushed and writes no status. `hand back: do not publish`: nothing is pushed and I mark the run failed as declined at the publish gate; pick this to sync first yourself. |
+| Publish this MR chain? | `take: approve and publish`: I run gitq publish with these drafts, pushing new branches and opening or updating their MRs. `iterate: revise the drafts`: I rewrite the titles and descriptions with your note and ask again. `hold: leave it with you`: this run ends with nothing pushed. `hand back: do not publish`: nothing is pushed and I report the run as failed, declined at the publish gate; pick this to sync first yourself. |
 
-Three revision rounds spend the budget: the next iterate answer is written
-as an error ("publish drafts not settled after 3 rounds") and reported.
+Three revision rounds spend the budget: the next iterate answer is reported
+as a failure ("publish drafts not settled after 3 rounds").
 
 ### publish off-script gate: gitq publish refused
 
@@ -315,7 +299,7 @@ at.
 
 | Question | Options (recommended first) |
 |---|---|
-| gitq publish refused. What next? | `take: fixed it, publish again`: you fixed what the refusal names (a token, a forge entry, the stack), and I run gitq publish again. `iterate: publish again with a note`: I act on your note, then run gitq publish again. `hold: leave it with you`: this run ends with nothing published and writes no status. `hand back: fail on the refusal`: I mark the run failed with the refusal as the reason. |
+| gitq publish refused. What next? | `take: fixed it, publish again`: you fixed what the refusal names (a token, a forge entry, the stack), and I run gitq publish again. `iterate: publish again with a note`: I act on your note, then run gitq publish again. `hold: leave it with you`: this run ends with nothing published. `hand back: fail on the refusal`: I report the failure with the refusal as the reason. |
 
 ### Name each skipped branch and its reason (publish, exit 0)
 
@@ -327,15 +311,14 @@ entry carries `action` (`created` or `updated`), `mrUrl`, and for an update
 For every `skipped` entry, read its `reason` and `detail` and name the
 branch and why: gitq wrote nothing for it. Never report a skipped branch as
 published, and never let a run of nothing but skips pass as "nothing needed
-doing". The done write's `<n>` and `<m>` count the `created` and `updated`
-results.
+doing".
 
 ### Name each skipped branch and its reason (publish, exit 1)
 
 Exit 1 after normal JSON means some `results` entries have
 `success: false`, each with its `error`. Name every failed branch and its
 error, and every `skipped` branch with its `reason` and `detail`, exactly as
-at exit 0. The error write's reason names the failed branches.
+at exit 0.
 
 ### Report the MR URLs in stack order
 
@@ -345,9 +328,9 @@ reason.
 
 ### Report the failure and what went through (publish)
 
-Say why the run stopped, in the words of the reason just written:
+Say why the run stopped:
 
-| Path | Reason written, and what the report adds |
+| Path | Reason, and what the report adds |
 |---|---|
 | a parked lease or a rebase in progress | "cascade paused; finish or abort it first"; suggest gitq:sync |
 | hand back at the publish gate | "declined at the publish gate"; when the note asked to sync first, point at gitq:sync |
@@ -363,9 +346,6 @@ Report every branch that went through.
 
 - Every gitq call runs as `gitq -C <repoPath> ...`, and the git reads for
   the drafts as `git -C <repoPath> ...`.
-- Status is written only through the injected bin, as
-  `<status-bin> job-status <state> <status> [detail]`; the board writes
-  `starting` at spawn.
 - `Stack state (publish)?` reads two sources. The parked lease is the
   `worktrees[]` entry in the stacks output whose `lease.stackId` equals this
   stack's `id` from `stacks[]` and whose `lease.state` is `parked`. A rebase
@@ -376,11 +356,8 @@ Report every branch that went through.
   cascade is paused.
 - Publish never edits branches, rebases or otherwise mutates git. A stack
   that needs a rebase is gitq:sync's job, named at the gate.
-- Every path but a hold ends through a `done` or `error` write, the
-  missing-gitq stop included, so the board badge never sticks. A hold, and a
-  pane parked at a gate the human has not answered, writes no `done`. On a
-  hold, tell the human in the pane what is waiting on them: after a publish
-  gate hold, the drafts saved at `<tempPath>`; after a refusal gate hold,
+- On a hold, tell the human in the pane what is waiting on them: after a
+  publish gate hold, the drafts saved at `<tempPath>`; after a refusal gate hold,
   the quoted `gitq:` line. Nothing was pushed either way, and running the
   publish again starts fresh.
 - Each counter counts per run: draft rounds across the publish gate,
@@ -392,8 +369,7 @@ Report every branch that went through.
 | Thought | Reality |
 |---|---|
 | "the skill has no path for the runner to obtain a token or retry on its own, so it stops there and waits on the human" | A refusal opens `publish off-script gate: gitq publish refused`. The human supplies the token and answers take; I publish again. |
-| "the skill authorizes only 'mark error with the stderr text' here" | The refusal gate comes first. The error is written only on hand back or a spent budget. |
-| "status is already terminal (`error`, written in step 2), so no further status write is owed" | The error write is the end of a path, not a checkpoint. A refusal waits at its gate with no write. |
+| "the skill authorizes only 'mark error with the stderr text' here" | The refusal gate comes first. The failure is reported only on hand back or a spent budget. |
 | "Setting `GITHUB_TOKEN` or running `rt daemon track` are actions outside this runner's scope" | Right, they are the human's. The refusal gate hands them over and keeps the run alive. |
 | "I can't tell from here which one applies" (then asking in prose) | For a token refusal, the gate's context names the host and every token source; the human answers through `gate_ask`. |
 | "The human said there is no need to show them, so a prose check will do." | Behind branches and a waived preview still go through the publish gate. The plain-text pane ask is only for a session with no `gate_ask` tool. |
