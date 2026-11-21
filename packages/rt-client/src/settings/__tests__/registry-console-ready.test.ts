@@ -85,7 +85,6 @@ const UNANNOTATED_YET: readonly string[] = [
   "deck.access",
   "deck.apps",
   "deck.platform",
-  "gitq.board",
   "gitq.forges",
   "gitq.workSlots",
   "mattstack.integrations",

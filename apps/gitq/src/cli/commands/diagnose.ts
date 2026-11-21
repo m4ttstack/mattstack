@@ -21,7 +21,7 @@ export async function diagnoseCommand(ctx: CliContext): Promise<number> {
       stackName: stack.stackName,
       // Every branch gone from the remote: the stack is finished (or was
       // deleted elsewhere) and only the tracking record is left. A field, not
-      // just a rendering choice, so the board can act on it too.
+      // just a rendering choice, so a --json caller can act on it too.
       allBranchesGone: nodes.length > 0 && nodes.every((n) => n.situation === 'branch-deleted-remote'),
       diagnostics: {
         nodes,

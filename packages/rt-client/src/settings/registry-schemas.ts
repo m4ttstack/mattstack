@@ -111,7 +111,6 @@ const tab = z.looseObject({
 });
 
 // Older rt seeded bare repo names; gitq reads { path, name? } and refuses a name, which the 2026-10-11 import rewrites.
-const gitqRepo = z.union([z.string(), z.looseObject({ path: z.string(), name: z.string().optional() })]);
 
 const sdmResourceEntry = z.looseObject({
   label: z.string().optional(),
@@ -371,7 +370,6 @@ export const SCHEMAS = {
     z.string(),
     z.looseObject({ provider: z.enum(["gitlab", "github"]), baseUrl: z.string().optional(), tokenEnv: z.string().optional() }),
   ).meta({ labels: { key: "host", value: "forge" } }),
-  "gitq.board": z.looseObject({ repos: z.array(gitqRepo), port: z.number().optional(), herdrWorkspace: z.string().optional() }),
   "rt.skills.disableModelInvocation": z
     .record(z.string(), z.array(z.string()))
     .meta({ title: "Model invocation disabled", description: "Skills with model invocation disabled, by pack.", labels: { key: "pack", value: "skills" } }),

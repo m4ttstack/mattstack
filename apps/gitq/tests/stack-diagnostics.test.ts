@@ -252,7 +252,7 @@ describe('diagnoseStack', () => {
   });
 
   test('branch deleted on remote but live MR state is merged... reads as merged', () => {
-    // Stored status lags until a reconcile runs; the board already holds the
+    // Stored status lags until a reconcile runs; the caller already holds the
     // live MR state, and a freshly merged branch must not scare as Deleted.
     const stack = makeStack('main', [
       makeNode('feat/auth', 'main'),

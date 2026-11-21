@@ -20,7 +20,7 @@ gitq never writes either; both are read-only inputs. Find neither and `publish` 
 gitq: no gitlab token for gitlab.com (set GITLAB_TOKEN or track the repo with rt (rt daemon track <repo> live branches); <repoPath> is not registered with rt (~/.mattstack/rt/repos.json))
 ```
 
-Which token gitq wants follows from the repo's remote, not from configuration: a GitHub remote asks for `GITHUB_TOKEN` and is never offered a GitLab one. The instance comes from the remote too, so self-hosted GitLab works, given a `forges` entry naming it (or a `tokenEnv` on that entry, for a credential of its own). The board follows the same rule per repo, so a board showing a GitLab repo and a GitHub repo enriches both, each with its own credential. See [the forge token](/gitq/reference/configuration#the-forge-token).
+Which token gitq wants follows from the repo's remote, not from configuration: a GitHub remote asks for `GITHUB_TOKEN` and is never offered a GitLab one. The instance comes from the remote too, so self-hosted GitLab works, given a `forges` entry naming it (or a `tokenEnv` on that entry, for a credential of its own). Each host gets its own credential. See [the forge token](/gitq/reference/configuration#the-forge-token).
 
 ## What `publish` does, per branch
 

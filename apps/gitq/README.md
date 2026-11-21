@@ -14,7 +14,6 @@ gitq turns a chain of dependent git branches into something you can operate on a
 - [Exit codes](#exit-codes)
 - [Worktrees and work slots](#worktrees-and-work-slots)
 - [Configuration](#configuration)
-- [The board](#the-board)
 - [Agent skills](#agent-skills)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -27,9 +26,9 @@ gitq turns a chain of dependent git branches into something you can operate on a
 - **`gitq absorb`.** Distributes uncommitted changes to the stack branches that own the lines each edit sits on, with `--preview` to see the attribution before anything is committed.
 - **Forge-aware publishing.** `gitq publish` opens or updates an MR/PR chain on GitLab or GitHub, retargeting branches as the stack underneath them changes.
 - **Worktree-native.** Cascades run in a leased work worktree with a detached HEAD and move branch refs with compare-and-swap at the end, so your checkout is never switched out from under you.
-- **A board and agent skills.** A local web UI shows every tracked stack's branch statuses, MR and pipeline state, and live progress while an agent works a stack from one of the five bundled Claude skills.
+- **Agent skills.** Five bundled Claude skills drive the CLI: sync with judgment-based conflict resolution, publish behind a human gate, absorb, restructure, and track.
 
-gitq is part of the [mattstack](https://github.com/m4ttstack) estate: it talks to GitLab and GitHub through [glance](../../packages/glance) (in this same repo), can read its settings and grant-gated forge tokens from [rt](https://github.com/m4ttstack/mattstack), ships as a CLI inside the mattstack.app bundle (not registered with or served by [deck](../deck)), and launches board actions as agent panes through [herdr](https://github.com/herdrdev/herdr). Only glance ships as a dependency; the CLI works with none of the others installed.
+gitq is part of the [mattstack](https://github.com/m4ttstack) estate: it talks to GitLab and GitHub through [glance](../../packages/glance) (in this same repo), can read its settings and grant-gated forge tokens from [rt](https://github.com/m4ttstack/mattstack), ships as a CLI inside the mattstack.app bundle (not registered with or served by [deck](../deck)). Only glance ships as a dependency; the CLI works with none of the others installed.
 
 ## Installation
 
@@ -45,7 +44,7 @@ Or run it without installing:
 npx @mattstack/gitq stacks
 ```
 
-Bun is needed only for the board (`gitq board`), which the node CLI ships without, and for working on gitq itself. See [Development](#development).
+Bun is needed only for working on gitq itself. See [Development](#development).
 
 ## Quickstart
 
@@ -183,8 +182,6 @@ On an update, `gitq publish` retargets an MR whose target no longer matches the 
 ### Other
 
 - `gitq undo`: undo the last reversible operation from the operation log, restoring the branches it touched to their pre-operation state.
-- `gitq board`: serve the web board (needs Bun). See [The board](#the-board).
-- `gitq job-status <statePath> <status> [detail]`: write a board job-state file by absolute path. Used by the bundled skills.
 
 ## Conflicts: the pause protocol
 
@@ -230,11 +227,11 @@ gitq keeps almost nothing in your repository.
 
 | Location | What it holds |
 | --- | --- |
-| `~/.mattstack/gitq/` | The app root: stack stores (one JSON file per repo under `stacks/`, keyed by a hash of the repo path), the global `operation-log.json`, the work slots gitq creates under `work/`, and the board's `state/jobs/`. |
+| `~/.mattstack/gitq/` | The app root: stack stores (one JSON file per repo under `stacks/`, keyed by a hash of the repo path), the global `operation-log.json`, and the work slots gitq creates under `work/`. |
 | `<commonDir>/gitq/leases.json` | Per-repo work-slot lease registry: which stack holds which work slot. |
 | `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. Keyed off the git dir rather than the worktree root, so it is worktree safe. During a cascade this lives in the work slot's git dir, not your checkout's. |
 
-`GITQ_APP_ROOT` moves the whole root. `GITQ_CONFIG_DIR` moves just the CLI's subset and wins over it, which makes it a one-line way to point an experimental run at a throwaway store. The board's own files do not follow `GITQ_CONFIG_DIR`: a throwaway stack store should not also repoint the board.
+`GITQ_APP_ROOT` moves the whole root. `GITQ_CONFIG_DIR` moves just the CLI's subset and wins over it, which makes it a one-line way to point an experimental run at a throwaway store.
 
 Stores created by older gitq versions, keyed by a single worktree's path, migrate automatically the first time you run gitq from that worktree. If you used gitq before it moved to the app root, the first run copies `~/.config/gitq` in (work slots used to live in `~/.cache/gitq/work`), leaves the original in place for you to delete, and never merges into a root that already holds files. Slots already leased under the old root keep working untouched.
 
@@ -254,13 +251,12 @@ An entry may also carry `baseUrl` (defaults to `https://<host>`, and is required
 
 ### Settings
 
-gitq reads three settings from the [rt](https://github.com/m4ttstack/mattstack) settings store.
+gitq reads two settings from the [rt](https://github.com/m4ttstack/mattstack) settings store.
 
 | Key | Scope | Shape | With nothing set |
 | --- | --- | --- | --- |
 | `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | `{ "workSlotLocation": "auto", "maxWorkSlots": 3 }` |
 | `gitq.forges` | user | host-keyed map, naming `tokenEnv` variables only, never a live token | `{}` |
-| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | none: `rt setup` writes it with the repos your team tracks |
 
 Set one with the rt CLI:
 
@@ -270,30 +266,11 @@ rt settings set gitq.workSlots '{"maxWorkSlots":4}' --scope machine
 
 `rt settings set <key> <json-value> --scope user|team|machine` **replaces the whole value stored at that key and scope**, so a value with more than one field needs every field you want to keep. A field you leave out reads its default. Check what is there first with `rt settings explain gitq.workSlots`.
 
-Older gitq read `settings.json` and the board's `config.json` from the app root; `rt setup update` copied their values into these keys and renamed each file `<name>.imported`.
-
-## The board
-
-A local web board showing every configured repo's stacks: per branch status badges from `gitq diagnose`'s engine plus a "conflict predicted" hint from preflight, MR and pipeline state per repo when that repo's forge token is available, live job chips while an agent pane works, and an activity feed from the operation log. It also shows each branch's checkout slot with dirty ones highlighted, the work slots' lease state, and lets absorb source from any dirty worktree.
-
-Right-clicking a stack offers four actions. Each one spawns a herdr tab running `claude` with the matching `gitq:*` skill, so the badge updates live while the agent works. Relaunching a live action refocuses its tab instead of double-spawning.
-
-```bash
-rt settings set gitq.board '{"repos":[{"path":"/path/to/repo"}]}' --scope machine   # rt setup writes this for you
-bun run serve                                                                      # http://localhost:11008
-```
-
-`$PORT` wins over the configured port, so a launcher can pin it independently. Config changes need a restart, and so do client changes, since the client bundle is built in memory at startup. `style.css` edits are live.
-
-Endpoints are `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` with `{ repoPath, stack, action }`, and `/healthz`. The action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`), so through a tunnel the board is read only and the client hides the action menu items.
-
-Repo data is cached in memory for 60 seconds with stale-while-revalidate. Job state files under `<app root>/state/jobs/` are read fresh on every request and pruned once terminal and older than 24 hours. MR enrichment needs the same token as `publish`, resolved per repo from that repo's own remote host, so a board showing a GitLab repo alongside a GitHub one enriches each from its own credential; a repo whose token is missing still renders from the store's last known MR fields.
-
-`bun run build:bundle` writes `dist/app/main.js` carrying its own client bundle, the copy the mattstack app runs as `Contents/Helpers/gitq`, so `gitq board` serves the page on a machine with no checkout on it. See [docs/releasing.md](docs/releasing.md).
+Older gitq read `settings.json` from the app root; `rt setup update` copied its values into these keys and renamed the file `settings.json.imported`.
 
 ## Agent skills
 
-`skills/` holds five [Claude](https://claude.com/claude-code) skills that drive this CLI from an agent pane. They ship inside mattstack.app, next to the bundled `gitq` CLI, and its setup links them into `~/.claude/skills` (the "Link bundled skills" step). With the app installed there is nothing to run.
+`skills/` holds five [Claude](https://claude.com/claude-code) skills that drive this CLI. They ship inside mattstack.app, next to the bundled `gitq` CLI, and its setup links them into `~/.claude/skills` (the "Link bundled skills" step). With the app installed there is nothing to run.
 
 Developing the skills in a checkout, link them to the checkout instead:
 
@@ -303,16 +280,16 @@ bun run scripts/install-skills.ts
 
 `install-skills.ts` is checkout-only. It replaces any existing symlink at `~/.claude/skills/<name>`, so it relinks over the app's links, and the app's setup leaves a link it did not make alone: the checkout links stay until you remove them.
 
-Four are one per board action:
+Four work an existing stack:
 
 - `gitq:sync`: cascade rebase with judgment-based conflict resolution.
 - `gitq:publish`: push and MR chain, with a human gate before anything leaves the machine.
 - `gitq:absorb`: distribute uncommitted changes, preview first.
 - `gitq:restructure`: split, fold, reparent, and rename surgery from a plain language instruction, gated on a plan.
 
-The fifth, `gitq:track`, is how a stack gets onto the board in the first place. Point it at a repo and it works out whether the branches are a new stack, a hand-built chain to adopt, or an already-published MR chain, then tracks them accordingly.
+The fifth, `gitq:track`, is how a stack gets tracked in the first place. Point it at a repo and it works out whether the branches are a new stack, a hand-built chain to adopt, or an already-published MR chain, then tracks them accordingly.
 
-The four board skills take `<repoPath> <stackName>` positionals plus optional `--state <path>` and `--status-bin <path>` flags. The board injects those two so the pane can emit lifecycle status (`starting`, `working`, `conflict`, `done`, `error`) to a JSON state file under `<app root>/state/jobs/`. Invoked by hand without them, the skills skip status writes and just talk to you. `--status-bin` is the gitq executable itself, called as `<status-bin> job-status <statePath> <status> [detail]`. `gitq:track` has no board action behind it, so it takes only an optional `[repoPath]` and never writes status.
+The four take `<repoPath> <stackName>` positionals (`gitq:restructure` also takes an optional instruction). `gitq:track` takes an optional `[repoPath]`.
 
 ## Development
 

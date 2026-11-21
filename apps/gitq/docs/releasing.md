@@ -39,8 +39,7 @@ from this tree, at the mattstack.app release tag: rt's
 (`apps/gitq/mattstack.deck.json`), and the `build-apps` job in rt's
 `.github/workflows/release.yml` does this for every release. It ships as
 `Contents/Helpers/gitq`, a small launcher that runs the JS bundle in
-`Contents/Helpers/gitq-app` on the app's bundled bun, so `gitq board` can
-serve the page on a machine with no checkout on it. The mattstack app
+`Contents/Helpers/gitq-app` on the app's bundled bun. The mattstack app
 bundle pipeline owns code signing.
 
 Build that bundle locally with:
@@ -49,4 +48,4 @@ Build that bundle locally with:
 bun run build:bundle
 ```
 
-It bundles the board's client assets into `dist/app/main.js`.
+It writes `dist/app/main.js`.

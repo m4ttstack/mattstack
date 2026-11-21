@@ -954,50 +954,6 @@
       "additionalProperties": {}
     }
   },
-  "gitq.board": {
-    "storeVersion": 1,
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "properties": {
-        "repos": {
-          "type": "array",
-          "items": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "name": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "path"
-                ],
-                "additionalProperties": {}
-              }
-            ]
-          }
-        },
-        "port": {
-          "type": "number"
-        },
-        "herdrWorkspace": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "repos"
-      ],
-      "additionalProperties": {}
-    }
-  },
   "gitq.forges": {
     "storeVersion": 1,
     "schema": {

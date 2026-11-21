@@ -308,11 +308,9 @@ absorb preview: 1 branch(es) attributed, 0 file(s) left in the worktree
 
 Exit `0`, mid-pause. See [The pause protocol](/gitq/concepts/pause-protocol).
 
-## From the board
+## From another worktree
 
-The board can absorb from **any** dirty worktree of the repo, not just the primary checkout. Its stack menu lists one `absorb from <worktree>` entry per non-work-slot worktree that is currently dirty, and reads `absorb (no dirty worktree)` when there are none. Picking one launches the absorb runner against that path, so the changes it sources, and the tree its unattributed files are left dirty in, are that worktree's.
-
-That is the same thing as running `gitq -C <that worktree> absorb` yourself. See [The board](/gitq/getting-started/the-board) and [Worktree pools](/gitq/guides/worktree-pools).
+`absorb` works from **any** dirty worktree of the repo with a branch checked out, not just the primary checkout. Point it at one with `-C`: `gitq -C <that worktree> absorb`. The changes it sources, and the tree its unattributed files are left dirty in, are that worktree's. `gitq:absorb` takes the same path as its `<repoPath>`. See [Worktree pools](/gitq/guides/worktree-pools).
 
 ## Undo
 

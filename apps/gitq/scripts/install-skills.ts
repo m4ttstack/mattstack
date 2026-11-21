@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /** Symlink each skills/<dir> (with a `name:` in its SKILL.md frontmatter)
-    into ~/.claude/skills/<name>, so board-launched panes and manual
+    into ~/.claude/skills/<name>, so Claude Code
     sessions can invoke them as /gitq:<action>. Idempotent. An alternate
     destination dir can be passed as the first argument (used by tests). */
 import { readFileSync, readdirSync, existsSync, lstatSync, readlinkSync, symlinkSync, rmSync, mkdirSync, statSync } from 'fs';

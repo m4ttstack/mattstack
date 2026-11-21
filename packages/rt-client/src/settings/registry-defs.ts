@@ -887,14 +887,6 @@ const ROWS: readonly SettingDef[] = [
     merge: "deep",
     description: "gitq's host-keyed forge config, tokenEnv names only — never a live token.",
   },
-  {
-    key: "gitq.board",
-    type: "object",
-    scopes: ["machine"],
-    defaultNote: "Set up by rt setup with the repos it finds.",
-    merge: "deep",
-    description: "gitq checkout-board config: tracked repos, local port, and the herdr workspace it launches into.",
-  },
 
   // --- chat (RT-48 Task 7) -------------------------------------------------
   {

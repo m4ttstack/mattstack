@@ -23,15 +23,14 @@ export const IS_PACKAGED = IS_HELPER_BUNDLE || MODULE_DIR.includes('$bunfs');
 
 /**
  * The one root every mutable thing gitq owns hangs off: the stack stores,
- * settings, the operation log, the work slots it creates, and the board's
- * state/jobs.
+ * settings, the operation log, and the work slots it creates.
  *
  * `~/.mattstack/gitq` whether gitq runs from a checkout or as the bundled
  * binary. One root per helper is the mattstack compliance rule, and running
  * both forms against the same root is what makes `gitq stacks` answer the same
  * whichever copy of the program is on PATH. It is deliberately not derived
  * from the process's cwd or from MODULE_DIR: a launcher that forgets to set a
- * working directory would point the board at "/", and the compiled binary's
+ * working directory would point gitq at "/", and the compiled binary's
  * MODULE_DIR is inside a read-only bundle.
  *
  * GITQ_APP_ROOT overrides it. `GITQ_CONFIG_DIR` still moves the CLI's own

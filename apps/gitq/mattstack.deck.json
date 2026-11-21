@@ -2,13 +2,8 @@
   "name": "gitq",
   "displayName": "gitq",
   "description": "Stacked-branch management for git.",
-  "icon": "./src/client/favicon.svg",
-  "port": 11008,
+  "icon": "./icon.svg",
   "includeInBundle": true,
-  "dev": {
-    "start": "bun src/server/server.ts",
-    "build": "bun run build:client"
-  },
   "bundle": {
     "build": "bun run build:bundle",
     "artifact": "dist/app"

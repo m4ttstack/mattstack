@@ -17,15 +17,14 @@ Every write is atomic: gitq writes a temp file and renames it over the target. T
 | `<app root>/operation-log.json` | The last 50 operations, all repos | Yes. `log` goes empty, `undo` has nothing to do. |
 | `<commonDir>/gitq/leases.json` | Which stack holds which work slot | Only when nothing is running or parked. |
 | `<gitdir>/gitq-pause.json` | A paused cascade's position | Only after aborting the rebase it describes. |
-| `<app root>/state/jobs/*.json` | Board job status | Yes. |
 
 Settings are not files gitq keeps: they live in the rt settings store ([Configuration](/gitq/reference/configuration)).
 
 ## The app root, and the config directory inside it
 
-Everything gitq owns hangs off one root: **`~/.mattstack/gitq`**, whether gitq runs from a checkout or as the bundled binary. **`GITQ_APP_ROOT`** moves that root. Inside it sit the stack stores, the operation log, the work slots gitq creates, and the board's `state/jobs/`.
+Everything gitq owns hangs off one root: **`~/.mattstack/gitq`**, whether gitq runs from a checkout or as the bundled binary. **`GITQ_APP_ROOT`** moves that root. Inside it sit the stack stores, the operation log, and the work slots gitq creates.
 
-**`GITQ_CONFIG_DIR`** still moves just the CLI's own subset (stacks, operation log, work slots) and wins over the app root when both are set. That is the throwaway-store escape hatch; the board's files stay in the app root regardless. Both variables are read once when gitq starts. Export them in your shell profile rather than expecting a mid-session change to take effect. A gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks.
+**`GITQ_CONFIG_DIR`** still moves just the CLI's own subset (stacks, operation log, work slots) and wins over the app root when both are set. That is the throwaway-store escape hatch. Both variables are read once when gitq starts. Export them in your shell profile rather than expecting a mid-session change to take effect. A gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks.
 
 The [work slots](/gitq/concepts/work-slots) gitq leases for cascades follow the config directory with no carve-out: a non-pool repo's slots are created under `<config dir>/work/<hash>/` (`getWorkSlotRoot`, `src/core/config-paths.ts`).
 
@@ -95,16 +94,6 @@ Deleting it by hand leaves the actual mid-rebase state in the slot untouched, wh
 ### Per-worktree git config in work slots
 
 Not a gitq file, but gitq writes it: the first time a work slot is provisioned, gitq turns on git's per-worktree config extension for the repo and sets `core.hooksPath` to `/dev/null` for that slot only. Your own checkouts keep their hooks. The setting is re-applied on every slot acquisition, so it heals itself if it is removed.
-
-## The board
-
-This lives in the [app root](#the-app-root-and-the-config-directory-inside-it) and, unlike the CLI's files, does not follow `GITQ_CONFIG_DIR`: a throwaway stack store should not also repoint the board.
-
-### `state/jobs/*.json`
-
-One file per board job, named deterministically from the repo path, stack name, and action, so relaunching the same action reuses the same file. Each holds the job's `status` (`starting`, `working`, `conflict`, `done`, `error`), a free-text `detail` the board renders verbatim, the herdr tab and workspace ids, the Claude session id for resuming the conversation, and timestamps.
-
-The agent skill writes these by running `<status-bin> job-status` (the gitq executable the board injected) as it works; the board reads the directory to draw its job chips and activity feed. Entries that reached `done` or `error` are pruned after 24 hours. A job parked at a conflict keeps its file however long it takes. Deleting them loses nothing but the board's memory of recent runs.
 
 ## What gitq reads but never writes
 

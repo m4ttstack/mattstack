@@ -3,9 +3,7 @@
  * seeds automatically: `mattstack.appPath` (from `ctx.appPath`, already
  * resolved through bundleRootFromExec/installedTrayAppPath by
  * createApplyContext... no path regex of our own here), and promotes a
- * staged repo root into `rt.repoRoots`. It also gives a `gitq.board` still
- * saved as bare repo names each repo's folder, on every update, since a repo
- * can reach this Mac after the migration that first tried.
+ * staged repo root into `rt.repoRoots`.
  *
  * On a Mac setting up for the first time where no store chose a writing
  * style, it writes the sparse preset at user scope. Never on an update run
@@ -24,7 +22,6 @@
 
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
-import { repairGitqBoard } from "../gitq-board-repair.ts";
 import { adoptSuggestedRepoRoot, promoteStagedRepoRoot } from "../repo-root.ts";
 import { isSetupFinished, readSetupState } from "../state.ts";
 import { resolveWritingStyle, WRITING_STYLE_KEY } from "../../skills/writing-style.ts";
@@ -79,10 +76,6 @@ async function settingsSeedRun(ctx: ApplyContext): Promise<StepOutcome> {
     const configured = readableRepoRoots();
     if (configured !== null && adoptSuggestedRepoRoot(ctx.p, configured)) written.push("rt.repoRoots");
   }
-
-  const repair = repairGitqBoard();
-  if (repair.state === "failed") throw repair.error;
-  if (repair.state === "repaired") written.push("gitq.board");
 
   if (seedsWritingStyle(ctx)) {
     setSetting(WRITING_STYLE_KEY, NEW_MAC_WRITING_STYLE, "user");

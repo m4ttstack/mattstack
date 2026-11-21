@@ -36,11 +36,6 @@ describe('app root', () => {
     expect(readAppRootWith('/tmp/pinned-gitq/./').appRoot).toBe('/tmp/pinned-gitq');
   });
 
-  test('the board job dir hangs off it', async () => {
-    const { JOBS_DIR } = await import('../src/server/job-state.ts');
-    expect(JOBS_DIR).toBe(join(APP_ROOT, 'state', 'jobs'));
-  });
-
   // HOME-derived, so the suite's fake HOME keeps the one-time migration off
   // the real ~/.config/gitq. A syscall-backed homedir() would read the real one.
   test('the legacy config dir follows HOME too', () => {
