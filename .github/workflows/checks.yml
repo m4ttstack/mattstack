@@ -164,7 +164,7 @@ jobs:
     needs: scope
     if: needs.scope.outputs.deck == 'true'
     runs-on: ${{ fromJSON(needs.scope.outputs.macos_runner) }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -189,6 +189,18 @@ jobs:
         env:
           TURBO_TELEMETRY_DISABLED: "1"
         run: scripts/turbo.sh test --filter=deck --output-logs=errors-only
+      # The DOM suite drives the board's real HTML, JS and CSS in headless
+      # Chromium; it sits outside turbo's test task so it cannot rot unseen.
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: playwright-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install Chromium for the DOM suite
+        working-directory: apps/deck
+        run: bunx playwright install chromium
+      - name: deck DOM suite
+        run: bun run --cwd apps/deck test:dom
 
   # Compiles the tray app unsigned, so a change that breaks its build fails
   # here rather than at the next dev app build or release.
