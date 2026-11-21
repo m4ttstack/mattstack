@@ -17,7 +17,8 @@ Right after you open a PR and mark it ready for review (never a draft):
    signed in to chat. Answer its questions and fix what it relays, then
    tell it what you pushed.
 4. No usher, or no ack within 10 minutes: babysit the PR yourself as you
-   would without one.
+   would without one. An ack that arrives after that: DM the usher that
+   you took the PR back, and keep it.
 
 Before you sign out with a handed-off PR still open, DM the usher that
 you are leaving, so it takes over fixes.

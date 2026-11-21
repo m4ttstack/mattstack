@@ -33,7 +33,7 @@ digraph pr_usher {
     pr_stage [label="Where is the PR?" shape=diamond];
     get_review [label="Get it reviewed" shape=box];
     route_findings [label="Route findings to the owner" shape=box];
-    owner_online [label="Owner online?" shape=diamond];
+    owner_online [label="Owner online and answering?" shape=diamond];
     chat_dm_owner [label="chat_dm {to: <owner>, body: <findings>}" shape=plaintext];
     stop_online_branch [label="STOP: never push to an online owner's branch" shape=octagon style=filled fillcolor=red fontcolor=white];
     fix_rounds [label="Usher fix rounds on this PR = 3?" shape=diamond];
@@ -43,8 +43,8 @@ digraph pr_usher {
     reverify [label="Re-verify head, threads and CI" shape=box];
     still_ready [label="Ready, same head, settled and green?" shape=diamond];
     dropped_before [label="Dropped from the queue before?" shape=diamond];
-    mr_merge [label="mr_merge {repoName, iid, wait: true}" shape=plaintext];
-    mr_merge_requeue [label="mr_merge {repoName, iid, wait: true, requeue: true}" shape=plaintext];
+    mr_merge [label="mr_merge {repoName, iid, wait: true, maxWaitSeconds: 240}" shape=plaintext];
+    mr_merge_requeue [label="mr_merge {repoName, iid, wait: true, requeue: true, maxWaitSeconds: 240}" shape=plaintext];
     merge_result [label="mr_merge result?" shape=diamond];
     chat_post_merged [label="chat_post {room: \"pr-usher\", body: \"merged <PR url> (<title>)\"}" shape=plaintext];
     drops [label="Queue drops on this PR = 2?" shape=diamond];
@@ -123,8 +123,10 @@ the announcements is the `repo` field of your own `chat_buddies` row, and
 Chat history does not survive compaction, so keep one line per PR in
 `pr-usher-ledger.md` in your scratchpad directory and update it every
 tick: number, head sha, owner and how you found them (handoff or branch),
-stage, reviewer (`coderabbit` or `opus@<sha>`), usher fix rounds, queue
-drops, and `parked: <reason>` when parked. The forge is the truth for
+stage, `reviewed@<sha>` (by `coderabbit` or `opus`: the newest head a
+review covered), `settled@<sha>` (the head on which every thread was
+resolved and CI went green), when you nudged CodeRabbit, owner silent
+ticks, usher fix rounds, queue drops, and `parked: <reason>` when parked. The forge is the truth for
 threads, CI and draft state; the ledger holds only what the forge cannot.
 
 ### Tell the human which usher is on duty
@@ -141,7 +143,9 @@ on any you missed after a compaction. Read new ones first. Each handoff DM start
 ledger and ack it at once with
 `chat_dm {to: <handle>, body: "ack <PR url>: ushering it"}`. Authors wait
 for that ack and babysit the PR themselves without it. A DM from an
-owner saying it pushed a fix, or is leaving, updates its PR's line.
+owner saying it pushed a fix, or is leaving, updates its PR's line. An
+author that says it took the PR back (it babysat it after waiting for an
+ack) keeps it: drop the PR from the ledger and skip it.
 
 Off duty asked in the middle of a tick: finish the call in hand, then go
 straight to `Hand back the PRs in flight`.
@@ -153,47 +157,63 @@ the ledger that is now a draft, closed or merged leaves the ledger; DM its
 owner once that you have stopped on a draft and will pick it up when it is
 ready again. Then read the PR (`mr_view`, `mr_threads`) and place it:
 
-- **needs review**: no CodeRabbit review and no fallback review yet.
-- **waiting**: CI is still running on the head (`ci_watch` with a short `maxWaitSeconds`), or the
-  owner has been sent findings and has not pushed or replied since.
+- **needs review**: no review yet, or (with the Opus fallback as reviewer)
+  commits after `reviewed@`.
+- **waiting**: CI is still running on the head (`ci_watch` with a short
+  `maxWaitSeconds`), or the owner has been sent findings and has not
+  pushed or replied since. Count the owner's silent ticks in the ledger.
 - **findings or red CI open**: an unresolved thread nobody has answered on
   the current head, or a failed required check.
-- **settled and green**: every thread resolved, or answered by the owner
-  with a reason, on the current head, and CI green on that head.
+- **settled and green**: `reviewed@` is the current head, every thread
+  is resolved, and CI is green on that head. Record `settled@<sha>`.
+
+Threads close through you. When the owner's push fixes a thread, or its
+reply answers one with a reason you accept, reply on the thread if the
+owner did not (`mr_reply_thread`, naming the sha or the reason) and
+resolve it with `mr_resolve_thread`. Authors are told not to resolve your
+threads, so an answered thread you leave open never settles. A reason you
+do not accept goes back to the owner as a finding.
 
 Owner: the handoff's `author=` handle; with no handoff, the row in
 `chat_buddies` for this repo whose `branch` is the PR's source
 branch, and DM that owner once that you are ushering the PR. No owner
-found counts as offline. Check the owner's `status` every tick: an owner
-back online after you fixed its PR gets it handed back (see `Fix it in
-your own worktree`).
+found counts as offline. Online and answering means a `status` of `live`
+or `idle`, and fewer than 6 silent ticks (30 minutes) since you sent it
+findings; at 3 silent ticks DM it once more. At 6 it counts as offline,
+whatever its row says, and its findings go down the fix path. Check the
+owner's `status` every tick: an owner back online after you fixed its PR
+gets it handed back (see `Fix it in your own worktree`).
 
-A new head since the last tick sends the PR back through placement. Give
-CodeRabbit one tick (5 minutes) after a push to post its incremental
-review before calling the threads settled.
+A new head since the last tick sends the PR back through placement. With
+CodeRabbit as the reviewer, give it one tick (5 minutes) after a push to
+post its incremental review, then move `reviewed@` to the new head. With
+`opus` as the reviewer (CodeRabbit absent), the PR goes back to **needs
+review** for a fallback review of the commits after `reviewed@`.
 
 ### Get it reviewed
 
-CodeRabbit reviews a ready PR by itself; nothing to do while it may still
-come. Clocks run from when the PR went ready on the forge (`mr_view`), so a PR
+A re-review of commits after an Opus `reviewed@` skips the CodeRabbit
+clocks and dispatches the fallback at once. Otherwise CodeRabbit reviews a
+ready PR by itself; nothing to do while it may still come. Clocks run from when the PR went ready on the forge (`mr_view`), so a PR
 that waited before you came on duty may be owed the nudge at once. With nothing
 from coderabbitai after 10 minutes, post
 `mr_comment {repoName, iid, body: "@coderabbitai review"}` once. Dispatch
 the fallback when coderabbitai says it is rate limited or will not review
 (its comment says so), or is still silent 15 minutes after that nudge: the Agent tool,
-model `opus`, effort `high`, briefed to review the PR at its head sha (a
+model `opus`, effort `high`, run in the background so chat and acks keep
+flowing (pick its result up on a later tick), briefed to review the PR at its head sha (a
 read-only diff of the head against its merge base with the target branch)
-for correctness bugs and the repo's AGENTS.md rules, and to return each
+(or, for a re-review, of the head against `reviewed@`) for correctness
+bugs and the repo's AGENTS.md rules, and to return each
 finding as path, line and body. Post them in one
 `mr_review_submit {repoName, iid, outcome: "comment", expectedHeadSha, comments, summary}`
 so each finding is a thread; with no findings, submit the `summary` alone
 ("no findings at <sha>") so the review is on the PR's record. On `bad-anchors`, move those findings into
 `summary` and submit again; on `head-moved`, review the new head. Record
-`opus@<sha>` in the ledger. Never merge a PR that no review has covered;
+`reviewed@<sha>` by `opus` in the ledger. Never merge a head that no
+review has covered;
 a CodeRabbit review that arrives after the fallback adds threads that
-must be settled like any other. A push after the review needs no new
-fallback: CodeRabbit's incremental pass, or the owner's answers on the
-threads, cover it.
+must be settled like any other.
 
 ### Route findings to the owner
 
@@ -201,8 +221,8 @@ Collect the open threads and failing checks on the current head into one
 message: each finding's link and a one-line summary, and for red CI the
 failed job and its trace tail (`ci_watch` returns them). Ask the owner to
 fix or answer each thread and to DM you what it pushed. Questions about the
-PR go to the owner the same way. Owner online: send it. Owner offline: you
-fix it.
+PR go to the owner the same way. Owner online and answering: send it.
+Otherwise you fix it.
 
 ### Fix it in your own worktree
 
@@ -237,10 +257,11 @@ refusal, a worktree refusal.
 ### Re-verify head, threads and CI
 
 Immediately before merging, read the PR again: still `draft: false`, the
-head sha is the one the ledger says was reviewed and settled, no open
+head sha equals the ledger's `settled@` (and so `reviewed@`), no open
 thread, and CI green on that sha. Anything moved sends the PR back to the
 next tick's placement. Merge only with `mr_merge`; it waits for the merge
-queue with `wait: true`. After it merges, also DM the owner that it
+queue with `wait: true`, for at most 240 seconds so chat and handoff acks
+keep flowing. After it merges, also DM the owner that it
 landed.
 
 ### Route the drop's fix
@@ -266,9 +287,10 @@ itself from here. Return to your own checkout and dispose of any fix tree
 `ScheduleWakeup` 300 seconds while any PR is in flight (not merged,
 parked or waiting only on its owner), 1200 seconds otherwise. A chat
 message wakes the usher sooner. Keep `ci_watch` and `mr_merge` waits short
-enough that chat stays responsive: `maxWaitSeconds` 120 for `ci_watch`, and
-an `mr_merge` that comes back `still queued` is picked up next tick with
-`wait: true` again.
+enough that a handoff gets its ack well inside the author's 10 minutes:
+`maxWaitSeconds` 120 for `ci_watch` and 240 for `mr_merge`. An `mr_merge`
+that comes back `still queued` is picked up next tick with `wait: true`
+again, and the Opus fallback always runs in the background.
 
 ## Red flags
 
@@ -280,3 +302,5 @@ an `mr_merge` that comes back `still queued` is picked up next tick with
 | "I'll post the Opus findings as one comment." | Findings go in `mr_review_submit` so each is a thread you can settle. |
 | "Pin the sha with the shell enqueue command." | Merge only with `mr_merge`; re-verify the head first. |
 | "Another usher shows idle, it's probably dead." | Idle counts as live. Tell the human and stop. |
+| "The owner answered the thread, so it's settled." | Resolve it yourself with `mr_resolve_thread`; settled means resolved. |
+| "The owner's row says idle, so I keep waiting." | Six silent ticks and it counts as offline. Fix or park. |
