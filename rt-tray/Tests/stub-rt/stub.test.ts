@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { expect, setDefaultTimeout, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { personalSkillsDir } from "../../../lib/skills/writing-style-sources.ts";
@@ -7,8 +7,12 @@ import { SOLO_GITHUB_NOTE, SOLO_GITLAB_NOTE } from "../../../lib/setup/validator
 
 const STUB = join(import.meta.dir, "stub.ts");
 
+// Every test cold-starts stub processes one after another, a walk dozens of
+// them; on a Mac loaded with other checks each start runs several times slower.
+setDefaultTimeout(60_000);
+
 async function run(scenario: string, args: string[], stdin = "", stateDir?: string, extraEnv: Record<string, string> = {}) {
-  const proc = Bun.spawn(["bun", STUB, ...args], {
+  const proc = Bun.spawn([process.execPath, STUB, ...args], {
     env: { ...process.env, RT_STUB_SCENARIO: scenario, RT_STUB_STATE_DIR: stateDir ?? mkdtempSync(join(tmpdir(), "stub-")), ...extraEnv },
     stdin: new Blob([stdin]),
     stdout: "pipe",
@@ -314,7 +318,7 @@ function buildRealFixture(): { home: string; claudeBin: string } {
 
   const claudeBin = join(home, "fixture-claude");
   writeFileSync(claudeBin, [
-    "#!/usr/bin/env bun",
+    `#!${process.execPath}`,
     `console.log(JSON.stringify([{ id: "acme@marketplace", enabled: true, installPath: ${JSON.stringify(pluginInstallPath)} }]));`,
     "",
   ].join("\n"));
@@ -338,9 +342,6 @@ function snapshotTree(dir: string): string[] {
   return out;
 }
 
-// Each call below is a fresh stub process that itself spawns the fixture
-// claude binary, so the cold starts stack up; a generous timeout keeps this
-// from flaking under load rather than proving anything about the code.
 test("writing-style real-data mode: options and suggestions come from the fixture home, use accepts a fixture id and rejects an unknown one, a chosen personal style reads ready, and nothing is written", async () => {
   const { home, claudeBin } = buildRealFixture();
   const state = mkdtempSync(join(tmpdir(), "stub-"));
@@ -379,7 +380,7 @@ test("writing-style real-data mode: options and suggestions come from the fixtur
   expect((readyRow.action as ChooseAction).selected).toBe("team-voice");
 
   expect(snapshotTree(home)).toEqual(before);
-}, 20000);
+});
 
 test("writing-style real-data mode requires RT_STUB_REAL_HOME: unset or non-existent fails loudly naming it", async () => {
   const unset = await run("writing-style", ["setup", "plan", "--json"], "", undefined, { RT_STUB_REAL_WRITING_STYLE: "1" });
@@ -576,17 +577,17 @@ test("setup form walks the join scenario's stages", async () => {
   expect(done.team).toEqual({ slug: "acme", name: "Acme", invitedBy: "Jane Doe" });
   expect(Object.keys(done.sections).sort()).toEqual(["connect", "invite", "macos", "restore", "thisMac"]);
   expect(done.sections.connect!.map((r) => r.id)).toEqual(["forge", "slack", "claude", "signin.doppler", "linear", "fast-browser"]);
-}, 20000);
+});
 
 test("the slow scenario walks the join stages too", async () => {
   const { stages } = await walk("slow", (dir, stage) => joinThroughWait("slow", dir, stage));
   expect(stages).toEqual(["macos", "path", "invite", "waiting", "connect", "this-mac", "ready"]);
-}, 20000);
+});
 
 test("the paused scenario stops at a failed step, then Retry lands it", async () => {
   const { stages } = await walk("apply-fail-retry", (dir, stage) => joinThroughWait("apply-fail-retry", dir, stage));
   expect(stages).toEqual(["macos", "path", "invite", "connect", "this-mac", "paused", "ready"]);
-}, 20000);
+});
 
 test("the create scenario makes the team, connects the owner's accounts, and runs", async () => {
   const { dir, stages } = await walk("create-happy", async (dir) => {
@@ -600,7 +601,7 @@ test("the create scenario makes the team, connects the owner's accounts, and run
   expect(done.team).toEqual({ slug: "widgets", name: "Widgets", invitedBy: null });
   expect(done.sections.connect!.map((r) => r.id)).toEqual(["forge", "slack-app", "slack", "claude", "fast-browser"]);
   expect(done.sections.connect!.find((r) => r.id === "forge")!.detail).toBe("Connected");
-}, 20000);
+});
 
 test("the solo scenario connects nothing it need not and keeps the found folder for clones", async () => {
   const { dir, stages } = await walk("solo", async (dir) => {
@@ -610,7 +611,7 @@ test("the solo scenario connects nothing it need not and keeps the found folder 
   const done = await form(dir, undefined, "solo");
   expect(done.home).toEqual({ label: "Open the console", url: "https://console.mattstack" });
   expect(done.sections.thisMac!.find((r) => r.id === "repos.root")).toMatchObject({ state: "done", detail: "/Users/janedoe/Documents/GitHub" });
-}, 20000);
+});
 
 test("the solo connect screen draws GitHub and GitLab, both optional, then Claude and an optional Fast Browser", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
@@ -758,22 +759,43 @@ test("setup form --section create answers only the create rows for the forge it 
 
 // Test drive setup's pacing: the waits a person sits through, and the bar's motion.
 const INSTANT = { RT_STUB_SPEED: "instant" };
+// A wait long enough that a loaded Mac's stub reads all land inside it.
+const PATIENT_WAIT_MS = 3_000;
+const PATIENT = { ...INSTANT, RT_STUB_WAIT_MS: String(PATIENT_WAIT_MS) };
 
-test("an instant speed holds the approval until its wait has passed", async () => {
+/** Moves a stub's stamp into the past, as if that much time had gone by since it was taken. */
+function backdate(dir: string, key: string, ms: number): void {
+  const stamp = Number(readFileSync(join(dir, key), "utf8"));
+  expect(stamp).toBeGreaterThan(0);
+  writeFileSync(join(dir, key), String(stamp - ms));
+}
+
+async function waitForFile(path: string, timeoutMs = 10_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    // writeFileSync truncates before it writes, so an empty file is still being written.
+    const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+    if (text) return text;
+    if (Date.now() > deadline) throw new Error(`${path} never appeared`);
+    await Bun.sleep(20);
+  }
+}
+
+test("a set speed holds the approval until its wait has passed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
-  await run("join-happy", ["setup", "apply", "--only", "team.join", "--json"], "", dir, INSTANT);
-  const status = async () => (await run("join-happy", ["setup", "join-status", "--json"], "", dir, INSTANT)).lines[0].state;
+  await run("join-happy", ["setup", "apply", "--only", "team.join", "--json"], "", dir, PATIENT);
+  const status = async () => (await run("join-happy", ["setup", "join-status", "--json"], "", dir, PATIENT)).lines[0].state;
   expect(await status()).toBe("waiting");
   expect(await status()).toBe("waiting");
-  await Bun.sleep(1600);
+  backdate(dir, "team-joined-at", 2 * PATIENT_WAIT_MS);
   expect(await status()).toBe("approved");
   expect(await status()).toBe("approved");
 });
 
-test("an instant prepare reads busy while it installs, and git leads the screens that clone", async () => {
+test("a paced prepare reads busy while it installs, and git leads the screens that clone", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
-  const prepare = run("join-happy", ["setup", "prepare", "macos", "--json"], "", dir, INSTANT);
-  await Bun.sleep(250);
+  const prepare = run("join-happy", ["setup", "prepare", "macos", "--json"], "", dir, PATIENT);
+  await waitForFile(join(dir, "prepare-macos-until"));
   const busy = (await form(dir, "invite")).sections.invite!;
   expect(busy.map((r) => [r.id, r.state])).toEqual([["tool.clt", "busy"], ["forge.token", "todo"]]);
   expect((await prepare).lines[0]).toMatchObject({ stage: "macos", installed: ["apple-clt"] });
@@ -782,12 +804,11 @@ test("an instant prepare reads busy while it installs, and git leads the screens
 
 test("the slow scenario's installs take several waits", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
-  const proc = Bun.spawn(["bun", STUB, "setup", "prepare", "accounts", "--json"], {
+  const proc = Bun.spawn([process.execPath, STUB, "setup", "prepare", "accounts", "--json"], {
     env: { ...process.env, RT_STUB_SCENARIO: "slow", RT_STUB_STATE_DIR: dir, ...INSTANT }, stdout: "pipe",
   });
   try {
-    await Bun.sleep(400);
-    const until = Number(readFileSync(join(dir, "prepare-accounts-until"), "utf8"));
+    const until = Number(await waitForFile(join(dir, "prepare-accounts-until")));
     expect(until - Date.now()).toBeGreaterThan(3000);
     const claude = (await form(dir, "connect", "slow")).sections.connect!.find((r) => r.id === "claude")!;
     expect(claude).toMatchObject({ state: "busy", detail: "Installing…" });
@@ -864,16 +885,16 @@ test("stub grant --probe answers without granting anything, so the app can tell 
 
 test("with a speed set, Fast Browser lands on time alone, however few reads came before", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
-  const row = async () => (await run("join-happy", ["setup", "form", "--section", "connect", "--json"], "", dir, INSTANT)).lines[0]
+  const row = async () => (await run("join-happy", ["setup", "form", "--section", "connect", "--json"], "", dir, PATIENT)).lines[0]
     .sections.connect.find((r: { id: string }) => r.id === "fast-browser");
-  await run("join-happy", ["stub", "opened", "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm", "--json"], "", dir, INSTANT);
+  await run("join-happy", ["stub", "opened", "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm", "--json"], "", dir, PATIENT);
   expect((await row()).state).toBe("todo");
-  await Bun.sleep(1600);
+  backdate(dir, "fast-browser-opened-at", 2 * PATIENT_WAIT_MS);
   expect((await row()).state).toBe("done");
 });
 
 test("an instant run's bar tracks the clock, so the app's time-left estimate reads the drive's pace", async () => {
-  const proc = Bun.spawn(["bun", STUB, "setup", "apply", "--resume", "--unattended", "--json"], {
+  const proc = Bun.spawn([process.execPath, STUB, "setup", "apply", "--resume", "--unattended", "--json"], {
     env: { ...process.env, RT_STUB_SCENARIO: "join-happy", RT_STUB_STATE_DIR: mkdtempSync(join(tmpdir(), "stub-")), ...INSTANT }, stdout: "pipe",
   });
   const timed: { at: number; event: Record<string, unknown> }[] = [];
@@ -901,7 +922,7 @@ test("an instant run's bar tracks the clock, so the app's time-left estimate rea
   }
   expect(timed.filter((t) => t.event.event === "progress").length).toBeGreaterThan(5);
   expect(worst).toBeLessThan(0.15);
-}, 20000);
+});
 
 test("github sign-in: the remote row walks sign in, code, then a staged create", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));

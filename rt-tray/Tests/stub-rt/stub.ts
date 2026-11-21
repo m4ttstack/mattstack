@@ -56,7 +56,10 @@ const speed = (Object.keys(PACE) as Speed[]).find((s) => s === process.env.RT_ST
 const slow = scenario === "slow";
 const NEW_TOOL = scenario === "new-tool" || scenario === "new-tool-failed";
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-function waitMs(units: number): number { return speed ? PACE[speed].wait * units : 0; }
+// RT_STUB_WAIT_MS stretches one wait for the tests: on a loaded Mac the next
+// stub read can take longer to start than an instant wait lasts.
+const waitUnit = speed ? Number(process.env.RT_STUB_WAIT_MS) || PACE[speed].wait : 0;
+function waitMs(units: number): number { return waitUnit * units; }
 function stampNow(key: string): void { if (!stateGet(key)) stateSet(key, Date.now()); }
 function waited(key: string, units: number): boolean {
   const since = stateGet(key);

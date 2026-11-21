@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setDefaultTimeout, test } from "bun:test";
 import { execFileSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -7,6 +7,10 @@ import { orgDir } from "../../lib/rt-paths.ts";
 import { shellQuote } from "../../lib/team/org-branch.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
+
+// Each case runs the script, which clones and pushes with real git; on a Mac
+// loaded with other checks one can run well past bun's 5s default.
+setDefaultTimeout(30_000);
 
 const MARKER = "mattstack/mattstack.jsonc";
 const ORG_STORE = "mattstack/org/settings.org.jsonc";

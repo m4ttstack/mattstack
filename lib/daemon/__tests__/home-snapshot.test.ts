@@ -1263,8 +1263,9 @@ describe("startHomeSnapshot — real git integration", () => {
       expect(result.committed).toBe(true);
       expect(result.sha).not.toBeNull();
 
-      // Let the real (1s) trailing push timer fire.
+      // Let the real (1s) trailing push timer fire, then the push it started finish.
       await new Promise((resolve) => setTimeout(resolve, 1500));
+      await handle.settled();
 
       const log_ = execFileSync("git", ["log", "--oneline", "-1"], { cwd: repoDir }).toString();
       expect(log_).toContain("snapshot (manual):");

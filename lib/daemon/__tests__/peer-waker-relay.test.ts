@@ -16,7 +16,7 @@ let base: string;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "relay-"));
-  proc = Bun.spawn(["bun", "run", RELAY], {
+  proc = Bun.spawn([process.execPath, "run", RELAY], {
     env: { ...childEnv(), SWITCHBOARD_ADMIN_TOKEN: ADMIN, SWITCHBOARD_DB: join(dir, "sb.sqlite"), PORT: "0" },
     stdout: "pipe",
     stderr: "inherit",
@@ -46,10 +46,16 @@ async function register(username: string): Promise<string> {
   return ((await res.json()) as { token: string }).token;
 }
 
-test("a publish reaches the recipient's waker in well under a second", async () => {
+// A publish that missed the held wait would land only when the wait times out.
+const WAIT_SECONDS = 25;
+
+test("a publish reaches the recipient's waker in seconds, long before its held wait times out", async () => {
   const ada = await register("ada");
   const grace = await register("grace");
   const woke: number[] = [];
+  let waitOpened!: () => void;
+  const opened = new Promise<void>((resolve) => { waitOpened = resolve; });
+  let firstWaitAnswered = false;
   const waker = startPeerWaker({
     log: quiet,
     emit: (type) => {
@@ -57,20 +63,31 @@ test("a publish reaches the recipient's waker in well under a second", async () 
     },
     readUrl: () => switchboardUrl({ RT_SWITCHBOARD_URL: base }),
     readToken: async () => ada,
+    waitSeconds: WAIT_SECONDS,
+    fetch: ((input: string | URL | Request, init?: RequestInit) => {
+      const res = fetch(input, init);
+      res.finally(() => { firstWaitAnswered = true; }).catch(() => {});
+      waitOpened();
+      return res;
+    }) as typeof fetch,
   });
+  await opened;
+  // The relay reports no held waiters, so give the request time to reach it,
+  // then check the wait is still held rather than already answered.
   await Bun.sleep(150);
+  expect(firstWaitAnswered).toBe(false);
   const sent = Date.now();
   await fetch(`${base}/envelopes`, {
     method: "POST",
     headers: { authorization: `Bearer ${grace}`, "content-type": "application/json" },
     body: JSON.stringify({ id: "e1", to: "ada", type: "re-review-request", sentAt: sent, payload: {} }),
   });
-  for (let i = 0; i < 100 && woke.length === 0; i++) await Bun.sleep(10);
+  for (let i = 0; i < 500 && woke.length === 0; i++) await Bun.sleep(10);
   waker.stop();
   await waker.done;
   expect(woke).toHaveLength(1);
-  expect(woke[0]! - sent).toBeLessThan(1000);
-});
+  expect(woke[0]! - sent).toBeLessThan(5_000);
+}, 20_000);
 
 test("a held wait outlasts Bun's default 10s idle timeout", async () => {
   const linus = await register("linus");
