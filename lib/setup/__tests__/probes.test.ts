@@ -148,14 +148,15 @@ describe("createRealProbes().execStreaming", () => {
   test("no chunk reaches onStderr after the deadline fired", async () => {
     const seen: string[] = [];
     // The grandchild keeps the pipe open past the kill, so it can still write after 124.
-    const result = await createRealProbes().execStreaming(["sh", "-c", "printf early >&2; (sleep 0.3; printf late >&2) & sleep 5"], {
-      timeoutMs: 100,
+    // The deadline leaves a loaded Mac time to start sh and print early before it fires.
+    const result = await createRealProbes().execStreaming(["sh", "-c", "printf early >&2; (sleep 2.5; printf late >&2) & sleep 10"], {
+      timeoutMs: 1500,
       onStderr: (chunk) => seen.push(chunk),
     });
     expect(result.code).toBe(124);
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 2000));
     expect(seen.join("")).toBe("early");
-  }, 3000);
+  }, 10_000);
 
   test.each([
     [["/nonexistent/bin"], {}, 127],
