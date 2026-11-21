@@ -1151,6 +1151,27 @@ describe("mcpTools", () => {
       expect(calls.map((c) => c.cmd)).toEqual(["mr:merge-queue-status", "mr:action", "mr:get"]);
     });
 
+    test("a GitHub mr_merge hands expectedHeadSha to the enqueue, and as sha to a direct merge", async () => {
+      setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
+      const sha = "d".repeat(40);
+      const queued = fakeDaemon((cmd) => {
+        if (cmd === "mr:merge-queue-status") return { ok: true, data: { enabled: true, inQueue: false, merged: false, lastRemoval: null } };
+        if (cmd === "mr:enqueue") return { ok: true, data: { position: 1, state: "QUEUED" } };
+        return { ok: false, error: `unexpected ${cmd}` };
+      });
+      await mcpTools().find((t) => t.name === "mr_merge")!.handler({ repoName: "ghapp", iid: 12, expectedHeadSha: sha }, {} as NodeJS.ProcessEnv);
+      expect(queued.find((c) => c.cmd === "mr:enqueue")!.payload).toMatchObject({ iid: 12, expectedHeadSha: sha });
+
+      const direct = fakeDaemon((cmd) => {
+        if (cmd === "mr:merge-queue-status") return { ok: true, data: { enabled: false, inQueue: false, merged: false, lastRemoval: null } };
+        if (cmd === "mr:action") return { ok: true, data: {} };
+        if (cmd === "mr:get") return { ok: true, data: { mr: { iid: 12, state: "merged" }, fetchedAt: 1 } };
+        return { ok: false, error: `unexpected ${cmd}` };
+      });
+      await mcpTools().find((t) => t.name === "mr_merge")!.handler({ repoName: "ghapp", iid: 12, expectedHeadSha: sha }, {} as NodeJS.ProcessEnv);
+      expect(direct.find((c) => c.cmd === "mr:action")!.payload).toMatchObject({ action: "merge", args: [{ sha }] });
+    });
+
     test("batch mr_upload refuses a label that resolves to a github.com repo, before the daemon", async () => {
       setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fghapp", "/repos/ghapp");
       const calls = fakeDaemon();
@@ -1854,6 +1875,25 @@ describe("mcpTools", () => {
       expect(res.ok).toBe(false);
       expect(res.error).toContain("the write may still land");
       expect(calls.map((c) => c.name)).toEqual(["mr:action"]);
+    });
+
+    test("expectedHeadSha pins a GitLab merge to that head", async () => {
+      const sha = "b".repeat(40);
+      const calls = mergeFake(() => cacheWith({ state: "merged" }));
+      expect(await run({ expectedHeadSha: sha })).toEqual({ ok: true, body: { merged: true } });
+      expect(calls[0]!.payload).toMatchObject({ action: "merge", args: [{ sha }] });
+    });
+
+    test("expectedHeadSha must be a full sha, and cannot pin auto-merge, with no daemon call", async () => {
+      const calls: Array<{ name: string; payload: any }> = [];
+      mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: async (name: string, payload: unknown) => { calls.push({ name, payload }); return { ok: true, data: {} }; } }));
+      const short = await run({ expectedHeadSha: "abc123" });
+      expect(short.ok).toBe(false);
+      expect(short.error).toContain("expectedHeadSha");
+      const auto = await run({ expectedHeadSha: "c".repeat(40), whenPipelineSucceeds: true });
+      expect(auto.ok).toBe(false);
+      expect(auto.error).toContain("expectedHeadSha");
+      expect(calls).toEqual([]);
     });
 
     test("mr_merge refuses a non-boolean squash", async () => {

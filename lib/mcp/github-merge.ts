@@ -20,7 +20,10 @@ const GITHUB_ID_PREFIX = "github.com/";
 
 export type GithubTarget = { projectPath: string; iid: number; identity: string };
 
-export type GithubMergeProvider = Required<Pick<GitProvider, "enqueuePullRequest" | "fetchMergeQueueStatus" | "mergePullRequest" | "setAutoMerge">>;
+export type GithubMergeProvider = Required<Pick<GitProvider, "enqueuePullRequest" | "fetchMergeQueueStatus" | "mergePullRequest" | "setAutoMerge">> & {
+  /** The PR's current head sha, read fresh; only an expectedHeadSha check on a PR already queued asks. */
+  fetchHeadSha?(projectPath: string, iid: number): Promise<string | undefined>;
+};
 
 export interface GithubMergeOptions {
   squash?: boolean;
@@ -31,6 +34,8 @@ export interface GithubMergeOptions {
   /** Enter the queue again after a drop. */
   requeue?: boolean;
   maxWaitSeconds?: number;
+  /** The forge refuses the enqueue or merge unless the PR's head is still this sha. */
+  expectedHeadSha?: string;
 }
 
 export interface GithubMergeSeams {
@@ -124,6 +129,10 @@ export function daemonMergeProvider(identity: string, command: DaemonCommand = r
       if (!entry) throw new Error("mr:enqueue returned no queue entry");
       return entry as { position: number; state: string };
     },
+    async fetchHeadSha(_projectPath, iid) {
+      const back = await daemonData(command, "mr:get", { repoName: identity, iid, refresh: true });
+      return back?.mr?.sha ?? undefined;
+    },
     async setAutoMerge(_projectPath, iid) {
       const res = await command("mr:action", { repoName: identity, iid, action: "setAutoMerge", args: [] }, { timeoutMs: MR_WRITE_TIMEOUT_MS });
       if (!res.ok) throw daemonError(res.error, "mr:action");
@@ -171,11 +180,16 @@ export async function mergeOnGitHub(
       }
       const priorRemovalAt = queue.lastRemoval?.at;
       if (queue.inQueue) {
+        if (options.expectedHeadSha !== undefined) {
+          const head = await github.fetchHeadSha?.(projectPath, iid);
+          if (head !== options.expectedHeadSha) return err(`#${iid} is already in the merge queue at head ${head ?? "unknown"}, not the expected ${options.expectedHeadSha}; re-read the PR before merging`);
+        }
         if (options.wait) return await waitForQueue(github, target, priorRemovalAt, maxWait, clock);
         return ok({ queued: true, alreadyQueued: true });
       }
       if (queue.lastRemoval && !options.requeue) return droppedResult(queue.lastRemoval);
-      const entry = await github.enqueuePullRequest(projectPath, iid);
+      const pin = options.expectedHeadSha === undefined ? undefined : { expectedHeadSha: options.expectedHeadSha };
+      const entry = await github.enqueuePullRequest(projectPath, iid, pin);
       if (options.wait) return await waitForQueue(github, target, priorRemovalAt, maxWait, clock);
       return ok({ queued: true, position: entry.position, state: entry.state });
     }
@@ -186,6 +200,7 @@ export async function mergeOnGitHub(
     const pr = await github.mergePullRequest(projectPath, iid, {
       ...(options.squash !== undefined && { squash: options.squash }),
       ...(options.removeSourceBranch !== undefined && { shouldRemoveSourceBranch: options.removeSourceBranch }),
+      ...(options.expectedHeadSha !== undefined && { sha: options.expectedHeadSha }),
     });
     const cleanup = pr.sourceBranchNotDeleted === undefined ? {} : { sourceBranchNotDeleted: pr.sourceBranchNotDeleted };
     if (pr.state === "merged") return ok({ merged: true, ...cleanup });

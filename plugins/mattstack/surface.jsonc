@@ -16,6 +16,7 @@
     "getting-current-time",
     "model-tiering",
     "process-digraphs",
+    "pr-usher",
     "shepherdr",
     "subagent-review-loop",
     "work-progress",
