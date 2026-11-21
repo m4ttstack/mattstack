@@ -23,6 +23,7 @@ own changes.
 | checks | `guards` | ubuntu | whenever `unit` is not `full`: runs the `no-*` guards |
 | checks | `go` | ubuntu | `ui/`, `package.json`, `checks.yml`, the scope script |
 | checks | `deck-macos` | macOS | `apps/deck/`, any non-docs file under `packages/` (but not `packages/mod-kit/`) or at the repo root, `scripts/turbo.sh`, `checks.yml`, the scope script |
+| checks | `deck-dom` | macOS | the same paths as `deck-macos`. Runs deck's DOM suite (`test:dom`) in headless Chromium |
 | checks | `tray-compile` | macOS | `rt-tray/`, `scripts/ci/tray-compile.sh`, `checks.yml`, the scope script. Compiles the tray app's `mattstack` scheme unsigned, Release and Debug, with no bundling |
 | checks | `website` | ubuntu | `sites/docs/`, the docs generators and checkers, `lib/command-tree-def.ts`, `checks.yml`, the scope script |
 | checks | `plugin-<name>` | per plugin | `plugins/<name>/`, the rt paths in `RT_PLUGIN_TRIGGERS`, `checks.yml`, the scope script; for a mod, also `mods/<name>/` and `packages/mod-kit/` (every mod) |
@@ -115,7 +116,8 @@ legs run there: `unit-macos`, `deck-macos`, `plugin-herdr-chat`,
 `e2e-tests` and `glitter-pty`. A typecheck takes about three times as long as on Apple
 silicon, while light tests run about the same. `tray-compile` always runs on
 `macos-latest`: the tray builds against an SDK whose Xcode needs Apple
-silicon, and Homebrew no longer supports the Intel mini.
+silicon, and Homebrew no longer supports the Intel mini. `deck-dom` always
+runs there too: Playwright's Chromium dies on the mini with SIGILL at launch.
 
 The `scope` and `changes` jobs run `scripts/ci/macos-runner.ts`, and the macOS
 jobs read `runs-on` from its output. It picks the Mac only when the
