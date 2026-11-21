@@ -89,8 +89,9 @@ is deliberate; see [Configuration](#configuration).
 - **mattstack:pr-usher** (public skill, invocable by name) -- the always-on
   agent that keeps a repo's ready PRs moving: reviewed (CodeRabbit, or an
   Opus fallback), threads settled with the author agent over rt chat, CI
-  green, merged. Authors find it through the shipped `pr-usher-handoff`
-  rule.
+  green, merged. It walks only PRs opened under its own forge login and
+  aimed at the default branch, and runs under `/loop`. Authors find it
+  through the shipped `pr-usher-handoff` rule.
 - **mattstack:model-tiering** (public skill, invocable by name) -- pick the least capable model tier and effort
   that can succeed at each unit of work, for both spawn-time (a shepherd
   picking worker models) and delegation-time (a worker dispatching

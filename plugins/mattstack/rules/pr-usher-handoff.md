@@ -20,5 +20,9 @@ Right after you open a PR and mark it ready for review (never a draft):
    would without one. An ack that arrives after that: DM the usher that
    you took the PR back, and keep it.
 
+If an usher DMs that it is ushering a PR of yours you did not hand off,
+either stop babysitting it and treat it as handed off, or reply that you
+keep it.
+
 Before you sign out with a handed-off PR still open, DM the usher that
 you are leaving, so it takes over fixes.
