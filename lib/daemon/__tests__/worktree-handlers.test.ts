@@ -355,10 +355,21 @@ describe("worktree:provision", () => {
     // Cut from a sha (as a restack does), pushed without -u: on origin, but no upstream.
     sh(`${gitId} branch --no-track feat-pushed origin/main && git push -q origin feat-pushed`, repo);
     sh(`${gitId} branch --no-track feat-unpushed origin/main`, repo);
+    // Half an upstream: remote set, merge missing.
+    sh(`${gitId} branch --no-track feat-half origin/main && git push -q origin feat-half && git config branch.feat-half.remote origin`, repo);
+    // Deleted on origin behind our back: the stale origin/feat-gone ref survives locally.
+    sh(`${gitId} branch --no-track feat-gone origin/main && git push -q origin feat-gone`, repo);
+    const bare = sh("git config --get remote.origin.url", repo).trim();
+    sh(`git -C ${bare} branch -D feat-gone`);
 
-    seedOnDeck(repo, repoName, "one", new Date().toISOString());
-    seedOnDeck(repo, repoName, "two", new Date().toISOString());
+    for (const n of ["one", "two", "three", "four"]) seedOnDeck(repo, repoName, n, new Date().toISOString());
     const { h } = makeHandlers({ [repoName]: repo });
+
+    const half: any = await h["worktree:provision"]!({ repoName, branch: "feat-half" });
+    expect(sh("git rev-parse --abbrev-ref @{u}", half.data.path).trim()).toBe("origin/feat-half");
+
+    const gone: any = await h["worktree:provision"]!({ repoName, branch: "feat-gone" });
+    expect(sh("git config --get branch.feat-gone.remote || echo none", gone.data.path).trim()).toBe("none");
 
     const pushed: any = await h["worktree:provision"]!({ repoName, branch: "feat-pushed" });
     expect(pushed.data.branchState).toBe("existing-clean");

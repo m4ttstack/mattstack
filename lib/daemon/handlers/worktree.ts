@@ -522,10 +522,19 @@ export function createWorktreeHandlers(
           if (checkout.exitCode === 0 && (await remoteRefExists(tree.path, branch))) {
             // A branch cut from a sha and pushed without -u has no upstream,
             // and respond_post_execute refuses to push without one. An upstream
-            // already configured is the user's choice and stays.
-            const upstream = await runGit(tree.path, ["config", "--get", `branch.${branch}.remote`]);
-            if (upstream.exitCode !== 0) {
-              await runGit(tree.path, ["branch", `--set-upstream-to=origin/${branch}`, branch]);
+            // already configured is the user's choice and stays. A failed
+            // fetch leaves remoteHasBranch false, so a stale origin ref left by
+            // a remote delete never gains tracking.
+            const remote = await runGit(tree.path, ["config", "--get", `branch.${branch}.remote`]);
+            const merge = await runGit(tree.path, ["config", "--get", `branch.${branch}.merge`]);
+            if (remoteHasBranch && (remote.exitCode !== 0 || merge.exitCode !== 0)) {
+              const set = await runGit(tree.path, ["branch", `--set-upstream-to=origin/${branch}`, branch]);
+              if (set.exitCode !== 0) {
+                ctx.log.warn(
+                  { repo: repoName, tree: tree.name, branch, detail: gitFailureDetail(set, "git branch", MUTATING_TIMEOUT_MS) },
+                  "provision: could not set the branch's upstream; respond will need a setUpstream push",
+                );
+              }
             }
             const counts = await divergence(tree.path, branch);
             if (counts && counts.ahead > 0 && counts.behind > 0) branchState = "diverged";
