@@ -192,9 +192,9 @@ tunnel.
   minifier churn in `board.js` is expected; commit source + regenerated bundle
   together.
 - `bun run test` (`bun test core src`) is the scoped suite. `bun run test:dom`
-  is separate (Playwright against the fixture server, about five minutes)
-  and fully green; a board change that moves a string or a structure the
-  DOM specs pin updates those specs in the same change.
+  is separate (Playwright against the fixture server, under three minutes)
+  and runs in CI's `deck-macos` job; a board change that moves a string or a
+  structure the DOM specs pin updates those specs in the same change.
 
 ## Board surface: canvas ground, tables as card panels
 
