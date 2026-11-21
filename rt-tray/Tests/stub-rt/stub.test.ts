@@ -8,7 +8,7 @@ import { SOLO_GITHUB_NOTE, SOLO_GITLAB_NOTE } from "../../../lib/setup/validator
 const STUB = join(import.meta.dir, "stub.ts");
 
 async function run(scenario: string, args: string[], stdin = "", stateDir?: string, extraEnv: Record<string, string> = {}) {
-  const proc = Bun.spawn(["bun", STUB, ...args], {
+  const proc = Bun.spawn([process.execPath, STUB, ...args], {
     env: { ...process.env, RT_STUB_SCENARIO: scenario, RT_STUB_STATE_DIR: stateDir ?? mkdtempSync(join(tmpdir(), "stub-")), ...extraEnv },
     stdin: new Blob([stdin]),
     stdout: "pipe",
@@ -314,7 +314,7 @@ function buildRealFixture(): { home: string; claudeBin: string } {
 
   const claudeBin = join(home, "fixture-claude");
   writeFileSync(claudeBin, [
-    "#!/usr/bin/env bun",
+    `#!${process.execPath}`,
     `console.log(JSON.stringify([{ id: "acme@marketplace", enabled: true, installPath: ${JSON.stringify(pluginInstallPath)} }]));`,
     "",
   ].join("\n"));
@@ -782,7 +782,7 @@ test("an instant prepare reads busy while it installs, and git leads the screens
 
 test("the slow scenario's installs take several waits", async () => {
   const dir = mkdtempSync(join(tmpdir(), "stub-"));
-  const proc = Bun.spawn(["bun", STUB, "setup", "prepare", "accounts", "--json"], {
+  const proc = Bun.spawn([process.execPath, STUB, "setup", "prepare", "accounts", "--json"], {
     env: { ...process.env, RT_STUB_SCENARIO: "slow", RT_STUB_STATE_DIR: dir, ...INSTANT }, stdout: "pipe",
   });
   try {
@@ -873,7 +873,7 @@ test("with a speed set, Fast Browser lands on time alone, however few reads came
 });
 
 test("an instant run's bar tracks the clock, so the app's time-left estimate reads the drive's pace", async () => {
-  const proc = Bun.spawn(["bun", STUB, "setup", "apply", "--resume", "--unattended", "--json"], {
+  const proc = Bun.spawn([process.execPath, STUB, "setup", "apply", "--resume", "--unattended", "--json"], {
     env: { ...process.env, RT_STUB_SCENARIO: "join-happy", RT_STUB_STATE_DIR: mkdtempSync(join(tmpdir(), "stub-")), ...INSTANT }, stdout: "pipe",
   });
   const timed: { at: number; event: Record<string, unknown> }[] = [];
