@@ -182,8 +182,7 @@ export function diagnoseStack(
   const edges: EdgeDirective[] = [];
 
   /**
-   * Merged means stored status OR a live MR in state `merged` — the same rule
-   * the board's stack-collapse predicate uses (`shapeStack` in server/data.ts).
+   * Merged means stored status OR a live MR in state `merged`.
    *
    * The stored status only learns about a merge when a reconcile runs, and a
    * node published through a failed create read-back can sit at `local-only`

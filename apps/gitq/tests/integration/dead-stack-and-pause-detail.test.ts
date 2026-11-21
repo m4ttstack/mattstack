@@ -75,14 +75,14 @@ describe('gitq diagnose on a stack whose branches are all gone from the remote',
     }
   });
 
-  test('--json keeps every node, and flags the stack for the board', async () => {
+  test('--json keeps every node, and flags the stack for --json callers', async () => {
     const { r, configDir } = await repoWithDeletedBranches(2, 2);
     try {
       const { stdout } = await runCli(['diagnose', '--json'], r.dir, configDir);
       const parsed = JSON.parse(stdout);
 
       // Collapsing is a rendering choice; the machine contract must not lose
-      // the per-branch detail the board renders from.
+      // the per-branch detail a --json caller reads.
       expect(parsed.stacks[0].allBranchesGone).toBe(true);
       expect(parsed.stacks[0].diagnostics.nodes).toHaveLength(2);
     } finally {
