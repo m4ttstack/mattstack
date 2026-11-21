@@ -922,6 +922,65 @@ const GROUP_PROJECTS_QUERY = `
   }
 `;
 
+/**
+ * Pages of 50, not 100: with the full dashboard fragment and `pageInfo`,
+ * gitlab.com scores a page of 100 at 253, over its cap of 250, and refuses
+ * the read. A page of 50 scores 190.
+ */
+const MR_BY_BRANCHES_QUERY = `
+  query GlanceMRByBranches($projectPath: ID!, $branches: [String!], $state: MergeRequestState, $after: String) {
+    project(fullPath: $projectPath) {
+      mergeRequests(sourceBranches: $branches, state: $state, first: 50, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          ...MRDashboardFields
+        }
+      }
+    }
+  }
+  ${MR_DASHBOARD_FRAGMENT}
+`;
+
+/**
+ * Every GraphQL document this provider can send, under a stable label.
+ * gitlab.com refuses a document it scores over 250, and only GitLab can
+ * compute the score, so tests/gitlab-complexity-budget.test.ts holds each
+ * entry to the score last measured there. A document left out of this map
+ * is one nothing measures.
+ */
+export const GITLAB_GRAPHQL_DOCUMENTS: Record<string, string> = {
+  GlanceDashboardAuthored: AUTHORED_QUERY,
+  GlanceDashboardReviewing: REVIEWING_QUERY,
+  GlanceDashboardAssigned: ASSIGNED_QUERY,
+  GlanceMRDetail: MR_DETAIL_QUERY,
+  GlanceMRByAuthor: MR_BY_AUTHOR_QUERY,
+  'GlanceMRByAuthor.excludingTargets': excludingTargets(MR_BY_AUTHOR_QUERY),
+  GlanceMRProject: MR_PROJECT_QUERY,
+  'GlanceMRProject.excludingTargets': excludingTargets(MR_PROJECT_QUERY),
+  GlanceMRProjectAll: MR_PROJECT_QUERY_NO_STATE,
+  'GlanceMRProjectAll.excludingTargets': excludingTargets(MR_PROJECT_QUERY_NO_STATE),
+  GlanceMRProjectList: MR_PROJECT_LIST_QUERY,
+  'GlanceMRProjectList.excludingTargets': excludingTargets(MR_PROJECT_LIST_QUERY),
+  GlanceMRProjectListAll: MR_PROJECT_LIST_QUERY_NO_STATE,
+  'GlanceMRProjectListAll.excludingTargets': excludingTargets(MR_PROJECT_LIST_QUERY_NO_STATE),
+  GlanceMRApprovalRules: MR_APPROVAL_RULES_QUERY,
+  'GlanceMRApprovalRules.excludingTargets': excludingTargets(MR_APPROVAL_RULES_QUERY),
+  GlanceMRApprovalRulesByIid: MR_APPROVAL_RULES_BY_IID_QUERY,
+  GlanceCodeownersBlobs: CODEOWNERS_BLOBS_QUERY,
+  'GlanceMRIndex.group': mrIndexQuery('group', false),
+  'GlanceMRIndex.group.state': mrIndexQuery('group', true),
+  'GlanceMRIndex.group.excludingTargets': excludingTargets(mrIndexQuery('group', false)),
+  'GlanceMRIndex.group.state.excludingTargets': excludingTargets(mrIndexQuery('group', true)),
+  'GlanceMRIndex.project': mrIndexQuery('project', false),
+  'GlanceMRIndex.project.state': mrIndexQuery('project', true),
+  'GlanceMRIndex.project.excludingTargets': excludingTargets(mrIndexQuery('project', false)),
+  'GlanceMRIndex.project.state.excludingTargets': excludingTargets(mrIndexQuery('project', true)),
+  GlanceMRMetrics: MR_METRICS_QUERY,
+  GlanceMRMetricsNotes: MR_METRICS_NOTES_QUERY,
+  GlanceGroupProjects: GROUP_PROJECTS_QUERY,
+  GlanceMRByBranches: MR_BY_BRANCHES_QUERY,
+};
+
 interface GroupProjectsResponse {
   group: {
     projects: {
@@ -1882,20 +1941,6 @@ export class GitLabProvider implements GitProvider {
     // A caller acts on a miss (gitq publish opens an MR for one), so an
     // unreadable project throws and every page is read, rather than either
     // answering a branch with "no MR" it never actually checked.
-    const MR_BY_BRANCHES_QUERY = `
-      query GlanceMRByBranches($projectPath: ID!, $branches: [String!], $state: MergeRequestState, $after: String) {
-        project(fullPath: $projectPath) {
-          mergeRequests(sourceBranches: $branches, state: $state, first: 100, after: $after) {
-            pageInfo { hasNextPage endCursor }
-            nodes {
-              ...MRDashboardFields
-            }
-          }
-        }
-      }
-      ${MR_DASHBOARD_FRAGMENT}
-    `;
-
     const prsByBranch = new Map<string, PullRequest>();
     let after: string | null = null;
     do {
