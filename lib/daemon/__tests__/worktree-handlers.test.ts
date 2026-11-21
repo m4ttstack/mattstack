@@ -311,6 +311,7 @@ describe("worktree:provision", () => {
 
     expect(res.ok).toBe(true);
     expect(res.data.branchState).toBe("tracking-remote");
+    expect(sh("git rev-parse --abbrev-ref @{u}", rec.path).trim()).toBe("origin/mate-branch");
     expect(await headSha(rec.path)).toBe(mateSha);
     expect(await currentBranchAsync(rec.path)).toBe("mate-branch");
   });
@@ -346,6 +347,50 @@ describe("worktree:provision", () => {
     expect(diverged.data.branchState).toBe("diverged");
     // Reported, never reconciled: the local tip is checked out untouched.
     expect(await headSha(diverged.data.path)).toBe(mineSha);
+  });
+
+  test("a local branch with no upstream tracks its origin copy after provision", async () => {
+    const repo = makeRepo();
+    const gitId = "git -c user.email=t@t -c user.name=t";
+    // Cut from a sha (as a restack does), pushed without -u: on origin, but no upstream.
+    sh(`${gitId} branch --no-track feat-pushed origin/main && git push -q origin feat-pushed`, repo);
+    sh(`${gitId} branch --no-track feat-unpushed origin/main`, repo);
+    // Half an upstream: remote set, merge missing.
+    sh(`${gitId} branch --no-track feat-half origin/main && git push -q origin feat-half && git config branch.feat-half.remote origin`, repo);
+    // Deleted on origin behind our back: the stale origin/feat-gone ref survives locally.
+    sh(`${gitId} branch --no-track feat-gone origin/main && git push -q origin feat-gone`, repo);
+    const bare = sh("git config --get remote.origin.url", repo).trim();
+    sh(`git -C ${bare} branch -D feat-gone`);
+
+    for (const n of ["one", "two", "three", "four"]) seedOnDeck(repo, repoName, n, new Date().toISOString());
+    const { h } = makeHandlers({ [repoName]: repo });
+
+    const half: any = await h["worktree:provision"]!({ repoName, branch: "feat-half" });
+    expect(sh("git rev-parse --abbrev-ref @{u}", half.data.path).trim()).toBe("origin/feat-half");
+
+    const gone: any = await h["worktree:provision"]!({ repoName, branch: "feat-gone" });
+    expect(sh("git config --get branch.feat-gone.remote || echo none", gone.data.path).trim()).toBe("none");
+
+    const pushed: any = await h["worktree:provision"]!({ repoName, branch: "feat-pushed" });
+    expect(pushed.data.branchState).toBe("existing-clean");
+    expect(sh("git rev-parse --abbrev-ref @{u}", pushed.data.path).trim()).toBe("origin/feat-pushed");
+    expect(sh("git rev-parse --abbrev-ref @{push}", pushed.data.path).trim()).toBe("origin/feat-pushed");
+
+    const unpushed: any = await h["worktree:provision"]!({ repoName, branch: "feat-unpushed" });
+    expect(unpushed.data.branchState).toBe("existing-clean");
+    expect(sh("git config --get branch.feat-unpushed.remote || echo none", unpushed.data.path).trim()).toBe("none");
+  });
+
+  test("a local branch's existing upstream is left as it is", async () => {
+    const repo = makeRepo();
+    const gitId = "git -c user.email=t@t -c user.name=t";
+    sh(`${gitId} branch feat-own origin/main && git push -q origin feat-own`, repo);
+
+    seedOnDeck(repo, repoName, "one", new Date().toISOString());
+    const { h } = makeHandlers({ [repoName]: repo });
+
+    const res: any = await h["worktree:provision"]!({ repoName, branch: "feat-own" });
+    expect(sh("git rev-parse --abbrev-ref @{u}", res.data.path).trim()).toBe("origin/main");
   });
 
   test("a failure after the claim rolls the tree back to on-deck", async () => {
