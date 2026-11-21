@@ -100,7 +100,7 @@ const BY_KEY: Map<string, SettingDef> = new Map(DEFS.map((def) => [def.key, def]
  * carries one upgrades with no manual step: it is skipped silently, never
  * reported as "from a newer rt".
  */
-const RETIRED_KEYS: ReadonlySet<string> = new Set(["chat.handle", "mattstack.mode", "board.switchboardUrl", "board.defaultPack", "board.members", "rt.sdmEnrichment", "panes.relocationAutoAccept", "rt.runaway"]);
+const RETIRED_KEYS: ReadonlySet<string> = new Set(["chat.handle", "mattstack.mode", "board.switchboardUrl", "board.defaultPack", "board.members", "rt.sdmEnrichment", "panes.relocationAutoAccept", "rt.runaway", "gitq.board"]);
 
 export function isRetiredKey(key: string): boolean {
   return RETIRED_KEYS.has(key);

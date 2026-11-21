@@ -490,18 +490,6 @@ export const EXAMPLES: Record<string, Example> = {
     ],
     layer: [{ "gitlab.example.com": { tokenEnv: "ACME_GITLAB_TOKEN" } }],
   },
-  "gitq.board": {
-    good: [
-      { repos: [] },
-      { repos: ["app"], port: 11008 },
-      { repos: [{ path: "/Users/dev/src/app", name: "app" }, { path: "/Users/dev/src/docs" }], port: 11008, herdrWorkspace: "gitq" },
-    ],
-    bad: [
-      { value: { port: 11008 }, path: ["repos"] },
-      { value: { repos: [{ name: "app" }] }, path: ["repos", 0] },
-    ],
-    layer: [{ port: 11009 }],
-  },
   "rt.skills.disableModelInvocation": {
     good: [
       {},
