@@ -126,8 +126,6 @@ A few commands refuse up front instead of at the end. `absorb` (for every branch
 
 `gitq stacks --json`, `gitq diagnose --json`, and `gitq preflight --json` all carry a `worktrees` array: every worktree of the repo with its `path`, `name`, `branch`, `dirty`, `isWorkSlot`, and its `lease` (`stackId`, `action`, `state`) or `null`. That is one call to see which slots exist, which are busy, and what is parked. See [JSON output](/gitq/reference/json-output).
 
-The board renders the same data as a chip per slot, reading `<slot>: free`, `<slot>: <action> on <stack>`, or `<slot>: parked on <stack>`. See [The board](/gitq/getting-started/the-board).
-
 ## Next
 
 - [The pause protocol](/gitq/concepts/pause-protocol): what a parked lease means and how to clear it.

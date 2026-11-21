@@ -95,4 +95,4 @@ See [`gitq preflight`](/gitq/reference/read-only/preflight) for the full flag an
 
 ## Machine readable output
 
-All three take `--json` and emit a structured document on stdout instead of the human summary. The JSON is a superset. `diagnose --json` carries the per node `statusLine`, `badge`, `primaryAction`, `blocked`, and `removal` fields that drive the board, plus the stack's `edges`, `banner`, and `globalBlocks`. All three also include a `worktrees` array. See [JSON output](/gitq/reference/json-output) for the shapes, and [Global flags](/gitq/reference/global-flags) for `--json` and `-C`.
+All three take `--json` and emit a structured document on stdout instead of the human summary. The JSON is a superset. `diagnose --json` carries the per node `statusLine`, `badge`, `primaryAction`, `blocked`, and `removal` fields that describe how to display the tree, plus the stack's `edges`, `banner`, and `globalBlocks`. All three also include a `worktrees` array. See [JSON output](/gitq/reference/json-output) for the shapes, and [Global flags](/gitq/reference/global-flags) for `--json` and `-C`.

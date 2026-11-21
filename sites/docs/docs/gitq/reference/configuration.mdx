@@ -5,7 +5,7 @@ sidebar_position: 4
 
 # Configuration
 
-gitq reads its configuration from the [rt](/rt) settings store: the CLI reads `gitq.workSlots` and `gitq.forges`, and the board reads `gitq.board`. A key nobody set reads its default.
+gitq reads its configuration from the [rt](/rt) settings store: the CLI reads `gitq.workSlots` and `gitq.forges`. A key nobody set reads its default.
 
 ## The app root
 
@@ -17,15 +17,14 @@ gitq's files used to live in `~/.config/gitq`. The first run after the move copi
 
 ## The settings store
 
-Three keys, read through `@mattstack/rt-client`'s `getSetting`:
+Two keys, read through `@mattstack/rt-client`'s `getSetting`:
 
 | Key | Scope | Shape | With nothing set |
 | --- | --- | --- | --- |
 | `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | `{ "workSlotLocation": "auto", "maxWorkSlots": 3 }` |
 | `gitq.forges` | user | host-keyed map, `tokenEnv` names only, never a live token | `{}` |
-| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | none: `rt setup` writes it with the repos your team tracks |
 
-A resolver throw (an unreadable or malformed store file, never the daemon) reads the key's default after one warning; `gitq.board` has none, so the board stops at startup instead.
+A resolver throw (an unreadable or malformed store file, never the daemon) reads the key's default after one warning.
 
 Set a key with `rt settings set <key> <json-value> --scope user|team|machine`. **This replaces the whole value stored at that key and scope.** It is not a merge. For a multi-field value (`workSlots`) or a multi-host map (`forges`), put every field or host you want to keep in the JSON you send. Check what's already there first with `rt settings explain <key>`.
 
@@ -79,32 +78,7 @@ A self-hosted instance can carry its own credential with `tokenEnv` on its `forg
 
 Two failures happen before the token is ever considered, both from the remote alone. A host with no `forges` entry that gitq does not know is refused rather than guessed at. Defaulting an enterprise GitHub host to GitLab would fail somewhere a long way from the cause. The refusal reads: `cannot tell which forge "git.acme.com" is (from remote ...); check the current map with rt settings explain gitq.forges, then set it with rt settings set gitq.forges '{"git.acme.com": {"provider": "gitlab"}, ...}' --scope user ...` (`src/cli/provider.ts:61-74`; the full message spells out that the write replaces the whole host-keyed map). A remote that names no host at all, a local path or a bare clone directory, gets `no forge host in remote "..."` (`src/cli/provider.ts:49-53`).
 
-## The board: `gitq.board`
-
-The board (`src/server/server.ts`) is a separate process that reads `gitq.board`, a machine-scoped [store key](#the-settings-store). `rt setup` writes it with the repos your team tracks:
-
-```json
-{
-  "repos": [{ "path": "/path/to/repo", "name": "example" }],
-  "port": 11008,
-  "herdrWorkspace": "gitq"
-}
-```
-
-Validated by `validateBoardConfig` (`src/server/config.ts`):
-
-| Field | Required | Default | Validation |
-| --- | --- | --- | --- |
-| `repos` | Yes | none | Non-empty array; each entry needs a non-empty `path` string, `name` defaults to the path's basename if omitted. |
-| `port` | No | `11008` | Must be a number if given. |
-| `herdrWorkspace` | No | `"gitq"` | Must be a string if given. |
-
-No `gitq.board` in the store is a startup failure that names the `rt settings set` command to run (`src/server/config.ts`). The result is read once, at module load (`const config = loadConfig();`, `src/server/server.ts:12`), so an edit needs a server restart to take effect; see [The board](/gitq/getting-started/the-board).
-
-`$PORT` in the environment overrides `config.port` at runtime, letting a process manager (launchd, for example) pin the port independently of the setting: `const port = Number(process.env.PORT) || config.port;` (`src/server/server.ts:52`).
-
 ## Next
 
 - [Where state lives](/gitq/concepts/state): every file gitq writes, as opposed to the settings you write for it.
 - [Work slots and leases](/gitq/concepts/work-slots): what `maxWorkSlots` actually caps.
-- [The board](/gitq/getting-started/the-board): running the board day to day.
