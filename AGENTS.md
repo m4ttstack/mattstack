@@ -173,7 +173,7 @@ To pin the commit that was reviewed, use `rt pr enqueue <number> --head <sha>`
 instead.
 Here, `gh pr merge` has failed with "Auto merge is not allowed for this
 repository" while another PR was queued, and `--admin` cannot bypass the queue.
-A merge still needs Matt's confirmation.
+A merge still needs Matt's confirmation. The pr-usher agent is the exception: it merges on its own once review, threads and CI are settled.
 
 ### Run `bun test` from the repo root
 

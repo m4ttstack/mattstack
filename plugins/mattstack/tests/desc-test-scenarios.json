@@ -90,5 +90,13 @@
   {
     "task": "I'm executing this plan with subagent-driven development; where is my plan at?",
     "expect": "work-progress"
+  },
+  {
+    "task": "Keep watch on this repo's open PRs and get them reviewed and merged",
+    "expect": "pr-usher"
+  },
+  {
+    "task": "Be the always-on agent that moves ready PRs to merge",
+    "expect": "pr-usher"
   }
 ]

@@ -86,6 +86,11 @@ is deliberate; see [Configuration](#configuration).
   domain-bound copy for its repo. Requires the
   [herdr skill](https://github.com/herdrdev/herdr/blob/master/skills/herdr/SKILL.md)
   (auto-installed if missing).
+- **mattstack:pr-usher** (public skill, invocable by name) -- the always-on
+  agent that keeps a repo's ready PRs moving: reviewed (CodeRabbit, or an
+  Opus fallback), threads settled with the author agent over rt chat, CI
+  green, merged. Authors find it through the shipped `pr-usher-handoff`
+  rule.
 - **mattstack:model-tiering** (public skill, invocable by name) -- pick the least capable model tier and effort
   that can succeed at each unit of work, for both spawn-time (a shepherd
   picking worker models) and delegation-time (a worker dispatching
