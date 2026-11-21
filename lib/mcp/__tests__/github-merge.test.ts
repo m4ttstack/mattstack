@@ -145,6 +145,19 @@ describe("mergeOnGitHub with expectedHeadSha", () => {
     expect(calls).toEqual([`merge {"sha":"${SHA}"}`]);
   });
 
+  test("a PR already queued at another head is refused, not waited on", async () => {
+    const { provider, calls } = github({ enabled: true, inQueue: true }, { fetchHeadSha: async () => "b".repeat(40) } as Partial<GithubMergeProvider>);
+    const res = await mergeOnGitHub(TARGET, { expectedHeadSha: SHA, wait: true }, { provider });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("b".repeat(40));
+    expect(calls).toEqual([]);
+  });
+
+  test("a PR already queued at the expected head is waited on", async () => {
+    const { provider } = github({ enabled: true, inQueue: true }, { fetchHeadSha: async () => SHA } as Partial<GithubMergeProvider>);
+    expect((await mergeOnGitHub(TARGET, { expectedHeadSha: SHA }, { provider })).body).toEqual({ queued: true, alreadyQueued: true });
+  });
+
   test("without it, the enqueue carries no head", async () => {
     const { provider, inputs } = pinned({ enabled: true, inQueue: false });
     await mergeOnGitHub(TARGET, {}, { provider });
