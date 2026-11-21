@@ -40,6 +40,62 @@ export type RunDeps = {
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
 const TAIL_LINES = 20;
+const EXCERPT_LINES = 60;
+const MAX_LINES_BEFORE_FAIL = 30;
+const LINES_BEFORE_FAIL = 10;
+const SOURCE_LINES = 8;
+const LINES_AFTER_CRASH = 15;
+const ANSI = /\x1b\[[0-9;]*m/g;
+const CRASH = "# Unhandled error between tests";
+const FILE_HEADER = /^\S+\.(test|spec)\.tsx?:$/;
+
+type Block = { start: number; end: number };
+
+// bun prints a failure's source and `error:` line, then its diff or stack, then
+// `(fail)`; a crash prints its marker first and the error after it. A full
+// suite's last lines are whatever the slowest shard printed, so a red run's
+// excerpt is each failure's own lines.
+export function failureExcerpt(output: string): string {
+  const lines = output.trim().split("\n");
+  const plain = lines.map((line) => line.replace(ANSI, ""));
+  const blocks: Block[] = [];
+  let floor = 0;
+  plain.forEach((line, i) => {
+    if (FILE_HEADER.test(line)) floor = i + 1;
+    if (line === CRASH) {
+      let end = i;
+      while (end + 1 < plain.length && end - i < LINES_AFTER_CRASH && !plain[end + 1]!.startsWith("(fail) ") && plain[end + 1] !== CRASH) end++;
+      blocks.push({ start: i, end });
+      floor = end + 1;
+      return;
+    }
+    if (!line.startsWith("(fail) ")) return;
+    const lowest = Math.max(floor, i - MAX_LINES_BEFORE_FAIL);
+    let error = -1;
+    for (let j = i - 1; j >= lowest; j--) {
+      if (plain[j]!.startsWith("error:")) {
+        error = j;
+        break;
+      }
+    }
+    const start = error === -1 ? Math.max(lowest, i - LINES_BEFORE_FAIL) : Math.max(lowest, error - SOURCE_LINES);
+    blocks.push({ start, end: i });
+    floor = i + 1;
+  });
+  if (blocks.length === 0) return lines.slice(-TAIL_LINES).join("\n");
+
+  const picked: string[] = [];
+  let shown = 0;
+  for (const { start, end } of blocks) {
+    const block = lines.slice(start, end + 1);
+    if (shown > 0 && picked.length + block.length + 1 > EXCERPT_LINES) break;
+    if (shown > 0) picked.push("...");
+    picked.push(...block);
+    shown++;
+  }
+  if (shown < blocks.length) picked.push(`... and ${blocks.length - shown} more`);
+  return picked.join("\n");
+}
 
 export const realSetting: RunDeps["setting"] = (repoIdentity, tree) => {
   const parsed = parseIdentity(repoIdentity);
@@ -146,7 +202,8 @@ export async function runCheck(
     verdict = run.exitCode === 0 ? "green" : "red";
   }
 
-  const tail = (run.stdout + run.stderr).trim().split("\n").slice(-TAIL_LINES).join("\n");
+  const output = run.stdout + run.stderr;
+  const tail = verdict === "red" ? failureExcerpt(output) : output.trim().split("\n").slice(-TAIL_LINES).join("\n");
   const after = await treeState(tree, deps);
   return {
     configured: true,
