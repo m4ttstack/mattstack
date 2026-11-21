@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
-import { updateRepoIndex } from "../../repo-index.ts";
+import { join } from "path";
 import { machineSettingsPath } from "../../rt-paths.ts";
-import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting, setSettingsNoticeSink, unsetSetting } from "../../settings/write.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
@@ -169,14 +167,6 @@ describe("2026-10-11-import-app-settings", () => {
     await run({ [join(root, "settings.json")]: { maxWorkSlots: 2 } }, { GITQ_APP_ROOT: root }).outcome;
     expect(getSetting("gitq.workSlots").value).toMatchObject({ maxWorkSlots: 2 });
   });
-
-  const remoteRow = (name: string) => serializeIdentity({ kind: "remote", id: `gitlab.example.com/acme/${name}` });
-  function registerRepo(key: string, name: string): string {
-    const dir = join(home, "checkouts", `${key}-${name}`);
-    mkdirSync(dir, { recursive: true });
-    updateRepoIndex(key, dir);
-    return dir;
-  }
 
   test("copying a board setting restarts the board, which read its settings before the copy", async () => {
     expect((await run({ [boardFile()]: { defaultMember: "dev1" } }).outcome).state).toBe("done");

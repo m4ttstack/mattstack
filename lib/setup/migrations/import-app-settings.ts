@@ -161,7 +161,7 @@ function outcome(t: Tally): StepOutcome {
     t.keptForRefused > 0 ? "Your settings hold a value rt cannot read for something your old board or gitq file also sets, so rt left that file where it is" : null,
   ].filter((s): s is string => s !== null);
   if (t.copied === 0) return { state: "skipped", detail: ["There were no old board or gitq settings to copy", ...notes].join(". ") };
-  const copied = t.copied > 0 ? [`Copied ${t.copied} old board or gitq ${plural(t.copied, "setting", "settings")} into your settings`] : [];
+  const copied = [`Copied ${t.copied} old board or gitq ${plural(t.copied, "setting", "settings")} into your settings`];
   return { state: "done", detail: [...copied, ...notes].join(". ") };
 }
 
