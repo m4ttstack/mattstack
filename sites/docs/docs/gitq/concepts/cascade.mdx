@@ -82,13 +82,20 @@ It survives a pause, too. The recorded heads are written into the pause file, so
 
 A branch whose parent has been merged (usually squash-merged, so the parent's commits exist upstream under a different hash) cannot simply rebase onto its parent: the parent is gone as a base. gitq handles it in two steps.
 
+**First, sync finds out what merged.** Before it restacks, `gitq sync` reads the MR of every branch that has one, by the MR number gitq recorded for it, in this project only. A branch whose MR merged is marked `merged`, and sync prints `gitq: merged on the forge: <branches>`. A branch name alone is never trusted, since names get reused. Two cases leave a branch as it is:
+
+- Its MR merged, but the branch has commits the merge did not include. Sync prints a line naming it, so that work is not stranded by a restack.
+- The forge can't be read (no token, no network). Sync says `could not read MR states, so merged branches are not detected` and restacks with the states it has.
+
+`--no-fetch` skips this read along with the fetch.
+
 **Step one, reconcile.** The child's own commits are replayed onto the merged parent's final state, its tombstone. The tombstone is the merged parent's branch tip if git still has it, falling back to the node's stored `lastKnownHead`. This is not ceremony: it is how the child picks up whatever the parent gained during review after the child branched off it. The fork point comes from the reflog first (`git merge-base --fork-point`), then the node's stored `forkPoint`, then a plain merge base. If none of the three can be resolved, gitq skips reconciliation and lets the main rebase land the child on the target anyway.
 
 **Step two, cascade.** The reconciled commits are then replayed onto the real target, which is the nearest ancestor that is not itself merged, walking up the tree, and `origin/<root>` if that walk reaches the root.
 
 Two special cases sit alongside this:
 
-- **The merged branch itself is skipped, and its ref is not moved.** It reports `ok` and stays exactly where it is, because that ref *is* the tombstone its children are measured against. Moving it to trunk would destroy the only record of where their work began. A merged branch keeps its old head until you `gitq remove` it.
+- **The merged branch itself is skipped, and its ref is not moved.** It reports `ok` and stays exactly where it is, because that ref *is* the tombstone its children are measured against. Moving it to trunk would destroy the only record of where their work began. A merged branch keeps its old head until you `gitq remove` it, which hands its children to the nearest unmerged ancestor.
 - **A fully redundant branch is fast-forwarded, not rebased.** Before rebasing, gitq compares the branch's commits against the target by patch id (`git cherry`). If every one of them is already present upstream, there is nothing to replay: the branch ref is moved straight to the target and the branch reports `ok`. This is the normal ending for a branch whose entire content went in with its parent's squash merge.
 
 `gitq preflight --json` warns about the branches that will need reconciling, as `stacks[].report.driftWarnings`, one entry per branch. The plain-text output does not print it: today it only shows dirty state, predicted conflicts, and slot conflicts. Ask for `--json` if reconciling is what you are checking for. See [Reading the tree](/gitq/getting-started/reading-the-tree).

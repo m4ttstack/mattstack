@@ -28,7 +28,7 @@ Refuses up front, before anything runs: `--onto` naming neither the stack root n
 
 `reparentBranch` (`src/core/reparent.ts:33-114`) then runs in two phases:
 
-1. **The branch's own rebase.** `git rebase --onto <newParentHead> <oldBase> <branch>`, detached in the slot, finalized by compare-and-swap.
+1. **The branch's own rebase.** `git rebase --onto <newParentHead> <oldBase> <branch>`, detached in the slot, finalized by compare-and-swap. `<oldBase>` is the branch's recorded fork point, the same one sync uses, so only the branch's own commits replay and the move still works after the old parent's branch is deleted. When no fork point can be found it refuses: `Cannot tell where "<branch>" forked from "<oldParent>": that branch is gone and no fork point is recorded`. Onto the stack's root, `<newParentHead>` is `origin/<root>`, the same place sync lands, since the local trunk can lag a merge.
 2. **The descendant cascade**, if the branch has any children. This is the same cascade engine `sync` uses (`RebaseEngine.restackFrom`, which `split --at` also calls to restack the children it reparents). It is seeded with the branch's pre-move head, so children compute their fork point off the old head rather than a merge-base against the rewritten one.
 
 `reparent` and `split --at` are the surgery commands that run that shared cascade loop, and the ones whose descendants can leave you mid-rebase.

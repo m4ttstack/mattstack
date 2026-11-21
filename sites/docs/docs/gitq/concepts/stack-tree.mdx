@@ -62,7 +62,7 @@ Everything else that rewrites commits is on the [surgery](/gitq/reference/surger
 The tree operations validate before they return, so an illegal shape never reaches the store:
 
 - `add` refuses a branch already in the stack, and refuses a parent that is neither the root nor an existing node.
-- `remove` refuses a branch that still has children. Re-parent or remove them first. ([`reparent`](/gitq/reference/surgery/reparent) is the tool for that.)
+- `remove` refuses a branch that still has children, unless the branch is merged: a merged branch hands its children to its nearest unmerged ancestor. Otherwise re-parent or remove them first. ([`reparent`](/gitq/reference/surgery/reparent) is the tool for that.)
 - `reparent` refuses a move that would put a branch under its own descendant, because that is a cycle.
 - `rename` refuses a new name that already exists in the stack.
 
