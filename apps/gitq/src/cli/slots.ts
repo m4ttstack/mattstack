@@ -69,7 +69,8 @@ export async function withLeasedSlot(
   const map = await getWorktreeMap(ctx.repoRoot);
   const leases = await listLeases(ctx.commonDir);
   const leasedPaths = new Set(leases.map((l) => l.slotPath));
-  const free = map.find((s) => s.isWorkSlot && s.branch === null && !s.rebaseInProgress && !leasedPaths.has(s.path));
+  // Never the launch tree: a command run from inside a slot works on that tree.
+  const free = map.find((s) => s.isWorkSlot && s.branch === null && !s.rebaseInProgress && !leasedPaths.has(s.path) && s.path !== ctx.repoRoot);
 
   let slotPath: string;
   if (free) {

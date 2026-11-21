@@ -310,7 +310,7 @@ Exit `0`, mid-pause. See [The pause protocol](/gitq/concepts/pause-protocol).
 
 ## From another worktree
 
-`absorb` works from **any** dirty worktree of the repo with a branch checked out, not just the primary checkout. Point it at one with `-C`: `gitq -C <that worktree> absorb`. The changes it sources, and the tree its unattributed files are left dirty in, are that worktree's. `gitq:absorb` takes the same path as its `<repoPath>`. See [Worktree pools](/gitq/guides/worktree-pools).
+`absorb` works from **any** dirty worktree of the repo, not just the primary checkout, including one with no branch checked out: it returns that worktree to the commit it started on, or, when that commit was a stack branch's tip, to the branch's new head. Point it at one with `-C`: `gitq -C <that worktree> absorb`. The changes it sources, and the tree its unattributed files are left dirty in, are that worktree's. `gitq:absorb` takes the same path as its `<repoPath>`. See [Worktree pools](/gitq/guides/worktree-pools).
 
 ## Undo
 

@@ -705,6 +705,26 @@ describe('gitq CLI', () => {
     expect(execFileSync('git', ['branch', '--list'], { cwd: repo.dir }).toString()).toContain('feat/branch-2');
   });
 
+  test('absorb run from inside a detached work slot leases another slot, not its own tree', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+    const root = `${repo.dir}-slots`;
+    dirsToClean.push(root);
+    repo.git('worktree', 'add', '--detach', join(root, 'gitq-1'), 'main');
+    const slot = join(root, 'gitq-1');
+    const startSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: slot }).toString().trim();
+    await writeFile(join(slot, 'file-1-a.txt'), 'branch 1 commit A, edited\n', 'utf-8');
+
+    const res = await runCli(['absorb', '--json'], slot, configDir);
+    const leased = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: repo.dir }).toString()
+      .split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice('worktree '.length))
+      .filter((p) => p !== repo.dir && p !== slot);
+    dirsToClean.push(...leased);
+
+    expect(res.exitCode).toBe(0);
+    expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: slot }).toString().trim()).toBe(startSha);
+    expect(repo.git('show', 'feat/branch-1:file-1-a.txt')).toBe('branch 1 commit A, edited');
+  });
+
   test('rename refuses when a human worktree holds the branch, telling you to work from it', async () => {
     const { repo, configDir } = await makeRepoWithStack(2);
     const human = await addNamedWorktree(repo, 'dobby', 'feat/branch-2');
