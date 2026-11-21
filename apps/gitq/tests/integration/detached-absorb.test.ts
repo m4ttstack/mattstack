@@ -186,3 +186,21 @@ describe('detached absorb restack', () => {
     expect(GitShell.isRebaseInProgress(repo.dir)).toBe(false);
   });
 });
+
+describe('absorb from a worktree with no branch checked out', () => {
+  test('ends on the commit it started on, unattributed work still dirty there', async () => {
+    const { repo, stack, workDir } = await absorbScenario();
+    repo.git('checkout', '--detach', 'main');
+    const startSha = repo.git('rev-parse', 'HEAD');
+    await writeFile(join(repo.dir, 'a.txt'), 'a, edited\n', 'utf-8');
+    await writeFile(join(repo.dir, 'loose.txt'), 'nobody owns this\n', 'utf-8');
+
+    const result = await AbsorbEngine.absorb(repo.dir, stack, undefined, workDir);
+
+    expect(result.absorbed).toBe(true);
+    expect(repo.git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD');
+    expect(repo.git('rev-parse', 'HEAD')).toBe(startSha);
+    expect(await readFile(join(repo.dir, 'loose.txt'), 'utf-8')).toBe('nobody owns this\n');
+    expect(repo.git('show', 'feature-a:a.txt')).toBe('a, edited');
+  });
+});

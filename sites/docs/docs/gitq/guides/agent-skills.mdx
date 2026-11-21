@@ -43,7 +43,7 @@ Every skill takes the repo and the stack by position:
 
 `<repoPath>` and `<stackName>` are required. `gitq:restructure` has one extra positional, an optional `[instruction]` after `<stackName>`: the plain-language description of what to restructure. `gitq:track` takes only an optional `[repoPath]`, which defaults to the current directory.
 
-**`gitq:absorb`'s `<repoPath>` is not necessarily the primary checkout.** It can be any worktree of the repo with a branch checked out, because absorb sources its uncommitted changes from wherever you point it.
+**`gitq:absorb`'s `<repoPath>` is not necessarily the primary checkout.** It can be any worktree of the repo, because absorb sources its uncommitted changes from wherever you point it.
 
 Each skill runs the same steps from start to finish and narrates them in the conversation. Run `/gitq:sync /Users/you/repos/myrepo demo` and it reports each step as it goes, resolving conflicts itself and stopping when a gate needs your answer.
 

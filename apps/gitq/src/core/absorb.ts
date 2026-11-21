@@ -634,6 +634,8 @@ async function absorb(
   targets?: AbsorbTarget[],
 ): Promise<AbsorbResult> {
   const currentBranch = await GitShell.getCurrentBranch(cwd);
+  // A detached HEAD names no branch to go back to, so go back to the commit.
+  const returnTo = currentBranch === 'HEAD' ? await GitShell.getBranchHead(cwd, 'HEAD') : currentBranch;
 
   const changedResult = await GitShell.getChangedFiles(cwd);
   const excludeSet = new Set(excludedFiles ?? []);
@@ -728,13 +730,13 @@ async function absorb(
   }
 
   if (abortNeeded) {
-    const recovery = await unwindFailedAmend(cwd, currentBranch);
+    const recovery = await unwindFailedAmend(cwd, returnTo);
     const aborted: AbsorbResult = { absorbed: false, attributions, unattributed, unapplied };
     if (recovery) aborted.recovery = recovery;
     return aborted;
   }
 
-  await GitShell.checkoutBranch(cwd, currentBranch);
+  await GitShell.checkoutBranch(cwd, returnTo);
 
   const affectedBranches = new Set(attributions.filter((a) => a.success).map((a) => a.branch));
   let cascadeResult: CascadeResult | undefined;
