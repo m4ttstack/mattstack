@@ -110,4 +110,8 @@ describe("workflow wiring", () => {
   test("tray-compile is pinned to GitHub's macOS pool, never the Intel mini", () => {
     expect(jobs("checks.yml")["tray-compile"]!["runs-on"]).toBe("macos-latest");
   });
+
+  test("deck-dom is pinned to GitHub's macOS pool, since Chromium dies on the Intel mini", () => {
+    expect(jobs("checks.yml")["deck-dom"]!["runs-on"]).toBe("macos-latest");
+  });
 });

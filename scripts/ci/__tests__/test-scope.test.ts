@@ -524,7 +524,7 @@ describe("workflow wiring", () => {
   });
 
   describe("the checks gate on unit-macos", () => {
-    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", TRAY: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", GATE_FORM: "success", KIT_GALLERY: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_TRAY: "true", RUN_MACOS: "./a.test.ts" };
+    const passing = { SCOPE: "success", STATIC: "success", GO: "success", DECK: "success", DECK_DOM: "success", TRAY: "success", UNIT: "success", UNIT_MACOS: "success", GUARDS: "success", HERDR_CHAT: "success", MATTSTACK: "success", HUMAN_TODOS: "success", GATE_FORM: "success", KIT_GALLERY: "success", WEBSITE: "success", MODE: "full", RUN_GO: "true", RUN_DECK: "true", RUN_TRAY: "true", RUN_MACOS: "./a.test.ts" };
     function gate(env: Record<string, string>): number {
       const script = jobs("checks.yml").checks!.steps!.find((step) => step.name === "Every gate passed")!.run!;
       return Bun.spawnSync(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", ...passing, ...env }, stdout: "pipe", stderr: "pipe" }).exitCode;
@@ -548,6 +548,13 @@ describe("workflow wiring", () => {
     });
     test.each(["failure", "cancelled"])("a tray-compile %s fails", (result) => {
       expect(gate({ TRAY: result })).toBe(1);
+    });
+    test("a deck-dom skip passes only when scope said deck was untouched", () => {
+      expect(gate({ DECK: "skipped", DECK_DOM: "skipped", RUN_DECK: "false" })).toBe(0);
+      expect(gate({ DECK_DOM: "skipped" })).toBe(1);
+    });
+    test.each(["failure", "cancelled"])("a deck-dom %s fails", (result) => {
+      expect(gate({ DECK_DOM: result })).toBe(1);
     });
   });
 

@@ -190,6 +190,31 @@ jobs:
           TURBO_TELEMETRY_DISABLED: "1"
         run: scripts/turbo.sh test --filter=deck --output-logs=errors-only
 
+  # Drives the board's real HTML, JS and CSS in headless Chromium, outside
+  # turbo's test task. Never the Mac mini: Playwright's Chromium dies there
+  # with SIGILL on launch.
+  deck-dom:
+    needs: scope
+    if: needs.scope.outputs.deck == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: playwright-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install Chromium
+        working-directory: apps/deck
+        run: bunx playwright install chromium
+      - name: deck DOM suite
+        run: bun run --cwd apps/deck test:dom
+
   # Compiles the tray app unsigned, so a change that breaks its build fails
   # here rather than at the next dev app build or release.
   tray-compile:
@@ -572,7 +597,7 @@ jobs:
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, tray-compile, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, plugin-gate-form, plugin-kit-gallery, website]
+    needs: [scope, static, go, deck-macos, deck-dom, tray-compile, unit, unit-macos, guards, plugin-herdr-chat, plugin-mattstack, plugin-human-todos, plugin-gate-form, plugin-kit-gallery, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -583,6 +608,7 @@ jobs:
           STATIC: ${{ needs.static.result }}
           GO: ${{ needs.go.result }}
           DECK: ${{ needs.deck-macos.result }}
+          DECK_DOM: ${{ needs.deck-dom.result }}
           TRAY: ${{ needs.tray-compile.result }}
           UNIT: ${{ needs.unit.result }}
           UNIT_MACOS: ${{ needs.unit-macos.result }}
@@ -599,13 +625,14 @@ jobs:
           RUN_TRAY: ${{ needs.scope.outputs.tray }}
           RUN_MACOS: ${{ needs.scope.outputs.macos }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK tray-compile=$TRAY unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS gate-form=$GATE_FORM kit-gallery=$KIT_GALLERY website=$WEBSITE mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK deck-dom=$DECK_DOM tray-compile=$TRAY unit=$UNIT unit-macos=$UNIT_MACOS guards=$GUARDS herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK human-todos=$HUMAN_TODOS gate-form=$GATE_FORM kit-gallery=$KIT_GALLERY website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
-          # go, deck-macos, tray-compile, unit-macos and guards may skip only when scope said so.
+          # go, deck-macos, deck-dom, tray-compile, unit-macos and guards may skip only when scope said so.
           [ "$GO" = success ] || { [ "$GO" = skipped ] && [ "$RUN_GO" = false ]; } || { echo "go did not succeed"; exit 1; }
           [ "$DECK" = success ] || { [ "$DECK" = skipped ] && [ "$RUN_DECK" = false ]; } || { echo "deck-macos did not succeed"; exit 1; }
+          [ "$DECK_DOM" = success ] || { [ "$DECK_DOM" = skipped ] && [ "$RUN_DECK" = false ]; } || { echo "deck-dom did not succeed"; exit 1; }
           [ "$TRAY" = success ] || { [ "$TRAY" = skipped ] && [ "$RUN_TRAY" = false ]; } || { echo "tray-compile did not succeed"; exit 1; }
           [ "$UNIT_MACOS" = success ] || { [ "$UNIT_MACOS" = skipped ] && [ -z "$RUN_MACOS" ]; } || { echo "unit-macos did not succeed"; exit 1; }
           [ "$GUARDS" = success ] || { [ "$GUARDS" = skipped ] && [ "$MODE" = full ]; } || { echo "guards did not succeed"; exit 1; }

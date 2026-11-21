@@ -24,7 +24,7 @@
     "build:bundle": "rm -rf dist/app && bun build --target bun --define MATTSTACK_HELPER_BUNDLE=true --entry-naming 'main.[ext]' --outdir dist/app src/main.ts",
     "serve": "bun run src/main.ts serve",
     "test": "bun test core src",
-    "test:dom": "bun test test/dom/",
+    "test:dom": "bun test --timeout 30000 test/dom/",
     "test:e2e": "LOCAL_E2E=1 bun test test/e2e.smoke.test.ts",
     "capture": "bun test/capture.ts --out test/.captures",
     "capture:baseline": "bun test/capture.ts --out test/baselines",

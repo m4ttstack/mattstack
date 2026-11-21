@@ -53,13 +53,64 @@ export interface WithBoardOptions {
   context?: BrowserContextOptions;
 }
 
+type Server = { proc: ReturnType<typeof Bun.spawn>; base: string };
+
+// A cold start on a loaded machine can take several seconds, and a probed port
+// can be taken before the server binds it, so a server that exits while
+// starting is retried on a fresh port. The wait stays under the shortest
+// per-test timeout in the specs (10s).
+const HEALTHY_WITHIN_MS = 8_000;
+const START_ATTEMPTS = 3;
+
+async function startServer(
+  fixtureDir: string,
+  stateDir: string
+): Promise<Server> {
+  for (let attempt = 1; ; attempt++) {
+    const port = await freePort();
+    const base = `http://127.0.0.1:${port}`;
+    const proc = Bun.spawn(
+      [process.execPath, 'run', join(ROOT, 'src/main.ts'), 'serve'],
+      {
+        cwd: ROOT,
+        env: {
+          ...process.env,
+          PORT: String(port),
+          DECK_FIXTURE: fixtureDir,
+          LOCAL_STATE_DIR: stateDir,
+          // Never touch the real launchd deck service or ~/.mattstack state.
+          LOCAL_APPS_NO_GATEWAY: '1',
+          LOCAL_APPS_AUTO_HEAL: '0',
+        },
+        stdout: 'inherit',
+        stderr: 'inherit',
+      }
+    );
+    const deadline = Date.now() + HEALTHY_WITHIN_MS;
+    const running = () => proc.exitCode === null && proc.signalCode === null;
+    while (Date.now() < deadline && running()) {
+      try {
+        if ((await fetch(`${base}/healthz`)).ok) return { proc, base };
+      } catch {
+        /* not listening yet */
+      }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const exit = running() ? null : (proc.signalCode ?? proc.exitCode);
+    proc.kill();
+    await proc.exited;
+    if (exit === null || attempt === START_ATTEMPTS)
+      throw new Error(
+        `fixture server on ${base} did not become healthy${exit === null ? '' : ` (exited ${exit})`}`
+      );
+  }
+}
+
 export async function withBoard(
   fn: (page: Page) => Promise<void>,
   opts: WithBoardOptions = {}
 ): Promise<void> {
-  const port = await freePort();
   const stateDir = mkdtempSync(join(tmpdir(), 'deck-dom-'));
-  const base = `http://127.0.0.1:${port}`;
 
   let fixtureDir = FIXTURE_DIR;
   let fixtureTmp: string | null = null;
@@ -72,34 +123,9 @@ export async function withBoard(
     fixtureDir = fixtureTmp;
   }
 
-  const proc = Bun.spawn(['bun', 'run', join(ROOT, 'src/main.ts'), 'serve'], {
-    cwd: ROOT,
-    env: {
-      ...process.env,
-      PORT: String(port),
-      DECK_FIXTURE: fixtureDir,
-      LOCAL_STATE_DIR: stateDir,
-      // Never touch the real launchd deck service or ~/.mattstack state.
-      LOCAL_APPS_NO_GATEWAY: '1',
-      LOCAL_APPS_AUTO_HEAL: '0',
-    },
-    stdout: 'inherit',
-    stderr: 'inherit',
-  });
-
+  let server: Server | null = null;
   try {
-    let up = false;
-    for (let i = 0; i < 50 && !up; i++) {
-      try {
-        up = (await fetch(`${base}/healthz`)).ok;
-      } catch {
-        /* not listening yet */
-      }
-      if (!up) await new Promise(r => setTimeout(r, 100));
-    }
-    if (!up)
-      throw new Error(`fixture server on ${base} did not become healthy`);
-
+    server = await startServer(fixtureDir, stateDir);
     const browser = await getBrowser();
     // Granted globally, not per-spec: the logs screen's "copy all" is the
     // only thing that needs it, and an ungranted context makes
@@ -119,15 +145,17 @@ export async function withBoard(
     page.on('pageerror', err => errors.push(String(err)));
 
     try {
-      await page.goto(base);
+      await page.goto(server.base);
       await page.waitForSelector('[data-board-ready]');
       await fn(page);
     } finally {
       await context.close();
     }
   } finally {
-    proc.kill();
-    await proc.exited;
+    if (server) {
+      server.proc.kill();
+      await server.proc.exited;
+    }
     rmSync(stateDir, { recursive: true, force: true });
     if (fixtureTmp) rmSync(fixtureTmp, { recursive: true, force: true });
   }

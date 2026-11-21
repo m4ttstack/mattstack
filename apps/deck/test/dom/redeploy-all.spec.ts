@@ -1,5 +1,7 @@
 // status-newcode.json: atlas, meridian and forecast (deck itself) are behind
 // and carry a deploy command, so Redeploy all targets them in that order.
+// zenith can deploy but is current, so the button counts instead of saying
+// "all" (redeployButtonText).
 import { expect, test } from 'bun:test';
 import type { Page } from 'playwright';
 
@@ -66,8 +68,8 @@ async function waitUntil(
   throw new Error('waitUntil() timed out');
 }
 
-function redeployAll(page: Page) {
-  return page.getByRole('button', { name: 'Redeploy all', exact: true });
+function redeployButton(page: Page) {
+  return page.getByRole('button', { name: 'Redeploy 3 apps', exact: true });
 }
 
 function toasts(page: Page, text: string) {
@@ -77,7 +79,7 @@ function toasts(page: Page, text: string) {
 test('runs deploys one at a time in order, deck itself last', async () => {
   await withBoard(async page => {
     const posted = await interceptDeploys(page, { busy: ['forecast'] });
-    await redeployAll(page).click();
+    await redeployButton(page).click();
     await waitUntil(() => posted.includes('forecast'), 15000);
     expect(posted).toEqual(['atlas', 'meridian', 'forecast']);
   }, NEWCODE);
@@ -86,7 +88,7 @@ test('runs deploys one at a time in order, deck itself last', async () => {
 test('stops at the first failure and names the app', async () => {
   await withBoard(async page => {
     const posted = await interceptDeploys(page, { exit: { meridian: 1 } });
-    await redeployAll(page).click();
+    await redeployButton(page).click();
     const stop = toasts(page, 'Redeploy all stopped at meridian');
     await stop.first().waitFor({ timeout: 15000 });
     expect(await stop.count()).toBe(1);
@@ -102,7 +104,7 @@ test('skips a row whose deploy is already running', async () => {
     const posted = await interceptDeploys(page, { busy: ['forecast'], held });
     await page.locator('[aria-label="deploy atlas"]').click();
     await waitUntil(() => posted.includes('atlas'));
-    await redeployAll(page).click();
+    await redeployButton(page).click();
     await waitUntil(() => posted.includes('forecast'), 15000);
     expect(posted).toEqual(['atlas', 'meridian', 'forecast']);
   }, NEWCODE);
@@ -127,14 +129,14 @@ test('skips a row whose deploy started from its row during the run, and carries 
       }).observe(document.body, { childList: true, subtree: true });
     });
 
-    await redeployAll(page).click();
+    await redeployButton(page).click();
     await waitUntil(() => posted.includes('atlas'));
     await page.locator('[aria-label="deploy meridian"]').click();
     await waitUntil(() => posted.includes('meridian'));
 
     held.delete('atlas');
     await waitUntil(() => posted.includes('forecast'), 15000);
-    await redeployAll(page).waitFor({ timeout: 4000 });
+    await redeployButton(page).waitFor({ timeout: 4000 });
     expect(posted).toEqual(['atlas', 'meridian', 'forecast']);
     expect(seen.some(t => t.includes('Redeploy all stopped'))).toBe(false);
   }, NEWCODE);
@@ -144,7 +146,7 @@ test('the button disables while running and a second run cannot start', async ()
   await withBoard(async page => {
     const held = new Set(['atlas']);
     const posted = await interceptDeploys(page, { busy: ['forecast'], held });
-    await redeployAll(page).click();
+    await redeployButton(page).click();
 
     const running = page.getByRole('button', {
       name: 'Redeploying…',
@@ -152,7 +154,7 @@ test('the button disables while running and a second run cannot start', async ()
     });
     await running.waitFor({ timeout: 4000 });
     expect(await running.isDisabled()).toBe(true);
-    expect(await redeployAll(page).count()).toBe(0);
+    expect(await redeployButton(page).count()).toBe(0);
     const strip = page.locator('[data-block="update-strip"]');
     expect(await strip.textContent()).toContain('Redeploying 1 of 3 · atlas');
 
@@ -162,7 +164,7 @@ test('the button disables while running and a second run cannot start', async ()
 
     held.delete('atlas');
     await waitUntil(() => posted.includes('forecast'), 15000);
-    await redeployAll(page).waitFor({ timeout: 4000 });
+    await redeployButton(page).waitFor({ timeout: 4000 });
     expect(posted).toEqual(['atlas', 'meridian', 'forecast']);
   }, NEWCODE);
 }, 25000);
@@ -191,7 +193,7 @@ test("deck's own deploy, last, waits for deck and reloads the page with no stop 
     });
 
     const loaded = page.waitForEvent('load', { timeout: 20000 });
-    await redeployAll(page).click();
+    await redeployButton(page).click();
     await loaded;
 
     expect(posted).toEqual(['atlas', 'meridian', 'forecast']);
@@ -203,6 +205,7 @@ test("deck's own deploy, last, waits for deck and reloads the page with no stop 
 
 test('hidden on a public host', async () => {
   await withBoard(async page => {
+    expect(await redeployButton(page).count()).toBe(1);
     await page.route('**/api/v1/status', async route => {
       const next = structuredClone(fixture) as typeof fixture;
       next.canManage = false;
@@ -216,6 +219,6 @@ test('hidden on a public host', async () => {
     expect(
       await page.locator('[data-block="update-strip"]').count()
     ).toBeGreaterThan(0);
-    expect(await redeployAll(page).count()).toBe(0);
+    expect(await redeployButton(page).count()).toBe(0);
   }, NEWCODE);
 }, 15000);
