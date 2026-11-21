@@ -192,9 +192,9 @@ tunnel.
   minifier churn in `board.js` is expected; commit source + regenerated bundle
   together.
 - `bun run test` (`bun test core src`) is the scoped suite. `bun run test:dom`
-  is separate and has 6 pre-existing failures (five in `board.spec`, one in
-  `commands.spec`; structural/text assertions, unrelated to most changes...
-  verify before/after, do not chase).
+  is separate (Playwright against the fixture server, about five minutes)
+  and fully green; a board change that moves a string or a structure the
+  DOM specs pin updates those specs in the same change.
 
 ## Board surface: canvas ground, tables as card panels
 
