@@ -4,7 +4,7 @@ import { useLingering } from './use-lingering.ts';
 
 type Box = Pick<DOMRect, 'top' | 'left' | 'width' | 'height'>;
 
-const sameBox = (a: Box | null, b: Box | null) =>
+const sameBox = (a: Box | null | undefined, b: Box | null) =>
   a === b ||
   (!!a &&
     !!b &&
@@ -30,6 +30,7 @@ function useRowRect(mrUrl: string | null): Box | null {
         ? null
         : new ResizeObserver(() => schedule());
     let row: Element | null = null;
+    let last: Box | null | undefined;
     let frame = 0;
 
     const measure = () => {
@@ -41,12 +42,17 @@ function useRowRect(mrUrl: string | null): Box | null {
         row = next;
       }
       const r = row?.getBoundingClientRect();
-      const box = r
-        ? { top: r.top, left: r.left, width: r.width, height: r.height }
-        : null;
-      // Same numbers keep the old state, so the spot's own style write
-      // never feeds back into another measure.
-      setRect(prev => (sameBox(prev, box) ? prev : box));
+      // A row under a display:none ancestor measures all zeros; a spot
+      // there would wash the whole board with no hole.
+      const box =
+        r && (r.width || r.height)
+          ? { top: r.top, left: r.left, width: r.width, height: r.height }
+          : null;
+      // Same numbers set no state, so the spot's own style write never
+      // feeds back into another render.
+      if (sameBox(last, box)) return;
+      last = box;
+      setRect(box);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(measure);

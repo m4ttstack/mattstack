@@ -59,6 +59,12 @@ async function settle() {
   });
 }
 
+/** Renders the spot and lets the frame its own mount schedules run. */
+async function mount() {
+  await React.act(async () => root.render(<RowSpotlight mrUrl={MR} open />));
+  await settle();
+}
+
 beforeEach(() => {
   restore = installFakeResizeObserver();
   rows = document.createElement('div');
@@ -78,7 +84,7 @@ afterEach(async () => {
 test('follows its row when a row is inserted above it', async () => {
   const row = makeRow(MR, 100);
   rows.appendChild(row);
-  await React.act(async () => root.render(<RowSpotlight mrUrl={MR} open />));
+  await mount();
   expect(spot()?.style.top).toBe('100px');
 
   placeRow(row, 132);
@@ -91,7 +97,7 @@ test('follows its row when a row is inserted above it', async () => {
 test('finds the row again when the board replaces its element', async () => {
   const first = makeRow(MR, 100);
   rows.appendChild(first);
-  await React.act(async () => root.render(<RowSpotlight mrUrl={MR} open />));
+  await mount();
 
   first.remove();
   rows.appendChild(makeRow(MR, 240));
@@ -103,7 +109,7 @@ test('finds the row again when the board replaces its element', async () => {
 test('follows its row when it resizes without a DOM change', async () => {
   const row = makeRow(MR, 100);
   rows.appendChild(row);
-  await React.act(async () => root.render(<RowSpotlight mrUrl={MR} open />));
+  await mount();
   const observer = observerOf(row);
   expect(observer).toBeDefined();
 
@@ -117,9 +123,58 @@ test('follows its row when it resizes without a DOM change', async () => {
 test('hides when its row leaves the board', async () => {
   const row = makeRow(MR, 100);
   rows.appendChild(row);
-  await React.act(async () => root.render(<RowSpotlight mrUrl={MR} open />));
+  await mount();
 
   row.remove();
+  await settle();
+
+  expect(spot()).toBeNull();
+});
+
+test('still follows a scroll', async () => {
+  const row = makeRow(MR, 100);
+  rows.appendChild(row);
+  await mount();
+
+  placeRow(row, 60);
+  window.dispatchEvent(new Event('scroll'));
+  await settle();
+
+  expect(spot()?.style.top).toBe('60px');
+});
+
+test('draws nothing over a row that measures zero', async () => {
+  const row = makeRow(MR, 100);
+  rows.appendChild(row);
+  await mount();
+
+  (row as HTMLElement).getBoundingClientRect = () =>
+    ({ top: 0, left: 0, width: 0, height: 0, right: 0, bottom: 0 }) as DOMRect;
+  row.setAttribute('data-hidden', 'true');
+  await settle();
+
+  expect(spot()).toBeNull();
+});
+
+test('stops watching once closed', async () => {
+  const row = makeRow(MR, 100);
+  rows.appendChild(row);
+  await mount();
+  expect(observerOf(row)).toBeDefined();
+
+  await React.act(async () => root.unmount());
+  root = createRoot(container);
+
+  expect(observerOf(row)).toBeUndefined();
+});
+
+test('drops the old box when switched to an MR with no row', async () => {
+  rows.appendChild(makeRow(MR, 100));
+  await mount();
+
+  await React.act(async () =>
+    root.render(<RowSpotlight mrUrl="https://gitlab.example/gone" open />)
+  );
   await settle();
 
   expect(spot()).toBeNull();
