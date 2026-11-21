@@ -260,4 +260,17 @@ describe("runReadySteps — intercept shims", () => {
     expect(result).toEqual({ ok: true });
     expect(readFileSync(join(repo, "which-doppler"), "utf8").trim()).toBe("shim");
   });
+
+  test("the shim also wins over nvm's bin, while other commands still come from nvm", async () => {
+    fakeTool(join(home, ".local", "bin"), "pnpm", "shim");
+    const nvmBin = join(home, ".nvm", "versions", "20", "bin");
+    fakeTool(nvmBin, "pnpm", "nvm");
+    fakeTool(nvmBin, "fakenode", "v20");
+    writeFileSync(join(home, ".nvm", "nvm.sh"), `PATH="${nvmBin}:$PATH"; export PATH\n`);
+
+    const result = await runReadySteps(repo, [{ run: "pnpm > which-pnpm; fakenode > which-node" }]);
+    expect(result).toEqual({ ok: true });
+    expect(readFileSync(join(repo, "which-pnpm"), "utf8").trim()).toBe("shim");
+    expect(readFileSync(join(repo, "which-node"), "utf8").trim()).toBe("v20");
+  });
 });

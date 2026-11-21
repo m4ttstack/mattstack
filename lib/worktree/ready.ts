@@ -73,7 +73,8 @@ const NVM_PRELUDE = [
 /**
  * rt's intercept shims live in ~/.local/bin, and a login profile that runs
  * `brew shellenv` reorders PATH through path_helper with Homebrew first. The
- * step's own command runs after the profile, so it puts the shim dir back on top.
+ * step's own command runs after the profile, so it puts the shim dir back on
+ * top, after `nvm use` has prepended the selected version's bin.
  */
 const SHIM_PATH_PRELUDE = 'export PATH="$HOME/.local/bin:$PATH"';
 
@@ -86,7 +87,7 @@ export async function runReadySteps(
 ): Promise<{ ok: true } | { ok: false; failedStep: string; output: string }> {
   let reportedMissingNvmVersion = false;
   for (const step of steps) {
-    const r = await runCapture(["/bin/zsh", "-lc", `${SHIM_PATH_PRELUDE}\n${NVM_PRELUDE}\n${step.run}`], {
+    const r = await runCapture(["/bin/zsh", "-lc", `${NVM_PRELUDE}\n${SHIM_PATH_PRELUDE}\n${step.run}`], {
       cwd: worktreePath,
       env: { ...process.env, PATH: SEED_PATH },
       timeoutMs: 15 * 60_000,
