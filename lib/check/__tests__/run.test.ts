@@ -130,6 +130,28 @@ describe("runCheck", () => {
     }
   });
 
+  test("a red run with failed tests carries the lines before each (fail), not the run's last lines", async () => {
+    const noise = Array.from({ length: 40 }, (_, i) => `noise ${i + 1}`);
+    const stderr = [
+      ...noise.slice(0, 20),
+      "error: expect(received).toBe(expected)",
+      "Expected: 0",
+      "Received: 1",
+      "(fail) endpoint handlers > swallows a save failure [12.00ms]",
+      ...noise.slice(20),
+      "error: something else",
+      "(fail) probes > deadline [3000.00ms]",
+      " 2 fail",
+    ].join("\n");
+    const { deps } = harness({ exitCode: 1, stderr });
+    const r = await runCheck("/tree", {}, deps);
+    if (!r.configured) throw new Error("unconfigured");
+    expect(r.outputTail).toContain("Received: 1\n(fail) endpoint handlers > swallows a save failure [12.00ms]");
+    expect(r.outputTail).toContain("error: something else\n(fail) probes > deadline [3000.00ms]");
+    expect(r.outputTail).not.toContain("noise 1\n");
+    expect(r.outputTail.split("\n").length).toBeLessThanOrEqual(40);
+  });
+
   test("a timeout is an error with its reason", async () => {
     const { deps, execCalls } = harness({ exitCode: -1, timedOut: true });
     const r = await runCheck("/tree", {}, deps);

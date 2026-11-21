@@ -40,6 +40,29 @@ export type RunDeps = {
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
 const TAIL_LINES = 20;
+const LINES_BEFORE_FAIL = 10;
+const EXCERPT_LINES = 40;
+const ANSI = /\x1b\[[0-9;]*m/g;
+
+// A full suite's last lines are whatever the slowest shard printed, so a red
+// run's excerpt is the lines before each `(fail)`: the assertion, its source
+// and expected/received.
+export function failureExcerpt(output: string): string {
+  const lines = output.trim().split("\n");
+  const fails = lines.flatMap((line, i) => (line.replace(ANSI, "").startsWith("(fail) ") ? [i] : []));
+  if (fails.length === 0) return lines.slice(-TAIL_LINES).join("\n");
+  const picked: string[] = [];
+  let next = 0;
+  for (const i of fails) {
+    const start = Math.max(next, i - LINES_BEFORE_FAIL);
+    const block = lines.slice(start, i + 1);
+    if (picked.length > 0 && picked.length + block.length + 1 > EXCERPT_LINES) break;
+    if (picked.length > 0 && start > next) picked.push("...");
+    picked.push(...block);
+    next = i + 1;
+  }
+  return picked.slice(0, EXCERPT_LINES).join("\n");
+}
 
 export const realSetting: RunDeps["setting"] = (repoIdentity, tree) => {
   const parsed = parseIdentity(repoIdentity);
@@ -146,7 +169,7 @@ export async function runCheck(
     verdict = run.exitCode === 0 ? "green" : "red";
   }
 
-  const tail = (run.stdout + run.stderr).trim().split("\n").slice(-TAIL_LINES).join("\n");
+  const tail = failureExcerpt(run.stdout + run.stderr);
   const after = await treeState(tree, deps);
   return {
     configured: true,
