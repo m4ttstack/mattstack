@@ -14,7 +14,9 @@ class FakeResizeObserver {
   observe(el: Element) {
     this.observed.push(el);
   }
-  unobserve() {}
+  unobserve(el: Element) {
+    this.observed = this.observed.filter(o => o !== el);
+  }
   disconnect() {
     FakeResizeObserver.live = FakeResizeObserver.live.filter(o => o !== this);
   }
