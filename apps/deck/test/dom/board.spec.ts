@@ -53,10 +53,24 @@ async function poll(check: () => boolean, timeoutMs = 4000): Promise<void> {
   if (!check()) throw new Error('poll() timed out waiting for condition');
 }
 
-test('renders one row per fixture app; site cell links name + suffix', async () => {
+async function sectionRowNames(page: Page, title: string): Promise<string[]> {
+  const names = await page
+    .locator('section', {
+      has: page.locator('h2.section-title', { hasText: title }),
+    })
+    .locator('[data-part="table-row"] strong')
+    .allTextContents();
+  return names.map(n => n.trim());
+}
+
+test('renders one row per fixture app, mattstack apps (deck first) above your apps; site cell links name + suffix', async () => {
   await withBoard(async page => {
-    const appsTable = page.locator('table').first();
-    expect(await appsTable.locator('[data-part="table-row"]').count()).toBe(4);
+    expect(await sectionRowNames(page, 'mattstack')).toEqual([
+      'forecast',
+      'atlas',
+      'ledger',
+    ]);
+    expect(await sectionRowNames(page, 'your apps')).toEqual(['orbit']);
 
     const atlasLink = rowFor(page, 'atlas').locator('a.unstyled');
     expect(await atlasLink.getAttribute('href')).toBe(
@@ -84,7 +98,7 @@ test('health badges: status+ms for healthy, unreachable for down', async () => {
   });
 });
 
-test('no service column: header cells are site, port, health, public (plus version in dev mode)', async () => {
+test('no service column: header cells are site, port, health, public (plus version and live in dev mode)', async () => {
   await withBoard(async page => {
     expect(await headerTexts(page)).toEqual([
       'site',
@@ -101,6 +115,7 @@ test('no service column: header cells are site, port, health, public (plus versi
         'health',
         'version',
         'public',
+        'live',
       ]);
     },
     { fixture: 'status-newcode.json' }
@@ -154,18 +169,18 @@ test('every row carries a settings gear in the tab order', async () => {
   });
 });
 
-test('ownership chip: this board vs managed by', async () => {
+test('ownership: only deck itself carries the this board chip; the section heading says who manages the rest', async () => {
   await withBoard(async page => {
-    const forecastChip = rowFor(page, 'forecast').locator(
-      '[data-part="chip"]',
-      { hasText: 'this board' }
-    );
-    expect(await forecastChip.count()).toBe(1);
-
-    const atlasChip = rowFor(page, 'atlas').locator('[data-part="chip"]', {
-      hasText: 'managed',
-    });
-    expect(await atlasChip.textContent()).toContain('mattstack');
+    const thisBoard = (name: string) =>
+      rowFor(page, name).locator('[data-part="chip"]', {
+        hasText: 'this board',
+      });
+    expect(await thisBoard('forecast').count()).toBe(1);
+    for (const name of ['atlas', 'ledger', 'orbit'])
+      expect(await thisBoard(name).count()).toBe(0);
+    expect(
+      await page.locator('[data-part="chip"]', { hasText: 'managed' }).count()
+    ).toBe(0);
   });
 });
 
@@ -198,44 +213,56 @@ test('publish switch carries the parity aria-label and fires PUT then a refresh 
   });
 });
 
-test('strays section and tunnel section render', async () => {
+test('strays get their own section; the tunnel is a header badge, not a section or a row', async () => {
   await withBoard(async page => {
     expect(
       await page.locator('h2', { hasText: 'services without routes' }).count()
     ).toBe(1);
-    expect(
-      await page.locator('h2', { hasText: 'cloudflare tunnel' }).count()
-    ).toBe(1);
-    expect(await page.getByText('carries *.mattstack').count()).toBe(1);
+    expect(await gearFor(page, 'stray-agent').count()).toBe(1);
+    expect(await page.locator('h2', { hasText: 'tunnel' }).count()).toBe(0);
+    expect(await gearFor(page, 'cloudflared').count()).toBe(0);
+    const badge = page.locator('header button.tunnel-badge');
+    expect(await badge.getAttribute('aria-label')).toBe(
+      'cloudflare tunnel 4 connections'
+    );
   });
 });
 
-test('subline matches logic.subline of the fixture', async () => {
+test('subline matches logic.subline of the fixture, with a gap in place of the first separator', async () => {
   await withBoard(async page => {
     const expected = subline(fixture as unknown as StatusData);
-    expect(await page.locator('.board-subline').textContent()).toBe(expected);
+    const fraction = await page
+      .locator('.board-subline > span')
+      .first()
+      .textContent();
+    const rest = page.locator('.board-subline .subline-rest');
+    expect(`${fraction} · ${await rest.textContent()}`).toBe(expected);
+    const gap = await rest.evaluate(el =>
+      parseFloat(getComputedStyle(el).marginLeft)
+    );
+    expect(gap).toBeGreaterThan(0);
   });
 });
 
-test('subline: healthy fraction renders in bad tone when an app is down (3/4 fixture)', async () => {
+test('subline: healthy fraction renders in bad tone when an app is down (3 of 4 fixture)', async () => {
   await withBoard(async page => {
     const fraction = page.locator('.board-subline .t-bad', {
       hasText: 'healthy',
     });
-    expect(await fraction.textContent()).toBe('3/4 healthy');
+    expect(await fraction.textContent()).toBe('3 of 4 healthy');
 
     const fractionColor = await fraction.evaluate(
       el => getComputedStyle(el).color
     );
-    const redProbe = await page.evaluate(() => {
+    const badProbe = await page.evaluate(() => {
       const probe = document.createElement('span');
-      probe.style.color = 'var(--red)';
+      probe.style.color = 'var(--text-bad-vivid)';
       document.body.appendChild(probe);
       const c = getComputedStyle(probe).color;
       probe.remove();
       return c;
     });
-    expect(fractionColor).toBe(redProbe);
+    expect(fractionColor).toBe(badProbe);
   });
 });
 
