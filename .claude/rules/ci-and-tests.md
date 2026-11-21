@@ -25,7 +25,7 @@ path outside them will flake under this and must be fixed, not serialized.
 Each process still runs many files, so a test that leaves HOME, an env var
 or module state behind fails a later file only when a shard happens to pair
 them. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
-the shards and for every path-gated job (`go`, `deck-macos`, `tray-compile`, `e2e-tests`,
+the shards and for every path-gated job (`go`, `deck-macos`, `deck-dom`, `tray-compile`, `e2e-tests`,
 `glitter-pty`, `website`, the plugin jobs); `docs/ci.md` has the table.
 Its "The unit shards' modes" section says which diffs skip the shards,
 which run `--changed=HEAD^1` and which run the full suite. Whenever the shards
@@ -59,5 +59,6 @@ queue still lands the tree.
 runner's hook enforces, from a copy `scripts/ci/mac-runner/install.sh` installs.
 A new macOS job in `checks.yml` or `e2e.yml` takes its `runs-on` from
 `macos_runner`, and a change to the rule needs the installer rerun (`docs/ci.md`,
-"The Mac runner"). The one exception is `tray-compile`, pinned to
-`macos-latest` because the Intel mini cannot run the Xcode the tray needs.
+"The Mac runner"). Two jobs are pinned to `macos-latest` instead:
+`tray-compile`, because the Intel mini cannot run the Xcode the tray needs,
+and `deck-dom`, because Playwright's Chromium dies on the mini with SIGILL.

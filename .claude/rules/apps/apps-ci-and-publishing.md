@@ -18,9 +18,9 @@ Every gate runs through Turborepo (`turbo.json`, entry point
 `static` job calls `scripts/turbo.sh check --affected` on PRs and `check`
 on main; `deck-macos` runs `scripts/turbo.sh test --filter=deck` because
 deck shells to `plutil`/`launchd`, both macOS-only, and `scripts/turbo.sh`
-drops deck off macOS. The same job then installs Chromium and runs deck's
-DOM suite (`bun run --cwd apps/deck test:dom`), which turbo's `test` task
-does not cover.
+drops deck off macOS. `deck-dom` installs Chromium and runs deck's DOM
+suite (`bun run --cwd apps/deck test:dom`), which turbo's `test` task does
+not cover, on `macos-latest`, since Chromium cannot run on the Intel mini.
 
 `check` is three turbo invocations in order: the two codegen gates
 (`@mattstack/tui-kit#gates`, `//#tokens:fresh`) alone and serially, since
