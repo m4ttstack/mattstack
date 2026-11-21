@@ -1,24 +1,34 @@
-gitq recovers a stack whose parent was squash-merged, and test runs can no longer open the real ~/.mattstack databases.
+The daemon's branch refresh works on GitLab repos again: gitlab.com had refused its MR read since v2.35.0. The gitq web UI is gone, and a new pr-usher skill keeps a repo's ready PRs moving.
+
+### Daemon and forge reads
+
+- the GitLab by-branch MR read fits gitlab.com's query complexity cap again, so the daemon's branch refresh, the CLI's fresh fetch, gap-fill and `gitq publish` work on GitLab repos (it showed as "Daemon: degraded (refresh: N enrich errors)" in v2.35.0 and v2.35.1) (#1220)
+- every GitLab query is checked against a measured complexity score, so a query that grows past the cap fails a test before it ships (#1220)
+- `worktree_provision` sets the upstream on a local branch that is already on origin (#1214)
+
+### Skills
+
+- new `mattstack:pr-usher` skill: an always-on agent that gets a repo's ready PRs reviewed, settles their threads with the author agent over rt chat, and merges them once CI is green; agents hand PRs to it through the new `pr-usher-handoff` rule (#1218)
+- `mr_merge` takes `expectedHeadSha`, so a merge or enqueue is refused when the PR's head has moved since review (#1218)
 
 ### gitq
 
-- `sync` reads the stack's MR states first: a branch whose MR merged is marked merged and left alone, and its children move past it from their recorded fork points (#1209)
-- `sync` leaves a merged branch that has commits after its merge as it is, and says so; if the forge can't be read, it restacks with the states it has (#1209)
-- `remove` takes a merged branch that still has children, handing them to its nearest unmerged ancestor for the next sync to restack (#1209)
-- `reparent` replays only the branch's own commits from its recorded fork point, so it works after the old parent's branch is deleted, and onto the root it lands on `origin/<root>` (#1209)
+- the gitq web UI (`gitq board`) is removed; gitq is the CLI plus its five `/gitq:*` skills, and the `gitq.board` setting is retired (#1213)
+- `absorb` run in a detached worktree returns it to its starting commit (#1217)
+
+### Board
+
+- the row spotlight follows its row through any re-layout (#1215)
 
 ### Tests and CI
 
-- a test run throws before it opens a database in the account's real ~/.mattstack (the daemon's gates, herd, events and claims stores, and the runs database) (#1210)
-- every home path reads HOME, so a test run's scratch HOME holds (#1210)
-
-### Docs
-
-- the gitq pages cover `sync`'s MR state read, `remove` on a merged branch and `reparent` from the fork point
+- deck's DOM suite is green again and runs in CI (#1216)
+- test files that went red on a loaded Mac wait on real events instead of the clock (#1212, #1219)
+- `rt check` shows why a test failed (#1219)
 
 ### Held pins
 
 - bun stays at 1.4.4 (1.4.5 is out), held for a later release
 - Sparkle stays at 2.10.0 (2.10.1 is out); a Sparkle bump gets its own tested release
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.35.0...v2.35.1
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.35.1...v2.35.2
