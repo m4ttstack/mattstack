@@ -202,5 +202,22 @@ describe('absorb from a worktree with no branch checked out', () => {
     expect(repo.git('rev-parse', 'HEAD')).toBe(startSha);
     expect(await readFile(join(repo.dir, 'loose.txt'), 'utf-8')).toBe('nobody owns this\n');
     expect(repo.git('show', 'feature-a:a.txt')).toBe('a, edited');
+    expect(repo.git('stash', 'list')).toBe('');
+  });
+
+  test('started on a stack branch tip, it follows that branch to its rewritten head', async () => {
+    const { repo, stack, workDir } = await absorbScenario();
+    repo.git('checkout', '--detach', 'feature-b');
+    await writeFile(join(repo.dir, 'a.txt'), 'a, edited\n', 'utf-8');
+    await writeFile(join(repo.dir, 'loose.txt'), 'nobody owns this\n', 'utf-8');
+
+    const result = await AbsorbEngine.absorb(repo.dir, stack, undefined, workDir);
+
+    expect(result.absorbed).toBe(true);
+    expect(repo.git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD');
+    expect(repo.git('rev-parse', 'HEAD')).toBe(repo.git('rev-parse', 'feature-b'));
+    expect(await readFile(join(repo.dir, 'a.txt'), 'utf-8')).toBe('a, edited\n');
+    expect(await readFile(join(repo.dir, 'loose.txt'), 'utf-8')).toBe('nobody owns this\n');
+    expect(repo.git('stash', 'list')).toBe('');
   });
 });

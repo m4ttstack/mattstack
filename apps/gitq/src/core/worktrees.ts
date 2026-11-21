@@ -112,11 +112,12 @@ export function workSlotRoot(commonDir: string, map: SlotInfo[], location: WorkS
 
 /**
  * Return a free work slot (detached, no rebase in progress), creating
- * `gitq-<next>` when none exists. The CALLER enforces the lease cap; this
- * only provisions.
+ * `gitq-<next>` when none exists. `anyCwd` is never handed back: a command
+ * run from inside a slot works on that tree. The CALLER enforces the lease
+ * cap; this only provisions.
  */
 export async function ensureWorkSlot(anyCwd: string, commonDir: string, map: SlotInfo[]): Promise<string> {
-  const free = map.find((s) => s.isWorkSlot && s.branch === null && !s.rebaseInProgress);
+  const free = map.find((s) => s.isWorkSlot && s.branch === null && !s.rebaseInProgress && s.path !== anyCwd);
   if (free) {
     await GitShell.disableWorktreeHooks(free.path);
     return free.path;

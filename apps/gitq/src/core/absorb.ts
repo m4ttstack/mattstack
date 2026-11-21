@@ -750,6 +750,7 @@ async function absorb(
       }
     }
   } finally {
+    if (returnTo !== currentBranch) await followRewrittenTip(cwd, returnTo, preAmendHeads);
     // Unconditional: a restack that blows up must not take the human's
     // unattributed work with it.
     restoreFailures = await restoreUnattributed(cwd, unattributed, snapshots);
@@ -775,6 +776,22 @@ async function absorb(
       '`git stash pop` (inspect it first with `git stash show -p stash@{0}`).';
   }
   return result;
+}
+
+/**
+ * A detached start sitting on a stack branch's tip moves with that branch, as
+ * a checkout of the branch by name would: staying on the pre-absorb commit
+ * would leave the tree on history no branch holds, without the absorbed edits.
+ */
+async function followRewrittenTip(cwd: string, startSha: string, preAmendHeads: Map<string, string>): Promise<void> {
+  for (const [branch, oldHead] of preAmendHeads) {
+    if (oldHead !== startSha) continue;
+    const newHead = await GitShell.getBranchHead(cwd, branch).catch(() => oldHead);
+    if (newHead !== oldHead) {
+      await GitShell.detachAt(cwd, newHead).catch(() => {});
+      return;
+    }
+  }
 }
 
 /**
