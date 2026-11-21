@@ -1,4 +1,4 @@
-import { basename, join, resolve } from "path";
+import { join, resolve } from "path";
 import { validateWrite } from "../../../packages/rt-client/src/settings/validate-write.ts";
 import { restartAppWithDeck } from "../../deps/resolve.ts";
 import { onlyDefault } from "../../settings/presence.ts";
@@ -7,7 +7,6 @@ import { listSettings } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { boardRoots, sourceBoardRoots } from "../../team/board-token.ts";
 import type { StepOutcome } from "../apply.ts";
-import { repairGitqBoard } from "../gitq-board-repair.ts";
 import type { Probes } from "../probes.ts";
 import { storeHolds } from "./import-legacy-settings.ts";
 import type { MigrationDef } from "./index.ts";
@@ -21,9 +20,6 @@ export interface Copy {
 interface Tally {
   copied: number;
   boardCopied: boolean;
-  repaired: boolean;
-  unrepaired: boolean;
-  gitqFileKept: boolean;
   teamFields: boolean;
   leftInPlace: number;
   keptForRefused: number;
@@ -80,14 +76,6 @@ function gitqSettingsCopies(s: Record<string, unknown>): Copy[] {
   const slots = picked(s, { workSlotLocation: "workSlotLocation", maxWorkSlots: "maxWorkSlots" });
   if (slots) copies.push({ key: "gitq.workSlots", scope: "machine", value: slots });
   return copies;
-}
-
-/** gitq's board refuses an empty list and an entry with no path, so such a file is not copied. */
-function gitqBoardCopies(c: Record<string, unknown>): Copy[] | null {
-  const repos = c.repos;
-  if (!Array.isArray(repos) || repos.length === 0 || !repos.every((r) => isObject(r) && typeof r.path === "string" && r.path !== "")) return null;
-  const value = { repos, ...(c.port !== undefined ? { port: c.port } : {}), ...(c.herdrWorkspace !== undefined ? { herdrWorkspace: c.herdrWorkspace } : {}) };
-  return [{ key: "gitq.board", scope: "machine", value }];
 }
 
 type Written = "copied" | "held" | "refused" | "unreadable" | "failed";
@@ -150,36 +138,6 @@ function importFile(p: FileProbes, file: string, read: Reader, t: Tally): Record
   return parsed;
 }
 
-/** A repo gitq's own config.json already names with a folder. */
-function pathFromFile(fileRepos: unknown, name: string): string | null {
-  if (!Array.isArray(fileRepos)) return null;
-  const entry = fileRepos.find((r) => isObject(r) && typeof r.path === "string" && r.path !== "" && (typeof r.name === "string" ? r.name : basename(r.path)) === name);
-  return entry ? (entry as { path: string }).path : null;
-}
-
-function readRepos(p: FileProbes, file: string): unknown {
-  try {
-    const raw = p.readFile(file);
-    const parsed: unknown = raw === null ? null : JSON.parse(raw);
-    return isObject(parsed) ? parsed.repos : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Returns true when gitq's own file must stay: a name is still bare, or the fixed value could not be written. */
-function repairBoardSetting(t: Tally, fileRepos: unknown): boolean {
-  const repair = repairGitqBoard((name) => pathFromFile(fileRepos, name));
-  if (repair.state === "none") return false;
-  if (repair.state === "repaired") {
-    t.repaired = true;
-    return false;
-  }
-  if (repair.state === "failed") t.failed.push(`gitq.board: ${firstLine(repair.error)}`);
-  else t.unrepaired = true;
-  return true;
-}
-
 const BOARD_NOT_RESTARTED = "rt could not restart your board, so restart it to pick up these settings";
 
 function withNote(o: StepOutcome, note: string): StepOutcome {
@@ -196,15 +154,13 @@ function outcome(t: Tally): StepOutcome {
     };
   }
   const notes = [
-    t.repaired ? "Gave each repo on your gitq board its folder" : null,
-    t.unrepaired ? `Some repos on your gitq board are not on this Mac, so rt left that setting${t.gitqFileKept ? " and your old gitq file" : ""} as it was` : null,
     t.teamFields ? "Your old board file also holds team settings, which a team admin sets" : null,
     t.leftInPlace > 0
       ? `${t.leftInPlace} old ${plural(t.leftInPlace, "file has", "files have")} a value rt could not read, so rt left ${plural(t.leftInPlace, "it", "them")} where ${plural(t.leftInPlace, "it is", "they are")}`
       : null,
     t.keptForRefused > 0 ? "Your settings hold a value rt cannot read for something your old board or gitq file also sets, so rt left that file where it is" : null,
   ].filter((s): s is string => s !== null);
-  if (t.copied === 0 && !t.repaired) return { state: "skipped", detail: ["There were no old board or gitq settings to copy", ...notes].join(". ") };
+  if (t.copied === 0) return { state: "skipped", detail: ["There were no old board or gitq settings to copy", ...notes].join(". ") };
   const copied = t.copied > 0 ? [`Copied ${t.copied} old board or gitq ${plural(t.copied, "setting", "settings")} into your settings`] : [];
   return { state: "done", detail: [...copied, ...notes].join(". ") };
 }
@@ -222,7 +178,7 @@ export function makeImportAppSettingsMigration(seams: ImportAppSettingsSeams = r
     title: "Copy your old board and gitq settings into your settings",
     async run(ctx) {
       const p = ctx.p;
-      const t: Tally = { copied: 0, boardCopied: false, repaired: false, unrepaired: false, gitqFileKept: false, teamFields: false, leftInPlace: 0, keptForRefused: 0, failed: [] };
+      const t: Tally = { copied: 0, boardCopied: false, teamFields: false, leftInPlace: 0, keptForRefused: 0, failed: [] };
       const board = [...new Set(boardRoots(p, sourceBoardRoots()))].map((root) => join(root, "config.json")).find((file) => p.exists(file));
       if (board) {
         const parsed = importFile(p, board, boardCopies, t);
@@ -230,10 +186,6 @@ export function makeImportAppSettingsMigration(seams: ImportAppSettingsSeams = r
       }
       const gitq = p.env.GITQ_APP_ROOT ? resolve(p.env.GITQ_APP_ROOT) : join(p.home, ".mattstack", "gitq");
       importFile(p, join(gitq, "settings.json"), gitqSettingsCopies, t);
-      const boardFile = join(gitq, "config.json");
-      const keepFile = repairBoardSetting(t, readRepos(p, boardFile));
-      if (keepFile) t.gitqFileKept = p.exists(boardFile);
-      else importFile(p, boardFile, gitqBoardCopies, t);
       const result = outcome(t);
       if (!t.boardCopied) return result;
       let restarted = false;

@@ -146,19 +146,6 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
 
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
-  const { found, missing } = trackedRepos(ctx);
-  // Written once and never topped up, so it waits until every tracked repo is registered.
-  const waiting = missing.length > 0 ? `waiting on ${missing.join(", ")} (not registered yet), left unset; written on the next run once repos.clone lands them` : null;
-
-  if (writable(ctx, "gitq.board") && unwritten("gitq.board")) {
-    if (waiting) ctx.log("board.keys", `gitq.board: ${waiting}`);
-    else if (found.length === 0) ctx.log("board.keys", "gitq.board: the team tracks no repos, left unset");
-    else {
-      setSetting("gitq.board", { repos: found.map((r) => ({ path: r.path, name: r.name })), port: 11008 }, "machine");
-      written.push("gitq.board");
-    }
-  }
-
   await seedOwnHandle(ctx, written);
 
   return { state: "done", detail: written.length > 0 ? `Wrote ${written.join(", ")}` : "Nothing to write" };

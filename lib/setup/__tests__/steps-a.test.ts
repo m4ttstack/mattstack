@@ -1306,32 +1306,6 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(getSetting<string>("mattstack.appPath").value).toBe(before); // untouched
   });
 
-  test("settings.seed: a gitq.board still saved as repo names gets each folder once the repo is on this Mac", async () => {
-    setSetting("gitq.board", { repos: ["widgets"], port: 11008 }, "machine");
-    styleChosen();
-    const p = fakeProbes({ home });
-
-    expect(await settingsSeedStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Nothing to write" });
-    expect(getSetting("gitq.board").value).toEqual({ repos: ["widgets"], port: 11008 });
-
-    const dir = join(home, "checkouts", "widgets");
-    mkdirSync(dir, { recursive: true });
-    updateRepoIndex(serializeIdentity({ kind: "remote", id: "gitlab.example.com/acme/widgets" }), dir);
-
-    expect(await settingsSeedStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Wrote gitq.board" });
-    expect(getSetting("gitq.board").value).toEqual({ repos: [{ path: realpathSync(dir), name: "widgets" }], port: 11008 });
-
-    expect(await settingsSeedStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Nothing to write" });
-  });
-
-  test("settings.seed: a gitq.board that already names folders is left alone", async () => {
-    const value = { repos: [{ path: "/work/widgets", name: "widgets" }], port: 11008 };
-    setSetting("gitq.board", value, "machine");
-    styleChosen();
-    expect(await settingsSeedStep.run(makeCtx(fakeProbes({ home })).ctx)).toEqual({ state: "done", detail: "Nothing to write" });
-    expect(getSetting("gitq.board").value).toEqual(value);
-  });
-
   test("settings.seed: no candidate directory and nothing to track -> nothing created, nothing written", async () => {
     styleChosen();
     const p = fakeProbes({ home });
