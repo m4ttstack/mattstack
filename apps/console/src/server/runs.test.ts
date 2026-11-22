@@ -96,6 +96,63 @@ describe('run file reads answer local requests only', () => {
     }
   }
 });
+
+describe('API writes answer local requests only', () => {
+  const controls = [
+    '/api/runs/repo-tools/run-1/abandon',
+    '/api/runs/repo-tools/run-1/resume',
+    '/api/runs/repo-tools/run-1/hold',
+    '/api/seen/run-1',
+    '/api/panes/w1:p1/focus',
+    '/api/gates/g-1/focus',
+    '/api/skills/compile',
+    '/api/skills/discard',
+    '/api/skills/sync',
+  ];
+  const outside: Record<string, Record<string, string>> = {
+    'a public Host': { host: 'console.example.com' },
+    'a forwarded public host': {
+      host: 'console.localhost',
+      'x-forwarded-host': 'console.example.com',
+    },
+    'the deck edge marker': {
+      host: 'console.localhost',
+      'x-mattstack-edge': '1',
+    },
+    "another site's page": {
+      host: 'console.localhost',
+      origin: 'https://evil.example',
+    },
+  };
+  beforeEach(() => {
+    vi.mocked(rt.getRun).mockClear();
+    vi.mocked(rt.abandonRun).mockClear();
+    vi.mocked(rt.agentResume).mockClear();
+    vi.mocked(rt.holdRun).mockClear();
+    vi.mocked(rt.paneFocus).mockClear();
+    vi.mocked(rt.rtCommand).mockClear();
+  });
+  for (const control of controls) {
+    for (const [name, headers] of Object.entries(outside)) {
+      it(`${control} through ${name} answers 403 and touches nothing`, async () => {
+        const res = await appRoutes.fetch(
+          new Request(`http://localhost${control}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...headers },
+            body: '{}',
+          })
+        );
+        expect(res.status).toBe(403);
+        expect(rt.getRun).not.toHaveBeenCalled();
+        expect(rt.abandonRun).not.toHaveBeenCalled();
+        expect(rt.agentResume).not.toHaveBeenCalled();
+        expect(rt.holdRun).not.toHaveBeenCalled();
+        expect(rt.paneFocus).not.toHaveBeenCalled();
+        expect(rt.rtCommand).not.toHaveBeenCalled();
+      });
+    }
+  }
+});
 const { runsFixture } = await import('./fixtures/design/runsFixture');
 const rt = await import('@mattstack/rt-client');
 
