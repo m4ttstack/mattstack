@@ -6,7 +6,11 @@ import {
 } from '@mantine/core';
 import { createRoot, type Root } from 'react-dom/client';
 
-import { hostSignal, markMounted, registerSimpleAlerts } from '@mattstack/app-kit/boot';
+import {
+  hostSignal,
+  markMounted,
+  registerSimpleAlerts,
+} from '@mattstack/app-kit/boot';
 import { theme as tokyoTheme } from '@mattstack/app-kit/design-system';
 import { ModalsProvider } from '@mattstack/app-kit/modals';
 import { Notifications } from '@mattstack/app-kit/notifications';
