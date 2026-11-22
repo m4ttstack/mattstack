@@ -10,6 +10,7 @@ type Call = { fn: string; a: any; o?: any };
 function fake(opts: {
   signedIn?: boolean; fail?: string; who?: unknown; whoFail?: string; alive?: boolean; human?: string | null; spawn?: unknown; dirs?: string[];
   buddiesRows?: unknown[]; buddiesFail?: string; roomsResult?: unknown; roomsFail?: string; messagesResult?: unknown;
+  currentSession?: string;
 } = {}) {
   const calls: Call[] = [];
   const rec = (fn: string, data: unknown = {}) => (async (a?: unknown, o?: unknown) => {
@@ -43,6 +44,7 @@ function fake(opts: {
     slackResume: rec("slackResume"),
     repoOf: () => null,
     session: (id) => (opts.signedIn === false || id !== "s1" ? null : SESSION),
+    currentSession: () => opts.currentSession ?? null,
     deleteSession: (id) => { calls.push({ fn: "deleteSession", a: id }); },
     spawnRt: async (path, rest, o) => { calls.push({ fn: "spawnRt", a: { path, rest }, o }); return (opts.spawn as any) ?? { ok: true, body: { ok: true, handle: "ann", room: "rt" } }; },
     isDir: (p) => (opts.dirs ?? ["/work"]).includes(p),
@@ -78,6 +80,15 @@ describe("chat tools: identity", () => {
     const f = fake();
     await f.tool(name).handler({ ...input, handle: "mallory", as: "mallory" }, ENV);
     expect(f.calls[0]!.a.handle).toBe("ann");
+  });
+
+  test("after a /clear the tools act as the session the parent Claude is on now, not the server's launch session", async () => {
+    const f = fake({ currentSession: "s1" });
+    const launched = { CLAUDE_CODE_SESSION_ID: "s0-before-clear", HERDR_PANE_ID: "w1:p2" } as NodeJS.ProcessEnv;
+    await f.tool("chat_away").handler({ text: "rebasing" }, launched);
+    await f.tool("chat_read").handler({}, launched);
+    expect(f.calls[0]).toEqual({ fn: "away", a: { sessionId: "s1", text: "rebasing" }, o: undefined });
+    expect(f.calls.some((c) => c.fn === "read")).toBe(true);
   });
 
   test("away and back use the env session id and refuse without one", async () => {

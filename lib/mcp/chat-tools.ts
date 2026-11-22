@@ -18,7 +18,7 @@ import { getRepoRoot } from "../git.ts";
 import { getRepoIdentityForRoot } from "../repo.ts";
 import { liveSelfPaneRef } from "../self-pane.ts";
 import { spawnRtJson, type RtVerbResult } from "./rt-verb.ts";
-import { checkChatName, checkOptional, checkRequired, err, fromResponse, ok, requireChatHandle, type McpToolDef } from "./shared.ts";
+import { checkChatName, checkOptional, checkRequired, currentSessionEnv, err, fromResponse, ok, parentClaudeSession, requireChatHandle, type McpToolDef } from "./shared.ts";
 
 export interface ChatToolDeps {
   read: typeof chatRead; messages: typeof chatMessages; mark: typeof chatMark; rooms: typeof chatRooms;
@@ -38,6 +38,8 @@ export interface ChatToolDeps {
   humanHandle: () => string | undefined | null;
   sessionAlive: (id: string) => boolean;
   now: () => number;
+  /** The parent Claude's current session; null leaves the server's env as it is. */
+  currentSession: () => string | null;
 }
 
 export const realChatToolDeps: ChatToolDeps = {
@@ -46,6 +48,7 @@ export const realChatToolDeps: ChatToolDeps = {
   slackClose: chatSlackClose, slackStatus: chatSlackStatus, slackTicket: chatSlackTicket,
   slackRequest: chatSlackRequest, slackResume: chatSlackResume,
   session: readChatSession,
+  currentSession: parentClaudeSession,
   deleteSession: deleteChatSession,
   spawnRt: (path, rest, opts) => spawnRtJson(path, rest, opts),
   isDir: (p) => existsSync(p) && statSync(p).isDirectory(),
@@ -115,7 +118,14 @@ function checkCwd(input: Record<string, unknown>, isDir: (p: string) => boolean)
 }
 
 export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[] {
-  const handleOf = (env: NodeJS.ProcessEnv) => requireChatHandle(env, deps.session, deps.buddies);
+  const handleOf = (env: NodeJS.ProcessEnv) => requireChatHandle(env, deps.session, deps.buddies, deps.currentSession);
+  return defs(deps, handleOf).map((def) => ({
+    ...def,
+    handler: (input, env, ...rest) => def.handler(input, currentSessionEnv(env, deps.currentSession), ...rest),
+  }));
+}
+
+function defs(deps: ChatToolDeps, handleOf: (env: NodeJS.ProcessEnv) => ReturnType<typeof requireChatHandle>): McpToolDef[] {
   return [
     {
       name: "chat_read",

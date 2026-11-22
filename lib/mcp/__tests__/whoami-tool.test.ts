@@ -3,9 +3,9 @@ import type { ChatSession } from "../../chat-session.ts";
 import { SIGN_IN_HINT } from "../shared.ts";
 import { whoamiToolDefs } from "../whoami-tool.ts";
 
-function tool(sessions: Record<string, ChatSession> = {}) {
+function tool(sessions: Record<string, ChatSession> = {}, current: string | null = null) {
   const asked: Array<string | undefined> = [];
-  const t = whoamiToolDefs({ session: (id) => { asked.push(id); return id ? sessions[id] ?? null : null; } })[0]!;
+  const t = whoamiToolDefs({ session: (id) => { asked.push(id); return id ? sessions[id] ?? null : null; }, currentSession: () => current })[0]!;
   return { t, asked };
 }
 
@@ -22,6 +22,13 @@ describe("whoami", () => {
       chat: { handle: "arwen", name: "arwen", baseHandle: "arwen", room: "rt" },
       herd: { id: "hd-1", job: "j", room: "herd-room" },
     });
+    expect(asked).toEqual(["s1"]);
+  });
+
+  test("after a /clear it reports the session the parent Claude is on now and that session's chat identity", async () => {
+    const { t, asked } = tool({ s1: SIGNED_IN }, "s1");
+    const r = await t.handler({}, { CLAUDE_CODE_SESSION_ID: "s0-before-clear" } as NodeJS.ProcessEnv);
+    expect(r.body).toMatchObject({ sessionId: "s1", chat: { handle: "arwen" } });
     expect(asked).toEqual(["s1"]);
   });
 

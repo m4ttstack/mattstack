@@ -1,17 +1,19 @@
 /**
- * A pure read of this process's env and the chat session file: no daemon
+ * A pure read of this process's env, its parent Claude's registry entry and
+ * the chat session file: no daemon
  * call, so it reports what the chat_* and herd tools would act as, not live
  * presence.
  */
 import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
-import { ok, SIGN_IN_HINT, type McpToolDef } from "./shared.ts";
+import { currentSessionEnv, ok, parentClaudeSession, SIGN_IN_HINT, type McpToolDef } from "./shared.ts";
 import { liveSelfPaneId } from "../self-pane.ts";
 
 export interface WhoamiDeps {
   session: (id: string | undefined) => ChatSession | null;
+  currentSession: () => string | null;
 }
 
-export const realWhoamiDeps: WhoamiDeps = { session: readChatSession };
+export const realWhoamiDeps: WhoamiDeps = { session: readChatSession, currentSession: parentClaudeSession };
 
 export function whoamiToolDefs(deps: WhoamiDeps = realWhoamiDeps): McpToolDef[] {
   return [
@@ -20,7 +22,8 @@ export function whoamiToolDefs(deps: WhoamiDeps = realWhoamiDeps): McpToolDef[] 
       description: "Report this session's identity as the other tools see it: its Claude Code session id, herdr pane, the chat identity every chat_* tool acts as, as its name (what others see and type) and its handle (the id the tools send; null, with a sign-in hint, when this session has no chat session file), and the herd id, job and room when this is a herd worker. Reads only this server's environment and the session file, so it shows what the tools would act as, not live presence.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       shellForms: { none: "reads this server's own env and chat session file, and asks the daemon for this session's live pane; no shell command is equivalent" },
-      async handler(_input, env) {
+      async handler(_input, launchEnv) {
+        const env = currentSessionEnv(launchEnv, deps.currentSession);
         const sessionId = env.CLAUDE_CODE_SESSION_ID || null;
         const session = deps.session(sessionId ?? undefined);
         const chat = session ? { handle: session.handle, name: sessionName(session), baseHandle: session.baseHandle ?? null, room: session.room ?? null } : null;
