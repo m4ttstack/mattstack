@@ -93,7 +93,12 @@ mattstack window the handler does not exist and both calls do nothing.
   same-origin `link[rel~="stylesheet"]` that is not disabled has a sheet with
   at least one rule. If a stylesheet failed, the page sends
   `{ type: "failed", reason }` instead, so the window does not wait for the
-  backstop below.
+  backstop below. `buildId` may be absent (a page served by vite under
+  `deck live` has none).
+- `{ type: "fatal" }`: sent when the kit's `SimpleAlerts` fatal panel is
+  shown (the app threw while booting). The page is showing its own error and
+  reload button, so the window uncovers the page as it is and treats the tab
+  as `notReady` without covering it.
 
 One implementation of the page side, used by both the kit boot
 (`mountMattstackApp` in `packages/ui/src/app/mount.tsx`, which covers chat,
@@ -119,23 +124,42 @@ Each tab has one state: `loading`, `ready`, or `notReady`.
   not guess when the app recovers. Builder picks the value (my call: 15
   seconds after WebKit's "finished").
 
-While any tab is `notReady`, the window checks that app's health (section 3)
-through one seam, `AppHealthSource`, at a short fixed interval. The rule for
-reloading:
+While any tab is `notReady`, the window checks that app's health through one
+seam, `AppHealthSource`, at a short fixed interval. A check gives
+`answering` or `notAnswering`, plus an instance token when the app has one.
+Every tab gets an answer, whatever it runs:
 
-- Reload when health answers ok with a `bootId` the tab has not yet been
-  reloaded against.
-- One reload per `bootId`. If the tab is still not ready after reloading
-  against a healthy instance, it stays `notReady` with the existing failure
-  overlay and its Retry button, and reloads by itself only when a new
-  `bootId` appears. That bounds reloads without a timer.
+- A mattstack app with the new health route (section 3): `ok` and `bootId`.
+- Deck's own tab: `/healthz` answering, with the `x-deck-pid` header as the
+  token. No deck change.
+- Anything else (a user's app, an older app build, the board's unconfigured
+  server, a page that answers `/api/health` with HTML): `answering` means its
+  home URL gives a response that is not a 5xx. No token.
 
-Deleted: `StylesheetProbe`, `StylesheetRetry`, `noteStylesheetProbe` and their
-checks. Main-frame failures join the same `notReady` state, so
-`reloadFailedTabs` on deck-ready and `FailedTabRetry` after a served-app
-restart become redundant; the builder removes them if the existing checks for
-those cases pass against the new mechanism, and keeps them otherwise, saying
-which in the PR.
+The reload rule is the same for all of them, and is driven only by observed
+changes:
+
+- A tab that becomes `notReady` by itself (not after a reload this rule
+  made) gets one reload, used as soon as the app is `answering`.
+- After that, the tab reloads again only when the window sees the app go
+  from `notAnswering` to `answering`, or sees its token change.
+- Otherwise it stays `notReady` with the failure overlay and its Retry
+  button.
+
+So an app that is up but keeps serving a broken page gets one reload, not a
+loop, and a tab that failed during an outage reloads each time the app
+actually comes back, however many blips there were.
+
+What the user sees: for a page that sent `booting`, the loading overlay
+covers the tab until `ready`. When such a tab is `notReady`, the failure
+overlay sits on an opaque cover, so half-loaded content never shows around
+it. That cover is a small change to the existing `FailureOverlay`; `fatal`
+(section 1) is the one case that shows the page instead.
+
+Deleted: `StylesheetProbe`, `StylesheetRetry`, `noteStylesheetProbe`,
+`reloadFailedTabs` on deck-ready, and `FailedTabRetry`, with their checks.
+The rule above covers every case they did. The checks that described those
+cases are rewritten against the new rule, not dropped.
 
 Tray logging: one line per transition to `notReady` (with the reason) and one
 per reload (with the `bootId`), through `TrayLog`.
@@ -165,17 +189,32 @@ that copy.
   used when running from source): `dist/` is read into memory at boot and
   served from there. Their deploy builds and then restarts the server, so the
   copy is fresh without a watcher. Embedded mode is already in memory.
-- If the copy cannot be built at boot, the server still starts, and health
-  answers not ok, so the window shows the tab as not ready instead of half a
-  page.
+- If reading the files fails at boot (an error such as `EPERM`), the server
+  still starts, and health answers not ok, so the window shows the tab as not
+  ready instead of half a page.
+- A kit app with no `dist/` at all is not broken: under `deck live` vite
+  serves the page and the server only answers `/api`. Health stays ok and
+  `buildId` is null. The new-version check (section 5) is skipped whenever
+  the page's or the server's `buildId` is missing.
 
 ### 4. The bundle swap
 
-`update-machine`'s dev-bundle leg restarts the deck helper and the managed
-apps right after it swaps the bundle, the way `runDevAppRebuild` already does
-(same file). The builder extracts that shared step instead of copying it. The
-later served-suite leg stays: it restarts the apps again onto the synced
-checkout.
+The tray owns this, because it is what launches from the new bundle. Today
+it restarts its agents and the served apps at launch only when the app
+*version* changed (`LaunchRecording.restartsServedApps`,
+`rt-tray/Sources-core/Services/LaunchRecording.swift`). A bundle replaced at
+the same version, which is what happened here, restarts nothing.
+
+The tray records an identity for the bundle it launched from and treats a
+changed identity like a changed version: kickstart the agents, then restart
+the served apps. `Info.plist` carries no commit, so the identity is the
+builder's call (for example the main executable's Mach-O UUID). This covers
+every way a bundle gets replaced, not only `update-machine`.
+
+`update-machine` itself does not change. Its later served-suite leg still
+restarts the apps onto the synced checkout. `runDevAppRebuild`'s own
+kickstart and `deck restart --managed` become redundant with this; removing
+them is out of scope here and noted in the PR.
 
 ### 5. New-version notice
 
@@ -191,9 +230,11 @@ with a Reload button. The tab never reloads by itself.
   badge poll). No new fast loop.
 - Reload clears the notice. So does a later check that finds the ids equal
   again.
-- On a dev machine the board rebuilds its client bundle whenever its source
-  changes, so the notice will show often there. That is accurate, and is why
-  it must be quiet and never reload by itself.
+- The board's own dev live reload stays as it is (`watchClientAssets` in
+  `apps/board/src/server.ts` tells the page to reload on a client rebuild).
+  So on a dev machine the board mostly refreshes itself and the notice shows
+  for the cases live reload misses. "Never reloads by itself" is a rule for
+  the window, not for an app's own dev tooling.
 - The notice is SwiftUI in the window chrome. Its look and exact words are
   settled live with Matt at the end, after the rest is built, and are not
   part of the subagent-driven work. The plan builds the `stale` state and a
@@ -220,12 +261,15 @@ with a Reload button. The tab never reloads by itself.
 - When the board becomes healthy on a new process, the tab reloads by itself
   and shows styled, with no manual reload, however long the outage lasted.
 - A tab whose app is healthy but whose page still fails reloads once, then
-  waits for a new process or the Retry button.
-- A registered app that sends no `booting` loads as it does today.
+  waits for the app to come back, a new process, or the Retry button.
+- A registered app that sends no `booting` loads as it does today, and its
+  tab still recovers by itself after the app was down.
+- Deck's own tab recovers by itself after deck restarts.
 - The board answers `/style.css` when its source folder is unreadable after
   boot.
-- `update-machine` restarts managed apps directly after the dev bundle swap.
-- `StylesheetProbe` and `StylesheetRetry` no longer exist.
+- A dev app relaunched from a replaced bundle at the same version restarts
+  its agents and the served apps.
+- `StylesheetProbe`, `StylesheetRetry` and `FailedTabRetry` no longer exist.
 - After a board deploy, an open board tab shows the new-version notice, and
   its Reload button loads the new build and clears the notice.
 
@@ -233,7 +277,7 @@ with a Reload button. The tab never reloads by itself.
 
 - Where the shared page-side code lives, and the `buildId` source.
 - The health check interval and the backstop deadline.
-- Whether `FailedTabRetry` and `reloadFailedTabs` go or stay (rule above).
+- The bundle identity the tray records.
 - Test shape for the kit apps' in-memory disk mode.
 
 ## Source
