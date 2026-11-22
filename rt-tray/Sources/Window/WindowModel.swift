@@ -27,25 +27,57 @@ struct URLSessionAppListFetcher: AppListFetching {
 final class WindowNavigationDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     private let appName: String
     private weak var model: WindowModel?
+    /// A superseded navigation reports its cancel after, or before, the one
+    /// that replaced it started, so only this one's outcome counts.
+    private var currentNavigation: WKNavigation?
+    private var cancelledServerError = false
 
     init(appName: String, model: WindowModel) {
         self.appName = appName
         self.model = model
     }
 
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        model?.store.noteFailedLoad(appName, url: (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL)
-        model?.tabEvent(appName, .navigationFailed(reason: error.localizedDescription))
-    }
-
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        currentNavigation = navigation
+        cancelledServerError = false
         guard let model else { return }
         model.tabEvent(appName, .navigationStarted(byRecovery: model.takeRecoveryFlag(appName)))
     }
 
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        navigationFailed(navigation, error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        navigationFailed(navigation, error)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard isCurrent(navigation) else { return }
         model?.store.noteLoaded(appName)
         model?.tabEvent(appName, .navigationFinished)
+    }
+
+    /// With no start seen there is nothing to compare against.
+    private func isCurrent(_ navigation: WKNavigation?) -> Bool {
+        currentNavigation == nil || navigation === currentNavigation
+    }
+
+    /// An abandoned navigation is never noted as the failed load: a Retry or
+    /// a credit reload would replay it, a download failing again each time.
+    private func navigationFailed(_ navigation: WKNavigation?, _ error: Error) {
+        guard isCurrent(navigation) else { return }
+        let nsError = error as NSError
+        switch NavigationFailure.kind(domain: nsError.domain, code: nsError.code,
+                                      cancelledServerError: cancelledServerError) {
+        case .alreadyReported:
+            return
+        case .abandoned:
+            model?.tabEvent(appName, .navigationAbandoned(reason: error.localizedDescription))
+        case .failed:
+            model?.store.noteFailedLoad(appName, url: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
+            model?.tabEvent(appName, .navigationFailed(reason: error.localizedDescription))
+        }
     }
 
     /// WebKit treats any HTTP answer as a finished navigation, so without
@@ -65,6 +97,7 @@ final class WindowNavigationDelegate: NSObject, WKNavigationDelegate, WKUIDelega
             "url": http?.url?.absoluteString ?? "(none)",
             "server": http?.value(forHTTPHeaderField: "Server") ?? "(none)",
         ])
+        cancelledServerError = true
         model?.store.noteFailedLoad(appName, url: http?.url)
         model?.tabEvent(appName, .navigationFailed(reason: "HTTP \(status)"))
         decisionHandler(.cancel)
@@ -395,7 +428,6 @@ final class WindowModel: ObservableObject {
         tabStates[name]?.stale == true
     }
 
-    /// Asks a ready tab's app which build it serves now.
     func checkFreshness(_ name: String) async {
         guard tabStates[name]?.phase == .ready, let app = app(named: name) else { return }
         let health = await backends.health.check(app)
@@ -408,8 +440,7 @@ final class WindowModel: ObservableObject {
     }
 
     func reloadStale(_ name: String) {
-        recoveryReloads.remove(name)
-        store.reload(name)
+        retry(name)
     }
 
     func takeRecoveryFlag(_ name: String) -> Bool {
@@ -439,6 +470,7 @@ final class WindowModel: ObservableObject {
                     do {
                         try await Task.sleep(nanoseconds: UInt64(TabReadinessTuning.backstop * 1_000_000_000))
                     } catch { return }
+                    guard !Task.isCancelled else { return }
                     self?.backstops[name] = nil
                     self?.tabEvent(name, .backstopElapsed)
                 }
